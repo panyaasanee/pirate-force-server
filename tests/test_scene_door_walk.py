@@ -16,16 +16,25 @@ which is not what ``describe_scene_doors`` prints and is not greppable::
 
     SCENE_DOORS scene='Bg0002' rows=12 owner_refusal_list=8 lane_withheld=0 not_selected=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
     SCENE_DOORS scene='Bg0003' rows=12 owner_refusal_list=0 lane_withheld=0 not_selected=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
+    SCENE_DOORS scene='Bg0008' rows=8 owner_refusal_list=0 lane_withheld=1 not_selected=0 ai=open target=8 kill=8 drop=0 every_door=no short=21/t274,23/t277,26/t280,27/t281,51/t280,52/t280,66/t544,67/t527
     SCENE_DOORS scene='Bg0015' rows=11 owner_refusal_list=0 lane_withheld=1 not_selected=0 ai=open target=11 kill=11 drop=11 every_door=yes short=none
     SCENE_DOORS scene='bg0001' rows=4 owner_refusal_list=0 lane_withheld=0 not_selected=9 ai=open target=4 kill=4 drop=0 every_door=no short=103/t916,105/t916,107/t916,109/t916
     SCENE_DOORS scene='bg0004' rows=7 owner_refusal_list=0 lane_withheld=0 not_selected=2 ai=open target=7 kill=7 drop=7 every_door=yes short=none
     SCENE_DOORS scene='bg0005' rows=6 owner_refusal_list=0 lane_withheld=0 not_selected=0 ai=open target=6 kill=6 drop=6 every_door=yes short=none
-    SCENE_DOORS summary live_scenes=6 owner_refusal_list=8 lane_withheld=1(Bg0015:1) every_door=Bg0002,Bg0003,Bg0015,bg0004,bg0005
+    SCENE_DOORS summary live_scenes=7 owner_refusal_list=8 lane_withheld=2(Bg0008:1,Bg0015:1) every_door=Bg0002,Bg0003,Bg0015,bg0004,bg0005
 
 (ROUND r6isy5, pf-adversary D11: the round that added scene 4's card thirty
 lines below left this block reading ``live_scenes=5`` with no bg0004 line --
 a transcript nothing asserts, contradicting a test in the same file.  Brought
 back into agreement with what the reporter actually prints at HEAD.)
+
+(THIS ROUND: scene 8 (Bg0008, Silver Harbour) joins with ``drop=0
+every_door=no`` -- this lane has not mined a drop table for this scene yet,
+so the target and kill doors open (all EIGHT shipped rows resolve to one of
+the SIX templates the 0548 letter's ruling names, so ``target=8 kill=8``)
+but the drop door stays shut, the same shape bg0001's own dummies show for
+a different reason.  ``short=`` names all eight rows because every one of
+them is short of the still-shut drop door.)
 
 ``short=`` WAS MISSING FROM THIS BLOCK TWICE (pf-adversary D-C).  It is the
 field that names WHICH rows fell short, which is the denominator question the
@@ -318,10 +327,18 @@ class WalkTheShippedRosterTests(unittest.TestCase):
         summary = [one for one in lines if " summary " in one]
         self.assertEqual(len(summary), 1)
         summary = summary[0]
-        self.assertIn("lane_withheld=1(Bg0015:1)", summary)
+        # THIS ROUND: Bg0008 joins the withheld total (Nina, placement 69,
+        # COO-DECISION widen-death-scope-bg0008-six-templates
+        # 2026-09-06T05:48+07:00) -- named beside the count, same as Bg0015,
+        # and for the same reason: Bg0008 is NOT in the finished list below
+        # (its drop door is shut for an unrelated reason, no drop table
+        # mined yet), so this is the one scene where the two facts diverge
+        # -- withheld=1 but every_door=no anyway.
+        self.assertIn("lane_withheld=2(Bg0008:1,Bg0015:1)", summary)
         # Bg0015 IS in the finished list, and that is exactly why the scene
         # has to be named beside the count rather than summed into it.
         self.assertIn("Bg0015", summary.split("every_door=")[1])
+        self.assertNotIn("Bg0008", summary.split("every_door=")[1])
         # ASCII and bounded like every other line this module emits.
         self.assertTrue(summary.isascii())
         summary.encode("cp874")

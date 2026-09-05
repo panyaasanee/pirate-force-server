@@ -205,6 +205,20 @@ class Bg0008Census(unittest.TestCase):
         # "nothing imports this yet" tripwire its earlier siblings each had
         # to rename in a later round -- this file starts with the widened,
         # final shape directly.
+        #
+        # THIS ROUND (LANE-B): ``mob_scene_recompose.py`` becomes a third
+        # importer, exactly the addition round jqeo2m argued for and made on
+        # ``world_population_bg0005``'s own copy of this test -- scene 8
+        # gained a combat roster (``field_mob_tables_bg0008``, COO-DECISION
+        # widen-death-scope-bg0008-six-templates 2026-09-06T05:48+07:00) and
+        # a recompose composer (``mob_scene_recompose.COMPOSER_BG0008``)
+        # that calls THIS builder for scene 8's MID-SESSION recompose
+        # census, the same relationship this module already has with
+        # ``world_population_bg0002``/``bg0003``/``bg0004``/``bg0005``.  The
+        # arrival census is lane A's (via the seam below); the recompose of
+        # that same census after a hit or a kill is lane B's, and lane B
+        # composes it by CALLING this builder rather than writing a second
+        # one.  ``runtime.py`` still does not import either.
         import ast
 
         importers = []
@@ -223,9 +237,13 @@ class Bg0008Census(unittest.TestCase):
                 if any("world_population_bg0008" in name for name in names):
                     importers.append(path.name)
                     break
+        # EXACT SET, not "contains" - a fourth importer, or the seam being
+        # swapped for a direct runtime.py import, both fail here and have to
+        # be argued for in a round of their own.
         self.assertEqual(
             sorted(importers),
-            ["lane_a_scene_census.py", "world_population_handoff.py"])
+            ["lane_a_scene_census.py", "mob_scene_recompose.py",
+             "world_population_handoff.py"])
 
 
 if __name__ == "__main__":  # pragma: no cover

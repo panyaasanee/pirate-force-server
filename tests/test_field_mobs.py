@@ -1112,6 +1112,30 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         * Every colliding pair still resolves a DIFFERENT template (907/103,
           103/150, 353/94, 62/97), so no pair is two spellings of one
           monster.
+
+        ~~eleven pairs~~  THIS ROUND: Bg0008's roster (nine hostile
+        placements, INCLUDING placement 69 / template 529 "Nina", who is
+        this lane's own hostile-predicate row -- this function reads
+        ``HOSTILE_PLACEMENTS`` directly, the same raw table Carlos's own
+        0x2058 collision below was already measured against, not the
+        narrower set ``load_roster`` ships after a withholding ruling)
+        brought SIX more, all measured rather than predicted:
+
+        * 0x201C is now a THREE-WAY collision (Bg0003/Bg0008/Bg0015,
+          templates 61/281/348) -- the second one this project ships, after
+          0x2046.
+        * 0x2034 is a NEW pair, Bg0008 against Bg0015 (templates 280/343).
+        * 0x2046 gained its SECOND three-way member set: it was already a
+          three-way collision across Bg0003/bg0004/bg0005 (907/103/150);
+          Bg0008's own placement 69 (template 529, Nina) makes it a
+          FOUR-WAY collision, reported here as three new pairs
+          (Bg0003/Bg0008, Bg0008/bg0004, Bg0008/bg0005) rather than as one
+          four-way row, because :func:`cross_scene_identity_collisions`
+          reports PAIRS -- unchanged behaviour, a wider input.
+        * Every new pair still resolves a DIFFERENT template on each side
+          (61/281, 281/348, 280/343, 907/529, 529/103, 529/150), so no pair
+          is two spellings of one monster, the same finding every earlier
+          round made.
         """
         got = {
             (row["actor_identity"], row["scene_a"], row["scene_b"])
@@ -1119,10 +1143,16 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         }
         self.assertEqual(got, {
             (0x201C, "Bg0003", "Bg0015"),
+            (0x201C, "Bg0003", "Bg0008"),
+            (0x201C, "Bg0008", "Bg0015"),
             (0x201E, "Bg0003", "Bg0015"),
+            (0x2034, "Bg0008", "Bg0015"),
             (0x203B, "Bg0002", "Bg0003"),
             (0x203C, "Bg0002", "bg0005"),
             (0x2046, "Bg0003", "bg0005"),
+            (0x2046, "Bg0003", "Bg0008"),
+            (0x2046, "Bg0008", "bg0004"),
+            (0x2046, "Bg0008", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
             (0x2020, "Bg0015", "bg0004"),

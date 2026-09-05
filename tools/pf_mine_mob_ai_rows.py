@@ -218,6 +218,25 @@ def load_roster_modules(repo_root: Path) -> tuple:
     AI_COMBAT 300``.  Scene 4's seven hostile rows want ``AI_COMBAT``
     214/250/300/332 and ``AI_WANDER`` 11/16 -- 214, 250 and both wander ids
     are already in the union from scenes 5 and 3, and 300/332 are new.
+
+    ROUND (this round): added ``field_mob_tables_bg0008``, registered in the
+    same commit exactly as every entry above, and the refusal was likewise
+    reproduced before the line was written rather than predicted from it:
+    with the roster registered and this union unwidened,
+    ``mob_ai_control.open_register(field_mobs.roster_for_scene_id(8))``
+    raises ``MobAiControlError: ai_row_missing: placement 23 points at
+    AI_COMBAT 162``.  This module's own ``SHIPPED_PLACEMENTS`` -- read here
+    exactly like every sibling scene's, ``HOSTILE_PLACEMENTS`` included, not
+    the narrower set ``field_mobs.load_roster`` ships after this lane's own
+    ruling withholds placement 69 -- want ``AI_COMBAT`` 134/162/200/201/250/
+    471 and ``AI_WANDER`` 2/11/16: 134, 201, 250 and both of 11/16 are
+    already in the union from earlier scenes (201 from scene 5's own
+    placement 59); 162, 200, 471 and wander id 2 are new.  471 belongs
+    to placement 69 ("Nina"), a row this lane does not SHIP -- but it is
+    still a foreign key this generator's job is to resolve for every row a
+    scene table carries, ship or withhold being a decision one layer up, so
+    it is mined anyway rather than the mining tool trying to read a
+    withholding ruling it has no business knowing about.
     """
     sys.path.insert(0, str(repo_root / "src"))
     try:
@@ -226,13 +245,14 @@ def load_roster_modules(repo_root: Path) -> tuple:
         from pirateforce_foundation import field_mob_tables_bg0003
         from pirateforce_foundation import field_mob_tables_bg0004
         from pirateforce_foundation import field_mob_tables_bg0005
+        from pirateforce_foundation import field_mob_tables_bg0008
         from pirateforce_foundation import field_mob_tables_bg0015
     finally:
         sys.path.pop(0)
     return (
         field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0003,
         field_mob_tables_bg0004, field_mob_tables_bg0005,
-        field_mob_tables_bg0015,
+        field_mob_tables_bg0008, field_mob_tables_bg0015,
     )
 
 
