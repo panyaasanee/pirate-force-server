@@ -35,9 +35,12 @@ module's own docstring.
 from __future__ import annotations
 
 import io
+import re
+import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import weakref
 from contextlib import redirect_stderr
@@ -61,6 +64,7 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.session import FoundationSession  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -374,6 +378,23 @@ class RealDatabaseTests(unittest.TestCase):
 
     def _row(self, session):
         return self.store.get_character(session.foundation.selected.id).position
+
+    def _park(self, session):
+        """Move the row with a REAL `/warp` and return its parked frame.
+
+        The same three lines `LiveSocketFacadeTests._warp_frame` runs, hoisted
+        here in round `j2jluj` because two more classes now need exactly this
+        starting state: a durable row at the destination, and one unconfirmed
+        park holding the composed frame's own bytes.
+        """
+        with redirect_stderr(io.StringIO()):
+            verdict = chat_command_action._warp_teleport_action_no_coords(
+                session, DESTINATION_SCENE, self.legacy,
+            )
+        self.assertIsNotNone(verdict.action)
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+        self.assertIsNotNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+        return bytes(verdict.action[2])
 
     # ---- the real call site really parks the real frame -----------------
 
@@ -1611,95 +1632,580 @@ class LiveSocketFacadeTests(RealDatabaseTests):
         self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
 
 
-class HookupWiringPinTests(unittest.TestCase):
-    """The tripwire pf-adversary D2/D3 measured to be missing.
+class HookupWiringPinTests(RealDatabaseTests):
+    """Is the hookup REALLY on, on an object production really builds?
 
-    D2: `LiveSocketFacadeTests`'s negative control says "if this ever starts
-    failing, the hookup landed somewhere else".  It cannot.  It binds
-    `_Session`, a fixture defined in this file, so nothing chief does to the
-    real state class can move it -- D2 applied chief's exact requested
-    one-liner at `runtime.py:1599` and the whole file stayed green.
-    D3: with that line applied, the ENTIRE suite was byte-identical --
-    10,571 passed either way.  The round's central claim is "one call at
-    `runtime.py:1599` is all that is owed", and nothing in the repository
-    could tell whether that call was present, absent, or silently refusing.
+    ROUND `j2jluj` REWROTE THIS CLASS.  It used to answer that question by
+    reading `runtime.py` as text and asking whether the string
+    `"install_send_outcome_observers("` appeared anywhere in it.
+    pf-adversary killed that in round `rs8uyz`/R350, and chief published the
+    mutant (`pf_bridge/notes_to_chief/20260905_0902_FROM_CHIEF_R350_
+    ADVERSARY-RESULT-wired-must-mean-observed-not-named.md`): comment the
+    real call out, assign two no-op lambdas to the same two names, and
+    `/warp` send-failure rollback is completely dead in production while
+    all 10,598 tests -- these included -- stay byte-identical.  A
+    commented-out line is still a substring.
 
-    THIS CLASS IS THAT SOMETHING.  It reads `runtime.py` as text (this lane
-    may not edit that file, only observe it) and pins TODAY'S answer: NOT
-    WIRED.  The moment either shape of `CORE-REQUEST-GM-058` lands, this
-    test goes RED, in the same commit that lands it, and the failure message
-    says exactly what to change.  That is the intended behaviour, not a
-    regression: it is the same "delete the `registered_but_not_fired` marker
-    in the same commit" discipline chief applied to LANE-UI's hookup in
-    R348.
+    ~~`_wiring_present` / `HOOKUP_IS_ON_MAIN`: either shape of
+    `CORE-REQUEST-GM-058`, as it would really appear in the text of
+    `runtime.py`.~~  STRUCK, not deleted: the pin was right to exist and
+    right about WHERE to look, and it did force the three edits it was
+    built to force when shape B landed.  It was wrong about WHAT to look
+    at.  `COO-DECISION 20260905_0947` made that a house rule -- "WIRED =
+    observed, not named", and `getattr(...) is not None`, `callable(...)`,
+    a substring and an AST name scan are all explicitly not guards -- and
+    `COO-DECISION 20260905_0948` item 2(a) ordered this class rewritten to
+    anchor on the event instead.
 
-    IT IS DELIBERATELY TEXTUAL, NOT AN IMPORT.  Importing `runtime` to ask
-    the class would need a constructed session, which needs a store, a
-    legacy projector and a socket; and the two names are what
-    `connection.py` reads off an INSTANCE, so a class-level `hasattr` would
-    miss shape B (the installer writes instance attributes) and a session
-    would miss shape A. Reading the source catches both shapes and cannot
-    be fooled by an import side effect.
+    WHAT IT ANCHORS ON NOW, AND WHY THAT CANNOT BE FORGED.  The event
+    `gm_warp_send_watch_install_installed` has exactly ONE writer in the
+    whole codebase -- `warp_send_watch._announce_install` -- and it is
+    written onto the session that was passed in.  So its presence on a
+    session that came out of `make_state_class(...)` + `GameConnectionBindings.
+    accepted()` + `bind()` (the three production steps, in production
+    order, from `runtime.py`'s own `__init__` and `connection.py`'s own
+    binding protocol) means the REAL installer really ran on THAT REAL
+    object.  No lambda, no stub, no `getattr` and no comment can put it
+    there.
+
+    WHAT THE EVENT ALONE DOES *NOT* PROVE, said plainly because a sentence
+    here once claimed more than the assertions make (pf-adversary D-4,
+    round `j2jluj`).  Since `WIRED_INSTALL_OUTCOMES` widened this to accept
+    every outcome that means "this connection is wired", the event proves
+    the installer RAN and did not refuse -- it does not by itself prove the
+    two observers are live, because `refused_already_present` is a correct
+    answer for a class that declares them itself.  pf-adversary built the
+    mutant that walks through exactly that gap (assign two no-op lambdas
+    BEFORE the installer, so it answers `refused_already_present`) and
+    measured: this assertion passes it, and the two end-to-end row tests
+    below kill it.  The class is the guard; this test is one half of it.  Chief's own `tests/test_connection_lifecycle.py` pins the same
+    event from his side of the seam; this is the same standard applied on
+    the lane that owns the module, so a revert of either half is caught by
+    the half that did not move.
+
+    AND ONE STEP FURTHER THAN THE EVENT.  `test_a_real_send_failure_on_a_
+    production_built_session_puts_the_row_back` does not read the trail at
+    all: it builds the production session, moves a REAL character row with
+    a REAL `/warp` through the REAL router, makes the REAL
+    `AcceptedGameSocket.sendall` raise, and reads the DATABASE ROW back.
+    That is the whole chain -- constructor, installer, facade, observer,
+    store -- observed end to end, with nothing in it this file supplied.
+
+    NONCLAIM.  The raw socket is a fake object with a `sendall`; no byte
+    reaches a network and no client is involved.  This is evidence about
+    which rows the server holds after a send raises, not about a screen.
     """
 
-    #: What the tree says today.  Change this to `True` in the SAME commit
-    #: that lands the call, and this test starts asserting the opposite.
-    #:
-    #: Flipped by chief, round `rs8uyz`/R350, in the commit that landed
-    #: shape B (`runtime.py:1599`, the line after
-    #: `connection_bindings.bind(self)`).  The pin did exactly what this
-    #: lane built it for: it went red on the merge, its message named the
-    #: three edits, and all three are in that commit.  From here it guards
-    #: the other direction -- a revert of that call turns this red again.
-    HOOKUP_IS_ON_MAIN = True
+    class _RawSocket:
+        """The three methods the facade touches, and a record of the bytes."""
 
-    def _runtime_source(self):
-        return (
-            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
-        ).read_text(encoding="utf-8")
+        def __init__(self, error=None):
+            self.error = error
+            self.sent = []
 
-    def _wiring_present(self, source):
-        """Either shape of `CORE-REQUEST-GM-058`, as it would really appear."""
-        shape_b = "install_send_outcome_observers(" in source
-        shape_a = all(
-            f"def {name}(" in source
-            for name in (
-                warp_send_watch.SENT_OBSERVER_ATTRIBUTE,
-                warp_send_watch.FAILED_OBSERVER_ATTRIBUTE,
-            )
+        def sendall(self, data, *args, **kwargs):
+            if self.error is not None:
+                raise self.error
+            self.sent.append(bytes(data))
+            return None
+
+        def shutdown(self, how):
+            return None
+
+        def close(self):
+            return None
+
+    def _production_session(self, token, error=None):
+        """The three steps production takes, in production's order.
+
+        `runtime.py`'s state `__init__` is what calls
+        `connection_bindings.bind(self)` and then the installer, so the ONLY
+        thing this helper supplies is the accepted socket that `bind` needs
+        -- exactly what `game_listener` supplies on a real login.  Nothing
+        here installs anything itself; if the constructor stops doing it,
+        every assertion below has nothing to find.
+        """
+        bindings = connection.GameConnectionBindings()
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+            connection_bindings=bindings,
         )
-        return shape_a or shape_b
+        raw = self._RawSocket(error)
+        wrapped = bindings.accepted(raw)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            state = state_type(token)
+        self.assertIs(wrapped.state, state)
+        self.addCleanup(self._release, bindings, wrapped)
+        return state, wrapped, raw, stream.getvalue()
 
-    def test_the_pin_matches_what_runtime_py_actually_says(self):
-        present = self._wiring_present(self._runtime_source())
-        if self.HOOKUP_IS_ON_MAIN:
-            self.assertTrue(present, (
-                "HOOKUP_IS_ON_MAIN is True but runtime.py carries neither "
-                "shape of CORE-REQUEST-GM-058. Either the call was reverted "
-                "-- in which case /warp send failures are silently not "
-                "rolling back again -- or the pin was flipped early."
-            ))
-            return
-        self.assertFalse(present, (
-            "runtime.py now carries the CORE-REQUEST-GM-058 hookup, and this "
-            "pin still says it does not. THIS IS THE INTENDED FAILURE. In "
-            "the same commit that landed the call: (1) set "
-            "HookupWiringPinTests.HOOKUP_IS_ON_MAIN = True, (2) strike the "
-            "'NEITHER IS ON MAIN YET' sentence in gm/warp_send_watch.py's "
-            "module docstring, and (3) rewrite "
-            "LiveSocketFacadeTests.test_without_the_install_the_same_failure_"
-            "leaves_the_row_wrong, whose whole subject is main's pre-hookup "
-            "behaviour."
-        ))
+    def _release(self, bindings, wrapped):
+        if not wrapped.released:
+            with redirect_stderr(io.StringIO()):
+                bindings.release(wrapped)
+
+    def _adopt_character(self, state, login_name):
+        """Give the production-built session a real, selected character.
+
+        `_session` (this fixture's own helper) builds a `FoundationSession`
+        by hand for the lighter `_Session` double; here the session already
+        exists and came out of `runtime.py`, so only the character half is
+        supplied -- through the SAME `create` / `select_and_start` calls a
+        real login makes.  Returns the row as it stands before any warp.
+        """
+        foundation = state.foundation
+        _op, _has_actor, wire = self.legacy.parse_create_actor(
+            self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC),
+        )
+        character, _reply = foundation.create(
+            self.legacy.decode_create_actor_data_ex(wire)["name"], wire,
+        )
+        with redirect_stderr(io.StringIO()):
+            foundation.select_and_start(character.selector)
+        return self._row(state)
+
+    def _warp_on(self, state):
+        with redirect_stderr(io.StringIO()):
+            verdict = chat_command_action._warp_teleport_action_no_coords(
+                state, DESTINATION_SCENE, self.legacy,
+            )
+        self.assertIsNotNone(verdict.action)
+        self.assertIsNotNone(getattr(state, warp_send_watch.SESSION_ATTRIBUTE))
+        return bytes(verdict.action[2])
+
+    def _install_events(self, state):
+        return [
+            event for event in getattr(state, "events", [])
+            if isinstance(event, str)
+            and event.startswith(f"{warp_send_watch.EVENT_PREFIX}install_")
+        ]
+
+    #: The three outcomes that all mean "this connection is wired".  Only
+    #: `refused_not_writable` means it is not.  pf-adversary D5 (round
+    #: `j2jluj`, MEASURED): the first draft asserted `INSTALL_OK` alone, so
+    #: landing shape A -- two real forwarding methods on chief's own class,
+    #: which this module's docstring says is still supported and still
+    #: compatible -- turned this pin RED with a message blaming the R350
+    #: mutant, while the end-to-end row test beside it stayed green because
+    #: production really was wired.  A pin that reds on the supported
+    #: alternative is a pin that will be deleted by whoever lands it.
+    WIRED_INSTALL_OUTCOMES = (
+        warp_send_watch.INSTALL_OK,
+        warp_send_watch.INSTALL_COMPLETED_HALF_DECLARED,
+        warp_send_watch.INSTALL_REFUSED_ALREADY_PRESENT,
+    )
+
+    def test_the_real_installer_ran_on_a_production_built_session(self):
+        state, _wrapped, _raw, stderr_text = self._production_session("pin01")
+        events = self._install_events(state)
+        self.assertEqual(
+            len(events), 1,
+            "expected exactly one install announcement on a session built the "
+            "way production builds one, got "
+            f"{events!r}. Either runtime.py no longer calls "
+            "install_send_outcome_observers on the line after "
+            "connection_bindings.bind(self), or something else is supplying "
+            "those two names -- which is pf-adversary's R350 D1 mutant, and "
+            "it disarms /warp send-failure rollback silently.",
+        )
+        self.assertIn(
+            events[0].rsplit("install_", 1)[1],
+            self.WIRED_INSTALL_OUTCOMES,
+            "the installer ran and REFUSED on a production session: this "
+            "connection cannot carry the two observers at all, so a failed "
+            f"/warp send will not roll back on it. {events[0]!r}",
+        )
+        # The second channel `_announce_install` writes, for the owner
+        # grepping a boot log rather than a test reading a trail.
+        self.assertIn(warp_send_watch.INSTALL_CONSOLE_TOKEN, stderr_text)
+
+    def test_the_two_names_a_lambda_could_fake_are_not_what_is_asserted(self):
+        """The guard chief's first draft had, kept ONLY as a cross-check.
+
+        `callable(...)` is explicitly not a guard under the `0947` rule.  It
+        is asserted here anyway, immediately beside the event, because the
+        two together say something neither says alone: the names resolve AND
+        the thing that put them there was the real installer.  If a future
+        round ever deletes the event assertion, this one alone must not be
+        mistaken for a pin -- hence this docstring.
+        """
+        state, _wrapped, _raw, _stderr = self._production_session("pin02")
+        for name in (
+            warp_send_watch.SENT_OBSERVER_ATTRIBUTE,
+            warp_send_watch.FAILED_OBSERVER_ATTRIBUTE,
+        ):
+            self.assertTrue(callable(getattr(state, name, None)), name)
+        self.assertEqual(len(self._install_events(state)), 1)
+
+    def test_a_real_send_failure_on_a_production_built_session_puts_the_row_back(
+        self,
+    ):
+        """Constructor, installer, facade, observer, store -- end to end."""
+        state, wrapped, _raw, _stderr = self._production_session(
+            "pin03", error=ConnectionResetError(),
+        )
+        before = self._adopt_character(state, "pin03")
+        frame = self._warp_on(state)
+        self.assertEqual(self._row(state).scene_id, DESTINATION_SCENE)
+
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(ConnectionResetError):
+                wrapped.sendall(frame)
+
+        self.assertEqual(self._row(state).scene_id, before.scene_id)
+        self.assertIsNone(getattr(state, warp_send_watch.SESSION_ATTRIBUTE))
+
+    def test_a_real_successful_send_on_a_production_built_session_clears_the_park(
+        self,
+    ):
+        """The other side of the same chain: nothing is rolled back when the
+        frame really does reach the wire, and the park retires."""
+        state, wrapped, raw, _stderr = self._production_session("pin04")
+        self._adopt_character(state, "pin04")
+        frame = self._warp_on(state)
+
+        with redirect_stderr(io.StringIO()):
+            wrapped.sendall(frame)
+
+        self.assertEqual(raw.sent, [frame])
+        self.assertEqual(self._row(state).scene_id, DESTINATION_SCENE)
+        self.assertIsNone(getattr(state, warp_send_watch.SESSION_ATTRIBUTE))
 
     def test_the_bind_point_this_lane_asks_chief_for_still_exists(self):
-        """A pin on the ADDRESS in the ask, not only on the ask's outcome.
+        """A pin on the ADDRESS in the letter, and NOT a wiring guard.
 
-        If `connection_bindings.bind(self)` is ever moved or renamed, the
-        letter to chief and this module's docstring both point at a line
-        that no longer means what they say, and nothing else would notice.
+        Deliberately kept after the rewrite, and deliberately named for what
+        it is: `CORE-REQUEST-GM-058` and this module's docstring both point
+        at the line after `connection_bindings.bind(self)`, and if that call
+        is ever moved or renamed both documents point at nothing.  Under the
+        `0947` rule this is a DOCUMENTATION pin, not evidence that anything
+        is wired -- the four tests above are that.
         """
-        self.assertIn("connection_bindings.bind(self)", self._runtime_source())
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("connection_bindings.bind(self)", source)
+
+
+class SendLockLivenessTests(RealDatabaseTests):
+    """R348's OTHER half, ordered measured rather than argued.
+
+    `COO-DECISION 20260905_0948` item 2(b): "answer your own liveness
+    question with a test, not a letter: `send_lock` is held across a
+    rollback that opens a new sqlite connection while `heartbeat_worker`
+    fires every 2.0s -- measure whether the heartbeat stalls; if it does,
+    fix it in the same round; if it does not, pin the test that proves it."
+    This lane had asked that question twice (this module's own docstring,
+    `CrossThreadObserverTests`'s "what this does not answer, on purpose")
+    and chief's R350 letter confirmed nobody -- including chief -- had
+    answered it.
+
+    THE REAL SHAPE, WHICH IS WHAT MAKES THE NUMBERS MEAN ANYTHING.  Every
+    `sendall()` on one connection is made under that connection's own
+    `send_lock` (`current/pf_login_game_server_v141.py:7754` the action
+    loop, `:7427` `heartbeat_worker`), and this module's observers are
+    reached from INSIDE `sendall()` (`connection.py`'s
+    `_offer_send_outcome`).  So a rollback's disk I/O really does run with
+    that lock held, and the other thread really is behind it.  The tests
+    below hold a REAL `threading.Lock` across a REAL rollback against the
+    REAL store, with a REAL second writer holding `BEGIN IMMEDIATE`, and
+    time it.
+
+    THE ANSWER: IT STALLS, AND ONE CALL'S STALL IS BOUNDED AT ONE
+    `busy_timeout`.  Measured on this tree (the table is in
+    `warp_send_watch.py`'s module docstring): 0.0023s uncontended, tracking
+    the contention while it is under the budget, and 5.010s -- never ten --
+    beyond it.  Never ten because `checkpoint()` never reaches the
+    read-back: `save_position` (`store.py:668-671`) is a bare
+    `with self.connect() as db:` + `UPDATE`, an implicit DEFERRED
+    transaction, and it is that `UPDATE` that waits and raises, so the
+    second connection is never opened.  (pf-adversary D7, round `j2jluj`:
+    an earlier draft of this paragraph said "fails at `BEGIN IMMEDIATE`".
+    `SQLiteStore.connect()` issues no such statement; `BEGIN IMMEDIATE`
+    belongs to the healing doors and to this class's own contending writer.
+    The non-stacking therefore rests on WAL, which
+    `test_the_database_is_really_in_wal_mode` now asserts rather than
+    assumes.)  Worst case therefore costs `heartbeat_worker` at most two of
+    its 2.0s beats, on a connection whose socket has just failed.
+
+    WHAT ROUND `j2jluj` CHANGED, AND WHAT IT DELIBERATELY DID NOT.  It did
+    not shorten the wait: `busy_timeout` lives in `store.py`, outside this
+    lane's zone, and shortening it would trade a bounded delay on a dying
+    connection for a durable row left naming a scene the client never
+    reached.  It also did not change `on_game_frame_send_failed` -- a
+    re-park-and-retry for the >5s case was built this round and WITHDRAWN
+    before pushing, on this round's own two `pf-adversary` passes; see the
+    module docstring for both defects and for the design question underneath
+    them.  So `test_a_busy_database_leaves_the_row_wrong_and_says_nothing`
+    below pins the DEFECT as it stands on `main`, deliberately, rather than
+    a half-understood fix to the durable position path.
+
+    NONCLAIM.  Headless.  No socket, no client, no screen.  These are wall
+    clock numbers about one process's own lock and its own sqlite file.
+    """
+
+    #: `current/pf_login_game_server_v141.py:7420` -- `conn_done.wait(2.0)`.
+    HEARTBEAT_PERIOD_S = 2.0
+
+    @staticmethod
+    def _busy_timeout_seconds():
+        """`store.py`'s own `PRAGMA busy_timeout`, DERIVED not retyped.
+
+        pf-adversary D9 (round `j2jluj`): a hand-typed 5.0 here is a number
+        that stops being re-derivable the day `store.py` changes its budget
+        -- the assertions would stay green while the measurement table in
+        `warp_send_watch.py`'s docstring went stale with nothing to say so.
+        Read out of the file instead, and fail loudly if the pragma this
+        whole class is about is no longer there to read.
+        """
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "store.py"
+        ).read_text(encoding="utf-8")
+        found = re.findall(r"PRAGMA busy_timeout=(\d+)", source)
+        if not found:
+            raise AssertionError(
+                "store.py no longer sets PRAGMA busy_timeout anywhere: the"
+                " bound these tests measure has moved, and the numbers in"
+                " gm/warp_send_watch.py's docstring are now unsourced."
+            )
+        return int(found[0]) / 1000.0
+
+    def setUp(self):
+        super().setUp()
+        self.BUSY_TIMEOUT_S = self._busy_timeout_seconds()
+
+    def _hold_the_write_lock(self, seconds):
+        """A second writer, on its own thread, holding `BEGIN IMMEDIATE`.
+
+        The ordinary shape of contention on this database: another
+        connection in the middle of its own transaction.  Returns once the
+        lock is REALLY held.
+
+        pf-adversary D8 (round `j2jluj`): the first draft signalled from a
+        `finally`, so a `BEGIN IMMEDIATE` that RAISED (any pre-existing
+        writer) still reported "held" and the caller then measured an
+        uncontended call while believing it was contended -- a wrong
+        diagnosis, not a false green, but a wrong diagnosis on the one
+        fixture the whole class rests on.  The flag is now set only on the
+        line after the statement that took the lock, the failure is carried
+        back across the thread boundary, and the join has a bound.
+        """
+        held = threading.Event()
+        finished = threading.Event()
+        failure: list = []
+
+        def _hog():
+            db = sqlite3.connect(str(self.store.path))
+            try:
+                db.execute(
+                    f"PRAGMA busy_timeout={int(self.BUSY_TIMEOUT_S * 1000)}"
+                )
+                db.execute("BEGIN IMMEDIATE")
+                held.set()
+                time.sleep(seconds)
+                db.rollback()
+            except BaseException as error:  # noqa: BLE001 - re-raised below
+                failure.append(error)
+            finally:
+                finished.set()
+                db.close()
+
+        thread = threading.Thread(target=_hog)
+        thread.start()
+        self.addCleanup(self._join_hog, thread, finished, failure, seconds)
+        self.assertTrue(
+            held.wait(10) or finished.wait(0),
+            "the contending writer never took the write lock",
+        )
+        if failure:
+            raise failure[0]
+        return thread
+
+    def _join_hog(self, thread, finished, failure, seconds):
+        thread.join(timeout=seconds + 30)
+        self.assertFalse(thread.is_alive(), "the contending writer wedged")
+        self.assertTrue(finished.is_set())
+        if failure:
+            raise failure[0]
+
+    def test_the_database_is_really_in_wal_mode(self):
+        """The non-stacking bound rests on WAL, so it is asserted, not hoped.
+
+        pf-adversary D7 (round `j2jluj`): `SQLiteStore.connect()` opens an
+        implicit DEFERRED transaction, so "one budget, not two" is a
+        property of WAL rather than of the transaction shape, and
+        `connect()` sets WAL only for a file database (`store.py:293-294`)
+        -- `PRAGMA journal_mode=WAL` can also silently fail to take on some
+        mounts.  If this ever comes back anything but `wal`, the lock
+        escalation moves to COMMIT and the numbers in this class stop being
+        the numbers production sees.
+        """
+        with self.store.connect() as db:
+            mode = db.execute("PRAGMA journal_mode").fetchone()[0]
+        self.assertEqual(str(mode).lower(), "wal")
+
+    def _timed_failed_send(self, session, frame):
+        started = time.monotonic()
+        with redirect_stderr(io.StringIO()):
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, frame, ConnectionResetError(),
+            )
+        return outcome, time.monotonic() - started
+
+    def test_an_uncontended_rollback_costs_far_less_than_one_heartbeat(self):
+        """The ordinary case, which is every case where nothing else is
+        writing: the lock is held for milliseconds, not beats."""
+        session = self._session("live01")
+        frame = self._park(session)
+        outcome, held = self._timed_failed_send(session, frame)
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        self.assertEqual(self._row(session).scene_id, 1)
+        self.assertLess(
+            held, self.HEARTBEAT_PERIOD_S / 2,
+            f"an uncontended rollback held send_lock for {held:.3f}s; measured"
+            " 0.0023s on this tree, and anything approaching one heartbeat"
+            " period here means the undo grew disk work it did not have.",
+        )
+
+    def test_a_busy_database_leaves_the_row_wrong_and_says_nothing(self):
+        """The worst case -- pinned as the DEFECT it still is on `main`.
+
+        One contending writer holds the database for longer than the store's
+        own budget.  Three facts, and the third is the one worth having:
+
+        1. The hold is bounded by ONE budget, not the two connections' worth
+           the undo would need if it reached its read-back.
+        2. The undo is REFUSED: the outcome is the busy-database word.
+        3. The park is cleared anyway, so the durable row is left at a scene
+           the client was never sent to, and nothing on this connection will
+           ever try again.
+
+        Fact 3 is the character-bricking shape this whole module exists to
+        refuse, reached through a busy database instead of a refused write.
+        Round `j2jluj` built a re-park-and-retry for it and WITHDREW it
+        before pushing (see the class docstring), so this test asserts the
+        broken outcome ON PURPOSE, the same way
+        `LiveSocketFacadeTests.test_without_the_install_the_same_failure_
+        leaves_the_row_wrong` asserts its own.  It is the measurement the
+        letter to COO cites, and it goes red the day someone fixes it --
+        which is the point.
+        """
+        session = self._session("live02")
+        frame = self._park(session)
+        # pf-adversary D9: three seconds of headroom past the budget, not
+        # one, so a scheduling gap between the hog taking the lock and this
+        # thread reaching sqlite cannot turn a real measurement into a red.
+        self._hold_the_write_lock(self.BUSY_TIMEOUT_S + 3.0)
+
+        outcome, held = self._timed_failed_send(session, frame)
+
+        self.assertEqual(
+            outcome,
+            f"{warp_scene_persist.OUTCOME_ROLLBACK_REFUSED_PREFIX}"
+            "OperationalError",
+        )
+        self.assertLess(
+            held, self.BUSY_TIMEOUT_S * 2,
+            f"the hold was {held:.3f}s. One `PRAGMA busy_timeout` is the"
+            " bound because save_position's own UPDATE waits and raises, so"
+            " the read-back's second connection is never opened; two"
+            " budgets' worth means that stopped being true and"
+            " heartbeat_worker now waits twice as long.",
+        )
+        # 3. The row is wrong and the park that could have fixed it is gone.
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+        self.assertIsNone(
+            getattr(session, warp_send_watch.SESSION_ATTRIBUTE),
+            "if this is no longer None someone has given the undo a second"
+            " chance -- good, but then this test's whole subject has moved"
+            " and it must be rewritten rather than relaxed.",
+        )
+
+    def test_the_other_threads_next_send_waits_behind_the_rollback_and_then_goes(
+        self,
+    ):
+        """`heartbeat_worker`'s own position, reproduced with v141's lock.
+
+        One `threading.Lock` shared by both threads, exactly as v141 shares
+        one per connection.  The action-loop thread takes it and calls this
+        module's observer inside it, the way `connection.py` does from
+        inside `sendall()`; the heartbeat thread then asks for the same
+        lock.  What is measured is how long the heartbeat waits -- the
+        question, in the shape it is really asked.
+
+        The answer is a WAIT, not a hang: it is at least one 2.0s beat under
+        this contention, and it ends.  A starved heartbeat would never reach
+        the assertion at all.
+        """
+        session = self._session("live03")
+        frame = self._park(session)
+        # D9 again: 5.0s of contention against a >= 2.0s assertion leaves
+        # three seconds of slack instead of one.
+        contention = 5.0
+        self._hold_the_write_lock(contention)
+
+        send_lock = threading.Lock()
+        holding = threading.Event()
+        rollback_outcome: list = []
+        heartbeat_waits: list = []
+
+        def action_loop():
+            with send_lock:
+                holding.set()
+                with redirect_stderr(io.StringIO()):
+                    rollback_outcome.append(
+                        warp_send_watch.on_game_frame_send_failed(
+                            session, frame, ConnectionResetError(),
+                        )
+                    )
+
+        def heartbeat_worker():
+            # Only contend once the other thread really holds it, so this
+            # measures the wait and not a start-up race.
+            holding.wait(10)
+            asked_at = time.monotonic()
+            with send_lock:
+                heartbeat_waits.append(time.monotonic() - asked_at)
+
+        sender = threading.Thread(target=action_loop)
+        heartbeat = threading.Thread(target=heartbeat_worker)
+        sender.start()
+        heartbeat.start()
+        sender.join(timeout=30)
+        heartbeat.join(timeout=30)
+        self.assertFalse(sender.is_alive())
+        self.assertFalse(heartbeat.is_alive(), "the heartbeat never got the lock")
+
+        # Which outcome the undo reached is NOT this test's subject, and
+        # pinning it here would put the contention exactly on the budget's
+        # edge to satisfy two assertions at once (pf-adversary D9).  Either
+        # word is a real run of the code path being timed; the row is
+        # asserted only for the one that claims to have moved it.
+        self.assertIn(
+            rollback_outcome[0],
+            (
+                warp_scene_persist.OUTCOME_ROLLED_BACK,
+                f"{warp_scene_persist.OUTCOME_ROLLBACK_REFUSED_PREFIX}"
+                "OperationalError",
+            ),
+        )
+        if rollback_outcome[0] == warp_scene_persist.OUTCOME_ROLLED_BACK:
+            self.assertEqual(self._row(session).scene_id, 1)
+        waited = heartbeat_waits[0]
+        self.assertGreaterEqual(
+            waited, self.HEARTBEAT_PERIOD_S,
+            f"the heartbeat waited only {waited:.3f}s under {contention:.1f}s"
+            " of database contention. If this stops being true the fixture"
+            " has stopped reproducing the shape it exists to measure, not"
+            " the stall has been fixed.",
+        )
+        self.assertLess(
+            waited, self.BUSY_TIMEOUT_S * 2,
+            f"the heartbeat waited {waited:.3f}s -- more than the store's own"
+            " budget can explain, which means something in the undo now"
+            " blocks without one.",
+        )
+
 
 # pf-adversary D9 (MEASURED, round `goxj0y`): this block used to sit ABOVE the
 # classes appended by that round, so `python tests/test_gm_warp_send_watch.py`
