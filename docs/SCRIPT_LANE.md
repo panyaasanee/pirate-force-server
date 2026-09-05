@@ -191,17 +191,95 @@ headless to completion with no error, and prove the loader can load all
   pinned reason (`LUPA_PACKAGE`) until that line lands, so nothing here is
   blocked on it landing.
 
-### API status table (160/160, all stub this round)
+## Round 456vso (2026-09-05) -- Trigger.* status machine, 5/17 real
+
+**What moved**: charter queue item 2, "`Trigger.*` 17 functions of real, to
+unblock M2 for LANE-A" -- partially.  Grepped the corpus first (per
+`AGENTS.md` house rule) rather than guessing: the 17 names split cleanly
+into a pure STATUS STATE MACHINE (read/write an int per trigger, no
+outbound frame, no Quest state) and everything that needs a wire frame,
+skill-cast encoder, animation/fx encoder, or Quest per-character state this
+server does not have yet.  This round makes the first group real; the
+second stays `stub`, each with the specific missing seam named rather than
+"not done" (see `src/pirateforce_foundation/lua_api/trigger.py`'s
+`STILL_STUBBED` dict).
+
+**Real now (5 names, 542/828 call sites, 65%)**: `GetTriggerStatus`,
+`GetTeiggerStatus` (the game's own shipped misspelling, aliased to the
+same handler -- 1 call site, `t_getm_t1.lua`), `SetStatus`, `NextStatus`,
+`SetTriggerStatus`.  Backed by `lua_api.trigger.TriggerStatusRegistry`: one
+int per (scene, trigger id), process memory, same shape and caps as
+`world_scene_registry.WorldSceneRegistry` and for the same reason
+(`PANYA-DECISION 20260905_1057`: world state is server-process memory,
+shared by every session in a scene, gone on reboot) -- but a SEPARATE book,
+not a second front door into LANE-A's: trigger status is not a monster
+vital, and the charter draws the ownership line explicitly (LANE-A owns
+island ENTRY; LANE-Q owns "the trigger script deciding what happens").
+
+Corpus-grepped semantics (not invented): `GetTriggerStatus(id)`/
+`GetTeiggerStatus(id)` read ANOTHER trigger's status by id.
+`SetStatus(n)`/`NextStatus()` take no id in any of their call sites (grepped
+across all 616 files) because the game's own engine always knows which
+trigger is running the script that called them -- this server has no such
+call stack yet, so a `TriggerContext(scene, trigger_id)` supplies the
+answer, provided by the caller (today: tests only -- see nonclaims).
+`SetTriggerStatus(id, n)` writes ANOTHER trigger's status.  Worked example
+proving this is real gating logic and not coincidence:
+`tests/test_script_lua_api_trigger.py::RealTriggerLuaIntegrationTests
+::test_a_six_gate_trigger_only_advances_when_every_prerequisite_is_ready`
+runs the real shape of `t_nex_t6.lua`'s `ScriptStart` against six DISTINCT
+real prerequisite triggers, shows it correctly refuses to advance while
+they are not all at the target status, and correctly advances the instant
+they are (round `s2fxf6`'s own version of this test only covered the
+trivial case where every `Trigger.VarN` stub collapsed to the same value,
+which passes regardless of whether the gating logic is real).
+
+**Still stub (12 names, 286/828 call sites, 35%)**, one seam each,
+`lua_api.trigger.STILL_STUBBED`: `GetContactMode` (1 site; the one call in
+the corpus, `t_popmo_ui1.lua`, compares its return to a literal with no
+other example to derive the enum from -- needs an RE ticket, not a guess);
+`CastSkill`/`CastSkillBy`/`CastSkillXYZ` (needs a skill-cast wire frame
+encoder, LANE-CS territory); `PlayFx`, `StartAnimation`,
+`StartTriggerAnimation`, `HideModel`, `HideTriggerModel`,
+`TriggerShowMessage` (each needs a wire frame encoder this server does not
+have); `QuestActiveProgress`, `QuestFinishProgress` (needs per-character
+Quest state -- charter queue item 3 and the LANE-DB column asked for in
+`COO-DECISION 20260905_2058`).
+
+**NOT done this round, said plainly**: nothing wires a live `TriggerVital`
+(0x1FB2) arrival to a specific script file.  That needs the trigger-id ->
+script-file mapping the charter names (`gamedata/scene/*.placements.tsv` /
+a trigger table) -- not mined this round, to keep this diff to the state
+machine itself.  `lane_hooks.lane_a_island_trigger_log` (LANE-A's own
+module) is still the only subscriber to `vital_inbound_trigger_vital` and
+still prints `no_responder bytes_out=0`; this round changes nothing about
+that frame or that hook.  **A player sailing into a trigger sees no change
+on screen from this round** -- the charter's closing criterion for this
+queue item ("a GT where a tester sails into a trigger and the script
+fires") is NOT met yet; it needs the mapping above as a follow-up round.
+SCOREBOARD below is `COMING`, not `DONE`, for exactly this reason.
+
+Tests: `tests/test_script_lua_api_trigger.py` (31 tests / 12 subtests --
+registry alone with no lupa dependency, the namespace's `__getitem__`
+contract, and lupa-guarded real-Lua integration including the six-gate
+proof above and the shared-world property of two hosts sharing one
+registry vs. two hosts with no registry given not leaking into each
+other). `tests/test_script_host_spike.py`'s two assertions that assumed
+`Trigger` was still all-stub are updated to match.
+
+### API status table (155/160 stub, 5/160 real)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
 (`gamedata/PF_LUA_API_SPEC.md`).  Namespaces ordered Guild/Instance/Mob/
 Party/Player/Quest/Scene/Trigger (alphabetical); within a namespace, most-
 called first.  Status is one of `stub` (this file logs `LUA_API_STUB` and
-returns a safe default -- every row today) / `real` (implemented against
-the actual protocol, backed by a test) / `proven` (real + a GT ticket where
-a tester watched it work on screen).  Next lane priority, per charter: the
-17 `Trigger.*` rows unblock LANE-A's M2 ("leave town").
+returns a safe default) / `real` (implemented against the actual protocol,
+backed by a test -- every `real` row below is backed by
+`tests/test_script_lua_api_trigger.py`) / `proven` (real + a GT ticket
+where a tester watched it work on screen -- none yet).  Next lane priority,
+per charter: the remaining 12 `Trigger.*` rows, then `Quest.*` (queue item
+3).
 
 | namespace | method | call_count | status |
 |---|---|---:|---|
@@ -348,12 +426,12 @@ a tester watched it work on screen).  Next lane priority, per charter: the
 | Scene | ChangeMainMusic | 8 | stub |
 | Scene | CamaraShake | 2 | stub |
 | Scene | CheckPlacementCombat | 1 | stub |
-| Trigger | NextStatus | 353 | stub |
-| Trigger | GetTriggerStatus | 134 | stub |
+| Trigger | NextStatus | 353 | real |
+| Trigger | GetTriggerStatus | 134 | real |
 | Trigger | HideModel | 62 | stub |
 | Trigger | PlayFx | 57 | stub |
 | Trigger | TriggerShowMessage | 55 | stub |
-| Trigger | SetTriggerStatus | 52 | stub |
+| Trigger | SetTriggerStatus | 52 | real |
 | Trigger | StartTriggerAnimation | 43 | stub |
 | Trigger | StartAnimation | 19 | stub |
 | Trigger | HideTriggerModel | 13 | stub |
@@ -362,20 +440,36 @@ a tester watched it work on screen).  Next lane priority, per charter: the
 | Trigger | QuestActiveProgress | 8 | stub |
 | Trigger | CastSkillBy | 5 | stub |
 | Trigger | QuestFinishProgress | 3 | stub |
-| Trigger | SetStatus | 2 | stub |
+| Trigger | SetStatus | 2 | real |
 | Trigger | GetContactMode | 1 | stub |
-| Trigger | GetTeiggerStatus | 1 | stub |
+| Trigger | GetTeiggerStatus | 1 | real |
 
 ### Next round
 
-1. `Trigger.*` (17 names, above) for real, wired to `TriggerVital`/
-   `TriggerSyncVital` per `VITAL_REGISTRY`/`SERIALIZER_FIELDS` -- coordinate
-   with LANE-A per the charter (A owns island entry, LANE-Q owns "the
-   trigger script that decides what happens").  Closes with a GT: a tester
-   sails into a trigger and the script fires.
-2. `Quest.*` (25 names) for real, first full quest lifecycle from a real
+1. **Wire a live `TriggerVital` (0x1FB2) arrival to a real script file.**
+   This is what actually closes the charter's GT criterion ("a tester
+   sails into a trigger and the script fires") -- round `456vso` built the
+   state machine the scripts run against but did NOT do this part.  Needs,
+   first, the trigger-id -> script-file mapping (`gamedata/scene/
+   *.placements.tsv` / a trigger table per the charter -- grep for it
+   before assuming it does not exist) and a `lane_hooks/lane_q_*` subscriber
+   to `vital_inbound_trigger_vital` (LANE-A's existing hook point, still
+   the only subscriber, still `no_responder bytes_out=0`) that resolves the
+   wire trigger id to a script, builds its `TriggerContext` from the real
+   scene, and calls `ScriptStart` against the process-singleton
+   `lua_api.trigger.trigger_status_registry()` (NOT a private one -- that
+   is the one piece of this round's design that exists specifically for
+   this call site).  Sending anything back to the client is still a
+   separate, later step (no response frame is decoded for this vital yet;
+   `world_island_dock_table.py`'s own docstring names that gap).
+2. The remaining 12 `Trigger.*` names, one seam each (see `STILL_STUBBED`
+   in `lua_api/trigger.py` and the round `456vso` section above) --
+   `GetContactMode` needs an RE ticket (semantics unclear from 1 call
+   site); the rest need wire-frame encoders this lane does not own or
+   `Quest.*` per-character state (item 3 below).
+3. `Quest.*` (25 names) for real, first full quest lifecycle from a real
    `q_kill*` script (accept -> `MobKillCount` -> report -> reward);
    `Quest.*` per-character state needs a LANE-DB column (letter already
    sent, `COO-DECISION 20260905_2058`).
-3. Follow-up noted above, not done this round: a narrow safe clock/RNG
+4. Follow-up noted above, not done this round: a narrow safe clock/RNG
    surface so `utility.lua` stops failing closed on `os.time()`.
