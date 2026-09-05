@@ -259,13 +259,25 @@ def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
     unqualified claim was false and the counter-example was twenty lines away
     in the same file.
 
-    ``class_id`` IS ``None`` ON EVERY HIT TODAY and the module says so in its
-    own header: ``characters.class_id`` has a writer and no reader, and this
-    function's caller (``runtime.py``, chief's file) does not pass one.  The
-    refusal is not silent -- ``POSE_NO_EQUIP_PROVENANCE`` prints per hit,
-    which is what item 2 of that decision asks for -- and the frame stays
-    byte-identical to main: the inherited v141 dispatch already echoed this
-    request's own ``+0x30`` back before ``_dispatch_mob_combat`` ran.
+    ~~``class_id`` IS ``None`` ON EVERY HIT TODAY and the module says so in
+    its own header: ``characters.class_id`` has a writer and no reader, and
+    this function's caller (``runtime.py``, chief's file) does not pass
+    one.~~ STRUCK, both halves, and both were false by the time they were
+    read.  The "no reader" half was never true: ``session.py:37`` has read
+    the column on every login since 2026-09-04 (``LANE-B CORRECTION
+    20260905_1600``, which withdrew the claim its own lane made).  The
+    caller half stopped being true when chief wired the keyword under that
+    same correction -- ``runtime.py`` passes the performer's
+    ``selected.class_id`` on every accepted production hit.
+
+    WHAT IS STILL TRUE, and is a different statement: ``class_id`` is
+    ``None`` on a hit whose character row has a NULL column (a character
+    created before the class writer landed, and not yet reached by
+    ``persistence_class_id_backfill``).  On THAT hit the refusal is not
+    silent -- ``POSE_NO_EQUIP_PROVENANCE`` prints, which is what item 2 of
+    that decision asks for -- and the frame stays byte-identical to main:
+    the inherited v141 dispatch already echoed this request's own ``+0x30``
+    back before ``_dispatch_mob_combat`` ran.
     """
     action_selector, pose_line = pose_trial.selector_for_hit(
         hit_number, environ,

@@ -5156,8 +5156,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # armed PF_POSE_TRIAL as a comma-separated list before this
             # boot gets one extra ActionVital echo per accepted hit,
             # cycling one id off that list per hit.
+            # 20260905_1600 (LANE-B CORRECTION to CORE-REQUEST 1352): the
+            # performer's own class reaches the pose composer from here and
+            # nowhere else.  `selected` is bound eleven lines above, and its
+            # `class_id` is filled at login by `session.py`'s
+            # `_class_id_on_the_row` read, so an ordinary boot now composes
+            # the swing its class carries.  A character whose column is
+            # still NULL passes `None`, which is what every hit passed
+            # before this line existed -- byte-identical to main, with
+            # `POSE_NO_EQUIP_PROVENANCE` printed per hit saying why.
+            #
+            # `getattr`, NOT the letter's literal `selected.class_id`: the
+            # value is the same on every production login (`class_id` is a
+            # field of `Character`, `model.py:88`), but `foundation.selected`
+            # is a stub object in several other lanes' dispatch tests, and an
+            # `AttributeError` raised HERE leaves `_dispatch_mob_combat`
+            # entirely -- it would cost the hit its ANNOUNCE and BAR frames,
+            # not just the pose.  Same guard `session.py:53` already uses on
+            # the same attribute.
             pose_trial_echo = make_production_hit_pose_echo(
                 legacy, fields, performer, self.mob_combat_hit_count,
+                class_id=getattr(selected, "class_id", None),
             )
             if pose_trial_echo is not None:
                 pose_trial_pc, pose_trial_frame = pose_trial_echo
