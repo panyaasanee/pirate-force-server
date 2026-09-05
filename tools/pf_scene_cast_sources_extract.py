@@ -11,10 +11,13 @@ now and whether they still agree.
     py -3 tools/pf_scene_cast_sources_extract.py
     py -3 tools/pf_scene_cast_sources_extract.py --bridge ../pf_bridge
 
-Exit code 0 when every pinned row and every pinned digest still matches,
-1 when any of them has moved (that is the signal to update the module and
-say so in a round file), 2 when the tables are not reachable at all - which
-is NOT a failure, it is this tool being run somewhere it cannot answer.
+Exit code 0 when every pinned row and every pinned digest still matches;
+1 when any of them has MOVED (the signal to update the module and say so in
+a round file); 2 when something could not be checked here at all -- the
+tables directory missing, or a scene whose placements file is absent from
+this checkout.  2 is NOT a failure and NOT drift; it is this tool saying it
+could not answer, which a draft of it reported as nine moved rows and an
+instruction to overwrite nine correct measurements with zeros.
 
 THE JOIN THIS PERFORMS is the project's own, not a new one:
 ``world_m2_sea_destination.CLINE_KEY_COLUMN`` -- for a scene's creature
@@ -22,6 +25,18 @@ line type T and a placement's Mob-Set number S,
 ``CLINE[n_CLINE_TYPE == T and n_CREATURE_TYPE == S] -> n_LEADER_BK1 ->
 CONSTDATA_TH__MOBS[n_ID]``.  A placement counts as resolved when that chain
 reaches a MOBS row.
+
+TWO READING RULES THIS TOOL APPLIES, STATED BECAUSE NEITHER IS OBVIOUS:
+
+* ARGMAX OVER TIERS.  A scene may have several INSTANCE rows, each with its
+  own level band and its own creature-line type.  ``resolved`` is the count
+  from the BEST-RESOLVING of them, so it is an upper bound rather than what
+  any one arrival is guaranteed.  Only scene 18 currently differs between
+  tiers (803/805 give 7/8, 818 gives 8/8); the module's docstring names it.
+* SAILING TYPE 0 IS DROPPED.  ``SAILING_RESULT`` rows carry
+  ``n_CLINE_TYPE == 0`` for entries that name no block (scene 126's raw set
+  is {0, 8000}); 0 is not a type and is filtered.  The INSTANCE branch
+  needs no such filter and deliberately has none.
 
 THREE SOURCES OF A CREATURE LINE TYPE, and enumerating them is the whole
 point of the round that added this file: SCENE_NAME keyed by n_ID,
@@ -91,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     disagreements = 0
+    unreachable = 0
 
     # ---- digests -----------------------------------------------------
     pinned = [(name, sha) for name, _key, sha in cast.CREATURE_LINE_SOURCES]
@@ -143,6 +159,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         placements = resolved = 0
         best = -1
+        if not placements_path.is_file():
+            # NOT the same as "the table moved", and a draft of this tool
+            # conflated them (pf-adversary pass 2, D5): a tables-only or
+            # partial pf_bridge checkout made every scene print cast=0/0
+            # and the tool then told the operator to overwrite nine
+            # correct measurements with zeros.  Say what actually happened
+            # and do not count it as drift.
+            print(f"scene {scene_id:>4} {pinned_row.model_id:<7} "
+                  f"NO PLACEMENTS FILE at {placements_path} - not checked")
+            unreachable += 1
+            continue
         if placements_path.is_file():
             sets = [row["template_ids"] for row in _read(placements_path)]
             placements = len(sets)
@@ -154,9 +181,23 @@ def main(argv: list[str] | None = None) -> int:
                 hits = sum(1 for name in sets if _resolves(name, block, mobs))
                 if hits > resolved:
                     resolved, best = hits, candidate
-        measured = (direct, instance_types, sailing_types, placements,
-                    resolved, best)
+        # EVERY pinned field the tables can answer, not the six a draft of
+        # this tool compared (pf-adversary pass 2, D4): model_id,
+        # n_SCENE_TYPE and the scene name were taken on trust while this
+        # tool had SCENE_NAME.tsv open, and it still printed "every pinned
+        # row and digest still agrees".  name_gloss stays out on purpose --
+        # it is a human translation, so the MEASURED half (the shipped CJK
+        # bytes) is what is compared.
+        measured = (
+            scene["s_MODLE_ID"],
+            scene["s_SCENE_NAME"].encode("utf-8").hex(),
+            int(scene["n_SCENE_TYPE"]),
+            direct, instance_types, sailing_types, placements, resolved,
+            best,
+        )
         pinned_tuple = (
+            pinned_row.model_id, pinned_row.name_source_hex,
+            pinned_row.scene_type,
             pinned_row.direct_cline_type, pinned_row.instance_cline_types,
             pinned_row.sailing_cline_types, pinned_row.placements,
             pinned_row.resolved, pinned_row.best_cline_type,
@@ -177,6 +218,10 @@ def main(argv: list[str] | None = None) -> int:
     if disagreements:
         print(f"\n{disagreements} row(s)/digest(s) MOVED - update the module")
         return 1
+    if unreachable:
+        print(f"\n{unreachable} scene(s) had no placements file here - "
+              "nothing checked for them, and that is not drift")
+        return 2
     print("\nevery pinned row and digest still agrees with the tables")
     return 0
 

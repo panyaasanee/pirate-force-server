@@ -15,12 +15,24 @@ tables carry an ``n_CLINE_TYPE`` column, and the draft had opened one.
     CONSTDATA_TH__INSTANCE.tsv       keyed by n_SCENE_ID (338 rows)
     CONSTDATA_TH__SAILING_RESULT.tsv keyed by n_AREA     (138 rows)
 
-``CONSTDATA_TH__INSTANCE.tsv`` answers for every one of the eight, and
-``grep -rn "INSTANCE.tsv" src/ docs/`` returned ZERO hits before this
-round: no file in this project had ever opened it.  So the module is not
-the sentinel reader it started as.  It is the enumeration of the sources a
-"this scene can hold nothing" claim has to exhaust before it may be made,
-plus the measurement of what those sources actually answer.
+``CONSTDATA_TH__INSTANCE.tsv`` answers for every one of the eight.  So the
+module is not the sentinel reader it started as: it is the enumeration of
+the sources a "this scene can hold nothing" claim has to exhaust before it
+may be made, plus the measurement of what those sources actually answer.
+
+    THIS LANE HAD ALREADY NAMED THAT TABLE AND THEN NOT FOLLOWED IT, AND
+    SAYING SO IS THE POINT (pf-adversary pass 2, D9).  A draft of this
+    paragraph said no file in this project had ever opened the table,
+    citing a repo-wide grep for the string "INSTANCE.tsv" that really does
+    return nothing.  The grep was narrower than the sentence: LANE-A's own
+    note ``pf_bridge/notes_to_chief/consumed/20260828_2140_LANE-A-FINDING-
+    RE-128-crosswalk-is-CONSTDATA-CLINE.md`` line 76, written eight days
+    earlier and marked consumed, names ``CONSTDATA_TH__INSTANCE.n_SCENE_ID``
+    as the SECOND ROUTE, NOT YET CHECKED -- without the file extension, so
+    the grep could never have found it.  The accurate sentence is: no file
+    in this project had ever MEASURED it, and this lane had already flagged
+    it as the unchecked route and let it sit for eight days.  That is a
+    debt of this lane's own, recorded rather than dressed up.
 
 THE CORRECTED MEASUREMENT.  Re-derived at HEAD from the digests pinned
 below, using THIS PROJECT'S OWN key rule - ``world_m2_sea_destination``'s
@@ -41,17 +53,52 @@ scene's own committed ``.placements.tsv``:
 
 EIGHT OF EIGHT RESOLVE.  Scene 21 at 13/13 and scene 39 at 11/11 resolve
 MORE COMPLETELY than scene 126 does at 37/38, and 126 is the scene this
-project already ships a roster for.  ``world_population_bg1001`` and its
-seven siblings are buildable today, from committed data, with the same
-identity-module shape this lane has shipped thirteen times.  The first
-draft would have told a later round not to try.
+project already ships a roster for.  The first draft would have told a
+later round not to try.
 
-THREE OF THE EIGHT ARE NOT SHIPS, WHICH MATTERS FOR M2 SPECIFICALLY.
-``s_SCENE_NAME`` at HEAD: 17-21 are "one/two/three ships at sea"
-variants, but 39, 40 and 41 are "small island, style 9/10/11" - islands,
-which is the noun M2's own bar uses ("sail near an island ... stand on the
-island").  The first draft called all eight "ship destinations" and hid
-that.  They are named here as what the table calls them.
+    [PROPOSED], NOT [MEASURED]: THAT A ROSTER MODULE COULD BE BUILT ON
+    THIS TOMORROW (pf-adversary pass 2, D3).  Two things stand between the
+    measurement and a roster, and neither is hidden here.  (a)
+    ``world_m2_sea_destination.cline_key()`` -- the project's actual key
+    FUNCTION, as opposed to ``CLINE_KEY_COLUMN``, which is just a column
+    name -- REFUSES every one of the fourteen types below: ``CLINE_BLOCKS``
+    holds only {1, 4, 14, 3001} and ``cline_key`` raises "no measured CLINE
+    block for type N" for the rest.  Widening that table is a round's work
+    and this round did not do it.  (b) ``world_bg3001_identity`` earned its
+    own join with a control -- the registry's ``native_definition_count``
+    56 equalling CLINE 3001's 56 rows -- and NO SUCH AGREEMENT EXISTS FOR
+    ANY OF THE EIGHT: block 801 has 5 keys while ``Bg1001.placements.tsv``
+    references set 6, and block 520 has 5 keys while ``Bg1024`` references
+    sets 6 and 7.  That is what the unresolved placements ARE, and it means
+    the control points the other way.
+
+    ``resolved`` IS A MAX OVER LEVEL TIERS, AND SCENE 18 IS THE ONE ROW
+    WHERE THAT SHOWS (pf-adversary pass 2, D8).  An INSTANCE row carries
+    ``n_MIN_LEVEL``/``n_MAX_LEVEL``, so a scene with several rows has
+    several candidate types; ``resolved`` is the best of them.  Per tier:
+    scene 17 -> 801/814/816 all 7/8 (tie); scene 20 -> 809/823 both 10/10;
+    scene 21 -> 811/825 both 13/13; but SCENE 18 -> 803 and 805 (min level
+    30) give 7/8 while 818 (min level 70) gives 8/8.  So scene 18's pinned
+    8/8 is an UPPER BOUND that a level-30 arrival would not reach.  Named
+    here because the word "resolved" alone overstates it.
+
+THREE OF THE EIGHT ARE NOT SHIPS, AND THAT IS A NAMING CORRECTION, NOT AN
+M2 CLAIM.  ``s_SCENE_NAME`` at HEAD: 17-21 are "one/two/three ships at sea"
+variants, but 39, 40 and 41 are "small island, style 9/10/11".  The first
+draft called all eight "ship destinations" and hid that, so they are named
+here as what the table calls them.
+
+    AND THE SENTENCE THAT NEARLY FOLLOWED IT IS STRUCK BEFORE IT WAS EVER
+    WRITTEN DOWN (pf-adversary pass 2, D2).  A draft of this paragraph
+    argued that being islands made 39/40/41 matter "for M2 specifically",
+    by quoting M2's bar as "sail near an island ... stand on the island".
+    That ellipsis sits exactly over the two names the bar actually
+    carries: ``world_m2_arrival``'s own line 5-7 says "you are standing on
+    island 2 (Prison Exile) and island 3 (Spice Paradise)", and
+    ``pf_bridge/NOW.md`` states the same two in the owner's words.  M2's
+    islands are WIRE SCENES 2 AND 3, and both already have rosters in
+    ``world_scene_travel.CENSUS_SOURCES``.  NOTHING IN THIS MODULE SHOWS
+    THAT ANY OF THE EIGHT IS THE SCENE M2 IS WAITING ON.
 
 WHAT IS MEASURED AND WHAT IS NOT, KEPT APART ON PURPOSE.
 
@@ -83,12 +130,19 @@ WHAT THIS MODULE DOES NOT DO.
    as every other file in this M2 family (``world_m2_sea_destination``,
    ``world_m2_crossing_handoff``, ``world_m2_return_leg``,
    ``world_m2_columbus_trigger_readiness``).
-2. IT READS NO FILE.  The rows below are frozen with the digests that
-   produced them, because this package is imported by a gate run with no
-   ``pf_bridge`` beside it - the same reason every identity module in this
-   lane carries frozen rows instead of a reader.  ``tools/pf_scene_cast_
-   sources_extract.py`` is the re-derivation, and it is the thing to run
-   when a digest below stops matching.
+2. IT READS NO ``pf_bridge`` FILE, WHICH IS NOT THE SAME AS "READS NO
+   FILE" (pf-adversary pass 2, D10, correcting a draft of this line).
+   Importing this module does reach one IN-PACKAGE data file --
+   ``world_data/trigger_tip_th.tsv``, through
+   ``world_m2_sea_destination`` -> ``world_island_dock_table``, which
+   raises at import on a digest mismatch.  That import already happened on
+   this path before this module existed, so nothing new was added; the
+   claim is corrected, not the code.  What matters for the gate holds: the
+   rows below are frozen with the digests that produced them because the
+   gate runs with no ``pf_bridge`` beside it, the same reason every
+   identity module in this lane carries frozen rows instead of a reader.
+   ``tools/pf_scene_cast_sources_extract.py`` is the re-derivation, and it
+   is the thing to run when a digest below stops matching.
 3. IT DOES NOT SAY ANY SCENE IS CASTLESS.  After this round, that sentence
    is only sayable about a scene for which every source in
    ``CREATURE_LINE_SOURCES`` was checked and answered nothing, and the
@@ -140,8 +194,28 @@ MOBS_TABLE_SHA256 = (
 # marker for "empty", which is the reading the first draft got wrong.
 NO_DIRECT_CLINE_TYPE = 0xFFFFFFFF
 
-SCENE_TYPE_SEA_MAP = 4        # what 17-21 and 39-41 all are
-SCENE_TYPE_OCEAN_PANEL = 8    # what 126/127/304/305 all are
+# n_SCENE_TYPE, with its measured histogram, because a draft of these two
+# lines glossed 4 as "sea map" and named four of the five type-8 rows
+# (pf-adversary pass 2, D10).  Over all 271 scene rows:
+#   {1: 1, 2: 16, 4: 246, 8: 5, 16: 1, 32: 1, 256: 1}
+# Type 4 is the CATCH-ALL that 246 of 271 scenes carry -- scene 278, the
+# beach football test pitch, is a type 4 -- so it is evidence of nothing
+# about the sea and is named for what it is.  Type 8 has exactly five rows:
+# 126, 127, 128 (Bg3003, Bermuda, cline 3003), 304, 305.
+SCENE_TYPE_GENERIC = 4
+SCENE_TYPE_OCEAN_PANEL = 8
+OCEAN_PANEL_SCENE_IDS_ALL_FIVE = (126, 127, 128, 304, 305)
+
+# The fourteen CLINE types the measurement below joins on, and the one of
+# them that is SPARSE in the sense world_m2_sea_destination.
+# SPARSE_CLINE_TYPES means: key range wider than row count.  818 holds 7
+# rows over keys 1..8 (key 6 absent).  Recorded because that module warns in
+# its own source that "a rule tested on type 1 or type 3001 alone passes
+# while being wrong", and 3001 is the only control this round's tool has
+# (pf-adversary pass 2, D3).
+JOINED_CLINE_TYPES = (519, 520, 521, 801, 803, 805, 809, 811, 814, 816,
+                      818, 821, 823, 825)
+SPARSE_JOINED_CLINE_TYPES = (818,)
 
 SOURCE_DIRECT = "SCENE_NAME"
 SOURCE_INSTANCE = "INSTANCE"
@@ -163,8 +237,23 @@ class SceneCast(NamedTuple):
 
     ``resolved``/``placements`` are counts of that scene's own committed
     ``.placements.tsv`` rows that reach a ``MOBS`` row through
-    ``best_cline_type``.  ``composer_source`` is this lane's registered
-    roster builder for the scene if there is one, read live from
+    ``best_cline_type``.  ``best_cline_type`` is the BEST-RESOLVING of the
+    scene's candidate types, so on a scene with several level tiers
+    ``resolved`` is a MAXIMUM OVER TIERS, not a number one arrival is
+    guaranteed -- see the module docstring for scene 18, the one row where
+    the tiers disagree.
+
+    ``answering_source`` names the table that supplied a creature-line
+    TYPE.  It does NOT mean that source resolved a cast: those are
+    different sentences and the verdict is the one that answers "did
+    anything resolve" (a type that names no reachable MOBS row prints an
+    answering source beside ``NO_SOURCE_ANSWERS``, which is the honest
+    pair).  ``name_gloss`` is a HUMAN TRANSLATION of the CJK
+    ``s_SCENE_NAME``, not a measurement; ``name_source_hex`` is the
+    measured half and is what the re-derivation tool checks.
+
+    ``composer_source`` is this lane's registered roster builder for the
+    scene if there is one, read live from
     ``world_scene_travel.CENSUS_SOURCES`` rather than frozen, so the day a
     roster lands the report changes with it.
     """
@@ -172,6 +261,7 @@ class SceneCast(NamedTuple):
     scene_id: int
     model_id: str
     name_gloss: str
+    name_source_hex: str
     scene_type: int
     direct_cline_type: int
     instance_cline_types: tuple[int, ...]
@@ -188,30 +278,41 @@ class SceneCast(NamedTuple):
         return self.resolved > 0
 
 
-# scene id -> (model, ASCII gloss of s_SCENE_NAME, n_SCENE_TYPE,
-#              direct n_CLINE_TYPE, INSTANCE types, SAILING_RESULT types,
-#              placements, resolved, best type)
+# scene id -> (model, human gloss of s_SCENE_NAME, utf-8 hex of the CJK
+#              s_SCENE_NAME as shipped, n_SCENE_TYPE, direct n_CLINE_TYPE,
+#              INSTANCE types, SAILING_RESULT types, placements, resolved,
+#              best type)
 # Measured at MEASURED_AT from the digests above; re-derivable with
 # tools/pf_scene_cast_sources_extract.py.  The glosses are translations of
 # the CJK s_SCENE_NAME column, kept ASCII because this console is cp874.
 _MEASURED_ROWS: dict[int, tuple] = {
-    17: ("Bg1001", "one ship at sea", 4, NO_DIRECT_CLINE_TYPE,
-         (801, 814, 816), (), 8, 7, 801),
-    18: ("Bg1002", "two ships at sea style 1", 4, NO_DIRECT_CLINE_TYPE,
-         (803, 805, 818), (), 8, 8, 818),
-    19: ("Bg1003", "two ships at sea style 2", 4, NO_DIRECT_CLINE_TYPE,
-         (821,), (), 8, 8, 821),
-    20: ("Bg1004", "two ships at sea style 3", 4, NO_DIRECT_CLINE_TYPE,
-         (809, 823), (), 10, 10, 809),
-    21: ("Bg1005", "three ships at sea style 1", 4, NO_DIRECT_CLINE_TYPE,
-         (811, 825), (), 13, 13, 811),
-    39: ("Bg1023", "small island style 9", 4, NO_DIRECT_CLINE_TYPE,
-         (519,), (), 11, 11, 519),
-    40: ("Bg1024", "small island style 10", 4, NO_DIRECT_CLINE_TYPE,
-         (520,), (), 37, 35, 520),
-    41: ("Bg1025", "small island style 11", 4, NO_DIRECT_CLINE_TYPE,
-         (521,), (), 10, 10, 521),
-    126: ("Bg3001", "Atlantis", 8, 3001, (), (8000,), 38, 37, 3001),
+    17: ("Bg1001", "one ship at sea",
+         "e6b5b7e4b88ae4b880e88998e888b9", SCENE_TYPE_GENERIC,
+         NO_DIRECT_CLINE_TYPE, (801, 814, 816), (), 8, 7, 801),
+    18: ("Bg1002", "two ships at sea style 1",
+         "e6b5b7e4b88ae4ba8ce88998e888b92de6acbee5bc8f31", SCENE_TYPE_GENERIC,
+         NO_DIRECT_CLINE_TYPE, (803, 805, 818), (), 8, 8, 818),
+    19: ("Bg1003", "two ships at sea style 2",
+         "e6b5b7e4b88ae4ba8ce88998e888b92de6acbee5bc8f32", SCENE_TYPE_GENERIC,
+         NO_DIRECT_CLINE_TYPE, (821,), (), 8, 8, 821),
+    20: ("Bg1004", "two ships at sea style 3",
+         "e6b5b7e4b88ae4ba8ce88998e888b92de6acbee5bc8f33", SCENE_TYPE_GENERIC,
+         NO_DIRECT_CLINE_TYPE, (809, 823), (), 10, 10, 809),
+    21: ("Bg1005", "three ships at sea style 1",
+         "e6b5b7e4b88ae4b889e88998e888b92de6acbee5bc8f31", SCENE_TYPE_GENERIC,
+         NO_DIRECT_CLINE_TYPE, (811, 825), (), 13, 13, 811),
+    39: ("Bg1023", "small island style 9",
+         "e5b08fe59e8be5b3b6e5b6bc2de6acbee5bc8f39", SCENE_TYPE_GENERIC,
+         NO_DIRECT_CLINE_TYPE, (519,), (), 11, 11, 519),
+    40: ("Bg1024", "small island style 10",
+         "e5b08fe59e8be5b3b6e5b6bc2de6acbee5bc8f3130", SCENE_TYPE_GENERIC,
+         NO_DIRECT_CLINE_TYPE, (520,), (), 37, 35, 520),
+    41: ("Bg1025", "small island style 11",
+         "e5b08fe59e8be5b3b6e5b6bc2de6acbee5bc8f3131", SCENE_TYPE_GENERIC,
+         NO_DIRECT_CLINE_TYPE, (521,), (), 10, 10, 521),
+    126: ("Bg3001", "Atlantis",
+          "e4ba9ee789b9e898ade68f90e696af", SCENE_TYPE_OCEAN_PANEL,
+          3001, (), (8000,), 38, 37, 3001),
 }
 
 # The eight scenes row 302x's own options target, and the panels those
@@ -245,10 +346,10 @@ def cast_capacity(scene_id: int) -> SceneCast:
     row = _MEASURED_ROWS.get(key)
     source = _composer_source(key)
     if row is None:
-        return SceneCast(key, "", "", -1, -1, (), (), 0, 0, -1, None,
+        return SceneCast(key, "", "", "", -1, -1, (), (), 0, 0, -1, None,
                          source, VERDICT_NOT_MEASURED)
-    (model, gloss, scene_type, direct, instance_types, sailing_types,
-     placements, resolved, best) = row
+    (model, gloss, name_hex, scene_type, direct, instance_types,
+     sailing_types, placements, resolved, best) = row
     if direct != NO_DIRECT_CLINE_TYPE:
         answering = SOURCE_DIRECT
     elif instance_types:
@@ -263,9 +364,9 @@ def cast_capacity(scene_id: int) -> SceneCast:
         verdict = VERDICT_CAST_RESOLVES_PARTIALLY
     else:
         verdict = VERDICT_CAST_RESOLVES
-    return SceneCast(key, model, gloss, scene_type, direct, instance_types,
-                     sailing_types, placements, resolved, best, answering,
-                     source, verdict)
+    return SceneCast(key, model, gloss, name_hex, scene_type, direct,
+                     instance_types, sailing_types, placements, resolved,
+                     best, answering, source, verdict)
 
 
 def _composer_source(scene_id: int) -> str | None:

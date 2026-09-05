@@ -11,9 +11,12 @@ does not own:
 * the pinned rows and digests are written out again HERE, literally, so a
   row edited on one side and not the other fails;
 * scene 126's resolved count is cross-checked against
-  `world_population_bg3001.ROSTER_COUNT`, a roster this lane composed by a
-  completely different route -- 37 has to come out of both or one of them
-  is wrong;
+  `world_population_bg3001.ROSTER_COUNT` -- a CONSISTENCY check, not
+  corroboration, and pf-adversary pass 2 (D7) was right to say so: that
+  module joins the same three tables at the same pinned digests through the
+  same rule, so agreement proves the two transcriptions match, not that the
+  derivation is sound.  It still earns its place: it is the only assertion
+  here that fails when the join rule drifts on either side;
 * the target and panel sets are cross-checked against
   `world_m2_sea_destination.COLUMBUS_ROUTES`' own columns;
 * the [CONTESTED] tag is cross-checked against the SOURCE TEXT of the
@@ -45,19 +48,39 @@ from pirateforce_foundation import world_population_bg3001  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 
 # The measurement, written out a second time on purpose.  scene id ->
-# (model, n_SCENE_TYPE, direct n_CLINE_TYPE, INSTANCE types, SAILING types,
-#  placements, resolved, best type).  Re-derivable with
-# tools/pf_scene_cast_sources_extract.py against the digests below.
+# (model, utf-8 hex of the shipped CJK s_SCENE_NAME, n_SCENE_TYPE, direct
+#  n_CLINE_TYPE, INSTANCE types, SAILING types, placements, resolved, best
+#  type).  Re-derivable with tools/pf_scene_cast_sources_extract.py against
+# the digests below, which now checks every one of these fields.
 EXPECTED = {
-    17: ("Bg1001", 4, 0xFFFFFFFF, (801, 814, 816), (), 8, 7, 801),
-    18: ("Bg1002", 4, 0xFFFFFFFF, (803, 805, 818), (), 8, 8, 818),
-    19: ("Bg1003", 4, 0xFFFFFFFF, (821,), (), 8, 8, 821),
-    20: ("Bg1004", 4, 0xFFFFFFFF, (809, 823), (), 10, 10, 809),
-    21: ("Bg1005", 4, 0xFFFFFFFF, (811, 825), (), 13, 13, 811),
-    39: ("Bg1023", 4, 0xFFFFFFFF, (519,), (), 11, 11, 519),
-    40: ("Bg1024", 4, 0xFFFFFFFF, (520,), (), 37, 35, 520),
-    41: ("Bg1025", 4, 0xFFFFFFFF, (521,), (), 10, 10, 521),
-    126: ("Bg3001", 8, 3001, (), (8000,), 38, 37, 3001),
+    17: ("Bg1001", "e6b5b7e4b88ae4b880e88998e888b9", 4, 0xFFFFFFFF,
+         (801, 814, 816), (), 8, 7, 801),
+    18: ("Bg1002", "e6b5b7e4b88ae4ba8ce88998e888b92de6acbee5bc8f31", 4,
+         0xFFFFFFFF, (803, 805, 818), (), 8, 8, 818),
+    19: ("Bg1003", "e6b5b7e4b88ae4ba8ce88998e888b92de6acbee5bc8f32", 4,
+         0xFFFFFFFF, (821,), (), 8, 8, 821),
+    20: ("Bg1004", "e6b5b7e4b88ae4ba8ce88998e888b92de6acbee5bc8f33", 4,
+         0xFFFFFFFF, (809, 823), (), 10, 10, 809),
+    21: ("Bg1005", "e6b5b7e4b88ae4b889e88998e888b92de6acbee5bc8f31", 4,
+         0xFFFFFFFF, (811, 825), (), 13, 13, 811),
+    39: ("Bg1023", "e5b08fe59e8be5b3b6e5b6bc2de6acbee5bc8f39", 4,
+         0xFFFFFFFF, (519,), (), 11, 11, 519),
+    40: ("Bg1024", "e5b08fe59e8be5b3b6e5b6bc2de6acbee5bc8f3130", 4,
+         0xFFFFFFFF, (520,), (), 37, 35, 520),
+    41: ("Bg1025", "e5b08fe59e8be5b3b6e5b6bc2de6acbee5bc8f3131", 4,
+         0xFFFFFFFF, (521,), (), 10, 10, 521),
+    126: ("Bg3001", "e4ba9ee789b9e898ade68f90e696af", 8, 3001, (), (8000,),
+          38, 37, 3001),
+}
+
+# The gloss is a human translation, kept apart from the measured row above
+# so a test cannot pretend to have verified it.
+EXPECTED_GLOSS = {
+    17: "one ship at sea", 18: "two ships at sea style 1",
+    19: "two ships at sea style 2", 20: "two ships at sea style 3",
+    21: "three ships at sea style 1", 39: "small island style 9",
+    40: "small island style 10", 41: "small island style 11",
+    126: "Atlantis",
 }
 
 EXPECTED_SOURCE_DIGESTS = {
@@ -88,11 +111,13 @@ class PinnedMeasurementTests(unittest.TestCase):
             with self.subTest(scene_id=scene_id):
                 row = cast.cast_capacity(scene_id)
                 self.assertEqual(
-                    (row.model_id, row.scene_type, row.direct_cline_type,
-                     row.instance_cline_types, row.sailing_cline_types,
-                     row.placements, row.resolved, row.best_cline_type),
+                    (row.model_id, row.name_source_hex, row.scene_type,
+                     row.direct_cline_type, row.instance_cline_types,
+                     row.sailing_cline_types, row.placements, row.resolved,
+                     row.best_cline_type),
                     expected,
                 )
+                self.assertEqual(row.name_gloss, EXPECTED_GLOSS[scene_id])
 
     def test_the_three_sources_are_named_with_their_keys_and_digests(self):
         by_name = {
@@ -122,17 +147,56 @@ class PinnedMeasurementTests(unittest.TestCase):
         )
 
     def test_scene_126s_count_agrees_with_the_roster_this_lane_composed(self):
-        """The one row with a second, independent producer.  37 comes out of
-        the shipped roster module and out of this measurement, by different
-        routes; if they ever disagree one of them is wrong."""
+        """The one row with a second producer.  NOT an independent route --
+        `world_bg3001_identity` pins the same three tables at the same
+        digests and joins them the same way, so this is a consistency check
+        between two transcriptions of one derivation (pf-adversary pass 2,
+        D7, correcting this test's own earlier docstring).  It fails when
+        either side's join drifts, which is what it is for.  Note also that
+        `world_bg3001_identity` applies two further filters this
+        measurement does not (empty s_OUTFIT, non-ASCII name/title); under
+        those, scene 126 is 36, not 37."""
         row = cast.cast_capacity(126)
         self.assertEqual(row.resolved, world_population_bg3001.ROSTER_COUNT)
         self.assertEqual(row.placements,
                          world_population_bg3001.PLACEMENT_COUNT)
 
-    def test_measured_at_is_a_real_timestamp(self):
+    def test_measured_at_is_the_timestamp_this_round_measured_at(self):
         parsed = datetime.datetime.fromisoformat(cast.MEASURED_AT)
         self.assertIsNotNone(parsed.tzinfo)
+        self.assertEqual((parsed.year, parsed.month, parsed.day),
+                         (2026, 9, 5))
+
+    def test_the_joined_types_and_the_one_sparse_block_are_named(self):
+        """world_m2_sea_destination warns that a rule tested on type 1 or
+        3001 alone passes while being wrong; 818 is the sparse block this
+        round joined on and it has to be written down."""
+        joined = set()
+        for scene_id in cast.COLUMBUS_TARGET_SCENE_IDS:
+            joined |= set(cast.cast_capacity(scene_id).instance_cline_types)
+        self.assertEqual(set(cast.JOINED_CLINE_TYPES), joined)
+        self.assertEqual(cast.SPARSE_JOINED_CLINE_TYPES, (818,))
+        self.assertIn(818, cast.JOINED_CLINE_TYPES)
+
+    def test_the_five_type_eight_rows_are_all_named(self):
+        """A draft named four of the five and read as a definition."""
+        self.assertEqual(cast.OCEAN_PANEL_SCENE_IDS_ALL_FIVE,
+                         (126, 127, 128, 304, 305))
+        self.assertEqual(cast.SCENE_TYPE_OCEAN_PANEL, 8)
+        self.assertEqual(cast.SCENE_TYPE_GENERIC, 4)
+        self.assertTrue(
+            set(cast.ADVERTISED_PANEL_SCENE_IDS)
+            .issubset(set(cast.OCEAN_PANEL_SCENE_IDS_ALL_FIVE))
+        )
+
+    def test_the_two_join_table_paths_are_pinned_too(self):
+        self.assertEqual(cast.CLINE_TABLE,
+                         "gamedata/tables/CONSTDATA_TH__CLINE.tsv")
+        self.assertEqual(cast.MOBS_TABLE,
+                         "gamedata/tables/CONSTDATA_TH__MOBS.tsv")
+
+    def test_the_module_declares_itself_shippable(self):
+        self.assertIs(cast.production_allowed, True)
 
     def test_the_sentinel_is_the_all_ones_u32(self):
         self.assertEqual(cast.NO_DIRECT_CLINE_TYPE, 0xFFFFFFFF)
@@ -237,8 +301,8 @@ class DerivedNotAssertedTests(unittest.TestCase):
 
     def test_a_target_whose_cast_stops_resolving_drops_out(self):
         rows = dict(cast._MEASURED_ROWS)
-        model, gloss, stype, direct, inst, sail, plc, _res, best = rows[17]
-        rows[17] = (model, gloss, stype, direct, inst, sail, plc, 0, best)
+        row = rows[17]
+        rows[17] = row[:8] + (0,) + row[9:]
         self._with_rows(rows)
         self.assertNotIn(17, cast.targets_with_a_resolvable_cast())
         self.assertEqual(cast.cast_capacity(17).verdict,
@@ -264,16 +328,16 @@ class DerivedNotAssertedTests(unittest.TestCase):
 
     def test_a_full_resolution_reads_differently_from_a_partial_one(self):
         rows = dict(cast._MEASURED_ROWS)
-        model, gloss, stype, direct, inst, sail, plc, _res, best = rows[17]
-        rows[17] = (model, gloss, stype, direct, inst, sail, plc, plc, best)
+        row = rows[17]
+        rows[17] = row[:8] + (row[7],) + row[9:]
         self._with_rows(rows)
         self.assertEqual(cast.cast_capacity(17).verdict,
                          cast.VERDICT_CAST_RESOLVES)
 
     def test_a_scene_with_no_source_at_all_is_not_called_unmeasured(self):
         rows = dict(cast._MEASURED_ROWS)
-        rows[555] = ("Bg0555", "invented", 4, cast.NO_DIRECT_CLINE_TYPE,
-                     (), (), 4, 0, -1)
+        rows[555] = ("Bg0555", "invented", "00", cast.SCENE_TYPE_GENERIC,
+                     cast.NO_DIRECT_CLINE_TYPE, (), (), 4, 0, -1)
         self._with_rows(rows)
         row = cast.cast_capacity(555)
         self.assertIsNone(row.answering_source)
@@ -284,6 +348,61 @@ class DerivedNotAssertedTests(unittest.TestCase):
         row = cast.cast_capacity(4242)
         self.assertEqual(row.verdict, cast.VERDICT_NOT_MEASURED)
         self.assertNotEqual(row.verdict, cast.VERDICT_NO_SOURCE_ANSWERS)
+
+    def test_a_bad_scene_id_reports_rather_than_raising(self):
+        for bad in (None, "seventeen", object()):
+            with self.subTest(bad=bad):
+                self.assertEqual(cast.cast_capacity(bad).verdict,
+                                 cast.VERDICT_NOT_MEASURED)
+
+    def test_a_sailing_only_scene_names_its_source_and_still_says_nothing_resolved(
+        self,
+    ):
+        """The SAILING_RESULT branch has never run on a pinned row, and it
+        would report a source beside a zero.  That pair is deliberate --
+        answering_source names the table that supplied a TYPE, not one that
+        resolved a cast -- so it is exercised and pinned rather than left as
+        an unexercised branch nobody has read (CLINE type 8000's seven rows
+        carry leaders 3601-3607, none of which exist in MOBS)."""
+        rows = dict(cast._MEASURED_ROWS)
+        rows[777] = ("Bg7777", "sailing only", "00", cast.SCENE_TYPE_OCEAN_PANEL,
+                     cast.NO_DIRECT_CLINE_TYPE, (), (8000,), 38, 0, -1)
+        self._with_rows(rows)
+        row = cast.cast_capacity(777)
+        self.assertEqual(row.answering_source, cast.SOURCE_SAILING)
+        self.assertEqual(row.verdict, cast.VERDICT_NO_SOURCE_ANSWERS)
+        self.assertFalse(row.a_cast_resolves)
+
+    def test_a_direct_type_wins_over_an_instance_type(self):
+        """No pinned row carries both, so the precedence has never run."""
+        rows = dict(cast._MEASURED_ROWS)
+        rows[888] = ("Bg8888", "both", "00", cast.SCENE_TYPE_GENERIC,
+                     3001, (801,), (), 4, 4, 3001)
+        self._with_rows(rows)
+        self.assertEqual(cast.cast_capacity(888).answering_source,
+                         cast.SOURCE_DIRECT)
+
+    def test_the_resolving_count_is_the_measurement_not_the_input_size(self):
+        """`targets_resolving=N/8` must fall when a target stops resolving;
+        a numerator that echoes the denominator cannot tell the two
+        apart."""
+        rows = dict(cast._MEASURED_ROWS)
+        row = rows[40]
+        rows[40] = row[:8] + (0,) + row[9:]
+        self._with_rows(rows)
+        line = cast.sea_scene_cast_console_line()
+        self.assertIn("targets_resolving=7/8", line)
+        self.assertNotIn("targets_resolving=8/8", line)
+
+    def test_the_unbuilt_field_says_none_when_every_target_is_built(self):
+        original = dict(world_scene_travel.CENSUS_SOURCES)
+        for scene_id in cast.COLUMBUS_TARGET_SCENE_IDS:
+            world_scene_travel.CENSUS_SOURCES[scene_id] = "pretend_roster"
+        self.addCleanup(
+            lambda: (world_scene_travel.CENSUS_SOURCES.clear(),
+                     world_scene_travel.CENSUS_SOURCES.update(original)))
+        self.assertIn("targets_buildable_unbuilt=none",
+                      cast.sea_scene_cast_console_line())
 
 
 class ConsoleLineTests(unittest.TestCase):
@@ -321,6 +440,21 @@ class ConsoleLineTests(unittest.TestCase):
 
 class DispatchReportTests(unittest.TestCase):
     """The line has to actually reach the default path, last, and whole."""
+
+    def test_the_dispatch_calls_the_never_raises_wrapper(self):
+        """The fail-open contract lives at the CALL SITE.  Testing the
+        wrapper alone leaves the crossing free to call the raising one."""
+        source = Path(
+            columbus_quest_dispatch.__file__
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "world_m2_sea_scene_cast.sea_scene_cast_console_line_safe()",
+            source,
+        )
+        self.assertNotIn(
+            "emit(world_m2_sea_scene_cast.sea_scene_cast_console_line())",
+            source,
+        )
 
     def test_the_crossing_prints_the_whole_line_last(self):
         lines = []
