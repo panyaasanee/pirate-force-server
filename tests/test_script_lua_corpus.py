@@ -73,5 +73,130 @@ class FullCorpusLoadsHeadlessTests(unittest.TestCase):
                 self.assertEqual(vendored, real)
 
 
+#: Measured 2026-09-05, round 4jsydv, calling every present
+#: script_host.STANDARD_ENTRY_POINTS function across the real corpus.  Both
+#: causes are bugs/gaps in the SHIPPED scripts, not this host, and this set
+#: must change in the SAME commit as any fix to script_host.py, per the
+#: same reasoning as KNOWN_LOAD_FAILURES above:
+#:
+#: - the four q_*_anticlass.lua / q_repeat_*_new.lua files declare
+#:   `local check_N` INSIDE nested if/then blocks in Report_Check, then
+#:   read `check_N` again after those blocks close -- by then the local has
+#:   gone out of scope, so standard Lua lexical scoping resolves the name to
+#:   an ever-nil global.  Verified in the source itself (grep
+#:   "local check_1" gamedata/lua/Quest/q_gather_anticlass.lua): the
+#:   declarations sit inside `if`/`else` bodies, the read sits after them.
+#: - the twelve t_*rat*.lua files call a bare global `rate(dicevalue)`
+#:   that is defined in gamedata/lua/utility.lua, not in the calling file.
+#:   This host gives every script its OWN Lua state (module docstring:
+#:   "ONE LUA STATE PER SCRIPT", deliberate, to stop 616 files sharing one
+#:   global namespace from silently overwriting each other's same-named
+#:   entry points) so a name defined in one file is never visible from
+#:   another -- and utility.lua itself is in KNOWN_LOAD_FAILURES (it calls
+#:   os.time() at its own top level, which the sandbox blocks), so even a
+#:   shared-preload design would not yet make `rate` real here.  Nonclaim:
+#:   this does NOT show the original client-side engine hits the same
+#:   error -- it plausibly loads utility.lua once into a shared global
+#:   environment before running any trigger/quest script, which this
+#:   isolated-per-script host does not attempt (out of scope this round).
+KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
+    ("Quest/q_gather_anticlass.lua", "Report_Check"),
+    ("Quest/q_kill_anticlass.lua", "Report_Check"),
+    ("Quest/q_repeat_gather_new.lua", "Report_Check"),
+    ("Quest/q_repeat_kill_new.lua", "Report_Check"),
+    ("t_ge2tm_rat.lua", "ScriptStart"),
+    ("t_getm_rat_exp&sp.lua", "ScriptStart"),
+    ("t_indani_l_cat_pt_rat.lua", "ScriptStart"),
+    ("t_ins_ratx3_lv.lua", "ScriptStart"),
+    ("t_ins_ratx4_lv.lua", "ScriptStart"),
+    ("t_ins_ratx5_lv.lua", "ScriptStart"),
+    ("t_ins_ratx6_lv.lua", "ScriptStart"),
+    ("t_inskyev_danifx_rat.lua", "ScriptStart"),
+    ("t_inskyev_getm_rat_exp&sp.lua", "ScriptStart"),
+    ("t_inskyev_himdlfx_rat.lua", "ScriptStart"),
+    ("t_inskyev_rat.lua", "ScriptStart"),
+    ("t_opnplc_rat_lv.lua", "ScriptStart"),
+    ("t_opnplc_rat_setoth.lua", "ScriptStart"),
+})
+
+#: Measured 2026-09-05, round 4jsydv, on the real 616-file corpus: calling
+#: every STANDARD_ENTRY_POINTS function present in each file, with every
+#: Quest/Trigger instance field (Var*/RewardItem*/StringVar*/...) reading
+#: STUB_DEFAULT=0 per script_host's own contract, produced 5057 total
+#: LUA_API_STUB emissions (STUB calls ONLY -- the 346 calls to Trigger's 5
+#: REAL methods, e.g. 201 NextStatus/121 GetTriggerStatus, are counted
+#: separately in report.total_real_calls, never folded in here; see
+#: script_host.REAL_QUALIFIED_NAMES and CorpusEntryPointReport's own
+#: docstring for why that split needed its own test after a first draft
+#: got this wrong) across 137 distinct <Namespace>.<Method> names.  A round
+#: that lands a real API implementation makes every call to that name, in
+#: every script that makes it, stop counting here -- so this number may
+#: only fall or hold; a round that raises it has made stub coverage worse,
+#: not a rounding artifact, and the test below is written to catch that.
+BASELINE_TOTAL_STUB_CALLS = 5057
+
+
+@LUA_CORPUS_RUNNABLE.skip_unless_present()
+class FullCorpusEntryPointCallsTests(unittest.TestCase):
+    """Not just loading the 616 files (above) -- CALLING what each one
+    defines, per script_host.run_corpus_entry_points.  This is what
+    actually exercises the 160-name API surface at realistic call volume,
+    rather than the trivial single-call cases test_script_lua_api_*.py's
+    unit tests use.
+    """
+
+    def test_every_present_entry_point_gets_called_or_its_failure_is_pinned(self):
+        report = script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        self.assertEqual(set(report.load_failed), KNOWN_LOAD_FAILURES)
+        # Structural lookup (run.errors is keyed by entry-point name), not a
+        # substring search over a concatenated message -- a name that
+        # happened to be a substring of another entry point's error text
+        # would silently misattribute the failure under a string search.
+        actual_failures = {
+            (run.path, name)
+            for run in report.call_failed
+            for name in run.errors
+        }
+        self.assertEqual(actual_failures, KNOWN_ENTRY_POINT_CALL_FAILURES)
+
+    def test_stub_vs_real_call_split_is_not_conflated(self):
+        # Regression test for the exact bug this round's own draft made and
+        # caught before push (see CorpusEntryPointReport's docstring):
+        # Trigger's real methods share one RealTriggerNamespace.calls list
+        # with its 12 still-stub methods, so a naive "sum every namespace's
+        # .calls" silently double-books real calls as stub calls.
+        report = script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        stub_names = set(report.stub_call_counts)
+        real_names = set(report.real_call_counts)
+        self.assertEqual(stub_names & real_names, set())
+        self.assertTrue(real_names.issubset(script_host.REAL_QUALIFIED_NAMES))
+        self.assertEqual(report.total_real_calls, sum(report.real_call_counts.values()))
+        self.assertEqual(report.total_stub_calls, sum(report.stub_call_counts.values()))
+
+    def test_no_script_defines_zero_standard_entry_points(self):
+        # Measured 2026-09-05: every one of the 611 loadable files defines
+        # at least one of STANDARD_ENTRY_POINTS.  A file with none would be
+        # silent dead weight this report's totals would never explain --
+        # this test is the tripwire if the corpus ever grows one.
+        report = script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        self.assertEqual(report.no_entry_point, [])
+
+    def test_run_corpus_entry_points_never_raises_out_of_the_full_616_file_run(self):
+        try:
+            script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        except Exception as exc:  # noqa: BLE001 - this IS the assertion
+            self.fail("run_corpus_entry_points raised instead of failing closed: %r" % exc)
+
+    def test_exactly_the_pinned_stub_call_count_no_more_no_fewer(self):
+        # Same shape as test_exactly_the_known_failures_fail_no_more_no_fewer
+        # above: an exact pin, not a <= ceiling, so this goes red the moment
+        # ANYTHING changes it -- a round that lands a real API (count should
+        # fall) must lower BASELINE_TOTAL_STUB_CALLS in the same commit, and
+        # a round that regresses one (count would rise) gets caught here
+        # instead of silently drifting.
+        report = script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        self.assertEqual(report.total_stub_calls, BASELINE_TOTAL_STUB_CALLS)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

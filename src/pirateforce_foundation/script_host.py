@@ -312,3 +312,178 @@ def load_corpus(root, log: Optional[Callable[[str], None]] = None) -> LoadReport
         else:
             report.ok += 1
     return report
+
+
+#: The names the original engine calls on a quest/trigger script, not names
+#: this lane invented.  Measured by grepping every top-level
+#: ``function Name(...)`` definition across the real 616-file corpus
+#: (``gamedata/PF_GAMEDATA_LUA_API.tsv``'s sibling source, ``gamedata/lua/``):
+#: these eight take zero arguments and account for 2396 of the roughly 2451
+#: top-level function definitions in the corpus (measured 2026-09-05, round
+#: 4jsydv) -- ``ScriptStart`` 309, ``Report_Check`` 307, ``Report_Run`` 306,
+#: ``Delete_Run`` 306, ``Accept_Check`` 306, ``Accept_Run`` 305,
+#: ``OpenReportUI_Run`` 293, ``OpenAcceptUI_Run`` 264.  The remaining ~10
+#: definitions (``Ex_Mission``, ``Check_Level``, ``Single_Mission_Check``,
+#: ``Kill_Percentage``, ...) are helper functions a script calls on itself
+#: from inside one of these eight, take arguments, and are not something an
+#: outside caller invokes directly -- they are exercised (or not) as a side
+#: effect of calling the eight below, never called by this module directly.
+STANDARD_ENTRY_POINTS: tuple = (
+    "ScriptStart", "Accept_Check", "Accept_Run", "Report_Check", "Report_Run",
+    "Delete_Run", "OpenAcceptUI_Run", "OpenReportUI_Run",
+)
+
+#: Fully-qualified (``Namespace.Method``) names that are REAL today, not
+#: stubs -- currently just the 5 of ``Trigger``'s 17
+#: (``lua_api.trigger.REAL_METHODS``).  Every other namespace is a plain
+#: ``ApiNamespaceStub`` where 100% of tracked calls are stubs, but
+#: ``RealTriggerNamespace`` appends BOTH real and stub calls to the same
+#: ``.calls`` list (``lua_api/trigger.py``), so :func:`run_corpus_entry_points`
+#: checks the qualified name against this set, not against which Python
+#: object the call came from, to keep "real" and "still stubbed" from being
+#: silently conflated in the corpus-wide tally.
+REAL_QUALIFIED_NAMES: frozenset = frozenset(
+    "Trigger.%s" % _name for _name in lua_api_trigger.REAL_METHODS
+)
+
+
+@dataclass
+class EntryPointRun:
+    path: str
+    called: list
+    ok: bool = True
+    #: entry-point name -> ascii-safe exception message, keyed structurally
+    #: (not a concatenated string a caller would have to substring-match to
+    #: recover which of possibly several called names actually failed).
+    errors: dict = field(default_factory=dict)
+
+
+@dataclass
+class CorpusEntryPointReport:
+    """What happens when every :data:`STANDARD_ENTRY_POINTS` function a
+    script defines is actually CALLED, not just loaded -- one Lua state per
+    script, same isolation as :func:`load_corpus`.
+
+    UNDERCOUNTS ON PURPOSE, SAID PLAINLY.  Every ``Quest.VarN`` /
+    ``Quest.RewardItemN`` / ``Trigger.VarN`` field this harness supplies
+    reads :data:`STUB_DEFAULT` (0), because no real per-instance quest/
+    trigger DATA (as opposed to API surface) is wired yet.  A script branch
+    gated on one of those fields being nonzero (``if Quest.RewardItem1 > 0
+    then Player.AddItem(...) end`` -- half of ``q_kill5.lua``'s own
+    ``Report_Run``) never runs here, so ``total_stub_calls`` is a FLOOR on
+    what a real quest instance calls, not an exact count.  It is still the
+    right number for the charter's own regression ask (backup work item 2:
+    "count remaining LUA_API_STUB, this number must fall every week") --
+    real API implementations remove calls from every script that uses them
+    regardless of instance data, so the floor falls in lockstep with real
+    coverage, even though its absolute value undercounts a live game.
+
+    ``total_stub_calls`` COUNTS ONLY STUBS, MEASURED SEPARATELY FROM REAL
+    CALLS -- NOT "every namespace call".  ``RealTriggerNamespace`` (5 real
+    methods, 12 still-stub methods) appends EVERY call it receives, real or
+    stub, to the same ``.calls`` list (``lua_api/trigger.py``); a first
+    draft of this function summed every namespace's ``.calls`` length
+    directly and got 5403, silently folding 346 real ``Trigger.NextStatus``/
+    ``GetTriggerStatus``/``SetTriggerStatus``/``GetTeiggerStatus`` calls
+    into a count that is supposed to mean "still stubbed" -- caught before
+    push by hand-checking the top-line numbers against
+    ``lua_api.trigger.REAL_METHODS``, not by a test (there was no test yet;
+    see ``test_stub_vs_real_call_split_is_not_conflated`` in
+    ``tests/test_script_lua_corpus.py``, added because of this).  This
+    function now checks each qualified name against
+    ``lua_api_trigger.REAL_METHODS`` and tallies it as real, never stub,
+    regardless of which Python object's ``.calls`` list it came from -- so
+    the day another namespace grows a mix of real and stub methods, this
+    split keeps working without changes here.
+    """
+    total: int = 0
+    load_failed: list = field(default_factory=list)
+    no_entry_point: list = field(default_factory=list)
+    ran: list = field(default_factory=list)
+    call_failed: list = field(default_factory=list)
+    total_stub_calls: int = 0
+    stub_call_counts: dict = field(default_factory=dict)
+    total_real_calls: int = 0
+    real_call_counts: dict = field(default_factory=dict)
+
+
+def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None) -> CorpusEntryPointReport:
+    """Load every ``*.lua`` file under ``root`` AND call the standard entry
+    points it defines, tallying every ``LUA_API_STUB``/``LUA_TRIGGER_REAL``
+    call each one made along the way.
+
+    Fail-closed like :func:`load_corpus`: a script that fails to load, or an
+    entry point that raises when called, is logged (``LUA_SCRIPT <path> ERR
+    ...`` on load failure, ``LUA_SCRIPT <path> ERR entry=<name> ...`` on a
+    call failure) and recorded, but never propagates -- one script's own
+    shipped bug (see ``KNOWN_ENTRY_POINT_CALL_FAILURES`` in
+    ``tests/test_script_lua_corpus.py`` for two the real corpus has today)
+    must never stop this function from finishing the other 615.
+
+    NOT FAIL-CLOSED AGAINST A HANG, MEASURED (pf-adversary, round 4jsydv).
+    ``try/except Exception`` catches an entry point that RAISES; it cannot
+    catch one that never returns.  ``function f() return f() end`` (Lua's
+    proper tail-call optimisation means this never overflows the C stack
+    into a catchable error) makes ``host.call`` spin forever with no
+    exception to catch -- adversary reproduced this against this exact
+    function.  ``grep -rlE '\\bwhile\\b' gamedata/lua`` is empty (re-checked
+    independently, round 4jsydv) so the shipped 616-file corpus contains no
+    ``while`` loop today, and no unbounded-recursion pattern was confirmed
+    in it either (adversary's own recursion heuristic was not reliable
+    enough to rule one in or out) -- so this is a real structural gap with
+    no known live trigger in the current corpus, not a false alarm to
+    dismiss.  It matters most on the path ``lua_api/trigger.py`` names as
+    the template a future live ``TriggerVital`` dispatch will reuse
+    (``ScriptHost.call`` against a real inbound frame): a hang there would
+    wedge the listener thread for every player in the scene, not just fail
+    one test.  Adding an instruction-count or wall-clock budget to
+    ``ScriptHost.call`` is follow-up work, out of scope for this round
+    (named here rather than silently deferred) -- ``lupa.LuaRuntime``
+    supports neither natively; the closest primitives are Lua's own debug
+    hook (blocked, see ``BLOCKED_GLOBALS``) or a `signal.alarm`-based
+    wall-clock cutoff around ``host.call``, both untried here.
+    """
+    log = log or default_logger
+    root = Path(root)
+    report = CorpusEntryPointReport()
+    for path in sorted(root.rglob("*.lua")):
+        report.total += 1
+        rel = path.relative_to(root).as_posix()
+        try:
+            host = load_script_file(path, log=log)
+        except Exception as exc:  # noqa: BLE001 - fail-closed, see load_corpus
+            message = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+            log("LUA_SCRIPT %s ERR %s" % (rel, message))
+            report.load_failed.append(rel)
+            continue
+
+        present = [name for name in STANDARD_ENTRY_POINTS if host.has_function(name)]
+        if not present:
+            report.no_entry_point.append(rel)
+        else:
+            run = EntryPointRun(path=rel, called=present)
+            for name in present:
+                try:
+                    host.call(name)
+                except Exception as exc:  # noqa: BLE001 - fail-closed, one script must not sink the corpus
+                    message = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+                    log("LUA_SCRIPT %s ERR entry=%s %s" % (rel, name, message))
+                    run.ok = False
+                    run.errors[name] = message
+            if run.ok:
+                report.ran.append(run)
+            else:
+                report.call_failed.append(run)
+
+        for namespace in host.namespaces.values():
+            calls = getattr(namespace, "calls", None)
+            if not calls:
+                continue
+            for qualified in calls:
+                if qualified in REAL_QUALIFIED_NAMES:
+                    report.total_real_calls += 1
+                    report.real_call_counts[qualified] = report.real_call_counts.get(qualified, 0) + 1
+                else:
+                    report.total_stub_calls += 1
+                    report.stub_call_counts[qualified] = report.stub_call_counts.get(qualified, 0) + 1
+    return report

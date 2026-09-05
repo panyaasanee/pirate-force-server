@@ -1067,14 +1067,19 @@
     {
       "key": "lua_corpus_runnable",
       "module": "tests/test_script_lua_corpus.py",
-      "count": 4,
+      "count": 9,
       "tests": [
         "FullCorpusLoadsHeadlessTests::test_exactly_the_known_failures_fail_no_more_no_fewer",
         "FullCorpusLoadsHeadlessTests::test_load_corpus_never_raises_out_of_the_full_616_file_run",
         "FullCorpusLoadsHeadlessTests::test_loader_visits_every_lua_file_on_disk",
-        "FullCorpusLoadsHeadlessTests::test_the_two_named_charter_fixtures_are_identical_to_the_real_files"
+        "FullCorpusLoadsHeadlessTests::test_the_two_named_charter_fixtures_are_identical_to_the_real_files",
+        "FullCorpusEntryPointCallsTests::test_every_present_entry_point_gets_called_or_its_failure_is_pinned",
+        "FullCorpusEntryPointCallsTests::test_no_script_defines_zero_standard_entry_points",
+        "FullCorpusEntryPointCallsTests::test_run_corpus_entry_points_never_raises_out_of_the_full_616_file_run",
+        "FullCorpusEntryPointCallsTests::test_exactly_the_pinned_stub_call_count_no_more_no_fewer",
+        "FullCorpusEntryPointCallsTests::test_stub_vs_real_call_split_is_not_conflated"
       ],
-      "note": "round s2fxf6 (LANE-Q). This module loads the real 616 shipped scripts from ../pf_bridge/gamedata/lua/, so it needs TWO unrelated things at once: the bridge corpus beside this clone and the lupa package in this interpreter. It is guarded by ONE composite key (lua_corpus_runnable = BRIDGE_LUA_SCRIPTS AND LUPA_PACKAGE) rather than two stacked skipUnless decorators, because unittest records one skip reason per test: whichever decorator sits outermost wins when both conditions are false, and this census grades each key independently against a static count, so the losing key would expect N and observe zero. No pair of static counts is right in all four machine states; one key has exactly one count in every state. Full reasoning in the AllOfThese docstring in tests/pf_preconditions.py. MEASURED 2026-09-05: 4 skips under this key on a lupa-free venv, 0 on this lane's cloud round with both pieces present (all four ran, 616 files loaded)."
+      "note": "round s2fxf6 (LANE-Q), count updated round 4jsydv (LANE-Q). This module loads the real 616 shipped scripts from ../pf_bridge/gamedata/lua/, so it needs TWO unrelated things at once: the bridge corpus beside this clone and the lupa package in this interpreter. It is guarded by ONE composite key (lua_corpus_runnable = BRIDGE_LUA_SCRIPTS AND LUPA_PACKAGE) rather than two stacked skipUnless decorators, because unittest records one skip reason per test: whichever decorator sits outermost wins when both conditions are false, and this census grades each key independently against a static count, so the losing key would expect N and observe zero. No pair of static counts is right in all four machine states; one key has exactly one count in every state. Full reasoning in the AllOfThese docstring in tests/pf_preconditions.py. MEASURED 2026-09-05 (round s2fxf6): 4 skips under this key on a lupa-free venv, 0 on this lane's cloud round with both pieces present. RE-MEASURED 2026-09-05 (round 4jsydv), after adding FullCorpusEntryPointCallsTests (5 tests, same class-level skip_unless_present() decorator as the existing class): 9 skips under this key on a lupa-free venv (`pip uninstall -y lupa` then pytest -rs in this same cloud session, count confirmed from the SKIPPED summary lines, not assumed from the source diff), 0 with lupa reinstalled and the bridge corpus present (all nine ran)."
     }
   ],
   "windows_gate_excluded_modules": {
