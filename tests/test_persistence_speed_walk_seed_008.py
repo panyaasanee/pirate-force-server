@@ -768,14 +768,15 @@ class BootSnapshotProtects008Tests(_MigratedWorkspace):
         self.assertTrue(take, reason)
         self.assertIn("008", reason)
         # 009, round `5d02mu`'s 010 (`010_ground_drops.sql`), round
-        # `6796cv`'s 011 (`011_character_skills.sql`), and round `p6x3ee`'s
-        # 012 (`012_ground_drops_taken_marker.sql`) all joined the directory
+        # `6796cv`'s 011 (`011_character_skills.sql`), round `p6x3ee`'s
+        # 012 (`012_ground_drops_taken_marker.sql`), and round `j9wwc4`'s
+        # 013 (`013_character_home_marker.sql`) all joined the directory
         # after this test was written, so a database that stopped at 007
-        # now has all five pending.  Still an exact list and not an
+        # now has all six pending.  Still an exact list and not an
         # `assertIn`: the point of the pin is that the snapshot is due for a
         # KNOWN set of pending files, and a membership test would keep
-        # passing while a thirteenth file nobody looked at joined them.
-        self.assertEqual([8, 9, 10, 11, 12],
+        # passing while a fourteenth file nobody looked at joined them.
+        self.assertEqual([8, 9, 10, 11, 12, 13],
                          persistence_backup.pending_versions(self.path,
                                                              MIGRATIONS))
 

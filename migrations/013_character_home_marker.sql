@@ -1,0 +1,76 @@
+-- 013_character_home_marker.sql
+-- LANE-DB / the home-marker persistence door -- the bare table.
+--
+-- WHAT THIS FILE DOES.  One new table, `character_home_marker`, one row
+-- per character, holding the scene id a "born again" respawn should return
+-- the character to.  No existing table is touched and no existing row is
+-- written -- every character has zero rows here until `SQLiteStore.
+-- set_home_marker` (added alongside this file) writes one.
+--
+-- WHY THIS ROUND.  `notes_to_chief/20260905_1154_COO-DECISION-db-takes-no-
+-- world-work-home-marker-persistence-row-queued-after-1044-LANE-DB.md`
+-- point 3(b): a live attended round (R317, `notes_to_chief/
+-- 20260905_1125_KA1A-R317-RESULTS-*.md`) measured the server refusing
+-- quest 3205 (Columbus, "born again") with
+-- `COLUMBUS_QUEST3205_BORNAGAIN_REFUSED reason=no_home_marker_persistence_
+-- row_evidence` -- the refusal names the exact gap this table exists to
+-- close.  Quest 3205's own dispatch is `runtime.py`'s (this lane's charter,
+-- `COO-DECISION 20260901_1100`, does not touch that file); this migration
+-- and the store door built on it are the persistence half the refusal is
+-- waiting on, handed to chief as a CORE-REQUEST for the hookup itself.
+--
+-- WHY A NEW TABLE AND NOT A COLUMN ON `character_positions`.
+-- `character_positions` (`migrations/001_initial.sql`) is a character's
+-- CURRENT location -- every column on it is overwritten in place every
+-- time the character moves (`SQLiteStore.save_position`).  A home marker
+-- is a DIFFERENT fact: where a "born again" respawn returns the character
+-- TO, independent of where the character currently stands.  Folding it
+-- onto `character_positions` would make an ordinary walk (which rewrites
+-- every column on that row) silently answer a question about home the
+-- schema was never asked, and would need a second, parallel set of
+-- `x`/`y`/`z`/`heading` columns on the same table to avoid exactly that
+-- collision -- a new table with its own one-column fact is the simpler
+-- shape and keeps "current position" and "home" from ever being able to
+-- clobber one another.
+--
+-- WHY ONE COLUMN (`home_scene_id`) AND NOT A FULL POSITION.  The refusal
+-- token measured in R317 names the gap as `no_home_marker_persistence_
+-- row_evidence` against quest 3205's OWN pass criterion (`notes_to_chief/
+-- 20260905_1154`, point 3(b): "กดตัวเลือก 2 ที่ Columbus แล้วฐานทัพ = Port
+-- Royal รอด relog" -- home base becomes a SCENE, Port Royal, surviving
+-- relog) -- nothing measured so far asks this table to also remember a
+-- spawn x/y/z inside that scene, and this lane's charter (`COO-DECISION
+-- 20260901_1059`) forbids writing a column no proven requirement names.
+-- The scene a character spawns at is already a fact every scene entry
+-- already resolves on its own (the same way `/warp <n>` resolves a spawn
+-- point for scene `<n>` today, per `PANYA-DECISION 1800` /
+-- `character_positions`) -- this table adds only the ONE fact that
+-- resolution does not yet have anywhere to read: WHICH scene is home.  A
+-- later round can widen this table the day a proven requirement names a
+-- home marker that must survive at a finer grain than "which scene".
+--
+-- WHY `home_scene_id` HAS NO DEFAULT AND NO BACKFILL.  Every character
+-- created before this migration runs gets ZERO rows in this table, not a
+-- row seeded to any guessed scene -- `SQLiteStore.get_home_marker` (added
+-- alongside this file) returns `None` for a character with no row, and
+-- the caller (quest 3205's own dispatch, `runtime.py`, not this lane's to
+-- write) decides what "no home marker set yet" means for a character who
+-- predates this table.  Guessing a default here would be exactly the kind
+-- of unproven fabricated value `COO-DECISION 20260901_1059` forbids.
+--
+-- WHY NO AUTOMATIC BACKUP MECHANISM IS ADDED BY THIS FILE.
+-- `COO-DECISION 20260901_1112` point 3 requires an automatic pre-apply
+-- snapshot for a migration that touches EXISTING ROWS (backfill/UPDATE/
+-- rebuild).  This file writes no `UPDATE`, backfills nothing and rebuilds
+-- no table -- it is one `CREATE TABLE` with zero rows the moment it runs,
+-- the same shape `migrations/010_ground_drops.sql` and
+-- `012_ground_drops_taken_marker.sql` already gave the identical reasoning
+-- for.  The server-wide automatic snapshot (`SQLiteStore.
+-- migrate_with_backup`, `persistence_backup.should_snapshot`) already
+-- covers this migration like every other pending one, the day chief wires
+-- a boot path to call it instead of bare `migrate()`.
+CREATE TABLE character_home_marker (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+    home_scene_id INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);

@@ -316,6 +316,14 @@ EXPECTED_TABLES = {
     # (notes_to_chief/20260901_1416 / 20260901_1459): this pin counts tables,
     # it does not test this file's own npc_interaction behaviour.
     "character_skills",
+    # character_home_marker: the "born again" home-scene persistence door,
+    # not quest/shop/reward state -- COO-DECISION 20260905_1154 point 3(b)
+    # ordered the table (migrations/013_character_home_marker.sql).  Same
+    # one-line whitelist pattern chief blessed for ground_drops/
+    # character_skills above (notes_to_chief/20260901_1416 / 20260901_1459):
+    # this pin counts tables, it does not test this file's own
+    # npc_interaction behaviour.
+    "character_home_marker",
 }
 
 
