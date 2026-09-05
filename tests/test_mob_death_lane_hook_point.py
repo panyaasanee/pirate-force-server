@@ -502,8 +502,14 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
     def test_a_raising_subscriber_on_the_split_path_costs_only_the_hook(self):
         # The same guarantee test_a_raising_subscriber_costs_the_hook_and_
         # not_the_kill pins for commit_death, held for the split path too:
-        # a mutant that dropped the try/except from fire_mob_death_hook when
-        # it was extracted would go red here.
+        # the kill is committed (register returned) and the well-behaved
+        # SECOND subscriber still gets delivered, even though the first one
+        # raised.  NOT a mutation-target for fire_mob_death_hook's own
+        # try/except (pf-adversary, round dggvou, measured that removing it
+        # leaves this test green: lane_hooks.fire() already isolates each
+        # subscriber's own exception before it reaches this function - see
+        # that function's docstring for what its try/except actually guards,
+        # which is the `from . import lane_hooks` door, not a subscriber).
         def explode(**_):
             raise RuntimeError("a lane hook with a bug in it")
 
@@ -517,6 +523,27 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
             mob_death.fire_mob_death_hook(pending, announce=False)
         self.assertIs(register, step.register)
         self.assertEqual(len(self.received), 1)
+
+    def test_firing_the_same_pending_hook_twice_is_refused(self):
+        # pf-adversary, round dggvou, reviewing the D11 split above: nothing
+        # stopped a caller from firing one PendingMobDeathHook twice, which
+        # sends a subscriber two identical mob_death events for one accepted
+        # kill - the exact double-count first_in_the_world exists to let a
+        # subscriber detect, reopened one layer up where that field cannot
+        # see it, because both fires would carry the same payload.
+        self._subscribe(lambda **kw: self.received.append(kw))
+        stored, step = self._a_kill()
+        with contextlib.redirect_stderr(io.StringIO()):
+            _, pending = mob_death.commit_death_and_prepare_hook(
+                stored, step, announce=False)
+            mob_death.fire_mob_death_hook(pending, announce=False)
+            with self.assertRaises(mob_death.MobDeathContractError) as ctx:
+                mob_death.fire_mob_death_hook(pending, announce=False)
+        self.assertEqual(
+            ctx.exception.reason, mob_death.REFUSE_HOOK_ALREADY_FIRED)
+        self.assertEqual(
+            len(self.received), 1,
+            "the refused second fire must not reach any subscriber")
 
     # ------------------------------------------------------------------
     # D10 (pf-adversary, round 2zybdx, deferred to round dggvou): the hook
