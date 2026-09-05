@@ -259,13 +259,21 @@ def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
     unqualified claim was false and the counter-example was twenty lines away
     in the same file.
 
-    ``class_id`` IS ``None`` ON EVERY HIT TODAY and the module says so in its
-    own header: ``characters.class_id`` has a writer and no reader, and this
-    function's caller (``runtime.py``, chief's file) does not pass one.  The
-    refusal is not silent -- ``POSE_NO_EQUIP_PROVENANCE`` prints per hit,
+    ``class_id`` ARRIVED AS ``None`` ON EVERY HIT UNTIL CORE-REQUEST
+    20260905_2242 LANDED: ``runtime.py``'s call site (chief's file) now
+    passes ``selected.class_id``, so a character whose row resolved a class
+    (``session.py``'s login read) reaches this function with a real value
+    and gets the production swing described above. ``class_id`` is still
+    ``None`` for a character whose row never resolved one, and the refusal
+    is not silent then -- ``POSE_NO_EQUIP_PROVENANCE`` prints per hit,
     which is what item 2 of that decision asks for -- and the frame stays
     byte-identical to main: the inherited v141 dispatch already echoed this
-    request's own ``+0x30`` back before ``_dispatch_mob_combat`` ran.
+    request's own ``+0x30`` back before ``_dispatch_mob_combat`` ran. The
+    second half of that CORE-REQUEST -- a per-connection counter/flag so
+    this line prints once per session instead of once per hit -- is NOT
+    wired: this function's signature has no parameter for it yet, and that
+    parameter is this lane's own to add (``pf_bridge/notes_to_chief/
+    20260906_0350_CHIEF-REPLY-corereq-2242-*``).
     """
     action_selector, pose_line = pose_trial.selector_for_hit(
         hit_number, environ,

@@ -32,6 +32,7 @@ import os
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -178,6 +179,30 @@ class MobCombatPoseTrialWiringTests(unittest.TestCase):
             mob_combat.MobBalance(identity, row.max_hp, current_hp)
         )
 
+    def _clear_class_id(self, state):
+        """Force the selected Character's `class_id` back to None.
+
+        CORE-REQUEST 20260905_2242: runtime.py now passes the real
+        `class_id` into this call site, so `_V25_REAL_CREATE_PC` (this
+        harness's synthetic creation packet) resolving to a real class
+        (Gladiator, class_id=1 -- see CHARACTER_CLASS_ID in these tests'
+        own stdout) makes the PRODUCTION pose composer answer with a real,
+        screen-confirmed behavior on every accepted hit, unarmed or not.
+        The three tests below are about the ``PF_POSE_TRIAL`` env-var gate
+        specifically (this file's own module docstring: "NOT proven here:
+        whether a real client plays an attack animation... this file
+        proves the wire only"), not about the production path -- that is
+        ``test_action_ack.py``/``test_combat_pose.py``'s job, and
+        ``test_production_class_id_reaches_the_composer`` below, which
+        proves runtime.py's wiring end-to-end.  So they clear class_id to
+        keep testing exactly what they always tested: "unarmed sends
+        nothing extra" when there is nothing (yet) for the composer to
+        answer with.
+        """
+        state.foundation.selected = replace(
+            state.foundation.selected, class_id=None,
+        )
+
     def _hit(self, state, target_identity=CONTROL_TARGET):
         """One accepted, survived hit: attack, then heal back to full so
         the next call is not a killing blow, and advance the injected
@@ -192,6 +217,7 @@ class MobCombatPoseTrialWiringTests(unittest.TestCase):
     def test_unset_sends_no_pose_trial_frame(self):
         os.environ.pop(POSE_TRIAL_ENV, None)
         state = self._state("mc_pose_unset")
+        self._clear_class_id(state)
         actions, out = self._hit(state)
         self.assertEqual(
             [label for label, *_ in actions],
@@ -202,6 +228,7 @@ class MobCombatPoseTrialWiringTests(unittest.TestCase):
     def test_malformed_sends_no_frame_but_says_so(self):
         os.environ[POSE_TRIAL_ENV] = "not-a-number"
         state = self._state("mc_pose_malformed")
+        self._clear_class_id(state)
         actions, out = self._hit(state)
         self.assertEqual(
             [label for label, *_ in actions],
@@ -214,12 +241,53 @@ class MobCombatPoseTrialWiringTests(unittest.TestCase):
             with self.subTest(raw=repr(raw)):
                 os.environ[POSE_TRIAL_ENV] = raw
                 state = self._state("mc_pose_blank_%d" % len(raw))
+                self._clear_class_id(state)
                 actions, out = self._hit(state)
                 self.assertEqual(
                     [label for label, *_ in actions],
                     ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
                 )
                 self.assertNotIn("POSE_TRIAL", out)
+
+    # ----- unarmed, real class: the production path CORE-REQUEST 2242 asked
+    # for -- proves runtime.py actually passes class_id through, not just
+    # that the composer can accept one (test_action_ack.py's job).
+    # ------------------------------------------------------------------
+
+    def test_production_class_id_reaches_the_composer(self):
+        os.environ.pop(POSE_TRIAL_ENV, None)
+        state = self._state("mc_pose_production_class")
+        # _V25_REAL_CREATE_PC resolves to class_id=1 (Gladiator) today --
+        # CHARACTER_CLASS_ID cid=1 written class_id=1 on stdout of every
+        # test in this file that does not call _clear_class_id.  Assert it
+        # rather than assume it, so a future change to the synthetic
+        # creation packet fails this test loudly instead of this test
+        # quietly proving nothing.
+        self.assertEqual(state.foundation.selected.class_id, 1)
+        actions, out = self._hit(state)
+        self.assertEqual(
+            [label for label, *_ in actions],
+            ["MOB_COMBAT_POSE_TRIAL", "MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
+        )
+        # combat_pose.production_behavior_for_class(1) -> BEHAVIOR 280, the
+        # sword swing GT-247/R315 watched a Gladiator play on the real
+        # screen (SCREEN_CONFIRMED_BEHAVIOR_IDS) -- this is the unit fact
+        # tests/test_combat_pose.py pins; this test only proves runtime.py
+        # hands the composer the class that produces it.
+        self.assertIn("POSE_PRODUCTION class=1", out)
+        _label, pc, frame, delay = actions[0]
+        self.assertEqual(delay, 0.0)
+        fields = self.legacy.parse_action_vital(self.legacy.parse_outer(
+            self._action_vital_pc(CONTROL_TARGET)
+        ))
+        performer = (
+            ((state.foundation.selected.identity_hi & 0xFFFFFFFF) << 32)
+            | (state.foundation.selected.identity_lo & 0xFFFFFFFF)
+        )
+        expected_pc, expected_frame = build_action_vital_echo(
+            self.legacy, fields, performer, 280,
+        )
+        self.assertEqual((pc, frame), (expected_pc, expected_frame))
 
     # ----- armed: one extra frame per hit, cycling the list ---------------
 

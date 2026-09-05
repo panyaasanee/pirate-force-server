@@ -5156,8 +5156,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # armed PF_POSE_TRIAL as a comma-separated list before this
             # boot gets one extra ActionVital echo per accepted hit,
             # cycling one id off that list per hit.
+            # CORE-REQUEST 20260905_2242 (LANE-B, folding 1352): the ONE
+            # value this call was still missing.  `selected` is the same
+            # Character bound above for `performer` a few lines up (still in
+            # scope, still non-None -- the None check on `self.foundation.
+            # selected` already returned [] earlier in this method), and
+            # `class_id` is a plain field on it (model.py), None until
+            # session.py's login read resolves one.  Passing None here is
+            # exactly the no-op action_ack.make_production_hit_pose_echo's
+            # own default already handles (POSE_NO_EQUIP_PROVENANCE, no
+            # frame change) -- this line only lets the real value through
+            # when the row has one.
             pose_trial_echo = make_production_hit_pose_echo(
                 legacy, fields, performer, self.mob_combat_hit_count,
+                class_id=selected.class_id,
             )
             if pose_trial_echo is not None:
                 pose_trial_pc, pose_trial_frame = pose_trial_echo
