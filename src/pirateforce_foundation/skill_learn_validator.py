@@ -65,6 +65,23 @@ starting-kit ids cost `1.0` or `0.20000000298023224`), so a non-positive
 cost stays a defect to refuse loudly rather than a value to round to zero
 or spend as a negative number.  All 7 of the other 8 starting-kit ids cost
 exactly `1.0` and are unaffected by the rounding rule.
+
+[UPDATE, this round]: the `cost <= 0` refusal above moved from
+`skill_points_after_learning` to `can_afford_to_learn`.  Before this round
+`can_afford_to_learn(current_skill_points, skill_id)` had no such guard --
+for a hypothetical zero-or-negative-cost `skill_id` it returned `True`
+(reported the skill affordable) for any non-negative balance, while
+`skill_points_after_learning` on the exact same inputs raised.  Two
+functions on the same module disagreeing about whether the identical
+`(current_skill_points, skill_id)` pair is refusable is the kind of drift
+this project's docstrings exist to catch; pf-adversary flagged it in round
+`7fqb46` (`pirate-force-server#825`'s own description) as real but out of
+scope for that round, since no committed `skill_id` costs `<= 0` today and
+nothing calls either function in production yet.  `can_afford_to_learn` is
+now the single place that decides refusable-vs-affordable, and
+`skill_points_after_learning` no longer repeats the check -- it inherits
+the refusal by calling `can_afford_to_learn` first, same as it already did
+for the negative-balance and bad-type guards.
 """
 from __future__ import annotations
 
@@ -87,7 +104,15 @@ def can_afford_to_learn(current_skill_points: int, skill_id: int) -> bool:
     `persistence_starting_skills.resolve_starting_skill_ids` makes for
     `class_id`).  Raises `SkillLearnValidatorError` for a negative balance
     -- not a state this project's own wire/store ever names, so refusing it
-    beats guessing what a negative balance should mean.  Raises whatever
+    beats guessing what a negative balance should mean.  Raises the same
+    error for a `skill_id` whose cost is `<= 0` -- a value this project's
+    tables have never carried (see the module docstring's
+    `COO-DECISION 20260905_1245` paragraph) -- rather than reporting it
+    "affordable" for free, which is what the bare `current_skill_points >=
+    cost` compare below would otherwise do for any non-negative balance
+    (pf-adversary, round `jbe8rr`/`7fqb46`: flagged as a real asymmetry with
+    `skill_points_after_learning`'s own refusal of the identical cost,
+    fixed here instead of left latent).  Raises whatever
     `skill_catalog.skill_point_cost_to_learn` raises (`KeyError`) for a
     `skill_id` outside the 8-id starting-kit catalog -- this module does not
     catch that and turn it into `False`, because "unaffordable" and
@@ -105,6 +130,13 @@ def can_afford_to_learn(current_skill_points: int, skill_id: int) -> bool:
             "current_skill_points must be >= 0, got %r" % (current_skill_points,)
         )
     cost = skill_catalog.skill_point_cost_to_learn(skill_id)
+    if cost <= 0:
+        raise SkillLearnValidatorError(
+            "skill_id %r costs %r skill points -- a non-positive cost is "
+            "not a value this project's tables are expected to carry; "
+            "refusing rather than reporting it affordable for free "
+            "(COO-DECISION 20260905_1245)" % (skill_id, cost)
+        )
     return current_skill_points >= cost
 
 
@@ -116,14 +148,16 @@ def skill_points_after_learning(current_skill_points: int, skill_id: int) -> int
 
     Raises the same errors `can_afford_to_learn` raises, for the same
     reasons, on the same inputs (`TypeError` for a non-`int`/`bool`
-    balance, `SkillLearnValidatorError` for a negative balance, `KeyError`
-    for an unknown `skill_id`).  Additionally raises
-    `SkillLearnValidatorError` when `can_afford_to_learn(current_skill_points,
-    skill_id)` would be `False` -- spending more than the balance holds is
-    a caller bug this function refuses rather than returning a negative
-    result -- and when `skill_id`'s cost is `<= 0` (a value this project's
-    own tables have never carried; see the module docstring's
-    `COO-DECISION 20260905_1245` paragraph).
+    balance, `SkillLearnValidatorError` for a negative balance, for a
+    `skill_id` whose cost is `<= 0`, and `KeyError` for an unknown
+    `skill_id`) -- this function does not repeat any of those checks
+    itself, it calls `can_afford_to_learn` first and lets its refusal
+    propagate, so the two functions cannot drift apart on what counts as a
+    refusable cost (`[UPDATE, this round]` below is the fix for the one
+    place they had).  Additionally raises `SkillLearnValidatorError` when
+    `can_afford_to_learn(current_skill_points, skill_id)` returns `False`
+    -- spending more than the balance holds is a caller bug this function
+    refuses rather than returning a negative result.
 
     A fractional cost (not a whole number) spends `math.ceil(cost)` points
     -- `COO-DECISION 20260905_1245`'s house rule for any such `skill_id`,
@@ -140,12 +174,5 @@ def skill_points_after_learning(current_skill_points: int, skill_id: int) -> int
             "can_afford_to_learn first" % (current_skill_points, skill_id)
         )
     cost = skill_catalog.skill_point_cost_to_learn(skill_id)
-    if cost <= 0:
-        raise SkillLearnValidatorError(
-            "skill_id %r costs %r skill points -- a non-positive cost is "
-            "not a value this project's tables are expected to carry; "
-            "refusing rather than granting it for free or spending a "
-            "negative amount (COO-DECISION 20260905_1245)" % (skill_id, cost)
-        )
     spend = cost if cost.is_integer() else math.ceil(cost)
     return current_skill_points - int(spend)
