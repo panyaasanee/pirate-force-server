@@ -2067,6 +2067,7 @@ class SendLockLivenessTests(RealDatabaseTests):
             " period here means the undo grew disk work it did not have.",
         )
 
+    # KNOWN_DEFECT -- delete in the PR that fixes it (COO 1150)
     def test_a_busy_database_leaves_the_row_wrong_and_says_nothing(self):
         """The worst case -- pinned as the DEFECT it still is on `main`.
 

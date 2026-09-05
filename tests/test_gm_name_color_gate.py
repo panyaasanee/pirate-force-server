@@ -376,6 +376,112 @@ def test_no_fontstyleid_number_is_hardcoded_in_the_gate_module():
     assert not offenders, "FontStyleID-range literal in code: " + "; ".join(offenders)
 
 
+#: A style id spelled inside a string is not an int literal, so the test above
+#: cannot see it.  Round `srn7ksvmt` proved that gap the expensive way: the
+#: first draft of that round carried
+#: ``..._LABEL_NAME_FontStyleID_56_else_55`` as a string constant, the int scan
+#: stayed green, and pf-adversary -- not the suite -- was what caught it.
+#: This scanner reads string constants (docstrings included: the module's rule
+#: is that no style id lives in its prose either).
+#: ``style`` with an id-range number glued to it (``FontStyleID_56``,
+#: ``STYLE 61``) -- the shape a semantic name from a codex TSV arrives in.
+_STYLE_WORD_THEN_NUMBER = re.compile(
+    r"style[A-Za-z_]*[ _-]*(?<![0-9])(5[5-9]|6[0-7])(?![0-9])", re.IGNORECASE
+)
+#: A bare decimal in the id range.  The lookbehind drops digits that are part
+#: of a longer token -- sha256 digests (``...ac60d5...``), VA hex, and the
+#: ``STYLE61`` inside a letter filename -- which is why the keyword rule below
+#: exists as well.  ``(?!-bit)`` keeps ``64-bit`` (a wire width, not an id).
+_STYLE_NUMBER = re.compile(r"(?<![0-9A-Za-z_])(5[5-9]|6[0-7])(?![0-9])(?!-bit)")
+#: Provenance is the one exemption: a bridge artifact's own filename may carry
+#: a style id, because renaming someone else's letter to satisfy this test
+#: would break the citation.  Exempt only a whole string that IS such a path --
+#: no whitespace, artifact extension.  A style id smuggled into prose does not
+#: look like this.
+_ARTIFACT_PATH = re.compile(r"^[A-Za-z0-9_./-]+\.(md|tsv|json|py|txt|csv)$")
+
+
+def _docstring_node_ids(tree: ast.AST) -> set[int]:
+    """The string constants that are prose, not values."""
+    ids = set()
+    for node in ast.walk(tree):
+        if not isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            continue
+        body = getattr(node, "body", None)
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and type(body[0].value.value) is str
+        ):
+            ids.add(id(body[0].value))
+    return ids
+
+
+def _style_id_offenders_in_strings(source: str) -> list[str]:
+    """Every string constant in ``source`` that names a FontStyleID value.
+
+    Two rules, and they are deliberately not the same rule everywhere:
+
+      * the BARE-NUMBER rule runs on every string.  ``56`` written as its own
+        token is a style id whether it sits in a value or in a sentence.
+      * the KEYWORD rule (a ``style`` word with an id-range digit run glued
+        into the same token, as in ``FontStyleID_56``) runs on VALUES only,
+        not on docstrings.  This module's prose cites its own history by name
+        -- ``typed_style61_tail_reachable()``, the function pf-adversary D1
+        deleted -- and a test that forces prose to stop naming what was
+        removed buys a green bar by erasing the record.  The residual hole is
+        real and named here rather than hidden: a style id smuggled into a
+        docstring INSIDE a longer token is not caught.  A value carrying one
+        is, which is the case that actually occurred.
+    """
+    tree = ast.parse(source)
+    prose = _docstring_node_ids(tree)
+    offenders = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and type(node.value) is str):
+            continue
+        text = node.value
+        if _ARTIFACT_PATH.match(text.strip()):
+            continue
+        if _STYLE_NUMBER.search(text):
+            offenders.append(f"line {node.lineno}: bare style id in {text[:60]!r}")
+        elif id(node) not in prose and _STYLE_WORD_THEN_NUMBER.search(text):
+            offenders.append(f"line {node.lineno}: style id spelled in {text[:60]!r}")
+    return offenders
+
+
+def test_the_string_scanner_has_teeth_on_the_constant_that_slipped_through():
+    """Proof-of-teeth, so this cannot rot into a green no-op.
+
+    pf-adversary struck the previous round's "does not close the blocker"
+    test for asserting over logic the new constants were never wired to.  The
+    same failure mode applies to a scanner: it can pass because it finds
+    nothing, or pass because it CAN find nothing.  This fixture is the exact
+    string round `srn7ksvmt` nearly shipped; the number lives here, in a test
+    fixture, and not in the module -- which is the whole rule.
+    """
+    slipped = (
+        'X = "CNetActor_pair_relation_zero_gate__CMyActor_value_1_selects'
+        '_LABEL_NAME_FontStyleID_56_else_55"\n'
+    )
+    assert _style_id_offenders_in_strings(slipped)
+    # and it does not fire on the two shapes that are allowed to carry one
+    assert not _style_id_offenders_in_strings(
+        'X = "notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md"\n'
+    )
+    assert not _style_id_offenders_in_strings('X = "a 64-bit wire quantity"\n')
+
+
+def test_no_fontstyleid_number_hides_in_a_string_constant_either():
+    """The gap the int scan above leaves open, closed on the same module."""
+    source = pathlib.Path(gate.__file__).read_text(encoding="utf-8")
+    offenders = _style_id_offenders_in_strings(source)
+    assert not offenders, "FontStyleID in a string: " + "; ".join(offenders)
+
+
 
 # --------------------------------------------------------------------------
 # (d) the refusal points FORWARD as well as backward -- and says what nothing
