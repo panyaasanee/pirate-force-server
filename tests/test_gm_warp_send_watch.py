@@ -2067,6 +2067,16 @@ class SendLockLivenessTests(RealDatabaseTests):
             " period here means the undo grew disk work it did not have.",
         )
 
+    # KNOWN_DEFECT -- delete in the PR that fixes it (COO 1150)
+    #
+    # COO 1150 item 1 wrote that sentence with an em dash.  This file has to
+    # pass tests/test_gm_source_is_cp874_safe.py, and an em dash is not in
+    # cp874, so the marker is spelled with two hyphens.  An auditor grepping
+    # COO's exact sentence gets zero hits and should grep KNOWN_DEFECT.
+    # The comment cannot enforce COO's actual requirement (the PR that lands
+    # the restore point must delete this test in the same commit); nothing
+    # goes red if a future PR leaves it behind.  Named, not solved
+    # (pf-adversary D10, round 0dlc07).
     def test_a_busy_database_leaves_the_row_wrong_and_says_nothing(self):
         """The worst case -- pinned as the DEFECT it still is on `main`.
 
