@@ -429,6 +429,41 @@ def shortcut_at_scene_17(copy: dict[str, object] | None = None) -> tuple[
             s32(row["n_Z"]))
 
 
+def verbatim_marker_row(
+    marker_n_id: object,
+    copy: dict[str, object] | None = None,
+) -> tuple[int, int, int, int, int] | None:
+    """One pinned ``MARKER`` row as ``(n_SCENE, x, y, z, n_DIRTECTION)``.
+
+    ``None`` when the committed copy does not carry that marker id - the copy
+    keeps 18 rows verbatim, not the client's whole 390, so "absent here" means
+    "not pinned", never "not in the client's table".  A caller that needs a row
+    this copy does not carry regenerates the copy on the bridge (see the
+    ``_who_updates_this_and_when`` note inside the JSON) rather than typing the
+    numbers into its own module.
+
+    THIS IS A READ IN THE MARKER -> SCENE DIRECTION, and callers must keep it
+    that way.  ``world_scene_marker.forbidden_direct_index_scenes`` exists
+    because indexing ``MARKER`` BY A SCENE ID lies for 257 scenes; this
+    function is indexed by a MARKER id that something else already named, and
+    it hands back that row's own ``n_SCENE`` precisely so the caller can check
+    the back-pointer against a transcribed value rather than assume it.
+
+    Added round ihjytc for ``world_scene_travel``'s decreed-arrival check: a
+    registry row that says "the owner pinned marker 17 as scene 126's arrival"
+    has to be checkable against the client's own row for marker 17, or the
+    decree is a coordinate a round typed twice.
+    """
+    document = load_copy() if copy is None else copy
+    verbatim = document["marker_rows_verbatim"]  # type: ignore[index]
+    key = str(s32(marker_n_id))
+    if key not in verbatim:
+        return None
+    row = verbatim[key]["raw"]  # type: ignore[index]
+    return (int(row["n_SCENE"]), s32(row["n_X"]), s32(row["n_Y"]),
+            s32(row["n_Z"]), int(row["n_DIRTECTION"]))
+
+
 def verify_against_sources(tables_dir: Path | str) -> None:
     """The bridge-side hop this repository cannot do: copy vs client tables.
 

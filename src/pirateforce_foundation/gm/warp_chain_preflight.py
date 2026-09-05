@@ -212,12 +212,42 @@ def reachable_scene_ids() -> tuple[int, ...]:
     the day one closes, no row here describes a map nobody can reach.  A
     ``/warp`` to a scene outside this set is REFUSED BY NAME, which is a
     different thing from an empty map and must not be confused with one.
+
+    OWNER-DECREED ARRIVALS ARE EXCLUDED, and that exclusion is the whole
+    reason this function is no longer a one-liner (LANE-A, round ihjytc,
+    found by pf-adversary D2 before it shipped).  Scene 126 gained a decreed
+    arrival point this round (`PANYA-DECISION 20260905_1329`), so the bare
+    `/warp` gate began answering for it -- and because this chain is DERIVED
+    from that gate, the owner's closed 13-scene `GT-192` chain
+    (`COO-DECISION 2026-09-02T05:44`) silently became 14, instructing an
+    attended tester to warp into Atlantis.  That is not a map this chain was
+    ruled to cover, and 126's own registry row says it owes a return ticket
+    (`n_SAVE = 0`, login door shut), so a tester sent there by this list has
+    no in-game way out.  The derivation is kept -- a new MARKER-BACKED scene
+    still joins without an edit, which is what the derivation was for -- and
+    only the decreed route is held back, because a decree is a per-scene
+    owner decision and joining an attended chain is a different decision that
+    nobody has made.  Opening this chain to 126 is a COO ruling, not a side
+    effect of a registry row.
     """
     return tuple(
         scene_id
         for scene_id in sorted(scene_catalog.SCENE_ID_TO_GM_NAME)
-        if warp_no_coords_live_target(scene_id) is not None
+        if _is_chain_reachable(scene_id)
     )
+
+
+def _is_chain_reachable(scene_id: int) -> bool:
+    """The production gate, minus scenes that reach it only by decree.
+
+    Split out so the reason above sits next to the test rather than inside a
+    comprehension.  A scene qualifies when the live-warp gate resolves it AND
+    the client's own table is what opened it (``has_table_authored_entry``).
+    """
+    target = warp_no_coords_live_target(scene_id)
+    if target is None:
+        return False
+    return bool(getattr(target, "has_table_authored_entry", True))
 
 
 def _gm_name(scene_id: int) -> str:

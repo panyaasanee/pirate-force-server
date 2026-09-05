@@ -431,6 +431,10 @@ _DESTINATION_FIELDS = {
 _DESTINATION_OPTIONAL_FIELDS = {
     "superseded_spawn", "table_row_differences", "login_entry_allowed",
     "persist_position_allowed",
+    # The owner's own arrival pin for a scene the client's table answers
+    # nothing for.  Optional because exactly one row carries one (126) and a
+    # row without it is the ordinary case, not an incomplete one.
+    "decreed_arrival",
 }
 _SPAWN_FIELDS = {"x", "y", "z", "provenance"}
 # Every column the client's table carries that this project has any reason to
@@ -484,6 +488,21 @@ _EVIDENCE_TIERS = {
     "authored",             # the map's developers wrote the coordinate down
     "decreed_provisional",  # the owner named it, under an expiry
     "chosen_no_evidence",   # picked because the scene offered nothing
+    # ADDED round ihjytc, COO-DECISION 20260905_1346 item 3 relaying
+    # PANYA-DECISION 20260905_1329: the owner named this point AND a row of
+    # the client's own MARKER table carries it, with that row's `n_SCENE`
+    # pointing back at this scene.  It is neither "authored" (rule 1 reads
+    # SCENE_NAME[n].n_MARKER, and this scene's is 0, so rule 1 never reaches
+    # it) nor "decreed_provisional" (there is no expiry: the owner's word was
+    # "permanent, not a temporary value").  The two halves are both REQUIRED -
+    # a `decreed_arrival` block naming the marker id, checked against
+    # `world_marker_copy` - so this tier cannot be worn by a coordinate an
+    # owner named and nothing else backs.
+    "decreed_permanent",
+}
+# The shape of the per-row decree that earns "decreed_permanent".
+_DECREED_ARRIVAL_FIELDS = {
+    "marker_n_id", "heading", "authority", "reverse_lookup",
 }
 
 
@@ -526,10 +545,51 @@ class SceneDestination:
     # ``login_entry_allowed`` this is a WRITE-TIME POLICY, not a fact read off
     # the client's own tables, so it lives here rather than inside table_row.
     persist_position_allowed: bool = True
+    # 0 for every destination whose arrival point is decided by the client's
+    # own SCENE_NAME.n_MARKER column (or by nothing at all).  Non-zero ONLY on
+    # a row the owner pinned by hand under a named decision, naming the MARKER
+    # row that backs the coordinate - see ``has_decreed_arrival`` and the
+    # loader's `decreed_arrival` block.  Added round ihjytc for scene 126.
+    decreed_arrival_marker: int = 0
+    # The heading that MARKER row carries (`n_DIRTECTION`).  RECORDED, NOT
+    # WIRED: no measurement in this project says whether the client applies a
+    # teleport heading to the avatar or to the camera, and COO-DECISION
+    # 20260905_1346 item 3 says in as many words not to guess it.  It is here
+    # so a ticket can quote the client's own number instead of inventing one.
+    decreed_arrival_heading: int | None = None
+    # Which decision pinned it, verbatim, so a reader never has to ask whose
+    # authority a non-table arrival point stands on.
+    decreed_arrival_authority: str | None = None
+
+    @property
+    def has_table_authored_entry(self) -> bool:
+        """Whether the client's own table gives this scene an arrival marker.
+
+        THE PURE FACT, read off ``SCENE_NAME[n].n_MARKER`` and nothing else.
+        Split out of ``has_authored_entry`` in round ihjytc when that property
+        grew a second, owner-decreed source: everything that reports on the
+        CLIENT'S TABLE - a return-ticket claim, a travel-gate report - reads
+        this one, so a decree cannot silently rewrite a measured column's
+        meaning in a report somebody else's lane trusts.
+        """
+        return self.entry_marker != 0
+
+    @property
+    def has_decreed_arrival(self) -> bool:
+        """Whether the owner pinned this scene's arrival point by decree.
+
+        True only for a row carrying a validated ``decreed_arrival`` block,
+        which the loader refuses unless (a) the scene's own ``n_MARKER`` is 0,
+        so no rule-1 answer is being overridden, (b) the named MARKER row is
+        one ``world_marker_copy`` carries verbatim, (c) that row's ``n_SCENE``
+        points back at THIS scene, and (d) the row's spawn stands exactly on
+        that marker's point.  One scene carries one today: 126.
+        """
+        return self.decreed_arrival_marker != 0
 
     @property
     def has_authored_entry(self) -> bool:
-        """Whether the client's own table gives this scene an arrival marker.
+        """Whether this scene has an arrival point a live warp may land on.
 
         Scene 278 has none, which is half of why a character sent there has no
         way home (the other half is that ~~RE-077 is open~~ NO SERVER IN THIS
@@ -538,8 +598,25 @@ class SceneDestination:
         caller that moves
         a character into a scene where this is False owes that character a
         return path - see ``home_return_position``.
+
+        ~~Whether the client's own table gives this scene an arrival marker.~~
+        WIDENED round ihjytc (COO-DECISION 20260905_1346 item 3, relaying
+        PANYA-DECISION 20260905_1329).  The table column is still the only
+        thing that opens a scene BY ITSELF - ``has_table_authored_entry`` is
+        that fact, unchanged and unweakened - but the owner may now pin one
+        scene's arrival by decree, and a scene so pinned answers True here
+        because this is the property GM-A's live no-coordinate warp gates on
+        (``gm/warp_executor.warp_no_coords_live_target``), and landing a live
+        character on a pinned point is exactly what the decree ordered.
+
+        WHAT THIS DOES NOT DO: it does not loosen the n_MARKER test for any
+        other scene.  278, 997 and 17 carry ``n_MARKER == 0`` and no decree,
+        so all three answer False exactly as before - GT-141's pinned test on
+        278 (`tests/test_gm_chat_command_action.py`) asserts that and must
+        stay green through this change, which is the check COO-DECISION
+        20260905_1346 item 3 names by hand.
         """
-        return self.entry_marker != 0
+        return self.has_table_authored_entry or self.has_decreed_arrival
 
     @property
     def persists_characters(self) -> bool:
@@ -858,6 +935,75 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
             raise ValueError(
                 f"scene {n_id} declares a deviation from rule 1, which does "
                 "not reach a scene whose n_MARKER is 0")
+        # THE DECREE, AND THE CLIENT ROW THAT HAS TO BACK IT.
+        # A scene whose own n_MARKER is 0 gets nothing from rule 1, and until
+        # this round that was the end of the matter: it stayed stage-only.
+        # PANYA-DECISION 20260905_1329 pinned scene 126's arrival by hand,
+        # and COO-DECISION 20260905_1346 item 3 routed it here rather than
+        # into the n_MARKER gate, precisely so the gate that answers for every
+        # OTHER scene does not move.  The four checks below are what stop this
+        # block from being the self-report that pf-adversary killed twice in
+        # this file already (round 8ubiku D2/D3): the coordinate is checked
+        # against the client's own MARKER row, in the marker -> scene
+        # direction, from a copy this file does not write.
+        decreed_marker = 0
+        decreed_heading = None
+        decreed_authority = None
+        if "decreed_arrival" in row:
+            decree = row["decreed_arrival"]
+            if type(decree) is not dict or set(decree) != _DECREED_ARRIVAL_FIELDS:
+                raise ValueError(
+                    f"scene {n_id} decreed_arrival is incomplete or has "
+                    "unknown fields")
+            decreed_marker = _require_int(
+                decree["marker_n_id"], f"scene {n_id} decreed marker n_ID",
+                1, 0xFFFF)
+            decreed_heading = _require_int(
+                decree["heading"], f"scene {n_id} decreed heading", 0, 0xFFFF)
+            decreed_authority = _require_text(
+                decree["authority"], f"scene {n_id} decreed authority")
+            _require_text(
+                decree["reverse_lookup"], f"scene {n_id} decreed reverse lookup")
+            if entry_marker != 0:
+                # A scene the client's own table answers for does not get a
+                # second, hand-pinned answer; that is rule 1 with a back door.
+                raise ValueError(
+                    f"scene {n_id} carries a decreed arrival but its table row "
+                    f"already names marker {entry_marker} - rule 1 answers "
+                    "for this scene and a decree may not overrule it")
+            if provenance_block["evidence_tier"] != "decreed_permanent":
+                raise ValueError(
+                    f"scene {n_id} carries a decreed arrival but its evidence "
+                    f"tier is {provenance_block['evidence_tier']!r}, not "
+                    "'decreed_permanent'")
+            # THE PAIR, NOT THE MARKER ALONE.  `decreed_arrival_row` refuses
+            # to answer unless the scene AND the marker match one pinned row,
+            # so "marker 17 points back at scene 126" is proved by the lookup
+            # succeeding rather than by reading a field the row supplied.
+            marker_row = world_scene_marker.decreed_arrival_row(
+                n_id, decreed_marker)
+            if marker_row is None:
+                raise ValueError(
+                    f"scene {n_id} decrees marker {decreed_marker}, which is "
+                    "not a (scene, marker) pair world_scene_marker pins for "
+                    "decrees - either that marker row does not point back at "
+                    "this scene, or it has not been pinned there yet (and its "
+                    "test re-derives it from the committed copy)")
+            marker_x, marker_y, marker_z, marker_dir = marker_row
+            if spawn != (float(marker_x), float(marker_y), float(marker_z)):
+                raise ValueError(
+                    f"scene {n_id} decrees marker {decreed_marker} but does "
+                    "not stand on that marker's point")
+            if decreed_heading != marker_dir:
+                raise ValueError(
+                    f"scene {n_id} decrees heading {decreed_heading} but "
+                    f"marker {decreed_marker} carries n_DIRTECTION "
+                    f"{marker_dir}")
+        elif provenance_block["evidence_tier"] == "decreed_permanent":
+            raise ValueError(
+                f"scene {n_id} claims the 'decreed_permanent' evidence tier "
+                "without a decreed_arrival block naming the marker row that "
+                "backs it")
         login_entry_allowed = (
             _require_bool(
                 row["login_entry_allowed"], f"scene {n_id} login_entry_allowed")
@@ -895,6 +1041,9 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
             limit_height=table_row["n_LIMIT_HEIGHT"],
             login_entry_allowed=login_entry_allowed,
             persist_position_allowed=persist_position_allowed,
+            decreed_arrival_marker=decreed_marker,
+            decreed_arrival_heading=decreed_heading,
+            decreed_arrival_authority=decreed_authority,
         ))
     return SceneRegistry(tuple(destinations))
 
@@ -1110,7 +1259,17 @@ def entry_report(target: SceneDestination) -> dict:
         "entry_marker": target.entry_marker,
         "camera_type": target.camera_type,
         "limit_height": target.limit_height,
-        "needs_return_ticket": not target.has_authored_entry,
+        # THE TABLE FACT, NOT THE WIDENED GATE.  A decreed arrival gives a
+        # live warp somewhere to land; it does not give the character a way
+        # back, which is the only question this key has ever asked (see
+        # ``home_return_position``).  Scene 126 gained a decree in round
+        # ihjytc and still owes a return ticket - n_SAVE is 0 and its login
+        # door is shut - so this reads ``has_table_authored_entry``, which is
+        # what it meant before ``has_authored_entry`` widened.
+        "needs_return_ticket": not target.has_table_authored_entry,
+        "decreed_arrival_marker": target.decreed_arrival_marker or None,
+        "decreed_arrival_heading": target.decreed_arrival_heading,
+        "decreed_arrival_authority": target.decreed_arrival_authority,
     }
 
 
@@ -1125,6 +1284,15 @@ def entry_console_line(target: SceneDestination) -> str:
         "spawn=none" if spawn is None
         else "spawn=({0:.3f},{1:.3f},{2:.3f})".format(*spawn)
     )
+    # APPENDED ONLY WHEN THERE IS A DECREE.  `GT-079` quotes this line
+    # character for character for scene 278 (`tests/test_world_scene_entry.py`
+    # pins the exact string), so an unconditional suffix would silently
+    # invalidate a ticket a tester reads off the screen.  One scene carries a
+    # decree today, and only that scene's line grows.
+    decreed = (
+        "" if not report["decreed_arrival_marker"]
+        else " decreed_arrival={0}".format(report["decreed_arrival_marker"])
+    )
     return (
         "WORLD_SCENE scene_id={0} seq={1} model={2} name={3} {4} "
         "sent_before={5} population={6} save={7} marker={8} return_ticket={9}"
@@ -1136,4 +1304,8 @@ def entry_console_line(target: SceneDestination) -> str:
             report["save_flag"], report["entry_marker"],
             "REQUIRED" if report["needs_return_ticket"] else "not_needed",
         )
+        # `marker=0 decreed_arrival=17` is the whole of scene 126's new shape
+        # on one console line: the client's table still says nothing, and the
+        # point a live warp lands on is marker 17's.
+        + decreed
     )

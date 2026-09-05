@@ -1620,8 +1620,17 @@ def departure_report(departure: TravelDeparture) -> dict:
             departure.left_from.y,
             departure.left_from.z,
         ),
+        # THE CLIENT'S TABLE COLUMN, unchanged in meaning.  ``world_scene_
+        # travel.has_authored_entry`` widened in round ihjytc to include an
+        # owner-decreed arrival point (scene 126, PANYA-DECISION
+        # 20260905_1329), and this key's name says "authored", so it now reads
+        # the narrow property that still means exactly what this key has
+        # always reported.  The decree gets its own key rather than being
+        # folded into this one.
         "destination_has_authored_entry":
-            departure.destination.has_authored_entry,
+            departure.destination.has_table_authored_entry,
+        "destination_arrival_is_decreed":
+            departure.destination.has_decreed_arrival,
         "destination_persists_characters":
             departure.destination.persists_characters,
         "destination_sent_before": departure.destination.sent_before,

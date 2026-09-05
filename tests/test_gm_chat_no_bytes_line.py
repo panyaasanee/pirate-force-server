@@ -532,6 +532,17 @@ class NoSecondLineTests(_Case):
         # ever prints for `REASON_SANCTIONED_NOT_YET_REACHABLE`
         # (`chat_command_action.py`), so force exactly that outcome instead
         # of relying on 126 staying unreachable forever.
+        #
+        # UPDATED 2026-09-05 (LANE-A round ihjytc), and the comment above is
+        # why this is a one-word edit rather than an argument: this test's
+        # subject is the "blocker=" line, and 126 was only ever the VEHICLE
+        # for reaching the staging branch.  `PANYA-DECISION 20260905_1329`
+        # gave 126 a decreed arrival point, so `/warp 126` now composes a
+        # live TeleportVital and never reaches staging at all -- exactly the
+        # "126 staying unreachable forever" assumption the comment above
+        # already warned against.  Scene 278 is the project's canonical
+        # stage-only destination (`n_MARKER == 0`, no decree, GT-141 pins it),
+        # so it is the vehicle that cannot rot the same way.
         result = mock.Mock(
             staged=False,
             reason=login_scene_stage.REASON_SANCTIONED_NOT_YET_REACHABLE,
@@ -540,7 +551,7 @@ class NoSecondLineTests(_Case):
         with mock.patch.object(
             login_scene_stage, "stage_login_scene", return_value=result
         ):
-            action, err = self.act("/warp 126")
+            action, err = self.act("/warp 278")
         self.assertIsNone(action)
         self.assertIn("blocker=", err)
         self.assertEqual(self.lines(err, TOKEN), [], err)

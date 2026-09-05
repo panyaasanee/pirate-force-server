@@ -482,14 +482,22 @@ def warp_no_coords_live_target(scene_id: int):
     given scene id has one, so `_warp_action`'s routing and this module's
     frame builder below cannot disagree about which scenes qualify.
 
-    GATED ON `has_authored_entry` (`entry_marker != 0`, i.e. n_MARKER != 0),
-    NOT ON "world_scene_travel has ANY spawn pinned" -- those are different
-    questions and conflating them would be a real regression.  Four scene
-    ids in the registry today (17, 126, 278, 997) carry a pinned `spawn`
-    with NO marker (`n_MARKER == 0`): an owner-decreed or native-placement
-    point, `evidence_tier` "authored"/"decreed_provisional", never a
-    developer-authored ARRIVAL marker.  `GT-182` nonclaim 4 is explicit that
-    those scenes "keep the OLD rule" (stage-only) on purpose -- and scene
+    GATED ON `has_authored_entry`, NOT ON "world_scene_travel has ANY spawn
+    pinned" -- those are different questions and conflating them would be a
+    real regression.  ~~(`entry_marker != 0`, i.e. n_MARKER != 0)~~ AMENDED
+    2026-09-05 (LANE-A round ihjytc): that property now answers True for a
+    scene the CLIENT'S TABLE does not open but the OWNER pinned by decree.
+    The narrow table fact is `has_table_authored_entry` and is unchanged;
+    what widened is the gate, for exactly one scene.  ~~Four scene ids in the
+    registry today (17, 126, 278, 997) carry a pinned `spawn` with NO marker
+    (`n_MARKER == 0`)~~ -- still four rows with `n_MARKER == 0`, but 126 now
+    carries a `decreed_arrival` block (`PANYA-DECISION 20260905_1329` via
+    `COO-DECISION 20260905_1346`, `evidence_tier` "decreed_permanent") and so
+    reaches this function; 17, 278 and 997 do not and still stage.
+    `GT-182` nonclaim 4 is explicit that markerless scenes "keep the OLD
+    rule" (stage-only) on purpose; it was written when all four were
+    markerless-and-undecreed, and the owner has since ruled on one of the
+    four by name.  Scene
     278 specifically already has a PINNED TEST asserting that
     (`tests/test_gm_chat_command_action.py::ProductionCallShapeTests::
     test_the_default_argument_call_stages_where_gt141_says_it_does`, GT-141)
@@ -552,9 +560,10 @@ def make_warp_teleport_frame_no_coords_with_target(
     target = warp_no_coords_live_target(scene_id)
     if target is None:
         raise WarpExecutorError(
-            f"scene_id {scene_id} has no world_scene_travel authored-marker "
-            "entry (n_MARKER == 0, or not in that registry at all) -- GM-A's "
-            "live no-coordinate warp only reaches marker-backed scenes; this "
+            f"scene_id {scene_id} has no world_scene_travel arrival point -- "
+            "its table row carries n_MARKER == 0 and it has no owner-decreed "
+            "arrival either, or it is not in that registry at all.  GM-A's "
+            "live no-coordinate warp only reaches scenes with one; this "
             "scene id keeps the old stage-only behaviour (GT-182 nonclaim 4)"
         )
     x, y, z = world_scene_travel.spawn_position(target)

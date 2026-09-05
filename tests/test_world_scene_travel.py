@@ -186,9 +186,18 @@ class SceneRegistryTests(unittest.TestCase):
         self.assertIsNone(raw["coordinate_provenance"]["marker_n_id"])
         self.assertIs(
             raw["coordinate_provenance"]["deviates_from_rule_1"], False)
+        # UPDATED 2026-09-05 (LANE-A round ihjytc, PANYA-DECISION
+        # 20260905_1329 via COO-DECISION 20260905_1346 item 3): the tier moved
+        # ~~decreed_provisional~~ -> `decreed_permanent`.  The owner pinned
+        # this point permanently, so the expiry the provisional tier carried
+        # is gone.  Everything this test asserts ABOVE the tier is unchanged
+        # and deliberately so: `from_marker` stays False, `marker_n_id` stays
+        # null and `n_MARKER` stays 0, because rule 1 still does not reach
+        # this scene.  The decree is a SECOND route to an arrival point, in
+        # its own block, not an edit to the rule-1 answer.
         self.assertEqual(
             raw["coordinate_provenance"]["evidence_tier"],
-            "decreed_provisional",
+            "decreed_permanent",
         )
         self.assertEqual(raw["table_row"]["n_MARKER"], 0)
         self.assertIsNone(raw["ground"])
@@ -803,9 +812,23 @@ class ReturnTicketTests(unittest.TestCase):
     def test_the_measured_ocean_panel_still_owes_a_return_ticket(self):
         # The one id in `MEASURED_SCENE_IDS` that is not also a no-return-
         # ticket destination: see the note on the test above.
+        #
+        # UPDATED 2026-09-05 (LANE-A round ihjytc).  Scene 126 gained an
+        # owner-decreed arrival point this round (PANYA-DECISION
+        # 20260905_1329), so ~~`has_authored_entry` is False~~ that property
+        # now answers True for it -- and THE RETURN TICKET IS STILL OWED,
+        # which is the whole reason this assertion was rewritten rather than
+        # deleted.  A place to land is not a way back: n_SAVE is still 0 and
+        # the login door is still shut, so a character warped here has no
+        # in-game route home and whoever sends one owes it `home_return_
+        # position`.  The report reads `has_table_authored_entry` for exactly
+        # this reason; if a later round makes the two march together again,
+        # this test is where that has to be argued.
         atlantis = destination(126, self.registry)
         self.assertTrue(atlantis.sent_before)
-        self.assertFalse(atlantis.has_authored_entry)
+        self.assertFalse(atlantis.has_table_authored_entry)
+        self.assertTrue(atlantis.has_decreed_arrival)
+        self.assertTrue(atlantis.has_authored_entry)
         self.assertFalse(atlantis.persists_characters)
         self.assertTrue(entry_report(atlantis)["needs_return_ticket"])
         self.assertIn("return_ticket=REQUIRED", entry_console_line(atlantis))
