@@ -69,14 +69,17 @@ in outcome to the ``skipped_scene_<id>_not_home`` branch this replaced.
     all three of those scenes.
 
 HOW A SCENE GETS ADDED.  ~~Two tables, and a scene needs a row in BOTH~~ --
-~~SEVEN REGISTRATIONS~~ NINE, counted round ``yob0a2`` by adding scene 304 and
-reading the red tests one at a time (pf-adversary: the round found five of
-the seven only BECAUSE tests went red, and two more were still missing when
-it first committed) and corrected to nine round ``dyi95m`` (pf-adversary D3,
-on the merged ``umt3io`` diff: THIS round's own re-land of 304 was closed by
-the gate over exactly the ninth one, which the list did not yet name when it
-was written).  The two this file has always named come first because they
-are the ones this module reads:
+~~SEVEN REGISTRATIONS~~ ~~NINE~~ TEN, counted round ``yob0a2`` by adding scene
+304 and reading the red tests one at a time (pf-adversary: the round found
+five of the seven only BECAUSE tests went red, and two more were still
+missing when it first committed), corrected to nine round ``dyi95m``
+(pf-adversary D3, on the merged ``umt3io`` diff: THIS round's own re-land of
+304 was closed by the gate over exactly the ninth one, which the list did
+not yet name when it was written), and to ten LATER THE SAME ROUND
+(pf-adversary again, reviewing THIS round's own diff: row 10 is a
+registration this round's own fix created and did not list itself in).  The
+two this file has always named come first because they are the ones this
+module reads:
 
     1. ``world_scene_travel.CENSUS_SOURCES`` - the seam's own table, which
        decides what composes the roster
@@ -106,13 +109,24 @@ are the ones this module reads:
        checks out ONE repository, so that skip is invisible to a rehearsal
        run beside the bridge and to ``-q -rs`` alike - the one row this list
        omitted closed ``#847`` with no line pointing back here.
+    10. ``ARM_THREE_ELIGIBLE_SCENE_IDS`` below - ONLY for a scene the THIRD
+        admission arm (not the second) is meant to admit: a scene the owner
+        decrees an arrival for AND a live GM warp can reach, that this lane
+        judges is not the GM lane's own sanctioned territory.  Forgetting
+        this row fails CLOSED (the scene composes for no one rather than
+        the wrong one) rather than open, which is exactly why it is easy to
+        forget and ship anyway -
+        ``test_the_allowlist_matches_every_scene_the_underlying_facts_
+        admit`` in this scene's own test file is the fence that turns red
+        the day a scene independently earns decree + live warp + not-
+        sanctioned and this row was not added alongside it.
 
 An earlier draft claimed the answer lived in exactly one place and not here;
 that was wrong, and the second table is a gate rather than a formality - a
 census nobody can grep is a census nobody can grade.  A scene in the first
 table and not the second is SKIPPED AND SAID SO, loudly, at import
 (``LANE_A_CENSUS_SKIPPED``): silence there is the same defect in mirror image
-as the one round 80x5ba existed to fix.  Rows 3-9 have no such import-time
+as the one round 80x5ba existed to fix.  Rows 3-10 have no such import-time
 report; they are caught by tests (row 9's own test is the gate's own
 ``skip_census`` rehearsal, not a test in this repository), which is why this
 list exists rather than the sentence it replaces.
@@ -766,13 +780,18 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     of the pin file (it takes no registry argument), so a scene that reaches
     this arm pays one extra registry load on top of whatever the first two
     arms did.  ~~the same shape and the same order of magnitude as the
-    second arm's own ~3.2ms~~ -- STRUCK, pf-adversary (round `dyi95m`, D4),
-    MEASURED: the second arm costs ~0.003 ms and this one ~1.0 ms on the
-    same clone, roughly two orders of magnitude apart, not the same one --
-    the earlier sentence compared this arm's cost to the second arm's TOTAL
-    click cost (~3.2 ms, most of which is the second arm's OWN registry
-    reads) rather than to the second arm's own per-call figure, which is
-    the comparison that mattered.  Two things keep the true cost acceptable:
+    second arm's own ~3.2ms~~ -- STRUCK, pf-adversary (round `dyi95m`, D4):
+    that comparison put this arm's per-call cost against the SECOND arm's
+    TOTAL click cost (~3.2 ms, most of which is the second arm's OWN
+    registry reads), not against a like-for-like per-call figure, so
+    "same order of magnitude" was never a fair comparison to make in the
+    first place.  A SPOT MEASUREMENT this round (``timeit``, 200 calls, this
+    clone, no test pins it and it is not re-checked - wall-clock cost is not
+    the kind of claim a pass/fail gate should own) put the second arm's own
+    per-call cost near 0.003 ms against this arm's near 1.0 ms, which is
+    orders apart rather than the same order - offered as the honest
+    direction of the correction, not as a durable benchmark.  Two things
+    keep the true cost acceptable regardless of the exact figure:
     this arm is only reached for a scene in ``ARM_THREE_ELIGIBLE_SCENE_IDS``
     (two ids today, 304 and 305, by construction rather than by measuring
     which ones happen to fall through the earlier arms), and a census is

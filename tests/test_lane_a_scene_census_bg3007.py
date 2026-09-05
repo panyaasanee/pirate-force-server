@@ -142,6 +142,53 @@ class TheThirdAdmissionArm(unittest.TestCase):
         )
         self.assertEqual(admitted, [DARK_FOG_SEA, PALE_SILVER_SEA])
 
+    def test_the_allowlist_matches_every_scene_the_underlying_facts_admit(
+        self,
+    ) -> None:
+        """THE FENCE THE TEST ABOVE STOPPED BEING, pf-adversary round
+        `dyi95m` (the SAME round that added ``ARM_THREE_ELIGIBLE_SCENE_IDS``,
+        reviewing its own diff): the test above enumerates the registry
+        through the LIVE function, which now refuses at the allowlist before
+        it ever reaches the decree/warp/sanction facts -- so a scene that
+        earns admission on every one of those facts but is simply FORGOTTEN
+        from the allowlist stays invisible to that test forever, exactly the
+        silent-miss shape "ENUMERATED, not asserted" exists to rule out.
+        Measured directly: patching a synthetic scene onto
+        ``world_scene_travel.destination``/``warp_executor.
+        warp_no_coords_live_target`` so it independently satisfies decree +
+        live warp + not-sanctioned, but leaving it out of the allowlist,
+        left the test above green.
+
+        This test re-derives the pre-allowlist admission rule BY HAND (the
+        one the arm used to run wholesale) and compares it against the
+        allowlist directly, so a scene that earns admission on the facts but
+        is missing from ``ARM_THREE_ELIGIBLE_SCENE_IDS`` turns THIS test red
+        -- restoring the guarantee for the one path the allowlist itself can
+        drift out of: a decree landing with the SAME_ROUND registration into
+        ``ARM_THREE_ELIGIBLE_SCENE_IDS`` skipped.
+        """
+        from pirateforce_foundation.gm import login_scene_admission
+
+        def admitted_by_the_underlying_facts_alone(scene_id: int) -> bool:
+            if login_scene_admission.is_sanctioned_barred_scene(scene_id):
+                return False
+            if not world_scene_travel.destination(
+                scene_id, self.registry).has_decreed_arrival:
+                return False
+            return warp_executor.warp_no_coords_live_target(
+                scene_id) is not None
+
+        fact_admitted = sorted(
+            scene_id for scene_id in self.registry.ids
+            if admitted_by_the_underlying_facts_alone(scene_id)
+        )
+        self.assertEqual(
+            fact_admitted, sorted(lane_a.ARM_THREE_ELIGIBLE_SCENE_IDS),
+            "a scene satisfies decree + live warp + not-sanctioned but is "
+            "missing from ARM_THREE_ELIGIBLE_SCENE_IDS (or the reverse): "
+            "the allowlist and the facts it was built from have drifted",
+        )
+
     def test_it_stands_aside_for_a_scene_the_gm_lane_governs(self) -> None:
         """The lever pf-adversary measured this round, pinned.
 
