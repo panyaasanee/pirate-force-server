@@ -58,6 +58,7 @@ from typing import Any
 from . import diag_multi_object_wiring
 from . import field_mobs
 from . import mob_death
+from . import mob_drop_presence
 from . import mob_ledger_admission
 from . import world_population
 from . import world_population_bg0002
@@ -1597,6 +1598,141 @@ def _describe(record: "SceneRecompose") -> tuple[str, ...]:
             ),
         )
     return lines
+
+
+# -------------------------------------------------------------------------
+# THE GROUND-DROP COMPANION FOR A MID-COMBAT RECOMPOSE.
+# -------------------------------------------------------------------------
+# ROUND (this round, LANE-A), COO-DECISION 20260905_1152 item 2(1), closing
+# R316 finding ค (KA1A, pf_bridge/notes_to_chief/20260905_1102): killing
+# monster A drops two items (visible, MOB_LOOT_DROPS_CENSUS announced them);
+# hitting a DIFFERENT monster B for the first time fires
+# ``MOB_COMBAT_BAR_CENSUS_RECOMPOSE`` -- and Panya watched monster A's items
+# disappear off the screen at that exact moment.  PANYA-DECISION 1057 item 2:
+# "a frame produced by one player action must never delete the whole scene's
+# world state -- only what that action actually changed."  A hit on monster
+# B changed monster B's bar, not monster A's loot, and the recompose deleted
+# it anyway -- by omission, the same RE-130 shape this module's own
+# ``SceneRecompose`` already guards for actors.
+#
+# WHY THE FIX IS A SEPARATE FRAME, NOT A FIELD ON ``SceneRecompose``, AND
+# WHY THAT WAS A CHOICE MADE FROM THE REAL WIRE CAPTURE, NOT A GUESS.  Two
+# mechanisms exist in this tree that could plausibly stop a census resend
+# from reading as "the floor is bare":
+#
+#   (a) a MARKER BIT inside the actor-census RuntimeRes header itself
+#       (``mob_combat.remote_actors_preserving_the_ground`` / derived bit
+#       0x08) -- but ``mob_death.MOB_DEATH_NONCLAIMS`` names this, in this
+#       project's own words, as UNMEASURED: "NO CLIENT HAS EVER BEEN SHOWN
+#       THAT SHAPE... it fails SILENTLY if it is wrong... NOTHING IS
+#       SCHEDULED TO WATCH IT ON A SCREEN yet."  Worse: that same nonclaims
+#       block already documents that the whole-scene recompose this module
+#       IS -- bar, dying and dead alike -- "still writes bit 0x08 clear"
+#       today, i.e. this exact defect, already known and already unfixed by
+#       that mechanism where it already runs.
+#   (b) a SEPARATE companion frame carrying the scene's live ground-drop
+#       collection through the encoder ``mob_loot``/``mob_drop_presence``
+#       already ship -- and THIS one is PROVEN on a real client, twice, in
+#       the same R316 capture this fix answers: monster B's own death
+#       announced its drops and BOTH sets of items reappeared instantly
+#       (``MOB_LOOT_DROPS_CENSUS ... MOB_DROP_PRESENCE live=2 announced=1
+#       carried=1``), and GT-242 (session 2, OBSERVER_CONFIRMED
+#       2026-09-05T10:50+07:00) separately proved the identical mechanism --
+#       ``reannounce_ground``, built on ``sustain_a_kill`` -- keeps a
+#       CheckSecondPwdVital reply from wiping the floor the same way.
+#
+# (b) is the one this round picks, because it is the one this round can
+# point at a frame that was actually on the wire and actually redrew the
+# item, and (a) is a bit nobody has watched a client react to at all.
+#
+# REUSE, NOT A SECOND ENCODER.  :func:`ground_companion_actions` calls
+# ``mob_drop_presence.sustain_a_kill(cell, legacy, ())`` -- the exact
+# function ``reannounce_ground`` already calls for the CheckSecondPwdVital
+# site -- rather than reimplementing "compose the live ledger" a third time.
+# It does NOT call ``reannounce_ground`` itself: that function's own console
+# token (``GROUND_REANNOUNCE_AFTER_SECOND_PWD``) names ITS cause, and
+# printing it from a combat-hit call site would tell an attended tester the
+# wrong story about why the line appeared -- this project's own G-OBS rule
+# is that a token must name what actually happened.  ``describe_presence``
+# is this lane's cause-neutral line for the exact same step, already shipped
+# and already pinned, so that is what prints here instead.
+def ground_companion_actions(cell: Any, legacy: Any) -> tuple:
+    """The ground-drop frame a RECOMPOSE call site must send ALONGSIDE its
+    own bar frame, so hitting one monster cannot wipe another's loot.
+
+    ``cell`` is the session's own ``self.mob_loot_cell``.  Returns a tuple of
+    ``(mob_drop_presence.ACTION_LABEL, pc, frame, hold_seconds)`` entries,
+    ALWAYS -- ``()`` for a bare floor, ``()`` for a cell with no scene, ``()``
+    for anything this call cannot compose, exactly the contract
+    ``mob_drop_presence.reannounce_ground`` already gives its own call site.
+    NEVER RAISES: this sits under a dispatch inside the listener thread, the
+    same reasoning every other entry point in this module already carries.
+
+    THIS DOES NOT CHANGE ``recompose_frames``'S OWN BYTES.  Nothing here
+    reads or mutates a :class:`SceneRecompose`; it is a second, additional
+    call a caller makes beside the first, which is what keeps every
+    byte-pinned test of the actor census (scene 1 and scene 2 alike)
+    untouched by this fix.
+
+    NOT YET WIRED to any call site -- see :data:`GROUND_COMPANION_WIRING`
+    for the exact ``runtime.py`` patch and why it is scoped to the BAR
+    (hit) recompose only, not the dying/dead one.
+    """
+    try:
+        step = mob_drop_presence.sustain_a_kill(cell, legacy, ())
+    except Exception:  # noqa: BLE001 - see module docstring: never raises
+        return ()
+    try:
+        print(mob_drop_presence.describe_presence(step))
+    except Exception:  # noqa: BLE001 - a console that cannot take the line
+        pass            # loses the LINE, never the FRAME (this lane's rule)
+    if step.refused:
+        return ()
+    try:
+        return mob_drop_presence.loot_actions(step)
+    except Exception:  # noqa: BLE001
+        return ()
+
+
+# The wiring ask.  runtime.py is the chief's file; this is the whole change,
+# scoped narrowly per COO-DECISION 20260905_1152 item 2(1).
+GROUND_COMPANION_WIRING = """runtime.py, right after the recompose's own bar frame action is queued --
+the `actions.append(("MOB_COMBAT_BAR", bar_pc, bar_frame, 0.0))` line inside
+the `if len(step.frames) > 1:` block (today ~line 5342), which is already
+INSIDE the
+`if (anchor_record is not None and census_scene_id == anchor_record.scene_id):`
+guard that also holds the `recompose_frames` call -- not the `else` fallback
+arm below it, and not unconditionally: a hit that never reached a recompose
+(the single-monster case, or the no-anchor fallback) has nothing new to
+reannounce.
+
+ADD, right after that append:
+
+    actions.extend(mob_scene_recompose.ground_companion_actions(
+        getattr(self, "mob_loot_cell", None), legacy))
+
+Nothing else changes: no new import beyond what this module's own import
+line already carries (mob_scene_recompose is already imported at this call
+site), no new event (ground_companion_actions prints its own line via
+mob_drop_presence.describe_presence and needs none), no branch
+(ground_companion_actions returns () on every refusal and on a bare floor,
+so the extend is always safe -- same contract reannounce_ground already
+gives the CheckSecondPwdVital call site, GT-242).
+
+SCOPED TO THE BAR (HIT) RECOMPOSE ONLY, per COO-DECISION 20260905_1152's own
+R316 evidence.  The DYING/DEAD recompose call site (~lines 5561-5678) is
+followed, later in the SAME dispatch, by this kill's own
+`self.mob_loot_cell.loot_a_kill(...)` and MOB-LOOT-001's own
+sustain_a_kill-based reannounce of the WHOLE live ledger (CORE-REQUEST-007) --
+so a death recompose that wipes another monster's drops is corrected by that
+kill's own loot announcement a few actions later in the same batch, which is
+exactly what R316 measured: both drop sets reappeared the instant monster B
+died. Only the BAR (a hit with no kill) has no such self-correction, which
+is why R316 finding ค is reproducible there and only there. Adding the same
+companion call to the dying/dead site too would not be wrong, just
+redundant with a frame already queued a few lines later -- left out to keep
+this patch to the one call site the evidence actually names.
+"""
 
 
 # -------------------------------------------------------------------------
