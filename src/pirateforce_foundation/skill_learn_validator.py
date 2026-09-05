@@ -43,21 +43,32 @@ read/compare, not a gate, until a learn-request hookup calls it.
 
 [UPDATE, this round]: `skill_points_after_learning` is the "spend" half
 `can_afford_to_learn`'s own docstring named as a caller's job -- pure
-arithmetic (`current_skill_points - cost`), same zero-DB posture.  It
-REFUSES rather than guesses on one point `can_afford_to_learn` never had
-to face: `skill_catalog.skill_point_cost_to_learn` returns the client's own
+arithmetic (`current_skill_points - cost`), same zero-DB posture.
+`skill_catalog.skill_point_cost_to_learn` returns the client's own
 `f_SP_LEVE1` column unmodified, and it is not always a whole number (id 111
 "VIP Strive Jump" costs 0.20000000298023224 -- see
 `tests/test_skill_catalog.py`).  The `skill_points` column this project's
 own schema commits to (`migrations/006_character_typed_attribute_columns
-.sql`) is `INTEGER`-typed and CHECKed as such, and nothing in this project
-has ruled on what an INTEGER balance does with a fractional spend (floor?
-ceiling? refuse the skill entirely? the column is wrong?) -- so this
-function refuses by name for any `skill_id` whose cost is not integral,
-rather than picking a rounding rule behind a caller's back.  All 7 of the
-other 8 starting-kit ids cost exactly `1.0` and are unaffected.
+.sql`) is `INTEGER`-typed and CHECKed as such.
+
+[UPDATE, `COO-DECISION 20260905_1245`]: a fractional cost now spends
+`math.ceil(cost)` points -- a house rule for *any* `skill_id` whose cost is
+not a whole number, not a special case for id 111.  `id 111` costs `1`
+skill point under this rule.  Reasoning owned by the decision, not this
+docstring: the `skill_points` column and the wire field that feeds it
+(`attr_wire.py`'s `"SP"`, actor offset `0x7C`) are both whole-number typed,
+so the table's intent ("this skill has a cost") survives as "round up",
+never "free" (floor to `0`) and never "impossible to ever learn" (the old
+refusal).  A cost that is `<= 0` is unaffected by this decision and still
+refuses -- this project's tables have never carried one (all 8
+starting-kit ids cost `1.0` or `0.20000000298023224`), so a non-positive
+cost stays a defect to refuse loudly rather than a value to round to zero
+or spend as a negative number.  All 7 of the other 8 starting-kit ids cost
+exactly `1.0` and are unaffected by the rounding rule.
 """
 from __future__ import annotations
+
+import math
 
 from . import skill_catalog
 
@@ -110,11 +121,17 @@ def skill_points_after_learning(current_skill_points: int, skill_id: int) -> int
     `SkillLearnValidatorError` when `can_afford_to_learn(current_skill_points,
     skill_id)` would be `False` -- spending more than the balance holds is
     a caller bug this function refuses rather than returning a negative
-    result -- and when `skill_id`'s cost is not a whole number (see the
-    module docstring's [UPDATE, this round] paragraph: nothing has ruled on
-    how a fractional cost spends against the INTEGER `skill_points`
-    column, so this refuses by name rather than guessing floor/ceiling/
-    anything else).
+    result -- and when `skill_id`'s cost is `<= 0` (a value this project's
+    own tables have never carried; see the module docstring's
+    `COO-DECISION 20260905_1245` paragraph).
+
+    A fractional cost (not a whole number) spends `math.ceil(cost)` points
+    -- `COO-DECISION 20260905_1245`'s house rule for any such `skill_id`,
+    id 111 ("VIP Strive Jump", cost `0.20000000298023224`) included.  This
+    never returns a negative balance: `can_afford_to_learn` above already
+    required `current_skill_points >= cost` with the raw (unrounded) cost,
+    and an `int` balance that is `>=` a non-integer real number is
+    necessarily `>=` that number's ceiling too.
     """
     if not can_afford_to_learn(current_skill_points, skill_id):
         raise SkillLearnValidatorError(
@@ -123,12 +140,12 @@ def skill_points_after_learning(current_skill_points: int, skill_id: int) -> int
             "can_afford_to_learn first" % (current_skill_points, skill_id)
         )
     cost = skill_catalog.skill_point_cost_to_learn(skill_id)
-    if not cost.is_integer():
+    if cost <= 0:
         raise SkillLearnValidatorError(
-            "skill_id %r costs a fractional skill point (%r) -- this "
-            "project has not ruled on how a fractional cost spends "
-            "against the INTEGER skill_points column "
-            "(migrations/006_character_typed_attribute_columns.sql); "
-            "refusing rather than guessing a rounding rule" % (skill_id, cost)
+            "skill_id %r costs %r skill points -- a non-positive cost is "
+            "not a value this project's tables are expected to carry; "
+            "refusing rather than granting it for free or spending a "
+            "negative amount (COO-DECISION 20260905_1245)" % (skill_id, cost)
         )
-    return current_skill_points - int(cost)
+    spend = cost if cost.is_integer() else math.ceil(cost)
+    return current_skill_points - int(spend)
