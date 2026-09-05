@@ -61,14 +61,29 @@ from pirateforce_foundation import world_scene_travel  # noqa: E402
 
 # Captured from the working tree BEFORE round `vwekfq` touched anything -
 # see the module docstring.  (trigger_id -> (pc sha256, frame sha256)).
+#
+# RE-PINNED, same round `vwekfq`, AFTER the scene-17 roster work above, for a
+# SECOND and unrelated reason: RE-256 (`pf_bridge/notes_to_chief/
+# 20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-VERSION-ZERO.md`)
+# measured `NavigationEx_AddSurveyDataVtial`'s own outer presence byte
+# (pointer-presence boolean, `1` for one record present, `0` for none --
+# never a record count) and `world_m2_provisioning_trial.encode_trial_
+# records` picked that fix up as its own default, so these two records'
+# bytes correctly changed on THIS round for a reason that has nothing to do
+# with scene 17: they now carry the RE-256-measured `0B 01` presence byte
+# that R313's original frame was missing.  The hash below was re-derived by
+# calling `trial.encode_trial_records` with the fixed source (not
+# hand-guessed) and this test's own PURPOSE is unchanged -- it still proves
+# scene 17's roster does not perturb GT-233's bytes ANY FURTHER than the
+# RE-256 fix itself already, deliberately, does.
 GT233_EXPECTED_SHA256 = {
     153: (
-        "801a1f2671d0c690c8e686052b9bb1013799c7d9e80bd1cea6b7022e04b236ae",
-        "84c7218fb1cb81939e96a3a3276ba002b2cfd45a2f7a85e9eaebdcddfd7ffcfe",
+        "1d45beace4b3950ef70a67de6341d06f7c779387279288bb9c3e8819cf6ff2a9",
+        "6263b09144f3613b57a096fad1c47315ec6f72736e135b39118c1606a61f75a8",
     ),
     154: (
-        "442829fe918ef4ec49e333b92255a369e2aca9395d1591d94fa705bb323f3844",
-        "9acdee25d0b2c72639970c8dba196e8c49a73968955fb4720537e7df578a61df",
+        "032db84a0e860e7729dc8af2358105a366530fae329e50f7a539a6dbee74bca3",
+        "a13c09cfc733577fadf158ef91ccb688c6af7e71e3484b7004505c68e0eac362",
     ),
 }
 GT233_SCENE_ID = 126

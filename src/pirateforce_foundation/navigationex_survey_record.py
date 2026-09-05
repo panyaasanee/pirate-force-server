@@ -84,10 +84,22 @@ record's own `0B 01` first field.  If that measured, ALWAYS-gated outer
 byte is what the client reads first, the reader consumes the record's
 kind byte as the outer field and then meets `12` where it wants `0B` --
 it stops inside this class, which is exactly the dialog R313 got.  That
-is a HYPOTHESIS, not a finding: the field's existence is measured, the
+mis-read chain is still a HYPOTHESIS, not a finding: opening the window on
+screen, msg-id control, and the effect on M2 are attended-round questions
+this static fix does not touch.  ~~"the field's existence is measured, the
 mis-read is inference, and no value for the byte is measured anywhere for
 THIS class -- though the same construct elsewhere in this repository has an
-accepted-on-the-wire precedent, see `OUTER_PRESENCE_PRESENT` below.
+accepted-on-the-wire precedent, see `OUTER_PRESENCE_PRESENT` below"~~ IS
+STRUCK: RE-256 (`pf_bridge/notes_to_chief/
+20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-VERSION-ZERO.md`)
+disassembled THIS class's own outer codec span
+(`[0x00733570,0x00733614)`, the same span and SHA RE-227 cited) and found
+the byte IS now measured, directly, for this class: `cmp dword ptr
+[esi+0x14],0` / `setne al` at `0x00733586-0x0073358E` writes a
+pointer-presence BOOLEAN (not a record count) into the buffer the
+`0x0B`-tagged writer sends -- one record present -> 1, none -> 0.
+`OUTER_PRESENCE_PRESENT` below is no longer only a precedent borrowed from
+a different class.
 
 THE ENVELOPE AROUND ALL OF THAT IS NOT GUESSED EITHER.  What IS already
 proven and already used by this same
@@ -210,14 +222,31 @@ SURVEY_RECORD_KIND = 1
 # its evidence attached, not that this composer picked one for its callers.
 NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID = 0xC4AF
 
-# The value a presence byte takes for a nested object that IS present,
-# by this repository's own accepted-on-the-wire precedent: v141's
-# `make_v137_marker1_transport_probe` sends `0B 01` before the present
-# TeleportVital target and `0B 00` for the absent ones.  Named here so a
-# caller passing `outer_leading_byte` has somewhere to point instead of
-# typing a bare 1, and so the reasoning travels with the number.  It is a
-# PRECEDENT, not a measurement of this class's own field -- nothing in
-# `PF_SERIALIZER_FIELDS.tsv` gives the value.
+# The value a presence byte takes for a nested object that IS present.
+# Named here so a caller passing `outer_leading_byte` has somewhere to
+# point instead of typing a bare 1, and so the reasoning travels with the
+# number.  Two independent sources agree:
+#
+#   PRECEDENT   this repository's own accepted-on-the-wire construct: v141's
+#               `make_v137_marker1_transport_probe` sends `0B 01` before the
+#               present TeleportVital target and `0B 00` for the absent
+#               ones.
+#   MEASURED    RE-256 (`pf_bridge/notes_to_chief/
+#               20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-
+#               VERSION-ZERO.md`) disassembled THIS class's own outer codec
+#               (`[0x00733570,0x00733614)`) directly: `setne al` at
+#               `0x0073358E` writes exactly this boolean from
+#               `pointer != NULL` -- one record present -> 1, none -> 0.
+#
+# ~~"It is a PRECEDENT, not a measurement of this class's own field --
+# nothing in `PF_SERIALIZER_FIELDS.tsv` gives the value"~~ IS STRUCK
+# (RE-256): the value is now measured directly for this class, not only
+# borrowed by analogy.  It is a pointer-presence BOOLEAN, not a record
+# count -- RE-256 Job 4 also found this class's outer object holds exactly
+# one nested-record pointer and no loop/vector/count anywhere in its codec,
+# so "one record" and "presence=1" happen to coincide, but the wire
+# encoding itself is boolean, and a value of 0 means no nested record
+# follows at all.
 OUTER_PRESENCE_PRESENT = 1
 
 # `ErrorData` IN THE CLIENT'S "VitalData read failed" DIALOG IS A MESSAGE
@@ -336,28 +365,46 @@ def encode_add_survey_data_outer(
     ``0x0B``-tagged field of length 1 at ``STACK@0x00733570+0x18`` with
     ``gate_condition ALWAYS``, in both directions.  Everything R313 sent
     went out with no such byte between the envelope's ``0B
-    <vital_version>`` and the record's own ``0B 01``.
+    <vital_version>`` and the record's own ``0B 01``.  ~~That table names
+    the field but not its value~~ NO LONGER THE WHOLE STORY: RE-256
+    (`pf_bridge/notes_to_chief/
+    20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-VERSION-ZERO.md`)
+    read the value straight out of the same span the table cites -- see
+    `OUTER_PRESENCE_PRESENT` above.
 
-    Left ``None``, this function emits exactly the bytes R313 sent, so
-    nothing on the wire changes by upgrading to this signature.  Given an
-    int, it emits ``0B <value>`` after the vital header and before the
-    record.
+    Left ``None``, this function emits exactly the bytes R313 sent -- the
+    frame RE-256 says is missing this byte entirely, which is a different
+    thing from carrying a wrong value for it.  Given an int, it emits
+    ``0B <value>`` after the vital header and before the record.  This
+    function keeps `None` as a valid input (a caller may still want R313's
+    exact original bytes, e.g. to reproduce that capture in a test); it is
+    the caller that sends a real record that must not choose `None` any
+    more -- see the M2 provisioning-trial module's own
+    `encode_trial_records` (not named here as an import-guarded string, the
+    same discipline the rest of this file already follows).
 
     WHY BEFORE THE RECORD, HONESTLY.  ~~"the position the table's own
     offsets put it in"~~ IS STRUCK (pf-adversary pass 2): sorted by the
     table's own order column the WRITE side puts the byte first, but the
     READ side -- the direction a client uses on a server frame -- lists the
-    nested call first and the byte second.  Every control checked
-    (`UpdateNPCAppearVital`, `EnterInstanceVital`, `TriggerVital`,
-    `TeleportVital`, `GSCN_RunTimeProtocolRes`) is R/W-symmetric for this
-    shape and this class is not, which nobody has explained.  Leading is
-    what RE-086's prose describes ("sends a presence byte THEN calls the
-    nested object's vtable slot +0x10") and what the TeleportVital
-    precedent below does, so leading is what this composer can build --
-    an appended byte would need a second argument and a reason to expect
-    it, and neither exists yet.
+    nested call first and the byte second.  ~~"Every control checked ...
+    is R/W-symmetric for this shape and this class is not, which nobody has
+    explained"~~ IS STRUCK: RE-256 Job 2 explained it -- the table's R and W
+    rows for this span are ONE function with two branches selected by a
+    direction flag (`BL`), and the table is sorted by file offset across
+    both branches, which makes R look like it calls the nested object
+    before the byte when the image shows the opposite.  Read directly:
+    W writes presence at `0x00733597` then calls the nested record at
+    `0x007335AD`; R reads presence at `0x007335C0` then (if nonzero)
+    allocates and calls the nested record at `0x0073360C`.  Logical wire
+    order is presence-before-record in BOTH directions -- the table's
+    apparent asymmetry was a site-ordering artifact of the TSV, not a wire
+    fact.  Leading is what RE-086's prose describes ("sends a presence byte
+    THEN calls the nested object's vtable slot +0x10"), what RE-256 now
+    confirms by direct disassembly, and what the TeleportVital precedent
+    below does, so leading is what this composer builds.
 
-    THE VALUE HAS A MEASURED PRECEDENT, AND IT IS 1
+    THE VALUE IS NOW MEASURED DIRECTLY FOR THIS CLASS, AND IT IS 1
     (`OUTER_PRESENCE_PRESENT`).  ~~"an attended round is what decides
     between 0 and 1"~~ IS STRUCK (pf-adversary pass 2): they are not
     symmetric candidates.  For the same construct -- a presence byte
@@ -366,14 +413,21 @@ def encode_add_survey_data_outer(
     sends ``0B 01`` before the present nested target and ``0B 00`` for the
     absent ones, and RE-090 (via RE-086) pins TeleportVital's own
     `STACK@...+0x14/+0x1C` `0x0B` fields ahead of its nested subcall the
-    same way.  So 0 is this protocol's "no object follows" value: a frame
-    with ``0B 00`` followed by 38 bytes of record is predicted to fail by
-    this repository's own frozen composer, and an attended round should
-    not spend a pass on it.
+    same way.  RE-256 then closed the remaining gap by reading THIS class's
+    own outer codec instead of only the precedent: `setne al` at
+    `0x0073358E` writes `pointer != NULL`, so 1 is what one record present
+    produces and 0 is this class's own "no object follows" value -- a frame
+    with ``0B 00`` followed by 38 bytes of record is still predicted to
+    fail, now by measurement rather than only by precedent.
 
-    This composer still has NO default: the precedent is strong evidence
-    for 1, not a measurement of THIS class's field, and the caller who
-    sends bytes should be the one that writes the number down.
+    This composer still has NO default: not because the value is unmeasured
+    any more (RE-256 measured it directly for this class), but because this
+    is the generic composer every caller of this shape can reach, and a
+    silent default here would hide the one number a caller must be seen to
+    choose.  The specific caller that sends a real GT-233 trial record --
+    the M2 provisioning-trial module's own `encode_trial_records` (not
+    named here as an import-guarded string) -- is where RE-256's measured
+    value is now wired in as that caller's own default; see that module.
 
     ~~CALLED FROM NO SEND PATH~~ IS STRUCK (2026-09-04, PR #760): GT-228
     measured the XYZ that COO-DECISION 20260904_0747 item 3(b) made the
