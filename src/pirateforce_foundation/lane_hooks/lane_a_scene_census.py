@@ -605,12 +605,29 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     ``accounts.is_gm_account`` before any of this runs.
     ``login_entry_allowed`` for 126/304/305 is untouched by this round.
 
-    [ASSUMPTION OF LANE A - AWAITING COO CONFIRMATION]  That "the owner
-    decreed where you arrive" also means "you should see what is there" is
-    this lane's reading, not a ruling anyone has written down; the round's
-    letter puts it in front of the COO.  If the answer is no, deleting this
-    function restores today's behaviour exactly - an empty ocean for a GM
-    standing in 304 - and nothing else in the round depends on it.
+    ~~[ASSUMPTION OF LANE A - AWAITING COO CONFIRMATION]~~ **CONFIRMED,
+    ``COO-DECISION 20260905_2052`` item 1** (letter
+    ``pf_bridge/notes_to_chief/20260905_2052_COO-DECISION-a1946-third-
+    admission-arm-...``, answering this lane's ``20260905_1946``).  That
+    "the owner decreed where you arrive" also means "you should see what is
+    there" is now a ruling rather than this lane's reading, and the same
+    item ordered the tag removed here rather than in a PR of its own.  Two
+    halves of that ruling are load-bearing and are kept as written: this arm
+    MUST go on standing aside for the GM lane's sanction table, and the
+    whole-registry fence test below is permanent - it may not be deleted or
+    weakened.
+
+    HOW A DECREED ROW IS REVOKED, since the ruling closed that question too
+    (``COO-DECISION 20260905_2052`` item 2): ``DECREED_ARRIVAL_ROWS`` encodes
+    an OWNER's order, so the only thing that may withdraw one is a
+    COO-DECISION letter naming the row; the row then leaves the tuple and
+    the fence test is corrected in the SAME commit.  No registry flag is
+    added for this on purpose - a lever any lane could pull would let one
+    lane change the owner's order silently, which is worse than editing
+    source.  A future decreed row with no letter behind it is meant to turn
+    the fence test red; that is the correct answer, not an obstacle.
+    Deleting this function still restores the pre-round behaviour exactly -
+    an empty ocean for a GM standing in 304 - and nothing else depends on it.
 
     WHAT "GM-ONLY" DOES AND DOES NOT MEAN HERE, stated because the sentence
     above is easy to over-read.  This predicate asks about a SCENE, never

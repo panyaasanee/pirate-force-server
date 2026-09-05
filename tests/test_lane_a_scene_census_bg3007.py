@@ -4,11 +4,15 @@ WHY THIS IS ITS OWN FILE.  ``tests/test_lane_a_scene_census.py`` grades the
 composer machinery every scene shares; this file grades the ONE decision
 round ``yob0a2`` made on top of it - that a scene whose arrival point the
 OWNER decreed, and which a live GM ``/warp`` can land a session on, is shown
-its own cast instead of an empty ocean.  That decision is this lane's
-reading of two rulings rather than a ruling of its own (see
-``scene_arrival_was_decreed_and_is_gm_reachable``'s own
-``[ASSUMPTION OF LANE A - AWAITING COO CONFIRMATION]``), so the tests that
-would go red if the COO says no are kept together and named.
+its own cast instead of an empty ocean.  That decision WAS this lane's
+reading of two rulings; it is now a ruling of its own - ``COO-DECISION
+20260905_2052`` item 1 confirmed it, and item 2 fixed how a decreed row is
+withdrawn (a COO letter naming the row, then the row leaves
+``DECREED_ARRIVAL_ROWS`` and the fence test below is corrected in the same
+commit; no registry flag, so no lane can change the owner's order quietly).
+The tests that would go red if that ruling is ever withdrawn are still kept
+together and named here, which is what makes such a withdrawal cheap to
+carry out and impossible to do silently.
 
 WHAT IS PINNED HERE, AND WHY EACH ONE:
 
