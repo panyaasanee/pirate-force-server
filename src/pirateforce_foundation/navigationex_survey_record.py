@@ -289,7 +289,15 @@ class SurveyRecordFields(NamedTuple):
     x: float                # +0x18 f32
     y: float                # +0x1C f32
     z: float                # +0x20 f32
-    unmeasured_0x14: int = 0    # +0x14 u16, UNMEASURED
+    unmeasured_0x14: int = 0    # +0x14 u16.  RE-265 measured this is a key
+                                # into a SAILING_RESULT-derived store (see
+                                # world_m2_sailing_result_key); WHICH COLUMN
+                                # keys that store is still not measured
+                                # (COO-DECISION 20260905_2349).  Default 0 is
+                                # the null-lookup gate RE-265 found -- a
+                                # caller that wants a real record must pass
+                                # a real candidate explicitly, never rely on
+                                # this default.
     unmeasured_0x16: int = 0    # +0x16 u16, UNMEASURED
     unmeasured_0x28: int = 0    # +0x28 qword, UNMEASURED
     unmeasured_0x30: int = 0    # +0x30 u16, UNMEASURED

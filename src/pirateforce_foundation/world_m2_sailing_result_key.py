@@ -26,7 +26,7 @@ not derived from the TSV -- if the table does not name an island, use every
 WHAT THE TABLE ACTUALLY SAYS, READ RATHER THAN ASSUMED
 ---------------------------------------------------------
 It does not name an island.  All 18 `n_AREA=126` rows share `n_EVENT=2`,
-`n_ITEM_ID=3` and `s_OUTFIT=Ocean_Island_000` -- the shape of a per-AREA
+`n_VARI_3=3` and `s_OUTFIT=Ocean_Island_000` -- the shape of a per-AREA
 random-encounter/loot table (`n_WEIGHT`/level-bound columns, distinct
 `n_VARI_1` per row), not a per-DESTINATION dock table.  `n_AREA` values
 elsewhere in the same file are 127/128/129/304/305 -- other sea panels this
@@ -56,6 +56,23 @@ same 18 rows straight from the bridge source
 so a forged row costs two files, not one, exactly the property
 `world_marker_copy.py`'s own docstring proves is the reachable bar, not "the
 gate now checks the client data" outright.
+
+WHY THE ROWS ARE LOADED LAZILY, NOT AT MODULE SCOPE (D1, pf-adversary round
+`tk4hr7`) -- this module used to bind ``AREA_126_SAILING_RESULT_IDS`` at
+IMPORT time, which meant every boot of this repository, flagged or not,
+had to successfully hash and parse the committed copy before `runtime.py`
+(which imports the provisioning-trial composer, which imports this module)
+could finish importing at all.  A corrupted or moved copy raised
+``SailingResultCopyError`` before any `try`/`except` around the one caller
+that actually needs this value ever got a chance to run -- the server would
+not boot AT ALL, on Panya's machine or anyone else's, over a file nothing
+but a single no-backup attended trial reads.  `world_marker_copy.py` never
+makes this mistake: none of its rows are bound at module scope, every
+`derive_*`/`shortcut_*` function calls `load_copy()` itself, on demand.
+``area_126_sailing_result_ids()`` below follows the same shape: it re-reads
+and re-verifies the committed copy on every call rather than caching a
+module-scope binding, so an import of this module can never fail on a bad
+copy -- only a call into a function that actually needs the rows can.
 """
 from __future__ import annotations
 
@@ -70,9 +87,10 @@ COPY_PATH = Path(__file__).parent / "world_data" / "world_sailing_result_area126
 
 # The digest of the committed copy (`sha256sum` of the file as it sits in
 # git, LF line endings).  A round that edits the copy without updating this
-# pin fails `load_copy()`; a round that edits `AREA_126_SAILING_RESULT_IDS`
-# by hand without touching the copy fails the re-derive test -- neither can
-# be satisfied by "trust me", same shape as `world_marker_copy.COPY_SHA256`.
+# pin fails `load_copy()`; a round that edits what
+# `area_126_sailing_result_ids()` returns by hand without touching the copy
+# fails the re-derive test -- neither can be satisfied by "trust me", same
+# shape as `world_marker_copy.COPY_SHA256`.
 COPY_SHA256 = "5c96db08b848a679b7cfe8dafc65beaafc5c4dffd304cfa5f1d13b00184fe55e"
 
 # The one source file this copy is curated from.
@@ -176,60 +194,150 @@ def _load_ids() -> tuple[int, ...]:
         raise SailingResultCopyError(
             "committed copy has no rows -- the provisional key has no source"
         )
+    if len(ids) != len(set(ids)):
+        # D7, pf-adversary round `tk4hr7`: `provisional_area_126_key()`'s own
+        # docstring (and the row-discriminating design it used to back)
+        # promises a real, distinct row id -- a promise that held only
+        # because today's 18 rows happen to be distinct (enforced by a
+        # SIBLING test, `AreaIdsTests.test_ids_are_unique`, not by this
+        # function itself). A future table update that duplicates an
+        # `n_ID` would pass this loop silently; checking `len(set())`
+        # rather than `len()` makes that fail here instead.
+        raise SailingResultCopyError(
+            f"committed copy carries a duplicate n_ID among {ids!r}"
+        )
     return tuple(ids)
 
 
-# Every `n_ID` this build could use as the record's `+0x14` key: the full set
-# of `n_AREA=126` rows in the client's own table.  Loaded once at import,
-# from the pinned committed copy -- never from a live `pf_bridge` read, and
-# never a hand-typed literal.
-AREA_126_SAILING_RESULT_IDS: tuple[int, ...] = _load_ids()
+def area_126_sailing_result_ids() -> tuple[int, ...]:
+    """Every `n_ID` this build could use as the record's `+0x14` key: the
+    full set of `n_AREA=126` rows in the client's own table.
+
+    Re-read and re-verified from the pinned committed copy on EVERY call --
+    never cached at module scope (D1, pf-adversary round `tk4hr7`: binding
+    this at import time meant a corrupted or missing copy took the whole
+    server down on boot, flagged or not, instead of failing only the one
+    caller that needs it; see the module docstring).  Never from a live
+    `pf_bridge` read, and never a hand-typed literal.
+    """
+    return _load_ids()
 
 
 def provisional_area_126_key() -> int:
-    """The single lowest `n_ID` among ``AREA_126_SAILING_RESULT_IDS``.
+    """The single lowest `n_ID` among ``area_126_sailing_result_ids()``.
 
-    Kept for a caller that provisions exactly ONE record and has nowhere to
-    put a second candidate.  A caller provisioning MORE THAN ONE record --
-    this module's actual GT-233 caller included -- must use
-    ``provisional_area_126_keys(n)`` instead; see that function's docstring
-    for why (pf-adversary, round `wjprxa`, D1: reusing this single value for
-    every record throws away the diagnostic COO's own fallback clause was
-    written to keep). Never raises past module import.
+    This is the "the key is `n_ID`" hypothesis's one representative value --
+    see ``column_discriminating_keys`` for how it is paired with
+    ``n_area_key()`` to test that hypothesis against its alternative in the
+    same attended shot. Never raises past module import (there is no module
+    import left to raise past; a bad copy now raises on the FIRST call
+    into this function, not on `import`).
     """
-    return min(AREA_126_SAILING_RESULT_IDS)
+    return min(area_126_sailing_result_ids())
 
 
-def provisional_area_126_keys(count: int) -> tuple[int, ...]:
-    """``count`` DISTINCT `+0x14` candidates, one per record a caller is
-    about to provision -- the lowest ``count`` `n_ID`s, in ascending order.
+def n_area_key() -> int:
+    """`SAILING_RESULT_AREA` (126) itself, as a `+0x14` candidate.
 
-    COO-DECISION `20260905_1947` item 2's fallback clause says to use EVERY
-    `n_AREA=126` row when the table does not name an island, not to collapse
-    to one row and repeat it.  pf-adversary (round `wjprxa`, D1) measured
-    what collapsing costs: `GT-233`'s flip carries `COO-DECISION
-    20260905_1348`'s standing "no backup boot" rule (RE-265 forbids trying
-    a second hypothesis in the same attended run), so if the ONE candidate
-    both trial records shared did not resolve inside the client's lookup,
-    the round would end with the same silence R318 already measured -- with
-    no way to tell "this specific row does not resolve" apart from "the
-    whole SAILING_RESULT-key theory is wrong".  Giving each record a
-    DIFFERENT row spends the same single attended shot on two rows instead
-    of one: a mixed result (one island's dialog pops, the other's does not)
-    is itself client-observable evidence about the row, not just the
-    mechanism, which a shared value could never produce.
+    The "the key is `n_AREA`" hypothesis's one representative value --
+    RE-265 measured that `+0x14` is looked up in a store built from the
+    client's `SAILING_RESULT` table, but never proved WHICH column that
+    store is keyed by (round `tk4hr7`, D3: `n_ID` was assumed, not
+    measured). `n_AREA` is the one other column every row in the committed
+    copy agrees on, so it is the cheapest second hypothesis available
+    without inventing a composite or packed-index key nothing in this
+    repository has evidence for.
+    """
+    return SAILING_RESULT_AREA
 
-    Raises ``SailingResultCopyError`` if ``count`` exceeds how many distinct
-    rows the committed copy actually has -- fail closed rather than repeat a
-    row silently, which is the exact mistake this function exists to
-    correct. Never picks a row twice.
+
+def column_discriminating_keys(count: int) -> tuple[int, ...]:
+    """``count`` `+0x14` candidates, each testing a DIFFERENT hypothesis
+    about WHICH COLUMN of `SAILING_RESULT` the client's store is keyed by --
+    not different ROWS of the same column.
+
+    COO-DECISION `20260905_2349` item 1 (GT-233 v3, option (ข)) supersedes
+    the row-discriminating design this function replaces
+    (`provisional_area_126_keys`, pf-adversary round `wjprxa` D1): that
+    design gave the trial's two records two DIFFERENT `n_ID`s, which only
+    ever tested "is the key `n_ID`, and if so which row" -- it had no way to
+    come back positive if the store turns out to be keyed by `n_AREA`, or
+    anything else, instead (round `tk4hr7`, D3: RE-265 never measured which
+    column is the key, and COO's own `1348` "no backup boot" rule means
+    `GT-233` gets exactly one attended shot at this, not one shot per
+    hypothesis).
+
+    So instead the two candidates now spend that one shot on two hypotheses:
+
+    * ``count == 1``: ``(provisional_area_126_key(),)`` -- the "key is
+      `n_ID`" hypothesis alone, for a caller provisioning exactly one
+      record.
+    * ``count == 2``: ``(provisional_area_126_key(), n_area_key())`` -- the
+      "key is `n_ID`" and "key is `n_AREA`" hypotheses, one per record.
+      `GT-233`'s two records (dock 153 / Prison Exile gets the `n_ID`
+      candidate, dock 154 / Spice Paradise gets the `n_AREA` candidate) is
+      this trial's only consumer today.
+
+    A count of 2 also happens to close D8 TODAY (pf-adversary round
+    `tk4hr7`): the OLD scheme's two lowest `n_ID`s (1, 2) put island 3's key
+    exactly equal to island 2's OTHER field (`+0x12` = the `survey_id`
+    echoed at contact, 2 and 3 for the two docks) -- a client response
+    naming "2" could not be told apart from "the `n_ID`=2 key resolved"
+    versus "the `+0x12`=2 field is what the client actually read".  The
+    current values (the lowest `n_ID`, today `1`, and `n_AREA` = `126`)
+    match neither dock's `+0x12` (`2`/`3`).
+
+    THIS FUNCTION CANNOT GUARANTEE THAT IN GENERAL, AND DOES NOT TRY TO
+    (pf-adversary round `tk4hr7`+1, re-verification): it has no idea what
+    `+0x12` values a caller is about to send -- that is
+    `world_m2_survey_plan`'s and the caller's business, not this module's
+    (see the module docstring's own boundary discipline).  If a future TSV
+    update ever made ``provisional_area_126_key()`` return `2` or `3`
+    instead of `1`, THIS FUNCTION WOULD RETURN THAT COLLISION SILENTLY --
+    proven by monkeypatching it to return `2` in a test and observing no
+    exception here.  The structural guard against that lives in the one
+    caller that actually knows both fields of the wire record,
+    the provisioning-trial composer's `trial_survey_records`, which checks every
+    `+0x14` candidate against every `+0x12` survey_id THAT TRIAL is about to
+    send and raises before composing anything if they collide -- see that
+    function's own docstring.  Do not re-describe this function alone as
+    "closing D8"; it is one half of a check whose other, load-bearing half
+    lives one caller up.
+
+    A silent result on BOTH records is NOT evidence that the whole
+    `SAILING_RESULT`-key theory is wrong -- it means the column is still
+    unknown (composite key, packed index, or a column this TSV export does
+    not carry); see the `GT-233` v3 ticket for the sentence this exists to
+    keep a no-backup attended round from over-reading.
+
+    Any other ``count`` raises: this function tests a fixed pair of named
+    hypotheses, it does not generalise to "N distinct candidates" the way
+    the row-discriminating design it replaces did, and a caller asking for
+    more would get candidates this function has no third hypothesis to
+    justify.
     """
     if count < 0:
         raise ValueError(f"count must be >= 0, got {count}")
-    if count > len(AREA_126_SAILING_RESULT_IDS):
-        raise SailingResultCopyError(
-            f"asked for {count} distinct SAILING_RESULT keys but the "
-            f"committed copy only has {len(AREA_126_SAILING_RESULT_IDS)} "
-            "n_AREA=126 rows -- refusing to repeat a row silently"
-        )
-    return tuple(sorted(AREA_126_SAILING_RESULT_IDS)[:count])
+    if count == 0:
+        return ()
+    if count == 1:
+        return (provisional_area_126_key(),)
+    if count == 2:
+        n_id_candidate = provisional_area_126_key()
+        n_area_candidate = n_area_key()
+        if n_id_candidate == n_area_candidate:
+            # Cannot happen with today's data (n_ID in 1..18, n_AREA=126),
+            # but a table update could change either -- fail closed rather
+            # than silently hand the trial two records with the same
+            # candidate, which would collapse back to the one-hypothesis
+            # mistake this function exists to correct.
+            raise SailingResultCopyError(
+                f"n_ID candidate {n_id_candidate} == n_AREA candidate "
+                f"{n_area_candidate}; the two column hypotheses are no "
+                "longer distinguishable -- refusing to test one row twice"
+            )
+        return (n_id_candidate, n_area_candidate)
+    raise ValueError(
+        f"column_discriminating_keys tests exactly two named hypotheses "
+        f"(n_ID, n_AREA); asked for {count} candidates"
+    )

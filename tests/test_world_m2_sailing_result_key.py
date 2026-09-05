@@ -3,10 +3,14 @@ client's contact tick requires at record `+0x14`, derived from the client's
 own table via a committed, hash-pinned copy.
 
 LANE-A, COO-DECISION 20260905_1947 item 2, answering RE-265.
+COO-DECISION 20260905_2349 item 1 (GT-233 v3, option (ข)): the two-candidate
+scheme discriminates a COLUMN (n_ID vs n_AREA), not a row -- see
+`ColumnDiscriminatingKeysTests`.
 """
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -32,20 +36,33 @@ class CommittedCopyTests(unittest.TestCase):
                 self.assertEqual(row["n_EVENT"], str(key.SAILING_RESULT_EVENT))
 
     def test_a_tampered_copy_is_refused_not_silently_trusted(self):
+        # D2, pf-adversary round `tk4hr7`: the first version of this test
+        # wrote the forged bytes over the TRACKED artifact itself and
+        # restored it in `finally` -- a process killed mid-test left a
+        # modified file under `src/` that `import runtime` then failed on
+        # for every round after, until someone noticed and ran `git
+        # checkout --`.  Same fix as
+        # `test_world_marker_copy.py`'s `test_editing_the_copy_without_
+        # moving_the_pin_is_refused`: point `COPY_PATH` at a temp file
+        # instead of touching the committed one at all.
         real = key.COPY_PATH.read_bytes()
-        try:
-            key.COPY_PATH.write_bytes(real + b"\n")
-            with self.assertRaises(key.SailingResultCopyError):
-                key.load_copy()
-        finally:
-            key.COPY_PATH.write_bytes(real)
+        with tempfile.TemporaryDirectory() as work:
+            forged = Path(work) / "world_sailing_result_area126.tsv"
+            forged.write_bytes(real + b"\n")
+            original = key.COPY_PATH
+            key.COPY_PATH = forged
+            try:
+                with self.assertRaises(key.SailingResultCopyError):
+                    key.load_copy()
+            finally:
+                key.COPY_PATH = original
 
 
 class AreaIdsTests(unittest.TestCase):
     def test_area_126_ids_match_the_committed_copy(self):
         rows = key.load_copy()
         self.assertEqual(
-            key.AREA_126_SAILING_RESULT_IDS,
+            key.area_126_sailing_result_ids(),
             tuple(int(row["n_ID"]) for row in rows),
         )
 
@@ -53,17 +70,24 @@ class AreaIdsTests(unittest.TestCase):
         # A pinned count, same discipline as `world_marker_copy`'s totals
         # block: a table update that adds or removes an area-126 row must
         # move this number in the same diff, not silently.
-        self.assertEqual(len(key.AREA_126_SAILING_RESULT_IDS), 18)
+        self.assertEqual(len(key.area_126_sailing_result_ids()), 18)
 
     def test_ids_are_unique(self):
-        ids = key.AREA_126_SAILING_RESULT_IDS
+        ids = key.area_126_sailing_result_ids()
         self.assertEqual(len(ids), len(set(ids)))
+
+    def test_not_bound_at_module_scope(self):
+        # D1, pf-adversary round `tk4hr7`: this must be a function, not a
+        # module-level tuple bound at import time -- see the module
+        # docstring's "WHY THE ROWS ARE LOADED LAZILY".
+        self.assertFalse(hasattr(key, "AREA_126_SAILING_RESULT_IDS"))
+        self.assertTrue(callable(key.area_126_sailing_result_ids))
 
 
 class ProvisionalKeyTests(unittest.TestCase):
     def test_the_provisional_key_is_a_real_row_id(self):
         self.assertIn(
-            key.provisional_area_126_key(), key.AREA_126_SAILING_RESULT_IDS
+            key.provisional_area_126_key(), key.area_126_sailing_result_ids()
         )
 
     def test_the_provisional_key_is_deterministic(self):
@@ -74,7 +98,7 @@ class ProvisionalKeyTests(unittest.TestCase):
     def test_the_provisional_key_is_the_lowest_id_not_a_guess(self):
         self.assertEqual(
             key.provisional_area_126_key(),
-            min(key.AREA_126_SAILING_RESULT_IDS),
+            min(key.area_126_sailing_result_ids()),
         )
 
     def test_the_provisional_key_is_never_zero(self):
@@ -83,41 +107,67 @@ class ProvisionalKeyTests(unittest.TestCase):
         self.assertNotEqual(key.provisional_area_126_key(), 0)
 
 
-class ProvisionalKeysPluralTests(unittest.TestCase):
-    """`provisional_area_126_keys(n)` -- pf-adversary, round `wjprxa`, D1:
-    the two GT-233 records must get DISTINCT candidates, not one value
-    repeated."""
+class NAreaKeyTests(unittest.TestCase):
+    def test_n_area_key_is_the_area_itself(self):
+        self.assertEqual(key.n_area_key(), 126)
+        self.assertEqual(key.n_area_key(), key.SAILING_RESULT_AREA)
 
-    def test_keys_are_distinct_and_real(self):
-        keys = key.provisional_area_126_keys(2)
+    def test_n_area_key_is_not_one_of_the_row_ids(self):
+        # The whole point of testing "n_AREA" as a column hypothesis is
+        # that it is a DIFFERENT number from every "n_ID" candidate.
+        self.assertNotIn(key.n_area_key(), key.area_126_sailing_result_ids())
+
+
+class ColumnDiscriminatingKeysTests(unittest.TestCase):
+    """`column_discriminating_keys(n)` -- COO-DECISION `20260905_2349` item
+    1, GT-233 v3 option (ข): the two GT-233 records must test DIFFERENT
+    COLUMN hypotheses (n_ID vs n_AREA), not two rows of the same column --
+    see the function's own docstring for why the row-discriminating design
+    this replaces could never come back positive if the client keys its
+    store by `n_AREA` instead."""
+
+    def test_two_keys_are_n_id_then_n_area(self):
+        keys = key.column_discriminating_keys(2)
+        self.assertEqual(keys, (key.provisional_area_126_key(),
+                                 key.n_area_key()))
+
+    def test_two_keys_are_distinct(self):
+        keys = key.column_discriminating_keys(2)
         self.assertEqual(len(keys), 2)
         self.assertEqual(len(set(keys)), 2)
-        for value in keys:
-            self.assertIn(value, key.AREA_126_SAILING_RESULT_IDS)
 
-    def test_keys_are_the_lowest_ids_in_ascending_order(self):
+    def test_d8_neither_key_collides_with_either_docks_0x12(self):
+        # D8, pf-adversary round `tk4hr7`: the retired scheme's two lowest
+        # n_IDs (1, 2) put island 3's key exactly equal to island 2's
+        # `+0x12` (survey_id 2). Neither new candidate may equal 2 or 3
+        # (the two docks' `+0x12` values), or a resolved lookup could be
+        # misread as evidence about the wrong field.
+        for value in key.column_discriminating_keys(2):
+            self.assertNotIn(value, (2, 3))
+
+    def test_one_key_is_the_n_id_hypothesis_alone(self):
         self.assertEqual(
-            key.provisional_area_126_keys(3),
-            tuple(sorted(key.AREA_126_SAILING_RESULT_IDS)[:3]),
+            key.column_discriminating_keys(1), (key.provisional_area_126_key(),)
         )
 
     def test_zero_keys_is_the_empty_tuple(self):
-        self.assertEqual(key.provisional_area_126_keys(0), ())
+        self.assertEqual(key.column_discriminating_keys(0), ())
 
-    def test_the_single_key_function_is_the_first_of_the_plural_one(self):
-        self.assertEqual(
-            key.provisional_area_126_key(),
-            key.provisional_area_126_keys(1)[0],
-        )
-
-    def test_asking_for_more_than_exist_refuses_rather_than_repeats(self):
-        too_many = len(key.AREA_126_SAILING_RESULT_IDS) + 1
-        with self.assertRaises(key.SailingResultCopyError):
-            key.provisional_area_126_keys(too_many)
+    def test_more_than_two_is_rejected(self):
+        # Only two named hypotheses exist (n_ID, n_AREA); this function
+        # does not generalise to "N distinct candidates" the way the
+        # row-discriminating design it replaces did.
+        with self.assertRaises(ValueError):
+            key.column_discriminating_keys(3)
 
     def test_negative_count_is_rejected(self):
         with self.assertRaises(ValueError):
-            key.provisional_area_126_keys(-1)
+            key.column_discriminating_keys(-1)
+
+    def test_row_discriminating_function_is_gone(self):
+        # The design it replaced gave every count a DISTINCT n_ID -- keeping
+        # both names around would let a caller pick the wrong one silently.
+        self.assertFalse(hasattr(key, "provisional_area_126_keys"))
 
 
 class CurateReDerivationTests(unittest.TestCase):

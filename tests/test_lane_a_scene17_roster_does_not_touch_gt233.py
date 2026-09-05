@@ -80,13 +80,22 @@ from pirateforce_foundation import world_scene_travel  # noqa: E402
 # RE-265): the provisioning trial's record `+0x14` moved from a bare 0 to a
 # real, per-record `world_m2_sailing_result_key` candidate, ON PURPOSE -- that
 # is this round's own deliverable, not a drift this guard exists to catch.
-# Re-pinned a SECOND time in the same round (pf-adversary D1): the two
-# records must carry DISTINCT candidates rather than one repeated, so 153
-# (first in `PLANNED_TRIGGER_IDS` order) keeps the lowest id and 154 moved to
-# the second-lowest -- see `world_m2_sailing_result_key.
-# provisional_area_126_keys`.  This file's own docstring says the pin is
-# taken "from THIS round's own start"; re-derived here, after both
-# intentional changes, with every module this round touches already
+# Re-pinned a SECOND time in the same round `vwekfq` (pf-adversary D1): the
+# two records had to carry DISTINCT candidates rather than one repeated, so
+# 153 (first in `PLANNED_TRIGGER_IDS` order) kept the lowest id and 154
+# moved to the second-lowest -- see the row-discriminating
+# `provisional_area_126_keys` this round's own change below retires.
+# Re-pinned a THIRD time, round `tk4hr7`+1 (LANE-A, COO-DECISION
+# `20260905_2349` item 1, GT-233 v3 option (ข)): the two-candidate scheme
+# now discriminates a COLUMN, not a row -- 153 is unaffected (still the
+# lowest `n_ID`, still `1`), 154's `+0x14` moves from `2` (the old
+# second-lowest `n_ID`) to `126` (`n_AREA` itself) -- see
+# `world_m2_sailing_result_key.column_discriminating_keys`.  Only 154's two
+# hashes change here; re-derived by calling `trial.encode_trial_records`
+# with the fixed source (not hand-guessed), same discipline as every earlier
+# re-pin in this file. This file's own docstring says the pin is taken
+# "from THIS round's own start"; re-derived here, after this round's
+# intentional change, with every module this round touches already
 # imported, exactly as before.  Scene 17's roster (the four modules named
 # above) still touches none of this -- re-verified by re-running this same
 # file's other two tests unchanged.
@@ -96,8 +105,8 @@ GT233_EXPECTED_SHA256 = {
         "92d0a1a4b2b3a91c06291fd992f47ca3b1371b2422efcbc48a26c81261964590",
     ),
     154: (
-        "d7ddbbf9c104dbef4cdaa31be1a07818442fae249b1e33fdf3d48b288e780192",
-        "53fcb4f1d91da41699820a01dda582fba8701da44d95a2c3c354fd34b0c26818",
+        "ab3690025bf98748a42498ffdc6d3385a139d762b6af4ab33b01a3c8423d41e8",
+        "7e7f19bc379a4e1c321c2874cf6640a45c3d48a822e10e4bbe85f4491759d586",
     ),
 }
 GT233_SCENE_ID = 126

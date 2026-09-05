@@ -46,20 +46,39 @@ class TrialSurveyRecordsTests(unittest.TestCase):
                 self.assertEqual(fields.y, planned.y)
                 self.assertEqual(fields.z, planned.z)
 
-    def test_the_0x14_field_carries_a_real_distinct_sailing_result_key(self):
+    def test_the_0x14_field_carries_column_discriminating_sailing_result_keys(self):
         # RE-265 + COO-DECISION 20260905_1947 item 2: a bare 0 at +0x14 is
         # the null-lookup gate RE-265 measured exits BEFORE the distance
-        # test -- this field must no longer be that value.  pf-adversary
-        # (round wjprxa, D1): the two records must not share one candidate
-        # -- see world_m2_sailing_result_key.provisional_area_126_keys.
-        records = trial.trial_survey_records()
-        keys = [r.fields.unmeasured_0x14 for r in records]
-        expected = sailing_result.provisional_area_126_keys(len(records))
-        self.assertEqual(tuple(keys), expected)
+        # test -- this field must no longer be that value.  COO-DECISION
+        # 20260905_2349 item 1 (GT-233 v3, option (ข)): the two records must
+        # each test a DIFFERENT COLUMN hypothesis (n_ID vs n_AREA), not two
+        # rows of the same column -- see
+        # world_m2_sailing_result_key.column_discriminating_keys.
+        records = {r.trigger_id: r for r in trial.trial_survey_records()}
+        expected = sailing_result.column_discriminating_keys(len(records))
+        self.assertEqual(
+            tuple(records[t].fields.unmeasured_0x14 for t in (153, 154)),
+            expected,
+        )
+        # dock 153 (Prison Exile) tests "key is n_ID"; dock 154 (Spice
+        # Paradise) tests "key is n_AREA" -- fixed assignment, load-bearing
+        # for reading GT-233's result (see trial_survey_records docstring).
+        self.assertEqual(
+            records[153].fields.unmeasured_0x14,
+            sailing_result.provisional_area_126_key(),
+        )
+        self.assertEqual(
+            records[154].fields.unmeasured_0x14, sailing_result.n_area_key()
+        )
+        keys = [r.fields.unmeasured_0x14 for r in records.values()]
         self.assertEqual(len(set(keys)), len(keys))
         for value in keys:
             self.assertNotEqual(value, 0)
-            self.assertIn(value, sailing_result.AREA_126_SAILING_RESULT_IDS)
+        # D8: neither candidate may collide with either dock's own `+0x12`
+        # (survey_id 2/3) -- see column_discriminating_keys' own test for
+        # the full reasoning.
+        for value in keys:
+            self.assertNotIn(value, (2, 3))
 
     def test_the_remaining_unmeasured_fields_still_default_to_zero(self):
         for record in trial.trial_survey_records():
@@ -75,6 +94,41 @@ class TrialSurveyRecordsTests(unittest.TestCase):
         finally:
             plan.MEASURED_XYZ.clear()
             plan.MEASURED_XYZ.update(saved)
+
+
+class D8CollisionGuardTests(unittest.TestCase):
+    """pf-adversary, round `tk4hr7`+1, re-verification of this round's own
+    first D8 fix: `column_discriminating_keys` only guarded its two
+    candidates against EACH OTHER, never against the `+0x12` survey_ids
+    this trial actually sends -- proven insufficient by monkeypatching
+    `provisional_area_126_key()` to return `2` (a plausible future TSV
+    update, since the committed copy already HAS a row with `n_ID=2`) and
+    observing the collision pass through silently. The guard now lives
+    here, in `trial_survey_records`, which is the one place that knows
+    both fields."""
+
+    def test_todays_candidates_do_not_collide(self):
+        # The guard fires on every call, not just a forged one -- this
+        # proves it does not reject today's real, correct data.
+        self.assertTrue(trial.trial_survey_records())
+
+    def test_a_forged_n_id_candidate_colliding_with_a_survey_id_is_refused(self):
+        original = sailing_result.provisional_area_126_key
+        sailing_result.provisional_area_126_key = lambda: 2
+        try:
+            with self.assertRaises(sailing_result.SailingResultCopyError):
+                trial.trial_survey_records()
+        finally:
+            sailing_result.provisional_area_126_key = original
+
+    def test_a_forged_n_area_candidate_colliding_with_a_survey_id_is_refused(self):
+        original = sailing_result.n_area_key
+        sailing_result.n_area_key = lambda: 3
+        try:
+            with self.assertRaises(sailing_result.SailingResultCopyError):
+                trial.trial_survey_records()
+        finally:
+            sailing_result.n_area_key = original
 
 
 SEA_SCENE = 126
