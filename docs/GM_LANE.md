@@ -10122,7 +10122,7 @@ bricking ได้ครบ แต่ไม่ได้ตอบว่าดี�
 
 **ที่มา**: `COO-DECISION 20260905_0547` ข้อท้าย — "PR ต่อสายชั้นสองภายในรอบถัดจากที่ `#795`
 ขึ้น main" · `#795` merge 05:47 (ตรวจสดรอบนี้ด้วย `git grep -n "def sendall"
-src/pirateforce_foundation/connection.py` บน `origin/main` = **เจอ** `connection.py:118`
+src/pirateforce_foundation/connection.py` บน `origin/main` = **เจอ** `connection.py:119`
 ไม่ได้เชื่อบันทึกของรอบก่อน)
 
 ### ช่องว่างที่ปิด
@@ -10142,14 +10142,14 @@ R348 วัดไว้ว่า **ไม่มีคลาสไหนใน `s
   จะ *เคลียร์* park ที่มันย้อนคืนไม่ได้ = แย่กว่าไม่มีเลย)
 - **ถือ session แบบ weak** — closure ที่จับแน่นแล้วเก็บบน session เองคือ reference cycle
   ที่ต้องรอ `gc` เดินรอบเต็ม แต่ `lane_hooks` เก็บ live session เป็น weakref
-  (`lane_hooks/__init__.py:945`) เพื่อให้ session ที่ตายเลิกตอบ `current_session_scene_id` ทันที
+  (`lane_hooks/__init__.py:955-957`) เพื่อให้ session ที่ตายเลิกตอบ `current_session_scene_id` ทันที
   · session ที่ weakref ไม่ได้ (`__slots__` ไม่มี `__weakref__`) ตกไป strong ref แทนที่จะปฏิเสธ
 - ค่าคงที่ `SENT_OBSERVER_ATTRIBUTE` / `FAILED_OBSERVER_ATTRIBUTE` สะกดชื่อ hook ไว้ที่เดียว
   และมีเทสเทียบกับ **ซอร์สของ `connection.py` จริง** เพราะไฟล์นั้นไม่ใช่ของสายนี้ ถ้า chief
   เปลี่ยนชื่อ ตัวติดตั้งที่เขียนชื่อเก่าจะติดตั้งสองแอตทริบิวต์ที่ไม่มีใครอ่าน และเทสอื่นทุกใบยังเขียว
 
 ### หลักฐาน (headless ทั้งหมด)
-`tests/test_gm_warp_send_watch.py` +11 เทส สองคลาส:
+`tests/test_gm_warp_send_watch.py` **+19 เทสที่ pytest เก็บได้** สามคลาส (`InstallSendOutcomeObserverTests` 15 · `LiveSocketFacadeTests` 5 ใบของตัวเอง + 7 ใบที่สืบทอด จาก `RealDatabaseTests` = 12 · `HookupWiringPinTests` 2) — 61 -> 80 ใบในไฟล์:
 - `InstallSendOutcomeObserverTests` — arity ตรงกับที่ `connection.py` เรียก (`observer(data)` /
   `observer(data, error)`) · ไม่ shadow เมธอดของ chief · ครึ่งเดียวถูกถอน · weakref ไม่หน่วงอายุ
   session · session ที่ weakref ไม่ได้ยังติดตั้งได้ · forward ที่ session ตายแล้วตอบ
@@ -10177,3 +10177,68 @@ R348 วัดไว้ว่า **ไม่มีคลาสไหนใน `s
 M2/M3/M4/P-2/P-3 ขยับ · socket ในเทสเป็นอ็อบเจกต์ปลอม ไม่มีไบต์ออกเครือข่ายจริง ·
 ไม่แตะ `runtime.py` / `connection.py` / `app.py` / `pf_login_game_server_v141.py` / canonical DB /
 `scenarios/world_*.json` / `scenarios/combat_*.json`
+
+### รอบแก้ที่สอง — `pf-adversary` ตีกลับ **ไม่อนุมัติ** 10 ข้อ แก้ครบใน PR เดิม (`#801`)
+
+adversary รันเสร็จหลังเปิด PR (บันทึกเป็น `ADVERSARY_PENDING #801` ในไฟล์รอบ) `#801` ยังไม่ merge
+จึงแก้ใต้รหัสรอบ `goxj0y` เดิมตาม `COO 1429` ทั้งสิบข้อ **วัดจริงทุกข้อ ไม่ใช่อ่านโค้ดแล้วเดา**:
+
+- 🔴 **D1 (หนักที่สุด · ปฏิเสธแล้วทำให้แถวพัง)** — ตัวติดตั้งเดิมปฏิเสธทั้งคู่เมื่อ**ชื่อใดชื่อหนึ่ง**มีอยู่
+  adversary วัดผ่าน facade จริงว่า: ถ้าชั้นของ chief ประกาศแค่ `on_game_frame_send_failed`
+  (merge ตัดครึ่ง หรือสายอื่นเผลอตั้งชื่อชน) `/warp` ที่เฟรม**ถึงสายจริง**จะไม่มีใครเคลียร์ park
+  แล้ว disconnect ที่ไม่เกี่ยวกันครั้งถัดไป **ย้อนแถวกลับฉาก 1 ทั้งที่ไคลเอนต์ยืนอยู่ฉาก 2** =
+  ข้อมูลตำแหน่งพังถาวรเพราะการปฏิเสธ **แก้**: ตัดสินทีละชื่อ — ชื่อที่มีอยู่แล้วไม่แตะเลย
+  (ไม่ shadow) ชื่อที่ขาดเติมให้ · คำตอบใหม่ `completed_half_declared` แยกจาก `installed`
+  เพราะยังเป็นข้อบกพร่องของคนที่ประกาศครึ่งเดียว · เทส end-to-end ยิงสถานการณ์ของ adversary
+  ตรง ๆ ผ่าน facade จริง
+- 🔴 **D1/D3 (การปฏิเสธมองไม่เห็น)** — ตัวติดตั้งเป็นฟังก์ชันเดียวในโมดูลที่ปฏิเสธโดยไม่ `_note`
+  ไม่มีบรรทัดคอนโซล และผู้เรียกที่ตั้งใจไว้เป็น statement เปล่าที่ทิ้งค่าคืน ⇒ การปฏิเสธบน
+  คอนเนกชันจริงมองไม่เห็นทั้งจาก chief จาก CI และจากคอนโซลเจ้าของ **แก้**: `_announce_install`
+  ยิงสองช่อง — event trail + `GM_WARP_SEND_OBSERVERS <outcome>` บน stderr ผ่าน `_console`
+  ที่มีการ์ด `sys.stderr is None` ของ `warp_scene_persist` (ไม่ก๊อบการ์ด จะได้ไม่ดริฟต์)
+- 🔴 **D2/D3 (ไม่มีอะไรในรีโปเปลี่ยนสถานะเมื่อ hookup ลง)** — adversary เอาบรรทัดของ chief ไปวาง
+  ที่ `runtime.py:1599` จริง แล้ววัด: ชุดเต็ม **byte-identical** และ control ที่อ้างว่าจะแดง
+  ยังเขียว (เพราะมันผูกกับ `_Session` ปลอมในไฟล์ตัวเอง) **แก้**: `HookupWiringPinTests` อ่าน
+  `runtime.py` เป็นข้อความ (สายนี้แก้ไฟล์นั้นไม่ได้ แต่**สังเกต**ได้) แล้วปักคำตอบวันนี้ = ยังไม่ต่อสาย
+  · จับได้ทั้งรูป A และรูป B · **มันจะแดงทันทีในคอมมิตที่ chief ต่อสาย** พร้อมข้อความบอกสามอย่าง
+  ที่ต้องแก้ในคอมมิตเดียวกัน = วินัยเดียวกับที่ chief ใช้กับ `registered_but_not_fired` ของ LANE-UI
+- **D4 (มิวแทนต์ที่รอด)** `or` -> `and` ที่เช็ค "มีอยู่แล้ว" เขียวสนิท เพราะเทสเดิมประกาศ**ทั้งสอง**
+  เมธอด จึงแยก `or` กับ `and` ไม่ออก **แก้**: เทส "มีชื่อเดียว" ทั้งสองทิศ (subTest) ⇒ มิวแทนต์
+  `all` -> `any` แดง 2 subtests
+- **D5 (สามสาขาที่ไม่เคยวิ่ง)** เทสเดิม force การปฏิเสธด้วยการ patch `setattr` เป็น**โมดูลโกลบอล**
+  ที่ production ไม่มี ⇒ สาขา `except` ที่อ้างว่าครอบคลุมไม่เคยถูกรันเลย **แก้**: fixture ที่
+  **โยนจริง** (`_HalfWritableSession` / `_HostileSession` / `_UndoHostileSession`) + คลุมการ์ด
+  คอนโซล ⇒ branch coverage ของไฟล์ 91% -> **94% · ทุกบรรทัดที่รอบนี้เพิ่มถูกรันแล้ว**
+  (ที่เหลือคือการ์ดของรอบก่อน ๆ ที่รอบนี้ไม่ได้แตะ)
+- **D6 (เหตุผลของ weakref อ้างอันตรายที่เป็นไปไม่ได้บนสาขานั้น)** — `register_live_session`
+  เขียนลง `WeakValueDictionary` แบบไม่มีการ์ด ⇒ session ที่ weakref ไม่ได้จะ **`TypeError`**
+  ตั้งแต่ลงทะเบียน จึงไม่มีวันอยู่ในทะเบียนและไม่มีวันก่ออันตรายที่ยกมาอ้าง **แก้**: ขีดฆ่าครึ่งนั้น
+  (ไม่ลบ) เขียนเหตุผลจริง — cycle มีจริง (วัดแล้ว ปิด `gc` ไม่ถูกเก็บ) แต่ fallback มีไว้ให้
+  `__slots__` session ได้ rollback ไม่ใช่กันอย่างอื่น
+- **D7 ("real session" เป็นของปลอมและแตกสาขาต่างจาก production)** — `_Session` ไม่มี
+  `attach_transport_socket_closer` ⇒ `bind()` ข้ามสาขา opt-in ที่ production เดิน และไม่มี
+  `close_connection` ⇒ ไม่มีเทสไหนออกจากซ็อกเก็ตเลย **แก้**: ต่อสองสมาชิกนั้นให้ fixture +
+  ยืนยันว่า `bind()` เดินสาขาจริง (`len(closers) == 1`) + เรียก `release()` ทุกใบผ่าน `addCleanup`
+- **D8 (เลขบรรทัดที่ derive ใหม่ไม่ได้)** — `connection.py:87` -> **92** · `:153` -> **154** ·
+  `lane_hooks:945` -> **955-957** · `def sendall` **:119** ไม่ใช่ 118 · "+11 เทส" -> **+19 ใบที่
+  pytest เก็บได้** (14 ประกาศใหม่ + 7 ที่สืบทอดจาก `RealDatabaseTests`) · `connection.py:150`
+  ตรวจแล้ว **ถูกอยู่แล้ว** ไม่แก้
+- **D9 (`python tests/<file>.py` พิมพ์ OK หลังรัน 51 จาก 72)** — คลาสใหม่ถูก append ใต้
+  `if __name__ == "__main__"` **แก้**: ย้ายบล็อกนั้นไปท้ายไฟล์ พร้อมคอมเมนต์ว่า append ต่อไป
+  ต้องอยู่**เหนือ**มัน · CI ไม่กระทบ (ใช้ pytest) แต่คนที่ spot-check ไฟล์นี้ได้เขียวที่ไม่มีความหมาย
+- **D10 (ย่อหน้าเก่าที่ถูกหักล้างไปแล้ว)** — "ที่มาของ `previous` ไม่ใช่ปัญหาของโมดูลนี้"
+  ถูกหักล้างโดยรอบ `ff30oi` เอง (`ParkedWarpSend.previous_position`) **แก้**: ขีดฆ่า ไม่ลบ
+
+**สิ่งที่ adversary พยายามแล้วพังไม่ได้** (บันทึกไว้เพราะมีค่าเท่ากัน): `LiveSocketFacadeTests`
+เดินผ่าน `connection.py` จริง (เขา neuter `_offer_send_outcome` แล้วได้ 3 failed ตรงเป้า) ·
+ความปลอดภัยเธรดของทั้งการติดตั้งและ forward (state สร้างที่ `v141:7399` · `hb_thread.start()`
+ที่ `:7439` ⇒ ติดตั้งเสร็จก่อนเธรดที่สองมีตัวตน · ทั้งสองจุดส่งถือ `send_lock` ตัวเดียวกัน) ·
+cp874/ASCII · weakref fallback ไม่รั่ว
+
+**กับดักที่ adversary ทิ้งไว้ให้รอบหลัง**: `install_send_outcome_observers(mock.Mock())` คืน
+`refused_already_present` เพราะ `Mock.__getattr__` สร้างชื่อให้เอง — ไม่มีผลกับ production
+(คลาสจริงไม่มี `__getattr__`) แต่เป็นกับดักของคนที่จะเขียน integration test ด้วย mock ที่ไม่ spec
+
+**หน้าต่างที่ยังเปิดอยู่จริง (ไม่ใช่ regression)**: ช่วงระหว่างการเขียนถาวรของ `_persist_warp_scene`
+กับ `setattr` ของ `park_warp_send` ยังไม่มีใครสังเกต — คอนเนกชันที่ตายในช่วงนั้นทิ้งแถวไว้ที่
+ปลายทางโดยไม่มี park ให้ forward ตัวไหนเจอ · รอบนี้ปิด**ช่องของผู้สังเกต** ไม่ใช่ช่องนี้ · เข้า backlog

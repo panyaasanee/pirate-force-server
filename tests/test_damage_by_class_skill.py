@@ -225,5 +225,62 @@ class ClassOwnershipIsDerivedFromTheTableTests(unittest.TestCase):
         self.assertIn("is not in class_id", str(ctx.exception))
 
 
+class PerClassProductionPinAgainst916Tests(unittest.TestCase):
+    """LANE-CS queue item 4 ("สกิลโจมตีตัวแรกของแต่ละอาชีพ"), server half, per
+    `COO-DECISION 20260905_0647`: the class-gated resolver above was only ever
+    checked against the arbitrary stand-in attacker
+    (`ClassOwnershipIsDerivedFromTheTableTests.setUpClass`'s `cls.attacker`),
+    which proves the class gate passes an attacker through unchanged but is
+    not the attacker any real hit would carry.  `test_damage_by_skill.py`'s
+    `test_normal_attack_against_916_with_the_production_pin_attacker` already
+    did this for the ungated `damage_by_skill.resolve_skill_damage` -- this
+    class is that same check pushed one layer up, through EVERY class's own
+    `class_id`, not just the bare skill-id gate.
+
+    Today `attack_skill_ids_for_class(class_id)` answers `(99,)` for all 5
+    classes (see `test_attack_skill_ids_for_class_is_99_only_for_every_class`
+    above), so this loop only ever fires skill 99 -- the day RE-232's
+    successor classifies a class-specific "Basic Training" id as an attack
+    too, this loop starts firing that id as well without an edit here,
+    because it reads the ids to fire from `attack_skill_ids_for_class`
+    itself, never a literal `99`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        roster = field_mobs.load_roster()
+        training_iron_man = next(
+            mob for mob in roster
+            if mob.template_id == TRAINING_IRON_MAN_TEMPLATE_ID)
+        cls.defender = mob_combat.mob_defender(training_iron_man)
+        # The attacker `runtime.py` actually binds to production combat
+        # (`MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()`) -- see
+        # `test_damage_by_skill.py`'s own docstring for why the arbitrary
+        # stand-in attacker above is not a substitute for this.
+        cls.production_attacker = mob_combat.pin_attacker()
+
+    def test_every_classs_own_attack_skill_ids_hit_916_for_891(self):
+        expected = damage_by_skill.resolve_skill_damage(
+            99, self.production_attacker, self.defender)
+        self.assertEqual(expected, 891)
+        checked_a_class = False
+        for class_id in class_catalog.CLASS_IDS:
+            attack_ids = damage_by_class_skill.attack_skill_ids_for_class(class_id)
+            self.assertTrue(
+                attack_ids,
+                "class_id %r classifies no attack skill at all -- nothing "
+                "for this test to fire" % (class_id,))
+            for skill_id in attack_ids:
+                got = damage_by_class_skill.resolve_class_skill_damage(
+                    class_id, skill_id, self.production_attacker, self.defender)
+                self.assertEqual(
+                    got, expected,
+                    "class_id %r skill_id %r against Training Iron Man 916 "
+                    "did not match the production-pin number" % (
+                        class_id, skill_id))
+                checked_a_class = True
+        self.assertTrue(checked_a_class, "no class/skill pair was ever fired")
+
+
 if __name__ == "__main__":
     unittest.main()

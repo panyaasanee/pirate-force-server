@@ -190,12 +190,19 @@ class SceneBindingTest(unittest.TestCase):
         self.assertTrue(roster, "scene 14 shipped no rows")
         self.assertEqual({mob.scene for mob in roster}, {"Bg0015"})
         self.assertEqual(roster, field_mobs.load_roster("Bg0015"))
-        # All 12 mined rows ship live, Carlos (template 924, placement 87)
+        # ~~All 12 mined rows ship live, Carlos (template 924, placement 87)
         # included -- his missing death ruling is a separate, already-
         # accepted gate (see tests/test_mob_death_wired_widening.py), not
-        # a reason to hold this row out of the roster.
-        self.assertEqual(len(roster), 12)
-        self.assertIn(924, {mob.template_id for mob in roster})
+        # a reason to hold this row out of the roster.~~
+        # STRUCK ROUND j5v7mu: the missing death ruling stopped being a
+        # separate gate the day scene 14 went live, because a player could
+        # then take that row to 0 HP and be answered with silence for ever
+        # (measured round pcsjfr).  COO-DECISION 20260905_0545 withheld the
+        # row -- 11 ship, and 924 is deliberately not among them.
+        self.assertEqual(len(roster), 11)
+        self.assertNotIn(924, {mob.template_id for mob in roster})
+        self.assertEqual(
+            field_mobs.lane_withheld_placements("Bg0015"), (87,))
 
     def test_an_empty_ledger_refuses_every_strike_by_name(self):
         empty = mob_combat.open_ledger_for_scene_id(BG1001_SCENE_ID_UNSHIPPED)

@@ -192,7 +192,15 @@ class Bg0005ShapeTests(unittest.TestCase):
         """A fourth scene must not move the three already on the wire."""
         self.assertEqual(len(field_mobs.roster_for_scene_id(1)), 4)
         self.assertEqual(len(field_mobs.roster_for_scene_id(2)), 12)
-        self.assertEqual(len(field_mobs.roster_for_scene_id(14)), 12)
+        # ~~12~~ -> 11 for scene 14, round j5v7mu: COO-DECISION
+        # 20260905_0545 withheld placement 87 (Carlos) from what this lane
+        # ships.  Asserted as a live count minus the withheld list rather
+        # than as a bare 11, so this line keeps meaning "nothing else
+        # moved" if the ruling is lifted.
+        self.assertEqual(
+            len(field_mobs.roster_for_scene_id(14)),
+            12 - len(field_mobs.lane_withheld_placements("Bg0015")))
+        self.assertEqual(len(field_mobs.roster_for_scene_id(14)), 11)
         raw = BG0001_PATH.read_bytes()
         self.assertEqual(hashlib.sha256(raw).hexdigest(),
                          BG0001_UNTOUCHED_SHA256)

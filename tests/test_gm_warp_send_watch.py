@@ -985,9 +985,6 @@ class CrossThreadObserverTests(RealDatabaseTests):
     # future caller cannot reach this module any other way.
 
 
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
-
 
 class _SwallowingSession:
     """A session whose attribute writes are silently lost.
@@ -1025,6 +1022,45 @@ class _NoWeakrefSession:
         setattr(self, warp_send_watch.SESSION_ATTRIBUTE, None)
         setattr(self, warp_send_watch.SENT_OBSERVER_ATTRIBUTE, None)
         setattr(self, warp_send_watch.FAILED_OBSERVER_ATTRIBUTE, None)
+
+
+class _HalfWritableSession(_FakeSession):
+    """Accepts the success forward, RAISES on the failure forward.
+
+    pf-adversary D5: the shape a real refusal takes.  `__setattr__` raising
+    is what `__slots__`, a read-only property and a frozen dataclass all do,
+    and it is the branch the previous version of this test never reached.
+    """
+
+    def __setattr__(self, name, value):
+        if name == warp_send_watch.FAILED_OBSERVER_ATTRIBUTE and callable(
+            value
+        ):
+            raise AttributeError(name)
+        object.__setattr__(self, name, value)
+
+
+class _UndoHostileSession(_FakeSession):
+    """Accepts the first forward, raises on the second AND on the undo.
+
+    pf-adversary D5: the branch where even taking the half back off fails.
+    """
+
+    def __setattr__(self, name, value):
+        if name == warp_send_watch.FAILED_OBSERVER_ATTRIBUTE and callable(
+            value
+        ):
+            raise AttributeError(name)
+        if name == warp_send_watch.SENT_OBSERVER_ATTRIBUTE and value is None:
+            raise AttributeError(name)
+        object.__setattr__(self, name, value)
+
+
+class _HostileSession:
+    """Every attribute read raises.  pf-adversary D5: the OTHER `except`."""
+
+    def __getattr__(self, name):
+        raise RuntimeError(f"hostile read of {name}")
 
 
 class InstallSendOutcomeObserverTests(unittest.TestCase):
@@ -1067,7 +1103,7 @@ class InstallSendOutcomeObserverTests(unittest.TestCase):
 
     def test_the_installed_forwards_take_connection_pys_own_arities(self):
         """`observer(data)` on success, `observer(data, error)` on failure
-        (`connection.py:153`) -- a forward with the wrong arity would raise
+        (`connection.py:154`) -- a forward with the wrong arity would raise
         into `_offer_send_outcome`'s swallowing except and be invisible."""
         session = _FakeSession()
         warp_send_watch.install_send_outcome_observers(session)
@@ -1141,21 +1177,17 @@ class InstallSendOutcomeObserverTests(unittest.TestCase):
         """The failure half refuses to land, the success half already did.
         A connection left with only the success forward would CLEAR parks
         it can never roll back -- strictly worse than having neither.
+
+        pf-adversary D5 (MEASURED, round `goxj0y`) rewrote this test.  It
+        used to force the refusal by patching a module-global `setattr` onto
+        `warp_send_watch` with `create=True` -- a global the production
+        module does not have, so the `except` branch it claimed to cover was
+        never executed by anything.  `_HalfWritableSession` RAISES on the
+        second name, which is what a real refusal looks like (`__slots__`, a
+        read-only property, a frozen dataclass).
         """
-        session = _FakeSession()
-        real_setattr = setattr
-
-        def _selective(obj, name, value):
-            if name == warp_send_watch.FAILED_OBSERVER_ATTRIBUTE and callable(
-                value
-            ):
-                return None
-            return real_setattr(obj, name, value)
-
-        with mock.patch.object(
-            warp_send_watch, "setattr", _selective, create=True,
-        ):
-            outcome = warp_send_watch.install_send_outcome_observers(session)
+        session = _HalfWritableSession()
+        outcome = warp_send_watch.install_send_outcome_observers(session)
 
         self.assertEqual(outcome, warp_send_watch.INSTALL_REFUSED_NOT_WRITABLE)
         self.assertIsNone(
@@ -1164,6 +1196,129 @@ class InstallSendOutcomeObserverTests(unittest.TestCase):
         self.assertIsNone(
             getattr(session, warp_send_watch.FAILED_OBSERVER_ATTRIBUTE, None)
         )
+
+    def test_the_console_half_of_the_announcement_cannot_raise(self):
+        """pf-adversary D5: the announcer's own guard, exercised.
+
+        `_persist_console` is reused precisely because it already guards a
+        `None` stderr, but this module must survive it raising anyway -- the
+        announcement runs inside a `sendall` critical section on the game
+        listener thread, and an exception escaping here would unwind it.
+        """
+        session = _FakeSession()
+        with mock.patch.object(
+            warp_send_watch, "_persist_console",
+            side_effect=RuntimeError("stderr is gone"),
+        ):
+            self.assertEqual(
+                warp_send_watch.install_send_outcome_observers(session),
+                warp_send_watch.INSTALL_OK,
+            )
+        # The event half still landed, so the outcome is not lost entirely.
+        self.assertEqual(session.events, [
+            f"{warp_send_watch.EVENT_PREFIX}install_"
+            f"{warp_send_watch.INSTALL_OK}",
+        ])
+
+    def test_an_undo_that_itself_refuses_still_returns_not_writable(self):
+        """pf-adversary D5: the last-ditch guard in the undo loop.
+
+        A session that accepted the first forward, raised on the second, and
+        then raises again when the first is being taken back off.  There is
+        nothing more this module can do for such a session -- the contract
+        it must still keep is "do not raise, and say so".
+        """
+        session = _UndoHostileSession()
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                warp_send_watch.install_send_outcome_observers(session),
+                warp_send_watch.INSTALL_REFUSED_NOT_WRITABLE,
+            )
+
+    def test_a_session_whose_getattr_raises_refuses_instead_of_exploding(self):
+        """pf-adversary D5: the first `except` branch, exercised for real."""
+        self.assertEqual(
+            warp_send_watch.install_send_outcome_observers(_HostileSession()),
+            warp_send_watch.INSTALL_REFUSED_NOT_WRITABLE,
+        )
+
+    def test_exactly_one_name_present_gets_the_OTHER_one_supplied(self):
+        """pf-adversary D1/D4 (MEASURED).  Refusing on "at least one
+        present" was measured to be worse than doing nothing: with only the
+        failure forward declared, a warp whose frame really reached the wire
+        is never cleared, and the next unrelated disconnect rolls the
+        durable row back while the client stands in the destination.  The
+        missing half is supplied; the present half is left strictly alone.
+
+        This is also the test that kills the `or` -> `and` mutant D4 found
+        surviving: with `and`, a session carrying one name gets the OTHER
+        written AND the existing one shadowed.
+        """
+        for present_name, missing_name in (
+            (
+                warp_send_watch.SENT_OBSERVER_ATTRIBUTE,
+                warp_send_watch.FAILED_OBSERVER_ATTRIBUTE,
+            ),
+            (
+                warp_send_watch.FAILED_OBSERVER_ATTRIBUTE,
+                warp_send_watch.SENT_OBSERVER_ATTRIBUTE,
+            ),
+        ):
+            with self.subTest(present=present_name):
+                session = _FakeSession()
+                sentinel = lambda *a, **k: "someone-elses"  # noqa: E731
+                setattr(session, present_name, sentinel)
+
+                outcome = warp_send_watch.install_send_outcome_observers(
+                    session,
+                )
+
+                self.assertEqual(
+                    outcome,
+                    warp_send_watch.INSTALL_COMPLETED_HALF_DECLARED,
+                )
+                # The one that was there is untouched -- never shadowed.
+                self.assertIs(getattr(session, present_name), sentinel)
+                # The one that was missing is now this module's forward.
+                self.assertTrue(callable(getattr(session, missing_name)))
+                self.assertNotEqual(
+                    getattr(session, missing_name), sentinel,
+                )
+
+    def test_every_outcome_reaches_the_event_trail_and_the_console(self):
+        """pf-adversary D1/D3 (MEASURED).  The installer used to be the one
+        function here that refused without saying so, while its only
+        intended caller throws the return value away -- a refusal on a live
+        connection was invisible to chief, to CI and to the console alike.
+        """
+        cases = (
+            (_FakeSession(), warp_send_watch.INSTALL_OK),
+            (_SwallowingSession(), warp_send_watch.INSTALL_REFUSED_NOT_WRITABLE),
+        )
+        for session, expected in cases:
+            with self.subTest(expected=expected):
+                stream = io.StringIO()
+                with redirect_stderr(stream):
+                    self.assertEqual(
+                        warp_send_watch.install_send_outcome_observers(session),
+                        expected,
+                    )
+                self.assertIn(
+                    f"{warp_send_watch.INSTALL_CONSOLE_TOKEN} {expected}",
+                    stream.getvalue(),
+                )
+
+        # The event trail half, on a session that actually keeps events.
+        session = _FakeSession()
+        with redirect_stderr(io.StringIO()):
+            warp_send_watch.install_send_outcome_observers(session)
+            warp_send_watch.install_send_outcome_observers(session)
+        self.assertEqual(session.events, [
+            f"{warp_send_watch.EVENT_PREFIX}install_"
+            f"{warp_send_watch.INSTALL_OK}",
+            f"{warp_send_watch.EVENT_PREFIX}install_"
+            f"{warp_send_watch.INSTALL_REFUSED_ALREADY_PRESENT}",
+        ])
 
     def test_the_session_is_not_kept_alive_by_its_own_forwards(self):
         """A strongly-capturing closure stored ON the session would be a
@@ -1258,12 +1413,38 @@ class LiveSocketFacadeTests(RealDatabaseTests):
             return None
 
     def _accepted(self, session, error=None):
+        """Bind through the real facade, on the branches production takes.
+
+        pf-adversary D7 (MEASURED, round `goxj0y`): `_Session` carries only
+        `foundation` / `events` / `token`, so `AcceptedGameSocket.bind`
+        skipped its `attach_transport_socket_closer` branch
+        (`connection.py:97-99`) and `GameConnectionBindings.release` had no
+        `close_connection` to call -- two behaviours the real state class
+        DOES have (`runtime.py:1625`, `runtime.py:1607`) around the very
+        call this round proposes to append the install to.  The two members
+        are grafted on here, and `release()` is exercised, so the fixture
+        walks the same branches rather than a shorter path that happens to
+        agree.
+        """
+        closers = []
+        session.attach_transport_socket_closer = closers.append
+        session.close_connection = lambda: True
+
         raw = self._RawSocket(error)
         bindings = connection.GameConnectionBindings()
         wrapped = bindings.accepted(raw)
         bindings.bind(session)
         self.assertIs(wrapped.state, session)
+        # bind() really took the opt-in branch, rather than silently
+        # skipping it the way it did for the barer fixture.
+        self.assertEqual(len(closers), 1)
+        self.addCleanup(self._release, bindings, wrapped)
         return wrapped, raw
+
+    def _release(self, bindings, wrapped):
+        """Exit the connection the way production does.  Idempotent."""
+        if not wrapped.released:
+            self.assertTrue(bindings.release(wrapped))
 
     def _warp_frame(self, session):
         stream = io.StringIO()
@@ -1361,3 +1542,144 @@ class LiveSocketFacadeTests(RealDatabaseTests):
         self.assertIsNotNone(
             getattr(session, warp_send_watch.SESSION_ATTRIBUTE),
         )
+
+    def test_a_half_declared_class_no_longer_corrupts_the_row(self):
+        """pf-adversary D1's own measured scenario, through the real facade.
+
+        Chief takes shape A but only ONE method lands (a merge trim, or any
+        future lane adding an attribute of that name).  Before the fix the
+        installer refused outright, so with only `on_game_frame_send_failed`
+        declared: a `/warp` whose frame REALLY REACHED THE WIRE was never
+        cleared (no success observer), and the next unrelated disconnect
+        rolled the durable row back to scene 1 while the client was really
+        standing in scene 2.  Refusing produced durable position
+        corruption.  The installer now supplies only the MISSING name, so
+        the successful send closes the window and the later failure finds
+        nothing to undo.
+        """
+        session = self._session("facade05")
+        seen = []
+        # Only the failure half is declared, the way a trimmed shape A looks.
+        session.on_game_frame_send_failed = (
+            lambda frame_bytes, error: seen.append(error) or "chiefs"
+        )
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                warp_send_watch.install_send_outcome_observers(session),
+                warp_send_watch.INSTALL_COMPLETED_HALF_DECLARED,
+            )
+        frame = self._warp_frame(session)
+
+        wrapped, raw = self._accepted(session)
+        with redirect_stderr(io.StringIO()):
+            wrapped.sendall(frame)
+        self.assertEqual(raw.sent, [frame])
+        # The window really closed -- this is the assertion that used to be
+        # False, and the reason the later failure could corrupt the row.
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
+        # A later, unrelated disconnect on the same connection.
+        later, _raw2 = self._accepted(session, ConnectionResetError())
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(ConnectionResetError):
+                later.sendall(b"some-later-frame")
+
+        # chief's own half still owns the failure side -- it was never
+        # shadowed, and it really fired.
+        self.assertEqual(len(seen), 1)
+        self.assertIsInstance(seen[0], ConnectionResetError)
+        # And the row is still where the client actually is.
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+
+
+class HookupWiringPinTests(unittest.TestCase):
+    """The tripwire pf-adversary D2/D3 measured to be missing.
+
+    D2: `LiveSocketFacadeTests`'s negative control says "if this ever starts
+    failing, the hookup landed somewhere else".  It cannot.  It binds
+    `_Session`, a fixture defined in this file, so nothing chief does to the
+    real state class can move it -- D2 applied chief's exact requested
+    one-liner at `runtime.py:1599` and the whole file stayed green.
+    D3: with that line applied, the ENTIRE suite was byte-identical --
+    10,571 passed either way.  The round's central claim is "one call at
+    `runtime.py:1599` is all that is owed", and nothing in the repository
+    could tell whether that call was present, absent, or silently refusing.
+
+    THIS CLASS IS THAT SOMETHING.  It reads `runtime.py` as text (this lane
+    may not edit that file, only observe it) and pins TODAY'S answer: NOT
+    WIRED.  The moment either shape of `CORE-REQUEST-GM-058` lands, this
+    test goes RED, in the same commit that lands it, and the failure message
+    says exactly what to change.  That is the intended behaviour, not a
+    regression: it is the same "delete the `registered_but_not_fired` marker
+    in the same commit" discipline chief applied to LANE-UI's hookup in
+    R348.
+
+    IT IS DELIBERATELY TEXTUAL, NOT AN IMPORT.  Importing `runtime` to ask
+    the class would need a constructed session, which needs a store, a
+    legacy projector and a socket; and the two names are what
+    `connection.py` reads off an INSTANCE, so a class-level `hasattr` would
+    miss shape B (the installer writes instance attributes) and a session
+    would miss shape A. Reading the source catches both shapes and cannot
+    be fooled by an import side effect.
+    """
+
+    #: What the tree says today.  Change this to `True` in the SAME commit
+    #: that lands the call, and this test starts asserting the opposite.
+    HOOKUP_IS_ON_MAIN = False
+
+    def _runtime_source(self):
+        return (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+
+    def _wiring_present(self, source):
+        """Either shape of `CORE-REQUEST-GM-058`, as it would really appear."""
+        shape_b = "install_send_outcome_observers(" in source
+        shape_a = all(
+            f"def {name}(" in source
+            for name in (
+                warp_send_watch.SENT_OBSERVER_ATTRIBUTE,
+                warp_send_watch.FAILED_OBSERVER_ATTRIBUTE,
+            )
+        )
+        return shape_a or shape_b
+
+    def test_the_pin_matches_what_runtime_py_actually_says(self):
+        present = self._wiring_present(self._runtime_source())
+        if self.HOOKUP_IS_ON_MAIN:
+            self.assertTrue(present, (
+                "HOOKUP_IS_ON_MAIN is True but runtime.py carries neither "
+                "shape of CORE-REQUEST-GM-058. Either the call was reverted "
+                "-- in which case /warp send failures are silently not "
+                "rolling back again -- or the pin was flipped early."
+            ))
+            return
+        self.assertFalse(present, (
+            "runtime.py now carries the CORE-REQUEST-GM-058 hookup, and this "
+            "pin still says it does not. THIS IS THE INTENDED FAILURE. In "
+            "the same commit that landed the call: (1) set "
+            "HookupWiringPinTests.HOOKUP_IS_ON_MAIN = True, (2) strike the "
+            "'NEITHER IS ON MAIN YET' sentence in gm/warp_send_watch.py's "
+            "module docstring, and (3) rewrite "
+            "LiveSocketFacadeTests.test_without_the_install_the_same_failure_"
+            "leaves_the_row_wrong, whose whole subject is main's pre-hookup "
+            "behaviour."
+        ))
+
+    def test_the_bind_point_this_lane_asks_chief_for_still_exists(self):
+        """A pin on the ADDRESS in the ask, not only on the ask's outcome.
+
+        If `connection_bindings.bind(self)` is ever moved or renamed, the
+        letter to chief and this module's docstring both point at a line
+        that no longer means what they say, and nothing else would notice.
+        """
+        self.assertIn("connection_bindings.bind(self)", self._runtime_source())
+
+# pf-adversary D9 (MEASURED, round `goxj0y`): this block used to sit ABOVE the
+# classes appended by that round, so `python tests/test_gm_warp_send_watch.py`
+# ran 51 of 72 tests and printed OK.  CI is unaffected (`AGENTS.md:123` and
+# `.github/workflows/gate-windows.yml` both drive pytest), but a human
+# spot-checking the very file this round is defended by got a green that meant
+# nothing.  It belongs last, and every future append goes ABOVE it.
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

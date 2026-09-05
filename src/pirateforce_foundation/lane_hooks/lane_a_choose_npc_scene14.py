@@ -253,8 +253,19 @@ def _hostile_mobs_by_placement_index() -> dict[int, Any]:
     two apart before choosing which encoder to call -- see its own call
     site below.
     """
+    # ROUND j5v7mu, EDITED BY LANE-B (this file is LANE-A's; the edit is
+    # one call and is here because the ruling behind it is LANE-B's and a
+    # letter instead of a change would have left the ruling not landed).
+    # ~~scene14_hostile_roster()~~ -> scene14_SHIPPED_hostile_roster():
+    # COO-DECISION 20260905_0545 withheld placement 87 (Carlos) from what
+    # LANE-B ships, and the mined roster still carries him on purpose for
+    # the death-ruling diagnostics.  Reading the mined one HERE would hand a
+    # client a hostile body for a monster whose combat ledger no longer has
+    # a row -- a red-named monster no strike can reach, which is a worse
+    # state than the zombie the ruling exists to remove.
     return {
-        mob.placement_index: mob for mob in hostile_bg0015.scene14_hostile_roster()
+        mob.placement_index: mob
+        for mob in hostile_bg0015.scene14_shipped_hostile_roster()
     }
 
 
@@ -326,7 +337,11 @@ def respond(
     # put this scene back on the ceiling for good.
     admitted_ledger = lane_a_click_hp.ledger_for_this_scene(
         SCENE_N_ID, mob_combat_ledger,
-        tuple(hostile_bg0015.scene14_hostile_roster()),
+        # ROUND j5v7mu (LANE-B edit, same ruling as above): the ledger this
+        # click path admits must be the SHIPPED rows, otherwise the withheld
+        # placement stays strikeable through this door while being absent
+        # from every other one.
+        tuple(hostile_bg0015.scene14_shipped_hostile_roster()),
         scene_folder=SCENE_FOLDER,
     )
     if mob_combat_ledger is not None and admitted_ledger is None:

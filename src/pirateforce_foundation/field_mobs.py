@@ -669,10 +669,39 @@ OWNER_REFUSAL_REASON: dict[str, str] = {
 # MINED source table carrying the owner's own reason string (Bg0002's is
 # ``scene2_prison_exile_tables.UNRESOLVED_PLACEMENTS``) -- it is not a
 # channel for this lane to decide a monster should not ship because a
-# DIFFERENT gate (a death ruling) has not landed for it.  Carlos ships live;
-# he is a known, named, accepted UNKILLABLE row until a ruling covers him --
-# see ``mob_death``'s own coverage tests and ``mob_combat_bg0015_gates.
-# templates_without_a_death_ruling``.
+# DIFFERENT gate (a death ruling) has not landed for it.  ~~Carlos ships
+# live; he is a known, named, accepted UNKILLABLE row until a ruling covers
+# him~~ IS STRUCK ROUND j5v7mu, and only that last sentence is: the
+# paragraph above it still holds and is the reason the ruling below is a
+# SECOND channel rather than an entry here.  ``COO-DECISION
+# 2026-09-05T05:45+07:00`` (answering this lane's ASK-COO ``20260905_0452``)
+# chose option 3 -- Carlos is withheld until the content question "what is
+# template 924" has an answer -- and that is a LANE ruling with a lane
+# reason, which is exactly the kind ``OWNER_REFUSED_PLACEMENTS`` may not
+# carry.  See :data:`LANE_WITHHELD_PLACEMENTS`.
+#
+# WHY A ROW IS WITHHELD RATHER THAN LEFT TARGETABLE.  Measured round
+# ``pcsjfr`` on the shipped roster: a player may click Carlos, strike him to
+# 0 HP, get no death frames (``mob_death.ruling_for`` refuses him under
+# ``COO-RULING-20260901-1046``), and be answered with SILENCE for every
+# swing after that.  A monster standing at 0 HP for ever is something a
+# player sees, and it contradicts M4's own criterion 2 ("dies correctly")
+# directly, so the COO ruled one NPC missing from the field is worse than
+# one zombie standing in it.
+#
+# THE TWO LISTS ARE KEPT APART ON PURPOSE and are never merged into one
+# literal: an owner's ruling comes back only with evidence plus a fresh
+# owner ruling (``COO-DECISION 20260829_1741``), while this one comes back
+# the day template 924's content question is answered -- a different door,
+# a different signer.  Everything that reports a filtered roster reports
+# BOTH numbers for the same reason ``owner_refused`` travels beside a
+# verdict at all: removing a row makes a scene EASIER to call finished.
+LANE_WITHHELD_PLACEMENTS: dict[str, tuple[int, ...]] = {
+    'Bg0015': (87,),
+}
+LANE_WITHHELD_REASON: dict[str, str] = {
+    'Bg0015': 'no_death_ruling_covers_template_924_coo_decision_20260905_0545',
+}
 
 
 def owner_refused_placements(scene: str) -> tuple[int, ...]:
@@ -680,10 +709,41 @@ def owner_refused_placements(scene: str) -> tuple[int, ...]:
 
     An empty tuple for a scene with no owner ruling is the normal answer,
     not a missing entry: bg0001 has no refused block and returns ``()``.
+
+    THE OWNER'S LIST ONLY.  A row this lane withholds under its own ruling
+    is NOT reported here -- :func:`lane_withheld_placements` is that answer,
+    and a caller that wants "every index missing from the roster" has to ask
+    for both.  Joining them here would let a lane ruling be read back as an
+    owner's, which is the confusion ``assert_owner_refusals_match_scene_
+    source`` exists to make impossible.
     """
     if type(scene) is not str or not scene:
         raise FieldMobContractError("scene must be non-empty text")
     return tuple(sorted(OWNER_REFUSED_PLACEMENTS.get(scene, ())))
+
+
+def lane_withheld_placements(scene: str) -> tuple[int, ...]:
+    """Placement indices THIS LANE withholds for ``scene``, ascending.
+
+    The second half of :func:`load_roster`'s filter.  Empty for every scene
+    with no lane ruling, which is all of them but Bg0015 today.
+    """
+    if type(scene) is not str or not scene:
+        raise FieldMobContractError("scene must be non-empty text")
+    return tuple(sorted(LANE_WITHHELD_PLACEMENTS.get(scene, ())))
+
+
+def lane_withheld_reason(scene: str) -> str:
+    """Why this lane withholds ``scene``'s rows, or ``""`` if it withholds none.
+
+    A reader, not a decoration: a withheld list with no reason beside it is
+    the write-only literal ``OWNER_REFUSAL_REASON`` already was once (round
+    z096sw, pf-adversary D4), and the test file for this change asserts the
+    two dictionaries cover exactly the same scenes.
+    """
+    if type(scene) is not str or not scene:
+        raise FieldMobContractError("scene must be non-empty text")
+    return LANE_WITHHELD_REASON.get(scene, "")
 
 
 def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
@@ -747,15 +807,25 @@ def load_roster(scene: str = field_mob_tables.SCENE) -> tuple[FieldMob, ...]:
     # first (above), so a refused row that is malformed is still refused by
     # name -- the filter narrows what this lane SHIPS, it does not weaken
     # what this lane CHECKS.
+    #
+    # ROUND j5v7mu.  The filter now has TWO sources -- the owner's refusal
+    # list and this lane's own withheld list (COO-DECISION 20260905_0545) --
+    # and they are applied in the SAME pass at the SAME point, for the same
+    # reason the first one was applied here: a row removed from one consumer
+    # and not the others is a body on a screen with no ledger row behind it,
+    # or a ledger row for a body nobody was sent.
     refused = set(owner_refused_placements(scene))
-    if not refused:
+    withheld = set(lane_withheld_placements(scene))
+    dropped = refused | withheld
+    if not dropped:
         return parsed
-    kept = tuple(mob for mob in parsed if mob.placement_index not in refused)
+    kept = tuple(mob for mob in parsed if mob.placement_index not in dropped)
     if not kept:
         raise FieldMobContractError(
-            "the owner-refusal list for scene %r removes every row this "
-            "lane ships; an empty roster must come from an empty table, "
-            "not from a filter" % (scene,)
+            "the refusal list for scene %r removes every row this lane "
+            "ships (owner: %s, lane-withheld: %s); an empty roster must "
+            "come from an empty table, not from a filter"
+            % (scene, sorted(refused), sorted(withheld))
         )
     return kept
 

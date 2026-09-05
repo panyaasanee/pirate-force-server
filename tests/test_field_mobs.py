@@ -66,6 +66,7 @@ from pirateforce_foundation.field_mobs import (
     hostile_actor_entry,
     hostile_npc_attr,
     hostile_placement_indices,
+    lane_withheld_placements,
     load_roster,
     nearest_first,
     neighbour_census,
@@ -1129,7 +1130,18 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         # call shape it always used -- is unchanged and is the assertion
         # below; only the load_roster half flips from refusal to success.
         roster = load_roster(scene=field_mob_tables_bg0015.SCENE)
-        self.assertEqual(len(roster), 12)
+        # ROUND j5v7mu: ~~12~~ -> 11.  COO-DECISION 20260905_0545 withheld
+        # placement 87 (template 924, Carlos) through
+        # field_mobs.LANE_WITHHELD_PLACEMENTS, and load_roster drops it in
+        # the same pass it drops the owner's list.  The DENOMINATOR is
+        # derived, not retyped, so this stays true the day he comes back.
+        self.assertEqual(
+            len(roster),
+            len(field_mob_tables_bg0015.HOSTILE_PLACEMENTS)
+            - len(lane_withheld_placements(field_mob_tables_bg0015.SCENE)))
+        self.assertEqual(len(roster), 11)
+        self.assertNotIn(
+            87, {mob.placement_index for mob in roster})
         for mob in roster:
             self.assertEqual(mob.scene, field_mob_tables_bg0015.SCENE)
         # ROUND 8ftmbx: ~~3~~ -> 0 for this pair too; the three were

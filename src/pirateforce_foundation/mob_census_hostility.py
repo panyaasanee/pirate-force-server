@@ -275,6 +275,13 @@ def census_backing_report(
     refused = (
         field_mobs.owner_refused_placements(scene) if scene else ()
     )
+    # ROUND j5v7mu: the roster is filtered by TWO lists now, so a report
+    # that names only the owner's would say "refused_count=0" for a scene
+    # whose roster is a row short (Bg0015 today).  ``roster_count`` is
+    # post-filter and always was; this is the second half of its denominator.
+    withheld = (
+        field_mobs.lane_withheld_placements(scene) if scene else ()
+    )
     return {
         "scene_id": scene_id,
         "scene": scene,
@@ -288,6 +295,8 @@ def census_backing_report(
         "vacuous": not roster_ids,
         "refused": refused,
         "refused_count": len(refused),
+        "withheld": withheld,
+        "withheld_count": len(withheld),
     }
 
 
