@@ -91,6 +91,39 @@ def default_logger(message: str) -> None:
     print(message)
 
 
+class LuaAttributeAccessDenied(AttributeError):
+    """Raised when a script reaches for a Python attribute of any kind."""
+
+
+def deny_every_attribute(obj, attr_name, is_setting):
+    """lupa attribute_filter: no script may getattr/setattr anything.
+
+    THE HOLE THIS CLOSES, MEASURED (pf-adversary, round s2fxf6).  Blanking
+    lupa's ``python`` table is not enough, and neither is
+    register_eval/register_builtins=False.  ``ApiNamespaceStub.__getitem__``
+    hands a script a live Python closure for every real API name, and lupa
+    lets Lua getattr any Python object it can see, so::
+
+        Quest.GetQuestFlag.__globals__["__builtins__"]["__import__"]("os")
+
+    reached ``__import__`` and ran ``os.system`` as the server process -
+    measured returning uid=0 - through a path that touches neither the
+    ``python`` table nor any blocked global.  The first fix and its tests
+    both missed it because the tests probed attributes of the NAMESPACE
+    object, which ``__getitem__`` intercepts, and never an attribute of the
+    closure a namespace hands back.
+
+    Nothing in this design needs attribute access from Lua: the scripts
+    index namespaces (``__getitem__``) and call what comes back.  So the
+    filter denies everything rather than allow-listing, and every future
+    real API implementation inherits that.
+    """
+    raise LuaAttributeAccessDenied(
+        "Lua scripts may not read or write Python attributes (%r on %s)"
+        % (attr_name, type(obj).__name__)
+    )
+
+
 class ApiNamespaceStub:
     """One Lua global table (Player, Quest, Trigger, ...), fully stubbed.
 
@@ -174,9 +207,11 @@ class ScriptHost:
             # of the sandbox: register_eval puts python.eval in the Lua
             # state, register_builtins puts the whole builtins module
             # there.  See BLOCKED_GLOBALS for the third door these two do
-            # not close on their own.
+            # not close on their own, and deny_every_attribute for the
+            # fourth, which is the one that mattered most.
             register_eval=False,
             register_builtins=False,
+            attribute_filter=deny_every_attribute,
         )
         self.namespaces: dict = {}
         g = self.runtime.globals()
@@ -204,12 +239,24 @@ class ScriptHost:
 def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
-    Reads the file as bytes decoded latin-1 (one byte in, one Lua string
-    byte out) rather than utf-8/cp874: these scripts carry Traditional
-    Chinese and Thai comments in a legacy Windows codepage that is not
-    valid utf-8, and Lua's parser only cares that ASCII syntax bytes
-    (keywords, punctuation, identifiers) round-trip -- which latin-1
-    guarantees for any input -- not what a comment or string literal means.
+    Reads the file as bytes decoded latin-1, because latin-1 is the one
+    codec that never raises on any input byte: these scripts carry
+    Traditional Chinese and Thai comments in a legacy Windows codepage that
+    is not valid utf-8, and utf-8 would refuse to read them at all.  Every
+    ASCII syntax byte (keywords, punctuation, identifiers) survives, which
+    is what the Lua parser needs.
+
+    WHAT THIS DOES NOT DO, measured (pf-adversary, round s2fxf6).  It is
+    NOT byte-preserving end to end: lupa hands Lua a utf-8 encoding of the
+    str, so a source byte 0xE4 inside a string LITERAL arrives as the two
+    bytes 0xC3 0xA4 - ``string.len`` says 2 and ``string.byte`` says 195,
+    not 1 and 228.  Nothing in this round can observe that (every stub
+    returns 0, so no script compares a literal against a real table value),
+    but the day a real API returns a game string, a script doing
+    string.len/string.byte/a compare against a fixed table value would
+    diverge from the original engine.  Resolving it belongs to the round
+    that lands that API - the choice is a runtime encoding that matches the
+    scripts' own codepage, not a different read here.
     """
     host = ScriptHost(log=log)
     source = Path(path).read_bytes().decode("latin-1")

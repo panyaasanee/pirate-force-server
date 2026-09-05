@@ -36,8 +36,34 @@ headless to completion with no error, and prove the loader can load all
     `Instance`/`Guild`/`Scene`) wired as `ApiNamespaceStub` objects and
     `io`/`os`/`require`/`load`/`loadstring`/`loadfile`/`dofile`/`package`/
     `debug`/`collectgarbage`/`python` wired to `nil`, plus
-    `register_eval=False, register_builtins=False` on the runtime itself.
-  - **The escape this spike nearly shipped with, measured and closed.**
+    `register_eval=False, register_builtins=False` and a deny-all
+    `attribute_filter` on the runtime itself.
+  - **THE escape, and why the first fix for it was not one.**  After the
+    `python`-table fix below was written, `pf-adversary` measured that the
+    sandbox was still fully open through a path that touches neither the
+    `python` table nor any blocked global:
+    `Quest.GetQuestFlag.__globals__["__builtins__"]["__import__"]("os")`
+    reached `__import__` and ran `os.system` as the server process,
+    returning `uid=0`.  Root cause: `ApiNamespaceStub.__getitem__` hands a
+    script a live Python closure for every real API name, and lupa lets
+    Lua `getattr` any Python object it can see.  The three tests written
+    with the first fix all probed attributes of the NAMESPACE object -
+    `Quest.__class__`, `Quest.__dict__` - which `__getitem__` intercepts
+    and answers `0`; none probed an attribute of the CLOSURE the namespace
+    returns, which is where the hole was.  Six passing tests and a live
+    root shell at the same time.
+    Closed with a deny-all lupa `attribute_filter`
+    (`deny_every_attribute`): nothing in this design needs attribute
+    access from Lua - scripts index namespaces and call what comes back -
+    so the filter refuses every read and every write rather than
+    allow-listing, and every future real API inherits that.  Four tests
+    now probe the closure itself, the whole import chain, an attribute
+    write, and every name on `BLOCKED_GLOBALS` derived from the tuple
+    rather than retyped (a mutant dropping `loadstring`/`loadfile`/
+    `dofile`/`package`/`debug`/`collectgarbage` from it had left the whole
+    module green; `debug.getregistry` and `package.loadlib` are escape
+    vectors in their own right).
+  - **The first escape, also measured and closed.**
     lupa injects a `python` table into every Lua state it builds, and with
     its default constructor flags that table carries `python.eval` and
     `python.builtins` outright - any of the 616 game scripts could have
@@ -50,9 +76,8 @@ headless to completion with no error, and prove the loader can load all
     the ordinary `__class__`/`__bases__`/`__subclasses__` walk back to the
     interpreter.  `python` is therefore blanked outright as well, and the
     flags are kept anyway so two independent things have to fail before a
-    script gets out.  Three regressions in
-    `test_script_host_spike.py::SandboxActuallyBlocksTheBannedGlobalsTests`
-    assert the walk actually dies, not merely that the flags were passed.
+    script gets out.  Three regressions assert that walk dies - and, as the
+    entry above records, those three were not enough on their own.
   - `ApiNamespaceStub`: indexing a name that IS one of that namespace's
     real API methods returns a callable that logs
     `LUA_API_STUB <Namespace>.<Method>` and returns `STUB_DEFAULT` (`0`);
@@ -65,9 +90,16 @@ headless to completion with no error, and prove the loader can load all
     inside a `--[[ ... ]]` comment documenting the field, never executable
     code -- no script assigns into a namespace table at runtime).
   - `load_script_file(path)`: reads a `.lua` file as bytes decoded
-    `latin-1` (these scripts carry Traditional Chinese and Thai comments
-    in a legacy Windows codepage that is not valid utf-8; Lua's parser
-    only needs ASCII syntax bytes to round-trip, which latin-1 guarantees).
+    `latin-1`, the one codec that never raises on any input byte - these
+    scripts carry Traditional Chinese and Thai comments in a legacy
+    Windows codepage that utf-8 refuses outright.  It is NOT byte-
+    preserving end to end, and the module docstring says so: lupa encodes
+    the str back to utf-8 for Lua, so a source byte `0xE4` inside a string
+    LITERAL arrives as two bytes (`string.len` 2, `string.byte` 195).
+    Nothing in this round can observe that - every stub returns `0`, so no
+    script compares a literal against a real table value - but the round
+    that lands the first string-returning API owes a runtime encoding that
+    matches the scripts' own codepage.  (pf-adversary, measured.)
   - `load_corpus(root)`: walks `root` for `*.lua`, loads each into its own
     `ScriptHost`, and is fail-closed per the charter -- a script that fails
     to parse or raises while its top-level chunk runs is logged as

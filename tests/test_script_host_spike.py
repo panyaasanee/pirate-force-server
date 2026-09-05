@@ -86,6 +86,72 @@ class SandboxActuallyBlocksTheBannedGlobalsTests(unittest.TestCase):
         host.load("function Probe() return io, os, require, load end")
         self.assertEqual(host.call("Probe"), (None, None, None, None))
 
+    def test_every_name_on_the_blocklist_is_nil_not_just_the_famous_four(self):
+        # Derived from BLOCKED_GLOBALS itself rather than a second hand-typed
+        # list: pf-adversary measured that a mutant dropping loadstring,
+        # loadfile, dofile, package, debug and collectgarbage from the tuple
+        # left the whole module green.  debug.getregistry/setmetatable and
+        # package.loadlib are escape vectors in their own right, so a
+        # regression that re-exposes one must not be silent.
+        host = self._host()
+        for name in script_host.BLOCKED_GLOBALS:
+            with self.subTest(blocked=name):
+                host.load("function Probe() return %s end" % name)
+                self.assertIsNone(
+                    host.call("Probe"),
+                    "%r is on BLOCKED_GLOBALS but a script can still see it" % name,
+                )
+
+    def test_a_returned_api_closure_cannot_be_walked_back_to_builtins(self):
+        # THE escape of this round, measured by pf-adversary against the
+        # commit whose whole purpose was to close the previous one:
+        #   Quest.GetQuestFlag.__globals__["__builtins__"]["__import__"]("os")
+        # reached __import__ and ran os.system as the server process (uid=0),
+        # through a path touching neither the python table nor any blocked
+        # global.  __getitem__ intercepts attribute-looking keys on the
+        # NAMESPACE, so probing Quest.__class__ says nothing about the
+        # CLOSURE a namespace hands back - which is a plain Python function
+        # and was fully getattr-able.  This probes the closure.
+        host = self._host()
+        host.load(
+            "function Probe()\n"
+            "  local ok, err = pcall(function()\n"
+            "    return Quest.GetQuestFlag.__globals__\n"
+            "  end)\n"
+            "  return ok, tostring(err)\n"
+            "end"
+        )
+        ok, err = host.call("Probe")
+        self.assertFalse(ok, "a script read __globals__ off an API closure")
+        self.assertIn("may not read or write Python attributes", err)
+
+    def test_the_full_import_chain_dies_at_its_first_step(self):
+        host = self._host()
+        host.load(
+            "function Probe()\n"
+            "  local ok, err = pcall(function()\n"
+            "    return Quest.GetQuestFlag.__globals__['__builtins__']"
+            "['__import__']('os')\n"
+            "  end)\n"
+            "  return ok, tostring(err)\n"
+            "end"
+        )
+        ok, _err = host.call("Probe")
+        self.assertFalse(ok, "a script imported a module from inside the sandbox")
+
+    def test_setting_a_python_attribute_is_denied_too(self):
+        # The filter is asked about writes as well as reads; a script that
+        # cannot read __globals__ but could REPLACE a bound attribute would
+        # still be a foothold.
+        host = self._host()
+        host.load(
+            "function Probe()\n"
+            "  local ok = pcall(function() Quest.GetQuestFlag.x = 1 end)\n"
+            "  return ok\n"
+            "end"
+        )
+        self.assertFalse(host.call("Probe"))
+
     def test_reaching_into_os_raises_a_lua_error_the_caller_can_catch(self):
         host = self._host()
         host.load("function Probe() return os.time() end")
