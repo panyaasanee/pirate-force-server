@@ -120,6 +120,15 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
         state.runtime_ack_sent = True
         state.welcome_message_sent = True
         state.current_scene_music_sent = True
+        # CORE-REQUEST 20260905_2242: see tests/test_mob_combat_dispatch.py's
+        # `_state()` -- `_V25_REAL_CREATE_PC` now resolves to a class that
+        # makes the production pose composer fire an extra frame; this file
+        # is about scene recompose, not pose, so class_id is cleared here,
+        # after StartGame binds `foundation.selected` (it is None before
+        # this call), shared by both `_state_scene1` and `_state_at_scene2`.
+        state.foundation.selected = dataclasses.replace(
+            state.foundation.selected, class_id=None,
+        )
         return buf.getvalue()
 
     def _state_scene1(self, token):
