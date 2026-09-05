@@ -109,6 +109,100 @@ def persist_class_id_from_starting_gear(store, character) -> int | None:
     return wrote
 
 
+def _class_id_for_a_retried_skill_grant(store, character_id) -> "int | None":
+    """The row's OWN `class_id`, but only when nothing has been granted yet.
+
+    Exists for exactly one caller, `CharacterLifecycle.create`, for the
+    retry gap `pf-adversary` measured in this round's first cut of the
+    starting-skill hookup: gating the grant on
+    `persist_class_id_from_starting_gear`'s return made a transient failure
+    inside `store.grant_starting_skills` (a locked database, or any of the
+    exceptions `grant_starting_skills_for_class`'s own `try` is written to
+    catch) PERMANENT. That return is `None` on every later create-
+    fingerprint retry of a character whose `class_id` already landed --
+    by design, it is the NULL-only guard doing its job -- so once the
+    winning attempt's grant call failed, the column would never again
+    report as freshly-resolved and nothing would ever ask for the grant a
+    second time. No backfill closes that gap the way LANE-DB's own
+    `persistence_class_id_backfill` closes the equivalent gap for
+    `class_id` itself.
+
+    So a resend that finds the column already set falls back to reading it
+    here -- but ONLY when `store.list_character_skills` for this character
+    is still empty. That is what tells "the winning attempt wrote class_id
+    but its own grant call then failed" (retry, correctly) apart from "a
+    prior attempt already wrote both class_id AND its skills, and a
+    DIFFERENT writer has since corrected class_id to something else"
+    (`pf-adversary` D2 on `#705`, the scenario `tests/test_class_id_login_
+    wiring.py::StartingSkillHookupTests::
+    test_a_retry_after_another_writer_corrects_the_class_grants_nothing_new`
+    pins) -- there, skills are not empty, and this function must not fire
+    a second, now-mismatched grant. Re-granting through the corrected
+    class_id's own kit in that second case is not attempted:
+    `grant_starting_skills` has no matching "revoke" half, so it could
+    only ever add a second kit on top, and this module does not guess
+    whether that is wanted.
+
+    Swallows every exception (a soft-deleted row, a store without either
+    method) into `None`, matching the fail-closed discipline every caller
+    in this module keeps.
+    """
+    try:
+        if store.list_character_skills(character_id):
+            return None
+        return store.read_typed_attributes(character_id).get("class_id")
+    except Exception:
+        return None
+
+
+def grant_starting_skills_for_class(store, character, class_id: int) -> "tuple[int, ...] | None":
+    """Give the character her class's starting-kit skills, once class_id
+    is known.
+
+    CORE-REQUEST of `pf_bridge/notes_to_chief/20260904_0542_LANE-DB-
+    CORE-REQUEST-starting-skill-door-built-needs-one-hookup.md`, called at
+    the same site as `persist_class_id_from_starting_gear` because both
+    need the same resolved `class_id` -- this function does not resolve a
+    class id itself, only what to do once one exists.
+
+    `class_id` is whatever the call site decided is the right one to grant
+    a kit for THIS call -- see `CharacterLifecycle.create` and
+    `_class_id_for_a_retried_skill_grant`'s own docstring for how a retry
+    picks it apart from a merely-already-set column that should stay
+    untouched.
+
+    Never raises, for the same reason `persist_class_id_from_starting_gear`
+    never does: the character row already exists.
+    """
+    character_id = getattr(character, "id", None)
+    from . import persistence_starting_skills
+
+    try:
+        skill_ids = persistence_starting_skills.resolve_starting_skill_ids(class_id)
+    except Exception as error:
+        _say(
+            f"CHARACTER_STARTING_SKILLS cid={character_id} not_written "
+            f"reason=resolve_failed ({type(error).__name__})"
+        )
+        return None
+    if skill_ids is None:
+        _say(
+            f"CHARACTER_STARTING_SKILLS cid={character_id} not_written "
+            f"reason=no_kit_for_class_id class_id={class_id}"
+        )
+        return None
+    try:
+        granted = store.grant_starting_skills(character_id, skill_ids)
+    except Exception as error:
+        _say(
+            f"CHARACTER_STARTING_SKILLS cid={character_id} not_written "
+            f"reason=grant_refused ({type(error).__name__})"
+        )
+        return None
+    _say(f"CHARACTER_STARTING_SKILLS cid={character_id} written skill_ids={granted}")
+    return granted
+
+
 class CharacterLifecycle:
     def __init__(self, store, default_position: Position, avatar_extractor=None):
         self.store, self.default_position = store, default_position
@@ -177,7 +271,23 @@ class CharacterLifecycle:
         # set on this row between the first attempt and the retry) --
         # `write_typed_attribute_if_unset` is what makes it safe, by only
         # ever writing a NULL column.
-        persist_class_id_from_starting_gear(self.store, character)
+        resolved_class_id = persist_class_id_from_starting_gear(self.store, character)
+        # Same call site, same reason: piece 5's starting-skill kit
+        # (`pf_bridge/notes_to_chief/20260904_0542_LANE-DB-CORE-REQUEST-
+        # starting-skill-door-built-needs-one-hookup.md`). A resend whose
+        # class_id was already set falls back to
+        # `_class_id_for_a_retried_skill_grant`, which re-reads the row --
+        # but only retries the grant when nothing was granted yet, so a
+        # transient `store.grant_starting_skills` failure on the winning
+        # attempt gets another chance instead of stranding the character
+        # with a class and no skills forever (`pf-adversary`, this round).
+        class_id_for_skills = resolved_class_id
+        if class_id_for_skills is None:
+            class_id_for_skills = _class_id_for_a_retried_skill_grant(
+                self.store, character.id,
+            )
+        if class_id_for_skills is not None:
+            grant_starting_skills_for_class(self.store, character, class_id_for_skills)
         return character
 
     def select(self, session_id: str, selector: int):

@@ -40,6 +40,7 @@ correct, unchanged behaviour rather than a gap.
 """
 import contextlib
 import io
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -57,6 +58,7 @@ from pirateforce_foundation.model import Character, Position
 from pirateforce_foundation.npc_hostile_hypothesis import (
     NPC_HOSTILE_PLAYER_PAIR_FACTION,
 )
+from pirateforce_foundation.class_catalog import starting_skill_ids
 from pirateforce_foundation.persistence_class_id import CLASS_PRESETS
 from pirateforce_foundation.session import FoundationSession
 from pirateforce_foundation.store import SQLiteStore
@@ -279,6 +281,134 @@ class CreateHookupTests(_StoreCase):
         self.assertEqual(self._stored_class_id(second.id), corrected)
 
 
+class StartingSkillHookupTests(_StoreCase):
+    """`pf_bridge/notes_to_chief/20260904_0542_LANE-DB-CORE-REQUEST-starting-
+    skill-door-built-needs-one-hookup.md`: the same call site, gated on the
+    same resolved `class_id` hookup 1 already proves above.
+    """
+
+    def test_a_sniper_creation_grants_the_sniper_starting_kit(self):
+        character = self._born_sniper()
+        self.assertEqual(
+            self.store.list_character_skills(character.id),
+            starting_skill_ids(SNIPER_CLASS_ID),
+        )
+
+    def test_the_clients_own_preset_grants_the_gladiator_kit(self):
+        character = self._born("glad01", _named_wire(self.legacy, "glad01"))
+        self.assertEqual(
+            self.store.list_character_skills(character.id),
+            starting_skill_ids(1),
+        )
+
+    def test_gear_matching_no_preset_grants_no_skills(self):
+        """No resolved class id -- hookup 1's own `None`, and the row's own
+        column genuinely NULL -- means this hookup is never even asked; the
+        row stays exactly as classless creation leaves it today.
+
+        Asserts the ABSENCE of any `CHARACTER_STARTING_SKILLS` console line,
+        not only the empty skill row: `pf-adversary` (this round) hand-
+        mutated the call site to fire unconditionally and found the skill
+        row stayed empty anyway, by accident, because
+        `persistence_starting_skills.resolve_starting_skill_ids(None)`
+        raises `TypeError` and `grant_starting_skills_for_class` swallows
+        it -- 36/36 tests still passed. The console line this test checks
+        for is what that mutant actually changes.
+        """
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            character = self._born_classless()
+        self.assertEqual(self.store.list_character_skills(character.id), ())
+        self.assertNotIn("CHARACTER_STARTING_SKILLS", stderr.getvalue())
+
+    def test_the_create_fingerprint_retry_grants_the_same_kit_once(self):
+        wire = _wire_wearing(
+            self.legacy, "snipe1", SNIPER_CHEST, SNIPER_LEGGINGS, SNIPER_RHAND,
+        )
+        account_id, _sid, _characters = self.lifecycle.login("snipe1")
+        first = self.lifecycle.create(account_id, "snipe1", wire)
+        second = self.lifecycle.create(account_id, "snipe1", wire)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(
+            self.store.list_character_skills(second.id),
+            starting_skill_ids(SNIPER_CLASS_ID),
+        )
+
+    def test_a_retry_after_another_writer_corrects_the_class_grants_nothing_new(self):
+        """Mirrors `test_a_retry_does_not_revert_a_class_id_another_writer_
+        corrected` above. The retry's `persist_class_id_from_starting_gear`
+        call still returns `None` (column already set), but this hookup now
+        falls back to `_class_id_for_a_retried_skill_grant` rather than
+        stopping there outright -- and that helper must still skip the
+        grant here, because the skill row is NOT empty (the first attempt's
+        grant already succeeded): re-granting through the now-corrected
+        class's kit would only ever ADD a second kit on top (`grant_
+        starting_skills` has no revoke half), which this module does not
+        attempt to guess is wanted.
+        """
+        wire = _wire_wearing(
+            self.legacy, "snipe1", SNIPER_CHEST, SNIPER_LEGGINGS, SNIPER_RHAND,
+        )
+        account_id, _sid, _characters = self.lifecycle.login("snipe1")
+        first = self.lifecycle.create(account_id, "snipe1", wire)
+        self.assertEqual(
+            self.store.list_character_skills(first.id),
+            starting_skill_ids(SNIPER_CLASS_ID),
+        )
+
+        corrected = next(row for row in CLASS_PRESETS if row[0] != SNIPER_CLASS_ID)[0]
+        self.store.write_typed_attributes(first.id, {"class_id": corrected})
+
+        second = self.lifecycle.create(account_id, "snipe1", wire)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(
+            self.store.list_character_skills(second.id),
+            starting_skill_ids(SNIPER_CLASS_ID),
+        )
+
+    def test_a_transient_grant_failure_is_retried_on_the_next_resend(self):
+        """`pf-adversary`, this round, on the first cut of this hookup: if
+        `store.grant_starting_skills` raises on the winning create-
+        fingerprint attempt (a locked database, any transient error), the
+        character was left with a class and NO skills forever -- gating the
+        retry on `persist_class_id_from_starting_gear`'s return meant the
+        column, once set, never again looked freshly-resolved to anything.
+        The fix reads the row's own `class_id` on a resend whenever the
+        skill row is still empty, so the next `CreateActorDataEx` resend
+        (the same real-world event `test_the_create_fingerprint_retry_is_
+        idempotent` above is built on) gets another chance at the grant.
+        """
+        wire = _wire_wearing(
+            self.legacy, "snipe1", SNIPER_CHEST, SNIPER_LEGGINGS, SNIPER_RHAND,
+        )
+        account_id, _sid, _characters = self.lifecycle.login("snipe1")
+
+        real_grant = self.store.grant_starting_skills
+        attempts = []
+
+        def _flaky_grant(character_id, skill_ids):
+            attempts.append(character_id)
+            if len(attempts) == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return real_grant(character_id, skill_ids)
+
+        self.store.grant_starting_skills = _flaky_grant
+        try:
+            first = self.lifecycle.create(account_id, "snipe1", wire)
+        finally:
+            self.store.grant_starting_skills = real_grant
+
+        self.assertEqual(self._stored_class_id(first.id), SNIPER_CLASS_ID)
+        self.assertEqual(self.store.list_character_skills(first.id), ())
+
+        second = self.lifecycle.create(account_id, "snipe1", wire)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(
+            self.store.list_character_skills(second.id),
+            starting_skill_ids(SNIPER_CLASS_ID),
+        )
+
+
 class TheHookupNeverBreaksCreationTests(_LegacyCase):
     """The row is already committed when this runs, so it may not raise.
 
@@ -381,6 +511,70 @@ class TheHookupNeverBreaksCreationTests(_LegacyCase):
         is reading the log (`AGENTS.md`, house rule on console output)."""
         store = self._Recorder()
         _written, console = self._run(store, self._character(b"\x99\x99"))
+        console.encode("ascii")
+
+
+class TheSkillGrantHookupNeverBreaksCreationTests(_LegacyCase):
+    """Same discipline as `TheHookupNeverBreaksCreationTests` above, for
+    `grant_starting_skills_for_class`: the row (and, upstream, the class id
+    column) is already committed when this runs, so it may not raise."""
+
+    class _Recorder:
+        def __init__(self, raises=None):
+            self.granted = []
+            self.raises = raises
+
+        def grant_starting_skills(self, character_id, skill_ids):
+            if self.raises is not None:
+                raise self.raises
+            self.granted.append((character_id, tuple(skill_ids)))
+            return tuple(skill_ids)
+
+    def _character(self):
+        return Character(
+            id=7, account_id=1, selector=0, name="test01",
+            actor_wire=b"", avatar_wire=b"",
+            identity_lo=IDENTITY_LO, identity_hi=IDENTITY_HI,
+            position=Position(SCENE_ID, SCENE_SEQ, 0.0, 0.0, 0.0),
+        )
+
+    def _run(self, store, class_id):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            granted = lifecycle_module.grant_starting_skills_for_class(
+                store, self._character(), class_id,
+            )
+        return granted, stderr.getvalue()
+
+    def test_a_resolvable_class_id_grants_its_kit(self):
+        store = self._Recorder()
+        granted, console = self._run(store, SNIPER_CLASS_ID)
+        self.assertEqual(granted, starting_skill_ids(SNIPER_CLASS_ID))
+        self.assertEqual(
+            store.granted, [(7, starting_skill_ids(SNIPER_CLASS_ID))],
+        )
+        self.assertIn(f"written skill_ids={granted}", console)
+
+    def test_a_class_id_with_no_kit_grants_nothing_and_says_so(self):
+        store = self._Recorder()
+        granted, console = self._run(store, 9_999_004)
+        self.assertIsNone(granted)
+        self.assertEqual(store.granted, [])
+        self.assertIn("no_kit_for_class_id", console)
+
+    def test_a_refused_grant_is_reported_not_raised(self):
+        """A character soft-deleted between the class-id write and this call
+        is the real shape of this: `grant_starting_skills` raises `KeyError`
+        for a row it cannot see, and that must not become the creation's
+        error."""
+        store = self._Recorder(raises=KeyError(7))
+        granted, console = self._run(store, SNIPER_CLASS_ID)
+        self.assertIsNone(granted)
+        self.assertIn("grant_refused", console)
+
+    def test_every_console_line_is_ascii(self):
+        store = self._Recorder()
+        _granted, console = self._run(store, 9_999_004)
         console.encode("ascii")
 
 
