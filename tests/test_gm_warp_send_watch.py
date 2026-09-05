@@ -39,6 +39,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import weakref
 from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
@@ -46,6 +47,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import connection  # noqa: E402
 from pirateforce_foundation.gm import (  # noqa: E402
     accounts as gm_accounts,
     chat_command_action,
@@ -985,3 +987,377 @@ class CrossThreadObserverTests(RealDatabaseTests):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class _SwallowingSession:
+    """A session whose attribute writes are silently lost.
+
+    `_RefusingSession` above pins one specific attribute; this one loses
+    every write, which is what `install_send_outcome_observers` has to
+    survive: `setattr` does not raise, the read-back finds nothing, and a
+    half-installed connection (success forward present, failure forward
+    absent) would clear parks it can never roll back.
+    """
+
+    def __setattr__(self, name, value):
+        pass
+
+
+class _NoWeakrefSession:
+    """A session that cannot be weak-referenced.
+
+    `__slots__` without `__weakref__` is the shape `weakref.ref()` raises
+    `TypeError` on.  The installer must still install (a delayed
+    collection is a smaller defect than a warp that never rolls back) --
+    that fallback is measured, not asserted from reading the code.
+    """
+
+    __slots__ = (
+        "foundation", "events",
+        warp_send_watch.SESSION_ATTRIBUTE,
+        warp_send_watch.SENT_OBSERVER_ATTRIBUTE,
+        warp_send_watch.FAILED_OBSERVER_ATTRIBUTE,
+    )
+
+    def __init__(self):
+        self.foundation = _FakeFoundation(_FakeSelected(_FakePosition()))
+        self.events = []
+        setattr(self, warp_send_watch.SESSION_ATTRIBUTE, None)
+        setattr(self, warp_send_watch.SENT_OBSERVER_ATTRIBUTE, None)
+        setattr(self, warp_send_watch.FAILED_OBSERVER_ATTRIBUTE, None)
+
+
+class InstallSendOutcomeObserverTests(unittest.TestCase):
+    """`install_send_outcome_observers` -- the second layer, unit half."""
+
+    def test_the_two_names_it_installs_are_the_ones_connection_py_reads(self):
+        """The one string pair that must not drift, checked against the
+        file that owns it rather than against a copy in this test.
+
+        `connection.py` is not this lane's file; if chief ever renames
+        either hook name there, an installer that kept writing the old
+        name would install two attributes nothing ever reads, and every
+        other test in this class would still pass.  This is the only
+        assertion in this file that reads another lane's source.
+        """
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "connection.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            f'_offer_send_outcome("{warp_send_watch.FAILED_OBSERVER_ATTRIBUTE}"',
+            source,
+        )
+        self.assertIn(
+            f'_offer_send_outcome("{warp_send_watch.SENT_OBSERVER_ATTRIBUTE}"',
+            source,
+        )
+
+    def test_install_puts_both_forwards_on_a_plain_session(self):
+        session = _FakeSession()
+        self.assertEqual(
+            warp_send_watch.install_send_outcome_observers(session),
+            warp_send_watch.INSTALL_OK,
+        )
+        self.assertTrue(
+            callable(getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE))
+        )
+        self.assertTrue(
+            callable(getattr(session, warp_send_watch.FAILED_OBSERVER_ATTRIBUTE))
+        )
+
+    def test_the_installed_forwards_take_connection_pys_own_arities(self):
+        """`observer(data)` on success, `observer(data, error)` on failure
+        (`connection.py:153`) -- a forward with the wrong arity would raise
+        into `_offer_send_outcome`'s swallowing except and be invisible."""
+        session = _FakeSession()
+        warp_send_watch.install_send_outcome_observers(session)
+        warp_send_watch.park_warp_send(session, b"warp-frame", None)
+
+        sent = getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE)
+        self.assertEqual(
+            sent(b"some-other-frame"),
+            warp_send_watch.OUTCOME_LEFT_PARKED_OTHER_FRAME,
+        )
+        self.assertEqual(
+            sent(b"warp-frame"), warp_send_watch.OUTCOME_CLEARED_OWN_FRAME,
+        )
+
+        failed = getattr(session, warp_send_watch.FAILED_OBSERVER_ATTRIBUTE)
+        self.assertEqual(
+            failed(b"anything", ConnectionResetError()),
+            warp_send_watch.OUTCOME_NOTHING_PARKED,
+        )
+
+    def test_a_second_install_refuses_rather_than_replacing(self):
+        session = _FakeSession()
+        warp_send_watch.install_send_outcome_observers(session)
+        first = getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE)
+        self.assertEqual(
+            warp_send_watch.install_send_outcome_observers(session),
+            warp_send_watch.INSTALL_REFUSED_ALREADY_PRESENT,
+        )
+        self.assertIs(
+            getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE), first,
+        )
+
+    def test_a_real_class_method_of_the_same_name_is_never_shadowed(self):
+        """If chief takes `CORE-REQUEST-GM-058`'s two-method shape instead,
+        a stray installer call must not overwrite his methods with instance
+        attributes -- that would replace a working hookup with this one and
+        nobody would see the difference until it broke."""
+        calls = []
+
+        class _SessionWithChiefsMethods(_FakeSession):
+            def on_game_frame_sent(self, frame_bytes):
+                calls.append("sent")
+                return "chiefs"
+
+            def on_game_frame_send_failed(self, frame_bytes, error):
+                calls.append("failed")
+                return "chiefs"
+
+        session = _SessionWithChiefsMethods()
+        self.assertEqual(
+            warp_send_watch.install_send_outcome_observers(session),
+            warp_send_watch.INSTALL_REFUSED_ALREADY_PRESENT,
+        )
+        self.assertEqual(session.on_game_frame_sent(b""), "chiefs")
+        self.assertEqual(calls, ["sent"])
+
+    def test_a_session_that_swallows_writes_refuses_and_leaves_no_half(self):
+        session = _SwallowingSession()
+        self.assertEqual(
+            warp_send_watch.install_send_outcome_observers(session),
+            warp_send_watch.INSTALL_REFUSED_NOT_WRITABLE,
+        )
+        self.assertIsNone(
+            getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE, None)
+        )
+        self.assertIsNone(
+            getattr(session, warp_send_watch.FAILED_OBSERVER_ATTRIBUTE, None)
+        )
+
+    def test_a_partial_install_is_undone_not_left_armed(self):
+        """The failure half refuses to land, the success half already did.
+        A connection left with only the success forward would CLEAR parks
+        it can never roll back -- strictly worse than having neither.
+        """
+        session = _FakeSession()
+        real_setattr = setattr
+
+        def _selective(obj, name, value):
+            if name == warp_send_watch.FAILED_OBSERVER_ATTRIBUTE and callable(
+                value
+            ):
+                return None
+            return real_setattr(obj, name, value)
+
+        with mock.patch.object(
+            warp_send_watch, "setattr", _selective, create=True,
+        ):
+            outcome = warp_send_watch.install_send_outcome_observers(session)
+
+        self.assertEqual(outcome, warp_send_watch.INSTALL_REFUSED_NOT_WRITABLE)
+        self.assertIsNone(
+            getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE, None)
+        )
+        self.assertIsNone(
+            getattr(session, warp_send_watch.FAILED_OBSERVER_ATTRIBUTE, None)
+        )
+
+    def test_the_session_is_not_kept_alive_by_its_own_forwards(self):
+        """A strongly-capturing closure stored ON the session would be a
+        reference cycle, collectable only by a full `gc` pass, and
+        `lane_hooks`'s live-session registry holds sessions WEAKLY so a
+        dead connection stops answering `current_session_scene_id`
+        promptly.  Measured with a real `weakref`, no `gc.collect()`.
+        """
+        session = _FakeSession()
+        warp_send_watch.install_send_outcome_observers(session)
+        witness = weakref.ref(session)
+        self.assertIsNotNone(witness())
+        del session
+        self.assertIsNone(witness())
+
+    def test_a_session_that_cannot_be_weak_referenced_still_installs(self):
+        session = _NoWeakrefSession()
+        with self.assertRaises(TypeError):
+            weakref.ref(session)
+        self.assertEqual(
+            warp_send_watch.install_send_outcome_observers(session),
+            warp_send_watch.INSTALL_OK,
+        )
+        warp_send_watch.park_warp_send(session, b"frame", None)
+        self.assertEqual(
+            getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE)(b"frame"),
+            warp_send_watch.OUTCOME_CLEARED_OWN_FRAME,
+        )
+
+    def test_a_forward_whose_session_died_answers_nothing_parked(self):
+        """The weak half's own failure mode, forced.  A forward that
+        outlived its session must return the empty answer, not raise into
+        `_offer_send_outcome`'s swallowing except."""
+        session = _FakeSession()
+        warp_send_watch.install_send_outcome_observers(session)
+        sent = getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE)
+        failed = getattr(session, warp_send_watch.FAILED_OBSERVER_ATTRIBUTE)
+        del session
+        self.assertEqual(
+            sent(b"frame"), warp_send_watch.OUTCOME_NOTHING_PARKED,
+        )
+        self.assertEqual(
+            failed(b"frame", ConnectionResetError()),
+            warp_send_watch.OUTCOME_NOTHING_PARKED,
+        )
+
+
+class LiveSocketFacadeTests(RealDatabaseTests):
+    """The whole second layer, end to end, through the REAL facade.
+
+    Everything else in this file calls this module's observers directly.
+    This class does not: it builds a real `GameConnectionBindings`, a real
+    `AcceptedGameSocket` over a fake raw socket, binds a real session with
+    a real character row, composes a real `/warp` frame through the real
+    router, and then calls `AcceptedGameSocket.sendall` -- the same method
+    `current/pf_login_game_server_v141.py:7755` calls through
+    `__getattr__` today.  Nothing below reaches into
+    `_offer_send_outcome`; the only thing this lane does is install the
+    two names on the session, which is the ONE step still missing on main.
+
+    THE NEGATIVE CONTROL IS THE POINT OF THE CLASS.  `test_without_the_
+    install_...` reproduces main's behaviour today: the identical failure,
+    on the identical socket, leaves the row wrong and the park orphaned.
+    If someone deletes `install_send_outcome_observers` and this class
+    still passes, the class is worthless -- so that test asserts the
+    BROKEN outcome deliberately, and the two beside it assert the fixed
+    one.
+
+    NONCLAIM.  The raw socket here is a fake object with a `sendall`
+    method; no byte reaches a network, no client is involved, and nothing
+    here is evidence about a screen.  It is evidence about which rows the
+    server holds after a send raises.
+    """
+
+    class _RawSocket:
+        """The two methods the facade touches, and a record of the bytes."""
+
+        def __init__(self, error=None):
+            self.error = error
+            self.sent = []
+
+        def sendall(self, data, *args, **kwargs):
+            if self.error is not None:
+                raise self.error
+            self.sent.append(bytes(data))
+            return None
+
+        def shutdown(self, how):
+            return None
+
+        def close(self):
+            return None
+
+    def _accepted(self, session, error=None):
+        raw = self._RawSocket(error)
+        bindings = connection.GameConnectionBindings()
+        wrapped = bindings.accepted(raw)
+        bindings.bind(session)
+        self.assertIs(wrapped.state, session)
+        return wrapped, raw
+
+    def _warp_frame(self, session):
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            verdict = chat_command_action._warp_teleport_action_no_coords(
+                session, DESTINATION_SCENE, self.legacy,
+            )
+        self.assertIsNotNone(verdict.action)
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+        self.assertIsNotNone(
+            getattr(session, warp_send_watch.SESSION_ATTRIBUTE),
+        )
+        return bytes(verdict.action[2])
+
+    def test_a_failed_send_on_the_real_facade_puts_the_row_back(self):
+        session = self._session("facade01")
+        self.assertEqual(
+            warp_send_watch.install_send_outcome_observers(session),
+            warp_send_watch.INSTALL_OK,
+        )
+        before = self._row(session)
+        self.assertEqual(before.scene_id, 1)
+        frame = self._warp_frame(session)
+
+        wrapped, _raw = self._accepted(session, ConnectionResetError(104, "reset"))
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            # The facade must NEVER swallow the error: v141's own catch is
+            # what decides to break the action list.
+            with self.assertRaises(ConnectionResetError):
+                wrapped.sendall(frame)
+
+        after = self._row(session)
+        self.assertEqual(after.scene_id, before.scene_id)
+        self.assertEqual(
+            (after.x, after.y, after.z), (before.x, before.y, before.z),
+        )
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+        self.assertIn(warp_scene_persist.ROLLBACK_CONSOLE_TOKEN, stream.getvalue())
+
+    def test_a_successful_send_on_the_real_facade_keeps_the_row_and_clears(self):
+        session = self._session("facade02")
+        warp_send_watch.install_send_outcome_observers(session)
+        frame = self._warp_frame(session)
+
+        wrapped, raw = self._accepted(session)
+        with redirect_stderr(io.StringIO()):
+            wrapped.sendall(frame)
+
+        self.assertEqual(raw.sent, [frame])
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
+    def test_an_earlier_frames_failure_on_the_real_facade_still_rolls_back(self):
+        """v141 breaks the whole action list on the first failure, so the
+        warp's own bytes never reach `sendall`.  The facade only ever
+        reports the frame it was handed -- here, a `say`'s."""
+        session = self._session("facade03")
+        warp_send_watch.install_send_outcome_observers(session)
+        before = self._row(session)
+        self._warp_frame(session)
+
+        wrapped, _raw = self._accepted(session, BrokenPipeError(32, "pipe"))
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(BrokenPipeError):
+                wrapped.sendall(b"an-earlier-say-frames-bytes")
+
+        self.assertEqual(self._row(session).scene_id, before.scene_id)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
+    def test_without_the_install_the_same_failure_leaves_the_row_wrong(self):
+        """MAIN'S BEHAVIOUR TODAY, asserted on purpose.  R348: "no class in
+        `src/` declares `on_game_frame_sent`/`on_game_frame_send_failed`",
+        so `getattr(self.state, hook_name, None)` finds nothing and this
+        module is never reached.  The row stays at the destination the
+        client never arrived at, and the park is orphaned for the life of
+        the connection.  This is the defect the installer closes; if this
+        test ever starts failing, the hookup landed somewhere else and the
+        two tests above are no longer measuring what they claim.
+        """
+        session = self._session("facade04")
+        self.assertIsNone(
+            getattr(session, warp_send_watch.SENT_OBSERVER_ATTRIBUTE, None),
+        )
+        before = self._row(session)
+        self._warp_frame(session)
+
+        wrapped, _raw = self._accepted(session, ConnectionResetError())
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(ConnectionResetError):
+                wrapped.sendall(b"whatever")
+
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+        self.assertNotEqual(self._row(session).scene_id, before.scene_id)
+        self.assertIsNotNone(
+            getattr(session, warp_send_watch.SESSION_ATTRIBUTE),
+        )

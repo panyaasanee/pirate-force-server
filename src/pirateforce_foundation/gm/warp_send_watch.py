@@ -41,13 +41,22 @@ with no observer to ever clear or roll it back -- worse than doing nothing,
 because a tester reading `warp_send_watch.SESSION_ATTRIBUTE` off a session
 that outlived one connection (it does not; sessions do not outlive their
 socket) would have no reason to suspect it.  Closing that second gap means
-adding two forwarding methods to the state class whose `self` the call
-`connection_bindings.bind(self)` (`runtime.py:1599`) sits inside -- that
-`self` already carries `self.foundation` and `self.events`, the exact
-shape this module's functions read -- but `runtime.py` is chief's file
-this lane may not edit (`AGENTS.md` section 7), so the exact two-method
-body is handed over by letter (`CORE-REQUEST-GM-058`) rather than written
-here.
+the session object has to ANSWER to those two names, at the call
+`connection_bindings.bind(self)` (`runtime.py:1599`) whose `self` becomes
+`AcceptedGameSocket.state` -- that `self` already carries
+`self.foundation` and `self.events`, the exact shape this module's
+functions read -- but `runtime.py` is chief's file this lane may not edit
+(`AGENTS.md` section 7), so the code goes here and only the call goes to
+him.  `install_send_outcome_observers` (bottom of this file, round
+`goxj0y`) is that code: one call installs both forwards on one session,
+weakly, idempotently, fail-closed.  `CORE-REQUEST-GM-058` had already
+handed chief two forwarding METHODS to paste into his class; the
+installer is offered as the alternative shape of the same hookup, so the
+forwarding logic and its failure discipline stay in this lane's zone
+instead of being copied into his.  Either shape closes the gap; NEITHER
+IS ON MAIN YET -- until one is, everything below is still reachable only
+from this lane's own tests and `chat_command_action.py`'s compose-time
+park.
 
 R348 asks a second, harder question before that hookup is safe to arm:
 "who accepts the offer, on which thread, under which lock" -- `sendall`'s
@@ -154,6 +163,7 @@ whether the socket layer later agreed.
 """
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass
 
 from ..model import Position
@@ -471,3 +481,124 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     clear_warp_send_watch(session)
     _note(session, f"{EVENT_PREFIX}failed_rollback_{outcome}")
     return outcome
+
+
+#: The two attribute names `connection.py`'s `AcceptedGameSocket._offer_
+#: send_outcome` looks up with `getattr(self.state, hook_name, None)`
+#: (`connection.py:150`).  Spelled once, here, so this module and the
+#: installer below cannot drift onto a third spelling of a string whose
+#: only other copy lives in a file this lane may not edit.  Verified
+#: against that file on `origin/main` this round, not from memory.
+SENT_OBSERVER_ATTRIBUTE = "on_game_frame_sent"
+FAILED_OBSERVER_ATTRIBUTE = "on_game_frame_send_failed"
+
+#: Both forwards landed and read back as callables.
+INSTALL_OK = "installed"
+#: The session already answers to at least one of the two names -- a real
+#: method chief later declares on the state class, or a second install on
+#: the same connection.  REFUSED, and nothing is written: an instance
+#: attribute would SHADOW a class method, so an installer that overwrote
+#: would silently disarm the very hookup it is standing in for.
+INSTALL_REFUSED_ALREADY_PRESENT = "refused_already_present"
+#: `setattr` raised, or the read-back did not find what was written (a
+#: session that swallows attribute writes).  Any partial install is undone
+#: before returning; see the function body.
+INSTALL_REFUSED_NOT_WRITABLE = "refused_not_writable"
+
+
+def install_send_outcome_observers(session: object) -> str:
+    """Give one session the two names `connection.py` looks for.  Never raises.
+
+    WHY THIS EXISTS.  `#795` landed the first layer -- `AcceptedGameSocket.
+    sendall` offers each send's outcome to `state.on_game_frame_sent` /
+    `state.on_game_frame_send_failed` "if present".  R348's own measurement
+    (`pf_bridge/notes_to_chief/FROM_CHIEF_R348_TO_ALL_20260905_0505.md`) is
+    that NO class in `src/` declares either name, so that `getattr` finds
+    nothing and this module is never reached: `park_warp_send` is already
+    called in production and a live send failure today leaves the row parked
+    forever.  Closing that needs the session object to answer to those two
+    names.  `CORE-REQUEST-GM-058` hands chief two forwarding methods for
+    `runtime.py` (his file, `AGENTS.md` section 7); THIS function is the
+    same hookup as a single call this lane owns and tests, so that whichever
+    shape chief prefers, the forwarding logic and its failure discipline
+    stay in this lane's zone instead of being copied into his.
+
+    WHERE IT IS MEANT TO BE CALLED, AND WHY THAT PLACE AND NOT ANOTHER.
+    Once, per connection, on the connection's own thread, at the point that
+    already binds this session to its accepted socket -- `connection_
+    bindings.bind(self)` (`runtime.py:1599`), whose `self` is the SAME
+    object `connection.py` then stores as `AcceptedGameSocket.state`
+    (`connection.py:87`) and reads the two names off.  Installing there
+    means both forwards exist before this connection's first send, so no
+    frame can slip through the window between bind and install.
+
+    THE SESSION IS HELD WEAKLY, ON PURPOSE.  A closure that captured the
+    session strongly and was then stored ON that session would be a
+    reference cycle, collectable only by a full `gc` pass -- and
+    `lane_hooks`'s live-session registry (`lane_hooks/__init__.py:945`)
+    holds sessions by WEAK reference precisely so a dead connection's
+    session stops answering `current_session_scene_id` promptly.  A cycle
+    here would keep dead sessions answering for another lane until the
+    collector happened to run.  A session that cannot be weak-referenced
+    (`__slots__` without `__weakref__`) falls back to a strong capture
+    rather than refusing the install: a delayed collection is a smaller
+    defect than a warp that never rolls back.
+
+    NEVER RAISES, and read-back is the proof, not `setattr` returning --
+    the same discipline `park_warp_send` and `clear_warp_send_watch` carry,
+    for the same reason (`_RefusingSession` in this module's test file).
+    """
+    try:
+        already = (
+            getattr(session, SENT_OBSERVER_ATTRIBUTE, None) is not None
+            or getattr(session, FAILED_OBSERVER_ATTRIBUTE, None) is not None
+        )
+    except Exception:  # noqa: BLE001 - a session whose getattr raises
+        return INSTALL_REFUSED_NOT_WRITABLE
+    if already:
+        return INSTALL_REFUSED_ALREADY_PRESENT
+
+    try:
+        holder = weakref.ref(session)
+    except TypeError:
+        # Not weak-referenceable; see the docstring on why this still
+        # installs rather than refusing.
+        strong = session
+
+        def holder():  # type: ignore[misc]
+            return strong
+
+    def _sent(frame_bytes: object) -> str:
+        live = holder()
+        if live is None:
+            return OUTCOME_NOTHING_PARKED
+        return on_game_frame_sent(live, frame_bytes)
+
+    def _failed(frame_bytes: object, error: object) -> str:
+        live = holder()
+        if live is None:
+            return OUTCOME_NOTHING_PARKED
+        return on_game_frame_send_failed(live, frame_bytes, error)
+
+    written = []
+    for name, forward in (
+        (SENT_OBSERVER_ATTRIBUTE, _sent),
+        (FAILED_OBSERVER_ATTRIBUTE, _failed),
+    ):
+        try:
+            setattr(session, name, forward)
+            landed = getattr(session, name, None) is forward
+        except Exception:  # noqa: BLE001 - see docstring
+            landed = False
+        if not landed:
+            # Undo the half that did land.  A connection left with only the
+            # success forward would clear parks it can never roll back --
+            # strictly worse than having neither.
+            for done in written:
+                try:
+                    setattr(session, done, None)
+                except Exception:  # noqa: BLE001
+                    pass
+            return INSTALL_REFUSED_NOT_WRITABLE
+        written.append(name)
+    return INSTALL_OK
