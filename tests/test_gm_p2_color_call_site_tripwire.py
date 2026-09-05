@@ -40,11 +40,13 @@ until chief answers it, the gap below stands OPEN and named.
 WHAT THIS CANNOT DO -- read this before citing it as cover.  In rough order
 of how likely each is to matter:
 
-* PATH.  It scans ``gm/`` only.  ``current/pf_login_game_server_v141.py``
+* PATH.  It scans ``gm/`` plus exactly one file outside it,
+  ``field_mobs.py`` (added round ``y1evqj``'s pf-adversary D10, read-only --
+  see :data:`FIELD_MOBS_PATH`).  ``current/pf_login_game_server_v141.py``
   -- the running game server, the file that actually composes actor rows on
-  the wire -- is not scanned, nor is the rest of ``src/``, ``tools/``,
-  ``patches/``, or any ``.pyi``.  That is the biggest hole and it is not
-  closed here.
+  the wire -- is still not scanned, nor is the rest of ``src/``, ``tools/``,
+  ``patches/``, or any ``.pyi``.  That is still the biggest hole and it is
+  not closed here.
 * RESULT.  NARROWED by round ``9sqec6``: a verdict call whose value nothing
   downstream can act on no longer counts as consulting anything, and NO call
   in a module may be discarded (``all``, not ``any`` -- otherwise one
@@ -85,6 +87,7 @@ Zone: this file is ``tests/test_gm_*.py``.  It reads modules and edits none.
 from __future__ import annotations
 
 import ast
+import inspect
 import io
 import pathlib
 import re
@@ -101,6 +104,23 @@ from pirateforce_foundation.gm import name_color_gate as gate
 #: The obligation's boundary: the only tree LANE-GM writes, so a red here is
 #: never another lane's round held hostage.
 GM_ZONE = ROOT / "src" / "pirateforce_foundation" / "gm"
+
+#: D10 (pf-adversary, round ``y1evqj``): this file's own limitations section
+#: named ``pf_login_game_server_v141.py`` as the biggest unscanned path, but
+#: said nothing about ``field_mobs.py`` -- the module that actually composes
+#: every actor row this refusal is about (``FieldMob.actor_identity``,
+#: ``hostile_actor_entry``), and the file COO-DECISION ``20260905_2348``
+#: names as the eventual per-viewer compose point's neighbour.  It is where
+#: a real P-2 colour splice is most likely to land first, and this tripwire
+#: could not see it.
+#:
+#: This constant is READ-ONLY: the test below opens ``field_mobs.py`` to
+#: scan its text, exactly as it already does for every file under
+#: ``GM_ZONE``, and never writes to it.  ``field_mobs.py`` is outside this
+#: lane's write zone (``prompts/LANE-GM.md``'s "do not touch lane A/B's
+#: zone" rule), so a red here is an escalation letter to chief/LANE-B, never
+#: a same-round self-fix the way a ``GM_ZONE`` offender is.
+FIELD_MOBS_PATH = ROOT / "src" / "pirateforce_foundation" / "field_mobs.py"
 
 #: The verdict every P-2 colour call site in that zone owes a call to.
 REQUIRED_CALL = "p2_color_wiring_verdict"
@@ -439,6 +459,67 @@ def test_the_module_that_is_the_refusal_is_exempt_on_purpose():
     """Not an accident of the scan: the gate names every token by design."""
     assert GATE_MODULE_PATH.exists()
     assert _token_hits(GATE_MODULE_PATH.read_text(encoding="utf-8"))
+
+
+def test_field_mobs_is_scanned_for_p2_colour_tokens_read_only():
+    """D10: widen the SCAN, not the write zone.
+
+    Same rule as ``test_p2_colour_code_in_the_gm_zone_must_consult_the_
+    refusal`` above, applied to exactly one file outside ``GM_ZONE``:
+    ``field_mobs.py``, named by COO-DECISION ``20260905_2348`` as the
+    neighbour of the eventual per-viewer compose point. This test only
+    calls ``.read_text()`` on it -- the same read-only access every other
+    assertion in this file already has to every module it scans -- and
+    asserts nothing else about the file.
+
+    A red here is NOT something this lane can fix in the same round: it
+    would mean a P-2 colour token reached executable code in another
+    lane's zone without consulting the gate, and the fix is a letter to
+    chief/LANE-B, not an edit to ``field_mobs.py`` from here.
+    """
+    assert FIELD_MOBS_PATH.exists(), (
+        "field_mobs.py moved or was renamed -- update FIELD_MOBS_PATH "
+        "(and tell LANE-A/LANE-B, since this lane does not own that file)"
+    )
+    source = _read(FIELD_MOBS_PATH)
+    hits = _token_hits(source)
+    if not hits:
+        return
+    assert _consults_the_refusal(source), (
+        "P-2 colour tokens appear in field_mobs.py's executable code that "
+        f"never reach {REQUIRED_CALL}() through {GATE_MODULE_NAME}, or call "
+        "it and throw the answer away: "
+        + "; ".join(f"line {line} ({tok})" for line, tok in hits)
+        + " -- this is outside LANE-GM's write zone, so the fix is a letter "
+        "to chief/LANE-B (this tripwire only widened the SCAN, per COO-"
+        "DECISION 20260905_2051 item 3's rm-rf lesson applied the other way: "
+        "read another lane's file freely, never edit it)"
+    )
+
+
+def test_field_mobs_scan_is_read_only_by_construction():
+    """Pinned so a later round cannot quietly turn the D10 widening into a
+    write.  The whole file's zone declaration already says "reads modules
+    and edits none"; this asserts the one call this test makes against
+    ``FIELD_MOBS_PATH`` is exactly the read-only helper every other file in
+    the scan already goes through, not a bespoke open() this test invented
+    for itself."""
+    tree = ast.parse(
+        inspect.getsource(test_field_mobs_is_scanned_for_p2_colour_tokens_read_only)
+    )
+    calls_on_path = [
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "FIELD_MOBS_PATH"
+    ]
+    assert calls_on_path == ["exists"], (
+        f"expected FIELD_MOBS_PATH.exists() as the only direct call on the "
+        f"path; found {calls_on_path} -- a write method here would defeat "
+        "the read-only guarantee this test exists to pin"
+    )
 
 
 def test_the_obligation_stops_at_this_lanes_zone_and_says_so():
