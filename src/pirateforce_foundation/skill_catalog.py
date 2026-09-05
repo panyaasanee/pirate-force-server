@@ -123,6 +123,51 @@ than read as "usable by every class."
     independently-labeled rows (2 single-target, 2 AOE, 2 self-buff, 2 heal)
     is, per the result letter's own suggestion, and no such ticket exists
     yet as of this round.
+
+    ROUND mps8zh CHECKED THE NEXT OBVIOUS SHORTCUT AND IT IS ALSO A TRAP.
+    With ``n_PASSIVE`` falsified (above), the next natural guess is the pair
+    (``s_CAST_CONDITION`` blank, ``n_PASSIVE_EFFECT`` nonzero): our own 5
+    Basic Training ids fit that shape exactly (blank condition, passive
+    effect equal to their own id) while 99/110/111 do not (non-blank
+    condition, passive effect 0).  pf-static-re re-derived this across the
+    FULL ``CONSTDATA_TH__SKILL_CONTEXT.tsv`` (2165 data rows, not just this
+    catalog's 8), and it is BOUNDED-NEGATIVE, not a general discriminator.
+    Blank ``s_CAST_CONDITION`` is exactly 25 rows table-wide: a 4-row tier
+    per class rooted at each of our 5 known Basic Training ids (40000 also
+    has 40013/40022/40025 above it in the same tier, and 41000/42000/43000/
+    44000 each root their own 4-row tier the same way, though the three
+    higher-tier offsets are NOT uniform across classes -- e.g. 41000's tier
+    is 41000/41007/41010/41025 where 40000's is 40000/40013/40022/40025;
+    ``tests/test_skill_catalog.py`` pins the literal ids per class rather
+    than a formula), plus a SIXTH class tier this catalog's own
+    ``own_class_bit`` docstring already named by bit (8) and single id
+    45000 -- now confirmed as a full matching 4-row tier (45000/45023/
+    45024/45025), still unselectable and still not carried here -- and one
+    row that is NOT a Basic Training id at all, 2954, whose
+    ``n_PASSIVE_EFFECT`` is 0: the narrow claim ("blank implies nonzero")
+    already has a counter-example before leaving its own best bucket.  The
+    reverse direction fails harder: 146 of 2140 non-blank-condition rows
+    (6.8%, not a rounding tail) carry a nonzero ``n_PASSIVE_EFFECT`` anyway,
+    including id 8200 (an actively-cast single-target physical attack per
+    its own flavor text) whose ``n_PASSIVE_EFFECT`` (40002) is nonzero AND
+    points at a DIFFERENT skill id rather than at itself, falsifying both
+    "nonzero implies passive/blank" and "nonzero is always self-referential
+    bookkeeping like ``n_ISCLASS``" (101 of 125 nonzero-self-referential
+    rows are ordinary actively-cast skills) in one row.  And ids 3546/3547 --
+    flavor-text titles that read as exactly the buff/heal-shaped passive
+    bonus this project is hunting for -- are actively cast
+    (``s_CAST_CONDITION = "GO(0)"``) with ``n_PASSIVE_EFFECT = 0``, the
+    opposite corner from what the hypothesis predicts.  Do not build an
+    ``is_pure_passive_effect()``-shaped accessor on this column pair; see
+    ``tests/test_skill_catalog.py``'s
+    ``NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests`` for the
+    pinned falsifying rows (BRIDGE_GAMEDATA-guarded: the falsifiers live
+    outside this catalog's 8-id scope, so this module's own committed
+    copies cannot answer). The one sub-pattern that DOES hold -- the
+    now-6-class Basic Training tier, blank condition, self-referential
+    passive effect -- earns nothing new: it is exactly the same ids this
+    catalog already names by title-suffix (``_BASIC_TRAINING_SKILL_IDS``),
+    so the shortcut only ever agrees with the accessor that already exists.
 """
 from __future__ import annotations
 
