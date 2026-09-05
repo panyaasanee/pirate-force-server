@@ -191,6 +191,24 @@ def _bare_warp_destinations() -> tuple[int, ...]:
     )
 
 
+# Bare-warp destinations with NO `world_scene_travel.CENSUS_SOURCES` entry
+# and no other production census composer, ADDED round n4vqxc (LANE-A):
+# scenes 304 and 305 gained a `decreed_arrival` point (COO-DECISION
+# 20260905_1748), which is what makes them bare-warp reachable at all, but
+# this round deliberately built ONLY the arrival point -- the same narrow
+# scope scene 126 itself had in round ihjytc, before an EARLIER round
+# (4uztfj) built `world_bg3001_identity.py`/`world_population_bg3001.py` and
+# gave it a cast.  304/305 have no such module yet; building one is real
+# population work (identity resolution through a CLINE table, a composer,
+# CENSUS_SOURCES registration) that this backup task's letter did not ask
+# for and this round did not do.  Named here, checked below, rather than
+# silently widening `_arrival_census`'s exemptions or narrowing what counts
+# as "reachable": a future round that builds either scene's cast removes it
+# from this tuple and `test_every_map_a_bare_warp_can_reach_ships_one_on_
+# arrival` starts requiring a real census for it, with no other edit.
+SCENES_WITH_NO_CENSUS_COMPOSER_YET = (304, 305)
+
+
 class _WarpChainHarness(unittest.TestCase):
     """Flagless boot -> arm a real warp -> ask for the next ordinary poll."""
 
@@ -563,9 +581,29 @@ class TheChainShipsACensusOnEveryHopTests(_WarpChainHarness):
         state = self._login_and_start("gmwarpchain09")
 
         shipped = {}
+        no_composer_yet = {}
         for scene_id in elsewhere:
             spawn = self._warp(state, scene_id)
             actions, _out, _err = self._poll(state)
+            if scene_id in SCENES_WITH_NO_CENSUS_COMPOSER_YET:
+                # NAMED, NOT SILENT.  This scene is bare-warp reachable (a
+                # `decreed_arrival`) but has no registered census composer
+                # -- see that tuple's own comment.  What matters is that
+                # arriving here ships NOTHING mislabelled as a census,
+                # rather than that it ships nothing at all: a stray frame
+                # here would be a WRONG scene's roster leaking onto this
+                # one, which is exactly the mix-up this file's own D6/D2
+                # regression tests exist to catch elsewhere.
+                self.assertEqual(
+                    self._census(actions), [],
+                    f"scene {scene_id} has no census composer yet but "
+                    f"shipped one anyway: {self._census(actions)} -- "
+                    "either a composer was added (remove it from "
+                    "SCENES_WITH_NO_CENSUS_COMPOSER_YET) or a wrong-scene "
+                    "roster is leaking here",
+                )
+                no_composer_yet[scene_id] = spawn
+                continue
             label, pc, frame, count = self._arrival_census(actions, scene_id)
             if scene_id == world_population_bg0002.SCENE2_N_ID:
                 # Its own spelling, from its own arm.  Renaming these labels
@@ -598,10 +636,16 @@ class TheChainShipsACensusOnEveryHopTests(_WarpChainHarness):
         )
 
         self.assertEqual(
-            sorted(list(shipped) + [world_population.SCENE_ID]),
+            sorted(list(shipped) + list(no_composer_yet)
+                   + [world_population.SCENE_ID]),
             sorted(destinations),
             "some reachable map was neither measured nor named as the "
             "exception",
+        )
+        self.assertEqual(
+            sorted(no_composer_yet), sorted(SCENES_WITH_NO_CENSUS_COMPOSER_YET),
+            "the no-composer-yet set drifted from what this round declared "
+            "-- update SCENES_WITH_NO_CENSUS_COMPOSER_YET to match",
         )
 
     def test_a_hop_after_the_player_walked_anchors_on_the_destination(self):

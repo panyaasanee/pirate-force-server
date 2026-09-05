@@ -148,12 +148,19 @@ class TheDecreeReachesNothingElse(unittest.TestCase):
                 self.assertFalse(row.has_authored_entry)
                 self.assertIsNone(warp_no_coords_live_target(scene_id))
 
-    def test_exactly_one_scene_in_the_registry_carries_a_decree(self):
+    def test_the_registry_carries_exactly_the_known_decreed_scenes(self):
+        # ~~exactly one scene ... (DECREED_SCENE,)~~ WIDENED round n4vqxc:
+        # COO-DECISION 20260905_1748 pinned 304 and 305 by the same
+        # mechanism, tagged `decreed_provisional` -- see
+        # `world_sea_edge_crossing.py` and its own test file. This still
+        # pins a CLOSED set: a decree appearing on any OTHER scene without a
+        # round updating this line is exactly the leak this test exists to
+        # catch.
         decreed = tuple(
             row.n_id for row in self.registry.destinations
             if row.has_decreed_arrival
         )
-        self.assertEqual(decreed, (DECREED_SCENE,))
+        self.assertEqual(decreed, (DECREED_SCENE, 304, 305))
 
     def test_the_marker_backed_scenes_are_unchanged(self):
         # The scenes rule 1 always reached must still reach it BY RULE 1,
@@ -215,7 +222,14 @@ class TheDurableHalfIsRefusedAndSaysSo(unittest.TestCase):
     signal the round is finally complete.
     """
 
-    def test_the_decreed_scene_is_the_one_live_target_whose_write_is_refused(self):
+    def test_the_decreed_scenes_are_the_only_live_targets_whose_write_is_refused(self):
+        # ~~test_the_decreed_scene_is_the_one_live_target_whose_write_is_
+        # refused~~, singular, RENAMED round n4vqxc: 304 and 305 carry the
+        # same `login_entry_allowed=False` shape as 126 (measured, not
+        # assumed -- neither has an attended login test either), so both
+        # join this refused list too.  Still a CLOSED set: any OTHER live
+        # target's write going unexpectedly refused is exactly the leak
+        # this test exists to catch.
         from pirateforce_foundation.gm import warp_scene_persist
 
         registry = world_scene_travel.load_scene_registry()
@@ -227,7 +241,7 @@ class TheDurableHalfIsRefusedAndSaysSo(unittest.TestCase):
             scene_id for scene_id in live
             if not warp_scene_persist.login_would_accept(scene_id)
         ]
-        self.assertEqual(refused, [DECREED_SCENE], live)
+        self.assertEqual(refused, [DECREED_SCENE, 304, 305], live)
 
     def test_the_registry_row_still_says_why(self):
         registry = world_scene_travel.load_scene_registry()
@@ -368,13 +382,35 @@ class TheLoaderRefusesEveryBadDecree(unittest.TestCase):
             _registry_with(mutate)
         self.assertIn("without a decreed_arrival block", str(caught.exception))
 
-    def test_the_block_without_the_tier(self):
+    def test_the_block_with_a_tier_neither_decree_may_wear(self):
+        # ~~test_the_block_without_the_tier~~, tier "decreed_provisional",
+        # RENAMED round n4vqxc: COO-DECISION 20260905_1748 made
+        # "decreed_provisional" a SECOND tier a `decreed_arrival` block may
+        # legitimately carry (scenes 304/305, own test file), so setting
+        # scene 126's tier to it is no longer a defect to refuse -- it is
+        # exactly the shape this round shipped elsewhere. The refusal this
+        # test exists to pin still holds for a tier that is neither of the
+        # two: a block naming a marker row with no corroborating decree
+        # strength at all.
+        def mutate(document, rows):
+            rows[DECREED_SCENE]["coordinate_provenance"]["evidence_tier"] = (
+                "chosen_no_evidence")
+        with self.assertRaises(ValueError) as caught:
+            _registry_with(mutate)
+        self.assertIn("neither 'decreed_permanent' nor 'decreed_provisional'",
+                      str(caught.exception))
+
+    def test_a_provisional_decree_is_now_accepted(self):
+        # THE WIDENING ITSELF, PINNED POSITIVELY.  Flipping scene 126's own
+        # tier to "decreed_provisional" while keeping its (valid) block must
+        # now LOAD, not raise -- proven on the scene this file already
+        # controls rather than only on 304/305, so a future round cannot
+        # "fix" this back to permanent-only without a test in THIS file
+        # going red.
         def mutate(document, rows):
             rows[DECREED_SCENE]["coordinate_provenance"]["evidence_tier"] = (
                 "decreed_provisional")
-        with self.assertRaises(ValueError) as caught:
-            _registry_with(mutate)
-        self.assertIn("not 'decreed_permanent'", str(caught.exception))
+        _registry_with(mutate)  # must not raise
 
     def test_a_half_written_block(self):
         def mutate(document, rows):
