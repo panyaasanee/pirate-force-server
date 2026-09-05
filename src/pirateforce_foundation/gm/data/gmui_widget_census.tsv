@@ -1,18 +1,18 @@
-page	row	slug	option_radios	text_inputs	numeric_inputs	anchor_y_approx	label_status	label_note
-1	1	p1r1_row_selector	2	0	0	365	UNREAD	two paired option radios, the left one selected in both tab1 shots
-1	2	p1r2_row_selector	0	1	3	405	UNREAD	one wide text input then three short numeric inputs labelled X Y Z in latin
-1	3	p1r3_row_selector	0	1	0	445	LATIN_PARTIAL	label begins with the latin token NPC then thai text
-1	4	p1r4_row_selector	0	1	0	485	UNREAD	one text input, narrower than r2/r3 and indented further right
-1	5	p1r5_row_selector	0	1	0	525	UNREAD	one text input, same geometry as r4
-1	6	p1r6_row_selector	0	1	0	605	UNREAD	one text input, same geometry as r4; sits after the unexplained gap
-1	7	p1r7_row_selector	0	1	0	645	UNREAD	its text input is full panel width and sits on the line below the label
-2	1	p2r1_row_selector	0	1	0	368	UNREAD	one text input
-2	2	p2r2_row_selector	0	1	0	408	UNREAD	one text input
-2	3	p2r3_row_selector	2	1	1	448	UNREAD	two paired option radios (left selected), one numeric with a thai unit suffix, one full width text input below
-2	4	p2r4_row_selector	2	2	1	546	UNREAD	two paired option radios (left selected), two labelled text inputs, one numeric with a thai unit suffix carrying a parenthesised note
-2	5	p2r5_row_selector	0	1	0	658	UNREAD	one full width text input on the line below the label
-3	1	p3r1_row_selector	0	0	2	368	UNREAD	numeric, then an inline thai label, then a second numeric far right
-3	2	p3r2_row_selector	0	0	1	408	LATIN_PARTIAL	label begins with the latin token BUFF then thai text
-3	3	p3r3_row_selector	0	0	1	448	UNREAD	one numeric
-3	4	p3r4_row_selector	2	0	0	488	UNREAD	two paired option radios, the left one selected
-3	5	p3r5_row_selector	0	0	2	528	UNREAD	one numeric, then a sub label on the line below with a second numeric
+page	row	slug	option_radios	text_inputs	numeric_inputs	anchor_y_approx	label_status	label_row_id	label_note
+1	1	p1r1_row_selector	2	0	0	365	TABLE_EXACT	1386	two paired option radios, the left one selected in both tab1 shots; the two option texts are block rows 1387 and 1388
+1	2	p1r2_row_selector	0	1	3	405	TABLE_EXACT	1389	one wide text input then three short numeric inputs; the three axis captions are block rows 1390 1391 1392
+1	3	p1r3_row_selector	0	1	0	445	TABLE_EXACT	1393	label begins with the latin token NPC then thai text, which is exactly what block row 1393 spells
+1	4	p1r4_row_selector	0	1	0	485	TABLE_EXACT	1394	one text input, narrower than r2/r3 and indented further right
+1	5	p1r5_row_selector	0	1	0	525	TABLE_EXACT	1395	one text input, same geometry as r4
+1	6	p1r6_row_selector	0	1	0	605	TABLE_EXACT	1397	one text input, same geometry as r4; sits after the unexplained gap
+1	7	p1r7_row_selector	0	1	0	645	TABLE_EXACT	1398	its text input is full panel width and sits on the line below the label
+2	1	p2r1_row_selector	0	1	0	368	TABLE_EXACT	1399	one text input
+2	2	p2r2_row_selector	0	1	0	408	TABLE_EXACT	1400	one text input
+2	3	p2r3_row_selector	2	1	1	448	TABLE_EXACT	1401	two paired option radios (left selected) reading block rows 1402 and 1404, one numeric with the thai unit suffix of block row 1406 captioned by block row 1405, one full width text input below
+2	4	p2r4_row_selector	2	2	1	546	TABLE_EXACT	1407	two paired option radios (left selected) reading block rows 1408 and 1404, two labelled text inputs captioned by block rows 1409 and 1410, one numeric captioned by block row 1405 whose parenthesised unit suffix is block row 1411
+2	5	p2r5_row_selector	0	1	0	658	TABLE_EXACT	1412	one full width text input on the line below the label
+3	1	p3r1_row_selector	0	0	2	368	TABLE_EXACT	1892	the row label sits left of a numeric; block row 1893 is inline to its right as a second captioned numeric far right
+3	2	p3r2_row_selector	0	0	1	408	TABLE_EXACT	1894	label begins with the latin token BUFF then thai text, which is exactly what block row 1894 spells
+3	3	p3r3_row_selector	0	0	1	448	SCREENSHOT_ONLY	0	one numeric; the label is legible on the tab3 shot but matches NO row of any committed table, so it carries no block id
+3	4	p3r4_row_selector	2	0	0	488	TABLE_EXACT	1895	two paired option radios, the left one selected; the two option texts are not in the block and were not read
+3	5	p3r5_row_selector	0	0	2	528	TABLE_EXACT	1896	one numeric, then a sub label on the line below with a second numeric; that sub label reads as table row 1371, which is OUTSIDE this block and is a generic caption reused all over the client

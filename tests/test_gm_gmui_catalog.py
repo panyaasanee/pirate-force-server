@@ -201,32 +201,50 @@ class RowCensusTests(unittest.TestCase):
             self.assertIsNone(row.handler_symbol, row.button)
             self.assertFalse(row.server_answers_today, row.button)
 
-    def test_fifteen_labels_are_unread_and_the_other_two_are_only_partial(self):
-        unread = [entry for entry in ROW_CENSUS if entry.label_is_unread]
-        partial = [
-            entry
-            for entry in ROW_CENSUS
-            if entry.label_status == gmui_catalog.LABEL_STATUS_LATIN_PARTIAL
-        ]
-        self.assertEqual(len(unread), 15)
-        self.assertEqual(len(partial), 2)
-        # And a partial row must SAY it is partial where a human reads it,
-        # not quietly borrow the unread wording.
-        for entry in partial:
+    def test_sixteen_labels_come_from_the_table_and_one_from_the_screen(self):
+        # Round `dl1etn` replaced UNREAD/LATIN_PARTIAL: the captions were
+        # never a squinting problem, they were text in a committed table.
+        # What survives the change is the shape of the honesty -- the one
+        # row no table spells must SAY so where a human reads it.
+        screen_only = [entry for entry in ROW_CENSUS if entry.label_is_unread]
+        from_table = list(gmui_catalog.rows_with_a_read_label())
+        self.assertEqual(gmui_catalog.labels_are_read(), (16, 17))
+        self.assertEqual(len(from_table), 16)
+        self.assertEqual(len(screen_only), 1)
+        self.assertEqual(screen_only[0].slug, "p3r3_row_selector")
+        for entry in screen_only:
             row = next(row for row in BUTTONS if row.button == entry.slug)
-            self.assertIn(gmui_catalog.FUNCTION_LABEL_PARTIAL, row.function)
+            self.assertIn(
+                gmui_catalog.FUNCTION_LABEL_SCREENSHOT_ONLY, row.function
+            )
+            self.assertEqual(entry.label_row_id, 0)
+        for entry in from_table:
+            row = next(row for row in BUTTONS if row.button == entry.slug)
+            self.assertIn(gmui_catalog.FUNCTION_LABEL_FROM_TABLE, row.function)
+            self.assertIn(str(entry.label_row_id), row.function)
+
+    def test_a_read_label_never_leaks_the_words_into_a_function_string(self):
+        # A `function` string that carried the Thai would let a round file
+        # quote a caption without ever joining it to a row id -- which is
+        # the whole evidence chain this round bought.
+        for entry in gmui_catalog.rows_with_a_read_label():
+            row = next(row for row in BUTTONS if row.button == entry.slug)
+            self.assertNotIn(
+                gmui_catalog.label_text(entry.label_row_id), row.function
+            )
 
     def test_an_unknown_label_status_is_refused(self):
         with self.assertRaises(GmuiCatalogError) as caught:
             gmui_catalog._parse_census_line(
-                "1\t1\tp1r1_row_selector\t0\t0\t0\t365\tREAD\tinvented"
+                "1\t1\tp1r1_row_selector\t0\t0\t0\t365\tREAD\t1386\tinvented"
             )
         self.assertIn("label_status", str(caught.exception))
 
     def test_a_row_naming_a_page_that_does_not_exist_is_refused(self):
         with self.assertRaises(GmuiCatalogError) as caught:
             gmui_catalog._parse_census_line(
-                "4\t1\tp4r1_row_selector\t0\t0\t0\t365\tUNREAD\tinvented"
+                "4\t1\tp4r1_row_selector\t0\t0\t0\t365\t"
+                "SCREENSHOT_ONLY\t0\tinvented"
             )
         self.assertIn("page 4", str(caught.exception))
 
@@ -332,6 +350,147 @@ class ButtonGuardTests(unittest.TestCase):
         )
         assert_backed(row)
         self.assertFalse(row.server_answers_today)
+
+
+class LabelBlockTests(unittest.TestCase):
+    """The captions, and the guards that stop a plausible id becoming one.
+
+    The claim these cards hold up is NOT "adjacent ids in a text table are
+    this window's labels" -- that on its own is worth nothing.  It is that
+    the run's shape and the panel's shape agree row by row, which is a thing
+    a test can actually check.
+    """
+
+    def test_the_copy_matches_its_pinned_sha(self):
+        raw = (
+            ROOT
+            / "src/pirateforce_foundation/gm/data/gmui_label_block.tsv"
+        ).read_bytes()
+        self.assertEqual(
+            hashlib.sha256(raw).hexdigest(), gmui_catalog.LABEL_BLOCK_SHA256
+        )
+
+    def test_the_block_is_a_contiguous_run_apart_from_the_tab_titles(self):
+        # If the panel's strings were scattered through the table this would
+        # be a much weaker claim, so the shape of the run is worth pinning.
+        rows = sorted(gmui_catalog.LABEL_BLOCK)
+        page_1_2 = [n for n in rows if 1386 <= n <= 1413]
+        page_3 = [n for n in rows if 1892 <= n <= 1896]
+        self.assertEqual(page_1_2, list(range(1386, 1414)))
+        self.assertEqual(page_3, list(range(1892, 1897)))
+        self.assertEqual(
+            sorted(set(rows) - set(page_1_2) - set(page_3)),
+            sorted(gmui_catalog.PAGE_TITLE_ROW_IDS),
+        )
+
+    def test_every_censused_row_points_at_its_own_caption(self):
+        for entry in gmui_catalog.rows_with_a_read_label():
+            with self.subTest(slug=entry.slug):
+                self.assertEqual(
+                    gmui_catalog.GMUI_LABEL_BLOCK_ROLES[entry.label_row_id],
+                    f"page{entry.page}.row{entry.row}.label",
+                )
+
+    def test_the_shapes_agree_where_the_run_says_they_must(self):
+        # This is the corroboration the whole mapping rests on: a row the
+        # run gives option strings to is a row the photograph shows radios
+        # on, and a row it gives none to is a row with none.
+        by_slug = {entry.slug: entry for entry in ROW_CENSUS}
+        option_rows: dict[str, int] = {}
+        for row_id, role in gmui_catalog.GMUI_LABEL_BLOCK_ROLES.items():
+            del row_id
+            for part in role.split("+"):
+                head, _, tail = part.rpartition(".")
+                if tail.startswith("option_"):
+                    option_rows[head] = option_rows.get(head, 0) + 1
+        for anchor, count in option_rows.items():
+            page, row = anchor.split(".")
+            slug = f"p{page[-1]}r{row[-1]}_row_selector"
+            with self.subTest(anchor=anchor):
+                self.assertEqual(by_slug[slug].option_radios, count)
+        # Page 1 row 2 is the strongest single agreement in the set: three
+        # axis captions in the run, three numeric boxes on the shot.
+        axes = [
+            role
+            for role in gmui_catalog.GMUI_LABEL_BLOCK_ROLES.values()
+            if role.startswith("page1.row2.axis_")
+        ]
+        self.assertEqual(len(axes), 3)
+        self.assertEqual(by_slug["p1r2_row_selector"].numeric_inputs, 3)
+
+    def test_the_undrawn_rows_are_named_and_the_gap_stays_a_candidate(self):
+        self.assertEqual(gmui_catalog.UNDRAWN_BLOCK_ROWS, (1396, 1403))
+        self.assertIn(
+            gmui_catalog.PAGE_1_GAP_CANDIDATE, gmui_catalog.UNDRAWN_BLOCK_ROWS
+        )
+        # The candidate must not be allowed to turn into a measurement by
+        # accident: page 2 has an undrawn string and no gap, so an undrawn
+        # string does not reserve space, and the count stays unconfirmed.
+        self.assertFalse(gmui_catalog.total_is_confirmed_on_screen())
+        for row_id in gmui_catalog.UNDRAWN_BLOCK_ROWS:
+            self.assertEqual(
+                gmui_catalog.GMUI_LABEL_BLOCK_ROLES[row_id], "undrawn"
+            )
+            self.assertNotIn(
+                row_id, [entry.label_row_id for entry in ROW_CENSUS]
+            )
+
+    def test_a_census_row_may_not_point_at_a_non_caption(self):
+        # 1387 is an option text, not a caption.  Pointing a row at it is
+        # exactly how a mapping quietly becomes wrong by one.
+        with self.assertRaises(GmuiCatalogError) as caught:
+            gmui_catalog._parse_census_line(
+                "1\t1\tp1r1_row_selector\t2\t0\t0\t365\t"
+                "TABLE_EXACT\t1387\tinvented"
+            )
+        self.assertIn("1387", str(caught.exception))
+
+    def test_a_census_row_may_not_point_at_another_rows_caption(self):
+        with self.assertRaises(GmuiCatalogError) as caught:
+            gmui_catalog._parse_census_line(
+                "1\t1\tp1r1_row_selector\t2\t0\t0\t365\t"
+                "TABLE_EXACT\t1389\tinvented"
+            )
+        self.assertIn("page1.row1.label", str(caught.exception))
+
+    def test_a_screenshot_only_row_may_not_carry_a_row_id(self):
+        with self.assertRaises(GmuiCatalogError) as caught:
+            gmui_catalog._parse_census_line(
+                "3\t3\tp3r3_row_selector\t0\t0\t1\t448\t"
+                "SCREENSHOT_ONLY\t1894\tinvented"
+            )
+        self.assertIn("1894", str(caught.exception))
+
+    def test_label_text_refuses_an_id_the_block_does_not_carry(self):
+        with self.assertRaises(GmuiCatalogError):
+            gmui_catalog.label_text(1)
+
+    def test_reading_a_label_is_not_answering_a_button(self):
+        # The one number P-3 is graded on must not move because captions
+        # were read.  16 of 17 labels, 0 of 17 handlers.
+        self.assertEqual(gmui_catalog.labels_are_read(), (16, 17))
+        self.assertEqual(progress(), (0, 17))
+
+    def test_the_page_2_caption_is_flagged_as_not_describing_page_2(self):
+        titles = gmui_catalog.page_titles()
+        self.assertEqual(
+            [row_id for row_id, _ in titles],
+            list(gmui_catalog.PAGE_TITLE_ROW_IDS),
+        )
+        self.assertIn("1440", gmui_catalog.PAGE_2_TITLE_DOES_NOT_MATCH_ITS_CONTENT)
+        self.assertIn(
+            "never the tab title",
+            gmui_catalog.PAGE_2_TITLE_DOES_NOT_MATCH_ITS_CONTENT,
+        )
+
+    def test_a_tab_title_is_not_a_model_name(self):
+        # `PAGES` are model names (one known, two placeholders) and the
+        # titles are what a human reads on the strip.  Collapsing the two
+        # would let a round claim the other two models are named now.
+        for _, words in gmui_catalog.page_titles():
+            self.assertNotIn(words, PAGES)
+        self.assertEqual(PAGES[1], gmui_catalog.PAGE_UNNAMED_2)
+        self.assertEqual(PAGES[2], gmui_catalog.PAGE_UNNAMED_3)
 
 
 if __name__ == "__main__":  # pragma: no cover
