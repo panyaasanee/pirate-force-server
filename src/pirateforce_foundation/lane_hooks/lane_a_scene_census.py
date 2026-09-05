@@ -44,21 +44,63 @@ in outcome to the ``skipped_scene_<id>_not_home`` branch this replaced.
     So the property is now structural rather than circumstantial: no route
     into scene 14 - a login, a ``via_login=False`` call site that does not
     exist yet, a direct call to this module's own factory - ships this
-    roster while the registry says the scene is shut.  One boolean in
-    ``scenarios/world_scene_registry_001.json`` is the whole gate, and
+    roster while the registry says the scene is shut.  ~~One boolean in
+    ``scenarios/world_scene_registry_001.json`` is the whole gate~~, and
     ``tests/test_lane_a_scene_census.py`` drives the refusal rather than
     reading the boolean back.
 
-HOW A SCENE GETS ADDED.  Two tables, and a scene needs a row in BOTH: a source
-in ``world_scene_travel.CENSUS_SOURCES`` (the seam's own table, which decides
-what composes the roster) and a console reader in ``_CONSOLE_LINES_OF`` below
-(the lane's evidence choice, which decides what an attended round can grep).
+    THE STRUCK SENTENCE WAS TRUE FOR ONE ARM AND IS NOW FALSE FOR THREE, and
+    pf-adversary measured it still standing here a round after it stopped
+    being true, so it is corrected rather than quietly left.  It is still
+    exactly right for scene 14 and for every scene whose only admission is
+    the registry pin.  For THREE scenes it is not the whole gate:
+
+        126  the GM lane's sanctioned single-use predicate (arm 2, round
+             ``4uztfj``) - its own table is the gate, and revoking it
+             darkens the scene again
+        304  an owner-decreed arrival point plus a live GM warp (arm 3,
+        305  round ``yob0a2``) - the decree is the gate, and it is a
+             PANYA/COO artifact rather than a boolean any lane may flip
+
+    Each arm names its own gate in its own docstring, and each is driven by
+    a test that revokes that gate rather than reading it back.  What has NOT
+    changed is the direction of every arm: all three fail closed, and none
+    of them opens a LOGIN door - ``login_entry_allowed`` is still false for
+    all three of those scenes.
+
+HOW A SCENE GETS ADDED.  ~~Two tables, and a scene needs a row in BOTH~~ --
+SEVEN REGISTRATIONS, counted round ``yob0a2`` by adding scene 304 and reading
+the red tests one at a time (pf-adversary: the round found five of the seven
+only BECAUSE tests went red, and two more were still missing when it first
+committed).  The two this file has always named come first because they are
+the ones this module reads:
+
+    1. ``world_scene_travel.CENSUS_SOURCES`` - the seam's own table, which
+       decides what composes the roster
+    2. ``_CONSOLE_LINES_OF`` below - the lane's evidence choice, which
+       decides what an attended round can grep
+    3. ``world_population_handoff.ROSTER_COMPOSERS`` - without it the seam
+       answers CLEAR and this composer declines with no frame and no reason
+       anyone can tell from the one it prints for a shut door
+    4. ``gm/identity_registry_census`` - the identity module's own registry
+    5. ``mob_scene_recompose.ACKNOWLEDGED_WITHOUT_COMPOSER`` (or a real
+       recompose composer) - LANE-B's tripwire, whose stake is the
+       one-entry world wipe; the entry must MEASURE that the scene has no
+       combat roster, not assert it
+    6. ``tests/test_world_census_level.py``'s ``WIRED_SCENES`` and
+       ``CENSUS_SOURCE_COMPOSERS`` - the level splice's own two lists
+    7. ``tools/pf_runtimeres_actor_entry_static.py`` + its report +
+       ``tests/test_runtimeres_actor_entry_static.py`` - three copies of
+       the actor-entry call-site counts, which a new composer moves by one
+
 An earlier draft claimed the answer lived in exactly one place and not here;
 that was wrong, and the second table is a gate rather than a formality - a
-census nobody can grep is a census nobody can grade.  A scene in one table and
-not the other is SKIPPED AND SAID SO, loudly, at import
+census nobody can grep is a census nobody can grade.  A scene in the first
+table and not the second is SKIPPED AND SAID SO, loudly, at import
 (``LANE_A_CENSUS_SKIPPED``): silence there is the same defect in mirror image
-as the one round 80x5ba existed to fix.
+as the one round 80x5ba existed to fix.  Rows 3-7 have no such import-time
+report; they are caught by tests, which is why this list exists rather than
+the sentence it replaces.
 
 WHY IT DELEGATES INSTEAD OF COMPOSING.  ``world_population_handoff`` already
 resolves scene -> composer, caps a caller's count against the roster size,
@@ -479,8 +521,10 @@ def scene_is_sanctioned_for_a_gm_entry(
     the first arm admits, on this clone.  Two things keep that acceptable:
     the second arm is only reached for a scene the first one refused (one
     scene id today), and the production call sites hand this function the
-    ``scene_entry_registry`` they were already given, which both arms then
-    share.  A click is human-paced; a census is not composed in a loop.
+    ``scene_entry_registry`` they were already given, which ~~both arms
+    then share~~ THE FIRST TWO ARMS SHARE - amended round ``yob0a2``:
+    the third arm's warp half takes no registry argument and loads the pin
+    file itself, which its own docstring now states and times.  A click is human-paced; a census is not composed in a loop.
     """
     try:
         from ..gm import login_scene_admission
@@ -536,6 +580,21 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     and 17 registered-but-inert until a round opened them on purpose.  The
     decree half is what keeps this arm to scenes a ruling already named.
 
+    IT STANDS ASIDE FOR ANY SCENE THE GM LANE'S SANCTION TABLE GOVERNS,
+    and this is the load-bearing half of the arm rather than a courtesy.
+    pf-adversary (this round) measured what the first draft cost: with
+    scene 126 in ``gm/login_scene_admission.SANCTIONED_BARRED_SCENES``, this
+    arm answered True for it INDEPENDENTLY of the second arm, so revoking
+    ``CORE-REQUEST-GM-038`` -- the GM lane's own on/off switch for that
+    scene -- stopped darkening its census.  A lane may not quietly take
+    another lane's revocation lever away, and "the test was amended to
+    bless it" is not an answer.  So the first thing this arm asks is
+    whether the GM lane governs the scene at all; if it does, this arm
+    declines and the SECOND arm decides, exactly as it did before this
+    round.  Scene 126 is that case today and its behaviour is byte-for-byte
+    unchanged; 304 and 305 are in no sanction table, which is why they need
+    this arm at all.
+
     WHY THIS IS NOT A DOOR, the same sentence the second arm carries and
     for the same reason: this predicate gates what a session ALREADY
     STANDING IN A SCENE is sent.  It cannot move a character, cannot stage
@@ -580,14 +639,24 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     this arm pays one extra registry load on top of whatever the first two
     arms did - the same shape and the same order of magnitude as the second
     arm's own ~3.2ms.  Two things keep it acceptable: this arm is only
-    reached for a scene BOTH earlier arms refused (two scene ids today,
-    since 126 is admitted by the second arm before this one is asked), and a
-    census is composed once per arrival, not in a loop.
+    reached for a scene BOTH earlier arms refused AND the GM lane does not
+    govern (two scene ids today, 304 and 305), and a census is composed once
+    per arrival, not in a loop.
 
     Fail-closed in every direction, the same as the other two arms: a
     registry that will not load, an import that is not there, a predicate
     that raises - all answer False.
     """
+    try:
+        from ..gm import login_scene_admission
+        if login_scene_admission.is_sanctioned_barred_scene(scene_id):
+            # The GM lane governs this scene: its own predicate is the
+            # answer, and this arm must not override it.  See the docstring.
+            return False
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        # Cannot tell whether the GM lane governs it, so this arm may not
+        # claim it either.
+        return False
     try:
         destination = world_scene_travel.destination(scene_id, registry)
     except Exception:  # noqa: BLE001 - fail-closed, see the docstring

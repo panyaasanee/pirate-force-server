@@ -1998,37 +1998,31 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
                     lane_a.scene_is_sanctioned_for_a_gm_entry(scene_id))
 
     def test_the_arm_answers_the_gm_lanes_own_predicate_not_a_copy(self):
-        # If the GM lane ever stops admitting this scene, THIS ARM stops too
-        # -- driven by making that predicate say no rather than by reading
-        # its source.
+        # If the GM lane ever stops admitting this scene, this arm stops
+        # too -- driven by making that predicate say no rather than by
+        # reading its source.
         #
-        # ~~and with the arm shut, scene 126 is not populated at all~~
-        # AMENDED round ``yob0a2`` (LANE-A): that second claim was true when
-        # there were two arms and is FALSE now that there are three.  Scene
-        # 126 also carries a ``decreed_arrival`` (PANYA-DECISION
-        # 20260905_1329) and a live GM warp, so the THIRD arm admits it
-        # independently of the GM lane's sanction table.  That is the
-        # round's change and not an accident, so it is asserted here rather
-        # than worked around: the sanction going away no longer darkens a
-        # scene the owner has decreed an arrival point for.  The
-        # whole-admission claim is kept by shutting BOTH GM arms, which is
-        # what "nothing admits this scene" now means.
+        # STILL TRUE AFTER ROUND ``yob0a2`` ADDED A THIRD ARM, and that is
+        # a decision rather than luck.  The third arm (an owner-decreed
+        # arrival plus a live GM warp) matches scene 126 on both halves, so
+        # a first draft of it made THIS assertion fail: the GM lane's own
+        # revocation lever stopped darkening the scene, because a second
+        # arm answered yes independently.  pf-adversary measured that, and
+        # the arm was narrowed rather than this test amended -- it now
+        # stands aside for any scene ``SANCTIONED_BARRED_SCENES`` governs.
+        # Scene 126's behaviour is byte-for-byte what it was before that
+        # round; see ``tests/test_lane_a_scene_census_bg3007.py`` for the
+        # arm's own tests, including the one that pins this standing-aside.
         from pirateforce_foundation.gm import login_scene_admission
         original = login_scene_admission.single_use_entry_is_admissible
-        original_decree = lane_a.scene_arrival_was_decreed_and_is_gm_reachable
         login_scene_admission.single_use_entry_is_admissible = (
             lambda *a, **k: False)
         try:
             self.assertFalse(
                 lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
-            self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
-            lane_a.scene_arrival_was_decreed_and_is_gm_reachable = (
-                lambda *a, **k: False)
             self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS))
         finally:
             login_scene_admission.single_use_entry_is_admissible = original
-            lane_a.scene_arrival_was_decreed_and_is_gm_reachable = (
-                original_decree)
         self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
 
     def test_this_lane_finds_out_if_the_gm_lane_retires_the_sanction(self):
