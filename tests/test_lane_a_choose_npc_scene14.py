@@ -440,6 +440,8 @@ class AClickPreservesTheHostileSpliceTests(unittest.TestCase):
             for mob in field_mob_hostile_bg0015.scene14_hostile_roster()
         }
         checked = 0
+        # (hostile_roster is the MINED twelve on purpose -- the withheld
+        # assertion at the end of this method needs the row it is about.)
         for idx in hostile_indices:
             mob = hostile_roster[idx]
             placement = placements[idx]
@@ -466,7 +468,27 @@ class AClickPreservesTheHostileSpliceTests(unittest.TestCase):
                     "reverted",
                 )
             checked += 1
-        self.assertEqual(checked, 12)
+        # ~~12~~ DERIVED, ROUND j5v7mu (edited by LANE-B, whose ruling moved
+        # it -- this file is LANE-A's and the loop above is unchanged).
+        # COO-DECISION 20260905_0545 withheld Bg0015 placement 87 from what
+        # LANE-B ships, so DEFAULT_HOSTILE_PLACEMENT_INDICES is eleven.  The
+        # count is read off the same tuple the loop walks so this line can
+        # never again disagree with it, and the two numbers below say what
+        # the tuple must actually be, so "the tuple went empty" still fails.
+        self.assertEqual(checked, len(hostile_indices))
+        self.assertEqual(checked, 11)
+        # AND THE WITHHELD ROW IS MEASURED ON THE REAL RESPONDER PATH, not
+        # merely absent from a count: his hostile body must NOT be in the
+        # click answer, while he is still one of scene 14's actors.
+        for withheld_idx in field_mobs.lane_withheld_placements("Bg0015"):
+            self.assertIn(withheld_idx, population_indices)
+            self.assertNotIn(withheld_idx, hostile_indices)
+            withheld_mob = hostile_roster[withheld_idx]
+            withheld_hostile_body = field_mobs.hostile_npc_attr(
+                legacy, withheld_mob, current_hp=withheld_mob.max_hp,
+                scene_id=responder_mod.SCENE_N_ID, scene_sequence=0,
+            )
+            self.assertNotIn(withheld_hostile_body, answer.pc)
 
 
 def _shut_registry(work: Path):
@@ -901,9 +923,12 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.legacy = _legacy()
+        # ROUND j5v7mu (LANE-B edit): the SHIPPED roster, because that is
+        # what respond() now reads -- a fixture built from the mined twelve
+        # would make this class assert a ledger the live path never opens.
         cls.hostile = {
             mob.placement_index: mob
-            for mob in field_mob_hostile_bg0015.scene14_hostile_roster()
+            for mob in field_mob_hostile_bg0015.scene14_shipped_hostile_roster()
         }
         cls.placements = responder_mod._placements_by_index()
         cls.population_indices = tuple(sorted(cls.placements))
@@ -926,7 +951,7 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
         # no scene 14 at all, so its roster helper answers an EMPTY tuple
         # and a ledger opened from it holds no row for these identities.
         roster = tuple(
-            field_mob_hostile_bg0015.scene14_hostile_roster())
+            field_mob_hostile_bg0015.scene14_shipped_hostile_roster())
         ledger = mob_combat.open_ledger(roster)
         self.assertEqual(ledger.scene, responder_mod.SCENE_FOLDER)
         row = ledger.balance_of(identity)
@@ -1099,11 +1124,32 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
         self.assertIn(f"from_ledger={len(self.hostile) - 1}", line)
 
     def test_a_ledger_from_the_other_scene_is_refused_by_name(self):
-        """The same collision scene 2's suite pins from its own side."""
+        """The same collision scene 2's suite pins from its own side.
+
+        ROUND j5v7mu (LANE-B edit).  THE COLLISION IS GONE FROM THE LIVE
+        SETS and that is a real consequence of COO-DECISION 20260905_0545,
+        not a bookkeeping detail: 0x2058 was the ONLY identity Bg0002's and
+        Bg0015's live rosters shared, and placement 87 is the withheld row.
+        The admission mechanism this test is named for is unchanged and is
+        still worth pinning, so the subject is taken from the MINED roster
+        (which still carries him) and the new fact is asserted first rather
+        than left for a later round to discover as a silent skip.
+        """
         from pirateforce_foundation import field_mobs as fm
         scene2_roster = fm.roster_for_scene_id(2)
-        shared = {mob.actor_identity for mob in scene2_roster} & {
-            mob.actor_identity for mob in self.hostile.values()}
+        scene2_identities = {mob.actor_identity for mob in scene2_roster}
+        self.assertEqual(
+            scene2_identities & {
+                mob.actor_identity for mob in self.hostile.values()},
+            set(),
+            "scene 2 and scene 14's LIVE rosters share an identity again",
+        )
+        mined = {
+            mob.placement_index: mob
+            for mob in field_mob_hostile_bg0015.scene14_hostile_roster()
+        }
+        shared = scene2_identities & {
+            mob.actor_identity for mob in mined.values()}
         self.assertTrue(shared, "the collision this test is about is gone")
         identity = sorted(shared)[0]
         foreign = mob_combat.open_ledger(scene2_roster)
@@ -1111,7 +1157,7 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
         foreign = foreign.with_balance(
             mob_combat.MobBalance(identity, row.max_hp, 0))
         clicked = next(
-            index for index, mob in self.hostile.items()
+            index for index, mob in mined.items()
             if mob.actor_identity == identity
         )
         answer, err = self._click(clicked, foreign)

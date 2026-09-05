@@ -193,6 +193,23 @@ class SceneDoors:
     #: EMPTY list is exact either way, which is what the two scenes this
     #: round reports on have.
     owner_refused: tuple = ()
+    #: The placement indices THIS LANE withholds for this scene under its own
+    #: ruling (``field_mobs.lane_withheld_placements``), which ``load_roster``
+    #: drops in the same pass as the owner's list.  SEPARATE FROM
+    #: :attr:`owner_refused` AND PRINTED SEPARATELY, because the two come back
+    #: through different doors and only one of them is the owner's; joining
+    #: them would let this lane's own ruling be read as an owner ruling.
+    #:
+    #: THIS IS THE NUMBER THAT MAKES SCENE 14's VERDICT READABLE.  Round
+    #: ``pcsjfr`` wrote, next to :attr:`owner_refused`, that "putting Bg0015's
+    #: placement 87 on this list turns that scene's verdict from ``no`` to
+    #: ``yes`` while Carlos is exactly as unkillable as before" -- and
+    #: ``COO-DECISION 20260905_0545`` then ruled the row withheld, so that is
+    #: precisely what happened.  It is not a fix to Carlos and this field is
+    #: how a reader sees that at a glance rather than by reading a letter.
+    #: EXACT, not an upper bound, unlike :attr:`owner_refused`: this list is
+    #: this lane's own and every index on it is a row this lane ships.
+    lane_withheld: tuple = ()
     #: Did ``mob_ai_control.open_register`` open for this roster, and its name
     #: if it did not.  The register is the call the module header's own
     #: cautionary tale is about, and a scene whose register refuses has no
@@ -417,6 +434,7 @@ def walk_scene(legacy: Any, scene: Any) -> SceneDoors:
     try:
         roster = field_mobs.load_roster(scene=label)
         refused = tuple(field_mobs.owner_refused_placements(label))
+        withheld = tuple(field_mobs.lane_withheld_placements(label))
     except Exception:                                   # noqa: BLE001
         return SceneDoors(label, reason=REFUSE_ROSTER_UNREADABLE)
 
@@ -435,9 +453,9 @@ def walk_scene(legacy: Any, scene: Any) -> SceneDoors:
         rows = tuple(_walk_row(legacy, mob, ai_open) for mob in roster)
     except Exception:                                   # noqa: BLE001
         return SceneDoors(label, reason=REFUSE_ROSTER_UNREADABLE,
-                          owner_refused=refused, ai_register=ai_open,
-                          ai_refusal=ai_refusal)
-    return SceneDoors(label, rows, "", refused, ai_open, ai_refusal)
+                          owner_refused=refused, lane_withheld=withheld,
+                          ai_register=ai_open, ai_refusal=ai_refusal)
+    return SceneDoors(label, rows, "", refused, withheld, ai_open, ai_refusal)
 
 
 def walk_live_scenes(legacy: Any) -> tuple:
@@ -477,11 +495,12 @@ def describe_scene_doors(walked: SceneDoors) -> str:
             SCENE_DOORS_REFUSED_TOKEN, _console_scene(walked.scene),
             walked.reason[:60])
     return (
-        "%s scene='%s' rows=%d owner_refusal_list=%d ai=%s target=%d kill=%d "
-        "drop=%d every_door=%s short=%s"
+        "%s scene='%s' rows=%d owner_refusal_list=%d lane_withheld=%d ai=%s "
+        "target=%d kill=%d drop=%d every_door=%s short=%s"
         % (
             SCENE_DOORS_TOKEN, _console_scene(walked.scene),
             walked.rows_walked, len(walked.owner_refused),
+            len(walked.lane_withheld),
             "open" if walked.ai_register else (walked.ai_refusal or "shut"),
             walked.targetable, walked.killable, walked.dropping,
             "yes" if walked.every_door_open else "no",
@@ -508,9 +527,11 @@ def describe_live_scene_doors(legacy: Any) -> tuple:
     finished = tuple(
         _console_scene(one.scene) for one in walked if one.every_door_open)
     lines.append(
-        "%s summary live_scenes=%d owner_refusal_list=%d every_door=%s"
+        "%s summary live_scenes=%d owner_refusal_list=%d lane_withheld=%d "
+        "every_door=%s"
         % (SCENE_DOORS_TOKEN, len(walked),
            sum(len(one.owner_refused) for one in walked),
+           sum(len(one.lane_withheld) for one in walked),
            ",".join(finished) or "none"))
     return tuple(lines)
 

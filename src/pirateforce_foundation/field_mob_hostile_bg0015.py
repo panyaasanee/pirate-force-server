@@ -84,12 +84,28 @@ class FieldMobHostileBg0015Error(ValueError):
     """A refusal from this module, always with a reason in the message."""
 
 
-# All 12 rows field_mob_tables_bg0015.HOSTILE_PLACEMENTS already selected
+# ~~All 12 rows~~ field_mob_tables_bg0015.HOSTILE_PLACEMENTS already selected
 # under the hostility predicate (rank>0 AND ai_combat!=0) -- see module
 # docstring "WHICH 12 PLACEMENTS" for why this is the whole set, not a
 # hand-picked subset.
+#
+# ROUND j5v7mu: MINUS whatever ``field_mobs`` withholds for this scene
+# (``COO-DECISION 20260905_0545`` withholds placement 87, Carlos), so this
+# default and ``field_mobs.load_roster("Bg0015")`` shrink TOGETHER.  Derived
+# from that function and not re-typed here: a second hand-copy of the same
+# ruling is the exact shape ``AGENTS.md``'s "derive from the source, never
+# retype the list" rule bans, and the two literals drifting apart is how a
+# hostile body reaches a client for a monster with no ledger row behind it.
+# A caller may still pass ``placement_indices`` explicitly -- including a
+# withheld index, which this module deliberately does NOT re-refuse: the
+# roster gate is ``load_roster``'s, and a diagnostic that wants to encode a
+# withheld row (``mob_combat_bg0015_gates`` does) must stay able to.
 DEFAULT_HOSTILE_PLACEMENT_INDICES: tuple[int, ...] = tuple(
-    sorted(row[0] for row in field_mob_tables_bg0015.HOSTILE_PLACEMENTS)
+    index
+    for index in sorted(
+        row[0] for row in field_mob_tables_bg0015.HOSTILE_PLACEMENTS)
+    if index not in set(
+        field_mobs.lane_withheld_placements(field_mob_tables_bg0015.SCENE))
 )
 
 
@@ -108,6 +124,33 @@ def scene14_hostile_roster() -> tuple[Any, ...]:
     register either.
     """
     return field_mobs._parse_hostile_placements(field_mob_tables_bg0015)
+
+
+def scene14_shipped_hostile_roster() -> tuple[Any, ...]:
+    """The rows this lane actually SHIPS: the mined twelve minus the withheld.
+
+    ROUND j5v7mu, AND THE DISTINCTION IS LOAD-BEARING RATHER THAN TIDY.
+    :func:`scene14_hostile_roster` is the MINED table and every diagnostic
+    that asks "which templates have no death ruling" or "which identities do
+    two scenes' tables share" wants all twelve -- the withheld row's missing
+    letter is the very reason it is withheld, so a filtered answer there
+    would report the problem as solved.  Anything that decides WHAT GOES TO
+    A CLIENT wants this one instead: the hostile bodies a click response
+    carries, and the combat ledger a click admits, must both be the set
+    ``field_mobs.load_roster("Bg0015")`` hands a session, or a player meets a
+    red-named monster that no strike can reach.
+
+    Derived through ``field_mobs.lane_withheld_placements`` rather than
+    through ``load_roster`` itself so this module keeps parsing its own table
+    (the reason :func:`scene14_hostile_roster` exists at all), and
+    ``tests/test_field_mob_hostile_bg0015.py`` asserts the two agree.
+    """
+    withheld = set(
+        field_mobs.lane_withheld_placements(field_mob_tables_bg0015.SCENE))
+    return tuple(
+        mob for mob in scene14_hostile_roster()
+        if mob.placement_index not in withheld
+    )
 
 
 def scene14_hostile_overrides(

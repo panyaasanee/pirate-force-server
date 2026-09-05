@@ -317,11 +317,31 @@ def owner_refused_placements_for_scene14() -> tuple[int, ...]:
 
     ``field_mobs.load_roster`` drops ``OWNER_REFUSED_PLACEMENTS`` rows
     (eight of Bg0002's) while ``scene14_hostile_roster`` does not filter at
-    all.  The two agree for Bg0015 only because the refusal list has no
-    Bg0015 entry -- a property of today's data, not of the code.
+    all.  ~~The two agree for Bg0015 only because the refusal list has no
+    Bg0015 entry -- a property of today's data, not of the code.~~
+
+    STRUCK ROUND j5v7mu: THE TWO NO LONGER AGREE, and this function is not
+    the one that says so.  ``COO-DECISION 20260905_0545`` withheld placement
+    87 (Carlos) through ``field_mobs.LANE_WITHHELD_PLACEMENTS``, a SECOND
+    list this one deliberately does not read -- the owner's list is still
+    empty for Bg0015 and that is still the true answer to this function's
+    own question.  ``load_roster("Bg0015")`` hands over 11 rows;
+    :func:`scene14_hostile_roster` still parses all 12 and is still
+    unfiltered, which is what the gate diagnostics here want.
+    :func:`lane_withheld_placements_for_scene14` is the other number.
     """
     return tuple(sorted(
         field_mobs.OWNER_REFUSED_PLACEMENTS.get(BG0015_FOLDER, ())))
+
+
+def lane_withheld_placements_for_scene14() -> tuple[int, ...]:
+    """Placements this lane withholds from Bg0015's live roster: ``(87,)``.
+
+    Read off ``field_mobs`` rather than retyped, so the day the content
+    question behind ``COO-DECISION 20260905_0545`` is answered and Carlos
+    comes back, this answers ``()`` without anyone editing it.
+    """
+    return field_mobs.lane_withheld_placements(BG0015_FOLDER)
 
 
 def live_cross_scene_collisions_today() -> tuple[dict, ...]:
