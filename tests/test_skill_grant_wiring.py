@@ -288,6 +288,27 @@ class LearnAndGrantSkillAgainstRealStoreTests(_StoreFixture):
         )
         self.assertEqual(self.store.get_skill_points(character.id), 0)
 
+    def _row_identity_of(self, character_id, skill_id):
+        # (id, granted_at) of the one row for this (character_id, skill_id)
+        # pair -- used to prove a repeat grant is a true no-op (`INSERT OR
+        # IGNORE`) and not a delete-and-reinsert (`INSERT OR REPLACE`),
+        # which would change both. `grant_starting_skills`'s own docstring
+        # (store.py) names row-identity/timestamp corruption on a
+        # reordered regrant as the specific failure mode a shared
+        # UNIQUE(character_id, skill_id) door must not produce, and
+        # `tests/test_persistence_character_skills_011.py` has a
+        # dedicated regression test for that door -- this is the same
+        # check for `grant_learned_skill`.
+        conn = sqlite3.connect(self.path)
+        try:
+            return conn.execute(
+                "SELECT id, granted_at FROM character_skills"
+                " WHERE character_id = ? AND skill_id = ?",
+                (character_id, skill_id),
+            ).fetchone()
+        finally:
+            conn.close()
+
     def test_regranting_dedups_on_the_real_grant_door_only(self):
         # Same non-dedup-on-spend behavior as the fake-backed test above,
         # but this time `grant_learned_skill`'s own `INSERT OR IGNORE`
@@ -297,13 +318,28 @@ class LearnAndGrantSkillAgainstRealStoreTests(_StoreFixture):
         first_points, first_skills = learn_and_grant_skill(
             self.store, character.id, _WHOLE_COST_SKILL_ID
         )
+        row_after_first = self._row_identity_of(
+            character.id, _WHOLE_COST_SKILL_ID
+        )
         second_points, second_skills = learn_and_grant_skill(
             self.store, character.id, _WHOLE_COST_SKILL_ID
+        )
+        row_after_second = self._row_identity_of(
+            character.id, _WHOLE_COST_SKILL_ID
         )
         self.assertEqual(first_points, 4)
         self.assertEqual(second_points, 3)  # spent again -- not deduped
         self.assertEqual(first_skills, (_WHOLE_COST_SKILL_ID,))
         self.assertEqual(second_skills, (_WHOLE_COST_SKILL_ID,))  # deduped
+        # Row identity AND its granted_at timestamp must survive the
+        # repeat grant untouched -- an `INSERT OR REPLACE` regression
+        # would still pass a row-count-only check (still one row) while
+        # silently changing both of these.
+        self.assertEqual(
+            row_after_first, row_after_second,
+            "a repeat grant must be a true no-op (same id, same "
+            "granted_at), not a delete-and-reinsert",
+        )
         conn = sqlite3.connect(self.path)
         try:
             (row_count,) = conn.execute(
