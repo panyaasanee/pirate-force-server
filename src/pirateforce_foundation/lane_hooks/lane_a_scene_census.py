@@ -574,6 +574,16 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     registry with no row for the scene, or with the decree removed, shuts
     this arm even though the file on disk still has both.
 
+    WHAT IT COSTS, measured in the same terms the second arm states rather
+    than assumed cheap: ``warp_no_coords_live_target`` performs its OWN read
+    of the pin file (it takes no registry argument), so a scene that reaches
+    this arm pays one extra registry load on top of whatever the first two
+    arms did - the same shape and the same order of magnitude as the second
+    arm's own ~3.2ms.  Two things keep it acceptable: this arm is only
+    reached for a scene BOTH earlier arms refused (two scene ids today,
+    since 126 is admitted by the second arm before this one is asked), and a
+    census is composed once per arrival, not in a loop.
+
     Fail-closed in every direction, the same as the other two arms: a
     registry that will not load, an import that is not there, a predicate
     that raises - all answer False.
