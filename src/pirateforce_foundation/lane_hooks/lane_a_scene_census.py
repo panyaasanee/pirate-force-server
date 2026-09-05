@@ -163,6 +163,8 @@ from .. import world_population_bg1001
 from .. import world_population_bg3001
 from .. import world_population_bg4001
 from .. import world_population_handoff
+from .. import world_scene_folder
+from .. import world_scene_registry
 from .. import world_scene_travel
 
 # The gate every lane_hooks module is held to.  True means "shippable, no
@@ -597,6 +599,44 @@ def _membership_if_answerable(scene_id: int, handoff: Any) -> Any | None:
     return handoff.membership_reset
 
 
+def _world_registry_line(scene_id: int) -> tuple[str, ...]:
+    """One line saying what the WORLD remembers about this scene.  Never raises.
+
+    WHY IT IS HERE, ON THE ARRIVAL PATH, AND NOT IN A DIAGNOSTIC.  A shared
+    world is only shared if it can be MEASURED as shared, and the criterion
+    `PANYA-DECISION 20260905_1140` sets is a comparison across two readings:
+    two sessions standing in one scene, or one session before and after a
+    relogin on a server that never restarted, must see the same monsters,
+    the same graves and the same ground.  This line is that reading, printed
+    once per arrival at the one seam this lane owns end to end, so the
+    attended tester greps `WORLD_REGISTRY_VIEW` twice and compares, rather
+    than being asked to infer a shared world from a screenshot.
+
+    IT CHANGES NO BYTES.  It is appended to `console_lines`; the census
+    frame, the actor count and the membership are exactly what they were.
+    Until the seed and write halves are wired (`world_scene_registry.
+    WORLD_REGISTRY_SEED_WIRING`, and LANE-B's own write call site) the
+    numbers it prints are the honest ones -- an empty book reads zero, which
+    is itself the "not wired yet" the round file states rather than hides.
+
+    A scene id with no folder (nothing mined, a scene outside the copy) is
+    NOT an error here: this lane composes for scenes it has rosters for, and
+    a missing folder means the world books have no key for it either, so
+    there is nothing to say and no line is printed.
+    """
+    try:
+        folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
+        if not folder:
+            return ()
+        return (world_scene_registry.describe_view(
+            world_scene_registry.view(folder)),)
+    except Exception:                                       # noqa: BLE001
+        # An observability line is never worth an arrival.  The composer's
+        # own contract is that it either composes or declines by name, and
+        # "the world registry could not be read" is neither.
+        return ()
+
+
 def _compose_for_scene(scene_id: int):
     """Build the composer closure for one scene.
 
@@ -641,6 +681,7 @@ def _compose_for_scene(scene_id: int):
             + tuple(_CONSOLE_LINES_OF[source](handoff.generation))
             + _hostility_lines(scene_id, handoff.generation)
             + (() if field_mob_note is None else (field_mob_note,))
+            + _world_registry_line(scene_id)
         )
         return lane_hooks.SceneCensusResult(
             actor_count=handoff.actor_count,
