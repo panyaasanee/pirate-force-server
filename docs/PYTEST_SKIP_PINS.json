@@ -997,6 +997,15 @@
         "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_nonzero_passive_effect_among_actively_cast_rows_is_common_not_rare"
       ],
       "note": "round iazmrv (LANE-CS, this lane's first round): same rationale as the matching entry for tests/test_class_catalog.py, for skill_catalog.py's two committed local copies (data/skill_context_starting_kit.tsv, data/skill_text_starting_kit.tsv) sourced from CONSTDATA_TH__SKILL_CONTEXT.tsv and TEXTDATA_TH__SKILL_TEXT.tsv. Re-runs tools/pf_class_skill_starting_kit_extract.py --check against the live ../pf_bridge/gamedata sibling; a clone without it cannot answer. COUNT MOVED 1 -> 8 by two independent same-round LANE-CS sessions merging into each other (this round and round mps8zh), each adding a BRIDGE_GAMEDATA-guarded class checking a different candidate type-classifier column against the full bridge table and finding it also fails: NTargetIsNotATypeColumnTests (n_TARGET, counter-examples 7173 'Meteor Rain' / 3210 'Grand Cannon' / 3332 'Great Cannon' / 3762 'Circle Attack', this round) and NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests (the (s_CAST_CONDITION blank, n_PASSIVE_EFFECT nonzero) pair, counter-examples 2954/8200/3546/3547, round mps8zh) -- both sets of falsifying ids sit outside this catalog's own 8-id scope, so a clone without pf_bridge beside it cannot answer either."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_combat_pose.py",
+      "count": 1,
+      "tests": [
+        "SourcePinTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run"
+      ],
+      "note": "round ti9gxr (LANE-B): same rationale as the matching entries for tests/test_class_catalog.py and tests/test_mob_loot.py. combat_pose.py loads two committed local copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class.tsv) mined from CONSTDATA_TH__EQUIP_VALUE.tsv, CONSTDATA_TH__EQUIPMENT_BASE.tsv and CONSTDATA_TH__CHARCREATE_CLASS.tsv. This test re-runs tools/pf_equip_attack_behavior_extract.py --check against the live ../pf_bridge/gamedata sibling, which also re-runs that tool's three decode checks; a clone without the sibling cannot answer. The sha256 pins themselves are asserted unguarded in the same class, so a hand-edit to a committed copy is red on every clone."
     }
   ],
   "windows_gate_excluded_modules": {
