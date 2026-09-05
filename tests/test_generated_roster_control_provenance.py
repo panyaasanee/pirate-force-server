@@ -234,6 +234,15 @@ class EveryGeneratedModuleCarriesTheGeneratorsBlockTests(unittest.TestCase):
         directory.  A file that exists and is not registered is either a
         table nobody ships (say so in the registry) or a registration
         somebody forgot -- both are worth a red.
+
+        ROUND 4m2kx7: "say so in the registry" now has somewhere to be said.
+        ``field_mobs.MINED_NOT_SHIPPED_TABLE_MODULES`` is the first half of
+        that sentence, for a table that is mined and correct and must NOT be
+        registered yet -- scene 8 has no death ruling, so registering it
+        would put nine monsters in a map that cannot die.  A table in NEITHER
+        map still fails here, which is what keeps this a declaration rather
+        than an escape hatch, and ``mined_not_shipped_scenes()`` refuses a
+        scene that is in both or one declared with no reason.
         """
         on_disk = {
             path.name for path in TABLES_DIR.glob("field_mob_tables*.py")
@@ -242,7 +251,28 @@ class EveryGeneratedModuleCarriesTheGeneratorsBlockTests(unittest.TestCase):
             Path(module.__file__).name
             for module in _generated_modules().values()
         }
-        self.assertEqual(on_disk, registered)
+        declared_unshipped = {
+            Path(field_mobs.MINED_NOT_SHIPPED_TABLE_MODULES[scene].__file__).name
+            for scene in field_mobs.mined_not_shipped_scenes()
+        }
+        self.assertEqual(registered & declared_unshipped, set())
+        self.assertEqual(on_disk, registered | declared_unshipped)
+
+    def test_a_declared_unshipped_table_names_the_door_that_is_shut(
+            self) -> None:
+        """The reason is the whole value of the declaration.
+
+        A scene may sit out of the registry only while somebody can read WHY
+        from the registry itself.  An empty or missing reason is the state
+        this channel exists to make impossible, so it is asserted rather than
+        trusted to review.
+        """
+        for scene in field_mobs.mined_not_shipped_scenes():
+            with self.subTest(scene=scene):
+                reason = field_mobs.MINED_NOT_SHIPPED_REASON[scene]
+                self.assertIsInstance(reason, str)
+                self.assertGreater(len(reason.strip()), 40, reason)
+                self.assertNotIn(scene, field_mobs.live_scenes())
 
     def test_every_module_carries_the_generators_block_verbatim(self) -> None:
         """The check that replaced "the phrases are present".

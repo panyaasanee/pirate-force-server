@@ -196,6 +196,7 @@ from . import field_mob_tables_bg0002
 from . import field_mob_tables_bg0003
 from . import field_mob_tables_bg0004
 from . import field_mob_tables_bg0005
+from . import field_mob_tables_bg0008
 from . import field_mob_tables_bg0015
 # LANE-B's per-(viewer, monster) link for the client's name-colour selector
 # (COO-DECISION 20260905_2348, CORE-REQUEST-GM-061).  Imported for the
@@ -523,6 +524,66 @@ _SCENE_TABLE_MODULES = {
     field_mob_tables_bg0005.SCENE: field_mob_tables_bg0005,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
+
+# ROUND 4m2kx7.  The OTHER answer the registry has to be able to give.
+#
+# ``tests/test_generated_roster_control_provenance.py`` refuses a
+# ``field_mob_tables*.py`` on disk that ``_SCENE_TABLE_MODULES`` does not
+# name, and says why in its own words: such a file "is either a table nobody
+# ships (say so in the registry) or a registration somebody forgot -- both
+# are worth a red".  Until this round there was nowhere to say the first
+# thing, so the only way to make that guard green was to REGISTER the table,
+# which is the one thing a scene with no death ruling must not do.  This is
+# that place.
+#
+# A scene named here is MINED AND CORRECT AND DELIBERATELY NOT SHIPPED.  It
+# is not a weaker registry and it is not a to-do list: the reason string is
+# required, it names the door that is shut and who can open it, and the
+# moment that door opens the scene MOVES to ``_SCENE_TABLE_MODULES`` and
+# comes out of here.  A table that is in neither map still fails the guard,
+# which is what makes this a declaration rather than an escape hatch.
+#
+# WHY NOT ``LANE_WITHHELD_PLACEMENTS`` WITH EVERY ROW LISTED, which is the
+# nearer-looking tool: ``load_roster`` refuses that shape outright -- "an
+# empty roster must come from an empty table, not from a filter".  That
+# refusal is correct and is not weakened here; withholding is for a row
+# inside a scene this lane ships, and this is for a scene it does not.
+MINED_NOT_SHIPPED_TABLE_MODULES = {
+    field_mob_tables_bg0008.SCENE: field_mob_tables_bg0008,
+}
+MINED_NOT_SHIPPED_REASON = {
+    field_mob_tables_bg0008.SCENE: (
+        "no mob_death.WIDENING_RULINGS letter covers templates 274, 277, "
+        "280, 281, 527, 529 or 544, so every row would be a monster a "
+        "player can strike to 0 HP and then be answered with silence for "
+        "ever -- the outcome COO-DECISION 2026-09-05T05:45+07:00 refused "
+        "for Bg0015 placement 87; asked for in LANE-B round 4m2kx7"
+    ),
+}
+
+
+def mined_not_shipped_scenes() -> tuple[str, ...]:
+    """Scenes whose table is committed and correct but deliberately unshipped.
+
+    Ascending, and never overlapping :func:`live_scenes`: a scene that is in
+    both maps is a contradiction, so this raises rather than picking one.
+    """
+    both = sorted(
+        set(MINED_NOT_SHIPPED_TABLE_MODULES) & set(_SCENE_TABLE_MODULES))
+    if both:
+        raise FieldMobContractError(
+            "scene(s) %r are registered as shipped AND declared mined-not-"
+            "shipped; a scene is one or the other" % (both,))
+    missing_reason = sorted(
+        set(MINED_NOT_SHIPPED_TABLE_MODULES) - set(MINED_NOT_SHIPPED_REASON))
+    if missing_reason:
+        raise FieldMobContractError(
+            "scene(s) %r are declared mined-not-shipped with no reason; the "
+            "reason names the door that is shut and is not optional"
+            % (missing_reason,))
+    return tuple(sorted(MINED_NOT_SHIPPED_TABLE_MODULES))
+
+
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
 # ROUND am1fw8.  Scene 3 (the jungle map behind Port Royal's second gate),
 # the second scene to arrive with its census already live -- lane A's
