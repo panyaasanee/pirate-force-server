@@ -20,13 +20,19 @@ probe pins, and the dispatch path: an accepted request is decoded, counted
 and recorded with NO reply and NO write, every refusal family is silent with
 a named event, and with no scenario the branch does not exist.
 
-NOT tested here, because it is not claimed: the NATURAL DIRECTION of 0x36AA
-(the client carries both W and R codecs and nobody has seen it on a wire --
-the direction proof is bridge work, queued); any MEANING for the two request
-fields (opaque values named by object offset only); any learn rule or any
-result response; the request envelope a real client would use (the accepted
-envelope is this project's own design); and anything about the original
-server.
+[UPDATE, round `5k4cn4`, 2026-09-06] The NATURAL DIRECTION claim above is
+stale: ``RealCaptureR312Frame70Tests`` below proves, from a real client's own
+captured frame #70 (round R312, GT-249, letter cited in
+``learn_skill_request_hypothesis.py``'s docstring), that a real client DOES
+send 0x36AA -- its own 7-byte body matches this decoder's proven shape
+byte-for-byte.  What remains NOT tested here, because it is still not
+claimed: any MEANING for the two request fields (opaque values named by
+object offset only); the TRIGGER that made a real client send one (still
+unknown); and anything about the original server.  The request ENVELOPE is
+now also directly tested against the real frame: it is NOT the single-vital
+one this module accepts (the real frame carries 0x36AA as vital 1 of 2), and
+``RealCaptureR312Frame70Tests`` proves the classifier still correctly
+refuses that exact real shape as ``wrong_envelope`` rather than assuming it.
 """
 from __future__ import annotations
 
@@ -59,6 +65,10 @@ from pirateforce_foundation.learn_skill_request_hypothesis import (  # noqa: E40
     LEARN_SKILL_REQUEST_PROBE_PAYLOAD_SIZE,
     LEARN_SKILL_REQUEST_PROBE_REQUEST_PC_SHA256,
     LEARN_SKILL_REQUEST_PROBE_REQUEST_PC_SIZE,
+    LEARN_SKILL_REQUEST_REAL_CAPTURE_BODY,
+    LEARN_SKILL_REQUEST_REAL_CAPTURE_RAW_FRAME_HEX,
+    LEARN_SKILL_REQUEST_REAL_CAPTURE_SECOND_VITAL_ID,
+    LEARN_SKILL_REQUEST_REAL_CAPTURE_VITAL_COUNT,
     LEARN_SKILL_REQUEST_REJECTIONS,
     LEARN_SKILL_REQUEST_SCENARIO_ID,
     LEARN_SKILL_REQUEST_U8_TAG,
@@ -759,6 +769,79 @@ class DispatchTests(unittest.TestCase):
         self.assertIsNone(state.learn_skill_request_last_fields)
         for event in state.events:
             self.assertNotIn("learn_skill_request_hypothesis", event)
+
+
+class RealCaptureR312Frame70Tests(_LegacyCase):
+    """Round `5k4cn4`: a real client's own captured frame settles direction.
+
+    The raw bytes are the module's pinned ``LEARN_SKILL_REQUEST_REAL_CAPTURE_
+    RAW_FRAME_HEX`` -- ka1-A's console hex for frame #70, round R312, GT-249
+    (letter cited in the module docstring).  Nothing here re-derives the hex
+    from the letter; that slicing is already done once in the module so every
+    consumer uses the same bytes.  This class instead re-derives, from those
+    pinned bytes alone, every claim the module docstring now makes: that the
+    frozen v141 ``parse_outer`` sees a real GSCN_RUNTIME_PROTOCOL_REQ carrying
+    0x36AA as its first of TWO nested vitals, that the 0x36AA vital's own
+    7-byte body is exactly this module's proven delivery-table shape, that it
+    decodes with no refusal, and that the classifier still correctly refuses
+    the real envelope (vital_count=2) as ``wrong_envelope`` rather than
+    silently accepting it.
+    """
+
+    def test_the_pinned_raw_frame_is_the_letters_150_bytes(self):
+        raw = bytes.fromhex(LEARN_SKILL_REQUEST_REAL_CAPTURE_RAW_FRAME_HEX)
+        self.assertEqual(len(raw), 150)
+
+    def test_parse_outer_sees_a_real_two_vital_request_envelope(self):
+        raw = bytes.fromhex(LEARN_SKILL_REQUEST_REAL_CAPTURE_RAW_FRAME_HEX)
+        parsed = self.legacy.parse_outer(raw)
+        self.assertEqual(parsed.outer_id, self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+        self.assertEqual(parsed.outer_version, 0)
+        self.assertEqual(parsed.outer_mask, 0x02)
+        self.assertEqual(
+            parsed.vital_count, LEARN_SKILL_REQUEST_REAL_CAPTURE_VITAL_COUNT,
+        )
+        self.assertEqual(parsed.vital_count, 2)
+        self.assertEqual(parsed.nested_id, LEARN_SKILL_REQUEST_VITAL_ID)
+        self.assertEqual(parsed.nested_version, LEARN_SKILL_REQUEST_VITAL_VERSION)
+
+    def test_the_second_nested_vital_id_appears_right_after_the_first_body(self):
+        # parse_outer cannot bound the first vital's payload (its own comment
+        # says a second vital needs its own serializer schema), so the second
+        # vital's header is only reachable by walking past the proven 7-byte
+        # body of the first -- exactly what this test does, independently of
+        # the module's own pinned LEARN_SKILL_REQUEST_REAL_CAPTURE_BODY.
+        raw = bytes.fromhex(LEARN_SKILL_REQUEST_REAL_CAPTURE_RAW_FRAME_HEX)
+        parsed = self.legacy.parse_outer(raw)
+        after_first_body = parsed.nested_payload[7:]
+        second_id = int.from_bytes(after_first_body[1:3], "little")
+        self.assertEqual(second_id, LEARN_SKILL_REQUEST_REAL_CAPTURE_SECOND_VITAL_ID)
+        self.assertEqual(second_id, 0x0F01)
+
+    def test_the_real_bodys_first_seven_bytes_are_the_pinned_body(self):
+        raw = bytes.fromhex(LEARN_SKILL_REQUEST_REAL_CAPTURE_RAW_FRAME_HEX)
+        parsed = self.legacy.parse_outer(raw)
+        self.assertEqual(
+            parsed.nested_payload[:LEARN_SKILL_REQUEST_PAYLOAD_SIZE],
+            LEARN_SKILL_REQUEST_REAL_CAPTURE_BODY,
+        )
+
+    def test_the_real_body_decodes_with_no_refusal(self):
+        fields = decode_learn_skill_request_payload(
+            LEARN_SKILL_REQUEST_REAL_CAPTURE_BODY
+        )
+        self.assertEqual(fields, LearnSkillRequestFields(0, 2))
+
+    def test_the_real_envelope_still_classifies_as_wrong_envelope(self):
+        # This is the load-bearing regression check: proves the classifier
+        # fails closed on the real observed shape TODAY, so nobody can widen
+        # it by accident and believe the real frame was already handled.
+        raw = bytes.fromhex(LEARN_SKILL_REQUEST_REAL_CAPTURE_RAW_FRAME_HEX)
+        parsed = self.legacy.parse_outer(raw)
+        self.assertEqual(
+            classify_learn_skill_request_attempt(self.legacy, parsed),
+            "wrong_envelope",
+        )
 
 
 class SourceHygieneTests(unittest.TestCase):
