@@ -142,6 +142,53 @@ class TheThirdAdmissionArm(unittest.TestCase):
         )
         self.assertEqual(admitted, [DARK_FOG_SEA, PALE_SILVER_SEA])
 
+    def test_the_allowlist_matches_every_scene_the_underlying_facts_admit(
+        self,
+    ) -> None:
+        """THE FENCE THE TEST ABOVE STOPPED BEING, pf-adversary round
+        `dyi95m` (the SAME round that added ``ARM_THREE_ELIGIBLE_SCENE_IDS``,
+        reviewing its own diff): the test above enumerates the registry
+        through the LIVE function, which now refuses at the allowlist before
+        it ever reaches the decree/warp/sanction facts -- so a scene that
+        earns admission on every one of those facts but is simply FORGOTTEN
+        from the allowlist stays invisible to that test forever, exactly the
+        silent-miss shape "ENUMERATED, not asserted" exists to rule out.
+        Measured directly: patching a synthetic scene onto
+        ``world_scene_travel.destination``/``warp_executor.
+        warp_no_coords_live_target`` so it independently satisfies decree +
+        live warp + not-sanctioned, but leaving it out of the allowlist,
+        left the test above green.
+
+        This test re-derives the pre-allowlist admission rule BY HAND (the
+        one the arm used to run wholesale) and compares it against the
+        allowlist directly, so a scene that earns admission on the facts but
+        is missing from ``ARM_THREE_ELIGIBLE_SCENE_IDS`` turns THIS test red
+        -- restoring the guarantee for the one path the allowlist itself can
+        drift out of: a decree landing with the SAME_ROUND registration into
+        ``ARM_THREE_ELIGIBLE_SCENE_IDS`` skipped.
+        """
+        from pirateforce_foundation.gm import login_scene_admission
+
+        def admitted_by_the_underlying_facts_alone(scene_id: int) -> bool:
+            if login_scene_admission.is_sanctioned_barred_scene(scene_id):
+                return False
+            if not world_scene_travel.destination(
+                scene_id, self.registry).has_decreed_arrival:
+                return False
+            return warp_executor.warp_no_coords_live_target(
+                scene_id) is not None
+
+        fact_admitted = sorted(
+            scene_id for scene_id in self.registry.ids
+            if admitted_by_the_underlying_facts_alone(scene_id)
+        )
+        self.assertEqual(
+            fact_admitted, sorted(lane_a.ARM_THREE_ELIGIBLE_SCENE_IDS),
+            "a scene satisfies decree + live warp + not-sanctioned but is "
+            "missing from ARM_THREE_ELIGIBLE_SCENE_IDS (or the reverse): "
+            "the allowlist and the facts it was built from have drifted",
+        )
+
     def test_it_stands_aside_for_a_scene_the_gm_lane_governs(self) -> None:
         """The lever pf-adversary measured this round, pinned.
 
@@ -196,6 +243,71 @@ class TheThirdAdmissionArm(unittest.TestCase):
         self.assertTrue(
             lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
                 DARK_FOG_SEA, self.registry))
+
+    def test_it_stands_aside_permanently_for_atlantis_even_if_retired(
+        self,
+    ) -> None:
+        """THE SECOND DOOR, pf-adversary round `dyi95m` D1 (found on the
+        merged `umt3io` diff): the sanctioned-scene stand-aside alone gates
+        on `is_sanctioned_barred_scene` being CURRENTLY true.
+        `gm/login_scene_admission.py`'s own docstring names RETIRING that
+        row -- not revoking the predicate that admitted it -- as how a
+        sanction ordinarily closes.  Scene 126 already has a decreed
+        arrival and an already-live warp target, so simulating a retirement
+        (rather than a predicate revocation, which the older test above
+        already covers) must still leave this arm closed for it, or the GM
+        lane's revocation lever is a no-op through this door instead.
+        """
+        from pirateforce_foundation.gm import login_scene_admission
+        original = login_scene_admission.is_sanctioned_barred_scene
+        # Simulates the row being RETIRED from SANCTIONED_BARRED_SCENES
+        # (the documented normal closure), not the predicate being revoked.
+        login_scene_admission.is_sanctioned_barred_scene = lambda scene_id: False
+        try:
+            self.assertTrue(
+                world_scene_travel.destination(ATLANTIS, self.registry)
+                .has_decreed_arrival)
+            self.assertIsNotNone(
+                warp_executor.warp_no_coords_live_target(ATLANTIS))
+            self.assertFalse(
+                lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
+                    ATLANTIS, self.registry))
+        finally:
+            login_scene_admission.is_sanctioned_barred_scene = original
+
+    def test_the_live_warp_half_is_observed_not_named(self) -> None:
+        """THE UNOBSERVED HALF, pf-adversary round `dyi95m` D2 (found on the
+        merged `umt3io` diff): before this test, no assertion in this file
+        drove `warp_executor.warp_no_coords_live_target` to a value that
+        would change the arm's answer -- the docstring's "both halves are
+        required" was named, not exercised.  Killing the whole warp half
+        (patching it to answer None the way it does for a scene with no
+        live warp) must turn scene 304, which the arm otherwise admits,
+        back into a refusal.
+        """
+        original = warp_executor.warp_no_coords_live_target
+        warp_executor.warp_no_coords_live_target = lambda scene_id: None
+        try:
+            self.assertFalse(
+                lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
+                    DARK_FOG_SEA, self.registry))
+        finally:
+            warp_executor.warp_no_coords_live_target = original
+        self.assertTrue(
+            lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
+                DARK_FOG_SEA, self.registry))
+
+    def test_the_allowlist_is_what_makes_the_reach_exactly_two_ids(
+        self,
+    ) -> None:
+        """`ARM_THREE_ELIGIBLE_SCENE_IDS` is the allowlist
+        `test_the_arms_whole_reach_at_head_is_the_two_ungoverned_seas` above
+        measures the effect of; this test pins the allowlist itself, so a
+        change to it is a change a reader sees directly rather than only as
+        a shift in an enumerated set."""
+        self.assertEqual(
+            lane_a.ARM_THREE_ELIGIBLE_SCENE_IDS, (DARK_FOG_SEA, PALE_SILVER_SEA))
+        self.assertNotIn(ATLANTIS, lane_a.ARM_THREE_ELIGIBLE_SCENE_IDS)
 
     def test_the_arm_changes_no_answer_for_a_scene_the_first_arm_admits(
         self,

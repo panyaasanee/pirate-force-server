@@ -114,6 +114,40 @@ begin with.  The result letter's own next step is an attended capture
 the same session, then diff the two decoded frames byte for byte) --
 cloud-static work on this question is exhausted until that capture exists.
 "Zero production callers" above is unchanged.
+
+[UPDATE, round `88ej1z`, per GT-243 RESULT (`pf_bridge/notes_to_chief/
+20260906_0155_KA1A-R320-RESULTS-group2-GT266-257-255-230-243-RE235-237-261.md`
+section "GT-243"), the attended capture the update above said this question
+was waiting on]: GT-243 itself came back BLOCKED-ON-PRECONDITION -- the run
+DB's `character_skills` was empty, so the capture could not press skill 99
+specifically -- but the operator captured the WIELD-vs-skill diff anyway
+against skill 110 ("Strive Jump", already on the hotbar at Ctrl+1) since the
+boot was open for another ticket regardless.  Two decoded `ActionVital`
+frames, both reproduced twice, differ in three ways, not one: field
+`action_u32_30` (`0x0000EA7E` for `Z` with no weapon equipped, matching
+`V128_WIELD_ACTION_CODE` exactly, versus `0x0000006E` for clicking the
+skill 110 hotbar icon -- `0x6E` is 110 decimal, the exact id of the skill in
+that slot), vital count (1 vs 2), and total payload length (64 B vs 93 B) --
+this is a different frame shape between the two presses, not an isolated
+single-byte diff at a matching offset.  This module still refuses to call
+the matching id a proven skill-id field: one matching id, for a skill this
+module does not classify (110 is "Strive Jump", not one of the
+`_ATTACK_SKILL_IDS`), from a ticket whose own precondition failed, is
+exactly the "byte(s) differ is a CANDIDATE, not proof" case `GT-243`'s own
+body warned against overclaiming -- the client's producer for this field
+has never been traced statically.  A static ticket asking for that trace
+(candidate number `RE-271`) was requested via letter to chief the same
+round as this update (`pf_bridge/notes_to_chief/20260906_0323_LANE-CS-TO-
+CHIEF-re-ticket-request-actionvital-action-u32-30-skill-id-producer.md`),
+not inserted into `CLIENT_RE_QUEUE.md` directly -- that file was already
+over its size ceiling, and the letter explains why LANE-CS could not insert
+it this round; the number is not a reservation and may change when chief
+(or whoever has room in the budget) actually opens it.  What this update
+DOES change: the CORE-REQUEST above is answered with a strong candidate
+rather than left at "cloud-static work is exhausted" -- see
+`candidate_skill_id_from_action_fields` below, which reads the field under
+that explicit CANDIDATE label and has no caller in this repository, the
+same as everything else in this module today.
 """
 from __future__ import annotations
 
@@ -126,6 +160,7 @@ __all__ = [
     "DamageBySkillError",
     "is_classified_attack_skill",
     "resolve_skill_damage",
+    "candidate_skill_id_from_action_fields",
 ]
 
 # The one starting-kit skill id with an unambiguous client-given attack
@@ -173,3 +208,39 @@ def resolve_skill_damage(
                 skill_id, skill_catalog.skill_title(skill_id))
         )
     return resolve_damage(attacker, defender)
+
+
+def candidate_skill_id_from_action_fields(action_fields, wield_action_code):
+    """Read `action_u32_30` from a parsed `ActionVital` fields dict and
+    return a CANDIDATE skill id, or ``None`` for the no-skill-selected
+    (WIELD) case.
+
+    This is a candidate, not a confirmed skill-id accessor -- see the module
+    docstring's GT-243 update for exactly what is and is not established.
+    Callers must not treat a non-None return as "the skill the player used"
+    without accounting for that: today's only evidence is one attended
+    capture, for skill 110, which this module does not classify as an
+    attack, and the client's producer for this field has never been traced
+    statically (a static ticket requesting that trace, candidate number
+    `RE-271`, was sent to chief the same round -- see the module docstring's
+    GT-243 update for why it is a request, not yet an opened ticket).  This
+    function has zero callers in this repository -- it exists so the day
+    either that trace or a skill-99-specific capture lands, wiring a real
+    caller is a one-line change rather than a new field lookup written
+    under time pressure.
+
+    ``wield_action_code`` is not hardcoded here: `V128_WIELD_ACTION_CODE`
+    lives in the frozen `current/pf_login_game_server_v141.py` (0xEA7E), and
+    this module -- like `action_ack.py`'s `parse_scene006_ea7d`, which takes
+    its `legacy` module the same way -- takes it as a parameter instead of
+    importing v141 or re-declaring the constant, so there is never a second
+    copy of that number to drift out of sync with the frozen one.
+
+    ``action_fields`` is whatever `legacy.parse_action_vital` returned (the
+    same dict shape `action_ack.py` and `mob_combat.py` already read from);
+    only the one key this function needs is required.
+    """
+    value = action_fields["action_u32_30"]
+    if value == wield_action_code:
+        return None
+    return value

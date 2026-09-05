@@ -242,3 +242,24 @@ MOB_VIEWER_LINK_WIRING = (
     "field, because the field IS the viewer. Nothing else changes: with the "
     "keyword absent the composer returns the same bytes it returns today."
 )
+
+#: The other half of MOB_VIEWER_LINK_WIRING, named because pf-adversary
+#: (round `404m21`) asked it and nobody had answered it yet: N sessions
+#: watching one monster need N different composed bodies, and the future
+#: caller in runtime.py must build each one FRESH per frame, never cache one
+#: per session. A cache would (a) hand a session bytes built for a
+#: different viewer after a slot got reused, and (b) go stale the instant
+#: this monster's own state (HP, template) changes without a matching
+#: cache invalidation nobody has written. This module makes the fresh path
+#: free to take: both functions above are pure (arguments in, bytes out,
+#: no module state), proven by tests/test_mob_viewer_link_compose_not_cache.py,
+#: so the caller does not need to build its own memoization to be fast --
+#: it should simply not memoize at all.
+COMPOSE_AT_SEND_TIME_NOT_CACHED_PER_SESSION = (
+    "runtime.py must call field_mobs.hostile_actor_entry(...) fresh for "
+    "every (session, monster) pair on every frame it composes, and must "
+    "not cache the returned bytes keyed by session or by monster across "
+    "frames. See tests/test_mob_viewer_link_compose_not_cache.py for the "
+    "guard this lane can enforce, and CORE-REQUEST-GM-061 for the half "
+    "(the wiring itself) this lane cannot."
+)

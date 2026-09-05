@@ -1081,6 +1081,20 @@ class SceneAccountedForTests(unittest.TestCase):
         self.assertEqual(composer.scene_id, 14)
         self.assertEqual(composer.kind, recompose.COMPOSER_BG0015)
 
+    def test_scene_304s_acknowledgement_both_halves_are_measured(self):
+        """PINS THE CLAIM, pf-adversary round `dyi95m` D6 (on the merged
+        ``umt3io`` diff): scene 304's entry in ``ACKNOWLEDGED_WITHOUT_
+        COMPOSER`` says the one-entry world wipe was checked by MEASURING
+        both of ``field_mobs``' own readers for scene 304 rather than by
+        asserting the conclusion, and no test in this repository drove that
+        measurement -- a comment saying "measured" is not evidence of it.
+        RED the day either half stops matching what the comment claims,
+        which is exactly the day this scene needs a real composer instead.
+        """
+        self.assertIsNone(field_mobs.scene_for_scene_id(304))
+        self.assertEqual(field_mobs.roster_for_scene_id(304), ())
+        self.assertIn(304, recompose.ACKNOWLEDGED_WITHOUT_COMPOSER)
+
     def test_an_acknowledgement_is_not_a_composer(self):
         """The mutant this kills folds the acknowledgement table into
         ``composer_for_scene_id``, which would make a recompose in scene 14

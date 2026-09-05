@@ -57,6 +57,7 @@ else:
 
 from .lua_api import spec as lua_api_spec
 from .lua_api import trigger as lua_api_trigger
+from .lua_api import instance as lua_api_instance
 
 #: Lua standard-library names the game's scripts must never reach
 #: (prompts/LANE-Q.md: "sandbox: an script access io/os/require/load of Lua
@@ -199,20 +200,25 @@ def _require_lupa() -> None:
 class ScriptHost:
     """One sandboxed Lua state carrying all 8 API namespaces.
 
-    ``Trigger`` is no longer a plain stub table: 5 of its 17 names are real
-    (``lua_api.trigger.REAL_METHODS``), backed by a
-    ``lua_api.trigger.TriggerStatusRegistry``.  ``trigger_context``/
-    ``trigger_registry`` let a caller say WHICH physical trigger this host's
-    script is and WHICH world it reads/writes; leaving both ``None`` (every
-    existing caller before this round, and every test that does not care)
-    gets an isolated default context and a private, throwaway registry --
-    see ``lua_api.trigger.build_namespace`` for why that default is safe.
-    Every other namespace is unchanged: a plain ``ApiNamespaceStub``.
+    ``Trigger`` and ``Instance`` are no longer plain stub tables: 5 of
+    ``Trigger``'s 17 names (``lua_api.trigger.REAL_METHODS``) and 7 of
+    ``Instance``'s 9 (``lua_api.instance.REAL_METHODS``) are real, each
+    backed by its own process-memory registry.  ``trigger_context``/
+    ``trigger_registry`` and ``instance_context``/``instance_registry`` let
+    a caller say WHICH physical trigger/instance this host's script is and
+    WHICH world it reads/writes; leaving all four ``None`` (every existing
+    caller before these rounds, and every test that does not care) gets an
+    isolated default context and a private, throwaway registry for each --
+    see ``lua_api.trigger.build_namespace``/``lua_api.instance.build_namespace``
+    for why that default is safe.  Every other namespace is unchanged: a
+    plain ``ApiNamespaceStub``.
     """
 
     def __init__(self, log: Optional[Callable[[str], None]] = None, *,
                  trigger_context: "Optional[lua_api_trigger.TriggerContext]" = None,
-                 trigger_registry: "Optional[lua_api_trigger.TriggerStatusRegistry]" = None):
+                 trigger_registry: "Optional[lua_api_trigger.TriggerStatusRegistry]" = None,
+                 instance_context: "Optional[lua_api_instance.InstanceContext]" = None,
+                 instance_registry: "Optional[lua_api_instance.InstanceRegistry]" = None):
         _require_lupa()
         self.log = log or default_logger
         self.runtime = lupa.LuaRuntime(
@@ -234,6 +240,10 @@ class ScriptHost:
                 stub = lua_api_trigger.build_namespace(
                     methods, self.log,
                     context=trigger_context, registry=trigger_registry)
+            elif namespace == "Instance":
+                stub = lua_api_instance.build_namespace(
+                    methods, self.log,
+                    context=instance_context, registry=instance_registry)
             else:
                 stub = ApiNamespaceStub(namespace, methods, self.log)
             self.namespaces[namespace] = stub
@@ -257,7 +267,9 @@ class ScriptHost:
 
 def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       trigger_context: "Optional[lua_api_trigger.TriggerContext]" = None,
-                      trigger_registry: "Optional[lua_api_trigger.TriggerStatusRegistry]" = None) -> ScriptHost:
+                      trigger_registry: "Optional[lua_api_trigger.TriggerStatusRegistry]" = None,
+                      instance_context: "Optional[lua_api_instance.InstanceContext]" = None,
+                      instance_registry: "Optional[lua_api_instance.InstanceRegistry]" = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
     Reads the file as bytes decoded latin-1, because latin-1 is the one
@@ -280,7 +292,9 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
     scripts' own codepage, not a different read here.
     """
     host = ScriptHost(log=log, trigger_context=trigger_context,
-                      trigger_registry=trigger_registry)
+                      trigger_registry=trigger_registry,
+                      instance_context=instance_context,
+                      instance_registry=instance_registry)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
     return host
@@ -334,16 +348,19 @@ STANDARD_ENTRY_POINTS: tuple = (
 )
 
 #: Fully-qualified (``Namespace.Method``) names that are REAL today, not
-#: stubs -- currently just the 5 of ``Trigger``'s 17
-#: (``lua_api.trigger.REAL_METHODS``).  Every other namespace is a plain
-#: ``ApiNamespaceStub`` where 100% of tracked calls are stubs, but
-#: ``RealTriggerNamespace`` appends BOTH real and stub calls to the same
-#: ``.calls`` list (``lua_api/trigger.py``), so :func:`run_corpus_entry_points`
-#: checks the qualified name against this set, not against which Python
-#: object the call came from, to keep "real" and "still stubbed" from being
-#: silently conflated in the corpus-wide tally.
+#: stubs -- the 5 of ``Trigger``'s 17 (``lua_api.trigger.REAL_METHODS``) plus
+#: the 7 of ``Instance``'s 9 (``lua_api.instance.REAL_METHODS``).  Every
+#: other namespace is a plain ``ApiNamespaceStub`` where 100% of tracked
+#: calls are stubs, but ``RealTriggerNamespace``/``RealInstanceNamespace``
+#: append BOTH real and stub calls to the same ``.calls`` list
+#: (``lua_api/trigger.py``, ``lua_api/instance.py``), so
+#: :func:`run_corpus_entry_points` checks the qualified name against this
+#: set, not against which Python object the call came from, to keep "real"
+#: and "still stubbed" from being silently conflated in the corpus-wide
+#: tally.
 REAL_QUALIFIED_NAMES: frozenset = frozenset(
-    "Trigger.%s" % _name for _name in lua_api_trigger.REAL_METHODS
+    ["Trigger.%s" % _name for _name in lua_api_trigger.REAL_METHODS]
+    + ["Instance.%s" % _name for _name in lua_api_instance.REAL_METHODS]
 )
 
 
