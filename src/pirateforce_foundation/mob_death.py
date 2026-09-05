@@ -220,7 +220,7 @@ MOB_DEATH_LANE = "B_COMBAT"
 #: ``20260905_2057``, answered by LANE-B's letter ``20260905_2112``).
 #:
 #: A lane registers onto it with the mechanism every other point uses --
-#: and 🔴 WITH THE STRING LITERAL, NOT WITH THIS CONSTANT::
+#: and WITH THE STRING LITERAL, NOT WITH THIS CONSTANT::
 #:
 #:     @lane_hooks.hook("mob_death")     # the literal, deliberately
 #:     def count_it(*, mob_id, scene_id, killer_actor_identity,
