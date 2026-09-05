@@ -57,11 +57,52 @@ PREDICATE_CENSUS = {
     'unambiguous': 65,
 }
 # What the crosswalk controls found at mining time.  Recorded, not a check:
-# nothing here can re-read CLINE, which lives on the bridge clone.  The
-# executable control on this data is the roster loader's own
-# assert_frozen_controls, which
-# holds these rows against world_port_royal_identity's independently mined
-# crosswalk table inside this repository.
+# nothing here can re-read CLINE, which lives on the bridge clone.
+#
+# --- PROVENANCE BLOCK BEGIN (pinned verbatim against the generator) -------
+# WHICH CONTROL RE-READS THIS TABLE.  Corrected under D14 of pf-adversary's
+# pass on round r6isy5b: this generator stamped one sentence about controls
+# onto every scene it emits, and the sentence was true of one of them.
+#
+# ~~The executable control on this data is the roster loader's own
+# assert_frozen_controls, which holds these rows against
+# world_port_royal_identity's independently mined crosswalk table inside this
+# repository.~~ STRUCK, not deleted, because it is TRUE FOR bg0001 AND FALSE
+# FOR EVERY OTHER SCENE, and a reader has to be able to see which sentence
+# was over-generalised: that function calls load_roster() with no argument
+# and reads the bg0001 table module by name, so it has never read one row of
+# a sibling scene's table.  MEASURED, not read off the source: give any
+# sibling scene's first shipped row template id 65535 and a name no table
+# contains and that control still passes; the same mutation on bg0001 raises
+# (`placement 103 ships n_ID 65535, the crosswalk says 916`).
+#
+# The loader module is named by its FUNCTION and not by its module name
+# throughout this block, deliberately: a name-based tripwire lists every file
+# under src/ that mentions that module as one of its importers, and a
+# generated data table that imports nothing must not join that list on the
+# strength of a comment.
+#
+# WHAT DOES RE-CHECK THESE ROWS, per scene, each one opened and read rather
+# than assumed from a filename (the first draft of this correction guessed a
+# filename for two scenes and was wrong about both -- pf-adversary, D1):
+#
+#   * EVERY scene, including this one: a byte-for-byte regenerate test that
+#     re-runs this generator against the bridge clone's tables and compares
+#     the whole module.  It is the upstream drift control, and it is gated on
+#     the bridge clone being present, so it does NOT run on the Windows merge
+#     gate.  Nothing else re-derives these values from the client's tables.
+#   * bg0001: the struck function above -- for this one scene it was, and
+#     still is, the row-level identity control.
+#   * Bg0003, bg0004, bg0005: a row-by-row cross-check against LANE-A's
+#     independently mined identity table, in that scene's own test module.
+#   * Bg0015: the same cross-check, but it lives in the test module of
+#     LANE-A's identity table, not in this scene's own.
+#   * Bg0002: NONE.  Its Mob-Set numbers ARE its n_ID by the owner's
+#     2026-08-27 ruling, so there is no second table to cross-check against
+#     and no row-level control on or off the bridge.  Named here rather than
+#     left for a reader to discover, and open: who closes it is not this
+#     generator's call.
+# --- PROVENANCE BLOCK END -------------------------------------------------
 CONTROL_FINDINGS = {
     'prison_exile_identity': '35/35',
     'town_target_916_hp': '198125',
