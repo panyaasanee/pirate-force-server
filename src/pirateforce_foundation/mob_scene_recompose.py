@@ -1604,7 +1604,7 @@ def _describe(record: "SceneRecompose") -> tuple[str, ...]:
 # THE GROUND-DROP COMPANION FOR A MID-COMBAT RECOMPOSE.
 # -------------------------------------------------------------------------
 # ROUND (this round, LANE-A), COO-DECISION 20260905_1152 item 2(1), closing
-# R316 finding ค (KA1A, pf_bridge/notes_to_chief/20260905_1102): killing
+# R316 finding "kho" (the third labeled finding) (KA1A, pf_bridge/notes_to_chief/20260905_1102): killing
 # monster A drops two items (visible, MOB_LOOT_DROPS_CENSUS announced them);
 # hitting a DIFFERENT monster B for the first time fires
 # ``MOB_COMBAT_BAR_CENSUS_RECOMPOSE`` -- and Panya watched monster A's items
@@ -1696,17 +1696,36 @@ def ground_companion_actions(cell: Any, legacy: Any) -> tuple:
 
 # The wiring ask.  runtime.py is the chief's file; this is the whole change,
 # scoped narrowly per COO-DECISION 20260905_1152 item 2(1).
-GROUND_COMPANION_WIRING = """runtime.py, right after the recompose's own bar frame action is queued --
-the `actions.append(("MOB_COMBAT_BAR", bar_pc, bar_frame, 0.0))` line inside
-the `if len(step.frames) > 1:` block (today ~line 5342), which is already
-INSIDE the
-`if (anchor_record is not None and census_scene_id == anchor_record.scene_id):`
-guard that also holds the `recompose_frames` call -- not the `else` fallback
-arm below it, and not unconditionally: a hit that never reached a recompose
-(the single-monster case, or the no-anchor fallback) has nothing new to
-reannounce.
+GROUND_COMPANION_WIRING = """runtime.py, INSIDE the `if recompose_record.composed:` branch
+(today ~line 5251-5254), right after `bar_pc, bar_frame =
+recompose_record.pc, recompose_record.frame` is assigned -- NOT after the
+`actions.append(("MOB_COMBAT_BAR", bar_pc, bar_frame, 0.0))` line (today
+~line 5342).
 
-ADD, right after that append:
+CORRECTED THIS ROUND (pf-adversary D2, MEASURED): a first draft of this ask
+named the `actions.append(...)` line as the anchor and claimed it sat
+"already INSIDE" the
+`if (anchor_record is not None and census_scene_id == anchor_record.scene_id):`
+guard.  That is false -- both arms of that if/else converge on assigning
+`bar_pc, bar_frame` (lines 5251-5254 for the composed arm, 5255-5271 for the
+degraded-frame arm, 5276-5294 for the no-anchor `else` arm), and the print
+plus the `actions.append` (today ~lines 5333-5342) are SIBLING statements
+AFTER the whole if/else, at the same indent as the if/else itself -- they
+run on every arm, not only the composed one.  Anchoring the ask there, as
+literally instructed, would fire `ground_companion_actions` on the
+no-anchor fallback too, directly contradicting this ask's own scoping
+claim ("a hit that never reached a recompose ... has nothing new to
+reannounce") -- that fallback runs in ordinary play (this file's own
+comment at the `else` arm says so), not merely in theory.
+
+Anchoring instead on `recompose_record.composed` -- a value this call
+site already has in hand, since it is what selects between the two
+`bar_pc, bar_frame` assignments -- fires the companion exactly and only
+when a real scene recompose was actually composed, matching the ask's
+original intent precisely rather than by an accident of statement order.
+
+ADD, right after `bar_pc, bar_frame = recompose_record.pc,
+recompose_record.frame` inside the `if recompose_record.composed:` arm:
 
     actions.extend(mob_scene_recompose.ground_companion_actions(
         getattr(self, "mob_loot_cell", None), legacy))
@@ -1728,7 +1747,7 @@ so a death recompose that wipes another monster's drops is corrected by that
 kill's own loot announcement a few actions later in the same batch, which is
 exactly what R316 measured: both drop sets reappeared the instant monster B
 died. Only the BAR (a hit with no kill) has no such self-correction, which
-is why R316 finding ค is reproducible there and only there. Adding the same
+is why R316 finding "kho" (the third labeled finding) is reproducible there and only there. Adding the same
 companion call to the dying/dead site too would not be wrong, just
 redundant with a frame already queued a few lines later -- left out to keep
 this patch to the one call site the evidence actually names.

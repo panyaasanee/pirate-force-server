@@ -1,5 +1,5 @@
 """LANE-A round (this round): the ground-drop companion for a mid-combat
-recompose -- R316 finding ค (KA1A, pf_bridge/notes_to_chief/20260905_1102),
+recompose -- R316 finding "kho" (the third labeled finding) (KA1A, pf_bridge/notes_to_chief/20260905_1102),
 COO-DECISION 20260905_1152 item 2(1).
 
 WHAT A PLAYER SEES, MEASURED ON A REAL CLIENT BEFORE THIS FIX (Panya,
@@ -143,7 +143,7 @@ class RecomposeIsBlindToTheFloorTests(GroundCompanionFixture):
         after = recompose.recompose_frames(
             self.legacy, self.anchor, self.register, ledger=self.ledger)
         self.assertEqual(after.state, recompose.STATE_COMPOSED)
-        # THIS is R316 finding ค, measured at the unit level: the census a
+        # THIS is R316 finding "kho" (the third labeled finding), measured at the unit level: the census a
         # hit on monster B would recompose is byte-for-byte identical
         # whether or not monster A's drops are standing on the floor, so
         # nothing about this frame is what tells the client to keep them --
