@@ -138,6 +138,11 @@ env:
   # A pull request must carry this line in its BODY to be eligible.  The cloud
   # chief's prompt (v4) tells it to write the line; anything else is invisible.
   PF_MARKER: 'PF-AUTOMERGE: v4'
+  # The one sentence the reaper says to a marked pull request sitting on a
+  # branch none of this automation can see, and the string it greps its own
+  # comments for so it says it exactly once.  ASCII only - the bridge console
+  # is cp874 and lanes paste reap logs into it.
+  PF_NONCLAUDE_NOTICE: 'invisible to automerge: re-push on a claude/ branch'
   # How long an unresolved claude/* pull request may live before the reaper ends
   # it.  Generous on purpose: a windows-latest gate takes tens of minutes and a
   # queued runner can wait, and killing a PR whose gate is merely slow would be
@@ -730,7 +735,36 @@ jobs:
 
             [ "$HEAD_REPO" = "$REPO" ] || continue
             [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || continue
-            case "$HEAD_REF" in claude/*) : ;; *) continue ;; esac
+            # [COO-DECISION 20260905_0847 item 4, option (a); chief round pv4zg1]
+            # A head that is not `claude/*` is invisible to `decide`, `finish`
+            # and this reaper, marker or no marker.  The gate stays exactly as
+            # it is - two strings a stranger can write must never buy a merge -
+            # but it stops being SILENT: #794 was gate-green at 05:53 and was
+            # neither merged nor closed for 2.5 hours with no signal anywhere.
+            # Say it once, where its author is looking, and change nothing else.
+            case "$HEAD_REF" in
+              claude/*) : ;;
+              *)
+                # No marker = nobody asked for a merge = nothing surprising is
+                # happening to this pull request.  Stay quiet, as before.
+                case "$BODY" in *"$PF_MARKER"*) : ;; *) continue ;; esac
+                SAID=$(api "repos/${REPO}/issues/${PR}/comments?per_page=100" \
+                       | jq -r --arg s "$PF_NONCLAUDE_NOTICE" \
+                              '[.[] | select((.body // "") | contains($s))] | length') || SAID=""
+                if [ -z "$SAID" ]; then
+                  echo "::warning::#${PR} ${HEAD_REF}: marked but not a claude/ branch - could not read its comments, saying nothing this sweep"
+                elif [ "$SAID" != "0" ]; then
+                  echo "--- #${PR} ${HEAD_REF}: marked but not a claude/ branch - already told once, left alone"
+                else
+                  api "repos/${REPO}/issues/${PR}/comments" \
+                      -f "body=**${PF_NONCLAUDE_NOTICE}**"$'\n\n'"This pull request carries \`${PF_MARKER}\` but its head branch is \`${HEAD_REF}\`, and \`decide\`, \`finish\` and this reaper all skip every head that does not start with \`claude/\`. Nothing will merge it and nothing will close it, so it would otherwise sit here green and silent - that is exactly what happened to #794 for 2.5 hours."$'\n\n'"Push the same commits to the branch this session was given (\`claude/...\`) and open the pull request from there. Nobody on the team should close or merge this one for you - AGENTS.md section 7." \
+                      >/dev/null \
+                    && echo "--- #${PR} ${HEAD_REF}: marked but not a claude/ branch - commented once, left open ON PURPOSE" \
+                    || echo "::warning::#${PR} ${HEAD_REF}: marked but not a claude/ branch - comment failed, left open"
+                fi
+                continue
+                ;;
+            esac
             case "$BODY" in *"$PF_MARKER"*) : ;; *) continue ;; esac
 
             # A `date` that cannot parse the timestamp must not kill the loop and
