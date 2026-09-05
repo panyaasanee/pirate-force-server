@@ -43,16 +43,23 @@ per-mob NPCAttr composer the same week as the first (``mob_viewer_link.py``,
 this scan could not see it.  The order was explicit: widen the scan to that
 file AND to every module that assembles NPCAttr bytes for a mob, and do not
 bind the widening to a single filename.  ``field_mobs.py`` therefore stopped
-being its own special case; both it and ``mob_viewer_link.py`` are now two
-instances one discovery function finds by naming ``NPCAttr`` in their source
-(:func:`_npc_attr_composer_files`), the same way the P-2 token scan itself
-is name-based rather than semantic.  Turning that discovery on also
-surfaced a real bug in THIS file: the folded-string fallback below matched
-"name_color" inside ``mob_viewer_link.py``'s own cross-reference to
-``gm/name_color_gate.py`` -- a citation, not a violation -- because that
-fallback pass, unlike the primary one, never scrubbed the gate identifier
-first.  Fixed in the same round it was found, not left as a red for LANE-B
-to be blamed for (see the comment inside :func:`_token_hits`).
+being its own special case; both it and ``mob_viewer_link.py`` are two of
+what one discovery function finds by naming ``NPCAttr`` in a module's
+source (:func:`_npc_attr_composer_files`), the same way the P-2 token scan
+itself is name-based rather than semantic -- run today, it finds several
+MORE files than just these two, and nobody has read the rest one by one to
+judge whether each genuinely composes NPCAttr bytes rather than merely
+discussing the class chain in prose (see the honesty note next to
+:data:`NPC_ATTR_COMPOSER_ROOT`).  Exactly like the ``gm/`` zone scan, this
+wider net has never fired against a real file either, today -- a test
+below keeps this sentence honest.  Turning that discovery on also surfaced
+a real bug in THIS file: the folded-string fallback below matched
+"name_color" inside
+``mob_viewer_link.py``'s own cross-reference to ``gm/name_color_gate.py``
+-- a citation, not a violation -- because that fallback pass, unlike the
+primary one, never scrubbed the gate identifier first.  Fixed in the same
+round it was found, not left as a red for LANE-B to be blamed for (see the
+comment inside :func:`_token_hits`).
 
 WHAT THIS CANNOT DO -- read this before citing it as cover.  In rough order
 of how likely each is to matter:
@@ -150,8 +157,26 @@ FIELD_MOBS_PATH = ROOT / "src" / "pirateforce_foundation" / "field_mobs.py"
 #: not bind this to a single filename" -- so this is a NAME-based discovery,
 #: not a second hardcoded path next to ``FIELD_MOBS_PATH``: any top-level
 #: module in the package that so much as spells the wire class this whole
-#: file is about (``NPCAttr``) is a candidate, whether it is one of today's
-#: two known composers or a third module a future round adds.
+#: file is about (``NPCAttr``) is a candidate.
+#:
+#: HONESTLY, NOT "TWO COMPOSERS".  pf-adversary (round ``xfeizd``) ran this
+#: discovery against the real tree and got well over a dozen files today,
+#: not the two named above -- several are hypothesis/analysis modules that
+#: only discuss ``NPCAttr`` in prose, not code that composes it.  The exact
+#: count is deliberately not pinned here: it will drift as the tree grows,
+#: and a stale number would be worse than none (``test_npc_attr_composer_
+#: discovery_finds_the_known_composers`` pins only that the two NAMED
+#: composers stay found, never the total).  This function does not,
+#: and by design cannot, tell "assembles bytes" apart from "writes about the
+#: class chain": it is a name tripwire exactly like the P-2 token scan it
+#: feeds, and the same NAME limitation applies (see the file docstring).
+#: Nobody has read all sixteen to decide which genuinely belong; this round
+#: chose the wider, unaudited net over a curated list that would need a
+#: human to keep current, because a red on any of the sixteen still costs
+#: nothing worse than a letter to the lane that owns the file -- the same
+#: price ``field_mobs.py`` already pays -- and an unaudited net that scans
+#: too much is a smaller risk than a curated list that quietly drifts out
+#: of date.
 #:
 #: Root and boundary, matching ``FIELD_MOBS_PATH``'s own scope exactly:
 #: top-level files only (``glob``, not ``rglob``), so ``GM_ZONE`` -- already
@@ -184,12 +209,28 @@ def _npc_attr_composer_files() -> list[pathlib.Path]:
     is the package directory, not the repository, so the biggest unscanned
     path the file docstring already names stays unscanned by design, not by
     oversight.
+
+    A file this cannot even DECODE is skipped, not raised: pf-adversary
+    (round ``xfeizd``) found that an earlier version of this function called
+    ``.read_text()`` with no guard at all, unlike ``_read()`` above, so one
+    bad-encoding file anywhere among the (currently 200+) top-level modules
+    under this root -- whether or not it has anything to do with NPCAttr --
+    would abort collection of every test in this file with a raw
+    ``UnicodeDecodeError`` naming no path.  A file that cannot be decoded
+    cannot be confirmed to name ``NPCAttr`` either, so silently leaving it
+    out of discovery is the same posture ``_read()`` takes for a module that
+    fails to scan for a different reason: name the failure at the actual
+    scan step, not here, where there is nothing yet to report about it.
     """
-    return sorted(
-        path
-        for path in NPC_ATTR_COMPOSER_ROOT.glob("*.py")
-        if NPC_ATTR_IDENT_RE.search(path.read_text(encoding="utf-8"))
-    )
+    found = []
+    for path in NPC_ATTR_COMPOSER_ROOT.glob("*.py"):
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if NPC_ATTR_IDENT_RE.search(source):
+            found.append(path)
+    return sorted(found)
 
 
 #: The verdict every P-2 colour call site in that zone owes a call to.
@@ -273,7 +314,10 @@ def _blanked_spans(source: str) -> list[tuple[int, int]]:
 #: The gate module's own identifier.  Referring to it is the RIGHT thing to
 #: do, and it contains a banned token, so it is blanked wherever it appears
 #: -- otherwise a dispatcher that registers the gate is punished for it.
-_GATE_IDENT_RE = re.compile(r"\b" + GATE_MODULE_NAME + r"\b")
+#: IGNORECASE to match ``_TOKEN_RE``'s own case-insensitivity: without it, a
+#: citation spelled ``NAME_COLOR_GATE`` was not scrubbed and produced a
+#: false positive of its own (pf-adversary, round ``xfeizd``).
+_GATE_IDENT_RE = re.compile(r"\b" + GATE_MODULE_NAME + r"\b", re.IGNORECASE)
 
 
 def _executable_text(source: str) -> str:
@@ -656,21 +700,48 @@ def test_npc_attr_composer_files_are_scanned_for_p2_colour_tokens_read_only():
     )
 
 
+def test_the_composer_scan_has_never_fired_against_a_real_module():
+    """Same shape as ``test_the_scan_visits_real_files_and_says_it_has_
+    never_fired`` for ``GM_ZONE``, applied to the wider, unaudited net
+    :func:`_npc_attr_composer_files` casts (pf-adversary, round ``xfeizd``,
+    finding 3): every discovered file returns zero P-2 token hits today, so
+    the ``offenders.append(...)`` branch in the test above has never run
+    against real code, and the header has to keep saying so."""
+    files = _npc_attr_composer_files()
+    assert files, "the composer discovery found nothing -- it is broken"
+    hit = [
+        p.relative_to(ROOT).as_posix()
+        for p in files
+        if _token_hits(_read(p))
+    ]
+    doc = pathlib.Path(__file__).read_text(encoding="utf-8").split('"""')[1]
+    if not hit:
+        assert "never fired against a real file either, today" in doc, (
+            "while nothing the composer scan finds trips it, the header "
+            "must keep saying so"
+        )
+
+
 def test_npc_attr_composer_discovery_is_read_only_by_construction():
-    """Mirrors ``test_field_mobs_scan_is_read_only_by_construction``: the
-    discovery function itself must never call anything but ``glob`` and
-    ``read_text`` on the paths it walks, so a later round cannot quietly
-    turn "widen the scan" into "widen the write zone"."""
+    """Mirrors ``test_field_mobs_scan_is_read_only_by_construction``, and
+    inherits its exact blind spot: this only sees calls of the shape
+    ``x.method(...)``.  A bare-name call reached through
+    ``from os import remove; remove(path)`` or through indirection
+    (``getattr(path, "write_bytes")(...)``) would not appear in ``calls``
+    at all (pf-adversary, round ``xfeizd``, reproduced this against a
+    hand-built variant) -- so this pins "no attribute-call write appears in
+    the source as written today", not "this function cannot write"."""
     tree = ast.parse(inspect.getsource(_npc_attr_composer_files))
     calls = [
         node.func.attr
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     ]
-    assert set(calls) <= {"glob", "read_text", "search"}, (
-        f"expected only glob()/read_text()/search() inside the discovery "
-        f"function; found {calls} -- a write method here would defeat the "
-        "read-only guarantee this test exists to pin"
+    assert set(calls) <= {"glob", "read_text", "search", "append"}, (
+        f"expected only glob()/read_text()/search()/list.append() inside "
+        f"the discovery function; found {calls} -- an attribute-call write "
+        "here would defeat the read-only guarantee this test exists to pin "
+        "(see this test's own docstring for what it does not catch)"
     )
 
 
