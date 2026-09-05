@@ -131,7 +131,7 @@ WITHDREW IT BEFORE PUSHING, on its own two `pf-adversary` passes:
     legitimately walked to since.
   * pass 2 (D-1): the guard added for that compared
     `foundation.selected.position` against the park's pre-warp row -- but
-    `runtime.py:6827` `_gm_warp_resync_selected_scene` rewrites
+    `runtime.py:6887` `_gm_warp_resync_selected_scene` rewrites
     `selected.position.scene_id` to the DESTINATION in the same dispatch
     that composed the warp, before any send.  So the guard answered "the
     world moved" for every cross-scene warp, immediately, with zero client
@@ -237,10 +237,11 @@ whether the socket layer later agreed.
 from __future__ import annotations
 
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..model import Position
 from .warp_scene_persist import (
+    OUTCOME_ROLLED_BACK,
     SEND_FAILURE_WARP_ACTION_LABEL,
     _console as _persist_console,
     rollback_warp_scene,
@@ -258,6 +259,36 @@ SESSION_ATTRIBUTE = "gm_warp_send_watch_park"
 #: `warp_scene_persist`'s own (`gm_chat_action_warp_scene_rollback_*`) or
 #: `warp_target_record`'s.
 EVENT_PREFIX = "gm_warp_send_watch_"
+
+#: The four words `_restore_selected_scene` can answer (CORE-REQUEST-GM-059).
+#: Every one of them reaches `session.events` under `EVENT_PREFIX` + `failed_`,
+#: so the trail says which happened even when the durable row alone cannot:
+#: a rollback that restored the label and one that could not both leave the
+#: SAME row behind, and only the next walk frame tells them apart.
+#: The in-memory label went back to the pre-warp scene, read back and confirmed.
+SELECTED_SCENE_RESTORED = "selected_scene_restored"
+#: The label was ALREADY the pre-warp scene: a same-scene warp, or a resync
+#: that never ran.  Nothing was written -- distinguished from `RESTORED` so
+#: the trail never claims work this module did not do.
+SELECTED_SCENE_ALREADY_THERE = "selected_scene_already_there"
+#: `foundation.selected.position` could not be read, is not a `Position`, or
+#: its `scene_id` refused to compare.  Fail closed and say so; the durable row
+#: is still correct.
+SELECTED_SCENE_UNREADABLE = "selected_scene_unreadable"
+#: The PARK carries no in-memory label (`previous_selected_scene_id` is None,
+#: or not a real `int`).  Nothing is written: the durable row's scene is NOT a
+#: stand-in for it (pf-adversary D1), so the honest answer is that this park
+#: cannot say, not a plausible-looking guess.
+SELECTED_SCENE_UNKNOWN = "selected_scene_unknown"
+#: The assignment raised, or did not survive its own read-back.  The one
+#: outcome that also prints a console line (see `_report_restore_failure`).
+SELECTED_SCENE_NOT_RESTORED = "selected_scene_not_restored"
+
+#: Console token for `SELECTED_SCENE_NOT_RESTORED`, the module's second one
+#: (`INSTALL_CONSOLE_TOKEN` below is the first).  Spelled here rather than at
+#: the print so the test that greps for it and the code that emits it cannot
+#: drift.
+RESTORE_FAILED_CONSOLE_TOKEN = "GM_WARP_SELECTED_SCENE_RESTORE_FAILED"
 
 # The outcome words `on_game_frame_sent` and `on_game_frame_send_failed`
 # return.  `nothing_parked` is shared by both entry points on purpose: it
@@ -292,17 +323,40 @@ class ParkedWarpSend:
     before its own durable write, and it is why round `ff30oi` widened this
     record.  It defaults to `None` so a park made without one still gets the
     older delegate path; see `on_game_frame_send_failed`.
+
+    `previous_selected_scene_id` is A DIFFERENT VALUE FROM A DIFFERENT PLACE,
+    and round `bdl0w3` widened this record a second time rather than reusing
+    the first (pf-adversary D1, MEASURED).  `previous_position` is the
+    DURABLE `character_positions` row (`warp_scene_persist.row_before_warp`
+    reads the store).  This is the IN-MEMORY label,
+    `foundation.selected.position.scene_id`, read at compose time.  Treating
+    them as one value is wrong on a live path: `lifecycle.py:311` writes the
+    durable row only when `is_position_persist_allowed(scene_id)` says so,
+    while `FoundationSession.checkpoint` updates `selected` unconditionally,
+    so a session standing in scene 17 (`persist_position_allowed=False` in
+    the world registry, and a scene `runtime.py` reaches on a flagless boot)
+    has an in-memory 17 and a durable row naming some other scene entirely.
+    A GM staged through the login-scene override is the same shape with no
+    durable row written at all.  `_restore_selected_scene` undoes an
+    IN-MEMORY relabel, so it needs the in-memory value; given the durable
+    one it would confidently restore a scene the session was never in and
+    the trail would call it `selected_scene_restored`.
+
+    `None` means "this park does not know", and that is answered with its
+    own word rather than a guess -- see `SELECTED_SCENE_UNKNOWN`.
     """
 
     label: str
     frame_bytes: bytes
     previous_position: object = None
+    previous_selected_scene_id: object = None
 
 
 def park_warp_send(
     session: object,
     frame_bytes: object,
     previous_position: object = None,
+    previous_selected_scene_id: object = None,
 ) -> bool:
     """Remember `frame_bytes` as the persisted warp still owed a send.
 
@@ -376,11 +430,21 @@ def park_warp_send(
     # unconfirmed run, which is the only row that is correct however many
     # of those frames actually made it out.
     carried = previous_position
+    carried_label = previous_selected_scene_id
     standing = _parked_record(session)
     if standing is not None and standing.previous_position is not None:
         carried = standing.previous_position
+    # THE LABEL CARRIES FORWARD ON ITS OWN CONDITION, not on the row's.
+    # The two are separate values from separate places (see `ParkedWarpSend`),
+    # and the row's carry-forward test is `standing.previous_position is not
+    # None` -- a park whose row is None but whose label is known would lose
+    # the label if it rode along on that test.  The REASON to carry forward is
+    # identical though: after two unconfirmed warps the oldest label is the
+    # one the client last really had, exactly as the oldest row is.
+    if standing is not None and standing.previous_selected_scene_id is not None:
+        carried_label = standing.previous_selected_scene_id
     record = ParkedWarpSend(
-        SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes, carried,
+        SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes, carried, carried_label,
     )
     try:
         setattr(session, SESSION_ATTRIBUTE, record)
@@ -484,6 +548,142 @@ def on_game_frame_sent(session: object, frame_bytes: object) -> str:
     return outcome
 
 
+def _restore_selected_scene(session: object, previous_scene_id: object) -> str:
+    """Put the IN-MEMORY scene label back after a confirmed rollback.
+
+    WHY THIS EXISTS (CORE-REQUEST-GM-059, chief's reply 20260905_1522
+    handed the line back to this lane because every byte of it lives in
+    `gm/`).  The order of a cross-scene `/warp <n>` whose frame then fails
+    to send, MEASURED on a real SQLite store through `runtime.dispatch`:
+
+    1. `warp_scene_persist.persist_warp_scene` writes the durable row to
+       the DESTINATION and puts `foundation.selected` back the way it found
+       it (`_restore_selected`, that module's line 1021) -- so the snapshot
+       is clean at this point, and that is why the rollback of the DURABLE
+       row is right.
+    2. `runtime.py`'s `_gm_warp_resync_selected_scene` THEN relabels
+       `selected.position.scene_id` to the destination, on purpose
+       (CORE-REQUEST-GM-045: the census must read the new scene).
+    3. The send fails.  `rollback_warp_scene` puts the DURABLE row back to
+       `record.previous_position` and answers `OUTCOME_ROLLED_BACK`.
+    4. Nobody undoes step 2.  The next ordinary movement frame reaches
+       `runtime.py:4164`, which builds its `candidate` row with `scene_id`
+       from `selected` and x/y/z from the CLIENT's report -- so one step of
+       walking writes the durable row back to the destination scene the
+       client was never sent to, with real coordinates from the scene it is
+       really standing in.  The undo is silently spent.
+
+    SCENE_ID ONLY, x/y/z/heading untouched -- the exact inverse of what
+    step 2 changed, and no more.  A walk frame is EXPECTED to write new
+    coordinates (that is `_checkpoint_exact_target`'s own change detection
+    working), so pinning the pre-warp x/y here would be pinning a row that
+    the very next honest report has to move.  `COO 1150`'s acceptance
+    sentence asked for "scene AND coordinates before the warp"; the
+    coordinate half is not reachable and `CORE-REQUEST-GM-059` says so.
+
+    THE VALUE COMES FROM THE PARK'S `previous_selected_scene_id`, NOT FROM
+    ITS `previous_position` (pf-adversary D1/D2, MEASURED, round `bdl0w3`).
+    The first cut of this function took the durable row's scene, on the
+    assumption that the durable row and the in-memory label agree before a
+    warp.  They do not have to: `lifecycle.py:311` gates the durable write
+    on `is_position_persist_allowed(scene_id)` while `FoundationSession.
+    checkpoint` updates `selected` unconditionally, so a session in scene 17
+    carries an in-memory 17 over a durable row naming something else.
+    Measured, on that shape: `/warp 2` from an in-memory 17 with a durable
+    row of 1 restored the label to **1** -- a scene the session had never
+    been in -- and the trail said `selected_scene_restored`.  Worse,
+    `/warp 1` answered `SELECTED_SCENE_ALREADY_THERE`, whose own meaning is
+    "no relabel happened", two entries after
+    `gm_warp_selected_scene_resynced_1` in the same trail.  Reading the
+    label the resync actually overwrote is the only value that makes either
+    word true, and the call site can read it for free at compose time --
+    `persist_warp_scene` has already restored `selected` by then and the
+    resync has not run yet.
+
+    A PARK WITH NO LABEL ANSWERS `SELECTED_SCENE_UNKNOWN` AND WRITES
+    NOTHING.  That is a park built outside this lane, or by hand -- the same
+    population `previous_position`'s own `None` case serves.  Guessing the
+    label from the durable row is exactly the defect above, so the honest
+    answer is a word, not a write.
+
+    ONLY ON `OUTCOME_ROLLED_BACK`, and only on the branch that carries a
+    parked `previous_position`.  The fallback delegate
+    (`rollback_warp_scene_on_send_failure`) derives the row it reverts to
+    from `selected.position` itself, so there is no independent pre-warp
+    scene here to restore and re-deriving one from the row it just wrote
+    would be circular.
+
+    NEVER RAISES: it is called from inside `on_game_frame_send_failed`,
+    whose whole contract is that a failed send never costs the listener
+    thread.  Every outcome is a WORD, appended to the session trail by the
+    caller, so a dead line is visible in the trail and not only in a row.
+    """
+    # The park did not record what the label was.  Fail closed with a word.
+    if not isinstance(previous_scene_id, int) or isinstance(
+        previous_scene_id, bool
+    ):
+        # `bool` is an `int` in Python and `True == 1`, so a park carrying
+        # `True` would restore scene 1 and look entirely ordinary doing it --
+        # the same trap `#826`'s `class_id=True` fell into one lane over.
+        return SELECTED_SCENE_UNKNOWN
+    try:
+        foundation = session.foundation  # type: ignore[attr-defined]
+        selected = foundation.selected
+        current = selected.position
+    except Exception:  # noqa: BLE001 - see docstring
+        return SELECTED_SCENE_UNREADABLE
+    if not isinstance(current, Position):
+        return SELECTED_SCENE_UNREADABLE
+    try:
+        already_there = current.scene_id == previous_scene_id
+    except Exception:  # noqa: BLE001 - pf-adversary D6: `Position` is an
+        # unvalidated dataclass, so a hand-built park can carry a `scene_id`
+        # whose `__eq__` raises.  This comparison used to sit outside every
+        # `try`, which made the NEVER RAISES contract two paragraphs up false
+        # for exactly the population the `UNKNOWN` branch above exists for.
+        return SELECTED_SCENE_UNREADABLE
+    if already_there:
+        # A same-scene warp, or a resync that never ran.  Nothing was
+        # relabelled, so there is nothing to put back -- and answering
+        # "restored" here would make the trail claim work this function
+        # did not do.  Honest only because `previous_scene_id` is the label
+        # the resync overwrote; against the durable row it was a lie (D2).
+        return SELECTED_SCENE_ALREADY_THERE
+    try:
+        foundation.selected = replace(
+            selected, position=replace(current, scene_id=previous_scene_id),
+        )
+    except Exception:  # noqa: BLE001 - see docstring
+        _report_restore_failure(session, previous_scene_id)
+        return SELECTED_SCENE_NOT_RESTORED
+    # READ BACK, for the same reason `warp_scene_persist._restore_selected`
+    # reads its own assignment back: a `__setattr__` that swallows the write
+    # raises nothing, and a restore reported but not performed is exactly
+    # the false report the durable read-back in that module exists to stop.
+    try:
+        landed = foundation.selected.position.scene_id == previous_scene_id
+    except Exception:  # noqa: BLE001 - see docstring
+        landed = False
+    if not landed:
+        _report_restore_failure(session, previous_scene_id)
+        return SELECTED_SCENE_NOT_RESTORED
+    return SELECTED_SCENE_RESTORED
+
+
+def _report_restore_failure(session: object, scene_id: object) -> None:
+    """One console line for the one outcome nobody could otherwise see.
+
+    The durable row IS correct when this prints -- `rollback_warp_scene`
+    already confirmed it -- so this is not a bricked character.  It is the
+    state where the next walk frame will re-break the row, and the tester
+    watching the console is the only reader who can act on it before that
+    happens.  Losing the line costs nothing else (`_persist_console`
+    already answers False rather than raising on a dead stderr).
+    """
+    if not _persist_console(f"{RESTORE_FAILED_CONSOLE_TOKEN} scene={scene_id}"):
+        _note(session, f"{EVENT_PREFIX}console_lost_{SELECTED_SCENE_NOT_RESTORED}")
+
+
 def on_game_frame_send_failed(session: object, frame_bytes: object, error: object) -> str:
     """A send failed on this connection.  Undo the row if one is unconfirmed.
 
@@ -548,6 +748,16 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     )
     if usable:
         outcome = rollback_warp_scene(session, record.previous_position)
+        if outcome == OUTCOME_ROLLED_BACK:
+            # GM-059.  The durable row is back in the departure scene; the
+            # IN-MEMORY label is not, and nothing else in the tree puts it
+            # back.  See `_restore_selected_scene` for the measured defect
+            # this closes.
+            _note(
+                session,
+                f"{EVENT_PREFIX}failed_"
+                f"{_restore_selected_scene(session, record.previous_selected_scene_id)}",
+            )
     else:
         outcome = rollback_warp_scene_on_send_failure(
             session, SEND_FAILURE_WARP_ACTION_LABEL,

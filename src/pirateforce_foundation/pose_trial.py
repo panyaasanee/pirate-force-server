@@ -45,10 +45,23 @@ resumes only when a named item/container source reaches the actor raw byte.
 That condition is NOT met -- ``equip_type_of_performer`` returning ``None`` is
 this module's own statement that it is not met.  What lets this land anyway is
 narrow and must stay narrow: nothing here alters production ActionVital.  With
-``PF_POSE_TRIAL`` unset the composed bytes and the console are identical to
-main, the alteration exists only inside one attended process an owner armed
+``PF_POSE_TRIAL`` unset the composed bytes ~~and the console~~ are identical
+to main, the alteration exists only inside one attended process an owner armed
 by hand, and ``COO-DECISION 20260904_2141`` is the decision to run that one
-attended experiment.  ``COO-DECISION 20260904_2346`` point 2 has since ruled
+attended experiment.
+
+THE CONSOLE HALF IS STRUCK as of round ``ti9gxr`` and the strike is this
+lane's own: ``COO-DECISION 20260905_1045`` item 2 requires an unarmed boot to
+say WHY no pose was sent, so ``action_ack.make_production_hit_pose_echo`` now
+prints ``POSE_NO_EQUIP_PROVENANCE`` on every accepted hit until the one-line
+``class_id`` hookup lands.  THE BYTES ARE STILL IDENTICAL and that is the half
+``COO-DECISION 20260904_2346`` point 2 relied on -- it is still pinned by
+test.  Two things this round did NOT do and owes: ``runtime.py:5153-5158``
+(chief's file, this lane may not edit) still says an unarmed boot "add[s]
+NOTHING", which is now true of bytes and false of the console; and a
+per-BOOT fact printed at per-HIT frequency is the volume defect
+``session.py:336-340`` already wrote the rule against.  Both are named in
+round ``ti9gxr``'s file rather than left for a reader to discover.  ``COO-DECISION 20260904_2346`` point 2 has since ruled
 on the question this paragraph used to leave open: BIND001's stop rule guards
 production ``ActionVital``, this module alters none of it (unarmed output is
 byte-identical, pinned by test), the arm is opt-in per process and attended

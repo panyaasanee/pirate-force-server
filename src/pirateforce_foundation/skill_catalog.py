@@ -213,6 +213,47 @@ than read as "usable by every class."
     passive effect -- earns nothing new: it is exactly the same ids this
     catalog already names by title-suffix (``_BASIC_TRAINING_SKILL_IDS``),
     so the shortcut only ever agrees with the accessor that already exists.
+
+    [UPDATE, round n4wk2z]: ``n_EQUIPTYPE``/``n_EQUIPTYPE_LHAND`` -- the last
+    two ``_CONTEXT_COLUMNS`` this module still carried with no named reader
+    -- are now BOUNDED, closing the backup item ``jbe8rr``/``b190t0`` kept
+    carrying forward ("still no RE reason to name them"). pf-static-re found
+    real, citable evidence this round that did not exist before: pf_bridge's
+    own RE-110 result letter (archive/notes_to_chief_2026-08/20260827_1832_
+    RE-110-RESULT-POSE-FIELD-POSITIVE-REPEAT-CADENCE-BOUNDED.md) names
+    ``EQUIP_VALUE.n_EQUIPTYPE`` as a real, client-read field: the inbound
+    ``ActionVital`` handler (VAs ``0x0075175B``/``0x007517A5``) resolves it
+    through ``n_ATTACK_SKILL`` to ``BEHAVIOR.n_ID`` to pick an attack
+    animation, and its observed value set there is ``{1, 2, 8, 16, 32, 64}``
+    -- power-of-two bits, a weapon-type bitmask. ``SKILL_CONTEXT``'s OWN
+    ``n_EQUIPTYPE`` column (table-wide, all 2165 rows) takes the value set
+    ``{0, 1, 2, 8, 16, 32, 64}`` -- the identical non-zero domain -- and the
+    same column name recurs across a dozen other equip/item tables
+    (``PF_GAMEDATA_COLUMNS.tsv``), which is real corroboration that this is
+    the same general "equip-type bitmask" domain.
+
+    IT IS STILL BOUNDED, NOT PROVEN, AND STILL EARNS NO ACCESSOR HERE. RE-110
+    read the handler for ``EQUIP_VALUE.n_EQUIPTYPE``, never for
+    ``SKILL_CONTEXT``'s own copy of the column -- no handler has been found
+    that reads THIS table's ``n_EQUIPTYPE``/``n_EQUIPTYPE_LHAND`` at all, so
+    "this bitmask gates which weapon a skill needs to cast" is still
+    inference by analogy, not a proven read, and no accessor may claim it
+    (the exact ``required_weapon_for_cast()``-shaped mistake this section
+    keeps warning against). More to the point for THIS catalog: all 8
+    starting-kit ids carry ``n_EQUIPTYPE=0``/``n_EQUIPTYPE_LHAND=0`` (see
+    ``skill_raw_context``) -- a schema-level ``equip_type_bitmask()`` reader
+    would return ``0`` for every id this module knows, the exact
+    no-id-to-exercise-it problem ``skill_point_cost_to_learn``'s docstring
+    above already refuses for ``f_SP_LEVEL2PLUS``. ``n_EQUIPTYPE_LHAND``'s
+    table-wide value set, ``{0, 1, 4}``, includes ``4`` -- a bit RE-110 never
+    observed on the ``EQUIP_VALUE`` side -- which is consistent with (not a
+    counter-example to) a wider bitmask than RE-110 happened to exercise, but
+    is one more reason not to claim the two columns share one proven meaning.
+    ``tests/test_skill_catalog.py``'s ``NEquipTypeColumnsAreBoundedNotAccessorWorthyTests``
+    pins both the catalog-scope zero values and the table-wide value sets, so
+    a future round that finds a real ``SKILL_CONTEXT``-side handler (and so
+    has grounds to add the accessor) starts from a pinned baseline instead of
+    re-running this same search.
 """
 from __future__ import annotations
 
