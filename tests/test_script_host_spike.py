@@ -92,6 +92,46 @@ class SandboxActuallyBlocksTheBannedGlobalsTests(unittest.TestCase):
         with self.assertRaises(Exception):
             host.call("Probe")
 
+    def test_lupas_own_python_bridge_is_not_reachable_from_a_script(self):
+        # The escape this sandbox nearly shipped with: lupa injects a
+        # `python` table into every Lua state, and with its default
+        # constructor flags that table carries eval and builtins outright.
+        host = self._host()
+        host.load("function Probe() return python end")
+        self.assertIsNone(host.call("Probe"))
+
+    def test_as_attrgetter_cannot_walk_out_through_a_namespace_object(self):
+        # The API namespaces are live Python objects inside an untrusted
+        # Lua state.  python.as_attrgetter survives register_eval=False
+        # and register_builtins=False, and it flips indexing from
+        # __getitem__ to getattr - which is step one of the ordinary
+        # __class__/__bases__/__subclasses__ walk to the interpreter.
+        # Blanking the python table is what stops it; this asserts the
+        # walk actually dies rather than that the flags were passed.
+        host = self._host()
+        host.load(
+            "function Probe()\n"
+            "  local ok, err = pcall(function()\n"
+            "    return python.as_attrgetter(Quest).__class__\n"
+            "  end)\n"
+            "  return ok, tostring(err)\n"
+            "end"
+        )
+        ok, err = host.call("Probe")
+        self.assertFalse(ok)
+        self.assertIn("python", err)
+
+    def test_indexing_a_namespace_never_yields_a_python_attribute(self):
+        # Even without the python table, plain Lua indexing must not reach
+        # a dunder or an internal of the stub object itself: every key that
+        # is not one of that namespace's API names answers STUB_DEFAULT.
+        host = self._host()
+        host.load(
+            "function Probe() return Quest.__class__, Quest.__dict__, "
+            "Quest._methods, Quest.namespace end"
+        )
+        self.assertEqual(host.call("Probe"), (0, 0, 0, 0))
+
     def test_math_and_string_libraries_remain_available(self):
         # The sandbox blocks the specific dangerous globals, not all of Lua's
         # standard library - the scripts use math.random/string.find freely.

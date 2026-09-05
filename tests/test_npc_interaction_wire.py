@@ -1099,7 +1099,18 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         a NEW subpackage appears, so the gap cannot grow unnoticed, and it
         prints the count so nobody reads a green run as full coverage.
         """
-        known = {"data", "gm", "lane_hooks", "world_data"}
+        # "lua_api" added by LANE-Q round s2fxf6, re-arguing the scope as
+        # this test's docstring requires: it is the package the charter
+        # (prompts/LANE-Q.md) names for the game's 160-function script API,
+        # one module per namespace as each stops being a stub.  Today it
+        # holds only the frozen census reader (spec.py) and its TSV, which
+        # define no wire symbol this guard looks for; the modules that WILL
+        # (lua_api/trigger.py, quest.py, ...) do not exist yet.  The gap
+        # this test exists to name therefore grows by a package that is
+        # currently empty of the thing being guarded - and the round that
+        # lands the first real namespace module is the round that has to
+        # argue for widening the scan itself, not just this set.
+        known = {"data", "gm", "lane_hooks", "lua_api", "world_data"}
         present = {
             child.name for child in self.FOUNDATION.iterdir()
             if child.is_dir() and not child.name.startswith("__")

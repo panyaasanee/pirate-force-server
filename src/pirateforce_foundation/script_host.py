@@ -60,9 +60,22 @@ from .lua_api import spec as lua_api_spec
 #: Lua standard-library names the game's scripts must never reach
 #: (prompts/LANE-Q.md: "sandbox: an script access io/os/require/load of Lua
 #: is forbidden").  Wired to nil on every runtime this module creates.
+#:
+#: ``python`` is on this list for a reason worth writing down.  lupa injects
+#: a ``python`` table into every Lua state it builds.  With this module's
+#: constructor flags (register_eval=False, register_builtins=False) its
+#: ``eval``/``builtins``/``globals``/``import_module`` entries are already
+#: nil - MEASURED, not assumed - but ``as_attrgetter`` survives them, and
+#: ``as_attrgetter`` flips Lua indexing on a wrapped Python object from
+#: __getitem__ to getattr.  The API namespaces this host hands the scripts
+#: ARE live Python objects, so that one helper would turn
+#: ``python.as_attrgetter(Quest).__class__`` into the first step of the
+#: ordinary __class__/__bases__/__subclasses__ walk out to the interpreter.
+#: Blanking the whole table closes that door; the flags are kept anyway so
+#: two independent things have to fail before a script can reach out.
 BLOCKED_GLOBALS: tuple = (
     "io", "os", "require", "load", "loadstring", "loadfile", "dofile",
-    "package", "debug", "collectgarbage",
+    "package", "debug", "collectgarbage", "python",
 )
 
 #: The one safe value every unknown API return and every non-API attribute
@@ -155,7 +168,16 @@ class ScriptHost:
     def __init__(self, log: Optional[Callable[[str], None]] = None):
         _require_lupa()
         self.log = log or default_logger
-        self.runtime = lupa.LuaRuntime(unpack_returned_tuples=True)
+        self.runtime = lupa.LuaRuntime(
+            unpack_returned_tuples=True,
+            # Both default to True in lupa and both hand a script a way out
+            # of the sandbox: register_eval puts python.eval in the Lua
+            # state, register_builtins puts the whole builtins module
+            # there.  See BLOCKED_GLOBALS for the third door these two do
+            # not close on their own.
+            register_eval=False,
+            register_builtins=False,
+        )
         self.namespaces: dict = {}
         g = self.runtime.globals()
         for namespace, methods in lua_api_spec.NAMESPACE_METHODS.items():

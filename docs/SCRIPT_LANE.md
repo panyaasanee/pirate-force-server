@@ -35,7 +35,24 @@ headless to completion with no error, and prove the loader can load all
     all 8 namespace tables (`Player`/`Quest`/`Trigger`/`Party`/`Mob`/
     `Instance`/`Guild`/`Scene`) wired as `ApiNamespaceStub` objects and
     `io`/`os`/`require`/`load`/`loadstring`/`loadfile`/`dofile`/`package`/
-    `debug`/`collectgarbage` wired to `nil`.
+    `debug`/`collectgarbage`/`python` wired to `nil`, plus
+    `register_eval=False, register_builtins=False` on the runtime itself.
+  - **The escape this spike nearly shipped with, measured and closed.**
+    lupa injects a `python` table into every Lua state it builds, and with
+    its default constructor flags that table carries `python.eval` and
+    `python.builtins` outright - any of the 616 game scripts could have
+    called straight out of the sandbox.  Turning both flags off nils
+    `eval`/`builtins`/`globals`/`import_module` (measured) but leaves
+    `python.as_attrgetter`, which flips Lua indexing on a wrapped Python
+    object from `__getitem__` to `getattr` - and the API namespaces handed
+    to the scripts ARE live Python objects, so
+    `python.as_attrgetter(Quest).__class__` would have been step one of
+    the ordinary `__class__`/`__bases__`/`__subclasses__` walk back to the
+    interpreter.  `python` is therefore blanked outright as well, and the
+    flags are kept anyway so two independent things have to fail before a
+    script gets out.  Three regressions in
+    `test_script_host_spike.py::SandboxActuallyBlocksTheBannedGlobalsTests`
+    assert the walk actually dies, not merely that the flags were passed.
   - `ApiNamespaceStub`: indexing a name that IS one of that namespace's
     real API methods returns a callable that logs
     `LUA_API_STUB <Namespace>.<Method>` and returns `STUB_DEFAULT` (`0`);
