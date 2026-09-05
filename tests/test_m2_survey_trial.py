@@ -129,6 +129,32 @@ class ConsoleLineTests(unittest.TestCase):
         self.assertIn("msg_id=0xC4AF", line)
         self.assertIn("version=0", line)
 
+    def test_the_armed_line_carries_the_rejecting_clients_own_decimal(self):
+        """COO-DECISION 20260905_0646 item 4.
+
+        A tester reading `NavigationEx_AddSurveyDataVtial ErrorData=50351`
+        off the client's dialog box (R313, 2026-09-05T02:07+07:00) must be
+        able to match it to our console line without converting hex.  Pinned
+        as DERIVED, not as the literal 50351: the assertion is built from the
+        id constant, so a typo in those four hex digits moves the expected
+        value with it and this test cannot go quietly green on a wrong id.
+        """
+        line = m2_survey_trial.console_line(
+            m2_survey_trial.TRIAL_OPEN, 126, 2,
+        )
+        expected = (
+            "errordata_if_rejected=%d"
+            % m2_survey_trial.NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL
+        )
+        self.assertIn(expected, line)
+        # And the number the client actually showed, stated once, so this
+        # test also fails if the id constant itself is ever changed away
+        # from what R313 measured on screen.
+        self.assertIn("errordata_if_rejected=50351", line)
+        # A shut boot sends nothing, so it must not carry the token at all.
+        shut = m2_survey_trial.console_line(m2_survey_trial.TRIAL_UNSET, 126)
+        self.assertNotIn("errordata_if_rejected", shut)
+
     def test_a_shut_boot_and_a_broken_trial_carry_different_tokens(self):
         shut = m2_survey_trial.console_line(m2_survey_trial.TRIAL_UNSET, 126)
         broken = m2_survey_trial.refusal_line(126, "no_records")
