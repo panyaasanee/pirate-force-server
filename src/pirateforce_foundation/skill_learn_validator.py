@@ -20,11 +20,12 @@ WHAT THIS MODULE DOES NOT DO.
   LANE-DB's write zones respectively -- this module has no database
   connection, no store, no wire, no socket, same posture as
   `persistence_starting_skills.py`'s own "what this module does not do".
-* It does not spend or grant anything.  A `True` return means "the balance
-  covers the cost", not "the skill was learned" -- deducting the cost and
-  writing the granted skill id is a caller's job (a future learn-request
-  hookup chief would grant, the same shape `persistence_starting_skills`
-  already documents as pending for piece 5's other half).
+* It does not WRITE anything.  `skill_points_after_learning` (below) computes
+  the balance a caller WOULD deduct, but neither function touches a
+  database, a store or a wire -- writing the granted skill id and the new
+  balance is a caller's job (a future learn-request hookup chief would
+  grant, the same shape `persistence_starting_skills` already documents as
+  pending for piece 5's other half).
 * It does not guess a skill's cost.  An unknown `skill_id` propagates
   whatever `skill_catalog.skill_raw_context` raises (`KeyError`) rather
   than defaulting to "free" or "unaffordable" -- silently guessing either
@@ -39,6 +40,22 @@ WHAT THIS MODULE DOES NOT DO.
 ZERO PRODUCTION CALLERS, same posture as `skill_catalog`'s own accessors
 and `persistence_starting_skills.resolve_starting_skill_ids`: this is a
 read/compare, not a gate, until a learn-request hookup calls it.
+
+[UPDATE, this round]: `skill_points_after_learning` is the "spend" half
+`can_afford_to_learn`'s own docstring named as a caller's job -- pure
+arithmetic (`current_skill_points - cost`), same zero-DB posture.  It
+REFUSES rather than guesses on one point `can_afford_to_learn` never had
+to face: `skill_catalog.skill_point_cost_to_learn` returns the client's own
+`f_SP_LEVE1` column unmodified, and it is not always a whole number (id 111
+"VIP Strive Jump" costs 0.20000000298023224 -- see
+`tests/test_skill_catalog.py`).  The `skill_points` column this project's
+own schema commits to (`migrations/006_character_typed_attribute_columns
+.sql`) is `INTEGER`-typed and CHECKed as such, and nothing in this project
+has ruled on what an INTEGER balance does with a fractional spend (floor?
+ceiling? refuse the skill entirely? the column is wrong?) -- so this
+function refuses by name for any `skill_id` whose cost is not integral,
+rather than picking a rounding rule behind a caller's back.  All 7 of the
+other 8 starting-kit ids cost exactly `1.0` and are unaffected.
 """
 from __future__ import annotations
 
@@ -78,3 +95,40 @@ def can_afford_to_learn(current_skill_points: int, skill_id: int) -> bool:
         )
     cost = skill_catalog.skill_point_cost_to_learn(skill_id)
     return current_skill_points >= cost
+
+
+def skill_points_after_learning(current_skill_points: int, skill_id: int) -> int:
+    """The skill-point balance remaining after spending
+    `skill_catalog.skill_point_cost_to_learn(skill_id)` from
+    `current_skill_points` -- pure arithmetic, no database read, no
+    database write, no grant.
+
+    Raises the same errors `can_afford_to_learn` raises, for the same
+    reasons, on the same inputs (`TypeError` for a non-`int`/`bool`
+    balance, `SkillLearnValidatorError` for a negative balance, `KeyError`
+    for an unknown `skill_id`).  Additionally raises
+    `SkillLearnValidatorError` when `can_afford_to_learn(current_skill_points,
+    skill_id)` would be `False` -- spending more than the balance holds is
+    a caller bug this function refuses rather than returning a negative
+    result -- and when `skill_id`'s cost is not a whole number (see the
+    module docstring's [UPDATE, this round] paragraph: nothing has ruled on
+    how a fractional cost spends against the INTEGER `skill_points`
+    column, so this refuses by name rather than guessing floor/ceiling/
+    anything else).
+    """
+    if not can_afford_to_learn(current_skill_points, skill_id):
+        raise SkillLearnValidatorError(
+            "cannot spend: current_skill_points %r does not cover "
+            "skill_catalog.skill_point_cost_to_learn(%r) -- call "
+            "can_afford_to_learn first" % (current_skill_points, skill_id)
+        )
+    cost = skill_catalog.skill_point_cost_to_learn(skill_id)
+    if not cost.is_integer():
+        raise SkillLearnValidatorError(
+            "skill_id %r costs a fractional skill point (%r) -- this "
+            "project has not ruled on how a fractional cost spends "
+            "against the INTEGER skill_points column "
+            "(migrations/006_character_typed_attribute_columns.sql); "
+            "refusing rather than guessing a rounding rule" % (skill_id, cost)
+        )
+    return current_skill_points - int(cost)
