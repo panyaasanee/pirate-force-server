@@ -8,11 +8,11 @@ page	row	slug	option_radios	text_inputs	numeric_inputs	anchor_y_approx	label_sta
 1	7	p1r7_row_selector	0	1	0	645	TABLE_EXACT	1398	its text input is full panel width and sits on the line below the label
 2	1	p2r1_row_selector	0	1	0	368	TABLE_EXACT	1399	one text input
 2	2	p2r2_row_selector	0	1	0	408	TABLE_EXACT	1400	one text input
-2	3	p2r3_row_selector	2	1	1	448	TABLE_EXACT	1401	two paired option radios (left selected) reading block rows 1402 and 1404, one numeric with the thai unit suffix of block row 1406 captioned by block row 1405, one full width text input below
+2	3	p2r3_row_selector	2	1	1	448	TABLE_EXACT	1401	two paired option radios (left selected) reading block rows 1402 and 1404, one numeric with the thai unit suffix of block row 1406 captioned by block row 1405, one full width text input below whose caption is NOT accounted for by the run (1403 is the competing reading and is recorded as undrawn instead -- see UNDRAWN_BLOCK_ROWS)
 2	4	p2r4_row_selector	2	2	1	546	TABLE_EXACT	1407	two paired option radios (left selected) reading block rows 1408 and 1404, two labelled text inputs captioned by block rows 1409 and 1410, one numeric captioned by block row 1405 whose parenthesised unit suffix is block row 1411
 2	5	p2r5_row_selector	0	1	0	658	TABLE_EXACT	1412	one full width text input on the line below the label
 3	1	p3r1_row_selector	0	0	2	368	TABLE_EXACT	1892	the row label sits left of a numeric; block row 1893 is inline to its right as a second captioned numeric far right
 3	2	p3r2_row_selector	0	0	1	408	TABLE_EXACT	1894	label begins with the latin token BUFF then thai text, which is exactly what block row 1894 spells
-3	3	p3r3_row_selector	0	0	1	448	SCREENSHOT_ONLY	0	one numeric; the label is legible on the tab3 shot but matches NO row of any committed table, so it carries no block id
+3	3	p3r3_row_selector	0	0	1	448	TABLE_EXACT	1671	one numeric; caption sits 258 ids OUTSIDE the 1892-1896 run and was found by glyph shape and rendered width, not by adjacency -- the one row here whose id does not come from the run at all
 3	4	p3r4_row_selector	2	0	0	488	TABLE_EXACT	1895	two paired option radios, the left one selected; the two option texts are not in the block and were not read
-3	5	p3r5_row_selector	0	0	2	528	TABLE_EXACT	1896	one numeric, then a sub label on the line below with a second numeric; that sub label reads as table row 1371, which is OUTSIDE this block and is a generic caption reused all over the client
+3	5	p3r5_row_selector	0	0	2	528	TABLE_EXACT	1896	one numeric, then a sub label on the line below with a second numeric; that sub label reads as a generic enter-an-amount caption which the table carries at BOTH n_ID 114 and n_ID 1371, so no id is asserted for it

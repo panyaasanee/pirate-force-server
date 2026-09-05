@@ -64,21 +64,43 @@ this module's own guard exists to keep out.  Reading the 17 labels is one
 attended pass at the screen, and the letter this round sends asks for it as
 one `ATTENDED:` block rather than 17.~~
 
-SUPERSEDED, round `dl1etn`: the labels did not need the screen, and they did
-not need OCR either.  They are TEXT, in a table this house committed weeks
-ago -- `pf_bridge/gamedata/tables/TEXTDATA_TH__UI_MESSAGE.tsv` -- and the
-whole GMUI panel is one contiguous run of `n_ID` in it (see
+SUPERSEDED, round `dl1etn`: the labels are TEXT, in a table this house
+committed weeks ago -- `pf_bridge/gamedata/tables/TEXTDATA_TH__UI_MESSAGE.tsv`
+-- and most of the GMUI panel is a run of consecutive `n_ID` in it (see
 :data:`GMUI_LABEL_BLOCK_ROLES`).  `data/gmui_label_block.tsv` is that run,
 copied byte for byte the way `gm_tool_log_types.tsv` copies the GMTOOL
 table, and every censused row now carries the `n_ID` of its own label.
-What the screenshots are still doing is the part that matters: they are the
-INDEPENDENT half.  A run of adjacent strings in a text table is not by
-itself evidence that those strings are this window's widgets -- the reason
-to believe it is that the run's SHAPE and the panel's SHAPE agree row by
-row and cannot be made to agree any other way (2 option radios exactly
-where the run has two option strings, three axis captions exactly where the
-panel has three numeric boxes, a parenthesised minutes suffix exactly on
-the one row that draws one).  Neither half is the evidence; the join is.
+
+WHAT THAT JOIN IS WORTH, AND EXACTLY WHERE IT STOPS.  ~~The run's shape and
+the panel's shape agree row by row and cannot be made to agree any other
+way.~~  FALSE, and `pf-adversary` (round `dl1etn`, D2) broke it by
+construction rather than by argument: EIGHT of the seventeen rows carry the
+IDENTICAL shape triple `(0 radios, 1 text input, 0 numeric)` -- p1r3, p1r4,
+p1r5, p1r6, p1r7, p2r1, p2r2, p2r5 -- so shape cannot order them, and it
+produced a rotated assignment among them that passes every test in this
+module's suite.  (It counted seven; p1r3 has the same shape and is the one
+of the eight anchored by something else -- its caption starts with the
+latin token `NPC`.  Seven are left unordered by anything but the premise.)
+
+So the claim has to be stated with its load-bearing half showing:
+
+  * WHAT SHAPE PROVES: that this run, and no other run in the 188 committed
+    tables, is THIS WINDOW's.  That part is strong and survived the attack.
+    `X:` `Y:` `Z:` occur exactly once each in all 188 tables (1390/1391/1392)
+    and sit on the one row of three pages that draws three numeric boxes;
+    the parenthesised minutes suffix (1411) occurs exactly once and sits on
+    the one row that draws one; every row the run gives two option strings
+    to is a row the shots draw two radios on.
+  * WHAT SHAPE DOES NOT PROVE: which row inside the run is which.  That
+    rests entirely on :data:`ROW_ORDER_PREMISE` -- ascending `n_ID` is draw
+    order -- which is an ASSUMPTION, is not measured anywhere, and is
+    already known to be imperfect (1404 and 1405 are each consumed by two
+    different rows, which a strict draw-order sequence would not do).
+
+Do not read a row's `label_row_id` as a measured fact about that row.  Read
+it as: this window's caption set is known, and the assignment inside it is
+the ordering premise plus two rows that carry latin tokens (p1r3 `NPC`,
+p3r2 `BUFF`) which are independently checkable on the shots.
 
 THE ONE THING THE SCREENSHOTS AGREE ON AND STILL CANNOT SETTLE
 ---------------------------------------------------------------
@@ -93,9 +115,10 @@ reader who greps rather than reads still meets it.  The label block adds a
 CANDIDATE for what is not drawn there (`PAGE_1_GAP_CANDIDATE`) and does not
 settle it: exactly one string of the page-1 run has no widget, and it falls
 between the strings of row 5 and row 6.  That is a coincidence worth
-writing down and NOT a measurement -- see the constant for why the page-2
-run, which also has an undrawn string and no gap at all, is the reason this
-stays a candidate.
+writing down and NOT a measurement.  The first reason this lane gave for
+keeping it a candidate (page 2 has an undrawn string and no gap) was
+withdrawn in the same round after `pf-adversary` measured the axes -- read
+the constant, not this paragraph, for what replaced it.
 
 THE COUNT P-3 ASKED FOR
 =======================
@@ -143,7 +166,7 @@ SOURCE_SHA256 = "8ede7f80ebb0fee239bed31563ad570225785369cbadd81e5611aa6fc7ed120
 #: this constant in the same commit, which is the moment a reviewer gets to
 #: ask what it was read off.
 ROW_CENSUS_SHA256 = (
-    "dc77cd7e70297dfaaa1e39072668dacd1ff3c10d1e78dd1253b35ec72d741955"
+    "5d0382c1aeb962d08fc6ee09baa4846363317f4be2b3f9eb2113f3b4afcd74c2"
 )
 
 #: The committed client-observable evidence the census was read off, pinned
@@ -187,7 +210,7 @@ LABEL_SOURCE_TABLE_SHA256 = (
 #: sha256 of this package's copy of the GMUI slice of that table.  Checked
 #: at import time, same as `SOURCE_SHA256`.
 LABEL_BLOCK_SHA256 = (
-    "70a70fa0ffc8b9774a3e955433ff99a645a3f092f786ed2ec8a5891bc03e6a4f"
+    "6e86ea1107ab9408a11d874cc6d80aab3131e81bd1ce27f2cdbe410758c2992f"
 )
 
 #: What each `n_ID` in the copied block is, on the panel.  THIS DICT IS THE
@@ -224,6 +247,7 @@ GMUI_LABEL_BLOCK_ROLES = {
     1411: "page2.row4.duration_unit",
     1412: "page2.row5.label",
     1413: "action_button.all_pages",
+    1671: "page3.row3.label",
     1439: "page1.tab_title",
     1440: "page2.tab_title",
     1891: "page3.tab_title",
@@ -234,20 +258,46 @@ GMUI_LABEL_BLOCK_ROLES = {
     1896: "page3.row5.label",
 }
 
-#: The rows of the run that no widget on any of the four shots carries.
-#: Two of them, and they are the reason the gap argument below is a
-#: candidate and not a conclusion.
+#: THE ASSUMPTION THE ROW-BY-ROW ASSIGNMENT RESTS ON, named so it can be
+#: attacked instead of inherited.  Nothing in this package measures it.
+ROW_ORDER_PREMISE = (
+    "ascending n_ID inside the run is the order the client draws the rows.  "
+    "NOT MEASURED.  It is the only thing separating the seven rows that "
+    "share the shape (0 radios, 1 text input, 0 numeric), and it is already "
+    "imperfect: 1404 and 1405 are each consumed by two different rows, which "
+    "a strict draw-order sequence would not do.  An attended pass that reads "
+    "any ONE of p1r4/p1r5/p1r6/p1r7/p2r1/p2r2/p2r5 off the screen settles "
+    "far more than another table read can"
+)
+
+#: Rows of the run that no widget on any of the four shots carries.
+#: 1403 is the weaker of the two: it is a full row-caption-shaped sentence
+#: with the same grammar as 1401 and 1407, and page 2 row 3 draws a
+#: full-width text input whose caption this run does not otherwise account
+#: for -- so "1403 captions that input" is a live competing reading that
+#: this lane has NOT excluded.  Recorded here rather than buried, because
+#: calling it undrawn is a choice.
 UNDRAWN_BLOCK_ROWS = (1396, 1403)
 
 #: The one page-1 row the census cannot see, if the gap is a row at all.
-#: [LANE-GM HYPOTHESIS -- awaiting COO or an attended pass]  Why it is not
-#: more than that, stated here rather than left for a reader to notice: page
-#: 2's run ALSO carries an undrawn string (1403) and page 2 has NO gap of
-#: any size.  So an undrawn string demonstrably does not have to reserve
-#: layout space in this client, and "1396 is what is missing from the gap"
-#: is one story that fits, not the only one.  Settling it is still an
-#: attended question, which is why `total_is_confirmed_on_screen()` does not
-#: move.
+#: [LANE-GM HYPOTHESIS -- awaiting COO or an attended pass]
+#:
+#: ~~Why it is not more than that: page 2's run ALSO carries an undrawn
+#: string (1403) and page 2 has NO gap of any size, so an undrawn string
+#: demonstrably does not have to reserve layout space in this client.~~
+#: WITHDRAWN as stated -- `pf-adversary` (D8) measured the axes and the
+#: sentence crosses them: 1403 is claimed to be a radio OPTION, which would
+#: occupy horizontal flow inside a row, while the page-1 gap is a VERTICAL
+#: row slot (measured at exactly 2 x 40.0 px against a 40 px pitch, in both
+#: tab-1 shots).  Option radios are laid out left-anchored with no reserved
+#: horizontal slots, which is a real measurement and says nothing about
+#: whether an undrawn ROW reserves a vertical one.
+#:
+#: The conclusion is unchanged and now rests on the honest reason: nothing
+#: in any committed artifact says what an undrawn row does to this client's
+#: vertical layout, so 1396 is one story that fits and not the only one.
+#: Settling it is an attended question, which is why
+#: `total_is_confirmed_on_screen()` does not move.
 PAGE_1_GAP_CANDIDATE = 1396
 
 #: The one place the two tab-1 shots do not settle the count.  See the
@@ -464,8 +514,12 @@ FUNCTION_LABEL_FROM_TABLE = "label is client text table row"
 #: What the one row with no table row says.  Still not a name -- the shot
 #: shows Thai there and nothing this house committed spells it.
 FUNCTION_LABEL_SCREENSHOT_ONLY = (
-    "label visible on the GT-207 screenshots and absent from every committed "
-    "table"
+    "label visible on the GT-207 screenshots and not found in any committed "
+    "table by this lane -- NO ROW IS IN THIS STATE TODAY.  The one that was "
+    "(page 3 row 3) had its caption at n_ID 1671, 258 ids outside the run, "
+    "and this lane's search had only looked inside the run; `pf-adversary` "
+    "found it by rendered glyph width.  Treat this status as 'not found "
+    "YET', never as 'absent'"
 )
 
 
@@ -551,7 +605,16 @@ class RowCensusEntry:
     label_note: str
 
     @property
-    def label_is_unread(self) -> bool:
+    def label_has_no_table_row(self) -> bool:
+        """True when no committed table spells this row's caption.
+
+        ~~`label_is_unread`~~ -- renamed in round `dl1etn` after
+        `pf-adversary` (D9) showed the old name had inverted: the one row
+        that was `SCREENSHOT_ONLY` was the only row a human had actually
+        READ, and the sixteen it called read were the ones nobody had.
+        Zero rows are in this state today; the property and its status stay
+        because the next window censused this way will have some.
+        """
         return self.label_status != LABEL_STATUS_TABLE_EXACT
 
 
@@ -719,7 +782,7 @@ def _row_census_buttons() -> tuple[ButtonRow, ...]:
         )
         label = (
             FUNCTION_LABEL_SCREENSHOT_ONLY
-            if entry.label_is_unread
+            if entry.label_has_no_table_row
             else f"{FUNCTION_LABEL_FROM_TABLE} n_ID {entry.label_row_id}"
         )
         rows.append(
