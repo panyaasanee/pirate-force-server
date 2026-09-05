@@ -20,6 +20,7 @@ from .inventory import (
 )
 from .model import Character, Position
 from .persistence_ground_drops import GroundDropRow
+from .persistence_home_marker import HomeMarkerRow
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -2739,6 +2740,89 @@ class SQLiteStore:
                 (scene_fold,),
             ).fetchall()
         return tuple(GroundDropRow(*row) for row in rows)
+
+    def set_home_marker(
+        self, character_id: int, home_scene_id: int
+    ) -> HomeMarkerRow:
+        """Persist which scene is a character's "born again" home, and read
+        it straight back.
+
+        `migrations/013_character_home_marker.sql` gives the bare
+        `character_home_marker` table; this is the only thing in the
+        codebase that writes it, answering `notes_to_chief/
+        20260905_1154_COO-DECISION-db-takes-no-world-work-home-marker-
+        persistence-row-queued-after-1044-LANE-DB.md` point 3(b).
+
+        UPSERT, NOT INSERT-THEN-UPDATE.  A character may set home more than
+        once (that is the entire feature -- quest 3205 is a repeatable
+        choice, not a once-only birth fact), so this always writes the
+        CURRENT value and moves `updated_at`, whether or not a row already
+        existed.  `character_id` is the table's own `PRIMARY KEY`, so
+        `INSERT ... ON CONFLICT(character_id) DO UPDATE` is one statement,
+        not a read-then-branch this method would otherwise need to guard
+        against a second writer racing between the two halves.
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted -- the same check, and the same reason, `write_typed_
+        attributes` above already gives: a home marker for a character
+        this database does not have a live row for is not a fact this
+        door can hold, and writing one anyway would be exactly the kind
+        of orphaned row `COO-DECISION 20260901_1059` forbids.
+
+        `home_scene_id` shares `character_positions.scene_id`'s own range
+        (`0 <= home_scene_id <= 0xFFFF`) -- the same u16 wire range `save_
+        position` already checks, not a second space this door invents.
+        """
+        if isinstance(home_scene_id, bool) or not isinstance(home_scene_id, int):
+            raise TypeError("home_scene_id must be an int")
+        if not 0 <= home_scene_id <= 0xFFFF:
+            raise ValueError(
+                "home_scene_id %d is outside the u16 scene-id range"
+                % home_scene_id
+            )
+        updated_at = _now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            db.execute(
+                "INSERT INTO character_home_marker"
+                "(character_id,home_scene_id,updated_at) VALUES (?,?,?) "
+                "ON CONFLICT(character_id) DO UPDATE SET "
+                "home_scene_id=excluded.home_scene_id,"
+                "updated_at=excluded.updated_at",
+                (character_id, home_scene_id, updated_at),
+            )
+            after = db.execute(
+                "SELECT character_id,home_scene_id,updated_at "
+                "FROM character_home_marker WHERE character_id=?",
+                (character_id,),
+            ).fetchone()
+        return HomeMarkerRow(*after)
+
+    def get_home_marker(self, character_id: int) -> "HomeMarkerRow | None":
+        """The home marker row for one character, or `None` if it never set
+        one.
+
+        The read half of the door `set_home_marker` above writes.  `None`
+        is not an error -- it is the correct answer for every character
+        that predates `migrations/013_character_home_marker.sql`, and for
+        one that exists but has never chosen a home -- the caller (quest
+        3205's own dispatch) decides what "no home marker yet" means; this
+        door does not guess a default scene (see the migration's own
+        docstring for why).
+        """
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT character_id,home_scene_id,updated_at "
+                "FROM character_home_marker WHERE character_id=?",
+                (character_id,),
+            ).fetchone()
+        return HomeMarkerRow(*row) if row is not None else None
 
     def grant_starting_skills(
         self, character_id: int, skill_ids: "tuple[int, ...] | list[int]"
