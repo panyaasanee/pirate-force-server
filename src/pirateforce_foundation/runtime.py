@@ -5378,11 +5378,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # the bar still wipes the floor.  Split in two --
                         # the flag keeps the ask's scoping, this extend
                         # gives the ask's intent.
-                        actions.extend(
+                        companion = list(
                             mob_scene_recompose.ground_companion_actions(
                                 getattr(self, "mob_loot_cell", None),
                                 legacy,
                             )
+                        )
+                        actions.extend(companion)
+                        # The token ground_companion_actions prints fires on
+                        # COMPOSITION, and it prints even for a refusal.  This
+                        # event fires on the APPEND and carries the count, so
+                        # a paste that composes frames and then drops them (an
+                        # `actions` rebind, a bare call whose result is thrown
+                        # away) is distinguishable from a floor that was
+                        # genuinely bare -- the countermeasure the sibling
+                        # site at the CheckSecondPwdVital reannounce already
+                        # carries, reused here after pf-adversary measured a
+                        # bare-call mutant surviving the WHOLE suite on this
+                        # round's first commit.
+                        self.events.append(
+                            "ground_companion_after_bar_appended_%d"
+                            % len(companion)
                         )
             if step.death_due:
                 # attack_from_observed_action already matched ``target``
