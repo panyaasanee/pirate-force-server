@@ -41,7 +41,9 @@ that refusal rather than hiding it, and ``BootSnapshotProtects006Tests``
 asserts the protection that arriving wiring is supposed to give this file.
 """
 import ast
+import contextlib
 import gc
+import io
 import json
 import os
 import re
@@ -1072,6 +1074,28 @@ class ListCharacterIdsMissingClassIdTests(unittest.TestCase):
 
     def test_empty_database_reports_nothing(self):
         self.assertEqual(self.store.list_character_ids_missing_class_id(), ())
+
+    def test_a_database_missing_the_column_prints_the_skip_reason(self):
+        """`COO-DECISION 20260905_0250` / `FROM_CHIEF_R347` line 19-22: the
+        pre-006 guard below (added so a `--scene-load-scenario` boot that
+        never calls `migrate_with_backup()` returns an empty tuple instead
+        of crashing on `sqlite3.OperationalError: no such column: class_id`)
+        used to return that empty tuple silently -- an observability gap on
+        a database `app.py`'s non-migrating boot path can genuinely reach.
+        Captures real process stdout (`contextlib.redirect_stdout`), not a
+        mocked `print`, so this fails the same way a human tailing the boot
+        log would notice: the guard prints nothing today.
+        """
+        with self.store.connect() as db:
+            db.execute("ALTER TABLE characters DROP COLUMN class_id")
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            result = self.store.list_character_ids_missing_class_id()
+        self.assertEqual(result, ())
+        self.assertIn(
+            "CLASS_ID_BACKFILL_SKIPPED reason=schema_not_migrated",
+            captured.getvalue().splitlines(),
+        )
 
     def test_a_freshly_created_character_is_null_and_listed(self):
         character = self._make("a")
