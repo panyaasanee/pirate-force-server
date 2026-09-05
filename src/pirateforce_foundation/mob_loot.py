@@ -931,11 +931,19 @@ MOB_LOOT_NONCLAIMS = (
     "path, not a measurement, and 2200423 rolling again from scene 14 is "
     "the first case this lane can name where that expectation and a prior "
     "measurement would actually agree if it happened.",
-    "4. There is no pickup.  The only proven PickupTerrainThing producer is "
-    "client-outbound (GT-046) and its vital id is hash-DERIVED (0x4543), never "
-    "observed; the corpus holds zero frames of it in either direction.  Worse "
-    "for this lane: GT-060's precondition is a CLICKABLE drop object, and "
-    "GT-045 measured that there is no object to click.",
+    "4. ~~There is no pickup~~ IS STRUCK, and so is ~~GT-045 measured that "
+    "there is no object to click~~: GT-216 PASSED on the owner's screen "
+    "(R306, 10 clicks, 9 into the backpack) and R303 inserted 2 rows with "
+    "the client's own chat lines and a 5/40 bag to match.  The vital id is "
+    "hash-DERIVED (0x4543) and now OBSERVED on the wire (R303, 46 inbound "
+    "frames, 2 completed takes); the audit that produced the zero "
+    "(PF_FIELD_VALIDATION rows 102-103) does not cover those frames, and "
+    "which came first is not claimed.  WHAT THIS NONCLAIM STILL SAYS, "
+    "narrowed to what is true: THIS LANE does not do the pickup.  Nothing "
+    "here composes or answers a take; the take path that works is "
+    "mob_pickup_request's, and GT-060's own precondition is a CLICKABLE "
+    "drop object, which is a claim about the drop this lane composes and "
+    "not about pickup as such.",
     "5. Ownership is bookkeeping only.  killer_identity is recorded because "
     "the second half will need it; the element has no owner field, so nothing "
     "on the wire enforces who may take a drop.",

@@ -31,14 +31,22 @@ therefore cannot reach a player today, by design and by measurement.
     drop-object -- GT-046, letter pf_bridge/notes_to_chief/
     20260823_1435_GT046-PASS-outbound-mouseclick-runtime-drop-object.md);
     the only proven PRODUCER is client-outbound (a producer proof is not
-    a proof the message never travels the other way).  Only "no capture
-    frames" remains true --
-    the corpus still holds zero PickupTerrainThing frames in either
-    direction, and its runtime vital id stays hash-DERIVED (0x4543), never
-    observed.  PICKUP-LISTENER-001 (HYP-PF-036) now carries the opt-in
+    a proof the message never travels the other way).  ~~Only "no capture
+    frames" remains true~~ IS STRUCK: the PF_FIELD_VALIDATION audit (rows
+    102-103) that produced the zero does not cover R303's attended capture,
+    which holds 46 inbound frames of this vital and 2 completed takes; the
+    runtime vital id stays hash-DERIVED (0x4543).  Which came first is not
+    claimed -- no dating of those rows was found.
+    PICKUP-LISTENER-001 (HYP-PF-036) now carries the opt-in
     inbound decoder for that shape; monster-drop pickup may still ride the
-    undecoded ``FightingDrop*`` family instead (GT-046 job 6), so a roll
-    result still cannot reach a player through any proven loop today.
+    undecoded ``FightingDrop*`` family instead (GT-046 job 6).
+    ~~so a roll result still cannot reach a player through any proven
+    loop today~~ IS STRUCK TOO, and the correction is narrower than the
+    sentence it replaces: items DO reach a player's bag (GT-216 PASS on
+    screen, R306; R303 inserted 2 rows) -- what is unproven is that a
+    result THIS MODULE rolled is the item that arrives, because no measured
+    loop joins a roll to a take.  That is a gap in the join, not in the
+    delivery.
 
 PROVENANCE OF EVERY CLAIM THE CODE MAKES
 ----------------------------------------

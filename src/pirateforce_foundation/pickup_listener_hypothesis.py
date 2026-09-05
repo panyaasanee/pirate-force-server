@@ -44,13 +44,19 @@ this round and none exists where this was written:
 
 NONCLAIMS -- read these before using one symbol from this file
 --------------------------------------------------------------
-  * THE OPCODE IS DERIVED, NEVER OBSERVED ON ANY WIRE.  The runtime vital id
+  * THE OPCODE IS DERIVED, AND NOW OBSERVED ON THE WIRE (R303, 46 inbound
+    frames, 2 completed takes; COO-DECISION 20260905_0249 item 2 approved
+    this wording, item 1 closed GT-146 as covered by that capture).  The
+    runtime vital id
     lives in a .data slot (0x0108202C) that is ZERO on disk; 0x4543 (17731)
     comes from the validated project name-hash only
-    (pf_bridge/FACTPACK_L2_CLASSCENSUS001_20260820.tsv row 1003).  The
+    (pf_bridge/FACTPACK_L2_CLASSCENSUS001_20260820.tsv row 1003).  ~~The
     capture corpus contains ZERO PickupTerrainThing frames in either
     direction (pf_bridge/external/PF_FIELD_VALIDATION.tsv rows 102-103,
-    status NOT_OBSERVED).  If the real runtime id differs, this lane simply
+    status NOT_OBSERVED)~~ -- still true of that audit, and no longer the
+    whole evidence: R303 is an attended capture those rows do not cover.
+    WHICH CAME FIRST IS NOT CLAIMED: no dating of rows 102-103 was found in
+    either repository.  If the real runtime id differs, this lane simply
     never fires and the frame keeps the pre-existing unknown-opcode
     behavior recorded below -- an attended run under a WRONG derived opcode
     is still interpretable.
@@ -126,12 +132,13 @@ production_allowed = False
 # PF_SERIALIZER_FIELDS.tsv rows 859-862); carried as documentation-grade
 # constants and never dereferenced.
 #
-# DERIVED, NEVER OBSERVED: the runtime id slot 0x0108202C is zero on disk
-# and no capture holds this vital in either direction; 0x4543 is the
-# validated name-hash derivation only (FACTPACK_L2_CLASSCENSUS001 row 1003).
+# DERIVED, AND NOW OBSERVED ON THE WIRE: the runtime id slot 0x0108202C is
+# zero on disk and 0x4543 is the validated name-hash derivation
+# (FACTPACK_L2_CLASSCENSUS001 row 1003) -- and R303's attended capture holds
+# 46 inbound frames of it, 2 completed takes (COO-DECISION 20260905_0249).
 PICKUP_LISTENER_VITAL_ID = 0x4543
 PICKUP_LISTENER_VITAL_ID_PROVENANCE = (
-    "derived_from_name_hash_never_observed_on_wire"
+    "derived_from_name_hash_observed_on_wire_r303"
 )
 PICKUP_LISTENER_RUNTIME_ID_SLOT_VA = 0x0108202C     # zero on disk
 PICKUP_LISTENER_NAME_VA = 0xF3093C
@@ -145,8 +152,10 @@ PICKUP_LISTENER_SERIALIZER_SHA256 = (
 )
 
 # The per-vital u8 version byte accepted in the request envelope.  OUR
-# DESIGN, not a pin: every captured client request of other vitals carries 0
-# and no capture exists for this vital.  Stated in the docstring nonclaims.
+# DESIGN, not a pin: every captured client request of other vitals carries 0.
+# ~~"and no capture exists for this vital"~~ IS STRUCK (R303, 46 inbound
+# frames) -- what the version byte still lacks is a PIN, because R303 was not
+# read for it.  Stated in the docstring nonclaims.
 PICKUP_LISTENER_VITAL_VERSION = 0
 
 # The statically closed body geometry, exactly as the symmetric W/R rows
@@ -478,8 +487,8 @@ def _expected_probe() -> dict[str, Any]:
                     "pf_bridge/FACTPACK_L2_CLASSCENSUS001_20260820.tsv"
                 ),
                 "capture_status": (
-                    "not_observed_in_either_direction_"
-                    "pf_field_validation_rows_102_103"
+                    "observed_inbound_r303_46_frames_2_takes_"
+                    "corpus_rows_102_103_predate_it"
                 ),
                 "serializer_va": "0x005E5E30",
                 "serializer_len": PICKUP_LISTENER_SERIALIZER_LEN,
@@ -518,8 +527,8 @@ def _expected_probe() -> dict[str, Any]:
             "repeatable_per_session_no_reply_no_persisted_state_change",
         ],
         "nonclaims": [
-            "the_runtime_vital_id_which_is_hash_derived_never_observed",
-            "any_wire_observation_of_this_vital_in_either_direction",
+            "the_runtime_vital_id_beyond_the_hash_derivation_and_r303",
+            "any_wire_observation_of_this_vital_outbound",
             "any_meaning_for_object_ref_u32_beyond_the_gt046_source_proof",
             "any_meaning_for_opaque_u8",
             "any_pickup_rule_or_any_response_frame",
