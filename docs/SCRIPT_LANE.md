@@ -719,7 +719,7 @@ not own (LANE-A/LANE-CS territory), or `Quest.*` state (blocked).
 `Instance.*`'s 9 names, grepped fresh across the real 616-file corpus
 before writing a line of code (same discipline `456vso` used for
 `Trigger.*`), split the identical way: a PURE STATE MACHINE with no
-outbound frame and no cross-lane data (53 of 55 call sites, 96%) plus two
+outbound frame and no cross-lane data (52 of 55 call sites, 94.5%) plus two
 names whose ARGUMENT semantics are genuinely ambiguous from the corpus
 alone.
 
@@ -747,38 +747,48 @@ alone.
   own tally logic is namespace-agnostic already, so no second bug to fix
   here, only the frozenset to extend).
 
-**Real now (7 names, 53/55 call sites, 96%)**: `GetInstanceID` and its
+**Real now (7 names, 52/55 call sites, 94.5%)**: `GetInstanceID` and its
 shipped alternate-case alias `GetInstanceId` (1 call site,
 `t_indanix2_colct_ins.lua` -- same treatment `456vso` gave
 `GetTeiggerStatus`), `GetLastingTime`/`SetLastingTime`, `AddKeyEvent`/
 `RemoveKeyEvent`, `CallScoreCount`.  Corpus-grepped semantics, not invented:
 `GetInstanceID()` takes no argument in any of its 15 call sites and reads
 which instance the running script belongs to (compared against
-`Trigger.Var4`/`Var5` literals in `t_nex_t1_ins.lua`/`t_nex_msg_ins*.lua`
--- an instance ROUTING decision this lane does not make, just answers);
-`GetLastingTime()`/`SetLastingTime(n)` take zero/one argument in every call
-site (grepped, no exception); `AddKeyEvent(id)`/`RemoveKeyEvent(id)` always
-take exactly one argument (`Trigger.Var1`/`Var2`/`Var4` at every call
-site); `CallScoreCount()` is always a bare zero-argument statement whose
-return value no script reads.  `CallScoreCount`'s registry method counts
-INVOCATIONS, not a score (no score/reward table was found committed
-anywhere -- `gamedata/tables/` grepped this round for a column matching
-`score|Score`, no hit -- so the registry advances an int the same
+`Trigger.Var4`/`Var5` literals in `t_nex_t1_ins.lua`/`t_nex_msg_ins*.lua`,
+and against a bare literal in `t_bg2017_msg.lua` -- an instance ROUTING
+decision this lane does not make, just answers); `GetLastingTime()`/
+`SetLastingTime(n)` take zero/one argument in every call site (grepped, no
+exception; 7 of the `GetLastingTime()` sites branch on the value, e.g.
+`t_opnplc_tim.lua`: `local T = Instance.GetLastingTime(); if (T >
+Trigger.Var2) then return 0 else ... end`); `AddKeyEvent(id)`/
+`RemoveKeyEvent(id)` always take exactly one argument (`Trigger.Var1`/
+`Var2`/`Var4` at every call site); `CallScoreCount()` is always a bare
+zero-argument statement whose own return value no script reads.
+`CallScoreCount`'s registry method counts INVOCATIONS, not a score --
+a candidate reward table DOES exist
+(`gamedata/tables/CONSTDATA_TH__SCORECOUNT.tsv`'s `n_COLLECT_BONUS_SCORE`/
+rank-tiered reward columns, keyed from `CONSTDATA_TH__INSTANCE.tsv`'s
+`n_SCORECOUNT_ID`, found this round after pf-adversary caught the first
+draft claiming no such table existed), but tracing whether it resolves for
+any instance that actually runs a `CallScoreCount`-calling script is
+unstarted work, so this function still only advances an int the same
 "gone on reboot, no invented game rule" shape `TriggerStatusRegistry.
-next_status` already uses, and does not pretend to compute what score
-means for any given dungeon).
+next_status` already uses, and does not itself look up or apply that
+table.
 
-**Still stub (2 names, 3/55 call sites, 4%)**, named in
+**Still stub (2 names, 3/55 call sites, 5.5%)**, named in
 `lua_api.instance.STILL_STUBBED`: `AddBonusPoint` (called both
 `Instance.AddBonusPoint()` and `Instance.AddBonusPoint(Trigger.Var1)` in
 the corpus's only 2 call sites -- unclear whether the argument is a point
-value or a bonus-category id, no committed table maps it either way);
+value or a bonus-category id; the same `CONSTDATA_TH__SCORECOUNT.tsv`
+candidate table above is untraced for this name too);
 `AddBonusReward` (1 call site, zero arguments, gives an actual reward to
-instance participants -- needs a per-instance reward table this lane has
-not found committed anywhere, and item/currency composition crosses into
-inventory territory this lane does not own).  Both need an RE ticket before
-becoming real logic instead of a guess, per charter ("the original script
-is the spec, do not guess logic").
+instance participants -- the same candidate table is untraced for this name
+too, and item/currency composition crosses into inventory territory this
+lane does not own regardless).  Both need the SCORECOUNT trace above (or an
+RE ticket if the trace comes up ambiguous) before becoming real logic
+instead of a guess, per charter ("the original script is the spec, do not
+guess logic").
 
 **NOT done this round, said plainly.**  Nothing routes a live inbound frame
 to a specific running instance -- an `InstanceContext` is supplied by the
@@ -821,11 +831,63 @@ hand-counted.
 
 ### ADVERSARY
 
-Ordered at round start per the mandatory rule (`AGENTS.md` SS7). Result had
-not returned by push time -- `ADVERSARY_PENDING pf-force-server round
-4fxvsq` (see this round's own `pf_bridge` round file for the exact PR
-number); per the same rule this is pushed anyway, and the next LANE-Q round
-picks up the result as its own first job, before claiming anything new.
+Ordered at round start per the mandatory rule (`AGENTS.md` SS7), result
+returned before push. Independently re-ran the full suite in its own
+worktree (11671 passed / 323 skipped / 0 failed, matching this round's own
+run) and re-derived every measured claim rather than trusting this round's
+numbers. **4 real findings, all fixed before this round's commit:**
+
+1. **MEDIUM-HIGH, fixed**: the first draft's `CallScoreCount`/
+   `STILL_STUBBED["AddBonusReward"]` docstrings claimed "no reward/score
+   table has been found committed anywhere" -- false.
+   `gamedata/tables/CONSTDATA_TH__SCORECOUNT.tsv` exists (columns include
+   `n_COLLECT_BONUS_SCORE` and rank-tiered `n_RANKC_REWARD`..
+   `n_RANKSSS_REWARD`), and `CONSTDATA_TH__INSTANCE.tsv`'s own
+   `n_SCORECOUNT_ID` column keys into it -- a plain `grep -rliE score
+   gamedata/tables` (which this round's first draft did not run) surfaces
+   it immediately. Fixed: docstrings now name the table and its columns
+   precisely, and say plainly what is still untraced (whether the
+   instance rows that run the affected scripts actually resolve through
+   that column, and what `AddBonusPoint`'s one argument indexes) rather
+   than claiming the table does not exist.
+2. **MEDIUM, fixed**: `InstanceRegistry`'s class docstring claimed "no
+   script in the corpus checks a richer return value from any of these 7
+   names" -- false. 7 scripts branch on `GetLastingTime()`
+   (`t_opnplc_tim.lua`: `local T = Instance.GetLastingTime(); if (T >
+   Trigger.Var2) then return 0 else ... end`, and 6 more of the same
+   shape) and several branch on `GetInstanceID()` (`t_bg2017_msg.lua`:
+   `if (Instance.GetInstanceID() == 1005) then`). Fixed: docstring now
+   names the real comparisons and states precisely what still holds (every
+   `SetLastingTime` call site in the corpus passes a plain literal, so the
+   refusal path has no live trigger today) instead of the broader false
+   claim.
+3. **LOW, fixed**: "53 of 55 call sites (96%)" was arithmetically wrong.
+   Re-summed against `REAL_METHODS`/`api_spec.tsv`: 15+14+12+7+2+1+1 = 52
+   real, 2+1 = 3 stub, 55 total -- 52/55 (94.5%). Fixed everywhere this
+   round's own text repeated the number.
+4. **LOW, cosmetic, fixed**: `lua_api/__init__.py` still imported only
+   `.trigger` and said "every other namespace is still all-stub" -- stale
+   the moment this round's `instance.py` landed, even though
+   `script_host.py` imports the submodule directly and nothing was
+   functionally broken. Fixed: `__init__.py` now imports and lists
+   `instance` too.
+
+Verified as correct, not defects: `BASELINE_TOTAL_STUB_CALLS=5020` and the
+37-call breakdown (re-run independently, matched digit-for-digit);
+`AddBonusPoint`/`AddBonusReward`'s arity claims; no sandbox-escape reopened
+(same hardened `__getitem__`/`__setitem__`/`__slots__` shape as
+`trigger.py`); thread-safety (8 threads x 2000 calls each against
+`call_score_count`, exact count, no lost updates); `_coerce_int` edge
+cases; no regression to `Trigger`'s own wiring.
+
+**Open question the design has not answered** (adversary's own words,
+carried forward rather than silently dropped): has anyone actually traced
+whether `n_SCORECOUNT_ID` on the specific instance rows that run
+`t_insbospnt_himdfx.lua`/`t_insbosev_himdfx.lua`/
+`t_drp&insbospnt_himdfx.lua` resolves to a real `SCORECOUNT` row, or was
+this table simply never opened before the first draft wrote "no table
+found"? Not answered this round -- named as the concrete first step for
+whoever traces `AddBonusPoint`/`AddBonusReward` next.
 
 ### Nonclaims
 
@@ -835,22 +897,29 @@ picks up the result as its own first job, before claiming anything new.
    other lane's write zone -- confirmed unblocked-vs-blocked status is
    stated above with its own evidence, not assumed from a stale round file.
 3. Does not claim `AddBonusPoint`'s or `AddBonusReward`'s real-engine
-   semantics -- named as an open RE gap, not guessed either way.
+   semantics, and does not claim the candidate `CONSTDATA_TH__SCORECOUNT.tsv`
+   table (found this round, see ADVERSARY below) is definitely the right
+   one or definitely wired to these two names for any given instance --
+   named as an open trace, not guessed either way.
 4. `CallScoreCount`'s registry counts INVOCATIONS, not points or a score --
-   see the class docstring; a future round wiring a real score/reward table
-   is not blocked by this round's naming choice, since nothing here invents
-   a scoring rule to later contradict.
-5. Does not open a numbered RE ticket for `AddBonusPoint`/`AddBonusReward`
-   this round (RE runner time is scarce, per `AGENTS.md` SS7); named as
-   follow-up, not silently dropped.
+   see the class docstring; a future round tracing and wiring the candidate
+   reward table is not blocked by this round's naming choice, since nothing
+   here invents a scoring rule to later contradict.
+5. Does not trace `CONSTDATA_TH__INSTANCE.tsv`'s `n_SCORECOUNT_ID` column
+   against the actual instance rows that run `AddBonusPoint`/
+   `AddBonusReward`-calling scripts this round, and does not open a
+   numbered RE ticket for either name (RE runner time is scarce, per
+   `AGENTS.md` SS7); both named as follow-up, not silently dropped.
 6. `BASELINE_TOTAL_STUB_CALLS`'s new value (5020) reflects today's OTHER
    stub coverage as much as this round's own change, same caveat round
    `4jsydv` wrote for its own baseline move.
 
 ### Next round
 
-1. **First job**: check `ADVERSARY_PENDING` above for a result and act on
-   any real finding before claiming new work (`AGENTS.md` SS7).
+1. **First job, already done this round** (adversary's result returned
+   before push -- see ADVERSARY above): all 4 findings fixed in this same
+   commit, so the next round's first job is item 2 below, not re-reading a
+   pending result.
 2. Re-check the same three named blockers fresh (do not trust this round's
    file once it is more than one round old): chief's guard-exemption
    decision on `0209`/RE-number on `0155`
@@ -858,10 +927,14 @@ picks up the result as its own first job, before claiming anything new.
    `persistence_quest_state.py` landing on `main`
    (`git merge-base --is-ancestor`), `GetContactMode`'s RE ticket status.
    Whichever clears first is the next round's first real-API job.
-3. If all three stay blocked again: `AddBonusPoint`/`AddBonusReward` need
-   the same RE-ticket treatment as `Trigger.GetContactMode` (semantics
-   ambiguous from too few call sites) -- open one ticket covering both
-   (same reward-table question) if the RE-runner queue has room, per
+3. If all three stay blocked again: trace `CONSTDATA_TH__INSTANCE.tsv`'s
+   `n_SCORECOUNT_ID` column against the instance rows that actually run
+   `t_insbospnt_himdfx.lua`/`t_insbosev_himdfx.lua`/
+   `t_drp&insbospnt_himdfx.lua` (adversary's own closing question, not
+   answered this round) -- if it resolves cleanly to a real `SCORECOUNT`
+   row for those instances, `AddBonusPoint`/`AddBonusReward` may not need
+   an RE ticket at all; if it does not resolve cleanly, THAT is the
+   narrowed question an RE ticket should ask, per
    `AGENTS.md` SS7's one-ticket-per-machine-round-per-lane budget.
 4. Otherwise: re-audit the remaining stub surface for another pure-function
    candidate with no cross-lane dependency, using

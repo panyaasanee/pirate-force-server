@@ -10,13 +10,27 @@ guessing) shows the 9 names split the same way ``Trigger.*`` did:
     instance this script belongs to), ``GetLastingTime``/``SetLastingTime``
     (read/write a per-instance countdown), ``AddKeyEvent``/``RemoveKeyEvent``
     (add/remove an id from a per-instance set) and ``CallScoreCount`` (fire a
-    per-instance score-tally event) -- no outbound frame, no Quest state, no
-    reward table.  53 of 55 call sites (96%).  Nothing blocks these from
-    being real.
+    per-instance score-tally event) -- no outbound frame, no Quest state.
+    52 of 55 call sites (94.5%, re-derived against this file's own
+    ``REAL_METHODS``/``api_spec.tsv`` after pf-adversary caught the first
+    draft's arithmetic error, which had said 53/55/96%).  Nothing blocks
+    these from being real.
   * two names whose ARGUMENT semantics are genuinely ambiguous from the
     corpus alone -- ``AddBonusPoint``/``AddBonusReward`` -- kept as named
     stubs (see ``STILL_STUBBED``) rather than guessed, per charter ("the
-    original script is the spec -- do not guess logic").
+    original script is the spec -- do not guess logic").  A REWARD TABLE
+    DOES EXIST (pf-adversary caught this round's first draft claiming
+    otherwise): ``gamedata/tables/CONSTDATA_TH__INSTANCE.tsv``'s
+    ``n_SCORECOUNT_ID`` column keys into
+    ``gamedata/tables/CONSTDATA_TH__SCORECOUNT.tsv``'s
+    ``n_COLLECT_BONUS_SCORE``/``n_RANKC_REWARD``..``n_RANKSSS_REWARD``
+    columns.  What is NOT done -- tracing whether the specific instance
+    rows that run ``t_insbospnt_himdfx.lua``/``t_insbosev_himdfx.lua``/
+    ``t_drp&insbospnt_himdfx.lua`` actually resolve through that column to
+    a real ``SCORECOUNT`` row, and whether ``AddBonusPoint``'s one integer
+    argument means a rank/tier index into those reward columns or
+    something else -- is real, unfinished work, not an absent table; see
+    ``STILL_STUBBED`` below for the corrected claim.
 
 So this round makes the first seven real; the remaining two keep the exact
 ``ApiNamespaceStub`` contract (log ``LUA_API_STUB``, return
@@ -133,10 +147,22 @@ class InstanceRegistry:
     whatever the matching getter would already answer, the same posture
     ``lua_api.trigger.TriggerStatusRegistry`` takes and for the same reason:
     every existing stub in this codebase already collapses every failure
-    into one safe default, and no script in the corpus checks a richer
-    return value from any of these 7 names (grepped: every call site is a
-    bare statement or a plain ``local x = ...``, never a comparison against
-    a written value). The CONSTRUCTOR is not on that path and does raise
+    into one safe default.  CORRECTION (pf-adversary caught this round's
+    first draft claiming "no script in the corpus checks a richer return
+    value from any of these 7 names" -- false): 7 scripts DO branch on
+    ``GetLastingTime()`` (``t_opnplc_tim.lua``: ``local T =
+    Instance.GetLastingTime(); if (T > Trigger.Var2) then return 0 else
+    ... end``, and 6 more of the same shape) and several more branch on
+    ``GetInstanceID()`` (``t_bg2017_msg.lua``: ``if (Instance.GetInstanceID()
+    == 1005) then``).  What stays true, re-checked: every ``SetLastingTime``
+    call site in the real corpus passes a plain literal ``Trigger.VarN``
+    (grepped, arity 1 always), so the refusal path (a NaN/negative/
+    fractional/over-cap write silently reading back as "never written",
+    indistinguishable from 0) has no live trigger in today's corpus -- but
+    it is a real, load-bearing distinction a future or corrupted script
+    COULD hit, since scripts do read this value back and act on it, not a
+    theoretical worry a wrong docstring dismissed as impossible. The
+    CONSTRUCTOR is not on the script-reachable path and does raise
     ``ValueError`` on a non-positive cap, on purpose, the same as
     ``TriggerStatusRegistry.__init__`` -- a caller-programming-error door,
     not a script-reachable one.
@@ -209,15 +235,27 @@ class InstanceRegistry:
     def call_score_count(self, instance_id: Any) -> int:
         """Records one score-count call; returns the running tally.
 
-        This does NOT compute or know what "score" means for any dungeon --
-        no reward/score table has been found committed anywhere (grepped,
-        this round: ``gamedata/tables/`` has no column matching
-        ``score|Score`` keyed by instance). What is unambiguous from every
-        one of the 12 call sites is that the call happens and happens per
-        instance, a bare statement with no argument and no read of its
-        return value -- so this registry counts the INVOCATIONS, the same
-        "advance an int, gone on reboot" shape ``TriggerStatusRegistry.
-        next_status`` uses, and invents no scoring rule.
+        This does NOT compute or know what "score" means for any dungeon.
+        CORRECTION (pf-adversary caught this round's first draft claiming
+        "no reward/score table has been found committed anywhere" -- false):
+        ``gamedata/tables/CONSTDATA_TH__SCORECOUNT.tsv`` exists (columns
+        include ``n_COLLECT_BONUS_SCORE`` and rank-tiered
+        ``n_RANKC_REWARD``..``n_RANKSSS_REWARD``), and
+        ``CONSTDATA_TH__INSTANCE.tsv``'s own ``n_SCORECOUNT_ID`` column keys
+        into it.  What is still NOT done -- tracing that link for any of the
+        instances that actually run a ``CallScoreCount``-calling script, and
+        deciding whether "calling this API" should look up and apply that
+        row's reward, or whether the row only matters for
+        ``AddBonusPoint``/``AddBonusReward`` (which stay named stubs, see
+        ``STILL_STUBBED``) -- is real, unstarted work, not a guess this
+        function silently avoids.  What IS unambiguous from every one of the
+        12 ``CallScoreCount`` call sites themselves is that the call happens
+        per instance, a bare statement with no argument and no read of its
+        own return value -- so THIS function counts the INVOCATIONS, the
+        same "advance an int, gone on reboot" shape ``TriggerStatusRegistry.
+        next_status`` uses, and does not itself look up or apply the
+        SCORECOUNT table -- that is next round's work, not silently
+        invented here.
         """
         iid = _coerce_int(instance_id, _MAX_INSTANCE_ID)
         if iid is None:
@@ -282,18 +320,25 @@ STILL_STUBBED: dict[str, str] = {
         "argument semantics ambiguous from its two call sites in the corpus "
         "-- called both as `Instance.AddBonusPoint()` and "
         "`Instance.AddBonusPoint(Trigger.Var1)` -- unclear whether the "
-        "argument is a point value or a bonus-category id; no committed "
-        "table (`gamedata/tables/`, grepped) maps it either way -- needs an "
-        "RE ticket before this becomes real logic instead of a guess"
+        "argument is a point value or a bonus-category id.  CORRECTED, "
+        "pf-adversary: a candidate table DOES exist "
+        "(`gamedata/tables/CONSTDATA_TH__INSTANCE.tsv`'s `n_SCORECOUNT_ID` "
+        "column keys into `CONSTDATA_TH__SCORECOUNT.tsv`'s "
+        "`n_COLLECT_BONUS_SCORE`/rank-tiered reward columns) -- what is "
+        "still missing is tracing whether the instance rows that actually "
+        "run this API's own scripts resolve through that column, and "
+        "whether the argument indexes a rank tier in it; needs that trace "
+        "(or an RE ticket if the trace comes up ambiguous) before this "
+        "becomes real logic instead of a guess"
     ),
     "AddBonusReward": (
         "gives an actual reward to instance participants with no argument "
-        "at all in its one call site -- the reward composition needs a "
-        "per-instance reward table this lane has not found committed "
-        "anywhere, and handing out an item crosses into inventory territory "
-        "this lane does not own -- needs the same reward-table RE ticket as "
-        "AddBonusPoint plus a Player.AddItem-shaped door before this is "
-        "more than a guess"
+        "at all in its one call site.  Same candidate table as "
+        "AddBonusPoint above (`CONSTDATA_TH__SCORECOUNT.tsv`'s rank-tiered "
+        "`n_RANKC_REWARD`..`n_RANKSSS_REWARD` columns) -- untraced for the "
+        "same reason, and handing out an item still crosses into inventory "
+        "territory this lane does not own, needing a Player.AddItem-shaped "
+        "door on top of the trace before this is more than a guess"
     ),
 }
 
