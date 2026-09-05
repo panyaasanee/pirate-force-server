@@ -2654,8 +2654,21 @@ def commit_death(
     try:
         from . import lane_hooks
 
+        # A STRING LITERAL AND NOT :data:`MOB_DEATH_LANE_HOOK_POINT`, which
+        # is the opposite of what a reader would expect and is not a slip.
+        # ``gm/lane_gate_name_audit.py`` grades every hook point in this tree
+        # BY READING THE SOURCE, and a point name that is a Name node makes
+        # "does anything fire this point?" unanswerable for the WHOLE tree --
+        # it returns FINDING_UNDECIDABLE_DYNAMIC_POINT alongside every other
+        # finding, which is how the first version of this line was caught,
+        # by the gate rehearsal and not by review.  So the literal lives
+        # here where a scanner can read it, the constant exists for the
+        # modules that REGISTER (they may import a value rather than copy a
+        # literal a typo turns into silence), and
+        # ``tests/test_mob_death_lane_hook_point.py`` pins the two together
+        # so they cannot drift apart in silence.
         lane_hooks.fire(
-            MOB_DEATH_LANE_HOOK_POINT,
+            "mob_death",
             mob_id=step.record.actor_identity,
             scene_id=step.record.scene,
             killer_actor_identity=step.record.killer_identity,

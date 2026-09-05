@@ -25,6 +25,7 @@ tests prove the door opens and closes correctly; they do not claim anyone has
 walked through it.
 """
 
+import ast
 import contextlib
 import io
 import sys
@@ -268,6 +269,35 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
         self.assertEqual(
             mob_death.MOB_DEATH_LANE_HOOK_ARGUMENTS,
             ("mob_id", "scene_id", "killer_actor_identity"))
+
+    def test_the_literal_at_the_call_site_is_the_constant_lanes_import(self):
+        # THE ONE PLACE THIS FEATURE CAN DRIFT IN SILENCE.  The call site has
+        # to pass a string LITERAL -- ``gm/lane_gate_name_audit.py`` grades
+        # every hook point in this tree by reading the source, and a Name
+        # node there makes "does anything fire this point?" unanswerable for
+        # every point in the tree, not only this one (the gate rehearsal
+        # caught exactly that on this round's first draft).  A registering
+        # lane, meanwhile, is told to import the constant.  So two spellings
+        # of one name exist on purpose, and nothing but this test stops one
+        # of them from being edited alone -- after which LANE-Q's hook would
+        # register on a point nothing fires, with no error anywhere.
+        source = (ROOT / "src/pirateforce_foundation/mob_death.py").read_text(
+            encoding="utf-8")
+        tree = ast.parse(source)
+        fired = [
+            node.args[0].value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "fire"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ]
+        self.assertEqual(
+            fired, [mob_death.MOB_DEATH_LANE_HOOK_POINT],
+            "the literal fired and the constant lanes register on have "
+            "drifted apart")
 
     def test_the_module_does_not_claim_a_quest_counts_anything(self):
         joined = " ".join(mob_death.MOB_DEATH_NONCLAIMS)
