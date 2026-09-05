@@ -242,5 +242,68 @@ class InputValidationRefusesBeforeAnySQLTests(_Workspace):
         self.assertEqual(result.home_scene_id, 0xFFFF)
 
 
+class SelectCharacterHonoringHomeMarkerTests(_Workspace):
+    """`select_character_honoring_home_marker` -- `COO-DECISION
+    20260905_1946` item 1, option (a) of `pf_bridge/notes_to_chief/
+    20260905_1606_LANE-DB-REPLY-*`.  `select_character` itself is asserted
+    untouched throughout: every case below also calls it directly and
+    checks it still returns the raw, un-swapped row.
+    """
+
+    def _character_and_session(self, tag):
+        character = self.store.create_character(
+            self.account_id, f"HMH{tag}", f"hmh{tag}",
+            f"fingerprint-hmh-{tag}", _build_wire, self.home,
+        )
+        sid = self.store.open_session(self.account_id)
+        return character, sid
+
+    def test_no_home_marker_is_byte_for_byte_what_select_character_returns(self):
+        character, sid = self._character_and_session("A")
+        plain = self.store.select_character(sid, character.selector)
+        honoring = self.store.select_character_honoring_home_marker(
+            sid, character.selector)
+        self.assertEqual(honoring, plain)
+
+    def test_home_marker_naming_the_current_scene_changes_nothing(self):
+        character, sid = self._character_and_session("B")
+        self.store.set_home_marker(character.id, self.home.scene_id)
+        plain = self.store.select_character(sid, character.selector)
+        honoring = self.store.select_character_honoring_home_marker(
+            sid, character.selector)
+        self.assertEqual(honoring, plain)
+
+    def test_home_marker_naming_another_scene_swaps_only_scene_id(self):
+        character, sid = self._character_and_session("C")
+        self.store.set_home_marker(character.id, 3)
+        plain = self.store.select_character(sid, character.selector)
+        honoring = self.store.select_character_honoring_home_marker(
+            sid, character.selector)
+        self.assertEqual(honoring.position.scene_id, 3)
+        self.assertEqual(honoring.position.scene_seq, plain.position.scene_seq)
+        self.assertEqual(honoring.position.x, plain.position.x)
+        self.assertEqual(honoring.position.y, plain.position.y)
+        self.assertEqual(honoring.position.z, plain.position.z)
+        self.assertEqual(honoring.position.heading, plain.position.heading)
+        self.assertEqual(honoring.id, plain.id)
+        self.assertEqual(honoring.name, plain.name)
+        self.assertEqual(honoring.account_id, plain.account_id)
+        self.assertEqual(honoring.selector, plain.selector)
+
+    def test_select_character_itself_still_returns_the_raw_scene_id(self):
+        """The one thing this whole feature is not allowed to touch."""
+        character, sid = self._character_and_session("D")
+        self.store.set_home_marker(character.id, 5)
+        plain = self.store.select_character(sid, character.selector)
+        self.assertEqual(plain.position.scene_id, self.home.scene_id)
+
+    def test_an_unknown_selector_raises_keyerror_same_as_select_character(self):
+        sid = self.store.open_session(self.account_id)
+        with self.assertRaises(KeyError):
+            self.store.select_character(sid, 999)
+        with self.assertRaises(KeyError):
+            self.store.select_character_honoring_home_marker(sid, 999)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
