@@ -201,32 +201,47 @@ class RowCensusTests(unittest.TestCase):
             self.assertIsNone(row.handler_symbol, row.button)
             self.assertFalse(row.server_answers_today, row.button)
 
-    def test_fifteen_labels_are_unread_and_the_other_two_are_only_partial(self):
-        unread = [entry for entry in ROW_CENSUS if entry.label_is_unread]
-        partial = [
-            entry
-            for entry in ROW_CENSUS
-            if entry.label_status == gmui_catalog.LABEL_STATUS_LATIN_PARTIAL
+    def test_every_caption_now_comes_from_the_table(self):
+        # Round `dl1etn` replaced UNREAD/LATIN_PARTIAL: the captions were
+        # never a squinting problem, they were text in a committed table.
+        # It then shipped ONE row as "absent from every committed table"
+        # and pf-adversary found that caption at n_ID 1671 -- outside the
+        # run, which is the only place this lane had looked.  So the count
+        # is 17/17 and the status that was wrong keeps its guards.
+        no_table_row = [
+            entry for entry in ROW_CENSUS if entry.label_has_no_table_row
         ]
-        self.assertEqual(len(unread), 15)
-        self.assertEqual(len(partial), 2)
-        # And a partial row must SAY it is partial where a human reads it,
-        # not quietly borrow the unread wording.
-        for entry in partial:
+        from_table = list(gmui_catalog.rows_with_a_read_label())
+        self.assertEqual(gmui_catalog.labels_are_read(), (17, 17))
+        self.assertEqual(len(from_table), 17)
+        self.assertEqual(no_table_row, [])
+        for entry in from_table:
             row = next(row for row in BUTTONS if row.button == entry.slug)
-            self.assertIn(gmui_catalog.FUNCTION_LABEL_PARTIAL, row.function)
+            self.assertIn(gmui_catalog.FUNCTION_LABEL_FROM_TABLE, row.function)
+            self.assertIn(str(entry.label_row_id), row.function)
+
+    def test_a_read_label_never_leaks_the_words_into_a_function_string(self):
+        # A `function` string that carried the Thai would let a round file
+        # quote a caption without ever joining it to a row id -- which is
+        # the whole evidence chain this round bought.
+        for entry in gmui_catalog.rows_with_a_read_label():
+            row = next(row for row in BUTTONS if row.button == entry.slug)
+            self.assertNotIn(
+                gmui_catalog.label_text(entry.label_row_id), row.function
+            )
 
     def test_an_unknown_label_status_is_refused(self):
         with self.assertRaises(GmuiCatalogError) as caught:
             gmui_catalog._parse_census_line(
-                "1\t1\tp1r1_row_selector\t0\t0\t0\t365\tREAD\tinvented"
+                "1\t1\tp1r1_row_selector\t0\t0\t0\t365\tREAD\t1386\tinvented"
             )
         self.assertIn("label_status", str(caught.exception))
 
     def test_a_row_naming_a_page_that_does_not_exist_is_refused(self):
         with self.assertRaises(GmuiCatalogError) as caught:
             gmui_catalog._parse_census_line(
-                "4\t1\tp4r1_row_selector\t0\t0\t0\t365\tUNREAD\tinvented"
+                "4\t1\tp4r1_row_selector\t0\t0\t0\t365\t"
+                "SCREENSHOT_ONLY\t0\tinvented"
             )
         self.assertIn("page 4", str(caught.exception))
 
@@ -332,6 +347,246 @@ class ButtonGuardTests(unittest.TestCase):
         )
         assert_backed(row)
         self.assertFalse(row.server_answers_today)
+
+
+class LabelBlockTests(unittest.TestCase):
+    """The captions, and the guards that stop a plausible id becoming one.
+
+    The claim these cards hold up is NOT "adjacent ids in a text table are
+    this window's labels" -- that on its own is worth nothing.  It is that
+    the run's shape and the panel's shape agree row by row, which is a thing
+    a test can actually check.
+    """
+
+    def test_the_copy_matches_its_pinned_sha(self):
+        raw = (
+            ROOT
+            / "src/pirateforce_foundation/gm/data/gmui_label_block.tsv"
+        ).read_bytes()
+        self.assertEqual(
+            hashlib.sha256(raw).hexdigest(), gmui_catalog.LABEL_BLOCK_SHA256
+        )
+
+    def test_the_block_is_two_runs_plus_four_strays_not_one_run(self):
+        # pf-adversary (D4) was right that "one contiguous run" is false and
+        # this card used to hide it behind its own name.  Stated properly:
+        # two runs, three tab titles 26 and 451 ids away, and one row
+        # caption (1671) 258 ids away.  The panel is NOT one block, and
+        # anything that reasons from adjacency alone is reasoning from a
+        # premise this card refutes.
+        rows = sorted(gmui_catalog.LABEL_BLOCK)
+        page_1_2 = [n for n in rows if 1386 <= n <= 1413]
+        page_3 = [n for n in rows if 1892 <= n <= 1896]
+        self.assertEqual(page_1_2, list(range(1386, 1414)))
+        self.assertEqual(page_3, list(range(1892, 1897)))
+        strays = sorted(set(rows) - set(page_1_2) - set(page_3))
+        self.assertEqual(strays, [1439, 1440, 1671, 1891])
+        self.assertEqual(
+            sorted(gmui_catalog.PAGE_TITLE_ROW_IDS), [1439, 1440, 1891]
+        )
+
+    def test_every_censused_row_points_at_its_own_caption(self):
+        for entry in gmui_catalog.rows_with_a_read_label():
+            with self.subTest(slug=entry.slug):
+                self.assertEqual(
+                    gmui_catalog.GMUI_LABEL_BLOCK_ROLES[entry.label_row_id],
+                    f"page{entry.page}.row{entry.row}.label",
+                )
+
+    def test_every_shape_number_is_pinned_not_just_the_four_the_run_joins(
+        self,
+    ):
+        # pf-adversary (D3) mutated p3r4's radio count 2->9, p3r1's numeric
+        # count 2->42 and p2r3's text count 1->0, re-pinned the sha, and the
+        # whole suite stayed green: only 4 of the 51 shape numbers were
+        # joined to anything.  The join CANNOT cover the rest (page 3 row 4
+        # draws radios the run has no option strings for), so the remaining
+        # 47 are pinned here instead -- read off the GT-207 shots, and a
+        # later re-read has to edit this table in the same commit.
+        expected = {
+            "p1r1_row_selector": (2, 0, 0),
+            "p1r2_row_selector": (0, 1, 3),
+            "p1r3_row_selector": (0, 1, 0),
+            "p1r4_row_selector": (0, 1, 0),
+            "p1r5_row_selector": (0, 1, 0),
+            "p1r6_row_selector": (0, 1, 0),
+            "p1r7_row_selector": (0, 1, 0),
+            "p2r1_row_selector": (0, 1, 0),
+            "p2r2_row_selector": (0, 1, 0),
+            "p2r3_row_selector": (2, 1, 1),
+            "p2r4_row_selector": (2, 2, 1),
+            "p2r5_row_selector": (0, 1, 0),
+            "p3r1_row_selector": (0, 0, 2),
+            "p3r2_row_selector": (0, 0, 1),
+            "p3r3_row_selector": (0, 0, 1),
+            "p3r4_row_selector": (2, 0, 0),
+            "p3r5_row_selector": (0, 0, 2),
+        }
+        actual = {
+            entry.slug: (
+                entry.option_radios,
+                entry.text_inputs,
+                entry.numeric_inputs,
+            )
+            for entry in ROW_CENSUS
+        }
+        self.assertEqual(actual, expected)
+
+    def test_seven_rows_share_a_shape_so_shape_cannot_order_them(self):
+        # The defect that killed "cannot be joined any other way" (D2), kept
+        # as a card so nobody restores that sentence: these seven rows are
+        # indistinguishable by shape, and only ROW_ORDER_PREMISE separates
+        # them.  If a later round ever makes them distinguishable, this card
+        # goes red and the premise can be weakened honestly.
+        shapes = {}
+        for entry in ROW_CENSUS:
+            key = (entry.option_radios, entry.text_inputs, entry.numeric_inputs)
+            shapes.setdefault(key, []).append(entry.slug)
+        # EIGHT rows, not the seven pf-adversary counted -- p1r3 has the
+        # same shape and was missed on both sides.  It is the one of the
+        # eight that IS anchored independently (its caption starts with the
+        # latin token NPC and 1393 is the only NPC-prefixed row in the run),
+        # which leaves seven genuinely unordered by anything but the premise.
+        self.assertEqual(
+            sorted(shapes[(0, 1, 0)]),
+            [
+                "p1r3_row_selector",
+                "p1r4_row_selector",
+                "p1r5_row_selector",
+                "p1r6_row_selector",
+                "p1r7_row_selector",
+                "p2r1_row_selector",
+                "p2r2_row_selector",
+                "p2r5_row_selector",
+            ],
+        )
+        self.assertIn("NOT MEASURED", gmui_catalog.ROW_ORDER_PREMISE)
+
+    def test_the_ordering_premise_admits_the_rows_that_break_it(self):
+        # 1404 and 1405 are each consumed by two rows.  A strict draw-order
+        # sequence would not do that, and the premise has to say so where a
+        # reader meets it rather than in a round file nobody re-reads.
+        reused = [
+            row_id
+            for row_id, role in gmui_catalog.GMUI_LABEL_BLOCK_ROLES.items()
+            if "+" in role
+        ]
+        self.assertEqual(sorted(reused), [1404, 1405])
+        for row_id in reused:
+            self.assertIn(str(row_id), gmui_catalog.ROW_ORDER_PREMISE)
+
+    def test_one_caption_comes_from_outside_the_run(self):
+        # p3r3's caption (1671) is 258 ids away.  It is the standing
+        # counter-example to "the panel is one contiguous run", and the
+        # reason FUNCTION_LABEL_SCREENSHOT_ONLY now says "not found YET".
+        entry = next(
+            row for row in ROW_CENSUS if row.slug == "p3r3_row_selector"
+        )
+        self.assertEqual(entry.label_row_id, 1671)
+        self.assertNotIn(1671, range(1386, 1414))
+        self.assertNotIn(1671, range(1892, 1897))
+        self.assertIn("not found", gmui_catalog.FUNCTION_LABEL_SCREENSHOT_ONLY)
+
+    def test_the_shapes_agree_where_the_run_says_they_must(self):
+        # This is the corroboration the whole mapping rests on: a row the
+        # run gives option strings to is a row the photograph shows radios
+        # on, and a row it gives none to is a row with none.
+        by_slug = {entry.slug: entry for entry in ROW_CENSUS}
+        option_rows: dict[str, int] = {}
+        for row_id, role in gmui_catalog.GMUI_LABEL_BLOCK_ROLES.items():
+            del row_id
+            for part in role.split("+"):
+                head, _, tail = part.rpartition(".")
+                if tail.startswith("option_"):
+                    option_rows[head] = option_rows.get(head, 0) + 1
+        for anchor, count in option_rows.items():
+            page, row = anchor.split(".")
+            slug = f"p{page[-1]}r{row[-1]}_row_selector"
+            with self.subTest(anchor=anchor):
+                self.assertEqual(by_slug[slug].option_radios, count)
+        # Page 1 row 2 is the strongest single agreement in the set: three
+        # axis captions in the run, three numeric boxes on the shot.
+        axes = [
+            role
+            for role in gmui_catalog.GMUI_LABEL_BLOCK_ROLES.values()
+            if role.startswith("page1.row2.axis_")
+        ]
+        self.assertEqual(len(axes), 3)
+        self.assertEqual(by_slug["p1r2_row_selector"].numeric_inputs, 3)
+
+    def test_the_undrawn_rows_are_named_and_the_gap_stays_a_candidate(self):
+        self.assertEqual(gmui_catalog.UNDRAWN_BLOCK_ROWS, (1396, 1403))
+        self.assertIn(
+            gmui_catalog.PAGE_1_GAP_CANDIDATE, gmui_catalog.UNDRAWN_BLOCK_ROWS
+        )
+        # The candidate must not be allowed to turn into a measurement by
+        # accident: page 2 has an undrawn string and no gap, so an undrawn
+        # string does not reserve space, and the count stays unconfirmed.
+        self.assertFalse(gmui_catalog.total_is_confirmed_on_screen())
+        for row_id in gmui_catalog.UNDRAWN_BLOCK_ROWS:
+            self.assertEqual(
+                gmui_catalog.GMUI_LABEL_BLOCK_ROLES[row_id], "undrawn"
+            )
+            self.assertNotIn(
+                row_id, [entry.label_row_id for entry in ROW_CENSUS]
+            )
+
+    def test_a_census_row_may_not_point_at_a_non_caption(self):
+        # 1387 is an option text, not a caption.  Pointing a row at it is
+        # exactly how a mapping quietly becomes wrong by one.
+        with self.assertRaises(GmuiCatalogError) as caught:
+            gmui_catalog._parse_census_line(
+                "1\t1\tp1r1_row_selector\t2\t0\t0\t365\t"
+                "TABLE_EXACT\t1387\tinvented"
+            )
+        self.assertIn("1387", str(caught.exception))
+
+    def test_a_census_row_may_not_point_at_another_rows_caption(self):
+        with self.assertRaises(GmuiCatalogError) as caught:
+            gmui_catalog._parse_census_line(
+                "1\t1\tp1r1_row_selector\t2\t0\t0\t365\t"
+                "TABLE_EXACT\t1389\tinvented"
+            )
+        self.assertIn("page1.row1.label", str(caught.exception))
+
+    def test_a_screenshot_only_row_may_not_carry_a_row_id(self):
+        with self.assertRaises(GmuiCatalogError) as caught:
+            gmui_catalog._parse_census_line(
+                "3\t3\tp3r3_row_selector\t0\t0\t1\t448\t"
+                "SCREENSHOT_ONLY\t1671\tinvented"
+            )
+        self.assertIn("1671", str(caught.exception))
+
+    def test_label_text_refuses_an_id_the_block_does_not_carry(self):
+        with self.assertRaises(GmuiCatalogError):
+            gmui_catalog.label_text(1)
+
+    def test_reading_a_label_is_not_answering_a_button(self):
+        # The one number P-3 is graded on must not move because captions
+        # were read.  16 of 17 labels, 0 of 17 handlers.
+        self.assertEqual(gmui_catalog.labels_are_read(), (17, 17))
+        self.assertEqual(progress(), (0, 17))
+
+    def test_the_page_2_caption_is_flagged_as_not_describing_page_2(self):
+        titles = gmui_catalog.page_titles()
+        self.assertEqual(
+            [row_id for row_id, _ in titles],
+            list(gmui_catalog.PAGE_TITLE_ROW_IDS),
+        )
+        self.assertIn("1440", gmui_catalog.PAGE_2_TITLE_DOES_NOT_MATCH_ITS_CONTENT)
+        self.assertIn(
+            "never the tab title",
+            gmui_catalog.PAGE_2_TITLE_DOES_NOT_MATCH_ITS_CONTENT,
+        )
+
+    def test_a_tab_title_is_not_a_model_name(self):
+        # `PAGES` are model names (one known, two placeholders) and the
+        # titles are what a human reads on the strip.  Collapsing the two
+        # would let a round claim the other two models are named now.
+        for _, words in gmui_catalog.page_titles():
+            self.assertNotIn(words, PAGES)
+        self.assertEqual(PAGES[1], gmui_catalog.PAGE_UNNAMED_2)
+        self.assertEqual(PAGES[2], gmui_catalog.PAGE_UNNAMED_3)
 
 
 if __name__ == "__main__":  # pragma: no cover

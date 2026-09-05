@@ -56,13 +56,51 @@ So the census reads off exactly the two things a photograph can carry:
   * the SHAPE of each row (how many paired option radios, text inputs and
     numeric inputs sit on it).
 
-It does NOT read the labels.  Every row's `label_status` is `UNREAD` except
-two that begin with a latin token (`NPC` on page 1 row 3, `BUFF` on page 3
-row 2); the Thai is legible as Thai at this resolution but NOT reliably
-legible as specific words, and a guessed label is exactly the row this
-module's own guard exists to keep out.  Reading the 17 labels is one
+~~It does NOT read the labels.  Every row's `label_status` is `UNREAD`
+except two that begin with a latin token (`NPC` on page 1 row 3, `BUFF` on
+page 3 row 2); the Thai is legible as Thai at this resolution but NOT
+reliably legible as specific words, and a guessed label is exactly the row
+this module's own guard exists to keep out.  Reading the 17 labels is one
 attended pass at the screen, and the letter this round sends asks for it as
-one `ATTENDED:` block rather than 17.
+one `ATTENDED:` block rather than 17.~~
+
+SUPERSEDED, round `dl1etn`: the labels are TEXT, in a table this house
+committed weeks ago -- `pf_bridge/gamedata/tables/TEXTDATA_TH__UI_MESSAGE.tsv`
+-- and most of the GMUI panel is a run of consecutive `n_ID` in it (see
+:data:`GMUI_LABEL_BLOCK_ROLES`).  `data/gmui_label_block.tsv` is that run,
+copied byte for byte the way `gm_tool_log_types.tsv` copies the GMTOOL
+table, and every censused row now carries the `n_ID` of its own label.
+
+WHAT THAT JOIN IS WORTH, AND EXACTLY WHERE IT STOPS.  ~~The run's shape and
+the panel's shape agree row by row and cannot be made to agree any other
+way.~~  FALSE, and `pf-adversary` (round `dl1etn`, D2) broke it by
+construction rather than by argument: EIGHT of the seventeen rows carry the
+IDENTICAL shape triple `(0 radios, 1 text input, 0 numeric)` -- p1r3, p1r4,
+p1r5, p1r6, p1r7, p2r1, p2r2, p2r5 -- so shape cannot order them, and it
+produced a rotated assignment among them that passes every test in this
+module's suite.  (It counted seven; p1r3 has the same shape and is the one
+of the eight anchored by something else -- its caption starts with the
+latin token `NPC`.  Seven are left unordered by anything but the premise.)
+
+So the claim has to be stated with its load-bearing half showing:
+
+  * WHAT SHAPE PROVES: that this run, and no other run in the 188 committed
+    tables, is THIS WINDOW's.  That part is strong and survived the attack.
+    `X:` `Y:` `Z:` occur exactly once each in all 188 tables (1390/1391/1392)
+    and sit on the one row of three pages that draws three numeric boxes;
+    the parenthesised minutes suffix (1411) occurs exactly once and sits on
+    the one row that draws one; every row the run gives two option strings
+    to is a row the shots draw two radios on.
+  * WHAT SHAPE DOES NOT PROVE: which row inside the run is which.  That
+    rests entirely on :data:`ROW_ORDER_PREMISE` -- ascending `n_ID` is draw
+    order -- which is an ASSUMPTION, is not measured anywhere, and is
+    already known to be imperfect (1404 and 1405 are each consumed by two
+    different rows, which a strict draw-order sequence would not do).
+
+Do not read a row's `label_row_id` as a measured fact about that row.  Read
+it as: this window's caption set is known, and the assignment inside it is
+the ordering premise plus two rows that carry latin tokens (p1r3 `NPC`,
+p3r2 `BUFF`) which are independently checkable on the shots.
 
 THE ONE THING THE SCREENSHOTS AGREE ON AND STILL CANNOT SETTLE
 ---------------------------------------------------------------
@@ -73,7 +111,14 @@ present in the layout and not drawn in this state.  So 17 is a FLOOR that
 two independent shots agree on, not a proven ceiling, and
 :func:`total_is_confirmed_on_screen` stays False until an attended pass
 says otherwise.  `PAGE_1_UNEXPLAINED_GAP` carries this in a constant so a
-reader who greps rather than reads still meets it.
+reader who greps rather than reads still meets it.  The label block adds a
+CANDIDATE for what is not drawn there (`PAGE_1_GAP_CANDIDATE`) and does not
+settle it: exactly one string of the page-1 run has no widget, and it falls
+between the strings of row 5 and row 6.  That is a coincidence worth
+writing down and NOT a measurement.  The first reason this lane gave for
+keeping it a candidate (page 2 has an undrawn string and no gap) was
+withdrawn in the same round after `pf-adversary` measured the axes -- read
+the constant, not this paragraph, for what replaced it.
 
 THE COUNT P-3 ASKED FOR
 =======================
@@ -104,6 +149,7 @@ import hashlib
 
 _DATA_PATH = Path(__file__).parent / "data" / "gm_tool_log_types.tsv"
 _ROW_CENSUS_PATH = Path(__file__).parent / "data" / "gmui_widget_census.tsv"
+_LABEL_BLOCK_PATH = Path(__file__).parent / "data" / "gmui_label_block.tsv"
 
 #: sha256 of this package's own copy of the client's `TEXTDATA_TH__GMTOOL`
 #: table (`pf_bridge/gamedata/tables/TEXTDATA_TH__GMTOOL.tsv`, copied
@@ -120,7 +166,7 @@ SOURCE_SHA256 = "8ede7f80ebb0fee239bed31563ad570225785369cbadd81e5611aa6fc7ed120
 #: this constant in the same commit, which is the moment a reviewer gets to
 #: ask what it was read off.
 ROW_CENSUS_SHA256 = (
-    "22c4cc55c69f96655dc711f2e780ab33a9283ed7b8fca7cf4fae905acea3c611"
+    "5d0382c1aeb962d08fc6ee09baa4846363317f4be2b3f9eb2113f3b4afcd74c2"
 )
 
 #: The committed client-observable evidence the census was read off, pinned
@@ -150,6 +196,109 @@ ROW_CENSUS_SCREENSHOTS = (
         "03cdb85467afb70739e1eed1ed7adba9a3371ee993c2248bd7002873d284bbbb",
     ),
 )
+
+#: The client text table the GMUI labels are IN, and its sha256 as this
+#: house committed it.  This package never reads `pf_bridge` at runtime, so
+#: the pin is the record (same posture as `ROW_CENSUS_SCREENSHOTS`): the
+#: copy under `data/` is what the code loads, and this constant is how a
+#: later round proves the copy still comes from the same source file.
+LABEL_SOURCE_TABLE = "gamedata/tables/TEXTDATA_TH__UI_MESSAGE.tsv"
+LABEL_SOURCE_TABLE_SHA256 = (
+    "2d97ff4836955e72bcebff2fcda4c1e703df880b8490d241624df20c34efa2c1"
+)
+
+#: sha256 of this package's copy of the GMUI slice of that table.  Checked
+#: at import time, same as `SOURCE_SHA256`.
+LABEL_BLOCK_SHA256 = (
+    "6e86ea1107ab9408a11d874cc6d80aab3131e81bd1ce27f2cdbe410758c2992f"
+)
+
+#: What each `n_ID` in the copied block is, on the panel.  THIS DICT IS THE
+#: CLAIM -- the tsv beside it is only the client's own text.  A role of
+#: `undrawn` means the string is inside the run and no widget on the shot
+#: carries it; `.label` means it is the caption of a censused row and is the
+#: only role a census row's `label_row_id` is allowed to point at.
+GMUI_LABEL_BLOCK_ROLES = {
+    1386: "page1.row1.label",
+    1387: "page1.row1.option_a",
+    1388: "page1.row1.option_b",
+    1389: "page1.row2.label",
+    1390: "page1.row2.axis_x",
+    1391: "page1.row2.axis_y",
+    1392: "page1.row2.axis_z",
+    1393: "page1.row3.label",
+    1394: "page1.row4.label",
+    1395: "page1.row5.label",
+    1396: "undrawn",
+    1397: "page1.row6.label",
+    1398: "page1.row7.label",
+    1399: "page2.row1.label",
+    1400: "page2.row2.label",
+    1401: "page2.row3.label",
+    1402: "page2.row3.option_a",
+    1403: "undrawn",
+    1404: "page2.row3.option_b+page2.row4.option_b",
+    1405: "page2.row3.duration_caption+page2.row4.duration_caption",
+    1406: "page2.row3.duration_unit",
+    1407: "page2.row4.label",
+    1408: "page2.row4.option_a",
+    1409: "page2.row4.name_caption",
+    1410: "page2.row4.reason_caption",
+    1411: "page2.row4.duration_unit",
+    1412: "page2.row5.label",
+    1413: "action_button.all_pages",
+    1671: "page3.row3.label",
+    1439: "page1.tab_title",
+    1440: "page2.tab_title",
+    1891: "page3.tab_title",
+    1892: "page3.row1.label",
+    1893: "page3.row1.inline_caption",
+    1894: "page3.row2.label",
+    1895: "page3.row4.label",
+    1896: "page3.row5.label",
+}
+
+#: THE ASSUMPTION THE ROW-BY-ROW ASSIGNMENT RESTS ON, named so it can be
+#: attacked instead of inherited.  Nothing in this package measures it.
+ROW_ORDER_PREMISE = (
+    "ascending n_ID inside the run is the order the client draws the rows.  "
+    "NOT MEASURED.  It is the only thing separating the seven rows that "
+    "share the shape (0 radios, 1 text input, 0 numeric), and it is already "
+    "imperfect: 1404 and 1405 are each consumed by two different rows, which "
+    "a strict draw-order sequence would not do.  An attended pass that reads "
+    "any ONE of p1r4/p1r5/p1r6/p1r7/p2r1/p2r2/p2r5 off the screen settles "
+    "far more than another table read can"
+)
+
+#: Rows of the run that no widget on any of the four shots carries.
+#: 1403 is the weaker of the two: it is a full row-caption-shaped sentence
+#: with the same grammar as 1401 and 1407, and page 2 row 3 draws a
+#: full-width text input whose caption this run does not otherwise account
+#: for -- so "1403 captions that input" is a live competing reading that
+#: this lane has NOT excluded.  Recorded here rather than buried, because
+#: calling it undrawn is a choice.
+UNDRAWN_BLOCK_ROWS = (1396, 1403)
+
+#: The one page-1 row the census cannot see, if the gap is a row at all.
+#: [LANE-GM HYPOTHESIS -- awaiting COO or an attended pass]
+#:
+#: ~~Why it is not more than that: page 2's run ALSO carries an undrawn
+#: string (1403) and page 2 has NO gap of any size, so an undrawn string
+#: demonstrably does not have to reserve layout space in this client.~~
+#: WITHDRAWN as stated -- `pf-adversary` (D8) measured the axes and the
+#: sentence crosses them: 1403 is claimed to be a radio OPTION, which would
+#: occupy horizontal flow inside a row, while the page-1 gap is a VERTICAL
+#: row slot (measured at exactly 2 x 40.0 px against a 40 px pitch, in both
+#: tab-1 shots).  Option radios are laid out left-anchored with no reserved
+#: horizontal slots, which is a real measurement and says nothing about
+#: whether an undrawn ROW reserves a vertical one.
+#:
+#: The conclusion is unchanged and now rests on the honest reason: nothing
+#: in any committed artifact says what an undrawn row does to this client's
+#: vertical layout, so 1396 is one story that fits and not the only one.
+#: Settling it is an attended question, which is why
+#: `total_is_confirmed_on_screen()` does not move.
+PAGE_1_GAP_CANDIDATE = 1396
 
 #: The one place the two tab-1 shots do not settle the count.  See the
 #: module docstring: 17 is a floor two shots agree on, not a ceiling.
@@ -187,12 +336,34 @@ PAGE_UNNAMED_3 = "UNNAMED_PAGE_3"
 PAGES = (PAGE_KNOWN, PAGE_UNNAMED_2, PAGE_UNNAMED_3)
 
 #: Why the two placeholders are placeholders, in the record rather than in a
-#: reviewer's memory.
+#: reviewer's memory.  STILL TRUE AND STILL THE POINT: these are the names
+#: of the client's own MODEL objects, and only one of the three is named by
+#: a committed artifact.  `PAGE_TITLE_ROW_IDS` below is a DIFFERENT thing --
+#: the words printed on the tab strip -- and knowing what a tab is captioned
+#: is not knowing what the model behind it is called.  Do not collapse the
+#: two.
 PAGES_NOTE = (
     "three pages per PANYA-DECISION 20260904_0233 item 3 (the owner has seen "
     "them); only GMUI_BASIC is named by a committed artifact (GMUI_1.model's "
     "child tab).  The other two names are an image question, not a guess this "
     "lane gets to make"
+)
+
+#: The words on the tab strip, by `n_ID` in the copied block -- the caption
+#: a human reads, not the model name above.  All three are TABLE_EXACT and
+#: all three are corroborated by the tab strip of the tab-1 shot.
+PAGE_TITLE_ROW_IDS = (1439, 1440, 1891)
+
+#: Said in a constant because it is the single most misreadable thing the
+#: block turned up: page 2's TAB CAPTION and page 2's CONTENT do not agree.
+#: The caption is an advancement/levelling word; the widgets under it are
+#: mob spawn, mob kill, two chat-ban blocks and a raw command box.  That is
+#: the client's own naming and this lane does not get to tidy it -- a round
+#: that reads the caption and infers what page 2 does will be wrong.
+PAGE_2_TITLE_DOES_NOT_MATCH_ITS_CONTENT = (
+    "block row 1440 captions page 2 and its content is unrelated to that "
+    "caption; use the row labels (1399..1412), never the tab title, to say "
+    "what page 2 does"
 )
 
 
@@ -327,14 +498,29 @@ BUTTONS_ARE_UNFILLED_BECAUSE = (
     "are and what shape each one is, never what one sends"
 )
 
-#: What a row's `function` string says while its label is unread.  A slug is
-#: a POSITION ("page 1, row 3"), not a name, and the two must not be allowed
-#: to look alike in a round file.
-FUNCTION_LABEL_UNREAD = "label unread on the GT-207 screenshots"
+#: ~~What a row's `function` string says while its label is unread.~~
+#: Retired with `LABEL_STATUS_UNREAD` in round `dl1etn`.  The names are kept
+#: so a grep for either still lands on this block and reads why.
+FUNCTION_LABEL_UNREAD = "RETIRED round dl1etn -- see FUNCTION_LABEL_FROM_TABLE"
+FUNCTION_LABEL_PARTIAL = FUNCTION_LABEL_UNREAD
 
-#: The two rows whose label starts with a latin token.  Still not a read
-#: label: knowing a row is about NPCs is not knowing what it does to one.
-FUNCTION_LABEL_PARTIAL = "label only partly read on the GT-207 screenshots"
+#: What a row's `function` string says once its caption is a table row.  It
+#: names the `n_ID` and NOT the words: the words are Thai, they belong in
+#: `data/gmui_label_block.tsv` where the client put them, and a caller that
+#: wants them calls :func:`label_text`.  A `function` string that carried
+#: the words would let a round file quote a label it never joined to a row.
+FUNCTION_LABEL_FROM_TABLE = "label is client text table row"
+
+#: What the one row with no table row says.  Still not a name -- the shot
+#: shows Thai there and nothing this house committed spells it.
+FUNCTION_LABEL_SCREENSHOT_ONLY = (
+    "label visible on the GT-207 screenshots and not found in any committed "
+    "table by this lane -- NO ROW IS IN THIS STATE TODAY.  The one that was "
+    "(page 3 row 3) had its caption at n_ID 1671, 258 ids outside the run, "
+    "and this lane's search had only looked inside the run; `pf-adversary` "
+    "found it by rendered glyph width.  Treat this status as 'not found "
+    "YET', never as 'absent'"
+)
 
 
 class GmuiCatalogError(Exception):
@@ -413,20 +599,114 @@ class RowCensusEntry:
     numeric_inputs: int
     anchor_y_approx: int
     label_status: str
+    #: `n_ID` of this row's caption in `data/gmui_label_block.tsv`, or `0`
+    #: when no committed table carries the label at all.
+    label_row_id: int
     label_note: str
 
     @property
-    def label_is_unread(self) -> bool:
-        return self.label_status == "UNREAD"
+    def label_has_no_table_row(self) -> bool:
+        """True when no committed table spells this row's caption.
+
+        ~~`label_is_unread`~~ -- renamed in round `dl1etn` after
+        `pf-adversary` (D9) showed the old name had inverted: the one row
+        that was `SCREENSHOT_ONLY` was the only row a human had actually
+        READ, and the sixteen it called read were the ones nobody had.
+        Zero rows are in this state today; the property and its status stay
+        because the next window censused this way will have some.
+        """
+        return self.label_status != LABEL_STATUS_TABLE_EXACT
 
 
-#: The two `label_status` values the census uses.  `LATIN_PARTIAL` means a
-#: latin token at the START of the label was legible and the Thai after it
-#: was not -- it is NOT a read label, and `label_is_unread` deliberately
-#: does not treat it as one being read either way in any count that matters.
-LABEL_STATUS_UNREAD = "UNREAD"
-LABEL_STATUS_LATIN_PARTIAL = "LATIN_PARTIAL"
-LABEL_STATUSES = (LABEL_STATUS_UNREAD, LABEL_STATUS_LATIN_PARTIAL)
+#: The two `label_status` values the census uses.  ~~`UNREAD` /
+#: `LATIN_PARTIAL`~~ -- both retired in round `dl1etn`, when the labels
+#: turned out to be text in a committed table rather than pixels to squint
+#: at.  `TABLE_EXACT` means the caption is a row of `gmui_label_block.tsv`
+#: AND the row's widget shape agrees with what that run of strings implies.
+#: `SCREENSHOT_ONLY` means the shot shows a caption there and NO committed
+#: table spells it -- one row on page 3 -- and that row keeps
+#: `label_row_id = 0` and stays out of every count of read labels.
+LABEL_STATUS_TABLE_EXACT = "TABLE_EXACT"
+LABEL_STATUS_SCREENSHOT_ONLY = "SCREENSHOT_ONLY"
+LABEL_STATUSES = (LABEL_STATUS_TABLE_EXACT, LABEL_STATUS_SCREENSHOT_ONLY)
+
+
+def _load_label_block() -> dict[int, str]:
+    """`n_ID -> s_UI_WORDS` for the GMUI run, from this package's own copy.
+
+    The copy is byte-pinned exactly like `gm_tool_log_types.tsv`: this
+    package never reads `pf_bridge` at runtime, so a silent edit to the copy
+    has to fail loudly or the pin buys nothing.
+    """
+    raw = _LABEL_BLOCK_PATH.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != LABEL_BLOCK_SHA256:
+        raise GmuiCatalogError(
+            f"gmui_label_block.tsv has drifted from its pinned source: "
+            f"expected {LABEL_BLOCK_SHA256}, got {digest}"
+        )
+    block: dict[int, str] = {}
+    for line in raw.decode("utf-8").splitlines()[1:]:
+        if not line.strip():
+            continue
+        n_id, _, words = line.partition("\t")
+        block[int(n_id)] = words
+    missing = sorted(set(GMUI_LABEL_BLOCK_ROLES) - set(block))
+    if missing:
+        raise GmuiCatalogError(
+            f"GMUI_LABEL_BLOCK_ROLES names rows the copied block does not "
+            f"carry: {missing} -- the roles are a claim ABOUT the block and "
+            "may not outrun it"
+        )
+    unroled = sorted(set(block) - set(GMUI_LABEL_BLOCK_ROLES))
+    if unroled:
+        raise GmuiCatalogError(
+            f"gmui_label_block.tsv carries rows with no role: {unroled} -- a "
+            "string copied into this package without a stated place on the "
+            "panel is a guess waiting to be read as evidence"
+        )
+    return block
+
+
+LABEL_BLOCK = _load_label_block()
+
+
+def _assert_label_row_id_is_backed(entry: RowCensusEntry) -> None:
+    """Refuse a census row whose `label_row_id` is not a caption.
+
+    Same shape of guard as :func:`assert_backed`, for the same reason: the
+    cheap way to look like P-3 moved is to point a row at a plausible
+    `n_ID`.  A row may only point at a block row whose role ENDS in
+    `.label`, and a `SCREENSHOT_ONLY` row may not point anywhere at all.
+    """
+    if entry.label_status == LABEL_STATUS_SCREENSHOT_ONLY:
+        if entry.label_row_id != 0:
+            raise GmuiCatalogError(
+                f"row {entry.slug!r} is {LABEL_STATUS_SCREENSHOT_ONLY} and "
+                f"still names block row {entry.label_row_id} -- a label no "
+                "committed table spells cannot have a table row id"
+            )
+        return
+    role = GMUI_LABEL_BLOCK_ROLES.get(entry.label_row_id)
+    if role is None:
+        raise GmuiCatalogError(
+            f"row {entry.slug!r} names block row {entry.label_row_id}, which "
+            "is not in the copied GMUI block"
+        )
+    if not role.endswith(".label"):
+        raise GmuiCatalogError(
+            f"row {entry.slug!r} names block row {entry.label_row_id}, whose "
+            f"role is {role!r} -- a census row's caption may only be a "
+            "`.label` role, never an option text, a unit suffix or a tab "
+            "title"
+        )
+    expected = f"page{entry.page}.row{entry.row}.label"
+    if role != expected:
+        raise GmuiCatalogError(
+            f"row {entry.slug!r} names block row {entry.label_row_id} whose "
+            f"role is {role!r}, but the row sits at {expected!r} -- the "
+            "census and the roles disagree about where this caption is"
+        )
 
 
 def _parse_census_line(line: str) -> RowCensusEntry:
@@ -438,10 +718,10 @@ def _parse_census_line(line: str) -> RowCensusEntry:
     tested).
     """
     columns = line.split("\t")
-    if len(columns) != 9:
+    if len(columns) != 10:
         raise GmuiCatalogError(
             f"gmui_widget_census.tsv row has {len(columns)} columns, "
-            f"expected 9: {columns[0:3]!r}"
+            f"expected 10: {columns[0:3]!r}"
         )
     entry = RowCensusEntry(
         page=int(columns[0]),
@@ -452,13 +732,15 @@ def _parse_census_line(line: str) -> RowCensusEntry:
         numeric_inputs=int(columns[5]),
         anchor_y_approx=int(columns[6]),
         label_status=columns[7],
-        label_note=columns[8],
+        label_row_id=int(columns[8]),
+        label_note=columns[9],
     )
     if entry.label_status not in LABEL_STATUSES:
         raise GmuiCatalogError(
             f"row {entry.slug!r} has label_status {entry.label_status!r}, "
             f"expected one of {LABEL_STATUSES}"
         )
+    _assert_label_row_id_is_backed(entry)
     if not 1 <= entry.page <= len(PAGES):
         raise GmuiCatalogError(
             f"row {entry.slug!r} names page {entry.page}, and there are "
@@ -499,9 +781,9 @@ def _row_census_buttons() -> tuple[ButtonRow, ...]:
             f"inputs, {entry.numeric_inputs} numeric inputs"
         )
         label = (
-            FUNCTION_LABEL_UNREAD
-            if entry.label_is_unread
-            else f"{FUNCTION_LABEL_PARTIAL} ({entry.label_note})"
+            FUNCTION_LABEL_SCREENSHOT_ONLY
+            if entry.label_has_no_table_row
+            else f"{FUNCTION_LABEL_FROM_TABLE} n_ID {entry.label_row_id}"
         )
         rows.append(
             ButtonRow(
@@ -524,6 +806,50 @@ def log_types() -> tuple[tuple[int, int, str], ...]:
     table -- GM OPERATIONS THE CLIENT LOGS.  See
     `LOG_TYPES_ARE_NOT_BUTTONS`."""
     return _LOG_TYPES
+
+
+def label_text(row_id: int) -> str:
+    """The client's own words for one block row.
+
+    Raises rather than returning a placeholder for an id the block does not
+    carry: a caller that gets `""` back writes a report with a blank where a
+    label should be, and nobody notices.
+    """
+    try:
+        return LABEL_BLOCK[row_id]
+    except KeyError:
+        raise GmuiCatalogError(
+            f"n_ID {row_id} is not in the copied GMUI label block"
+        ) from None
+
+
+def page_titles() -> tuple[tuple[int, str], ...]:
+    """`(n_ID, words)` for the three tab captions, page order.
+
+    Read it with :data:`PAGE_2_TITLE_DOES_NOT_MATCH_ITS_CONTENT`: page 2's
+    caption is about levelling and its widgets are not.
+    """
+    return tuple((row_id, LABEL_BLOCK[row_id]) for row_id in PAGE_TITLE_ROW_IDS)
+
+
+def rows_with_a_read_label() -> tuple[RowCensusEntry, ...]:
+    """Census rows whose caption is a row of the copied block.
+
+    Sixteen of seventeen today.  This is a LABEL count and says nothing at
+    all about whether the server answers any of them -- that is
+    :func:`progress`, which is still `(0, 17)` and is the number P-3 is
+    graded on.
+    """
+    return tuple(
+        entry
+        for entry in ROW_CENSUS
+        if entry.label_status == LABEL_STATUS_TABLE_EXACT
+    )
+
+
+def labels_are_read() -> tuple[int, int]:
+    """`(rows whose caption is a committed table row, rows catalogued)`."""
+    return (len(rows_with_a_read_label()), len(ROW_CENSUS))
 
 
 def vitals_without_a_codec() -> tuple[VitalRow, ...]:
