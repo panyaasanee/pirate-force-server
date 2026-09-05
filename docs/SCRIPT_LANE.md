@@ -267,7 +267,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (155/160 stub, 5/160 real)
+### API status table (141/160 stub, 12/160 real, as of round `4fxvsq`)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -275,11 +275,14 @@ the corpus-wide call-site count from the 2026-08-24 census
 Party/Player/Quest/Scene/Trigger (alphabetical); within a namespace, most-
 called first.  Status is one of `stub` (this file logs `LUA_API_STUB` and
 returns a safe default) / `real` (implemented against the actual protocol,
-backed by a test -- every `real` row below is backed by
-`tests/test_script_lua_api_trigger.py`) / `proven` (real + a GT ticket
-where a tester watched it work on screen -- none yet).  Next lane priority,
-per charter: the remaining 12 `Trigger.*` rows, then `Quest.*` (queue item
-3).
+backed by a test -- every `Trigger.*` real row is backed by
+`tests/test_script_lua_api_trigger.py`, every `Instance.*` real row by
+`tests/test_script_lua_api_instance.py`, round `4fxvsq`, see below) /
+`proven` (real + a GT ticket where a tester watched it work on screen --
+none yet).  Next lane priority, per charter: the remaining 12 `Trigger.*`
+rows and 2 `Instance.*` rows (each named, one seam apiece, in
+`STILL_STUBBED`), then `Quest.*` (queue item 3, still blocked on the guard
+exemption named in round `4fxvsq` below).
 
 | namespace | method | call_count | status |
 |---|---|---:|---|
@@ -291,15 +294,15 @@ per charter: the remaining 12 `Trigger.*` rows, then `Quest.*` (queue item
 | Guild | GiveDailySalary | 1 | stub |
 | Guild | OpenGuildStorage | 1 | stub |
 | Guild | SetPVPFaction | 1 | stub |
-| Instance | AddKeyEvent | 15 | stub |
-| Instance | GetInstanceID | 14 | stub |
-| Instance | CallScoreCount | 12 | stub |
-| Instance | GetLastingTime | 7 | stub |
+| Instance | AddKeyEvent | 15 | real |
+| Instance | GetInstanceID | 14 | real |
+| Instance | CallScoreCount | 12 | real |
+| Instance | GetLastingTime | 7 | real |
 | Instance | AddBonusPoint | 2 | stub |
-| Instance | RemoveKeyEvent | 2 | stub |
+| Instance | RemoveKeyEvent | 2 | real |
 | Instance | AddBonusReward | 1 | stub |
-| Instance | GetInstanceId | 1 | stub |
-| Instance | SetLastingTime | 1 | stub |
+| Instance | GetInstanceId | 1 | real |
+| Instance | SetLastingTime | 1 | real |
 | Mob | ShowAnimation | 716 | stub |
 | Mob | AddBuff | 411 | stub |
 | Mob | CallMob | 15 | stub |
@@ -659,3 +662,209 @@ next round's first job. If both stay blocked, the next backup-work slot is
 wire frame after all (re-check `GetContactMode`'s RE ticket status first;
 it is the only one of the 12 that is a pure RE gap like item 1, not a
 cross-lane wire-frame wait).
+
+## Round 4fxvsq (2026-09-06) -- Instance.* status machine, 7/9 real
+
+**Why `Instance.*`, not `Trigger.*`'s remaining 12 or `Quest.*`.**  Checked
+fresh at round start, not assumed from the previous round's file (all still
+true, re-confirmed via `pf_bridge` mailbox and `notes_to_chief/`, not
+guessed):
+
+1. **Trigger-id -> script-file mapping.**  The RE ticket content
+   (`pf_bridge/notes_to_chief/20260906_0155_LANE-Q-RE-TICKET-*`) is written
+   but chief has not yet assigned it a number or answered it -- confirmed by
+   reading `pf_bridge/notes_to_chief/20260906_0256_COO-DECISION-*`, which
+   orders chief to do exactly that as item 1 of chief's OWN next round, and
+   by the absence of any chief round file after that COO-DECISION's own
+   `02:56` timestamp (`FROM_CHIEF_R362_TO_ALL_20260906_0210.md` is chief's
+   latest, dated BEFORE the decision that tells chief to act).  Still
+   blocked, not this lane's to unblock.
+2. **`Quest.*`'s guard exemption AND LANE-DB door.**  Round `vqng2z`'s own
+   `pirate-force-server#874` (`Quest.CheckOpenTime`, the first `Quest.*`
+   real implementation) was gate-closed
+   (`pf_bridge/notes_to_chief/20260906_0226_SYNC-NOTICE-*`): the branch
+   `claude/hopeful-hopper-vqng2z` still exists but never merged, because
+   ANY reference to the bare token `quest` from `script_host.py`'s new
+   `Quest` wiring trips `tests/test_npc_interaction_wire.py`'s
+   `QuestAndShopStateGuardTests` -- a chief-owned cross-cutting guard
+   outside this lane's write zone.  Round `vqng2z` already sent the
+   proposed `ALLOWED_SYMBOLS` patch
+   (`pf_bridge/notes_to_chief/20260906_0209_LANE-Q-CORE-REQUEST-*`); this
+   round confirmed by reading `tests/test_npc_interaction_wire.py`'s
+   `ALLOWED_SYMBOLS` dict directly (grepped for `script_host`/`lua_api`: no
+   hit) that the patch has NOT landed yet -- same COO-DECISION as above
+   orders chief to decide it, not yet done.  Separately, LANE-DB's
+   per-character Quest-state column (`COO-DECISION 20260905_2058`) is also
+   still not on `main` (`grep -rl "quest_flag\|quest_counter" src/`: no
+   hit).  So `Quest.*` stays untouched this round on BOTH doors, not just
+   one -- starting a SECOND `Quest.*` implementation before either door
+   opens would only produce a second gate-closed PR.
+3. **The other 12 `Trigger.*` names.**  Re-read `lua_api/trigger.py`'s own
+   `STILL_STUBBED`: unchanged, each still names a wire-frame encoder this
+   lane does not own or `Quest.*` state (blocked per item 2) --
+   `GetContactMode`'s own RE ticket (semantics unclear from 1 call site)
+   has still not been opened by anyone (`grep -rl "GetContactMode"
+   pf_bridge/notes_to_chief/*.md`: no hit; only this lane's own round files
+   mention the name).  None free to implement.
+
+With all three named blockers genuinely still blocked, this round follows
+the charter's own backup-work rule (`prompts/LANE-Q.md`, "implement the next
+API in the table that is still a stub and does not need to wait on another
+lane, highest call count first") -- across the WHOLE table, not just
+`Trigger.*`/`Quest.*`, since those two are exhausted for this round.  The
+top of the table by real call volume (`Player.MobAppear` 3532,
+`Quest.RewardItemSelect` 1335, `Player.AddItem` 1430, `Mob.ShowAnimation`
+716, ...) all need a wire-frame encoder, a spawn/roster door this lane does
+not own (LANE-A/LANE-CS territory), or `Quest.*` state (blocked).
+`Instance.*`'s 9 names, grepped fresh across the real 616-file corpus
+before writing a line of code (same discipline `456vso` used for
+`Trigger.*`), split the identical way: a PURE STATE MACHINE with no
+outbound frame and no cross-lane data (53 of 55 call sites, 96%) plus two
+names whose ARGUMENT semantics are genuinely ambiguous from the corpus
+alone.
+
+### What was built
+
+- `src/pirateforce_foundation/lua_api/instance.py` (new) -- `InstanceContext`
+  (which running instance is asking, supplied by the caller today, same
+  shape as `TriggerContext`), `InstanceRegistry` (process memory: a
+  per-instance lasting-time int, a per-instance key-event id set, a
+  per-instance score-count-call counter -- three independent books, one
+  process-memory registry, same caps-and-refuse-by-name posture as
+  `TriggerStatusRegistry`), `RealInstanceNamespace` (the same three-way
+  `__getitem__` contract, the same `*args`-first arity door logging
+  `LUA_INSTANCE_BAD_ARITY` instead of raising, so a wrong-arity call from a
+  corrupted or future script degrades safely exactly like `Trigger.*`
+  already does), `build_namespace()`.
+- `src/pirateforce_foundation/script_host.py` (edited) -- `Instance` wired
+  the same way `Trigger` is: `ScriptHost.__init__`/`load_script_file` grow
+  `instance_context`/`instance_registry` params (default: an isolated
+  context and a private, throwaway registry, so no existing caller or test
+  changes behaviour); `REAL_QUALIFIED_NAMES` extended so
+  `run_corpus_entry_points`'s real/stub split does not fold `Instance.*`'s
+  new real calls into the stub tally (the exact bug `456vso` caught for
+  `Trigger.*` and pinned a regression test against -- checked this file's
+  own tally logic is namespace-agnostic already, so no second bug to fix
+  here, only the frozenset to extend).
+
+**Real now (7 names, 53/55 call sites, 96%)**: `GetInstanceID` and its
+shipped alternate-case alias `GetInstanceId` (1 call site,
+`t_indanix2_colct_ins.lua` -- same treatment `456vso` gave
+`GetTeiggerStatus`), `GetLastingTime`/`SetLastingTime`, `AddKeyEvent`/
+`RemoveKeyEvent`, `CallScoreCount`.  Corpus-grepped semantics, not invented:
+`GetInstanceID()` takes no argument in any of its 15 call sites and reads
+which instance the running script belongs to (compared against
+`Trigger.Var4`/`Var5` literals in `t_nex_t1_ins.lua`/`t_nex_msg_ins*.lua`
+-- an instance ROUTING decision this lane does not make, just answers);
+`GetLastingTime()`/`SetLastingTime(n)` take zero/one argument in every call
+site (grepped, no exception); `AddKeyEvent(id)`/`RemoveKeyEvent(id)` always
+take exactly one argument (`Trigger.Var1`/`Var2`/`Var4` at every call
+site); `CallScoreCount()` is always a bare zero-argument statement whose
+return value no script reads.  `CallScoreCount`'s registry method counts
+INVOCATIONS, not a score (no score/reward table was found committed
+anywhere -- `gamedata/tables/` grepped this round for a column matching
+`score|Score`, no hit -- so the registry advances an int the same
+"gone on reboot, no invented game rule" shape `TriggerStatusRegistry.
+next_status` already uses, and does not pretend to compute what score
+means for any given dungeon).
+
+**Still stub (2 names, 3/55 call sites, 4%)**, named in
+`lua_api.instance.STILL_STUBBED`: `AddBonusPoint` (called both
+`Instance.AddBonusPoint()` and `Instance.AddBonusPoint(Trigger.Var1)` in
+the corpus's only 2 call sites -- unclear whether the argument is a point
+value or a bonus-category id, no committed table maps it either way);
+`AddBonusReward` (1 call site, zero arguments, gives an actual reward to
+instance participants -- needs a per-instance reward table this lane has
+not found committed anywhere, and item/currency composition crosses into
+inventory territory this lane does not own).  Both need an RE ticket before
+becoming real logic instead of a guess, per charter ("the original script
+is the spec, do not guess logic").
+
+**NOT done this round, said plainly.**  Nothing routes a live inbound frame
+to a specific running instance -- an `InstanceContext` is supplied by the
+CALLER (a test today; a future dispatch module later), the identical
+posture `TriggerContext` has had since `456vso` and still has.  No player
+sees any change on screen from this round.  This lane also does not claim
+ownership of instance ENTRY/lifecycle (spawning an instance, routing a
+party into one) -- only of the script running inside one reading/writing
+its own scratch state, the same ownership line the charter draws between
+LANE-A's island entry and this lane's trigger scripts.
+
+Tests: `tests/test_script_lua_api_instance.py` (35 tests -- registry alone
+with no lupa dependency, the namespace's `__getitem__` contract including
+the wrong-arity degrade-safely proof, lupa-guarded real-Lua integration
+including two hosts sharing one registry vs. two hosts with no registry
+given not leaking into each other -- the same shared-world property proof
+`456vso` wrote for `Trigger.*` -- and a worked example against the REAL
+shipped `gamedata/lua/t_inscnt.lua`, guarded by `BRIDGE_LUA_SCRIPTS`
+directly rather than the combined `LUA_CORPUS_RUNNABLE` key, because the
+enclosing class already guards the whole class on `LUPA_PACKAGE` and this
+one method only needs to add the ONE extra thing on top -- see
+`pf_preconditions.AllOfThese`'s own docstring for why re-stacking a second
+full precondition for one test would have been the wrong shape).
+`tests/test_script_host_spike.py`'s `test_every_still_stubbed_name_is_
+reachable_from_every_namespace_table` now also excludes `Instance.*`'s 7
+real names (same treatment as `Trigger.*`'s 5), plus a new regression guard
+pinning `Instance.REAL_METHODS` itself
+(`test_the_7_real_instance_names_are_excluded_above_not_forgotten`), mirror
+of the existing `Trigger.*` guard.  `tests/test_script_lua_corpus.py`'s
+`BASELINE_TOTAL_STUB_CALLS` measured down from 5057 to 5020 (37 calls moved
+to real when `run_corpus_entry_points` was re-run against the real corpus
+with the new namespace installed: 12 `CallScoreCount`, 9 `AddKeyEvent`, 7
+`GetLastingTime`, 5 `GetInstanceID`, 2 `RemoveKeyEvent`, 1 `GetInstanceId`,
+1 `SetLastingTime`).  `docs/PYTEST_SKIP_PINS.json` updated in the same
+commit for both the widened `test_script_host_spike.py` `lupa_package`
+count (19 -> 20) and the two new pins this round's own test module needs
+(`lupa_package` 4, `bridge_lua_scripts` 1) -- verified against
+`tools/pf_pytest_precondition_census.py`'s own static walker, not
+hand-counted.
+
+### ADVERSARY
+
+Ordered at round start per the mandatory rule (`AGENTS.md` SS7). Result had
+not returned by push time -- `ADVERSARY_PENDING pf-force-server round
+4fxvsq` (see this round's own `pf_bridge` round file for the exact PR
+number); per the same rule this is pushed anyway, and the next LANE-Q round
+picks up the result as its own first job, before claiming anything new.
+
+### Nonclaims
+
+1. Does not close the charter's GT criterion for ANY queue item -- no
+   player-visible change this round.
+2. Does not touch `Quest.*`, the remaining 12 `Trigger.*` names, or any
+   other lane's write zone -- confirmed unblocked-vs-blocked status is
+   stated above with its own evidence, not assumed from a stale round file.
+3. Does not claim `AddBonusPoint`'s or `AddBonusReward`'s real-engine
+   semantics -- named as an open RE gap, not guessed either way.
+4. `CallScoreCount`'s registry counts INVOCATIONS, not points or a score --
+   see the class docstring; a future round wiring a real score/reward table
+   is not blocked by this round's naming choice, since nothing here invents
+   a scoring rule to later contradict.
+5. Does not open a numbered RE ticket for `AddBonusPoint`/`AddBonusReward`
+   this round (RE runner time is scarce, per `AGENTS.md` SS7); named as
+   follow-up, not silently dropped.
+6. `BASELINE_TOTAL_STUB_CALLS`'s new value (5020) reflects today's OTHER
+   stub coverage as much as this round's own change, same caveat round
+   `4jsydv` wrote for its own baseline move.
+
+### Next round
+
+1. **First job**: check `ADVERSARY_PENDING` above for a result and act on
+   any real finding before claiming new work (`AGENTS.md` SS7).
+2. Re-check the same three named blockers fresh (do not trust this round's
+   file once it is more than one round old): chief's guard-exemption
+   decision on `0209`/RE-number on `0155`
+   (`pf_bridge/notes_to_chief/20260906_0256_COO-DECISION-*` item 1),
+   `persistence_quest_state.py` landing on `main`
+   (`git merge-base --is-ancestor`), `GetContactMode`'s RE ticket status.
+   Whichever clears first is the next round's first real-API job.
+3. If all three stay blocked again: `AddBonusPoint`/`AddBonusReward` need
+   the same RE-ticket treatment as `Trigger.GetContactMode` (semantics
+   ambiguous from too few call sites) -- open one ticket covering both
+   (same reward-table question) if the RE-runner queue has room, per
+   `AGENTS.md` SS7's one-ticket-per-machine-round-per-lane budget.
+4. Otherwise: re-audit the remaining stub surface for another pure-function
+   candidate with no cross-lane dependency, using
+   `run_corpus_entry_points`'s real call-volume ranking (`stub_call_counts`)
+   rather than the static census table alone, the same method this round
+   used to find `Instance.*`.
