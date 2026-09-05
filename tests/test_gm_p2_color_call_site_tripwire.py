@@ -37,16 +37,36 @@ contain (``pf_bridge/notes_to_chief/20260902_1230_LANE-GM-TO-CHIEF-*``,
 and again in ``..._1335_...``) -- and
 until chief answers it, the gap below stands OPEN and named.
 
+WHAT CHANGED (COO-DECISION ``20260906_0255``).  LANE-B shipped a second
+per-mob NPCAttr composer the same week as the first (``mob_viewer_link.py``,
+``pirate-force-server#876``), and ``field_mobs.py`` being a fixed name meant
+this scan could not see it.  The order was explicit: widen the scan to that
+file AND to every module that assembles NPCAttr bytes for a mob, and do not
+bind the widening to a single filename.  ``field_mobs.py`` therefore stopped
+being its own special case; both it and ``mob_viewer_link.py`` are now two
+instances one discovery function finds by naming ``NPCAttr`` in their source
+(:func:`_npc_attr_composer_files`), the same way the P-2 token scan itself
+is name-based rather than semantic.  Turning that discovery on also
+surfaced a real bug in THIS file: the folded-string fallback below matched
+"name_color" inside ``mob_viewer_link.py``'s own cross-reference to
+``gm/name_color_gate.py`` -- a citation, not a violation -- because that
+fallback pass, unlike the primary one, never scrubbed the gate identifier
+first.  Fixed in the same round it was found, not left as a red for LANE-B
+to be blamed for (see the comment inside :func:`_token_hits`).
+
 WHAT THIS CANNOT DO -- read this before citing it as cover.  In rough order
 of how likely each is to matter:
 
-* PATH.  It scans ``gm/`` plus exactly one file outside it,
-  ``field_mobs.py`` (added round ``y1evqj``'s pf-adversary D10, read-only --
-  see :data:`FIELD_MOBS_PATH`).  ``current/pf_login_game_server_v141.py``
-  -- the running game server, the file that actually composes actor rows on
-  the wire -- is still not scanned, nor is the rest of ``src/``, ``tools/``,
-  ``patches/``, or any ``.pyi``.  That is still the biggest hole and it is
-  not closed here.
+* PATH.  It scans ``gm/`` plus every top-level module under
+  ``src/pirateforce_foundation/`` that names ``NPCAttr`` in its source
+  (discovered, not listed -- see :func:`_npc_attr_composer_files`;
+  ``field_mobs.py`` was the first of these, added round ``y1evqj``'s
+  pf-adversary D10, read-only -- see :data:`FIELD_MOBS_PATH`).
+  ``current/pf_login_game_server_v141.py`` -- the running game server, the
+  file that actually composes actor rows on the wire -- is still not
+  scanned: the discovery root is the package directory, not the repository,
+  so ``current/``, ``tools/``, ``patches/``, and any ``.pyi`` stay outside
+  it.  That is still the biggest hole and it is not closed here.
 * RESULT.  NARROWED by round ``9sqec6``: a verdict call whose value nothing
   downstream can act on no longer counts as consulting anything, and NO call
   in a module may be discarded (``all``, not ``any`` -- otherwise one
@@ -121,6 +141,56 @@ GM_ZONE = ROOT / "src" / "pirateforce_foundation" / "gm"
 #: zone" rule), so a red here is an escalation letter to chief/LANE-B, never
 #: a same-round self-fix the way a ``GM_ZONE`` offender is.
 FIELD_MOBS_PATH = ROOT / "src" / "pirateforce_foundation" / "field_mobs.py"
+
+#: COO-DECISION ``20260906_0255`` item 2: ``field_mobs.py`` was a fixed name,
+#: and LANE-B shipped a SECOND module the same shape the same week
+#: (``mob_viewer_link.py``, ``pirate-force-server#876``) that this scan could
+#: not see either.  The order was explicit -- "extend the scan set to cover
+#: this file, and every module that assembles NPCAttr bytes for a mob; do
+#: not bind this to a single filename" -- so this is a NAME-based discovery,
+#: not a second hardcoded path next to ``FIELD_MOBS_PATH``: any top-level
+#: module in the package that so much as spells the wire class this whole
+#: file is about (``NPCAttr``) is a candidate, whether it is one of today's
+#: two known composers or a third module a future round adds.
+#:
+#: Root and boundary, matching ``FIELD_MOBS_PATH``'s own scope exactly:
+#: top-level files only (``glob``, not ``rglob``), so ``GM_ZONE`` -- already
+#: scanned in full -- is never double-counted, and a subpackage some other
+#: lane adds later is not silently swept in without its own round noticing.
+NPC_ATTR_COMPOSER_ROOT = ROOT / "src" / "pirateforce_foundation"
+
+#: The identifier this discovery keys on.  A name tripwire, like the P-2
+#: token scan itself (see the file docstring's own NAME limitation) --
+#: composing the field by a bare index with no identifier in sight walks
+#: past this exactly as it would walk past the P-2 tokens.
+NPC_ATTR_IDENT_RE = re.compile(r"\bNPCAttr\b")
+
+
+def _npc_attr_composer_files() -> list[pathlib.Path]:
+    """Top-level modules whose source names ``NPCAttr`` -- discovered, not
+    listed.
+
+    READ-ONLY, exactly like ``FIELD_MOBS_PATH`` above: every path returned
+    here is opened with ``.read_text()`` for scanning, by this function and
+    by the test that consumes it, and never for writing.  Every path this
+    returns is outside ``GM_ZONE`` by construction (this lane's own files
+    live one directory down, under ``gm/``, and ``glob`` here is
+    non-recursive), so a red from one of them is the same escalation
+    ``field_mobs.py`` already gets: a letter to the lane that owns the file,
+    never a same-round edit to it from here.
+
+    ``current/pf_login_game_server_v141.py`` and everything under ``tools/``
+    also name ``NPCAttr`` and are still NOT covered -- this discovery's root
+    is the package directory, not the repository, so the biggest unscanned
+    path the file docstring already names stays unscanned by design, not by
+    oversight.
+    """
+    return sorted(
+        path
+        for path in NPC_ATTR_COMPOSER_ROOT.glob("*.py")
+        if NPC_ATTR_IDENT_RE.search(path.read_text(encoding="utf-8"))
+    )
+
 
 #: The verdict every P-2 colour call site in that zone owes a call to.
 REQUIRED_CALL = "p2_color_wiring_verdict"
@@ -271,9 +341,17 @@ def _token_hits(source: str) -> list[tuple[int, str]]:
         return hits
     # The folded pass runs on the ORIGINAL source with docstring statements
     # skipped -- comments and imports carry no string constants to fold, so
-    # the free forms stay free either way.
+    # the free forms stay free either way.  The gate identifier is NOT free
+    # here by accident: this pass reads assigned/keyword string constants,
+    # not just docstrings, and a constant that cites "gm/name_color_gate.py"
+    # as a cross-reference (the RIGHT thing to write) contains the substring
+    # "name_color" too.  ``_executable_text`` above already scrubs every
+    # occurrence of the gate identifier for exactly this reason; this pass
+    # read the ORIGINAL, unscrubbed source and had no equivalent, so a real
+    # module (``mob_viewer_link.py``, added to this scan the same round this
+    # comment was written) tripped it for the exact opposite of a violation.
     for value in _folded_strings(source):
-        found = _TOKEN_RE.search(value)
+        found = _TOKEN_RE.search(_GATE_IDENT_RE.sub(" ", value))
         if found:
             hits.append((0, found.group(0)))
     return hits
@@ -519,6 +597,99 @@ def test_field_mobs_scan_is_read_only_by_construction():
         f"expected FIELD_MOBS_PATH.exists() as the only direct call on the "
         f"path; found {calls_on_path} -- a write method here would defeat "
         "the read-only guarantee this test exists to pin"
+    )
+
+
+def test_npc_attr_composer_discovery_finds_the_known_composers():
+    """Pinned so silent discovery breakage (a rename, a moved directory, the
+    identifier disappearing from a docstring) is caught here rather than by
+    a future round wondering why a composer stopped being scanned.
+
+    Both files are named explicitly ONLY in this assertion -- the scan
+    itself (below) never hardcodes either path, per COO-DECISION
+    ``20260906_0255`` item 2."""
+    found = _npc_attr_composer_files()
+    assert found, "the NPCAttr discovery found nothing -- it is broken"
+    assert FIELD_MOBS_PATH in found
+    assert (NPC_ATTR_COMPOSER_ROOT / "mob_viewer_link.py") in found
+    assert GM_ZONE not in {p.parent for p in found}, (
+        "GM_ZONE is already scanned in full by the zone test above -- a "
+        "non-recursive glob() double-counting it would just be noise"
+    )
+
+
+def test_npc_attr_composer_files_are_scanned_for_p2_colour_tokens_read_only():
+    """The generalised D10: every module this round's discovery names, not
+    only ``field_mobs.py``, owes the same obligation ``field_mobs.py`` does.
+
+    Same shape as ``test_field_mobs_is_scanned_for_p2_colour_tokens_read_
+    only`` above, run over the whole discovered set so a red names every
+    offending file at once rather than one lane finding out about a second
+    offender from a later round.  A red here is, exactly like a
+    ``field_mobs.py`` red, an escalation letter to whichever lane owns the
+    file -- never a same-round edit to it from here.
+    """
+    offenders, unscannable = [], []
+    for path in _npc_attr_composer_files():
+        rel = path.relative_to(ROOT).as_posix()
+        try:
+            source = _read(path)
+        except UnscannableModule as exc:
+            unscannable.append(str(exc))
+            continue
+        hits = _token_hits(source)
+        if not hits or _consults_the_refusal(source):
+            continue
+        offenders.append("; ".join(f"{rel}:{line} ({tok})" for line, tok in hits))
+    assert not unscannable, (
+        "a discovered NPCAttr composer could not be scanned, so this gate "
+        "proved nothing about it: " + " | ".join(unscannable)
+    )
+    assert not offenders, (
+        "P-2 colour tokens appear in executable code in a module that "
+        f"composes NPCAttr bytes, never reaching {REQUIRED_CALL}() through "
+        f"{GATE_MODULE_NAME}, or calling it and throwing the answer away: "
+        + " | ".join(offenders)
+        + " -- this is outside LANE-GM's write zone for every file this "
+        "scan can find, so the fix is a letter to whichever lane owns the "
+        "file, never an edit to it from here."
+    )
+
+
+def test_npc_attr_composer_discovery_is_read_only_by_construction():
+    """Mirrors ``test_field_mobs_scan_is_read_only_by_construction``: the
+    discovery function itself must never call anything but ``glob`` and
+    ``read_text`` on the paths it walks, so a later round cannot quietly
+    turn "widen the scan" into "widen the write zone"."""
+    tree = ast.parse(inspect.getsource(_npc_attr_composer_files))
+    calls = [
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+    assert set(calls) <= {"glob", "read_text", "search"}, (
+        f"expected only glob()/read_text()/search() inside the discovery "
+        f"function; found {calls} -- a write method here would defeat the "
+        "read-only guarantee this test exists to pin"
+    )
+
+
+def test_the_folded_pass_does_not_mistake_a_gate_citation_for_a_violation():
+    """Regression: this exact shape (an assigned string constant that cites
+    ``gm/name_color_gate.py`` by name, the right thing for a caller to do)
+    tripped the folded-string fallback before this round scrubbed the gate
+    identifier from it too, because ``mob_viewer_link.py`` -- newly in scope
+    via ``_npc_attr_composer_files`` -- contains exactly this pattern
+    (``OTHER_ACTORATTR_LINK_AT_0X98``) and nothing else that names a P-2
+    token in executable code."""
+    source = (
+        _IMPORT
+        + 'CROSS_REF = (\n    "see gm/name_color_gate.py for the other +0x98"\n)\n'
+    )
+    assert _token_hits(source) == [], (
+        "a string that merely cites the gate module's filename must not "
+        "read as a P-2 colour token -- the folded-string fallback must "
+        "scrub the gate identifier exactly as the primary pass does"
     )
 
 
