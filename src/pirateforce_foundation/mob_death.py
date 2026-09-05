@@ -1544,6 +1544,7 @@ REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER = "census_frame_without_a_ledger"
 # that should not get a census that quietly used the old, unsafe scalar
 # behaviour for every row instead.
 REFUSE_TRANSITIONING_NOT_A_DEAD_ROW = "transitioning_not_a_dead_row"
+REFUSE_HOOK_ALREADY_FIRED = "hook_already_fired"
 MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_VALUE_NOT_INT,
     REFUSE_VALUE_OUT_OF_RANGE,
@@ -1572,6 +1573,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER,
     REFUSE_RULING_NAME_HAS_NO_TIMESTAMP,
     REFUSE_TRANSITIONING_NOT_A_DEAD_ROW,
+    REFUSE_HOOK_ALREADY_FIRED,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -2579,44 +2581,60 @@ def _first_in_the_world(grave: Any) -> bool | None:
     return not already
 
 
-def commit_death(
+class PendingMobDeathHook:
+    """The four :data:`MOB_DEATH_LANE_HOOK_ARGUMENTS`, computed and waiting.
+
+    ROUND ``dggvou``, pf-adversary D11 of round ``2zybdx``: the world-book
+    write (:func:`mob_death_persistence.remember_death`) is the expensive,
+    one-shot half of a commit, and it must run EXACTLY ONCE per accepted
+    kill - a caller cannot "compute the hook args" twice just to change when
+    it fires without burying the same monster twice.  So the computation and
+    the firing are two different functions (:func:`_commit_death_core` and
+    :func:`fire_mob_death_hook`) and this object is the one thing that has to
+    survive the gap between them intact.
+
+    NOT A NAMEDTUPLE, on purpose, and it was one until pf-adversary (round
+    ``dggvou``, reviewing this same split) fired the SAME instance at
+    :func:`fire_mob_death_hook` twice by hand and got two identical
+    ``mob_death`` events for one accepted kill - the exact double-count this
+    round's whole ``first_in_the_world`` field exists to let a subscriber
+    detect, reopened one layer up where that field cannot see it, because
+    both fires carry the same payload.  A plain dict or tuple has no room to
+    remember "already spent"; this carries a private ``_fired`` flag so
+    :func:`fire_mob_death_hook` can refuse a second call on the same pending
+    hook by name instead of the mistake shipping silently.
+    """
+
+    __slots__ = (
+        "mob_id", "scene_id", "killer_actor_identity", "first_in_the_world",
+        "_fired",
+    )
+
+    def __init__(
+            self, mob_id: int, scene_id: str, killer_actor_identity: int,
+            first_in_the_world: bool | None) -> None:
+        self.mob_id = mob_id
+        self.scene_id = scene_id
+        self.killer_actor_identity = killer_actor_identity
+        self.first_in_the_world = first_in_the_world
+        self._fired = False
+
+
+def _commit_death_core(
     current: DeathRegister, step: DeathStep, *,
-    world: Any = None, announce: bool = True,
-) -> DeathRegister:
-    """Compare-and-swap: accept a kill only against the register it was read from.
+    world: Any, announce: bool,
+) -> tuple[DeathRegister, PendingMobDeathHook]:
+    """Compare-and-swap plus the world-book write, WITHOUT firing the hook.
 
-    ``world`` and ``announce`` reach :func:`mob_death_persistence.
-    remember_death` and nothing else.  They are keyword-only and defaulted so
-    that no existing call site changes, and they EXIST because pf-adversary
-    (round ``amz1w5``) measured the alternative: with the burial hardwired,
-    a diag path, a hypothesis module or a test had no way to commit a kill
-    without writing to a structure that outlives the process's every session,
-    and this function's own promise -- it is a pure value operation on a
-    register -- would have quietly stopped being true.
-
-    The mirror of ``mob_combat.commit_step``, and it exists for the same
-    reason.  Two kills computed from the same register both return a register
-    of one row, and storing them in turn loses one of them - silently, and on
-    a different monster from the one the second kill was about.  Returns the
-    new register; refuses with :data:`REFUSE_REGISTER_STALE` when the stored
-    register has moved, in which case the caller sends NOTHING, because the
-    frames of a refused step describe a death the server has not recorded.
-
-    WHAT "RE-RUN" MEANS HERE, SPELLED OUT, because the sibling lane's identical
-    phrase means something different and following it wedges the world: re-read
-    the register and call :func:`kill` again with the SAME outcome you are
-    still holding.  Do NOT re-run ``mob_combat.strike`` - the ledger already
-    holds the kill, so it would answer ``no_room``, which :func:`kill` refuses
-    by name.  A caller that drops the outcome at this point has a monster at
-    zero in the ledger and absent from the register, which every later
-    ``repopulation_entries(..., ledger=...)`` refuses until someone repairs it.
-
-    IT ALSO FIRES :data:`MOB_DEATH_LANE_HOOK_POINT`, exactly once per
-    ACCEPTED kill, with :data:`MOB_DEATH_LANE_HOOK_ARGUMENTS`.  That is the only
-    "a monster died" seam this tree has (round ``2zybdx``); the block at the
-    bottom of this function says why it is here and not in :func:`kill`.
-    Like the burial, it can cost the world a hook and never cost the caller
-    its frames.
+    Everything :func:`commit_death` always did, up to and including the one
+    write this lane is allowed to make to the process-wide grave book -
+    minus the ``lane_hooks.fire`` call, which :func:`fire_mob_death_hook`
+    now owns alone.  Split out this round (``dggvou``) so a caller that
+    needs to write its OWN register back before the hook fires (see that
+    function's docstring for why one exists) can do so without this lane
+    duplicating the compare-and-swap or double-writing the world book.
+    :func:`commit_death` composes the two halves back together for every
+    caller that has not been given a reason to keep them apart.
     """
     if type(current) is not DeathRegister:
         raise MobDeathContractError(
@@ -2713,6 +2731,61 @@ def commit_death(
                       % (getattr(step.record, "scene", ""), error))
             except Exception:                           # noqa: BLE001
                 pass
+    return step.register, PendingMobDeathHook(
+        mob_id=step.record.actor_identity,
+        scene_id=step.record.scene,
+        killer_actor_identity=step.record.killer_identity,
+        first_in_the_world=_first_in_the_world(grave),
+    )
+
+
+def fire_mob_death_hook(
+        pending: PendingMobDeathHook, *, announce: bool = True) -> None:
+    """Fire :data:`MOB_DEATH_LANE_HOOK_POINT` for an already-committed kill.
+
+    SPLIT OUT OF ``commit_death`` this round (``dggvou``), pf-adversary D11
+    of round ``2zybdx``.  D11's measurement: ``runtime.py``'s two roster kill
+    sites write ``self.mob_death_register = mob_death.commit_death(...)`` --
+    a single Python statement whose assignment to ``self.mob_death_register``
+    happens ONLY AFTER THE WHOLE RIGHT-HAND SIDE RETURNS.  The hook used to
+    fire from INSIDE that right-hand side (the old, undivided
+    ``commit_death``), which means a subscriber that reaches back into the
+    connection's own live state during the hook - the exact thing
+    ``lane_hooks.register_live_session``/``current_session_scene_id`` exist
+    to let a subscriber do for OTHER per-session facts - would read
+    ``self.mob_death_register`` as it stood BEFORE this kill, because the
+    write-back had not happened yet on that same call stack.
+    ``tests/test_mob_death_lane_hook_point.py::
+    test_the_ordering_hazard_is_real_on_the_undivided_call`` demonstrates
+    this on the exact statement shape ``runtime.py`` uses, and
+    ``test_the_split_call_lets_a_caller_close_the_gap`` demonstrates that
+    calling this function SEPARATELY, after the caller's own register
+    write-back, closes it.
+
+    THIS DOES NOT CHANGE ``commit_death``'S DEFAULT BEHAVIOUR BY ONE BYTE.
+    Nothing in ``runtime.py`` calls this function yet - both roster kill
+    sites still call the undivided ``commit_death``, which composes
+    :func:`_commit_death_core` and this function back to back with no gap,
+    exactly as one function did before this round.  Closing the gap for real
+    needs ``runtime.py``'s own two call sites reordered (write the register,
+    THEN fire), and that file is chief's; the exact lines are named in this
+    round's CORE-REQUEST letter rather than edited here.
+
+    RAISES :class:`MobDeathContractError` (:data:`REFUSE_HOOK_ALREADY_FIRED`)
+    if ``pending`` has already been passed here once.  pf-adversary (round
+    ``dggvou``) fired one ``PendingMobDeathHook`` twice by hand and got two
+    ``mob_death`` events for one accepted kill; the guard below is the fix,
+    checked and latched BEFORE the door to ``lane_hooks`` opens so a second
+    call costs nothing but a raise, never a second announcement.
+    """
+    if pending._fired:
+        raise MobDeathContractError(
+            REFUSE_HOOK_ALREADY_FIRED,
+            "this PendingMobDeathHook (mob_id=0x%X scene_id=%r) already "
+            "fired once; commit_death_and_prepare_hook a fresh one for a "
+            "new kill instead of reusing this one" % (
+                pending.mob_id, pending.scene_id))
+    pending._fired = True
     # THE "A MONSTER DIED" EXTENSION POINT, opened by round 2zybdx because
     # LANE-B promised it in writing and nothing on main had it.  LANE-B's
     # letter to LANE-Q (pf_bridge/notes_to_chief/20260905_2112_LANE-B-TO-
@@ -2817,10 +2890,10 @@ def commit_death(
         # so they cannot drift apart in silence.
         lane_hooks.fire(
             "mob_death",
-            mob_id=step.record.actor_identity,
-            scene_id=step.record.scene,
-            killer_actor_identity=step.record.killer_identity,
-            first_in_the_world=_first_in_the_world(grave),
+            mob_id=pending.mob_id,
+            scene_id=pending.scene_id,
+            killer_actor_identity=pending.killer_actor_identity,
+            first_in_the_world=pending.first_in_the_world,
         )
     except Exception as error:                          # noqa: BLE001
         # NAMED, for the reason the burial's own handler gives: "no lane has
@@ -2844,11 +2917,99 @@ def commit_death(
                 print("MOB_DEATH_LANE_HOOK_REFUSED scene=%r "
                       "reason=hook_door_raised:%r (latched: printed once "
                       "per process)"
-                      % (getattr(step.record, "scene", ""), error),
+                      % (pending.scene_id, error),
                       file=sys.stderr)
             except Exception:                           # noqa: BLE001
                 pass
-    return step.register
+
+
+def commit_death(
+    current: DeathRegister, step: DeathStep, *,
+    world: Any = None, announce: bool = True,
+) -> DeathRegister:
+    """Compare-and-swap: accept a kill only against the register it was read from.
+
+    ``world`` and ``announce`` reach :func:`mob_death_persistence.
+    remember_death` and nothing else.  They are keyword-only and defaulted so
+    that no existing call site changes, and they EXIST because pf-adversary
+    (round ``amz1w5``) measured the alternative: with the burial hardwired,
+    a diag path, a hypothesis module or a test had no way to commit a kill
+    without writing to a structure that outlives the process's every session,
+    and this function's own promise -- it is a pure value operation on a
+    register -- would have quietly stopped being true.
+
+    The mirror of ``mob_combat.commit_step``, and it exists for the same
+    reason.  Two kills computed from the same register both return a register
+    of one row, and storing them in turn loses one of them - silently, and on
+    a different monster from the one the second kill was about.  Returns the
+    new register; refuses with :data:`REFUSE_REGISTER_STALE` when the stored
+    register has moved, in which case the caller sends NOTHING, because the
+    frames of a refused step describe a death the server has not recorded.
+
+    WHAT "RE-RUN" MEANS HERE, SPELLED OUT, because the sibling lane's identical
+    phrase means something different and following it wedges the world: re-read
+    the register and call :func:`kill` again with the SAME outcome you are
+    still holding.  Do NOT re-run ``mob_combat.strike`` - the ledger already
+    holds the kill, so it would answer ``no_room``, which :func:`kill` refuses
+    by name.  A caller that drops the outcome at this point has a monster at
+    zero in the ledger and absent from the register, which every later
+    ``repopulation_entries(..., ledger=...)`` refuses until someone repairs it.
+
+    IT ALSO FIRES :data:`MOB_DEATH_LANE_HOOK_POINT`, exactly once per
+    ACCEPTED kill, with :data:`MOB_DEATH_LANE_HOOK_ARGUMENTS`.  That is the only
+    "a monster died" seam this tree has (round ``2zybdx``); the block inside
+    :func:`fire_mob_death_hook` says why it is here and not in :func:`kill`.
+    Like the burial, it can cost the world a hook and never cost the caller
+    its frames.
+
+    THIS IS ``_commit_death_core`` THEN ``fire_mob_death_hook``, BACK TO BACK,
+    WITH NOTHING BETWEEN THEM - unchanged from before round ``dggvou`` split
+    the two apart, and every existing caller (``runtime.py``'s two roster
+    kill sites) still goes through this exact function, unmodified.  A
+    caller that needs to write its OWN register back BEFORE the hook fires
+    (closing pf-adversary D11, round ``2zybdx``) wants
+    :func:`commit_death_and_prepare_hook` instead - see that function's
+    docstring.
+    """
+    register, pending = _commit_death_core(
+        current, step, world=world, announce=announce)
+    fire_mob_death_hook(pending, announce=announce)
+    return register
+
+
+def commit_death_and_prepare_hook(
+    current: DeathRegister, step: DeathStep, *,
+    world: Any = None, announce: bool = True,
+) -> tuple[DeathRegister, PendingMobDeathHook]:
+    """:func:`commit_death`, minus the hook fire - for a caller that must
+    write its own register back FIRST.
+
+    ROUND ``dggvou``, closing pf-adversary D11 of round ``2zybdx`` for real.
+    ``runtime.py``'s two roster kill sites both write
+    ``self.mob_death_register = mob_death.commit_death(...)``: Python
+    evaluates the whole right-hand side, INCLUDING the hook fire that used to
+    live inside it, before the assignment to ``self.mob_death_register``
+    happens.  A subscriber that reaches back into the connection's own live
+    state during that fire - exactly what
+    ``lane_hooks.register_live_session``/``current_session_scene_id`` exist
+    to let a subscriber do for other per-session facts - would read
+    ``self.mob_death_register`` as it stood BEFORE this kill.
+
+    THE FIX THIS FUNCTION MAKES POSSIBLE, NOT YET WIRED::
+
+        new_register, pending = mob_death.commit_death_and_prepare_hook(
+            self.mob_death_register, candidate)
+        self.mob_death_register = new_register        # write back FIRST
+        mob_death.fire_mob_death_hook(pending)         # THEN fire
+
+    Not wired here because both statements above belong to ``runtime.py``,
+    which this lane does not edit - the exact two call sites (and why the
+    single-statement form cannot be reordered from inside this module alone)
+    are named in this round's CORE-REQUEST letter to chief.  Nothing about
+    ``commit_death``'s own default behaviour changes: it still does the old,
+    undivided thing, and this function is additive.
+    """
+    return _commit_death_core(current, step, world=world, announce=announce)
 
 
 def live_roster(
