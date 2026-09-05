@@ -1452,6 +1452,7 @@ class SQLiteStore:
                 for row in db.execute("PRAGMA table_info(characters)")
             }
             if "class_id" not in columns:
+                print("CLASS_ID_BACKFILL_SKIPPED reason=schema_not_migrated")
                 return ()
             rows = db.execute(
                 "SELECT id FROM characters "

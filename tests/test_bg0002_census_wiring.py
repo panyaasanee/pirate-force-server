@@ -592,9 +592,10 @@ class Bg0002CensusWiringTests(unittest.TestCase):
             lines[0],
             "MOB_CENSUS_HOSTILITY scene_id=%d scene=Bg0002 roster=%d "
             "backed=%d unbacked=none refused=%d override=%d "
-            "ledger=%s" % (
+            "ledger=%s withheld=%d" % (
                 SCENE2_N_ID, roster_count, roster_count,
                 report["refused_count"], len(override), ledger_state,
+                report["withheld_count"],
             ),
         )
         self.assertNotIn("override=not_reported", lines[0])

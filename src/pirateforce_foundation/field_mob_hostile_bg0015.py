@@ -9,16 +9,22 @@ real client on screen.  This module is that one approved importer --
 ``tests/test_field_mob_tables_bg0015.py``'s own AST+literal sweep now expects
 exactly this file and no other under ``src/`` to name the table module.
 
-THIS DOES NOT MAKE Bg0015 A LIVE ROSTER.  ``field_mobs.load_roster(scene=...)``
-still refuses ``"Bg0015"`` -- this module does not touch ``field_mobs
-._SCENE_TABLE_MODULES``, ``live_scenes()`` or
-``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING``, all of which 182 existing pinned
-assertions across six test files depend on meaning "the two scenes shipped so
-far" (measured this round with a grep before touching anything).  Registering
-a third scene there is layer 2/3 work gated on chief's own ``runtime.py:7501``
-branch (COO-DECISION's own division of labour) and is deliberately left for
-that CORE-REQUEST, not slipped in here as a side effect of an import guard
-unlocking.
+~~THIS DOES NOT MAKE Bg0015 A LIVE ROSTER.  ``load_roster(scene=...)`` still
+refuses ``"Bg0015"`` ... 182 existing pinned assertions across six test files
+depend on meaning "the two scenes shipped so far" ... Registering a third scene
+there is layer 2/3 work gated on chief's own ``runtime.py:7501`` branch ...
+deliberately left for that CORE-REQUEST.~~
+
+STRUCK ROUND j5v7mu2 (pf-adversary D-B), AND IT IS THIS FILE'S HEADLINE CLAIM
+-- read before either paragraph the same round struck further down.  Every
+sentence in it is false at HEAD: ``COO-DECISION 20260903_1942`` item 2
+registered Bg0015, ``live_scenes()`` answers five scenes rather than two,
+``load_roster("Bg0015")`` returns 11 rows, and the CORE-REQUEST it calls
+pending shipped on 2026-09-03.  The ``182`` and "the two scenes shipped so far"
+are pins nothing recomputes, and they are NOT replaced with fresh numbers here
+on purpose -- that is the shape that went stale in the first place.
+``mob_combat_bg0015_gates`` has carried its own strike for the same
+registration since the day it happened; this file did not, for two days.
 
 WHAT THIS MODULE ACTUALLY BUILDS, AND WHY IT REUSES RATHER THAN RE-DERIVES.
 ``field_mobs.hostile_actor_entry`` is the ONE encoder this project already
@@ -45,23 +51,46 @@ module is lane B's half of that letter, built rather than merely agreed to
 synthetic generation, since the real ``runtime.py`` call site does not exist
 yet for a live proof.
 
-WHICH 12 PLACEMENTS, AND WHETHER ALL 12 SHIP HOSTILE.  Every row in
+WHICH 12 PLACEMENTS, AND WHETHER ALL 12 SHIP HOSTILE.  ~~Every row in
 ``field_mob_tables_bg0015.HOSTILE_PLACEMENTS`` ships hostile by default here
-(:data:`DEFAULT_HOSTILE_PLACEMENT_INDICES` is the full set, all 12) -- lane
-A's letter item 3 leaves "hostile or partly civilian" as lane B's call, and
-this round's decision is "all 12, unchanged from what the table already
-selects" because ``field_mob_tables_bg0015.py``'s own generator already ran
-the hostility predicate (rank>0 AND ai_combat!=0) to produce exactly this
-list; nothing here narrows it further.  :func:`scene14_hostile_overrides`
+(:data:`DEFAULT_HOSTILE_PLACEMENT_INDICES` is the full set, all 12)~~ STRUCK
+ROUND j5v7mu2 (pf-adversary D11: round j5v7mu changed the constant and left
+this sentence standing): that constant is the table's rows MINUS what
+``field_mobs`` withholds, which is placement 87 today (``COO-DECISION
+20260905_0545``), and the sentence "nothing here narrows it further" below
+was contradicted by the constant 45 lines under it.
+
+The rest of that paragraph still holds and is why the STARTING set is the
+table's own predicate rather than a hand-picked subset: lane A's letter item
+3 leaves "hostile or partly civilian" as lane B's call, and
+``field_mob_tables_bg0015.py``'s own generator already ran the hostility
+predicate (rank>0 AND ai_combat!=0) to produce exactly this list.  ~~nothing
+here narrows it further~~ is the half that is gone: two refusal lists in
+``field_mobs`` narrow it now, and :func:`scene14_shipped_hostile_roster` is
+where that is applied.  :func:`scene14_hostile_overrides`
 takes an explicit ``placement_indices`` argument so a future round (or the
 joint letter, if lane A/chief want fewer) can narrow it without editing this
 function's body -- narrowing is a caller argument, not a code change.
 
-NONCLAIM.  Nothing here sends a frame, opens a ledger row, or is called from
-``runtime.py``/``app.py`` -- grepped for both, zero hits outside this file
-and its own test.  ``current/pf_login_game_server_v141.py`` is read (via the
-caller-supplied ``legacy`` module, exactly like every other ``field_mobs``
-caller) and never edited.
+NONCLAIM.  ~~Nothing here sends a frame, opens a ledger row, or is called
+from ``runtime.py``/``app.py`` -- grepped for both, zero hits outside this
+file and its own test.~~ STRUCK ROUND j5v7mu2 (pf-adversary D11): FALSE, and
+it was already false before this round.  ``world_population_handoff.py``
+splices these bodies into every scene-14 arrival, and
+``lane_hooks/lane_a_choose_npc_scene14.py`` has read this module since
+``#724`` (LANE-A, 2026-09-04).  ~~round j5v7mu added those two call sites~~
+is wrong (pf-adversary D-F): that round changed WHICH function the two
+existing sites read, and this file's own "WHY IT NOW ALSO READS" note says
+so 75 lines further down.  What is still
+true is the narrow part: nothing in THIS FILE calls a socket, and
+``runtime.py``/``app.py`` still do not name it -- they reach it through
+those two modules.  A grep-based nonclaim that is never re-grepped is a
+nonclaim with a shelf life; this one is now dated.
+
+STILL TRUE, unchanged since the file was written:
+``current/pf_login_game_server_v141.py`` is read (via the caller-supplied
+``legacy`` module, exactly like every other ``field_mobs`` caller) and never
+edited.
 """
 
 from __future__ import annotations
@@ -100,12 +129,21 @@ class FieldMobHostileBg0015Error(ValueError):
 # withheld index, which this module deliberately does NOT re-refuse: the
 # roster gate is ``load_roster``'s, and a diagnostic that wants to encode a
 # withheld row (``mob_combat_bg0015_gates`` does) must stay able to.
+#
+# ROUND j5v7mu2, pf-adversary D8: BOTH of ``field_mobs``'s refusal lists,
+# not just the lane's.  ``load_roster`` subtracts the owner's list too, and
+# a default that subtracted one of the two agreed with it only because
+# ``OWNER_REFUSED_PLACEMENTS`` happens to have no Bg0015 entry today.
 DEFAULT_HOSTILE_PLACEMENT_INDICES: tuple[int, ...] = tuple(
     index
     for index in sorted(
         row[0] for row in field_mob_tables_bg0015.HOSTILE_PLACEMENTS)
-    if index not in set(
-        field_mobs.lane_withheld_placements(field_mob_tables_bg0015.SCENE))
+    if index not in (
+        set(field_mobs.owner_refused_placements(
+            field_mob_tables_bg0015.SCENE))
+        | set(field_mobs.lane_withheld_placements(
+            field_mob_tables_bg0015.SCENE))
+    )
 )
 
 
@@ -140,17 +178,50 @@ def scene14_shipped_hostile_roster() -> tuple[Any, ...]:
     ``field_mobs.load_roster("Bg0015")`` hands a session, or a player meets a
     red-named monster that no strike can reach.
 
-    Derived through ``field_mobs.lane_withheld_placements`` rather than
-    through ``load_roster`` itself so this module keeps parsing its own table
-    (the reason :func:`scene14_hostile_roster` exists at all), and
-    ``tests/test_field_mob_hostile_bg0015.py`` asserts the two agree.
+    Derived through ``field_mobs``'s two refusal lists rather than through
+    ``load_roster`` itself so this module keeps parsing its own table (the
+    reason :func:`scene14_hostile_roster` exists at all).  Two tests in
+    ``tests/test_field_mob_hostile_bg0015.py`` assert the agreement --
+    ``FieldMobHostileBg0015Tests`` for today's lists and
+    ``AnOwnerRefusalForSceneFourteenTests`` with the owner's list made
+    non-empty -- because a docstring promising agreement without a test is
+    how the two drift.  (pf-adversary D-I: the first citation of this shape
+    named no class, so it did not resolve as a pytest node id, and it was
+    line-wrapped mid-token so it was not greppable either.)
+
+    ROUND j5v7mu2, pf-adversary D8: ~~minus the withheld~~ is STRUCK -- the
+    first version subtracted the LANE list only, while ``load_roster``
+    subtracts the owner's list as well.  That was true today purely because
+    ``OWNER_REFUSED_PLACEMENTS`` has no Bg0015 entry, which is exactly the
+    "a property of today's data, not of the code" sentence this round struck
+    somewhere else for being unsafe.  The day an owner refusal lands for
+    Bg0015, the one-list version would have shipped hostile bodies for
+    owner-refused rows with no ledger row behind them -- the defect this
+    round exists to remove, reintroduced through the other door.
     """
-    withheld = set(
-        field_mobs.lane_withheld_placements(field_mob_tables_bg0015.SCENE))
-    return tuple(
+    scene = field_mob_tables_bg0015.SCENE
+    dropped = set(field_mobs.owner_refused_placements(scene))
+    dropped |= set(field_mobs.lane_withheld_placements(scene))
+    kept = tuple(
         mob for mob in scene14_hostile_roster()
-        if mob.placement_index not in withheld
+        if mob.placement_index not in dropped
     )
+    # ROUND j5v7mu2, pf-adversary D-H.  ``load_roster`` refuses THIS state
+    # loudly and by name; before this line the two paths diverged in it --
+    # ``load_roster`` raised while this returned ``()`` in silence, and the
+    # arrival splice at ``world_population_handoff`` then died blaming an
+    # argument its caller never passed.  The two now agree on the degenerate
+    # config the same way they already agree on every partial one.
+    if not kept:
+        raise FieldMobHostileBg0015Error(
+            "the refusal lists for scene %r remove every row this lane "
+            "ships (owner: %s, lane-withheld: %s); an empty shipped roster "
+            "must come from an empty table, not from a filter"
+            % (scene,
+               sorted(field_mobs.owner_refused_placements(scene)),
+               sorted(field_mobs.lane_withheld_placements(scene)))
+        )
+    return kept
 
 
 def scene14_hostile_overrides(

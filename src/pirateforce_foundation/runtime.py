@@ -73,6 +73,7 @@ from .gm.warp_target_record import (
     take_warp_target_with_reason,
 )
 from .gm.warp_executor import WarpTarget
+from .gm import warp_send_watch
 
 from .model import Position
 from .inventory import (
@@ -1597,6 +1598,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.scene_hostile_target_captured = False
                 if connection_bindings is not None:
                     connection_bindings.bind(self)
+                    # CORE-REQUEST-GM-058, form B (LANE-GM addendum
+                    # 20260905_0719; installer landed on main in #801).
+                    # `bind` is the call that makes THIS object the
+                    # `AcceptedGameSocket.state` that `connection.py:150`
+                    # reads `on_game_frame_sent` /
+                    # `on_game_frame_send_failed` off, so installing on the
+                    # next line leaves no window for a frame to be sent
+                    # before both forwards exist.  Never raises; answers one
+                    # of FOUR words -- `installed`, `completed_half_declared`,
+                    # `refused_already_present`, `refused_not_writable`.
+                    #
+                    # The answer is deliberately not consulted HERE, and that
+                    # is not the same as nobody reading it: LANE-GM's
+                    # `_announce_install` puts every outcome on the session's
+                    # event trail AND on stderr as `GM_WARP_SEND_OBSERVERS
+                    # <outcome>`, precisely because a bare statement in this
+                    # file was once the only channel.  So this line stays a
+                    # statement, and the outcome is still legible to a test,
+                    # a lane, and anyone grepping a boot log.
+                    #
+                    # Not consulting it is the safe direction: a refusal is
+                    # this connection keeping whatever it already had, and a
+                    # session that cannot carry the observers must still be
+                    # able to log in.  (pf-adversary D12 on R350: this
+                    # comment named three outcomes and called the answer
+                    # unread.  Both were stale the moment #804 merged.)
+                    warp_send_watch.install_send_outcome_observers(self)
             except BaseException as error:
                 try:
                     self.foundation.close_connection()
@@ -7518,6 +7546,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # explicit nonclaim (RE-119 T4 leaves the request's own
                 # discriminator field bounded negative).
                 self.rx_frames += 1
+                # CORE-REQUEST (LANE-UI, 20260905_0347): one observer at the
+                # dispatch site LANE-UI cannot write to itself.  Log-only,
+                # exactly the shape the eight friend/mail/party/trade points
+                # below already use -- `fire()` never returns a value and
+                # never touches control flow, so the empty-vector reply path
+                # CORE-REQUEST-025 installed above is byte-for-byte what it
+                # was.  This decides NOTHING about the request's own fields;
+                # RE-236 item (b) (`u16@+0x14` = quest id / NPC id / list
+                # index) stays open and RE-119 T4's ban on building a
+                # response out of the discriminator stands untouched.
+                lane_hooks.fire(
+                    "vital_inbound_trace_path_req_vital",
+                    session=self, payload=bytes(parsed.nested_payload),
+                )
                 if self.foundation.selected is None:
                     self.events.append("trace_path_no_selected_no_reply")
                     return []
