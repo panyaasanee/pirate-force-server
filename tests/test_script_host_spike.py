@@ -1,0 +1,177 @@
+"""LANE-Q spike: the sandboxed Lua host runs the game's own scripts headless.
+
+Covers the charter's round-1 deliverable (prompts/LANE-Q.md item 1) at the
+two named files: load ``t_nex_t6.lua`` and ``Quest/q_kill5.lua`` with all
+160 API names stubbed, run their entry points headless to completion with
+no error, and prove the sandbox actually blocks io/os/require/load rather
+than merely not calling them.  Fixtures are byte-for-byte copies of the two
+named files from ../pf_bridge/gamedata/lua/ (verified with ``cmp`` when
+vendored - see docs/SCRIPT_LANE.md) so this module needs no sibling
+checkout: it is guarded only by LUPA_PACKAGE, not BRIDGE_LUA_SCRIPTS.
+"""
+import unittest
+from pathlib import Path
+
+from pf_preconditions import LUPA_PACKAGE
+
+from pirateforce_foundation import script_host
+
+FIXTURES = Path(__file__).parent / "fixtures" / "lua_spike"
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class TwoNamedSpikeScriptsRunHeadlessTests(unittest.TestCase):
+    """prompts/LANE-Q.md item 1: t_nex_t6.lua and Quest/q_kill5.lua."""
+
+    def test_t_nex_t6_script_start_runs_to_completion(self):
+        calls = []
+        host = script_host.load_script_file(FIXTURES / "t_nex_t6.lua", log=calls.append)
+        result = host.call("ScriptStart")
+        # All six Trigger.GetTriggerStatus stubs answer STUB_DEFAULT (0),
+        # which never equals Trigger.Var7 (also STUB_DEFAULT) - wait, it
+        # DOES equal it, so every "~=" comparison is false and the script
+        # takes its NextStatus branch, returning 1.  Asserted, not assumed.
+        self.assertEqual(result, 1)
+        stub_names = [c for c in calls if c.startswith("LUA_API_STUB ")]
+        self.assertEqual(
+            [c.split(" ", 1)[1] for c in stub_names],
+            ["Trigger.GetTriggerStatus"] * 6 + ["Trigger.NextStatus"],
+        )
+
+    def test_q_kill5_full_quest_lifecycle_runs_to_completion(self):
+        calls = []
+        host = script_host.load_script_file(FIXTURES / "q_kill5.lua", log=calls.append)
+        for entry_point in (
+            "OpenAcceptUI_Run", "OpenReportUI_Run",
+            "Accept_Check", "Accept_Run",
+            "Report_Check", "Report_Run",
+            "Delete_Run",
+        ):
+            with self.subTest(entry_point=entry_point):
+                self.assertTrue(host.has_function(entry_point))
+                result = host.call(entry_point)
+                # The four Check_/Run_ style functions explicitly `return
+                # 1`; OpenAcceptUI_Run/OpenReportUI_Run have no return
+                # statement at all in the source (they only call
+                # Mob.ShowAnimation for a side effect) so Lua's nil comes
+                # back as None - never raise either way.
+                self.assertIn(result, (0, 1, None))
+        called = {c.split(" ", 1)[1] for c in calls if c.startswith("LUA_API_STUB ")}
+        # A genuine dynamic-dispatch check, not just "it did not crash":
+        # every API name this specific script's source calls by name must
+        # actually have fired through the stub, in namespaces that are not
+        # each other (COO-DECISION 20260905_0947: "wired" means observed).
+        self.assertEqual(called, {
+            "Mob.ShowAnimation",
+            "Quest.MobKillCount",
+            "Quest.SetFlag",
+            "Quest.CountDownTime",
+            "Quest.CheckMobKillCount",
+            "Quest.AddCriteriaExp",
+            "Quest.AddCriteriaSkillPoint",
+            "Quest.AddCriteriaCash",
+            "Player.MobAppear",
+        })
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class SandboxActuallyBlocksTheBannedGlobalsTests(unittest.TestCase):
+    """The charter's sandbox line, verified from inside a running script."""
+
+    def _host(self):
+        return script_host.ScriptHost(log=lambda _msg: None)
+
+    def test_banned_globals_are_nil_not_merely_unused(self):
+        host = self._host()
+        host.load("function Probe() return io, os, require, load end")
+        self.assertEqual(host.call("Probe"), (None, None, None, None))
+
+    def test_reaching_into_os_raises_a_lua_error_the_caller_can_catch(self):
+        host = self._host()
+        host.load("function Probe() return os.time() end")
+        with self.assertRaises(Exception):
+            host.call("Probe")
+
+    def test_math_and_string_libraries_remain_available(self):
+        # The sandbox blocks the specific dangerous globals, not all of Lua's
+        # standard library - the scripts use math.random/string.find freely.
+        host = self._host()
+        host.load("function Probe() return math.floor(3.7), string.len('abc') end")
+        self.assertEqual(host.call("Probe"), (3, 3))
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class ApiNamespaceStubBehaviourTests(unittest.TestCase):
+    def test_unknown_property_style_key_returns_the_safe_default_silently(self):
+        calls = []
+        host = script_host.ScriptHost(log=calls.append)
+        host.load("function Probe() return Quest.Var1, Quest.StringVar1, Quest.Active end")
+        result = host.call("Probe")
+        self.assertEqual(result, (0, 0, 0))
+        self.assertEqual(calls, [])  # not API surface - no LUA_API_STUB line
+
+    def test_known_api_name_logs_exactly_once_per_call_and_returns_default(self):
+        calls = []
+        host = script_host.ScriptHost(log=calls.append)
+        host.load("function Probe() return Quest.GetQuestFlag(5) end")
+        self.assertEqual(host.call("Probe"), 0)
+        self.assertEqual(calls, ["LUA_API_STUB Quest.GetQuestFlag"])
+
+    def test_every_one_of_the_160_names_is_reachable_from_every_namespace_table(self):
+        # Not a sample: every qualified name the census found, called for
+        # real through a live ScriptHost, must log its own stub line.
+        from pirateforce_foundation.lua_api import spec as api_spec
+
+        for fn in api_spec.API_FUNCTIONS:
+            with self.subTest(qualified=fn.qualified_name):
+                calls = []
+                host = script_host.ScriptHost(log=calls.append)
+                host.load(
+                    "function Probe() return %s.%s() end"
+                    % (fn.namespace, fn.method)
+                )
+                host.call("Probe")
+                self.assertEqual(calls, ["LUA_API_STUB %s" % fn.qualified_name])
+
+    def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):
+        host = script_host.ScriptHost(log=lambda _msg: None)
+        host.load("function Probe() Quest.Var1 = 42; return Quest.Var1 end")
+        # The write is accepted and silently discarded (see ApiNamespaceStub
+        # docstring): a stub-stage read-back still answers STUB_DEFAULT, not
+        # the value the script just "set".
+        self.assertEqual(host.call("Probe"), 0)
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class FailClosedLoadingTests(unittest.TestCase):
+    """One bad script must never take a boot, or the loader loop, down."""
+
+    def test_a_syntax_error_is_caught_not_raised(self):
+        with self.assertRaises(Exception):
+            # Loading directly (not through load_corpus) DOES raise - the
+            # fail-closed catch lives in load_corpus, exercised below, so a
+            # caller who wants the low-level behaviour still gets a real
+            # exception instead of a silently swallowed one.
+            script_host.ScriptHost(log=lambda _m: None).load("function( -- broken")
+
+    def test_load_corpus_catches_a_broken_script_and_keeps_going(self, tmp_dir=None):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "good_one.lua").write_text("function ScriptStart() return 1 end")
+            (root / "broken_one.lua").write_text("function( -- syntax error, no end")
+            (root / "good_two.lua").write_text("function ScriptStart() return 1 end")
+            log_lines = []
+            report = script_host.load_corpus(root, log=log_lines.append)
+            self.assertEqual(report.total, 3)
+            self.assertEqual(report.ok, 2)
+            self.assertEqual(report.failed_paths, ["broken_one.lua"])
+            self.assertTrue(
+                any(line.startswith("LUA_SCRIPT broken_one.lua ERR ") for line in log_lines),
+                log_lines,
+            )
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

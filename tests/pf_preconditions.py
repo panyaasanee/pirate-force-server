@@ -325,6 +325,72 @@ class HistoricalGitObject:
         return "<HistoricalGitObject %s state=%s>" % (self.key, self.state()[0])
 
 
+class OptionalPackage:
+    """A third-party package this repository does not vendor or require.
+
+    WHY THIS CLASS EXISTS (LANE-Q, round s2fxf6, 2026-09-05).  Every guard
+    above answers "is this FILE here" or "does git HISTORY go back far
+    enough" - both questions about this git working tree.  LANE-Q's Lua
+    script host (``src/pirateforce_foundation/script_host.py``) is this
+    repository's first use of a dependency that is neither: it embeds Lua
+    via ``lupa``, a compiled extension PyPI ships wheels for but that no
+    ``requirements.txt``/``pyproject.toml`` in this repository pins (there
+    is none - ``.github/workflows/gate-windows.yml`` installs
+    ``pytest capstone pefile`` by name, one line; adding ``lupa`` there is
+    left to chief/COO, since that workflow is shared CI outside LANE-Q's
+    write zone - see docs/SCRIPT_LANE.md).  A fresh interpreter that has
+    not run that install line does not have it, and that is a fact about
+    the INTERPRETER, not about the clone - so it needs its own kind of
+    guard rather than stretching :class:`Precondition`'s path-existence
+    check over a question paths cannot answer.
+
+    Uses ``importlib.util.find_spec`` rather than importing the module: a
+    guard must never have the side effects of the thing it is guarding, and
+    must stay true even for a package whose import has effects beyond
+    binding a name.
+
+    Nothing is cached: recomputed on every access, same discipline as
+    :class:`Precondition`, so a test that ``pip install``-s its own
+    dependency mid-session is not answered from an earlier moment.
+    """
+
+    __slots__ = ("key", "module_name", "what", "why")
+
+    def __init__(self, key: str, module_name: str, what: str, why: str) -> None:
+        if not key or any(ch.isspace() for ch in key):
+            raise ValueError("precondition key must be a single word: %r" % key)
+        self.key = key
+        self.module_name = module_name
+        self.what = what
+        self.why = why
+
+    @property
+    def present(self) -> bool:
+        import importlib.util
+        try:
+            return importlib.util.find_spec(self.module_name) is not None
+        except (ImportError, ValueError):
+            # find_spec can raise on a name that collides with a namespace
+            # package fragment or similar oddity - either way, not present.
+            return False
+
+    @property
+    def reason(self) -> str:
+        return "[precondition:%s] %s is not installed in this interpreter - %s" % (
+            self.key, self.what, self.why,
+        )
+
+    def skip_unless_present(self):
+        return unittest.skipUnless(self.present, self.reason)
+
+    def require(self, case: unittest.TestCase) -> None:
+        if not self.present:
+            case.skipTest(self.reason)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<OptionalPackage %s present=%s>" % (self.key, self.present)
+
+
 # ---------------------------------------------------------------------------
 # The registry.  Adding an entry here is a deliberate act: it also needs a pin
 # in docs/PYTEST_SKIP_PINS.json, or the census goes red on an unknown key.
@@ -402,6 +468,22 @@ BRIDGE_GAMEDATA = Precondition(
     "bridge repository rather than this one, and LANE-B's "
     "tools/pf_mine_scene_drop_tables.py can only re-derive its generated "
     "table where they are present (round g627j0)",
+)
+
+BRIDGE_LUA_SCRIPTS = Precondition(
+    "bridge_lua_scripts",
+    [
+        SIBLING / "pf_bridge" / "gamedata" / "lua",
+        SIBLING / "pf_bridge" / "gamedata" / "PF_GAMEDATA_LUA_API.tsv",
+    ],
+    "the 616 shipped quest/trigger scripts ../pf_bridge/gamedata/lua/ and "
+    "their API census ../pf_bridge/gamedata/PF_GAMEDATA_LUA_API.tsv",
+    "they are the game's own script corpus, they live in the bridge "
+    "repository rather than this one (this repo vendors only a frozen copy "
+    "of the census columns, src/pirateforce_foundation/lua_api/api_spec.tsv, "
+    "not the 616 files themselves), and LANE-Q's "
+    "script_host.load_corpus() full-corpus test can only load the real "
+    "files where they are present (spike round s2fxf6)",
 )
 
 #: The ONE serializer table a consumer needs, named on its own.
@@ -574,6 +656,18 @@ AUDIT_HEAD_HISTORY = HistoricalGitObject(
     "commit, so the re-derivation happens there for real",
 )
 
+LUPA_PACKAGE = OptionalPackage(
+    "lupa_package",
+    "lupa",
+    "the lupa package (PUC-Lua/LuaJIT <-> Python bridge)",
+    "LANE-Q's script_host.py embeds the game's own quest/trigger scripts "
+    "via lupa; PyPI publishes wheels for it (win32/win_amd64/win_arm64 "
+    "included, cp38 through cp314 - checked against pypi.org/pypi/lupa/2.8/"
+    "json, round s2fxf6) but this repository pins no dependency of any "
+    "kind yet, so a fresh interpreter that has not run the pip install "
+    "line in .github/workflows/gate-windows.yml does not have it",
+)
+
 REGISTRY = {
     p.key: p
     for p in (
@@ -585,6 +679,7 @@ REGISTRY = {
         LOGIN_REQ_CAPTURE,
         BRIDGE_SIBLING,
         BRIDGE_GAMEDATA,
+        BRIDGE_LUA_SCRIPTS,
         BRIDGE_SERIALIZER_TABLE,
         BRIDGE_ATTR_CORPUS,
         BRIDGE_GM_INSTALL_BAT,
@@ -592,6 +687,7 @@ REGISTRY = {
         EXTERNAL_RE_TABLES,
         ORIGINAL_SCHEMA_HISTORY,
         AUDIT_HEAD_HISTORY,
+        LUPA_PACKAGE,
     )
 }
 
