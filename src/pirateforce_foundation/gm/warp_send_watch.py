@@ -117,13 +117,20 @@ frame's bytes are attached to the failure; matching them would only narrow
 which failures this module notices, not which ones actually orphaned the
 row.
 
-WHERE THE UNDO'S `previous` COMES FROM IS NOT THIS MODULE'S PROBLEM.
+~~WHERE THE UNDO'S `previous` COMES FROM IS NOT THIS MODULE'S PROBLEM.
 `rollback_warp_scene_on_send_failure` reads `foundation.selected.position`
 itself -- the pre-warp snapshot `persist_warp_scene` restores there the
 moment the durable write lands (see that module's own docstring) -- so this
 file never needs to carry a position of its own.  It only ever needs to
 know ONE thing: is there still an unconfirmed persisted warp on this
-connection, yes or no.
+connection, yes or no.~~  STRUCK by pf-adversary D10 (round `goxj0y`), which
+caught this paragraph still asserting the story round `ff30oi` already
+refuted 60 lines below it: `ParkedWarpSend.previous_position` exists
+precisely because the delegate's re-derived row is two warps stale after two
+warps, and `on_game_frame_send_failed` prefers `rollback_warp_scene(session,
+record.previous_position)` when the park carries a usable one.  This file
+DOES carry a position of its own, and it needs to know two things, not one.
+The delegate path survives only as the fallback for a park without one.
 
 NEVER RAISES, ANYWHERE IN THIS FILE.  Every entry point here can run on the
 game-listener thread, most of them inside a `sendall` failure's own
@@ -169,6 +176,7 @@ from dataclasses import dataclass
 from ..model import Position
 from .warp_scene_persist import (
     SEND_FAILURE_WARP_ACTION_LABEL,
+    _console as _persist_console,
     rollback_warp_scene,
     rollback_warp_scene_on_send_failure,
 )
@@ -492,18 +500,75 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
 SENT_OBSERVER_ATTRIBUTE = "on_game_frame_sent"
 FAILED_OBSERVER_ATTRIBUTE = "on_game_frame_send_failed"
 
-#: Both forwards landed and read back as callables.
+#: Console token every outcome of `install_send_outcome_observers` prints,
+#: on stderr, exactly once per connection.  pf-adversary D1/D3 (MEASURED,
+#: round `goxj0y`): the installer used to be the ONE function in this module
+#: that refused without saying so -- no `_note`, no console line -- while
+#: its only intended caller is a bare statement in `runtime.py` that
+#: discards the return value.  A refusal on a live connection was therefore
+#: invisible to chief, to CI, and to the owner's console alike, and the
+#: whole suite was bit-identical whether the hookup was armed, absent, or
+#: silently disarmed.  A word nobody can read is not an answer.
+INSTALL_CONSOLE_TOKEN = "GM_WARP_SEND_OBSERVERS"
+
+#: Both names were absent and both forwards landed.
 INSTALL_OK = "installed"
-#: The session already answers to at least one of the two names -- a real
-#: method chief later declares on the state class, or a second install on
-#: the same connection.  REFUSED, and nothing is written: an instance
-#: attribute would SHADOW a class method, so an installer that overwrote
-#: would silently disarm the very hookup it is standing in for.
+#: BOTH names already resolve -- chief's own two methods
+#: (`CORE-REQUEST-GM-058` shape A), or a second install on this connection.
+#: Nothing is written: an instance attribute would SHADOW a class method, so
+#: an installer that overwrote would silently disarm the very hookup it is
+#: standing in for.
 INSTALL_REFUSED_ALREADY_PRESENT = "refused_already_present"
+#: EXACTLY ONE name resolved, and this call supplied the other.
+#:
+#: pf-adversary D1 (MEASURED, round `goxj0y`).  Refusing outright on "at
+#: least one present" was measured to be worse than doing nothing, in the
+#: real facade, against the real store: with only `on_game_frame_send_failed`
+#: declared, a `/warp` whose frame REALLY REACHED THE WIRE is never cleared
+#: (no success observer), and the next unrelated disconnect on that same
+#: connection rolls the durable row back to the origin scene while the
+#: client is really standing in the destination.  That is durable position
+#: corruption caused by refusing.  Supplying only the MISSING name shadows
+#: nothing -- the name being written did not resolve -- and completes a pair
+#: that is meaningless half-declared.  It is still a defect in whatever
+#: declared one half, so it gets its own word and its own console line
+#: rather than being folded into `installed`.
+INSTALL_COMPLETED_HALF_DECLARED = "completed_half_declared"
 #: `setattr` raised, or the read-back did not find what was written (a
-#: session that swallows attribute writes).  Any partial install is undone
-#: before returning; see the function body.
+#: session that swallows attribute writes, `__slots__`, a read-only
+#: property).  Any partial install is undone before returning; see the
+#: function body.
 INSTALL_REFUSED_NOT_WRITABLE = "refused_not_writable"
+
+
+def _announce_install(session: object, outcome: str) -> str:
+    """Say the outcome out loud, then return it.  Never raises.
+
+    pf-adversary D1/D3 (MEASURED, round `goxj0y`).  Every other refusal in
+    this module reaches a reader: `park_warp_send`'s `False` becomes
+    `chat_command_action.EVENT_WARP_SEND_WATCH_NOT_PARKED`, the rollbacks
+    print `warp_scene_persist.ROLLBACK_CONSOLE_TOKEN`.  The installer
+    reported only through a return value that its one intended caller -- a
+    bare statement in `runtime.py` -- throws away, so a live connection that
+    refused was invisible everywhere: no event, no console line, and the
+    whole suite bit-identical whether the hookup was armed or silently
+    disarmed.  Two channels, because they answer different people: the
+    event trail is what a test or a lane reads back, the stderr token is
+    what the owner greps in a boot log.
+
+    STDERR, VIA `warp_scene_persist`'S OWN GUARDED WRITER, NOT `print`.
+    `sys.stderr` can be `None` (a detached console, `pythonw`), and `print`
+    reads `file=None` as "use stdout" and writes the token there without
+    raising -- the `lane_hooks` JSON-artifact incident (pf-adversary round
+    `741zlx`, finding 3).  Reusing that module's `_console` rather than
+    copying its guard means this line cannot drift away from the fix.
+    """
+    _note(session, f"{EVENT_PREFIX}install_{outcome}")
+    try:
+        _persist_console(f"{INSTALL_CONSOLE_TOKEN} {outcome}")
+    except Exception:  # noqa: BLE001 - the report must never raise
+        pass
+    return outcome
 
 
 def install_send_outcome_observers(session: object) -> str:
@@ -528,35 +593,63 @@ def install_send_outcome_observers(session: object) -> str:
     already binds this session to its accepted socket -- `connection_
     bindings.bind(self)` (`runtime.py:1599`), whose `self` is the SAME
     object `connection.py` then stores as `AcceptedGameSocket.state`
-    (`connection.py:87`) and reads the two names off.  Installing there
+    (`connection.py:92`) and reads the two names off.  Installing there
     means both forwards exist before this connection's first send, so no
-    frame can slip through the window between bind and install.
+    frame can slip through the window between bind and install.  It is also
+    provably single-threaded: v141 constructs the state at `:7399` and only
+    starts `hb_thread` at `:7439`, so the install completes before the only
+    other thread that could touch this connection exists.
+
+    EACH NAME IS DECIDED SEPARATELY -- pf-adversary D1 (MEASURED).  A name
+    that ALREADY resolves is never touched, because an instance attribute
+    would shadow a real class method and silently disarm the very hookup
+    this stands in for.  A name that does NOT resolve is supplied, even when
+    its partner is already there.  Refusing outright on "at least one
+    present" was measured, in the real facade against the real store, to be
+    WORSE than doing nothing: with only `on_game_frame_send_failed`
+    declared, a `/warp` whose frame really reached the wire is never cleared
+    and the next unrelated disconnect rolls the durable row back while the
+    client is standing in the destination scene.  Completing the pair
+    shadows nothing and cannot produce that.  Three answers, not two:
+    `installed` (both were absent), `completed_half_declared` (exactly one
+    was, and this call supplied the other -- still somebody's defect, so it
+    keeps its own word), `refused_already_present` (both were).
 
     THE SESSION IS HELD WEAKLY, ON PURPOSE.  A closure that captured the
-    session strongly and was then stored ON that session would be a
-    reference cycle, collectable only by a full `gc` pass -- and
-    `lane_hooks`'s live-session registry (`lane_hooks/__init__.py:945`)
+    session strongly and was then stored ON that session is a reference
+    cycle, freed by a full `gc` pass and not by refcount -- measured, with
+    the collector disabled.  ~~and `lane_hooks`'s live-session registry
     holds sessions by WEAK reference precisely so a dead connection's
-    session stops answering `current_session_scene_id` promptly.  A cycle
+    session stops answering `current_session_scene_id` promptly; a cycle
     here would keep dead sessions answering for another lane until the
-    collector happened to run.  A session that cannot be weak-referenced
-    (`__slots__` without `__weakref__`) falls back to a strong capture
-    rather than refusing the install: a delayed collection is a smaller
-    defect than a warp that never rolls back.
+    collector happened to run.~~  HALF STRUCK by pf-adversary D6 (MEASURED):
+    that registry is a `WeakValueDictionary` (`lane_hooks/__init__.py:
+    955-957`) and its assignment is UNGUARDED, so `register_live_session`
+    RAISES `TypeError` for a session that cannot be weak-referenced -- such
+    a session can never be in the registry, and therefore the fallback
+    branch below can never cause the harm that sentence used it to justify.
+    The weak default is still right for the ordinary path (the real state
+    class IS weak-referenceable, so that is the branch production takes);
+    the fallback is there only so a `__slots__` session gets a working
+    rollback instead of a refusal, and it is honest to say it protects
+    nothing else.
 
     NEVER RAISES, and read-back is the proof, not `setattr` returning --
     the same discipline `park_warp_send` and `clear_warp_send_watch` carry,
     for the same reason (`_RefusingSession` in this module's test file).
+    Every outcome, including both refusals, is announced on the event trail
+    and on stderr by `_announce_install`; see that function on why a return
+    value alone was not an answer.
     """
     try:
-        already = (
-            getattr(session, SENT_OBSERVER_ATTRIBUTE, None) is not None
-            or getattr(session, FAILED_OBSERVER_ATTRIBUTE, None) is not None
+        present = tuple(
+            getattr(session, name, None) is not None
+            for name in (SENT_OBSERVER_ATTRIBUTE, FAILED_OBSERVER_ATTRIBUTE)
         )
     except Exception:  # noqa: BLE001 - a session whose getattr raises
-        return INSTALL_REFUSED_NOT_WRITABLE
-    if already:
-        return INSTALL_REFUSED_ALREADY_PRESENT
+        return _announce_install(session, INSTALL_REFUSED_NOT_WRITABLE)
+    if all(present):
+        return _announce_install(session, INSTALL_REFUSED_ALREADY_PRESENT)
 
     try:
         holder = weakref.ref(session)
@@ -580,25 +673,36 @@ def install_send_outcome_observers(session: object) -> str:
             return OUTCOME_NOTHING_PARKED
         return on_game_frame_send_failed(live, frame_bytes, error)
 
+    # PER NAME, NOT ALL-OR-NOTHING -- pf-adversary D1 (MEASURED).  A name
+    # that already resolves is left strictly alone (never shadowed); a name
+    # that does not is supplied.  `all(present)` above already returned, so
+    # at least one name is being written here.
     written = []
-    for name, forward in (
-        (SENT_OBSERVER_ATTRIBUTE, _sent),
-        (FAILED_OBSERVER_ATTRIBUTE, _failed),
+    for already, name, forward in (
+        (present[0], SENT_OBSERVER_ATTRIBUTE, _sent),
+        (present[1], FAILED_OBSERVER_ATTRIBUTE, _failed),
     ):
+        if already:
+            continue
         try:
             setattr(session, name, forward)
             landed = getattr(session, name, None) is forward
         except Exception:  # noqa: BLE001 - see docstring
             landed = False
         if not landed:
-            # Undo the half that did land.  A connection left with only the
-            # success forward would clear parks it can never roll back --
-            # strictly worse than having neither.
+            # Undo whatever this call itself put on, and ONLY that -- a
+            # connection left with only the success forward would clear
+            # parks it can never roll back, strictly worse than having
+            # neither.  A name that was already there when this call
+            # started is never in `written`, so it is never disturbed.
             for done in written:
                 try:
                     setattr(session, done, None)
                 except Exception:  # noqa: BLE001
                     pass
-            return INSTALL_REFUSED_NOT_WRITABLE
+            return _announce_install(session, INSTALL_REFUSED_NOT_WRITABLE)
         written.append(name)
-    return INSTALL_OK
+    return _announce_install(
+        session,
+        INSTALL_COMPLETED_HALF_DECLARED if any(present) else INSTALL_OK,
+    )
