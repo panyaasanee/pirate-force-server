@@ -214,6 +214,39 @@ MOB_DEATH_MILESTONE = "MOB-DEATH-001"
 MOB_DEATH_BUILD_ORDER = "M4 second half"
 MOB_DEATH_LANE = "B_COMBAT"
 
+#: The ``lane_hooks`` point :func:`commit_death` fires on every ACCEPTED
+#: kill, opened by round ``2zybdx`` for LANE-Q (COO-DECISION
+#: ``20260905_2057``, answered by LANE-B's letter ``20260905_2112``).
+#:
+#: A lane registers onto it with the mechanism every other point uses::
+#:
+#:     @lane_hooks.hook(mob_death.MOB_DEATH_LANE_HOOK_POINT)
+#:     def count_it(*, mob_id, scene_id, killer_actor_identity, **_):
+#:         ...
+#:
+#: and must set ``production_allowed = True`` in its own module or
+#: ``_discover()`` withdraws the registration again.  The name is a
+#: constant rather than a bare string at the call site so a registering
+#: module can import the value instead of copying a literal that a typo
+#: turns into silence -- the failure mode this point is most likely to
+#: have, since ``fire()`` on a point nobody registered is a no-op with no
+#: console line by design.
+MOB_DEATH_LANE_HOOK_POINT = "mob_death"
+
+#: What :func:`commit_death` passes to that point, in order, as the
+#: keyword names themselves.  Named here so a test can pin the contract
+#: LANE-B published in a letter, rather than the contract a later edit
+#: happens to leave behind.
+#:
+#: ``killer_actor_identity`` IS NOT A CHARACTER ID and the name says so on
+#: purpose: the value is ``HitOutcome.attacker_identity``, the killer's
+#: identity ON THE WIRE.  Turning that into the DB character row a quest
+#: would credit is LANE-DB/chief ground and no line in this module can do
+#: it honestly today.
+MOB_DEATH_LANE_HOOK_ARGUMENTS = (
+    "mob_id", "scene_id", "killer_actor_identity",
+)
+
 # COO-DECISION 2026-08-27T22:49+07:00 (answering LANE-B-ASK-COO 2026-08-27
 # 21:53+07:00, notes_to_chief/20260827_2153_LANE-B-ASK-COO-actor-identity-
 # needs-a-scene-term.md): FieldMob.actor_identity is 0x2000 + placement_index
@@ -1360,6 +1393,17 @@ MOB_DEATH_NONCLAIMS = (
     "faction path to it is closed end to end in ka1-B's letter of "
     "2026-09-01 22:00.  RELAYED, not re-derived here, and nothing in this "
     "module changed on it",
+    "ROUND 2zybdx: MOB_DEATH_LANE_HOOK_POINT is an OPEN DOOR AND NOT A "
+    "FEATURE.  commit_death fires it, and this round proves the firing "
+    "through the real fire() with a probe subscriber; what NOTHING in this "
+    "tree does is register a production hook on it -- grep for "
+    "hook(\"mob_death\") under lane_hooks/ returns nothing, LANE-Q has "
+    "written no file yet, and no quest, no counter and no player-visible "
+    "behaviour changes because this call site exists.  A player sees "
+    "NOTHING different today; what changes is that the next lane that wants "
+    "a kill count needs no chief round to get one.  Also unclaimed: "
+    "killer_actor_identity is a WIRE identity and this lane has never "
+    "mapped one to a DB character row",
 )
 
 REFUSE_VALUE_NOT_INT = "value_not_int"
@@ -2478,6 +2522,13 @@ def commit_death(
     by name.  A caller that drops the outcome at this point has a monster at
     zero in the ledger and absent from the register, which every later
     ``repopulation_entries(..., ledger=...)`` refuses until someone repairs it.
+
+    IT ALSO FIRES :data:`MOB_DEATH_LANE_HOOK_POINT`, exactly once per
+    ACCEPTED kill, with :data:`MOB_DEATH_LANE_HOOK_ARGUMENTS`.  That is the only
+    "a monster died" seam this tree has (round ``2zybdx``); the block at the
+    bottom of this function says why it is here and not in :func:`kill`.
+    Like the burial, it can cost the world a hook and never cost the caller
+    its frames.
     """
     if type(current) is not DeathRegister:
         raise MobDeathContractError(
@@ -2557,6 +2608,67 @@ def commit_death(
             try:
                 print("MOB_DEATH_WORLD_REMEMBER_REFUSED scene=%r "
                       "reason=persistence_door_raised:%r"
+                      % (getattr(step.record, "scene", ""), error))
+            except Exception:                           # noqa: BLE001
+                pass
+    # THE "A MONSTER DIED" EXTENSION POINT, opened by round 2zybdx because
+    # LANE-B promised it in writing and nothing on main had it.  LANE-B's
+    # letter to LANE-Q (pf_bridge/notes_to_chief/20260905_2112_LANE-B-TO-
+    # LANE-Q-*.md, answering COO-DECISION 20260905_2057) measured the tree
+    # and reported the gap in the plainest words available: the lane_hooks
+    # MECHANISM exists, and every one of its call sites on main is an
+    # INBOUND CLIENT PACKET (trace-path, GM command, trigger vital,
+    # navigation, party/friend/mail/trade) -- not one of them fires when a
+    # monster dies, so Quest.MobKillCount had nothing to register onto.
+    # This is that call site.  It is in THIS file, which LANE-B owns, and
+    # not in ``runtime.py``, which it does not: no CORE-REQUEST and no
+    # chief round stands between LANE-Q and a kill count now.
+    #
+    # HERE AND NOT IN :func:`kill`, for the same reason the burial above is
+    # here: a step ``kill`` composed may be thrown away and recomputed
+    # against a fresher register, and a quest that counted THAT would credit
+    # a player for a monster whose death frames were never sent.  Past every
+    # refusal above and past the compare-and-swap, so only a death this
+    # function ACCEPTED is announced, exactly once.
+    #
+    # KWARG NAMES ARE THE CONTRACT AND TWO OF THE THREE ARE NOT WHAT THE
+    # LETTER SAID.  That letter sketched ``killer_character_id``; this
+    # passes ``killer_actor_identity``, because that is what the value IS --
+    # ``outcome.attacker_identity``, a WIRE actor identity -- and a quest
+    # crediting a DB character row from it would credit the wrong player
+    # silently.  Mapping actor identity to character id is LANE-DB/chief
+    # ground and no line in this lane can do it honestly today.  The round
+    # letter to LANE-Q carries the correction rather than leaving it to be
+    # discovered from a TypeError in a console.
+    #
+    # THE TRY IS NOT DECORATION even though ``lane_hooks.fire`` is
+    # fail-closed by its own contract: what can still raise here is the
+    # IMPORT.  ``lane_hooks/__init__.py`` runs ``_discover()`` at package
+    # import -- it imports every ``lane_<x>_*.py`` in that directory -- and
+    # while that function catches a failing MODULE, an ImportError on the
+    # package itself (a syntax error in ``__init__.py``, a missing
+    # directory in a partial checkout) is not something it can catch on its
+    # own behalf.  A bookkeeping seam must cost the world a hook, never the
+    # player their kill, and this function's callers dispatch the death
+    # frames on what it returns.
+    try:
+        from . import lane_hooks
+
+        lane_hooks.fire(
+            MOB_DEATH_LANE_HOOK_POINT,
+            mob_id=step.record.actor_identity,
+            scene_id=step.record.scene,
+            killer_actor_identity=step.record.killer_identity,
+        )
+    except Exception as error:                          # noqa: BLE001
+        # NAMED, for the reason the burial's own handler gives: "no lane has
+        # registered a mob_death hook yet" and "the hook package is broken"
+        # must not share a signature, or a round grading a quest counter
+        # reads one as the other.
+        if announce:
+            try:
+                print("MOB_DEATH_LANE_HOOK_REFUSED scene=%r "
+                      "reason=hook_door_raised:%r"
                       % (getattr(step.record, "scene", ""), error))
             except Exception:                           # noqa: BLE001
                 pass

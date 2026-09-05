@@ -62,10 +62,23 @@ therefore runs from the first scene boundary the killer crosses after the
 kill, which is at worst one boundary later than the death and is never
 earlier.  The practical shape of that, said plainly: a monster does not come
 back while the player who killed it is still standing in the scene, and the
-first time they walk out is when its clock starts.  If the COO wants the
+first time they walk out is when its clock starts.  ~~If the COO wants the
 delay measured from the death itself, that is a clock argument on
 ``mob_death.kill`` and a pin to lift in ``tests/test_mob_death.py``, and the
-letter carrying this round says so rather than leaving it to be discovered.
+letter carrying this round says so rather than leaving it to be
+discovered.~~
+
+RULED, AND THIS PARAGRAPH IS NOW A SPECIFICATION RATHER THAN A CONFESSION
+(``COO-DECISION 20260905_2147``, item 2, answering LANE-B ``20260905_1953``).
+THE CLOCK STARTS AT THE FIRST SCENE EDGE THE KILLER CROSSES AFTER THE KILL,
+NOT AT THE SECOND OF DEATH, AND THAT IS THE WANTED BEHAVIOUR: a monster
+standing back up in front of the player still looting it is the outcome the
+COO ruled against, so "it does not respawn while you are still standing
+there" is the FEATURE and not the limitation.  The ``time`` pin on
+``mob_death.py`` STAYS PINNED -- a later round that reads this file and
+reaches for ``mob_death.kill`` to "fix" the zero point is undoing a ruling,
+not repairing a defect.  That sentence is here, in the module a fixer would
+open, precisely so it is read before the pin is touched.
 
 A GRAVE THIS MODULE HAS NEVER SEEN IS NEVER OPENED IN THE SAME BREATH.
 Dating and opening are two passes and a freshly dated grave is kept, always:
@@ -135,9 +148,21 @@ production_allowed = True
 
 #: How long a corpse stays a corpse.
 #:
-#: [ASSUMPTION OF LANE B - AWAITING COO CONFIRMATION]  Nothing measured on the
-#: real client or in the shipped tables gives this number, and this lane will
-#: not invent a fact and then cite itself for it.  120.0 is chosen for one
+#: ~~[ASSUMPTION OF LANE B - AWAITING COO CONFIRMATION]~~ **CONFIRMED,
+#: ``COO-DECISION 20260905_2147``** (answering LANE-B's letter
+#: ``20260905_1953``, item 1): option (a) stands, 120.0 seconds, for the
+#: reason this line already gave and the COO restated -- one duration for
+#: "how long does the world remember this" rather than two numbers nobody
+#: chose together, so the owner can taste-test the floor and the monster
+#: with a single edit later.  The COO's own words on the other two options:
+#: a number derived from the shipped tables is Panya's after real play and
+#: not ours to invent, and the third was refused with this lane.  Nothing
+#: below this comment changed; the label did.
+#:
+#: WHAT THE RULING DID NOT CHANGE, kept verbatim because it is a measurement
+#: and not a label: nothing measured on the real client or in the shipped
+#: tables gives this number, and this lane will not invent a fact and then
+#: cite itself for it.  120.0 is chosen for one
 #: reason that is not arbitrary: it is exactly ``mob_loot.
 #: DROP_LIFETIME_SECONDS``, the only other "how long does the world remember
 #: this" constant this project has ever shipped, so the floor and the monster
@@ -146,9 +171,10 @@ production_allowed = True
 #: word "schedule" a draft of this line used: the drop's clock starts at the
 #: death, this one starts at the first scene crossing after it (see the
 #: docstring), so a player who kills and stands there for ten minutes loses
-#: the drop at +120 s and starts the respawn clock at +600 s.  The letter
-#: that carries this round asks the COO to rule; a different number changes
-#: this line and nothing else in this file.
+#: the drop at +120 s and starts the respawn clock at +600 s.  ~~The letter
+#: that carries this round asks the COO to rule~~ THE COO HAS RULED (see the
+#: head of this comment); a different number changes this line and nothing
+#: else in this file, and only Panya's own play is expected to pick one.
 RESPAWN_DELAY_SECONDS = 120.0
 
 #: A delay may not exceed this.  Same shape and same reason as
