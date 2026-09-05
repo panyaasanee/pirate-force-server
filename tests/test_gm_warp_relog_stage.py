@@ -144,7 +144,7 @@ class TheMapDecidesNotAConstantTests(unittest.TestCase):
                         warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE,
                         BARRED_BUT_UNSANCTIONED_SCENE,
                         "RELOGGM",
-                    )
+                    ).outcome
                 )
         self.assertNotEqual(
             warp_relog_stage.OUTCOME_SCENE_NOT_SANCTIONED, word,
@@ -178,7 +178,7 @@ class TheRouteOpensOnlyForTheRefusedSanctionedCaseTests(unittest.TestCase):
                 gm_accounts_config_path=str(self.accounts_path),
                 login_scene_config_path=str(self.config_path),
             )
-        return word, stream.getvalue()
+        return word.outcome, stream.getvalue()
 
     def test_a_persisted_warp_stages_nothing_and_says_nothing(self):
         """The row already answers the next login.  A second answer here is
@@ -258,7 +258,7 @@ class FailClosedTests(unittest.TestCase):
                 gm_accounts_config_path=str(self.accounts_path),
                 login_scene_config_path=str(self.config_path),
             )
-        return word, stream.getvalue()
+        return word.outcome, stream.getvalue()
 
     def test_a_player_account_stages_nothing_and_the_console_says_so(self):
         word, printed = self._call("DECKHAND")
@@ -458,6 +458,45 @@ class ThroughTheRealWarpBranchTests(unittest.TestCase):
         )
         self.assertIsNone(self._entries())
 
+    def test_a_withheld_warp_takes_the_staged_entry_back_with_it(self):
+        """The defect this round opened and closed in the same round.
+
+        `_make_action` withholds a composed `/warp` when its `outcome` audit
+        row cannot be appended (a full disk, a read-only capture directory)
+        and runs `verdict.undo`.  For scene 126 the persist writes nothing, so
+        `_persist_warp_scene` offers no undo -- and without the relog's own,
+        the entry stayed on disk while ZERO BYTES went out, and the next login
+        put the character into 126 off a command that never reached it.  Same
+        shape as pf-adversary round `741zlx` finding 1, through the new door.
+        """
+        session = self._session("relog04")
+        verdict, _printed = self._warp(session, SANCTIONED_SCENE)
+
+        # The entry is on disk and the verdict carries the handle to remove it.
+        self.assertIn(str(SANCTIONED_SCENE), json.dumps(self._entries()))
+        self.assertIsNotNone(verdict.undo)
+
+        with redirect_stderr(io.StringIO()):
+            self.assertTrue(verdict.undo())
+
+        # Not "an empty entry": no entry for this account naming this scene.
+        self.assertNotIn(str(SANCTIONED_SCENE), json.dumps(self._entries()))
+
+    def test_an_ordinary_scene_still_undoes_the_row_not_an_entry(self):
+        """The relog undo must not have displaced the persist's own.
+
+        Scene 2 persists, so the verdict's undo is still the ROW rollback --
+        wiring the new handle in must not have cost the old one.
+        """
+        session = self._session("relog05")
+        verdict, _printed = self._warp(session, ORDINARY_SCENE)
+        self.assertEqual(ORDINARY_SCENE, self._row(session).scene_id)
+        self.assertIsNotNone(verdict.undo)
+        with redirect_stderr(io.StringIO()):
+            self.assertTrue(verdict.undo())
+        self.assertEqual(1, self._row(session).scene_id)
+        self.assertIsNone(self._entries())
+
     def test_the_pinning_holds_when_the_fix_is_reverted(self):
         """NOT VACUOUS, and this is how that is shown rather than claimed.
 
@@ -470,7 +509,9 @@ class ThroughTheRealWarpBranchTests(unittest.TestCase):
         with mock.patch.object(
             warp_relog_stage,
             "stage_relog_entry_after_refused_persist",
-            return_value=warp_relog_stage.OUTCOME_SCENE_NOT_SANCTIONED,
+            return_value=warp_relog_stage.RelogStageResult(
+                warp_relog_stage.OUTCOME_SCENE_NOT_SANCTIONED
+            ),
         ):
             _verdict, printed = self._warp(session, SANCTIONED_SCENE)
         self.assertNotIn(warp_relog_stage.CONSOLE_TOKEN, printed)

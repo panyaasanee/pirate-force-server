@@ -1609,6 +1609,14 @@ class EventNameContractTests(_Case):
         "EVENT_WARP_SEND_WATCH_STALE_PARK_NOT_CLEARED": (
             "gm_chat_action_warp_send_watch_stale_park_not_cleared"
         ),
+        # `COO-DECISION 20260905_1746` item 4: the relog half of a live warp
+        # whose durable row was refused by login policy (scene 126 today).
+        # Pinned here for the reason the table exists -- an attended run greps
+        # this prefix to tell "the next login was arranged" from "the row
+        # moved", which for 126 are now different answers on purpose.
+        "EVENT_WARP_RELOG_STAGE_PREFIX": (
+            "gm_chat_action_warp_relog_stage_"
+        ),
         "EVENT_UNEXPECTED_PREFIX": "gm_chat_action_unexpected_",
         "EVENT_WARP_WITHHELD_NO_VERSION": (
             "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_"

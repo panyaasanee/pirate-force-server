@@ -3516,10 +3516,11 @@ def _warp_teleport_action_no_coords(
         # move can never also stage an entry.  Two sources of truth for the
         # same login is the defect this branch is shaped to make unreachable.
         #
-        # Its return word is noted, never branched on: every one of them means
-        # the frame still goes out, and the console already carries the two
-        # lines a tester reads.  `stage_relog_entry_after_refused_persist`
-        # cannot raise, so nothing here can take down a composed command.
+        # Its outcome word is noted, never branched on: every one of them
+        # means the frame still goes out, and the console already carries the
+        # two lines a tester reads.
+        # `stage_relog_entry_after_refused_persist` cannot raise, so nothing
+        # here can take down a composed command.
         relog = warp_relog_stage.stage_relog_entry_after_refused_persist(
             _outcome,
             scene_id,
@@ -3528,7 +3529,23 @@ def _warp_teleport_action_no_coords(
             login_scene_config_path=login_scene_config_path,
             scene_registry=scene_registry,
         )
-        _note(session, f"{EVENT_WARP_RELOG_STAGE_PREFIX}{relog}")
+        _note(session, f"{EVENT_WARP_RELOG_STAGE_PREFIX}{relog.outcome}")
+        # ITS UNDO IS CARRIED, and it is the whole reason the call returns a
+        # result object instead of a word.  `undo` reached this branch as
+        # `None` -- `_persist_warp_scene` offers one only for `persisted`, and
+        # this branch is everything else -- so before this line a `/warp 126`
+        # that `_make_action` WITHHELD (an `outcome` audit row that cannot be
+        # appended: a full disk, a read-only capture directory) left the
+        # staged entry on disk with ZERO BYTES on the wire, and the next login
+        # put the character into 126 off a command that never reached it.
+        # Same shape as pf-adversary's round `741zlx` finding 1, arriving
+        # through the door this round opened, so it is closed in the same
+        # round rather than reported.
+        #
+        # NO `or`, NO CHAINING: the two undos are never both present here.
+        # `undo` is None on every outcome this branch can see, and
+        # `relog.undo` is None unless an entry was really written.
+        undo = relog.undo
 
     return _Verdict(
         (WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL, pc, frame, 0.0),

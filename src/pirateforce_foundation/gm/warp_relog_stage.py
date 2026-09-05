@@ -52,9 +52,34 @@ make it.
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 
 from . import login_scene_admission, login_scene_stage
 from .warp_scene_persist import OUTCOME_LOGIN_WOULD_REFUSE
+
+
+@dataclass(frozen=True)
+class RelogStageResult:
+    """What this module did, and how to take it back.
+
+    `outcome` is the word for the event trail.  `undo` is `None` unless an
+    entry was really written, and it exists for the reason `_Verdict.undo`
+    exists at all, which pf-adversary measured once already in round `741zlx`
+    (finding 1, CRITICAL): `chat_command_action._make_action` WITHHOLDS a
+    composed `/warp` when its audit row cannot be appended -- a full disk, a
+    read-only capture directory -- and then zero bytes go out.
+
+    Without this handle the durable half of that story is: the row was never
+    written (126's door is shut, so there is nothing there to undo), but a
+    single-use login entry WAS, and it survives the withheld command.  The
+    next login would then put the character into scene 126 having never been
+    sent there, off a command that never reached the wire.  That is the same
+    character-bricking shape `CHARTER-02` rule 2 forbids, arriving by the one
+    door this round opened.
+    """
+
+    outcome: str
+    undo: object | None = None
 
 #: Printed to stderr once when the entry really was written, so a tester
 #: reading the console after `/warp 126` sees BOTH lines the COO letter asks
@@ -128,10 +153,11 @@ def stage_relog_entry_after_refused_persist(
     gm_accounts_config_path=None,
     login_scene_config_path=None,
     scene_registry=None,
-) -> str:
+) -> RelogStageResult:
     """Arrange the relog for a live warp whose durable row was refused.
 
-    Returns one outcome word.  NEVER RAISES: this is called from inside a
+    Returns a `RelogStageResult`: one outcome word, and an undo that is
+    offered ONLY when an entry really was written.  NEVER RAISES: this is called from inside a
     `/warp` that has already put a TeleportVital together, and an exception
     escaping here would take down a command whose frame is real and whose
     screen effect is about to happen.  That is the failure shape
@@ -149,7 +175,7 @@ def stage_relog_entry_after_refused_persist(
     if persist_outcome != OUTCOME_LOGIN_WOULD_REFUSE:
         # Every other outcome, `persisted` included.  Nothing printed, nothing
         # written: this is the path every warp in the game takes.
-        return OUTCOME_NOT_A_REFUSED_LOGIN
+        return RelogStageResult(OUTCOME_NOT_A_REFUSED_LOGIN)
 
     if type(scene_id) is not int or not login_scene_admission.is_sanctioned_barred_scene(
         scene_id
@@ -158,7 +184,7 @@ def stage_relog_entry_after_refused_persist(
         # scene` raises TypeError on a non-int, and this function does not
         # raise.  A bool is an int subclass and is refused here for the reason
         # `stage_login_scene` gives -- `True` would otherwise ask about scene 1.
-        return OUTCOME_SCENE_NOT_SANCTIONED
+        return RelogStageResult(OUTCOME_SCENE_NOT_SANCTIONED)
 
     if type(account_name) is not str or not account_name:
         # A sanctioned scene WITH a broken account handle is the loud case:
@@ -166,7 +192,9 @@ def stage_relog_entry_after_refused_persist(
         _console(
             f"{FAIL_CONSOLE_TOKEN} scene={scene_id} reason=no_account_name"
         )
-        return f"{OUTCOME_STAGE_REFUSED_PREFIX}no_account_name"
+        return RelogStageResult(
+            f"{OUTCOME_STAGE_REFUSED_PREFIX}no_account_name"
+        )
 
     try:
         result = login_scene_stage.stage_login_scene(
@@ -181,15 +209,38 @@ def stage_relog_entry_after_refused_persist(
             f"{FAIL_CONSOLE_TOKEN} scene={scene_id} "
             f"reason={type(error).__name__}"
         )
-        return f"{OUTCOME_STAGE_RAISED_PREFIX}{type(error).__name__}"
+        return RelogStageResult(
+            f"{OUTCOME_STAGE_RAISED_PREFIX}{type(error).__name__}"
+        )
 
     if not result.staged:
         _console(f"{FAIL_CONSOLE_TOKEN} scene={scene_id} reason={result.reason}")
-        return f"{OUTCOME_STAGE_REFUSED_PREFIX}{result.reason}"
+        return RelogStageResult(
+            f"{OUTCOME_STAGE_REFUSED_PREFIX}{result.reason}"
+        )
 
+    previous = result.previous_scene_id
     _console(
         f"{CONSOLE_TOKEN} scene={scene_id} "
-        f"previous={'none' if result.previous_scene_id is None else result.previous_scene_id} "
+        f"previous={'none' if previous is None else previous} "
         f"single_use=1"
     )
-    return OUTCOME_STAGED
+    def _undo() -> bool:
+        # THE SAME READING THE STAGE USED, exactly as `_stage_action`'s own
+        # undo explains: `restore_login_scene` re-validates the whole file, so
+        # an undo judged against the file while the stage was judged against a
+        # snapshot refuses and leaves the entry it was called to remove.
+        try:
+            return bool(
+                login_scene_stage.restore_login_scene(
+                    account_name,
+                    previous,
+                    gm_accounts_config_path=gm_accounts_config_path,
+                    config_path=login_scene_config_path,
+                    scene_registry=scene_registry,
+                )
+            )
+        except Exception:  # noqa: BLE001 - an undo may not raise either
+            return False
+
+    return RelogStageResult(OUTCOME_STAGED, _undo)
