@@ -177,6 +177,17 @@ LANE_B_MODULES = (
     # off the wire and names neither), so the sweep costs it nothing today
     # -- which is exactly the state this guard exists to keep provable.
     "mob_pickup_request.py",
+    # ROUND qamp70: the respawn door -- the only caller mob_death_persistence.
+    # WorldDeaths.forget was ever built for.  No player stat of any kind: it
+    # reads one monotonic reading off a grave this lane wrote and one delay
+    # constant, and it writes nothing but a register row's absence.  Listed
+    # in the SAME COMMIT as the module, and pf-adversary caught this round
+    # having forgotten it -- which is the entry below's warning coming true
+    # once: a new mob_*.py that is not on this tuple turns this file red in
+    # the direction nobody reads, and one with a non-ASCII byte in it would
+    # have stopped the sweep for every module after it as well (the module
+    # is ASCII-only for exactly that reason as well as the cp874 console's).
+    "mob_respawn.py",
     # ROUND y9s0xo: the mid-session recompose census, scene by scene -- the
     # composer that keeps a hit or a kill in Bg0002 from shipping the
     # one-entry frame RE-092 proved erases every other actor.  Listed in the
