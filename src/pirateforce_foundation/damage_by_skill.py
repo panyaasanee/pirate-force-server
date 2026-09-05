@@ -123,19 +123,28 @@ DB's `character_skills` was empty, so the capture could not press skill 99
 specifically -- but the operator captured the WIELD-vs-skill diff anyway
 against skill 110 ("Strive Jump", already on the hotbar at Ctrl+1) since the
 boot was open for another ticket regardless.  Two decoded `ActionVital`
-frames, byte for byte, both reproduced twice:
-pressing `Z` with no weapon equipped (`action_u32_30=0x0000EA7E`, matching
-`V128_WIELD_ACTION_CODE` exactly) versus clicking the skill 110 hotbar icon
-(`action_u32_30=0x0000006E`) -- `0x6E` is 110 decimal, the exact id of the
-skill in that slot.  This module still refuses to call this a proven skill-
-id field: one matching id, for a skill this module does not classify
-(110 is "Strive Jump", not one of the `_ATTACK_SKILL_IDS`), from a ticket
-whose own precondition failed, is exactly the single-differing-byte
-"CANDIDATE, not proof" case `GT-243`'s own body warned against overclaiming
--- the client's producer for this field has never been traced statically
-(`RE-271`, opened the same round as this update, asks for that trace).  What
-this update DOES change: the CORE-REQUEST above is answered with a strong
-candidate rather than left at "cloud-static work is exhausted" -- see
+frames, both reproduced twice, differ in three ways, not one: field
+`action_u32_30` (`0x0000EA7E` for `Z` with no weapon equipped, matching
+`V128_WIELD_ACTION_CODE` exactly, versus `0x0000006E` for clicking the
+skill 110 hotbar icon -- `0x6E` is 110 decimal, the exact id of the skill in
+that slot), vital count (1 vs 2), and total payload length (64 B vs 93 B) --
+this is a different frame shape between the two presses, not an isolated
+single-byte diff at a matching offset.  This module still refuses to call
+the matching id a proven skill-id field: one matching id, for a skill this
+module does not classify (110 is "Strive Jump", not one of the
+`_ATTACK_SKILL_IDS`), from a ticket whose own precondition failed, is
+exactly the "byte(s) differ is a CANDIDATE, not proof" case `GT-243`'s own
+body warned against overclaiming -- the client's producer for this field
+has never been traced statically.  A static ticket asking for that trace
+(candidate number `RE-271`) was requested via letter to chief the same
+round as this update (`pf_bridge/notes_to_chief/20260906_0323_LANE-CS-TO-
+CHIEF-re-ticket-request-actionvital-action-u32-30-skill-id-producer.md`),
+not inserted into `CLIENT_RE_QUEUE.md` directly -- that file was already
+over its size ceiling, and the letter explains why LANE-CS could not insert
+it this round; the number is not a reservation and may change when chief
+(or whoever has room in the budget) actually opens it.  What this update
+DOES change: the CORE-REQUEST above is answered with a strong candidate
+rather than left at "cloud-static work is exhausted" -- see
 `candidate_skill_id_from_action_fields` below, which reads the field under
 that explicit CANDIDATE label and has no caller in this repository, the
 same as everything else in this module today.
@@ -212,10 +221,13 @@ def candidate_skill_id_from_action_fields(action_fields, wield_action_code):
     without accounting for that: today's only evidence is one attended
     capture, for skill 110, which this module does not classify as an
     attack, and the client's producer for this field has never been traced
-    statically (`RE-271`).  This function has zero callers in this
-    repository -- it exists so the day either RE-271 or a skill-99-specific
-    capture lands, wiring a real caller is a one-line change rather than a
-    new field lookup written under time pressure.
+    statically (a static ticket requesting that trace, candidate number
+    `RE-271`, was sent to chief the same round -- see the module docstring's
+    GT-243 update for why it is a request, not yet an opened ticket).  This
+    function has zero callers in this repository -- it exists so the day
+    either that trace or a skill-99-specific capture lands, wiring a real
+    caller is a one-line change rather than a new field lookup written
+    under time pressure.
 
     ``wield_action_code`` is not hardcoded here: `V128_WIELD_ACTION_CODE`
     lives in the frozen `current/pf_login_game_server_v141.py` (0xEA7E), and
