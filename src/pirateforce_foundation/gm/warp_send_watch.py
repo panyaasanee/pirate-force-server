@@ -429,20 +429,40 @@ def park_warp_send(
     # for), but the row it would restore is the one that unwinds the whole
     # unconfirmed run, which is the only row that is correct however many
     # of those frames actually made it out.
-    carried = previous_position
-    carried_label = previous_selected_scene_id
-    standing = _parked_record(session)
-    if standing is not None and standing.previous_position is not None:
-        carried = standing.previous_position
-    # THE LABEL CARRIES FORWARD ON ITS OWN CONDITION, not on the row's.
+    #
+    # ~~THE LABEL CARRIES FORWARD ON ITS OWN CONDITION, not on the row's.
     # The two are separate values from separate places (see `ParkedWarpSend`),
     # and the row's carry-forward test is `standing.previous_position is not
     # None` -- a park whose row is None but whose label is known would lose
     # the label if it rode along on that test.  The REASON to carry forward is
     # identical though: after two unconfirmed warps the oldest label is the
-    # one the client last really had, exactly as the oldest row is.
-    if standing is not None and standing.previous_selected_scene_id is not None:
-        carried_label = standing.previous_selected_scene_id
+    # one the client last really had, exactly as the oldest row is.~~  STRUCK
+    # by pf-adversary D5 (round `w7gah1`, MEASURED, fixed here): gating each
+    # field on ITS OWN `is not None` sounds symmetric but is not, because the
+    # two fields are not equally likely to be `None` on a first park.  A
+    # first-ever warp's `previous_position` is routinely `None` (no
+    # `character_positions` row exists yet) while its
+    # `previous_selected_scene_id` is almost always a real int (the character
+    # has to be SOMEWHERE to compose a warp) -- so the two independent
+    # conditions do not fail together.  On a replacement, that let the row
+    # take a FRESHLY-READ `previous_position` (the first warp's own write
+    # already landed by the second warp's compose time, so this reads the
+    # FIRST warp's destination, not "no row") while the label kept standing's
+    # TRUE original -- stitching one half of the true pre-chain state to one
+    # half of an intermediate state into a single park.  A send failure on
+    # the second warp then rolled the durable row back to the first warp's
+    # destination while restoring the in-memory label to the character's
+    # real original scene: two names for what is supposed to be the SAME
+    # scene.  `standing.previous_position is not None` was never a fact
+    # about the label, and vice versa; the fields are two views of ONE
+    # moment and can only be carried forward TOGETHER.
+    standing = _parked_record(session)
+    if standing is not None:
+        carried, carried_label = (
+            standing.previous_position, standing.previous_selected_scene_id,
+        )
+    else:
+        carried, carried_label = previous_position, previous_selected_scene_id
     record = ParkedWarpSend(
         SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes, carried, carried_label,
     )

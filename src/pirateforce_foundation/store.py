@@ -1,3 +1,4 @@
+import dataclasses
 import random
 import sqlite3
 import hashlib
@@ -1184,6 +1185,17 @@ class SQLiteStore:
         Raises `KeyError` for a character that does not exist or has been
         soft-deleted, matching `get_character`.
 
+        RAISES `WriteLockTimeout` INSTEAD OF A BARE `sqlite3.OperationalError`
+        SINCE `COO-DECISION 20260905_1946`, when contention keeps this read's
+        `PRAGMA table_info`/`SELECT` from completing inside `connect()`'s own
+        busy-timeout budget: this method's own docstring names its
+        exceptions, so a caller that catches only those must not be handed
+        one it was never told about, the same reasoning `spend_skill_points`
+        already documents for the same substitution.  `WriteLockTimeout`
+        subclasses `sqlite3.OperationalError`, so a caller already catching
+        that type keeps working unchanged.  A database with no contention on
+        it is unaffected.
+
         GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
         same gap `list_character_ids_missing_class_id` was patched against
         (`pf_bridge/notes_to_chief/
@@ -1216,20 +1228,30 @@ class SQLiteStore:
 
         columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
-            existing = {
-                str(row["name"])
-                for row in db.execute("PRAGMA table_info(characters)")
-            }
-            columns = [c for c in columns if c in existing]
-            # `id` is always in the projection (migration 001, never absent)
-            # so a database missing EVERY typed column still gets valid SQL
-            # instead of `SELECT  FROM ...` -- `columns` alone can be empty.
-            projection = ",".join(["id"] + columns)
-            row = db.execute(
-                f"SELECT {projection} FROM characters "
-                "WHERE id=? AND deleted_at IS NULL",
-                (character_id,),
-            ).fetchone()
+            try:
+                existing = {
+                    str(row["name"])
+                    for row in db.execute("PRAGMA table_info(characters)")
+                }
+                columns = [c for c in columns if c in existing]
+                # `id` is always in the projection (migration 001, never
+                # absent) so a database missing EVERY typed column still
+                # gets valid SQL instead of `SELECT  FROM ...` -- `columns`
+                # alone can be empty.
+                projection = ",".join(["id"] + columns)
+                row = db.execute(
+                    f"SELECT {projection} FROM characters "
+                    "WHERE id=? AND deleted_at IS NULL",
+                    (character_id,),
+                ).fetchone()
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not read character "
+                    f"{character_id}'s typed attributes within connect()'s "
+                    f"busy_timeout: {error}"
+                ) from error
         if row is None:
             raise KeyError(character_id)
         return {c: row[c] for c in columns if row[c] is not None}
@@ -1315,6 +1337,17 @@ class SQLiteStore:
         if this database predates migration 006 (see below).  Nothing is
         written when anything is refused.
 
+        RAISES `WriteLockTimeout` INSTEAD OF A BARE `sqlite3.OperationalError`
+        SINCE `COO-DECISION 20260905_1946`, when `BEGIN IMMEDIATE` cannot
+        take the write lock inside `connect()`'s own busy-timeout budget --
+        the same substitution `spend_skill_points` already documents, for
+        the same reason: this method's docstring names its exceptions, so a
+        caller that catches only those must not be handed one it was never
+        told about.  `WriteLockTimeout` subclasses `sqlite3.OperationalError`,
+        so a caller already catching that type keeps working unchanged, and
+        nothing is written before this raises (a refused `BEGIN IMMEDIATE`
+        opens no transaction).
+
         GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
         same gap `read_typed_attributes` was patched against
         (`pf_bridge/notes_to_chief/20260905_0436_...read-crash-general-
@@ -1343,7 +1376,16 @@ class SQLiteStore:
         assignments = ",".join(f"{column}=?" for column in checked)
         columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s typed-attribute write within "
+                    f"connect()'s busy_timeout: {error}"
+                ) from error
             vitals.verify_schema(db)
             row = db.execute(
                 "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
@@ -1405,6 +1447,14 @@ class SQLiteStore:
         `write_typed_attributes` -- and `persistence_vitals.SchemaDriftError`
         if this database predates migration 006.
 
+        RAISES `WriteLockTimeout` INSTEAD OF A BARE `sqlite3.OperationalError`
+        SINCE `COO-DECISION 20260905_1946`, when `BEGIN IMMEDIATE` cannot
+        take the write lock inside `connect()`'s own busy-timeout budget --
+        same substitution, same reason, as `write_typed_attributes` above.
+        `WriteLockTimeout` subclasses `sqlite3.OperationalError`, so a caller
+        already catching that type keeps working unchanged, and nothing is
+        written before this raises.
+
         GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
         same exposure `write_typed_attributes` was patched against this same
         round (`pf-adversary` reproduced it live here too, via `ALTER TABLE
@@ -1426,7 +1476,16 @@ class SQLiteStore:
         checked = typed_attrs.validate_all({column: value})
         (validated_column,) = checked
         with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s typed-attribute write within "
+                    f"connect()'s busy_timeout: {error}"
+                ) from error
             vitals.verify_schema(db)
             row = db.execute(
                 "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
@@ -2955,6 +3014,67 @@ class SQLiteStore:
                 (character_id,),
             ).fetchone()
         return HomeMarkerRow(*row) if row is not None else None
+
+    def select_character_honoring_home_marker(self, sid: str, selector: int):
+        """`select_character`, except a character who has SET a home marker
+        comes back pointed at that scene's id instead of whatever scene her
+        `character_positions` row happens to carry.
+
+        NEW METHOD (LANE-DB's charter, `COO-DECISION 20260901_1100`: new
+        methods here are allowed, changing an old one is not) -- `select_
+        character` above is called exactly as any other caller would call
+        it and is not touched by this at all.  `COO-DECISION 20260905_1946`
+        item 1 picked this shape (option (a) of `pf_bridge/notes_to_chief/
+        20260905_1606_LANE-DB-REPLY-home-marker-value-is-constant-1-and-a-
+        missing-reader-gap.md`) over a CORE-REQUEST into `session.py`/
+        `lifecycle.py`: chief swaps the one existing call site in
+        `runtime.py`/`session.py` to this method's name (the same shape as
+        the `#830` accessor -> `runtime.py:5159`), and nothing else there
+        has to change for `GT-255` to be gradeable.
+
+        A character with NO home marker row (`get_home_marker` returns
+        `None`) -- or whose home marker already names the scene she is
+        already sitting in -- comes back BYTE-FOR-BYTE what `select_
+        character` itself would have returned.  The `1606` letter's point 2
+        requires exactly this: nobody who has never chosen a home may see
+        anything change.
+
+        ONLY `position.scene_id` IS SWAPPED -- `scene_seq`/`x`/`y`/`z`/
+        `heading` are returned exactly as `character_positions` stored them.
+        This does NOT invent a spawn point for the home scene: `store.py`
+        has never resolved one on its own (`create_character` takes its
+        initial `pos` as an argument FROM ITS CALLER, it does not compute
+        one), and `persistence_home_marker.HomeMarkerRow`'s own docstring
+        already says a spawn point inside the home scene is deliberately "a
+        later round's question, not a guess this door makes today" --
+        inventing an x/y/z here would be exactly the unmeasured value
+        `COO-DECISION 20260901_1059` forbids, and it would also be
+        unnecessary: `world_scene_entry.resolve_entry`, already wired into
+        `runtime.py`'s login path for a reason that has nothing to do with
+        this feature, already replaces a stored XY that falls outside a
+        destination's own ground evidence with that destination's pinned
+        spawn (rule 2 in that module's own docstring) -- which is exactly
+        the situation a character who last stood elsewhere and is now
+        pointed home is in.  Swapping `scene_id` alone is enough to reach
+        the real spawn once that already-landed logic runs on the row this
+        method returns; inventing an x/y/z here as well would only risk
+        disagreeing with it.
+
+        Raises exactly what `select_character` raises for the same inputs
+        (`KeyError` for a session/selector this store has no live character
+        for) -- this method adds one read on top of that call, not a new
+        failure mode of its own.
+        """
+        character = self.select_character(sid, selector)
+        home = self.get_home_marker(character.id)
+        if home is None or home.home_scene_id == character.position.scene_id:
+            return character
+        return dataclasses.replace(
+            character,
+            position=dataclasses.replace(
+                character.position, scene_id=home.home_scene_id
+            ),
+        )
 
     def grant_starting_skills(
         self, character_id: int, skill_ids: "tuple[int, ...] | list[int]"
