@@ -1404,7 +1404,9 @@ def _compose(
             "unknown composer kind %r for scene %d" % (
                 composer.kind, composer.scene_id))
 
-    # SCENES 2, 5 AND 14, THE NON-DELEGATED COMPOSITIONS IN THIS MODULE.
+    # SCENES 2, 3, 4, 5 AND 14, THE NON-DELEGATED COMPOSITIONS IN THIS MODULE
+    # (~~2, 5 and 14~~ -- stale since round am1fw8 added scene 3; corrected
+    # round r6isy5 by pf-adversary D16, the round that adds the fifth).
     # The same three calls ``mob_death.hostile_census_frames``
     # makes for scene 1 -- build, roster override, splice -- with the
     # scene's own population builder in the first position, because

@@ -14,12 +14,18 @@ transcript, and ROUND j5v7mu2 (pf-adversary D7) corrected the field names --
 the earlier version of this block invented ``refused_by_owner``/``withheld``,
 which is not what ``describe_scene_doors`` prints and is not greppable::
 
-    SCENE_DOORS scene='Bg0002' rows=12 owner_refusal_list=8 lane_withheld=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
-    SCENE_DOORS scene='Bg0003' rows=12 owner_refusal_list=0 lane_withheld=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
-    SCENE_DOORS scene='Bg0015' rows=11 owner_refusal_list=0 lane_withheld=1 ai=open target=11 kill=11 drop=11 every_door=yes short=none
-    SCENE_DOORS scene='bg0001' rows=4 owner_refusal_list=0 lane_withheld=0 ai=open target=4 kill=4 drop=0 every_door=no short=103/t916,105/t916,107/t916,109/t916
-    SCENE_DOORS scene='bg0005' rows=6 owner_refusal_list=0 lane_withheld=0 ai=open target=6 kill=6 drop=6 every_door=yes short=none
-    SCENE_DOORS summary live_scenes=5 owner_refusal_list=8 lane_withheld=1(Bg0015:1) every_door=Bg0002,Bg0003,Bg0015,bg0005
+    SCENE_DOORS scene='Bg0002' rows=12 owner_refusal_list=8 lane_withheld=0 not_selected=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
+    SCENE_DOORS scene='Bg0003' rows=12 owner_refusal_list=0 lane_withheld=0 not_selected=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
+    SCENE_DOORS scene='Bg0015' rows=11 owner_refusal_list=0 lane_withheld=1 not_selected=0 ai=open target=11 kill=11 drop=11 every_door=yes short=none
+    SCENE_DOORS scene='bg0001' rows=4 owner_refusal_list=0 lane_withheld=0 not_selected=9 ai=open target=4 kill=4 drop=0 every_door=no short=103/t916,105/t916,107/t916,109/t916
+    SCENE_DOORS scene='bg0004' rows=7 owner_refusal_list=0 lane_withheld=0 not_selected=2 ai=open target=7 kill=7 drop=7 every_door=yes short=none
+    SCENE_DOORS scene='bg0005' rows=6 owner_refusal_list=0 lane_withheld=0 not_selected=0 ai=open target=6 kill=6 drop=6 every_door=yes short=none
+    SCENE_DOORS summary live_scenes=6 owner_refusal_list=8 lane_withheld=1(Bg0015:1) every_door=Bg0002,Bg0003,Bg0015,bg0004,bg0005
+
+(ROUND r6isy5, pf-adversary D11: the round that added scene 4's card thirty
+lines below left this block reading ``live_scenes=5`` with no bg0004 line --
+a transcript nothing asserts, contradicting a test in the same file.  Brought
+back into agreement with what the reporter actually prints at HEAD.)
 
 ``short=`` WAS MISSING FROM THIS BLOCK TWICE (pf-adversary D-C).  It is the
 field that names WHICH rows fell short, which is the denominator question the
@@ -197,6 +203,37 @@ class WalkTheShippedRosterTests(unittest.TestCase):
         self.assertTrue(scene_four.every_door_open)
         self.assertEqual(scene_four.owner_refused, ())
         self.assertEqual(scene_four.lane_withheld, ())
+        # THE THIRD TERM, added this round by pf-adversary D10 and asserted
+        # in the same commit that adds it -- a field nothing reads back is
+        # how ``OWNER_REFUSAL_REASON`` became a write-only literal once
+        # already.  Scene 4 is the first every_door=yes scene with a
+        # non-zero count: MOBS 640/641, never selected because they have a
+        # combat AI at rank 0.  "Whole denominator" now means all THREE
+        # numbers are accounted for, not two of them at zero and one
+        # unmentioned.
+        self.assertEqual(scene_four.unselected_by_predicate, (75, 76))
+        self.assertIn(
+            "not_selected=2",
+            scene_door_walk.describe_scene_doors(scene_four))
+
+    def test_the_third_denominator_term_is_printed_for_every_scene(self):
+        """It travels or it is decoration (pf-adversary D10).
+
+        bg0001 carries NINE unselected placements and always has -- a
+        non-zero count is normal, not a finding, and printing it is how a
+        reader stops having to take "rows=4" on trust.  Asserted for every
+        live scene so a scene that starts dropping candidates cannot do it
+        silently.
+        """
+        for scene, one in self.walked.items():
+            with self.subTest(scene=scene):
+                self.assertEqual(
+                    one.unselected_by_predicate,
+                    field_mobs.unselected_by_predicate_placements(scene))
+                self.assertIn(
+                    "not_selected=%d" % len(one.unselected_by_predicate),
+                    scene_door_walk.describe_scene_doors(one))
+        self.assertEqual(len(self.walked["bg0001"].unselected_by_predicate), 9)
 
     def test_scene_fourteen_has_every_door_at_eleven_rows_carlos_withheld(self):
         """~~short by Carlos alone~~ IS STRUCK, and the number beside it is why.
