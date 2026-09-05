@@ -527,16 +527,35 @@ BG0002_SCENE = field_mob_tables_bg0002.SCENE
 # the four hostility predicates agree on all twelve (12/12/12/12) rather
 # than needing the reading the generator warns about.
 BG0003_SCENE = field_mob_tables_bg0003.SCENE
-# ROUND r6isy5.  Scene 4 (Slave Market Island), the FIRST scene this lane
-# ships whose four hostility predicates DISAGREE, which the generator's own
-# docstring says must be read before the roster ships rather than waved
-# through: ai_combat 9, rank 7, drops_normal 7, rank_and_ai_combat 7.  The
-# reading, done here rather than left implied by the count:
+# ROUND r6isy5.  Scene 4 (Slave Market Island).  ~~the FIRST scene this lane
+# ships whose four hostility predicates DISAGREE~~ STRUCK IN THE SAME ROUND
+# by pf-adversary (D3), which opened the one thing that would have settled it
+# -- the sibling modules' own PREDICATE_CENSUS, one import away -- and found
+# this is the THIRD such scene, not the first.  Measured, all six shipped:
+#
+#     scene     ai_combat  rank  drops_normal  rank_and_ai_combat
+#     bg0001         9       0        0               0
+#     Bg0002        17      17       17              17
+#     Bg0003        12      12       12              12
+#     bg0004         9       7        7               7
+#     bg0005         6       6        6               6
+#     Bg0015        12      12       11              12
+#
+# bg0001 disagrees widely (its own COMBAT_AI_AT_RANK_ZERO is nine rows long)
+# and Bg0015 by one row that has a rank and a combat AI but no normal drop
+# table.  THE PART THAT MATTERED IS UNCHANGED: the generator's docstring
+# says a scene whose predicates disagree must be READ before its roster
+# ships, and this is that reading -- ai_combat 9, rank 7, drops_normal 7,
+# rank_and_ai_combat 7:
 #
 #   The two extra ai_combat rows are placements 75 and 76, MOBS n_ID 640
 #   ("Crazy Rose Regina") and 641 ("Blood dragon Norman").  Both are
-#   n_RANK 0, n_DROPS_NORMAL 0, n_LEVEL_MIN 105 -- more than twice the
-#   level of every row this scene does ship (47-58) -- and 640's own
+#   n_RANK 0, n_DROPS_NORMAL 0, n_LEVEL_MIN 105 -- ~~more than twice the
+#   level of every row this scene does ship (47-58)~~ STRUCK, pf-adversary
+#   D12 in this same round: 2 x 58 = 116, so "more than twice" is false for
+#   placements 69 (58), 83 (57) and 42 (51).  What is true, and is what the
+#   sentence was reaching for, is that 105 sits far outside this scene's own
+#   47-58 band -- and 640's own
 #   s_OUTFIT is ``P_FEMALE_003_000_ARENAFIGHTER``, a PLAYER model, the one
 #   body the three-step methodology bg0001/Bg0002/Bg0015/bg0005/Bg0003 all
 #   used refuses by name.  Neither is carried.  This lane is not deciding
@@ -758,6 +777,41 @@ def lane_withheld_placements(scene: str) -> tuple[int, ...]:
     if type(scene) is not str or not scene:
         raise FieldMobContractError("scene must be non-empty text")
     return tuple(sorted(LANE_WITHHELD_PLACEMENTS.get(scene, ())))
+
+
+def unselected_by_predicate_placements(scene: str) -> tuple[int, ...]:
+    """Placement indices the HOSTILITY PREDICATE dropped for ``scene``.
+
+    ROUND r6isy5, pf-adversary D10.  ``SCENE_DOORS`` prints two
+    denominator-shrink terms -- the owner's refusal list and this lane's own
+    withheld list -- because, in that report's own words, the cheapest way to
+    make "no shipped row failed" true is to stop shipping the row that fails.
+    There is a THIRD way, one level up, and until scene 4 no
+    ``every_door=yes`` scene had a non-zero count of it: a placement whose
+    MOBS row has a combat AI but no rank is not selected by the predicate at
+    all, so it never becomes a roster row for a door to be measured on.
+
+    NOT A REFUSAL AND NOT A BUG.  Every scene's generator records these rows
+    in its own ``COMBAT_AI_AT_RANK_ZERO``, and bg0001 has NINE of them
+    (they are why its own four predicates disagree most widely of any scene
+    here).  This reader exists so the number travels with the verdict as a
+    greppable token instead of living only in prose, which is the whole
+    reason the other two travel.
+
+    Empty tuple for a scene whose module records none, and for a scene this
+    registry does not know -- a reader on a console line may not raise.
+    """
+    if type(scene) is not str or not scene:
+        raise FieldMobContractError("scene must be non-empty text")
+    module = _SCENE_TABLE_MODULES.get(scene)
+    rows = getattr(module, "COMBAT_AI_AT_RANK_ZERO", ()) if module else ()
+    out = []
+    for row in rows:
+        try:
+            out.append(int(row[0]))
+        except (TypeError, ValueError, IndexError):   # noqa: PERF203
+            continue
+    return tuple(sorted(out))
 
 
 def lane_withheld_reason(scene: str) -> str:
