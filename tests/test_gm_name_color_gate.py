@@ -818,3 +818,41 @@ def test_the_deleted_route_out_stays_deleted():
     lane did for GM_IDENTITY_CENSUS in CORE-REQUEST-GM-050."""
     assert not hasattr(gate.P2ColorWiringVerdict, "route_out")
     assert "open_questions" not in gate.P2ColorWiringVerdict.__dataclass_fields__
+
+
+def test_the_answered_ticket_is_named_and_cannot_go_back_to_unanswered():
+    """Round `y1evqj`.  For two days this module told every reader that
+    `RE-222` was "filed, not answered" while its DONE/PASS result sat in the
+    bridge, consumed and copied.  pf-adversary found it; nothing in this file
+    would have.  So the correction gets a card of its own, in both
+    directions: the result must be NAMED, and the sentence that hid it must
+    not come back.
+
+    Deliberately NOT a check that a blocker moved -- none did, and
+    `test_filing_the_ticket_did_not_weaken_the_refusal_by_one_byte` above
+    still owns that.  This card is only about the module telling the truth
+    about what it has been told."""
+    source = pathlib.Path(inspect.getsourcefile(gate)).read_text(encoding="utf-8")
+
+    # 1. The result is named, and by a path that exists on the bridge.
+    assert gate.RE_222_RESULT_LETTER.startswith("notes_to_chief/")
+    assert "RE-222-RESULT" in gate.RE_222_RESULT_LETTER
+    assert gate.RE_222_RESULT_LETTER != gate.RE_222_TICKET_LETTER
+
+    # 2. The answer says what it retires AND what it does not -- a summary
+    #    with only the first half is how "Q3 answered" becomes "P-2 open".
+    summary = gate.RE_222_RESULT_WHAT_IT_MEASURED
+    assert "retired" in summary and "NOT retired" in summary, summary
+    assert "viewer" in summary, summary
+
+    # 3. The false sentence may not return unstruck.  It survives in the
+    #    file as history, so the test looks for it OUTSIDE strikethrough --
+    #    a mutant that deletes the `~~` markers and keeps the claim is the
+    #    exact regression this guards.
+    stale = "It is filed, not answered"
+    for line_number, line in enumerate(source.splitlines(), start=1):
+        if stale in line:
+            assert "~~" in line, (
+                f"line {line_number} states the false claim without striking "
+                "it: RE-222 came back DONE/PASS on 2026-09-03"
+            )
