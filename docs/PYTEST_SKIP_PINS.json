@@ -64,7 +64,27 @@
     "grades: skip_census printed 'PIN DRIFT ... pinned 1, observed 0', the Windows",
     "gate went RED, and the workflow closed #710 with the work unmerged.  The rule",
     "above ('in the same commit as the test that moved it') runs in BOTH directions;",
-    "deleting a skip is moving it to zero."
+    "deleting a skip is moving it to zero.",
+    "",
+    "RETIRED (round PIN-DRIFT-FIX, LANE-Q, 2026-09-06): preconditions",
+    "'bridge_lua_scripts' / tests/test_script_lua_api_instance.py, count 1, test",
+    "RealInstanceLuaIntegrationTests::test_t_inscnt_fixture_from_the_real_corpus_",
+    "calls_both_real_apis.  Not a coverage change - the SAME test, same count, moved",
+    "to the key that actually fires.  That method's own BRIDGE_LUA_SCRIPTS decorator",
+    "was stacked directly under this module's class-level LUPA_PACKAGE guard, and",
+    "unittest.TestCase.run() uses the CLASS's own skip reason for every method once",
+    "the class itself is skipped, so on any lupa-absent machine the method's own",
+    "decorator never got to raise its own reason - the census could only ever",
+    "observe 0 for this key there, while the pin's formula (0 if the artifact is",
+    "present, else the count) expected 1 whenever the corpus was absent too.  COO-",
+    "DECISION 20260906_0550 (pf_bridge) named this exact pin's drift and assigned",
+    "it to LANE-Q as first job.  Fix: the method now carries the pre-existing",
+    "LUA_CORPUS_RUNNABLE composite key instead (AllOfThese(BRIDGE_LUA_SCRIPTS,",
+    "LUPA_PACKAGE), same key tests/test_script_lua_corpus.py already uses) - see",
+    "that key's own pin entry for this module below, which replaces this one.",
+    "BRIDGE_LUA_SCRIPTS itself stays registered in tests/pf_preconditions.py for a",
+    "future test that reads the corpus without running any Lua, per that key's own",
+    "comment; only this one pin, for this one module, retired."
   ],
   "preconditions": [
     {
@@ -1110,7 +1130,7 @@
         "RealInstanceLuaIntegrationTests::test_two_hosts_sharing_one_registry_see_each_other_s_writes",
         "RealInstanceLuaIntegrationTests::test_two_hosts_with_no_registry_given_do_not_leak_into_each_other"
       ],
-      "note": "New module for the 7 Instance.* names that became real (lua_api/instance.py), same shape as tests/test_script_lua_api_trigger.py's own entry above. Most of this file's tests (InstanceRegistryTests, RealInstanceNamespaceTests) need no Lua runtime at all -- plain Python state and a __getitem__ contract -- so only RealInstanceLuaIntegrationTests drives real Lua through a live ScriptHost. FIXED this round (PIN-DRIFT-FIX, LANE-Q): that class used to carry ONE class-level LUPA_PACKAGE decorator covering all 4 of its methods, with the 4th (the real-corpus worked example) additionally stacking its own BRIDGE_LUA_SCRIPTS decorator underneath -- COO-DECISION 20260906_0550 traced a real gate without lupa to `PIN DRIFT: ... precondition 'bridge_lua_scripts': pinned 1, observed 0`, because TestCase.run() uses the CLASS's own skip reason for every method once the class is skipped, so the 4th method's own decorator never got to raise its own reason on such a machine. Now each of the OTHER 3 methods carries its own LUPA_PACKAGE decorator directly (this pin), and the 4th carries the composite LUA_CORPUS_RUNNABLE key instead (pinned separately below, same shape tests/test_script_lua_corpus.py already uses). MEASURED by static source analysis (tools/pf_pytest_precondition_census.py's own guarded_tests, which this pin is checked against, not a run): exactly 3 tests carry a LUPA_PACKAGE-only decorator in this module."
+      "note": "New module for the 7 Instance.* names that became real (lua_api/instance.py), same shape as tests/test_script_lua_api_trigger.py's own entry above. Most of this file's tests (InstanceRegistryTests, RealInstanceNamespaceTests) need no Lua runtime at all -- plain Python state and a __getitem__ contract -- so only RealInstanceLuaIntegrationTests drives real Lua through a live ScriptHost. FIXED this round (PIN-DRIFT-FIX, LANE-Q): that class used to carry ONE class-level LUPA_PACKAGE decorator covering all 4 of its methods, with the 4th (the real-corpus worked example) additionally stacking its own BRIDGE_LUA_SCRIPTS decorator underneath -- COO-DECISION 20260906_0550 traced a real gate without lupa to `PIN DRIFT: ... precondition 'bridge_lua_scripts': pinned 1, observed 0`, because TestCase.run() uses the CLASS's own skip reason for every method once the class is skipped, so the 4th method's own decorator never got to raise its own reason on such a machine. Now each of the OTHER 3 methods carries its own LUPA_PACKAGE decorator directly (this pin), and the 4th carries the composite LUA_CORPUS_RUNNABLE key instead (pinned separately below, same shape tests/test_script_lua_corpus.py already uses). MEASURED by static source analysis (tests/test_pytest_precondition_census.py's own guarded_tests AST walker, which tools/pf_pytest_precondition_census.py's transcript-based census is checked against, not a run): exactly 3 tests carry a LUPA_PACKAGE-only decorator in this module."
     },
     {
       "key": "lua_corpus_runnable",
@@ -1119,7 +1139,7 @@
       "tests": [
         "RealInstanceLuaIntegrationTests::test_t_inscnt_fixture_from_the_real_corpus_calls_both_real_apis"
       ],
-      "note": "ADDED this round (PIN-DRIFT-FIX, LANE-Q), replacing this module's old standalone bridge_lua_scripts pin (see the epitaph rule this file states above -- this is the same pin moved to the key that actually fires, not a fresh one: the test itself, its count and its coverage are unchanged). The one test in this module that needs the real shipped corpus (gamedata/lua/t_inscnt.lua) rather than a synthetic fixture -- a worked example proving Instance.CallScoreCount and Trigger.NextStatus are both real gating logic against an actual shipped script. It needs BOTH lupa (to drive a live ScriptHost) AND the bridge corpus at once, exactly the conjunction LUA_CORPUS_RUNNABLE exists for (see that key's own entry below and pf_preconditions.AllOfThese's docstring) -- it is no longer guarded by a bare BRIDGE_LUA_SCRIPTS decorator stacked under this module's class-level LUPA_PACKAGE guard, because that stack is exactly what produced the drift this pin's own note above describes. MEASURED by the same static source analysis as the lupa_package entry above: exactly 1 test in this module carries the LUA_CORPUS_RUNNABLE decorator."
+      "note": "ADDED this round (PIN-DRIFT-FIX, LANE-Q), replacing this module's old standalone bridge_lua_scripts pin (see the epitaph rule this file states above -- this is the same pin moved to the key that actually fires, not a fresh one: the test itself, its count and its coverage are unchanged). The one test in this module that needs the real shipped corpus (gamedata/lua/t_inscnt.lua) rather than a synthetic fixture -- a worked example proving Instance.CallScoreCount and Trigger.NextStatus are both real gating logic against an actual shipped script. It needs BOTH lupa (to drive a live ScriptHost) AND the bridge corpus at once, exactly the conjunction LUA_CORPUS_RUNNABLE exists for (see that key's own entry below and pf_preconditions.AllOfThese's docstring) -- it is no longer guarded by a bare BRIDGE_LUA_SCRIPTS decorator stacked under this module's class-level LUPA_PACKAGE guard, because that stack is exactly what produced the drift this pin's own note above describes. MEASURED by the same static source analysis as the lupa_package entry above (tests/test_pytest_precondition_census.py's guarded_tests AST walker, not tools/pf_pytest_precondition_census.py, which only parses a pytest transcript): exactly 1 test in this module carries the LUA_CORPUS_RUNNABLE decorator."
     },
     {
       "key": "lua_corpus_runnable",
