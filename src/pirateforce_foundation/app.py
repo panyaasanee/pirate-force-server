@@ -280,8 +280,9 @@ def main() -> int:
     # PF-HYPOTHESIS-LEDGER: HYP-PF-036 active
     # PICKUP-LISTENER-001.  Behind this flag one inbound frame carrying the
     # DERIVED PickupTerrainThing vital id 0x4543 (name-hash; the runtime id
-    # slot is zero on disk and NO capture holds this vital in either
-    # direction) in the accepted one-vital envelope is strictly decoded
+    # slot is zero on disk, and R303's attended capture holds 46 inbound
+    # frames of it, 2 completed takes) in the accepted one-vital envelope
+    # is strictly decoded
     # (u32 tag 0x14 then u8 tag 0x08, the statically closed delivery-table
     # shape; GT-046 proved the client-outbound mouse-click producer),
     # counted and recorded on the session -- and NOTHING is sent back and

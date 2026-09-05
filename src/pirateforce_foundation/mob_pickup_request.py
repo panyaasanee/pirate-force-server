@@ -75,19 +75,30 @@ rather than copied out of another module's comment:
 
 NONCLAIMS -- read these before using one symbol from this file
 --------------------------------------------------------------
-  1. THE VITAL ID HAS NEVER BEEN SEEN ON ANY WIRE, AND THE NEGATIVE IS
-     BOUNDED.  ~~"0x4543 comes from the validated project name-hash only"~~
+  1. THE VITAL ID IS NOW OBSERVED ON THE WIRE.  ~~"THE VITAL ID HAS NEVER
+     BEEN SEEN ON ANY WIRE, AND THE NEGATIVE IS BOUNDED"~~ IS STRUCK by the
+     attended capture of 20260902_1755 (R303): 46 inbound 0x4543 frames, 2
+     completed takes, confirmed again in R306, and COO-DECISION
+     20260905_0249 item 1 closed GT-146 as covered by it.  The bounded
+     negative below was true of the corpus audit that produced it and is
+     kept, struck, so a reader can see what changed and on what evidence;
+     the call-site restriction is retained for its own reasons (0249 item
+     2).  ~~"0x4543 comes from the validated project name-hash only"~~
      IS STRUCK, and so is RE-125's premise behind it: the Codex checkpoint
      of 2026-08-31 (P06-DROP-TRANSPORT, item 2) closed 0x4543 as the
      ASSIGNED NESTED RUNTIME TYPE ID on the successful 519-stub
      registration path (519 names / 519 ids / collision 0, IMAGE layer),
      and forbade using it as a TOP-LEVEL opcode -- which is why this lane
-     keys on the NESTED id and nothing else.  What stands unchanged: no
-     capture holds a frame of it in either direction, and that negative is
-     bounded rather than absolute -- 0 among the nested frames the corpus
-     audit actually reached, with a residue of fail-closed frames never
-     parsed at all.  Being always-on does not
-     upgrade that by one inch.  WHAT ALWAYS-ON ACTUALLY COSTS, stated
+     keys on the NESTED id and nothing else.  ~~"What stands unchanged: no
+     capture holds a frame of it in either direction"~~ IS STRUCK TOO -- it
+     was the surviving half of the old negative and R303 ended it; a
+     paragraph may not carry a claim and its negation five lines apart.
+     What DOES stand: the audit that produced the zero
+     (PF_FIELD_VALIDATION rows 102-103, status NOT_OBSERVED) reached 0
+     among the nested frames it parsed and left a residue of fail-closed
+     frames never parsed at all, so that zero was always bounded rather
+     than absolute -- and R303 is the frame it did not reach.  Being
+     always-on still does not upgrade anything by one inch.  WHAT ALWAYS-ON ACTUALLY COSTS, stated
      plainly: if the real runtime id is 0x4543 this branch fires on real
      clicks, and if it is not, this branch never fires and the frame keeps
      the exact pre-existing fall-through behavior.  A THIRD case exists and
@@ -246,19 +257,26 @@ test_only = False
 # written rather than copied from another module.
 # ---------------------------------------------------------------------------
 
-# DERIVED, NEVER OBSERVED -- see NONCLAIM 1.  Kept as a constant precisely so
-# the day a capture contradicts it, one line changes here and the wiring line
-# in the chief's file does not.
+# DERIVED, AND NOW OBSERVED ON THE WIRE -- see NONCLAIM 1.  The day a capture
+# would contradict this arrived: R303, 46 inbound frames, 2 completed takes.
+# Kept as a constant so that day cost one line here and none in the chief's
+# file, which is exactly what it was written for.
 PICKUP_REQUEST_VITAL_ID = 0x4543
 PICKUP_REQUEST_VITAL_ID_PROVENANCE = (
-    "assigned_nested_runtime_type_id_image_layer_never_observed_on_wire"
+    "assigned_nested_runtime_type_id_image_layer_observed_on_wire_r303"
 )
-#: The capture negative is BOUNDED, not absolute: zero among the nested
-#: frames the corpus audit reached, with a residue of fail-closed frames it
-#: never parsed.  Carried as a constant so a reader who only skims the
-#: constants still meets the qualifier.
+#: OBSERVED.  R303 (attended capture 20260902_1755) carries 46 inbound
+#: 0x4543 frames and 2 completed takes, confirmed again in R306.  The older
+#: bounded negative -- zero among the nested frames the PF_FIELD_VALIDATION
+#: audit (rows 102-103, NOT_OBSERVED) reached, with a residue of fail-closed
+#: frames it never parsed -- remains a true statement about THAT audit and
+#: is not what this constant reports any more.  NONCLAIM ON THIS SENTENCE:
+#: which of the two came first is NOT claimed here -- no dating of those
+#: rows was found in either repository, so "the audit simply never reached
+#: R303's frames" is the bounded reading, not a chronology.  Carried as a constant so a reader who only skims the constants
+#: still meets the evidence.
 PICKUP_REQUEST_CAPTURE_STATUS = (
-    "not_observed_among_parsed_nested_frames_bounded_negative"
+    "observed_on_wire_r303_46_inbound_frames_2_completed_takes"
 )
 #: THE HOLD IS LIFTED.  Round h6bl53 published this ask as HELD because
 #: RE-125, COO-DECISION 20260901_0245 and GT-146 forbade a production call
@@ -267,9 +285,11 @@ PICKUP_REQUEST_CAPTURE_STATUS = (
 #: instructions by writing code.  COO-DECISION 20260902_0541 answers the
 #: ASK-COO letter of that round and takes option 1: the two prohibitions are
 #: WITHDRAWN and the exception is granted for exactly the line this module
-#: publishes.  The FACT inside RE-125 is untouched and is still true - this
-#: id has never been seen on any wire - and 0541 requires it to be written at
-#: the call site, which the ask below does.
+#: publishes.  The FACT 0541 required at the call site has since CHANGED, and
+#: COO-DECISION 20260905_0249 item 2 approved the new wording: 0x4543 is now
+#: OBSERVED on the wire (R303, 46 inbound frames, 2 completed takes).  The
+#: call-site restriction 0541 imposed is retained for its own reasons, and
+#: the ask below still carries the fact - the current one.
 PICKUP_REQUEST_WIRING_STATUS = "approved_by_coo_20260902_0541"
 PICKUP_REQUEST_WIRING_APPROVAL = (
     "COO-DECISION 20260902_0541 (answering the ASK-COO letter of round "
@@ -2033,9 +2053,12 @@ MOB_PICKUP_REQUEST_WIRING = (
     "PICKUP_REQUEST_WIRING_BLOCKERS.\n"
     "  WRITE THIS FACT AT THE CALL SITE -- 0541 makes it a CONDITION of the "
     "exception it grants, not advice, and this lane's test enforces it the "
-    "moment runtime.py names this module: the id 0x4543 has NEVER been "
-    "observed on any wire.  A comment carrying the words 'never been "
-    "observed on any wire' (any casing) must sit within ten lines of the "
+    "moment runtime.py names this module: the id 0x4543 is NOW OBSERVED on "
+    "the wire (R303, 46 inbound frames, 2 completed takes), which is the "
+    "wording COO-DECISION 20260905_0249 item 2 approved in place of the "
+    "struck ~~'has NEVER been observed on any wire'~~.  A comment carrying "
+    "the words 'now observed on the wire (r303' (any casing) must sit "
+    "within ten lines of the "
     "call, or tests/test_mob_pickup_request.py goes red on the gate and the "
     "PR carrying the call site cannot merge.  ~~The branch is landed on a "
     "static-image reading, so if the id is wrong the branch never fires and "

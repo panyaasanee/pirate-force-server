@@ -892,7 +892,7 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # policy.max_related_versions); no status/kind/checkpoint/production_allowed
 # touched -- production_allowed stays False, this is a bookkeeping catch-up,
 # not a new production claim.
-CANONICAL_CONTENT_SHA256 = "DFFBC296A21A77BF43B5B0A28FDF514A3ECE0D2CC856D6C1E8E6C4971CD2A6BF"
+CANONICAL_CONTENT_SHA256 = "82970DD7B898FE91337F223600285C4793D7D6A371FFA3050823E17E8C6041F7"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -1105,8 +1105,10 @@ EXPECTED_IDS = (
     # HYP-PF-036 (PICKUP-LISTENER-001: the PickupTerrainThing inbound
     # strict-decoder lane -- decode, count and record only, no reply, no
     # pickup rule, no write, behind --pickup-listener-hypothesis-scenario;
-    # the vital id 0x4543 is DERIVED from the name-hash and has never been
-    # observed on any wire, object_ref_u32 carries only the GT-046 source
+    # the vital id 0x4543 is DERIVED from the name-hash and is now OBSERVED
+    # on the wire (R303, 46 inbound frames, 2 completed takes;
+    # COO-DECISION 20260905_0249 item 2), object_ref_u32 carries only the
+    # GT-046 source
     # proof and opaque_u8 is never interpreted, monster-drop pickup may
     # ride the undecoded FightingDrop* family instead).  Appended at the
     # end to keep every earlier entry index stable for the index-based

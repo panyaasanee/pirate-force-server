@@ -21,10 +21,11 @@ recorded (count, object_ref_u32, opaque_u8, raw body hex) with NO reply and
 NO write, every refusal family is silent with a named event and a refusal
 record, and with no scenario the branch does not exist.
 
-NOT tested here, because it is not claimed: that any real client ever sends
-vital id 0x4543 -- THE OPCODE IS DERIVED from the name-hash (the runtime id
-slot is zero on disk) and the capture corpus holds ZERO PickupTerrainThing
-frames in either direction; any MEANING for object_ref_u32 beyond the GT-046
+NOT tested here, because it is not claimed: anything this suite does not
+re-derive about who sends vital id 0x4543 and when -- THE OPCODE IS DERIVED
+from the name-hash (the runtime id slot is zero on disk) and is now OBSERVED
+on the wire (R303, 46 inbound frames, 2 completed takes), which this suite
+takes from that letter rather than measuring; any MEANING for object_ref_u32 beyond the GT-046
 source proof (copied from the selected live runtime drop-object -- NOT
 claimed to be an element_key) or for opaque_u8 (never interpreted); any
 pickup rule or any response frame; that this lane explains monster-drop
@@ -121,18 +122,20 @@ def _accept_events(state):
 class DerivedOpcodeNonclaimTests(unittest.TestCase):
     """The loudest nonclaim of this lane, pinned as tests."""
 
-    def test_the_opcode_is_derived_0x4543_and_never_observed_on_wire(self):
-        # 0x4543 (17731) is HASH-DERIVED from the class name only
-        # (FACTPACK_L2_CLASSCENSUS001 row 1003) and has NEVER been observed
-        # on any wire in either direction (PF_FIELD_VALIDATION rows 102-103,
-        # NOT_OBSERVED); the runtime id slot 0x0108202C is zero on disk.
-        # This test pins the constant AND the declared provenance so the
-        # derivation can never silently masquerade as an observation.
+    def test_the_opcode_is_derived_0x4543_and_now_observed_on_wire(self):
+        # 0x4543 (17731) is HASH-DERIVED from the class name
+        # (FACTPACK_L2_CLASSCENSUS001 row 1003) and is now OBSERVED on the
+        # wire: R303's attended capture holds 46 inbound frames of it and 2
+        # completed takes, which the corpus rows PF_FIELD_VALIDATION 102-103
+        # predate.  The runtime id slot 0x0108202C is still zero on disk.
+        # This test pins the constant AND the declared provenance so neither
+        # half -- the derivation, nor the capture that ended the negative --
+        # can silently stand in for the other.
         self.assertEqual(PICKUP_LISTENER_VITAL_ID, 0x4543)
         self.assertEqual(PICKUP_LISTENER_VITAL_ID, 17731)
         self.assertEqual(
             PICKUP_LISTENER_VITAL_ID_PROVENANCE,
-            "derived_from_name_hash_never_observed_on_wire",
+            "derived_from_name_hash_observed_on_wire_r303",
         )
         self.assertEqual(PICKUP_LISTENER_RUNTIME_ID_SLOT_VA, 0x0108202C)
 
@@ -140,14 +143,15 @@ class DerivedOpcodeNonclaimTests(unittest.TestCase):
         module_source = (
             SRC_ROOT / "pickup_listener_hypothesis.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("DERIVED, NEVER OBSERVED", module_source)
+        self.assertIn("DERIVED, AND NOW OBSERVED ON THE WIRE",
+                      module_source)
         scenario = json.loads(SCENARIO_PATH.read_text(encoding="utf-8"))
         self.assertEqual(
             scenario["wire"]["vital_id_provenance"],
-            "derived_from_name_hash_never_observed_on_wire",
+            "derived_from_name_hash_observed_on_wire_r303",
         )
         self.assertIn(
-            "the_runtime_vital_id_which_is_hash_derived_never_observed",
+            "the_runtime_vital_id_beyond_the_hash_derivation_and_r303",
             scenario["nonclaims"],
         )
 

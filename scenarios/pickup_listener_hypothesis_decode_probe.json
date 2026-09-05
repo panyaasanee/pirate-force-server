@@ -19,7 +19,7 @@
   },
   "wire": {
     "vital_id": 17731,
-    "vital_id_provenance": "derived_from_name_hash_never_observed_on_wire",
+    "vital_id_provenance": "derived_from_name_hash_observed_on_wire_r303",
     "vital_version": 0,
     "vital_version_provenance": "our_design_no_capture_or_static_pin_fixes_it",
     "envelope": "gscn_runtime_protocol_req_one_vital_client_request_our_acceptance_design_for_this_vital",
@@ -35,7 +35,7 @@
       "delivery_table": "pf_bridge/external/PF_SERIALIZER_FIELDS.tsv",
       "delivery_rows": "W_and_R_byte_symmetric_gate_ALWAYS",
       "derived_id_source": "pf_bridge/FACTPACK_L2_CLASSCENSUS001_20260820.tsv",
-      "capture_status": "not_observed_in_either_direction_pf_field_validation_rows_102_103",
+      "capture_status": "observed_inbound_r303_46_frames_2_takes_corpus_rows_102_103_predate_it",
       "serializer_va": "0x005E5E30",
       "serializer_len": 83,
       "serializer_sha256": "8e439d4f3ff1479e723b220d8dd78a262b41df3b74839da9d4cb728f69773066"
@@ -85,8 +85,8 @@
     "repeatable_per_session_no_reply_no_persisted_state_change"
   ],
   "nonclaims": [
-    "the_runtime_vital_id_which_is_hash_derived_never_observed",
-    "any_wire_observation_of_this_vital_in_either_direction",
+    "the_runtime_vital_id_beyond_the_hash_derivation_and_r303",
+    "any_wire_observation_of_this_vital_outbound",
     "any_meaning_for_object_ref_u32_beyond_the_gt046_source_proof",
     "any_meaning_for_opaque_u8",
     "any_pickup_rule_or_any_response_frame",

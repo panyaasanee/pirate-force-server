@@ -1177,7 +1177,7 @@ class TheWiringLineRunsTests(TheWiringHarness):
         # 0541: "the fact of RE-125 is still true and must be written at the
         # call site".  A clearance that quietly drops the nonclaim is the
         # failure this line exists to catch.
-        self.assertIn("NEVER been observed on any wire", wiring)
+        self.assertIn("NOW OBSERVED on the wire (R303", wiring)
         self.assertIn("0541 item 2 ENDORSED it", wiring)
         blockers = mob_pickup_request.PICKUP_REQUEST_WIRING_BLOCKERS
         joined = " ".join(blockers)
@@ -2100,23 +2100,27 @@ class NonclaimTests(unittest.TestCase):
                       "THE ID OBSERVED", doc)
         self.assertIn("RE-125", doc)
 
-    def test_the_vital_id_is_marked_unobserved_and_the_negative_is_bounded(
+    def test_the_vital_id_is_marked_observed_and_names_its_capture(
             self):
-        """The provenance line was rewritten this round, on evidence.
+        """The provenance line was rewritten twice, both times on evidence.
 
         The first draft said "derived from the name hash only", copying
         RE-125's premise -- which the Codex checkpoint of 2026-08-31 had
         already retired by closing 0x4543 as the ASSIGNED nested runtime
-        type id at the IMAGE layer.  What did NOT change is the part that
-        constrains this lane: never observed on any wire, and the capture
-        negative is bounded rather than absolute.
+        type id at the IMAGE layer.  The second rewrite is this one: the
+        part that used to constrain this lane -- never observed on any
+        wire, a bounded capture negative -- was ended by R303's attended
+        capture (46 inbound frames, 2 completed takes), and COO-DECISION
+        20260905_0249 approved this wording in its place.  The constant
+        must now NAME that capture, so a later reader cannot mistake the
+        derivation for the whole of the evidence, or the other way round.
         """
         self.assertEqual(
             mob_pickup_request.PICKUP_REQUEST_VITAL_ID_PROVENANCE,
-            "assigned_nested_runtime_type_id_image_layer_never_observed_"
-            "on_wire")
+            "assigned_nested_runtime_type_id_image_layer_observed_"
+            "on_wire_r303")
         self.assertIn(
-            "bounded", mob_pickup_request.PICKUP_REQUEST_CAPTURE_STATUS)
+            "r303", mob_pickup_request.PICKUP_REQUEST_CAPTURE_STATUS)
         self.assertEqual(
             mob_pickup_request.PICKUP_REQUEST_RUNTIME_ID_SLOT_VA, 0x0108202C)
 
@@ -2423,7 +2427,7 @@ class NonclaimTests(unittest.TestCase):
             if "dispatch_inbound_pickup_request(" in line
         ]
         self.assertTrue(anchors)
-        needle = "never been observed on any wire"
+        needle = "now observed on the wire (r303"
         for anchor in anchors:
             window = "\n".join(
                 lines[max(0, anchor - 10):anchor + 11]).lower()
@@ -2434,7 +2438,8 @@ class NonclaimTests(unittest.TestCase):
                     "nonclaim COO-DECISION 20260902_0541 made a condition "
                     "of the exception it granted.  Put a comment carrying "
                     "the words '%s' within ten lines of the call: the id "
-                    "0x4543 has never been seen on any wire, and a reader "
+                    "0x4543 is now OBSERVED on the wire (R303, 46 inbound "
+                    "frames, 2 completed takes), and a reader "
                     "of runtime.py must not have to find that out from "
                     "another repository." % (anchor + 1, needle))
         # THE TWO SUBSTRING CHECKS ABOVE ARE NOT ENOUGH, AND THAT WAS

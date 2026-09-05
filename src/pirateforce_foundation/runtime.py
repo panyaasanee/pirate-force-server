@@ -8007,7 +8007,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and nested_id == PICKUP_LISTENER_VITAL_ID
             ):
                 # PICKUP-LISTENER-001.  Keyed on its own DERIVED vital id
-                # 0x4543 (name-hash; never observed on any wire), which no
+                # 0x4543 -- a name-hash derivation, now OBSERVED on the
+                # wire (R303, 46 inbound frames, 2 completed takes) -- on
+                # which no
                 # other lane keys on, hooked exactly the way 0x36AA is
                 # hooked above; with the scenario absent this branch does
                 # not exist and a 0x4543 frame falls through to the frozen
@@ -8067,9 +8069,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # PROHIBITION, WRITTEN HERE BECAUSE A READER OF runtime.py MUST
                 # NOT HAVE TO FIND IT IN ANOTHER REPOSITORY: the nested id
                 # 0x4543 is DERIVED from the client's class name on the
-                # static-image layer and has NEVER BEEN OBSERVED ON ANY WIRE
-                # (RE-125, CLOSED BOUNDED-NEGATIVE; GT-146 clicked and captured
-                # no such frame).  A real pickup frame wearing some OTHER id
+                # static-image layer and is NOW OBSERVED ON THE WIRE: the
+                # attended capture of 20260902_1755 (R303) carries 46
+                # inbound 0x4543 frames and 2 completed takes, confirmed
+                # again in R306, and COO-DECISION 20260905_0249 item 1
+                # closed GT-146 as covered by it.  RE-125's bounded
+                # negative was true of the corpus it audited and that
+                # capture supersedes it; the call-site restriction below is
+                # retained for its own reasons (0249 item 2).  What this
+                # comment said before -- "NEVER BEEN OBSERVED ON ANY WIRE
+                # (RE-125, CLOSED BOUNDED-NEGATIVE; GT-146 clicked and
+                # captured no such frame)" -- is WITHDRAWN, both halves: the
+                # negative and the reason given for it.
+                # A real pickup frame wearing some OTHER id
                 # still reaches the unchanged unknown-vital path, which is the
                 # capture GT-146 wants -- v141 prints the capture line BEFORE
                 # dispatch, so nothing here can hide a frame from it.
@@ -8226,10 +8238,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 if isinstance(last_pos, tuple) and len(last_pos) == 4:
                     x, y, z, _heading = last_pos
                 # RE-125, restated ON the call because ten lines is all a
-                # reader gets.  The id this branch keys on, 0x4543, has
-                # never been observed on any wire: a DERIVED, static-image
-                # reading, so a wrong id costs nothing -- the branch simply
-                # never fires and the frame keeps today's behaviour.
+                # reader gets.  This branch keys on 0x4543, and that id is
+                # now OBSERVED on the wire (R303, 46 inbound frames, 2
+                # completed takes); it began as a DERIVED, name-hash
+                # reading, and the call-site restriction is retained for its
+                # own reasons.  A wrong id is NOT free -- that clause is
+                # struck: the branch claims on the nested id before any
+                # shape check, so it would swallow whatever really wears
+                # 0x4543 (pf-adversary D11, round 91tlkk).
                 outcome = mob_pickup_request.dispatch_inbound_pickup_request(
                     legacy, parsed, store, sid, character_id, bag_cell,
                     drop_ledger_cell, identity, x, y, z)
