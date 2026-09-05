@@ -237,10 +237,11 @@ whether the socket layer later agreed.
 from __future__ import annotations
 
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..model import Position
 from .warp_scene_persist import (
+    OUTCOME_ROLLED_BACK,
     SEND_FAILURE_WARP_ACTION_LABEL,
     _console as _persist_console,
     rollback_warp_scene,
@@ -258,6 +259,30 @@ SESSION_ATTRIBUTE = "gm_warp_send_watch_park"
 #: `warp_scene_persist`'s own (`gm_chat_action_warp_scene_rollback_*`) or
 #: `warp_target_record`'s.
 EVENT_PREFIX = "gm_warp_send_watch_"
+
+#: The four words `_restore_selected_scene` can answer (CORE-REQUEST-GM-059).
+#: Every one of them reaches `session.events` under `EVENT_PREFIX` + `failed_`,
+#: so the trail says which happened even when the durable row alone cannot:
+#: a rollback that restored the label and one that could not both leave the
+#: SAME row behind, and only the next walk frame tells them apart.
+#: The in-memory label went back to the pre-warp scene, read back and confirmed.
+SELECTED_SCENE_RESTORED = "selected_scene_restored"
+#: The label was ALREADY the pre-warp scene: a same-scene warp, or a resync
+#: that never ran.  Nothing was written -- distinguished from `RESTORED` so
+#: the trail never claims work this module did not do.
+SELECTED_SCENE_ALREADY_THERE = "selected_scene_already_there"
+#: `foundation.selected.position` could not be read, or is not a `Position`.
+#: Fail closed and say so; the durable row is still correct.
+SELECTED_SCENE_UNREADABLE = "selected_scene_unreadable"
+#: The assignment raised, or did not survive its own read-back.  The one
+#: outcome that also prints a console line (see `_report_restore_failure`).
+SELECTED_SCENE_NOT_RESTORED = "selected_scene_not_restored"
+
+#: Console token for `SELECTED_SCENE_NOT_RESTORED`, the module's second one
+#: (`INSTALL_CONSOLE_TOKEN` below is the first).  Spelled here rather than at
+#: the print so the test that greps for it and the code that emits it cannot
+#: drift.
+RESTORE_FAILED_CONSOLE_TOKEN = "GM_WARP_SELECTED_SCENE_RESTORE_FAILED"
 
 # The outcome words `on_game_frame_sent` and `on_game_frame_send_failed`
 # return.  `nothing_parked` is shared by both entry points on purpose: it
@@ -484,6 +509,100 @@ def on_game_frame_sent(session: object, frame_bytes: object) -> str:
     return outcome
 
 
+def _restore_selected_scene(session: object, previous: Position) -> str:
+    """Put the IN-MEMORY scene label back after a confirmed rollback.
+
+    WHY THIS EXISTS (CORE-REQUEST-GM-059, chief's reply 20260905_1522
+    handed the line back to this lane because every byte of it lives in
+    `gm/`).  The order of a cross-scene `/warp <n>` whose frame then fails
+    to send, MEASURED on a real SQLite store through `runtime.dispatch`:
+
+    1. `warp_scene_persist.persist_warp_scene` writes the durable row to
+       the DESTINATION and puts `foundation.selected` back the way it found
+       it (`_restore_selected`, that module's line 1021) -- so the snapshot
+       is clean at this point, and that is why the rollback of the DURABLE
+       row is right.
+    2. `runtime.py`'s `_gm_warp_resync_selected_scene` THEN relabels
+       `selected.position.scene_id` to the destination, on purpose
+       (CORE-REQUEST-GM-045: the census must read the new scene).
+    3. The send fails.  `rollback_warp_scene` puts the DURABLE row back to
+       `record.previous_position` and answers `OUTCOME_ROLLED_BACK`.
+    4. Nobody undoes step 2.  The next ordinary movement frame reaches
+       `runtime.py:4164`, which builds its `candidate` row with `scene_id`
+       from `selected` and x/y/z from the CLIENT's report -- so one step of
+       walking writes the durable row back to the destination scene the
+       client was never sent to, with real coordinates from the scene it is
+       really standing in.  The undo is silently spent.
+
+    SCENE_ID ONLY, x/y/z/heading untouched -- the exact inverse of what
+    step 2 changed, and no more.  A walk frame is EXPECTED to write new
+    coordinates (that is `_checkpoint_exact_target`'s own change detection
+    working), so pinning the pre-warp x/y here would be pinning a row that
+    the very next honest report has to move.  `COO 1150`'s acceptance
+    sentence asked for "scene AND coordinates before the warp"; the
+    coordinate half is not reachable and `CORE-REQUEST-GM-059` says so.
+
+    ONLY ON `OUTCOME_ROLLED_BACK`, and only on the branch that carries a
+    parked `previous_position`.  The fallback delegate
+    (`rollback_warp_scene_on_send_failure`) derives the row it reverts to
+    from `selected.position` itself, so there is no independent pre-warp
+    scene here to restore and re-deriving one from the row it just wrote
+    would be circular.
+
+    NEVER RAISES: it is called from inside `on_game_frame_send_failed`,
+    whose whole contract is that a failed send never costs the listener
+    thread.  Every outcome is a WORD, appended to the session trail by the
+    caller, so a dead line is visible in the trail and not only in a row.
+    """
+    try:
+        foundation = session.foundation  # type: ignore[attr-defined]
+        selected = foundation.selected
+        current = selected.position
+    except Exception:  # noqa: BLE001 - see docstring
+        return SELECTED_SCENE_UNREADABLE
+    if not isinstance(current, Position):
+        return SELECTED_SCENE_UNREADABLE
+    if current.scene_id == previous.scene_id:
+        # A same-scene warp, or a resync that never ran.  Nothing was
+        # relabelled, so there is nothing to put back -- and answering
+        # "restored" here would make the trail claim work this function
+        # did not do.
+        return SELECTED_SCENE_ALREADY_THERE
+    try:
+        foundation.selected = replace(
+            selected, position=replace(current, scene_id=previous.scene_id),
+        )
+    except Exception:  # noqa: BLE001 - see docstring
+        _report_restore_failure(session, previous.scene_id)
+        return SELECTED_SCENE_NOT_RESTORED
+    # READ BACK, for the same reason `warp_scene_persist._restore_selected`
+    # reads its own assignment back: a `__setattr__` that swallows the write
+    # raises nothing, and a restore reported but not performed is exactly
+    # the false report the durable read-back in that module exists to stop.
+    try:
+        landed = foundation.selected.position.scene_id == previous.scene_id
+    except Exception:  # noqa: BLE001 - see docstring
+        landed = False
+    if not landed:
+        _report_restore_failure(session, previous.scene_id)
+        return SELECTED_SCENE_NOT_RESTORED
+    return SELECTED_SCENE_RESTORED
+
+
+def _report_restore_failure(session: object, scene_id: object) -> None:
+    """One console line for the one outcome nobody could otherwise see.
+
+    The durable row IS correct when this prints -- `rollback_warp_scene`
+    already confirmed it -- so this is not a bricked character.  It is the
+    state where the next walk frame will re-break the row, and the tester
+    watching the console is the only reader who can act on it before that
+    happens.  Losing the line costs nothing else (`_persist_console`
+    already answers False rather than raising on a dead stderr).
+    """
+    if not _persist_console(f"{RESTORE_FAILED_CONSOLE_TOKEN} scene={scene_id}"):
+        _note(session, f"{EVENT_PREFIX}console_lost_{SELECTED_SCENE_NOT_RESTORED}")
+
+
 def on_game_frame_send_failed(session: object, frame_bytes: object, error: object) -> str:
     """A send failed on this connection.  Undo the row if one is unconfirmed.
 
@@ -548,6 +667,15 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     )
     if usable:
         outcome = rollback_warp_scene(session, record.previous_position)
+        if outcome == OUTCOME_ROLLED_BACK:
+            # GM-059.  The durable row is back in the departure scene; the
+            # IN-MEMORY label is not, and nothing else in the tree puts it
+            # back.  See `_restore_selected_scene` for the measured defect
+            # this closes.
+            _note(
+                session,
+                f"{EVENT_PREFIX}failed_{_restore_selected_scene(session, record.previous_position)}",
+            )
     else:
         outcome = rollback_warp_scene_on_send_failure(
             session, SEND_FAILURE_WARP_ACTION_LABEL,
