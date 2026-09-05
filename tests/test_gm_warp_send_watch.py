@@ -109,8 +109,12 @@ def _synthetic_chat_pc(legacy, payload: bytes) -> bytes:
     """Outer envelope carrying one 0xAC52 nested vital, payload verbatim.
 
     Copied, not imported, from `tests/test_gm_chat_command_dispatch_wiring.py`
-    per this house's own rule that no test file imports test helpers from
-    another one.
+    -- no test file in this repo currently imports a test helper from
+    another one (checked this round: `git grep -E "^(from|import) tests"`
+    under `tests/` returns nothing), and this file's own `_chat_payload`
+    above already follows that practice for the same reason. Not a written
+    rule found in `AGENTS.md`; matching an established, unbroken practice
+    rather than citing a governance document (pf-adversary, this round).
     """
     return (
         legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
@@ -1968,6 +1972,15 @@ class RealDispatchSendFailureTests(RealDatabaseTests):
     this lane's own letter, still open) -- this class exists to MEASURE the
     chain chief's answer will change, not to pre-empt it.
 
+    WHEN `CORE-REQUEST-GM-059` LANDS (pf-adversary's own question, this
+    round): grep this class for `CORE-REQUEST-GM-059` -- it marks the two
+    assertions built to go red the moment the fix does
+    (`test_a_real_send_failure_after_the_relabel_still_rolls_back_the_row`'s
+    in-memory check, and `test_a_walk_reported_after_the_rollback_does_not_
+    raise_through_dispatch`'s `row.scene_id` check). Whoever lands that fix
+    owns rewriting both to the corrected value IN THE SAME PR, not leaving
+    them red or loosening them back to `assertIn`/an either-value check.
+
     Builds the session the way `HookupWiringPinTests._production_session`
     does (real `connection.GameConnectionBindings` + an accepted fake
     socket), because only that construction path calls `warp_send_watch.
@@ -2054,8 +2067,9 @@ class RealDispatchSendFailureTests(RealDatabaseTests):
 
     def _target_pos_pc(self, x, y, z, heading=0.0, moving=1):
         """The exact singleton shape `parse_v141_refresh_target_pos` accepts
-        -- copied from `tests/test_gm_warp_position_confirmed.py`'s own
-        builder, per this house's no-cross-file-import rule."""
+        -- copied, not imported, from `tests/test_gm_warp_position_confirmed.
+        py`'s own builder (see `_synthetic_chat_pc`'s docstring above for why
+        this file copies rather than imports)."""
         return (
             self.legacy.u16tag(0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)
             + self.legacy.u32tag(0x14, 0)
@@ -2153,7 +2167,10 @@ class RealDispatchSendFailureTests(RealDatabaseTests):
             "in-memory selected.position after rollback: scene_id still "
             "names the DESTINATION while x/y/z are the DEPARTURE row's -- "
             "the exact (destination scene, pre-warp coords) mismatch "
-            "GT-258 step 5b exists to catch on a real screen",
+            "GT-258 step 5b exists to catch on a real screen. CORE-REQUEST-"
+            "GM-059: if this ever reads the departure scene_id instead, "
+            "that letter's fix landed -- rewrite this assertion to the "
+            "corrected value in the SAME PR, per this class's docstring",
         )
 
     def test_a_walk_reported_after_the_rollback_does_not_raise_through_dispatch(
@@ -2220,9 +2237,10 @@ class RealDispatchSendFailureTests(RealDatabaseTests):
         # defect, not the shipped answer -- see this test's own docstring.
         self.assertEqual(
             row.scene_id, DESTINATION_SCENE,
-            "if this ever reads before.scene_id instead, the resync-restore "
-            "chain changed shape -- update this test's docstring rather "
-            "than loosening the assertion",
+            "CORE-REQUEST-GM-059: if this ever reads the departure "
+            "scene_id instead, that letter's fix landed -- rewrite this "
+            "assertion (and its docstring) to the corrected value in the "
+            "SAME PR, per this class's own docstring",
         )
         self.assertEqual((row.x, row.y), (walk_x, walk_y))
 
