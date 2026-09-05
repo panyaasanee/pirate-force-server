@@ -37,10 +37,21 @@ the same size, tag, or mask:
 
 A reader who has ``gm/name_color_gate.py`` open and then reads a letter about
 "+0x98" will believe one of the two documents is wrong.  Neither is: they are
-different classes.  Splicing the u8 shape into an NPCAttr body (or the u64
-shape into an ActorAttr body) is the exact class of mistake ``GT-218`` proved
-kills the client in one frame, so both shapes are named here rather than left
-to be inferred from an offset that two classes share.
+different classes.  Both shapes are therefore named here rather than left to
+be inferred from an offset that two classes share.
+
+(A draft of this file said splicing one shape into the other class was "the
+mistake ``GT-218`` proved kills the client in one frame".  That sentence was
+false twice and is struck rather than quietly deleted, because it would have
+been quoted forward: ``RE-222-RESULT`` says at its own line 85 that there was
+"no tag-width-order framing error", at :93 that the measured error was
+"sending a sparse ActorAttr to an apply path with full-object replacement
+semantics, not malformed framing", and at :148 "do not retry by tweaking tags
+or length"; and the GT-218 run itself killed the CHARACTER, not the client
+process -- the owner closed the window herself and re-logged fine.  What a
+wrong shape here actually risks is a body the client reads as a different
+field, which is bad enough to justify naming both shapes, and is not a crash
+precedent.  pf-adversary D6, round ``404m21``.)
 
 WHAT THIS MODULE DOES NOT DO.  It does not decide a COLOUR: the colour is the
 client's, chosen by the selector span above from this field plus the relation
@@ -49,23 +60,28 @@ predicate.  It does not read a faction (faction-only remains banned,
 nothing: it takes a composed NPCAttr body and hands back a longer one, and
 the day a caller exists, that caller is where a GT ticket points.
 
-WHERE THE FIELD GOES IN THE BODY, AND WHAT PART OF THAT IS DERIVED RATHER
-THAN OBSERVED.  The frozen composer (``make_npc_attr``) writes the NPC field
-mask byte and then that mask's fields in ASCENDING BIT ORDER: bit 0x01 is the
-template u16 (+0x78), bit 0x04 is the visual-preset wstring (+0x7C), and both
-the bit order and the object-offset order agree.  ``field_mobs.
-hostile_npc_attr``'s own docstring already states that rule for the BasicAttr
-mask in the same body ("each tagged value spliced in at its own
-ascending-mask-bit position").  Bit 0x08 is the next bit AND +0x98 is the
-next offset, so this module APPENDS its field after the visual preset.
+WHERE THE FIELD GOES IN THE BODY, AND WHY THAT IS READ RATHER THAN INFERRED.
+The rows cited above carry an ``order`` column, and it answers this directly:
+``+0x7C`` is order 21 and ``+0x98`` is order 22, so bit 0x08's field is
+emitted immediately after the visual-preset wstring.  This module therefore
+APPENDS, and the append position is a citation, not a guess.
 
-NONCLAIM, stated plainly because it is the one thing here that is inferred:
-nobody in this tree has read the NPCAttr serializer's emission order for bit
-0x08 itself.  The append position follows the two observed bits and the
-ascending rule; it is not an observation of the 0x08 field being written
-last.  A caller that puts these bytes on a real socket therefore needs the
-attended confirmation the letter for this round asks for, and until then the
-only cost of being wrong is carried by that caller, not by this file.
+DO NOT RESTATE THIS AS "ASCENDING OFFSET".  A draft of this file argued the
+position from "bit order and object-offset order agree", which is true for
+the two bits this composer already writes and FALSE two bits later: order 23
+is ``+0xA8`` and order 24 is ``+0xA0``, descending.  The rule that holds is
+ascending EMISSION ORDER as the codex records it -- the same shape
+``field_mobs.hostile_npc_attr``'s own docstring states for the BasicAttr mask
+("each tagged value spliced in at its own ascending-mask-bit position").
+Anyone extending this to bit 0x10 must read the ``order`` column again rather
+than continue a pattern.  (pf-adversary D5, round ``404m21``.)
+
+WHAT IS STILL NOT PROVEN, so a caller knows what it is buying: no capture in
+this project has yet shown a CLIENT accepting a body with this field on it.
+The layout is IMAGE-proven from the client's own codec, which is the encoding
+a server must satisfy; it is not an observation of this server's bytes being
+accepted.  That confirmation is an attended run, and the letter carrying this
+round asks for it.
 """
 from __future__ import annotations
 
@@ -77,7 +93,7 @@ from typing import Any
 production_allowed = True
 
 
-class MobNameColourLinkError(RuntimeError):
+class MobViewerLinkError(RuntimeError):
     """Raised, named, instead of composing a body nobody can vouch for."""
 
 
@@ -166,40 +182,50 @@ def link_viewer_to_npc_attr(
     refusal instead of bytes that would reach a client.
     """
     if isinstance(viewer_identity, bool) or not isinstance(viewer_identity, int):
-        raise MobNameColourLinkError(REFUSE_VIEWER_IDENTITY_NOT_POSITIVE)
+        raise MobViewerLinkError(REFUSE_VIEWER_IDENTITY_NOT_POSITIVE)
     if viewer_identity <= 0:
-        raise MobNameColourLinkError(REFUSE_VIEWER_IDENTITY_NOT_POSITIVE)
+        raise MobViewerLinkError(REFUSE_VIEWER_IDENTITY_NOT_POSITIVE)
     if viewer_identity > LINKED_IDENTITY_CEILING:
-        raise MobNameColourLinkError(REFUSE_VIEWER_IDENTITY_OUT_OF_RANGE)
+        raise MobViewerLinkError(REFUSE_VIEWER_IDENTITY_OUT_OF_RANGE)
     # RE-195 result row 61(a): the selector wants an associated identity that
     # is nonzero and NOT the monster's own.  A body that links a monster to
     # itself is the one shape that is certainly wrong, so it is refused here
     # rather than sent and watched.
     if viewer_identity == monster_identity:
-        raise MobNameColourLinkError(REFUSE_VIEWER_IS_THE_MONSTER)
+        raise MobViewerLinkError(REFUSE_VIEWER_IS_THE_MONSTER)
 
     mask = npc_mask_for(visual_preset)
-    if mask & NPC_MASK_BIT_LINKED_IDENTITY:
-        raise MobNameColourLinkError(REFUSE_LINK_BIT_ALREADY_SET)
     tail = _npc_mask_tail(
         legacy,
         npc_mask=mask,
         template_id=template_id,
         visual_preset=visual_preset,
     )
-    if not body.endswith(tail):
-        raise MobNameColourLinkError(REFUSE_BODY_TAIL_DRIFT)
     widened = _npc_mask_tail(
         legacy,
         npc_mask=mask | NPC_MASK_BIT_LINKED_IDENTITY,
         template_id=template_id,
         visual_preset=visual_preset,
     )
+    # THE ORDER OF THESE TWO CHECKS IS THE FIX, NOT DECORATION (pf-adversary
+    # D4, round `404m21`).  The first draft tested `npc_mask_for(...) & 0x08`,
+    # which is a value this module computes itself and which is 0x01 or 0x05
+    # and never anything else -- a refusal that could not fire.  The case it
+    # was named for is REAL and is this one: a caller that links the SAME
+    # body twice, which is exactly the shape a per-session re-send takes when
+    # it feeds its own output back in.  Such a body no longer ends with the
+    # narrow tail, so without this check it came back as BODY_TAIL_DRIFT --
+    # a refusal that sends the reader to look for a layout change in somebody
+    # else's file instead of at their own second call.
+    if widened in body:
+        raise MobViewerLinkError(REFUSE_LINK_BIT_ALREADY_SET)
+    if not body.endswith(tail):
+        raise MobViewerLinkError(REFUSE_BODY_TAIL_DRIFT)
     linked = bytes(legacy.qwordtag(LINKED_IDENTITY_TAG, viewer_identity))
     if len(linked) != LINKED_IDENTITY_WIRE_LEN + 1:
         # tag byte + eight value bytes; anything else means the legacy
         # encoder changed shape and this module must be re-derived.
-        raise MobNameColourLinkError(REFUSE_BODY_TAIL_DRIFT)
+        raise MobViewerLinkError(REFUSE_BODY_TAIL_DRIFT)
     return body[: len(body) - len(tail)] + widened + linked
 
 
@@ -208,7 +234,7 @@ def link_viewer_to_npc_attr(
 #: ``viewer_identity`` keyword in the same round as this file; what is still
 #: missing is the runtime binding of a SESSION to that keyword, which is
 #: CORE-REQUEST-GM-061's ask and lives in the chief's file.
-MOB_NAME_COLOUR_LINK_WIRING = (
+MOB_VIEWER_LINK_WIRING = (
     "runtime.py: the per-session census dispatch that calls "
     "field_mobs.hostile_actor_entry(...) must pass viewer_identity=<the "
     "identity of the session this frame is being composed FOR>. Composing "

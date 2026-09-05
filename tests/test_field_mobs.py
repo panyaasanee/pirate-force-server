@@ -931,6 +931,12 @@ class FieldMobTests(unittest.TestCase):
              "mob_diag_multi_object.py",
              "mob_ledger_admission.py", "mob_loot.py",
              "mob_scene_recompose.py",
+             # LANE-B round `404m21`: the per-(viewer, monster) link module.
+             # It does not import this one -- the dependency runs the other
+             # way, this module calls IT for the optional `viewer_identity`
+             # keyword -- but it names `field_mobs.hostile_npc_attr` in its
+             # own docstring, which is what this census counts.
+             "mob_viewer_link.py",
              "player_hostile_pairing.py", "runtime.py",
              "scene_door_walk.py",
              "world_census_level.py",

@@ -201,7 +201,7 @@ from . import field_mob_tables_bg0015
 # (COO-DECISION 20260905_2348, CORE-REQUEST-GM-061).  Imported for the
 # OPTIONAL `viewer_identity` keyword below; with that keyword absent this
 # module composes exactly the bytes it composed before the import existed.
-from . import mob_name_colour_link
+from . import mob_viewer_link
 # Lane A's scene-id registry, read-only: the ONE public reader from a scene
 # id to that scene's own folder name (COO-DECISION 2026-08-29T08:48+07:00
 # item 3).  Imported for :func:`scene_for_scene_id`; nothing here writes to
@@ -1813,9 +1813,9 @@ def hostile_npc_attr(
     selector reads back out of ``NPCAttr+0x98``.  Left ``None`` -- which is
     every caller on main today -- the returned bytes are byte-identical to
     what this function returned before the keyword existed, pinned by
-    ``tests/test_mob_name_colour_link.py``.  Passed an identity, the NPC
+    ``tests/test_mob_viewer_link.py``.  Passed an identity, the NPC
     field mask gains bit 0x08 and the tagged qword is appended; the shape
-    rules and the refusals live in ``mob_name_colour_link``, not here.
+    rules and the refusals live in ``mob_viewer_link``, not here.
 
     The result is refused unless it equals ``legacy.make_npc_attr(...)`` for
     the same monster with the BasicAttr mask widened by exactly bits
@@ -1928,7 +1928,7 @@ def hostile_npc_attr(
         raise FieldMobContractError("hostile NPCAttr length drift")
     if viewer_identity is None:
         return composed
-    return mob_name_colour_link.link_viewer_to_npc_attr(
+    return mob_viewer_link.link_viewer_to_npc_attr(
         legacy,
         composed,
         viewer_identity=viewer_identity,

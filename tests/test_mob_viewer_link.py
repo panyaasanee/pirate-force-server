@@ -1,4 +1,4 @@
-"""LANE-B: the per-(viewer, monster) link the client's name colour reads.
+"""LANE-B: the per-(viewer, monster) link the client name-style selector reads.
 
 The load-bearing test in this file is the FIRST one: with no viewer passed,
 ``field_mobs.hostile_npc_attr`` must return the SAME BYTES it returned before
@@ -11,8 +11,8 @@ instead of pinning a stale layout.
 WHAT THESE TESTS DO NOT PROVE.  Nothing here proves the client accepts the
 widened body; that is an attended capture, and the letter for this round asks
 for it.  These tests prove the body this lane composes is the frozen body
-plus exactly the field the factpack rows describe, in the position the
-ascending-mask-bit rule puts it, and that four wrong inputs are refused by
+plus exactly the field the factpack rows describe, in the position those
+rows' own ``order`` column puts it, and that five wrong inputs are refused by
 name instead of encoded.
 """
 
@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pf_preconditions import BRIDGE_GAMEDATA  # noqa: F401  (import-time gate)
-from pirateforce_foundation import field_mobs, mob_name_colour_link
+from pirateforce_foundation import field_mobs, mob_viewer_link
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import SCENE_ID, SCENE_SEQUENCE
 
@@ -35,7 +35,7 @@ VIEWER = 0x5150
 OTHER_VIEWER = 0x5151
 
 
-class MobNameColourLinkTests(unittest.TestCase):
+class MobViewerLinkTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
@@ -79,7 +79,7 @@ class MobNameColourLinkTests(unittest.TestCase):
         plain = self._body(mob)
         linked = self._body(mob, viewer_identity=VIEWER)
         expected_tag = bytes(
-            self.legacy.qwordtag(mob_name_colour_link.LINKED_IDENTITY_TAG, VIEWER)
+            self.legacy.qwordtag(mob_viewer_link.LINKED_IDENTITY_TAG, VIEWER)
         )
         self.assertEqual(len(linked), len(plain) + len(expected_tag))
         self.assertTrue(linked.endswith(expected_tag))
@@ -90,13 +90,13 @@ class MobNameColourLinkTests(unittest.TestCase):
         mob = self.mob
         plain = self._body(mob)
         linked = self._body(mob, viewer_identity=VIEWER)
-        before = mob_name_colour_link.npc_mask_for(mob.visual_preset)
-        after = before | mob_name_colour_link.NPC_MASK_BIT_LINKED_IDENTITY
+        before = mob_viewer_link.npc_mask_for(mob.visual_preset)
+        after = before | mob_viewer_link.NPC_MASK_BIT_LINKED_IDENTITY
         old_mask_bytes = bytes(
-            self.legacy.u8tag(mob_name_colour_link.NPC_FIELD_MASK_TAG, before)
+            self.legacy.u8tag(mob_viewer_link.NPC_FIELD_MASK_TAG, before)
         )
         new_mask_bytes = bytes(
-            self.legacy.u8tag(mob_name_colour_link.NPC_FIELD_MASK_TAG, after)
+            self.legacy.u8tag(mob_viewer_link.NPC_FIELD_MASK_TAG, after)
         )
         self.assertIn(old_mask_bytes, plain)
         self.assertIn(new_mask_bytes, linked)
@@ -118,11 +118,11 @@ class MobNameColourLinkTests(unittest.TestCase):
         linked = self._body(mob, viewer_identity=VIEWER)
         monster_tag = bytes(
             self.legacy.qwordtag(
-                mob_name_colour_link.LINKED_IDENTITY_TAG, mob.actor_identity
+                mob_viewer_link.LINKED_IDENTITY_TAG, mob.actor_identity
             )
         )
         viewer_tag = bytes(
-            self.legacy.qwordtag(mob_name_colour_link.LINKED_IDENTITY_TAG, VIEWER)
+            self.legacy.qwordtag(mob_viewer_link.LINKED_IDENTITY_TAG, VIEWER)
         )
         self.assertTrue(linked.endswith(viewer_tag))
         self.assertNotEqual(monster_tag, viewer_tag)
@@ -140,43 +140,43 @@ class MobNameColourLinkTests(unittest.TestCase):
 
     def test_a_monster_may_not_be_linked_to_itself(self) -> None:
         mob = self.mob
-        with self.assertRaises(mob_name_colour_link.MobNameColourLinkError) as ctx:
+        with self.assertRaises(mob_viewer_link.MobViewerLinkError) as ctx:
             self._body(mob, viewer_identity=mob.actor_identity)
         self.assertIn(
-            mob_name_colour_link.REFUSE_VIEWER_IS_THE_MONSTER, str(ctx.exception)
+            mob_viewer_link.REFUSE_VIEWER_IS_THE_MONSTER, str(ctx.exception)
         )
 
     def test_a_nonpositive_viewer_is_refused_by_name(self) -> None:
         for bad in (0, -1):
             with self.subTest(viewer=bad):
                 with self.assertRaises(
-                    mob_name_colour_link.MobNameColourLinkError
+                    mob_viewer_link.MobViewerLinkError
                 ) as ctx:
                     self._body(self.mob, viewer_identity=bad)
                 self.assertIn(
-                    mob_name_colour_link.REFUSE_VIEWER_IDENTITY_NOT_POSITIVE,
+                    mob_viewer_link.REFUSE_VIEWER_IDENTITY_NOT_POSITIVE,
                     str(ctx.exception),
                 )
 
     def test_a_bool_is_not_an_identity(self) -> None:
         """``True`` is an ``int`` in Python; it is not an actor identity."""
-        with self.assertRaises(mob_name_colour_link.MobNameColourLinkError) as ctx:
+        with self.assertRaises(mob_viewer_link.MobViewerLinkError) as ctx:
             self._body(self.mob, viewer_identity=True)
         self.assertIn(
-            mob_name_colour_link.REFUSE_VIEWER_IDENTITY_NOT_POSITIVE,
+            mob_viewer_link.REFUSE_VIEWER_IDENTITY_NOT_POSITIVE,
             str(ctx.exception),
         )
 
     def test_a_viewer_wider_than_the_qword_is_refused_before_struct_sees_it(
         self,
     ) -> None:
-        with self.assertRaises(mob_name_colour_link.MobNameColourLinkError) as ctx:
+        with self.assertRaises(mob_viewer_link.MobViewerLinkError) as ctx:
             self._body(
                 self.mob,
-                viewer_identity=mob_name_colour_link.LINKED_IDENTITY_CEILING + 1,
+                viewer_identity=mob_viewer_link.LINKED_IDENTITY_CEILING + 1,
             )
         self.assertIn(
-            mob_name_colour_link.REFUSE_VIEWER_IDENTITY_OUT_OF_RANGE,
+            mob_viewer_link.REFUSE_VIEWER_IDENTITY_OUT_OF_RANGE,
             str(ctx.exception),
         )
 
@@ -189,8 +189,8 @@ class MobNameColourLinkTests(unittest.TestCase):
         """
         mob = self.mob
         body = self._body(mob)
-        with self.assertRaises(mob_name_colour_link.MobNameColourLinkError) as ctx:
-            mob_name_colour_link.link_viewer_to_npc_attr(
+        with self.assertRaises(mob_viewer_link.MobViewerLinkError) as ctx:
+            mob_viewer_link.link_viewer_to_npc_attr(
                 self.legacy,
                 body + b"\x00",
                 viewer_identity=VIEWER,
@@ -199,15 +199,15 @@ class MobNameColourLinkTests(unittest.TestCase):
                 visual_preset=mob.visual_preset,
             )
         self.assertIn(
-            mob_name_colour_link.REFUSE_BODY_TAIL_DRIFT, str(ctx.exception)
+            mob_viewer_link.REFUSE_BODY_TAIL_DRIFT, str(ctx.exception)
         )
 
     def test_a_body_composed_for_another_monster_row_is_refused(self) -> None:
         """A template id that is not the one in the body is the same drift."""
         mob = self.mob
         body = self._body(mob)
-        with self.assertRaises(mob_name_colour_link.MobNameColourLinkError) as ctx:
-            mob_name_colour_link.link_viewer_to_npc_attr(
+        with self.assertRaises(mob_viewer_link.MobViewerLinkError) as ctx:
+            mob_viewer_link.link_viewer_to_npc_attr(
                 self.legacy,
                 body,
                 viewer_identity=VIEWER,
@@ -216,8 +216,46 @@ class MobNameColourLinkTests(unittest.TestCase):
                 visual_preset=mob.visual_preset,
             )
         self.assertIn(
-            mob_name_colour_link.REFUSE_BODY_TAIL_DRIFT, str(ctx.exception)
+            mob_viewer_link.REFUSE_BODY_TAIL_DRIFT, str(ctx.exception)
         )
+
+    def test_linking_the_same_body_twice_is_refused_under_its_own_name(
+        self,
+    ) -> None:
+        """pf-adversary D4: this is what a per-session re-send does wrong.
+
+        Feeding an already-linked body back in used to come back as
+        BODY_TAIL_DRIFT, which sends the reader hunting for a layout change
+        in another lane's file instead of at their own second call.
+        """
+        mob = self.mob
+        once = self._body(mob, viewer_identity=VIEWER)
+        with self.assertRaises(mob_viewer_link.MobViewerLinkError) as ctx:
+            mob_viewer_link.link_viewer_to_npc_attr(
+                self.legacy,
+                once,
+                viewer_identity=OTHER_VIEWER,
+                monster_identity=mob.actor_identity,
+                template_id=mob.template_id,
+                visual_preset=mob.visual_preset,
+            )
+        self.assertIn(
+            mob_viewer_link.REFUSE_LINK_BIT_ALREADY_SET, str(ctx.exception)
+        )
+
+    def test_the_emission_order_rationale_is_the_codex_column_not_the_offset(
+        self,
+    ) -> None:
+        """pf-adversary D5: the offset order breaks two bits later.
+
+        The module must not argue its append position from ascending object
+        offsets, because the codex rows go +0xA8 (order 23) then +0xA0
+        (order 24).  It must cite the emission order instead.
+        """
+        doc = mob_viewer_link.__doc__ or ""
+        self.assertIn("order 21", doc.replace("``", ""))
+        self.assertIn("order 22", doc.replace("``", ""))
+        self.assertIn("0xA0", doc)
 
     # --- the constants, against the artifact rows they came from ----------
 
@@ -227,10 +265,10 @@ class MobNameColourLinkTests(unittest.TestCase):
         Typed out here so that a later round that "tidies" one of these
         constants has to come and change a test that names its source.
         """
-        self.assertEqual(mob_name_colour_link.LINKED_IDENTITY_TAG, 0x32)
-        self.assertEqual(mob_name_colour_link.LINKED_IDENTITY_WIRE_LEN, 8)
-        self.assertEqual(mob_name_colour_link.NPC_MASK_BIT_LINKED_IDENTITY, 0x08)
-        self.assertEqual(mob_name_colour_link.NPC_FIELD_MASK_TAG, 0x0B)
+        self.assertEqual(mob_viewer_link.LINKED_IDENTITY_TAG, 0x32)
+        self.assertEqual(mob_viewer_link.LINKED_IDENTITY_WIRE_LEN, 8)
+        self.assertEqual(mob_viewer_link.NPC_MASK_BIT_LINKED_IDENTITY, 0x08)
+        self.assertEqual(mob_viewer_link.NPC_FIELD_MASK_TAG, 0x0B)
 
     def test_this_module_does_not_carry_the_other_plus_0x98_shape(self) -> None:
         """ActorAttr+0x98 is a u8 with tag 0x0B; NPCAttr+0x98 is a u64.
@@ -239,18 +277,18 @@ class MobNameColourLinkTests(unittest.TestCase):
         prevent, so the difference is asserted rather than only described.
         """
         self.assertNotEqual(
-            mob_name_colour_link.LINKED_IDENTITY_TAG,
-            mob_name_colour_link.NPC_FIELD_MASK_TAG,
+            mob_viewer_link.LINKED_IDENTITY_TAG,
+            mob_viewer_link.NPC_FIELD_MASK_TAG,
         )
         self.assertIn(
             "ActorAttr+0x98",
-            mob_name_colour_link.OTHER_ACTORATTR_LINK_AT_0X98,
+            mob_viewer_link.OTHER_ACTORATTR_LINK_AT_0X98,
         )
 
     def test_the_wiring_constant_names_a_runtime_call_site_not_this_file(
         self,
     ) -> None:
-        wiring = mob_name_colour_link.MOB_NAME_COLOUR_LINK_WIRING
+        wiring = mob_viewer_link.MOB_VIEWER_LINK_WIRING
         self.assertIn("runtime.py", wiring)
         self.assertIn("viewer_identity", wiring)
 

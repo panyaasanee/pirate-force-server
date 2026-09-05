@@ -195,6 +195,14 @@ LANE_B_MODULES = (
     # record: a module missing from this tuple is a module the fabrication
     # sweep never reads.
     "mob_scene_recompose.py",
+    # ROUND 404m21: the per-(viewer, monster) link that carries WHO IS
+    # LOOKING in the monster's own NPCAttr body (COO-DECISION 20260905_2348,
+    # CORE-REQUEST-GM-061).  No player stat of any kind: the one number it
+    # writes is an actor identity handed in by its caller, and it refuses a
+    # nonpositive one, a bool, one wider than the qword, and one equal to the
+    # monster's own.  Listed in the same commit as the module, for the reason
+    # every entry above records.
+    "mob_viewer_link.py",
     # ROUND 096evp: Door B, the composer for the frame that would tell a
     # player their HP moved (COO-DECISION 20260904_0045).  Listed in the same
     # commit as the module, for the reason every entry above records -- and
