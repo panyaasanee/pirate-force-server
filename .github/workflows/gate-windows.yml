@@ -134,13 +134,16 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           # The repository carries no requirements.txt, no pyproject.toml and no
           # conftest.py; tests reach src/ by sys.path.insert(0, ROOT/"src").
-          # These three are every third-party name imported anywhere under
-          # tests/ or tools/.
+          # THIS LINE IS THE REPOSITORY'S DEPENDENCY DECLARATION - the four
+          # names below are every third-party name imported anywhere under
+          # tests/ or tools/.  Adding an import means adding it here.
+          # lupa is pinned because the LANE-Q Lua host is built against a
+          # specific embedding API; the bridge box installs the same 2.8.
           py -3 -m pip install --disable-pip-version-check --quiet --upgrade pip
           if ($LASTEXITCODE -ne 0) { throw 'pip self-upgrade failed' }
-          py -3 -m pip install --disable-pip-version-check --quiet pytest capstone pefile
+          py -3 -m pip install --disable-pip-version-check --quiet pytest capstone pefile lupa==2.8
           if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
-          py -3 -m pip list | Select-String -Pattern 'pytest|capstone|pefile' | Out-Host
+          py -3 -m pip list | Select-String -Pattern 'pytest|capstone|pefile|lupa' | Out-Host
 
       # ------------------------------------------------------------------
       - name: Assert the environment is the one we think it is
