@@ -81,12 +81,31 @@ caller expects (chief's `elif trial_state == TRIAL_OPEN` branch reads only
 truthiness), so a CORE-REQUEST is what it takes to have `runtime.py` print
 the reason on its own refusal line instead of the generic `no_records`; see
 this round's letter.
+
+RECORD `+0x14` IS NO LONGER A BARE ZERO (round `yob0a2`+1, LANE-A,
+COO-DECISION `20260905_1947` item 2, answering `RE-265`).  RE-265 (`pf_bridge/
+notes_to_chief/20260905_1932_RE-265-RESULT-COMMON-CONFIRM-OPENS-AFTER-
+SAILING-RESULT-KEY.md`) found the gate R318 actually missed: the client's
+contact tick reads `+0x14` as a key into a store loaded from the client table
+`SAILING_RESULT`, and exits BEFORE the XYZ distance test when the lookup is
+null -- exactly what a bare `+0x14=0` produces.  Both trial records now carry a REAL `n_ID` from
+`CONSTDATA_TH__SAILING_RESULT.tsv` where `n_AREA=126` (the scene these
+records are provisioned for), derived from a committed copy of that table,
+never typed in -- `world_m2_sailing_result_key.provisional_area_126_keys()`,
+one DISTINCT id per record (pf-adversary, round `wjprxa`, D1: reusing one id
+for both records would have spent GT-233's single no-backup attended shot
+on one candidate instead of two -- see that function's own docstring).  The
+table does not name which of its 18 `n_AREA=126` rows belongs to which
+island -- see that module's own docstring -- so this is COO's own fallback
+reading, marked PROVISIONAL, not a claim that the client cares which row it
+is.
 """
 from __future__ import annotations
 
 from typing import NamedTuple
 
 from . import world_m2_survey_plan as plan
+from . import world_m2_sailing_result_key as sailing_result
 from .navigationex_survey_record import (
     OUTER_PRESENCE_PRESENT,
     SurveyRecordFields,
@@ -119,7 +138,20 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
     `world_m2_survey_plan.planned_records()` can provision right now (today,
     both M2 islands).  Empty if `MEASURED_XYZ` is ever emptied again -- this
     function has no opinion of its own, it only reads the plan's.
+
+    Each record's `+0x14` gets a DISTINCT `world_m2_sailing_result_key`
+    candidate, not the same one repeated (pf-adversary, round `wjprxa`, D1:
+    COO-DECISION `20260905_1947` item 2 says to use EVERY `n_AREA=126` row
+    when the table does not name an island, and `GT-233`'s flip carries
+    `COO-DECISION 20260905_1348`'s standing "no backup boot" rule, so the
+    two records this trial sends are the only two attempts the one attended
+    shot gets -- see `world_m2_sailing_result_key.provisional_area_126_keys`
+    for the full reasoning).  Ordered the same way `planned_records()`
+    already is (`world_m2_survey_plan.PLANNED_TRIGGER_IDS`: 153 then 154),
+    so which island got which candidate is reproducible, not incidental.
     """
+    records = plan.planned_records()
+    keys = sailing_result.provisional_area_126_keys(len(records))
     return tuple(
         TrialSurveyRecord(
             trigger_id=record.trigger_id,
@@ -136,9 +168,15 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
                 x=record.x,
                 y=record.y,
                 z=record.z,
+                # RE-265 + COO-DECISION 20260905_1947 item 2: a real
+                # SAILING_RESULT key, not a bare zero -- see the module
+                # docstring's "RECORD +0x14 IS NO LONGER A BARE ZERO".  A
+                # DISTINCT key per record -- see this function's own
+                # docstring for why the two must not match.
+                unmeasured_0x14=key,
             ),
         )
-        for record in plan.planned_records()
+        for record, key in zip(records, keys)
     )
 
 
