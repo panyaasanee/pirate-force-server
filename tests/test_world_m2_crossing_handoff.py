@@ -281,24 +281,25 @@ class DispatchPrintsTheLineTests(unittest.TestCase):
 
     def test_a_columbus_crossing_prints_the_crossing_handoff_line_last(self):
         """"Last" was true until the sea-destination round appended one
-        more report after it, then the sea-map round appended a second, then
-        the trigger-readiness round appended a third -- fixed at
-        ``lines[-4]`` now, and this test's own name is kept rather than
-        renamed (house rule: strike, do not delete) because a reader hitting
-        this exact assertion is the reader who needs the pointer to what
-        changed and why."""
+        more report after it, then the sea-map round appended a second, the
+        trigger-readiness round a third, and the sea-scene-cast round a
+        fourth -- fixed at ``lines[-5]`` now, and this test's own name is
+        kept rather than renamed (house rule: strike, do not delete)
+        because a reader hitting this exact assertion is the reader who
+        needs the pointer to what changed and why."""
         lines = []
         columbus_quest_dispatch.dispatch_columbus_quest3021(
             emit=lines.append, legacy=self.legacy, held_indices=(),
         )
         self.assertTrue(
-            lines[-4].startswith(crossing.CONSOLE_TAG + " "), lines)
-        self.assertIn("kind=clear", lines[-4])
-        self.assertIn("dispatched=NO", lines[-4])
-        self.assertTrue(lines[-3].startswith("M2_SEA_DESTINATION "), lines)
-        self.assertTrue(lines[-2].startswith("WORLD_M2_SEA_MAP "), lines)
+            lines[-5].startswith(crossing.CONSOLE_TAG + " "), lines)
+        self.assertIn("kind=clear", lines[-5])
+        self.assertIn("dispatched=NO", lines[-5])
+        self.assertTrue(lines[-4].startswith("M2_SEA_DESTINATION "), lines)
+        self.assertTrue(lines[-3].startswith("WORLD_M2_SEA_MAP "), lines)
         self.assertTrue(
-            lines[-1].startswith("WORLD_M2_TRIGGER_READINESS "), lines)
+            lines[-2].startswith("WORLD_M2_TRIGGER_READINESS "), lines)
+        self.assertTrue(lines[-1].startswith("M2_SEA_CAST "), lines)
 
     def test_the_line_still_prints_when_the_call_site_has_no_legacy(self):
         """The console never goes quiet about a question it cannot answer."""
@@ -306,9 +307,9 @@ class DispatchPrintsTheLineTests(unittest.TestCase):
         columbus_quest_dispatch.dispatch_columbus_quest3021(
             emit=lines.append)
         self.assertTrue(
-            lines[-4].startswith(crossing.CONSOLE_TAG + " "), lines)
-        self.assertIn("kind=unavailable", lines[-4])
-        self.assertIn("composed=NO", lines[-4])
+            lines[-5].startswith(crossing.CONSOLE_TAG + " "), lines)
+        self.assertIn("kind=unavailable", lines[-5])
+        self.assertIn("composed=NO", lines[-5])
 
     def test_the_dispatch_still_returns_the_same_scene_entry(self):
         """This round adds a report.  It must not move the crossing."""
@@ -334,19 +335,20 @@ class DispatchPrintsTheLineTests(unittest.TestCase):
             emit=lines.append, legacy=self.legacy, held_indices=(),
             crossing_handoff_dispatched=True,
         )
-        # -4, not -1: the sea-destination round appended one more report
-        # after this line, then the sea-map round appended a second, then
-        # the trigger-readiness round appended a third -- see
+        # -5, not -1: the sea-destination round appended one more report
+        # after this line, then the sea-map round a second, the
+        # trigger-readiness round a third, and the sea-scene-cast round a
+        # fourth -- see
         # test_a_columbus_crossing_prints_the_crossing_handoff_line_last
         # above for the same correction.
-        self.assertIn("dispatched=YES", lines[-4])
+        self.assertIn("dispatched=YES", lines[-5])
 
     def test_the_default_of_that_flip_is_the_truth_about_this_tree(self):
         lines = []
         columbus_quest_dispatch.dispatch_columbus_quest3021(
             emit=lines.append, legacy=self.legacy, held_indices=(),
         )
-        self.assertIn("dispatched=NO", lines[-4])
+        self.assertIn("dispatched=NO", lines[-5])
 
     def test_the_module_is_not_a_scenario_and_is_not_behind_a_flag(self):
         self.assertIs(crossing.production_allowed, True)
