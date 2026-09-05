@@ -69,7 +69,7 @@ from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E40
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation.gm.attr_wire import BY_X  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
-from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from pirateforce_foundation.store import SQLiteStore, WriteLockTimeout  # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
 MIGRATION_006 = MIGRATIONS / typed.MIGRATION_FILE
@@ -955,6 +955,96 @@ class StoreRoundTripTests(unittest.TestCase):
                          self.birth)
 
 
+class _RaisesOnFirstMatchingExecute:
+    """A `sqlite3.Connection` proxy whose FIRST `execute` matching `matches`
+    raises `sqlite3.OperationalError("database is locked")`; every other
+    call -- `row_factory` assignment included -- passes straight through to
+    a genuine connection against the real temp-file database.
+
+    Lifted from `test_store_skill_points.py`'s
+    `test_write_lock_timeout_replaces_a_raw_operational_error` (same
+    reason: `sqlite3.Connection` is a C type and cannot be monkeypatched
+    directly, `TypeError: cannot set 'execute' attribute of immutable
+    type`), generalised so a caller names WHICH statement to fail on
+    instead of always the first `BEGIN IMMEDIATE` -- `read_typed_attributes`
+    has no `BEGIN IMMEDIATE` of its own to intercept.
+    """
+
+    def __init__(self, real, matches):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_matches", matches)
+        object.__setattr__(self, "_raised", False)
+
+    def execute(self, sql, *args, **kwargs):
+        if not self._raised and self._matches(sql):
+            object.__setattr__(self, "_raised", True)
+            raise sqlite3.OperationalError("database is locked")
+        return self._real.execute(sql, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._real, name, value)
+
+
+class WriteLockTimeoutReplacesRawOperationalErrorTests(unittest.TestCase):
+    """`COO-DECISION 20260905_1946` item 2: `write_typed_attributes` and
+    `read_typed_attributes` must raise `WriteLockTimeout`, not a bare
+    `sqlite3.OperationalError`, when write-lock contention refuses them --
+    the same substitution `spend_skill_points` already made and documents.
+    `WriteLockTimeout` subclasses `sqlite3.OperationalError` (asserted here
+    too), so a caller already catching that type keeps working unchanged.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        home = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+        account_id = self.store.ensure_account("write-lock-timeout")
+        self.character = self.store.create_character(
+            account_id, "LockTimeout", "locktimeout",
+            "fingerprint-lock-timeout", _build_wire, home,
+        )
+        self.store.write_typed_attributes(self.character.id, {"level": 1})
+
+    def _flaky_connect(self, matches):
+        real_connect = sqlite3.connect
+
+        def flaky_connect(*args, **kwargs):
+            return _RaisesOnFirstMatchingExecute(
+                real_connect(*args, **kwargs), matches)
+
+        return flaky_connect
+
+    def test_writelocktimeout_is_an_operationalerror_subclass(self):
+        self.assertIsInstance(WriteLockTimeout(), sqlite3.OperationalError)
+
+    def test_write_typed_attributes_raises_writelocktimeout_not_raw(self):
+        with mock.patch(
+            "sqlite3.connect",
+            side_effect=self._flaky_connect(lambda sql: sql == "BEGIN IMMEDIATE"),
+        ):
+            with self.assertRaises(WriteLockTimeout):
+                self.store.write_typed_attributes(
+                    self.character.id, {"level": 2})
+        # the refused `BEGIN IMMEDIATE` opened no transaction: nothing written
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id)["level"], 1)
+
+    def test_read_typed_attributes_raises_writelocktimeout_not_raw(self):
+        with mock.patch(
+            "sqlite3.connect",
+            side_effect=self._flaky_connect(
+                lambda sql: sql.startswith("PRAGMA table_info(characters)")),
+        ):
+            with self.assertRaises(WriteLockTimeout):
+                self.store.read_typed_attributes(self.character.id)
+
+
 class WriteIfUnsetTests(unittest.TestCase):
     """`write_typed_attribute_if_unset` -- added for the class-id creation
     hookup (`pirate-force-server`'s `lifecycle.persist_class_id_from_
@@ -1016,6 +1106,27 @@ class WriteIfUnsetTests(unittest.TestCase):
     def test_an_unknown_character_is_a_key_error(self):
         with self.assertRaises(KeyError):
             self.store.write_typed_attribute_if_unset(999999, "class_id", 4)
+
+    def test_write_lock_timeout_replaces_a_raw_operational_error(self):
+        """`COO-DECISION 20260905_1946` item 2 -- same substitution as
+        `write_typed_attributes`/`read_typed_attributes`, exercised here for
+        this method's own `BEGIN IMMEDIATE`."""
+        real_connect = sqlite3.connect
+
+        def flaky_connect(*args, **kwargs):
+            return _RaisesOnFirstMatchingExecute(
+                real_connect(*args, **kwargs),
+                lambda sql: sql == "BEGIN IMMEDIATE",
+            )
+
+        with mock.patch("sqlite3.connect", side_effect=flaky_connect):
+            with self.assertRaises(WriteLockTimeout):
+                self.store.write_typed_attribute_if_unset(
+                    self.character.id, "class_id", 4,
+                )
+        self.assertNotIn(
+            "class_id", self.store.read_typed_attributes(self.character.id),
+        )
 
     def test_a_soft_deleted_character_is_a_key_error_and_does_not_write(self):
         self.store.soft_delete_character(
