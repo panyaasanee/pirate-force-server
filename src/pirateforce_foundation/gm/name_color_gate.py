@@ -122,6 +122,44 @@ RELATIONSHIP_PREDICATE_SPAN = (0x0043C380, 0x0043C63C)
 FACTION_COMPARATOR_VA = 0x004A1D50
 FACTION_COMPARATOR_SOLE_CALL_SITE_VA = 0x0043C5E0
 
+#: A SECOND, EARLIER gate inside the SAME predicate span, cross-referenced
+#: this round against a bridge artifact ``faction_is_a_fallback_operand_only``
+#: never cited: ``notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA
+#: .tsv`` rows 6-7 name a branch at this span testing ``ActorAttr+0x98`` bit
+#: ``0x04000000``, status ``PROVEN_ROLE_ONLY`` (that TSV's own words:
+#: "structural/consumer role is proved but the broader gameplay noun or full
+#: value domain is not unique").  The TSV's own ``semantic_name`` field for
+#: this row spells out the two FontStyleID values this bit selects between --
+#: deliberately NOT transcribed here, digits included, in either code or
+#: prose: read the TSV row itself for them, per this module's existing rule
+#: a few lines below ("kept them out of its prose too").
+#:
+#: ``0x0043C547 < FACTION_COMPARATOR_SOLE_CALL_SITE_VA`` (both inside
+#: ``RELATIONSHIP_PREDICATE_SPAN``) -- this gate sits at a LOWER ADDRESS than
+#: the faction comparator's call site.  That is the only claim the ordering
+#: proves: a static layout fact, NOT a walked control-flow fact -- nothing
+#: here says execution actually reaches this branch before the comparator,
+#: only that it is placed earlier in the same span.  It is a candidate for
+#: (one of) the "earlier exits" RE-195's prose names without an address.
+#:
+#: !! THIS DOES NOT RETIRE THE BLOCKER BELOW, AND NOTHING BELOW CONSUMES IT !!
+#: ``PROVEN_ROLE_ONLY`` does not say whether ``field_mobs``' measured-bypass
+#: identities ever reach this gate, nor what value ``ActorAttr+0x98`` carries
+#: for them -- nobody has asked that question yet, so unlike every other
+#: constant in this module these four are NOT wired into
+#: :data:`P2_COLOR_WIRING_BLOCKERS` or :func:`p2_color_wiring_verdict` --
+#: consuming an answer that does not exist yet would be the same overclaim
+#: :class:`NameColorGateUnmeasured` exists to refuse, in constant form instead
+#: of code form.  They are named here, pinned by value, only so a later round
+#: does not have to re-discover this citation from a cold TSV grep; see the
+#: RE ticket request this round files for the reachability question itself.
+PAIR_RELATION_ZERO_GATE_SPAN = (0x0043C531, 0x0043C547)
+PAIR_RELATION_ZERO_GATE_OPERAND = "ActorAttr+0x98 bit 0x04000000"
+PAIR_RELATION_ZERO_GATE_STATUS = "PROVEN_ROLE_ONLY"
+PAIR_RELATION_ZERO_GATE_SOURCE = (
+    "notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7"
+)
+
 RE_191_RESULT_LETTER = (
     "notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md"
 )
