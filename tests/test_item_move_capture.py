@@ -367,15 +367,17 @@ class ItemMoveCaptureTests(unittest.TestCase):
             pinned_store = SQLiteStore(resolved, ROOT / "migrations")
             os.chdir(capture_root)
             with pinned_store.connect() as db:
+                # Dynamic pin (chief's reply 20260901_1459 to
+                # 20260901_1416_LANE-DB-REQUEST-chief-two-migration-count-
+                # pins-outside-this-lane.md): count migrations/NNN_*.sql
+                # directly instead of a hardcoded literal that every lane
+                # adding a migration file has to remember to bump.
+                expected_count = len(
+                    list((ROOT / "migrations").glob("[0-9][0-9][0-9]_*.sql"))
+                )
                 self.assertEqual(
                     db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                    # moves with every new migration file (see letter
-                    # 20260901_1416_LANE-DB-REQUEST-chief-two-migration-count-
-                    # pins-outside-this-lane.md and chief's reply
-                    # 20260901_1459, which cover this exact pin); 14 since
-                    # migrations/014_character_skills_learned_source.sql
-                    # (LANE-DB, round qul9wo)
-                    14,
+                    expected_count,
                 )
             self.assertFalse((capture_root / "capture-source.sqlite3").exists())
         finally:

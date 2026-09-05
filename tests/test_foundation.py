@@ -302,16 +302,23 @@ class FoundationTests(unittest.TestCase):
             versions = db.execute(
                 "SELECT version,checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-            # 14 = migrations/014_character_skills_learned_source.sql
-            # (LANE-DB, round qul9wo). This pin moves with EVERY new
-            # migration file; see the letter 20260901_1416_LANE-DB-REQUEST-
-            # chief-two-migration-count-pins-outside-this-lane.md and
-            # chief's reply 20260901_1459, which allows this lane the
-            # one-line bump and queues the dynamic pin. The dynamic pin
-            # chief proposed there is still not landed.
+            # Dynamic pin (chief's reply 20260901_1459 to
+            # 20260901_1416_LANE-DB-REQUEST-chief-two-migration-count-
+            # pins-outside-this-lane.md): derive the expected version
+            # sequence from the migrations/ directory itself instead of a
+            # hardcoded literal, so a lane adding migrations/NNN_*.sql no
+            # longer has to hunt down and bump this line (or get its PR
+            # closed by the gate for missing it, as pirate-force-server#858
+            # did against the old literal -- migrations/014, landed
+            # separately as pirate-force-server#858's re-land, is exactly
+            # such a case: this pin now needs no edit for it).
+            expected_versions = sorted(
+                int(p.name[:3])
+                for p in (ROOT / "migrations").glob("[0-9][0-9][0-9]_*.sql")
+            )
             self.assertEqual(
                 [int(row[0]) for row in versions],
-                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
+                expected_versions)
             self.assertTrue(all(row[1] for row in versions))
             row = db.execute(
                 "SELECT name_key,create_fingerprint FROM characters WHERE id=1"
