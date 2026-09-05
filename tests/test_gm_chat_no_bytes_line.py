@@ -220,10 +220,13 @@ class TheSixSilentCommandsTests(_Case):
     SameSceneForcePosClosedTests`, which patches no gate at all.
     """
 
+    # `/lv` was in this list -- struck GM round `gm2vlx`: it now writes a
+    # real DB row through its own route (`chat_command_action._lv_action`)
+    # and no longer reaches the generic no-wire-path branch these cases
+    # check. Its own silence-or-not is pinned in `tests/test_gm_lv_action.py`.
     CASES = (
         ("/warp 2 100 200", "warp", "withheld_force_pos_vital_version"),
         ("/say hello", "say", "withheld_gm_global_message_vital_version"),
-        ("/lv 10", "lv", "refused_no_wire_path"),
         ("/item 1001 5", "item", "refused_no_wire_path"),
         ("/npc on 5", "npc", "refused_no_wire_path"),
         ("/spawn 7", "spawn", "refused_no_wire_path"),
@@ -234,9 +237,10 @@ class TheSixSilentCommandsTests(_Case):
             with self.subTest(typed=typed):
                 gm_dispatch.reset_rate_limit_state_for_tests()
                 # /warp's own gate is forced shut -- shipped at 0 since
-                # COO-DECISION 20260830_1645/1742, so every one of these six
+                # COO-DECISION 20260830_1645/1742, so every one of these
+                # (five, since GM round `gm2vlx` wired `/lv` off this list)
                 # cases must stay silent even though /warp itself now
-                # composes when unpatched. Harmless for the other five.
+                # composes when unpatched. Harmless for the other four.
                 with self.close_the_version_gate():
                     action, err = self.act(typed)
                 self.assertIsNone(action, "no bytes may go out for any of these")
@@ -251,7 +255,7 @@ class TheSixSilentCommandsTests(_Case):
                 self.assertNotIn(
                     chat_command_action.NO_BLOCKER_RECORDED,
                     said[0],
-                    "these six outcomes all have a named blocker",
+                    "these outcomes all have a named blocker",
                 )
 
     def test_the_blocker_is_the_one_that_belongs_to_that_outcome(self):
@@ -263,12 +267,16 @@ class TheSixSilentCommandsTests(_Case):
         gm_dispatch.reset_rate_limit_state_for_tests()
         _, say_err = self.act("/say hello")
         gm_dispatch.reset_rate_limit_state_for_tests()
-        _, lv_err = self.act("/lv 10")
+        # `/lv` was this third example -- struck GM round `gm2vlx`: it no
+        # longer reaches the generic no-wire-path outcome this assertion
+        # checks (see `TheSixSilentCommandsTests.CASES`'s own comment).
+        # `/item` still does.
+        _, item_err = self.act("/item 1001 5")
         self.assertIn("RE-129", warp_err)
         self.assertNotIn("RE-129", say_err)
         self.assertIn("gm/say_wire.py", say_err)
         self.assertNotIn("gm/say_wire.py", warp_err)
-        self.assertIn("CORE-REQUEST-GM", lv_err)
+        self.assertIn("CORE-REQUEST-GM", item_err)
         self.assertNotIn("CORE-REQUEST-GM", warp_err)
 
     def test_the_route_line_is_still_there(self):
@@ -1366,6 +1374,10 @@ class TheLineNeverAltersDispatchTests(_Case):
     """A diagnostic may never alter dispatch -- held the same way as the rest."""
 
     def test_a_none_stderr_is_named_and_costs_no_command(self):
+        # `/item` in place of `/lv` (struck GM round `gm2vlx`: `/lv` now
+        # composes a real local-talk notice through its own denial path
+        # even on a bare test session, so it is no longer a "produces no
+        # action at all" example -- `/item` still is).
         session = self.session()
         real = sys.stderr
         out = io.StringIO()
@@ -1374,7 +1386,7 @@ class TheLineNeverAltersDispatchTests(_Case):
             with contextlib.redirect_stdout(out):
                 action = chat_command_action.make_gm_chat_command_action(
                     session,
-                    make_chat_payload("/lv 10"),
+                    make_chat_payload("/item 1001 5"),
                     self.legacy,
                     config_path=str(self.config_path),
                     log_path=str(self.log_path),
@@ -1400,7 +1412,7 @@ class TheLineNeverAltersDispatchTests(_Case):
         with contextlib.redirect_stderr(Hostile()):
             action = chat_command_action.make_gm_chat_command_action(
                 session,
-                make_chat_payload("/lv 10"),
+                make_chat_payload("/item 1001 5"),
                 self.legacy,
                 config_path=str(self.config_path),
                 log_path=str(self.log_path),
@@ -1413,7 +1425,7 @@ class TheLineNeverAltersDispatchTests(_Case):
         )
         # The command's own event trail is intact: the console failing is not
         # allowed to look like the route refusing.
-        self.assertIn("gm_chat_action_accepted_lv", session.events)
+        self.assertIn("gm_chat_action_accepted_item", session.events)
 
     def test_it_does_not_withhold_an_action_that_was_going_out(self):
         # The backstop runs on the same pass as a SENT command; a mutant

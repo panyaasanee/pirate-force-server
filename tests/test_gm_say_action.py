@@ -450,8 +450,11 @@ class SayCoverageHonestyTests(_Case):
             f"{chat_command_action.EVENT_NO_WIRE_PATH_PREFIX}say", session.events
         )
 
-    def test_the_other_four_commands_still_report_no_wire_path(self):
-        for line in ("/npc on 5", "/item 3 1", "/lv 4", "/spawn 9"):
+    def test_the_other_three_commands_still_report_no_wire_path(self):
+        # `/lv` was a fourth example here -- struck GM round `gm2vlx`, which
+        # gave it its own route (`chat_command_action._lv_action`); it no
+        # longer reaches `EVENT_NO_WIRE_PATH_PREFIX`.
+        for line in ("/npc on 5", "/item 3 1", "/spawn 9"):
             with self.subTest(line=line):
                 session = FakeSession()
                 with self.open_the_version_gate():

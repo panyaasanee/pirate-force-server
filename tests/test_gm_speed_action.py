@@ -1966,8 +1966,15 @@ class TheLineMustNotLieAboutTheRowItNamesTests(_Case):
         self.assertNotIn("STILL IN PLACE", line)
 
     def test_a_command_with_nothing_to_undo_keeps_the_original_word(self):
-        # `/lv` has no durable state at all, so `reverted` is None rather
+        # `/item` has no durable state at all, so `reverted` is None rather
         # than False and the original word is the honest one.
+        #
+        # ~~"/lv" was this example~~ -- struck GM round `gm2vlx`: `/lv`
+        # wired a real durable write (`store.write_typed_attributes`) that
+        # round, so it is no longer a "nothing to undo" example -- see
+        # `chat_command_action._lv_action`'s own section banner. `/item`
+        # remains genuinely unwired (falls into the generic no-wire-path
+        # branch, same as `/npc`/`/spawn`).
         session = self.make()
         err = io.StringIO()
         with mock.patch.object(
@@ -1975,7 +1982,7 @@ class TheLineMustNotLieAboutTheRowItNamesTests(_Case):
             "log_gm_command_outcome",
             mock.Mock(side_effect=OSError(28, "no space left on device")),
         ), contextlib.redirect_stderr(err):
-            self.act(session, "/lv 10")
+            self.act(session, "/item 1001 5")
         line = self.the_line(err.getvalue())
         self.assertIn(
             f"why={chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN} ", line
