@@ -195,13 +195,19 @@ class TheTableShapeTests(_StoreFixture):
         )
 
     def test_an_unknown_source_value_is_refused_by_the_check(self):
+        # 'learned' used to be the unrecognised value this test picked --
+        # `migrations/014_character_skills_learned_source.sql` (LANE-DB,
+        # round `qul9wo`) widened the CHECK list to admit it, so this test
+        # now picks a value that stays outside the list either way, to keep
+        # testing "the CHECK still refuses an unrecognised source" rather
+        # than a value that quietly stopped being unrecognised.
         db = sqlite3.connect(str(self.path))
         try:
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute(
                     "INSERT INTO character_skills"
                     "(character_id,skill_id,source,granted_at)"
-                    " VALUES (1,99,'learned',?)",
+                    " VALUES (1,99,'trainer',?)",
                     ("2026-01-01T00:00:00+00:00",),
                 )
         finally:
