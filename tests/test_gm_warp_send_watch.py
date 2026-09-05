@@ -35,6 +35,7 @@ module's own docstring.
 from __future__ import annotations
 
 import io
+import json
 import re
 import sqlite3
 import sys
@@ -51,6 +52,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import connection  # noqa: E402
+from pirateforce_foundation.chat_input_hypothesis import (  # noqa: E402
+    CHAT_INPUT_VITAL_ID,
+)
 from pirateforce_foundation.gm import (  # noqa: E402
     accounts as gm_accounts,
     chat_command_action,
@@ -99,6 +103,25 @@ def _chat_payload(message: str, speaker: str = "") -> bytes:
         out += struct.pack("<I", len(encoded))
         out += encoded
     return bytes(out)
+
+
+def _synthetic_chat_pc(legacy, payload: bytes) -> bytes:
+    """Outer envelope carrying one 0xAC52 nested vital, payload verbatim.
+
+    Copied, not imported, from `tests/test_gm_chat_command_dispatch_wiring.py`
+    per this house's own rule that no test file imports test helpers from
+    another one.
+    """
+    return (
+        legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+        + legacy.u32tag(0x14, 0)
+        + legacy.u8tag(0x08, 0)
+        + legacy.u8tag(0x0B, 0x02)
+        + legacy.u16tag(0x12, 1)
+        + legacy.u16tag(0x12, CHAT_INPUT_VITAL_ID)
+        + legacy.u8tag(0x0B, 0)
+        + payload
+    )
 
 
 class _FakePosition:
@@ -1885,6 +1908,323 @@ class HookupWiringPinTests(RealDatabaseTests):
             ROOT / "src" / "pirateforce_foundation" / "runtime.py"
         ).read_text(encoding="utf-8")
         self.assertIn("connection_bindings.bind(self)", source)
+
+
+class RealDispatchSendFailureTests(RealDatabaseTests):
+    """`/warp` typed as a chat line and sent through the REAL
+    `runtime.dispatch()` route -- the one shape none of this file's other
+    classes drive.
+
+    THE GAP THIS CLASS CLOSES.  Every class above (`RealDatabaseTests`,
+    `DoubleWarpTests`, `CrossThreadObserverTests`, `HookupWiringPinTests`)
+    calls `chat_command_action._warp_teleport_action_no_coords` or
+    `make_gm_chat_command_action` DIRECTLY.  Neither ever touches
+    `runtime.py`, so `_gm_warp_resync_selected_scene`
+    (`CORE-REQUEST-GM-045`) never runs in any of them -- `foundation.
+    selected.position.scene_id` stays at the DEPARTURE scene for the whole
+    test, exactly as `_persist_warp_scene` left it. `rollback_warp_scene`'s
+    own `_restore_selected(foundation, selected)` therefore restores that
+    same, still-correct departure position in every test above: a
+    same-value no-op that cannot show whether the restore is right.
+
+    `tests/test_gm_warp_position_confirmed.py::GmWarpSelectedSceneResyncTests`
+    proves the resync FUNCTION in isolation (armed by hand, or through one
+    dispatch call with `_dispatch_with_lanes` monkeypatched to inject the
+    label directly) -- not one test there goes on to fail a send and check
+    what the resync leaves behind for `rollback_warp_scene` to restore.
+    Round `0dlc07`'s own round file named the combination as this lane's own
+    debt: "สายนี้ไม่มีเทสที่เดินผ่าน runtime.dispatch เลย ... เทสทุกตัวใน
+    test_gm_warp_send_watch.py เรียก action ตรง ๆ จึงไม่เคยเห็น relabel".
+
+    WHAT "REAL DISPATCH" BUYS HERE, CONCRETELY.  `_gm_warp_resync_selected_
+    scene` runs from `_gm_warp_note_position_pending`, called only from
+    `dispatch()`'s own post-lane bookkeeping (`runtime.py`) -- so it fires
+    IN THE SAME DISPATCH CALL that composes and parks the warp, well before
+    any send is attempted. By the time a send failure is simulated,
+    `foundation.selected` is already the RESYNCED object (`dataclasses.
+    replace`, a new object -- the compose-time `previous_row` `park_warp_
+    send` was given is a separate, untouched `Position` and is NOT this
+    object). `rollback_warp_scene(session, record.previous_position)`
+    still checkpoints the correct pre-warp row to the DATABASE (it never
+    reads `foundation.selected` to decide what to write) -- but its own
+    `_restore_selected(foundation, selected)` restores `foundation.
+    selected` to whatever it captured at the START of that call, which is
+    the RESYNCED object, not a value that matches what it just wrote. Read
+    together with `_gm_warp_resync_selected_scene`'s own docstring (x/y/z
+    are deliberately left at the departure scene's stale values, only
+    scene_id is relabelled), the class below MEASURES what that leaves in
+    memory: `test_a_real_send_failure_after_the_relabel_still_rolls_back_
+    the_row` pins the exact (destination scene_id, departure x/y/z) mismatch
+    as the CURRENT, UNCHANGED behaviour -- a REGRESSION TEST, not a design
+    this round chose (same stance `DoubleWarpTests`' own docstring takes).
+    This is precisely the on-screen scenario `COO-DECISION 20260905_1150`
+    added as GT-258 step 5b (walk one step after an undo while the client
+    is still alive); this class is the server-side half GT-258 itself
+    cannot be, being an attended-only ticket.
+
+    NEITHER `runtime.py` NOR `gm/warp_scene_persist.py` IS CHANGED HERE.
+    `COO-DECISION 20260905_1150` item 2 already handed the "restore
+    `selected` after rollback" question to chief (`CORE-REQUEST-GM-059`,
+    this lane's own letter, still open) -- this class exists to MEASURE the
+    chain chief's answer will change, not to pre-empt it.
+
+    Builds the session the way `HookupWiringPinTests._production_session`
+    does (real `connection.GameConnectionBindings` + an accepted fake
+    socket), because only that construction path calls `warp_send_watch.
+    install_send_outcome_observers(self)` at all (`runtime.py`'s own
+    `__init__`, gated on `connection_bindings is not None`) -- the plain
+    `state_type(token)` every other class's `_login_and_start`-shaped helper
+    uses never binds `on_game_frame_sent` / `on_game_frame_send_failed`, so
+    a real send failure would have nothing to call.  `_RawSocket` is a
+    small, self-contained copy of `HookupWiringPinTests`' own fixture
+    rather than a cross-class reference, for the same file-local-only
+    reason `_chat_payload`/`_synthetic_chat_pc` above are copies of
+    `test_gm_chat_command_dispatch_wiring.py`'s.
+
+    NONCLAIM.  Headless, server-side, no client involved, same as every
+    other class in this file -- nothing here is evidence about a screen.
+    No account gains or loses GM status; the GM step this class exercises
+    (`/warp`) is the same real GM authorization path every other test in
+    this file uses, never bypassed or skipped. `runtime.py` and `gm/
+    warp_scene_persist.py` are read, not written, by this round.
+    """
+
+    class _RawSocket:
+        """The three methods the facade touches, and a record of the bytes."""
+
+        def __init__(self, error=None):
+            self.error = error
+            self.sent = []
+
+        def sendall(self, data, *args, **kwargs):
+            if self.error is not None:
+                raise self.error
+            self.sent.append(bytes(data))
+            return None
+
+        def shutdown(self, how):
+            return None
+
+        def close(self):
+            return None
+
+    def _gm_config(self, token):
+        path = Path(self.tmp.name) / "gm_accounts.json"
+        path.write_text(json.dumps({"gm_accounts": [token]}), encoding="utf-8")
+        return path
+
+    def _production_state(self, token, error=None):
+        """The three production steps, in production order -- see
+        `HookupWiringPinTests._production_session`'s own docstring for why
+        this is the only construction that installs the two observers."""
+        bindings = connection.GameConnectionBindings()
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+            connection_bindings=bindings,
+        )
+        raw = self._RawSocket(error)
+        wrapped = bindings.accepted(raw)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            state = state_type(token)
+        self.addCleanup(self._release, bindings, wrapped)
+        return state, wrapped
+
+    def _release(self, bindings, wrapped):
+        if not wrapped.released:
+            with redirect_stderr(io.StringIO()):
+                bindings.release(wrapped)
+
+    def _login_and_start(self, state, token):
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(
+            state.foundation.account_id
+        )[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        return character
+
+    def _say(self, state, message):
+        pc = _synthetic_chat_pc(self.legacy, _chat_payload(message))
+        return state.dispatch(self.legacy.parse_outer(pc))
+
+    def _target_pos_pc(self, x, y, z, heading=0.0, moving=1):
+        """The exact singleton shape `parse_v141_refresh_target_pos` accepts
+        -- copied from `tests/test_gm_warp_position_confirmed.py`'s own
+        builder, per this house's no-cross-file-import rule."""
+        return (
+            self.legacy.u16tag(0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + self.legacy.u32tag(0x14, 0)
+            + self.legacy.u8tag(0x08, 0)
+            + self.legacy.u8tag(0x0B, 2)
+            + self.legacy.u16tag(0x12, 1)
+            + self.legacy.u16tag(0x12, self.legacy.TARGET_POS_VITAL)
+            + self.legacy.u8tag(0x0B, 0)
+            + self.legacy.f32tag(x) + self.legacy.f32tag(y)
+            + self.legacy.f32tag(z) + self.legacy.f32tag(heading)
+            + self.legacy.u8tag(0x0B, moving)
+            + self.legacy.u8tag(0x0B, 0)
+        )
+
+    def test_a_real_slash_warp_relabels_scene_before_any_send_is_attempted(
+        self,
+    ):
+        token = "gm_dispatch01"
+        state, _wrapped = self._production_state(token)
+        self._login_and_start(state, token)
+        before = state.foundation.selected.position
+        departure = (before.scene_id, before.x, before.y, before.z)
+
+        config_path = self._gm_config(token)
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(config_path)},
+        ):
+            actions = self._say(state, f"/warp {DESTINATION_SCENE}")
+
+        labels = [action[0] for action in actions]
+        self.assertIn(
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+            labels,
+            "fixture must really compose the no-coords cross-scene action, "
+            "or nothing below measures what this class exists to measure",
+        )
+        after = state.foundation.selected.position
+        # The relabel this class exists to reach: CORE-REQUEST-GM-045's own
+        # in-memory resync, only reachable through real dispatch.
+        self.assertEqual(after.scene_id, DESTINATION_SCENE)
+        # x/y/z deliberately NOT resynced -- `_gm_warp_resync_selected_
+        # scene`'s own docstring, same fact `GmWarpSelectedSceneResyncTests`
+        # pins against the resync function in isolation.
+        self.assertEqual((after.x, after.y, after.z), departure[1:])
+        self.assertEqual(self._row(state).scene_id, DESTINATION_SCENE)
+
+    def test_a_real_send_failure_after_the_relabel_still_rolls_back_the_row(
+        self,
+    ):
+        token = "gm_dispatch02"
+        state, wrapped = self._production_state(
+            token, error=ConnectionResetError(),
+        )
+        self._login_and_start(state, token)
+        before = state.foundation.selected.position
+        departure = (before.scene_id, before.x, before.y, before.z)
+
+        config_path = self._gm_config(token)
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(config_path)},
+        ):
+            actions = self._say(state, f"/warp {DESTINATION_SCENE}")
+        self.assertEqual(self._row(state).scene_id, DESTINATION_SCENE)
+        frame = bytes(next(
+            action[2] for action in actions
+            if action[0] ==
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL
+        ))
+
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(ConnectionResetError):
+                wrapped.sendall(frame)
+
+        # THE DURABLE ROW: rolled back correctly.  `rollback_warp_scene`
+        # checkpoints `record.previous_position` -- captured by
+        # `_persist_warp_scene` at COMPOSE time, before the resync ever ran,
+        # so it never saw the relabel at all.
+        row = self._row(state)
+        self.assertEqual(
+            (row.scene_id, row.x, row.y, row.z), departure,
+            "the durable row must roll back to the true pre-warp position",
+        )
+        self.assertIsNone(getattr(state, warp_send_watch.SESSION_ATTRIBUTE))
+
+        # THE IN-MEMORY ROW: `_restore_selected` puts back whatever
+        # `foundation.selected` WAS when `rollback_warp_scene` started --
+        # which, reached through real dispatch, is the RESYNCED object, not
+        # a value that agrees with the row above. Pinned as CURRENT,
+        # UNCHANGED behaviour (see this class's own docstring) -- not
+        # asserted as correct, and not fixed by this round.
+        after = state.foundation.selected.position
+        self.assertEqual(
+            (after.scene_id, after.x, after.y, after.z),
+            (DESTINATION_SCENE, departure[1], departure[2], departure[3]),
+            "in-memory selected.position after rollback: scene_id still "
+            "names the DESTINATION while x/y/z are the DEPARTURE row's -- "
+            "the exact (destination scene, pre-warp coords) mismatch "
+            "GT-258 step 5b exists to catch on a real screen",
+        )
+
+    def test_a_walk_reported_after_the_rollback_does_not_raise_through_dispatch(
+        self,
+    ):
+        """GT-258 step 5b's server-side half: whatever the mismatch above
+        leaves behind, the connection must still be able to walk -- one
+        real `TargetPos` report through `dispatch()`, not a bricked
+        session. That the call does not raise is the one thing `NOW.md`'s
+        GT-258 line forbids reporting PASS without
+        ("ห้ามเขียน PASS เมื่อขั้น 5b ไม่เกิด").
+
+        THE ROW THIS PRODUCES IS MEASURED, NOT ENDORSED -- and it is a real
+        defect, reproduced here for the first time through actual dispatch
+        rather than inferred: `_checkpoint_exact_target`
+        (`runtime.py`) builds the write candidate from the walk report's
+        OWN x/y/z but `self.foundation.selected.position`'s scene_id -- the
+        DESTINATION scene, per the previous test's own finding, not the
+        scene the client (which never received the warp frame) is actually
+        standing in. The durable row this test measures is therefore
+        (DESTINATION scene_id, DEPARTURE-scene coordinates +1) -- a
+        position that was never real on any screen. This is round
+        `0dlc07`'s own adversary finding D2 against `GT-258`'s draft
+        wording ("(ฉากปลายทาง, พิกัดใหม่) ไม่ใช่ (ฉากปลายทาง, พิกัดก่อนวาป)"),
+        now pinned as a measured server-side regression rather than an
+        attended-only observation. Not fixed here: `runtime.py` is chief's
+        file (`AGENTS.md` section 7), and `CORE-REQUEST-GM-059` already
+        asks for the resync-restore half of this same chain.
+        """
+        token = "gm_dispatch03"
+        state, wrapped = self._production_state(
+            token, error=ConnectionResetError(),
+        )
+        self._login_and_start(state, token)
+        before = state.foundation.selected.position
+
+        config_path = self._gm_config(token)
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(config_path)},
+        ):
+            actions = self._say(state, f"/warp {DESTINATION_SCENE}")
+        frame = bytes(next(
+            action[2] for action in actions
+            if action[0] ==
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL
+        ))
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(ConnectionResetError):
+                wrapped.sendall(frame)
+        self.assertEqual(self._row(state).scene_id, before.scene_id)
+
+        walk_x, walk_y, walk_z = before.x + 1.0, before.y + 1.0, before.z
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            state.dispatch(self.legacy.parse_outer(
+                self._target_pos_pc(walk_x, walk_y, walk_z)
+            ))
+
+        row = self._row(state)
+        # MEASURED THIS ROUND (manually confirmed against this exact tree
+        # before this assertion was written -- same standard
+        # `GmWarpSelectedSceneResyncTests.test_a_real_cross_scene_label_
+        # resyncs_through_actual_dispatch` holds itself to). Recorded as a
+        # defect, not the shipped answer -- see this test's own docstring.
+        self.assertEqual(
+            row.scene_id, DESTINATION_SCENE,
+            "if this ever reads before.scene_id instead, the resync-restore "
+            "chain changed shape -- update this test's docstring rather "
+            "than loosening the assertion",
+        )
+        self.assertEqual((row.x, row.y), (walk_x, walk_y))
 
 
 class SendLockLivenessTests(RealDatabaseTests):
