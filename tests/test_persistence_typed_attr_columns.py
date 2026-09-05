@@ -1075,6 +1075,24 @@ class ListCharacterIdsMissingClassIdTests(unittest.TestCase):
     def test_empty_database_reports_nothing(self):
         self.assertEqual(self.store.list_character_ids_missing_class_id(), ())
 
+    def test_a_migrated_database_prints_nothing_extra(self):
+        """Negative space for the fix below: the method's own docstring
+        promises that "today's behaviour for every already-migrated
+        database is unchanged byte for byte" once the pre-006 guard gained
+        its `CLASS_ID_BACKFILL_SKIPPED` print (`pf-adversary` round `2975wx`
+        -- a mutant that hoists that print one line, so it fires
+        unconditionally instead of only inside the missing-column branch,
+        passed every other test in this class untouched). This is that
+        mutant's kill: a normal, fully-migrated store -- the path every
+        production boot actually takes -- must produce no stdout at all
+        from this call, not merely the right tuple.
+        """
+        self._make("noise-check")
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            self.store.list_character_ids_missing_class_id()
+        self.assertEqual(captured.getvalue(), "")
+
     def test_a_database_missing_the_column_prints_the_skip_reason(self):
         """`COO-DECISION 20260905_0250` / `FROM_CHIEF_R347` line 19-22: the
         pre-006 guard below (added so a `--scene-load-scenario` boot that
