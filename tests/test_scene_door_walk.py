@@ -12,11 +12,22 @@ walk to the roster the server actually ships.
 WHAT THE WALK MEASURED WHEN THIS FILE WAS WRITTEN (2026-09-05T05:2x+07:00,
 the numbers below are the assertions, not a transcript)::
 
-    scene='Bg0002' rows=12 refused_by_owner=8 ai=open target=12 kill=12 drop=12 yes
-    scene='Bg0003' rows=12 refused_by_owner=0 ai=open target=12 kill=12 drop=12 yes
-    scene='Bg0015' rows=12 refused_by_owner=0 ai=open target=12 kill=11 drop=11 no
-    scene='bg0001' rows=4  refused_by_owner=0 ai=open target=4  kill=4  drop=0  no
-    scene='bg0005' rows=6  refused_by_owner=0 ai=open target=6  kill=6  drop=6  yes
+    scene='Bg0002' rows=12 refused_by_owner=8 withheld=0 ai=open target=12 kill=12 drop=12 yes
+    scene='Bg0003' rows=12 refused_by_owner=0 withheld=0 ai=open target=12 kill=12 drop=12 yes
+    scene='Bg0015' rows=11 refused_by_owner=0 withheld=1 ai=open target=11 kill=11 drop=11 yes
+    scene='bg0001' rows=4  refused_by_owner=0 withheld=0 ai=open target=4  kill=4  drop=0  no
+    scene='bg0005' rows=6  refused_by_owner=0 withheld=0 ai=open target=6  kill=6  drop=6  yes
+
+WHAT CHANGED IN ROUND j5v7mu, AND WHAT DID NOT.  The Bg0015 row above is the
+whole diff: ``COO-DECISION 20260905_0545`` (answering this lane's ASK-COO of
+04:52, option 3) withheld placement 87 -- Carlos -- from what this lane
+ships, because a monster a player can take to 0 HP and then never kill is a
+thing the player SEES and it contradicts M4's own criterion 2 directly.
+Nothing about Carlos was fixed and this file does not pretend otherwise: he
+is exactly as unkillable as he was, ``ARowNoLetterCoversStandsAtZeroTests``
+still measures that end to end on the unfiltered table, and ``withheld=1``
+travels beside scene 14's ``yes`` for the same reason ``refused_by_owner``
+travels beside every other one.
 
 ``refused_by_owner`` IS PART OF THE CLAIM AND NOT DECORATION (pf-adversary
 D2).  The verdict is a fraction over the rows ``load_roster`` hands a
@@ -36,16 +47,19 @@ into a silent yes:
     the shipped tables carry~~ IS STRUCK, pf-adversary D7: that is a
     DIFFERENT state, it would come back as a refusal rather than an empty
     sweep, and this file asserted the absence of refusals in the same breath.
-  * ``Bg0015`` placement 87 (template 924, Carlos, identity 0x2058) is
-    TARGETABLE AND CANNOT DIE.  ``COO-RULING-20260901-1046`` covers six of
-    that scene's seven templates and holds Carlos back on purpose, so
-    ``mob_death.ruling_for`` refuses him -- and a player who swings at him
-    takes him to 0 HP, gets no death frames, and is answered with silence for
-    every swing after that.  ``ARowNoLetterCoversStandsAtZero`` measures that
-    end to end.  It is disclosed in ``runtime.py``'s own except branch and it
-    is NOT fixed here: the fix changes what a player may do to a monster the
-    owner deliberately held back, which is the COO's call, asked in this
-    round's letter.
+  * ``Bg0015`` placement 87 (template 924, Carlos, identity 0x2058) ~~is
+    TARGETABLE AND CANNOT DIE~~ IS NO LONGER SHIPPED, round j5v7mu.
+    ``COO-RULING-20260901-1046`` covers six of that scene's seven templates
+    and holds Carlos back on purpose, so ``mob_death.ruling_for`` refuses him
+    -- and a player who swings at him takes him to 0 HP, gets no death
+    frames, and is answered with silence for every swing after that.
+    ``ARowNoLetterCoversStandsAtZero`` still measures that end to end, on the
+    unfiltered table, because the state belongs to "a row no letter covers"
+    and not to Carlos.  What changed is that ``load_roster`` no longer hands
+    him to a session, so no player can reach it today.  The ruling that
+    withheld him is ``COO-DECISION 20260905_0545``, it is a LANE ruling and
+    not an owner one, and the two lists are carried apart in ``field_mobs``
+    for that reason.
 """
 
 from pathlib import Path
@@ -57,6 +71,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pirateforce_foundation import (  # noqa: E402
+    field_mob_hostile_bg0015,
     field_mobs,
     mob_combat,
     mob_death,
@@ -133,24 +148,42 @@ class WalkTheShippedRosterTests(unittest.TestCase):
         for scene in (SCENE_THREE, "bg0005"):
             self.assertEqual(self.walked[scene].owner_refused, (), scene)
 
-    def test_scene_fourteen_is_short_by_carlos_alone(self):
+    def test_scene_fourteen_has_every_door_at_eleven_rows_carlos_withheld(self):
+        """~~short by Carlos alone~~ IS STRUCK, and the number beside it is why.
+
+        ``COO-DECISION 20260905_0545`` withheld placement 87 rather than
+        fixing him, so this scene's verdict flipped from ``no`` to ``yes``
+        WITHOUT ANYTHING CHANGING ABOUT CARLOS -- exactly the outcome the
+        ``owner_refused`` docstring predicted one round earlier.  That is
+        why ``lane_withheld`` is asserted here in the same breath as the
+        verdict: a reader who sees ``every_door=yes`` for scene 14 and not
+        the ``1`` beside it has been told something untrue.  The scene is
+        NOT in the "finished with a whole denominator" class scene 3 and
+        scene 5 are in, and :meth:`test_at_least_one_armed_scene_is_
+        finished_and_it_is_named` still names only those two.
+        """
         scene14 = self.walked["Bg0015"]
-        self.assertEqual(scene14.rows_walked, 12)
-        self.assertEqual(scene14.targetable, 12)
+        self.assertEqual(scene14.rows_walked, 11)
+        self.assertEqual(scene14.targetable, 11)
         self.assertEqual(scene14.killable, 11)
-        self.assertFalse(scene14.every_door_open)
-        short = scene14.rows_short_of_every_door
-        self.assertEqual(len(short), 1)
-        self.assertEqual(short[0].placement_index, CARLOS_PLACEMENT)
-        self.assertEqual(short[0].template_id, CARLOS_TEMPLATE)
-        self.assertEqual(short[0].actor_identity, CARLOS_IDENTITY)
-        self.assertTrue(short[0].target)
-        self.assertFalse(short[0].kill)
-        self.assertFalse(short[0].drop)
-        self.assertIn(
-            "%s:%s" % (scene_door_walk.DOOR_KILL,
-                       mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE),
-            short[0].refusals)
+        self.assertEqual(scene14.dropping, 11)
+        self.assertEqual(scene14.rows_short_of_every_door, ())
+        self.assertTrue(scene14.every_door_open)
+        # THE DENOMINATOR, both halves.  The owner refused nothing here; this
+        # lane withheld one, and the two are reported apart on purpose.
+        self.assertEqual(scene14.owner_refused, ())
+        self.assertEqual(scene14.lane_withheld, (CARLOS_PLACEMENT,))
+        # And the withheld row is the one this file has always named.
+        self.assertNotIn(
+            CARLOS_IDENTITY, {row.actor_identity for row in scene14.rows})
+        self.assertNotIn(
+            CARLOS_TEMPLATE, {row.template_id for row in scene14.rows})
+        # The console line carries the number, not just the record: this is
+        # the string a boot prints and a tester reads.
+        line = scene_door_walk.describe_scene_doors(scene14)
+        self.assertIn("rows=11", line)
+        self.assertIn("lane_withheld=1", line)
+        self.assertIn("every_door=yes", line)
 
     def test_the_training_dummies_die_and_drop_nothing_and_that_is_the_row(self):
         """bg0001's four rows: killable, dropping nothing, by their own table.
@@ -385,15 +418,51 @@ class ARowNoLetterCoversStandsAtZeroTests(unittest.TestCase):
     is left at the floor.  What the walk found is the half that sentence does
     not say out loud -- the monster is a TARGET first, so a player can put it
     there, and every swing after that is answered with no frames at all.
+
+    ROUND j5v7mu: KEPT DELIBERATELY, ON THE UNFILTERED ROSTER.  Carlos is no
+    longer shipped (``COO-DECISION 20260905_0545``), so no player can reach
+    this state today -- but the state is a property of "a row no letter
+    covers", not of Carlos, and the next such row will arrive with a lane
+    that has forgotten what it looks like.  ``COO-DECISION 20260905_0545``
+    says in as many words to keep this class as the guard for that row.  It
+    therefore reads ``field_mob_hostile_bg0015.scene14_hostile_roster()``,
+    which parses all twelve and filters nothing, and
+    :meth:`test_he_is_no_longer_in_the_live_roster` is the one assertion
+    here that is about the ruling rather than about the mechanism.
     """
 
     @classmethod
     def setUpClass(cls):
         cls.legacy = load_legacy(V141)
-        roster = field_mobs.load_roster(scene="Bg0015")
+        # The UNFILTERED parse: load_roster no longer hands him over, which
+        # is the point of the ruling and would make this whole class vanish
+        # into an IndexError in setUpClass -- a guard that disappears the
+        # moment its subject does is not a guard.
+        roster = field_mob_hostile_bg0015.scene14_hostile_roster()
         cls.carlos = [
             m for m in roster if m.template_id == CARLOS_TEMPLATE][0]
         cls.roster = roster
+
+    def test_he_is_no_longer_in_the_live_roster(self):
+        """COO-DECISION 20260905_0545, measured where a player would meet it.
+
+        Both directions: gone from what a session is handed, still present
+        in the table this class walks -- otherwise "withheld" and "never
+        mined" would look identical here.
+        """
+        live = field_mobs.load_roster(scene="Bg0015")
+        self.assertNotIn(
+            CARLOS_IDENTITY, {m.actor_identity for m in live})
+        self.assertNotIn(CARLOS_PLACEMENT, {m.placement_index for m in live})
+        self.assertIn(
+            CARLOS_IDENTITY, {m.actor_identity for m in self.roster})
+        self.assertEqual(
+            field_mobs.lane_withheld_placements("Bg0015"),
+            (CARLOS_PLACEMENT,))
+        # The reason travels with the ruling; a withheld list with no reason
+        # beside it is the write-only literal this project already had once.
+        self.assertIn(
+            "924", field_mobs.lane_withheld_reason("Bg0015"))
 
     def test_no_registered_letter_covers_him(self):
         self.assertEqual(mob_death.rulings_covering(self.carlos), ())
