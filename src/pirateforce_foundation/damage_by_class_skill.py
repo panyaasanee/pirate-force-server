@@ -49,6 +49,24 @@ ticket classifies a second id, this function's answer changes with it
 without an edit here.  Same zero-production-caller posture as everything
 else in this file: nothing in `mob_combat.py` reads a skill id yet, so
 nothing calls this either.
+
+[UPDATE, this round, per `COO-DECISION 20260905_0647` ("คิวเริ่มต้นข้อ 2/4
+ครึ่งเซิร์ฟเวอร์ไม่บล็อก")]: every prior test of `resolve_class_skill_damage`
+against the house's standard test field used the arbitrary stand-in attacker
+(`Combatant(level=27, ability_str=132, ability_con=10)`), which proves the
+class gate passes an attacker through unchanged but is not the attacker any
+real hit would ever carry -- `runtime.py` binds exactly one attacker to
+production combat (`MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()`).
+`tests/test_damage_by_class_skill.py`'s new
+`PerClassProductionPinAgainst916Tests` fires, for every one of the 5 classes,
+every id `attack_skill_ids_for_class` classifies as an attack for that class
+(today always just `(99,)`), with the real production-pinned attacker,
+against Training Iron Man (template 916), and pins the result at 891 -- the
+same number `damage_by_skill.py`'s own production-pin test already reached
+through the bare skill-id gate, now reached through the class-ownership gate
+too, for all 5 classes.  Still zero production callers: this only proves
+what the gate WOULD return the day a caller exists, same as the sibling test
+it extends.
 """
 from __future__ import annotations
 
