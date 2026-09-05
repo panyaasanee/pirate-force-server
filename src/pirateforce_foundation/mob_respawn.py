@@ -66,6 +66,26 @@ first time they walk out is when its clock starts.  If the COO wants the
 delay measured from the death itself, that is a clock argument on
 ``mob_death.kill`` and a pin to lift in ``tests/test_mob_death.py``, and the
 letter carrying this round says so rather than leaving it to be discovered.
+(That mechanism sentence stands unstruck: it is still true, and a draft of
+this round struck it, which in this tree means "this was false".  What the
+COO ruled is not that the sentence is wrong but that the pin does not move.)
+
+RULED (``COO-DECISION 20260905_2147`` item 2, answering LANE-B
+``20260905_1953``): THE FIRST-SCENE-EDGE START IS THE WANTED BEHAVIOUR AND
+THE ``time`` PIN STAYS.  A monster standing back up in front of the player
+still looting it is what the ruling rejects, so "it does not respawn while
+you are still standing there" is the feature, not the limitation, and a
+later round reaching for ``mob_death.kill`` to "fix" the zero point is
+undoing a ruling rather than repairing a defect.
+
+AND ONE THING THAT SENTENCE DOES NOT SAY, because pf-adversary was right
+that promoting it whole would be a second defect: "the killer" is exact only
+in a one-session world.  ``sweep_the_session_register`` dates ``buried_at``
+on the SESSION register, and ``kill()`` leaves the world book's copy at
+``None``, so today each session starts its own clock at its own first scene
+edge.  The ruling is about WHICH EVENT starts the clock, not about how many
+clocks there are; the second question is open and belongs with
+``DEATH_SEED_WIRING``, which is chief's.
 
 A GRAVE THIS MODULE HAS NEVER SEEN IS NEVER OPENED IN THE SAME BREATH.
 Dating and opening are two passes and a freshly dated grave is kept, always:
@@ -135,9 +155,27 @@ production_allowed = True
 
 #: How long a corpse stays a corpse.
 #:
-#: [ASSUMPTION OF LANE B - AWAITING COO CONFIRMATION]  Nothing measured on the
-#: real client or in the shipped tables gives this number, and this lane will
-#: not invent a fact and then cite itself for it.  120.0 is chosen for one
+#: ~~[ASSUMPTION OF LANE B - AWAITING COO CONFIRMATION]~~ **CONFIRMED,
+#: ``COO-DECISION 20260905_2147``** (answering LANE-B's letter
+#: ``20260905_1953``, item 1): option (a) stands, 120.0 seconds, for the
+#: reason this line already gave and the COO restated -- one duration for
+#: "how long does the world remember this" rather than two numbers nobody
+#: chose together, so the owner can taste-test the floor and the monster
+#: with a single edit later.  What the COO said about the OTHER two options
+#: LANE-B offered, quoted rather than paraphrased because a draft of this
+#: comment paraphrased it wrongly (pf-adversary): option (b) was "another
+#: number the owner picks by game feel (30 / 60 / 300)", and the ruling is
+#: that such a number "belongs to Panya after real play, not to us"; option
+#: (c) (per scene / per template) was refused, agreeing with this lane.
+#: Nobody said anything about a number derived from the shipped tables --
+#: that phrasing was this lane's invention and it contradicted the
+#: paragraph directly below.  Nothing under this comment changed; the label
+#: did.
+#:
+#: WHAT THE RULING DID NOT CHANGE, kept verbatim because it is a measurement
+#: and not a label: nothing measured on the real client or in the shipped
+#: tables gives this number, and this lane will not invent a fact and then
+#: cite itself for it.  120.0 is chosen for one
 #: reason that is not arbitrary: it is exactly ``mob_loot.
 #: DROP_LIFETIME_SECONDS``, the only other "how long does the world remember
 #: this" constant this project has ever shipped, so the floor and the monster
@@ -146,9 +184,10 @@ production_allowed = True
 #: word "schedule" a draft of this line used: the drop's clock starts at the
 #: death, this one starts at the first scene crossing after it (see the
 #: docstring), so a player who kills and stands there for ten minutes loses
-#: the drop at +120 s and starts the respawn clock at +600 s.  The letter
-#: that carries this round asks the COO to rule; a different number changes
-#: this line and nothing else in this file.
+#: the drop at +120 s and starts the respawn clock at +600 s.  ~~The letter
+#: that carries this round asks the COO to rule~~ THE COO HAS RULED (see the
+#: head of this comment); a different number changes this line and nothing
+#: else in this file.
 RESPAWN_DELAY_SECONDS = 120.0
 
 #: A delay may not exceed this.  Same shape and same reason as
