@@ -59,18 +59,35 @@ the sword swing, Paladin the mace, Sniper the gunshot, Necromancer the
 electric ball.
 
 THE ONE THING THIS MODULE CANNOT DO BY ITSELF, stated plainly rather than
-worked around.  It needs the performer's ``class_id`` and nothing hands it
-one: ``runtime.py``'s call site (chief's file) passes ``legacy``, the parsed
-fields, the performer identity and the hit count, and ``characters.class_id``
-has a writer (``lifecycle.persist_class_id_from_starting_gear``) but no
-reader.  So ``class_id`` arrives as ``None`` today, on every hit, and this
-module answers exactly what ``COO-DECISION 20260905_1045`` item 2 says to
-answer in that case: send nothing extra, keep the inherited 60029 echo, and
-print ``POSE_NO_EQUIP_PROVENANCE``.  Nothing is guessed and 280 is not
-hardcoded.  The two one-line hookups that close it are asked for in
-``pf_bridge/notes_to_chief/20260905_13xx_LANE-B-CORE-REQUEST-*`` (one to
-chief for the call site, one to LANE-DB for the read); the day either lands,
-the swing appears with no further change here.
+worked around.  It needs the performer's ``class_id``, and ``runtime.py``'s
+call site (chief's file) passes ``legacy``, the parsed fields, the performer
+identity and the hit count -- not that.  So ``class_id`` arrives as ``None``
+today, on every hit, and this module answers exactly what ``COO-DECISION
+20260905_1045`` item 2 says to answer in that case: send nothing extra, keep
+the inherited 60029 echo, and print ``POSE_NO_EQUIP_PROVENANCE``.  Nothing is
+guessed and 280 is not hardcoded.
+
+~~``characters.class_id`` has a writer but no reader.~~ **IS STRUCK, AND IT
+WAS THIS LANE'S OWN CLAIM ON THE ROUND THAT WROTE THIS FILE.**  pf-adversary
+measured it false at the same HEAD: ``session.py`` reads the column at login
+(``store.read_typed_attributes(character_id).get("class_id")``), rebinds it
+onto the character (``selected = replace(selected, class_id=class_id)``),
+prints ``LOGIN_CLASS_ID from_row class_id=<n>``, and has its own test file --
+all of it landed 2026-09-04 under ``COO-DECISION 20260904_0446`` point 3.
+The claim came from one grep over ``store.py`` and ``lifecycle.py``, which is
+not the ladder this project requires before declaring a source absent (G1),
+and the same file that holds the reader is the file this module's own header
+quotes about console volume.  The struck sentence also travelled: it went out
+in a CORE-REQUEST asking LANE-DB to build a store read that already existed,
+withdrawn in ``pf_bridge/notes_to_chief/20260905_1428_LANE-B-WITHDRAWAL-...``.
+
+WHAT IS ACTUALLY MISSING is therefore smaller than this lane claimed: ONE
+keyword argument.  ``runtime.py:4980`` already binds ``selected =
+self.foundation.selected`` three lines above ``runtime.py:5159``'s call, and
+``Character.class_id`` is a field on it.  ``class_id=selected.class_id`` is
+the whole hookup, and it is asked for in
+``pf_bridge/notes_to_chief/20260905_1352_LANE-B-CORE-REQUEST-...``.  The day
+that lands, the swing appears with no further change here.
 
 AND THE SEAM AFTER THAT.  "The class's starting right-hand weapon" is the
 weapon the player is holding only for as long as nothing can swap it.  That
@@ -136,8 +153,13 @@ def _load(path: Path, expected_sha: str) -> list:
 # dict: 0 is the table saying "this kind has no attack", and a lookup that
 # returned 0 would be a selector this server would then put on the wire.
 ATTACK_BEHAVIOR_BY_EQUIP_TYPE = {}
+# Every equip type EQUIP_VALUE has a row for, swinging or not.  This is the
+# denominator that lets a refusal tell "the table says this kind does not
+# swing" apart from "the table has never heard of this kind".
+KNOWN_EQUIP_TYPES = set()
 for _row in _load(_EQUIP_VALUE_PATH, EQUIP_VALUE_SHA256):
     _behavior = int(_row["n_ATTACK_SKILL"])
+    KNOWN_EQUIP_TYPES.add(int(_row["n_EQUIPTYPE"]))
     if _behavior:
         ATTACK_BEHAVIOR_BY_EQUIP_TYPE[int(_row["n_EQUIPTYPE"])] = _behavior
 
@@ -176,6 +198,14 @@ POSE_REFUSED = "POSE_REFUSED"
 REASON_NO_CLASS_ID = "no_class_id"
 REASON_CLASS_NOT_IN_CREATION_GEAR = "class_not_in_creation_gear"
 REASON_KIND_HAS_NO_ATTACK_SKILL = "kind_has_no_attack_skill"
+# pf-adversary: the reason above ASSERTS the table said "this kind does not
+# swing".  For an equip type EQUIP_VALUE has no row for at all, the table said
+# nothing, and reporting the two alike is the measured-negative-vs-untested
+# confusion this module spends four paragraphs refusing to make about 286 --
+# made in the opposite direction.  Two shipped item types are already in that
+# state (0, on 48 items, and 524288, on 16), reachable the day the equipped-
+# item read this module names as its seam lands in front of the class default.
+REASON_KIND_NOT_IN_EQUIP_VALUE = "kind_not_in_equip_value"
 REASON_BEHAVIOR_NOT_SCREEN_CONFIRMED = "behavior_not_screen_confirmed"
 
 
@@ -184,18 +214,36 @@ def equip_type_for_class(class_id):
 
     ``None`` for a ``class_id`` that is not one of the five selectable
     classes -- including ``None`` itself, which is what an unresolved
-    ``characters.class_id`` looks like.  Never raises: a non-integer reaches
-    the dict lookup as a plain miss.
+    ``characters.class_id`` looks like.
+
+    ONLY A REAL ``int`` IS LOOKED UP, and the type check is not tidiness.
+    pf-adversary measured the earlier version composing and SENDING a frame
+    for ``class_id=True`` and ``class_id=1.0``: both hash equal to ``1``, so
+    the dict answered, and the bytes were identical to a genuine Gladiator's
+    -- while the console printed ``class=<bool>``.  The module DETECTED the
+    bad type in its own console token and then acted on it anyway, which is
+    the shape this project has a scar for.  ``bool`` is excluded explicitly
+    because it is an ``int`` subclass and ``True == 1``.
+
+    Nothing here raises.  The ``except`` is deliberately as wide as
+    ``pose_trial.trial_opening``'s and for the same measured reason: an
+    object whose ``__hash__`` or ``__eq__`` raises would otherwise escape
+    into ``state.dispatch()`` under the frozen, except-handler-free
+    ``game_listener`` (interlock X07).  The earlier version caught
+    ``TypeError`` alone, which pf-adversary broke with a ``__hash__`` raising
+    ``ValueError``; it could not find a realistic caller that does this, and
+    the guarantee is written down as absolute either way, so it is now
+    absolute.
 
     THE SEAM (module header): when an equipped-item read lands, it goes in
     FRONT of this function, not inside it.  This one answers "what does this
     class start with", which stays true whatever the player later equips.
     """
+    if not isinstance(class_id, int) or isinstance(class_id, bool):
+        return None
     try:
         return EQUIP_TYPE_BY_CLASS_ID.get(class_id)
-    except TypeError:
-        # An unhashable class_id (a list, a dict) -- a caller bug, but not one
-        # worth killing the accept loop over.
+    except Exception:  # noqa: BLE001 - see the docstring
         return None
 
 
@@ -207,7 +255,7 @@ def behavior_for_equip_type(equip_type):
     """
     try:
         return ATTACK_BEHAVIOR_BY_EQUIP_TYPE.get(equip_type)
-    except TypeError:
+    except Exception:  # noqa: BLE001 - same interlock X07 reason as above
         return None
 
 
@@ -244,10 +292,14 @@ def production_behavior_for_class(class_id):
         # Unreachable from the five classes shipped today -- every one of
         # their starting right hands swings.  Kept because the guard is what
         # makes "a class whose starting gear is a shield" a refusal with a
-        # reason instead of a ``None`` selector on the wire.
+        # reason instead of a ``None`` selector on the wire.  The two reasons
+        # are separate because they are different facts: see
+        # REASON_KIND_NOT_IN_EQUIP_VALUE.
+        reason = (REASON_KIND_HAS_NO_ATTACK_SKILL
+                  if equip_type in KNOWN_EQUIP_TYPES
+                  else REASON_KIND_NOT_IN_EQUIP_VALUE)
         return (None, "%s reason=%s class=%s equip_type=%d" % (
-            POSE_REFUSED, REASON_KIND_HAS_NO_ATTACK_SKILL,
-            _token(class_id), equip_type))
+            POSE_REFUSED, reason, _token(class_id), equip_type))
     if not is_screen_confirmed(behavior_id):
         return (None, "%s reason=%s class=%s equip_type=%d behavior=%d" % (
             POSE_REFUSED, REASON_BEHAVIOR_NOT_SCREEN_CONFIRMED,

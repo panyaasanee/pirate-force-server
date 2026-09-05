@@ -249,8 +249,15 @@ def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
     20260905_1045`` item 3 keeps the switch as an experiment instrument and
     says production must not depend on it; an owner who armed it is running
     a sweep and must get the id she armed, not the one her class implies.
-    Exactly one console line is printed per hit either way, so a log never
-    shows two answers for one swing.
+    THIS SEAM prints exactly one line per hit either way -- trial or
+    production, never both, so a log never shows two answers to "which
+    selector did this swing use".  ~~One console line per hit.~~ IS STRUCK
+    as written: pf-adversary measured two lines out of one hit by making the
+    ground-preserve composer refuse, which adds
+    ``GROUND_VITALS_PRESERVE_REFUSED`` below this one -- a different question,
+    from a branch ``tests/test_action_ack.py`` already covers, but the
+    unqualified claim was false and the counter-example was twenty lines away
+    in the same file.
 
     ``class_id`` IS ``None`` ON EVERY HIT TODAY and the module says so in its
     own header: ``characters.class_id`` has a writer and no reader, and this

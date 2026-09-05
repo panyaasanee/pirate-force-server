@@ -1001,11 +1001,18 @@
     {
       "key": "bridge_gamedata",
       "module": "tests/test_combat_pose.py",
-      "count": 1,
+      "count": 8,
       "tests": [
+        "ExtractorRefusalTests::test_a_changed_equip_value_row_count_is_refused",
+        "ExtractorRefusalTests::test_a_duplicated_equip_type_is_refused",
+        "ExtractorRefusalTests::test_check_a_a_slot_that_decodes_to_no_row_is_refused",
+        "ExtractorRefusalTests::test_check_b_a_slot_that_decodes_to_a_non_creation_row_is_refused",
+        "ExtractorRefusalTests::test_check_c_a_row_whose_class_mask_disagrees_is_refused",
+        "ExtractorRefusalTests::test_the_control_the_refusals_are_measured_against",
+        "ExtractorRefusalTests::test_the_slot_base_guard_refuses_a_slot_below_the_key_base",
         "SourcePinTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run"
       ],
-      "note": "round ti9gxr (LANE-B): same rationale as the matching entries for tests/test_class_catalog.py and tests/test_mob_loot.py. combat_pose.py loads two committed local copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class.tsv) mined from CONSTDATA_TH__EQUIP_VALUE.tsv, CONSTDATA_TH__EQUIPMENT_BASE.tsv and CONSTDATA_TH__CHARCREATE_CLASS.tsv. This test re-runs tools/pf_equip_attack_behavior_extract.py --check against the live ../pf_bridge/gamedata sibling, which also re-runs that tool's three decode checks; a clone without the sibling cannot answer. The sha256 pins themselves are asserted unguarded in the same class, so a hand-edit to a committed copy is red on every clone."
+      "note": "round ti9gxr (LANE-B), COUNT MOVED 1 -> 8 in round ti9gxr-b. combat_pose.py loads two committed local copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class.tsv) mined from CONSTDATA_TH__EQUIP_VALUE.tsv, CONSTDATA_TH__EQUIPMENT_BASE.tsv and CONSTDATA_TH__CHARCREATE_CLASS.tsv; a clone without the bridge sibling cannot answer whether they still match upstream. SourcePinTests re-runs the extractor with --check. The seven ExtractorRefusalTests were added in ti9gxr-b because pf-adversary measured that every one of the tool's seven guards could be neutered with the suite green -- MineError had never been raised by anything, since the only test that ran the tool asserted returncode == 0 on known-good data. Each builds a mutated copy of the bridge tables and asserts the tool refuses (exit 2, nothing written), so they need the real tables to mutate. The sha256 pins themselves are asserted unguarded in the same file, so a hand-edit to a committed copy is red on every clone."
     }
   ],
   "windows_gate_excluded_modules": {
