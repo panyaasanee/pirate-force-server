@@ -985,7 +985,7 @@
     {
       "key": "bridge_gamedata",
       "module": "tests/test_skill_catalog.py",
-      "count": 8,
+      "count": 9,
       "tests": [
         "SkillCatalogTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run",
         "NTargetIsNotATypeColumnTests::test_meteor_rain_collides_with_normal_attack",
@@ -994,9 +994,10 @@
         "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_the_one_blank_cast_condition_id_outside_the_tiers_has_zero_passive_effect",
         "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_an_actively_cast_attack_skill_carries_a_nonzero_non_self_referential_passive_effect",
         "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_buff_and_heal_flavored_actively_cast_skills_carry_zero_passive_effect",
-        "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_nonzero_passive_effect_among_actively_cast_rows_is_common_not_rare"
+        "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_nonzero_passive_effect_among_actively_cast_rows_is_common_not_rare",
+        "NEquipTypeColumnsAreBoundedNotAccessorWorthyTests::test_table_wide_value_sets_match_the_re110_bitmask_shape"
       ],
-      "note": "round iazmrv (LANE-CS, this lane's first round): same rationale as the matching entry for tests/test_class_catalog.py, for skill_catalog.py's two committed local copies (data/skill_context_starting_kit.tsv, data/skill_text_starting_kit.tsv) sourced from CONSTDATA_TH__SKILL_CONTEXT.tsv and TEXTDATA_TH__SKILL_TEXT.tsv. Re-runs tools/pf_class_skill_starting_kit_extract.py --check against the live ../pf_bridge/gamedata sibling; a clone without it cannot answer. COUNT MOVED 1 -> 8 by two independent same-round LANE-CS sessions merging into each other (this round and round mps8zh), each adding a BRIDGE_GAMEDATA-guarded class checking a different candidate type-classifier column against the full bridge table and finding it also fails: NTargetIsNotATypeColumnTests (n_TARGET, counter-examples 7173 'Meteor Rain' / 3210 'Grand Cannon' / 3332 'Great Cannon' / 3762 'Circle Attack', this round) and NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests (the (s_CAST_CONDITION blank, n_PASSIVE_EFFECT nonzero) pair, counter-examples 2954/8200/3546/3547, round mps8zh) -- both sets of falsifying ids sit outside this catalog's own 8-id scope, so a clone without pf_bridge beside it cannot answer either."
+      "note": "round iazmrv (LANE-CS, this lane's first round): same rationale as the matching entry for tests/test_class_catalog.py, for skill_catalog.py's two committed local copies (data/skill_context_starting_kit.tsv, data/skill_text_starting_kit.tsv) sourced from CONSTDATA_TH__SKILL_CONTEXT.tsv and TEXTDATA_TH__SKILL_TEXT.tsv. Re-runs tools/pf_class_skill_starting_kit_extract.py --check against the live ../pf_bridge/gamedata sibling; a clone without it cannot answer. COUNT MOVED 1 -> 8 by two independent same-round LANE-CS sessions merging into each other (this round and round mps8zh), each adding a BRIDGE_GAMEDATA-guarded class checking a different candidate type-classifier column against the full bridge table and finding it also fails: NTargetIsNotATypeColumnTests (n_TARGET, counter-examples 7173 'Meteor Rain' / 3210 'Grand Cannon' / 3332 'Great Cannon' / 3762 'Circle Attack', this round) and NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests (the (s_CAST_CONDITION blank, n_PASSIVE_EFFECT nonzero) pair, counter-examples 2954/8200/3546/3547, round mps8zh) -- both sets of falsifying ids sit outside this catalog's own 8-id scope, so a clone without pf_bridge beside it cannot answer either. COUNT MOVED 8 -> 9 round n4wk2z: NEquipTypeColumnsAreBoundedNotAccessorWorthyTests::test_table_wide_value_sets_match_the_re110_bitmask_shape reads the full bridge CONSTDATA_TH__SKILL_CONTEXT.tsv to pin n_EQUIPTYPE's/n_EQUIPTYPE_LHAND's table-wide value sets ({0,1,2,8,16,32,64} and {0,1,4}); the class's other test (catalog-scope only, all 8 starting-kit ids) is unguarded."
     },
     {
       "key": "bridge_gamedata",
