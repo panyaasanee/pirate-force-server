@@ -2,21 +2,23 @@
 ``tools/pf_mine_scene_mob_roster.py`` had no test of their own -- not even a
 bridge-gated one.
 
-WHY THIS FILE EXISTS.  Round `hor2lh` (reserve item 3) named the shape of the
-gap and paid one instance of it (``_digest``, see
-``test_pf_mine_scene_mob_roster_digest.py``) without auditing the rest of the
-module for siblings.  Round `x5bkvl` carried the audit forward as
-unfinished.  This round ran it: every direct caller of ``_int``, ``_key`` and
-``_ascii_dict`` in this tool's OWN test coverage turned out to be either
+WHY THIS FILE EXISTS.  Round `hor2lh` (reserve item 3) NAMED the shape of the
+gap without paying it; round `x5bkvl` paid the one instance it picked
+(``_digest``, see ``test_pf_mine_scene_mob_roster_digest.py`` -- that file's
+own docstring says so directly) without auditing the rest of the module for
+siblings.  Round `qamp70` carried the audit forward as still open.  This
+round ran it: every direct caller of ``_int``, ``_key`` and ``_ascii_dict`` in
+this tool's OWN test coverage turned out to be either
 ``@BRIDGE_GAMEDATA.skip_unless_present()``-gated (so absent on the Windows
 merge gate, per ``NOW.md``'s own note that the gate has no bridge next to it)
-or -- for these three specifically -- not present at all: grepping
-``tests/*.py`` for ``_int(``, ``_key(`` and ``_ascii_dict(`` only turns up a
-same-named helper belonging to a DIFFERENT generator tool
-(``tools/pf_scan_field_scene_candidates.py``, its own copy, tested in
-``tests/test_pf_scan_field_scene_candidates.py``) -- this module's own three
-functions were exercised only indirectly, through a full ``Sources(...)``
-build over real gamedata, and never on a bad input.
+or -- for ``_int`` and ``_ascii_dict`` specifically -- not present anywhere at
+all: grepping ``tests/*.py`` for ``_int(`` and ``_ascii_dict(`` turns up
+nothing.  ``_key(`` turns up one same-named helper belonging to a DIFFERENT
+generator tool (``tools/pf_scan_field_scene_candidates.py``, its own separate
+copy, tested in ``tests/test_pf_scan_field_scene_candidates.py``) -- not this
+module's ``_key``.  Either way, this module's own three functions were
+exercised only indirectly, through a full ``Sources(...)`` build over real
+gamedata, and never on a bad input.
 
 ``_int`` is the sharper of the three: it is the one function standing between
 a malformed numeric column (level, HP, rank, drop flags) and a silently wrong
