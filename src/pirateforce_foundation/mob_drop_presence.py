@@ -874,8 +874,18 @@ def reannounce_ground(cell: Any, legacy: Any, scene: Any = None) -> tuple:
     try:
         if scene is not None:
             cell_scene = getattr(cell, "current_scene", None)
-            if (cell_scene is None
-                    or mob_loot.scene_key(scene) != mob_loot.scene_key(cell_scene)):
+            # ROUND ltuevf: ``cell_scene is None`` used to be folded into
+            # "disagrees" -- but a cell that has never heard of ANY scene
+            # is not disagreeing with the caller, it simply has nothing
+            # recorded yet (before the first kill of a boot).  That case
+            # now falls through to :func:`sustain_a_kill` below, whose own
+            # :data:`REFUSE_NO_SCENE` the caller-supplied ``scene`` then
+            # resolves to an honest ``items=0`` instead of a refusal (see
+            # the ``step.refused`` branch below).  A cell that DOES know a
+            # scene and it does not match the caller's is still refused
+            # here, unchanged.
+            if (cell_scene is not None
+                    and mob_loot.scene_key(scene) != mob_loot.scene_key(cell_scene)):
                 _say_world_line(_console_ascii("%s scene=%r reason=%s" % (
                     GROUND_REANNOUNCE_REFUSED_TOKEN, scene,
                     REFUSE_SCENE_DISAGREES)))
@@ -891,6 +901,27 @@ def reannounce_ground(cell: Any, legacy: Any, scene: Any = None) -> tuple:
             GROUND_REANNOUNCE_REFUSED_TOKEN, scene, "reannounce_raised", error)))
         return ()
     if step.refused:
+        # ROUND ltuevf, COO-DECISION 2026-09-05T11:53+07:00 item 3(b),
+        # measured live in R316 (KA1A, negative control step 3): before the
+        # FIRST kill of a boot the cell has never been told a scene, so
+        # sustain_a_kill refuses by name (REFUSE_NO_SCENE) with nothing
+        # composed -- correct when THIS function has no other source of
+        # truth either.  But this call site is the one place in this module
+        # that does: the caller already knows which scene it just answered
+        # CheckSecondPwdVital in, and passed it as ``scene``.  A floor that
+        # has never had a drop on it is a real, observable ``items=0``, not
+        # an error -- R316's own capture shows this exact branch as the
+        # FIRST line of every session
+        # (``..._REFUSED scene=None reason=refused_cell_has_no_scene_to_
+        # publish``), which is a REFUSED line for a case where nothing is
+        # wrong.  Nothing new is composed here (there is nothing on the
+        # cell to compose): this only reprints the true state under the
+        # token that means "checked, bare" instead of the one that means
+        # "something went wrong".
+        if step.state == REFUSE_NO_SCENE and scene is not None:
+            _say_world_line(_console_ascii("%s scene=%r items=0" % (
+                GROUND_REANNOUNCE_TOKEN, scene)))
+            return ()
         _say_world_line(_console_ascii("%s scene=%r reason=%s" % (
             GROUND_REANNOUNCE_REFUSED_TOKEN,
             step.scene if step.scene is not None else scene, step.state)))
@@ -921,20 +952,34 @@ reply actually gets appended to actions).
 ADD, AFTER that reply is queued, not before (the client must see the OK reply
 and the ground truth in that order):
 
-  actions.extend(mob_drop_presence.reannounce_ground(self.mob_loot_cell, legacy))
+  actions.extend(mob_drop_presence.reannounce_ground(
+      self.mob_loot_cell, legacy, scene=<the connection's current scene>))
 
 Nothing else changes: no new import beyond what DROP_PRESENCE_WIRING already put
 on the import line, no new event (this call prints its own console line and needs
 none), no branch (reannounce_ground returns () on every refusal and on a bare
 floor, so the extend is always safe).
 
-WHY NO ``scene=`` ARGUMENT AT THIS CALL SITE: the connection's own
+CORE-REQUEST (ROUND ltuevf, superseding the paragraph this replaces): DO pass
+``scene=`` here now.  ``COO-DECISION 2026-09-05T11:53+07:00`` item 3(b),
+measured live in R316: before the FIRST kill of a boot ``self.mob_loot_cell``
+has never been told a scene, so calling this with no ``scene=`` gets a bare
+REFUSED console line on an empty floor that is not actually an error.  This
+connection already knows its own current scene the moment it answers
+CheckSecondPwdVital (it is what let it answer at all); passing that value
+here is what turns "cell has never heard of a scene" into an honest
+``items=0`` instead of a refusal.  The paragraph this replaces argued against
+passing it because the cell "already knows its scene" -- true AFTER the
+first kill, false before it, and R316 measured the FALSE case on a real
+screen.
+
+~~WHY NO ``scene=`` ARGUMENT AT THIS CALL SITE~~: the connection's own
 ``self.mob_loot_cell`` already knows its scene the same way sustain_a_kill reads
-it (cell.publication()); passing this call site's own belief about the scene
-would only ever confirm what the cell already says, at the cost of one more name
-to keep in sync. Pass it only if a future call site has scene information the
-cell itself might not (a resync from another source) and wants the disagreement
-refused rather than silently resolved by the cell's own answer.
+it (cell.publication()) ONCE A KILL HAS SET IT; passing this call site's own
+belief about the scene is what lets the pre-first-kill case answer honestly
+instead of refusing.  A call whose scene disagrees with the cell's own is
+still refused BY NAME (:data:`REFUSE_SCENE_DISAGREES`), never silently
+resolved.
 """
 
 # ---------------------------------------------------------------------------
