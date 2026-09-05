@@ -1,1 +1,1 @@
-{"sha":"994e72bfb9ccf50bca838b2a2b246f25ba72fa01","conclusion":"failure","event":"push","ref":"refs/heads/claude/brave-goodall-uhfve8","run_id":"33946750608","utc":"2026-09-05T05:39:55Z"}
+{"sha":"994e72bfb9ccf50bca838b2a2b246f25ba72fa01","conclusion":"failure","event":"pull_request","ref":"refs/pull/819/merge","run_id":"33946765934","utc":"2026-09-05T05:41:43Z"}
