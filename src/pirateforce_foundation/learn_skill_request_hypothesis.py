@@ -31,21 +31,53 @@ this round and none exists where this was written:
     (letter pf_bridge/notes_to_chief/20260824_0055_GT050-RESULT-CLEARNRESULT-
     CLOSED-TRIGGER-DIRECTION-UNRESOLVED.md, 2026-08-24 00:46 +07:00).
 
+  * [UPDATE, round `5k4cn4`, 2026-09-06] The NATURAL DIRECTION question GT-050
+    left open ("queued, not run") is answered by a capture that already
+    existed and was simply never connected to this module: round R312, frame
+    #70 (01:21:17.6 +07:00, BOOT_COMMIT
+    f2a62bf0e08ac103fbad21633bfedc90b21e12ca, letter
+    pf_bridge/notes_to_chief/20260905_0153_KA1A-R312-RESULTS-gt249-pass-
+    partial-3-of-4-skills-in-special-tab-plus-walk-lock-clearnskill-
+    actionvital-60029-level-column-shows-id.md section 2.2) is a real client
+    frame whose first nested vital is id 0x36AA.  That nested vital's own
+    body -- the 7 bytes immediately following its version tag, isolated by
+    static byte-offset arithmetic on the letter's own printed hex, nothing
+    guessed -- is ``14 00 00 00 00 0B 02``: the exact proven delivery-table
+    shape (u32 tag 0x14, then u8 tag 0x0B), decoding under this module's own
+    ``decode_learn_skill_request_payload`` to
+    ``LearnSkillRequestFields(request_u32_0x14=0, request_u8_0x18=2)`` with
+    no refusal.  See ``LEARN_SKILL_REQUEST_REAL_CAPTURE_*`` below and
+    ``tests/test_learn_skill_request_hypothesis.py``'s
+    ``RealCaptureR312Frame70Tests`` for the executable, re-derivable proof.
+    This settles direction (client -> server, observed, not merely
+    possible) and nothing more -- see the corrected nonclaims immediately
+    below for exactly what it still does not settle.
+
 NONCLAIMS -- read these before using one symbol from this file
 --------------------------------------------------------------
-  * The NATURAL DIRECTION of 0x36AA is NOT proven.  The client image carries
-    both a WRITE and a READ codec for it; no capture and no static census has
-    shown a client actually sending one.  This decoder rests on "the client
-    CAN write this shape", never on "the client does".  The direction proof
-    is bridge work, queued, not run.
-  * The SEMANTICS of the two request fields are NOT known.  They are decoded
-    as opaque values named by object offset only (request_u32_0x14 /
-    request_u8_0x18).  Nothing here calls either of them a skill id, a level,
-    a slot or anything else, and nothing may.
-  * The request ENVELOPE for 0x36AA has never been captured.  The accepted
-    envelope here is the one-vital GSCN_RunTimeProtocolReq shape that every
-    captured client request of other vitals uses -- OUR acceptance design,
-    fail closed, not a claim about what a real client would wrap 0x36AA in.
+  * The SEMANTICS of the two request fields are STILL NOT known, even after
+    the round-`5k4cn4` capture below.  The real frame's own fields decoded to
+    (0, 2); nobody claims what 0 or 2 MEAN (not a skill id, not a level, not
+    a slot, not an index -- the letter's own author could not reconstruct
+    which UI action sent it).  They remain opaque values named by object
+    offset only (request_u32_0x14 / request_u8_0x18).
+  * The TRIGGER (what UI action makes a real client emit 0x36AA) is STILL NOT
+    known.  ka1-A's letter records that repeated, isolated attempts at every
+    action she could recall (opening/closing the skill window, switching its
+    tab, clicking a list entry, dragging to hotbar) sent nothing; the one
+    real frame arrived during unrecalled interaction with the "special" tab.
+  * The ENVELOPE a real client wraps 0x36AA in is CAPTURED NOW, and it is NOT
+    the one this module accepts.  Frame #70 carries the 0x36AA vital as the
+    FIRST of a TWO-nested-vital frame (``vital_count=2``; the second vital is
+    ``0x0F01`` UserSetting_UpdateServerSettingVital).  This module's
+    ``classify_learn_skill_request_attempt`` requires ``vital_count == 1`` and
+    therefore still correctly refuses this exact real frame as
+    ``wrong_envelope`` -- proven by ``RealCaptureR312Frame70Tests``, not
+    merely asserted.  Multi-nested-vital envelope acceptance is unbuilt;
+    nothing here widens it, and ``current/pf_login_game_server_v141.py``'s
+    own ``parse_outer`` cannot bound a second vital's payload without that
+    vital's own serializer schema (its own comment says so), so widening
+    this module's envelope is not simply relaxing a count check.
   * No learn rule exists and none is invented: an accepted request changes no
     skill, answers nothing (not even the 0x673C result vital the sibling
     lane can compose) and writes no row.
@@ -105,6 +137,61 @@ LEARN_SKILL_REQUEST_U32_OBJECT_OFFSET = 0x14
 LEARN_SKILL_REQUEST_U8_OBJECT_OFFSET = 0x18
 # On the wire: tag+4 then tag+1 = 7 bytes, always (both gates are ALWAYS).
 LEARN_SKILL_REQUEST_PAYLOAD_SIZE = 7
+
+# --------------------------------------------------------- real-capture pins
+# Round `5k4cn4`, 2026-09-06: the literal bytes ka1-A's console printed for a
+# real client's frame #70, round R312, GT-249 (letter cited in the module
+# docstring "[UPDATE]" note above).  Nothing below is derived, composed or
+# guessed -- it is the letter's own printed hex, sliced by static byte-offset
+# arithmetic and pinned so the claim can be re-derived without re-reading the
+# letter.  See RealCaptureR312Frame70Tests for the executable proof.
+LEARN_SKILL_REQUEST_REAL_CAPTURE_LETTER = (
+    "pf_bridge/notes_to_chief/20260905_0153_KA1A-R312-RESULTS-gt249-pass-"
+    "partial-3-of-4-skills-in-special-tab-plus-walk-lock-clearnskill-"
+    "actionvital-60029-level-column-shows-id.md"
+)
+LEARN_SKILL_REQUEST_REAL_CAPTURE_ROUND = "R312"
+LEARN_SKILL_REQUEST_REAL_CAPTURE_FRAME_NUMBER = 70
+LEARN_SKILL_REQUEST_REAL_CAPTURE_TIMESTAMP = "2026-09-05T01:21:17.6+07:00"
+LEARN_SKILL_REQUEST_REAL_CAPTURE_BOOT_COMMIT = (
+    "f2a62bf0e08ac103fbad21633bfedc90b21e12ca"
+)
+# The full 150-byte raw frame, exactly as printed in the letter (whitespace
+# removed only).  This is the input RealCaptureR312Frame70Tests feeds to the
+# frozen v141 parse_outer -- nobody hand-parsed the envelope here.
+LEARN_SKILL_REQUEST_REAL_CAPTURE_RAW_FRAME_HEX = (
+    "126F6E14000000000800"
+    "0B02"
+    "120200"
+    "12AA360B00"
+    "1400000000"
+    "0B02"
+    "12010F0B000B010BFF32"
+    "0000000000000000"
+    "26FFFFFFFF0B190B000B00"
+    "0501"
+    "320000000000000000"
+    "2601000000"
+    "0B0C0B0C0B0C"
+    "0B03"
+    "08012AE364303F2A5EAE5E3F"
+    "0B02"
+    "0B040B0032"
+    "6F00000000000000"
+    "0B040B0132"
+    "6E00000000000000"
+    "08022AE364303F2AFF04533F0B00"
+    "08032AE364303F2AA05B473F0B00"
+    "0B00"
+)
+# The 0x36AA vital's own body: the 7 bytes starting right after its version
+# tag (offset 20 in the raw frame above -- outer header 12 bytes, vital_count
+# field 3 bytes, nested id+version 5 bytes).  Isolated once here so every
+# consumer decodes the SAME slice; re-derived independently by
+# RealCaptureR312Frame70Tests against the raw frame, not merely repeated.
+LEARN_SKILL_REQUEST_REAL_CAPTURE_BODY = bytes.fromhex("1400000000" "0B02")
+LEARN_SKILL_REQUEST_REAL_CAPTURE_VITAL_COUNT = 2
+LEARN_SKILL_REQUEST_REAL_CAPTURE_SECOND_VITAL_ID = 0x0F01
 
 # Rejection reasons; every one of them means "no fields, no reply, no write".
 # The first two are ENCODER-side only (test/probe composition refusing bad
