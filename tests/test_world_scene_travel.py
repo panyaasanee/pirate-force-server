@@ -139,9 +139,15 @@ class SceneRegistryTests(unittest.TestCase):
         scene the player stands in on any boot that is not exactly flagless -
         that is what shut the ten, and it would reopen D1 for scene 14 too.
         """
+        # 304 and 305 ADDED round n4vqxc (COO-DECISION 20260905_1748): the two
+        # seas a sea-edge crossing at scene 126's own map edge leads to, each
+        # pinned the same `decreed_arrival` way 126 itself is, tagged
+        # `decreed_provisional` rather than `authored` -- see
+        # world_sea_edge_crossing.py.  Also addresses, not doors:
+        # login_entry_allowed is false for both.
         self.assertEqual(
             self.registry.ids,
-            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 130,
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 130, 304, 305,
              TEST_STAGE_SCENE_ID, 997),
         )
 

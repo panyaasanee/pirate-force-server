@@ -486,18 +486,25 @@ _COORDINATE_PROVENANCE_FIELDS = {
 _EVIDENCE_TIERS = {
     "client-observed",      # a client was stood on this point and seen
     "authored",             # the map's developers wrote the coordinate down
-    "decreed_provisional",  # the owner named it, under an expiry
+    "decreed_provisional",  # the owner named it, under an expiry -- WIDENED
+                             # round n4vqxc, COO-DECISION
+                             # 20260905_1748: a provisional decree MAY also
+                             # carry a `decreed_arrival` block (see the loader
+                             # below), for exactly the case 304/305 are in --
+                             # the owner has not ruled the point permanent,
+                             # but there IS a client MARKER row backing the
+                             # fallback choice and the block still proves it.
+                             # A bare "decreed_provisional" with no block
+                             # (the older, looser shape) stays legal too.
     "chosen_no_evidence",   # picked because the scene offered nothing
     # ADDED round ihjytc, COO-DECISION 20260905_1346 item 3 relaying
     # PANYA-DECISION 20260905_1329: the owner named this point AND a row of
     # the client's own MARKER table carries it, with that row's `n_SCENE`
-    # pointing back at this scene.  It is neither "authored" (rule 1 reads
-    # SCENE_NAME[n].n_MARKER, and this scene's is 0, so rule 1 never reaches
-    # it) nor "decreed_provisional" (there is no expiry: the owner's word was
-    # "permanent, not a temporary value").  The two halves are both REQUIRED -
-    # a `decreed_arrival` block naming the marker id, checked against
-    # `world_marker_copy` - so this tier cannot be worn by a coordinate an
-    # owner named and nothing else backs.
+    # pointing back at this scene, AND the owner's word was "permanent, not a
+    # temporary value" -- the one thing "decreed_provisional" plus a block
+    # cannot claim.  A `decreed_arrival` block is REQUIRED for this tier (see
+    # the loader below); the difference from a provisional decree carrying
+    # the same kind of block is the expiry, not the marker-table backing.
     "decreed_permanent",
 }
 # The shape of the per-row decree that earns "decreed_permanent".
@@ -583,7 +590,11 @@ class SceneDestination:
         so no rule-1 answer is being overridden, (b) the named MARKER row is
         one ``world_marker_copy`` carries verbatim, (c) that row's ``n_SCENE``
         points back at THIS scene, and (d) the row's spawn stands exactly on
-        that marker's point.  One scene carries one today: 126.
+        that marker's point.  One scene carried one as of round ihjytc: 126.
+        ~~One scene carries one today: 126.~~ STRUCK round n4vqxc: 304 and
+        305 carry one too, tagged ``decreed_provisional`` rather than
+        ``decreed_permanent`` (COO-DECISION 20260905_1748) -- see
+        ``world_sea_edge_crossing.py``.
         """
         return self.decreed_arrival_marker != 0
 
@@ -971,11 +982,12 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
                     f"scene {n_id} carries a decreed arrival but its table row "
                     f"already names marker {entry_marker} - rule 1 answers "
                     "for this scene and a decree may not overrule it")
-            if provenance_block["evidence_tier"] != "decreed_permanent":
+            if provenance_block["evidence_tier"] not in (
+                    "decreed_permanent", "decreed_provisional"):
                 raise ValueError(
                     f"scene {n_id} carries a decreed arrival but its evidence "
-                    f"tier is {provenance_block['evidence_tier']!r}, not "
-                    "'decreed_permanent'")
+                    f"tier is {provenance_block['evidence_tier']!r}, neither "
+                    "'decreed_permanent' nor 'decreed_provisional'")
             # THE PAIR, NOT THE MARKER ALONE.  `decreed_arrival_row` refuses
             # to answer unless the scene AND the marker match one pinned row,
             # so "marker 17 points back at scene 126" is proved by the lookup

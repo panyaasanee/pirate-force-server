@@ -139,21 +139,27 @@ COPY_PATH = Path(__file__).parent / "world_data" / "world_marker_crosswalk.json"
 # test, and a round that edits the copy and leaves this pin alone fails
 # load_copy().  Neither can be satisfied by "updating the pin to match myself"
 # without the change appearing in the diff of BOTH files.
-COPY_SHA256 = "ee4f601f215a70547230f9bc3657111f0acfbfc29f0649dbef1236bf0f2f65da"
+COPY_SHA256 = "c030f6fd96a8724f1450fcd4b1b1e1ea2cb083c8c77af1dbacd8f39896fa9117"
 
 # The two source files, named the way the rest of this package names them.
 SCENE_NAME_TSV = "pf_bridge/gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv"
 MARKER_TSV = "pf_bridge/gamedata/tables/CONSTDATA_TH__MARKER.tsv"
 
-# The 18 marker rows kept verbatim: the 13 a scene names, the two the
-# prohibition is argued from, and the three the totals block describes.
-# 130 is the row the shortcut hands scene 130 (it belongs to scene 2), 17 is
-# the row it hands the sea, and 126/127/128 are the three that survive the
-# back-pointer check - world_scene_marker calls them the degenerate (0, 0, z)
-# origin, and until pf-adversary's D9 in this round that sentence was the one
-# claim in the totals block no machine could check.
+# The 20 marker rows kept verbatim: the 13 a scene names, the two the
+# prohibition is argued from, the three the totals block describes, and the
+# two ADDED round n4vqxc, COO-DECISION 20260905_1748: scenes 304
+# and 305 have no self-referencing SCENE_NAME.n_MARKER (both are 0, the same
+# shape as 126), so their arrival points are also owner-decreed reverse
+# lookups and world_scene_marker.DECREED_ARRIVAL_ROWS needs the real rows to
+# check its own literals against.  130 is the row the shortcut hands scene
+# 130 (it belongs to scene 2), 17 is the row it hands the sea, 343/345 are
+# the rows it hands scenes 304/305, and 126/127/128 are the three that
+# survive the back-pointer check - world_scene_marker calls them the
+# degenerate (0, 0, z) origin, and until pf-adversary's D9 in round i8timv
+# that sentence was the one claim in the totals block no machine could check.
 QUOTED_MARKER_IDS = (
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 127, 128, 130, 1000,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 127, 128, 130, 343, 345,
+    1000,
 )
 
 

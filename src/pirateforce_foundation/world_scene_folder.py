@@ -172,6 +172,13 @@ _FOLDER_BY_SCENE_ID = (
     (17, "Bg1001"),
     (126, "Bg3001"),
     (130, "Bg4001"),
+    # 304/305 ADDED round n4vqxc (COO-DECISION 20260905_1748): the two seas a
+    # sea-edge crossing at scene 126's map edge leads to.  Folder spelling
+    # confirmed against the bridge tree, same as every other row here --
+    # `gamedata/scene/Bg3007/` and `gamedata/scene/Bg3008/`, both matching
+    # `s_MODLE_ID` exactly (neither joins SPELLING_DIFFERS_FROM_MODEL_ID).
+    (304, "Bg3007"),
+    (305, "Bg3008"),
     (278, "Bg1177"),
     (997, "FilmScene"),
 )

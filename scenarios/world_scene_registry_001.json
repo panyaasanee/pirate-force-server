@@ -903,6 +903,120 @@
       "login_entry_allowed": true
     },
     {
+      "n_id": 304,
+      "model_id": "Bg3007",
+      "scene_name_source_utf8_hex": "e69a97e99ca7e4b98be6b5b7",
+      "scene_name_ascii": "Dark Fog Sea",
+      "image_name": "Bg3007_air",
+      "native_placement_count": 66,
+      "native_definition_count": 58,
+      "native_sha256": "01251b258b057ff76eb5dd1f16536f30092544853b0874a2850d3d76a16c6edb",
+      "role": "m2_sea_edge_crossing_destination",
+      "status": "NEVER SENT TO ANY CLIENT BY THIS PROJECT.  ADDED round n4vqxc, COO-DECISION 20260905_1748 (answering LANE-A's own 20260905_1639), as the SECOND of two seas reachable by crossing scene 126's own map edge -- the boundary crossing itself has no responder yet (see world_sea_edge_crossing.py, this same round); this row exists so the responder has a real arrival point to read once one is wired.  login_entry_allowed is false: no ordinary login path resolves here.  pf-adversary (round n4vqxc) measured that the first draft of this sentence was wrong: adding a decreed_arrival block makes has_authored_entry true, which is also what gm.warp_executor.warp_no_coords_live_target gates on, so a bare GM /warp 304 (or /warp 305) already resolves and sends a live TeleportVital today -- the same widening #838 already made for scene 126, here as an accepted side effect of reusing that gate rather than a separate decision.  GM-gated only: accounts.is_gm_account still refuses any non-GM session before /warp is reached.  What the sea-edge responder in world_sea_edge_crossing.py still lacks is the ORDINARY-PLAYER route (a real ship crossing scene 126's map edge) -- that is chief's one-line hookup, not yet on main.",
+      "login_entry_allowed": false,
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 10,
+        "n_SCENE_TYPE": 8,
+        "n_SCENE_SUBTYPE": 14,
+        "n_CLINE_TYPE": 3007,
+        "n_CANGLIDE": 0,
+        "n_CANRIDE": 0,
+        "n_LIMIT_HEIGHT": 0,
+        "n_SAVE": 0,
+        "n_MARKER": 0,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 0,
+        "n_SCENE_LV": 30,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "why_this_entry_exists": "Scene 304 is one of the two seas COO-DECISION 20260905_1329/1348 item 6 names as reachable by crossing scene 126's own map edge (the western edge, per R318's own boundary measurement, X<=-8090). It has no SCENE_NAME.n_MARKER of its own (0, same shape as 126), and the client's MARKER table gives 7 candidate rows for n_SCENE==304 rather than one obvious arrival point (LANE-A 20260905_1639). No committed table maps the wire-level boundary trigger id (7, observed on 0x1FB2 at this edge, R318) to a destination row: CONSTDATA_TH__Trigger.tsv's own id 7 is 'Viper Wicket', a dungeon entrance, and TEXTDATA_TH__Trigger_TIP.tsv agrees -- a different id space than the wire ids R318 observed, exactly as RE-265 already found for five of the seven. So COO-DECISION 20260905_1748 item 3's fallback applies: the candidate marker furthest in the direction a ship entering FROM 126's western edge would be travelling, i.e. furthest X. Excluded from the 7 candidates: none degenerate here (348's (0,0,100) origin belongs to scene 305's candidate set, not this one); n_ID 70 in scene 305's set duplicates n_ID 347's coordinate, also not this scene's set.",
+        "table_row_provenance": "CONSTDATA_TH__SCENE_NAME.tsv row n_ID=304, sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b (same table, same hash as this file's own provenance.scene_name_table_sha256). n_MARKER for THIS row is 0, the same shape as scene 126 before round ihjytc.",
+        "why_not_rule_1": "n_MARKER for this scene's own SCENE_NAME row is 0, so rule 1 (COO-DECISION 20260829_0542) never reaches it -- there is nothing to deviate from, so deviates_from_rule_1 is false.",
+        "native_placement_provenance": "pf_bridge/gamedata/PF_GAMEDATA_SCENE_INDEX.tsv row 'Bg3007': placement_count=66, definition_count=58, src_sha256=01251b258b057ff76eb5dd1f16536f30092544853b0874a2850d3d76a16c6edb. Re-verify on the bridge with sha256sum gamedata/scene/Bg3007/Bg3007.placements.tsv against that index row's own src_sha256 column, the same recipe this file's own top-level provenance block uses for every other pinned scene.",
+        "ground_is_null_because": "Not measured this round, on purpose: this row's only job is the arrival point the sea-edge responder needs, and adding a ground block would turn on world_scene_travel._spawn()'s bound check against real placement extents nobody has computed yet -- the same reasoning scene 126's own row gives for the same field."
+      },
+      "decreed_arrival": {
+        "marker_n_id": 343,
+        "heading": 9,
+        "authority": "COO-DECISION 20260905_1748 item 3 (criterion A, entry-direction fallback)",
+        "reverse_lookup": "MARKER.tsv row 343 carries n_SCENE=304 and the furthest n_X (6918) of the seven rows naming scene 304 (20, 21, 93, 95, 96, 343, 344) -- see LANE-A 20260905_1639 for the full candidate table."
+      },
+      "spawn": {
+        "x": 6918.0,
+        "y": -792.0,
+        "z": 90.0,
+        "provenance": "CONSTDATA_TH__MARKER.tsv row n_ID=343's own x/y/z, not an invented number; see coordinate_provenance below and world_scene_marker.DECREED_ARRIVAL_ROWS, which pins the same tuple and is what this file's loader checks it against."
+      },
+      "coordinate_provenance": {
+        "source": "constdata_th_marker_tsv_reverse_lookup_criterion_a",
+        "from_marker": false,
+        "marker_n_id": null,
+        "evidence_tier": "decreed_provisional",
+        "note": "MARKER.tsv row 343 carries n_SCENE=304 and the furthest n_X (6918) of the seven rows naming scene 304 (20, 21, 93, 95, 96, 343, 344) -- see LANE-A 20260905_1639 for the full candidate table.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null
+    },
+    {
+      "n_id": 305,
+      "model_id": "Bg3008",
+      "scene_name_source_utf8_hex": "e892bce98a80e4b98be6b5b7",
+      "scene_name_ascii": "Pale Silver Sea",
+      "image_name": "Bg3008_air",
+      "native_placement_count": 59,
+      "native_definition_count": 58,
+      "native_sha256": "98130d85777390cc8b3f99140a24455d36587b59ad80b30371fb70d922130c90",
+      "role": "m2_sea_edge_crossing_destination",
+      "status": "NEVER SENT TO ANY CLIENT BY THIS PROJECT.  ADDED round n4vqxc, COO-DECISION 20260905_1748 (answering LANE-A's own 20260905_1639), as the SECOND of two seas reachable by crossing scene 126's own map edge -- the boundary crossing itself has no responder yet (see world_sea_edge_crossing.py, this same round); this row exists so the responder has a real arrival point to read once one is wired.  login_entry_allowed is false: no ordinary login path resolves here.  pf-adversary (round n4vqxc) measured that the first draft of this sentence was wrong: adding a decreed_arrival block makes has_authored_entry true, which is also what gm.warp_executor.warp_no_coords_live_target gates on, so a bare GM /warp 304 (or /warp 305) already resolves and sends a live TeleportVital today -- the same widening #838 already made for scene 126, here as an accepted side effect of reusing that gate rather than a separate decision.  GM-gated only: accounts.is_gm_account still refuses any non-GM session before /warp is reached.  What the sea-edge responder in world_sea_edge_crossing.py still lacks is the ORDINARY-PLAYER route (a real ship crossing scene 126's map edge) -- that is chief's one-line hookup, not yet on main.",
+      "login_entry_allowed": false,
+      "table_row": {
+        "n_SCENE_WEATHER": 5,
+        "n_SCENE_DAYANDNIGHT": 10,
+        "n_SCENE_TYPE": 8,
+        "n_SCENE_SUBTYPE": 14,
+        "n_CLINE_TYPE": 3008,
+        "n_CANGLIDE": 0,
+        "n_CANRIDE": 0,
+        "n_LIMIT_HEIGHT": 0,
+        "n_SAVE": 0,
+        "n_MARKER": 0,
+        "n_CAMERA_TYPE": 1,
+        "n_COLLECT_MAP": 0,
+        "n_SCENE_LV": 80,
+        "n_VIDEO_NAME": 0
+      },
+      "table_row_differences": {
+        "why_this_entry_exists": "Scene 305 is the other of the two seas COO-DECISION 20260905_1329/1348 item 6 names as reachable by crossing scene 126's own map edge (the southern edge, per R318's own boundary measurement, Y<=-8384, wire trigger id 69). It has no SCENE_NAME.n_MARKER of its own (0, same shape as 126), and the client's MARKER table gives 11 candidate rows for n_SCENE==305 -- the largest of any sea in this project (LANE-A 20260905_1639), including a duplicate coordinate pair (n_ID 70 == n_ID 347, both (5795, 2538, 70) dir 9) and a degenerate (0, 0, 100) origin (n_ID 348, EXCLUDED from the candidate set, same shape as scenes 126/127/128's own degenerate MARKER rows). No committed table maps the wire-level boundary trigger id (69, observed on 0x1FB2 at this edge, R318) to a destination row: CONSTDATA_TH__Trigger.tsv's own id 69 is 'Ground Site Entrance', a structure, and TEXTDATA_TH__Trigger_TIP.tsv agrees -- a different id space than the wire ids R318 observed. So COO-DECISION 20260905_1748 item 3's fallback applies: the candidate marker furthest in the direction a ship entering FROM 126's southern edge would be travelling, i.e. furthest Y.",
+        "table_row_provenance": "CONSTDATA_TH__SCENE_NAME.tsv row n_ID=305, sha256 e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b (same table, same hash as this file's own provenance.scene_name_table_sha256). n_MARKER for THIS row is 0, the same shape as scene 126 before round ihjytc.",
+        "why_not_rule_1": "n_MARKER for this scene's own SCENE_NAME row is 0, so rule 1 (COO-DECISION 20260829_0542) never reaches it -- there is nothing to deviate from, so deviates_from_rule_1 is false.",
+        "native_placement_provenance": "pf_bridge/gamedata/PF_GAMEDATA_SCENE_INDEX.tsv row 'Bg3008': placement_count=59, definition_count=58, src_sha256=98130d85777390cc8b3f99140a24455d36587b59ad80b30371fb70d922130c90. Re-verify on the bridge with sha256sum gamedata/scene/Bg3008/Bg3008.placements.tsv against that index row's own src_sha256 column, the same recipe this file's own top-level provenance block uses for every other pinned scene.",
+        "ground_is_null_because": "Not measured this round, on purpose: this row's only job is the arrival point the sea-edge responder needs, and adding a ground block would turn on world_scene_travel._spawn()'s bound check against real placement extents nobody has computed yet -- the same reasoning scene 126's own row gives for the same field."
+      },
+      "decreed_arrival": {
+        "marker_n_id": 345,
+        "heading": 6,
+        "authority": "COO-DECISION 20260905_1748 item 3 (criterion A, entry-direction fallback)",
+        "reverse_lookup": "MARKER.tsv row 345 carries n_SCENE=305 and the furthest n_Y (4819) of the eleven rows naming scene 305 (41, 42, 70, 101, 102, 111, 336, 345, 346, 347, 348) once the degenerate origin (348) is excluded -- see LANE-A 20260905_1639 for the full candidate table."
+      },
+      "spawn": {
+        "x": 1538.0,
+        "y": 4819.0,
+        "z": 70.0,
+        "provenance": "CONSTDATA_TH__MARKER.tsv row n_ID=345's own x/y/z, not an invented number; see coordinate_provenance below and world_scene_marker.DECREED_ARRIVAL_ROWS, which pins the same tuple and is what this file's loader checks it against."
+      },
+      "coordinate_provenance": {
+        "source": "constdata_th_marker_tsv_reverse_lookup_criterion_a",
+        "from_marker": false,
+        "marker_n_id": null,
+        "evidence_tier": "decreed_provisional",
+        "note": "MARKER.tsv row 345 carries n_SCENE=305 and the furthest n_Y (4819) of the eleven rows naming scene 305 (41, 42, 70, 101, 102, 111, 336, 345, 346, 347, 348) once the degenerate origin (348) is excluded -- see LANE-A 20260905_1639 for the full candidate table.",
+        "deviates_from_rule_1": false
+      },
+      "ground": null
+    },
+    {
       "n_id": 278,
       "model_id": "Bg1177",
       "scene_name_source_utf8_hex": "e6b299e78198e8b6b3e79083e5a0b4285445535429",

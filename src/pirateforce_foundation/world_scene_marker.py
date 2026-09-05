@@ -468,8 +468,33 @@ SHORTCUT_AT_SCENE_17 = (126, 3050, 232, 90)
 # ADDING A ROW HERE IS NOT A LICENCE.  It records what the client's table
 # says; whether a scene may USE such a row as its arrival point is an owner
 # decision, named per-row in the registry's `decreed_arrival.authority`.
+#
+# 343 (scene 304, Dark Fog Sea) and 345 (scene 305, Pale Silver Sea) were
+# added under COO-DECISION 20260905_1748, answering LANE-A's own
+# 20260905_1639: neither 304's nor 305's SCENE_NAME.n_MARKER is anything but
+# 0 (the same shape scene 126 was in before round ihjytc), and the client's
+# MARKER table gives each sea a whole CANDIDATE SET rather than one obvious
+# row -- 304 has 7 candidates, 305 has 11, one pair share a coordinate
+# (70 == 347) and one is the degenerate (0, 0, 100) origin (348, EXCLUDED,
+# same shape as 126/127/128).  With no table naming which candidate a
+# boundary crossing should land on, 1748 item 3 orders the fallback: the
+# candidate whose coordinate lies furthest in the direction a ship crossing
+# INTO that sea from scene 126 would be travelling -- furthest X for 304
+# (entered from 126's western edge), furthest Y for 305 (entered from 126's
+# southern edge).  Transcribed raw n_Y for 343 is 4294966504, which is
+# s32(4294966504) == -792 (see world_marker_copy.s32); 345's n_X/n_Y need no
+# conversion.  Tagged `decreed_provisional` in the registry, not
+# `decreed_permanent`: the owner has not ruled on either scene the way she
+# ruled on 126, so this pair may still change in one JSON value with no code
+# edit if a table-authored answer for the wire trigger ids ever turns up
+# (searched this round: CONSTDATA_TH__Trigger.tsv/TEXTDATA_TH__Trigger_TIP.tsv
+# carry no destination-scene or coordinate column for any id, and id 7/69
+# there name a dungeon and a structure, not a sea -- a different id space
+# than the wire ids R318 observed at scene 126's edges, per RE-265).
 DECREED_ARRIVAL_ROWS = (
     (17, 126, 3050, 232, 90, 6),
+    (343, 304, 6918, -792, 90, 9),
+    (345, 305, 1538, 4819, 70, 6),
 )
 
 

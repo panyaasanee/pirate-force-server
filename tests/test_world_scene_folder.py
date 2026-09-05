@@ -219,7 +219,8 @@ class TheReaderIsNotModelIdTest(unittest.TestCase):
         self.assertEqual(lower_is_right, (1, 4, 5, 6))
         self.assertEqual(
             lower_is_wrong,
-            (2, 3, 7, 8, 9, 10, 11, 14, 17, 126, 130, 278, 997))
+            # 304/305 ADDED round n4vqxc: Bg3007/Bg3008, capitalized like 126.
+            (2, 3, 7, 8, 9, 10, 11, 14, 17, 126, 130, 278, 304, 305, 997))
         # And the verbatim model id is wrong for the six the module names.
         verbatim_is_wrong = tuple(sorted(
             scene_id for scene_id, folder in wsf._FOLDER_BY_SCENE_ID
