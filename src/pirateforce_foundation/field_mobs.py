@@ -738,8 +738,14 @@ def lane_withheld_reason(scene: str) -> str:
 
     A reader, not a decoration: a withheld list with no reason beside it is
     the write-only literal ``OWNER_REFUSAL_REASON`` already was once (round
-    z096sw, pf-adversary D4), and the test file for this change asserts the
-    two dictionaries cover exactly the same scenes.
+    z096sw, pf-adversary D4).  ~~the test file for this change asserts the
+    two dictionaries cover exactly the same scenes~~ WAS A PROMISE WITH NO
+    TEST BEHIND IT (pf-adversary D6 of round j5v7mu2, measured: adding two
+    withheld scenes with no reason entries survived the whole suite).  The
+    assertion exists now, in ``tests/test_field_mobs.py``'s
+    ``CrossSceneIdentityCollisionTests.test_the_withheld_list_and_its_
+    reason_cover_the_same_scenes``, which also pins the reason's VALUE --
+    a reason that does not name its ruling cannot be traced back to one.
     """
     if type(scene) is not str or not scene:
         raise FieldMobContractError("scene must be non-empty text")

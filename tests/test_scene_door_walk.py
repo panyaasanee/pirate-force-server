@@ -14,12 +14,19 @@ transcript, and ROUND j5v7mu2 (pf-adversary D7) corrected the field names --
 the earlier version of this block invented ``refused_by_owner``/``withheld``,
 which is not what ``describe_scene_doors`` prints and is not greppable::
 
-    SCENE_DOORS scene='Bg0002' rows=12 owner_refusal_list=8 lane_withheld=0 ai=open target=12 kill=12 drop=12 every_door=yes
-    SCENE_DOORS scene='Bg0003' rows=12 owner_refusal_list=0 lane_withheld=0 ai=open target=12 kill=12 drop=12 every_door=yes
-    SCENE_DOORS scene='Bg0015' rows=11 owner_refusal_list=0 lane_withheld=1 ai=open target=11 kill=11 drop=11 every_door=yes
-    SCENE_DOORS scene='bg0001' rows=4  owner_refusal_list=0 lane_withheld=0 ai=open target=4  kill=4  drop=0  every_door=no
-    SCENE_DOORS scene='bg0005' rows=6  owner_refusal_list=0 lane_withheld=0 ai=open target=6  kill=6  drop=6  every_door=yes
+    SCENE_DOORS scene='Bg0002' rows=12 owner_refusal_list=8 lane_withheld=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
+    SCENE_DOORS scene='Bg0003' rows=12 owner_refusal_list=0 lane_withheld=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
+    SCENE_DOORS scene='Bg0015' rows=11 owner_refusal_list=0 lane_withheld=1 ai=open target=11 kill=11 drop=11 every_door=yes short=none
+    SCENE_DOORS scene='bg0001' rows=4 owner_refusal_list=0 lane_withheld=0 ai=open target=4 kill=4 drop=0 every_door=no short=103/t916,105/t916,107/t916,109/t916
+    SCENE_DOORS scene='bg0005' rows=6 owner_refusal_list=0 lane_withheld=0 ai=open target=6 kill=6 drop=6 every_door=yes short=none
     SCENE_DOORS summary live_scenes=5 owner_refusal_list=8 lane_withheld=1(Bg0015:1) every_door=Bg0002,Bg0003,Bg0015,bg0005
+
+``short=`` WAS MISSING FROM THIS BLOCK TWICE (pf-adversary D-C).  It is the
+field that names WHICH rows fell short, which is the denominator question the
+whole file is about, and it had no assertion anywhere in the repo -- a mutant
+returning ``()`` from ``rows_short_of_every_door`` printed ``short=none`` for
+bg0001's four undroppable dummies and nothing noticed.  It is asserted now, in
+``test_the_short_field_names_the_rows_and_is_not_decoration``.
 
 NOBODY PRINTS THESE (pf-adversary D7).  ``scene_door_walk`` has no production
 caller -- grepped across ``src/``, ``tools/`` and ``current/``; the module's
@@ -205,6 +212,30 @@ class WalkTheShippedRosterTests(unittest.TestCase):
         self.assertIn("lane_withheld=1", line)
         self.assertIn("every_door=yes", line)
 
+    def test_the_short_field_names_the_rows_and_is_not_decoration(self):
+        """pf-adversary D-C: the one field on the line nothing asserted.
+
+        Pinned from both sides -- a scene with rows short must NAME them,
+        and a scene with none must say ``none`` -- so neither "the field
+        went blank" nor "the field always lists something" can pass.
+        """
+        town = scene_door_walk.describe_scene_doors(self.walked["bg0001"])
+        self.assertIn(
+            "short=103/t916,105/t916,107/t916,109/t916", town)
+        for scene in (SCENE_THREE, "bg0005", "Bg0015"):
+            line = scene_door_walk.describe_scene_doors(self.walked[scene])
+            self.assertIn("short=none", line, scene)
+        # And the field agrees with the record it is formatted from.
+        for scene, one in self.walked.items():
+            line = scene_door_walk.describe_scene_doors(one)
+            named = line.split("short=")[1]
+            for row in one.rows_short_of_every_door:
+                self.assertIn(
+                    "%d/t%d" % (row.placement_index, row.template_id),
+                    named, scene)
+            if not one.rows_short_of_every_door:
+                self.assertEqual(named, "none", scene)
+
     def test_the_summary_line_says_which_scene_withheld_a_row(self):
         """ROUND j5v7mu2, pf-adversary D7.
 
@@ -233,6 +264,33 @@ class WalkTheShippedRosterTests(unittest.TestCase):
             "Bg0015", lane_withheld=(87,), ai_register=True)
         self.assertEqual(
             scene_door_walk._withheld_by_scene((nothing, one)), "1(Bg0015:1)")
+
+    def test_the_scene_name_in_the_summary_is_bounded_and_cp874_safe(self):
+        """pf-adversary D-G: the guard this helper's docstring claims.
+
+        The first version of that claim was unfalsifiable -- the only names
+        the test fed it were ``Bg0015`` and ``bg0001``, both short ASCII, so
+        dropping ``_console_scene`` from the helper left the suite green.
+        The two inputs below are the two failures ``_console_scene`` exists
+        for and they are this module's own scars: a 5,000-character name
+        turned a bounded report line into a 5,052-character one, and one
+        U+2011 in a name copied out of a document made a cp874 ``print``
+        raise inside the report.
+        """
+        long_name = scene_door_walk.SceneDoors(
+            "x" * 5000, lane_withheld=(87,), ai_register=True)
+        line = scene_door_walk._withheld_by_scene((long_name,))
+        self.assertLess(
+            len(line),
+            scene_door_walk.SCENE_NAME_ON_A_CONSOLE_LINE + 32)
+        non_ascii = scene_door_walk.SceneDoors(
+            "Bg\u2011015", lane_withheld=(87,), ai_register=True)
+        escaped = scene_door_walk._withheld_by_scene((non_ascii,))
+        self.assertTrue(escaped.isascii())
+        escaped.encode("cp874")
+        # ESCAPED, NOT DROPPED: a name that was wrong stays recognisable in
+        # the line that says so, same as every other field here.
+        self.assertIn("Bg", escaped)
 
     def test_the_training_dummies_die_and_drop_nothing_and_that_is_the_row(self):
         """bg0001's four rows: killable, dropping nothing, by their own table.

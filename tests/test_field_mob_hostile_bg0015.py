@@ -65,6 +65,127 @@ SHIPPED_MEASURED_IDENTITIES = {
 }
 
 
+class AnOwnerRefusalForSceneFourteenTests(unittest.TestCase):
+    """ROUND j5v7mu2, pf-adversary D-A: the union branch, RUN.
+
+    Round j5v7mu2 changed ``scene14_shipped_hostile_roster`` and
+    ``DEFAULT_HOSTILE_PLACEMENT_INDICES`` to subtract BOTH of
+    ``field_mobs``'s refusal lists instead of the lane's alone -- and every
+    test it wrote for that change computed its own expected value from the
+    same union, whose left operand is EMPTY today.  Measured by the
+    adversary: reverting the whole fix left the full suite green, 10590
+    passed.  A guard whose branch has never executed is not a guard.
+
+    So this class makes the left operand non-empty.  It rewrites
+    ``field_mobs.OWNER_REFUSED_PLACEMENTS`` for the duration of one test and
+    RELOADS the hostile module, because ``DEFAULT_HOSTILE_PLACEMENT_INDICES``
+    is computed at import and cannot be observed any other way.
+
+    WHY THE SCENARIO IS NOT HYPOTHETICAL, since that is the fair objection:
+    ``mob_census_hostility.assert_owner_refusals_match_scene_source`` does
+    not forbid a Bg0015 entry -- it requires one to be traceable to a mined
+    source table carrying the owner's own reason string, exactly as Bg0002's
+    is.  Scene 14 has no such ruling today.  The day it gets one, the
+    one-list version splices a hostile body, on every arrival, for a
+    placement whose combat ledger has no row.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def _with_owner_refusal(self, indices):
+        """Reload the module under a patched owner list, and restore it.
+
+        The reload is what makes the module-level constant observable; the
+        restore is unconditional so a failure here cannot leak a fake owner
+        ruling into another test in the same process.
+        """
+        import importlib
+        original = dict(field_mobs.OWNER_REFUSED_PLACEMENTS)
+        field_mobs.OWNER_REFUSED_PLACEMENTS["Bg0015"] = indices
+        try:
+            module = importlib.reload(hostile_bg0015)
+            yield_value = (
+                module.DEFAULT_HOSTILE_PLACEMENT_INDICES,
+                tuple(mob.placement_index
+                      for mob in module.scene14_shipped_hostile_roster()),
+                tuple(mob.placement_index
+                      for mob in field_mobs.load_roster(scene="Bg0015")),
+                module,
+            )
+        finally:
+            field_mobs.OWNER_REFUSED_PLACEMENTS.clear()
+            field_mobs.OWNER_REFUSED_PLACEMENTS.update(original)
+        return yield_value
+
+    def tearDown(self):
+        # Whatever the test did, the module the rest of the suite imports
+        # must be the one built from the real tables.
+        import importlib
+        self.assertEqual(
+            field_mobs.owner_refused_placements("Bg0015"), ())
+        importlib.reload(hostile_bg0015)
+
+    def test_an_owner_refusal_drops_the_row_from_both_answers(self) -> None:
+        default, shipped, live, _ = self._with_owner_refusal((22,))
+        # THE BRANCH THAT HAD NEVER RUN: 22 is not lane-withheld, so only the
+        # owner half of the union can remove it.
+        self.assertNotIn(22, default)
+        self.assertNotIn(22, shipped)
+        self.assertNotIn(22, live)
+        # And the lane's own row is still gone, so the union is a union and
+        # not a swap.
+        self.assertNotIn(87, shipped)
+        self.assertEqual(shipped, live)
+        self.assertEqual(tuple(default), shipped)
+        self.assertEqual(len(shipped), 10)
+
+    def test_the_one_list_version_is_what_this_test_would_catch(self) -> None:
+        """The counter-example, stated as an assertion rather than a comment.
+
+        With an owner refusal in place, the LANE list alone answers 11 rows
+        while ``load_roster`` answers 10.  That difference is what the
+        production union prevents, and it is the number the reverted code
+        would produce.
+        """
+        default, shipped, live, module = self._with_owner_refusal((22,))
+        mined = {mob.placement_index
+                 for mob in module.scene14_hostile_roster()}
+        lane_only = mined - set(
+            field_mobs.LANE_WITHHELD_PLACEMENTS.get("Bg0015", ()))
+        self.assertEqual(len(lane_only), 11)
+        self.assertEqual(len(live), 10)
+        self.assertNotEqual(sorted(lane_only), sorted(live))
+        self.assertEqual(sorted(shipped), sorted(live))
+
+    def test_a_refusal_list_that_empties_the_roster_refuses_by_name(
+            self) -> None:
+        """pf-adversary D-H: the degenerate config, on both paths.
+
+        ``load_roster`` refuses it loudly.  Before this round the shipped
+        roster returned ``()`` in silence and the arrival splice then died
+        blaming an argument its caller never passed.
+        """
+        import importlib
+        every = tuple(sorted(
+            row[0] for row in field_mob_tables_bg0015.HOSTILE_PLACEMENTS))
+        original = dict(field_mobs.OWNER_REFUSED_PLACEMENTS)
+        field_mobs.OWNER_REFUSED_PLACEMENTS["Bg0015"] = every
+        try:
+            module = importlib.reload(hostile_bg0015)
+            with self.assertRaises(field_mobs.FieldMobContractError):
+                field_mobs.load_roster(scene="Bg0015")
+            with self.assertRaises(
+                    module.FieldMobHostileBg0015Error) as caught:
+                module.scene14_shipped_hostile_roster()
+            self.assertIn("removes every row", str(caught.exception).replace(
+                "remove every row", "removes every row"))
+        finally:
+            field_mobs.OWNER_REFUSED_PLACEMENTS.clear()
+            field_mobs.OWNER_REFUSED_PLACEMENTS.update(original)
+
+
 class FieldMobHostileBg0015Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
