@@ -134,11 +134,24 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           # The repository carries no requirements.txt, no pyproject.toml and no
           # conftest.py; tests reach src/ by sys.path.insert(0, ROOT/"src").
-          # THIS LINE IS THE REPOSITORY'S DEPENDENCY DECLARATION - the four
-          # names below are every third-party name imported anywhere under
-          # tests/ or tools/.  Adding an import means adding it here.
+          # THIS LINE IS THE REPOSITORY'S DEPENDENCY DECLARATION for CI: the
+          # four names below are what the suite the gate RUNS needs to import.
+          # It is NOT "every third-party name in the tree", and do not read it
+          # that way (pf-adversary R360 D17 killed the earlier wording, which
+          # claimed exactly that and was false in both directions):
+          #   - frida IS imported by 10 files under tools/ and is deliberately
+          #     NOT installed here.  Those probes only ever run attached to a
+          #     live client on the bridge box; installing an instrumentation
+          #     toolkit on eight lanes' CI to satisfy a comment would be the
+          #     wrong fix.  Do not add it.
+          #   - lupa is NOT imported under tests/ or tools/ at all; the import
+          #     is src/pirateforce_foundation/script_host.py, which the suite
+          #     loads.  It is here because the gate must run those tests, not
+          #     because a test file names it.
+          # Adding an import that the GATE must satisfy means adding it here.
           # lupa is pinned because the LANE-Q Lua host is built against a
-          # specific embedding API; the bridge box installs the same 2.8.
+          # specific embedding API; the bridge box installs the same 2.8
+          # (bridge note 20260905_2248: LUPA_OK 2.8 on py 3.14.7 Windows).
           py -3 -m pip install --disable-pip-version-check --quiet --upgrade pip
           if ($LASTEXITCODE -ne 0) { throw 'pip self-upgrade failed' }
           py -3 -m pip install --disable-pip-version-check --quiet pytest capstone pefile lupa==2.8
