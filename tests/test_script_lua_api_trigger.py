@@ -8,6 +8,7 @@ same as the rest of ``tests/test_script_*``).
 """
 import threading
 import unittest
+import unittest.mock
 
 from pf_preconditions import LUPA_PACKAGE
 
@@ -97,9 +98,15 @@ class TriggerStatusRegistryTests(unittest.TestCase):
         self.assertEqual(reg.get_status("bg0001", 1), 1)
 
     def test_concurrent_next_status_on_one_trigger_never_loses_a_step(self):
-        # The mutant this guards against: next_status reading and writing
-        # under TWO separate lock acquisitions instead of one, which lets a
-        # second thread's read-modify-write interleave and lose a step.
+        # A statistical sanity check, not the proof -- see the deterministic
+        # test right below.  pf-adversary (this round) measured that THIS
+        # test alone gives zero actual protection: removing next_status's
+        # outer lock (reading and writing under two separate acquisitions
+        # instead of one) still passes it every time under CPython's normal
+        # scheduler, because each get_status/set_status call is too fast
+        # for the interpreter to switch threads inside the gap.  Kept as a
+        # real-world sanity check (it DOES pass on correct code, at real
+        # thread counts, with no mocking), not as the regression guard.
         reg = trigger.TriggerStatusRegistry()
         iterations = 200
 
@@ -113,6 +120,68 @@ class TriggerStatusRegistryTests(unittest.TestCase):
         for th in threads:
             th.join()
         self.assertEqual(reg.get_status("bg0001", 1), iterations * len(threads))
+
+    def test_next_status_holds_the_lock_for_its_whole_read_modify_write(self):
+        # THE deterministic regression guard for the mutant named above,
+        # timing-independent: pause a next_status call (in a background
+        # thread) right after its internal read, then, from THIS thread,
+        # try to acquire the registry's own lock with a short timeout.  If
+        # next_status wraps its read and write in one lock acquisition (an
+        # RLock, exclusive across threads), that acquire attempt MUST fail
+        # -- the lock is still held.  If a future edit split next_status
+        # into two separate lock acquisitions (get_status's own, then
+        # set_status's own, with a gap between), this thread's acquire
+        # would succeed while the background thread is paused mid-gap, and
+        # the assertion below catches that directly rather than hoping a
+        # race manifests statistically.
+        reg = trigger.TriggerStatusRegistry()
+        reg.set_status("bg0001", 1, 10)
+        original_get_status = trigger.TriggerStatusRegistry.get_status
+        paused_after_read = threading.Event()
+        release_reader = threading.Event()
+
+        def paused_get_status(self, scene, trigger_id):
+            value = original_get_status(self, scene, trigger_id)
+            paused_after_read.set()
+            release_reader.wait(timeout=5)
+            return value
+
+        with unittest.mock.patch.object(
+                trigger.TriggerStatusRegistry, "get_status", paused_get_status):
+            worker = threading.Thread(
+                target=reg.next_status, args=("bg0001", 1))
+            worker.start()
+            self.assertTrue(
+                paused_after_read.wait(timeout=5),
+                "next_status never reached its paused read")
+            lock_was_free = reg._lock.acquire(timeout=0.2)
+            if lock_was_free:
+                reg._lock.release()
+            release_reader.set()
+            worker.join(timeout=5)
+
+        self.assertFalse(
+            lock_was_free,
+            "the registry's lock was free between next_status's read and "
+            "write -- a second caller could interleave here and lose a step")
+        self.assertEqual(reg.get_status("bg0001", 1), 11)
+
+    def test_a_non_positive_triggers_per_scene_cap_is_refused_at_construction(self):
+        # The one door on this class that IS allowed to raise -- a caller
+        # (test/production code) programming error, never reachable from a
+        # script.  Named explicitly because an earlier draft's class
+        # docstring claimed "never raises" without this carve-out
+        # (pf-adversary, this round).
+        with self.assertRaises(ValueError):
+            trigger.TriggerStatusRegistry(triggers_per_scene=0)
+        with self.assertRaises(ValueError):
+            trigger.TriggerStatusRegistry(triggers_per_scene=-1)
+
+    def test_a_non_positive_scenes_cap_is_refused_at_construction(self):
+        with self.assertRaises(ValueError):
+            trigger.TriggerStatusRegistry(scenes=0)
+        with self.assertRaises(ValueError):
+            trigger.TriggerStatusRegistry(scenes=True)  # bool is an int; refused anyway
 
     def test_install_and_accessor_hand_back_the_same_process_singleton(self):
         first = trigger.trigger_status_registry()
@@ -170,6 +239,48 @@ class RealTriggerNamespaceTests(unittest.TestCase):
         self.assertEqual(reg.get_status("bg0001", 77), 9)
         # the context's OWN trigger (55) is untouched
         self.assertEqual(reg.get_status("bg0001", 55), trigger.STUB_DEFAULT)
+
+    def test_wrong_arity_real_calls_degrade_safely_instead_of_raising(self):
+        # CRITICAL, pf-adversary (this round): the first draft's real
+        # closures had fixed positional parameters, so a wrong-arity call
+        # (impossible from the shipped corpus today -- every real call site
+        # is grepped at the exact arity below -- but not impossible from a
+        # future or corrupted script, and this Lua host's whole charter is
+        # "untrusted input must never crash the host") raised a raw Python
+        # TypeError straight out of ScriptHost.call, breaking the one
+        # invariant every OTHER name in this file still has via `*args`.
+        ns, calls = self._namespace(
+            context=trigger.TriggerContext("bg0001", 1),
+            registry=trigger.TriggerStatusRegistry())
+        cases = [
+            ("GetTriggerStatus", ()),
+            ("GetTriggerStatus", (1, 2)),
+            ("SetStatus", ()),
+            ("SetStatus", (1, 2, 3)),
+            ("NextStatus", (1,)),
+            ("SetTriggerStatus", (1,)),
+            ("SetTriggerStatus", ()),
+        ]
+        for name, args in cases:
+            with self.subTest(method=name, argc=len(args)):
+                calls.clear()
+                result = ns[name](*args)  # must not raise
+                self.assertEqual(result, trigger.STUB_DEFAULT)
+                self.assertEqual(len(calls), 1)
+                self.assertTrue(calls[0].startswith(
+                    "LUA_TRIGGER_BAD_ARITY Trigger.%s " % name), calls)
+
+    def test_correct_arity_real_calls_are_unaffected_by_the_arity_guard(self):
+        # The guard must not turn into a second stub for well-formed calls
+        # -- every real call site the corpus actually has.
+        reg = trigger.TriggerStatusRegistry()
+        ns, _calls = self._namespace(
+            context=trigger.TriggerContext("bg0001", 1), registry=reg)
+        self.assertEqual(ns["SetStatus"](5), 5)
+        self.assertEqual(ns["NextStatus"](), 6)
+        self.assertEqual(ns["GetTriggerStatus"](1), 6)
+        self.assertEqual(ns["SetTriggerStatus"](2, 9), 9)
+        self.assertEqual(reg.get_status("bg0001", 2), 9)
 
     def test_a_still_stubbed_method_logs_lua_api_stub_exactly_like_before(self):
         ns, calls = self._namespace()

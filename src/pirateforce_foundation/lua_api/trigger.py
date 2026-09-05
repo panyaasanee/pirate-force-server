@@ -26,6 +26,25 @@ So this round makes the first five real; the other twelve keep the exact
 ``ApiNamespaceStub`` contract (log ``LUA_API_STUB``, return
 :data:`script_host.STUB_DEFAULT`) they had before this file existed.
 
+WRONG-ARITY CALLS DO NOT CRASH THE HOST, MEASURED (pf-adversary, this
+round).  A first draft gave the five real closures fixed positional
+parameters (``def set_status(status): ...``), which is exactly right for
+every call site the 616-file corpus actually has (grepped: ``SetStatus``
+is always called with 1 argument, ``NextStatus`` with 0, and so on) but
+silently dropped the invariant every OTHER name in this file still keeps
+-- ``script_host.py``'s own module docstring: "a script that calls any of
+[the 160 names] gets a safe, logged, non-crashing answer instead of ... an
+error."  ``Trigger.SetStatus()`` (0 args) or ``Trigger.NextStatus(1)`` (1
+arg) raised a raw Python ``TypeError`` straight out of ``ScriptHost.call``
+-- dormant only because no shipped script happens to call these five names
+at the wrong arity today, and a live landmine for the day one does (a
+corrupted file, a future quest-editor-authored script, or simply the next
+namespace copying this file's shape).  Every real closure below now takes
+``*args`` and checks its own expected count FIRST, logging
+``LUA_TRIGGER_BAD_ARITY`` and returning :data:`STUB_DEFAULT` instead of
+letting Python raise -- the same fail-closed shape ``STILL_STUBBED``'s
+stub callables already had for free by using ``*args`` throughout.
+
 WHAT "REAL" MEANS HERE, PRECISELY.  A :class:`TriggerStatusRegistry` --
 process memory, one int per (scene, trigger id), shared by every session in
 that scene, gone on reboot -- the same shape ``world_scene_registry`` uses
@@ -155,13 +174,21 @@ DEFAULT_CONTEXT = TriggerContext(scene="unscoped_default", trigger_id=0)
 
 
 class TriggerStatusRegistry:
-    """One int per (scene, trigger id).  Process memory.  Never raises.
+    """One int per (scene, trigger id).  Process memory.
 
     Same shape as ``world_scene_registry.WorldSceneRegistry`` for the same
     reason: shared by every session in a scene, gone on reboot
-    (``PANYA-DECISION 20260905_1057``), and every public method returns an
-    answer instead of raising, because this sits on a path a live script
-    call can reach.
+    (``PANYA-DECISION 20260905_1057``).  Every method a live script call
+    can reach -- :meth:`get_status`, :meth:`set_status`,
+    :meth:`next_status` -- returns an answer instead of raising (fuzzed,
+    pf-adversary: None/list/dict/huge ints/nan/-0.0/bytes/complex, at every
+    argument position, never raises).  The CONSTRUCTOR is not on that path
+    (nothing in this file, and no test, ever builds a
+    ``TriggerStatusRegistry`` from data a script controls) and does raise
+    ``ValueError`` on a non-positive cap, on purpose, the same as
+    ``WorldSceneRegistry.__init__`` -- a caller-programming-error door, not
+    a script-reachable one.  An earlier draft of this docstring said "never
+    raises" without that distinction (pf-adversary, this round).
     """
 
     def __init__(self, triggers_per_scene: int = TRIGGERS_PER_SCENE_CAP,
@@ -326,6 +353,10 @@ def _log_write(log: Callable[[str], None], api_name: str, context: TriggerContex
         % (api_name, context.scene, trigger_id, old, new))
 
 
+def _log_bad_arity(log: Callable[[str], None], api_name: str, got: int, want: str) -> None:
+    log("LUA_TRIGGER_BAD_ARITY Trigger.%s got=%d want=%s" % (api_name, got, want))
+
+
 class RealTriggerNamespace:
     """Drop-in replacement for ``script_host.ApiNamespaceStub`` on ``Trigger``.
 
@@ -352,9 +383,12 @@ class RealTriggerNamespace:
         if name == "GetTriggerStatus" or name == "GetTeiggerStatus":
             api_name = name
 
-            def get_status(trigger_id, _api=api_name):
+            def get_status(*args, _api=api_name):
                 self.calls.append("Trigger.%s" % _api)
-                tid = _coerce_int(trigger_id, _MAX_TRIGGER_ID)
+                if len(args) != 1:
+                    _log_bad_arity(self._log, _api, len(args), "1")
+                    return STUB_DEFAULT
+                tid = _coerce_int(args[0], _MAX_TRIGGER_ID)
                 status = self._registry.get_status(self._context.scene,
                                                      tid if tid is not None else -1)
                 _log_get(self._log, _api, self._context,
@@ -364,12 +398,15 @@ class RealTriggerNamespace:
             return get_status
 
         if name == "SetStatus":
-            def set_status(status):
+            def set_status(*args):
                 self.calls.append("Trigger.SetStatus")
+                if len(args) != 1:
+                    _log_bad_arity(self._log, "SetStatus", len(args), "1")
+                    return STUB_DEFAULT
                 before = self._registry.get_status(
                     self._context.scene, self._context.trigger_id)
                 after = self._registry.set_status(
-                    self._context.scene, self._context.trigger_id, status)
+                    self._context.scene, self._context.trigger_id, args[0])
                 _log_write(self._log, "SetStatus", self._context,
                            self._context.trigger_id, before, after)
                 return after
@@ -377,8 +414,11 @@ class RealTriggerNamespace:
             return set_status
 
         if name == "NextStatus":
-            def next_status():
+            def next_status(*args):
                 self.calls.append("Trigger.NextStatus")
+                if len(args) != 0:
+                    _log_bad_arity(self._log, "NextStatus", len(args), "0")
+                    return STUB_DEFAULT
                 before = self._registry.get_status(
                     self._context.scene, self._context.trigger_id)
                 after = self._registry.next_status(
@@ -390,13 +430,16 @@ class RealTriggerNamespace:
             return next_status
 
         if name == "SetTriggerStatus":
-            def set_trigger_status(trigger_id, status):
+            def set_trigger_status(*args):
                 self.calls.append("Trigger.SetTriggerStatus")
-                tid = _coerce_int(trigger_id, _MAX_TRIGGER_ID)
+                if len(args) != 2:
+                    _log_bad_arity(self._log, "SetTriggerStatus", len(args), "2")
+                    return STUB_DEFAULT
+                tid = _coerce_int(args[0], _MAX_TRIGGER_ID)
                 target = tid if tid is not None else -1
                 before = self._registry.get_status(self._context.scene, target)
                 after = self._registry.set_status(
-                    self._context.scene, target, status)
+                    self._context.scene, target, args[1])
                 _log_write(self._log, "SetTriggerStatus", self._context,
                            target, before, after)
                 return after
