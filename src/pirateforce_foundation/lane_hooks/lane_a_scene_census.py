@@ -161,6 +161,7 @@ from .. import world_population_bg0011
 from .. import world_population_bg0015
 from .. import world_population_bg1001
 from .. import world_population_bg3001
+from .. import world_population_bg3007
 from .. import world_population_bg4001
 from .. import world_population_handoff
 from .. import world_scene_folder
@@ -368,6 +369,22 @@ _CONSOLE_LINES_OF = {
         + world_population_bg1001.actor_lines(generation)
         + world_population_bg1001.unresolved_lines()
     ),
+    # ADDED round yob0a2 (2026-09-05, LANE-A): scene 304 (Bg3007, "Dark Fog
+    # Sea"), the first of the two seas COO-DECISION 20260905_1748 names as
+    # the destinations of a crossing at scene 126's map edge.  Registered
+    # here AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit,
+    # so neither table can be true without the other for even one round.
+    # UNLIKE scenes 4, 10 and 17, this one is NOT registered-but-inert: its
+    # registry row still reads ``login_entry_allowed: false``, but round
+    # n4vqxc's pin made a bare GM ``/warp 304`` land here live, and THE
+    # THIRD ADMISSION ARM below (``scene_arrival_was_decreed_and_is_gm_
+    # reachable``) admits exactly that session - so this composer answers in
+    # production the day it lands, for a GM and for nobody else.
+    "bg3007_roster": lambda generation: (
+        (world_population_bg3007.census_console_line(generation),)
+        + world_population_bg3007.actor_lines(generation)
+        + world_population_bg3007.unresolved_lines()
+    ),
 }
 
 
@@ -488,17 +505,100 @@ def scene_is_sanctioned_for_a_gm_entry(
         return False
 
 
+def scene_arrival_was_decreed_and_is_gm_reachable(
+    scene_id: int, registry: Any = None
+) -> bool:
+    """Did the OWNER pin this scene's arrival point, and can a live GM warp
+    actually land a session on it?
+
+    THE THIRD ADMISSION ARM, added round ``yob0a2`` (LANE-A) for scene 304.
+    BOTH halves are required and neither is this lane's own opinion:
+
+    * ``destination(scene_id).has_decreed_arrival`` - the registry row
+      carries a validated ``decreed_arrival`` block, which only a
+      PANYA-DECISION or a COO-DECISION puts there (126 by
+      ``20260905_1329``; 304 and 305 by ``20260905_1748``), and which
+      ``world_scene_travel``'s own loader refuses unless the marker row,
+      the scene it points back at, the spawn point and the heading all
+      agree.
+    * ``gm.warp_executor.warp_no_coords_live_target(scene_id)`` resolves -
+      the GM lane's OWN gate for "a bare ``/warp <n>`` lands here live
+      instead of staging the next login".  Not re-implemented here.
+
+    WHY BOTH, AND WHY NOT SIMPLY "A LIVE WARP CAN REACH IT".  Measured at
+    HEAD against the whole registry (19 rows): 15 scenes resolve a live
+    warp, and every one of them except 126, 304 and 305 ALREADY has
+    ``login_entry_allowed: true``, so the first arm admits it and a bare
+    live-warp arm would add nothing for them.  What it WOULD add is a
+    standing rule that any future row someone pins a spawn on becomes
+    populatable without anyone deciding so - the shape rounds ``2jdde8``,
+    ``c42axq`` and ``vwekfq`` deliberately avoided by leaving scenes 4, 10
+    and 17 registered-but-inert until a round opened them on purpose.  The
+    decree half is what keeps this arm to scenes a ruling already named.
+
+    WHY THIS IS NOT A DOOR, the same sentence the second arm carries and
+    for the same reason: this predicate gates what a session ALREADY
+    STANDING IN A SCENE is sent.  It cannot move a character, cannot stage
+    a login, and cannot make the ordinary login path admit anything - a
+    session with no GM grant is refused at ``resolve_entry`` with
+    ``REFUSED_NOT_ALLOWED_AT_LOGIN`` and never reaches this code, and
+    ``/warp`` itself is refused for a non-GM account by
+    ``accounts.is_gm_account`` before any of this runs.
+    ``login_entry_allowed`` for 126/304/305 is untouched by this round.
+
+    [ASSUMPTION OF LANE A - AWAITING COO CONFIRMATION]  That "the owner
+    decreed where you arrive" also means "you should see what is there" is
+    this lane's reading, not a ruling anyone has written down; the round's
+    letter puts it in front of the COO.  If the answer is no, deleting this
+    function restores today's behaviour exactly - an empty ocean for a GM
+    standing in 304 - and nothing else in the round depends on it.
+
+    WHICH REGISTRY EACH HALF READS, because they are not the same one and a
+    reader should not have to find that out from a failing test.  The decree
+    half reads the registry the CALLER passed (the production call sites
+    hand this function the ``scene_entry_registry`` they were already
+    given); the warp half asks ``warp_no_coords_live_target``, which takes
+    no registry argument and reads the pin file itself.  The asymmetry can
+    only NARROW admission, never widen it: both halves must say yes, and the
+    half a caller controls is the one that can say no.  A caller-supplied
+    registry with no row for the scene, or with the decree removed, shuts
+    this arm even though the file on disk still has both.
+
+    Fail-closed in every direction, the same as the other two arms: a
+    registry that will not load, an import that is not there, a predicate
+    that raises - all answer False.
+    """
+    try:
+        destination = world_scene_travel.destination(scene_id, registry)
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        return False
+    if not getattr(destination, "has_decreed_arrival", False):
+        return False
+    try:
+        from ..gm import warp_executor
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        return False
+    try:
+        return warp_executor.warp_no_coords_live_target(scene_id) is not None
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        return False
+
+
 def scene_may_be_populated(scene_id: int, registry: Any = None) -> bool:
-    """Either admission arm.  The question ``compose`` actually asks.
+    """Any admission arm.  The question ``compose`` actually asks.
 
     Kept as its own function rather than an ``or`` inside the composer so
-    that both arms are testable by name, and so a reader who greps for
+    that every arm is testable by name, and so a reader who greps for
     ``scene_is_open_to_players`` still finds the registry pin unchanged
-    where it always was.
+    where it always was.  ORDER IS COST, NOT MEANING: the registry pin is
+    the cheapest question and answers True for every scene this lane
+    composes in production today, so the two GM arms are only reached for a
+    scene it refused.
     """
     return (
         scene_is_open_to_players(scene_id, registry)
         or scene_is_sanctioned_for_a_gm_entry(scene_id, registry)
+        or scene_arrival_was_decreed_and_is_gm_reachable(scene_id, registry)
     )
 
 

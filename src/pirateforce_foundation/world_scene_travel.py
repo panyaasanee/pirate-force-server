@@ -202,6 +202,12 @@ ATLANTIS_OCEAN_PANEL_SCENE_ID = 126
 # ``world_population_bg1001``'s own docstring for exactly what remains
 # closed this round.
 SHIP_AT_SEA_SCENE_ID = 17
+# The first of the two seas a crossing at scene 126's own map edge leads to
+# (``world_sea_edge_crossing``'s ``{7: 304, 69: 305}``).  Its arrival point
+# and registry row landed round ``n4vqxc`` (``#843``); this constant names
+# the id its cast is composed for and, like every id above it, does not open
+# the scene's login door - that field is still ``false`` in the registry.
+DARK_FOG_SEA_SCENE_ID = 304
 MEASURED_SCENE_IDS = (1, 2, 3, 4, 5, 14, 126)
 # EXPANDED 2026-09-05 (COO-DECISION 20260905_0251, answering this lane's own
 # `20260904_1339_LANE-A-ASK-COO-*`) -- the condition this lane itself set
@@ -391,6 +397,20 @@ CENSUS_SOURCE = "bg0001_census"
 # rounds.  See ``world_population_bg1001``'s own docstring for what remains
 # closed and this round's report for the CORE-REQUEST/proposal that would
 # open it.
+# WIDENED 2026-09-05 (round ``yob0a2``, LANE-A) with the fourteenth composer
+# this lane has shipped: "bg3007_roster" is ``world_population_bg3007.py``'s
+# own name for itself, over scene 304 (Bg3007, "Dark Fog Sea"), the first of
+# the two seas ``COO-DECISION 20260905_1748`` names as the destinations of a
+# crossing at scene 126's map edge.  UNLIKE every widening above it, this
+# row is NOT inert on ``main`` the moment it lands: round ``n4vqxc``'s own
+# pf-adversary measured that pinning this scene's ``decreed_arrival`` also
+# satisfies ``has_authored_entry``, so a bare GM ``/warp 304`` already
+# resolves and lands a session here TODAY - and this round adds the third
+# admission arm in ``lane_hooks/lane_a_scene_census.py`` that lets the
+# composer answer for exactly that session.  THE LOGIN DOOR IS UNTOUCHED:
+# scene 304's registry row still reads ``login_entry_allowed: false``, the
+# ordinary login path still refuses it at ``resolve_entry``, and ``/warp``
+# itself is still gated on ``accounts.is_gm_account``.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
@@ -407,6 +427,7 @@ CENSUS_SOURCES = {
     NAVY_TRAINING_CAMP_SCENE_ID: "bg4001_roster",
     ATLANTIS_OCEAN_PANEL_SCENE_ID: "bg3001_roster",
     SHIP_AT_SEA_SCENE_ID: "bg1001_roster",
+    DARK_FOG_SEA_SCENE_ID: "bg3007_roster",
 }
 CLIENT_REGISTERED_SCENE_COUNT = 271
 

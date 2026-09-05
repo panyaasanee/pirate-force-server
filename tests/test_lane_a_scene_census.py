@@ -186,6 +186,9 @@ DEEP_SEA_TEMPLE_FLOOR2_ROSTER_COUNT = 51
 # ``TheSecondAdmissionArmTests`` below, which drives both arms rather than
 # reading the boolean back.
 ATLANTIS = 126
+# The Dark Fog Sea, scene 304: this lane's fourteenth composer (round
+# `yob0a2`), admitted by the third arm rather than by its registry door.
+DARK_FOG_SEA = 304
 # ~~36~~ 37 since COO-DECISION 20260902_2146 shape 1 (round `gx7xtp`) put
 # the Thai-named Mob-Set 56 back on the roster.  Left as a literal rather
 # than read off the census module: this constant exists so a silent change
@@ -404,9 +407,18 @@ class TheAdmissionCheckIsTheGateTests(unittest.TestCase):
         # saying yes, nothing composes".  A registry with no row for it at
         # all is exactly that state: the first arm cannot find the row and
         # the second answers BLOCKER_NO_REGISTRY_ROW.
+        #
+        # SCENE 304 JOINS IT, round ``yob0a2``, for the same reason and with
+        # the same strength.  Its door is shut on the real file too, and the
+        # arm that admits it is the THIRD one (an owner-decreed arrival plus
+        # a live GM warp), which a shut door does not touch -- so shutting
+        # the door proves nothing about that scene and a row-less registry
+        # is again the state where NO arm says yes.  ``tests/
+        # test_lane_a_scene_census_bg3007.py`` drives the third arm's own
+        # gate directly, including with the arm patched to False.
         for scene_id in lane_a.scenes_this_lane_composes_for():
             with self.subTest(scene=scene_id):
-                if scene_id == ATLANTIS:
+                if scene_id in (ATLANTIS, DARK_FOG_SEA):
                     refusing, _ = _registry_without_scene(
                         Path(self._work.name), scene_id)
                 else:
@@ -1986,19 +1998,37 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
                     lane_a.scene_is_sanctioned_for_a_gm_entry(scene_id))
 
     def test_the_arm_answers_the_gm_lanes_own_predicate_not_a_copy(self):
-        # If the GM lane ever stops admitting this scene, this arm stops
-        # too -- driven by making that predicate say no rather than by
-        # reading its source.
+        # If the GM lane ever stops admitting this scene, THIS ARM stops too
+        # -- driven by making that predicate say no rather than by reading
+        # its source.
+        #
+        # ~~and with the arm shut, scene 126 is not populated at all~~
+        # AMENDED round ``yob0a2`` (LANE-A): that second claim was true when
+        # there were two arms and is FALSE now that there are three.  Scene
+        # 126 also carries a ``decreed_arrival`` (PANYA-DECISION
+        # 20260905_1329) and a live GM warp, so the THIRD arm admits it
+        # independently of the GM lane's sanction table.  That is the
+        # round's change and not an accident, so it is asserted here rather
+        # than worked around: the sanction going away no longer darkens a
+        # scene the owner has decreed an arrival point for.  The
+        # whole-admission claim is kept by shutting BOTH GM arms, which is
+        # what "nothing admits this scene" now means.
         from pirateforce_foundation.gm import login_scene_admission
         original = login_scene_admission.single_use_entry_is_admissible
+        original_decree = lane_a.scene_arrival_was_decreed_and_is_gm_reachable
         login_scene_admission.single_use_entry_is_admissible = (
             lambda *a, **k: False)
         try:
             self.assertFalse(
                 lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
+            self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
+            lane_a.scene_arrival_was_decreed_and_is_gm_reachable = (
+                lambda *a, **k: False)
             self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS))
         finally:
             login_scene_admission.single_use_entry_is_admissible = original
+            lane_a.scene_arrival_was_decreed_and_is_gm_reachable = (
+                original_decree)
         self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
 
     def test_this_lane_finds_out_if_the_gm_lane_retires_the_sanction(self):
