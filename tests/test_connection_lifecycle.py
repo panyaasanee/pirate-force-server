@@ -507,6 +507,83 @@ class ConnectionLifecycleTests(unittest.TestCase):
         self.assertIn("after", events)
         self.assertNotIn("before", events)
 
+    # ---- CORE-REQUEST-GM-058 form B, granted by chief R350 ----------------
+    #
+    # These drive the REAL production constructor.  R348's own lesson (D2 on
+    # server #794): an AST scan that finds a name under src/ proves the name
+    # exists somewhere, not that the line is reached -- a mutant that moved
+    # the call into unreachable code left that audit green.  So the assertion
+    # here is on a session object that came out of `make_state_class` through
+    # `connection_bindings.bind`, the same path a real login takes.
+
+    def test_a_real_session_carries_both_send_outcome_observers(self):
+        _events, _bindings, _accepted, _original, adapted, state_type = (
+            self._run_adapted()
+        )
+        adapted(1, None, None, None, "gm058-installed")
+        state = state_type.instances[0]
+        # The two names `connection.py:150` reads off `AcceptedGameSocket.
+        # state`.  Before this wiring both were absent on every session in
+        # `src/`, so `gm/warp_send_watch.py` was never reached and a failed
+        # `/warp` send left the character row at a scene the client never
+        # got to (LANE-GM `20260905_0554`, measured on main).
+        self.assertTrue(
+            callable(getattr(state, "on_game_frame_sent", None)),
+            "on_game_frame_sent missing: connection.py's getattr finds"
+            " nothing and warp_send_watch is dead again",
+        )
+        self.assertTrue(
+            callable(getattr(state, "on_game_frame_send_failed", None)),
+            "on_game_frame_send_failed missing: a failed send can no longer"
+            " roll the character row back",
+        )
+
+    def test_the_installer_never_costs_a_login_when_it_refuses(self):
+        """A refusal must be silent to the caller, not a dead connection.
+
+        The installer answers `refused_already_present` when either name
+        already resolves.  That branch has to be walked on the production
+        path too: a session whose class one day declares the methods itself
+        (CORE-REQUEST-GM-058 form A) must still log in, and must keep ITS
+        OWN methods rather than being shadowed by instance attributes.
+        """
+        events = []
+        bindings = GameConnectionBindings()
+        base_state = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+            connection_bindings=bindings,
+        )
+        marker = []
+
+        class FormAState(base_state):
+            instances = []
+
+            def __init__(self, token):
+                super().__init__(token)
+                self.instances.append(self)
+
+            def on_game_frame_sent(self, *_a, **_k):
+                marker.append("class-method-kept")
+
+            def on_game_frame_send_failed(self, *_a, **_k):
+                marker.append("class-method-kept")
+
+        accepted = _RawAccepted(events)
+        socket_module = _SocketModule(_RawListener(accepted, events))
+        adapted = adapt_game_listener(
+            _listener_function(socket_module, FormAState, events),
+            bindings, socket_module,
+        )
+        adapted(1, None, None, None, "gm058-refused")
+        state = FormAState.instances[0]
+        # Logged in at all -- the refusal did not abort the connection.
+        self.assertTrue(accepted.closed)
+        self.assertIsNotNone(self._closed_at(state.foundation.session_id))
+        # And the class's own methods still win.
+        state.on_game_frame_sent()
+        state.on_game_frame_send_failed()
+        self.assertEqual(marker, ["class-method-kept", "class-method-kept"])
+
 
 if __name__ == "__main__":
     unittest.main()

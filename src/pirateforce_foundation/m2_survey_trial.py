@@ -38,10 +38,37 @@ observation as a wrong hypothesis (a client that ignores the frame) with
 nothing on the console able to tell the two apart.  So the numbers are in
 the build, printed on the console when they go out, and named in the ticket.
 
-``NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID`` -- A TRIAL VALUE, NOT A PROVEN ONE
----------------------------------------------------------------------------
-0xC4AF.  What is measured about it, and what is not, in the order it matters
-(evidence gathered this round, pf_bridge/rounds/R342_*):
+``NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID`` -- PROVEN ON SCREEN SINCE R313
+-------------------------------------------------------------------------
+0xC4AF.  This heading said "A TRIAL VALUE, NOT A PROVEN ONE" until R350
+(COO-DECISION 20260905_0646 item 4).  It was true when written and stopped
+being true at 2026-09-05T02:07+07:00, when GT-233 ran: the client answered
+the trial frame with its own dialog box reading
+``NavigationEx_AddSurveyDataVtial ErrorData=50351``, and 50351 == 0xC4AF ==
+this class's own id.  The client resolved the number we sent into the class
+NAME on screen, which is an observation of the id INDEPENDENT of the name
+hash below -- the exact upgrade the last paragraph of this section asked
+for.  The full two-layer pin lives in the record module for this vital;
+grep ``src/`` for ``R313_SURVEY_DIALOG_ERRORDATA`` to land on it.
+
+(That module is named here by a grep target rather than by filename ON
+PURPOSE, the same reason the composer is unnamed four paragraphs up.  Its
+own test file's ``NotWiredToAnySendPathTests`` scans every .py file in this
+repository for that module's name as a RAW SUBSTRING, so a prose
+cross-reference from a send path reads as a wiring violation.  Measured
+this round: naming it cost one full-suite run.  The guard is right and this
+sentence was wrong -- adding this file to its exclusion list instead would
+have blinded it to exactly the module it most needs to watch, since THIS is
+a send path.)
+
+What that does NOT prove: the field LAYOUT inside the record.  50351 is the
+outer object's id, and the client rejected the frame anyway, so the id is
+right and something below it is wrong -- see that same record module and
+GT-233's header (BLOCKED-ON-LAYOUT).  The version below is also still a
+trial value; only the id moved.
+
+The evidence that stood BEFORE the screen, kept because the hash argument is
+what the tests still recompute (evidence gathered pf_bridge/rounds/R342_*):
 
   MEASURED  The name in the client is ``NavigationEx_AddSurveyDataVtial``,
             typo included, confirmed by three independent structures: the
@@ -84,11 +111,15 @@ the build, printed on the console when they go out, and named in the ticket.
 
 So: if the client's string is spelled as three structures say it is, and if
 the client's id assignment is the same hash it demonstrably is across the 345
-names these two independent tables corroborate between them, then 0xC4AF follows.  That is a strong argument and it is still an
-argument -- which is why this is a TRIAL value behind an attended-only flag,
-sent with its own console line, exactly as COO-DECISION 20260904_1845 item 1
-directed.  GT-233 is the cheapest thing that would upgrade it: a captain's
-report window that pops is an observation of the id INDEPENDENT of the name.
+names these two independent tables corroborate between them, then 0xC4AF
+follows.  That was a strong argument and it was still an argument -- which is
+why this sat behind an attended-only flag with its own console line, exactly
+as COO-DECISION 20260904_1845 item 1 directed.  R313 then paid the argument
+off from the other side, and by a route this paragraph did not predict: it
+guessed a captain's report window would be the independent observation, and
+what actually arrived was an ERROR dialog naming the same class.  Either one
+is the client resolving our id; the flag and the console line stay exactly as
+they are, because the LAYOUT they exist to vary is still unproven.
 
 ``NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION`` -- ALSO A TRIAL VALUE
 --------------------------------------------------------------------
@@ -149,9 +180,12 @@ def plan_frame_matches(scene_id) -> bool:
         # closed door, same direction as every other failure here.
         return False
 
-# Both TRIAL values.  See the module docstring for exactly what is measured
-# about each and what is not.  Neither is a proven wire fact; both are
-# printed on the console when a frame carrying them goes out.
+# The VERSION is still a trial value.  The ID no longer is: R313 put it on
+# screen (ErrorData=50351 == 0xC4AF, see the module docstring).  The name of
+# the id constant keeps its ``_TRIAL`` suffix on purpose -- renaming it would
+# touch every caller and every test in a round whose subject is wording, and
+# the docstring above is the place this project states what is proven.  Both
+# are printed on the console when a frame carrying them goes out.
 NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_NAME = "NavigationEx_AddSurveyDataVtial"
 NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL = 0xC4AF
 NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION_TRIAL = 0
@@ -199,7 +233,7 @@ def console_line(
     without anyone having to read the build:
 
         M2_SURVEY_TRIAL_SENT scene=126 records=2 msg_id=0xC4AF version=0
-            confirmed=126 guess=0
+            errordata_if_rejected=50351 confirmed=126 guess=0
         M2_SURVEY_TRIAL_NOT_THIS_BOOT scene=126 reason=unset confirmed=none
             guess=1
         M2_SURVEY_TRIAL_REFUSED scene=126 reason=<exception type>
@@ -224,6 +258,14 @@ def console_line(
             f" records={int(record_count)}"
             f" msg_id=0x{NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL:04X}"
             f" version={NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION_TRIAL}"
+            # COO-DECISION 20260905_0646 item 4.  The decimal a REJECTING
+            # client puts in its own dialog box for this id, printed next to
+            # the id itself so a tester reading `ErrorData=50351` on screen
+            # can match it to the line without converting hex in their head.
+            # Derived from the id, never restated: a typo in the four hex
+            # digits moves this number too, so the two can never disagree.
+            f" errordata_if_rejected="
+            f"{NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL}"
             + tail
         )
     return (

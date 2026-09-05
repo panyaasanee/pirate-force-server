@@ -5,10 +5,12 @@ modules: four subscribe onto the eight friend/mail/party/trade points
 chief letter ``20260904_1522`` which explicitly hands the ``lane_ui_*.py``
 registration to LANE-UI without a further CORE-REQUEST round). The fifth,
 ``lane_ui_tracepath_wire_log.py`` (round `wkrfl6`), registers a NINTH
-point, ``vital_inbound_trace_path_req_vital`` -- but unlike the first
-eight, nothing in ``runtime.py`` calls ``lane_hooks.fire()`` for it yet
-(CORE-REQUEST pending, ``notes_to_chief/20260905_0347_LANE-UI-CORE-REQUEST-
-*.md``; see that module's own docstring for the precedent this follows).
+point, ``vital_inbound_trace_path_req_vital``, which ``runtime.py`` now
+fires too: the CORE-REQUEST behind it
+(``pf_bridge/notes_to_chief/20260905_0347_LANE-UI-CORE-REQUEST-*.md``) was
+granted by chief in round ``5e00uw``, so all nine points are live.  Its
+reachability through the real dispatcher is pinned in
+``tests/test_trace_path_wiring.py``, not here.
 Every test below calls each hook function DIRECTLY, the same way for all
 nine cases, so this distinction does not change what is tested here (a
 direct call exercises the exact same code whether or not ``runtime.py``
