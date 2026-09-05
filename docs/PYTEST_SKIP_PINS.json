@@ -1014,6 +1014,44 @@
         "SourcePinTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run"
       ],
       "note": "round ti9gxr (LANE-B), COUNT MOVED 1 -> 8 in round ti9gxr-b. combat_pose.py loads two committed local copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class.tsv) mined from CONSTDATA_TH__EQUIP_VALUE.tsv, CONSTDATA_TH__EQUIPMENT_BASE.tsv and CONSTDATA_TH__CHARCREATE_CLASS.tsv; a clone without the bridge sibling cannot answer whether they still match upstream. SourcePinTests re-runs the extractor with --check. The seven ExtractorRefusalTests were added in ti9gxr-b because pf-adversary measured that every one of the tool's seven guards could be neutered with the suite green -- MineError had never been raised by anything, since the only test that ran the tool asserted returncode == 0 on known-good data. Each builds a mutated copy of the bridge tables and asserts the tool refuses (exit 2, nothing written), so they need the real tables to mutate. The sha256 pins themselves are asserted unguarded in the same file, so a hand-edit to a committed copy is red on every clone."
+    },
+    {
+      "key": "lupa_package",
+      "module": "tests/test_script_host_spike.py",
+      "count": 18,
+      "tests": [
+        "ApiNamespaceStubBehaviourTests::test_every_one_of_the_160_names_is_reachable_from_every_namespace_table",
+        "ApiNamespaceStubBehaviourTests::test_known_api_name_logs_exactly_once_per_call_and_returns_default",
+        "ApiNamespaceStubBehaviourTests::test_unknown_property_style_key_returns_the_safe_default_silently",
+        "ApiNamespaceStubBehaviourTests::test_writing_into_a_namespace_table_is_discarded_not_a_crash",
+        "FailClosedLoadingTests::test_a_syntax_error_is_caught_not_raised",
+        "FailClosedLoadingTests::test_load_corpus_catches_a_broken_script_and_keeps_going",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_a_returned_api_closure_cannot_be_walked_back_to_builtins",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_as_attrgetter_cannot_walk_out_through_a_namespace_object",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_banned_globals_are_nil_not_merely_unused",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_every_name_on_the_blocklist_is_nil_not_just_the_famous_four",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_indexing_a_namespace_never_yields_a_python_attribute",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_lupas_own_python_bridge_is_not_reachable_from_a_script",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_math_and_string_libraries_remain_available",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_reaching_into_os_raises_a_lua_error_the_caller_can_catch",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_setting_a_python_attribute_is_denied_too",
+        "SandboxActuallyBlocksTheBannedGlobalsTests::test_the_full_import_chain_dies_at_its_first_step",
+        "TwoNamedSpikeScriptsRunHeadlessTests::test_q_kill5_full_quest_lifecycle_runs_to_completion",
+        "TwoNamedSpikeScriptsRunHeadlessTests::test_t_nex_t6_script_start_runs_to_completion"
+      ],
+      "note": "round s2fxf6 (LANE-Q, this lane's first round). The Lua script host spike: script_host.py embeds the game's own quest/trigger scripts through lupa, this repository's first third-party dependency that is not installed by .github/workflows/gate-windows.yml's pip line (adding it there is chief/COO's call - that workflow is shared CI outside LANE-Q's write zone, see docs/SCRIPT_LANE.md). Every test in this module needs a live Lua runtime, so all 11 are guarded by tests/pf_preconditions.py LUPA_PACKAGE, the first OptionalPackage-shaped precondition: the missing thing is a fact about the INTERPRETER, not about the clone. On an interpreter that has lupa (this lane's cloud rounds, and the bridge once the pip line lands) all 11 run at full strength and this count is zero, exactly like a bridge artifact that is present. COUNT MOVED 11 -> 14 in the same commit that moved it: three sandbox-escape regressions added after this round measured that lupa injects a `python` table into every Lua state it builds, carrying eval and builtins with its default constructor flags, and that python.as_attrgetter survives turning those flags off - it flips Lua indexing on the live Python namespace objects from __getitem__ to getattr, which is step one of the __class__/__bases__/__subclasses__ walk out of the sandbox. COUNT MOVED 14 -> 18 in the same commit again, after pf-adversary measured that the 14-test state STILL had a live escape and that six of the eleven blocked globals were asserted by nothing: Quest.GetQuestFlag.__globals__['__builtins__']['__import__']('os') ran os.system as the server process (uid=0) through a path touching neither the python table nor any blocked global, because __getitem__ intercepts attribute-looking keys on the NAMESPACE while the CLOSURE it returns was a plain, fully getattr-able Python function - and the three tests added an hour earlier probed only the namespace. Closed with a deny-all lupa attribute_filter; the four new tests probe the closure, the whole import chain, an attribute WRITE, and every name on BLOCKED_GLOBALS derived from the tuple itself rather than retyped. MEASURED, not predicted: a venv with pytest and no lupa reported these 18 skips, and 18 only, on 2026-09-05."
+    },
+    {
+      "key": "lua_corpus_runnable",
+      "module": "tests/test_script_lua_corpus.py",
+      "count": 4,
+      "tests": [
+        "FullCorpusLoadsHeadlessTests::test_exactly_the_known_failures_fail_no_more_no_fewer",
+        "FullCorpusLoadsHeadlessTests::test_load_corpus_never_raises_out_of_the_full_616_file_run",
+        "FullCorpusLoadsHeadlessTests::test_loader_visits_every_lua_file_on_disk",
+        "FullCorpusLoadsHeadlessTests::test_the_two_named_charter_fixtures_are_identical_to_the_real_files"
+      ],
+      "note": "round s2fxf6 (LANE-Q). This module loads the real 616 shipped scripts from ../pf_bridge/gamedata/lua/, so it needs TWO unrelated things at once: the bridge corpus beside this clone and the lupa package in this interpreter. It is guarded by ONE composite key (lua_corpus_runnable = BRIDGE_LUA_SCRIPTS AND LUPA_PACKAGE) rather than two stacked skipUnless decorators, because unittest records one skip reason per test: whichever decorator sits outermost wins when both conditions are false, and this census grades each key independently against a static count, so the losing key would expect N and observe zero. No pair of static counts is right in all four machine states; one key has exactly one count in every state. Full reasoning in the AllOfThese docstring in tests/pf_preconditions.py. MEASURED 2026-09-05: 4 skips under this key on a lupa-free venv, 0 on this lane's cloud round with both pieces present (all four ran, 616 files loaded)."
     }
   ],
   "windows_gate_excluded_modules": {
