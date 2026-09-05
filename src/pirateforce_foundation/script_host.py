@@ -56,6 +56,7 @@ else:
     LUPA_IMPORT_ERROR = None
 
 from .lua_api import spec as lua_api_spec
+from .lua_api import trigger as lua_api_trigger
 
 #: Lua standard-library names the game's scripts must never reach
 #: (prompts/LANE-Q.md: "sandbox: an script access io/os/require/load of Lua
@@ -196,9 +197,22 @@ def _require_lupa() -> None:
 
 
 class ScriptHost:
-    """One sandboxed Lua state carrying all 8 stub API namespaces."""
+    """One sandboxed Lua state carrying all 8 API namespaces.
 
-    def __init__(self, log: Optional[Callable[[str], None]] = None):
+    ``Trigger`` is no longer a plain stub table: 5 of its 17 names are real
+    (``lua_api.trigger.REAL_METHODS``), backed by a
+    ``lua_api.trigger.TriggerStatusRegistry``.  ``trigger_context``/
+    ``trigger_registry`` let a caller say WHICH physical trigger this host's
+    script is and WHICH world it reads/writes; leaving both ``None`` (every
+    existing caller before this round, and every test that does not care)
+    gets an isolated default context and a private, throwaway registry --
+    see ``lua_api.trigger.build_namespace`` for why that default is safe.
+    Every other namespace is unchanged: a plain ``ApiNamespaceStub``.
+    """
+
+    def __init__(self, log: Optional[Callable[[str], None]] = None, *,
+                 trigger_context: "Optional[lua_api_trigger.TriggerContext]" = None,
+                 trigger_registry: "Optional[lua_api_trigger.TriggerStatusRegistry]" = None):
         _require_lupa()
         self.log = log or default_logger
         self.runtime = lupa.LuaRuntime(
@@ -216,7 +230,12 @@ class ScriptHost:
         self.namespaces: dict = {}
         g = self.runtime.globals()
         for namespace, methods in lua_api_spec.NAMESPACE_METHODS.items():
-            stub = ApiNamespaceStub(namespace, methods, self.log)
+            if namespace == "Trigger":
+                stub = lua_api_trigger.build_namespace(
+                    methods, self.log,
+                    context=trigger_context, registry=trigger_registry)
+            else:
+                stub = ApiNamespaceStub(namespace, methods, self.log)
             self.namespaces[namespace] = stub
             g[namespace] = stub
         for name in BLOCKED_GLOBALS:
@@ -236,7 +255,9 @@ class ScriptHost:
         return fn(*args)
 
 
-def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None) -> ScriptHost:
+def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
+                      trigger_context: "Optional[lua_api_trigger.TriggerContext]" = None,
+                      trigger_registry: "Optional[lua_api_trigger.TriggerStatusRegistry]" = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
     Reads the file as bytes decoded latin-1, because latin-1 is the one
@@ -258,7 +279,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None) ->
     that lands that API - the choice is a runtime encoding that matches the
     scripts' own codepage, not a different read here.
     """
-    host = ScriptHost(log=log)
+    host = ScriptHost(log=log, trigger_context=trigger_context,
+                      trigger_registry=trigger_registry)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
     return host

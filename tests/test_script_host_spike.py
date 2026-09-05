@@ -24,19 +24,24 @@ class TwoNamedSpikeScriptsRunHeadlessTests(unittest.TestCase):
     """prompts/LANE-Q.md item 1: t_nex_t6.lua and Quest/q_kill5.lua."""
 
     def test_t_nex_t6_script_start_runs_to_completion(self):
+        # UPDATED after Trigger.GetTriggerStatus/NextStatus became REAL
+        # (lua_api/trigger.py, the round after s2fxf6): these two no longer
+        # log LUA_API_STUB.  The result is unchanged and for the reason the
+        # old comment already gave -- Trigger.Var1..Var7 are not API names,
+        # so they still all read as STUB_DEFAULT (0) from the namespace's
+        # non-API fallback, which means all six GetTriggerStatus calls ask
+        # the SAME real registry about the SAME trigger id (0) and get back
+        # the SAME real default (0), 0 == Var7's 0, every "~=" is false, and
+        # the script takes its NextStatus branch.  This is the trivial case;
+        # tests/test_script_lua_api_trigger.py proves the real gating logic
+        # against six DISTINCT prerequisite triggers that are NOT all equal.
         calls = []
         host = script_host.load_script_file(FIXTURES / "t_nex_t6.lua", log=calls.append)
         result = host.call("ScriptStart")
-        # All six Trigger.GetTriggerStatus stubs answer STUB_DEFAULT (0),
-        # which never equals Trigger.Var7 (also STUB_DEFAULT) - wait, it
-        # DOES equal it, so every "~=" comparison is false and the script
-        # takes its NextStatus branch, returning 1.  Asserted, not assumed.
         self.assertEqual(result, 1)
-        stub_names = [c for c in calls if c.startswith("LUA_API_STUB ")]
-        self.assertEqual(
-            [c.split(" ", 1)[1] for c in stub_names],
-            ["Trigger.GetTriggerStatus"] * 6 + ["Trigger.NextStatus"],
-        )
+        real_lines = [c for c in calls if c.startswith("LUA_TRIGGER_REAL ")]
+        self.assertEqual(len(real_lines), 7)  # 6 reads + 1 write
+        self.assertEqual(calls, [c for c in calls if not c.startswith("LUA_API_STUB ")])
 
     def test_q_kill5_full_quest_lifecycle_runs_to_completion(self):
         calls = []
@@ -223,12 +228,22 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
         self.assertEqual(host.call("Probe"), 0)
         self.assertEqual(calls, ["LUA_API_STUB Quest.GetQuestFlag"])
 
-    def test_every_one_of_the_160_names_is_reachable_from_every_namespace_table(self):
-        # Not a sample: every qualified name the census found, called for
-        # real through a live ScriptHost, must log its own stub line.
+    def test_every_still_stubbed_name_is_reachable_from_every_namespace_table(self):
+        # Not a sample: every qualified name the census found THAT IS STILL
+        # A STUB, called for real through a live ScriptHost, must log its
+        # own stub line.  The 5 Trigger.* names that became real (round
+        # after s2fxf6) are excluded here -- calling them with a bare `()`
+        # is not a stub-reachability probe for them, it is a wrong-arity
+        # call (GetTriggerStatus/SetStatus/SetTriggerStatus require
+        # arguments a real implementation cannot invent) -- and their own
+        # reachability is proven exhaustively, at their real arity, by
+        # tests/test_script_lua_api_trigger.py.
         from pirateforce_foundation.lua_api import spec as api_spec
+        from pirateforce_foundation.lua_api import trigger as lua_api_trigger
 
         for fn in api_spec.API_FUNCTIONS:
+            if fn.namespace == "Trigger" and fn.method in lua_api_trigger.REAL_METHODS:
+                continue
             with self.subTest(qualified=fn.qualified_name):
                 calls = []
                 host = script_host.ScriptHost(log=calls.append)
@@ -238,6 +253,18 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
                 )
                 host.call("Probe")
                 self.assertEqual(calls, ["LUA_API_STUB %s" % fn.qualified_name])
+
+    def test_the_5_real_trigger_names_are_excluded_above_not_forgotten(self):
+        # A regression guard on the exclusion itself: if REAL_METHODS ever
+        # grew or shrank without the corpus's own 17-name Trigger table
+        # changing, this fails loudly instead of the test above silently
+        # covering fewer names than it used to.
+        from pirateforce_foundation.lua_api import trigger as lua_api_trigger
+
+        self.assertEqual(lua_api_trigger.REAL_METHODS, frozenset({
+            "GetTriggerStatus", "GetTeiggerStatus", "SetStatus",
+            "NextStatus", "SetTriggerStatus",
+        }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):
         host = script_host.ScriptHost(log=lambda _msg: None)
