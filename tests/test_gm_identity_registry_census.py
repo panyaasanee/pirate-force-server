@@ -61,7 +61,9 @@ class RegistryCoverageTests(unittest.TestCase):
         self.assertIn(population.SCENE_ID, census.scene_ids_with_a_census())
 
     def test_the_scene_count_is_pinned_so_a_family_cannot_vanish_quietly(self):
-        self.assertEqual(14, len(census.scene_ids_with_a_census()))
+        # 15 since round `vwekfq` (LANE-A): world_bg1001_identity (scene 17)
+        # joined the registry.
+        self.assertEqual(15, len(census.scene_ids_with_a_census()))
 
     def test_the_registry_holds_one_entry_per_source_and_lost_none(self):
         # A duplicate SCENE_N_ID would overwrite a whole family; the module

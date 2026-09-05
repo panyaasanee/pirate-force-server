@@ -193,6 +193,15 @@ NAVY_TRAINING_CAMP_SCENE_ID = 130
 # advertises rather than where it sends you.  Its login door is shut and
 # this constant does not open it.
 ATLANTIS_OCEAN_PANEL_SCENE_ID = 126
+# The ship, NOT the ocean panel: row 3021 (``columbus_quest_dispatch``) is
+# the flagless dispatch that already lands a player here, and
+# ``world_m2_sea_destination`` is the module that measured why this id and
+# 126 differ.  This constant does not touch that dispatch, and does not
+# flip this scene's own ``login_entry_allowed`` (still false, guarding the
+# ordinary login path per its own registry comment) - see
+# ``world_population_bg1001``'s own docstring for exactly what remains
+# closed this round.
+SHIP_AT_SEA_SCENE_ID = 17
 MEASURED_SCENE_IDS = (1, 2, 3, 4, 5, 14, 126)
 # EXPANDED 2026-09-05 (COO-DECISION 20260905_0251, answering this lane's own
 # `20260904_1339_LANE-A-ASK-COO-*`) -- the condition this lane itself set
@@ -362,6 +371,26 @@ CENSUS_SOURCE = "bg0001_census"
 # single-use grant ``CORE-REQUEST-GM-038`` landed for this exact scene id
 # (``gm/login_scene_admission.SANCTIONED_BARRED_SCENES``), which is why the
 # census hook's second admission arm asks that lane's own predicate.
+# WIDENED 2026-09-05 (round ``vwekfq``, LANE-A) with the thirteenth composer
+# this lane has shipped, and the first over a scene the flagless default
+# path already reaches (row 3021's dispatch, unlike scene 126's GM-only
+# entry): "bg1001_roster" is ``world_population_bg1001.py``'s own name for
+# itself, over scene 17 (Bg1001, "one ship at sea") - COO-DECISION
+# ``pf_bridge/notes_to_chief/20260905_0848_...`` approved the identity/
+# census pair as this round's main task, condition (c): actor/census only,
+# nothing hostile.  THE DOOR STAYS EXACTLY AS IT WAS: scene 17's registry
+# row still reads ``login_entry_allowed: false`` and this round does not
+# touch it - that field guards the ORDINARY LOGIN path specifically (see
+# the row's own ``login_entry_allowed_because``, and the defect round
+# ``0z3kjx`` closed by pinning it false), and ``lane_hooks.lane_a_scene_
+# census.scene_is_open_to_players`` reads that SAME field for every
+# arrival, Columbus crossing included - so registering this row here does
+# NOT by itself make the composer fire for the crossing that already
+# reaches this scene today.  Registered, same inert-until-opened shape
+# scenes 4's and 10's own rows carried between their own build and open
+# rounds.  See ``world_population_bg1001``'s own docstring for what remains
+# closed and this round's report for the CORE-REQUEST/proposal that would
+# open it.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
@@ -377,6 +406,7 @@ CENSUS_SOURCES = {
     DEEP_SEA_TEMPLE_FLOOR2_SCENE_ID: "bg0011_roster",
     NAVY_TRAINING_CAMP_SCENE_ID: "bg4001_roster",
     ATLANTIS_OCEAN_PANEL_SCENE_ID: "bg3001_roster",
+    SHIP_AT_SEA_SCENE_ID: "bg1001_roster",
 }
 CLIENT_REGISTERED_SCENE_COUNT = 271
 
