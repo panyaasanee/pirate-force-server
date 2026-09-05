@@ -4,12 +4,16 @@ own docstring names ("granting the skill itself ... is a separate write
 this module does not attempt").
 
 WHAT THIS FILE DOES NOT PROVE.  `grant_learned_skill` does not exist on
-the real `store.SQLiteStore` yet (this round's CORE-REQUEST proposes it to
-LANE-DB) -- every test here exercises the composer against `_FakeGrantStore`
-below, a thin wrapper that delegates the real spend-side calls
+the real `store.SQLiteStore` yet -- LANE-DB decided its shape (`pf_bridge/
+notes_to_chief/20260905_2228_LANE-DB-REPLY-grant_learned_skill-shape-
+decided-no-granted_at-param.md`) but its own migration/store PR was gated
+closed and has not re-landed on `main` as of this round -- every test here
+exercises the composer against `_FakeGrantStore` below, a thin wrapper
+that delegates the real spend-side calls
 (`get_skill_points`/`spend_skill_points`) to a real `store.SQLiteStore`
 (migrated, same as `test_skill_learn_wiring.py`'s own fixture) and fakes
-only the not-yet-real grant call. Nothing here is client-observable: same
+only the not-yet-real grant call (now taking no `granted_at` argument, per
+that reply). Nothing here is client-observable: same
 zero-production-caller posture as `skill_learn_wiring.py` and
 `skill_grant_wiring.py` themselves.
 """
@@ -50,8 +54,6 @@ _next_identity = iter(range(0x30003000, 0x30004000))
 #: `tests/test_skill_learn_validator.py`).
 _WHOLE_COST_SKILL_ID = 99
 
-_GRANTED_AT = "2026-09-05T21:17:00+07:00"
-
 
 def _build_wire(selector):
     return b"wire", b"avatar", next(_next_identity), 0
@@ -71,7 +73,7 @@ class _FakeGrantStore:
     def __init__(self, store: SQLiteStore):
         self._store = store
         self._granted: "dict[int, list[int]]" = {}
-        self.grant_calls: "list[tuple[int, int, str]]" = []
+        self.grant_calls: "list[tuple[int, int]]" = []
         self._raise_on_grant: "Exception | None" = None
 
     def fail_next_grant(self, exc: Exception) -> None:
@@ -83,8 +85,8 @@ class _FakeGrantStore:
     def spend_skill_points(self, character_id, cost):
         return self._store.spend_skill_points(character_id, cost)
 
-    def grant_learned_skill(self, character_id, skill_id, granted_at):
-        self.grant_calls.append((character_id, skill_id, granted_at))
+    def grant_learned_skill(self, character_id, skill_id):
+        self.grant_calls.append((character_id, skill_id))
         if self._raise_on_grant is not None:
             exc, self._raise_on_grant = self._raise_on_grant, None
             raise exc
@@ -117,14 +119,14 @@ class LearnAndGrantSkillTests(_StoreFixture):
         character = self._make_character()
         self.store.write_typed_attributes(character.id, {"skill_points": 5})
         points_remaining, skills_after_grant = learn_and_grant_skill(
-            self.fake, character.id, _WHOLE_COST_SKILL_ID, _GRANTED_AT
+            self.fake, character.id, _WHOLE_COST_SKILL_ID
         )
         self.assertEqual(points_remaining, 4)
         self.assertEqual(skills_after_grant, (_WHOLE_COST_SKILL_ID,))
         self.assertEqual(self.store.get_skill_points(character.id), 4)
         self.assertEqual(
             self.fake.grant_calls,
-            [(character.id, _WHOLE_COST_SKILL_ID, _GRANTED_AT)],
+            [(character.id, _WHOLE_COST_SKILL_ID)],
         )
 
     def test_insufficient_points_never_attempts_the_grant(self):
@@ -132,7 +134,7 @@ class LearnAndGrantSkillTests(_StoreFixture):
         self.store.write_typed_attributes(character.id, {"skill_points": 0})
         with self.assertRaises(SkillLearnValidatorError):
             learn_and_grant_skill(
-                self.fake, character.id, _WHOLE_COST_SKILL_ID, _GRANTED_AT
+                self.fake, character.id, _WHOLE_COST_SKILL_ID
             )
         self.assertEqual(self.fake.grant_calls, [])
         # Refusing must not have spent anything either.
@@ -142,7 +144,7 @@ class LearnAndGrantSkillTests(_StoreFixture):
         character = self._make_character()
         self.store.write_typed_attributes(character.id, {"skill_points": 99})
         with self.assertRaises(KeyError):
-            learn_and_grant_skill(self.fake, character.id, 424242, _GRANTED_AT)
+            learn_and_grant_skill(self.fake, character.id, 424242)
         self.assertEqual(self.fake.grant_calls, [])
         self.assertEqual(self.store.get_skill_points(character.id), 99)
 
@@ -167,7 +169,7 @@ class LearnAndGrantSkillTests(_StoreFixture):
         ):
             with self.assertRaises(InsufficientSkillPointsError):
                 learn_and_grant_skill(
-                    self.fake, character.id, _WHOLE_COST_SKILL_ID, _GRANTED_AT
+                    self.fake, character.id, _WHOLE_COST_SKILL_ID
                 )
         self.assertEqual(self.fake.grant_calls, [])
         self.assertEqual(self.store.get_skill_points(character.id), 0)
@@ -185,10 +187,10 @@ class LearnAndGrantSkillTests(_StoreFixture):
         character = self._make_character()
         self.store.write_typed_attributes(character.id, {"skill_points": 5})
         first_points, first_skills = learn_and_grant_skill(
-            self.fake, character.id, _WHOLE_COST_SKILL_ID, _GRANTED_AT
+            self.fake, character.id, _WHOLE_COST_SKILL_ID
         )
         second_points, second_skills = learn_and_grant_skill(
-            self.fake, character.id, _WHOLE_COST_SKILL_ID, _GRANTED_AT
+            self.fake, character.id, _WHOLE_COST_SKILL_ID
         )
         self.assertEqual(first_points, 4)
         self.assertEqual(second_points, 3)  # spent again -- not deduped
@@ -206,7 +208,7 @@ class LearnAndGrantSkillTests(_StoreFixture):
         self.fake.fail_next_grant(RuntimeError("grant_learned_skill boom"))
         with self.assertRaises(RuntimeError):
             learn_and_grant_skill(
-                self.fake, character.id, _WHOLE_COST_SKILL_ID, _GRANTED_AT
+                self.fake, character.id, _WHOLE_COST_SKILL_ID
             )
         # The spend is NOT rolled back -- this is the gap, not a bug in
         # this test's expectation.

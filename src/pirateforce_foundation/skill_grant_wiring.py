@@ -84,16 +84,21 @@ class SkillGrantStore(Protocol):
     object is passed as `store` -- those are not re-declared here, this
     Protocol only adds the third call `learn_and_grant_skill` below needs.
 
-    Proposed shape (this round's CORE-REQUEST to LANE-DB -- LANE-DB may
-    ship a different name/signature; this module's own call site is the
-    only place that would need to change to match): same `INSERT OR
-    IGNORE` idempotency shape as `store.SQLiteStore.grant_starting_skills`,
-    scoped to a single skill id and a `source` value other than
-    `'starting_kit'`.
+    Shape LANE-DB decided (`pf_bridge/notes_to_chief/
+    20260905_2228_LANE-DB-REPLY-grant_learned_skill-shape-decided-no-
+    granted_at-param.md`, replying to this round's CORE-REQUEST `2119`):
+    same `INSERT OR IGNORE` idempotency shape as `store.
+    SQLiteStore.grant_starting_skills`, scoped to a single skill id and a
+    `source` value other than `'starting_kit'` -- with ONE difference from
+    what this lane proposed: `granted_at` is NOT a parameter.  The real
+    method computes it itself with `_now()` inside its own transaction
+    (identical to `grant_starting_skills`), because a caller-supplied
+    timestamp can be stale or wrong and the method's own transaction is the
+    only place that actually knows when the `INSERT` happened.
     """
 
     def grant_learned_skill(
-        self, character_id: int, skill_id: int, granted_at: str
+        self, character_id: int, skill_id: int
     ) -> "tuple[int, ...]":
         ...
 
@@ -106,7 +111,7 @@ _GRANT_SOURCE = "learned"
 
 
 def learn_and_grant_skill(
-    store: SkillGrantStore, character_id: int, skill_id: int, granted_at: str
+    store: SkillGrantStore, character_id: int, skill_id: int
 ) -> "tuple[int, tuple[int, ...]]":
     """Spend `character_id`'s skill points to learn `skill_id`, then grant
     it, returning `(points_remaining, skills_after_grant)`.
@@ -123,15 +128,17 @@ def learn_and_grant_skill(
        raised BEFORE this function reaches step 2 -- `grant_learned_skill`
        is never called when the spend itself refuses.
 
-    2. `store.grant_learned_skill(character_id, skill_id, granted_at)` --
-       the write this module exists to add on top of `learn_skill_spend`.
-       Whatever this raises (schema error, a `granted_at` the store
-       rejects, anything else) propagates UNCHANGED and UNCAUGHT -- see
-       the module docstring's non-atomicity nonclaim: the points spent in
-       step 1 are NOT refunded when step 2 raises. A caller observing this
-       function raise after a prior successful call must treat the
-       character's skill-point balance as already decremented even though
-       the grant did not land.
+    2. `store.grant_learned_skill(character_id, skill_id)` -- the write
+       this module exists to add on top of `learn_skill_spend`. No
+       `granted_at` argument: LANE-DB's reply (see `SkillGrantStore`)
+       decided the real method computes its own timestamp internally, so
+       this composer does not accept or forward one either. Whatever this
+       raises (schema error, anything else) propagates UNCHANGED and
+       UNCAUGHT -- see the module docstring's non-atomicity nonclaim: the
+       points spent in step 1 are NOT refunded when step 2 raises. A
+       caller observing this function raise after a prior successful call
+       must treat the character's skill-point balance as already
+       decremented even though the grant did not land.
 
     Returns `(points_remaining, skills_after_grant)`:
     `points_remaining` is step 1's return value (the balance right after
@@ -142,7 +149,5 @@ def learn_and_grant_skill(
     points_remaining = skill_learn_wiring.learn_skill_spend(
         store, character_id, skill_id
     )
-    skills_after_grant = store.grant_learned_skill(
-        character_id, skill_id, granted_at
-    )
+    skills_after_grant = store.grant_learned_skill(character_id, skill_id)
     return points_remaining, skills_after_grant
