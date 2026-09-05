@@ -48,13 +48,23 @@ the trial frame with its own dialog box reading
 this class's own id.  The client resolved the number we sent into the class
 NAME on screen, which is an observation of the id INDEPENDENT of the name
 hash below -- the exact upgrade the last paragraph of this section asked
-for.  ``navigationex_survey_record.py`` (lines 116-211) carries the full
-two-layer pin and is the file to read for it.
+for.  The full two-layer pin lives in the record module for this vital;
+grep ``src/`` for ``R313_SURVEY_DIALOG_ERRORDATA`` to land on it.
+
+(That module is named here by a grep target rather than by filename ON
+PURPOSE, the same reason the composer is unnamed four paragraphs up.  Its
+own test file's ``NotWiredToAnySendPathTests`` scans every .py file in this
+repository for that module's name as a RAW SUBSTRING, so a prose
+cross-reference from a send path reads as a wiring violation.  Measured
+this round: naming it cost one full-suite run.  The guard is right and this
+sentence was wrong -- adding this file to its exclusion list instead would
+have blinded it to exactly the module it most needs to watch, since THIS is
+a send path.)
 
 What that does NOT prove: the field LAYOUT inside the record.  50351 is the
 outer object's id, and the client rejected the frame anyway, so the id is
-right and something below it is wrong -- see ``navigationex_survey_record``
-and GT-233's header (BLOCKED-ON-LAYOUT).  The version below is also still a
+right and something below it is wrong -- see that same record module and
+GT-233's header (BLOCKED-ON-LAYOUT).  The version below is also still a
 trial value; only the id moved.
 
 The evidence that stood BEFORE the screen, kept because the hash argument is
