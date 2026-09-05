@@ -1056,12 +1056,31 @@ class R313CapturedFrameTests(_Case):
     def test_the_captured_frame_reaches_the_route_and_is_executed(self):
         """What R313 was owed: the command RUNS.
 
-        `/warp 126` to a scene with no confirmed spawn point composes no
+        ~~`/warp 126` to a scene with no confirmed spawn point composes no
         frame -- it stages the next login -- so the assertion is NOT "an
         action came back" (it is legitimately `None` for this command).  It
-        is that the route logged the command and staged scene 126, which is
-        the outcome that never happened at 02:01:58 and did happen when the
-        GM retyped it at 02:04:34 in a single-vital frame.
+        is that the route logged the command and staged scene 126~~
+        STRUCK 2026-09-05, LANE-A round ihjytc.  THE SUBJECT OF THIS TEST HAS
+        NEVER BEEN WHICH BRANCH `/warp 126` TAKES - it is that R313's real
+        captured bytes reach the route and are executed at all, which is the
+        outcome that never happened at 02:01:58 and did happen when the GM
+        retyped it at 02:04:34 in a single-vital frame.  That property is
+        unchanged and still asserted below.
+
+        What changed under it: PANYA-DECISION 20260905_1329 pinned scene
+        126's arrival point, so this command now takes the LIVE teleport
+        branch instead of the staging branch, and the staging line it used to
+        print (`GM_CHAT_STAGED_NEXT_LOGIN ... scene_id=126`) is gone by
+        design.  The console still names the scene, in the live branch's own
+        line (`scene=126`), so this test now asserts the SCENE NUMBER rather
+        than one branch's spelling of it - which is what it meant to assert
+        all along.
+
+        CROSS-LANE EDIT, DECLARED: this is a LANE-GM file.  LANE-A changed it
+        because LANE-A changed the behaviour it pinned; the edit is one
+        assertion plus this paragraph, the original text is struck rather
+        than deleted, and nothing about R313's bytes, the tail-walk, or the
+        identity property below was touched.
         """
         session = FakeSession()
         stream = io.StringIO()
@@ -1073,7 +1092,11 @@ class R313CapturedFrameTests(_Case):
         )
         console = stream.getvalue()
         self.assertIn("LANE_GM_CHAT_ACTION warp", console)
-        self.assertIn("scene_id=126", console)
+        self.assertIn("126", console)
+        # And the branch it takes is the live one now, not staging.  Asserted
+        # positively so that a future regression back to staging fails here
+        # loudly instead of passing on the looser "126 appears somewhere".
+        self.assertNotIn("GM_CHAT_STAGED_NEXT_LOGIN", console)
         commands = [record.get("command") for record in self.log_records()]
         self.assertIn("warp", commands)
 

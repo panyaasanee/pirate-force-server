@@ -448,6 +448,65 @@ MARKER_ROW_AT_SCENE_130_BELONGS_TO = 2
 # 126's row.  Kept as a value because it is the single most persuasive
 # example of why rule 2 is a prohibition.
 SHORTCUT_AT_SCENE_17 = (126, 3050, 232, 90)
+# THE OTHER DIRECTION, AND THE ONLY ROWS ALLOWED TO TRAVEL IT.
+# Rule 2 forbids reading MARKER BY A SCENE ID.  It says nothing about reading
+# a MARKER row somebody already named by its own id and checking where that
+# row points - which is the read PANYA-DECISION 20260905_1329 rests on: marker
+# 17 carries n_SCENE 126, so it is scene 126's row even though scene 126's own
+# SCENE_NAME.n_MARKER is 0 and rule 1 therefore never reaches it.
+#
+# `(marker n_ID, n_SCENE, n_X, n_Y, n_Z, n_DIRTECTION)`, transcribed from
+# CONSTDATA_TH__MARKER.tsv the same way `_ROWS` above is.  world_scene_travel
+# checks a registry row's `decreed_arrival` block against this tuple; the
+# committed crosswalk copy checks THIS tuple, in
+# `tests/test_world_scene_decreed_arrival.py`, because no module in this
+# package may import `world_marker_copy` (the copy does not ship in the
+# release archive - `tests/test_world_marker_copy.py` pins that).  So the
+# coordinate is transcribed once and cross-examined once, which is the same
+# discipline `_ROWS` keeps.
+#
+# ADDING A ROW HERE IS NOT A LICENCE.  It records what the client's table
+# says; whether a scene may USE such a row as its arrival point is an owner
+# decision, named per-row in the registry's `decreed_arrival.authority`.
+DECREED_ARRIVAL_ROWS = (
+    (17, 126, 3050, 232, 90, 6),
+)
+
+
+def decreed_arrival_row(scene_n_id: Any, marker_n_id: Any) -> tuple[
+    int, int, int, int
+] | None:
+    """``(x, y, z, direction)`` for a decree row, or None if that pair is not pinned.
+
+    TAKES BOTH IDS AND RETURNS NO SCENE, and both halves of that signature are
+    a fix, not a style (pf-adversary, round ihjytc, D4).  The first draft took
+    a marker id alone and returned the row's ``n_SCENE`` first, so
+    ``decreed_arrival_row(17)`` handed back scene 126's coordinate for the
+    integer 17 - which is ALSO a real scene id in the registry, and the one
+    this module's own ``SHORTCUT_AT_SCENE_17`` holds up as "the single most
+    persuasive example of why rule 2 is a prohibition".  Two public functions
+    of this module would then have given opposite answers for the integer 17,
+    and the wrong one would have been the one handing out coordinates.
+
+    Requiring the CALLER to name the scene closes it: a caller holding only a
+    scene id cannot get a coordinate out of this function at all (it would
+    have to supply the marker id it does not have), and a caller holding a
+    (scene, marker) pair is a caller reading a registry row that names both -
+    which is the only caller this exists for.  ``arrival_point`` remains the
+    scene-indexed API, and it still answers ``None`` for 17.
+
+    The returned tuple carries no ``n_SCENE`` because the match already
+    proved it; returning it invited the caller to trust a value it had just
+    supplied.
+    """
+    if type(scene_n_id) is not int or isinstance(scene_n_id, bool):
+        raise SceneMarkerError("scene n_ID must be a plain int")
+    if type(marker_n_id) is not int or isinstance(marker_n_id, bool):
+        raise SceneMarkerError("marker n_ID must be a plain int")
+    for row_marker, row_scene, x, y, z, direction in DECREED_ARRIVAL_ROWS:
+        if row_marker == marker_n_id and row_scene == scene_n_id:
+            return (x, y, z, direction)
+    return None
 
 
 def rows_that_look_self_consistent_and_name_nobody() -> int:

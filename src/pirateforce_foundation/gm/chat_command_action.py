@@ -3025,10 +3025,14 @@ def _warp_action(
     # below, decided here, in the one function that knows the current scene.
     #
     # WHAT STILL FALLS THROUGH TO STAGING is now exactly one thing: a
-    # MARKERLESS destination (17/126/278/997, `n_MARKER == 0`, GT-182
-    # nonclaim 4) -- same scene or not.  `warp_no_coords_live_target` is
-    # still the one place that decides which scenes qualify, and this change
-    # does not touch it, so GT-141's pinned scene-278 answer is unchanged.
+    # destination with NO ARRIVAL POINT -- same scene or not.
+    # ~~MARKERLESS (17/126/278/997, `n_MARKER == 0`, GT-182 nonclaim 4)~~
+    # AMENDED 2026-09-05 (LANE-A round ihjytc): that set is 17/278/997 now.
+    # Scene 126's table row still carries `n_MARKER == 0`, but the owner
+    # pinned its arrival by decree (`PANYA-DECISION 20260905_1329`), so
+    # `warp_no_coords_live_target` resolves it and `/warp 126` takes the live
+    # branch.  That function is still the one place that decides which scenes
+    # qualify, and GT-141's pinned scene-278 answer is unchanged.
     #
     # THE LOOKUP IS DONE ONCE, HERE, AND ITS ANSWER IS CARRIED (pf-adversary,
     # round `spt6fv`, D3, MEASURED).  It used to be inlined in the condition
