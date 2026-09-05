@@ -9,14 +9,31 @@ that condition: it was answered by reading three modules and believing the
 join.  ``scene_door_walk`` walks it instead, and this file is what holds the
 walk to the roster the server actually ships.
 
-WHAT THE WALK MEASURED WHEN THIS FILE WAS WRITTEN (2026-09-05T05:2x+07:00,
-the numbers below are the assertions, not a transcript)::
+WHAT THE WALK MEASURES TODAY.  These are the assertions below, not a
+transcript, and ROUND j5v7mu2 (pf-adversary D7) corrected the field names --
+the earlier version of this block invented ``refused_by_owner``/``withheld``,
+which is not what ``describe_scene_doors`` prints and is not greppable::
 
-    scene='Bg0002' rows=12 refused_by_owner=8 withheld=0 ai=open target=12 kill=12 drop=12 yes
-    scene='Bg0003' rows=12 refused_by_owner=0 withheld=0 ai=open target=12 kill=12 drop=12 yes
-    scene='Bg0015' rows=11 refused_by_owner=0 withheld=1 ai=open target=11 kill=11 drop=11 yes
-    scene='bg0001' rows=4  refused_by_owner=0 withheld=0 ai=open target=4  kill=4  drop=0  no
-    scene='bg0005' rows=6  refused_by_owner=0 withheld=0 ai=open target=6  kill=6  drop=6  yes
+    SCENE_DOORS scene='Bg0002' rows=12 owner_refusal_list=8 lane_withheld=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
+    SCENE_DOORS scene='Bg0003' rows=12 owner_refusal_list=0 lane_withheld=0 ai=open target=12 kill=12 drop=12 every_door=yes short=none
+    SCENE_DOORS scene='Bg0015' rows=11 owner_refusal_list=0 lane_withheld=1 ai=open target=11 kill=11 drop=11 every_door=yes short=none
+    SCENE_DOORS scene='bg0001' rows=4 owner_refusal_list=0 lane_withheld=0 ai=open target=4 kill=4 drop=0 every_door=no short=103/t916,105/t916,107/t916,109/t916
+    SCENE_DOORS scene='bg0005' rows=6 owner_refusal_list=0 lane_withheld=0 ai=open target=6 kill=6 drop=6 every_door=yes short=none
+    SCENE_DOORS summary live_scenes=5 owner_refusal_list=8 lane_withheld=1(Bg0015:1) every_door=Bg0002,Bg0003,Bg0015,bg0005
+
+``short=`` WAS MISSING FROM THIS BLOCK TWICE (pf-adversary D-C).  It is the
+field that names WHICH rows fell short, which is the denominator question the
+whole file is about, and it had no assertion anywhere in the repo -- a mutant
+returning ``()`` from ``rows_short_of_every_door`` printed ``short=none`` for
+bg0001's four undroppable dummies and nothing noticed.  It is asserted now, in
+``test_the_short_field_names_the_rows_and_is_not_decoration``.
+
+NOBODY PRINTS THESE (pf-adversary D7).  ``scene_door_walk`` has no production
+caller -- grepped across ``src/``, ``tools/`` and ``current/``; the module's
+own ``SCENE_DOOR_WALK_CENSUS_CALL`` is the line a boot WOULD add and says
+plainly that no call site exists.  So a letter quoting these lines is
+quoting a lane diagnostic, not a server console, and this file says so here
+because two of this lane's letters said otherwise.
 
 WHAT CHANGED IN ROUND j5v7mu, AND WHAT DID NOT.  The Bg0015 row above is the
 whole diff: ``COO-DECISION 20260905_0545`` (answering this lane's ASK-COO of
@@ -178,12 +195,102 @@ class WalkTheShippedRosterTests(unittest.TestCase):
             CARLOS_IDENTITY, {row.actor_identity for row in scene14.rows})
         self.assertNotIn(
             CARLOS_TEMPLATE, {row.template_id for row in scene14.rows})
-        # The console line carries the number, not just the record: this is
-        # the string a boot prints and a tester reads.
+        # The line this module's own reporter produces carries the number,
+        # not just the record.
+        #
+        # ~~this is the string a boot prints and a tester reads~~ IS STRUCK,
+        # ROUND j5v7mu2 (pf-adversary D7): NOTHING PRINTS IT.  Grepped across
+        # `src/`, `tools/` and `current/` -- `scene_door_walk` is imported by
+        # this test file and nothing else, and the module's own
+        # `SCENE_DOOR_WALK_CENSUS_CALL` says in as many words that the call
+        # site does not exist and this lane does not wait on one.  The
+        # correct layer tag for every SCENE_DOORS line in this round's
+        # letters is "output of a lane diagnostic function", not "server
+        # console".
         line = scene_door_walk.describe_scene_doors(scene14)
         self.assertIn("rows=11", line)
         self.assertIn("lane_withheld=1", line)
         self.assertIn("every_door=yes", line)
+
+    def test_the_short_field_names_the_rows_and_is_not_decoration(self):
+        """pf-adversary D-C: the one field on the line nothing asserted.
+
+        Pinned from both sides -- a scene with rows short must NAME them,
+        and a scene with none must say ``none`` -- so neither "the field
+        went blank" nor "the field always lists something" can pass.
+        """
+        town = scene_door_walk.describe_scene_doors(self.walked["bg0001"])
+        self.assertIn(
+            "short=103/t916,105/t916,107/t916,109/t916", town)
+        for scene in (SCENE_THREE, "bg0005", "Bg0015"):
+            line = scene_door_walk.describe_scene_doors(self.walked[scene])
+            self.assertIn("short=none", line, scene)
+        # And the field agrees with the record it is formatted from.
+        for scene, one in self.walked.items():
+            line = scene_door_walk.describe_scene_doors(one)
+            named = line.split("short=")[1]
+            for row in one.rows_short_of_every_door:
+                self.assertIn(
+                    "%d/t%d" % (row.placement_index, row.template_id),
+                    named, scene)
+            if not one.rows_short_of_every_door:
+                self.assertEqual(named, "none", scene)
+
+    def test_the_summary_line_says_which_scene_withheld_a_row(self):
+        """ROUND j5v7mu2, pf-adversary D7.
+
+        The summary carried a bare SUM over five scenes next to an
+        ``every_door`` list naming four of them, so a reader could not tell
+        which of the four owed its ``yes`` to a removed row -- which is the
+        only thing that number is for.
+        """
+        lines = scene_door_walk.describe_live_scene_doors(self.legacy)
+        summary = [one for one in lines if " summary " in one]
+        self.assertEqual(len(summary), 1)
+        summary = summary[0]
+        self.assertIn("lane_withheld=1(Bg0015:1)", summary)
+        # Bg0015 IS in the finished list, and that is exactly why the scene
+        # has to be named beside the count rather than summed into it.
+        self.assertIn("Bg0015", summary.split("every_door=")[1])
+        # ASCII and bounded like every other line this module emits.
+        self.assertTrue(summary.isascii())
+        summary.encode("cp874")
+
+    def test_a_walk_where_nobody_withholds_says_zero_not_an_empty_list(self):
+        """The ordinary case stays one character (pf-adversary D7)."""
+        nothing = scene_door_walk.SceneDoors("bg0001", ai_register=True)
+        self.assertEqual(scene_door_walk._withheld_by_scene((nothing,)), "0")
+        one = scene_door_walk.SceneDoors(
+            "Bg0015", lane_withheld=(87,), ai_register=True)
+        self.assertEqual(
+            scene_door_walk._withheld_by_scene((nothing, one)), "1(Bg0015:1)")
+
+    def test_the_scene_name_in_the_summary_is_bounded_and_cp874_safe(self):
+        """pf-adversary D-G: the guard this helper's docstring claims.
+
+        The first version of that claim was unfalsifiable -- the only names
+        the test fed it were ``Bg0015`` and ``bg0001``, both short ASCII, so
+        dropping ``_console_scene`` from the helper left the suite green.
+        The two inputs below are the two failures ``_console_scene`` exists
+        for and they are this module's own scars: a 5,000-character name
+        turned a bounded report line into a 5,052-character one, and one
+        U+2011 in a name copied out of a document made a cp874 ``print``
+        raise inside the report.
+        """
+        long_name = scene_door_walk.SceneDoors(
+            "x" * 5000, lane_withheld=(87,), ai_register=True)
+        line = scene_door_walk._withheld_by_scene((long_name,))
+        self.assertLess(
+            len(line),
+            scene_door_walk.SCENE_NAME_ON_A_CONSOLE_LINE + 32)
+        non_ascii = scene_door_walk.SceneDoors(
+            "Bg\u2011015", lane_withheld=(87,), ai_register=True)
+        escaped = scene_door_walk._withheld_by_scene((non_ascii,))
+        self.assertTrue(escaped.isascii())
+        escaped.encode("cp874")
+        # ESCAPED, NOT DROPPED: a name that was wrong stays recognisable in
+        # the line that says so, same as every other field here.
+        self.assertIn("Bg", escaped)
 
     def test_the_training_dummies_die_and_drop_nothing_and_that_is_the_row(self):
         """bg0001's four rows: killable, dropping nothing, by their own table.

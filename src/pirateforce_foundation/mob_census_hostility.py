@@ -398,9 +398,22 @@ def describe_census_hostility(
                 scene_id, ledger)["state"]
         except Exception:  # noqa: BLE001 - a console line never kills a boot
             admission = "undescribable"
+    # ROUND j5v7mu2, pf-adversary D-D.  ``withheld`` is APPENDED, not
+    # inserted: this line is quoted by prefix in attended result letters
+    # (``MOB_CENSUS_HOSTILITY scene_id=14 ... roster=0``), and moving a
+    # field would silently break every one of those greps.
+    #
+    # WHY IT HAD TO BE ON THIS LINE AT ALL.  Round j5v7mu added
+    # ``withheld``/``withheld_count`` to :func:`census_backing_report` and
+    # only a test ever read them, while THIS -- the one string a boot
+    # prints, wired at ``runtime.py`` and ``lane_hooks/lane_a_scene_census``
+    # -- still said ``roster=11 ... refused=0`` for scene 14, telling a
+    # reader the denominator is whole when a row is missing from it.  That
+    # is the exact sentence the report's own tests give as the keys' reason
+    # for existing.
     return (
         "MOB_CENSUS_HOSTILITY scene_id=%d scene=%s roster=%d backed=%d "
-        "unbacked=%s refused=%d override=%s ledger=%s" % (
+        "unbacked=%s refused=%d override=%s ledger=%s withheld=%d" % (
             report["scene_id"],
             report["scene"] if report["scene"] else "?",
             report["roster_count"],
@@ -409,6 +422,7 @@ def describe_census_hostility(
             report["refused_count"],
             carried,
             admission,
+            report["withheld_count"],
         ),
     )
 
