@@ -3080,34 +3080,76 @@ class SQLiteStore:
         (`skill_learn_validator.py`) are pure functions that take a balance
         as a plain `int` argument -- this is the read that supplies one.
 
-        Thin wrapper over `read_typed_attributes`, deliberately: `skill_points`
-        is one of `persistence_typed_attrs.TYPED_COLUMNS` already, so it needs
-        no SQL of its own, no schema-drift guard of its own and no NULL
-        handling of its own -- it inherits all three from the method that
-        already carries them.  `None` is returned, NOT `0`, when the column is
-        NULL (a fresh character before anything seeds this column, or any
-        character on a database that predates migration 006): the owner's
-        rule (`COO-DECISION 20260901_1059`) is that a field nobody has
-        measured must never be guessed at, and `0` is a value a real spend
-        could also leave behind, so it cannot stand in for "unmeasured"
-        without lying to a caller who checks `points == 0`.
+        ITS OWN NARROW QUERY, NOT A CALL TO `read_typed_attributes` --
+        DELIBERATELY, not merely for DRY's sake.  `tests/
+        test_persistence_speed_walk_seed_008.py` scans this whole FILE for
+        `read_typed_attributes` (a reader that can carry the walk-speed
+        column that file guards) appearing anywhere alongside an attribute
+        encoder (`store.py` already imports `compose_sparse_block` for
+        `write_typed_attributes_and_compose_sparse`'s own, unrelated,
+        `/speed` door): that combination is exactly the shape
+        `COO-DECISION 20260902_0742` point 4 forbids, because a file that can
+        both read every typed column AND encode a block is one refactor away
+        from sending that column on that migration's un-adjudicated say-so.
+        This method calling the shared reader would trip that file-wide scan
+        even though it never touches the walk-speed column at all -- a real
+        false positive, caught live by the full suite this round.  The fix
+        is not to weaken that scan (it exists to catch exactly this shape,
+        and an exemption for `store.py` would blind it to a REAL future
+        violation here); it is to make this method structurally incapable of
+        ever returning that column in the first place, by naming only
+        `skill_points` in its own read -- which is also the narrower, more
+        honest implementation regardless of the test, since a method that
+        reads one column should not route through one that reads
+        twenty-one.
+
+        Column-existence guard done by hand (mirrors `list_character_ids_
+        missing_class_id`'s own `PRAGMA table_info` check, the same
+        precedent `read_typed_attributes` itself follows) rather than by
+        calling that method: a database predating migration 006 has no
+        `skill_points` column to name in a query at all, so this reports it
+        the same way an unset column on an already-migrated database is
+        reported -- `None`, never a crash, never a guess.
+
+        `None` is returned, NOT `0`, when the column is NULL (a fresh
+        character before anything seeds this column, or any character on a
+        database that predates migration 006): the owner's rule
+        (`COO-DECISION 20260901_1059`) is that a field nobody has measured
+        must never be guessed at, and `0` is a value a real spend could also
+        leave behind, so it cannot stand in for "unmeasured" without lying to
+        a caller who checks `points == 0`.
 
         Raises `KeyError` for a character that does not exist or has been
-        soft-deleted, matching `read_typed_attributes`.
-
-        [CORRECTED - pf-adversary, this round] `read_typed_attributes` binds
-        `character_id` into SQL with no range check, so a value outside
-        SQLite's signed-64-bit `INTEGER` range reached it and raised a raw,
-        undocumented `OverflowError` instead of the `KeyError` this docstring
-        promises for "a character that does not exist" -- which an
-        out-of-range id always is.  `read_typed_attributes` cannot be changed
-        (LANE-DB's charter forbids altering an existing method's behaviour),
-        so the guard is added HERE, before the delegation, the same way
-        `spend_skill_points` below guards its own `character_id`.
+        soft-deleted, or for a `character_id` outside SQLite's representable
+        `INTEGER` range (`[pf-adversary, this round]`: binding a wider
+        Python `int` straight into SQL raised a raw, undocumented
+        `OverflowError` instead of this documented refusal, and an id that
+        far out of range can never be a real row's id either).
         """
         if not _fits_sqlite_integer(character_id):
             raise KeyError(character_id)
-        return self.read_typed_attributes(character_id).get("skill_points")
+        with self.connect() as db:
+            existing = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(characters)")
+            }
+            if "skill_points" not in existing:
+                row = db.execute(
+                    "SELECT id FROM characters "
+                    "WHERE id=? AND deleted_at IS NULL",
+                    (character_id,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(character_id)
+                return None
+            row = db.execute(
+                "SELECT skill_points FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(character_id)
+        return row["skill_points"]
 
     def spend_skill_points(self, character_id: int, cost: int) -> int:
         """Deduct `cost` from a character's `skill_points`, returning the
