@@ -255,10 +255,24 @@ OUTCOME_REFUSED_PREFIX = "refused_"
 OUTCOME_STAGED_LOGIN_SCENE = "staged_login_scene"
 OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED = "staged_login_scene_coords_ignored"
 
+# The SECOND outcome in this vocabulary that names a REAL, DURABLE effect,
+# and it is worded to claim exactly as little as the staged-scene pair above.
+# `/lv <n>` writes `characters.level` (`gm/level_command.py`, PANYA-ORDER
+# 2026-09-06 01:55) and sends NO frame that changes a live client's level --
+# the only frame that could is a sparse `UpdateAttrVital` 0x309A, which
+# `GT-193`/`GT-218` measured killing a real client and `gm/attr_wire.py`'s
+# (b'') rule forbids.  So the row is written and the number appears at the
+# GM's NEXT LOGIN, when `persistence_login_vitals` reads that same column
+# back.  `row_written` says the row moved; it does not say a screen did.
+# `executed` stays False for the same reason it does for the staged scene:
+# the gameplay command did not execute, a row was written.
+OUTCOME_LV_ROW_WRITTEN = "lv_row_written"
+
 AUDIT_OUTCOMES = (
     OUTCOME_COMPOSED,
     OUTCOME_STAGED_LOGIN_SCENE,
     OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
+    OUTCOME_LV_ROW_WRITTEN,
 )
 AUDIT_OUTCOME_PREFIXES = (OUTCOME_WITHHELD_PREFIX, OUTCOME_REFUSED_PREFIX)
 

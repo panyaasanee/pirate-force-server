@@ -280,8 +280,13 @@ class TheTwoStatesAreDistinguishableTests(_Case):
         )
 
     def test_a_command_with_no_wire_path_says_so_rather_than_nothing(self):
+        # `/spawn`, not `/lv`: round `l86bt4` gave `/lv` a row write and an
+        # on-screen notice (PANYA-ORDER 2026-09-06 01:55), so it is no longer
+        # one of the commands with no wire path at all -- which is what this
+        # test is about.  `/spawn` still is, and is bounded-negative rather
+        # than merely unwired (`gm/commands.py`'s own docstring).
         session = FakeSession(position=FakePosition(scene_id=2))
-        action = self.act(session, "/lv 40")
+        action = self.act(session, "/spawn 40")
         self.assertIsNone(action)
         self.assertEqual(
             self.outcome_rows()[0]["outcome"],
