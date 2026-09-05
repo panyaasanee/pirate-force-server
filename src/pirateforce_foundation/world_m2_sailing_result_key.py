@@ -278,15 +278,31 @@ def column_discriminating_keys(count: int) -> tuple[int, ...]:
       candidate, dock 154 / Spice Paradise gets the `n_AREA` candidate) is
       this trial's only consumer today.
 
-    A count of 2 also closes D8 (pf-adversary round `tk4hr7`): the OLD
-    scheme's two lowest `n_ID`s (1, 2) put island 3's key exactly equal to
-    island 2's OTHER field (`+0x12` = the `survey_id` echoed at contact,
-    2 and 3 for the two docks) -- a client response naming "2" could not
-    be told apart from "the `n_ID`=2 key resolved" versus "the `+0x12`=2
-    field is what the client actually read".  The new values (the lowest
-    `n_ID`, today `1`, and `n_AREA` = `126`) match neither dock's `+0x12`
-    (`2`/`3`), so a resolved lookup can only ever be read as evidence about
-    the column this function was asked to discriminate.
+    A count of 2 also happens to close D8 TODAY (pf-adversary round
+    `tk4hr7`): the OLD scheme's two lowest `n_ID`s (1, 2) put island 3's key
+    exactly equal to island 2's OTHER field (`+0x12` = the `survey_id`
+    echoed at contact, 2 and 3 for the two docks) -- a client response
+    naming "2" could not be told apart from "the `n_ID`=2 key resolved"
+    versus "the `+0x12`=2 field is what the client actually read".  The
+    current values (the lowest `n_ID`, today `1`, and `n_AREA` = `126`)
+    match neither dock's `+0x12` (`2`/`3`).
+
+    THIS FUNCTION CANNOT GUARANTEE THAT IN GENERAL, AND DOES NOT TRY TO
+    (pf-adversary round `tk4hr7`+1, re-verification): it has no idea what
+    `+0x12` values a caller is about to send -- that is
+    `world_m2_survey_plan`'s and the caller's business, not this module's
+    (see the module docstring's own boundary discipline).  If a future TSV
+    update ever made ``provisional_area_126_key()`` return `2` or `3`
+    instead of `1`, THIS FUNCTION WOULD RETURN THAT COLLISION SILENTLY --
+    proven by monkeypatching it to return `2` in a test and observing no
+    exception here.  The structural guard against that lives in the one
+    caller that actually knows both fields of the wire record,
+    the provisioning-trial composer's `trial_survey_records`, which checks every
+    `+0x14` candidate against every `+0x12` survey_id THAT TRIAL is about to
+    send and raises before composing anything if they collide -- see that
+    function's own docstring.  Do not re-describe this function alone as
+    "closing D8"; it is one half of a check whose other, load-bearing half
+    lives one caller up.
 
     A silent result on BOTH records is NOT evidence that the whole
     `SAILING_RESULT`-key theory is wrong -- it means the column is still

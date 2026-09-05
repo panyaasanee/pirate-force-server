@@ -96,6 +96,41 @@ class TrialSurveyRecordsTests(unittest.TestCase):
             plan.MEASURED_XYZ.update(saved)
 
 
+class D8CollisionGuardTests(unittest.TestCase):
+    """pf-adversary, round `tk4hr7`+1, re-verification of this round's own
+    first D8 fix: `column_discriminating_keys` only guarded its two
+    candidates against EACH OTHER, never against the `+0x12` survey_ids
+    this trial actually sends -- proven insufficient by monkeypatching
+    `provisional_area_126_key()` to return `2` (a plausible future TSV
+    update, since the committed copy already HAS a row with `n_ID=2`) and
+    observing the collision pass through silently. The guard now lives
+    here, in `trial_survey_records`, which is the one place that knows
+    both fields."""
+
+    def test_todays_candidates_do_not_collide(self):
+        # The guard fires on every call, not just a forged one -- this
+        # proves it does not reject today's real, correct data.
+        self.assertTrue(trial.trial_survey_records())
+
+    def test_a_forged_n_id_candidate_colliding_with_a_survey_id_is_refused(self):
+        original = sailing_result.provisional_area_126_key
+        sailing_result.provisional_area_126_key = lambda: 2
+        try:
+            with self.assertRaises(sailing_result.SailingResultCopyError):
+                trial.trial_survey_records()
+        finally:
+            sailing_result.provisional_area_126_key = original
+
+    def test_a_forged_n_area_candidate_colliding_with_a_survey_id_is_refused(self):
+        original = sailing_result.n_area_key
+        sailing_result.n_area_key = lambda: 3
+        try:
+            with self.assertRaises(sailing_result.SailingResultCopyError):
+                trial.trial_survey_records()
+        finally:
+            sailing_result.n_area_key = original
+
+
 SEA_SCENE = 126
 
 

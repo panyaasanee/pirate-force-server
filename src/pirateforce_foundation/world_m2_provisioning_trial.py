@@ -177,9 +177,33 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
     incidental, and load-bearing for reading GT-233's result (a pop on one
     record and not the other says which column, only because which record
     tested which hypothesis is fixed).
+
+    THIS FUNCTION, NOT `column_discriminating_keys`, IS WHERE D8 IS ACTUALLY
+    ENFORCED (pf-adversary round `tk4hr7`+1, re-verification of this
+    round's own first D8 fix): `column_discriminating_keys` has no idea
+    what `+0x12` (`survey_id`) values this trial is about to send -- only
+    this function, which reads BOTH `plan.trial_survey_id(record)` and the
+    `+0x14` candidates, can check them against each other.  The first
+    version of this round's fix only guarded the two `+0x14` candidates
+    against EACH OTHER (never equal to each other), which pf-adversary
+    proved insufficient by monkeypatching `provisional_area_126_key()` to
+    return `2` -- a plausible future TSV update -- and observing the
+    collision with dock 153's own `+0x12` pass through silently.  So every
+    `+0x14` candidate is checked here against every `+0x12` this trial
+    sends, structurally, not just against today's committed data.
     """
     records = plan.planned_records()
     keys = sailing_result.column_discriminating_keys(len(records))
+    survey_ids = tuple(plan.trial_survey_id(record) for record in records)
+    for key in keys:
+        if key in survey_ids:
+            raise sailing_result.SailingResultCopyError(
+                f"+0x14 candidate {key} collides with a +0x12 survey_id "
+                f"this trial sends ({survey_ids!r}) -- a resolved lookup "
+                "could not be told apart from the client echoing the "
+                "other field; refusing to compose ambiguous records "
+                "(D8, pf-adversary round tk4hr7)"
+            )
     return tuple(
         TrialSurveyRecord(
             trigger_id=record.trigger_id,
