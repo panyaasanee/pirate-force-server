@@ -134,13 +134,27 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           # The repository carries no requirements.txt, no pyproject.toml and no
           # conftest.py; tests reach src/ by sys.path.insert(0, ROOT/"src").
-          # These three are every third-party name imported anywhere under
-          # tests/ or tools/.
-          py -3 -m pip install --disable-pip-version-check --quiet --upgrade pip
+          # THIS LINE IS THE REPOSITORY'S DEPENDENCY DECLARATION - the four
+          # names below are every third-party name imported anywhere under
+          # tests/ or tools/.  lupa is pinned because the LANE-Q Lua host is
+          # built against a specific embedding API; the bridge box installs
+          # the same 2.8.
+          #
+          # `python`, not the `py -3` shim, on purpose (COO-DECISION
+          # 20260905_2351): the shim is a generated .cmd batch file, and
+          # cmd.exe's %1.."%~9" parameter splitting treats '=' as a
+          # delimiter exactly like a space, so "lupa==2.8" arrived at pip as
+          # two words - "lupa" and "2.8" - and pip rejected "2.8" as an
+          # unknown package (pirate-force-server#859).  actions/setup-python
+          # already puts this same pinned interpreter on PATH as `python`,
+          # so calling it directly here skips the batch reparsing entirely
+          # instead of trying to out-quote it. The shim stays for every
+          # other `py -3` call below, none of which pin a version with '='.
+          python -m pip install --disable-pip-version-check --quiet --upgrade pip
           if ($LASTEXITCODE -ne 0) { throw 'pip self-upgrade failed' }
-          py -3 -m pip install --disable-pip-version-check --quiet pytest capstone pefile
+          python -m pip install --disable-pip-version-check --quiet pytest capstone pefile lupa==2.8
           if ($LASTEXITCODE -ne 0) { throw 'dependency install failed' }
-          py -3 -m pip list | Select-String -Pattern 'pytest|capstone|pefile' | Out-Host
+          python -m pip list | Select-String -Pattern 'pytest|capstone|pefile|lupa' | Out-Host
 
       # ------------------------------------------------------------------
       - name: Assert the environment is the one we think it is
