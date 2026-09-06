@@ -168,13 +168,30 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: always takes the `then` branch and the `else` branch holding every
 #: CheckOpenTime call in that file never runs -- confirmed by printing
 #: report.real_call_counts directly (`{'Quest.CheckOpenTime': 2, ...}`), not
-#: inferred from the call-site table. A round that lands a real API
-#: implementation (including a future Player.CheckBuff) makes every call to
-#: that name, in every script that makes it, stop counting here -- so this
-#: number may only fall or hold; a round that raises it has made stub
-#: coverage worse, not a rounding artifact, and the test below is written to
+#: inferred from the call-site table.
+#:
+#: RE-MEASURED THIS ROUND (LANE-Q, this session): lua_api/player.py made
+#: Player.GetLv/GetClass real (see that module's own docstring for why
+#: these two, of Player's 73 names, needed no LANE-DB column and no wire
+#: frame). MEASURED, not derived from the 91/60 call-site counts in
+#: api_spec.tsv the naive way: report.real_call_counts prints
+#: {'Player.GetLv': 60, 'Player.GetClass': 42} against this same LUA_ROOT
+#: and FIXED_QUEST_CLOCK -- 5018 - 81 = 4937, NOT 5018 - (91 + 60) = 4867
+#: (pf-adversary caught this arithmetic as off by one in an earlier draft).
+#: The gap is not a bug in the count: giving GetLv/GetClass their real
+#: answer (the injected PlayerContext's level/class_id, both nonzero by
+#: default) instead of STUB_DEFAULT=0 changes which branches some scripts
+#: take on their way to a Report_Check/Accept_Check call, which changes
+#: which OTHER still-stubbed names execute afterward in the same run --
+#: some newly reached, some no longer reached -- exactly the same kind of
+#: emergent, measured-not-assumed shift a future round making any other
+#: name real should expect to see here too, not treat as a discrepancy to
+#: chase down.  A round that lands a real API implementation makes every
+#: call to that name, in every script that makes it, stop counting here --
+#: so a regression that raises this number (not a branch-shift fall) is
+#: still stub coverage getting worse, and the test below is written to
 #: catch that.
-BASELINE_TOTAL_STUB_CALLS = 5018
+BASELINE_TOTAL_STUB_CALLS = 4937
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()
