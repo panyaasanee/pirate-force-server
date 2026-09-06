@@ -411,6 +411,19 @@ class RulingForTests(unittest.TestCase):
             # cited timestamp for ``re.search`` to have to skip past.
             "COO-DECISION widen-death-scope-bg0008-six-templates "
             "2026-09-06T05:48+07:00": "202609060548",
+            # Four scenes, one letter (notes_to_chief/20260906_0748_
+            # COO-DECISION-b0659-...), same "timestamp at the end" spelling
+            # as the bg0008 entry above, copied verbatim from item 1's own
+            # naming instruction rather than reordered to match the earlier
+            # entries.
+            "COO-DECISION widen-death-scope-bg0006-two-templates "
+            "2026-09-06T07:48+07:00": "202609060748",
+            "COO-DECISION widen-death-scope-bg0007-seven-templates "
+            "2026-09-06T07:48+07:00": "202609060748",
+            "COO-DECISION widen-death-scope-bg0009-five-templates "
+            "2026-09-06T07:48+07:00": "202609060748",
+            "COO-DECISION widen-death-scope-bg0011-five-templates "
+            "2026-09-06T07:48+07:00": "202609060748",
         }
         self.assertEqual(
             set(expected), set(mob_death.WIDENING_RULINGS),

@@ -444,8 +444,21 @@ class SceneRecomposeTests(unittest.TestCase):
         self.assertIn("MobDeathContractError", record.state)
 
     def test_a_scene_with_no_composer_is_a_named_answer(self):
+        # ROUND 4tnhzw (LANE-B): this test used to read scene id 9 as its
+        # "no composer" example; that stopped being true THIS round
+        # (COO-DECISION 2026-09-06T07:48+07:00 registers Bg0009's roster and
+        # COMPOSER_BG0009 in the same commit, the same "kept up with a
+        # registration" shape every earlier scene here already went
+        # through).  Scene 10 (bg0010) is the replacement, verified rather
+        # than guessed: it is still in
+        # ``mob_scene_recompose.ACKNOWLEDGED_WITHOUT_COMPOSER`` at HEAD, and
+        # this round's own mining attempt on it refuses outright (a raw
+        # placements row carries the literal string 'UNRESOLVED' where a
+        # template id belongs -- see this round's STATIC ticket to chief),
+        # so it has neither a roster nor a composer and is not about to gain
+        # one by accident the way scene 9 just did.
         record = recompose.recompose_frames(
-            self.legacy, recompose.census_anchor(9, ANCHOR, 10),
+            self.legacy, recompose.census_anchor(10, ANCHOR, 10),
             self.register, ledger=self.ledger2)
         self.assertEqual(record.state, recompose.STATE_NO_COMPOSER)
         self.assertIsNone(record.pc)
