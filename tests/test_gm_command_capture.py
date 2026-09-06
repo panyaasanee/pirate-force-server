@@ -823,7 +823,14 @@ class GmCommandCaptureTests(unittest.TestCase):
             "this into two lines -- the second one forged, "
             "attacker-controlled",
         )
-        self.assertIn("\\n", printed[0], "the newline must be VISIBLE, escaped")
+        # `\x0a` since round `nfbat1`: the fold that used to produce `\n`
+        # here was `unicode_escape`, which also folded Thai away (see
+        # `_fold_line_breaking_controls`). What this line pins is unchanged
+        # -- the newline is VISIBLE and escaped, not acted on -- only the
+        # spelling of the escape moved.
+        self.assertIn(
+            "\\x0a", printed[0], "the newline must be VISIBLE, escaped",
+        )
         self.assertIn(
             "FORGED", printed[0],
             "the rest of the account name must still be readable, just "
@@ -864,6 +871,124 @@ class GmCommandCaptureTests(unittest.TestCase):
         )
         self.assertTrue(printed[0].isascii())
         self.assertIn("Jos", printed[0])
+
+    def _stuck_line_for(self, account="panya", root=None, stream=None):
+        """Drive the stuck-file path once and hand back what was printed."""
+        stderr = stream if stream is not None else io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved):
+                capture_raw_gm_command(
+                    b"x", account,
+                    capture_root=self.root if root is None else root,
+                    now_ts=0,
+                )
+        return stderr.getvalue()
+
+    def test_a_thai_account_name_survives_a_console_that_can_carry_thai(self):
+        # pf-adversary (round `nfbat1`): the round `smztdu` fix composed
+        # `_escape_for_header` (which is `unicode_escape`, i.e. escape every
+        # non-ASCII character) before `console_safe`, which made
+        # `console_safe` a no-op and forced ASCII unconditionally. On the
+        # bridge's own cp874 console -- which carries Thai natively -- a GM
+        # account named `ทดสอบ` printed as `\u0e17...`, so the operator who
+        # greps the console for their own name finds nothing. That is the
+        # exact defect `console_safe`'s docstring records as already paid
+        # for once. A StringIO has no `.encoding`, so this test uses a
+        # stream that says cp874, which is what the bridge forces.
+        class _Cp874Stream(io.StringIO):
+            encoding = "cp874"
+
+        stream = _Cp874Stream()
+        printed = self._stuck_line_for(account="ทดสอบ", stream=stream)
+        self.assertIn("account=ทดสอบ", printed)
+        self.assertNotIn("\\u0e17", printed)
+
+    def test_a_capture_root_with_a_newline_cannot_forge_a_second_stuck_line(self):
+        # pf-adversary (round `nfbat1`): the newline defense went on
+        # `account` only, while the comment justifying it argued -- in the
+        # same breath -- that `path` is the operator-controlled one. A
+        # `capture_root` carrying a newline therefore forged exactly the
+        # second token line the account fix exists to prevent, with
+        # attacker-chosen `path=`/`account=`/`attempted_bytes=` on it.
+        forged = "\nGM_CAPTURE_UNLINK_STUCK path=C:\\clean account=admin"
+        root = Path(self._tmp.name) / f"cap{forged}" / "capture"
+        printed = self._stuck_line_for(root=root).splitlines()
+        self.assertEqual(
+            len(printed), 1,
+            f"a newline in capture_root forged extra console lines: {printed}",
+        )
+        # The token can legitimately appear a second time INSIDE the line
+        # (the hostile path contains those words as text) -- what must not
+        # happen is a second LINE that a grep-this-token tool would read as
+        # a report of its own. So: one line, starting with the real token,
+        # with the newline visible as an escape rather than acted on.
+        self.assertTrue(
+            printed[0].startswith(command_capture._UNLINK_STUCK_CONSOLE_TOKEN),
+        )
+        self.assertIn("\\x0a", printed[0])
+
+    def test_a_windows_path_keeps_its_backslashes_readable(self):
+        # The other half of the same fold, and the OTHER scar in
+        # `console_safe`'s docstring: escaping backslashes made the Windows
+        # path in this line unpasteable and cost this lane a round. The fold
+        # must touch control characters and nothing else.
+        self.assertEqual(
+            command_capture._fold_line_breaking_controls("C:\\Users\\panya\\a.txt"),
+            "C:\\Users\\panya\\a.txt",
+        )
+        self.assertEqual(
+            command_capture._fold_line_breaking_controls("ทดสอบ"), "ทดสอบ",
+        )
+        self.assertEqual(
+            command_capture._fold_line_breaking_controls("a\nb\rc\x7f"),
+            "a\\x0ab\\x0dc\\x7f",
+        )
+
+    def test_ctrl_c_while_the_stuck_line_prints_is_not_swallowed(self):
+        # pf-adversary (round `nfbat1`): D2 widened the guard around this
+        # print to `except BaseException` for the shutdown re-raise path,
+        # where there IS an in-flight exception to protect -- but the guard
+        # sits in a function the two ORDINARY failure paths call too, and
+        # there it discarded a real Ctrl-C. The sibling test below still
+        # pins the shutdown path's swallow; this one pins that the ordinary
+        # path lets the interrupt out.
+        class _InterruptingStream(io.StringIO):
+            def write(self, text):  # noqa: D102 - test double
+                raise KeyboardInterrupt("operator pressed Ctrl-C")
+
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(_InterruptingStream()):
+            with self.assertRaises(KeyboardInterrupt):
+                capture_raw_gm_command(
+                    b"x", "panya", capture_root=self.root, now_ts=0,
+                )
+
+    def test_the_capture_file_on_disk_never_carries_a_crlf(self):
+        # pf-adversary (round `nfbat1`, P6): the O_BINARY fix is pinned only
+        # at the flag-argument layer -- nothing anywhere measured the BYTES.
+        # This does, and it is a real Windows test rather than a POSIX
+        # tautology: without O_BINARY the CRT rewrites every `\n` this file
+        # writes into `\r\n`, so on windows-latest this assertion is what
+        # would go red if the flag were dropped again. On POSIX it is free.
+        out = capture_raw_gm_command(
+            b"\x01\x02\x03", "panya", capture_root=self.root, now_ts=0,
+        )
+        body = out.read_bytes()
+        self.assertNotIn(b"\r\n", body)
+        self.assertIn(b"\n", body)
 
     def test_a_cleanup_unlink_that_works_first_try_never_sleeps(self):
         # COO's explicit condition on accepting the retry at all: "Linux must

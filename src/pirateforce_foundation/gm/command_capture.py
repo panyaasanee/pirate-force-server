@@ -207,9 +207,18 @@ def _best_effort_unlink(
     life of the process -- **a capture quota left stuck this way is cleared
     by RESTARTING THE PROCESS, and by nothing else** (COO ruled the janitor
     out until the failure is measured on a real Windows machine). One
-    stderr line names the file, the account, and the bytes this call
-    attempted so the operator can see which one it was and how much is
-    stuck; see docs/GM_LANE.md.
+    stderr line names the file, the account, and the size of the write that
+    failed, so the operator can see which call it was; see docs/GM_LANE.md.
+
+    ``attempted_bytes`` IS NOT THE QUOTA THAT STAYS CHARGED, and the older
+    wording here said it was (pf-adversary, round `nfbat1`). It is
+    ``len(file_body)`` -- this file's own bytes. The quota `gm/dispatch.py`
+    charges is ``_charged_capture_bytes(len(raw_payload), len(account_name))``,
+    a different function of different inputs with a per-file disk-block
+    floor, and for a small capture it is several times larger. An operator
+    who subtracts the printed number from the account's ceiling gets the
+    wrong answer; the printed number identifies the CALL, and
+    `gm/dispatch.py` owns the arithmetic.
     """
     attempts = _UNLINK_ATTEMPTS if retry else 1
     for attempt in range(1, attempts + 1):
@@ -249,10 +258,23 @@ def _best_effort_unlink(
                     # be able to forge extra header lines") -- this stderr
                     # line is the other place a newline in the same field
                     # can forge a fake line, so it gets the same escape.
+                    # pf-adversary (round `nfbat1`): `_escape_for_header`
+                    # here folded Thai away (see
+                    # `_fold_line_breaking_controls`' own docstring), and
+                    # `path` got no newline defense at all even though the
+                    # comment above argues it is operator-controlled -- so a
+                    # `capture_root` carrying a newline forged the second
+                    # line this pair of lines exists to prevent, one field
+                    # to the left of the one that was fixed. Both fields
+                    # now take the same two steps: fold what breaks a line,
+                    # then fold to what the stream can carry.
                     safe_account = console_safe(
-                        _escape_for_header(account_name) or "(unknown)", stream,
+                        _fold_line_breaking_controls(account_name) or "(unknown)",
+                        stream,
                     )
-                    safe_path = console_safe(str(path), stream)
+                    safe_path = console_safe(
+                        _fold_line_breaking_controls(str(path)), stream,
+                    )
                     print(
                         f"{_UNLINK_STUCK_CONSOLE_TOKEN} path={safe_path} "
                         f"account={safe_account} attempted_bytes={attempted_bytes} "
@@ -261,6 +283,22 @@ def _best_effort_unlink(
                         f"clear that quota",
                         file=stream,
                     )
+                except (KeyboardInterrupt, SystemExit):
+                    # pf-adversary (round `nfbat1`): D2's widening below is
+                    # right for the ONE caller it was written for -- the
+                    # shutdown re-raise path, which passes `retry=False` --
+                    # and wrong for the other two. On the ordinary write-
+                    # failure and close-failure paths there is no in-flight
+                    # exception to protect, so swallowing here DISCARDED A
+                    # REAL Ctrl-C: an operator interrupting during an ENOSPC
+                    # storm, while this line was being written to a blocked
+                    # console, was ignored and the process carried on.
+                    # Nothing is lost by letting it out here: the unlink has
+                    # already been attempted and failed (that is why we are
+                    # printing), so the only work left was the log line and
+                    # the answer, and the caller is about to raise anyway.
+                    if retry:
+                        raise
                 except BaseException:
                     # This function is called from `_capture_raw`'s
                     # `except BaseException` cleanup path too, which runs at
@@ -306,6 +344,44 @@ def _sanitize_account(account_name: str) -> str:
     )
     safe = safe[:_MAX_SAFE_ACCOUNT_LEN]
     return safe or "unnamed"
+
+
+def _fold_line_breaking_controls(text: str) -> str:
+    """Escape only what can BREAK A CONSOLE LINE, and nothing else.
+
+    `_escape_for_header` below is the right tool for a file this module
+    writes itself (it may fold as widely as it likes there -- nobody greps
+    the on-disk header by eye in a Thai locale).  It is the WRONG tool for
+    a console line, and pf-adversary (round `nfbat1`) measured why: it is
+    `text.encode("unicode_escape")`, which escapes every NON-ASCII
+    character, so composing it before `console_safe` makes `console_safe`
+    a no-op and forces ASCII unconditionally.  A GM account named `ทดสอบ`
+    then prints as `\\u0e17\\u0e14\\u0e2a\\u0e2d\\u0e1a` and the operator
+    who greps the console for their own name finds nothing -- on a
+    Thai-language project, on a console (`cp874`) that carries Thai
+    natively.  `gm/login_scene_override.py`'s `console_safe` docstring
+    records that exact mistake, in those words, as one this lane already
+    paid a round for; the round `smztdu` fix walked back into it while
+    citing the file's own other escape as precedent.
+
+    So this folds the ONE class of character that the "one line" contract
+    actually needs folded: C0 controls, DEL, and the two Unicode line
+    separators.  Backslashes are deliberately NOT escaped -- escaping them
+    is the OTHER scar in that same docstring (`C:\\\\Users\\\\...` that
+    nobody could paste).  Thai, and every other printable character, is
+    handed to `console_safe`, which folds it to what the stream can
+    actually carry.
+    """
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if code < 0x20 or code == 0x7F:
+            out.append(f"\\x{code:02x}")
+        elif ch in ("\u2028", "\u2029"):
+            out.append(f"\\u{code:04x}")
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def _escape_for_header(text: str) -> str:
