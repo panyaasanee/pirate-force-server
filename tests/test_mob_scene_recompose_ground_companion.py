@@ -256,6 +256,21 @@ class WorldRegistryCompanionTests(GroundCompanionFixture):
     def setUp(self):
         super().setUp()
         self.world = mob_ground_persistence.WorldGround(clock=self.clock)
+        # Isolate the process-wide singleton for this class.  Several OTHER
+        # test files call sustain_a_kill with real drops and no world=,
+        # which leaves rows standing in the real world_ground() long after
+        # they run.  test_never_raises_when_world_is_junk below exercises
+        # the isinstance(world, WorldGround) fallback in seed_cell, which
+        # lands on that real singleton for anything that is not a
+        # WorldGround instance -- so without this isolation, this class's
+        # own pass/fail would depend on which unrelated test happened to
+        # run first in the same process.  Same seam and same convention
+        # test_mob_pickup_request.py's TheWorldClaimBranchRunsTests uses.
+        mob_ground_persistence.install_world_ground(
+            mob_ground_persistence.WorldGround(clock=self.clock))
+        self.addCleanup(
+            mob_ground_persistence.install_world_ground,
+            mob_ground_persistence.WorldGround())
 
     def test_without_world_a_second_sessions_companion_still_sees_nothing(
             self):

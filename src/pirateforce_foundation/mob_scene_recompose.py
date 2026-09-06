@@ -1825,27 +1825,54 @@ def ground_companion_actions(
 # the still-open TWO_SESSIONS_SAME_SCENE gap those letters measured into a
 # closed one, once the chief has a round to spend on it.
 WORLD_GROUND_COMPANION_WIRING = """runtime.py, the SAME call site
-GROUND_COMPANION_WIRING already named (today, the line reads
-    actions.extend(mob_scene_recompose.ground_companion_actions(
-        getattr(self, "mob_loot_cell", None), legacy))
-).
+GROUND_COMPANION_WIRING already named.  The real shape today (verified by
+reading runtime.py directly, not pasted from memory) is:
+    companion = list(
+        mob_scene_recompose.ground_companion_actions(
+            getattr(self, "mob_loot_cell", None),
+            legacy,
+        )
+    )
+    actions.extend(companion)
+    self.events.append(
+        "ground_companion_after_bar_appended_%d" % len(companion))
+Keep the ``companion`` local and the ``events.append`` line exactly as they
+are -- that count is a pinned mutant-detection seam (pf-adversary already
+caught a bare-call-that-throws-the-result-away mutant here once), not
+incidental style.
 
 ADD one import near this module's other ``from . import mob_scene_recompose``
 line:
     from . import mob_ground_persistence
 
-AND add one keyword to the existing call, nothing else:
-    actions.extend(mob_scene_recompose.ground_companion_actions(
+AND add one keyword to the existing call inside the same ``list(...)``,
+nothing else:
+    mob_scene_recompose.ground_companion_actions(
         getattr(self, "mob_loot_cell", None), legacy,
-        world=mob_ground_persistence.world_ground()))
+        world=mob_ground_persistence.world_ground())
 
-That is the WHOLE change.  ``ground_companion_actions`` already does
-everything else (seeds the session's cell from the world's standing floor,
-then composes exactly as it does today) -- see its own docstring for why the
-merge is gated behind ``world is not None`` rather than being the function's
-own default.  No new branch, no new event: the seed step prints its own
-bounded line (``mob_ground_persistence.describe_seeded``), same convention
-as the two describe_* lines this call site already prints.
+``ground_companion_actions`` already does everything else (seeds the
+session's cell from the world's standing floor, then composes exactly as
+it does today) -- see its own docstring for why the merge is gated behind
+``world is not None`` rather than being the function's own default.  No new
+branch, no new event beyond the existing ``companion`` count above: the
+seed step prints its own bounded line (``mob_ground_persistence.
+describe_seeded``), same convention as the two describe_* lines this call
+site already prints.
+
+COST NOT YET MEASURED, READ BEFORE WIRING (pf-adversary, this round):
+``mob_ground_persistence.world_ground()`` is ONE ``threading.RLock()`` for
+the WHOLE process, not per-scene, and ``seed_cell`` -> ``WorldGround.
+standing`` scans/copies the whole per-scene floor (up to
+``ROWS_PER_SCENE_CAP`` rows) under that lock.  Wired here, that lock
+acquisition and scan run on EVERY combat hit, by EVERY player, in EVERY
+scene server-wide -- not just on scene entry/arrival, which is the only
+call pattern ``seed_cell`` was measured against so far.  ``describe_seeded``
+also prints one console line per call, including seeded-nothing calls, so
+at hit-rate (not arrival-rate) this is a new per-hit log line too.  Nobody
+has measured whether this is cheap enough at hit-rate to be the "WHOLE
+change" -- that measurement should happen before or immediately after
+wiring, not be assumed.
 """
 
 
