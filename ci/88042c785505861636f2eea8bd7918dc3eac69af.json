@@ -1,1 +1,1 @@
-{"sha":"88042c785505861636f2eea8bd7918dc3eac69af","conclusion":"failure","event":"push","ref":"refs/heads/claude/hopeful-hopper-dyqifb","run_id":"34043914287","utc":"2026-09-06T16:22:35Z"}
+{"sha":"88042c785505861636f2eea8bd7918dc3eac69af","conclusion":"failure","event":"pull_request","ref":"refs/pull/960/merge","run_id":"34043977287","utc":"2026-09-06T16:26:31Z"}
