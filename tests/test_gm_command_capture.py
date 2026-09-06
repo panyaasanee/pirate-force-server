@@ -28,6 +28,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pf_gm_capture_mocks import close_that_really_closes_then_fails  # noqa: E402
 
 
+@contextlib.contextmanager
+def _o_binary_removed(module_os):
+    """Make ``os.O_BINARY`` absent for the block, on EVERY platform.
+
+    The "flags unchanged when O_BINARY is absent" test below used to open
+    with ``assertFalse(hasattr(os, "O_BINARY"))`` -- a statement about the
+    HOST rather than about the code under test. It holds on this Linux
+    cloud clone and is false on windows-latest, which is where this
+    project's trusted gate runs: `pirate-force-server#962` was closed by
+    the gate with exactly that assertion red (`AssertionError: True is not
+    false`, `tests\\test_gm_command_capture.py:269` and
+    `tests\\test_gm_commands.py:417` -- the whole of that run's `2 failed`).
+
+    Simulating the absence instead keeps the pin's teeth on both platforms:
+    the branch under test is `getattr(os, "O_BINARY", 0)`'s FALLBACK, and
+    the only honest way to reach it on a machine that has the flag is to
+    take the flag away for the duration. `command_capture.os` IS the stdlib
+    `os` module, so this deletes and restores a module attribute -- safe
+    here because unittest runs these serially, and restored in `finally`
+    even if the body raises.
+    """
+    had = hasattr(module_os, "O_BINARY")
+    saved = getattr(module_os, "O_BINARY", None)
+    if had:
+        delattr(module_os, "O_BINARY")
+    try:
+        yield
+    finally:
+        if had:
+            setattr(module_os, "O_BINARY", saved)
+
+
 def _wstring(text: str) -> bytes:
     # 0x48 tag + uint32le byte count + payload (corrected 2026-09-02;
     # PF_A2_STRING_WIRE_TAG_DELTA.tsv rows 6266/6267/6279/6280).
@@ -261,18 +293,26 @@ class GmCommandCaptureTests(unittest.TestCase):
         )
 
     def test_capture_file_open_flags_unchanged_when_o_binary_absent(self):
-        # On POSIX (this CI host, and every platform this suite actually
-        # runs on today) os.O_BINARY does not exist, so getattr(...) must
-        # fall back to 0 -- the flags value passed to os.open() must be
-        # byte-for-byte the same as before this fix. This pins that the fix
-        # is a true no-op here, not a behaviour change riding along with it.
-        self.assertFalse(hasattr(os, "O_BINARY"))
-        with mock.patch.object(
-            command_capture.os, "open", side_effect=command_capture.os.open,
-        ) as spy_open:
-            capture_raw_gm_command(
-                b"z", "panya", capture_root=self.root, now_ts=2,
-            )
+        # Where os.O_BINARY does not exist, getattr(...) must fall back to
+        # 0 -- the flags value passed to os.open() must be byte-for-byte
+        # the same as before this fix. This pins that the fix is a true
+        # no-op there, not a behaviour change riding along with it.
+        #
+        # The absence is SIMULATED rather than assumed (see
+        # `_o_binary_removed` above): the previous version of this test
+        # asserted `not hasattr(os, "O_BINARY")` about the host, which is
+        # true on this Linux clone and false on the windows-latest gate --
+        # it is what turned `#962` red. What this test is actually about is
+        # the fallback branch of `getattr(os, "O_BINARY", 0)`, and that
+        # branch is now exercised on every platform.
+        with _o_binary_removed(command_capture.os):
+            self.assertFalse(hasattr(command_capture.os, "O_BINARY"))
+            with mock.patch.object(
+                command_capture.os, "open", side_effect=command_capture.os.open,
+            ) as spy_open:
+                capture_raw_gm_command(
+                    b"z", "panya", capture_root=self.root, now_ts=2,
+                )
         self.assertEqual(spy_open.call_count, 1)
         flags_arg = spy_open.call_args.args[1]
         self.assertEqual(flags_arg, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
