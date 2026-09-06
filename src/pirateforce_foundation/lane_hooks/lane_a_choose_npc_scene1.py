@@ -167,20 +167,53 @@ any order, all of them before the flip):
     refutes this file's own "unreachable from a real composed generation"
     line about the unresolvable-placement branch below: it is reachable on
     every such boot.
-6.  Multi-select answers every named identity, not the first
+6.  ~~Multi-select answers every named identity, not the first
     (``TheResponderAnswersDirectlyTests`` pins today's one-answer shape;
-    the frozen path returns four actions for two identities).  THIS ITEM
-    GOT HEAVIER IN ROUND ``rlymq1`` AND THE WEIGHT IS NAMED HERE: it used
-    to cost only talk triggers, and now it decides WHETHER THE SHOP OPENS.
-    One frame naming P91 and P1 answers the first named identity only, so
-    with the latches wired a P1-first frame spends nothing and a P91-first
-    frame opens the store, where the frozen loop emits four actions and
-    always opens it (pf-adversary ``rlymq1``, measured).
-7.  ``docs/FUNCTIONAL_COVERAGE.json``'s ``npc_conversation_handshake``
-    (``required``, ``runtime_pass``) gains a DISPATCH-level test.  Its
-    three current ``test_refs`` exercise the builders, so the flip would
-    have removed that capability for every Port Royal NPC but Columbus
-    with all three still green.
+    the frozen path returns four actions for two identities).~~  DONE,
+    ROUND ``vxfepr``, ENTIRELY LANE-OWNED, NO CHIEF LINE WAITED ON.  THIS
+    ITEM GOT HEAVIER IN ROUND ``rlymq1`` AND THE WEIGHT IS THE REASON IT
+    WAS PAID NEXT: it used to cost only talk triggers, and once the latch
+    lines above land it decides WHETHER THE SHOP OPENS.  Before this round
+    one frame naming P91 and P1 answered the first named identity only, so
+    with the latches wired a P1-first frame would have spent nothing and a
+    P91-first frame would have opened the store -- pf-adversary ``rlymq1``
+    measured that asymmetry against the frozen loop's four actions for two
+    identities and it was the whole reason this item stopped being merely
+    a talk-trigger gap.  ``respond()`` now walks every distinct identity
+    the frame names (``dict.fromkeys(chosen_identities)``, same de-dup the
+    frozen loop's own comment explains): the first that resolves keeps the
+    response's one ``pc``/``frame`` pair, byte for byte what a
+    single-identity click always answered, and every identity after it --
+    its own face frame, then its own conversation extra -- rides in
+    ``extra_actions``, in the frozen loop's own order (face, then
+    talk-trigger-or-latched-action, per identity).  Pinned now by
+    ``TheResponderAnswersDirectlyTests``' renamed multi-select test and by
+    a new class, ``TheMultiSelectAnswersEveryNamedIdentityTests``, which
+    drives two and three named identities together, checks ordering, a
+    repeated identity in one frame, and a frame mixing one resolvable and
+    one out-of-population identity.
+7.  ~~``docs/FUNCTIONAL_COVERAGE.json``'s ``npc_conversation_handshake``
+    (``required``, ``runtime_pass``) gains a DISPATCH-level test.~~  DONE,
+    ROUND ``vxfepr``.  Its three ``test_refs`` before this round exercised
+    the builders only, so a premature flip would have removed the talk
+    trigger for every Port Royal NPC but Columbus with all three still
+    green.  ``TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests``
+    (bottom of ``tests/test_lane_a_choose_npc_scene1.py``) registers this
+    module's ``respond`` onto scene 1's REAL registry slot -- what the
+    registry holds the day the gate opens, not a private stand-in -- and
+    drives it through ``runtime.make_state_class`` the same way
+    ``TheGateStaysClosedForAMeasuredReasonTests`` drives today's frozen
+    answer.  It is added to ``npc_conversation_handshake``'s own
+    ``test_refs`` in the same commit.  IT CURRENTLY PINS A GAP RATHER THAN
+    A GUARANTEE, AND SAYS SO IN ITS OWN DOCSTRING: with the responder
+    registered but ``runtime.py``'s queue line (CORE-REQUEST
+    ``20260904_0137``) still unmerged, a real dispatched click answers
+    with the face frame alone -- the talk trigger this class asserts is
+    ABSENT, not present, because nothing yet reads ``extra_actions`` at
+    the real call site.  That assertion inverts, and the class docstring
+    says so, the day the queue line lands; the class stays either way,
+    because its other job -- proving a real dispatched click through the
+    registered responder still resolves at all -- does not change.
 ~~Steps 1-6 are lane A's own work.  Nothing here is chief's.~~  CORRECTED,
 ROUND ``rlymq1``, BECAUSE THE SENTENCE HAD STOPPED BEING TRUE AND WAS
 LOAD-BEARING: steps 1, 2 and 5 each ended as a LANE half plus a
@@ -188,18 +221,19 @@ CHIEF-OWNED ``runtime.py`` line, and the lane half of all three is now
 written.  What is left of them is chief's alone -- the queue line
 (CORE-REQUEST ``20260904_0137``), the two latch lines
 (``VENDOR_AND_MISSION_LATCH_WIRING``) and the census keyword plus its decline
-fallback (``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``).  ~~Steps 4, 6 and 7
-are still lane A's own and still undone.~~  CORRECTED AGAIN, ROUND
-``eepcv6``: steps 6 and 7 were done whole in round ``vxfepr``, and step 4
-went the same way steps 1/2/5 went -- a LANE half (the enumeration plus
-two decline keywords) plus a CHIEF-OWNED ``runtime.py`` pair
-(``FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING``).  So NO STEP ON THIS LIST IS
+fallback (``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``).  STEPS 6 AND 7 ARE
+NOW DONE TOO, ROUND ``vxfepr``, AND NEITHER WAITED ON A CHIEF LINE -- SEE
+THEIR OWN STRIKES ABOVE.  ~~Step 4 is still lane A's own and still
+undone.~~  DONE ROUND ``eepcv6``, AND IT WENT THE WAY STEPS 1/2/5 WENT
+RATHER THAN THE WAY 6/7 DID: a LANE half (the enumeration plus two decline
+keywords) plus a CHIEF-OWNED ``runtime.py`` pair
+(``FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING``).  SO NO STEP ON THIS LIST IS
 STILL WAITING ON THIS LANE.  What stands between the list and step 3's
-attended ticket is four chief-owned lines in three groups, and the two
-``ACCEPTED_GAP`` rows step 4 leaves named.  THIS LIST IS
-NOT PROMISED COMPLETE: it is what two measured passes found, and every
-item on it after step 3 was found by the SECOND pass, on boot shapes the
-first pass never drove.
+attended ticket is four chief-owned lines in three groups, plus the two
+``ACCEPTED_GAP`` rows step 4 leaves named.
+THIS LIST IS NOT PROMISED COMPLETE: it is what two measured passes found,
+and every item on it after step 3 was found by the SECOND pass, on boot
+shapes the first pass never drove.
 
 This file is the SAFETY NET half of a two-part fix; the other half
 (widening ``runtime.py``'s login-census trigger for scene 1 so the town is
@@ -1141,6 +1175,27 @@ def respond(
     if population_indices is None:
         return None
     by_idx = _placements_by_index(legacy)
+    # STEP 6, MULTI-SELECT, ROUND ``vxfepr``.  One ChooseNPC frame can name
+    # more than one identity (the frozen loop's own comment above says a
+    # double-click is what usually repeats one; a genuine multi-select
+    # names distinct ones), and the frozen loop answers EVERY one of them
+    # (``current/pf_login_game_server_v141.py:4406-4480`` loops
+    # ``dict.fromkeys(choose_identities)`` with no early return).  Before
+    # this round the loop below answered the FIRST named identity that
+    # resolved and returned -- correct for one identity, silently wrong for
+    # two, and load-bearing wrong once the latches are wired: a frame
+    # naming the shop trigger second would spend nothing (pf-adversary
+    # ``rlymq1``, measured, module docstring item 6).  The first identity
+    # that resolves still becomes this response's own ``label``/``pc``/
+    # ``frame`` pair (``ChooseNpcResponse`` carries exactly one), and every
+    # identity after it -- its face frame AND its conversation extra --
+    # rides in ``extra_actions``, in the same order the frozen loop emits
+    # them: face, then talk-trigger-or-latched-action, per identity.
+    misnamed = _misnamed_latch_kwargs(_ignored)
+    primary_label = primary_pc = primary_frame = None
+    trailing_actions: list[tuple[str, bytes, bytes, float]] = []
+    latch_names: list[str] = []
+    console_lines: list[str] = []
     for actor_identity in dict.fromkeys(chosen_identities):
         selected_idx = actor_identity - 0x2000 - 1
         if selected_idx not in population_indices:
@@ -1236,13 +1291,13 @@ def respond(
         # scene's frame can only refuse an id.
         pc, frame = compose_answer(
             legacy, entries, scene_id, mob_loot_cell)
-        misnamed = _misnamed_latch_kwargs(_ignored)
         extra_actions, extra_reason, latches_spent = _conversation_extra(
             legacy, by_idx[selected_idx], selected_idx, scene_id,
             vendor_open_latch_spent=vendor_open_latch_spent,
             mission_dialog_latch_spent=mission_dialog_latch_spent,
         )
-        console_lines = (
+        label = f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_FACE_P{selected_idx}"
+        console_lines.append(
             f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_ANSWERED "
             f"placement={selected_idx} visible={len(entries)} "
             f"omitted={omitted} "
@@ -1273,15 +1328,39 @@ def respond(
             + (
                 f" latch_kwarg_misnamed={','.join(misnamed)}"
                 if misnamed else ""
-            ),
+            )
         )
-        return lane_hooks.ChooseNpcResponse(
-            label=f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_FACE_P{selected_idx}",
-            pc=pc, frame=frame, delay=0.0, console_lines=console_lines,
-            extra_actions=extra_actions,
-            latches_spent=latches_spent,
-        )
-    return None
+        latch_names.extend(latches_spent)
+        if primary_label is None:
+            # The first identity that resolves is this response's own
+            # pair -- every single-identity click before this round took
+            # this branch and only this branch, so its answer is
+            # byte-for-byte what it always was.
+            primary_label, primary_pc, primary_frame = label, pc, frame
+        else:
+            # A SECOND (OR LATER) NAMED IDENTITY GETS NO SPECIAL TREATMENT:
+            # its own face frame rides in ``extra_actions`` exactly like an
+            # ordinary conversation trigger does, because a
+            # ``ChooseNpcResponse`` still carries exactly one ``pc``/
+            # ``frame`` pair (module docstring, item 3 of the flip list)
+            # and this field is already the collection half
+            # (``lane_hooks.ChooseNpcResponse.extra_actions``).
+            trailing_actions.append((label, pc, frame, 0.0))
+        trailing_actions.extend(extra_actions)
+    if primary_label is None:
+        return None
+    return lane_hooks.ChooseNpcResponse(
+        label=primary_label, pc=primary_pc, frame=primary_frame, delay=0.0,
+        console_lines=tuple(console_lines),
+        extra_actions=tuple(trailing_actions),
+        # De-duplicated, order preserved: two named identities cannot
+        # legitimately share a latch (each guards a different placement
+        # index), but a call site's ``setattr`` loop
+        # (``VENDOR_AND_MISSION_LATCH_WIRING``) is idempotent either way,
+        # and a stub in a test should not be able to make this field lie
+        # about how many distinct flags were actually spent.
+        latches_spent=tuple(dict.fromkeys(latch_names)),
+    )
 
 
 lane_hooks.choose_npc_responder(SCENE_N_ID)(respond)
