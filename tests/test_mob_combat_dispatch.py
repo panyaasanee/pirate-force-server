@@ -226,6 +226,22 @@ class MobCombatDispatchTests(unittest.TestCase):
             mob_combat.MobBalance(identity, row.max_hp, current_hp)
         )
 
+    def _viewer_identity(self, state):
+        """The SAME (identity_hi<<32)|identity_lo expression runtime.py's
+        combat-recompose call sites now use as the "viewer" for
+        CORE-REQUEST-GM-061 (R365 addendum) -- this session's own selected
+        character, one qword. Computed from the SAME ``state.foundation
+        .selected`` the dispatch itself reads, not a reconstruction of it.
+        Same helper as ``test_bg0002_census_wiring.py``'s own
+        ``_viewer_identity``, duplicated rather than shared because the two
+        test modules do not import each other.
+        """
+        selected = state.foundation.selected
+        return (
+            (selected.identity_hi & 0xFFFFFFFF) << 32
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+
     def _arrive(self, state):
         """Send the real arrival TargetPos BEFORE any attack, exactly the
         production order (login -> StartGame -> TargetPos -> census) instead
@@ -663,11 +679,17 @@ class MobCombatDispatchTests(unittest.TestCase):
             a for a in census_actions if a[0].startswith("WORLD_CENSUS_")
         ]
         self.assertEqual(len(census), 2)
+        # CORE-REQUEST-GM-061: the wired call site now passes this
+        # session's own actor identity as viewer_identity, so the expected
+        # side must too, or this "expected" body is bytes runtime.py no
+        # longer sends.
         wounded_entry = field_mobs.hostile_actor_entry(
             self.legacy, self.control_mob, current_hp=balance.current_hp,
+            viewer_identity=self._performer(state),
         )
         full_hp_entry = field_mobs.hostile_actor_entry(
             self.legacy, self.control_mob, current_hp=self.control_mob.max_hp,
+            viewer_identity=self._performer(state),
         )
         dead_entry = mob_death.death_actor_entry(
             self.legacy, self.control_mob, death_timer=mob_death.DEAD_TIMER_SECONDS,
@@ -800,9 +822,16 @@ class MobCombatDispatchTests(unittest.TestCase):
             if label == "MOB_COMBAT_BAR"
         )
         balance = state.mob_combat_ledger.balance_of(CONTROL_TARGET)
+        # CORE-REQUEST-GM-061 (R365 addendum): the real dispatch site now
+        # threads this session's own identity through as the viewer -- an
+        # "expected" object built with no viewer link would compare a
+        # viewer-linked frame against a viewer-less one and pass for the
+        # wrong reason (both still 108 actors; only the linked identity's
+        # own entry differs).
         expected_pc, expected_frame = mob_death.hostile_census_frames(
             self.legacy, anchor, state.world_census_actor_count, self.roster,
             mob_death.DeathRegister(), ledger=state.mob_combat_ledger,
+            viewer_identity=self._viewer_identity(state),
         )
         # If this ever regressed back to the one-entry frame, this equality
         # would fail (the one-entry frame is a strict subset of the 108-actor
@@ -812,8 +841,15 @@ class MobCombatDispatchTests(unittest.TestCase):
         # tests do.
         self.assertEqual(bar_pc, expected_pc)
         self.assertEqual(bar_frame, expected_frame)
+        # CORE-REQUEST-GM-061 (R365 addendum): every LIVING row in a
+        # viewer-linked compose carries the link tag now (repopulation_
+        # entries forwards viewer_identity to every living
+        # hostile_actor_entry, not just the hit target's) -- so this
+        # entry must be built the same way to still be a substring of
+        # bar_pc.
         wounded_entry = field_mobs.hostile_actor_entry(
             self.legacy, self.control_mob, current_hp=balance.current_hp,
+            viewer_identity=self._viewer_identity(state),
         )
         self.assertIn(wounded_entry, bar_pc)
 
@@ -870,14 +906,19 @@ class MobCombatDispatchTests(unittest.TestCase):
             (pc, frame, delay) for label, pc, frame, delay in actions
             if label == "MOB_DEATH_DEAD"
         )
+        # CORE-REQUEST-GM-061 (R365 addendum): same viewer-identity threading
+        # as the hit test above, at both death composes.
+        viewer_identity = self._viewer_identity(state)
         expected_dying_pc, _ = mob_death.hostile_census_frames(
             self.legacy, anchor, state.world_census_actor_count, self.roster,
             state.mob_death_register, ledger=state.mob_combat_ledger,
             dead_timer=mob_death.DYING_TIMER_SECONDS,
+            viewer_identity=viewer_identity,
         )
         expected_dead_pc, _ = mob_death.hostile_census_frames(
             self.legacy, anchor, state.world_census_actor_count, self.roster,
             state.mob_death_register, ledger=state.mob_combat_ledger,
+            viewer_identity=viewer_identity,
         )
         self.assertEqual(dying_pc, expected_dying_pc)
         self.assertEqual(dead_pc, expected_dead_pc)

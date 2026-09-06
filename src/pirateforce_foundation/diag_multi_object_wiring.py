@@ -569,6 +569,7 @@ def hostile_census_frames(
     faction: int = field_mobs.FIELD_MOB_FACTION,
     with_name: bool = True,
     transitioning: tuple[str, int] | None = None,
+    viewer_identity: int | None = None,
 ) -> tuple[bytes, bytes]:
     """``mob_death.hostile_census_frames`` with the five objects kept on screen.
 
@@ -576,6 +577,11 @@ def hostile_census_frames(
     hostile_census_frames``/``full_roster_override`` -- CODEX_URGENT
     2026-09-01T20:40+07:00's corpse re-arm fix, approved by COO-DECISION
     2026-09-01T21:48+07:00.  ``None`` (the default) is byte-for-byte the old
+    behaviour.
+
+    ``viewer_identity`` (CORE-REQUEST-GM-061, round R365 addendum) PASSES
+    STRAIGHT THROUGH the same way, to whichever of the two composers below
+    actually runs.  ``None`` (the default) is byte-for-byte the old
     behaviour.
 
     THE FOURTH CALL SITE (see this module's own PF-ADVERSARY NOTE).  With
@@ -614,7 +620,7 @@ def hostile_census_frames(
         return mob_death.hostile_census_frames(
             legacy, anchor, actor_count, roster, register, ledger=ledger,
             faction=faction, with_name=with_name, dead_timer=dead_timer,
-            transitioning=transitioning,
+            transitioning=transitioning, viewer_identity=viewer_identity,
         )
     renderable, stranded = _partition_renderable(objects, register, ledger)
     for obj, reason in stranded:
@@ -635,7 +641,7 @@ def hostile_census_frames(
         tuple(m for m in roster if m.actor_identity not in dropped),
         register, ledger=ledger, faction=faction,
         with_name=with_name, dead_timer=dead_timer,
-        transitioning=transitioning,
+        transitioning=transitioning, viewer_identity=viewer_identity,
     )
     composed = world_population.apply_identity_override(
         legacy, generation, override)

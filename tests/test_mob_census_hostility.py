@@ -382,6 +382,55 @@ class CensusHostilityTests(unittest.TestCase):
         self.assertEqual(coverage["missing"], ())
         self.assertEqual(coverage["matched_count"], 12)
 
+    # -- CORE-REQUEST-GM-061 (this round): ``viewer_identity`` threaded from
+    # here down through mob_death.full_roster_override to
+    # field_mobs.hostile_actor_entry's existing keyword.
+
+    def test_hostile_override_for_scene_id_default_viewer_identity_is_unchanged(
+            self):
+        register = mob_death.DeathRegister()
+        implicit = mch.hostile_override_for_scene_id(
+            self.legacy, BG0002_SCENE_ID, register, ledger=None,
+        )
+        explicit_none = mch.hostile_override_for_scene_id(
+            self.legacy, BG0002_SCENE_ID, register, ledger=None,
+            viewer_identity=None,
+        )
+        self.assertEqual(implicit, explicit_none)
+
+    def test_hostile_override_for_scene_id_with_viewer_identity_links_every_body(
+            self):
+        viewer = 0x900003
+        register = mob_death.DeathRegister()
+        linked = mch.hostile_override_for_scene_id(
+            self.legacy, BG0002_SCENE_ID, register, ledger=None,
+            viewer_identity=viewer,
+        )
+        unlinked = mch.hostile_override_for_scene_id(
+            self.legacy, BG0002_SCENE_ID, register, ledger=None,
+        )
+        self.assertEqual(set(linked), set(unlinked))
+        roster = field_mobs.roster_for_scene_id(BG0002_SCENE_ID)
+        self.assertEqual(len(linked), len(roster))
+        for mob in roster:
+            self.assertEqual(
+                linked[mob.actor_identity],
+                field_mobs.hostile_actor_entry(
+                    self.legacy, mob, viewer_identity=viewer))
+            self.assertNotEqual(
+                linked[mob.actor_identity], unlinked[mob.actor_identity])
+
+    def test_hostile_override_for_scene_id_viewer_identity_equal_to_a_monster_refuses(
+            self):
+        from pirateforce_foundation import mob_viewer_link
+        roster = field_mobs.roster_for_scene_id(BG0002_SCENE_ID)
+        collider = roster[0]
+        with self.assertRaises(mob_viewer_link.MobViewerLinkError):
+            mch.hostile_override_for_scene_id(
+                self.legacy, BG0002_SCENE_ID, mob_death.DeathRegister(),
+                ledger=None, viewer_identity=collider.actor_identity,
+            )
+
     # ~~test_the_ledger_is_actually_forwarded_and_not_dropped~~ REMOVED
     # HERE, ROUND z096sw (pf-adversary on the wmomy7 diff, D7).  This class
     # DEFINED THAT NAME TWICE, here and again further down, so Python bound

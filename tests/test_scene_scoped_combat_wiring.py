@@ -125,6 +125,17 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def _viewer_identity(self, state):
+        """The SAME (identity_hi<<32)|identity_lo expression runtime.py's
+        census dispatch now uses as the "viewer" for CORE-REQUEST-GM-061 --
+        this session's own selected character, one qword.
+        """
+        selected = state.foundation.selected
+        return (
+            (selected.identity_hi & 0xFFFFFFFF) << 32
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+
     # ----- harness -----------------------------------------------------
 
     def _login_and_create(self, token):
@@ -837,12 +848,18 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
             pc for label, pc, *_rest in self._last_arrival_actions
             if label.startswith("WORLD_CENSUS_BG0002_INITIAL_")
         )
+        # CORE-REQUEST-GM-061: the wired call site now passes this
+        # session's own actor identity as viewer_identity, so the expected
+        # side must too, or this "expected" body is bytes runtime.py no
+        # longer sends.
         wounded_entry = field_mobs.hostile_actor_entry(
             self.legacy, self.bg0002_mob, current_hp=wounded_hp,
+            viewer_identity=self._viewer_identity(state),
         )
         full_entry = field_mobs.hostile_actor_entry(
             self.legacy, self.bg0002_mob,
             current_hp=self.bg0002_mob.max_hp,
+            viewer_identity=self._viewer_identity(state),
         )
         self.assertIn(wounded_entry, census_pc)
         self.assertNotIn(full_entry, census_pc)
