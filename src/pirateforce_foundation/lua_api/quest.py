@@ -162,12 +162,15 @@ def _decode_hhmm(value: Any) -> Optional[int]:
     ``lua_api.trigger._coerce_int``: booleans are rejected explicitly (a
     Lua ``true`` is Python's ``True`` is an ``int`` in this interpreter and
     would otherwise silently decode as hour 0 minute 1), NaN/infinite/
-    fractional floats are rejected rather than truncated (lupa hands every
-    Lua number back as a float; a WHOLE-number float, e.g. ``1930.0``, is
-    what a real call site actually receives and is accepted), and a
-    decoded hour outside 0-23 or minute outside 0-59 is refused rather than
-    silently wrapped -- the corpus's own literals (grepped, see module
-    docstring) never need a value outside that box.
+    fractional floats are rejected rather than truncated (an integer Lua
+    literal comes back from lupa==2.8/Lua 5.5 as a Python ``int`` via its
+    integer subtype, not a float as an earlier draft of this docstring
+    claimed -- pf-adversary round ksp5d3, 2026-09-06; a WHOLE-number
+    float, e.g. ``1930.0``, is still accepted below since a real call site
+    can produce one via Lua-side arithmetic, and this function must accept
+    both shapes), and a decoded hour outside 0-23 or minute outside 0-59
+    is refused rather than silently wrapped -- the corpus's own literals
+    (grepped, see module docstring) never need a value outside that box.
     """
     if isinstance(value, bool):
         return None

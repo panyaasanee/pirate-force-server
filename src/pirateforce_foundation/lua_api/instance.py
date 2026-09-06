@@ -19,18 +19,27 @@ guessing) shows the 9 names split the same way ``Trigger.*`` did:
     corpus alone -- ``AddBonusPoint``/``AddBonusReward`` -- kept as named
     stubs (see ``STILL_STUBBED``) rather than guessed, per charter ("the
     original script is the spec -- do not guess logic").  A REWARD TABLE
-    DOES EXIST (pf-adversary caught this round's first draft claiming
-    otherwise): ``gamedata/tables/CONSTDATA_TH__INSTANCE.tsv``'s
+    DOES EXIST: ``gamedata/tables/CONSTDATA_TH__INSTANCE.tsv``'s
     ``n_SCORECOUNT_ID`` column keys into
     ``gamedata/tables/CONSTDATA_TH__SCORECOUNT.tsv``'s
     ``n_COLLECT_BONUS_SCORE``/``n_RANKC_REWARD``..``n_RANKSSS_REWARD``
-    columns.  What is NOT done -- tracing whether the specific instance
-    rows that run ``t_insbospnt_himdfx.lua``/``t_insbosev_himdfx.lua``/
-    ``t_drp&insbospnt_himdfx.lua`` actually resolve through that column to
-    a real ``SCORECOUNT`` row, and whether ``AddBonusPoint``'s one integer
-    argument means a rank/tier index into those reward columns or
-    something else -- is real, unfinished work, not an absent table; see
-    ``STILL_STUBBED`` below for the corrected claim.
+    columns.  TRACED, round 92j6so (2026-09-06), clean negative: no
+    committed table or scene placement file names
+    ``t_insbospnt_himdfx.lua``/``t_insbosev_himdfx.lua``/
+    ``t_drp&insbospnt_himdfx.lua`` anywhere (grepped every
+    ``gamedata/tables/*.tsv`` and all 289 ``gamedata/scene/*.placements.tsv``
+    files), and the scene extractor (``gamedata/pf_extract_gamedata.py``)
+    has no code path that reads a trigger-to-script binding at all -- it
+    only decodes mob-placement records.  So the join key needed to pick
+    WHICH ``CONSTDATA_TH__INSTANCE`` row(s) these three scripts run under
+    does not exist in any committed artifact; the ``n_SCORECOUNT_ID``
+    column mechanically resolves fine for the instance rows that carry a
+    nonzero value (73 of 338 rows checked directly), but that fact cannot
+    be connected to these three scripts without either a new binary parser
+    over the raw ``.npc`` scene files (not proven to be in this clone) or
+    an RE ticket against the live client.  See ``STILL_STUBBED`` below for
+    the corrected claim; this is a closed dead end for static tracing, not
+    "unfinished work" any more.
 
 So this round makes the first seven real; the remaining two keep the exact
 ``ApiNamespaceStub`` contract (log ``LUA_API_STUB``, return
@@ -317,28 +326,39 @@ REAL_METHODS = frozenset({
 #: this round -- no guessing, per charter.
 STILL_STUBBED: dict[str, str] = {
     "AddBonusPoint": (
-        "argument semantics ambiguous from its two call sites in the corpus "
-        "-- called both as `Instance.AddBonusPoint()` and "
-        "`Instance.AddBonusPoint(Trigger.Var1)` -- unclear whether the "
-        "argument is a point value or a bonus-category id.  CORRECTED, "
-        "pf-adversary: a candidate table DOES exist "
-        "(`gamedata/tables/CONSTDATA_TH__INSTANCE.tsv`'s `n_SCORECOUNT_ID` "
-        "column keys into `CONSTDATA_TH__SCORECOUNT.tsv`'s "
-        "`n_COLLECT_BONUS_SCORE`/rank-tiered reward columns) -- what is "
-        "still missing is tracing whether the instance rows that actually "
-        "run this API's own scripts resolve through that column, and "
-        "whether the argument indexes a rank tier in it; needs that trace "
-        "(or an RE ticket if the trace comes up ambiguous) before this "
-        "becomes real logic instead of a guess"
+        "argument semantics ambiguous from its call sites in the corpus -- "
+        "called as `Instance.AddBonusPoint()` (t_drp&insbospnt_himdfx.lua) "
+        "AND `Instance.AddBonusPoint(Trigger.Var1)` (t_insbospnt_himdfx.lua) "
+        "-- unclear whether the argument is a point value or a "
+        "bonus-category id, and now confirmed unclear FOR A DEEPER REASON: "
+        "TRACED, round 92j6so (2026-09-06) -- the candidate table "
+        "(`CONSTDATA_TH__INSTANCE.tsv`'s `n_SCORECOUNT_ID` column into "
+        "`CONSTDATA_TH__SCORECOUNT.tsv`'s `n_COLLECT_BONUS_SCORE`/rank-"
+        "tiered reward columns) DOES exist and DOES mechanically join for "
+        "73/338 instance rows, but no committed table or scene file names "
+        "either calling script anywhere (grepped every gamedata/tables/ "
+        "and gamedata/scene/*.placements.tsv file, 0 hits; the scene "
+        "extractor never reads a trigger-to-script binding at all), so "
+        "WHICH instance row(s) run this script cannot be determined from "
+        "committed data -- a closed dead end for static tracing, not an "
+        "open lead any more.  Needs either a new parser over the raw "
+        "`.npc` scene bytes (not confirmed present in this clone) or an "
+        "RE ticket against the live client before this becomes real logic "
+        "instead of a guess"
     ),
     "AddBonusReward": (
         "gives an actual reward to instance participants with no argument "
-        "at all in its one call site.  Same candidate table as "
-        "AddBonusPoint above (`CONSTDATA_TH__SCORECOUNT.tsv`'s rank-tiered "
-        "`n_RANKC_REWARD`..`n_RANKSSS_REWARD` columns) -- untraced for the "
-        "same reason, and handing out an item still crosses into inventory "
-        "territory this lane does not own, needing a Player.AddItem-shaped "
-        "door on top of the trace before this is more than a guess"
+        "at all in its one call site (t_insbosev_himdfx.lua). Same "
+        "candidate table as AddBonusPoint above "
+        "(`CONSTDATA_TH__SCORECOUNT.tsv`'s rank-tiered "
+        "`n_RANKC_REWARD`..`n_RANKSSS_REWARD` columns, which read as "
+        "item-id references rather than point counts -- 7-digit values, "
+        "no ITEM table cross-check done) -- same closed dead end as "
+        "AddBonusPoint above (TRACED, round 92j6so, clean negative: no "
+        "script-to-instance join key in committed data), and handing out "
+        "an item still crosses into inventory territory this lane does "
+        "not own, needing a Player.AddItem-shaped door on top of the "
+        "trace before this is more than a guess"
     ),
 }
 
