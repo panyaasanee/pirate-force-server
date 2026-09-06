@@ -70,6 +70,11 @@ AI_WANDER_DUMMY_ROW = 21
 # Round n8kq4r: Bg0015's row, mined for the first time -- see the class-level
 # note on test_the_links_table_agrees_with_the_roster.
 AI_WANDER_BG0015_ROW = 22
+# This round: Bg0008 placement 69 ("Nina", withheld) wants AI_WANDER 2, and
+# it is mined for the same reason Carlos's 22 was -- the generator resolves
+# every foreign key a scene table carries, ship or withhold being a decision
+# one layer up in field_mobs, not this generator's to make.
+AI_WANDER_BG0008_NINA_ROW = 2
 MINED_AGGRO_RADIUS = 1200
 # ROUND 8ftmbx: ~~(58, 63, 132)~~ -> ().  All three were bg0001 rows
 # COO-DECISION 2026-08-29T00:41+07:00 withdrew, and what the town still ships
@@ -185,6 +190,12 @@ class MinedRowTests(unittest.TestCase):
         # The dropped indices are DERIVED from the registry the same way
         # ``derived`` is, for the same defect: a hand-typed tuple here went
         # a scene stale and the test stayed green while it did.
+        #
+        # ROUND (this round): Bg0008 joins ``live_scenes()`` and its own
+        # withheld placement (69, "Nina", COO-DECISION widen-death-scope-
+        # bg0008-six-templates 2026-09-06T05:48+07:00) joins the dropped
+        # set the same way Bg0015's 87 did -- named here, not merely
+        # absorbed, for the same reason every prior withheld index is named.
         table = sorted(field_mob_ai_tables.PLACEMENT_AI_LINKS)
         dropped = set()
         for scene in field_mobs.live_scenes():
@@ -195,13 +206,14 @@ class MinedRowTests(unittest.TestCase):
         # though today's mining only resolves five of them (field_mobs says
         # so in its own words), so this set is wider than the extras below.
         self.assertEqual(
-            sorted(dropped), [87, 89, 90, 92, 93, 94, 95, 96, 97])
+            sorted(dropped), [69, 87, 89, 90, 92, 93, 94, 95, 96, 97])
         extras = sorted(set(table) - set(derived))
         # The extras are named by index (a short literal, so "everything is
         # an extra" cannot pass) AND every one of them is checked against
         # the derived dropped set above (so a NEW extra with no ruling
         # behind it fails here rather than being absorbed).
-        self.assertEqual([row[0] for row in extras], [87, 92, 93, 94, 95, 96])
+        self.assertEqual(
+            [row[0] for row in extras], [69, 87, 92, 93, 94, 95, 96])
         for row in extras:
             self.assertIn(row[0], dropped)
         # Index 87 is in the LINKS TABLE TWICE -- Bg0002 ships a placement
@@ -221,7 +233,8 @@ class MinedRowTests(unittest.TestCase):
         # note on ``test_the_links_table_agrees_with_the_roster``).  It is
         # mined and correct, but nothing on the live roster reads it today
         # -- Bg0015 is not in ``field_mobs._SCENE_TABLE_MODULES``.
-        self.assertEqual(sorted(rows), [AI_WANDER_OFFENSIVE_ROW,
+        self.assertEqual(sorted(rows), [AI_WANDER_BG0008_NINA_ROW,
+                                        AI_WANDER_OFFENSIVE_ROW,
                                         AI_WANDER_PASSIVE_ROW,
                                         AI_WANDER_DUMMY_ROW,
                                         AI_WANDER_BG0015_ROW])
@@ -238,6 +251,12 @@ class MinedRowTests(unittest.TestCase):
         self.assertEqual((offensive, aggro), (1, 3000))
         _script, _faction, offensive, aggro = rows[AI_WANDER_BG0015_ROW]
         self.assertEqual((offensive, aggro), (1, 5000))
+        # This round: AI_WANDER 2, Bg0008 placement 69 ("Nina").  She is
+        # withheld from the shipped roster (field_mobs.LANE_WITHHELD_
+        # PLACEMENTS['Bg0008']), so nothing on the live roster reads this
+        # row either -- mined and correct, same standing as row 22 above.
+        _script, _faction, offensive, aggro = rows[AI_WANDER_BG0008_NINA_ROW]
+        self.assertEqual((offensive, aggro), (0, 0))
 
     def test_no_wander_row_is_offensive_with_no_radius(self):
         # THE ONE DIRECTION THE TABLE SUPPORTS.  An earlier version of this

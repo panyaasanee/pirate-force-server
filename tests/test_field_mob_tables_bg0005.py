@@ -548,9 +548,9 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             "LANE-B 20260904_1134, not a harmless leftover comment.",
         )
 
-    def test_this_lane_announces_four_lane_composed_scenes_now(
+    def test_this_lane_announces_five_lane_composed_scenes_now(
             self) -> None:
-        """Named, so nobody arms a fourth without seeing the count move.
+        """Named, so nobody arms a fifth without seeing the count move.
 
         ~~``test_this_lane_has_armed_two_scenes_behind_that_shut_seam``,
         pinning ``(5, 14)``.~~  MOVED TO THREE AND RENAMED, ROUND am1fw8:
@@ -579,6 +579,19 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
         letter, whose five template ids are this lane's own answer awaiting
         confirmation -- see ``mob_death.WIDENING_RULINGS``' own entry.
 
+        MOVED TO FIVE, ROUND (this round): scene 8 (Silver Harbour) joins.
+        Nine placements mined, over seven distinct templates, but only SIX
+        of the nine are what this lane SHIPS as attackable: placement 69
+        (MOBS 529, "Nina") is a hostile-predicate row this lane withholds
+        (``field_mobs.LANE_WITHHELD_PLACEMENTS['Bg0008']``), the same
+        content-unknown reasoning already applied to Bg0015's Carlos.  The
+        death ruling the six shipped templates travel under is the COO's
+        0548 letter (``COO-DECISION widen-death-scope-bg0008-six-templates
+        2026-09-06T05:48+07:00``); Nina's own content question travels
+        under a separate letter and is not answered here.  NOW.md still
+        forbids an on-screen monster-hit GT for scenes 3/4/5/8/14 until P-2
+        closes, so no player has yet SEEN any of this either.
+
         The set is still written as a tuple and not a count for the same
         reason as before: a scene LEAVING it has to be as visible as one
         joining.
@@ -588,7 +601,7 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             if scene_id not in (1, 2)
         )
         self.assertEqual(
-            armed_behind_the_seam, (3, 4, 5, 14),
+            armed_behind_the_seam, (3, 4, 5, 8, 14),
             "a scene joined or left the set of lane-composed scenes this "
             "lane ships a roster for.  Scenes 1 and 2 have their own "
             "dedicated arrival branches in runtime.py; every other scene "

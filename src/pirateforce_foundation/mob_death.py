@@ -192,6 +192,7 @@ from . import field_mob_tables_bg0002
 from . import field_mob_tables_bg0003
 from . import field_mob_tables_bg0004
 from . import field_mob_tables_bg0005
+from . import field_mob_tables_bg0008
 from . import field_mobs
 from . import mob_combat
 from . import world_population
@@ -627,6 +628,47 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     "widen-death-scope-bg0004-five-templates": frozenset(
         {94, 97, 103, 246, 519}
     ),
+    # COO-DECISION widen-death-scope-bg0008-six-templates 2026-09-06T05:48+07:00
+    # (notes_to_chief/20260906_0548_COO-DECISION-b0441-widen-death-scope-
+    # bg0008-six-templates-nina-withheld-with-carlos-one-letter-for-five-
+    # scenes-next-LANE-B.md), answering LANE-B-ASK-COO 2026-09-06T04:41+07:00
+    # (notes_to_chief/20260906_0441_LANE-B-ASK-COO-widen-death-scope-bg0008-
+    # silver-harbour-seven-templates.md): approves killing SIX of Bg0008's
+    # own hostile placements -- 274 Polar head, 277 Polar Giant Turtle, 280
+    # Walrus general, 281 Ice Carle Commander, 527 Jet cat thieves No.10, 544
+    # Jet cat thieves No.9 -- the SAME "option (a): register the roster,
+    # refuse loud and safe" this lane already chose for bg0003/bg0004/bg0005,
+    # per the same three-step methodology (a rank, a combat AI, a drops
+    # table, no town target, no player-model body).
+    # THE RULING NAME'S OWN WORD ORDER IS THE LETTER'S, NOT THIS DICT'S
+    # CONVENTION: every earlier scene entry here is spelled "COO-DECISION
+    # <date> widen-death-scope-...", and this one is spelled "COO-DECISION
+    # widen-death-scope-bg0008-six-templates <date>" because item 1 of the
+    # 0548 letter gives that exact string as the key to use -- copied
+    # verbatim rather than reordered to match the others, the same
+    # discipline that keeps every ruling name here a direct quotation.
+    # THE SEVENTH ROW IS DELIBERATELY NOT IN THIS SET: placement 69 (MOBS
+    # 529, "Nina") is a hostile-predicate row too, and this letter's item 2
+    # withholds her -- avatar ``P_FEMALE_003_002_NENA`` (a player model, not
+    # a monster one) plus zero in every drop column, the same content-unknown
+    # reasoning already applied to Bg0015's Carlos.  She never reaches
+    # ``field_mobs.load_roster``'s output at all (field_mobs.
+    # LANE_WITHHELD_PLACEMENTS['Bg0008'] drops her placement before any
+    # consumer sees it), so this set is exactly what ships, re-derived from
+    # the shipped roster in tests/test_field_mob_tables_bg0008.py rather than
+    # hand-copied a second time, the same discipline every other ruling in
+    # this dict is held to.
+    # NOT APPROVED BEYOND THESE SIX, and Nina's own content question travels
+    # under a SEPARATE letter (chief's RE/content ticket for "template 924 +
+    # 529", per the 0548 letter's item 2 and "who does what next").
+    # NOT A GT UNLOCK: NOW.md still forbids an attended monster-hit queue
+    # entry for scene 8 until P-2 (monster name colour) closes -- this entry
+    # only lets a kill on these six templates travel under a letter; nothing
+    # here opens GAME_TEST_QUEUE.md.
+    "COO-DECISION widen-death-scope-bg0008-six-templates "
+    "2026-09-06T05:48+07:00": frozenset(
+        {274, 277, 280, 281, 527, 544}
+    ),
 }
 
 # Companion to WIDENING_RULINGS, added this round (PANYA-DECISION
@@ -746,6 +788,11 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     # ``field_mobs.cross_scene_identity_collisions()``, 11 pairs at HEAD.
     "COO-DECISION 2026-09-05T05:46+07:00 "
     "widen-death-scope-bg0004-five-templates": field_mob_tables_bg0004.SCENE,
+    # Tied to Bg0008, same reverse-direction hazard as every entry above: a
+    # bg0001/Bg0002/Bg0015/bg0003/bg0004/bg0005 mob sharing one of these six
+    # template ids by coincidence (none do at HEAD) would be refused here.
+    "COO-DECISION widen-death-scope-bg0008-six-templates "
+    "2026-09-06T05:48+07:00": field_mob_tables_bg0008.SCENE,
 }
 
 

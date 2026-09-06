@@ -80,6 +80,7 @@ from pirateforce_foundation import field_mob_tables_bg0002  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0003  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0004  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0005  # noqa: E402
+from pirateforce_foundation import field_mob_tables_bg0008  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0015  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
@@ -91,6 +92,7 @@ from pirateforce_foundation import world_population_bg0002  # noqa: E402
 from pirateforce_foundation import world_population_bg0003  # noqa: E402
 from pirateforce_foundation import world_population_bg0004  # noqa: E402
 from pirateforce_foundation import world_population_bg0005  # noqa: E402
+from pirateforce_foundation import world_population_bg0008  # noqa: E402
 from pirateforce_foundation import world_population_bg0015  # noqa: E402
 
 
@@ -139,6 +141,7 @@ _POPULATION_MODULE_BY_SCENE = {
     field_mob_tables_bg0003.SCENE: world_population_bg0003,
     field_mob_tables_bg0004.SCENE: world_population_bg0004,
     field_mob_tables_bg0005.SCENE: world_population_bg0005,
+    field_mob_tables_bg0008.SCENE: world_population_bg0008,
     field_mob_tables_bg0015.SCENE: world_population_bg0015,
 }
 

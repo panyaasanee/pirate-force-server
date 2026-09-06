@@ -196,6 +196,7 @@ from . import field_mob_tables_bg0002
 from . import field_mob_tables_bg0003
 from . import field_mob_tables_bg0004
 from . import field_mob_tables_bg0005
+from . import field_mob_tables_bg0008
 from . import field_mob_tables_bg0015
 # LANE-B's per-(viewer, monster) link for the client's name-colour selector
 # (COO-DECISION 20260905_2348, CORE-REQUEST-GM-061).  Imported for the
@@ -521,6 +522,7 @@ _SCENE_TABLE_MODULES = {
     field_mob_tables_bg0003.SCENE: field_mob_tables_bg0003,
     field_mob_tables_bg0004.SCENE: field_mob_tables_bg0004,
     field_mob_tables_bg0005.SCENE: field_mob_tables_bg0005,
+    field_mob_tables_bg0008.SCENE: field_mob_tables_bg0008,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
@@ -584,6 +586,18 @@ BG0004_SCENE = field_mob_tables_bg0004.SCENE
 # identity rule (``cline``, COO-DECISION 2026-08-29T03:45+07:00); the
 # generated module carries the rows and the census that selected them.
 BG0005_SCENE = field_mob_tables_bg0005.SCENE
+# COO-DECISION widen-death-scope-bg0008-six-templates 2026-09-06T05:48+07:00
+# (notes_to_chief/20260906_0548_COO-DECISION-b0441-widen-death-scope-bg0008-
+# six-templates-nina-withheld-with-carlos-one-letter-for-five-scenes-next-
+# LANE-B.md), answering this lane's own ASK-COO 2026-09-06T04:41+07:00.
+# Scene 8 (Silver Harbour).  NINE placements mined under the project's one
+# identity rule (``cline``), over SEVEN distinct templates -- but the ruling
+# covers only SIX of them: placement 69 (MOBS 529, "Nina") is a hostile-
+# predicate row this lane withholds from what it SHIPS, the same way Bg0015's
+# Carlos is withheld, and for the same reason.  See LANE_WITHHELD_PLACEMENTS'
+# own comment for why, and mob_death.WIDENING_RULINGS' own bg0008 entry for
+# what the six that DO ship are covered under.
+BG0008_SCENE = field_mob_tables_bg0008.SCENE
 BG0015_SCENE = field_mob_tables_bg0015.SCENE
 
 
@@ -747,10 +761,65 @@ OWNER_REFUSAL_REASON: dict[str, str] = {
 # a different signer.  Everything that reports a filtered roster reports
 # BOTH numbers for the same reason ``owner_refused`` travels beside a
 # verdict at all: removing a row makes a scene EASIER to call finished.
+#
+# Bg0008's placement 69 (template 529, "Nina") IS here, from its own first
+# commit rather than tried-and-withdrawn like Carlos was: this lane's own
+# ASK-COO 2026-09-06T04:41+07:00 named the same content question up front --
+# ``COO-DECISION widen-death-scope-bg0008-six-templates 2026-09-06T05:48+07:00``
+# (notes_to_chief/20260906_0548_COO-DECISION-b0441-widen-death-scope-bg0008-
+# six-templates-nina-withheld-with-carlos-one-letter-for-five-scenes-next-
+# LANE-B.md) item 2 rules Nina withheld "for the same reason as Carlos
+# 0545": her resolved MOBS row's ``s_OUTFIT`` is ``P_FEMALE_003_002_NENA``, a
+# PLAYER-model avatar rather than a monster one, AND she carries zero in
+# every one of ``n_DROPS_NORMAL``/``n_DROPS_EQUIPMENT``/``n_DROPS_SPECIALLY``
+# -- so nobody has any evidence for what template 529 actually IS, and this
+# lane does not issue a kill letter for content it cannot name.  The letter
+# also explicitly forbids closing this by narrowing the mining PREDICATE
+# (item 3: "a predicate that stops selecting rank!=0 AND ai_combat!=0 rows is
+# what let Carlos and Nina both slip past unnoticed before someone read the
+# roster by eye") -- the predicate is right to find her; a lane ruling, by
+# placement index, is what holds her out of what ships.
+#
+# WHAT WITHHOLDING MEANS OPERATIONALLY, same contract as Carlos: Nina still
+# mines, and would still ship, if this entry were removed -- she has a rank
+# and a combat AI, so ``field_mobs.load_roster`` would otherwise include her.
+# With this entry she is dropped before ``field_mobs.load_roster`` returns
+# her, so LANE-B's OWN consumers never see her placement index -- the AI
+# register (``mob_ai_control.open_register``), the combat ledger and the
+# census HOSTILE override this lane feeds all skip her, and she can never be
+# targeted or killed.
+#
+# ~~"she does not reach a player's screen at all"~~ IS STRUCK, ROUND
+# oabhhe-adv, pf-adversary: this entry is a LANE-B filter, and LANE-A's own
+# base census (``world_population_bg0008.py`` / ``world_bg0008_identity.py``,
+# neither of which reads ``LANE_WITHHELD_PLACEMENTS``) builds its actor list
+# straight from the mined identity table, placement 69 included -- so a
+# client that reaches Bg0008 today is sent an actor named "Nina", her real
+# ``n_id`` (529) and her player-model ``s_OUTFIT`` on the wire, standing in
+# the world, the same as every other placement.  What this entry actually
+# gives her is exactly "on screen but unkillable" -- the sentence above used
+# to deny that in terms, and it was wrong to.  This is not a new hole this
+# round dug: the base census's own indifference to this lane's withhold list
+# predates this entry and covers Carlos identically, unnoticed until this
+# round's adversary review actually executed the census path. A row this
+# lane cannot name is still a row this lane does not let die, the same
+# choice made for Carlos and for the same reason: a monster stuck at 0 HP
+# forever, answered with silence on every swing after the first, is worse
+# than one fewer killable NPC. Whether "unkillable but visible" is the
+# containment the COO's own reasoning ("I do not issue a kill letter for
+# content I cannot name") actually intended is put back to COO in
+# ``notes_to_chief/20260906_0725_LANE-B-ASK-COO-bg0008-nina-visible-not-
+# invisible-adversary-finding.md`` (this round's own letter) rather than
+# assumed here either way.
 LANE_WITHHELD_PLACEMENTS: dict[str, tuple[int, ...]] = {
+    'Bg0008': (69,),
     'Bg0015': (87,),
 }
 LANE_WITHHELD_REASON: dict[str, str] = {
+    'Bg0008': (
+        'avatar_is_a_player_model_and_zero_drops_content_unknown_'
+        'coo_decision_20260906_0548'
+    ),
     'Bg0015': 'no_death_ruling_covers_template_924_coo_decision_20260905_0545',
 }
 

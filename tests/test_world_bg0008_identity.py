@@ -171,13 +171,54 @@ class Bg0008TableShape(unittest.TestCase):
             identity._RESOLVED_ROWS = original
         identity._self_check()
 
-    def test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet(
+    def test_the_lane_b_hostile_roster_module_agrees_with_this_table(
         self,
     ) -> None:
-        hits = list(
-            (ROOT / "src" / "pirateforce_foundation").glob(
-                "field_mob_tables_bg0008*"))
-        self.assertEqual(hits, [])
+        """~~test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet~~
+
+        RENAMED AND TURNED AROUND, this round (LANE-B), in the same commit
+        that made the old assertion false -- the same turn rounds jqeo2m/
+        am1fw8/r6isy5 already made for scenes 5/3/4's own sibling tests.
+        ``field_mob_tables_bg0008.py`` exists now and is registered in
+        ``field_mobs._SCENE_TABLE_MODULES`` (COO-DECISION widen-death-scope-
+        bg0008-six-templates 2026-09-06T05:48+07:00).
+
+        A cross-lane edit, made rather than left red for the same reason
+        every earlier scene's turn-around gave: leaving a shared tripwire
+        failing is not an option the round that trips it can choose.  The
+        two lanes mined this scene's CLINE type 8 crosswalk independently,
+        so this asserts they landed on the same MOBS row for every
+        placement lane B ships -- placement 69 (Nina, template 529)
+        INCLUDED ON PURPOSE despite being withheld from what this lane
+        ships: this table's own ``IDENTITIES`` has no notion of a lane
+        ruling, so the agreement check below reads
+        ``field_mob_tables_bg0008.HOSTILE_PLACEMENTS`` (mined, all nine
+        rows) rather than ``field_mobs.roster_for_scene_id`` (shipped,
+        eight) -- the wider set is the stronger check, and it still holds.
+        LANE-A: correct the wording if this file's convention wants
+        something else here; the assertion itself is the point.
+        """
+        from pirateforce_foundation import field_mob_tables_bg0008
+        from pirateforce_foundation import field_mobs
+
+        self.assertTrue(
+            (ROOT / "src" / "pirateforce_foundation"
+             / "field_mob_tables_bg0008.py").is_file())
+        self.assertIn(
+            field_mob_tables_bg0008.SCENE, field_mobs._SCENE_TABLE_MODULES)
+        sets = field_mob_tables_bg0008.SET_NUMBER_FOR_PLACEMENT
+        for row in field_mob_tables_bg0008.HOSTILE_PLACEMENTS:
+            placement_index, template_id, _x, _y, _z, _visual, display_name = (
+                row[0], row[1], row[2], row[3], row[4], row[5], row[6])
+            theirs = identity.IDENTITIES.get(sets[placement_index])
+            self.assertIsNotNone(
+                theirs,
+                "lane B mines placement %d, which this table calls "
+                "unresolved" % placement_index)
+            self.assertEqual(
+                (theirs.mobs_n_id, theirs.name),
+                (template_id, display_name),
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover

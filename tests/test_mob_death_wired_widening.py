@@ -401,6 +401,16 @@ class RulingForTests(unittest.TestCase):
             "widen-death-scope-bg0003-seven-templates": "202609041450",
             "COO-DECISION 2026-09-05T05:46+07:00 "
             "widen-death-scope-bg0004-five-templates": "202609050546",
+            # The one entry whose timestamp sits at the END of the name, not
+            # the start: the letter's own item 1
+            # (notes_to_chief/20260906_0548_COO-DECISION-b0441-...) gives
+            # this exact string, word order included, so it is copied
+            # verbatim rather than reordered to match the others.  This is
+            # still the ONLY timestamp in the name, so leftmost-match is a
+            # non-issue here -- unlike the 916 ruling, there is no second,
+            # cited timestamp for ``re.search`` to have to skip past.
+            "COO-DECISION widen-death-scope-bg0008-six-templates "
+            "2026-09-06T05:48+07:00": "202609060548",
         }
         self.assertEqual(
             set(expected), set(mob_death.WIDENING_RULINGS),
