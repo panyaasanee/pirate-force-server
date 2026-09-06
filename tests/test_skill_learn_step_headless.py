@@ -9,11 +9,13 @@ and nobody at the screen could tell.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -197,7 +199,9 @@ def test_the_gate_admits_the_sweep_without_narrowing_anything():
     )
     assert scenario.step_order == L.LEARN_SKILL_RESULT_STEP_ORDER
     assert L._active_step_order() == L.LEARN_SKILL_RESULT_STEP_ORDER
-    assert L._ACTIVE_STEP_PLAN is None
+    # the sweep is a plan like any other -- it is SELECTED, not left on the
+    # "nothing selected yet" sentinel, or one sentinel would mean two facts
+    assert L._ACTIVE_STEP_PLAN == L.LEARN_SKILL_RESULT_STEP_ORDER
 
 
 def test_re_checking_the_same_step_object_twice_is_not_a_re_aiming():
@@ -266,3 +270,105 @@ def test_the_documented_command_runs_on_a_plain_checkout(tmp_path):
     assert (
         H.TOKEN_PREFIX + " step=" + label + " actions=1 " in done.stdout
     ), done.stdout[-2000:]
+
+
+def test_a_step_after_the_sweep_is_refused_in_one_process(legacy):
+    """The refusal has to work in BOTH directions, not just step-then-step.
+
+    A sweep-booted dispatcher takes its action LABELS from the scenario the
+    boot closed over and its BYTES from the active plan.  While the sweep
+    shared the "nothing selected yet" sentinel, admitting a step profile
+    afterwards was accepted and silently re-aimed those bytes: index 0 then
+    emitted that step's frame under the sweep's first label -- the same
+    right-label/wrong-bytes confusion this gate exists to close, mirrored.
+    """
+    L.load_learn_skill_result_hypothesis_scenario(SWEEP)
+    with pytest.raises(RuntimeError):
+        L.require_learn_skill_result_hypothesis_scenario(
+            L._PROFILE_LEARN_STEP[L.LEARN_SKILL_RESULT_STEP_ORDER[4]]
+        )
+    # and the sweep-booted process still composes the sweep, untouched
+    assert L._active_step_order() == L.LEARN_SKILL_RESULT_STEP_ORDER
+    pc, _ = L.make_learn_skill_result_step_response(legacy, 0)
+    want, _ = L.make_learn_skill_result_response(
+        legacy,
+        L.LEARN_SKILL_RESULT_STEP_RECORDS[L.LEARN_SKILL_RESULT_STEP_ORDER[0]],
+        L.LEARN_SKILL_RESULT_STEP_TRAILING[L.LEARN_SKILL_RESULT_STEP_ORDER[0]],
+    )
+    assert pc == want
+
+
+def test_the_sweep_after_a_step_is_refused_in_one_process():
+    L.load_learn_skill_result_hypothesis_scenario(
+        H.scenario_path(L.LEARN_SKILL_RESULT_STEP_ORDER[2])
+    )
+    with pytest.raises(RuntimeError):
+        L.require_learn_skill_result_hypothesis_scenario(L._PROFILE_LEARN_SWEEP)
+    with pytest.raises(RuntimeError):
+        L.load_learn_skill_result_hypothesis_scenario(SWEEP)
+
+
+def test_a_value_equal_copy_cannot_re_aim_a_sweep_booted_process(legacy):
+    """The exact route pf-adversary walked in round t04sgo, now closed.
+
+    The allowlist is VALUE equality, so a dataclasses.replace() copy of an
+    allowlisted profile is admitted -- that is the design, and it is not the
+    hole.  The hole was that admitting it in a process already serving the
+    sweep re-aimed the bytes.  Built with the public API only, no private
+    profile dict touched, this is the adversary's reproduction verbatim.
+    """
+    sweep = L.load_learn_skill_result_hypothesis_scenario(SWEEP)
+    lookalike = dataclasses.replace(
+        sweep,
+        scenario_id=L.learn_skill_result_step_scenario_id("COUNT3_TRAIL1"),
+        step_order=("COUNT3_TRAIL1",),
+    )
+    assert lookalike == L._PROFILE_LEARN_STEP["COUNT3_TRAIL1"]
+    with pytest.raises(RuntimeError):
+        L.require_learn_skill_result_hypothesis_scenario(lookalike)
+    assert L._active_step_order() == L.LEARN_SKILL_RESULT_STEP_ORDER
+    pc, _ = L.make_learn_skill_result_step_response(legacy, 0)
+    want, _ = L.make_learn_skill_result_response(
+        legacy,
+        L.LEARN_SKILL_RESULT_STEP_RECORDS[L.LEARN_SKILL_RESULT_STEP_ORDER[0]],
+        L.LEARN_SKILL_RESULT_STEP_TRAILING[L.LEARN_SKILL_RESULT_STEP_ORDER[0]],
+    )
+    assert pc == want
+
+
+def test_the_whole_documented_command_prints_the_summary_token(tmp_path):
+    """The no-argument form is what produces the ticket's token line.
+
+    ``--step`` never enters ``_run_every_step``, so the argument-less command
+    -- the one whose LEARN_SKILL_STEP_ARMED_SUMMARY line goes into GT-276's
+    ATTENDED block -- has to be exercised as a whole, or the child-process
+    spawn it depends on is covered by nothing.
+    """
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in ("PYTHONPATH", "PYTHONHOME")
+    }
+    env["TMPDIR"] = str(tmp_path)
+    done = subprocess.run(
+        [sys.executable, "src/pirateforce_foundation/skill_learn_step_headless.py"],
+        cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=1800,
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert (
+        H.TOKEN_PREFIX + "_SUMMARY steps=6 one_frame_each=yes RESULT=PASS"
+        in done.stdout
+    ), done.stdout[-2000:]
+    for label in L.LEARN_SKILL_RESULT_STEP_ORDER:
+        assert H.TOKEN_PREFIX + " step=" + label + " actions=1 " in done.stdout
+
+
+def test_the_proof_refuses_to_run_on_another_checkouts_modules(monkeypatch):
+    """A token produced by a foreign tree's composer names nothing at all."""
+    foreign = types.ModuleType("pirateforce_foundation.runtime")
+    foreign.__file__ = "/somewhere/else/src/pirateforce_foundation/runtime.py"
+    monkeypatch.setitem(
+        sys.modules, "pirateforce_foundation.runtime", foreign,
+    )
+    with pytest.raises(RuntimeError):
+        H._refuse_a_foreign_checkout()

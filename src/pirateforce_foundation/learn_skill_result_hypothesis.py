@@ -792,11 +792,21 @@ _PROFILE_LEARN_STEP: dict[str, LearnSkillResultHypothesisScenario] = {
     for label in LEARN_SKILL_RESULT_STEP_ORDER
 }
 
-# The plan the loaded scenario file selected, or None for "the whole sweep".
-# One process serves one scenario file (app.py loads it once, before any
-# connection), so this is process-wide by construction, exactly like the
-# scenario object itself; a second load that would change it is refused
-# rather than silently re-aiming a running server at a different frame.
+# The plan the admitted scenario selected, or None for "nothing has selected
+# anything yet".  One process serves one scenario (app.py loads it once,
+# before any connection), so this is process-wide by construction, exactly
+# like the scenario object itself; a second, different plan is refused rather
+# than silently re-aiming a running server at a different frame.
+#
+# THE SWEEP IS A PLAN LIKE ANY OTHER and is stored as its own six-label
+# tuple.  An earlier version collapsed it onto None, which made None mean two
+# different facts -- "the whole sweep is selected" and "nothing is selected
+# yet" -- and that collision enforced "one process serves one plan" in ONE
+# direction only: step-then-step was refused, but sweep-then-step was
+# accepted and quietly re-aimed a sweep-booted dispatcher at another step's
+# bytes while its labels still came from the sweep.  That is the same
+# right-label/wrong-bytes confusion this gate exists to make unreachable,
+# just mirrored, so the sentinel is no longer shared.
 _ACTIVE_STEP_PLAN: tuple[str, ...] | None = None
 
 
@@ -809,8 +819,6 @@ def _active_step_order() -> tuple[str, ...]:
 
 def _select_step_plan(plan: tuple[str, ...]) -> None:
     global _ACTIVE_STEP_PLAN
-    if plan == LEARN_SKILL_RESULT_STEP_ORDER:
-        plan = None
     if _ACTIVE_STEP_PLAN is not None and plan != _ACTIVE_STEP_PLAN:
         raise RuntimeError(
             "HYP-PF-033 refuses to change the loaded step plan in one process"
@@ -1045,7 +1053,9 @@ def require_learn_skill_result_hypothesis_scenario(
     # action label -- right label, wrong bytes, every pin still green.  This
     # is the exact confusion GT-276 exists to rule out, so the gate itself
     # must make it unreachable, not just the one caller that happens to
-    # remember.  Selecting the same plan again is a no-op; a second,
-    # different plan in one process is refused by _select_step_plan.
+    # remember.  Selecting the same plan again is a no-op; ANY second,
+    # different plan in one process is refused by _select_step_plan -- the
+    # sweep is a plan like any other, so sweep-then-step is refused in the
+    # same breath as step-then-step.
     _select_step_plan(value.step_order)
     return value

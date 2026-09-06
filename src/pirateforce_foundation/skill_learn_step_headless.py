@@ -31,10 +31,7 @@ From the repository root, with no PYTHONPATH and nothing installed::
 
     python3 src/pirateforce_foundation/skill_learn_step_headless.py
 
-One step only::
-
-    python3 src/pirateforce_foundation/skill_learn_step_headless.py \
-        --step COUNT1_TRAIL0
+One step only, same command with ``--step COUNT1_TRAIL0`` appended.
 
 ``python3 -m pirateforce_foundation.skill_learn_step_headless`` needs ``src``
 on PYTHONPATH already and is NOT the documented form: the ticket's re-run
@@ -64,6 +61,36 @@ from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+
+def _refuse_a_foreign_checkout() -> None:
+    """Every module in this proof must come from THIS tree, or say so loudly.
+
+    The bootstrap above only inserts ``src`` when it is absent from
+    ``sys.path``, so a PYTHONPATH naming another checkout's ``src`` FIRST
+    wins: this file drives that tree's composer, gate and dispatcher while
+    the token names nothing at all.  ka1-A re-runs this proof to decide
+    whether GT-276 boards the capture bus, so a token that can be produced
+    by code from a different commit is worse than no token.
+    """
+    home = str(ROOT / "src")
+    for module in (
+        "pirateforce_foundation.learn_skill_result_hypothesis",
+        "pirateforce_foundation.runtime",
+        "pirateforce_foundation.store",
+        "pirateforce_foundation.legacy_bridge",
+        "pirateforce_foundation.chat_input_hypothesis",
+    ):
+        origin = Path(sys.modules[module].__file__).resolve()
+        if not str(origin).startswith(home + "/") and not str(
+            origin
+        ).startswith(home + "\\"):
+            raise RuntimeError(
+                "%s came from %s, not from %s"
+                % (module, origin, home)
+            )
+
+
+_refuse_a_foreign_checkout()
 
 TOKEN_PREFIX = "LEARN_SKILL_STEP_ARMED"
 SCENARIOS = ROOT / "scenarios"
