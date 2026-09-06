@@ -170,6 +170,19 @@ class Bg0002CensusWiringTests(unittest.TestCase):
             if action[0].startswith("WORLD_CENSUS_")
         ]
 
+    def _viewer_identity(self, state):
+        """The SAME (identity_hi<<32)|identity_lo expression runtime.py's
+        census dispatch now uses as the "viewer" for CORE-REQUEST-GM-061 --
+        this session's own selected character, one qword.  Computed from the
+        SAME ``state.foundation.selected`` the dispatch itself reads, not a
+        reconstruction of it.
+        """
+        selected = state.foundation.selected
+        return (
+            (selected.identity_hi & 0xFFFFFFFF) << 32
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+
     def _expected_spliced(self, state, anchor):
         """The census bytes the wired branch now queues: the raw bg0002
         build with LANE-B's hostile-faction override spliced in
@@ -184,6 +197,12 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         comparison built from this helper fails, because the splice
         changes entry sizes (0x2033: 183 -> 196 bytes, measured by the
         lane's own headless run).
+
+        AMENDMENT (CORE-REQUEST-GM-061, this round): ``viewer_identity`` is
+        now threaded too, computed by :meth:`_viewer_identity` from THIS
+        state's own selected character, exactly as the wired call site does
+        -- an "expected" object built with no viewer link is comparing
+        against bytes runtime.py no longer sends.
         """
         independent = world_population_bg0002.build_bg0002_population(
             self.legacy, anchor, scene_id=SCENE2_N_ID,
@@ -196,7 +215,7 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         # rather than assumed.
         override = mob_census_hostility.hostile_override_for_scene_id(
             self.legacy, SCENE2_N_ID, state.mob_death_register,
-            ledger=None,
+            ledger=None, viewer_identity=self._viewer_identity(state),
         )
         return _apply_mob_death_census_override(
             self.legacy, independent, override,
@@ -532,7 +551,7 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         # rather than assumed.
         override = mob_census_hostility.hostile_override_for_scene_id(
             self.legacy, SCENE2_N_ID, state.mob_death_register,
-            ledger=None,
+            ledger=None, viewer_identity=self._viewer_identity(state),
         )
         # The scene's roster is non-empty, so the override must be too --
         # an empty override would make this whole test vacuous.

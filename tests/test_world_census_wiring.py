@@ -247,10 +247,35 @@ CENSUS_WIRE_SHA256 = {
     #        frame=42DA2662CBF20BE6A774CD578C61DBDD77F779DCAB795F3DA8E2A26AA364F165
     # ~~115: pc=1E52C78765C59DC313313505BD690B1B7F0D2040FC4111D45AC66F7CF300C53E
     #        frame=FC1F9B1FA4C1853ED42F9BE22F50483B2C11E2FA516B9D7981FD9C68FBF2D4D7~~
-    60: ("9796D50B2940A23C3461BDF9FF432B93E20B2552B7B1DA248CB5B1A8B86D610A",
-         "AEBDEA37F01499EE63CF625771361AF7427026D10602FD03966D69140023735C"),
-    115: ("4ADD9F3A186CEABC27ADB69132C130C75C1926ADDA1162AB7347753FD23CA582",
-          "EB8437B0D705087C8142BDA3B979B767492F038841E8EB0DDC6831586A903AF0"),
+    # AMENDMENT (CORE-REQUEST-GM-061, this round).  Rungs 60 and 115 moved a
+    # SIXTH time; 3 and 20 did not, same reasoning as every prior amendment
+    # that only touched the two larger rungs -- neither small rung includes
+    # any of the four bg0001 mob_death roster identities the viewer link now
+    # reaches.  ``runtime.py``'s census dispatch now passes
+    # ``viewer_identity=<this session's own actor identity>`` to
+    # ``mob_death.full_roster_override`` (mob_viewer_link.py), so each of the
+    # four roster identities gains 9 extra bytes (NPC field mask bit 0x08 +
+    # an 8-byte tagged qword, see mob_viewer_link.LINKED_IDENTITY_WIRE_LEN)
+    # on top of the faction+speed+level inserts already counted above -- 36
+    # bytes total across the four identities present in rungs 60/115.  This
+    # session's own viewer identity is deterministic across every test in
+    # this file (``_state`` always creates the first account/character in a
+    # fresh SQLiteStore: ``identity_lo = 0x10000000 + 1*0x10000 + 0 + 1 =
+    # 0x10010001``, ``identity_hi = 0`` -- ``lifecycle.py``'s own formula),
+    # so the digest is reproducible.  Re-derived here from the real
+    # dispatcher at PIN_ANCHOR, not hand-typed, same as every prior
+    # amendment.  The pre-this-round digests this replaces are kept as
+    # comment history immediately above, correct for what they described (a
+    # census with no viewer link on any body):
+    #
+    #   60:  pc=9796D50B2940A23C3461BDF9FF432B93E20B2552B7B1DA248CB5B1A8B86D610A
+    #        frame=AEBDEA37F01499EE63CF625771361AF7427026D10602FD03966D69140023735C
+    #   115: pc=4ADD9F3A186CEABC27ADB69132C130C75C1926ADDA1162AB7347753FD23CA582
+    #        frame=EB8437B0D705087C8142BDA3B979B767492F038841E8EB0DDC6831586A903AF0
+    60: ("4AECF97F0101155B9389E5F5783F24640352FECBF48D3FA72CABEDEB9D5AF5FF",
+         "70D0D8E28CD1292DE76192A5A24CD063AEF0771008BA7E9F5531A0B9B356A8E8"),
+    115: ("B1C75B0AB2960A620D309EADF973D32B2B030607E55A54AC99F06BE0689E79F6",
+          "786E73EB86A8E7AED0BC1A5CF84B7657F72B42172D7E7B1B471EDB273A17FD50"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -349,6 +374,19 @@ class WorldCensusWiringTests(unittest.TestCase):
             if action[0].startswith("WORLD_CENSUS_")
         ]
 
+    def _viewer_identity(self, state):
+        """The SAME (identity_hi<<32)|identity_lo expression runtime.py's
+        census dispatch now uses as the "viewer" for CORE-REQUEST-GM-061 --
+        this session's own selected character, one qword.  Computed from the
+        SAME ``state.foundation.selected`` the dispatch itself reads, not a
+        reconstruction of it.
+        """
+        selected = state.foundation.selected
+        return (
+            (selected.identity_hi & 0xFFFFFFFF) << 32
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+
     def _with_roster_override(self, generation, state):
         """The SAME override runtime.py's dispatch now applies, hung off an
         INDEPENDENTLY-built generation, so a test comparing the dispatcher's
@@ -364,10 +402,17 @@ class WorldCensusWiringTests(unittest.TestCase):
         against bytes runtime.py no longer sends.  ``state`` is passed in
         (not a fresh register/ledger) so this reuses the exact register and
         ledger the dispatch itself read from, not a reconstruction of it.
+
+        AMENDMENT (CORE-REQUEST-GM-061, this round): ``viewer_identity`` is
+        now threaded too, computed by :meth:`_viewer_identity` from THIS
+        state's own selected character, exactly as the dispatch itself does
+        -- an "expected" object built with no viewer link is comparing
+        against bytes runtime.py no longer sends either.
         """
         override = mob_death.full_roster_override(
             self.legacy, field_mobs.load_roster(),
             state.mob_death_register, ledger=state.mob_combat_ledger,
+            viewer_identity=self._viewer_identity(state),
         )
         if not override:
             return generation
@@ -660,8 +705,17 @@ class WorldCensusWiringTests(unittest.TestCase):
         # from RE-117 and did not move.  Written as the arithmetic rather than
         # as whatever the run printed, and asserted against the builder's own
         # numbers above, which is what makes this the cheap proof it claims.
+        # ~~(20410, 20424)~~ AMENDMENT (CORE-REQUEST-GM-061, this round):
+        # +36 = 4 * 9.  ``_with_roster_override`` now threads this session's
+        # own ``viewer_identity`` through to ``full_roster_override``
+        # (mob_viewer_link.link_viewer_to_npc_attr), and each of the 4
+        # bg0001 mob_death roster identities gains the NPC field mask bit
+        # 0x08 plus its 8-byte tagged qword -- 9 extra bytes per identity,
+        # 4 * 9 = 36 extra bytes total.  Written as the arithmetic rather
+        # than as whatever the run printed, same discipline as the amendment
+        # above.
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (20098 + 104 * 3, 20112 + 104 * 3))
+                          (20098 + 104 * 3 + 4 * 9, 20112 + 104 * 3 + 4 * 9))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed
@@ -1230,7 +1284,9 @@ class WorldCensusWiringTests(unittest.TestCase):
             )
             self.assertEqual(
                 entries[mob.actor_identity],
-                field_mobs.hostile_actor_entry(self.legacy, mob),
+                field_mobs.hostile_actor_entry(
+                    self.legacy, mob,
+                    viewer_identity=self._viewer_identity(state)),
                 f"identity 0x{mob.actor_identity:X} is on the wire with a "
                 f"body that is not its hostile body",
             )

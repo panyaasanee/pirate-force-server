@@ -785,6 +785,88 @@ class MobDeathTests(unittest.TestCase):
                 override[mob.actor_identity],
                 field_mobs.hostile_actor_entry(self.legacy, mob))
 
+    # -- CORE-REQUEST-GM-061 (this round): threading ``viewer_identity``
+    # through ``repopulation_entries``/``full_roster_override`` down to
+    # ``field_mobs.hostile_actor_entry``'s existing keyword.  Three claims:
+    # (a) omitting it anywhere in the chain is byte-identical to today
+    # (regression guard), (b) a real viewer_identity reaches every LIVING
+    # roster body and links exactly that viewer, never a dead one, and (c)
+    # a viewer_identity ``mob_viewer_link`` itself would refuse propagates
+    # unchanged rather than being swallowed here.
+
+    def test_full_roster_override_default_viewer_identity_is_unchanged(self):
+        # The strictly-additive claim: a caller that never heard of this
+        # keyword (every caller before this round) gets the exact same
+        # bytes it always did, whether or not it now passes viewer_identity
+        # explicitly as None.
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
+        implicit = full_roster_override(
+            self.legacy, self.roster, death.register)
+        explicit_none = full_roster_override(
+            self.legacy, self.roster, death.register, viewer_identity=None)
+        self.assertEqual(implicit, explicit_none)
+
+    def test_full_roster_override_with_viewer_identity_links_every_living_body(
+            self):
+        # The positive case: every LIVING roster member's entry gains the
+        # same viewer link field_mobs.hostile_actor_entry already knows how
+        # to splice -- proven here by requiring byte-for-byte agreement with
+        # calling hostile_actor_entry directly, not by re-deriving the byte
+        # layout in this test.
+        viewer = 0x900001
+        override = full_roster_override(
+            self.legacy, self.roster, DeathRegister(),
+            viewer_identity=viewer)
+        for mob in self.roster:
+            self.assertEqual(
+                override[mob.actor_identity],
+                field_mobs.hostile_actor_entry(
+                    self.legacy, mob, viewer_identity=viewer))
+            # and it really did change the bytes relative to no viewer
+            self.assertNotEqual(
+                override[mob.actor_identity],
+                field_mobs.hostile_actor_entry(self.legacy, mob))
+
+    def test_full_roster_override_viewer_identity_does_not_reach_a_corpse(
+            self):
+        # Dead rows are composed by death_actor_entry/corpse_npc_attr, a
+        # DIFFERENT composer with no viewer_identity slot at all -- a corpse
+        # must therefore be byte-identical with or without a viewer_identity
+        # passed to this call, and must NOT equal a hostile_actor_entry body
+        # (spliced or not) for the same mob.
+        step = self.killing_outcome()
+        death = kill(self.legacy, self.mob, step.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
+        viewer = 0x900002
+        without_viewer = full_roster_override(
+            self.legacy, self.roster, death.register)
+        with_viewer = full_roster_override(
+            self.legacy, self.roster, death.register,
+            viewer_identity=viewer)
+        self.assertEqual(
+            without_viewer[self.mob.actor_identity],
+            with_viewer[self.mob.actor_identity])
+        self.assertEqual(
+            with_viewer[self.mob.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, self.mob, death_timer=DEAD_TIMER_SECONDS))
+
+    def test_full_roster_override_viewer_identity_equal_to_a_monster_refuses(
+            self):
+        # mob_viewer_link.link_viewer_to_npc_attr refuses a viewer that IS
+        # the monster being composed, and that refusal must reach a
+        # full_roster_override caller unchanged -- not swallowed, not
+        # silently downgraded to "no link" -- so a caller who wires this
+        # wrong learns about it instead of shipping a body nobody asked for.
+        from pirateforce_foundation import mob_viewer_link
+        collider = self.roster[0]
+        with self.assertRaises(mob_viewer_link.MobViewerLinkError):
+            full_roster_override(
+                self.legacy, self.roster, DeathRegister(),
+                viewer_identity=collider.actor_identity)
+
     # -- CODEX_URGENT 2026-09-01T20:40+07:00 / COO-DECISION 2026-09-01T21:48
     # +07:00, item 1: the corpse re-arm fix (``transitioning=``).  bg0001's
     # real roster is all four Training Iron Man placements (template 916),
