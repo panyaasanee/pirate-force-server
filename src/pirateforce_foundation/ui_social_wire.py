@@ -164,17 +164,27 @@ def encode_untagged_wstring(s: str) -> bytes:
     call these modules' ``decode_*`` functions on genuine inbound payload
     bytes today -- the hooks never reply or mutate state (``bytes_out=0``
     throughout), so no byte sent to the client or persisted state was ever
-    wrong, but every one of those four modules is, right now, silently
-    failing to decode real frames shaped per the proven-correct tag
-    (falling back to an ``UNPARSED`` hex dump). Only ``ui_express_wire.py``
-    and ``ui_community_social_wire.py`` are genuinely unwired (no
-    ``runtime.py`` import found). Each of the six call sites must still be
-    fixed one migration per module, each its own round, to respect the
-    file-count-per-PR convention; this pair is left in place, unmodified,
-    so a round's fix does not silently change other modules' already-
-    passing tests out from under a diff that never touches them; new work
-    must use ``wstring_tag``/``read_wstring_tag`` instead, never this
-    pair. See
+    wrong, but every one of those four modules was, at the time this
+    correction was written, silently failing to decode real frames shaped
+    per the proven-correct tag (falling back to an ``UNPARSED`` hex dump).
+    Only ``ui_express_wire.py`` and ``ui_community_social_wire.py`` are
+    genuinely unwired (no ``runtime.py`` import found).
+
+    STATUS as of round `rqwwp8` (`COO-DECISION 20260906_1745` item 2, one
+    PR for all three remaining wired modules instead of one-per-round --
+    every real frame shaped per the proven-correct tag was misdecoding
+    live traffic daily, so stretching the fix over three more rounds only
+    stretched the bug): ``ui_friend_wire.py`` (round `4u0ncx`,
+    `pirate-force-server#934`), ``ui_mail_wire.py``, ``ui_party_wire.py``,
+    and ``ui_trade_wire.py`` are now all migrated onto ``wstring_tag``/
+    ``read_wstring_tag``. Only ``ui_express_wire.py`` and
+    ``ui_community_social_wire.py`` still call this pair, and remain
+    unwired (`COO-DECISION 20260906_1649`: no module of the six gets wired
+    before its own migration lands). This pair is left in place,
+    unmodified, so a round's fix does not silently change other modules'
+    already-passing tests out from under a diff that never touches them;
+    new work must use ``wstring_tag``/``read_wstring_tag`` instead, never
+    this pair. See
     module docstring for why this pair was never
     ``current/pf_login_game_server_v141.py``'s ``wstr_tag`` to begin with
     (a separate, still-true point: that frozen file's own tag is

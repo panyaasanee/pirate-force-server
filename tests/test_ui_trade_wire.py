@@ -1,9 +1,17 @@
 """Pure unit tests for ``ui_trade_wire.py`` -- ``TradeInviteVital``
 (``0x3700``) encode/decode.
 
-Not wiring tests -- see ``ui_social_wire.py``'s module docstring. This is
-only the trade INVITE class; ``TradeCmdVital`` is out of scope (see
-``ui_trade_wire.py``'s module docstring) and has no module here.
+Not wiring tests -- nothing here asserts anything about ``runtime.py``
+dispatch. This is only the trade INVITE class; ``TradeCmdVital`` is out of
+scope (see ``ui_trade_wire.py``'s module docstring) and has no module
+here. STALE CLAIM CORRECTED round `rqwwp8` (pf-adversary): this docstring
+previously pointed to ``ui_social_wire.py``'s module docstring for a
+"nothing here is wired" claim -- ``runtime.py`` imports
+``TRADE_INVITE_VITAL_ID`` and dispatches real inbound frames to
+``lane_hooks/lane_ui_trade_wire_log.py`` (``production_allowed = True``,
+report-only, ``bytes_out=0`` -- see ``ui_trade_wire.py``'s own
+``TradeInviteFields`` docstring for the wiring citation); this file was
+never updated to say so.
 """
 from __future__ import annotations
 
@@ -46,7 +54,7 @@ class TradeInviteWireTests(unittest.TestCase):
                 )
 
     def test_shares_wire_shape_with_party_invite_but_not_the_type(self):
-        # Same tag sequence (u8, u64, untagged wstring) as PartyInviteVital
+        # Same tag sequence (u8, u64, tagged wstring 0x48) as PartyInviteVital
         # -- confirm the BYTES are identical for identical field values,
         # while the two dataclasses remain distinct Python types (nothing
         # proves the two classes share a meaning, only a shape; see this
