@@ -1,13 +1,16 @@
 """Guard test for the open pf-adversary question from LANE-UI round `rqwwp8`
 (``pf_bridge/rounds/UI_20260906_1824_rqwwp8_mail_party_trade_wire_wstring_
 tag_migration.md``): is there anything that goes red immediately if a future
-round wires ``ui_express_wire.py``/``ui_community_social_wire.py`` into
-``runtime.py`` before migrating their own wstring call sites off the
-proven-wrong ``ui_social_wire.encode_untagged_wstring``/
-``read_untagged_wstring`` pair (tag byte ``0x48`` missing -- see
-``ui_friend_wire.py``, migrated in ``#934``, and ``ui_mail_wire.py``/
-``ui_party_wire.py``/``ui_trade_wire.py``, migrated in the round `rqwwp8`
-round this file follows)?
+round wires ``ui_community_social_wire.py`` into ``runtime.py`` before
+migrating its own wstring call sites off the proven-wrong
+``ui_social_wire.encode_untagged_wstring``/``read_untagged_wstring`` pair
+(tag byte ``0x48`` missing -- see ``ui_friend_wire.py``, migrated in
+``#934``, ``ui_mail_wire.py``/``ui_party_wire.py``/``ui_trade_wire.py``,
+migrated in round `rqwwp8`, and ``ui_express_wire.py``, migrated in round
+`me7s4u`)? ``ui_express_wire.py`` was originally guarded here too
+(see ``_GUARDED_MODULES``'s comment below for why it was dropped once
+migrated) -- the AST-parsing machinery below still names both modules in
+its own history/examples since that predates the split.
 
 Before this file: no. `runtime.py` importing either module while it still
 calls the untagged pair would silently ship the same live misdecoding bug
@@ -62,6 +65,22 @@ vital id without any `import` of the module in `runtime.py` at all -- e.g.
 dynamic ``importlib.import_module`` -- would not trip this guard) -- this
 covers real import statements, static or dynamic string-based module
 loading is out of scope.
+
+ALSO NOT claimed (found by pf-adversary reviewing round `me7s4u`, which
+recovered this file, against three constructed inputs -- none of them
+present in ``ui_community_social_wire.py`` today, confirmed by inspection):
+the untagged-pair detector resolves only a direct
+``<alias-or-module-name>.<func>(...)`` call shape. It does not follow a
+local reassignment (``enc = wire.encode_untagged_wstring; enc(...)``), a
+``getattr(wire, "encode_untagged_wstring")`` indirection, or an
+attribute-of-attribute call (``self.wire = wire; self.wire.encode_
+untagged_wstring(...)``, where the call's ``func.value`` is itself an
+``ast.Attribute`` rather than the ``ast.Name`` this detector's alias
+resolution expects). None of these shapes appear in either guarded
+module as of this round; this is a disclosed residual gap for whoever
+migrates ``ui_community_social_wire.py``'s remaining call sites to be
+aware of, not a claim that today's guard is watertight against a
+deliberately obfuscated future rewrite.
 """
 from __future__ import annotations
 
@@ -76,7 +95,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 FOUNDATION_DIR = ROOT / "src" / "pirateforce_foundation"
 
-_GUARDED_MODULES = ("ui_express_wire", "ui_community_social_wire")
+_GUARDED_MODULES = ("ui_community_social_wire",)
+# ``ui_express_wire`` migrated off the untagged pair in LANE-UI round
+# `me7s4u` (see that module's docstring) -- dropped from this tuple per
+# `test_guarded_modules_still_use_the_untagged_pair_today`'s own
+# instruction ("update this test's expectations alongside whatever round
+# migrated it"). Only ``ui_community_social_wire`` is still unmigrated and
+# still needs this guard.
 _UNTAGGED_PAIR_NAMES = ("encode_untagged_wstring", "read_untagged_wstring")
 
 
