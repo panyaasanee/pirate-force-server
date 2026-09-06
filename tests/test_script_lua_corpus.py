@@ -191,7 +191,8 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: so a regression that raises this number (not a branch-shift fall) is
 #: still stub coverage getting worse, and the test below is written to
 #: catch that.
-#: RE-MEASURED THIS ROUND (LANE-Q, round qbr5h8): lua_api/player.py made
+#:
+#: RE-MEASURED (LANE-Q, round qbr5h8): lua_api/player.py made
 #: Player.CheckItemNum/GetItemNum/CheckEquipItem real (COO-DECISION
 #: 20260906_1846's "inventory seam, read side"). MEASURED, not derived from
 #: the 211/99/14 call-site counts in api_spec.tsv the naive way:
@@ -210,6 +211,21 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: newly reached (raising the count), some no longer reached (lowering it),
 #: net +20 stub calls elsewhere this time. Not a discrepancy to chase down;
 #: see the paragraph above for the same shape from a prior round.
+#:
+#: RE-MEASURED AGAIN, COMBINED WITH THE ABOVE (LANE-Q, round lvoma1,
+#: recovering both round qbr5h8's #953 and round 7v7yn2/uadtc7's #947/#960
+#: onto one branch after both died on an unrelated main-branch gate failure
+#: -- see this round's own round file): lua_api/quest.py made 9 more of
+#: Quest's 25 names real (GetQuestFlag/SetFlag/SetQuestFlag/GetFlag/
+#: MobKillCount/CheckMobKillCount/GetMobKillCount/CanReportDailyQuest/
+#: ReportDailyQuest) and lua_api/trigger.py made 2 more of Trigger's 17
+#: (QuestActiveProgress/QuestFinishProgress), sharing the same
+#: QuestStateStore door, ON TOP OF the inventory-seam three above -- both
+#: deltas landed together in the SAME corpus run for the first time here,
+#: so the combined total is measured fresh below, not added arithmetically
+#: from the two entries above (this comment's own standing rule: branch
+#: shift is emergent, never additive across independent real-method
+#: landings).
 BASELINE_TOTAL_STUB_CALLS = 4715
 
 

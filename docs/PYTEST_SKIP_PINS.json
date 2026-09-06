@@ -1141,9 +1141,9 @@
       "tests": [
         "ApiNamespaceStubBehaviourTests::test_every_still_stubbed_name_is_reachable_from_every_namespace_table",
         "ApiNamespaceStubBehaviourTests::test_known_api_name_logs_exactly_once_per_call_and_returns_default",
-        "ApiNamespaceStubBehaviourTests::test_the_1_real_quest_name_is_excluded_above_not_forgotten",
+        "ApiNamespaceStubBehaviourTests::test_the_10_real_quest_names_are_excluded_above_not_forgotten",
         "ApiNamespaceStubBehaviourTests::test_the_5_real_player_names_are_excluded_above_not_forgotten",
-        "ApiNamespaceStubBehaviourTests::test_the_5_real_trigger_names_are_excluded_above_not_forgotten",
+        "ApiNamespaceStubBehaviourTests::test_the_7_real_trigger_names_are_excluded_above_not_forgotten",
         "ApiNamespaceStubBehaviourTests::test_the_9_real_instance_names_are_excluded_above_not_forgotten",
         "ApiNamespaceStubBehaviourTests::test_unknown_property_style_key_returns_the_safe_default_silently",
         "ApiNamespaceStubBehaviourTests::test_writing_into_a_namespace_table_is_discarded_not_a_crash",
