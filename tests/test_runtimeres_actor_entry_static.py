@@ -445,9 +445,19 @@ class TestTheAnswer(unittest.TestCase):
         # world_population_bg3008.py, scene 305's ("Pale Silver Sea")
         # census - the other sea of that same decreed pair.  Same
         # single-module move as every entry above.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 42)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 32)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 31)
+        # 42 -> 43, 32 -> 33, 31 -> 32 on 2026-09-06 (LANE-A, round 6bpbe3):
+        # world_remote_player_actor.py promotes HYP-PF-025's proven
+        # actor_type 2 (CNetActor) byte shape into a real, always-on
+        # (production_allowed = True) production module: one entry builder
+        # and one carrier, reading a real other player's row out of
+        # world_scene_registry's own (new this round) player book.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 43)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 33)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 32)
+        self.assertIn(
+            "world_remote_player_actor.py",
+            counts["src_modules_building_actor_entries_names"],
+        )
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],

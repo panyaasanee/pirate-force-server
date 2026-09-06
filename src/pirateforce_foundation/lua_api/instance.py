@@ -1,4 +1,4 @@
-"""LANE-Q's ``Instance`` namespace: 7 of its 9 names, real.
+"""LANE-Q's ``Instance`` namespace: all 9 names, real.
 
 WHAT THIS FILE MAKES REAL, AND WHY THESE SEVEN.  ``docs/SCRIPT_LANE.md``
 (round ``s2fxf6``) shipped all 9 ``Instance.*`` names as stubs that log and
@@ -16,9 +16,7 @@ guessing) shows the 9 names split the same way ``Trigger.*`` did:
     draft's arithmetic error, which had said 53/55/96%).  Nothing blocks
     these from being real.
   * two names whose ARGUMENT semantics are genuinely ambiguous from the
-    corpus alone -- ``AddBonusPoint``/``AddBonusReward`` -- kept as named
-    stubs (see ``STILL_STUBBED``) rather than guessed, per charter ("the
-    original script is the spec -- do not guess logic").  A REWARD TABLE
+    corpus alone -- ``AddBonusPoint``/``AddBonusReward``.  A REWARD TABLE
     DOES EXIST: ``gamedata/tables/CONSTDATA_TH__INSTANCE.tsv``'s
     ``n_SCORECOUNT_ID`` column keys into
     ``gamedata/tables/CONSTDATA_TH__SCORECOUNT.tsv``'s
@@ -37,13 +35,23 @@ guessing) shows the 9 names split the same way ``Trigger.*`` did:
     nonzero value (73 of 338 rows checked directly), but that fact cannot
     be connected to these three scripts without either a new binary parser
     over the raw ``.npc`` scene files (not proven to be in this clone) or
-    an RE ticket against the live client.  See ``STILL_STUBBED`` below for
-    the corrected claim; this is a closed dead end for static tracing, not
-    "unfinished work" any more.
+    an RE ticket against the live client -- a closed dead end for static
+    tracing, not "unfinished work" any more.  Round 92j6so's own written
+    recommendation named two forward paths for whoever has charter
+    priority next: (a) a scoped RE ticket, or (b) accept the negative
+    result and implement both names as pure invocation counters, the same
+    "advances an int, no invented game rule" shape ``CallScoreCount``
+    already uses, without claiming any SCORECOUNT wiring.  THIS round
+    picks (b): both names below count CALLS, nothing else -- they do not
+    look up ``CONSTDATA_TH__SCORECOUNT.tsv``, do not compute a point value
+    from ``AddBonusPoint``'s optional argument, and do not hand out any
+    item or score.  The day the trace above is unblocked (new parser, or
+    an RE ticket answer), this counter is what a real implementation
+    replaces, not what it already is.
 
-So this round makes the first seven real; the remaining two keep the exact
-``ApiNamespaceStub`` contract (log ``LUA_API_STUB``, return
-:data:`script_host.STUB_DEFAULT`) they had before this file existed.
+So this round makes all nine names real; the two counters just described
+keep the exact "no game rule invented" posture the seven before them
+already had.
 
 WHAT "REAL" MEANS HERE, PRECISELY.  An :class:`InstanceRegistry` -- process
 memory, keyed by instance id, gone on reboot -- the same shape
@@ -191,6 +199,8 @@ class InstanceRegistry:
         self._lasting_time: dict[int, int] = {}
         self._key_events: dict[int, set] = {}
         self._score_count_calls: dict[int, int] = {}
+        self._bonus_point_calls: dict[int, int] = {}
+        self._bonus_reward_calls: dict[int, int] = {}
 
     def get_lasting_time(self, instance_id: Any) -> int:
         iid = _coerce_int(instance_id, _MAX_INSTANCE_ID)
@@ -255,9 +265,12 @@ class InstanceRegistry:
         instances that actually run a ``CallScoreCount``-calling script, and
         deciding whether "calling this API" should look up and apply that
         row's reward, or whether the row only matters for
-        ``AddBonusPoint``/``AddBonusReward`` (which stay named stubs, see
-        ``STILL_STUBBED``) -- is real, unstarted work, not a guess this
-        function silently avoids.  What IS unambiguous from every one of the
+        ``AddBonusPoint``/``AddBonusReward`` (also pure invocation counters
+        as of round ``vmm7vf``, same non-claim as this method -- see
+        their own docstrings on :class:`InstanceRegistry`, not
+        ``STILL_STUBBED``, which is empty) -- is real, unstarted work, not
+        a guess this function silently avoids.  What IS unambiguous from
+        every one of the
         12 ``CallScoreCount`` call sites themselves is that the call happens
         per instance, a bare statement with no argument and no read of its
         own return value -- so THIS function counts the INVOCATIONS, the
@@ -274,6 +287,50 @@ class InstanceRegistry:
                 return STUB_DEFAULT
             new_value = self._score_count_calls.get(iid, 0) + 1
             self._score_count_calls[iid] = new_value
+            return new_value
+
+    def add_bonus_point(self, instance_id: Any, point_arg: Any = None) -> int:
+        """Records one ``AddBonusPoint`` call; returns the running tally.
+
+        Same shape and same non-claim as :meth:`call_score_count`: this does
+        NOT interpret ``point_arg`` (the corpus calls this with 0 args in
+        ``t_drp&insbospnt_himdfx.lua`` and with ``Trigger.Var1`` in
+        ``t_insbospnt_himdfx.lua`` -- STILL genuinely ambiguous whether that
+        argument is a point value or a bonus-category id, per
+        ``STILL_STUBBED``'s history above), does NOT look up
+        ``CONSTDATA_TH__SCORECOUNT.tsv``, and does NOT compute or award any
+        actual bonus. It counts INVOCATIONS only, gone on reboot, exactly
+        the "advance an int" shape ``call_score_count`` already uses.
+        ``point_arg`` is accepted and discarded so a 1-argument call site
+        does not need special-casing above this method.
+        """
+        iid = _coerce_int(instance_id, _MAX_INSTANCE_ID)
+        if iid is None:
+            return STUB_DEFAULT
+        with self._lock:
+            if iid not in self._bonus_point_calls and len(self._bonus_point_calls) >= self._instances_cap:
+                return STUB_DEFAULT
+            new_value = self._bonus_point_calls.get(iid, 0) + 1
+            self._bonus_point_calls[iid] = new_value
+            return new_value
+
+    def add_bonus_reward(self, instance_id: Any) -> int:
+        """Records one ``AddBonusReward`` call; returns the running tally.
+
+        Same non-claim as :meth:`add_bonus_point`: does not hand out any
+        item or score (the corpus's one call site,
+        ``t_insbosev_himdfx.lua``, takes zero arguments -- there is nothing
+        here to interpret even if this method wanted to). Counts
+        INVOCATIONS only.
+        """
+        iid = _coerce_int(instance_id, _MAX_INSTANCE_ID)
+        if iid is None:
+            return STUB_DEFAULT
+        with self._lock:
+            if iid not in self._bonus_reward_calls and len(self._bonus_reward_calls) >= self._instances_cap:
+                return STUB_DEFAULT
+            new_value = self._bonus_reward_calls.get(iid, 0) + 1
+            self._bonus_reward_calls[iid] = new_value
             return new_value
 
     def _key_event_count(self, instance_id: Any) -> int:
@@ -313,54 +370,26 @@ def install_instance_registry(registry: Any) -> InstanceRegistry:
         return _REGISTRY
 
 
-#: The seven names this round makes real. ``GetInstanceId`` is the game's
-#: own shipped alternate-case spelling of ``GetInstanceID`` (one call site,
+#: All nine names, now real. ``GetInstanceId`` is the game's own shipped
+#: alternate-case spelling of ``GetInstanceID`` (one call site,
 #: ``t_indanix2_colct_ins.lua``) -- aliased to the exact same real handler,
 #: the same treatment round ``456vso`` gave ``Trigger.GetTeiggerStatus``.
+#: ``AddBonusPoint``/``AddBonusReward`` (this round, path (b) of round
+#: ``92j6so``'s recommendation) are pure invocation counters -- see
+#: :meth:`InstanceRegistry.add_bonus_point`/``add_bonus_reward`` for the
+#: explicit non-claim; no SCORECOUNT semantics are implemented.
 REAL_METHODS = frozenset({
     "GetInstanceID", "GetInstanceId", "GetLastingTime", "SetLastingTime",
     "AddKeyEvent", "RemoveKeyEvent", "CallScoreCount",
+    "AddBonusPoint", "AddBonusReward",
 })
 
-#: The remaining two, one honest sentence each for why they are NOT real
-#: this round -- no guessing, per charter.
-STILL_STUBBED: dict[str, str] = {
-    "AddBonusPoint": (
-        "argument semantics ambiguous from its call sites in the corpus -- "
-        "called as `Instance.AddBonusPoint()` (t_drp&insbospnt_himdfx.lua) "
-        "AND `Instance.AddBonusPoint(Trigger.Var1)` (t_insbospnt_himdfx.lua) "
-        "-- unclear whether the argument is a point value or a "
-        "bonus-category id, and now confirmed unclear FOR A DEEPER REASON: "
-        "TRACED, round 92j6so (2026-09-06) -- the candidate table "
-        "(`CONSTDATA_TH__INSTANCE.tsv`'s `n_SCORECOUNT_ID` column into "
-        "`CONSTDATA_TH__SCORECOUNT.tsv`'s `n_COLLECT_BONUS_SCORE`/rank-"
-        "tiered reward columns) DOES exist and DOES mechanically join for "
-        "73/338 instance rows, but no committed table or scene file names "
-        "either calling script anywhere (grepped every gamedata/tables/ "
-        "and gamedata/scene/*.placements.tsv file, 0 hits; the scene "
-        "extractor never reads a trigger-to-script binding at all), so "
-        "WHICH instance row(s) run this script cannot be determined from "
-        "committed data -- a closed dead end for static tracing, not an "
-        "open lead any more.  Needs either a new parser over the raw "
-        "`.npc` scene bytes (not confirmed present in this clone) or an "
-        "RE ticket against the live client before this becomes real logic "
-        "instead of a guess"
-    ),
-    "AddBonusReward": (
-        "gives an actual reward to instance participants with no argument "
-        "at all in its one call site (t_insbosev_himdfx.lua). Same "
-        "candidate table as AddBonusPoint above "
-        "(`CONSTDATA_TH__SCORECOUNT.tsv`'s rank-tiered "
-        "`n_RANKC_REWARD`..`n_RANKSSS_REWARD` columns, which read as "
-        "item-id references rather than point counts -- 7-digit values, "
-        "no ITEM table cross-check done) -- same closed dead end as "
-        "AddBonusPoint above (TRACED, round 92j6so, clean negative: no "
-        "script-to-instance join key in committed data), and handing out "
-        "an item still crosses into inventory territory this lane does "
-        "not own, needing a Player.AddItem-shaped door on top of the "
-        "trace before this is more than a guess"
-    ),
-}
+#: Empty -- all 9 ``Instance.*`` names are real as of this round. Kept as a
+#: named, typed constant (not deleted) so ``tests/test_script_lua_api_instance.py``'s
+#: own cross-check against ``REAL_METHODS``/``api_spec.tsv`` keeps working
+#: unchanged, and so the next namespace to reach 100% has a precedent for
+#: how to record it rather than silently dropping the dict.
+STILL_STUBBED: dict[str, str] = {}
 
 
 def _log_real(log: Callable[[str], None], api_name: str, context: "InstanceContext",
@@ -467,6 +496,31 @@ class RealInstanceNamespace:
                 return calls
 
             return call_score_count
+
+        if name == "AddBonusPoint":
+            def add_bonus_point(*args):
+                self.calls.append("Instance.AddBonusPoint")
+                if len(args) not in (0, 1):
+                    _log_bad_arity(self._log, "AddBonusPoint", len(args), "0..1")
+                    return STUB_DEFAULT
+                point_arg = args[0] if args else None
+                calls = self._registry.add_bonus_point(self._context.instance_id, point_arg)
+                _log_real(self._log, "AddBonusPoint", self._context, "calls=%d" % calls)
+                return calls
+
+            return add_bonus_point
+
+        if name == "AddBonusReward":
+            def add_bonus_reward(*args):
+                self.calls.append("Instance.AddBonusReward")
+                if len(args) != 0:
+                    _log_bad_arity(self._log, "AddBonusReward", len(args), "0")
+                    return STUB_DEFAULT
+                calls = self._registry.add_bonus_reward(self._context.instance_id)
+                _log_real(self._log, "AddBonusReward", self._context, "calls=%d" % calls)
+                return calls
+
+            return add_bonus_reward
 
         if name in self._stub_methods:
             qualified = "Instance.%s" % name

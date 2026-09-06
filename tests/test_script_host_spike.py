@@ -276,14 +276,18 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "NextStatus", "SetTriggerStatus",
         }))
 
-    def test_the_7_real_instance_names_are_excluded_above_not_forgotten(self):
+    def test_the_9_real_instance_names_are_excluded_above_not_forgotten(self):
         # Same regression guard as above, for Instance.*'s own real set.
+        # Instance.* reached 9/9 real in round vmm7vf (AddBonusPoint/
+        # AddBonusReward joined as pure invocation counters) -- this guard
+        # was not updated in that round, which is exactly the silent-drift
+        # failure mode it exists to catch turned on its own author.
         from pirateforce_foundation.lua_api import instance as lua_api_instance
 
         self.assertEqual(lua_api_instance.REAL_METHODS, frozenset({
             "GetInstanceID", "GetInstanceId", "GetLastingTime",
             "SetLastingTime", "AddKeyEvent", "RemoveKeyEvent",
-            "CallScoreCount",
+            "CallScoreCount", "AddBonusPoint", "AddBonusReward",
         }))
 
     def test_the_1_real_quest_name_is_excluded_above_not_forgotten(self):

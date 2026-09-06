@@ -1,4 +1,4 @@
-"""LANE-Q: the 7 ``Instance.*`` names that became real this round.
+"""LANE-Q: all 9 ``Instance.*`` names, real.
 
 Covers ``lua_api/instance.py`` at three levels: the registry alone (no Lua,
 no lupa dependency -- these tests run on every machine), the namespace
@@ -98,6 +98,42 @@ class InstanceRegistryTests(unittest.TestCase):
         self.assertEqual(reg.call_score_count(1), 3)
         self.assertEqual(reg.call_score_count(2), 1)
 
+    def test_add_bonus_point_tallies_per_instance_and_ignores_its_argument(self):
+        # Round 92j6so's own recommendation, path (b): count INVOCATIONS
+        # only, per InstanceRegistry.add_bonus_point's own docstring -- the
+        # argument value must never change the tally, since its meaning is
+        # still genuinely unknown (point value vs. bonus-category id).
+        reg = instance.InstanceRegistry()
+        self.assertEqual(reg.add_bonus_point(1), 1)
+        self.assertEqual(reg.add_bonus_point(1, 999), 2)  # arg discarded
+        self.assertEqual(reg.add_bonus_point(1), 3)
+        self.assertEqual(reg.add_bonus_point(2), 1)
+
+    def test_add_bonus_point_is_independent_of_call_score_count(self):
+        reg = instance.InstanceRegistry()
+        reg.call_score_count(1)
+        self.assertEqual(reg.add_bonus_point(1), 1)
+        self.assertEqual(reg.call_score_count(1), 2)
+
+    def test_add_bonus_reward_tallies_per_instance(self):
+        reg = instance.InstanceRegistry()
+        self.assertEqual(reg.add_bonus_reward(1), 1)
+        self.assertEqual(reg.add_bonus_reward(1), 2)
+        self.assertEqual(reg.add_bonus_reward(2), 1)
+
+    def test_add_bonus_point_and_reward_refuse_a_bad_instance_id(self):
+        reg = instance.InstanceRegistry()
+        self.assertEqual(reg.add_bonus_point(-1), instance.STUB_DEFAULT)
+        self.assertEqual(reg.add_bonus_reward("nope"), instance.STUB_DEFAULT)
+
+    def test_add_bonus_point_and_reward_respect_the_instances_cap(self):
+        reg = instance.InstanceRegistry(instances=1)
+        reg.add_bonus_point(1)
+        self.assertEqual(reg.add_bonus_point(2), instance.STUB_DEFAULT)
+        reg2 = instance.InstanceRegistry(instances=1)
+        reg2.add_bonus_reward(1)
+        self.assertEqual(reg2.add_bonus_reward(2), instance.STUB_DEFAULT)
+
     def test_a_non_positive_instances_cap_is_refused_at_construction(self):
         with self.assertRaises(ValueError):
             instance.InstanceRegistry(instances=0)
@@ -170,6 +206,25 @@ class RealInstanceNamespaceTests(unittest.TestCase):
         self.assertEqual(ns["CallScoreCount"](), 2)
         self.assertEqual(reg.call_score_count(7), 3)
 
+    def test_add_bonus_point_accepts_zero_or_one_argument_from_the_corpus_shapes(self):
+        # gamedata/lua/t_drp&insbospnt_himdfx.lua calls it with 0 args;
+        # t_insbospnt_himdfx.lua calls it with 1 (Trigger.Var1). Both real
+        # call shapes must tally, neither must raise.
+        reg = instance.InstanceRegistry()
+        ns, _calls = self._namespace(
+            context=instance.InstanceContext(instance_id=7), registry=reg)
+        self.assertEqual(ns["AddBonusPoint"](), 1)
+        self.assertEqual(ns["AddBonusPoint"](5), 2)
+        self.assertEqual(reg.add_bonus_point(7), 3)
+
+    def test_add_bonus_reward_advances_the_context_s_own_instance(self):
+        reg = instance.InstanceRegistry()
+        ns, _calls = self._namespace(
+            context=instance.InstanceContext(instance_id=7), registry=reg)
+        self.assertEqual(ns["AddBonusReward"](), 1)
+        self.assertEqual(ns["AddBonusReward"](), 2)
+        self.assertEqual(reg.add_bonus_reward(7), 3)
+
     def test_wrong_arity_real_calls_degrade_safely_instead_of_raising(self):
         # Same invariant round 456vso proved for Trigger.*: untrusted input
         # must never crash the host, even at an arity no shipped script
@@ -187,6 +242,8 @@ class RealInstanceNamespaceTests(unittest.TestCase):
             ("AddKeyEvent", (1, 2)),
             ("RemoveKeyEvent", ()),
             ("CallScoreCount", (1,)),
+            ("AddBonusPoint", (1, 2)),
+            ("AddBonusReward", (1,)),
         ]
         for name, args in cases:
             with self.subTest(method=name, argc=len(args)):
@@ -206,18 +263,20 @@ class RealInstanceNamespaceTests(unittest.TestCase):
         self.assertEqual(ns["AddKeyEvent"](9), 1)
         self.assertEqual(ns["RemoveKeyEvent"](9), 0)
         self.assertEqual(ns["CallScoreCount"](), 1)
+        self.assertEqual(ns["AddBonusPoint"](), 1)
+        self.assertEqual(ns["AddBonusReward"](), 1)
 
-    def test_a_still_stubbed_method_logs_lua_api_stub_exactly_like_before(self):
-        ns, calls = self._namespace()
-        self.assertEqual(ns["AddBonusPoint"](), instance.STUB_DEFAULT)
-        self.assertEqual(calls, ["LUA_API_STUB Instance.AddBonusPoint"])
-
-    def test_every_still_stubbed_name_is_reachable_and_logs_its_own_line(self):
-        for name in instance.STILL_STUBBED:
-            with self.subTest(method=name):
-                ns, calls = self._namespace()
-                ns[name]()
-                self.assertEqual(calls, ["LUA_API_STUB Instance.%s" % name])
+    def test_still_stubbed_is_empty_now_all_9_names_are_real(self):
+        # Historical name kept (round 92j6so's own recommendation used this
+        # exact vocabulary): confirms the dict this lane used to record "not
+        # yet real, no guessing" is empty now that AddBonusPoint/
+        # AddBonusReward moved to REAL_METHODS as invocation counters.
+        # (Round vmm7vf: this replaces a former sibling test that looped
+        # `for name in instance.STILL_STUBBED`, which pf-adversary caught
+        # as silently vacuous the moment this dict became empty -- zero
+        # iterations, zero assertions, an always-green test with nothing
+        # left to prove. Removed rather than kept as dead weight.)
+        self.assertEqual(instance.STILL_STUBBED, {})
 
     def test_still_stubbed_plus_real_accounts_for_all_9_names(self):
         from pirateforce_foundation.lua_api import spec as api_spec

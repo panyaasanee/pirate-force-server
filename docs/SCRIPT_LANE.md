@@ -267,7 +267,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (147/160 stub, 13/160 real, as of round `0rgg6q`)
+### API status table (145/160 stub, 15/160 real, as of round `vmm7vf`)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -277,16 +277,20 @@ called first.  Status is one of `stub` (this file logs `LUA_API_STUB` and
 returns a safe default) / `real` (implemented against the actual protocol,
 backed by a test -- every `Trigger.*` real row is backed by
 `tests/test_script_lua_api_trigger.py`, every `Instance.*` real row by
-`tests/test_script_lua_api_instance.py` (round `4fxvsq`), the one
-`Quest.*` real row (`CheckOpenTime`) by `tests/test_script_lua_api_quest.py`
-(round `0rgg6q`, recovering the round-after-`4jsydv` commit that the guard
-exemption named below unblocked -- see "Round vqng2z" further down) / see
-below) / `proven` (real + a GT ticket where a tester watched it work on
-screen -- none yet).  Next lane priority, per charter: the remaining 12
-`Trigger.*` rows and 2 `Instance.*` rows (each named, one seam apiece, in
-`STILL_STUBBED`), then the rest of `Quest.*` (24 names still blocked on the
+`tests/test_script_lua_api_instance.py` (round `4fxvsq`; `AddBonusPoint`/
+`AddBonusReward` added round `vmm7vf` as pure invocation counters,
+NOT SCORECOUNT-wired -- see `lua_api/instance.py`'s module docstring and
+`InstanceRegistry.add_bonus_point`/`add_bonus_reward` for the explicit
+non-claim), the one `Quest.*` real row (`CheckOpenTime`) by
+`tests/test_script_lua_api_quest.py` (round `0rgg6q`, recovering the
+round-after-`4jsydv` commit that the guard exemption named below unblocked
+-- see "Round vqng2z" further down) / see below) / `proven` (real + a GT
+ticket where a tester watched it work on screen -- none yet).  Next lane
+priority, per charter: the remaining 12 `Trigger.*` rows (blocked on
+`RE-273`), then the rest of `Quest.*` (24 names still blocked on the
 LANE-DB per-character state door, `GetWeekDay` on an undocumented weekday
-enum -- both named in "Round vqng2z" below).
+enum -- both named in "Round vqng2z" below).  `Instance.*` is now 9/9 real
+-- no rows of that namespace remain in `STILL_STUBBED`.
 
 | namespace | method | call_count | status |
 |---|---|---:|---|
@@ -302,9 +306,9 @@ enum -- both named in "Round vqng2z" below).
 | Instance | GetInstanceID | 14 | real |
 | Instance | CallScoreCount | 12 | real |
 | Instance | GetLastingTime | 7 | real |
-| Instance | AddBonusPoint | 2 | stub |
+| Instance | AddBonusPoint | 2 | real |
 | Instance | RemoveKeyEvent | 2 | real |
-| Instance | AddBonusReward | 1 | stub |
+| Instance | AddBonusReward | 1 | real |
 | Instance | GetInstanceId | 1 | real |
 | Instance | SetLastingTime | 1 | real |
 | Mob | ShowAnimation | 716 | stub |
@@ -1377,3 +1381,216 @@ below and the two Trigger/Quest blockers still standing above it).
    docstring, or `docs/SCRIPT_LANE.md` entry; name the counter for what it
    counts (an invocation count, exactly like `CallScoreCount`), not for
    what round `4fxvsq` guessed it might mean.
+
+## Round vmm7vf (2026-09-06) -- Instance.* reaches 9/9 real, path (b) chosen
+
+Lock check at round start: GitHub search on `pf_bridge`, open PRs titled
+`[LANE-Q] round *: claim` -- zero found, lock free. Mailbox check
+(`grep -rl "ADDRESSEE: Q" notes_to_chief/*.md`) -- zero unconsumed letters.
+
+Re-checked both of the lane's two remaining named blockers fresh, per
+`prompts/COMMON_LANE_ROUND.md`'s priority order and round `92j6so`'s own
+"Next round" list:
+
+1. `RE-273` (the trigger-id-to-lua-file mapping, the one remaining blocker
+   of the charter's own M2 milestone sentence): still `OPEN` in
+   `pf_bridge/CLIENT_RE_QUEUE.md` line 1783 as of this round's own grep.
+   Its own `[STATIC-ON-BRIDGE]` first path is explicitly noted in that
+   ticket as needing a pass "beside the bridge's own client copy", which a
+   cloud clone with no `GameClient` binary cannot do -- still blocked,
+   waiting on an RE runner slot or the bridge-side static pass, not on
+   this lane.
+2. `persistence_quest_state.py` (LANE-DB's per-character `Quest.*` state
+   door): `find` across `pirate-force-server` and `git log --all --oneline
+   -- '*quest_state*'` both still empty. Still not landed; the remaining
+   24 `Quest.*` names stay blocked.
+
+Both unchanged versus round `92j6so`. Per the standing backup rule, this
+round picked up round `92j6so`'s own named recommendation for
+`Instance.AddBonusPoint`/`AddBonusReward`: two forward paths, (a) a scoped
+RE ticket, or (b) accept the SCORECOUNT trace's negative result and
+implement both as pure invocation counters with no reward semantics
+claimed. This round chose **path (b)**, per the "Next round" item 3 spec
+directly above.
+
+### What was built
+
+- `InstanceRegistry.add_bonus_point(instance_id, point_arg=None)` and
+  `.add_bonus_reward(instance_id)`: two new per-instance-id counters, same
+  cap/refusal shape as the existing `call_score_count`/`set_lasting_time`
+  (bad instance id or a full book both degrade to `STUB_DEFAULT`, never
+  raise). `add_bonus_point`'s second argument is accepted (both real call
+  shapes in the corpus -- zero args in `t_drp&insbospnt_himdfx.lua`, one
+  arg, `Trigger.Var1`, in `t_insbospnt_himdfx.lua` -- are real, not
+  hypothetical) and discarded unread: the argument's meaning is still
+  unknown (point value vs. bonus-category id), and this round does not
+  guess it.
+- Two new dispatch handlers in `RealInstanceNamespace.__getitem__`,
+  `AddBonusPoint` (arity 0 or 1) and `AddBonusReward` (arity 0 only,
+  matching its one real call site), same `LUA_INSTANCE_REAL`/
+  `LUA_INSTANCE_BAD_ARITY` logging contract every other real `Instance.*`
+  name already uses.
+- Both names moved from `STILL_STUBBED` (now empty) to `REAL_METHODS`.
+  `Instance.*` is 9/9 real as of this round -- the first namespace in this
+  lane's charter to reach 100%.
+- `tests/test_script_lua_api_instance.py`: six new registry-level tests
+  (tally-per-instance, argument-independence from `add_bonus_point`,
+  independence from the pre-existing `call_score_count` counter, bad-
+  instance-id refusal for both, per-instance cap enforcement for both) and
+  two new namespace-level tests (both real corpus call shapes for
+  `AddBonusPoint`, a plain round-trip for `AddBonusReward`), plus the
+  arity-guard and correct-arity tests extended to cover both new names.
+  The two tests that had hardcoded `AddBonusPoint` as a still-stubbed
+  worked example were replaced -- one now asserts `STILL_STUBBED == {}`
+  instead.
+
+### What this does NOT do, said plainly
+
+Does not implement any SCORECOUNT-table lookup, does not compute or award
+an actual point value or item, and does not resolve which
+`CONSTDATA_TH__SCORECOUNT.tsv` row (if any) either calling script's
+instance actually uses -- round `92j6so`'s trace stands, unchanged, as a
+closed dead end for static tracing. The day path (a) (an RE ticket) or a
+new `.npc` scene parser answers that question, this counter is what gets
+replaced, not extended. Does not move `RE-273` or land
+`persistence_quest_state.py` -- both re-checked fresh this round and both
+still blocked, unchanged from round `92j6so`.
+
+### Tests + gates
+
+- `PYTHONPATH=src:tests python3 -m pytest tests/test_script_lua_api_instance.py
+  tests/test_script_lua_api_trigger.py tests/test_script_lua_api_quest.py
+  tests/test_script_host_spike.py tests/test_script_lua_corpus.py -q -rs`
+  (no `lupa` in this cloud clone, same gap every prior round has recorded):
+  `84 passed, 42 skipped, 67 subtests passed`.
+- Full suite and `pf_gate_preflight.py` run as the last commit before push,
+  per `prompts/COMMON_LANE_ROUND.md`'s "before push" ordering -- see this
+  round's `pf_bridge/rounds/Q_*.md` file for the exact counts (kept out of
+  this design doc so this doc does not need editing every round just to
+  restate a number the round file already owns).
+
+### ADVERSARY
+
+`pf-adversary` invoked at round start (own isolated git worktree) against
+the new registry methods, dispatch handlers, and tests. Result returned
+before push -- two confirmed findings, both fixed in a follow-up commit
+before this round closed:
+
+1. `call_score_count`'s own docstring still said "`AddBonusPoint`/
+   `AddBonusReward` (which stay named stubs, see `STILL_STUBBED`)" -- a
+   stale cross-reference this round's own diff made false three lines
+   away from the correctly-updated module docstring. Fixed.
+2. `test_every_still_stubbed_name_is_reachable_and_logs_its_own_line`
+   iterates `for name in instance.STILL_STUBBED`, which this round's own
+   change emptied -- the loop became silently vacuous (0 iterations,
+   always green, no assertion ever executes) the moment `STILL_STUBBED`
+   became `{}`. Removed; the sibling `test_still_stubbed_is_empty_now_
+   all_9_names_are_real` already covers the fact directly.
+
+No concurrency bug, sandbox-escape, or arity/coercion defect found:
+adversary stress-tested `add_bonus_point`/`add_bonus_reward` with 32
+threads x 5000 calls (exact tally, no lost updates) and fuzzed
+`AddBonusPoint`'s discarded argument (NaN/inf, huge ints, objects with a
+raising `__repr__`) with no crash. Adversary also flagged (informational,
+not blocking) that this counter has no named trigger for ever being
+revisited if the SCORECOUNT join stays unresolved -- recorded here so it
+is a decision for whoever next has charter priority on `Instance.*`, not
+silently forgotten: the trigger is either path (a) (an RE ticket answer)
+or a new `.npc` scene parser landing, per this doc's own recommendation
+above; absent either, this counter is the permanent real implementation
+by design, not a placeholder with an unstated expiry.
+
+### Recommendation for whoever finishes `Trigger.*`/`Quest.*` next
+
+`Instance.*` is now fully real and out of this lane's remaining work
+entirely (no rows left in `STILL_STUBBED` for it). The lane's only two
+named blockers are `RE-273` (12 `Trigger.*` names) and
+`persistence_quest_state.py` landing (24 `Quest.*` names) -- both are
+external dependencies, not audit work. The next backup-work candidate,
+absent either clearing, is a fresh pure-function stub audit across
+`Guild.*`/`Party.*`/`Mob.*`/`Player.*` for a name with the same
+"unambiguous from every call site, no state door needed" shape
+`Instance.*`'s first seven had -- not attempted this round, named here so
+it is a decision for whoever picks it up next, not a re-discovery.
+
+## Round gk0dz4 (2026-09-06) -- recover #915, fix stale REAL_METHODS guard, Instance.* 9/9 lands
+
+`pirate-force-server#915` (round `vmm7vf`, above) was closed unmerged by
+the gate's one-open-`claude/*`-pull-request lock after a real test
+failure (job `34013631038`, head `e9dedc8`) --
+`pf_bridge/notes_to_chief/20260906_1246_SYNC-NOTICE-pirate-force-server-pr915-closed-never-merged.md`.
+This session's own branch is fixed by its harness rather than freely
+assigned, so recovery here is by cherry-picking `vmm7vf`'s four kept
+commits from `claude/happy-tesla-vmm7vf` (base `4e64b7d`, already an
+ancestor of `main` at cherry-pick time) onto this branch, unchanged, then
+fixing the actual cause in one more commit.
+
+**Root cause**: round `vmm7vf` widened `lua_api/instance.REAL_METHODS`
+from 7 to 9 names and correctly updated
+`tests/test_script_lua_api_instance.py`, but left a second, independent
+regression guard on the same constant --
+`tests/test_script_host_spike.py`'s
+`test_the_7_real_instance_names_are_excluded_above_not_forgotten` --
+unrenamed and unwidened. That guard exists specifically to catch
+`REAL_METHODS` drifting without its own update; it caught its own
+author's drift, via the gate's `pytest_subset` step and independently via
+`PinFileTests` in `tests/test_pytest_precondition_census.py` (which checks
+the pin file's recorded test names against the source).
+
+**Fix**: renamed the guard to
+`test_the_9_real_instance_names_are_excluded_above_not_forgotten`,
+extended its frozenset with `AddBonusPoint`/`AddBonusReward`, and updated
+`docs/PYTEST_SKIP_PINS.json`'s `lupa_package` pin for that module to the
+new name (count unchanged at 21 -- rename only).
+
+### ADVERSARY
+
+`pf-adversary` invoked at the point this round found the root cause (own
+isolated worktree, detached at the fix commit). Result: **no real defects
+found**. Independently read `lua_api/instance.py`'s actual `REAL_METHODS`
+(not the commit message) and confirmed the renamed guard's frozenset
+matches it member-for-member; `git grep`'d the whole tree for the old test
+name and found only the already-correct pin-file rename plus one
+historical-narrative reference in this doc's own `vmm7vf` section above
+(left alone, correctly, as an accurate record of what that round did at
+the time); verified `PYTEST_SKIP_PINS.json` stays valid JSON with its
+`lupa_package`/`test_script_host_spike.py` entry's `count` (21) matching
+its `tests` array length; ran the three affected test files clean (106
+passed, 25 skipped for missing `lupa`, 1103 subtests, 0 failed); and
+proved the fix is not vacuous by reverting just the frozenset body while
+keeping the rename, which reproduced a fresh, correct failure (calling the
+test function directly, bypassing `unittest`'s class-level skip
+dispatch, since this interpreter has no `lupa`).
+
+Adversary raised one open, unresolved design question rather than a
+defect, recorded here verbatim rather than answered: is there a static
+check (beyond each module's own hand-maintained guard test) that would
+catch the *next* time a `REAL_METHODS`/`STILL_STUBBED`-shaped set in any
+`lua_api/*.py` module widens without its sibling guard test in
+`test_script_host_spike.py` being updated -- or does every future
+widening rely on a human (or another gate run) noticing the same two-file
+coupling by hand, as happened here? Named as a decision for whoever next
+touches this pattern, not resolved this round.
+
+### Tests + gates
+
+Full suite, `PYTHONPATH=src:tests python3 -m pytest tests/ -q -rs`, run
+three times this round on progressively later trees: once on the four
+cherry-picked commits alone (`1 failed` -- reproduced the exact original
+gate failure, confirming root cause before any fix); once after the fix,
+before merging `origin/main` a second time (`12209 passed, 369 skipped,
+25084 subtests passed`); once more on the final tree after merging
+`origin/main` again mid-round (LANE-A's `#919` landed, zero file overlap):
+`12258 passed, 369 skipped, 25095 subtests passed in 607.15s`, exit 0.
+`python3 tools_bridge/pf_gate_preflight.py --repo ../pirate-force-server`
+(from `pf_bridge`): PREFLIGHT PASS, re-verified after each merge.
+
+### Recommendation for whoever finishes `Trigger.*`/`Quest.*` next
+
+Unchanged from round `vmm7vf`: this lane's only two named blockers are
+`RE-273` (still `OPEN`, needs the bridge's own client copy) and
+`persistence_quest_state.py` landing (still does not exist anywhere in
+this repository) -- both re-checked fresh this round. `Instance.*` stays
+9/9 real; this round changed no API behavior, only recovered the already-
+real work's path onto `main` and fixed the test-suite regression that had
+blocked it.
