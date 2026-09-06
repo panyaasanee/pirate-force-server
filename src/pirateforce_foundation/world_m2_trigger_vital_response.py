@@ -1,5 +1,5 @@
 r"""LANE-A / M2: the SHAPE of an answer to TriggerVital (0x1FB2) trigger id
-2/3, with NO bytes in it yet.
+2/3, with NO bytes in it yet, and with a THREE-TIER guard in front of it.
 
 WHY THIS FILE EXISTS
 --------------------
@@ -26,34 +26,117 @@ those two wire ids:
         `exact empty RuntimeRes` every time (the wire-level reading of the
         same "we said nothing" fact R318 saw); still no window on screen.
 
-So the block is not "we do not know the ids" (2 and 3 are measured, R308/
-R318/R322A agree) and not "the client refuses our frame" (we have never
-sent one) -- it is "nobody has yet cited a real answer frame this server
-could send".  `NO_ORIGINAL_CAPTURE:` for the wire-level version of that
-question: no pcap/journal of the ORIGINAL (non-pirate) server's own 0x1FB2
-reply exists on this bridge.  Checked, per AGENTS.md section 7's four-source
-rule, before writing that sentence:
+WHAT THE BLOCK ACTUALLY IS -- CORRECTED, RE-234 IS THE OWNER OF THIS PARAGRAPH
+--------------------------------------------------------------------------------
+An earlier draft of this docstring wrote that the block is "not 'the client
+refuses our frame' (we have never sent one)".  That sentence was already
+refuted, by this lane's OWN closed ticket, before it was written -- recorded
+here instead of quietly deleted, because the wrong version is the one a
+future round would otherwise re-derive:
 
-    gamedata/tables/    grep -rli "1fb2" -> 0 hits
-    external/           grep -rli "1fb2" -> 2 hits, both unrelated TSVs
-                         (`PF_FIELD_VALIDATION.tsv`, `PF_RUNTIME_CLASSMAP.tsv`
-                         name fields/classes, not a capture)
-    archive/            grep -rli "1fb2\|original.*capture\|เซิร์ฟเดิม" ->
-                         0 hits; `find -iname "*original*"` under archive/
-                         and the repo root turns up only
-                         `evidence_screens/REF_ORIGINAL_SERVER_*` (owner's
-                         reference screenshots and clips of the ORIGINAL
-                         server's SCREEN -- eyewitness, not wire) and two
-                         PANYA-REFERENCE/GT078-ADDENDUM letters that are the
-                         same kind of screen-level reference, e.g.
-                         `archive/notes_to_chief_2026-08/20260827_1635_
-                         PANYA-REFERENCE-original-server-combat-loop-*`
-    notes_to_chief/consumed/  same two greps -> 0 pcap/journal hits
-    find . -iname "*.pcap"  -> 0 hits anywhere in the repo
+    `RE-234 CLIENT-RESPONSE-PATH-FOR-TRIGGERVITAL-1FB2-ISLAND-001`
+    (`pf_bridge/CLIENT_RE_QUEUE.md`, CLOSED DONE/MIXED by LANE-A round
+    `2mnd7b`; result letter `pf_bridge/notes_to_chief/20260904_1953_RE-234-
+    RESULT-TRIGGERVITAL-NOOP-ID-ONLY-UNSAFE.md`; repro verifier
+    `pf_bridge/staged/re234_static_verify.py` PASS 18/18)
+
+item (1) measured the client's handler for a TriggerVital RESPONSE at
+`[0x00710440,0x00710445)` = `B0 01 C2 04 00` = `mov al,1; ret 4`: a five-byte
+success no-op that reads nothing and opens no UI.  LANE-A's own consumption
+letter `pf_bridge/notes_to_chief/20260906_1939_LANE-A-R322A-CONSUMED-re234-
+refutes-0x1FB2-reply-bg3001-tgr-is-the-door.md` adds the control that keeps
+that from being an empty-tag artifact: the same VA is the registered handler
+for `ChooseNPC`, `ChooseNPCByTableID`, `TriggerModule_Client` and
+`GeneralUIHandleModule` (`external/PF_PROTOCOL_REGISTRY.tsv:97,98,109,110,
+442`), i.e. a SHARED stub, and `external/PF_SERIALIZER_FIELDS.tsv:1475-1486`
+shows real tags on both W and R -- the client deserialises an inbound
+TriggerVital fine and then throws the result away.
+
+So the honest statement of the block, in the shape RE-234 left it:
+
+  * "the original server answered 0x1FB2 WITH a 0x1FB2 frame" is DEAD.  A
+    frame of that opcode cannot reach anything on screen through that stub.
+  * What survives is the weaker form `pf_bridge/CLIENT_RE_QUEUE.md:644`
+    already states: the reply is "some OTHER opcode, nobody knows which
+    one" -- which is where `RE-265` is still parked.
+  * Therefore this file remains a SLOT, and registering anything in it is
+    still blocked -- but blocked for a MEASURED reason, not for "nobody has
+    cited a frame yet".
+
+`NO_ORIGINAL_CAPTURE:` for the wire-level version of that question: no
+pcap/journal of the ORIGINAL (non-pirate) server's own reply exists on this
+bridge.  Re-derived this round in the tree where those directories actually
+live (`pf_bridge`) -- the previous version of this table was run in the
+SERVER tree, where all four paths are absent, so its zero rows were
+vacuously true and its two non-zero rows were wrong:
+
+    gamedata/tables/          grep -rli "1fb2"                  -> 0 files
+    external/                 grep -rli "1fb2"                  -> 1 file
+                              (`PF_RUNTIME_CLASSMAP.tsv`, and the match is
+                              the substring inside the VA `0x00AC1FB2`, not
+                              the opcode; `PF_FIELD_VALIDATION.tsv`, named
+                              by the old table, has ZERO hits)
+    archive/                  grep -rli "1fb2"                  -> 10 files
+                              widened to "1fb2|original.*capture|<the Thai
+                              phrase for the original server, as spelled in
+                              RE-234's own letter>"             -> 32 files
+    notes_to_chief/consumed/  the same two greps                -> 38 files,
+                                                                   47 files
+    find . -iname "*.pcap"    -> 0 hits, in BOTH trees
+
+Both counts are given because the widened pattern is the one the original
+table claimed to have run, and it is the one that returns the bigger number;
+neither is 0.  What those files are is LETTERS ABOUT 0x1FB2 -- the literal
+string `0x1FB2` is the bulk of every hit (`archive/` 14 of 20 raw matches,
+`consumed/` 98 of 99, counting the one lowercase spelling) -- not captures, which is the whole reason the
+conclusion holds.  Kept from the previous
+table because it survived re-derivation and is the load-bearing half: a
+``find -iname "*original*"`` across `archive/` and the bridge root turns up
+only `evidence_screens/REF_ORIGINAL_SERVER_*` and two PANYA-REFERENCE /
+GT078-ADDENDUM letters -- screenshots and clips of the ORIGINAL server's
+SCREEN.  Eyewitness, never wire.
+Stating them as 0 was the dangerous version: a false evidence table under a
+true conclusion, skipping exactly the two directories where RE-234's own
+result letter lives.
 
 So this module's registry starts, and stays this round, with BOTH trigger
 ids' candidate slots empty.  Filling either one without a cited VA + vital
 id from LANE-UI would be exactly the guessed frame item 4(b) forbids.
+
+THE THREE-TIER GUARD (RE-234 item 3, and why the id alone is not enough)
+---------------------------------------------------------------------------
+RE-234 item (3) is a BOUNDED-NEGATIVE that lands directly on this module:
+`GT-228` saw wire trigger id 3 BOTH at island contact AND during ordinary
+sailing, so `lane_a_island_trigger_log.M2_OBSERVED_ISLAND_TRIGGER_IDS` is
+"log-only, no BUILD_IMPACT" and is "an unsafe classifier if anyone uses it
+to decide the world -- narrow its scope with scene/context first."
+
+This module is the first non-log-only consumer of that map.  So it narrows,
+in the same three-tier shape this lane's sibling `world_sea_edge_crossing.
+crossing_target()` already uses (COO-DECISION `20260905_1748` item 6):
+
+  TIER 1  SOURCE SCENE.  The session must be IN scene 126
+          (`M2_ISLAND_CONTACT_SCENE_ID`) -- the one scene R318/R322A
+          actually sailed.  This is not a general trigger-to-scene table.
+  TIER 2  A PINNED WIRE ID.  The id must be one of
+          `CANDIDATE_TRIGGER_IDS` (2, 3).
+  TIER 3  A MEASURED ISLAND-CONTACT DISCRIMINATOR.  Something in the
+          session's state, or in the frame, that separates "id 3 while
+          touching an island" from "id 3 while sailing open water in the
+          same scene".  `ISLAND_CONTACT_DISCRIMINATOR` names it.  It is
+          ``None`` today because NOBODY HAS MEASURED ONE -- so tier 3
+          refuses every call, and this lookup answers ``None`` for every
+          (scene, id) pair even if a slot were filled.
+
+Tier 3 is the point of this guard.  Without it, the day a slot is filled,
+a player sailing open water in scene 126 fires id 3 and there is nothing in
+the call signature that could refuse it.  With it, filling a slot is not
+enough to make this module answer anything: someone must first measure what
+makes the two cases different and name it here.  The open design question,
+in one line, is therefore recorded rather than answered:
+
+    what makes trigger id 3 at an island different from trigger id 3 in
+    open water?
 
 WHAT THIS MODULE IS
 --------------------
@@ -66,6 +149,18 @@ already ships" rule.  `_CANDIDATES` is a dict from each of those ids to
 that reads it, returning whatever is registered UNCHANGED, or ``None``.
 Nothing here builds, edits, or synthesizes a frame; there is nothing to
 build from until a UI letter names one.
+
+IMPORTING THIS MODULE IS NOT FREE -- SAID OUT LOUD
+-----------------------------------------------------
+`from .lane_hooks.lane_a_island_trigger_log import ...` imports the
+`lane_hooks` PACKAGE, whose `__init__` runs `_discover()` at import time
+(around 20 lane modules, 15 hook points, a block of `LANE_HOOK_REGISTERED`
+lines on stderr, and it binds `lane_q_trigger_vital_dispatch`'s
+process-global singleton).  So "this module is imported by nothing outside
+its own test" is true of the CODE, and the import itself is still a
+side-effecting act.  It is accepted here because re-deriving (2, 3) locally
+would be the duplicated-constant this lane's rules forbid; it is named so
+nobody reads "imported by nothing" as "costs nothing".
 
 WHAT THIS MODULE DOES NOT CLAIM
 --------------------------------
@@ -84,8 +179,16 @@ WHAT THIS MODULE DOES NOT CLAIM
   (``world_island_dock_table.DestinationRow``) already; this module does not
   read or enforce it.
 * NOT proof that the client accepts anything this server might send here.
-  Filling a slot is a precondition for testing that, not a substitute for
-  testing it.
+  RE-234 measured the opposite for the 0x1FB2-answers-0x1FB2 shape (see
+  above).  Filling a slot is a precondition for testing some OTHER opcode,
+  not a substitute for testing it.
+* NOT in the same number space as the dock table.  This module's ids are
+  WIRE trigger ids (2, 3, as they arrive in the frame);
+  ``world_island_dock_table.destination_for_trigger_id`` takes DOCK ids
+  (153, 154).  RE-234 item (3) and `RE-265` both record that the wire id
+  space and the catalog id space are not proven to be the same namespace,
+  so the sibling module is a POSTURE precedent (fail closed on an unknown
+  id), never an id source.
 
 THE SEAM, NAMED HONESTLY (for chief, one round out)
 -----------------------------------------------------
@@ -110,9 +213,13 @@ this module subscribes to nothing and is imported by nothing outside its
 own test -- but "always returns []" is the wrong words for it, so they are
 not used.  The GM_RUN_GM_COMMAND_VITAL_ID branch right
 above it has the identical shape (also always ``return []``) -- it is NOT
-the contrast case.  The real contrast is ``FOUNDATION_CREATE`` a little
-further up, which builds its return list from a DIRECT call
-(``self.foundation.create(...)``), never from ``fire()``.  This package
+the contrast case.  The real contrast is the ``legacy.CREATE_ACTOR_VITAL``
+branch a little further up, which builds its return list from a DIRECT call
+(``self.foundation.create(...)``) and returns
+``[("FOUNDATION_CREATE_COMMITTED", pc, frame, 0.10)]`` at
+``runtime.py:8676`` -- ``FOUNDATION_CREATE`` is not an identifier in that
+file, it is the head of that action-label string, and an earlier draft of
+this paragraph named it as if it were the branch.  This package
 already has a house shape for "a lane needs to hand a value back to
 runtime.py without going through the void-returning hook registry": the
 ``census_composer``/``choose_npc_responder`` pattern
@@ -120,25 +227,46 @@ runtime.py without going through the void-returning hook registry": the
 ``module_production_allowed()``, that the call site consults and calls
 DIRECTLY, never through ``fire()``.  So the honest one-line ask is not
 "read fire()'s result" (it has none) but: a NEW direct-call point of that
-same shape, keyed by wire trigger id, that ``runtime.py``'s TRIGGER_VITAL
-branch checks (after the existing ``fire()`` call, so the log-only hook
-still runs unconditionally) and, only when
-``candidate_for_trigger_id(wire_trigger_id)`` answers non-``None``, builds
-its return list from that ``CandidateFrame``'s bytes instead of always
+same shape, keyed by (session scene id, wire trigger id), that
+``runtime.py``'s TRIGGER_VITAL branch checks (after the existing ``fire()``
+call, so the log-only hooks -- PLURAL: ``lane_a_island_trigger_log`` AND
+``lane_q_trigger_vital_dispatch`` both subscribe to that point today --
+still run unconditionally) and, only when
+``candidate_for_trigger_id(scene_id, wire_trigger_id)`` answers non-``None``,
+builds its return list from that ``CandidateFrame`` instead of always
 returning ``[]``.  Not requested as a code change this round -- item 4(b)
 forbids sending anything until UI's letter lands; recorded here so the
 wiring is one paragraph chief can act on the day it does, not a rediscovery.
 
+WHAT A CANDIDATE LETTER MUST CITE -- AND WHY VA + VITAL ID + BYTES IS NOT ENOUGH
+----------------------------------------------------------------------------------
+That branch returns 4-tuples, ``(label, pc, frame, delay)``
+(``runtime.py:8634``, ``8641``, ``8676``).  ``CandidateFrame`` carries three
+things and NONE of them is ``pc``: ``va`` is a disassembly symbol in the
+CLIENT binary, not a server-side program counter, and there is no label and
+no delay in it either.  Whoever wires this seam would have to invent those
+three values, which is precisely what item 4(b) forbids.  So they are part
+of what the candidate letter must supply, not a detail for the wiring round:
+
+    va + vital_id + frame   -- what `CandidateFrame` holds today
+    label                   -- the action-label string for the return tuple
+    pc                      -- the server-side pc that tuple is built at
+    delay                   -- the seconds field, as measured, not chosen
+
+Deliberately NOT added as fields with placeholder values: an empty string or
+a 0.0 in a NamedTuple is a guess wearing a type.  Named here so the gap is
+answered by the letter that fills the slot.
+
 THE REGISTRY'S SHAPE, AND WHY BOTH SLOTS ARE STILL ``None``
 --------------------------------------------------------------
-``CandidateFrame`` carries exactly what item 4(b) requires the candidate to
-cite: a VA (the client function that PROVES this is the frame -- a string,
-e.g. "sub_00ABCDEF"), the vital id the frame answers with, and the frame's
-own bytes.  ``_CANDIDATES`` maps each of ``CANDIDATE_TRIGGER_IDS`` (2, 3) to
+``CandidateFrame`` carries what item 4(b) requires the candidate to cite: a
+VA (the client function that PROVES this is the frame -- a string, e.g.
+"sub_00ABCDEF"), the vital id the frame answers with, and the frame's own
+bytes.  ``_CANDIDATES`` maps each of ``CANDIDATE_TRIGGER_IDS`` (2, 3) to
 ``None`` at import time and NOTHING in this module ever writes into it after
-that -- the day LANE-UI's letter lands, filling one entry is the entire
-change this file needs, per item 4(b)'s own framing ("filling in that dict
-IS the whole change, not a new dispatch shape").
+that.  Filling one entry is NOT by itself enough to make this module answer:
+tier 3 above still refuses until `ISLAND_CONTACT_DISCRIMINATOR` names a
+measured fact, and the seam still needs the three extra values above.
 """
 from __future__ import annotations
 
@@ -175,6 +303,36 @@ TRIGGER_ID_REFUSED_NOT_M2 = "TRIGGER_ID_REFUSED_NOT_M2"
 # finding 1 against `pirate-force-server#951` was that the old docstring said
 # "Never raises" full stop while `registry=[]` raised a bare AttributeError.
 REGISTRY_REFUSED_NOT_A_MAPPING = "REGISTRY_REFUSED_NOT_A_MAPPING"
+
+# TIER 1.  The one scene R318/R322A actually sailed while ids 2 and 3 were
+# observed.  Same constant, same value and same posture as this lane's
+# sibling `world_sea_edge_crossing.SEA_EDGE_SOURCE_SCENE_ID` -- both refuse
+# outside it rather than acting as a general trigger-to-scene table.
+M2_ISLAND_CONTACT_SCENE_ID = 126
+
+SCENE_REFUSED_NOT_THE_SEA_SCENE = "SCENE_REFUSED_NOT_THE_SEA_SCENE"
+
+# TIER 3.  The NAME of the measured fact that separates "wire trigger id 3
+# while touching an island" from "wire trigger id 3 while sailing open water
+# in the same scene".  `None` means NOBODY HAS MEASURED ONE, which is the
+# state RE-234 item (3) left this project in: `GT-228` saw id 3 in both
+# situations, so the id alone is "an unsafe classifier if anyone uses it to
+# decide the world".
+#
+# While this is `None`, `answer_guard_reason` refuses EVERY (scene, id) pair
+# and `candidate_for_trigger_id` therefore answers `None` even for a filled
+# slot.  That is deliberate and is this module's answer to the open design
+# question: filling a candidate slot must NOT be sufficient to make the
+# server answer a trigger it cannot tell apart from open water.
+#
+# Setting this to a string is a claim that such a fact was measured and is
+# enforced at the call site; do not set it to make a test pass -- the tests
+# override it locally instead.
+ISLAND_CONTACT_DISCRIMINATOR: str | None = None
+
+CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED = (
+    "CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED"
+)
 
 
 class CandidateFrame(NamedTuple):
@@ -223,6 +381,48 @@ def trigger_id_guard_reason(wire_trigger_id: object) -> str | None:
     return None
 
 
+def scene_guard_reason(current_scene_id: object) -> str | None:
+    """``None`` when ``current_scene_id`` IS ``M2_ISLAND_CONTACT_SCENE_ID``;
+    otherwise ``SCENE_REFUSED_NOT_THE_SEA_SCENE``.
+
+    ``type(...) is not int`` rather than ``isinstance``, the same first
+    clause this lane's ``world_sea_edge_crossing.crossing_target`` uses, and
+    it is NOT redundant with the equality below: ``126.0 == 126`` is true in
+    Python, so a float scene id would otherwise pass tier 1.  No separate
+    ``bool`` clause is needed here (unlike ``trigger_id_guard_reason``, where
+    the refusal REASON has to be the type one): ``type(True) is bool``, so a
+    boolean is already refused by the same line.  Never raises.
+    """
+    if type(current_scene_id) is not int:
+        return SCENE_REFUSED_NOT_THE_SEA_SCENE
+    if current_scene_id != M2_ISLAND_CONTACT_SCENE_ID:
+        return SCENE_REFUSED_NOT_THE_SEA_SCENE
+    return None
+
+
+def answer_guard_reason(
+    current_scene_id: object, wire_trigger_id: object
+) -> str | None:
+    """``None`` when all THREE tiers pass; otherwise the NAMED reason the
+    first failing tier gives, in tier order (scene, then id, then contact).
+
+    Today the third tier always fails, because
+    ``ISLAND_CONTACT_DISCRIMINATOR`` is ``None``, so this function returns
+    ``CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED`` for the ONE input
+    that gets that far (scene 126 with wire id 2 or 3) and a tier-1/tier-2
+    reason for everything else.  Never raises, on either argument.
+    """
+    scene_reason = scene_guard_reason(current_scene_id)
+    if scene_reason is not None:
+        return scene_reason
+    trigger_reason = trigger_id_guard_reason(wire_trigger_id)
+    if trigger_reason is not None:
+        return trigger_reason
+    if ISLAND_CONTACT_DISCRIMINATOR is None:
+        return CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED
+    return None
+
+
 def is_candidate_trigger_id(wire_trigger_id: object) -> bool:
     """Thin boolean view of ``trigger_id_guard_reason`` -- for a caller that
     only ever needed yes/no."""
@@ -230,7 +430,7 @@ def is_candidate_trigger_id(wire_trigger_id: object) -> bool:
 
 
 def _table_for(
-    registry: "dict[int, CandidateFrame | None] | None",
+    registry: "Mapping[int, CandidateFrame | None] | None",
 ) -> "Mapping[int, CandidateFrame | None]":
     """This module's own ``_CANDIDATES`` when ``registry`` is ``None``, else
     ``registry`` itself -- after checking it really is a mapping.
@@ -238,6 +438,14 @@ def _table_for(
     Raises ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)`` otherwise, so a test
     that hands in a list or a string fails at the call with a named reason
     instead of deeper in with a bare ``AttributeError`` from ``.get``.
+
+    The check is ``isinstance(registry, Mapping)``, NOT ``isinstance(...,
+    dict)`` and NOT ``hasattr(registry, "get")``, and the annotation says
+    ``Mapping`` to match: a ``MappingProxyType`` is accepted (it is a real
+    read-only mapping) and a bare object that merely happens to own a
+    ``.get`` attribute is refused (it is not).  Both halves are pinned by
+    tests, because all three predicates agree on the easy inputs and only
+    disagree on those two.
     """
     if registry is None:
         return _CANDIDATES
@@ -247,42 +455,64 @@ def _table_for(
 
 
 def candidate_for_trigger_id(
-    wire_trigger_id: int,
-    registry: "dict[int, CandidateFrame | None] | None" = None,
+    current_scene_id: object,
+    wire_trigger_id: object,
+    registry: "Mapping[int, CandidateFrame | None] | None" = None,
 ) -> "CandidateFrame | None":
-    """The candidate registered for ``wire_trigger_id``, returned UNCHANGED,
-    or ``None``.
+    """The candidate registered for ``wire_trigger_id`` when ALL THREE tiers
+    of ``answer_guard_reason`` pass, returned UNCHANGED; otherwise ``None``.
 
-    ``None`` covers three cases this function deliberately does not
-    distinguish for the caller (ask ``trigger_id_guard_reason`` first if the
-    difference matters): ``wire_trigger_id`` is not an int, it is not one of
-    ``CANDIDATE_TRIGGER_IDS``, or it IS one and nothing is registered for it
-    yet.  Today every real call falls into the third case for both 2 and 3.
+    ``current_scene_id`` comes FIRST, in the same argument order as this
+    lane's ``world_sea_edge_crossing.crossing_target(current_scene_id,
+    wire_trigger_id)``, and it is REQUIRED: RE-234 item (3) measured that the
+    wire id on its own cannot tell an island from open water, so a lookup
+    that took the id alone would be exactly the unsafe classifier that ticket
+    warned about.  There is no id-only overload on purpose.
+
+    ``None`` covers every refusal without distinguishing them for the caller
+    (ask ``answer_guard_reason`` if the difference matters): wrong scene,
+    non-int or non-M2 id, no measured island-contact discriminator, or all
+    three tiers passing and nothing registered for that id yet.  TODAY EVERY
+    CALL IS REFUSED AT TIER 3, so this function answers ``None`` for every
+    input, registered slot or not -- see ``ISLAND_CONTACT_DISCRIMINATOR``.
 
     ``registry`` defaults to this module's own ``_CANDIDATES`` and exists
     only so a test can pass a synthetic mapping without mutating production
     state -- never set from calling code outside a test.
 
-    Never raises on ``wire_trigger_id``: EVERY value of it, of every type,
-    is answered with ``None`` rather than an exception, because that
-    argument comes off the wire.  A ``registry`` that is not a mapping
-    raises ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)`` on purpose -- see
-    that constant for why the two arguments get opposite postures.  No
-    production call site passes ``registry`` at all (repo-wide grep for
-    ``registry=`` against this module: tests only), so no wire input can
-    reach that raise.
+    Never raises on ``current_scene_id`` or ``wire_trigger_id``: EVERY value
+    of either, of every type, is answered with ``None`` rather than an
+    exception, because both arguments come from a live session.  A
+    ``registry`` that is not a mapping raises
+    ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)`` on purpose -- see that
+    constant for why the arguments get opposite postures.  No production
+    call site passes a registry at all: repo-wide grep for this module's
+    name finds importers only in its own test file, and the parameter is
+    third and keyword-named in every call there (a POSITIONAL third argument
+    would also reach it, which a grep for ``registry=`` alone would miss --
+    so the claim rests on "nothing in `src/` imports this module", not on
+    the keyword spelling).
     """
-    if trigger_id_guard_reason(wire_trigger_id) is not None:
+    if answer_guard_reason(current_scene_id, wire_trigger_id) is not None:
         return None
     table = _table_for(registry)
     return table.get(wire_trigger_id)
 
 
 def registered_count(
-    registry: "dict[int, CandidateFrame | None] | None" = None,
+    registry: "Mapping[int, CandidateFrame | None] | None" = None,
 ) -> int:
     """How many of ``CANDIDATE_TRIGGER_IDS`` currently have a real candidate.
     0 today, for both ids -- the whole point of this round's deliverable.
+
+    Scoped to ``CANDIDATE_TRIGGER_IDS``, NOT to the registry's own keys: a
+    registry carrying an entry for some other id contributes 0, the same way
+    ``candidate_for_trigger_id`` refuses a non-M2 id even when one is
+    registered for it.  Pinned by a test, because iterating ``table``
+    instead is the mutant that reads identically and is wrong.
+
+    This is a COUNT OF SLOTS, and says nothing about whether any of them
+    could be answered -- tier 3 refuses every lookup today regardless.
 
     ``registry`` is the same test-only parameter, with the same named raise
     on a non-mapping, as ``candidate_for_trigger_id``."""
