@@ -849,6 +849,53 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
 RULE_DERIVED_RULING_LETTER_STAMP = "2026-09-06T16:48+07:00"
 
 
+# ---------------------------------------------------------------------------
+# THE DENY-LIST, ROUND 2fpnex.  COO-DECISION 2026-09-06T22:41+07:00 item D3,
+# option (a): a new scene enters the derived permit automatically (that is
+# what COO-DECISION 2026-09-06T16:48+07:00 item 2 bought), EXCEPT for scenes
+# named in a short, per-scene deny-list declared in the code, where every row
+# cites the COO letter that ordered it DEFERRED.  Not an allow-list per
+# island (option (c), refused); not "1648 replaced 1745" (option (b),
+# refused -- COO's own words: "1644 is still DEFERRED, it was not
+# superseded").
+#
+# WHY IT HAS TO BE IN THE CODE AND NOT ONLY IN A TEST.  Round mf71tm put the
+# same fact in tests/test_mob_scene_registration_contract.py as
+# ROSTER_SHIPPED_KILL_NOT_YET_GRANTED -- a set a test reads.  A test that
+# reads a set proves the set's own content; it does not stop kill() from
+# authorising the scene, because kill() never reads it.  Under the derived
+# permit that gap becomes live: the moment mf71tm registers Bg3001 in
+# field_mobs, derive_rule_widened_templates() would mint that scene a permit
+# on the next import, with no letter and nobody typing anything.  The name is
+# COO's ("use the mf71tm branch's word, do not invent a new one").
+#
+# WHEN A ROW COMES OUT.  One line, citing 1745, once the 1648 table and the
+# 1712 key gate are on main -- which is what that letter itself says the
+# deferral is waiting for.  Removing a row is a grant, so it is a letter's
+# job, never a refactor's.
+WITHHELD_SCENE_LETTERS: dict[str, str] = {
+    # pf_bridge notes_to_chief/20260906_1745_COO-DECISION-b1644-bg3001-kill-
+    # grant-DEFERRED-until-mobs-rule-table-and-key-gate-land-not-refused-no-
+    # key-minted-LANE-B.md  -- "DEFERRED, not refused; no key minted".
+    "Bg3001": (
+        "COO-DECISION 2026-09-06T17:45+07:00 b1644 bg3001-kill-grant-DEFERRED"
+    ),
+}
+
+
+def scene_kill_is_withheld(scene: Any) -> str | None:
+    """The letter deferring kills in ``scene``, or ``None`` if none defers.
+
+    One reader for the deny-list, so the three places that must honour it
+    (the derivation, :func:`rulings_covering` and :func:`kill`) cannot drift
+    into honouring it in two of three -- which is the exact shape of the gap
+    a test-only list left open.
+    """
+    if not isinstance(scene, str):
+        return None
+    return WITHHELD_SCENE_LETTERS.get(scene)
+
+
 def rule_derived_ruling_name(scene: str) -> str:
     """The derived permit's key for one registered scene.
 
@@ -883,6 +930,13 @@ def derive_rule_widened_templates() -> dict[str, frozenset[int]]:
     """
     derived: dict[str, frozenset[int]] = {}
     for scene in field_mobs.live_scenes():
+        # ROUND 2fpnex, COO-DECISION 2026-09-06T22:41 item D3(a): a scene on
+        # the deny-list does not enter automatically.  Checked HERE, before
+        # the roster is even read, so a deferred scene never has a permit to
+        # withdraw -- withdrawing one later would be a grant that existed for
+        # a window.
+        if scene_kill_is_withheld(scene) is not None:
+            continue
         templates = {
             mob.template_id for mob in field_mobs.load_roster(scene=scene)
         }
@@ -1125,6 +1179,12 @@ def rulings_covering(mob: FieldMob) -> tuple[str, ...]:
     nothing.  It is future-proofing for the day that row returns, and the
     disagreement it would then cover is proven on a constructed actor instead.
     """
+    # ROUND 2fpnex.  A deferred scene is covered by NO ruling, signed or
+    # derived: COO-DECISION 2026-09-06T22:41 item D3 puts the deny-list above
+    # both axes, so that a signed letter that happens to name the same
+    # template (bg0001 and Bg0002 already share four) cannot become a way in.
+    if scene_kill_is_withheld(getattr(mob, "scene", None)) is not None:
+        return ()
     covering: list[str] = []
     for name, templates in WIDENING_RULINGS.items():
         if mob.template_id not in templates:
@@ -2743,6 +2803,25 @@ def kill(
     arithmetic did not kill is a lane that can kill a monster at full HP.
     """
     _require_mob(mob)
+    # ROUND 2fpnex, COO-DECISION 2026-09-06T22:41 item D3.  The deny-list is
+    # read HERE, ahead of every other question kill() asks, including the
+    # sanctioned-first-target bypass: a scene whose kill grant is DEFERRED is
+    # not killable by any route, and a caller that already holds a ruling
+    # name is exactly the route a test-only list could not close.  The
+    # refusal reuses REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE and ends in
+    # the same "ask the owner" sentence every other scope refusal ends in,
+    # because it IS the same answer and a second wording would let a caller
+    # tell the two apart and special-case one.
+    withheld_by = scene_kill_is_withheld(getattr(mob, "scene", None))
+    if withheld_by is not None:
+        raise MobDeathContractError(
+            REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE,
+            "scene %r ships a roster but its kill grant is DEFERRED by %s, "
+            "so no kill in it is authorised yet (mob 0x%X, template %d) - "
+            "see WITHHELD_SCENE_LETTERS, and ask the owner before shipping "
+            "one" % (
+                mob.scene, withheld_by, mob.actor_identity, mob.template_id),
+        )
     if type(outcome) is not HitOutcome:
         raise MobDeathContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD, "outcome must be a typed HitOutcome")
