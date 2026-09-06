@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,6 +71,14 @@ from .login_scene_override import console_safe
 GM_ALLOWLIST_CONSOLE_TOKEN = "GM_COMMAND_REFUSED_NOT_GM"
 
 _ANNOUNCED = False
+# THE LATCH IS TAKEN BY WINNING, NOT BY WRITING (pf-adversary, round `wxh2tw`,
+# N3). The first draft was read-then-write with a `print` in between, and eight
+# threads driven at it all returned True -- "once per process" held only for a
+# server that never has two connections at once, which is the opposite of the
+# situation an operator holding EXECUTE is in. `runtime.py` fires this hook from
+# the game-listener thread while v141's heartbeat worker runs alongside it, so
+# the race is the normal case, not the exotic one.
+_ANNOUNCE_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -168,36 +177,65 @@ def announce_not_gm_once(
     """Print the line if it has not been printed yet; report whether it was.
 
     Returns True only on the call that actually printed, so a caller (and
-    the test below) can tell the latch worked.  Every failure inside is
-    swallowed: this is a diagnostic on a refusal path, and a console that
-    refuses the write must never turn a correctly-refused GM command into an
-    exception travelling back up through `lane_hooks.fire()` into the
-    connection handler.
+    the test below) can tell the latch worked.
+
+    EVERY failure inside is swallowed, `KeyboardInterrupt` and `SystemExit`
+    included, and that IS a deliberate trade rather than a free one.  What
+    it buys: `lane_hooks.fire()` catches `Exception` only, and its own
+    comment records where anything wider goes -- out through v141's
+    `game_listener`, whose `try` has a `finally` and no `except`, taking the
+    accept loop and the listening socket with it.  THAT IS EVERY SESSION,
+    NOT ONE, spent on a log line for a path where the command has already
+    been refused and no work remains.  What it costs: a Ctrl-C typed at the
+    exact moment this line is being written to a blocked console is
+    discarded -- the round `nfbat1` D6 complaint, in a new place.  The house
+    has ruled this way twice in this module family already (`0op9bt` D2, and
+    `gm/command_capture.py`'s own shutdown guard), so this follows that
+    ruling rather than inventing a third answer; whether the ruling still
+    holds now that a SECOND module leans on it goes to COO in this round's
+    letter, not into a silent third opinion here.
+
+    The first version of this caught `Exception`, which kept none of the
+    promise above (pf-adversary, round `wxh2tw`, N4: measured escaping).
     """
     global _ANNOUNCED
-    if _ANNOUNCED:
-        return False
-    try:
-        target = sys.stderr if stream is None else stream
-        print(
-            format_allowlist_refusal_line(
-                describe_gm_allowlist(config_path), account_name, target,
-            ),
-            file=target,
-        )
-    except Exception:
-        # THE LATCH CLOSES ON A DELIVERED LINE, NOT ON AN ATTEMPT (self-
-        # review, round `wxh2tw`). Setting it before the print reads as the
-        # safer order and is the wrong one here: a console that is briefly
-        # unwritable at the moment of the FIRST refusal would then consume
-        # the only line this process will ever print, and the operator --
-        # who is standing at a game client pressing EXECUTE, which is the
-        # entire situation this exists for -- gets silence again. Retrying
-        # costs one swallowed exception per refusal, and `gm/dispatch.py`'s
-        # rate limiter already bounds how often a refusal can happen.
-        return False
-    _ANNOUNCED = True
-    return True
+    with _ANNOUNCE_LOCK:
+        if _ANNOUNCED:
+            return False
+        try:
+            target = sys.stderr if stream is None else stream
+            print(
+                format_allowlist_refusal_line(
+                    describe_gm_allowlist(config_path), account_name, target,
+                ),
+                file=target,
+            )
+        except BaseException:
+            # `BaseException`, NOT `Exception` (pf-adversary, round
+            # `wxh2tw`, N4). The docstring above promises that nothing here
+            # can travel back up through `lane_hooks.fire()`, and
+            # `except Exception` does not keep that promise:
+            # `lane_hooks/__init__.py` catches `Exception` too, deliberately,
+            # and its own comment records what escapes it -- the unwind
+            # reaches v141's `game_listener`, whose `try` has a `finally` and
+            # no `except`, so the accept loop and the listening socket go
+            # with it. THAT IS EVERY SESSION, NOT ONE. A Ctrl-C arriving
+            # while this diagnostic writes to a blocked console must not
+            # cost the server its listener; the command was already refused
+            # and the only work left was a log line. This is the same lesson
+            # `gm/command_capture.py` paid for in round `0op9bt` (D2), in the
+            # module this one imports two functions from.
+            #
+            # THE LATCH CLOSES ON A DELIVERED LINE, NOT ON AN ATTEMPT (self-
+            # review, round `wxh2tw`). Setting it before the print reads as
+            # the safer order and is the wrong one here: a console briefly
+            # unwritable at the FIRST refusal would consume the only line
+            # this process will ever print, and the operator -- standing at
+            # a game client pressing EXECUTE, which is the entire situation
+            # this exists for -- gets silence again.
+            return False
+        _ANNOUNCED = True
+        return True
 
 
 def reset_for_tests() -> None:

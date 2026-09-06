@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import threading
 import os
 import sys
 import tempfile
@@ -67,6 +68,41 @@ def _fields(line: str) -> dict:
             i += 1
         fields.setdefault(key, "".join(out))
     return fields
+
+
+
+class _Cp874Stream(io.StringIO):
+    """A stream that tells the TRUTH about what it can carry.
+
+    `io.StringIO` has no `encoding` at all, so `console_safe` treats it as
+    able to carry anything and the folds it performs are never exercised --
+    which is how three mutants on this module survived their first review
+    (pf-adversary, round `wxh2tw`, N5: dropping the fold or `console_safe`
+    from a field left every test green). A real operator console on this
+    project is `cp874`; this is what one behaves like.
+    """
+
+    encoding = "cp874"
+
+    def write(self, text):
+        text.encode(self.encoding)  # a real console raises here, so do we
+        return super().write(text)
+
+
+class _Utf8Stream(io.StringIO):
+    """A stream that announces `utf-8`, which production's really does.
+
+    `runtime_console._Mirror.encoding` is a hardcoded `"utf-8"` property and
+    `app.py` installs it as `sys.stderr`, so this -- not cp874 -- is what
+    `console_safe` is asked about at runtime. It matters for the line-break
+    fold: on a cp874 stream `console_safe` folds `U+0085` anyway, because
+    cp874 cannot encode it, and a test written against cp874 alone therefore
+    passes with the fold removed (pf-adversary, round `wxh2tw`: mutant A06
+    survived its first review for exactly this reason). Here the character
+    is carryable, so only the fold can stop it.
+    """
+
+    encoding = "utf-8"
 
 
 class GmAllowlistProbeTests(unittest.TestCase):
@@ -197,6 +233,81 @@ class GmAllowlistProbeTests(unittest.TestCase):
         self.assertTrue(announce_not_gm_once("admin", stream=working))
         self.assertEqual(len(working.getvalue().splitlines()), 1)
 
+    # -- what pf-adversary's surviving mutants asked for ------------------
+
+    def test_a_thai_account_name_still_reaches_a_cp874_console(self):
+        # pf-adversary (round `wxh2tw`, N5/A07): with `console_safe` dropped
+        # from the account field every test here stayed green, because they
+        # all used a stream with no `encoding` at all. On a real cp874
+        # console the print raises on the first character it cannot encode
+        # and the operator gets NO LINE -- the exact failure the capture
+        # line paid for in round `0op9bt` (D4), on a Thai-language project.
+        stream = _Cp874Stream()
+        self.assertTrue(announce_not_gm_once("\u0e17\u0e14\u0e2a\u0e2d\u0e1a", stream=stream))
+        printed = stream.getvalue()
+        self.assertEqual(len(printed.splitlines()), 1)
+        self.assertIn("\u0e17\u0e14\u0e2a\u0e2d\u0e1a", printed)
+
+    def test_an_account_name_that_cp874_cannot_carry_still_yields_a_line(self):
+        # The other half: a name the console genuinely cannot encode must be
+        # folded to something it can, not dropped along with the whole line.
+        stream = _Cp874Stream()
+        self.assertTrue(announce_not_gm_once("\u5f20\u4f1f", stream=stream))
+        self.assertEqual(len(stream.getvalue().splitlines()), 1)
+
+    def test_a_hostile_path_cannot_forge_a_second_line_on_a_real_console(self):
+        # pf-adversary (round `wxh2tw`, N5/A06): quoting does not stop a
+        # newline -- only the fold does -- and nothing here tested the fold
+        # on the allowlist path, so dropping it survived.
+        hostile = Path(self._tmp.name) / "a\x85GM_COMMAND_REFUSED_NOT_GM b" / "x.json"
+        line = format_allowlist_refusal_line(
+            describe_gm_allowlist(hostile), "admin", _Utf8Stream(),
+        )
+        self.assertEqual(len(line.splitlines()), 1, repr(line))
+        self.assertIn("\\x85", line)
+
+    def test_a_keyboard_interrupt_inside_the_print_never_leaves_this_function(self):
+        # pf-adversary (round `wxh2tw`, N4). `lane_hooks.fire()` catches
+        # `Exception` only, and its own comment records that anything wider
+        # unwinds v141's `game_listener` -- whose `try` has a `finally` and
+        # no `except` -- taking the accept loop and the listening socket with
+        # it. That is every session, not one, spent on a log line for an
+        # already-refused command. The first version of this guard caught
+        # `Exception` and let both of these straight through.
+        for exc in (KeyboardInterrupt, SystemExit):
+            with self.subTest(exception=exc.__name__):
+                allowlist_probe.reset_for_tests()
+
+                class Hostile(io.StringIO):
+                    def write(self, _):
+                        raise exc()
+
+                self.assertFalse(announce_not_gm_once("admin", stream=Hostile()))
+
+    def test_the_latch_is_taken_by_winning_not_by_writing(self):
+        # pf-adversary (round `wxh2tw`, N3): read-then-write with a `print`
+        # in between let all eight of eight threads report that they were the
+        # one that printed. "Once per process" held only for a server with
+        # one connection at a time, which is the opposite of an operator
+        # holding EXECUTE while v141's heartbeat worker runs alongside.
+        stream = _Cp874Stream()
+        winners = []
+        barrier = threading.Barrier(8)
+
+        def run():
+            barrier.wait()
+            if announce_not_gm_once("admin", stream=stream):
+                winners.append(1)
+
+        threads = [threading.Thread(target=run) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(winners), 1, f"{len(winners)} threads each thought they printed")
+        self.assertEqual(len(stream.getvalue().splitlines()), 1)
+
+
 class GmRunCommandHookAnnouncesTests(unittest.TestCase):
     """End to end through the hook runtime.py actually fires."""
 
@@ -235,6 +346,36 @@ class GmRunCommandHookAnnouncesTests(unittest.TestCase):
         self.assertEqual(len(printed.splitlines()), 1, printed)
         self.assertTrue(printed.startswith(GM_ALLOWLIST_CONSOLE_TOKEN))
         self.assertIn("accounts=missing", printed)
+
+    def test_a_refusal_that_is_not_not_gm_must_not_print_the_allowlist_line(self):
+        # pf-adversary (round `wxh2tw`, N5/A14): widening the hook's guard to
+        # `if True:` survived, because nothing pinned the branch. A real GM
+        # who trips the rate limit or the capture quota would then be told
+        # "this account is not on the server-side GM allowlist" -- a wrong
+        # diagnosis -- AND would burn the once-per-process latch, so the true
+        # line never prints for the operator who actually needs it.
+        from pirateforce_foundation.gm import dispatch as gm_dispatch
+        from pirateforce_foundation.lane_hooks import lane_gm_run_command
+
+        session = self._Session("panya")
+        outcome = gm_dispatch.GmDispatchOutcome(
+            authorized=True,
+            captured_path=None,
+            refusal_reason=gm_dispatch.REFUSAL_RATE_LIMITED,
+        )
+        stderr = io.StringIO()
+        with mock.patch.object(
+            lane_gm_run_command, "handle_gm_run_command_vital",
+            return_value=outcome,
+        ), contextlib.redirect_stderr(stderr):
+            lane_gm_run_command._on_gm_run_command(session, b"")
+        self.assertEqual(
+            session.events,
+            [f"gm_run_command_refused_{gm_dispatch.REFUSAL_RATE_LIMITED}"],
+        )
+        self.assertNotIn(GM_ALLOWLIST_CONSOLE_TOKEN, stderr.getvalue())
+        # and the latch is still unspent, so the real refusal can still speak
+        self.assertTrue(announce_not_gm_once("admin", stream=io.StringIO()))
 
     def test_an_authorized_account_captures_and_prints_no_refusal_line(self):
         # The other side of the same latch: the line must be a symptom of the

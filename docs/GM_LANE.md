@@ -10667,12 +10667,33 @@ The server answered each with an empty `RuntimeRes` and no
 `capture/gm_command_capture` directory ever appeared, so the letter closed
 with an open question: the v141 path, or the account allowlist?
 
-**It was the allowlist, and the refusal was correct.**
-`gm/accounts.py::load_gm_accounts` treats a missing allowlist file as an
-empty allowlist by design -- nobody is GM until an operator lists an account,
-and this lane's rule (1) is that a client can never elevate itself.
-`config/gm_accounts.json` is not in the shipped tree, so every send was
-`REFUSAL_NOT_GM` and, correctly, wrote nothing.
+**The allowlist is a SUFFICIENT explanation, and it has not been shown to be
+the one that happened.**  `gm/accounts.py::load_gm_accounts` treats a missing
+allowlist file as an empty allowlist by design -- nobody is GM until an
+operator lists an account, and this lane's rule (1) is that a client can never
+elevate itself.  `config/gm_accounts.json` is not in the shipped tree, so IF a
+frame reached `gm/dispatch.py` it was refused with `REFUSAL_NOT_GM` and,
+correctly, wrote nothing.
+
+That "if" is load-bearing and this section stated it as settled in its first
+draft (pf-adversary, round `wxh2tw`, N8, and the cited letter is right and the
+first draft was wrong).  The R322B letter's own words are "must find where the
+frame went -- the v141 path or the account allowlist", and its nonclaims say it
+does not claim where the capture hook broke.  Nothing measured since then
+separates the two: **a frame that never reached the hook and a frame the
+allowlist refused produce the identical observation** -- empty `RuntimeRes`,
+empty disk.  What is established is narrower and worth stating exactly: the
+fire point exists (`runtime.py`, the `GM_RUN_GM_COMMAND_VITAL_ID` branch), the
+hook module is discovered and `production_allowed = True`, and the refusal path
+reproduces the reported symptom byte for byte when fed R322B's real frame.
+
+**This is why the console line below is the right next step either way.**  It
+is the instrument that tells the two apart on the next boot, at no cost to a
+boot of its own: if `GM_COMMAND_REFUSED_NOT_GM` prints, the frame reached
+dispatch and the allowlist refused it; if the button is pressed and NOTHING
+prints, the frame never got that far and the question moves to the v141 path.
+Neither answer was obtainable before, and one attended boot was already spent
+failing to get it.
 
 What was wrong is that it was **invisible**.  From a game client, a frame
 that never reached the hook, a hook that never fired, and a frame the
