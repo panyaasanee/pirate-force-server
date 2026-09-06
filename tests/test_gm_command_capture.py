@@ -433,11 +433,18 @@ class GmCommandCaptureTests(unittest.TestCase):
         # prove the partial file is gone, so it must see a DISTINCT
         # exception type rather than the plain OSError it would otherwise
         # read as "zero bytes on disk, safe to refund".
+        # pf-adversary (round `0op9bt` ADDENDUM, D6): an unmocked `unlink`
+        # failure now retries for real (`_UNLINK_ATTEMPTS`) and prints a
+        # real stderr line -- mock `time.sleep` and swallow the print so
+        # this test stays fast and quiet, the same as the tests that were
+        # written FOR that retry behaviour further down this file.
         with mock.patch.object(
             command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
         ), mock.patch.object(
             command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
-        ):
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(CaptureFileNotVerifiedRemoved) as ctx:
                 capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
         self.assertIsInstance(
@@ -453,6 +460,27 @@ class GmCommandCaptureTests(unittest.TestCase):
     def test_best_effort_unlink_treats_already_gone_as_success(self):
         missing = Path(self.root) / "does_not_exist.txt"
         self.assertTrue(command_capture._best_effort_unlink(missing))
+
+    def test_the_retry_delay_has_a_literal_floor_above_zero(self):
+        # pf-adversary (round `0op9bt` ADDENDUM, D5): the tests that pin the
+        # sleep CALLS all compare against
+        # ``command_capture._UNLINK_RETRY_DELAY_SECONDS`` -- the constant's
+        # OWN live value -- so a mutant that sets it to ``0.0`` (deleting
+        # the only property this round adds: waiting out a transient
+        # Windows sharing violation) passed the whole suite. This compares
+        # against a LITERAL floor instead, which no such mutant can dodge
+        # by changing the constant it is compared against.
+        self.assertGreater(command_capture._UNLINK_RETRY_DELAY_SECONDS, 0.0)
+
+    def test_the_unlink_attempt_count_has_a_literal_floor_of_one(self):
+        # pf-adversary (round `0op9bt` ADDENDUM, D7): nothing pinned
+        # ``_UNLINK_ATTEMPTS >= 1`` as a literal -- at 0 the retry loop's
+        # body never runs and the function reports "could not remove"
+        # without ever calling ``os.unlink``, which the module's own
+        # "unreachable final iteration" comment assumes cannot happen. The
+        # module-level ``assert`` next to the constant is the enforcement;
+        # this is the regression pin for it.
+        self.assertGreaterEqual(command_capture._UNLINK_ATTEMPTS, 1)
 
     # ----- COO-DECISION `2047` (round `0op9bt`): the cleanup unlink gets a --
     # ----- BOUNDED retry (Windows sharing violations are transient), the ---
@@ -565,12 +593,17 @@ class GmCommandCaptureTests(unittest.TestCase):
         )
 
     def test_a_dead_stderr_cannot_turn_the_stuck_file_line_into_the_raised_error(self):
-        # `_best_effort_unlink` is also called from `_capture_raw`'s
-        # `except BaseException` path, which runs at interpreter shutdown --
-        # where `sys.stderr` can already be closed. If the new log line were
-        # allowed to raise there, it would replace the exception that path is
-        # re-raising and the caller's quota decision would be made on the
-        # wrong exception type entirely.
+        # This drives the ORDINARY `except OSError` write-failure path (a
+        # plain `OSError` from `os.write`), NOT `_capture_raw`'s
+        # `except BaseException` shutdown path -- pf-adversary (round
+        # `0op9bt` ADDENDUM, D8) found this comment claimed the latter while
+        # the test exercised the former, which is exactly how D1/D2 (the
+        # real shutdown-path bugs) went unnoticed. See
+        # `test_a_dead_stderr_during_the_shutdown_reraise_path_still_reraises_the_original_exception`
+        # below for the path this comment used to claim to cover. What this
+        # test actually pins: a dead `sys.stderr` while classifying an
+        # ordinary write failure must not turn the raised exception into a
+        # `ValueError` from the failed log line.
         closed = io.StringIO()
         closed.close()
 
@@ -590,6 +623,131 @@ class GmCommandCaptureTests(unittest.TestCase):
             "the original write failure must still be the chained cause -- "
             "not a ValueError from writing to a closed stream",
         )
+
+    def test_a_non_oserror_escaping_the_write_loop_never_sleeps_during_cleanup(self):
+        # pf-adversary (round `0op9bt` ADDENDUM, D1): `_capture_raw`'s
+        # `except BaseException` branch calls `_best_effort_unlink` with
+        # `retry=False` for exactly this reason -- that branch's job is
+        # re-raising an in-flight `SystemExit`/`KeyboardInterrupt`
+        # unchanged, and `time.sleep` between retries would open a window,
+        # during interpreter shutdown, where a second signal could replace
+        # it. A failing unlink here must therefore make exactly ONE attempt
+        # and sleep ZERO times, even though `_UNLINK_ATTEMPTS` is 3.
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=SystemExit(3),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ) as unlink_spy, mock.patch.object(
+            command_capture.time, "sleep",
+        ) as sleep_spy, contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertEqual(
+            ctx.exception.code, 3,
+            "the shutdown path must re-raise the ORIGINAL exception "
+            "unchanged, not translate it into anything else",
+        )
+        self.assertEqual(unlink_spy.call_count, 1, "retry=False means one try")
+        self.assertEqual(sleep_spy.call_count, 0)
+
+    def test_a_dead_stderr_during_the_shutdown_reraise_path_still_reraises_the_original_exception(self):
+        # pf-adversary (round `0op9bt` ADDENDUM, D2): the log-line guard
+        # around the shutdown-path unlink used to be `except Exception`,
+        # which does NOT catch `KeyboardInterrupt` or `SystemExit` -- the
+        # exact two exceptions this whole branch exists to protect. A CLOSED
+        # `io.StringIO` only raises `ValueError` (an `Exception`), which the
+        # old guard already caught -- that mutant survives against a closed
+        # stream, so this uses a fake stream whose `write` raises
+        # `KeyboardInterrupt` itself, the real failure mode `except
+        # Exception` cannot catch, to prove the guard actually needs
+        # `BaseException`.
+        class _StreamThatInterrupts:
+            encoding = "utf-8"
+
+            def write(self, _text):
+                raise KeyboardInterrupt()
+
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=SystemExit(3),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), mock.patch.object(
+            command_capture.sys, "stderr", _StreamThatInterrupts(),
+        ):
+            with self.assertRaises(SystemExit) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertEqual(
+            ctx.exception.code, 3,
+            "a KeyboardInterrupt raised by the failed print must not "
+            "replace the SystemExit this path is re-raising",
+        )
+
+    def test_the_stuck_file_line_names_the_account_and_the_attempted_bytes(self):
+        # pf-adversary (round `0op9bt` ADDENDUM, D3): the line used to say
+        # only "its capture quota stays charged" -- no account, no byte
+        # count -- although the file on disk can be empty while the charge
+        # is the ~4 KB disk-block floor or larger. Two accounts stuck at the
+        # same second used to print IDENTICAL lines.
+        stderr = io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved):
+                capture_raw_gm_command(
+                    b"hello", "thongchai", capture_root=self.root, now_ts=0,
+                )
+        printed = stderr.getvalue().splitlines()
+        self.assertEqual(len(printed), 1, printed)
+        self.assertIn("account=thongchai", printed[0])
+        self.assertIn("attempted_bytes=", printed[0])
+        self.assertNotIn(
+            "attempted_bytes=0", printed[0],
+            "the real capture header+payload is never zero bytes",
+        )
+
+    def test_the_stuck_file_line_still_prints_when_capture_root_is_not_ascii(self):
+        # pf-adversary (round `0op9bt` ADDENDUM, D4): every existing test for
+        # this line used `self.root`, which comes from
+        # `tempfile.TemporaryDirectory` and is therefore always plain ASCII
+        # -- so `printed[0].isascii()` pinned nothing about non-ASCII input,
+        # only the literal token text. `path` is built from `capture_root`
+        # (a config value here, not a test-only fixture); before
+        # `console_safe` folded it, a character `io.StringIO`'s ASCII
+        # fallback cannot carry raised `UnicodeEncodeError` straight out of
+        # this function's own `print`, which the guard above swallowed --
+        # the operator got NO line at all, for the one case (an unencodable
+        # path) this token exists to report.
+        non_ascii_root = Path(self._tmp.name) / "José" / "capture"
+        stderr = io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved):
+                capture_raw_gm_command(
+                    b"x", "panya", capture_root=non_ascii_root, now_ts=0,
+                )
+        printed = stderr.getvalue().splitlines()
+        self.assertEqual(
+            len(printed), 1,
+            "the line must still be written, folded to what the stream "
+            "can carry, not dropped",
+        )
+        self.assertTrue(printed[0].isascii())
+        self.assertIn("Jos", printed[0])
 
     def test_a_cleanup_unlink_that_works_first_try_never_sleeps(self):
         # COO's explicit condition on accepting the retry at all: "Linux must
@@ -669,7 +827,9 @@ class GmCommandCaptureTests(unittest.TestCase):
             ),
         ), mock.patch.object(
             command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
-        ):
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(CaptureFileNotVerifiedRemoved) as ctx:
                 capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
         self.assertIsInstance(ctx.exception.__cause__, OSError)
@@ -817,7 +977,9 @@ class GmCommandCaptureTests(unittest.TestCase):
             command_capture.os, "write", return_value=0,
         ), mock.patch.object(
             command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
-        ):
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(CaptureFileNotVerifiedRemoved):
                 capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
         leftover = list(Path(self.root).glob("*"))
