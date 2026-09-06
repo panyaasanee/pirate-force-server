@@ -1,10 +1,17 @@
 """Pure unit tests for ``ui_party_wire.py`` -- ``PartyInviteVital``
 (``0x37B1``) / ``PartyCmdVital`` (``0x2466``) encode/decode.
 
-Not wiring tests: nothing here is wired into ``runtime.py`` (see
-``ui_social_wire.py``'s module docstring and COO-DECISION ``20260904_1244``
-item 3). These tests pin the field SHAPE the registry proves; they say
-nothing about what any field means in the game.
+Not wiring tests -- these pin the field SHAPE the registry proves; they say
+nothing about what any field means in the game, and nothing here asserts
+anything about ``runtime.py`` dispatch. STALE CLAIM CORRECTED round
+`rqwwp8` (pf-adversary): this docstring previously said "nothing here is
+wired into ``runtime.py``" (true when written under COO-DECISION
+``20260904_1244`` item 3) -- that stopped being true once ``runtime.py``
+started importing ``PARTY_INVITE_VITAL_ID``/``PARTY_CMD_VITAL_ID`` and
+dispatching real inbound frames to ``lane_hooks/lane_ui_party_wire_log.py``
+(``production_allowed = True``, report-only, ``bytes_out=0`` -- see
+``ui_party_wire.py``'s own ``PartyInviteFields`` docstring for the wiring
+citation), and this file was never updated to say so.
 """
 from __future__ import annotations
 

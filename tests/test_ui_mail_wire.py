@@ -83,8 +83,10 @@ class GetMailContentWireTests(unittest.TestCase):
         payload = mail.encode_get_mail_content_payload(
             mail.GetMailContentFields(0, 0, 0, "tail")
         )
-        # 9 (u64) + 9 (u64) + 2 (u8) = 20 bytes before the wstring starts.
-        self.assertEqual(payload[20:24], (8).to_bytes(4, "little"))
+        # 9 (u64) + 9 (u64) + 2 (u8) = 20 bytes before the wstring starts,
+        # then wstring_tag's own tag byte (0x48) before its length prefix.
+        self.assertEqual(payload[20], 0x48)
+        self.assertEqual(payload[21:25], (8).to_bytes(4, "little"))
 
     def test_trailing_bytes_after_a_full_match_fail_closed(self):
         clean = mail.encode_get_mail_content_payload(
