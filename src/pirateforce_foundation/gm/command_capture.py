@@ -40,6 +40,7 @@ the raw hex dump stays correct either way since it never depends on framing.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -49,6 +50,7 @@ from .activity_cheat_code_wire import (
     decode_activity_cheat_code_vital,
 )
 from .command_wire import GmCommandWireError, decode_gm_run_command_vital
+from .login_scene_override import console_safe
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
 
@@ -76,6 +78,43 @@ _MAX_SAFE_ACCOUNT_LEN = 40
 # RATE_LIMIT_MAX_CALLS_PER_WINDOW, now also bounds how often this loop can
 # even be entered).
 _MAX_FILENAME_COLLISION_ATTEMPTS = 1000
+
+# COO-DECISION 2026-09-06T20:47+07:00 (pf_bridge letter
+# `20260906_2047_COO-DECISION-gm1940-unlink-bounded-retry-3-plus-doc-line-LANE-GM.md`,
+# answering this lane's own `1940` question): the cleanup unlink below gets a
+# BOUNDED retry and nothing more -- no background janitor, no quota refund
+# after the fact. The failure it exists for is Windows-only and transient by
+# nature: another process (an antivirus scanner, an indexer, a backup agent)
+# holding a handle open on the file we just closed makes DeleteFile fail with
+# a sharing violation for as long as it holds it, and it usually lets go in
+# milliseconds. Retrying costs nothing on the path where unlink succeeds --
+# and POSIX never enters the retry path at all for this reason (a handle held
+# elsewhere does not block unlink there), which is why the "succeeds first
+# try = no sleep at all" test below pins that the Linux path is unchanged.
+# Two constants, one place, so the total time this can add to a failing
+# capture call stays readable: 3 attempts, 2 gaps, 0.1 s of sleeping at the
+# very worst -- well under COO's ~300 ms ceiling.
+_UNLINK_ATTEMPTS = 3
+_UNLINK_RETRY_DELAY_SECONDS = 0.05
+
+# pf-adversary (round `0op9bt`, D7): `_best_effort_unlink` below has a
+# comment calling its final loop iteration "unreachable" -- true only
+# because this holds. At 0, the loop body never runs at all and the
+# function would report "could not remove" without ever calling
+# `os.unlink`, silently. Raised rather than asserted (pf-adversary round
+# `smztdu`, finding 2): ``python -O`` strips a bare ``assert`` entirely --
+# verified (``python3 -O`` makes this line a no-op) -- and this project has
+# already hit that exact mistake once and fixed it the same way
+# (``world_port_royal_identity.py``'s own comment on its module-level
+# ``raise ValueError`` says so in nearly these words): a consistency guard
+# that must always hold is not a development aid to compile away.
+if _UNLINK_ATTEMPTS < 1:
+    raise ValueError("_UNLINK_ATTEMPTS must allow at least one try")
+
+# One line, on stderr, naming the file that stayed on disk. Same channel and
+# shape as this lane's other console tokens (`gm/chat_command_action.py`'s
+# CONSOLE_TOKEN / LV_CONSOLE_TOKEN), plain ASCII for the cp874 bridge console.
+_UNLINK_STUCK_CONSOLE_TOKEN = "GM_CAPTURE_UNLINK_STUCK"
 
 
 class CaptureFileNotVerifiedRemoved(OSError):
@@ -122,7 +161,13 @@ class CaptureFileNotVerifiedRemoved(OSError):
     """
 
 
-def _best_effort_unlink(path: Path) -> bool:
+def _best_effort_unlink(
+    path: Path,
+    *,
+    retry: bool = True,
+    account_name: str = "",
+    attempted_bytes: int = 0,
+) -> bool:
     """Try to remove ``path``; return whether it is now confirmed absent.
 
     Called only after a capture write has already failed, to answer the
@@ -133,14 +178,149 @@ def _best_effort_unlink(path: Path) -> bool:
     racing the first, or an external cleanup, could have removed it
     first, and the file being gone either way is exactly what matters to
     the caller).
+
+    BOUNDED RETRY (round `0op9bt`, COO-DECISION `2047`): a failing unlink is
+    retried up to ``_UNLINK_ATTEMPTS`` times with ``_UNLINK_RETRY_DELAY_SECONDS``
+    between attempts, because the failure this function is most likely to
+    meet in production is a Windows sharing violation from another process
+    holding a transient handle, which typically clears in milliseconds. An
+    unlink that succeeds on the first attempt sleeps ZERO times -- the
+    success path is byte-for-byte the same work it was before.
+
+    ``retry=False`` (pf-adversary round `0op9bt` ADDENDUM, D1): the ONE
+    caller of this function that runs from ``_capture_raw``'s
+    ``except BaseException`` branch passes this. That branch's whole job is
+    re-raising an in-flight ``KeyboardInterrupt``/``SystemExit``/etc.
+    UNCHANGED; ``time.sleep`` between retries opens a window, during
+    interpreter shutdown, where a second signal can arrive mid-sleep and
+    replace the exception Python actually delivers to the caller with
+    whatever the sleep itself raises. ``retry=False`` makes exactly one
+    unlink attempt -- zero sleeps -- so the shutdown path's timing is
+    whatever it already was without this cleanup call, while the two
+    ordinary failure paths (write failed, close failed) keep the full
+    bounded retry.
+
+    WHEN THE RETRIES RUN OUT the answer is still ``False``: the caller
+    raises ``CaptureFileNotVerifiedRemoved`` and the quota charged for that
+    call is NOT refunded, exactly as before. There is no janitor, nothing
+    sweeps the file up later, and nothing re-credits that quota during the
+    life of the process -- **a capture quota left stuck this way is cleared
+    by RESTARTING THE PROCESS, and by nothing else** (COO ruled the janitor
+    out until the failure is measured on a real Windows machine). One
+    stderr line names the file, the account, and the size of the write that
+    failed, so the operator can see which call it was; see docs/GM_LANE.md.
+
+    ``attempted_bytes`` IS NOT THE QUOTA THAT STAYS CHARGED, and the older
+    wording here said it was (pf-adversary, round `nfbat1`). It is
+    ``len(file_body)`` -- this file's own bytes. The quota `gm/dispatch.py`
+    charges is ``_charged_capture_bytes(len(raw_payload), len(account_name))``,
+    a different function of different inputs with a per-file disk-block
+    floor, and for a small capture it is several times larger. An operator
+    who subtracts the printed number from the account's ceiling gets the
+    wrong answer; the printed number identifies the CALL, and
+    `gm/dispatch.py` owns the arithmetic.
     """
-    try:
-        os.unlink(path)
-    except FileNotFoundError:
-        return True
-    except OSError:
-        return False
-    return True
+    attempts = _UNLINK_ATTEMPTS if retry else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            if attempt >= attempts:
+                try:
+                    stream = sys.stderr
+                    # pf-adversary (round `0op9bt` ADDENDUM, D4): both
+                    # operator-controlled fields go through `console_safe`,
+                    # not just the account name -- `path` is built from
+                    # `capture_root` (a config value, not this project's own
+                    # `TemporaryDirectory`-only test fixtures) and a console
+                    # forced to `cp874:strict` raises on the first character
+                    # it cannot encode, which used to fall straight into
+                    # this guard and drop the whole line silently.
+                    #
+                    # `_escape_for_header` FIRST, `console_safe` second (pf-
+                    # adversary round `smztdu`, finding 1): `console_safe`
+                    # only folds characters the STREAM cannot encode -- a
+                    # literal newline is representable in every encoding
+                    # this project uses, so it passes straight through
+                    # unchanged and this "one line" (docs/GM_LANE.md's own
+                    # words) becomes two, the second one carrying
+                    # attacker-chosen `path=`/`attempted_bytes=`/
+                    # `attempts=` text a grep-this-token tool cannot tell
+                    # from the real line. `account_name` is the account
+                    # login name (`gm/accounts.py`'s `gm_accounts` entries
+                    # match it verbatim; nothing in this codebase restricts
+                    # its characters), and this file already treats it as
+                    # needing exactly this defense for the on-disk header
+                    # (`header_account = _escape_for_header(account_name)`
+                    # above, "an account_name containing a newline must not
+                    # be able to forge extra header lines") -- this stderr
+                    # line is the other place a newline in the same field
+                    # can forge a fake line, so it gets the same escape.
+                    # pf-adversary (round `nfbat1`): `_escape_for_header`
+                    # here folded Thai away (see
+                    # `_fold_line_breaking_controls`' own docstring), and
+                    # `path` got no newline defense at all even though the
+                    # comment above argues it is operator-controlled -- so a
+                    # `capture_root` carrying a newline forged the second
+                    # line this pair of lines exists to prevent, one field
+                    # to the left of the one that was fixed. Both fields
+                    # now take the same two steps: fold what breaks a line,
+                    # then fold to what the stream can carry.
+                    safe_account = console_safe(
+                        _fold_line_breaking_controls(account_name) or "(unknown)",
+                        stream,
+                    )
+                    safe_path = console_safe(
+                        _fold_line_breaking_controls(str(path)), stream,
+                    )
+                    print(
+                        f"{_UNLINK_STUCK_CONSOLE_TOKEN} path={safe_path} "
+                        f"account={safe_account} attempted_bytes={attempted_bytes} "
+                        f"attempts={attempts} -- file stayed on disk and its "
+                        f"capture quota stays charged; restart the process to "
+                        f"clear that quota",
+                        file=stream,
+                    )
+                except (KeyboardInterrupt, SystemExit):
+                    # pf-adversary (round `nfbat1`): D2's widening below is
+                    # right for the ONE caller it was written for -- the
+                    # shutdown re-raise path, which passes `retry=False` --
+                    # and wrong for the other two. On the ordinary write-
+                    # failure and close-failure paths there is no in-flight
+                    # exception to protect, so swallowing here DISCARDED A
+                    # REAL Ctrl-C: an operator interrupting during an ENOSPC
+                    # storm, while this line was being written to a blocked
+                    # console, was ignored and the process carried on.
+                    # Nothing is lost by letting it out here: the unlink has
+                    # already been attempted and failed (that is why we are
+                    # printing), so the only work left was the log line and
+                    # the answer, and the caller is about to raise anyway.
+                    if retry:
+                        raise
+                except BaseException:
+                    # This function is called from `_capture_raw`'s
+                    # `except BaseException` cleanup path too, which runs at
+                    # interpreter shutdown (KeyboardInterrupt/SystemExit) --
+                    # where `sys.stderr` can already be closed and a bare
+                    # `print` then raises. Widened to `BaseException`
+                    # (pf-adversary round `0op9bt` ADDENDUM, D2): a plain
+                    # `except Exception` here does NOT cover
+                    # `KeyboardInterrupt`/`SystemExit`, the exact two named
+                    # one paragraph above as the reason this guard exists at
+                    # all -- so a `print` that raised one of them used to
+                    # escape uncaught. The ANSWER this function returns is
+                    # what the caller's quota decision depends on; a failed
+                    # log line must never replace the exception that cleanup
+                    # path is in the middle of re-raising.
+                    pass
+                return False
+            time.sleep(_UNLINK_RETRY_DELAY_SECONDS)
+        else:
+            return True
+    # Unreachable: the final iteration always returns on both branches.
+    return False
 
 
 def _hex_dump(raw: bytes) -> str:
@@ -164,6 +344,44 @@ def _sanitize_account(account_name: str) -> str:
     )
     safe = safe[:_MAX_SAFE_ACCOUNT_LEN]
     return safe or "unnamed"
+
+
+def _fold_line_breaking_controls(text: str) -> str:
+    """Escape only what can BREAK A CONSOLE LINE, and nothing else.
+
+    `_escape_for_header` below is the right tool for a file this module
+    writes itself (it may fold as widely as it likes there -- nobody greps
+    the on-disk header by eye in a Thai locale).  It is the WRONG tool for
+    a console line, and pf-adversary (round `nfbat1`) measured why: it is
+    `text.encode("unicode_escape")`, which escapes every NON-ASCII
+    character, so composing it before `console_safe` makes `console_safe`
+    a no-op and forces ASCII unconditionally.  A GM account named `ทดสอบ`
+    then prints as `\\u0e17\\u0e14\\u0e2a\\u0e2d\\u0e1a` and the operator
+    who greps the console for their own name finds nothing -- on a
+    Thai-language project, on a console (`cp874`) that carries Thai
+    natively.  `gm/login_scene_override.py`'s `console_safe` docstring
+    records that exact mistake, in those words, as one this lane already
+    paid a round for; the round `smztdu` fix walked back into it while
+    citing the file's own other escape as precedent.
+
+    So this folds the ONE class of character that the "one line" contract
+    actually needs folded: C0 controls, DEL, and the two Unicode line
+    separators.  Backslashes are deliberately NOT escaped -- escaping them
+    is the OTHER scar in that same docstring (`C:\\\\Users\\\\...` that
+    nobody could paste).  Thai, and every other printable character, is
+    handed to `console_safe`, which folds it to what the stream can
+    actually carry.
+    """
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if code < 0x20 or code == 0x7F:
+            out.append(f"\\x{code:02x}")
+        elif ch in ("\u2028", "\u2029"):
+            out.append(f"\\u{code:04x}")
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def _escape_for_header(text: str) -> str:
@@ -344,7 +562,24 @@ def _capture_raw(
             # `tests/test_gm_command_capture.py`'s
             # `test_capture_file_mode_is_owner_only_no_execute_regardless_of_umask`
             # and the round `vb3ktn` follow-up letter to COO.
-            fd = os.open(out_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            # os.O_BINARY (Windows only; getattr default 0 makes this a
+            # no-op on POSIX, where the flag does not exist) -- pf-adversary
+            # D6, round `lkwmkp`: without it, CPython's os.open() on Windows
+            # opens the descriptor in the C-runtime's default text mode, and
+            # the raw os.write() calls below are then subject to that
+            # runtime's own \n -> \r\n translation. file_body is UTF-8 bytes
+            # containing a hex dump and a decode section that can hold
+            # literal \n bytes not meant as line separators, so a silent
+            # CRLF rewrite would both corrupt the "lossless copy" this
+            # module's docstring promises and desync the short-write retry
+            # loop below, which assumes every byte handed to os.write()
+            # either lands on disk unchanged or is reported back as not
+            # written -- not silently expanded in place.
+            fd = os.open(
+                out_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                0o600,
+            )
         except FileExistsError:
             suffix += 1
             continue
@@ -404,7 +639,9 @@ def _capture_raw(
             # does leave zero bytes behind, then tell the caller whether
             # that promise held. See `CaptureFileNotVerifiedRemoved`'s own
             # docstring for the failure this closes.
-            if _best_effort_unlink(out_path):
+            if _best_effort_unlink(
+                out_path, account_name=account_name, attempted_bytes=len(file_body)
+            ):
                 raise
             raise CaptureFileNotVerifiedRemoved(
                 f"{caller_name}: write to {out_path} failed ({write_error!r}) "
@@ -431,7 +668,15 @@ def _capture_raw(
                 os.close(fd)
             except OSError:
                 pass
-            _best_effort_unlink(out_path)
+            # `retry=False` (pf-adversary round `0op9bt` ADDENDUM, D1): this
+            # is the shutdown re-raise path -- see `_best_effort_unlink`'s
+            # own docstring for why it must not sleep here.
+            _best_effort_unlink(
+                out_path,
+                retry=False,
+                account_name=account_name,
+                attempted_bytes=len(file_body),
+            )
             raise
         try:
             os.close(fd)
@@ -450,7 +695,9 @@ def _capture_raw(
             # close (POSIX: never retry `close()` on the same descriptor),
             # so there is nothing left to close here -- only to classify,
             # the same way a failed write is classified above.
-            if _best_effort_unlink(out_path):
+            if _best_effort_unlink(
+                out_path, account_name=account_name, attempted_bytes=len(file_body)
+            ):
                 raise
             raise CaptureFileNotVerifiedRemoved(
                 f"{caller_name}: close for {out_path} failed ({close_error!r}) "

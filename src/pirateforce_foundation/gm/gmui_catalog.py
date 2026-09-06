@@ -16,9 +16,15 @@ which page carries which widget, and what each widget sends -- and NO CLONE
 THIS LANE RUNS ON HAS THE IMAGE.  `pf_bridge/patches/gm_plugin/
 GameMaster.cpp` and `docs/GM_LANE.md` record what the image work found
 (`GMUI.project` declares `GMUI_1`; `GMUI_1.model` is the only one of 534
-models carrying a `GMUI_BASIC` tab; no `GMUI_BASIC.model` exists), and that
-is the whole of the committed page evidence: ONE tab name, on ONE page, and
-the other two pages are not named anywhere this house can read.
+models carrying a `GMUI_BASIC` tab; no `GMUI_BASIC.model` exists).
+
+UPDATED round `nfbat1`, and the update is smaller than it looks: `RE-283`
+(run on the owner's machine, where the image IS) named the other two tab
+pages -- `GMUI_ADVAN` and `GMUI_ACTIVITY` -- so the "only one page is
+named" sentence this docstring used to carry is retired, see `PAGES`.
+What `RE-283` did NOT buy is the other half of `0245`'s table: it came
+back PARTIAL at the one question that matters to a server, "what does a
+button send", so every row below still carries no opcode.
 
 So this module holds the two halves that CAN be built from committed
 artifacts, and a third that ~~is deliberately empty~~ turned out to have a
@@ -377,30 +383,71 @@ LOG_TYPES_ARE_NOT_BUTTONS = (
     "page, or an outbound opcode"
 )
 
-#: The one page name any committed artifact carries, and the honest shape of
-#: the rest.  `GMUI.project` -> `GMUI_1` -> child tab `GMUI_BASIC`
-#: (`pf_bridge/patches/gm_plugin/GameMaster.cpp` GM-DATA-001/002, and
-#: `docs/GM_LANE.md` round `gm17278` onward).  `PANYA-DECISION 20260904_0233`
-#: item 3 says there are THREE pages -- the owner has seen them on screen --
-#: so two rows here are placeholders naming what is missing, not empty
-#: strings pretending the pages do not exist.
+#: All three page names, each one the client's own `UITabPage` ID.  The two
+#: that used to be `UNNAMED_PAGE_2`/`UNNAMED_PAGE_3` placeholders were
+#: answered by `RE-283` (result letter
+#: `pf_bridge/notes_to_chief/20260906_2328_RE-283-RESULT-PARTIAL-three-pages-53-widgets-and-the-execute-path.md`,
+#: consumed round `nfbat1`): the RE runner opened `GMUI_1.model` on the
+#: owner's machine and found ONE `UITabControl` holding exactly three
+#: `UITabPage` children.  There is no `GMUI_ADVAN.model` or
+#: `GMUI_ACTIVITY.model` for the same reason there is no
+#: `GMUI_BASIC.model` -- a tab page is not a model of its own, which is
+#: what made the older drafts read the absence of those files as "the
+#: names are unknown".
 PAGE_KNOWN = "GMUI_BASIC"
-PAGE_UNNAMED_2 = "UNNAMED_PAGE_2"
-PAGE_UNNAMED_3 = "UNNAMED_PAGE_3"
-PAGES = (PAGE_KNOWN, PAGE_UNNAMED_2, PAGE_UNNAMED_3)
+PAGE_2 = "GMUI_ADVAN"
+PAGE_3 = "GMUI_ACTIVITY"
+PAGES = (PAGE_KNOWN, PAGE_2, PAGE_3)
 
-#: Why the two placeholders are placeholders, in the record rather than in a
-#: reviewer's memory.  STILL TRUE AND STILL THE POINT: these are the names
-#: of the client's own MODEL objects, and only one of the three is named by
-#: a committed artifact.  `PAGE_TITLE_ROW_IDS` below is a DIFFERENT thing --
-#: the words printed on the tab strip -- and knowing what a tab is captioned
-#: is not knowing what the model behind it is called.  Do not collapse the
-#: two.
+#: Where the two new names come from, pinned so a later round can re-check
+#: them instead of trusting this module.  The letter carries the sha256 of
+#: every input it read; this is the one that carries the tab pages.
+PAGE_NAME_PROVENANCE = (
+    "GameClient/Data/GUI/Model/GMUI_1.model sha256 "
+    "ffd7e5d1c44ffe36b5bacc2857aa049ae6cbea69e11f62541bd0632162bbc69f "
+    "(25,434 B), read by the RE runner for RE-283 on the owner's machine; "
+    "no clone this lane runs on holds the file"
+)
+
+#: The tab-strip caption row each page carries, in page order -- the same
+#: three ids `PAGE_TITLE_ROW_IDS` already held as an unordered set, now
+#: attached to the page each belongs to.  This is the independent check
+#: that the RE result and this module's earlier screenshot census are
+#: talking about the same three pages: the ids matched with nothing
+#: coordinating them.  A caption is still NOT a model name (page 2's
+#: caption disagrees with page 2's content -- see
+#: `PAGE_2_TITLE_DOES_NOT_MATCH_ITS_CONTENT`), so the two stay separate
+#: fields of the same row rather than one field doing both jobs.
+PAGE_CAPTION_ROW_BY_PAGE = {
+    PAGE_KNOWN: 1439,
+    PAGE_2: 1440,
+    PAGE_3: 1891,
+}
+
+#: Where each page's `UITabPage` pointer is stashed on the window object,
+#: and where the one confirm button outside the tabs is.  `RE-283` read
+#: these off the binder at `0x00726DF0..0x00727A56`; they are of no use to
+#: this server (it never touches client memory) and are kept only so a
+#: later RE round does not have to re-derive them to continue the one
+#: question RE-283 left open.
+PAGE_MEMBER_OFFSETS = {PAGE_KNOWN: 0x14, PAGE_2: 0x68, PAGE_3: 0xB0}
+CONFIRM_BUTTON_MEMBER_OFFSET = 0xE8
+CONFIRM_BUTTON_WIDGET_ID = "BUTTON_OK"
+
+#: What is settled about the three pages and what is still open, in the
+#: record rather than in a reviewer's memory.  The names are settled.  What
+#: a button SENDS is not: RE-283 came back PARTIAL, having proved the
+#: dispatcher builds one text command plus a number plus flags into a
+#: single object (`[ebx+0x14]`/`[ebx+0x18]`/`[ebx+0x1c]`, the cheat-code
+#: branch requiring a literal '/' first character) but NOT having walked
+#: that object to the send site -- so no row in this module may carry an
+#: opcode yet, `0x51E9` included.
 PAGES_NOTE = (
     "three pages per PANYA-DECISION 20260904_0233 item 3 (the owner has seen "
-    "them); only GMUI_BASIC is named by a committed artifact (GMUI_1.model's "
-    "child tab).  The other two names are an image question, not a guess this "
-    "lane gets to make"
+    "them); all three are now named by the client's own GMUI_1.model via "
+    "RE-283, one UITabControl with three UITabPage children.  What each "
+    "button SENDS is still open: RE-283 is PARTIAL and stops at the object "
+    "the dispatcher fills, one step short of the send site"
 )
 
 #: The words on the tab strip, by `n_ID` in the copied block -- the caption

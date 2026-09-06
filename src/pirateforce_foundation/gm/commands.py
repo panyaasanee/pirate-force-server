@@ -852,7 +852,19 @@ def _append_audit_record(record: dict, log_path: str | Path) -> Path:
     # identical: 0o600 has no group/other bits to be added back by any umask.
     # Same Windows caveat as command_capture.py applies (NTFS ignores this
     # bit split; this write zone has no ACL API to close that gap from here).
-    fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+    # os.O_BINARY (Windows only; getattr default 0 is a no-op on POSIX,
+    # where the flag does not exist) -- same defect class as
+    # command_capture.py's capture_raw_gm_command (pf-adversary D6, round
+    # `lkwmkp`): without it, os.open() on Windows opens the descriptor in
+    # the C-runtime's default text mode, and the raw os.write() below is
+    # then subject to \n -> \r\n translation, corrupting this ndjson audit
+    # log's one-line-per-record contract and desyncing the short-write
+    # retry loop's byte accounting from what actually lands on disk.
+    fd = os.open(
+        path,
+        os.O_CREAT | os.O_APPEND | os.O_WRONLY | getattr(os, "O_BINARY", 0),
+        0o600,
+    )
     try:
         # pf-adversary (round hs9m2r): this used to be a bare
         # `os.write(fd, ...)` whose return value was discarded. write(2) is

@@ -10521,3 +10521,110 @@ PANYA-ORDER `20260906_0155` (เส้นตาย 14:00) สั่งให้ 
 
 **ยังไม่ปิด** — `GT-200` (ไคลเอนต์วาดเลเวลจากฟิลด์นี้จริงหรือไม่) ยัง READY ไม่มีผล ·
 โทเคนของ session เป็นค่า process-wide (`runtime.py:7935`) ⇒ กติกา "GM เท่านั้น" ยังแยกคนไม่ได้
+
+## `_best_effort_unlink` retry มีขอบเขต — โควตาที่ค้าง ล้างได้ด้วยการรีสตาร์ต process เท่านั้น (รอบ `0op9bt` · COO-DECISION `2047`)
+
+`gm/command_capture.py` เขียน capture ล้มเหลว ⇒ พยายามลบไฟล์ที่เขียนค้างก่อนเสมอ
+(สัญญาเดิม: ล้มเหลว = ต้องไม่เหลือไบต์บนดิสก์) ตอนนี้การลบนั้น **ลองซ้ำได้ 3 ครั้ง**
+(`_UNLINK_ATTEMPTS = 3` · `_UNLINK_RETRY_DELAY_SECONDS = 0.05` ⇒ หน่วงรวมสูงสุด 0.1 วินาที
+ต่ำกว่าเพดาน ~300 ms ที่ COO กำหนด) เพราะความล้มเหลวที่คาดว่าจะเจอจริงคือ sharing violation
+ของ Windows ที่โปรเซสอื่นถือ handle ค้างไว้ชั่วครู่ · **ลินุกซ์ไม่เห็นความต่าง**: unlink ที่สำเร็จ
+ตั้งแต่ครั้งแรกไม่ `sleep` เลยสักครั้ง (มีเทสตรึงไว้)
+
+🔴 **ครบ 3 ครั้งแล้วยังลบไม่ได้ = สัญญาเดิมทุกข้อคงเดิม**: คืน `CaptureFileNotVerifiedRemoved`
+(chain จาก error เดิม) · `gm/dispatch.py` **ไม่คืนโควตา** ของสายเรียกนั้น · ไฟล์ยังอยู่บนดิสก์ ·
+พิมพ์ stderr **หนึ่งบรรทัด** `GM_CAPTURE_UNLINK_STUCK path=<ไฟล์> account=<บัญชี>
+attempted_bytes=<ไบต์> attempts=<N>` (ASCII ล้วน ผ่าน `console_safe` ทั้งสองฟิลด์ที่มาจากผู้ใช้จริง —
+`path`/`account`) **ไม่มี janitor และไม่มีอะไรคืนโควตานั้นให้ภายหลัง — โควตาที่ค้างแบบนี้ล้างได้ทางเดียวคือ
+รีสตาร์ต process** (COO ตัดข้อ janitor + คืนโควตาออกจนกว่าจะวัดอาการจริงบนเครื่อง Windows ได้)
+
+**ADDENDUM (รอบ `0op9bt`, ตามผล pf-adversary หลังปลดล็อกรอบก่อน)** — เส้นทาง shutdown
+(`_capture_raw`'s `except BaseException`, ที่ re-raise `KeyboardInterrupt`/`SystemExit` เดิมไม่แปลง)
+เรียก `_best_effort_unlink(..., retry=False)`: **หนึ่งครั้งเท่านั้น ไม่ sleep เลย** แม้ unlink จะล้ม
+(สองเส้นทางล้มเหลวปกติ — write ล้ม, close ล้ม — ยังได้ retry เต็ม 3 ครั้งเหมือนเดิม) เพราะ `time.sleep`
+ระหว่าง retry เปิดหน้าต่างช่วง shutdown ที่สัญญาณตัวที่สองอาจมาแทนที่ exception ที่กำลัง re-raise อยู่ ·
+บรรทัด log รอบ guard ก็กว้างขึ้นจาก `except Exception` เป็น `except BaseException` ด้วยเหตุผลเดียวกัน
+(`except Exception` ไม่ครอบ `KeyboardInterrupt`/`SystemExit` ซึ่งเป็นสองตัวที่ comment เดิมอ้างถึง) ·
+ทั้งสองข้อพิสูจน์ด้วยมิวแทนต์ (retry=True ที่เส้นทาง shutdown / แคบ guard กลับเป็น `except Exception`)
+ใน `tests/test_gm_command_capture.py`
+
+## เทสของสาย GM ห้ามตรึง "โฮสต์เป็น POSIX" (รอบ `nfbat1` · สาเหตุที่เกตปิด `#962`)
+
+`#962` (ชุดแก้ D1-D8 + O_BINARY) ถูก `merge-claude-pr.yml` ปิดเพราะเกต Windows แดงที่
+`pytest_subset` — **2 failed, 11536 passed** และทั้งสองใบคือบรรทัดแรกของเทสคู่แฝด
+`test_capture_file_open_flags_unchanged_when_o_binary_absent`
+(`tests/test_gm_command_capture.py:269`) กับ `test_log_open_flags_unchanged_when_o_binary_absent`
+(`tests/test_gm_commands.py:417`): `self.assertFalse(hasattr(os, "O_BINARY"))` →
+`AssertionError: True is not false` · `os.O_BINARY` **มีจริงบน windows-latest** ซึ่งเป็นเครื่องที่เกต
+ของโปรเจกต์นี้เดิน ⇒ ประโยคนั้นเป็นการตรึง *เครื่อง* ไม่ใช่ตรึง *โค้ด*
+
+🔴 กฎของสายนี้ต่อจากนี้: เทสที่ต้องการเดินสาขา fallback ของ `getattr(os, "<FLAG>", 0)`
+ให้ **จำลองการไม่มีแฟล็ก** ด้วย context manager `_o_binary_removed` (ลบ attribute ชั่วคราว คืนใน
+`finally`) ไม่ใช่สมมติว่าโฮสต์ไม่มีให้ — สาขานั้นจะถูกเดินจริงทุกแพลตฟอร์ม และเทสไม่แดงเพราะเครื่อง
+(บ้านนี้มีแบบอย่างอยู่แล้วที่ `test_gm_commands.py` ใช้ `if os.name == "posix":` แยกทางสำหรับโหมดไฟล์)
+
+หลักฐานรอบ `nfbat1` (สองชั้นแยกกัน): (1) log ของ job เกตเอง — ชื่อเทสสองใบและข้อความ assert ตรงตัว ·
+(2) จำลองบนคลาวด์ลินุกซ์ด้วยการใส่ `os.O_BINARY` เข้าไปในโมดูล `os` ก่อนเรียก pytest → ไฟล์ก่อนแก้ให้
+**2 failed / 94 passed** เท่ากับเกตเป๊ะ ไฟล์หลังแก้ให้ **96 passed** และไม่ใส่ก็ 96 passed เหมือนกัน ·
+ฟันของเทสยังอยู่ (มิวแทนต์: fallback `0`→`4` ทำให้สองใบ "absent" แดง · ถอดแฟล็กออกจากนิพจน์ flags
+ทำให้สองใบ "when available" แดง)
+
+**ADDENDUM (รอบ `nfbat1`, ตามผล pf-adversary ของรอบเดียวกัน)** — บรรทัด `GM_CAPTURE_UNLINK_STUCK`
+แก้สามข้อ:
+1. 🔴 **`account` ไม่ ASCII ล้วนอีกต่อไป และนั่นคือสิ่งที่ถูก** — ร่างก่อนหน้าใช้ `_escape_for_header`
+   (= `unicode_escape`) ก่อน `console_safe` ซึ่งทำให้ `console_safe` ไร้ผลและบังคับ ASCII เสมอ ⇒ บัญชีชื่อ
+   `ทดสอบ` พิมพ์ออกมาเป็น `ท...` บนคอนโซล cp874 ที่รับไทยได้อยู่แล้ว (ผู้ดูแล grep ชื่อตัวเองไม่เจอ)
+   — เป็นความผิดพลาดที่ docstring ของ `console_safe` บันทึกไว้เองว่าเคยจ่ายไปแล้วหนึ่งรอบ · ตอนนี้ใช้
+   `_fold_line_breaking_controls` (หนี control character เท่านั้น **ไม่หนี backslash** ตามแผลเก่าอีกข้อ)
+   แล้วค่อย `console_safe`
+2. **`path` ได้เกราะขึ้นบรรทัดใหม่ด้วย** — `capture_root` ที่มี `\n` เคยปลอมบรรทัดที่สองได้จริง (วัดแล้ว)
+   ทั้งที่คอมเมนต์ของ fix เดิมอ้างเองว่า `path` เป็นค่าที่ผู้ดูแลควบคุม
+3. **Ctrl-C ไม่ถูกกลืนบนเส้นทางปกติ** — guard `except BaseException` ของ D2 ถูกเขียนเพื่อเส้นทาง shutdown
+   (`retry=False`) แต่ฟังก์ชันเดียวกันถูกเรียกจากเส้นทาง write ล้ม/close ล้มด้วย ⇒ ตอนนี้
+   `KeyboardInterrupt`/`SystemExit` ถูกส่งต่อเมื่อ `retry=True` และยังถูกกลืนเฉพาะเส้นทาง shutdown เหมือนเดิม
+
+🔴 แก้คำในเอกสารข้างบนด้วย: `attempted_bytes` = `len(file_body)` **ไม่ใช่โควตาที่ค้าง** — โควตาที่
+`gm/dispatch.py` หักคือ `_charged_capture_bytes(...)` (มีพื้นเป็น block ของดิสก์) ซึ่งมากกว่าเสมอสำหรับ
+ไฟล์เล็ก · เลขในบรรทัดนี้ใช้ **ระบุว่าเป็นการเรียกไหน** ไม่ใช่เอาไปลบออกจากเพดานบัญชี
+
+## รอบสองของกฎเดียวกัน: เทสห้าม "ขอระบบไฟล์สร้างชื่อที่มีแต่ POSIX ยอม" (รอบ `vxr32s` · สาเหตุที่เกตปิด `#970`)
+
+`#970` คือใบกู้ `#962` ที่แก้เรื่อง `os.O_BINARY` ไปแล้ว — และถูกปิดซ้ำด้วยเกต Windows แดงที่
+`pytest_subset` **1 failed, 11618 passed** ใบเดียวคือ
+`tests/test_gm_command_capture.py::GmCommandCaptureTests::test_a_capture_root_with_a_newline_cannot_forge_a_second_stuck_line`
+ซึ่ง**เป็นเทสที่ `#970` เพิ่งเพิ่มเอง**ในรอบก่อน:
+
+```
+root = Path(self._tmp.name) / f"cap{forged}" / "capture"   # forged ขึ้นต้นด้วย "\n"
+...
+src\pirateforce_foundation\gm\command_capture.py:511: in _capture_raw
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+E   OSError: [WinError 123] The filename, directory name, or volume label syntax
+    is incorrect: '...\\tmppiftxjra\\cap\nGM_CAPTURE_UNLINK_STUCK path=C:\\clean account=admin\\capture'
+```
+
+⇒ เทสตายที่ `mkdir` **ก่อนถึง assert บรรทัดแรกของตัวเอง** · ขึ้นบรรทัดใหม่เป็นอักขระที่ถูกกฎในชื่อไฟล์ POSIX
+และผิดกฎบน Windows — เทสจึงตรึง *เครื่อง* อีกครั้ง คนละกลไกกับ `#962` แต่ชนิดเดียวกันเป๊ะ
+
+🔴 กฎที่กว้างกว่าเดิม (แทนที่กฎ `nfbat1` ที่พูดถึงแค่แฟล็ก `os.*`): **คุณสมบัติที่เทสต้องการพิสูจน์
+มักเป็นคุณสมบัติของ "สตริง" ไม่ใช่ของ "ไฟล์จริง"** — ถ้าพิสูจน์ได้โดยเรียกฟังก์ชันที่ประกอบบรรทัดนั้นตรง ๆ
+(ที่นี่คือ `_best_effort_unlink(path=...)`) ให้ทำแบบนั้น อย่าให้ระบบไฟล์เข้ามาเป็นเงื่อนไขที่ต่างกันต่อ OS ·
+ส่วนที่ *ต้อง* มีไฟล์จริง ให้แยกเป็นเทสของตัวเอง และ **ถามระบบไฟล์ ไม่ใช่ถาม `os.name`**:
+
+```python
+try:
+    root.mkdir(parents=True, exist_ok=True)
+except OSError:
+    return   # ระบบไฟล์นี้ไม่รับชื่อนี้ -- เทสพี่น้องข้างบนตรึงคุณสมบัติไว้แล้ว
+```
+
+`if os.name != "posix": return` **ไม่พอ** และรอบนี้จับได้ด้วยเครื่องมือของรอบเอง: ร่างแรกของ guard เขียนแบบนั้น
+แล้วการจำลองกฎชื่อไฟล์ของ Windows บนลินุกซ์ (แพตช์ `os.mkdir`/`os.open` ให้โยน `OSError(22)`
+เมื่อพบอักขระควบคุมหรือ `<>"|?*`) ทำให้เทสใบใหม่ของรอบนี้เองแดง — เพราะ `os.name` ยังเป็น `posix`
+ขณะที่ระบบไฟล์ปฏิเสธ นั่นคือช่องว่างเดียวกับที่ปิด `#962`/`#970` แค่ย้ายที่
+
+หลักฐานรอบ `vxr32s` (สองชั้นแยกกัน): (1) log ของ job เกตเอง — traceback และ `WinError 123` ตรงตัว
+(เกตยัง **ไม่** พิมพ์บรรทัด `FAILED <node id>` เพราะใบ `-rfE` ของ chief ยังไม่ลง จึงต้องอ่าน traceback แทน) ·
+(2) จำลองกฎชื่อไฟล์ของ Windows บนคลาวด์ลินุกซ์: ไฟล์เทสของ `#970` = **1 failed / 50 passed** (ใบเดียวกับเกตเป๊ะ)
+ไฟล์หลังแก้ = **52 passed** ทั้งในโหมดจำลองและโหมดลินุกซ์ปกติ · ฟันยังอยู่ (มิวแทนต์: ถอด
+`_fold_line_breaking_controls` ออกจากฟิลด์ `path` ⇒ แดงทั้งสองใบ)
