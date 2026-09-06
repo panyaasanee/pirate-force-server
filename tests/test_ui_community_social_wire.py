@@ -67,6 +67,21 @@ class ChangeActorCommentWireTests(unittest.TestCase):
         corrupted = bytes([0x00]) + payload[1:]
         self.assertIsNone(comm.decode_change_actor_comment_payload(corrupted))
 
+    def test_wstring_field_uses_tag_0x48(self):
+        # Pins the actual bug this class was migrated to fix (round
+        # `on8hbb`): field2's wstring must carry tag byte 0x48 right
+        # after the 9-byte u64tag(field1). A round-trip test alone
+        # would not catch a silent revert to encode_untagged_wstring
+        # (that pair simply omits this byte and everything downstream
+        # still round-trips against itself) -- see pf-adversary's
+        # finding on this round.
+        payload = comm.encode_change_actor_comment_payload(
+            comm.ChangeActorCommentFields(1, "hi", 2)
+        )
+        self.assertEqual(payload[9], 0x48)
+        corrupted = payload[:9] + bytes([0x00]) + payload[10:]
+        self.assertIsNone(comm.decode_change_actor_comment_payload(corrupted))
+
 
 class ChangeActorPenNameWireTests(unittest.TestCase):
     def test_round_trip(self):
@@ -108,6 +123,18 @@ class ChangeActorPenNameWireTests(unittest.TestCase):
     def test_distinct_type_from_change_actor_comment(self):
         self.assertIsNot(
             comm.ChangeActorPenNameFields, comm.ChangeActorCommentFields
+        )
+
+    def test_wstring_field_uses_tag_0x48(self):
+        # See ChangeActorCommentWireTests.test_wstring_field_uses_tag_0x48
+        # for why a round-trip test alone cannot catch this class's bug.
+        payload = comm.encode_change_actor_pen_name_payload(
+            comm.ChangeActorPenNameFields(1, "pen", 2)
+        )
+        self.assertEqual(payload[9], 0x48)
+        corrupted = payload[:9] + bytes([0x00]) + payload[10:]
+        self.assertIsNone(
+            comm.decode_change_actor_pen_name_payload(corrupted)
         )
 
 
@@ -364,6 +391,16 @@ class RemoveBlackListWireTests(unittest.TestCase):
         self.assertIsNot(
             comm.RemoveBlackListFields, comm.ChangeActorCommentFields
         )
+
+    def test_wstring_field_uses_tag_0x48(self):
+        # See ChangeActorCommentWireTests.test_wstring_field_uses_tag_0x48
+        # for why a round-trip test alone cannot catch this class's bug.
+        payload = comm.encode_remove_black_list_payload(
+            comm.RemoveBlackListFields(1, "name", 2)
+        )
+        self.assertEqual(payload[9], 0x48)
+        corrupted = payload[:9] + bytes([0x00]) + payload[10:]
+        self.assertIsNone(comm.decode_remove_black_list_payload(corrupted))
 
 
 class ReplyLetterInABottleWireTests(unittest.TestCase):

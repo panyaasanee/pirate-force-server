@@ -379,6 +379,25 @@
       "note": "round okdfge (LANE-B): mob_pickup_request.py transcribes its pins (object ref tag 0x14 at +0x14, cell tag 0x08 at +0x18, seven-byte body) by hand out of PF_SERIALIZER_FIELDS.tsv; this class re-reads that table itself so the transcription cannot drift, and a clone without the sibling table cannot answer. Pinned here because round h6bl53 shipped the same class with a BARE skipTest in setUp and the Windows gate's skip census closed pull request #540 for it - 'UNDECLARED SKIP: tests/test_mob_pickup_request.py skipped 3 test(s)' - the same defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud, and that round szdkgs shipped again before round 0n9inw converted it. THE KEY IS THE ONE FILE, NOT THE EIGHT: a first draft of this pin guarded the class with external_re_tables, and pf-adversary measured a sibling holding seven of the eight tables (only PF_TAG_CENSUS.tsv missing) skipping this cross-check with a reason whose own tail said the table it reads was present - so bridge_serializer_table names exactly PF_SERIALIZER_FIELDS.tsv. The half of the same check that CAN run on the gate is PinnedNumbersAreHardPinnedEverywhereTests in the same module, which carries no precondition and must never appear in this file."
     },
     {
+      "key": "ui_wire_census_inputs",
+      "module": "tests/test_ui_wire_name_census.py",
+      "count": 11,
+      "tests": [
+        "BuildRowsTests::test_row_count_matches_the_master_catalog",
+        "BuildRowsTests::test_pinned_tier_counts",
+        "BuildRowsTests::test_every_row_has_one_of_the_three_tiers",
+        "BuildRowsTests::test_source_tier_evidence_is_a_real_path_and_line",
+        "BuildRowsTests::test_untouched_rows_have_no_evidence",
+        "BuildRowsTests::test_is_client_req_flag_matches_the_helper_function",
+        "BuildRowsTests::test_is_client_req_matches_both_wire_naming_conventions",
+        "BuildRowsTests::test_rerun_is_deterministic",
+        "WindowsPathSafetyTests::test_source_hit_evidence_uses_posix_separators_even_under_a_windows_style_relative_to",
+        "CommittedArtifactTests::test_committed_artifact_matches_a_fresh_rederive",
+        "CommittedArtifactTests::test_committed_artifact_round_trips_through_parse_tsv"
+      ],
+      "note": "round on8hbb (LANE-UI), measured by pf-adversary: this test file previously shipped with NO precondition guard at all, on a false citation that tests/test_field_mob_tables_bg0002.py's bare path construction was precedent for skipping the guard entirely (that file has its own bridge_gamedata guard two lines below the path it cited). A guard used to exist here (a bare unittest.skipIf), deleted in round 9dezrf on the same false citation because pf_gate_preflight.py flagged it as an unpinned skip -- the fix was to register the pin, not delete the guard. Reproduced directly: on a checkout with no ../pf_bridge sibling (the exact shape of the gate-windows single-repo runner), 10 of this file's then-10 tests FAILED outright instead of skipping. This is PR #961's reported gate-windows pytest_subset 'FAILED (9)' -- the file had 10 tests before this round added the 11th (WindowsPathSafetyTests, also guarded here from the start). THE KEY NAMES THE THREE FILES tools/pf_ui_wire_name_census.py actually reads (VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv, PF_PROTOCOL_REGISTRY.tsv, PF_SERIALIZER_FIELDS.tsv), not the broader external_re_tables/bridge_sibling keys, for the same too-broad-key reason bridge_serializer_table above states."
+    },
+    {
       "key": "bridge_gamedata",
       "module": "tests/test_field_mob_tables_bg0002.py",
       "count": 4,
