@@ -324,6 +324,14 @@ EXPECTED_TABLES = {
     # this pin counts tables, it does not test this file's own
     # npc_interaction behaviour.
     "character_home_marker",
+    # character_equipment: the equipped-item persistence door, not quest/
+    # shop/reward state -- PANYA-ORDER 20260906_1312 arm (b) ordered the
+    # table (migrations/015_character_equipment.sql).  Same one-line
+    # whitelist pattern chief blessed for ground_drops/character_skills/
+    # character_home_marker above (notes_to_chief/20260901_1416 /
+    # 20260901_1459): this pin counts tables, it does not test this file's
+    # own npc_interaction behaviour.
+    "character_equipment",
 }
 
 
