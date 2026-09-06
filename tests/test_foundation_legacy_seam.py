@@ -807,14 +807,21 @@ GRADE_SUBSET_SHA256 = (
     # ChooseNPC responder, so a premature flip of that responder's own gate
     # would have removed the talk trigger for every Port Royal NPC but
     # Columbus with all three still green.
-    # ``TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests``
+    # ``TheRegisteredResponderMeasuresTheTalkTriggerAtRealDispatchTests``
     # (tests/test_lane_a_choose_npc_scene1.py) registers that responder onto
     # the real scene-1 slot and drives it through
-    # runtime.make_state_class, closing the dispatch-level gap; today it
-    # pins an absence (the talk trigger is still missing at real dispatch,
-    # because runtime.py does not yet queue ChooseNpcResponse.extra_actions
-    # -- CORE-REQUEST 20260904_0137), by design, and its own docstring names
-    # what must change the day that line lands.
+    # runtime.make_state_class, closing the dispatch-level gap.  UPDATE
+    # 2026-09-06 (LANE-A round eknq8d, pf-adversary D4/D5): CORE-REQUEST
+    # 20260904_0137 landed on main and the class's own assertion inverted
+    # the same day -- it now pins a PRESENCE, not an absence: a real
+    # dispatched click through the registered responder carries the talk
+    # trigger, because runtime.py's responder branch now queues
+    # ChooseNpcResponse.extra_actions.  The class was renamed for the same
+    # reason (its old name, "...Drops...", was true when this note was
+    # written and is false now); this comment moves with it rather than
+    # calling the digest below, which the class rename does not touch --
+    # grade_subset excludes this row's "notes" field from what it digests,
+    # so this prose edit and the rename both leave the pin byte-identical.
     # Parent digest, kept greppable:
     #   parent 4C3049CD66DEE97F40B94CAA0C9F837FEA7DCE480F368B3BBADFA1F147F1E386, recorded by round elvg52
     #   this pin, recorded by round vxfepr:

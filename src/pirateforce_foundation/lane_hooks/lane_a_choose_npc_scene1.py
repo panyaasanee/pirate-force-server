@@ -16,10 +16,10 @@ click, the responder registered in one run and withdrawn in the other;
     click        on main today                       with this responder
     ---------    --------------------------------    -------------------
     P1           face 14,142 B                       face 14,142 B
-                 + V98_NPC_CONVERSATION_DEFAULT 34 B   (LOST)
+                 + V98_NPC_CONVERSATION_DEFAULT 34 B   ~~(LOST)~~ PAID, ROUND eknq8d
                  + Columbus quest 44 B               + Columbus quest 44 B
     P91          face 14,142 B                       face 14,142 B
-                 + TRADE_ZOOM_STORE5 48 B              (LOST)
+                 + TRADE_ZOOM_STORE5 48 B              ~~(LOST)~~ PAID, ROUND eknq8d
     P30          (nothing -- refused by name)        face 14,142 B (a gain)
 
     READ THAT TABLE WITH ROUND ``yjjtyn``'s AMENDMENT, WHICH CHANGES ONE
@@ -45,8 +45,13 @@ click, the responder registered in one run and withdrawn in the other;
     Driven through ``runtime.make_state_class`` this round with this
     responder registered
     (``tests/test_lane_a_choose_npc_scene1.py``'s
-    ``TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests`` pins
-    all three rows):
+    ``TheRegisteredResponderMeasuresTheTalkTriggerAtRealDispatchTests``
+    dispatch-drives THREE of the four rows below -- P1, P91 and, ROUND
+    ``20udga``, P30 (pf-adversary D2 measured that the table
+    claimed "all three rows" over a table that actually has FOUR, and that
+    neither P30 nor P0 had a dispatch-level test; P30's is added this
+    round, closing that gap for the row where the responder differs in
+    KIND from main):
 
         click        on main today                       with this responder
         ---------    --------------------------------    -------------------
@@ -58,13 +63,33 @@ click, the responder registered in one run and withdrawn in the other;
                                                          alone -- the latch is
                                                          written back)
         P30          (nothing -- refused by name)        face (a gain)
-        P0           (nothing -- unresolvable)           (nothing -- the same)
+        P0           (nothing -- unresolvable,           (nothing -- the same,
+                     ON AN ORDINARY BOOT)                ON AN ORDINARY BOOT
+                                                         ONLY -- NOT DISPATCH
+                                                         TESTED, pf-adversary
+                                                         D8: on a second-
+                                                         password-bypass boot
+                                                         the frozen v134
+                                                         fallback arms P0
+                                                         with a real quest
+                                                         actor and a click
+                                                         there opens a quest
+                                                         conversation while
+                                                         this responder would
+                                                         answer silence --
+                                                         reason 5 below
+                                                         measures that boot;
+                                                         this row does not)
 
     WHAT IS STILL NOT PAID, AND IT IS NO LONGER THE ACTIONS: steps 4 and 5
     below, whose chief-owned ``runtime.py`` lines are still absent from
-    ``main`` (grepped at HEAD this round: ``world_census_identity_resolved``,
-    ``runtime_ack_sent`` and ``exact_frozen_marker1_ready_pc`` appear at no
-    call site in ``runtime.py``).  Those three keywords are this module's
+    ``main`` (grepped at HEAD this round: ``world_census_identity_resolved``
+    (6 hits), ``runtime_ack_sent`` (39 hits) and
+    ``exact_frozen_marker1_ready_pc`` (0 hits) appear at no call site AS THE
+    RESPOND() KEYWORD in ``runtime.py`` -- pf-adversary D6: the earlier
+    "appear at no call site" wording was refuted by a plain grep for the
+    first two names, which do appear, just never as this module's keyword).
+    Those three keywords are this module's
     DECLINE guards, so flipping the gate today would take the scene over on
     boots where it must stand aside.  That is why the gate below is still
     False -- a different reason from the one this table carried before, and
@@ -73,8 +98,10 @@ click, the responder registered in one run and withdrawn in the other;
 THE FACE FRAME IS ALREADY AT PARITY, AND THAT IS NOT ENOUGH.  Its 14,142
 bytes are byte-identical to ``world_face_frame.build_face_state``'s, which
 is what runtime.py really sends today (``rebuild_face_actions``,
-``runtime.py:10410-10414`` -- re-derived at HEAD this round,
-the old ``9103`` pin had rotted -- gated on the census's own
+``runtime.py:10529-10533`` -- RE-DERIVED AGAIN, ROUND ``20udga``
+(pf-adversary ``eknq8d`` D7 measured the ``10410-10414`` pin round ``eknq8d``
+itself wrote had already rotted by the time it landed; grep the file before
+trusting a line number here, not this pin) -- gated on the census's own
 ``world_census_identity_resolved``).  An earlier draft of this round read
 that equality as "the flip is free" and was wrong: THE ANSWER TO A CLICK
 IS NOT ONE ACTION.  The frozen loop also emits the empty NPCConversation
@@ -158,6 +185,19 @@ any order, all of them before the flip):
     back only the two names it recognises out of ``latches_spent``.  Two
     clicks on the shop trigger in ONE dispatched session now answer
     trade-zoom-then-nothing rather than trade-zoom twice.
+    NOT STRUCK ENOUGH, ROUND ``20udga`` (pf-adversary ``eknq8d`` D13,
+    MEASURED): ``VENDOR_AND_MISSION_LATCH_WIRING`` itself calls the vendor
+    keyword AND ``trade_session_membership.py``'s store-session stamp "one
+    edit", the ask LANE B filed alongside it (``trade_session_membership.py
+    :75-79``, RE-157 job 1) -- and grepping ``runtime.py`` at HEAD this
+    round for ``trade_session_membership``/``build_session`` returns
+    NOTHING.  Only the half struck above landed.  So this item is HALF
+    SHIPPED, not shipped: the flip today would open store 5 on screen with
+    no session stamped, and per the wiring constant's own words that
+    answers every cart-add and buy with
+    ``trade_cmd_no_active_session_no_reply``.  Do not read the paragraph
+    above as step 2 being finished; the safety net step 3's attended
+    ticket exists for does not yet cover a purchase, only an open.
 3.  Only then the flag, with an attended ticket that clicks a townsperson,
     a shop keeper and placement 30 in Port Royal and reports what opened.
 4.  ~~Every other v141 behaviour that rides a ``TARGET_VITAL`` frame in
@@ -186,7 +226,7 @@ any order, all of them before the flip):
     FALSE: ``v129_post_action1_request_observed`` (bookkeeping, no frame)
     and ``v126_action_target_arm``, which is why step 3's attended ticket
     must click with a weapon bound.
-5.  ~~The responder honours the census authority ``runtime.py:10410``
+5.  ~~The responder honours the census authority ``runtime.py:10529``
     honours (``world_census_identity_resolved``) and DECLINES rather than
     composes on a boot whose login shipped Mob-Set numbers.~~  LANE HALF
     DONE, ROUND ``6dvcer``, ADDITIVELY, AND THE UNDONE HALF IS NAMED
@@ -237,7 +277,7 @@ any order, all of them before the flip):
     ROUND ``vxfepr``.  Its three ``test_refs`` before this round exercised
     the builders only, so a premature flip would have removed the talk
     trigger for every Port Royal NPC but Columbus with all three still
-    green.  ``TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests``
+    green.  ``TheRegisteredResponderMeasuresTheTalkTriggerAtRealDispatchTests``
     (bottom of ``tests/test_lane_a_choose_npc_scene1.py``) registers this
     module's ``respond`` onto scene 1's REAL registry slot -- what the
     registry holds the day the gate opens, not a private stand-in -- and
@@ -307,8 +347,14 @@ not at login, unlike the warp path (``world_population_handoff``'s
 roster immediately on arrival with no movement required.
 
 WHY LOGIN CANNOT SIMPLY COPY THE WARP PATH TODAY, MEASURED IN ``runtime.py``
-ITSELF (not this lane's guess -- read the comment at ``runtime.py:7544-7568``
-and the field comment at ``runtime.py:8256-8265``, both already on ``main``
+ITSELF (not this lane's guess -- ~~read the comment at ``runtime.py:7544-7568``
+and the field comment at ``runtime.py:8256-8265``~~ -- THOSE TWO LINE PINS
+ROTTED, MEASURED BY pf-adversary ``eknq8d`` D7: at HEAD, ROUND ``20udga``,
+both numbers now land on unrelated comments (grepped rather than re-read
+line by line, and neither this round's time nor its lane budget covers a
+full git-blame re-derivation of two pins this round did not write) -- grep
+``runtime.py`` for ``population_indices`` and the scene-1 arm before
+trusting either number, both already on ``main``
 before this file existed).  The scene-1 census branch unconditionally arms
 ``self.population_indices`` with the composed roster's placement indices.
 The FROZEN dispatcher
@@ -328,7 +374,7 @@ HOW SCENE 14 CLOSED THE SAME GAP, AND WHY THIS FILE COPIES THE SHAPE RATHER
 THAN THE CODE.  ``lane_hooks/lane_a_choose_npc_scene14.py`` answers scene
 14's clicks through this exact registry
 (``lane_hooks.choose_npc_responder``), and ``runtime.py``'s own guard
-(``runtime.py:7088-7160``, already generic over scene id -- see its own
+(``runtime.py:10086-10098``, already generic over scene id -- see its own
 call, ``lane_hooks.scene_choose_npc_responder(self.foundation.selected.
 position.scene_id)``) already routes ANY scene's ``TARGET_VITAL``/
 ``CHOOSE_NPC`` frame through a registered, ``production_allowed`` responder
@@ -375,7 +421,7 @@ the round that wrote it had NOT read the passage it defers to, and a
 draft of round ``zqmosn`` then made that worse by calling the pair
 circular and putting a sentence in quotation marks that does not exist in
 ``runtime.py`` (pf-adversary ``zqmosn`` B1: ``grep`` for it returns
-nothing).  WHAT THAT PASSAGE ACTUALLY SAYS, at ``runtime.py:9429-9451``,
+nothing).  WHAT THAT PASSAGE ACTUALLY SAYS, at ``runtime.py:10856-10874``,
 quoted from the file: home is not widened because of a "MEASURED uncaught
 crash rather than parity taste", the bg0001 arm being "the only census
 arm that arms ``self.population_indices`` with no lane_hooks ChooseNPC
@@ -434,7 +480,7 @@ from .lane_a_scene_census import scene_is_open_to_players
 # ~~Flip only after the runtime.py login trigger widen (CORE-REQUEST) has
 # landed AND this lane has reviewed the tests with pf-adversary once
 # more~~ -- STRUCK ROUND ``zqmosn``: that condition deferred to a passage
-# (``runtime.py:9429-9451``) which names a deferred install of
+# (``runtime.py:10856-10874``) which names a deferred install of
 # ``population_indices`` as a way out that needs nothing from this file,
 # so waiting on it was never the only option -- and it was not the real
 # blocker either.  Round ``zqmosn`` drove the real
@@ -452,9 +498,9 @@ SCENE_N_ID = world_population.SCENE_ID
 # to ``super().dispatch(parsed)`` -- the frozen loop".  THAT IS FALSE, and
 # this file's own docstring said so 500 lines above the sentence that
 # claimed it: the call site sets ``actions = []`` on a decline with NO
-# fallback (``runtime.py:10255-10262``); ``super().dispatch(parsed)`` sits
+# fallback (``runtime.py:10376-10382``); ``super().dispatch(parsed)`` sits
 # in the OTHER arm, the one taken only when no responder is registered
-# (``runtime.py:10263-10264``).
+# (``runtime.py:10384``).
 #
 # MEASURED through ``runtime.make_state_class`` itself, one ordinary click
 # on placement 3, three runs:
@@ -617,7 +663,7 @@ of the two halves can land, land neither.
 WORLD_CENSUS_IDENTITY_RESOLVED_WIRING = """runtime.py, the responder branch.
 TWO changes, and neither is useful without the other.
 
-(1) At the respond() call (runtime.py:10081-10235), add the keyword.  The
+(1) At the respond() call (runtime.py:10123-10302), add the keyword.  The
     surrounding names are LOCALS and attributes of the state object, so it
     reads exactly like the keywords already there:
 
@@ -635,9 +681,9 @@ TWO changes, and neither is useful without the other.
         )
 
     self.world_census_identity_resolved is the census's own flag, the same
-    one runtime.py:10410 already gates rebuild_face_actions on.
+    one runtime.py:10529 already gates rebuild_face_actions on.
 
-(2) At the decline branch (runtime.py:10255-10262), a decline that came
+(2) At the decline branch (runtime.py:10376-10382), a decline that came
     from THIS guard must fall back to the frozen loop rather than to
     actions = [].  Without (2), (1) makes an already-bad boot silent.
     Whoever writes (2) decides how the two decline reasons are told apart;
@@ -649,7 +695,7 @@ TWO changes, and neither is useful without the other.
 VENDOR_AND_MISSION_LATCH_WIRING = """runtime.py, the responder branch.  Step 2's
 call-site half.  TWO changes, and the second is what makes the first safe.
 
-(1) At the respond() call (runtime.py:10081-10235), pass the two frozen
+(1) At the respond() call (runtime.py:10123-10302), pass the two frozen
     session latches.  Both are already attributes of the state object the
     frozen loop itself sets (v141:3534-3535), so this reads like the
     keywords already there:
@@ -946,9 +992,13 @@ def _conversation_extra(
     * the SHOP TRIGGER (``V112_SHOP_TRIGGER_INDEX``): same latch shape --
       ``make_trade_zoom_store5`` once per session
       (``shop_store5_open_sent``), and no empty conversation at all.  This
-      arm IS reachable: P91 is in the table, which is why it is the arm
+      arm IS reachable: P91 is in the table, ~~which is why it is the arm
       that keeps the gate shut ("P91 ... (LOST)" in the module docstring's
-      cost table) and the arm this round exists for.  Same three-state
+      cost table)~~ -- STRUCK, ROUND ``eknq8d`` (pf-adversary D1: the
+      docstring's two "(LOST)" cells are PAID now, so this arm is why the
+      FLIP WOULD HAVE COST the shop before the latch wiring landed, not why
+      the gate stays shut today; see "WHAT IS STILL NOT PAID" above for the
+      live reason) -- and the arm this round exists for.  Same three-state
       keyword as the quest actor: ``False`` composes the trade-zoom,
       ``True`` composes nothing under a DUPLICATE-SUPPRESSED reason (the
       frozen loop's own ``v112_store5_duplicate_open_suppressed`` event,
