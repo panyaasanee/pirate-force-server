@@ -232,14 +232,17 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
         # Not a sample: every qualified name the census found THAT IS STILL
         # A STUB, called for real through a live ScriptHost, must log its
         # own stub line.  The 5 Trigger.* names that became real (round
-        # after s2fxf6) and the 7 Instance.* names that became real (a
-        # later round) are excluded here -- calling any of them with a bare
-        # `()` is not a stub-reachability probe for them, it is a
-        # wrong-arity call for the ones that take arguments (e.g.
+        # after s2fxf6), the 7 Instance.* names that became real (a later
+        # round) and the 1 Quest.* name that became real (round after
+        # 4jsydv, CheckOpenTime) are excluded here -- calling any of them
+        # with a bare `()` is not a stub-reachability probe for them, it is
+        # a wrong-arity call for the ones that take arguments (e.g.
         # GetTriggerStatus/SetTriggerStatus/SetLastingTime/AddKeyEvent) --
         # and their own reachability is proven exhaustively, at their real
-        # arity, by tests/test_script_lua_api_trigger.py and
-        # tests/test_script_lua_api_instance.py respectively.
+        # arity, by tests/test_script_lua_api_trigger.py,
+        # tests/test_script_lua_api_instance.py and
+        # tests/test_script_lua_api_quest.py respectively.
+        from pirateforce_foundation.lua_api import quest as lua_api_quest
         from pirateforce_foundation.lua_api import spec as api_spec
         from pirateforce_foundation.lua_api import trigger as lua_api_trigger
         from pirateforce_foundation.lua_api import instance as lua_api_instance
@@ -248,6 +251,8 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             if fn.namespace == "Trigger" and fn.method in lua_api_trigger.REAL_METHODS:
                 continue
             if fn.namespace == "Instance" and fn.method in lua_api_instance.REAL_METHODS:
+                continue
+            if fn.namespace == "Quest" and fn.method in lua_api_quest.REAL_METHODS:
                 continue
             with self.subTest(qualified=fn.qualified_name):
                 calls = []
@@ -280,6 +285,13 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "SetLastingTime", "AddKeyEvent", "RemoveKeyEvent",
             "CallScoreCount",
         }))
+
+    def test_the_1_real_quest_name_is_excluded_above_not_forgotten(self):
+        # Same regression shape as the Trigger guard above, for Quest's own
+        # single real name.
+        from pirateforce_foundation.lua_api import quest as lua_api_quest
+
+        self.assertEqual(lua_api_quest.REAL_METHODS, frozenset({"CheckOpenTime"}))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):
         host = script_host.ScriptHost(log=lambda _msg: None)

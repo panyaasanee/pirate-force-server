@@ -10,6 +10,7 @@ failing or silently vanishing; on the bridge, and on any cloud round
 paired with a pf_bridge checkout, they run against the real files.
 """
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from pf_preconditions import LUA_CORPUS_RUNNABLE, SIBLING
@@ -17,6 +18,21 @@ from pf_preconditions import LUA_CORPUS_RUNNABLE, SIBLING
 from pirateforce_foundation import script_host
 
 LUA_ROOT = SIBLING / "pf_bridge" / "gamedata" / "lua"
+
+#: Quest.CheckOpenTime became real the round after 4jsydv (lua_api/quest.py).
+#: A fixed instant, not the real wall clock, for every corpus-wide run in
+#: this module: Quest/q_sea_join.lua's own Accept_Run chains seven windows
+#: with `or`, which short-circuits the moment one is true, so which of the
+#: seven actually get called -- and therefore this file's own pinned call
+#: counts below -- would otherwise depend on the real time of day the test
+#: happened to run.  Noon (the datetime's own naive hour/minute -- all
+#: script_host ever reads, see lua_api.quest._minutes_of_day) sits outside
+#: every literal window all three CheckOpenTime-calling files in the corpus
+#: use (grepped: Quest/q_sea_join.lua's seven windows run 1930-1955 through
+#: 0155; Quest/q_con5.lua and Quest/q_arena2.lua pass Quest.Var3/Var4, which
+#: this harness supplies as STUB_DEFAULT=0 -- a window of exactly minute 0,
+#: also nowhere near noon).
+FIXED_QUEST_CLOCK = lambda: datetime(2026, 9, 5, 12, 0)  # noqa: E731
 
 #: Measured 2026-09-05, round s2fxf6 (see docs/SCRIPT_LANE.md "known
 #: findings").  Four are real syntax errors in the shipped source (missing
@@ -133,13 +149,32 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: 2 RemoveKeyEvent, 1 GetInstanceId, 1 SetLastingTime -- out of this count
 #: and into report.total_real_calls (alongside Trigger's own 346: 201
 #: NextStatus/121 GetTriggerStatus/23 SetTriggerStatus/1 GetTeiggerStatus),
-#: for a new baseline of 5020 across fewer distinct still-stub
-#: <Namespace>.<Method> names.  A round that lands a real API implementation
-#: makes every call to that name, in every script that makes it, stop
-#: counting here -- so this number may only fall or hold; a round that
-#: raises it has made stub coverage worse, not a rounding artifact, and the
-#: test below is written to catch that.
-BASELINE_TOTAL_STUB_CALLS = 5020
+#: for a baseline of 5020 across fewer distinct still-stub
+#: <Namespace>.<Method> names.  RE-MEASURED round 0rgg6q (LANE-Q), recovering
+#: the round-after-4jsydv commit that made Quest.CheckOpenTime real
+#: (lua_api/quest.py) after it landed on top of the Instance baseline above
+#: rather than beside it (that commit's own PR, pirate-force-server#874, was
+#: closed by the gate's one-open-claude-pull-request lock rather than a real
+#: failure -- SYNC-NOTICE 20260906_0226 -- and recovered here by cherry-pick):
+#: against a FIXED quest_clock (FIXED_QUEST_CLOCK below), 5020 - 2 = 5018,
+#: NOT 5020 - 9 despite the corpus having 9 CheckOpenTime call sites
+#: (api_spec.tsv). MEASURED, not assumed from the call-site count: only
+#: Quest/q_con5.lua and Quest/q_arena2.lua's Accept_Check (1 call each)
+#: actually execute their CheckOpenTime call under STANDARD_ENTRY_POINTS
+#: today. Quest/q_sea_join.lua's own Accept_Run gates its whole 7-window
+#: chain behind `if Player.CheckBuff(9903) then ... else <the chain> end` --
+#: Player.CheckBuff is still a stub returning STUB_DEFAULT (0), which Lua
+#: treats as TRUTHY (only nil/false are falsy), so the stubbed condition
+#: always takes the `then` branch and the `else` branch holding every
+#: CheckOpenTime call in that file never runs -- confirmed by printing
+#: report.real_call_counts directly (`{'Quest.CheckOpenTime': 2, ...}`), not
+#: inferred from the call-site table. A round that lands a real API
+#: implementation (including a future Player.CheckBuff) makes every call to
+#: that name, in every script that makes it, stop counting here -- so this
+#: number may only fall or hold; a round that raises it has made stub
+#: coverage worse, not a rounding artifact, and the test below is written to
+#: catch that.
+BASELINE_TOTAL_STUB_CALLS = 5018
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()
@@ -152,7 +187,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
     """
 
     def test_every_present_entry_point_gets_called_or_its_failure_is_pinned(self):
-        report = script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        report = script_host.run_corpus_entry_points(
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
         self.assertEqual(set(report.load_failed), KNOWN_LOAD_FAILURES)
         # Structural lookup (run.errors is keyed by entry-point name), not a
         # substring search over a concatenated message -- a name that
@@ -171,7 +207,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # Trigger's real methods share one RealTriggerNamespace.calls list
         # with its 12 still-stub methods, so a naive "sum every namespace's
         # .calls" silently double-books real calls as stub calls.
-        report = script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        report = script_host.run_corpus_entry_points(
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
         stub_names = set(report.stub_call_counts)
         real_names = set(report.real_call_counts)
         self.assertEqual(stub_names & real_names, set())
@@ -184,7 +221,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # at least one of STANDARD_ENTRY_POINTS.  A file with none would be
         # silent dead weight this report's totals would never explain --
         # this test is the tripwire if the corpus ever grows one.
-        report = script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        report = script_host.run_corpus_entry_points(
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
         self.assertEqual(report.no_entry_point, [])
 
     def test_run_corpus_entry_points_never_raises_out_of_the_full_616_file_run(self):
@@ -200,7 +238,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # fall) must lower BASELINE_TOTAL_STUB_CALLS in the same commit, and
         # a round that regresses one (count would rise) gets caught here
         # instead of silently drifting.
-        report = script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
+        report = script_host.run_corpus_entry_points(
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
         self.assertEqual(report.total_stub_calls, BASELINE_TOTAL_STUB_CALLS)
 
 
