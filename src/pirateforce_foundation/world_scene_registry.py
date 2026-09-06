@@ -426,6 +426,20 @@ class WorldSceneRegistry:
     def players_per_scene(self) -> int:
         return self._players_cap
 
+    def _scene_count(self) -> int:
+        """Scenes remembered by EITHER book -- the true shared bound.
+
+        `_scenes` (monsters) and `_players` are separate dicts (see the
+        `__init__` comment on why), so counting only one of them under-counts
+        the process's real scene footprint: a scene with players but no
+        monsters noted yet would be invisible to a check that only looked at
+        `_scenes`, letting the process remember up to `2 * scenes_cap`
+        distinct scene keys instead of the one bound both doors claim to
+        share.  pf-adversary caught this live in round 6bpbe3 (scenes=1
+        accepted a second, distinct scene key through the player door).
+        """
+        return len(self._scenes.keys() | self._players.keys())
+
     # ---- the write door (LANE-B's API) --------------------------------
 
     def note_balance(self, scene: Any, actor_identity: Any,
@@ -522,10 +536,12 @@ class WorldSceneRegistry:
         with self._lock:
             rows = self._players.get(fold)
             if rows is None:
-                if len(self._players) >= self._scenes_cap:
+                if fold not in self._scenes and (
+                        self._scene_count() >= self._scenes_cap):
                     # Same scene cap the monster book is held to -- one
                     # bound on how many SCENES this process remembers
-                    # anything about at all, shared across both books.
+                    # anything about at all, shared across both books
+                    # (checked against their UNION, see `_scene_count`).
                     return PlayerNoteOutcome(
                         fold, identity, REFUSE_TOO_MANY_SCENES)
                 rows = self._players.setdefault(fold, {})
@@ -601,7 +617,8 @@ class WorldSceneRegistry:
         with self._lock:
             rows = self._scenes.get(fold)
             if rows is None:
-                if len(self._scenes) >= self._scenes_cap:
+                if fold not in self._players and (
+                        self._scene_count() >= self._scenes_cap):
                     # A NEW scene when the book is full is refused; every
                     # scene already remembered keeps working.  Refusing the
                     # scene rather than clearing one is the same choice
@@ -670,9 +687,15 @@ class WorldSceneRegistry:
             return tuple(rows[key] for key in sorted(rows))
 
     def scenes(self) -> tuple[str, ...]:
-        """Every scene this process has remembered anything about."""
+        """Every scene this process has remembered anything about.
+
+        The union of both books -- a scene with only players noted (no
+        monster has ever been hit or placed there yet) is still a scene this
+        process remembers, and `_scene_count`'s cap check depends on this
+        method and the cap agreeing on what "remembered" means.
+        """
         with self._lock:
-            return tuple(sorted(self._scenes))
+            return tuple(sorted(self._scenes.keys() | self._players.keys()))
 
 
 _KEEP = object()
