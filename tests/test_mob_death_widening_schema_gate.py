@@ -1,0 +1,198 @@
+"""LANE-B / CI-GATE-001: a new WIDENING_RULINGS key must carry its own letter.
+
+COO-DECISION b1647 (schema 1647, ``pf_bridge`` notes_to_chief/20260906_1647_
+COO-DECISION-b1525-*.md) fixed the shape a NEW ruling key must have: it must
+contain one of ``COO-DECISION`` / ``COO-RULING`` / ``PANYA-DECISION``, contain
+``widen-death-scope``, and END with an ISO timestamp
+(``<YYYY-MM-DDTHH:MM+07:00>``) -- order-tolerant otherwise.  The 7 keys that
+predate that schema are frozen, character for character, and are only ever
+WARNED about, never failed.
+
+COO-DECISION b1712 (``pf_bridge`` notes_to_chief/20260906_1745_COO-DECISION-
+b1712-*.md) is the concrete gate this file is: a key that is NOT in the frozen
+list and does not match the schema is red outright; a key that matches the
+schema must ALSO have a same-day-stamped letter in ``pf_bridge``'s
+``notes_to_chief/`` naming ``COO-DECISION`` and ``widen``, or it is red too --
+because ``mob_death.py``'s own docstring already proves (round szdkgs,
+pf-adversary) that the SERVER cannot tell a real ruling string from a
+paraphrase or a hand mistake; only a second, independently-timestamped
+artifact in the other repository can.
+
+WHY THE FROZEN LIST HAS 8 KEYS, NOT 7.  COO's own text (b1712 item 3) says
+"3 of 7 keys have their date in the middle".  Measured directly against
+``mob_death.WIDENING_RULINGS`` as it stands at the round this gate was
+written (round bvaptp), there are 8 keys that do not match the new
+trailing-date schema, not 7:
+
+  * 3 do have the "COO-DECISION <date> widen-death-scope-...-templates" shape
+    b1712 item 3 means by "date in the middle" (bg0003, bg0004, bg0005);
+  * 2 more DO carry a date, but in a different position/shape again (the
+    916-training-iron-man key's date is followed by a parenthetical citing a
+    SECOND date; the bg0002 key's date sits right after "PANYA-DECISION",
+    before an "(ADDENDUM 20:18)" aside);
+  * 2 carry NO ``widen-death-scope`` substring at all (the Mountain Deer
+    diagnostic key, and the bare ``COO-RULING-20260901-1046`` key) -- they are
+    not "widen-death-scope permits" under b1647 item 1's own definition, but
+    they are still WIDENING_RULINGS keys, so this file's enumeration (every
+    key, per COO's own instruction) still has to place them somewhere, and
+    the only place a key with no schema match can go is the frozen list;
+  * 1 (``COO-RULING-20260827-1350 widen-death-scope-bg0001``) carries no date
+    at all.
+
+Rather than force the count to 7 by leaving one of these 8 off the frozen
+tuple by hand (which would silently narrow what this gate protects -- the
+excluded key would then have to pass the NEW schema, which it cannot, and the
+gate would go red on a key nobody actually widened this round), this file
+freezes literally every key that fails the schema today, per the round's own
+standing instruction: "if reality does not cleanly split into exactly 7,
+write down what you found and use every non-conforming key".  Full accounting
+in ``pf_bridge/rounds/B_<...>_bvaptp_*.md``.
+
+THE 6 KEYS THAT ALREADY CONFORM (bg0006 through bg0011, minted 2026-09-06)
+are not listed here at all -- they go through the schema-plus-letter check
+below like any future key would, and this file proves they still have their
+letters today rather than assuming it.
+"""
+from __future__ import annotations
+
+import re
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from pirateforce_foundation import mob_death  # noqa: E402
+
+from pf_preconditions import BRIDGE_SIBLING  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# FROZEN, per COO-DECISION b1712 item 1 / b1647 item 2: "a name added to the
+# frozen list is itself a fail; the list is closed."  Hardcoded character for
+# character from mob_death.WIDENING_RULINGS as read at round bvaptp.  Do NOT
+# add to this tuple: a key that is not here and does not match the schema
+# below must get its own COO-DECISION letter instead, the same as any other
+# new ruling.
+FROZEN_WIDENING_RULING_KEYS = (
+    "COO-DECISION widen-death-scope-916-training-iron-man "
+    "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
+    "section 3, supersedes COO 0954)",
+    "COO-RULING-20260827-1350 widen-death-scope-bg0001",
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "widen-death-scope-bg0002",
+    "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+    "diag-mountain-deer-template-27",
+    "COO-RULING-20260901-1046",
+    "COO-DECISION 2026-09-04T11:48+07:00 "
+    "widen-death-scope-bg0005-six-templates",
+    "COO-DECISION 2026-09-04T14:50+07:00 "
+    "widen-death-scope-bg0003-seven-templates",
+    "COO-DECISION 2026-09-05T05:46+07:00 "
+    "widen-death-scope-bg0004-five-templates",
+)
+
+# ---------------------------------------------------------------------------
+# Schema, COO-DECISION b1647 item 2, "a regex that tolerates word order": a
+# key is the NEW shape when it contains one of the three marker tokens AND
+# contains "widen-death-scope" AND ENDS (anchored) with an ISO timestamp of
+# the exact shape the schema mandates, "<YYYY-MM-DDTHH:MM+07:00>".
+_MARKER_RE = re.compile(r"COO-DECISION|COO-RULING|PANYA-DECISION")
+_WIDEN_RE = re.compile(r"widen-death-scope")
+_TRAILING_DATE_RE = re.compile(
+    r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})\+07:00$"
+)
+
+
+def _schema_date_match(key):
+    """The trailing-date match if ``key`` is the new shape, else ``None``."""
+    if not _MARKER_RE.search(key) or not _WIDEN_RE.search(key):
+        return None
+    return _TRAILING_DATE_RE.search(key)
+
+
+def _letter_exists_for(pf_bridge_dir, date_match):
+    """A ``notes_to_chief/`` file stamped with this key's own date, naming
+    ``COO-DECISION`` and ``widen`` in its filename (COO-DECISION b1712 item
+    1's letter requirement)."""
+    year, month, day, hour, minute = date_match.groups()
+    stamp = "%s%s%s_%s%s" % (year, month, day, hour, minute)
+    notes_dir = pf_bridge_dir / "notes_to_chief"
+    if not notes_dir.is_dir():
+        return False
+    for entry in notes_dir.iterdir():
+        name = entry.name
+        if name.startswith(stamp) and "COO-DECISION" in name and "widen" in name:
+            return True
+    return False
+
+
+class WideningRulingSchemaGateTests(unittest.TestCase):
+    """COO-DECISION b1647 item 3 + b1712 item 1, combined into one gate."""
+
+    def test_widening_ruling_keys_are_frozen_or_carry_their_own_letter(self):
+        # COO-DECISION b1712 item 2: sibling dir first (the house convention
+        # every other bridge-lookup in this repo uses -- see BRIDGE_SIBLING
+        # itself), PF_BRIDGE_DIR is the explicit override for a layout where
+        # the two repositories are not siblings.  "not found = skip with a
+        # reason, never silently pass" is b1712's own wording; BRIDGE_SIBLING
+        # already prints exactly that reason, so it is reused rather than a
+        # second one invented for the same fact.
+        import os
+        env = os.environ.get("PF_BRIDGE_DIR")
+        if env and Path(env).is_dir():
+            pf_bridge_dir = Path(env)
+        else:
+            BRIDGE_SIBLING.require(self)
+            pf_bridge_dir = BRIDGE_SIBLING.paths[0]
+
+        keys = list(mob_death.WIDENING_RULINGS.keys())
+        self.assertTrue(keys, "WIDENING_RULINGS is empty -- nothing to gate")
+
+        # The frozen tuple is CLOSED (b1712 item 1): it must equal exactly
+        # the keys that fail the new schema today, neither more nor fewer,
+        # so this also catches a key silently falling OUT of
+        # WIDENING_RULINGS while its name lingers in the frozen tuple.
+        live_non_conforming = {
+            key for key in keys if _schema_date_match(key) is None
+        }
+        self.assertEqual(
+            set(FROZEN_WIDENING_RULING_KEYS), live_non_conforming,
+            "the closed frozen list no longer equals the set of keys that "
+            "fail the b1647 schema -- see this file's own module docstring; "
+            "a real new non-conforming key must go through the schema + "
+            "letter path, never be hand-added to the frozen tuple",
+        )
+
+        failures = []
+        warnings = []
+        for key in keys:
+            if key in FROZEN_WIDENING_RULING_KEYS:
+                if _schema_date_match(key) is None:
+                    warnings.append(key)
+                continue
+            date_match = _schema_date_match(key)
+            if date_match is None:
+                failures.append(
+                    "%r is not in the frozen list and does not match the "
+                    "b1647 schema (needs COO-DECISION/COO-RULING/"
+                    "PANYA-DECISION + widen-death-scope + a trailing "
+                    "<YYYY-MM-DDTHH:MM+07:00>)" % (key,)
+                )
+                continue
+            if not _letter_exists_for(pf_bridge_dir, date_match):
+                failures.append(
+                    "%r matches the new schema but no notes_to_chief file "
+                    "stamped with its trailing date and naming COO-DECISION "
+                    "+ widen was found under %s"
+                    % (key, pf_bridge_dir / "notes_to_chief")
+                )
+
+        for warning in warnings:
+            print(
+                "WARN [frozen, pre-schema key, COO-DECISION b1712 item 3]: "
+                "%r" % (warning,)
+            )
+
+        self.assertFalse(failures, "\n".join(failures))

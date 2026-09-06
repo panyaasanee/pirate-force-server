@@ -2102,9 +2102,16 @@ def deleted_batch_tripwire() -> None:
     `ast.ClassDef` only, so a tripwire living in a module-level function is
     INVISIBLE to it.  Swapping the branch condition below to
     `BRIDGE_GM_INSTALL_BAT.present` -- a two-line "tidy-up" that reads as an
-    improvement, since `BRIDGE_SIBLING` guards nothing else in this repository
-    any more -- returns early in exactly the state this exists to catch, and
-    was measured green on all three machine states plus the census tool.
+    improvement -- returns early in exactly the state this exists to catch,
+    and was measured green on all three machine states plus the census tool.
+    [CROSS-LANE NOTE, round `bvaptp`, LANE-B: the claim this parenthetical
+    used to make here -- "`BRIDGE_SIBLING` guards nothing else in this
+    repository any more" -- stopped being true the moment
+    `tests/test_mob_death_widening_schema_gate.py` became this precondition's
+    first real `.require(self)` guard elsewhere; struck rather than silently
+    left for a reader to trust.  Nothing about THIS function's own reasoning
+    changes: it still reads `BRIDGE_SIBLING.present` directly rather than
+    through a caller-supplied flag, for the reason given below.]
 
     So the raising branch is a FUNCTION rather than an inline `assert`, and
     `test_the_deleted_batch_tripwire_fails_when_the_batch_is_gone` below
