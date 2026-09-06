@@ -290,10 +290,11 @@ MAX_CAPTURED_BYTES_PER_ACCOUNT = 50 * 1024 * 1024  # 50 MiB
 # account sending many small or empty commands hits, and the case the
 # quota exists to bound.
 #
-# `[สมมติของสาย GM - รอ COO ยืนยัน]`: 4096 is THIS container's block size,
-# not a measurement of the production deployment target's filesystem --
-# nonclaim below. Chosen as the floor anyway because it is the common
-# default for the ext4 family and floors the estimate UP, which fails this
+# 4096 matches the production deployment target (Panya's Windows machine,
+# NTFS cluster size 4 KB for any volume under 16 TB), not just this
+# container's own ext4 block size -- confirmed by COO (`notes_to_chief`
+# `20260906_1548`, answering the nonclaim this comment used to carry).
+# Chosen as the floor because it floors the estimate UP, which fails this
 # guard closed slightly earlier on a filesystem with a smaller block size,
 # never later on one with a larger one that this constant did not predict.
 #
