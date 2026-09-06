@@ -425,10 +425,12 @@ class CorpusEntryPointReport:
     see ``test_stub_vs_real_call_split_is_not_conflated`` in
     ``tests/test_script_lua_corpus.py``, added because of this).  This
     function now checks each qualified name against
-    :data:`REAL_QUALIFIED_NAMES` (the union of ``lua_api_trigger.REAL_METHODS``
-    and ``lua_api_quest.REAL_METHODS`` -- round 4jsydv wrote this split
-    against the first one only, round after it added ``Quest.CheckOpenTime``
-    to the same set rather than duplicating the split logic a second time)
+    :data:`REAL_QUALIFIED_NAMES` (the union of ``lua_api_trigger.REAL_METHODS``,
+    ``lua_api_instance.REAL_METHODS`` and ``lua_api_quest.REAL_METHODS`` --
+    round 4jsydv wrote this split against the first one only, round 4fxvsq
+    added Instance's 7 real names and round 0rgg6q (recovering the round
+    after 4jsydv) added Quest's 1, each into the same set rather than
+    duplicating the split logic again)
     and tallies it as real, never stub, regardless of which Python object's
     ``.calls`` list it came from -- so the day another namespace grows a mix
     of real and stub methods, this split keeps working without changes here.

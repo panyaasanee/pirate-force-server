@@ -267,7 +267,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (140/160 stub, 13/160 real, as of round `0rgg6q`)
+### API status table (147/160 stub, 13/160 real, as of round `0rgg6q`)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -844,7 +844,6 @@ singleton.
    not decided this round, flagged here for COO to rule on rather than
    this lane opening a second RE ask on top of round `4jsydv`'s already-
    pending one.
-cross-lane wire-frame wait).
 
 ## Round 4fxvsq (2026-09-06) -- Instance.* status machine, 7/9 real
 
