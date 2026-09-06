@@ -26,6 +26,7 @@ trade-zoom -- neither of which a single ``ChooseNpcResponse`` can carry.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import sys
 import tempfile
@@ -869,6 +870,111 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
         )
         self.assertEqual(response.extra_actions, ())
         self.assertEqual(len(response), 6)
+
+
+class TheCensusAuthorityIsHonouredTests(unittest.TestCase):
+    """STEP 5 OF THE MODULE'S PROMOTION LIST, LANE HALF.
+
+    The responder must decline -- hand the frame back to the frozen loop
+    -- on a boot whose census could not resolve identities, because
+    pf-adversary ``zqmosn`` MEASURED what answering costs there: a click
+    on P0 answered with silence where the frozen path opened a quest
+    conversation, and a click on P91 shipped two actors after login had
+    announced three.
+
+    The keyword is inert until chief's call site passes it (see
+    ``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``), so the second half of this
+    class pins the thing that makes shipping it safe: omitting the keyword
+    -- which is every call today -- is byte-for-byte the old behaviour,
+    and ``None`` is NOT read as a failure."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+        cls.placements = responder_mod._placements_by_index(cls.legacy)
+        cls.population_indices = tuple(sorted(cls.placements))
+
+    def _click(self, **extra):
+        idx = self.population_indices[0]
+        return responder_mod.respond(
+            legacy=self.legacy,
+            chosen_identities=(0x2000 + idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+            **extra,
+        )
+
+    def test_declines_when_the_census_says_identities_are_unresolved(self):
+        self.assertIsNone(
+            self._click(world_census_identity_resolved=False)
+        )
+
+    def test_answers_when_the_census_says_identities_resolved(self):
+        self.assertIsNotNone(
+            self._click(world_census_identity_resolved=True)
+        )
+
+    def test_an_omitted_keyword_is_byte_for_byte_the_old_behaviour(self):
+        """The mutant this pins: reading the default as a failure (a bare
+        ``if not world_census_identity_resolved`` instead of ``is
+        False``).  That mutant makes the responder decline on every call
+        the real call site makes today, and this assertion goes red."""
+        omitted = self._click()
+        passed_none = self._click(world_census_identity_resolved=None)
+        self.assertIsNotNone(omitted)
+        self.assertIsNotNone(passed_none)
+        # THE WHOLE TUPLE, NOT A HAND-PICKED FOUR (pf-adversary ``6dvcer``
+        # D4): an earlier version of this test compared label/pc/frame/
+        # extra_actions and let a mutant through that changed the TEXT of
+        # ``console_lines`` while keeping its length -- ``delay`` and
+        # ``console_lines`` are both read at the call site.
+        self.assertEqual(omitted, passed_none)
+
+    def test_the_decline_is_checked_before_any_frame_is_composed(self):
+        """A decline must cost nothing, not compose-then-throw-away: with
+        a ``legacy`` whose frame builder would raise, an unresolved census
+        still returns ``None`` rather than an exception."""
+
+        class _Exploding:
+            def __getattr__(self, name):
+                raise AssertionError(
+                    f"the decline composed something: touched {name!r}"
+                )
+
+        self.assertIsNone(
+            responder_mod.respond(
+                legacy=_Exploding(),
+                chosen_identities=(0x2001,),
+                population_indices=(0,),
+                last_target_pos=(0.0, 0.0, 0.0, 0.0),
+                world_census_identity_resolved=False,
+            )
+        )
+
+    def test_the_wiring_constant_names_the_call_sites_keyword(self):
+        """The ask chief reads is the ask this module actually honours --
+        a renamed keyword here must not leave the constant pointing at the
+        old name."""
+        # THE WHOLE ASSIGNMENT, NOT THE NAME ALONE (pf-adversary ``6dvcer``
+        # D3 mutant M2): substituting ``self.world_census_sent`` on the
+        # right-hand side left the feature's name in the file and the test
+        # green while the ask pointed chief at the one flag the frozen
+        # fallback sets to True on exactly the boot this guard exists for.
+        self.assertIn(
+            "world_census_identity_resolved=self.world_census_identity_resolved",
+            responder_mod.WORLD_CENSUS_IDENTITY_RESOLVED_WIRING,
+        )
+        # And the ask must still carry its second half (D1): the keyword
+        # alone turns a census-failed boot silent, because a decline at the
+        # call site is ``actions = []`` and not the frozen loop.
+        self.assertIn(
+            "actions = []",
+            responder_mod.WORLD_CENSUS_IDENTITY_RESOLVED_WIRING,
+        )
+        self.assertIn(
+            "world_census_identity_resolved",
+            inspect.signature(responder_mod.respond).parameters,
+        )
 
 
 if __name__ == "__main__":
