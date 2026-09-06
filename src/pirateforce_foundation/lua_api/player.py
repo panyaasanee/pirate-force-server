@@ -673,16 +673,19 @@ class RealPlayerNamespace:
                     # recorded as if it were showable.
                     _log_bad_value(self._log, "ShowMessage", message_id=args[0])
                     return STUB_DEFAULT
+                # scene=None: an individual message belongs to the
+                # character, not to wherever they happen to be standing.
                 shown = self._sink.record(
-                    self._context.character_id,
+                    None, self._context.character_id,
                     _message.AUDIENCE_INDIVIDUAL, message_id)
                 # RECORDS which message to show. Does NOT build or send
                 # ShowMessageVital -- no module in this package does; see
                 # lua_api/message.py's own module docstring.
                 self._log(
                     "LUA_PLAYER_REAL Player.ShowMessage character=%d "
-                    "message_id=%d audience=%s notify_type=%d shown=%d "
-                    "(recorded only, no frame sent)"
+                    "message_id=%d audience=%s notify_type=%d stored=%d "
+                    "(recorded only, no frame sent; stored=0 means the "
+                    "sink refused it at a cap)"
                     % (self._context.character_id, message_id,
                        _message.audience_name(_message.AUDIENCE_INDIVIDUAL),
                        _message.notify_type(message_id), shown))

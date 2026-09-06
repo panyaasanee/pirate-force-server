@@ -63,12 +63,35 @@ namespace IS the audience, so they record :data:`AUDIENCE_INDIVIDUAL` and
 (when Party goes real, one call site, not this round)
 :data:`AUDIENCE_PARTY`.
 
-MULTIPLAYER POSTURE (AGENTS.md section 7, first line)
------------------------------------------------------
-:class:`InMemoryMessageSink` is keyed by ``character_id`` FIRST and caps
-per character, so one script looping on one character can fill that
-character's own bucket and no one else's.  The character cap refuses new
-characters by name rather than evicting an existing player's records.
+MULTIPLAYER POSTURE (AGENTS.md section 7, first line; PROCESS_GATES section 25)
+-------------------------------------------------------------------------------
+An audience is not decoration -- it decides WHO the record belongs to, so
+the sink is keyed accordingly rather than filing everything under the
+character whose script happened to fire the trigger:
+
+  * ``AUDIENCE_INDIVIDUAL`` / ``AUDIENCE_PARTY`` -> the CHARACTER's own
+    bucket.  A party message is still filed under the character who
+    triggered it, tagged ``AUDIENCE_PARTY``, because fanning it out to the
+    rest of the party needs a party registry this lane does not own; the
+    entry names the originating character so a future dispatcher can
+    expand it.  That is a NAMED gap, not a silent one.
+  * ``AUDIENCE_SCENE`` / ``AUDIENCE_CHANNEL`` -> the SCENE's own bucket,
+    read back with :meth:`broadcasts_for`.  This is the half that a
+    character key gets WRONG: ``t_bg2017_msg.lua``'s arena announcements
+    (``TriggerShowMessage(2, 918)`` -- "the champion enters!") are meant
+    for everyone in that scene, and filing them under one character means
+    the second player in the same scene never has them.  The precedent is
+    in this same package: ``lua_api.trigger.TriggerStatusRegistry`` keys by
+    ``(scene, trigger_id)`` and cites `PANYA-DECISION 20260905_1057`
+    ("shared by every session in a scene") for doing so.
+
+Caps are per bucket -- one looping script fills its own character's or its
+own scene's bucket and nobody else's -- and a refused write returns 0
+rather than the current length, so a caller can always tell a dropped
+message from a stored one.
+
+Still NOT solved here, said plainly: nothing delivers any of this to a
+client, and a scene bucket is a record of intent, not a broadcast.
 """
 
 from __future__ import annotations
@@ -153,21 +176,39 @@ class MessageSink(Protocol):
     so a sink implementation never sees an unvalidated Lua value.
     """
 
-    def record(self, character_id: int, audience: int, message_id: int) -> int:
-        """Record one shown message; returns how many are now on record for
-        this character (read back after the write, never a bare echo)."""
+    def record(self, scene: Optional[str], character_id: int, audience: int,
+               message_id: int) -> int:
+        """File one shown message under whichever bucket its AUDIENCE
+        names (see the module docstring's MULTIPLAYER POSTURE section).
+
+        Returns how many records that bucket now holds, read back after
+        the write -- or ``0`` when the write was REFUSED by a cap, which is
+        what makes a dropped message distinguishable from a stored one.
+        """
         ...
 
     def messages_for(self, character_id: int) -> Tuple[Tuple[int, int], ...]:
-        """``((audience, message_id), ...)`` in the order recorded."""
+        """``((audience, message_id), ...)`` addressed to this character,
+        in the order recorded."""
+        ...
+
+    def broadcasts_for(self, scene: str) -> Tuple[Tuple[int, int, int], ...]:
+        """``((audience, message_id, from_character_id), ...)`` addressed
+        to everyone in this scene, in the order recorded."""
         ...
 
 
-#: Per-sink bounds, same shape/reasoning as ``lua_api.quest``'s own caps: a
-#: bound a looping script cannot grow past, refused by name rather than
+#: Per-bucket bounds, same shape/reasoning as ``lua_api.quest``'s own caps:
+#: a bound a looping script cannot grow past, refused by name rather than
 #: silently evicted.
 CHARACTERS_CAP = 4096
 MESSAGES_PER_CHARACTER_CAP = 1024
+SCENES_CAP = 512
+MESSAGES_PER_SCENE_CAP = 1024
+
+#: The two audiences that belong to a SCENE rather than to the character
+#: whose script fired the trigger.
+BROADCAST_AUDIENCES = frozenset({AUDIENCE_SCENE, AUDIENCE_CHANNEL})
 
 
 class InMemoryMessageSink:
@@ -183,25 +224,53 @@ class InMemoryMessageSink:
     """
 
     def __init__(self, characters: int = CHARACTERS_CAP,
-                 messages_per_character: int = MESSAGES_PER_CHARACTER_CAP) -> None:
+                 messages_per_character: int = MESSAGES_PER_CHARACTER_CAP,
+                 scenes: int = SCENES_CAP,
+                 messages_per_scene: int = MESSAGES_PER_SCENE_CAP) -> None:
         for name, value in (("characters", characters),
-                            ("messages_per_character", messages_per_character)):
+                            ("messages_per_character", messages_per_character),
+                            ("scenes", scenes),
+                            ("messages_per_scene", messages_per_scene)):
             if type(value) is bool or not isinstance(value, int) or value < 1:
                 raise ValueError("%s must be a positive int" % name)
         self._characters_cap = characters
         self._messages_cap = messages_per_character
+        self._scenes_cap = scenes
+        self._scene_messages_cap = messages_per_scene
         self._shown: dict = {}
+        self._broadcast: dict = {}
 
-    def record(self, character_id: int, audience: int, message_id: int) -> int:
-        rows = self._shown.get(character_id)
+    @staticmethod
+    def _append(buckets: dict, key, buckets_cap: int, entries_cap: int,
+                entry) -> int:
+        rows = buckets.get(key)
         if rows is None:
-            if len(self._shown) >= self._characters_cap:
+            if len(buckets) >= buckets_cap:
                 return 0
-            rows = self._shown.setdefault(character_id, [])
-        if len(rows) >= self._messages_cap:
-            return len(rows)
-        rows.append((audience, message_id))
+            rows = buckets.setdefault(key, [])
+        if len(rows) >= entries_cap:
+            return 0
+        rows.append(entry)
         return len(rows)
+
+    def record(self, scene: Optional[str], character_id: int, audience: int,
+               message_id: int) -> int:
+        if audience in BROADCAST_AUDIENCES:
+            if not scene:
+                # A scene-wide message with no scene to file it under is not
+                # a message anyone could ever be shown -- refused, not
+                # quietly downgraded into the triggering character's bucket
+                # (that downgrade is exactly the defect this shape fixes).
+                return 0
+            return self._append(
+                self._broadcast, scene, self._scenes_cap,
+                self._scene_messages_cap, (audience, message_id, character_id))
+        return self._append(
+            self._shown, character_id, self._characters_cap,
+            self._messages_cap, (audience, message_id))
 
     def messages_for(self, character_id: int) -> Tuple[Tuple[int, int], ...]:
         return tuple(self._shown.get(character_id, ()))
+
+    def broadcasts_for(self, scene: str) -> Tuple[Tuple[int, int, int], ...]:
+        return tuple(self._broadcast.get(scene, ()))

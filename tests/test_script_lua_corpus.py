@@ -74,6 +74,28 @@ class FullCorpusLoadsHeadlessTests(unittest.TestCase):
         except Exception as exc:  # noqa: BLE001 - this IS the assertion
             self.fail("load_corpus raised instead of failing closed: %r" % exc)
 
+    def test_the_vendored_message_catalog_still_matches_the_real_table(self):
+        # pf-adversary (round 6775u1) mutated all 907 rows of
+        # lua_api/message_catalog.tsv to garbage and every test in
+        # test_script_lua_api_message.py still passed: that file checked the
+        # vendored copy against ITSELF (a row count and a max id), never
+        # against its source.  This is the missing tie, in the same shape
+        # test_the_two_named_charter_fixtures_are_identical_to_the_real_files
+        # below already uses for the two vendored .lua fixtures -- here it
+        # compares CONTENT rather than bytes, because the vendored file
+        # deliberately drops the localized s_MESSAGE column.
+        import csv
+
+        from pirateforce_foundation.lua_api import message as lua_api_message
+
+        source = (LUA_ROOT.parent / "tables" / "TEXTDATA_TH__MESSAGE.tsv")
+        real = {}
+        with source.open(encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                real[int(row["n_ID"])] = (
+                    int(row["n_TYPE"]), int(row["n_NOTIFY_TYPE"]))
+        self.assertEqual(lua_api_message.CATALOG, real)
+
     def test_the_two_named_charter_fixtures_are_identical_to_the_real_files(self):
         # docs/SCRIPT_LANE.md/test_script_host_spike.py vendor byte-for-byte
         # copies of these two named files so that module needs no sibling
@@ -262,13 +284,23 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: that are worth stating plainly, because landing two names in one round
 #: is exactly how a branch shift hides: (a) the drop equals ONE name's
 #: measured count, so the other name did not silently move anything; (b)
-#: Trigger.TriggerShowMessage genuinely fires ZERO times here -- every one
-#: of its 8 call files (t_msg_mod.lua and friends) reaches it only past
-#: `Scene.CheckPlacementAlive(Trigger.Var1) == true`, and Scene.* is still
-#: a stub returning STUB_DEFAULT (0), so the corpus census cannot exercise
-#: it until LANE-A's Scene.* seam exists. Its 55 call sites are real in the
-#: source and unreachable in this harness; that is a gap this pin makes
-#: visible rather than a count to celebrate.
+#: Trigger.TriggerShowMessage genuinely fires ZERO times here. CORRECTED
+#: after pf-adversary measured the first draft of this note wrong, and the
+#: correction matters because it points at a different lane: the draft said
+#: `Scene.CheckPlacementAlive` gates it. It does not. FIVE of the 8 calling
+#: files never call Scene.* at all (t_nex_msg, t_nex_msg_ins,
+#: t_nex_msg_ins_t1, t_indanix2_msg, t_bg2017_msg), and in t_msg_mod.lua
+#: -- the file the draft cited -- the gate runs the OTHER way
+#: (`if Scene.CheckPlacementAlive(...) == true then return 0 else <the
+#: TriggerShowMessage block> end`), so a stubbed 0 REACHES the call rather
+#: than skipping it. What actually stops it is the Trigger.VarN data every
+#: one of those branches tests, which lives in the .tgr tables this lane
+#: has never mined (the RE-273 lead). Adversary's own mutation -- feed
+#: Trigger.VarN a 1, touch no Scene.* at all -- makes three of those files
+#: reach the closure and log LUA_TRIGGER_REAL. So its 55 call sites are
+#: real in the source and unreachable in THIS harness for want of trigger
+#: table data, not for want of LANE-A's Scene.* seam; that is a gap this
+#: pin makes visible rather than a count to celebrate.
 BASELINE_TOTAL_STUB_CALLS = 2597
 
 

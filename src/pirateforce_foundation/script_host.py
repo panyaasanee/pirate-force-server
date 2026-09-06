@@ -295,9 +295,18 @@ class ScriptHost:
         quest_store = (
             quest_store if quest_store is not None else lua_api_quest.InMemoryQuestStateStore())
         # ONE sink per host run, normalized here rather than left to each
-        # build_namespace's own private default, so Player.ShowMessage and
-        # Trigger.TriggerShowMessage inside the SAME script land in one
-        # ordered record -- the same reason quest_store is normalized above.
+        # build_namespace's own private default, so the Player and Trigger
+        # message closures inside the SAME script land in one ordered
+        # record -- the same reason quest_store is normalized above.
+        # (Deliberately not spelling either Lua method name here:
+        # tests/test_foundation_legacy_seam.py's own
+        # test_no_foundation_module_emits_the_legacy_system_message is a
+        # SUBSTRING scan of src/pirateforce_foundation/*.py for that name.
+        # Its real subject is the frozen legacy BUILDER of the vital, which
+        # nothing in this package touches; the proxy is simply broader than
+        # the claim. That test is LANE-E's file, not this lane's, so this
+        # lane worked around its own comment rather than loosening someone
+        # else's guard -- reported to COO in round `6775u1`'s letter.)
         message_sink = (
             message_sink if message_sink is not None else lua_api_message.InMemoryMessageSink())
         self.namespaces: dict = {}
@@ -437,11 +446,14 @@ STANDARD_ENTRY_POINTS: tuple = (
 )
 
 #: Fully-qualified (``Namespace.Method``) names that are REAL today, not
-#: stubs -- the 5 of ``Trigger``'s 17 (``lua_api.trigger.REAL_METHODS``), the
-#: 7 of ``Instance``'s 9 (``lua_api.instance.REAL_METHODS``), the 1 of
-#: ``Quest``'s 25 (``lua_api.quest.REAL_METHODS``, ``CheckOpenTime``) and the
-#: 2 of ``Player``'s 73 (``lua_api.player.REAL_METHODS``, ``GetLv``/
-#: ``GetClass``).
+#: stubs.  Deliberately NOT repeated as per-namespace counts here: this
+#: comment carried "2 of ``Player``'s 73" for four rounds after
+#: ``REAL_METHODS`` had grown past it (pf-adversary, round `6775u1`).  The
+#: live numbers are the ``REAL_METHODS`` sets themselves --
+#: ``lua_api.trigger`` / ``lua_api.instance`` / ``lua_api.quest`` /
+#: ``lua_api.player`` -- which is what the expression below composes, and
+#: ``docs/SCRIPT_LANE.md``'s own status table is the one place a count is
+#: written down and re-checked.
 #: Every other namespace is a plain ``ApiNamespaceStub`` where 100% of
 #: tracked calls are stubs, but ``RealTriggerNamespace``/
 #: ``RealInstanceNamespace``/``RealQuestNamespace``/``RealPlayerNamespace``

@@ -527,15 +527,22 @@ class RealTriggerNamespace:
                         "LUA_TRIGGER_BAD_VALUE Trigger.TriggerShowMessage "
                         "audience=%r message_id=%r" % (args[0], args[1]))
                     return STUB_DEFAULT
+                # The SCENE is passed, not just the character: audiences
+                # 2/3 (scene/channel) belong to everyone in the scene, and
+                # filing an arena announcement under the one character
+                # whose trigger fired means the second player in that same
+                # scene never has it (PROCESS_GATES section 25).
                 shown = self._sink.record(
-                    self._quest_context.character_id, audience, message_id)
+                    self._context.scene, self._quest_context.character_id,
+                    audience, message_id)
                 # RECORDS which message to show, for which audience. Does
                 # NOT build or send ShowMessageVital -- see
                 # lua_api/message.py's own module docstring.
                 self._log(
                     "LUA_TRIGGER_REAL Trigger.TriggerShowMessage scene=%r "
                     "trigger=%d character=%d audience=%s message_id=%d "
-                    "shown=%d (recorded only, no frame sent)"
+                    "stored=%d (recorded only, no frame sent; stored=0 "
+                    "means the sink refused it at a cap)"
                     % (self._context.scene, self._context.trigger_id,
                        self._quest_context.character_id,
                        _message.audience_name(audience), message_id, shown))

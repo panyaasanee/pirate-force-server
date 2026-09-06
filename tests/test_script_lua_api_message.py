@@ -64,31 +64,66 @@ class MessageCatalogTests(unittest.TestCase):
 
 class InMemoryMessageSinkTests(unittest.TestCase):
 
-    def test_records_in_order_and_reports_the_count_read_back(self):
+    def test_an_individual_message_goes_to_the_characters_own_bucket(self):
         sink = message.InMemoryMessageSink()
-        self.assertEqual(sink.record(7, message.AUDIENCE_INDIVIDUAL, 856), 1)
-        self.assertEqual(sink.record(7, message.AUDIENCE_SCENE, 919), 2)
-        self.assertEqual(sink.messages_for(7), ((0, 856), (2, 919)))
+        self.assertEqual(
+            sink.record(None, 7, message.AUDIENCE_INDIVIDUAL, 856), 1)
+        self.assertEqual(sink.record(None, 7, message.AUDIENCE_PARTY, 855), 2)
+        self.assertEqual(sink.messages_for(7), ((0, 856), (1, 855)))
+        self.assertEqual(sink.messages_for(8), ())
 
-    def test_one_character_cannot_read_or_fill_another_characters_record(self):
+    def test_a_scene_message_goes_to_the_scene_not_the_triggering_character(self):
+        # The defect this shape exists to prevent: an arena announcement
+        # filed under one character is invisible to the second player in
+        # the same scene.
+        sink = message.InMemoryMessageSink()
+        self.assertEqual(sink.record("bg2017", 7, message.AUDIENCE_SCENE, 918), 1)
+        self.assertEqual(sink.record("bg2017", 7, message.AUDIENCE_CHANNEL, 919), 2)
+        self.assertEqual(sink.messages_for(7), ())
+        self.assertEqual(
+            sink.broadcasts_for("bg2017"), ((2, 918, 7), (3, 919, 7)))
+        # Player 9, who never fired anything, reads the same scene bucket.
+        self.assertEqual(
+            sink.broadcasts_for("bg2017")[0][:2], (message.AUDIENCE_SCENE, 918))
+        self.assertEqual(sink.broadcasts_for("bg0002"), ())
+
+    def test_a_scene_message_with_no_scene_is_refused_not_downgraded(self):
+        sink = message.InMemoryMessageSink()
+        for scene in (None, ""):
+            with self.subTest(scene=scene):
+                self.assertEqual(
+                    sink.record(scene, 7, message.AUDIENCE_SCENE, 918), 0)
+        self.assertEqual(sink.messages_for(7), ())
+
+    def test_a_refused_write_returns_zero_so_a_drop_is_not_a_success(self):
         sink = message.InMemoryMessageSink(messages_per_character=2)
-        sink.record(7, 0, 856)
-        sink.record(7, 0, 859)
-        self.assertEqual(sink.record(7, 0, 855), 2)  # capped, not evicted
+        self.assertEqual(sink.record(None, 7, 0, 856), 1)
+        self.assertEqual(sink.record(None, 7, 0, 859), 2)
+        self.assertEqual(sink.record(None, 7, 0, 855), 0)  # dropped, not "2"
         self.assertEqual(sink.messages_for(7), ((0, 856), (0, 859)))
         # The looping character did not consume anyone else's budget.
-        self.assertEqual(sink.record(8, 0, 855), 1)
-        self.assertEqual(sink.messages_for(8), ((0, 855),))
+        self.assertEqual(sink.record(None, 8, 0, 855), 1)
 
-    def test_a_full_sink_refuses_a_new_character_without_evicting_anyone(self):
-        sink = message.InMemoryMessageSink(characters=1)
-        sink.record(7, 0, 856)
-        self.assertEqual(sink.record(8, 0, 856), 0)
+    def test_a_full_sink_refuses_a_new_bucket_without_evicting_anyone(self):
+        sink = message.InMemoryMessageSink(characters=1, scenes=1)
+        sink.record(None, 7, 0, 856)
+        self.assertEqual(sink.record(None, 8, 0, 856), 0)
         self.assertEqual(sink.messages_for(8), ())
         self.assertEqual(sink.messages_for(7), ((0, 856),))
+        sink.record("bg2017", 7, 2, 918)
+        self.assertEqual(sink.record("bg0002", 7, 2, 918), 0)
+        self.assertEqual(sink.broadcasts_for("bg0002"), ())
+        self.assertEqual(sink.broadcasts_for("bg2017"), ((2, 918, 7),))
+
+    def test_one_scene_cannot_fill_another_scenes_bucket(self):
+        sink = message.InMemoryMessageSink(messages_per_scene=1)
+        self.assertEqual(sink.record("bg2017", 7, 2, 918), 1)
+        self.assertEqual(sink.record("bg2017", 7, 2, 919), 0)
+        self.assertEqual(sink.record("bg0002", 7, 2, 919), 1)
 
     def test_a_nonsense_cap_is_a_caller_error_and_raises(self):
         for kwargs in ({"characters": 0}, {"messages_per_character": 0},
+                        {"scenes": 0}, {"messages_per_scene": 0},
                         {"characters": True}, {"messages_per_character": 1.5}):
             with self.subTest(**kwargs):
                 with self.assertRaises(ValueError):
@@ -147,6 +182,9 @@ class PlayerShowMessageTests(unittest.TestCase):
             def messages_for(self, _character_id):
                 return ()
 
+            def broadcasts_for(self, _scene):
+                return ()
+
         namespace = player.build_namespace(
             frozenset({"ShowMessage"}), self.lines.append, sink=Broken())
         with self.assertRaises(RuntimeError):
@@ -162,15 +200,28 @@ class TriggerShowMessageTests(unittest.TestCase):
             frozenset({"TriggerShowMessage"}), self.lines.append,
             sink=self.sink)
 
-    def test_each_audience_in_the_domain_is_recorded_as_given(self):
-        for index, audience in enumerate(sorted(message.AUDIENCES)):
+    def test_each_audience_lands_in_the_bucket_that_audience_names(self):
+        for audience in sorted(message.AUDIENCES):
             with self.subTest(audience=audience):
-                self.assertEqual(
-                    self.namespace["TriggerShowMessage"](audience, 919),
-                    index + 1)
+                self.assertTrue(
+                    self.namespace["TriggerShowMessage"](audience, 919))
+        # 0/1 belong to the character; 2/3 belong to the scene, and the
+        # scene entries carry which character's trigger fired them.
+        self.assertEqual(self.sink.messages_for(0), ((0, 919), (1, 919)))
         self.assertEqual(
-            self.sink.messages_for(0),
-            ((0, 919), (1, 919), (2, 919), (3, 919)))
+            self.sink.broadcasts_for("unscoped_default"),
+            ((2, 919, 0), (3, 919, 0)))
+
+    def test_a_second_player_in_the_scene_reads_the_same_broadcast(self):
+        # The whole point of keying 2/3 by scene: player 9 never fired
+        # anything and still has the announcement.
+        first = trigger.build_namespace(
+            frozenset({"TriggerShowMessage"}), self.lines.append,
+            context=trigger.TriggerContext(scene="bg2017", trigger_id=26),
+            sink=self.sink)
+        first["TriggerShowMessage"](message.AUDIENCE_SCENE, 918)
+        self.assertEqual(self.sink.broadcasts_for("bg2017"), ((2, 918, 0),))
+        self.assertEqual(self.sink.messages_for(9), ())
 
     def test_an_audience_outside_the_domain_is_refused_not_clamped(self):
         for audience in (4, -1, 99):
@@ -179,6 +230,7 @@ class TriggerShowMessageTests(unittest.TestCase):
                     self.namespace["TriggerShowMessage"](audience, 919),
                     trigger.STUB_DEFAULT)
         self.assertEqual(self.sink.messages_for(0), ())
+        self.assertEqual(self.sink.broadcasts_for("unscoped_default"), ())
 
     def test_an_id_with_no_row_is_refused_and_never_recorded(self):
         self.assertEqual(
@@ -203,25 +255,32 @@ class OneScriptHostSharesOneMessageSinkTests(unittest.TestCase):
     the two namespaces would each hold their own empty bucket.
     """
 
-    def test_player_then_trigger_share_one_ordered_record(self):
+    def test_player_then_trigger_share_one_sink(self):
         from pirateforce_foundation.script_host import ScriptHost
 
         host = ScriptHost(log=lambda _line: None)
         self.assertEqual(host.namespaces["Player"]["ShowMessage"](856), 1)
+        # An individual message from Player and a party message from
+        # Trigger land in ONE character bucket, in order -- that is the
+        # shared-sink property. (A 2/3 audience would land in the scene
+        # bucket instead, which is a different bucket by design.)
         self.assertEqual(
-            host.namespaces["Trigger"]["TriggerShowMessage"](2, 919), 2)
+            host.namespaces["Trigger"]["TriggerShowMessage"](1, 919), 2)
         self.assertEqual(
             host.namespaces["Player"]._sink.messages_for(0),
-            ((0, 856), (2, 919)))
+            ((0, 856), (1, 919)))
 
     def test_an_injected_sink_is_the_one_both_namespaces_write_to(self):
         from pirateforce_foundation.script_host import ScriptHost
 
         sink = message.InMemoryMessageSink()
-        host = ScriptHost(log=lambda _line: None, message_sink=sink)
+        host = ScriptHost(
+            log=lambda _line: None, message_sink=sink,
+            trigger_context=trigger.TriggerContext(scene="bg2017", trigger_id=26))
         host.namespaces["Player"]["ShowMessage"](856)
         host.namespaces["Trigger"]["TriggerShowMessage"](2, 919)
-        self.assertEqual(sink.messages_for(0), ((0, 856), (2, 919)))
+        self.assertEqual(sink.messages_for(0), ((0, 856),))
+        self.assertEqual(sink.broadcasts_for("bg2017"), ((2, 919, 0),))
 
     def test_two_hosts_do_not_share_the_default_sink(self):
         from pirateforce_foundation.script_host import ScriptHost
