@@ -688,7 +688,7 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # only ASKED for a ruling (its own item 1 says "send a request"), not
     # one that grants it -- so #907 shipped a citation to a letter that was
     # never an authorization.  COO-DECISION 1150 does not reverse the four
-    # scenes (its own item 1: "ไม่ย้อน" / not reversed) -- it ratifies them
+    # scenes (its own item 1: "not reversed") -- it ratifies them
     # and repoints the citation to itself; that repoint is the only change
     # this entry and WIDENING_RULING_SCENES below make to the four keys.
     # The covered template sets are untouched.
