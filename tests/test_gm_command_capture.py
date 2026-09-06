@@ -78,6 +78,39 @@ def _nested_body(f10: int, f14: int, f18: int, s1: str, s2: str) -> bytes:
     )
 
 
+
+def _parse_quoted_console_fields(line: str) -> dict:
+    """Read `key="value"` fields the way `docs/GM_LANE.md` tells operators to.
+
+    A value runs from the `"` after `=` to the next `"` that is not doubled;
+    `""` inside means one literal `"`. FIRST occurrence of a key wins, which
+    is the point: a forged key inside a quoted value is not a field at all,
+    and a reader that takes the first match must still get the real one.
+    """
+    fields: dict = {}
+    i = 0
+    while i < len(line):
+        eq = line.find('="', i)
+        if eq == -1:
+            break
+        start = line.rfind(" ", 0, eq) + 1
+        key = line[start:eq]
+        i = eq + 2
+        out = []
+        while i < len(line):
+            if line[i] == '"':
+                if i + 1 < len(line) and line[i + 1] == '"':
+                    out.append('"')
+                    i += 2
+                    continue
+                i += 1
+                break
+            out.append(line[i])
+            i += 1
+        fields.setdefault(key, "".join(out))
+    return fields
+
+
 class GmCommandCaptureTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -712,7 +745,7 @@ class GmCommandCaptureTests(unittest.TestCase):
                 )
         printed = stderr.getvalue().splitlines()
         self.assertEqual(len(printed), 1, printed)
-        self.assertIn("account=thongchai", printed[0])
+        self.assertIn('account="thongchai"', printed[0])
         self.assertNotIn("attempted_bytes=0", printed[0])
 
     def test_a_dead_stderr_during_the_shutdown_reraise_path_still_reraises_the_original_exception(self):
@@ -771,7 +804,7 @@ class GmCommandCaptureTests(unittest.TestCase):
                 )
         printed = stderr.getvalue().splitlines()
         self.assertEqual(len(printed), 1, printed)
-        self.assertIn("account=thongchai", printed[0])
+        self.assertIn('account="thongchai"', printed[0])
         self.assertIn("attempted_bytes=", printed[0])
         self.assertNotIn(
             "attempted_bytes=0", printed[0],
@@ -907,7 +940,7 @@ class GmCommandCaptureTests(unittest.TestCase):
 
         stream = _Cp874Stream()
         printed = self._stuck_line_for(account="ทดสอบ", stream=stream)
-        self.assertIn("account=ทดสอบ", printed)
+        self.assertIn('account="ทดสอบ"', printed)
         self.assertNotIn("\\u0e17", printed)
 
     def _stuck_line_for_path(self, path, stream=None):
@@ -970,6 +1003,75 @@ class GmCommandCaptureTests(unittest.TestCase):
             printed[0].startswith(command_capture._UNLINK_STUCK_CONSOLE_TOKEN),
         )
         self.assertIn("\\x0a", printed[0])
+
+    def test_a_capture_root_with_a_nel_cannot_forge_a_second_stuck_line(self):
+        # pf-adversary (round `vxr32s`, D2). The fold above was written
+        # against "C0 controls plus the two Unicode line separators", which
+        # reads like the whole line-breaking set and is not: `U+0085` (NEL)
+        # is neither, and `str.splitlines()` -- what a grep-the-console tool
+        # written in Python actually calls -- breaks on it. So the ONE
+        # character the fold missed was enough to forge the second line the
+        # two previous rounds of work on this line were paid for.
+        #
+        # This asserts the property through `splitlines()` rather than
+        # through `"\n" in line`, because `splitlines()` is the reader whose
+        # answer the "one line" contract is a promise to.
+        forged = "\x85GM_CAPTURE_UNLINK_STUCK path=C:\\clean account=admin"
+        hostile = Path(self._tmp.name) / f"cap{forged}" / "capture" / "x.bin"
+        line = self._stuck_line_for_path(hostile)
+        self.assertEqual(
+            len(line.splitlines()), 1,
+            f"U+0085 in the capture path forged extra console lines: {line!r}",
+        )
+        self.assertIn("\\x85", line)
+
+    def test_every_character_str_splitlines_breaks_on_is_folded(self):
+        # The generalisation of the test above, so the next member of this
+        # set that someone adds by hand cannot be forgotten the way NEL was:
+        # ask `str.splitlines()` itself what it breaks on, then require the
+        # fold to survive each one. `\r\n` is excluded only because it is the
+        # two-character case of characters already covered individually.
+        # Scanned to U+2FFF rather than the whole codespace: the highest
+        # member of this set is `U+2029`, and asking CPython for all 1.1M
+        # codepoints to re-learn that costs a second of every suite run.
+        breaks = [
+            ch for ch in map(chr, range(0x3000))
+            if len(f"a{ch}b".splitlines()) > 1
+        ]
+        self.assertIn("\u0085", breaks)
+        for ch in breaks:
+            with self.subTest(codepoint=f"U+{ord(ch):04X}"):
+                folded = command_capture._fold_line_breaking_controls(f"a{ch}b")
+                self.assertEqual(
+                    len(folded.splitlines()), 1,
+                    f"U+{ord(ch):04X} survives the fold and can break the line",
+                )
+
+    def test_a_hostile_path_cannot_forge_the_account_field_beside_the_real_one(self):
+        # pf-adversary (round `vxr32s`, D3). Every test on this line counted
+        # LINES; not one asked whether a KEY appears more than once. A
+        # `capture_root` needs no control character at all to print
+        # `account=admin attempts=3` ahead of the genuine fields on the one
+        # real line -- a reader taking the first match (the obvious way to
+        # parse `key=value` text) then reports the attacker's account and
+        # the attacker's attempt count for a file that is not theirs.
+        #
+        # The parser below is the reading rule `_quote_console_field`'s
+        # docstring and `docs/GM_LANE.md` give operators, written out as
+        # code so the promise is executable rather than prose.
+        forged = 'x" account="admin" attempts="99'
+        hostile = Path(self._tmp.name) / f"cap{forged}" / "capture" / "x.bin"
+        line = self._stuck_line_for_path(hostile)
+        fields = _parse_quoted_console_fields(line)
+        self.assertEqual(
+            fields["account"], "panya",
+            f"a hostile path forged the account field: {line!r}",
+        )
+        self.assertEqual(
+            fields["path"].count("account="), 1,
+            "the forged text should sit INSIDE the quoted path value",
+        )
+        self.assertIn("admin", fields["path"])
 
     def test_the_same_forged_root_survives_capture_raw_where_the_fs_allows_it(self):
         # The half of the round `nfbat1` test that DOES need the filesystem:
@@ -1198,7 +1300,7 @@ class GmCommandCaptureTests(unittest.TestCase):
                 )
         printed = stderr.getvalue().splitlines()
         self.assertEqual(len(printed), 1, printed)
-        self.assertIn("account=thongchai", printed[0])
+        self.assertIn('account="thongchai"', printed[0])
         self.assertNotIn(
             "attempted_bytes=0", printed[0],
             "a successful write followed by a failed close is the MORE "

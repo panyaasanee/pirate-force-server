@@ -22,7 +22,8 @@ not a new test written for it.
 from __future__ import annotations
 
 from . import hook
-from ..gm.dispatch import handle_gm_run_command_vital
+from ..gm.allowlist_probe import announce_not_gm_once
+from ..gm.dispatch import REFUSAL_NOT_GM, handle_gm_run_command_vital
 
 # Same convention every other shippable lane module in this project already
 # uses (field_mobs.py, columbus_quest_dispatch.py, ...): True means "no
@@ -39,7 +40,20 @@ def _on_gm_run_command(session: object, payload: bytes) -> None:
     outcome = handle_gm_run_command_vital(session.token, payload)  # type: ignore[attr-defined]
     if outcome.captured_path is not None:
         session.events.append("gm_run_command_authorized_capture")  # type: ignore[attr-defined]
-    else:
-        session.events.append(  # type: ignore[attr-defined]
-            f"gm_run_command_refused_{outcome.refusal_reason}"
-        )
+        return
+    session.events.append(  # type: ignore[attr-defined]
+        f"gm_run_command_refused_{outcome.refusal_reason}"
+    )
+    if outcome.refusal_reason == REFUSAL_NOT_GM:
+        # The attended boot R322B (pf_bridge
+        # `notes_to_chief/20260907_0123_KA1A-R322B-RESULTS-*`) pressed the
+        # real client's EXECUTE button, put three real 0x51E9 frames on the
+        # wire, and could not tell from outside whether they were refused
+        # here, never reached this hook, or hit a capture bug -- because all
+        # three look the same from a game client: an empty reply and an
+        # empty disk.  The event line above is the answer, and it goes into
+        # a structure nobody reads at the keyboard.  One console line, once
+        # per process, closes that gap; see `gm/allowlist_probe.py` for why
+        # it prints only a count of the allowlist and never its contents,
+        # and why nothing about it reaches the client.
+        announce_not_gm_once(session.token)  # type: ignore[attr-defined]
