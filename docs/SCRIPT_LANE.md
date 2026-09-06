@@ -1594,3 +1594,111 @@ this repository) -- both re-checked fresh this round. `Instance.*` stays
 9/9 real; this round changed no API behavior, only recovered the already-
 real work's path onto `main` and fixed the test-suite regression that had
 blocked it.
+
+## Round bxly5p (2026-09-06) -- first live wire into TriggerStatusRegistry (plumbing, not a new real name)
+
+**Both named blockers re-checked fresh, both still open, both re-confirmed
+with a new fact each**, before doing anything else this round:
+
+- `RE-273` result letter landed since round `gk0dz4`
+  (`pf_bridge/notes_to_chief/
+  20260906_1340_RE-273-RESULT-TGR-FILE-IS-THE-TRIGGER-ID-TO-LUA-TABLE.md`):
+  every scene's `.tgr` file DOES carry a trigger-ordinal -> `.lua` filename
+  table (267 files, 3,942 records, 156 of 160 unique script names match a
+  real `gamedata/lua/t_*.lua` file) -- but the letter's own "what this
+  ticket does not answer" section is explicit that the `.tgr` ordinal has
+  **not** been shown to be the same number as the wire `TriggerVital`
+  (0x1FB2) frame's own `0x0F` tag value (`lane_a_island_trigger_log.py`'s
+  own R308 measurement: wire ids observed so far are 2 and 3, small
+  per-scene integers, same SHAPE as a `.tgr` ordinal but not proven the
+  SAME NUMBER SPACE). Guessing they are equal is exactly the "same because
+  the numbers look alike" pairing `AGENTS.md` Section 7 forbids. This
+  round's decision (see letter to chief/K below, and RE-273's own
+  "สถานะที่ขอให้ chief พิจารณา"): continue the SAME ticket, narrowed to the
+  one remaining question, `[STATIC-ON-BRIDGE]`, no game boot needed --
+  disassemble the `.tgr` loader / `TriggerVital` dispatch in the client
+  image for the field that carries an ordinal across that boundary, per
+  RE-273's own suggested path 1.
+- `persistence_quest_state.py`: re-confirmed absent
+  (`grep -rln "persistence_quest_state\|character_quest_state" src/` = 0
+  hits, `migrations/` still ends at `014_character_skills_learned_source.
+  sql`, no `015`). Root cause, traced through the bridge's own letters
+  this round (`pf_bridge/notes_to_chief/
+  20260906_0108_LANE-DB-REPORT-COO-863-merged-2354-consumed-
+  migrate_with_backup-question-closed-empty-round.md`): the code LANE-DB
+  built for this (migration + module + 5 store methods + 59 tests) lived
+  only in that session's own scratchpad and was lost when the session
+  ended, because chief's own guard whitelist for DB's module names
+  (`COO-DECISION 20260905_2353` item, "chief reads and whitelists") has
+  not landed since -- this is a DB/chief-side blocker, not something this
+  lane's write zone can build (`src/pirateforce_foundation/lua_api/`, not
+  `store.py`/`migrations/`).
+
+**What this round built instead, in its own write zone, needing neither
+blocker**: `lane_hooks/lane_q_trigger_vital_dispatch.py` -- the first
+production wiring from a real inbound `TriggerVital` frame into
+`lua_api.trigger.trigger_status_registry()`, the exact process-memory book
+`Trigger.GetTriggerStatus`/`SetStatus`/`NextStatus` already read and write
+when a script calls them. LANE-A's own letter this round
+(`pf_bridge/notes_to_chief/
+20260906_0727_LANE-A-TO-LANE-Q-world-registry-interface-and-trigger-hit-
+hook-point.md`) named the hook point (`vital_inbound_trigger_vital`,
+already wired live in `runtime.py` by LANE-A/chief) as safe to share
+without asking permission per round; this module registers on it (picked
+up automatically by `lane_hooks`'s own `pkgutil.iter_modules` discovery,
+no call-site change needed) and, on every real frame, reads the wire's own
+`0x0F` trigger id (via `lane_a_island_trigger_log.first_tag_value`, the
+already-proven walker -- not a second parser), resolves the session's
+scene through `world_scene_folder.scene_folder_for_scene_id`, and advances
+the registry keyed by (scene folder, WIRE id) -- named in both the module
+and every log line as `WIRE_NATIVE_ID_UNPROVEN_VS_TGR_ORDINAL`, so nothing
+downstream can mistake this key for a proven `.tgr` crosswalk.
+
+**What this is not, said plainly**: no `.lua` file is looked up or run; no
+`REAL_METHODS` count changed (still 5/17); nothing reaches the client;
+nothing is player-visible yet. It is COMING, not DONE (see this round's own
+`rounds/Q_*.md` SCOREBOARD line) -- real, tested, live-wired plumbing that
+the still-missing script dispatch will need regardless of how the ordinal
+question resolves, since something has to turn a wire frame into a
+registry key before any script logic can run at all.
+
+### Tests + gates
+
+New file `tests/test_lane_q_trigger_vital_dispatch.py` (12 tests): the pure
+`dispatch_line` function (real R307 capture frame payloads, reused verbatim
+from `tests/test_lane_a_island_trigger_log.py` rather than invented bytes)
+covering a resolved hit, two hits on the same key advancing by one each,
+two different wire ids in one scene not colliding, the same wire id in two
+scenes not colliding, a missing trigger-id tag, a session missing the
+attribute chain, a `None` session, a `bool` scene id (refused the same way
+every `_coerce_int` door in this codebase refuses one), and an unaddressed
+scene id -- plus three tests through `lane_hooks.fire()` itself (the actual
+call shape `runtime.py` uses): the hook fires and writes the registry, a
+non-bytes payload does not raise out of `fire()`, and LANE-A's own hook
+still fires alongside this one on the same point. Ran alone first (12
+passed), then with the neighboring trigger/hook test files
+(`test_lane_a_island_trigger_log.py`, `test_script_lua_api_trigger.py`,
+`test_script_host_spike.py`, `test_lane_a_trigger_vital_dispatch_wiring.py`,
+`test_dispatch_nested_vital_visibility.py`): all passed, no regressions
+(counts in the round file). `PYTHONPATH=src python3 -m pirateforce_foundation.
+gm.lane_gate_name_audit` (the point-name-agreement guard both this file's
+own module docstring and `lane_a_island_trigger_log.py`'s cite) ran clean,
+exit 0, and printed `LANE_HOOK_REGISTERED ...lane_q_trigger_vital_dispatch
+vital_inbound_trigger_vital` alongside LANE-A's own registration on the same
+point.
+
+### ADVERSARY
+
+`ADVERSARY_UNAVAILABLE` this round (ToolSearch found no `pf-adversary` tool
+in this session). Self-review performed per `AGENTS.md` Section 7's
+fallback: read every hunk of `git diff --cached` before each commit;
+re-derived the wire trigger ids by hand from the raw frame bytes
+(`0F 28 00` -> tag 0x0F, u16 LE `28 00` = 40; `0F 33 00` -> 51) rather than
+trusting the module's own arithmetic, and asserted those exact literals in
+the test file; deliberately fed the dispatcher a `bool` scene id, a `None`
+session, a bare `SimpleNamespace()` with no attributes, and a non-bytes
+payload through the real `lane_hooks.fire()` entry point (not just the
+pure function) to confirm the fail-closed contract holds at the actual
+call shape production uses, not only in the unit under test. Next round
+for this lane should invoke `pf-adversary` on this branch as its first
+action, per house rule, before claiming new work.
