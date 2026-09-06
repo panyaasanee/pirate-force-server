@@ -1044,7 +1044,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         on a boot that cannot record it."""
         legacy = self.legacy
         shop_idx = self._shop_index()
-        for kwargs in ({}, {"shop_store5_open_sent": None}):
+        for kwargs in ({}, {"vendor_open_latch_spent": None}):
             with self.subTest(kwargs=kwargs):
                 extras, reason, latches = responder_mod._conversation_extra(
                     legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
@@ -1060,7 +1060,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         shop_idx = self._shop_index()
         extras, reason, latches = responder_mod._conversation_extra(
             legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
-            shop_store5_open_sent=False,
+            vendor_open_latch_spent=False,
         )
         self.assertEqual(len(extras), 1)
         label, pc, frame, delay = extras[0]
@@ -1087,7 +1087,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         try:
             extras, reason, latches = responder_mod._conversation_extra(
                 legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
-                shop_store5_open_sent=False,
+                vendor_open_latch_spent=False,
             )
         finally:
             legacy.make_trade_zoom_store5 = real
@@ -1104,7 +1104,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         shop_idx = self._shop_index()
         extras, reason, latches = responder_mod._conversation_extra(
             legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
-            shop_store5_open_sent=True,
+            vendor_open_latch_spent=True,
         )
         self.assertEqual(extras, ())
         self.assertEqual(
@@ -1123,13 +1123,13 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         try:
             extras, reason, latches = responder_mod._conversation_extra(
                 legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
-                shop_store5_open_sent=False,
+                vendor_open_latch_spent=False,
             )
         finally:
             legacy.make_trade_zoom_store5 = real
         self.assertEqual(extras, ())
         self.assertEqual(
-            reason, "no_extra_shop_builder_refused_RuntimeError")
+            reason, "no_extra_vendor_builder_refused_RuntimeError")
         # A latch that was never spent must never be reported as spent:
         # the call site would set it and the shop would stay shut for the
         # rest of the session on the strength of an action nobody sent.
@@ -1140,7 +1140,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         quest_idx = legacy.V129_QUEST_ACTOR_INDEX
         extras, reason, latches = responder_mod._conversation_extra(
             legacy, self._quest_placement(), quest_idx, PORT_ROYAL,
-            quest3020_conversation_sent=False,
+            mission_dialog_latch_spent=False,
         )
         self.assertEqual(len(extras), 1)
         label, pc, frame, delay = extras[0]
@@ -1167,10 +1167,10 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         )
         extras, reason, latches = responder_mod._conversation_extra(
             legacy, wrong, legacy.V129_QUEST_ACTOR_INDEX, PORT_ROYAL,
-            quest3020_conversation_sent=False,
+            mission_dialog_latch_spent=False,
         )
         self.assertEqual(extras, ())
-        self.assertEqual(reason, "no_extra_quest_builder_refused_ValueError")
+        self.assertEqual(reason, "no_extra_mission_builder_refused_ValueError")
         self.assertEqual(latches, ())
 
     def test_a_spent_quest_latch_composes_nothing_and_never_an_empty_one(self):
@@ -1189,7 +1189,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
             extras, reason, latches = responder_mod._conversation_extra(
                 legacy, self._quest_placement(),
                 legacy.V129_QUEST_ACTOR_INDEX, PORT_ROYAL,
-                quest3020_conversation_sent=True,
+                mission_dialog_latch_spent=True,
             )
         finally:
             legacy.make_npc_conversation_empty = real
@@ -1210,7 +1210,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
             chosen_identities=(0x2000 + shop_idx + 1,),
             population_indices=self.population_indices,
             last_target_pos=None,
-            shop_store5_open_sent=False,
+            vendor_open_latch_spent=False,
         )
         self.assertIsNotNone(answer)
         self.assertEqual(answer.latches_spent, ("shop_store5_open_sent",))
@@ -1246,11 +1246,11 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         """The undone half is chief's, and a named ask is the difference
         between a handoff and a hope.  Both lines must be in the constant,
         and the constant must say why (2) is not optional."""
-        wiring = responder_mod.SHOP_AND_QUEST_LATCH_WIRING
-        self.assertIn("shop_store5_open_sent=self.shop_store5_open_sent",
+        wiring = responder_mod.VENDOR_AND_MISSION_LATCH_WIRING
+        self.assertIn("vendor_open_latch_spent=self.shop_store5_open_sent",
                       wiring)
         self.assertIn(
-            "quest3020_conversation_sent=self.quest3020_conversation_sent",
+            "mission_dialog_latch_spent=self.quest3020_conversation_sent",
             wiring)
         self.assertIn("for _latch in response.latches_spent:", wiring)
         self.assertIn("WITHOUT (2), (1) IS A REGRESSION AND NOT A GAIN.",
