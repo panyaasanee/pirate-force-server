@@ -126,6 +126,45 @@ class RuleDerivedWideningTests(unittest.TestCase):
             "automatic admission of a new one",
         )
 
+    def test_a_signed_letter_outranks_a_derived_permit_on_every_shipped_row(
+            self):
+        """Assertion 2, on the axis that actually bit.
+
+        COO-DECISION 2026-08-29T08:48+07:00 item 1(b) refuses to let a letter
+        written tomorrow move the provenance of a kill already recorded under
+        one written yesterday, and enforces it through the AGE term.  A
+        derived permit gets past that term without touching it: it can be
+        NARROWER than the hand letter (the roster ships fewer templates than
+        the letter authorised), and narrower is term (a), which outranks age.
+
+        Measured before the fix, not imagined: all 17 shipped Bg0002 rows
+        moved from the PANYA-DECISION 2026-08-27T20:10 letter (4 templates)
+        to this round's derived permit (3).  ``ruling_for`` now consults
+        derived permits only where no signed letter covers the row at all.
+        """
+        derived_names = set(mob_death.RULE_DERIVED_RULING_FOR_SCENE.values())
+        checked = 0
+        for scene in field_mobs.live_scenes():
+            for mob in field_mobs.load_roster(scene=scene):
+                covering = mob_death.rulings_covering(mob)
+                if not covering:
+                    continue
+                if all(name in derived_names for name in covering):
+                    continue
+                checked += 1
+                self.assertNotIn(
+                    mob_death.ruling_for(mob), derived_names,
+                    "shipped row 0x%X in %r is recorded under a permit this "
+                    "round derived, though a signed letter covers it -- the "
+                    "switch moved the provenance of an already-ratified kill"
+                    % (mob.actor_identity, scene),
+                )
+        self.assertGreater(
+            checked, 0,
+            "no shipped row is covered by both a signed letter and a derived "
+            "permit, so this test proves nothing about the partition",
+        )
+
     def test_every_registered_scenes_monsters_are_killable_under_the_rule(
             self):
         """Assertion 3: what "new scenes enter automatically" means."""

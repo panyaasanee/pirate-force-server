@@ -512,10 +512,22 @@ class Bg0004DeathRulingTests(unittest.TestCase):
             self) -> None:
         rows = field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
         self.assertEqual(len(rows), EXPECTED_HOSTILE_COUNT)
+        # ROUND 0wef26.  This scene's rows are now covered by TWO permits,
+        # not one: the 05:46 letter, and the permit mob_death derives for
+        # this scene from the MOBS columns (COO-DECISION 2026-09-06T16:48
+        # +07:00 item 2, which ends the one-letter-per-island arrangement).
+        # The card's subject is unchanged and is asserted below exactly as
+        # before -- no letter belonging to ANOTHER scene reaches these rows,
+        # and a kill is still recorded under the 05:46 letter, because
+        # ruling_for consults a derived permit only where no signed letter
+        # covers the row.  What changed is only how many permits the scene
+        # has, so the pin is on the SET of them rather than on the count.
+        derived = mob_death.RULE_DERIVED_RULING_FOR_SCENE[EXPECTED_SCENE]
         for mob in rows:
             with self.subTest(identity=hex(mob.actor_identity)):
                 self.assertEqual(
-                    mob_death.rulings_covering(mob), (RULING_0546,))
+                    set(mob_death.rulings_covering(mob)),
+                    {RULING_0546, derived})
                 self.assertEqual(mob_death.ruling_for(mob), RULING_0546)
         # The ruling's set is the roster's distinct templates and nothing
         # else -- re-derived here rather than hand-copied a second time.
@@ -605,9 +617,16 @@ class Bg0004DeathRulingTests(unittest.TestCase):
         orc = [mob for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
                if mob.template_id == 103]
         self.assertEqual(len(orc), 1)
+        # This scene's own derived permit (round 0wef26) also carries 103,
+        # because 103 is one of this scene's shipped templates.  It is not a
+        # foreign letter and excluding it is not a weakening: it is tied to
+        # THIS scene in WIDENING_RULING_SCENES, so the hazard this loop
+        # measures -- another scene's letter reaching this scene's Orc Chief
+        # -- is not something it can be.
+        derived = mob_death.RULE_DERIVED_RULING_FOR_SCENE[EXPECTED_SCENE]
         bg0002_letters = [
             name for name, templates in mob_death.WIDENING_RULINGS.items()
-            if 103 in templates and name != RULING_0546
+            if 103 in templates and name not in (RULING_0546, derived)
         ]
         self.assertTrue(bg0002_letters)
         for name in bg0002_letters:
