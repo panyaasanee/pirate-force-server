@@ -22,6 +22,7 @@ tests build theirs.
 from __future__ import annotations
 
 import json
+import os
 import struct
 import sys
 import tempfile
@@ -41,6 +42,29 @@ from pirateforce_foundation.lane_hooks import (  # noqa: E402
 from pirateforce_foundation.gm.activity_cheat_code_wire import (  # noqa: E402
     ACTIVITY_CHEAT_CODE_VITAL_ID,
 )
+
+
+def _close_that_really_closes_then_fails(message: str):
+    """`os.close` side effect that releases the descriptor, then reports failure.
+
+    A `side_effect=OSError(...)` alone leaks the real descriptor. Linux does
+    not care; Windows keeps the file locked while the handle is open, so the
+    `_best_effort_unlink` inside `command_capture._capture_raw` hits a
+    sharing violation and every one of these cases reports
+    `CaptureFileNotVerifiedRemoved` instead of the failure under test -- the
+    signature that closed `pirate-force-server` #926 and #937 with a RED
+    Windows gate while this suite stayed green on Linux. Full account in
+    `tests/test_gm_command_capture.py:close_that_really_closes_then_fails`.
+    POSIX `close()` consumes the descriptor even when it errors, so closing
+    for real first is also the faithful model of the failure being simulated.
+    """
+    real_close = os.close
+
+    def _close(fd: int) -> None:
+        real_close(fd)
+        raise OSError(message)
+
+    return _close
 
 
 def _wstring(text: str) -> bytes:
@@ -197,7 +221,9 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
         # here for the SECOND opcode too, not just 0x51E9.
         with mock.patch.object(
             gm_command_capture.os, "close",
-            side_effect=OSError("simulated close ENOSPC"),
+            side_effect=_close_that_really_closes_then_fails(
+                "simulated close ENOSPC",
+            ),
         ), mock.patch.object(
             gm_command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
         ):

@@ -22,6 +22,37 @@ from pirateforce_foundation.gm.command_capture import (
 )
 
 
+def close_that_really_closes_then_fails(message: str):
+    """`os.close` side effect that releases the descriptor, then reports failure.
+
+    A `side_effect=OSError(...)` alone never closes the real descriptor. On
+    Linux that leak is invisible -- an open handle blocks neither `unlink`
+    nor a directory removal -- so the whole suite stayed green here while
+    the Windows gate went RED twice on exactly these tests
+    (`pirate-force-server` #926 run 34024390383, #937 run 34029288153,
+    both "6 failed, 3 errors" with six close-mocking tests in the round).
+    Windows keeps a file locked while any handle on it is open, so the
+    leaked descriptor made `_best_effort_unlink` inside the code under test
+    fail with a sharing violation: every one of these cases reported
+    `CaptureFileNotVerifiedRemoved` instead of the failure the test asked
+    for, and the still-open handle then broke the `TemporaryDirectory`
+    cleanup registered in `setUp`.
+
+    Closing for real first is also the more faithful model: POSIX `close()`
+    consumes the descriptor even when it reports an error (which is exactly
+    why `command_capture._capture_raw` does not retry it), so a test that
+    keeps the descriptor alive is testing a state the code under test can
+    never be in.
+    """
+    real_close = os.close
+
+    def _close(fd: int) -> None:
+        real_close(fd)
+        raise OSError(message)
+
+    return _close
+
+
 def _wstring(text: str) -> bytes:
     # 0x48 tag + uint32le byte count + payload (corrected 2026-09-02;
     # PF_A2_STRING_WIRE_TAG_DELTA.tsv rows 6266/6267/6279/6280).
@@ -390,7 +421,8 @@ class GmCommandCaptureTests(unittest.TestCase):
         with mock.patch.object(
             command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
         ), mock.patch.object(
-            command_capture.os, "close", side_effect=OSError("simulated close EIO"),
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails("simulated close EIO"),
         ):
             with self.assertRaises(OSError) as ctx:
                 capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
@@ -409,7 +441,10 @@ class GmCommandCaptureTests(unittest.TestCase):
         # must succeed and this must be classified exactly like a write
         # failure, not silently ignored.
         with mock.patch.object(
-            command_capture.os, "close", side_effect=OSError("simulated close ENOSPC"),
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails(
+                "simulated close ENOSPC",
+            ),
         ):
             with self.assertRaises(OSError) as ctx:
                 capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
@@ -427,7 +462,10 @@ class GmCommandCaptureTests(unittest.TestCase):
         # unlink fail: real, complete content may still be on disk, so the
         # caller must see the distinct subclass, not a plain OSError.
         with mock.patch.object(
-            command_capture.os, "close", side_effect=OSError("simulated close ENOSPC"),
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails(
+                "simulated close ENOSPC",
+            ),
         ), mock.patch.object(
             command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
         ):
@@ -439,6 +477,37 @@ class GmCommandCaptureTests(unittest.TestCase):
         # The write really did complete -- this is a full, real capture
         # file, not an empty one, unlike the write-failure scenarios above.
         self.assertGreater(leftover[0].stat().st_size, 0)
+
+    def test_the_close_failure_helper_leaves_no_descriptor_open(self):
+        # The guard that makes the three close-failure tests above mean the
+        # same thing on Windows as on Linux. A `side_effect` that only
+        # raises leaks the descriptor; on Linux nothing notices, on Windows
+        # the open handle locks the file and every one of those tests
+        # reports the wrong exception class and then breaks its own temp-dir
+        # cleanup -- the RED gate on #926 and #937. This test fails on ANY
+        # platform the moment the helper stops closing for real, so the
+        # Windows-only failure cannot come back invisibly.
+        opened = []
+        real_open = os.open
+
+        def spy_open(*args, **kwargs):
+            fd = real_open(*args, **kwargs)
+            opened.append(fd)
+            return fd
+
+        with mock.patch.object(
+            command_capture.os, "open", side_effect=spy_open,
+        ), mock.patch.object(
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails("simulated close EIO"),
+        ):
+            with self.assertRaises(OSError):
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertEqual(len(opened), 1, opened)
+        with self.assertRaises(OSError):
+            # EBADF: the descriptor the capture opened is gone, so nothing
+            # holds the capture file open once the failure has propagated.
+            os.fstat(opened[0])
 
     # ----- pf-adversary (follow-up review of round `79ahzl`): os.write's ---
     # ----- return value was never checked -- the SAME bug this package ----
