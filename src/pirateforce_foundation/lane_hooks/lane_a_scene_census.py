@@ -647,6 +647,129 @@ ARM_THREE_ELIGIBLE_SCENE_IDS = (
 )
 
 
+# WHICH RAW `CONSTDATA_TH__MOBS` COLUMNS THE TWO LEGS OF A MULTI-SET
+# PLACEMENT ARE ALLOWED TO DIFFER ON.  DECLARED HERE, IN THIS LANE'S OWN
+# FILE, BECAUSE THIS LANE DECIDES IT.
+#
+# `COO-DECISION 20260906_0549` items 2 and 3, answering this lane's
+# `LANE-A-ASK-COO 20260906_0522`.  The question that letter asked was not
+# "are the legs interchangeable" but "who decides which columns that reading
+# is taken from, and where is it written down", because the answer at the
+# time was "whichever columns a dataclass an old round wrote happens to
+# carry" -- and a dataclass is not a decision.
+#
+# THE MEASUREMENT BEHIND THE ROWS.  pf-adversary (round `9zj630`) read
+# `CONSTDATA_TH__MOBS.tsv` directly for the two rows every multi-set
+# placement in scenes 304 and 305 resolves to -- 8167 and 8171 -- and found
+# them differing on exactly these columns and no others.  So this tuple is
+# not a policy someone would like to be true: it is the difference that IS
+# there, written down so the gate can be red about a NEW one.
+#
+# `MOBS.n_ID` leads the list because a multi-set placement is by definition
+# two different MOBS rows; it is also why `_LEG_COMPARISON_EXEMPT` in every
+# scene identity module exempts `mobs_n_id` from the leg comparison.
+MOBS_COLUMNS_LEGS_MAY_DIFFER_ON = (
+    "MOBS.n_ID",
+    # Chinese-traditional in both rows and unencodable in cp874, which is
+    # why nothing this lane ships reads it.  NOT the name a player sees:
+    # that is `MOBS_TIP.s_NAME`, a different table, and the distinction is
+    # load-bearing for the gate below -- confusing the two would make the
+    # gate red today for the wrong reason and teach the next round to
+    # widen the allowlist to silence it.
+    "MOBS.s_NAME",
+    # 8167 = 8 properties (`8209;8211;8212;8213;8214;8215;8216;8196`),
+    # 8171 = 1 (`8190`).
+    "MOBS.s_PROPERTIES",
+    # 600/600 against 200/200.
+    "MOBS.n_SPEED_WALK",
+    "MOBS.n_SPEED_RUN",
+)
+
+# THE SOURCE COLUMN BEHIND EVERY FIELD A SCENE IDENTITY SHIPS.
+#
+# Hand-typed, and it has to be: nothing in `SceneIdentity` records which
+# table a field was joined out of, and the join that put it there is prose
+# in each scene module's docstring ("THE JOIN, EXACTLY").  A hand-typed map
+# rots -- which is the whole reason `SHIPPED_COLUMNS_EXCEPT_MOBS_ID` is
+# derived from the dataclass rather than typed -- so the gate below refuses
+# a shipped field this map has no row for INSTEAD of skipping it.  The day
+# someone adds a field to `SceneIdentity`, the test goes red asking which
+# column it came from; it cannot go quietly uncompared, which is the exact
+# regression pf-adversary measured on scene 126 (round `gx7xtp`, D5).
+#
+# Identical in all three sibling modules today (`world_bg3001_identity`,
+# `world_bg3007_identity`, `world_bg3008_identity` -- same seven fields,
+# same join, verified by the test); keyed by field name rather than per
+# module so a fork announces itself as an undeclared field rather than as a
+# second copy of this map.
+SHIPPED_COLUMN_SOURCES = {
+    "outfit": "MOBS.s_OUTFIT",
+    "name": "MOBS_TIP.s_NAME",
+    "title": "MOBS_TIP.s_TITLE",
+    "level": "MOBS.n_LEVEL_MIN",
+    "rank": "MOBS.n_RANK",
+    # Joined through the level, not read off the MOBS row: the scene
+    # modules' join reads `STANDARD_MOB[MOBS.n_LEVEL_MIN].n_HPMAX`.
+    "max_hp": "STANDARD_MOB.n_HPMAX",
+    "mob_usage": "MOBS.n_MOB_USAGE",
+}
+
+
+def undeclared_shipped_fields(identity_module: Any) -> tuple[str, ...]:
+    """Shipped fields `SHIPPED_COLUMN_SOURCES` has no source column for.
+
+    Empty is the only passing answer.  A non-empty one is not a bug in the
+    lane that added the field -- it is this map being out of date, and the
+    fix is one row here naming where the new field was joined from.
+    """
+    try:
+        shipped = tuple(identity_module.SHIPPED_COLUMNS_EXCEPT_MOBS_ID)
+    except Exception:                                        # noqa: BLE001
+        return ()
+    return tuple(
+        field for field in shipped if field not in SHIPPED_COLUMN_SOURCES
+    )
+
+
+def shipped_columns_legs_may_differ_on(
+    identity_module: Any
+) -> tuple[str, ...]:
+    """The intersection the gate must keep empty.  Never raises.
+
+    "What this scene's census actually puts on the wire" intersected with
+    "what the two legs of a multi-set placement are allowed to differ on".
+    Empty means shipping the first leg is honest: every column a viewer can
+    observe reads the same on both legs, so no player can tell which leg
+    they were sent.
+
+    NON-EMPTY IS NOT A CRASH AND NOT A REFUSAL -- it is a signal, and it
+    belongs to whoever widened the census, not to this lane.  The day
+    `s_PROPERTIES` or a speed joins `SceneIdentity`, the multi-set
+    placements in scenes 304 and 305 stop being interchangeable ON THE
+    WIRE, and the choice at that point is to widen this allowlist with a
+    measurement, or to stop collapsing the pair and ship both legs
+    separately.  What must not happen is the third thing, which is what
+    happens today with no gate at all: the census silently gets wider and
+    `multi_set_placement_refusals()` keeps answering "interchangeable"
+    because it only ever compares the columns it can see.
+    """
+    undeclared = undeclared_shipped_fields(identity_module)
+    if undeclared:
+        # Cannot answer honestly with a field whose source is unknown; the
+        # companion check above is the one that reports it.
+        return ()
+    try:
+        shipped = tuple(identity_module.SHIPPED_COLUMNS_EXCEPT_MOBS_ID)
+    except Exception:                                        # noqa: BLE001
+        return ()
+    permitted = frozenset(MOBS_COLUMNS_LEGS_MAY_DIFFER_ON)
+    return tuple(
+        SHIPPED_COLUMN_SOURCES[field]
+        for field in shipped
+        if SHIPPED_COLUMN_SOURCES[field] in permitted
+    )
+
+
 def scene_arrival_was_decreed_and_is_gm_reachable(
     scene_id: int, registry: Any = None
 ) -> bool:
