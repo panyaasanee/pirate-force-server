@@ -1,1 +1,1 @@
-{"sha":"a4834583fb2a7ca7980acfafcebaf6a3969adae1","conclusion":"failure","event":"push","ref":"refs/heads/claude/upbeat-brahmagupta-nfbat1","run_id":"34052572043","utc":"2026-09-06T19:05:31Z"}
+{"sha":"a4834583fb2a7ca7980acfafcebaf6a3969adae1","conclusion":"failure","event":"pull_request","ref":"refs/pull/970/merge","run_id":"34052615895","utc":"2026-09-06T19:21:01Z"}
