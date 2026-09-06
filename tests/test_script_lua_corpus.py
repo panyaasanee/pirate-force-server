@@ -191,7 +191,56 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: so a regression that raises this number (not a branch-shift fall) is
 #: still stub coverage getting worse, and the test below is written to
 #: catch that.
-BASELINE_TOTAL_STUB_CALLS = 4937
+#:
+#: RE-MEASURED (LANE-Q, round qbr5h8): lua_api/player.py made
+#: Player.CheckItemNum/GetItemNum/CheckEquipItem real (COO-DECISION
+#: 20260906_1846's "inventory seam, read side"). MEASURED, not derived from
+#: the 211/99/14 call-site counts in api_spec.tsv the naive way:
+#: report.real_call_counts prints {'Player.GetItemNum': 88,
+#: 'Player.CheckItemNum': 154} against this same LUA_ROOT and
+#: FIXED_QUEST_CLOCK (CheckEquipItem's own 2 call sites, both in files with
+#: no STANDARD_ENTRY_POINTS entry point that reaches them under this fixed
+#: clock, contribute 0 -- absent from real_call_counts entirely, not a
+#: dropped key) -- 4937 - 242 = 4695, NOT the actual 4715. The remaining
+#: 20-call gap is the same emergent, measured-not-assumed branch-shift
+#: phenomenon this baseline's own comment already documents for round
+#: gqjas5's GetLv/GetClass: giving these three their real (nonzero-capable)
+#: answer instead of STUB_DEFAULT=0 changes which branches some scripts take
+#: on their way to a Report_Check/Accept_Check gate, which changes which
+#: OTHER still-stubbed names execute afterward in the same run -- some
+#: newly reached (raising the count), some no longer reached (lowering it),
+#: net +20 stub calls elsewhere this time. Not a discrepancy to chase down;
+#: see the paragraph above for the same shape from a prior round.
+#:
+#: RE-MEASURED AGAIN, COMBINED WITH THE ABOVE (LANE-Q, round lvoma1,
+#: recovering both round qbr5h8's #953 and round 7v7yn2/uadtc7's #947/#960
+#: onto one branch after both died on an unrelated main-branch gate failure
+#: -- see this round's own round file): lua_api/quest.py made 9 more of
+#: Quest's 25 names real (GetQuestFlag/SetFlag/SetQuestFlag/GetFlag/
+#: MobKillCount/CheckMobKillCount/GetMobKillCount/CanReportDailyQuest/
+#: ReportDailyQuest) and lua_api/trigger.py made 2 more of Trigger's 17
+#: (QuestActiveProgress/QuestFinishProgress), sharing the same
+#: QuestStateStore door, ON TOP OF the inventory-seam three above -- both
+#: deltas landed together in the SAME corpus run for the first time here,
+#: so the combined total is measured fresh below, not added arithmetically
+#: from the two entries above (this comment's own standing rule: branch
+#: shift is emergent, never additive across independent real-method
+#: landings). MEASURED: report.real_call_counts against this same LUA_ROOT
+#: and FIXED_QUEST_CLOCK now prints {'Player.CheckItemNum': 145,
+#: 'Player.GetItemNum': 88, 'Player.GetLv': 60, 'Player.GetClass': 48,
+#: 'Quest.GetQuestFlag': 160, 'Quest.SetFlag': 405, 'Quest.SetQuestFlag':
+#: 47, 'Quest.GetFlag': 67, 'Quest.MobKillCount': 106,
+#: 'Quest.CheckMobKillCount': 105, 'Quest.GetMobKillCount': 1,
+#: 'Quest.CanReportDailyQuest': 45, 'Quest.ReportDailyQuest': 60,
+#: 'Quest.CheckOpenTime': 2, 'Trigger.QuestActiveProgress': 7, plus the
+#: unchanged Trigger/Instance real names} -- total_stub_calls
+#: 4715 -> 3716, NOT 4715 - (995 Quest calls + 7 Trigger calls) = 3713 (a
+#: 3-call gap, the same branch-shift phenomenon again, this time from
+#: CheckItemNum itself shifting 154 -> 145 and GetQuestFlag shifting
+#: 159 -> 160 once both deltas run in the SAME corpus pass -- neither
+#: shift is visible when each delta is measured alone, exactly why this
+#: round remeasured instead of adding the two prior entries' own deltas).
+BASELINE_TOTAL_STUB_CALLS = 3716
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()

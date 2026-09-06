@@ -66,17 +66,87 @@ class TwoNamedSpikeScriptsRunHeadlessTests(unittest.TestCase):
         # every API name this specific script's source calls by name must
         # actually have fired through the stub, in namespaces that are not
         # each other (COO-DECISION 20260905_0947: "wired" means observed).
+        # Quest.MobKillCount/SetFlag/CheckMobKillCount moved OUT of this set
+        # this round (COO-DECISION 20260906_1846) -- they fire for real now,
+        # asserted separately below, not silently dropped.
         self.assertEqual(called, {
             "Mob.ShowAnimation",
-            "Quest.MobKillCount",
-            "Quest.SetFlag",
             "Quest.CountDownTime",
-            "Quest.CheckMobKillCount",
             "Quest.AddCriteriaExp",
             "Quest.AddCriteriaSkillPoint",
             "Quest.AddCriteriaCash",
             "Player.MobAppear",
         })
+        real_called = {
+            c.split(" ", 2)[1] for c in calls if c.startswith("LUA_QUEST_REAL ")
+        }
+        self.assertEqual(real_called, {
+            "Quest.MobKillCount", "Quest.SetFlag", "Quest.CheckMobKillCount",
+        })
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class OneScriptHostSharesOneQuestStateStoreTests(unittest.TestCase):
+    """The wiring CORE-REQUEST 20260906_1951 asked for, now landed.
+
+    Before this round, ``ScriptHost`` let ``lua_api.trigger.build_namespace``
+    and ``lua_api.quest.build_namespace`` each default to their OWN private
+    ``InMemoryQuestStateStore`` (``lua_api.trigger.build_namespace``'s own
+    docstring named this gap). A script whose ``Trigger.QuestActiveProgress``
+    call and later ``Quest.GetQuestFlag`` call land in the SAME
+    ``ScriptHost`` run would then see two different stores -- the write from
+    one namespace invisible to a read from the other. These tests exercise
+    the real, per-instance-attribute identity (not just "both calls
+    succeeded") and the observable Lua-level consequence.
+    """
+
+    def test_trigger_and_quest_namespaces_hold_the_identical_store_object(self):
+        host = script_host.ScriptHost()
+        # __slots__ on both RealTriggerNamespace/RealQuestNamespace name the
+        # exact attribute; `is`, not equality, because two DIFFERENT but
+        # equally-empty InMemoryQuestStateStore instances would compare
+        # unequal to each other in any case (no __eq__ defined) but the
+        # bug this test guards against is two SEPARATE instances, which
+        # `is` catches directly rather than through their absence of writes.
+        self.assertIs(
+            host.namespaces["Trigger"]._quest_store,
+            host.namespaces["Quest"]._store,
+        )
+        self.assertIs(
+            host.namespaces["Trigger"]._quest_context,
+            host.namespaces["Quest"]._context,
+        )
+
+    def test_a_trigger_quest_progress_write_is_visible_to_a_later_quest_read(self):
+        # QUEST_ACTIVE = 1 (lua_api.quest.QUEST_ACTIVE) -- not re-imported
+        # here on purpose: this test only cares that SOME non-default value
+        # written by Trigger.QuestActiveProgress is the SAME value
+        # Quest.GetQuestFlag reads back, in one ScriptHost run, with no
+        # store/context passed in explicitly (the default-sharing path
+        # every existing caller before this round already takes).
+        host = script_host.ScriptHost()
+        host.load(
+            "function Run()\n"
+            "  Trigger.QuestActiveProgress(42)\n"
+            "  return Quest.GetQuestFlag(42)\n"
+            "end\n"
+        )
+        self.assertEqual(host.call("Run"), 1)
+
+    def test_an_explicitly_injected_store_is_the_one_both_namespaces_share(self):
+        from pirateforce_foundation.lua_api import quest as lua_api_quest
+
+        store = lua_api_quest.InMemoryQuestStateStore()
+        context = lua_api_quest.QuestContext(character_id=7, quest_id=0)
+        host = script_host.ScriptHost(quest_context=context, quest_store=store)
+        host.load(
+            "function Run()\n"
+            "  Trigger.QuestFinishProgress(99)\n"
+            "  return Quest.GetQuestFlag(99)\n"
+            "end\n"
+        )
+        self.assertEqual(host.call("Run"), 2)  # QUEST_FINISH
+        self.assertEqual(store.get_quest_flag(7, 99), 2)
 
 
 @LUPA_PACKAGE.skip_unless_present()
@@ -214,9 +284,14 @@ class SandboxActuallyBlocksTheBannedGlobalsTests(unittest.TestCase):
 @LUPA_PACKAGE.skip_unless_present()
 class ApiNamespaceStubBehaviourTests(unittest.TestCase):
     def test_unknown_property_style_key_returns_the_safe_default_silently(self):
+        # Quest.Active is deliberately NOT probed here any more: it became a
+        # genuine named status constant (1, not the STUB_DEFAULT bucket)
+        # this round -- see lua_api/quest.py's own module docstring for the
+        # two-script derivation. Quest.StringVar2 takes its place as an
+        # ordinary "anything else" table-data property.
         calls = []
         host = script_host.ScriptHost(log=calls.append)
-        host.load("function Probe() return Quest.Var1, Quest.StringVar1, Quest.Active end")
+        host.load("function Probe() return Quest.Var1, Quest.StringVar1, Quest.StringVar2 end")
         result = host.call("Probe")
         self.assertEqual(result, (0, 0, 0))
         self.assertEqual(calls, [])  # not API surface - no LUA_API_STUB line
@@ -224,9 +299,9 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
     def test_known_api_name_logs_exactly_once_per_call_and_returns_default(self):
         calls = []
         host = script_host.ScriptHost(log=calls.append)
-        host.load("function Probe() return Quest.GetQuestFlag(5) end")
+        host.load("function Probe() return Quest.GetWeekDay() end")
         self.assertEqual(host.call("Probe"), 0)
-        self.assertEqual(calls, ["LUA_API_STUB Quest.GetQuestFlag"])
+        self.assertEqual(calls, ["LUA_API_STUB Quest.GetWeekDay"])
 
     def test_every_still_stubbed_name_is_reachable_from_every_namespace_table(self):
         # Not a sample: every qualified name the census found THAT IS STILL
@@ -269,16 +344,18 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
                 host.call("Probe")
                 self.assertEqual(calls, ["LUA_API_STUB %s" % fn.qualified_name])
 
-    def test_the_5_real_trigger_names_are_excluded_above_not_forgotten(self):
+    def test_the_7_real_trigger_names_are_excluded_above_not_forgotten(self):
         # A regression guard on the exclusion itself: if REAL_METHODS ever
         # grew or shrank without the corpus's own 17-name Trigger table
         # changing, this fails loudly instead of the test above silently
-        # covering fewer names than it used to.
+        # covering fewer names than it used to. QuestActiveProgress/
+        # QuestFinishProgress joined this round (COO-DECISION 20260906_1846).
         from pirateforce_foundation.lua_api import trigger as lua_api_trigger
 
         self.assertEqual(lua_api_trigger.REAL_METHODS, frozenset({
             "GetTriggerStatus", "GetTeiggerStatus", "SetStatus",
             "NextStatus", "SetTriggerStatus",
+            "QuestActiveProgress", "QuestFinishProgress",
         }))
 
     def test_the_9_real_instance_names_are_excluded_above_not_forgotten(self):
@@ -295,20 +372,27 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "CallScoreCount", "AddBonusPoint", "AddBonusReward",
         }))
 
-    def test_the_1_real_quest_name_is_excluded_above_not_forgotten(self):
+    def test_the_10_real_quest_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the Trigger guard above, for Quest's own
-        # single real name.
+        # real set: CheckOpenTime (round 4jsydv/s2fxf6 lineage) plus the 9
+        # flag/counter/daily-stamp names COO-DECISION 20260906_1846 added
+        # this round.
         from pirateforce_foundation.lua_api import quest as lua_api_quest
 
-        self.assertEqual(lua_api_quest.REAL_METHODS, frozenset({"CheckOpenTime"}))
+        self.assertEqual(lua_api_quest.REAL_METHODS, frozenset({
+            "CheckOpenTime", "GetQuestFlag", "SetFlag", "SetQuestFlag",
+            "GetFlag", "MobKillCount", "CheckMobKillCount", "GetMobKillCount",
+            "CanReportDailyQuest", "ReportDailyQuest",
+        }))
 
-    def test_the_2_real_player_names_are_excluded_above_not_forgotten(self):
-        # Same regression shape as the guards above, for Player's own two
-        # real names (GetLv/GetClass, this round).
+    def test_the_5_real_player_names_are_excluded_above_not_forgotten(self):
+        # Same regression shape as the guards above, for Player's own real
+        # names (GetLv/GetClass from round gqjas5, plus CheckItemNum/
+        # GetItemNum/CheckEquipItem from round qbr5h8's inventory read seam).
         from pirateforce_foundation.lua_api import player as lua_api_player
 
         self.assertEqual(lua_api_player.REAL_METHODS, frozenset({
-            "GetLv", "GetClass",
+            "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):

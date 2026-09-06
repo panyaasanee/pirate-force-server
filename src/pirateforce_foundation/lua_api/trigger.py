@@ -1,10 +1,10 @@
 """LANE-Q's ``Trigger`` namespace: the status-machine half of the 17 names.
 
-WHAT THIS FILE MAKES REAL, AND WHY THESE FIVE FIRST.  ``docs/SCRIPT_LANE.md``
-(round ``s2fxf6``) shipped all 17 ``Trigger.*`` names as stubs that log and
-return 0.  Reading the corpus (``gamedata/lua/t_*.lua``, grepped before
-writing a line of this module -- see the per-name notes below) shows the 17
-names split cleanly in two:
+WHAT THIS FILE MAKES REAL, AND WHY THESE FIVE FIRST, PLUS TWO MORE THIS
+ROUND.  ``docs/SCRIPT_LANE.md`` (round ``s2fxf6``) shipped all 17
+``Trigger.*`` names as stubs that log and return 0.  Reading the corpus
+(``gamedata/lua/t_*.lua``, grepped before writing a line of this module --
+see the per-name notes below) shows the 17 names split cleanly in two:
 
   * a STATUS STATE MACHINE -- ``GetTriggerStatus``/``GetTeiggerStatus``
     (read another trigger's status), ``SetStatus``/``NextStatus`` (write the
@@ -22,9 +22,40 @@ names split cleanly in two:
     seam this lane does not own yet (see ``STILL_STUBBED`` below, one
     sentence per name, no guessing) and stays a logged stub.
 
-So this round makes the first five real; the other twelve keep the exact
-``ApiNamespaceStub`` contract (log ``LUA_API_STUB``, return
+So round ``456vso`` made the first five real; the other twelve kept the
+exact ``ApiNamespaceStub`` contract (log ``LUA_API_STUB``, return
 :data:`script_host.STUB_DEFAULT`) they had before this file existed.
+
+TWO MORE, THIS ROUND (COO-DECISION ``20260906_1846``, "flag-quest-state").
+``QuestActiveProgress``/``QuestFinishProgress`` (8 + 3 = 11 call sites) are
+the ONLY two ``Trigger.*`` names that read/write ``Quest.*`` per-character
+state rather than a wire frame -- and, grepped before writing a line of
+this addition, an exact behavioural pair: ``t_opnq_t1.lua``'s
+``ScriptStart`` calls ``Trigger.QuestActiveProgress(Trigger.Var1)`` only
+after confirming ``Quest.GetQuestFlag(Trigger.Var1) == 0`` (i.e. ``Quest.
+None``, see ``lua_api.quest``'s own module docstring); ``t_clsq.lua``'s
+``ScriptStart`` -- the paired CLOSING half of the same open/close family --
+calls ``Trigger.QuestFinishProgress(Trigger.Var1)`` only after confirming
+that SAME flag now reads ``1`` (``Quest.Active``). The two names are
+therefore exactly ``Quest.SetQuestFlag(quest_id, Quest.Active)`` /
+``Quest.SetQuestFlag(quest_id, Quest.Finish)`` under a `Trigger.*`-shaped
+name, sharing the identical :class:`lua_api.quest.QuestStateStore` door
+``lua_api.quest``'s own nine newly-real names use -- not a second, competing
+implementation of quest-flag state. See :func:`build_namespace` below for
+how a caller shares one store instance between both namespaces (proven in
+this round's own tests). WIRED inside ``script_host.ScriptHost`` itself
+as of round ``uadtc7`` -- ``ScriptHost.__init__`` resolves one
+``quest_context``/``quest_store`` pair and passes the SAME objects (by
+reference, ``is``, not two equally-empty instances) to both this
+namespace's :func:`build_namespace` and ``lua_api.quest``'s own, so a
+script that calls both families in the same ``ScriptHost`` run observes
+each other's writes. No corpus script is KNOWN to call a ``Trigger.*``
+progress name and a ``Quest.*`` name from the same file/run today (the
+two files that pair ``QuestActiveProgress``/``QuestFinishProgress`` with
+their own flag check are always run as separate ``ScriptHost`` instances
+in the corpus as shipped) -- this wiring is a correctness property ahead
+of a live witness, not yet an observed behaviour change, same posture as
+every other real closure before its own dispatcher lands.
 
 WRONG-ARITY CALLS DO NOT CRASH THE HOST, MEASURED (pf-adversary, this
 round).  A first draft gave the five real closures fixed positional
@@ -77,6 +108,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from .. import mob_loot as _mob_loot  # scene_key: the one scene-fold used project-wide
+from . import quest as _quest  # QuestStateStore door: QuestActiveProgress/QuestFinishProgress
+                                # share it with lua_api.quest's own nine real names
 
 #: Mirrors ``script_host.STUB_DEFAULT`` without importing that module (which
 #: imports THIS package, via ``lua_api/__init__.py`` -> would be circular).
@@ -107,6 +140,13 @@ REFUSE_TOO_MANY_SCENES = "too_many_scenes"
 #: enough to refuse a NaN/inf/huge float arriving from Lua by mistake.
 _MAX_STATUS = 0xFFFF
 _MAX_TRIGGER_ID = 0xFFFFFFFF
+
+#: quest_id ceiling for QuestActiveProgress/QuestFinishProgress -- same
+#: value as ``lua_api.quest._MAX_QUEST_ID`` (u16, LANE-DB's own measured
+#: evidence cited there), duplicated rather than imported across the
+#: leading-underscore boundary, the convention every ``lua_api`` module in
+#: this package already follows for its small validation constants.
+_MAX_QUEST_ID = 0xFFFF
 
 
 def _scene_key(scene: Any) -> str:
@@ -308,10 +348,10 @@ def install_trigger_status_registry(registry: Any) -> TriggerStatusRegistry:
 #: next round decides"); this is that decision.
 REAL_METHODS = frozenset({
     "GetTriggerStatus", "GetTeiggerStatus", "SetStatus", "NextStatus",
-    "SetTriggerStatus",
+    "SetTriggerStatus", "QuestActiveProgress", "QuestFinishProgress",
 })
 
-#: The remaining twelve, one honest sentence each for why they are NOT real
+#: The remaining ten, one honest sentence each for why they are NOT real
 #: this round -- no guessing, per charter.  Every reason names the missing
 #: seam, not "not done yet".
 STILL_STUBBED: dict[str, str] = {
@@ -330,14 +370,6 @@ STILL_STUBBED: dict[str, str] = {
     "HideModel": "needs a hide-model wire frame (LANE-A's Scene.PlacementOFF territory)",
     "HideTriggerModel": "needs a hide-model wire frame (LANE-A's Scene.PlacementOFF territory)",
     "TriggerShowMessage": "needs a client message/UI wire frame this lane does not own",
-    "QuestActiveProgress": (
-        "needs per-character Quest state; queue item 3 (Quest.* real) and "
-        "the LANE-DB column asked for in COO-DECISION 20260905_2058"
-    ),
-    "QuestFinishProgress": (
-        "needs per-character Quest state; queue item 3 (Quest.* real) and "
-        "the LANE-DB column asked for in COO-DECISION 20260905_2058"
-    ),
 }
 
 
@@ -368,16 +400,23 @@ class RealTriggerNamespace:
     tell the difference except by the answers it gets back.
     """
 
-    __slots__ = ("_context", "_registry", "_log", "_stub_methods", "namespace", "calls")
+    __slots__ = ("_context", "_registry", "_log", "_stub_methods", "namespace", "calls",
+                 "_quest_context", "_quest_store")
 
     def __init__(self, methods: frozenset, context: TriggerContext,
-                 registry: TriggerStatusRegistry, log: Callable[[str], None]):
+                 registry: TriggerStatusRegistry, log: Callable[[str], None],
+                 quest_context: "Optional[_quest.QuestContext]" = None,
+                 quest_store: "Optional[_quest.QuestStateStore]" = None):
         self.namespace = "Trigger"
         self._context = context
         self._registry = registry
         self._log = log
         self._stub_methods = methods - REAL_METHODS
         self.calls: list = []
+        self._quest_context = (
+            quest_context if quest_context is not None else _quest.DEFAULT_CONTEXT)
+        self._quest_store = (
+            quest_store if quest_store is not None else _quest.InMemoryQuestStateStore())
 
     def __getitem__(self, name):
         if name == "GetTriggerStatus" or name == "GetTeiggerStatus":
@@ -446,6 +485,27 @@ class RealTriggerNamespace:
 
             return set_trigger_status
 
+        if name == "QuestActiveProgress" or name == "QuestFinishProgress":
+            api_name = name
+            new_flag = _quest.QUEST_ACTIVE if name == "QuestActiveProgress" else _quest.QUEST_FINISH
+
+            def set_quest_progress(*args, _api=api_name, _flag=new_flag):
+                self.calls.append("Trigger.%s" % _api)
+                if len(args) != 1:
+                    _log_bad_arity(self._log, _api, len(args), "1")
+                    return STUB_DEFAULT
+                quest_id = _coerce_int(args[0], _MAX_QUEST_ID)
+                if quest_id is None:
+                    self._log("LUA_TRIGGER_BAD_VALUE Trigger.%s quest_id=%r" % (_api, args[0]))
+                    return STUB_DEFAULT
+                after = self._quest_store.set_quest_flag(
+                    self._quest_context.character_id, quest_id, _flag)
+                self._log("LUA_TRIGGER_REAL Trigger.%s character=%d quest=%d flag=%d"
+                           % (_api, self._quest_context.character_id, quest_id, after))
+                return after
+
+            return set_quest_progress
+
         if name in self._stub_methods:
             qualified = "Trigger.%s" % name
 
@@ -467,7 +527,10 @@ class RealTriggerNamespace:
 
 def build_namespace(methods: frozenset, log: Callable[[str], None], *,
                      context: Optional[TriggerContext] = None,
-                     registry: Optional[TriggerStatusRegistry] = None) -> RealTriggerNamespace:
+                     registry: Optional[TriggerStatusRegistry] = None,
+                     quest_context: "Optional[_quest.QuestContext]" = None,
+                     quest_store: "Optional[_quest.QuestStateStore]" = None,
+                     ) -> RealTriggerNamespace:
     """The ``Trigger`` global ``ScriptHost`` installs, real half included.
 
     ``context``/``registry`` default to :data:`DEFAULT_CONTEXT` and a FRESH
@@ -475,11 +538,54 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
     so a caller that does not ask for the live world (every test today) can
     never collide with another caller's state.  The production dispatch
     path (not built this round -- see module docstring) is the one expected
-    to pass both explicitly.
+    to pass both explicitly. ``quest_context``/``quest_store`` are the same
+    kind of seam for ``QuestActiveProgress``/``QuestFinishProgress`` (this
+    round's addition): default to ``lua_api.quest.DEFAULT_CONTEXT`` and a
+    fresh private ``InMemoryQuestStateStore`` when not given. A caller that
+    wants ``Trigger.QuestActiveProgress`` and ``Quest.SetFlag`` in the SAME
+    script run to see each other's writes MUST pass the identical
+    ``quest_store`` instance to both this function and
+    ``lua_api.quest.build_namespace``.
+
+    WIRED IN ``script_host.ScriptHost`` as of round ``uadtc7``. An EARLIER
+    draft (round ``7v7yn2``) threaded ``quest_context``/``quest_store``
+    through ``ScriptHost.__init__``/``load_script_file`` too, sharing one
+    store between the ``Trigger`` and ``Quest`` namespace builders the way
+    this docstring describes -- reverted before that round's own push
+    because it tripped ``tests/test_npc_interaction_wire.py``'s foundation
+    quest/shop guard (three new symbols in ``script_host.py`` --
+    ``quest_context``, ``quest_store``, and the normalized
+    ``InMemoryQuestStateStore`` reference -- none in that test's
+    ``ALLOWED_SYMBOLS`` at the time). Chief pre-approved exactly those
+    three names (``pf_bridge/notes_to_chief/consumed/
+    20260906_2151_CHIEF-REPLY-LANE-Q-quest-state-door-granted-1950-1951-
+    not-yet-earned.md``, answering round ``7v7yn2``'s own CORE-REQUEST
+    ``20260906_1951``), and round ``uadtc7`` landed the wiring plus the
+    grant in the same commit, per the guard's own rule that an exemption
+    cannot be granted for a symbol that does not exist yet. Both
+    ``ScriptHost.__init__`` and ``load_script_file`` now resolve ONE
+    ``quest_context``/``quest_store`` pair (defaulting to
+    ``lua_api.quest.DEFAULT_CONTEXT``/a fresh ``InMemoryQuestStateStore``
+    when neither is given) and pass the SAME objects to both this
+    namespace's :func:`build_namespace` and ``lua_api.quest``'s own --
+    :class:`OneScriptHostSharesOneQuestStateStoreTests` in
+    ``tests/test_script_host_spike.py`` proves the identity (``is``, not
+    equality) and that a write through one namespace is visible through
+    the other in the same run.
+    Until it lands, a live ``ScriptHost`` running BOTH namespaces still
+    gets ``QuestActiveProgress``/``QuestFinishProgress`` and ``Quest.*``
+    each fully working on their OWN independent private store -- only the
+    CROSS-namespace consistency (one script's ``Trigger.QuestActiveProgress``
+    call visible to that SAME script's later ``Quest.GetQuestFlag`` call)
+    is the gap, and no script in the corpus is known to need it in one call
+    (the two are always in different files, `t_opnq_t1.lua`/`t_clsq.lua`
+    run as separate `ScriptHost` instances today regardless).
     """
     return RealTriggerNamespace(
         methods,
         context if context is not None else DEFAULT_CONTEXT,
         registry if registry is not None else TriggerStatusRegistry(),
         log,
+        quest_context=quest_context,
+        quest_store=quest_store,
     )

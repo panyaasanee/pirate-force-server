@@ -1,6 +1,7 @@
-"""LANE-Q: the 2 ``Player.*`` names (``GetLv``, ``GetClass``) that became
-real this round, and why these two needed no LANE-DB column and no wire
-frame to get there.
+"""LANE-Q: the ``Player.*`` names real so far -- ``GetLv``/``GetClass``
+(round ``gqjas5``) plus this round's ``CheckItemNum``/``GetItemNum``/
+``CheckEquipItem``, the inventory seam's read side
+(``COO-DECISION 20260906_1846``).
 
 Same three-level shape as ``tests/test_script_lua_api_quest.py``: the
 namespace object's ``__getitem__`` contract alone (no lupa dependency, runs
@@ -11,6 +12,7 @@ import unittest
 
 from pf_preconditions import LUPA_PACKAGE
 
+from pirateforce_foundation.inventory import BackpackState, ItemAttrState
 from pirateforce_foundation.lua_api import player
 
 
@@ -69,6 +71,121 @@ class RealPlayerNamespaceTests(unittest.TestCase):
                 self.assertEqual(len(calls), 1)
                 self.assertTrue(calls[0].startswith(
                     "LUA_PLAYER_BAD_ARITY Player.GetClass "), calls)
+
+    def _backpack(self, *rows):
+        # rows: (identity, template_id, quantity, slot)
+        return BackpackState(0xFF, 0, 1, tuple(
+            ItemAttrState(identity, template_id, quantity, slot)
+            for identity, template_id, quantity, slot in rows
+        ))
+
+    def test_get_item_num_reads_the_default_context_as_zero(self):
+        ns, calls = self._namespace()
+        self.assertEqual(ns["GetItemNum"](2600001), 0)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0].startswith("LUA_PLAYER_REAL Player.GetItemNum "))
+
+    def test_get_item_num_sums_quantity_across_matching_rows_only(self):
+        backpack = self._backpack(
+            (1, 2600001, 3, 0), (2, 2400901, 1, 1), (3, 2600001, 2, 2),
+        )
+        ns, _calls = self._namespace(context=player.PlayerContext(backpack=backpack))
+        self.assertEqual(ns["GetItemNum"](2600001), 5)
+        self.assertEqual(ns["GetItemNum"](2400901), 1)
+        self.assertEqual(ns["GetItemNum"](9999999), 0)
+
+    def test_get_item_num_wrong_arity_degrades_safely_instead_of_raising(self):
+        ns, calls = self._namespace()
+        for args in ((), (1, 2)):
+            with self.subTest(argc=len(args)):
+                calls.clear()
+                result = ns["GetItemNum"](*args)
+                self.assertEqual(result, player.STUB_DEFAULT)
+                self.assertTrue(calls[0].startswith(
+                    "LUA_PLAYER_BAD_ARITY Player.GetItemNum "), calls)
+
+    def test_get_item_num_never_raises_on_a_malformed_context_backpack(self):
+        # pf-adversary, round qbr5h8: PlayerContext(backpack=None) raised a
+        # raw AttributeError straight out of _item_count before this fix.
+        # No dispatcher builds a PlayerContext from live data yet, but the
+        # day one does (a store.get_backpack decode failure, say), this
+        # must degrade like every other real closure in this file, not
+        # crash the whole script call.
+        ns, _calls = self._namespace(context=player.PlayerContext(backpack=None))
+        self.assertEqual(ns["GetItemNum"](2600001), 0)
+        self.assertIs(ns["CheckItemNum"](2600001, 1), False)
+
+    def test_get_item_num_never_raises_on_a_row_with_a_non_numeric_quantity(self):
+        # pf-adversary, round qbr5h8: a row whose quantity is None raised
+        # TypeError from `sum(...)` before this fix.
+        backpack = BackpackState(0xFF, 0, 1, (ItemAttrState(1, 2600001, None, 0),))
+        ns, _calls = self._namespace(context=player.PlayerContext(backpack=backpack))
+        self.assertEqual(ns["GetItemNum"](2600001), 0)
+
+    def test_check_equip_item_never_raises_on_malformed_equipped_ids(self):
+        # pf-adversary, round qbr5h8: equipped_template_ids=None raised
+        # TypeError ("argument of type 'NoneType' is not iterable") before
+        # this fix.
+        ns, _calls = self._namespace(
+            context=player.PlayerContext(equipped_template_ids=None))
+        self.assertIs(ns["CheckEquipItem"](2200225), False)
+
+    def test_get_item_num_bad_argument_type_counts_as_zero_not_a_crash(self):
+        ns, _calls = self._namespace()
+        self.assertEqual(ns["GetItemNum"]("not-a-template-id"), 0)
+        self.assertEqual(ns["GetItemNum"](True), 0)  # bool rejected, same as trigger._coerce_int
+
+    def test_check_item_num_true_when_held_at_least_required(self):
+        backpack = self._backpack((1, 2600001, 3, 0))
+        ns, calls = self._namespace(context=player.PlayerContext(backpack=backpack))
+        self.assertIs(ns["CheckItemNum"](2600001, 3), True)
+        self.assertTrue(calls[0].startswith("LUA_PLAYER_REAL Player.CheckItemNum "))
+
+    def test_check_item_num_false_when_held_less_than_required(self):
+        backpack = self._backpack((1, 2600001, 2, 0))
+        ns, _calls = self._namespace(context=player.PlayerContext(backpack=backpack))
+        self.assertIs(ns["CheckItemNum"](2600001, 3), False)
+
+    def test_check_item_num_false_when_item_never_held(self):
+        ns, _calls = self._namespace()
+        self.assertIs(ns["CheckItemNum"](2600001, 1), False)
+
+    def test_check_item_num_wrong_arity_degrades_safely_instead_of_raising(self):
+        ns, calls = self._namespace()
+        for args in ((), (1,), (1, 2, 3)):
+            with self.subTest(argc=len(args)):
+                calls.clear()
+                result = ns["CheckItemNum"](*args)
+                self.assertEqual(result, player.STUB_DEFAULT)
+                self.assertTrue(calls[0].startswith(
+                    "LUA_PLAYER_BAD_ARITY Player.CheckItemNum "), calls)
+
+    def test_check_item_num_bad_argument_type_refuses_rather_than_guesses(self):
+        ns, calls = self._namespace()
+        self.assertIs(ns["CheckItemNum"]("bad", 1), False)
+        self.assertIs(ns["CheckItemNum"](1, "bad"), False)
+        self.assertTrue(all(
+            c.startswith("LUA_PLAYER_REAL Player.CheckItemNum ") for c in calls))
+
+    def test_check_equip_item_true_when_template_is_equipped(self):
+        ns, calls = self._namespace(
+            context=player.PlayerContext(equipped_template_ids=frozenset({2200225})))
+        self.assertIs(ns["CheckEquipItem"](2200225), True)
+        self.assertTrue(calls[0].startswith("LUA_PLAYER_REAL Player.CheckEquipItem "))
+
+    def test_check_equip_item_false_when_not_equipped(self):
+        ns, _calls = self._namespace()
+        self.assertIs(ns["CheckEquipItem"](2200225), False)
+
+    def test_check_equip_item_wrong_arity_degrades_safely_instead_of_raising(self):
+        ns, calls = self._namespace()
+        for args in ((), (1, 2)):
+            with self.subTest(argc=len(args)):
+                calls.clear()
+                result = ns["CheckEquipItem"](*args)
+                self.assertEqual(result, player.STUB_DEFAULT)
+                self.assertTrue(calls[0].startswith(
+                    "LUA_PLAYER_BAD_ARITY Player.CheckEquipItem "), calls)
 
     def test_a_still_stubbed_method_logs_lua_api_stub_exactly_like_before(self):
         ns, calls = self._namespace()
@@ -156,3 +273,25 @@ class RealPlayerLuaIntegrationTests(unittest.TestCase):
         # lua_api/quest.py's own module docstring already documents for
         # Quest.Var1-backed gates elsewhere in the corpus.
         self.assertEqual(under_cap.call("Probe"), 1)
+
+    def test_get_item_num_from_lua_reads_the_injected_backpack(self):
+        # gamedata/lua/Quest/q_gather_new.lua:205 -- `Player.GetItemNum(Quest.Var5)`.
+        backpack = BackpackState(0xFF, 0, 1, (ItemAttrState(1, 2600001, 3, 0),))
+        host, _calls = self._host(player.PlayerContext(backpack=backpack))
+        host.load("function Probe() return Player.GetItemNum(2600001) end")
+        self.assertEqual(host.call("Probe"), 3)
+
+    def test_check_item_num_from_lua_matches_the_real_q_guildgather1_gate_shape(self):
+        # gamedata/lua/Quest/q_guildgather1.lua:41 --
+        # `Player.CheckItemNum(Quest.Var2,Quest.Var3)`.
+        backpack = BackpackState(0xFF, 0, 1, (ItemAttrState(1, 5000, 4, 0),))
+        host, _calls = self._host(player.PlayerContext(backpack=backpack))
+        host.load("function Probe() return Player.CheckItemNum(5000, 4) end")
+        self.assertTrue(host.call("Probe"))
+
+    def test_check_equip_item_from_lua_matches_the_real_q_kill1_2_call_shape(self):
+        # gamedata/lua/Quest/q_kill1_2.lua:14 -- `Player.CheckEquipItem(2200225)`.
+        host, _calls = self._host(
+            player.PlayerContext(equipped_template_ids=frozenset({2200225})))
+        host.load("function Probe() return Player.CheckEquipItem(2200225) end")
+        self.assertTrue(host.call("Probe"))

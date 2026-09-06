@@ -1,5 +1,9 @@
-"""LANE-Q: the 1 ``Quest.*`` name (``CheckOpenTime``) that became real this
-round, and why it needed no LANE-DB column and no wire frame to get there.
+"""LANE-Q: the 10 ``Quest.*`` names real today -- ``CheckOpenTime`` (round
+4jsydv/s2fxf6 lineage) plus the 9 flag/counter/daily-stamp names
+COO-DECISION ``20260906_1846`` ("flag-quest-state") added this round -- and
+why each needed no wire frame and, per the module docstring, no LANE-DB
+column YET (a CORE-REQUEST asks for one; :class:`quest.InMemoryQuestStateStore`
+is the inert stand-in until it lands).
 
 Same three-level shape as ``tests/test_script_lua_api_trigger.py``: the pure
 function alone (no lupa dependency, runs on every machine), the namespace
@@ -15,8 +19,8 @@ from pf_preconditions import LUA_CORPUS_RUNNABLE, LUPA_PACKAGE, SIBLING
 from pirateforce_foundation.lua_api import quest
 
 
-def _clock_at(hour, minute):
-    fixed = datetime(2026, 9, 6, hour, minute)
+def _clock_at(hour, minute, day=6):
+    fixed = datetime(2026, 9, day, hour, minute)
     return lambda: fixed
 
 
@@ -107,8 +111,8 @@ class RealQuestNamespaceTests(unittest.TestCase):
 
     def test_a_still_stubbed_method_logs_lua_api_stub_exactly_like_before(self):
         ns, calls = self._namespace()
-        self.assertEqual(ns["GetQuestFlag"](5), quest.STUB_DEFAULT)
-        self.assertEqual(calls, ["LUA_API_STUB Quest.GetQuestFlag"])
+        self.assertEqual(ns["GetWeekDay"](), quest.STUB_DEFAULT)
+        self.assertEqual(calls, ["LUA_API_STUB Quest.GetWeekDay"])
 
     def test_every_still_stubbed_name_is_reachable_and_logs_its_own_line(self):
         for name in quest.STILL_STUBBED:
@@ -184,6 +188,170 @@ class RealQuestNamespaceTests(unittest.TestCase):
         finally:
             quest.ZoneInfo = original_zoneinfo
             quest.SERVER_TIMEZONE_NAME = original_name
+
+
+class QuestFlagAndCounterTests(unittest.TestCase):
+    """The 9 flag/counter/daily-stamp names, no lupa dependency.
+
+    Uses ``quest.InMemoryQuestStateStore`` directly (the default
+    ``build_namespace`` falls back to) rather than a fake -- it IS the
+    seam :class:`quest.QuestStateStore` names, just not the production
+    persistent implementation; see its own docstring.
+    """
+
+    def _namespace(self, **kwargs):
+        from pirateforce_foundation.lua_api import spec as api_spec
+        methods = api_spec.NAMESPACE_METHODS["Quest"]
+        calls = []
+        ns = quest.build_namespace(methods, calls.append, **kwargs)
+        return ns, calls
+
+    def test_quest_status_constants_are_distinct_small_ints(self):
+        # The module docstring's own two-script derivation: None=0 (an
+        # unset flag reads back as None), Active=1 (t_opnq_t1.lua/t_clsq.lua
+        # cross-script correlation), Finish=2 (free choice, only required
+        # to be distinct).
+        ns, _calls = self._namespace()
+        self.assertEqual(ns["None"], 0)
+        self.assertEqual(ns["Active"], 1)
+        self.assertEqual(ns["Finish"], 2)
+        self.assertEqual(len({ns["None"], ns["Active"], ns["Finish"]}), 3)
+
+    def test_a_never_set_flag_reads_back_as_none_not_a_kind_of_missing(self):
+        ns, _calls = self._namespace(context=quest.QuestContext(1, 100))
+        self.assertEqual(ns["GetQuestFlag"](999), quest.QUEST_NONE)
+        self.assertEqual(ns["GetFlag"](), quest.QUEST_NONE)
+
+    def test_set_flag_writes_the_current_quest_get_flag_reads_it_back(self):
+        ns, calls = self._namespace(context=quest.QuestContext(1, 100))
+        self.assertEqual(ns["SetFlag"](quest.QUEST_ACTIVE), quest.QUEST_ACTIVE)
+        self.assertEqual(ns["GetFlag"](), quest.QUEST_ACTIVE)
+        self.assertTrue(any(c.startswith("LUA_QUEST_REAL Quest.SetFlag ") for c in calls))
+        # SetFlag never takes a quest id -- it can only ever affect the
+        # CURRENT quest, unlike SetQuestFlag below.
+        other, _ = self._namespace(context=quest.QuestContext(1, 200))
+        self.assertEqual(other["GetFlag"](), quest.QUEST_NONE)
+
+    def test_set_quest_flag_writes_an_arbitrary_quest_get_quest_flag_reads_it(self):
+        # The one name in this group callable from a Trigger script, not
+        # bound to "the current quest" -- t_exch&setq_q1.lua's own call
+        # shape: Quest.SetQuestFlag(Trigger.Var7, Trigger.Var8).
+        ns, _calls = self._namespace(context=quest.QuestContext(1, 100))
+        self.assertEqual(ns["SetQuestFlag"](555, quest.QUEST_FINISH), quest.QUEST_FINISH)
+        self.assertEqual(ns["GetQuestFlag"](555), quest.QUEST_FINISH)
+        # The CURRENT quest (100) is untouched by a SetQuestFlag on quest 555.
+        self.assertEqual(ns["GetFlag"](), quest.QUEST_NONE)
+
+    def test_two_characters_never_see_each_others_flags(self):
+        store = quest.InMemoryQuestStateStore()
+        alice, _ = self._namespace(context=quest.QuestContext(1, 100), store=store)
+        bob, _ = self._namespace(context=quest.QuestContext(2, 100), store=store)
+        alice["SetFlag"](quest.QUEST_ACTIVE)
+        self.assertEqual(alice["GetFlag"](), quest.QUEST_ACTIVE)
+        self.assertEqual(bob["GetFlag"](), quest.QUEST_NONE)
+
+    def test_flag_wrong_arity_degrades_safely(self):
+        ns, calls = self._namespace()
+        for name, args in (("GetQuestFlag", ()), ("SetFlag", ()),
+                           ("SetQuestFlag", (1,)), ("GetFlag", (1,))):
+            with self.subTest(method=name):
+                calls.clear()
+                self.assertEqual(ns[name](*args), quest.STUB_DEFAULT)
+                self.assertTrue(calls[0].startswith("LUA_QUEST_BAD_ARITY Quest.%s " % name))
+
+    def test_mob_kill_count_registers_progress_at_zero(self):
+        ns, calls = self._namespace(context=quest.QuestContext(1, 100))
+        ns["MobKillCount"](42, 5)
+        self.assertEqual(ns["GetMobKillCount"](42), 0)
+        self.assertFalse(ns["CheckMobKillCount"](42, 5))
+        self.assertTrue(any(c.startswith("LUA_QUEST_REAL Quest.MobKillCount ") for c in calls))
+
+    def test_check_mob_kill_count_compares_the_stored_progress_to_the_argument(self):
+        # MobKillCount does not persist the target (module docstring) -- the
+        # script re-supplies it to CheckMobKillCount every time, exactly
+        # like every measured corpus call site does.
+        store = quest.InMemoryQuestStateStore()
+        ns, _ = self._namespace(context=quest.QuestContext(1, 100), store=store)
+        ns["MobKillCount"](42, 5)
+        store.set_quest_counter(1, 100, "42", 5)  # simulate a future kill hook
+        self.assertTrue(ns["CheckMobKillCount"](42, 5))
+        self.assertFalse(ns["CheckMobKillCount"](42, 6))
+
+    def test_get_mob_kill_count_of_an_unregistered_mob_is_the_stub_default(self):
+        ns, _calls = self._namespace(context=quest.QuestContext(1, 100))
+        self.assertEqual(ns["GetMobKillCount"](999), quest.STUB_DEFAULT)
+
+    def test_two_mobs_in_the_same_quest_track_independently(self):
+        # q_kill5.lua's own Accept_Run: two MobKillCount calls for two
+        # different mobs in the same quest instance, module docstring.
+        store = quest.InMemoryQuestStateStore()
+        ns, _ = self._namespace(context=quest.QuestContext(1, 100), store=store)
+        ns["MobKillCount"](1, 3)
+        ns["MobKillCount"](2, 5)
+        store.set_quest_counter(1, 100, "1", 3)
+        self.assertTrue(ns["CheckMobKillCount"](1, 3))
+        self.assertFalse(ns["CheckMobKillCount"](2, 5))
+
+    def test_mob_kill_count_bad_args_refuse_not_guess(self):
+        ns, calls = self._namespace()
+        for name, args in (("MobKillCount", (1,)), ("CheckMobKillCount", ()),
+                           ("GetMobKillCount", ())):
+            with self.subTest(method=name):
+                calls.clear()
+                self.assertEqual(ns[name](*args), quest.STUB_DEFAULT)
+        self.assertEqual(ns["MobKillCount"]("nope", 5), quest.STUB_DEFAULT)
+        self.assertFalse(ns["CheckMobKillCount"]("nope", 5))
+
+    def test_bad_value_same_arity_calls_log_a_line_not_silently(self):
+        # pf-adversary (this round): a same-arity call with an unusable
+        # VALUE (not just a wrong argument COUNT) used to degrade with no
+        # log line at all for these five closures -- indistinguishable from
+        # the ordinary "never set" case. Every one now logs
+        # LUA_QUEST_BAD_VALUE, matching GetQuestFlag's own pre-existing
+        # precedent (proven by test_a_never_set_flag_reads_back_as_none...
+        # already, so not re-asserted here).
+        ns, calls = self._namespace()
+        cases = (
+            ("SetFlag", (float("nan"),)),
+            ("SetQuestFlag", (1, True)),
+            ("MobKillCount", (1, float("inf"))),
+            ("CheckMobKillCount", (True, 5)),
+            ("GetMobKillCount", (-1,)),
+        )
+        for name, args in cases:
+            with self.subTest(method=name):
+                calls.clear()
+                ns[name](*args)
+                self.assertTrue(
+                    any(c.startswith("LUA_QUEST_BAD_VALUE Quest.%s " % name) for c in calls),
+                    calls,
+                )
+
+    def test_can_report_daily_quest_is_true_until_reported_then_false_same_day(self):
+        ns, _calls = self._namespace(
+            context=quest.QuestContext(1, 100), clock=_clock_at(10, 0))
+        self.assertTrue(ns["CanReportDailyQuest"]())
+        ns["ReportDailyQuest"]()
+        self.assertFalse(ns["CanReportDailyQuest"]())
+
+    def test_can_report_daily_quest_is_true_again_the_next_day(self):
+        store = quest.InMemoryQuestStateStore()
+        day1, _ = self._namespace(
+            context=quest.QuestContext(1, 100), store=store, clock=_clock_at(23, 0, day=6))
+        day1["ReportDailyQuest"]()
+        day2, _ = self._namespace(
+            context=quest.QuestContext(1, 100), store=store, clock=_clock_at(0, 5, day=7))
+        self.assertTrue(day2["CanReportDailyQuest"]())
+
+    def test_daily_report_is_per_quest_not_shared_across_quests(self):
+        store = quest.InMemoryQuestStateStore()
+        quest_a, _ = self._namespace(
+            context=quest.QuestContext(1, 100), store=store, clock=_clock_at(10, 0))
+        quest_b, _ = self._namespace(
+            context=quest.QuestContext(1, 200), store=store, clock=_clock_at(10, 0))
+        quest_a["ReportDailyQuest"]()
+        self.assertFalse(quest_a["CanReportDailyQuest"]())
+        self.assertTrue(quest_b["CanReportDailyQuest"]())
 
 
 @LUPA_PACKAGE.skip_unless_present()

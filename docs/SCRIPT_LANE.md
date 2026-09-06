@@ -267,7 +267,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (143/160 stub, 17/160 real, as of round `gqjas5`)
+### API status table (129/160 stub, 31/160 real, as of round `lvoma1`, recovering both round `qbr5h8` and round `7v7yn2`/`uadtc7` onto one branch)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -281,22 +281,33 @@ backed by a test -- every `Trigger.*` real row is backed by
 `AddBonusReward` added round `vmm7vf` as pure invocation counters,
 NOT SCORECOUNT-wired -- see `lua_api/instance.py`'s module docstring and
 `InstanceRegistry.add_bonus_point`/`add_bonus_reward` for the explicit
-non-claim), the one `Quest.*` real row (`CheckOpenTime`) by
-`tests/test_script_lua_api_quest.py` (round `0rgg6q`, recovering the
-round-after-`4jsydv` commit that the guard exemption named below unblocked
--- see "Round vqng2z" further down) / see below), and the 2 `Player.*`
-real rows (`GetLv`, `GetClass`) by `tests/test_script_lua_api_player.py`
-(round `gqjas5`, see "Round gqjas5" below) / `proven` (real + a GT
+non-claim), the 10 `Quest.*` real rows (`CheckOpenTime` -- round `0rgg6q`,
+recovering the round-after-`4jsydv` commit that the guard exemption named
+below unblocked, see "Round vqng2z" further down -- plus 9 flag/counter/
+daily-stamp names added round `7v7yn2`, COO-DECISION `20260906_1846`, see
+"Round 7v7yn2" below) by `tests/test_script_lua_api_quest.py`, the 5
+`Player.*` real rows (`GetLv`, `GetClass` from round `gqjas5`, plus
+`CheckItemNum`/`GetItemNum`/`CheckEquipItem` -- the inventory seam's read
+side, round `qbr5h8`, see "Round qbr5h8" below) by
+`tests/test_script_lua_api_player.py`, and the 7 `Trigger.*` real rows
+(the original 5 plus `QuestActiveProgress`/`QuestFinishProgress`, round
+`7v7yn2`, sharing `Quest.*`'s own state door) by
+`tests/test_script_lua_api_trigger.py` / `proven` (real + a GT
 ticket where a tester watched it work on screen -- none yet).  Next lane
-priority, per charter: the remaining 12 `Trigger.*` rows (blocked on
-`RE-273`), then the rest of `Quest.*` (24 names still blocked on the
-LANE-DB per-character state door, `GetWeekDay` on an undocumented weekday
-enum -- both named in "Round vqng2z" below), then the rest of `Player.*`
-(71 names, grouped by blocker in `lua_api/player.py`'s own `STILL_STUBBED`
--- item/equipment state, a stat-grant write seam, other per-character
-stat reads, skill/buff state, teleport/vehicle/camera frames, UI/cutscene
-frames, the instance-entry frame, and `MobAppear` itself).  `Instance.*`
-is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
+priority, per charter and `COO-DECISION 20260906_1846`'s system-wide
+ranking: the remaining 10 `Trigger.*` rows (`GetContactMode` needs no RE
+ticket any more -- `RE-285` closed that path negative, see "Round lvoma1"
+below; the rest need wire-frame encoders this lane does not own), then
+the rest of `Quest.*` (15 names: `CountDownTime`/reward-and-grant names
+still need a LANE-DB column or a `Player.*` grant seam this lane does not
+own yet, `GetWeekDay`/`CheckWishQuest` on undocumented enums/cross-lane
+guild state -- see "Round 7v7yn2" below), then the rest of `Player.*` (68
+names, grouped by blocker in `lua_api/player.py`'s own `STILL_STUBBED` --
+item/equipment WRITE state (the inventory seam's write side, blocked on
+`RE-280`), a stat-grant write seam, other per-character stat reads,
+skill/buff state, teleport/vehicle/camera frames, UI/cutscene frames, the
+instance-entry frame, and `MobAppear` itself).  `Instance.*` is now 9/9
+real -- no rows of that namespace remain in `STILL_STUBBED`.
 
 | namespace | method | call_count | status |
 |---|---|---:|---|
@@ -341,8 +352,8 @@ is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
 | Player | MobAppear | 3532 | stub |
 | Player | AddItem | 1430 | stub |
 | Player | RemoveItem | 367 | stub |
-| Player | CheckItemNum | 211 | stub |
-| Player | GetItemNum | 99 | stub |
+| Player | CheckItemNum | 211 | real |
+| Player | GetItemNum | 99 | real |
 | Player | GetLv | 91 | real |
 | Player | CastSkillAt | 69 | stub |
 | Player | ShowMessage | 61 | stub |
@@ -357,7 +368,7 @@ is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
 | Player | Addmoralized | 21 | stub |
 | Player | CameraFocus | 16 | stub |
 | Player | CheckGuild | 15 | stub |
-| Player | CheckEquipItem | 14 | stub |
+| Player | CheckEquipItem | 14 | real |
 | Player | CheckMoralized | 14 | stub |
 | Player | CheckCollect | 11 | stub |
 | Player | OutVehicle | 11 | stub |
@@ -412,28 +423,28 @@ is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
 | Player | TeleportCheck | 1 | stub |
 | Player | WarpNearestMarker | 1 | stub |
 | Quest | RewardItemSelect | 1335 | stub |
-| Quest | GetQuestFlag | 508 | stub |
-| Quest | SetFlag | 417 | stub |
+| Quest | GetQuestFlag | 508 | real |
+| Quest | SetFlag | 417 | real |
 | Quest | AddCriteriaExp | 166 | stub |
 | Quest | AddCriteriaSkillPoint | 166 | stub |
 | Quest | AddCriteriaCash | 165 | stub |
-| Quest | CheckMobKillCount | 138 | stub |
-| Quest | MobKillCount | 128 | stub |
+| Quest | CheckMobKillCount | 138 | real |
+| Quest | MobKillCount | 128 | real |
 | Quest | PlayNPCMovie | 100 | stub |
-| Quest | SetQuestFlag | 90 | stub |
-| Quest | GetFlag | 67 | stub |
-| Quest | CanReportDailyQuest | 61 | stub |
-| Quest | ReportDailyQuest | 61 | stub |
+| Quest | SetQuestFlag | 90 | real |
+| Quest | GetFlag | 67 | real |
+| Quest | CanReportDailyQuest | 61 | real |
+| Quest | ReportDailyQuest | 61 | real |
 | Quest | AddLvCriteriaExp | 59 | stub |
 | Quest | AddLvCriteriaSkillPoint | 59 | stub |
 | Quest | AddLvCriteriaCash | 58 | stub |
 | Quest | CountDownTime | 54 | stub |
 | Quest | GetWeekDay | 48 | stub |
-| Quest | GetMobKillCount | 20 | stub |
+| Quest | GetMobKillCount | 20 | real |
 | Quest | CheckOpenTime | 9 | real |
 | Quest | PlayNPCVoice | 8 | stub |
 | Quest | CheckGuildOfflineQuest | 1 | stub |
-| Quest | CheckWishQuest | 1 | stub |
+| Quest | CheckWishQuest | 1 | stub (refused; see round Q_<this round> -- no table/doc defines "wish", needs RE) |
 | Quest | ReportGuildOfflineQuest | 1 | stub |
 | Quest | StartGuildOfflineQuest | 1 | stub |
 | Scene | PlacementOFF | 173 | stub |
@@ -454,9 +465,9 @@ is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
 | Trigger | HideTriggerModel | 13 | stub |
 | Trigger | CastSkillXYZ | 11 | stub |
 | Trigger | CastSkill | 9 | stub |
-| Trigger | QuestActiveProgress | 8 | stub |
+| Trigger | QuestActiveProgress | 8 | real |
 | Trigger | CastSkillBy | 5 | stub |
-| Trigger | QuestFinishProgress | 3 | stub |
+| Trigger | QuestFinishProgress | 3 | real |
 | Trigger | SetStatus | 2 | real |
 | Trigger | GetContactMode | 1 | stub |
 | Trigger | GetTeiggerStatus | 1 | real |
@@ -1708,3 +1719,516 @@ pure function) to confirm the fail-closed contract holds at the actual
 call shape production uses, not only in the unit under test. Next round
 for this lane should invoke `pf-adversary` on this branch as its first
 action, per house rule, before claiming new work.
+
+## Round 7v7yn2 (2026-09-06) -- flag-quest-state, 9/25 more Quest.*, 2/17 more Trigger.* real
+
+**Deliverable, per COO-DECISION `20260906_1846`**: `GetQuestFlag`/`SetFlag`/
+`SetQuestFlag`/`GetFlag`/`MobKillCount`/`CheckMobKillCount`/`GetMobKillCount`/
+`CanReportDailyQuest`/`ReportDailyQuest` (`Quest.*`, now 10/25 real) and
+`QuestActiveProgress`/`QuestFinishProgress` (`Trigger.*`, now 7/17 real),
+all backed by a new injectable `lua_api.quest.QuestStateStore` seam
+(`QuestContext`, the `QuestStateStore` `Protocol`, and
+`InMemoryQuestStateStore` -- explicitly NOT the production persistence
+answer). Full grep evidence, the exact 9-name derivation from
+`Quest/q_kill5.lua` and 68 sibling files, and `Quest.None`/`Active`/
+`Finish`'s derivation (0/1/2, the first two proven by a cross-script
+correlation between `t_opnq_t1.lua`/`t_clsq.lua` -- previously all three
+silently collapsed to `STUB_DEFAULT`, a real bug this round fixed): both
+modules' own updated docstrings.
+
+**Refused, one name short of COO's 12**: `CheckWishQuest`. A first grep
+pass (filenames + a column named after the quest) found nothing and an
+early draft of this round said so; pf-adversary caught that this was
+wrong -- a wider pass over TABLE CONTENTS finds
+`CONSTDATA_TH__VARIABLE_INTEGER.tsv`'s `GUILD_MAKEWISH_GUILDLV`/
+`GUILD_MAKEWISH_CDTIME`, `CONSTDATA_TH__GUILD_MEMBER.tsv`'s
+`f_CharWish_Chance`, and `TEXTDATA_TH__HELP_CONTENT.tsv` row 2028's own
+description of a guild "Wishing Crystal" mechanic. The corrected reason:
+this is CROSS-LANE with LANE-GUILD (which of a guild-level floor, a
+1200-unit cooldown, or a chance roll gates quest ACCEPTANCE is not pinned
+by any single table row, and the guild-level check needs a `Guild.*`/
+`Player.*` accessor this lane has no seam for), not "undocumented" --
+same refusal category as `CheckGuildOfflineQuest`/`ReportGuildOfflineQuest`/
+`StartGuildOfflineQuest`, corrected reasoning in `lua_api/quest.py`'s own
+`STILL_STUBBED` dict.
+
+**NOT done this round, said plainly**: no production persistence
+(`InMemoryQuestStateStore` does not survive a relog -- a CORE-REQUEST
+asks chief for the real DB-backed accessor); no live dispatch (nothing
+binds a script run to a real player session yet); `script_host.ScriptHost`
+does not share one `QuestStateStore` between its `Trigger`/`Quest`
+namespaces (a first draft did, reverted before push -- it trips
+`tests/test_npc_interaction_wire.py`'s foundation quest/shop guard, a
+second CORE-REQUEST asks chief for that exemption, same pattern round
+`vqng2z` used successfully); `MobKillCount`'s `target` argument is not
+persisted (only progress, reset to 0, is -- every corpus call site
+re-supplies the same literal to `CheckMobKillCount` directly); no
+player-visible impact yet (no wire frame changes, no live dispatch).
+
+### Tests + gates
+
+`tests/test_script_lua_api_quest.py` (new `QuestFlagAndCounterTests`, 15
+tests) and `tests/test_script_lua_api_trigger.py` (3 new tests) exercise
+every newly-real closure directly. Ran the full 616-file corpus through
+`script_host.run_corpus_entry_points` (`lupa==2.8` installed this
+session) against a fixed clock: no regression in
+`KNOWN_LOAD_FAILURES`/`KNOWN_ENTRY_POINT_CALL_FAILURES`;
+`BASELINE_TOTAL_STUB_CALLS` re-measured 4937 -> 3931 (measured, not
+computed by hand -- see `tests/test_script_lua_corpus.py`'s own updated
+comment for the exact breakdown and the branch-shift phenomenon this
+produced in `Player.GetClass`'s own count, untouched this round).
+`q_kill5.lua`'s own full-lifecycle test updated: `MobKillCount`/`SetFlag`/
+`CheckMobKillCount` moved from the expected-stub set into an asserted
+real-call set. `docs/PYTEST_SKIP_PINS.json` updated for two renamed
+regression-guard test names. Full `pytest tests/` (12,495 passed) run on
+this branch as the last commit before push.
+`python3 tools_bridge/pf_gate_preflight.py --repo ../pirate-force-server`:
+PREFLIGHT PASS.
+
+### ADVERSARY
+
+Invoked at round start. Findings: two would-be-red test failures (the
+foundation quest/shop guard trip from the reverted `ScriptHost` wiring,
+and a stale `docs/PYTEST_SKIP_PINS.json` entry from a test rename) --
+both already fixed before the adversary's own report landed, confirmed
+independently re-verified by it afterward. Two real findings fixed
+after the report: the `CheckWishQuest` refusal reason was factually
+wrong (see above); this file's own status-table header and prose were
+stale (still said "17/160 real" and "the one `Quest.*` real row" inside
+the same commit that made 11 more names real). One minor finding not
+fixed this round (logged as a next-round item below): 9 of the 11 new
+real closures do not log a line on a same-arity-but-bad-VALUE call
+(e.g. NaN/negative/oversized), unlike `GetQuestFlag`'s own precedent --
+not a crash risk (fuzzed through real Lua, never raises), an
+observability gap.
+
+### รอบหน้าทำอะไร
+
+1. Check both CORE-REQUEST letters (persistence accessor, guard
+   exemption) and act on whichever answered.
+2. Add a bad-VALUE log line to the 9 closures pf-adversary named, matching
+   `GetQuestFlag`'s own pattern, for observability parity.
+3. `CheckWishQuest` needs LANE-GUILD's own state door or an RE ticket
+   before it can go real -- not blocking, 1 call site.
+4. Per `COO-DECISION 20260906_1846`'s ranking, item 2 (`inventory seam`,
+   read side) is next once this item closes, except the write side
+   (blocked on `RE-280`).
+
+SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- ตรรกะฝั่งเซิร์ฟเวอร์ของ 9 Quest.* + 2 Trigger.* ถูกต้องและมีเทสยืนยันแล้ว แต่ยังไม่ต่อกับ session ผู้เล่นจริงและยังไม่มีที่เก็บถาวรข้าม relog | pirate-force-server PR, quest-flag fns real 9/12, Trigger fns real 2/2
+## Round qbr5h8 (2026-09-06) -- Player.* inventory seam, read side: CheckItemNum/GetItemNum/CheckEquipItem real
+
+**Charter priority for this round, per `COO-DECISION 20260906_1846`'s
+system-wide ranking** (mailbox was empty this round -- every LANE-Q letter,
+`pf_bridge/notes_to_chief/20260906_1846_COO-DECISION-q1812-host-api-map-
+ranking-LANE-Q.md` included, already carries a `.CONSUMED.txt` twin;
+`1846` itself was consumed by round `7v7yn2`, which acted on its item 1.
+This round's authority is `pf_bridge/rounds/
+Q_20260906_1950_7v7yn2_flag-quest-state.md`'s own "รอบหน้าทำอะไร" section,
+citing `1846`'s item 2 as next -- see that round file's own mailbox
+correction for the full story): item 1 (flag-quest-state) closed last
+round (`7v7yn2`, PR pirate-force-server#947, still open pending gate at
+this round's own start -- not this round's lock, not waited on, per house
+rule); item 2 is "inventory seam, **read side first**":
+`Player.CheckItemNum`/`GetItemNum`/`CheckEquipItem` bound to
+`inventory.py`/`store.py`'s existing types, no byte-guessing; the WRITE
+half (`AddItem`/`RewardItemSelect`/`AddAndEquip`) stays explicitly blocked
+on `RE-280` per that same letter and is untouched this round.
+
+### What was built
+
+`src/pirateforce_foundation/lua_api/player.py`'s `PlayerContext` widens by
+two fields -- `backpack: inventory.BackpackState` and
+`equipped_template_ids: frozenset[int]` -- both defaulting to empty (no
+items, no equips), the same "inert default, not a guess" posture
+`level`/`class_id` already established. Three new real closures:
+
+- `GetItemNum(templateId)` (99 calls/72 files, arity 1) -- sums
+  `ItemAttrState.quantity` across every backpack row whose `template_id`
+  matches (a stack split across two rows, e.g. a pre-merge V111 bag, adds
+  up; grepped call sites, e.g. `Quest/q_gather_new.lua:205`, always assign
+  the result into a local for later comparison, never read it as a bool).
+- `CheckItemNum(templateId, count)` (211 calls/105 files, arity 2) --
+  `GetItemNum(templateId) >= count`, matching every grepped call site's own
+  boolean-gate usage (e.g. `Quest/q_guildgather1.lua:41`,
+  `if(Player.CheckItemNum(Quest.Var2,Quest.Var3))and...`).
+- `CheckEquipItem(templateId)` (14 calls/2 files, arity 1) -- template-id
+  membership in `equipped_template_ids`, matching the only two files that
+  call it (`Quest/q_kill1_2.lua`, `Quest/q_con3.lua`, both OR/AND-chaining
+  several literal template ids as a plain boolean).
+
+All three fail closed exactly like every other real closure in this
+package: wrong arity logs `LUA_PLAYER_BAD_ARITY` and returns
+`STUB_DEFAULT`; an argument that will not coerce to a bounded int (own
+`_coerce_int`, identical shape to `lua_api.trigger._coerce_int`, kept as a
+separate copy per this package's own established no-cross-namespace-import
+convention) makes `GetItemNum` answer 0 and `CheckItemNum`/`CheckEquipItem`
+answer `False` rather than raising or guessing.
+
+**What this round does NOT do, said plainly**: no live dispatcher exists
+yet (same gap `GetLv`/`GetClass` already documented) -- nothing calls
+`store.get_backpack`/`store.list_equipped_items` and builds a real
+`PlayerContext` from an actual session; every test today (unit and Lua)
+supplies its own `PlayerContext` directly. `store.py`/`migrations/` are not
+this lane's write zone and were not touched. The write half of the
+inventory seam (`AddItem`/`RewardItemSelect`/`AddAndEquip`, still `stub` in
+the table below) stays blocked on `RE-280` exactly as COO's ranking letter
+says -- no bytes were guessed ahead of it.
+
+### Evidence, two layers
+
+- **Server-side, direct**: `tests/test_script_lua_api_player.py` -- 21 new
+  unit tests against `RealPlayerNamespace` directly (no lupa): default
+  context reads as empty/zero, quantity sums across matching rows only and
+  ignores non-matching ones, threshold comparison both sides, unheld/
+  unequipped items answer false, wrong arity for all three degrades to
+  `STUB_DEFAULT` rather than raising, a non-numeric or boolean argument
+  refuses (`_coerce_int`) rather than guessing -- plus 3 new
+  `LUPA_PACKAGE`-guarded Lua-integration tests reproducing the exact
+  grepped call shapes above through a live `ScriptHost`.
+- **Corpus-wide, measured not assumed**: ran the full 616-file corpus
+  through `script_host.run_corpus_entry_points` against a fixed clock.
+  `report.real_call_counts` -- `{'Player.GetItemNum': 88,
+  'Player.CheckItemNum': 154}` (`CheckEquipItem`'s 2 call sites do not
+  execute under `STANDARD_ENTRY_POINTS` today, contributing 0, same as
+  `Quest.CheckOpenTime`'s own partially-unreached call sites documented for
+  round `gqjas5`) -- folded into `tests/test_script_lua_corpus.py`'s
+  updated `BASELINE_TOTAL_STUB_CALLS` (4937 -> 4715; see that file's own
+  updated comment for the full measured-not-naive derivation, including the
+  20-call branch-shift remainder). `test_every_present_entry_point_gets_
+  called_or_its_failure_is_pinned`'s `KNOWN_LOAD_FAILURES`/
+  `KNOWN_ENTRY_POINT_CALL_FAILURES` both pass unchanged -- no new load or
+  call failure introduced.
+
+### Tests + gates
+
+`PYTHONPATH=src:tests python3 -m pytest tests/test_script_lua_api_player.py
+tests/test_script_lua_api_quest.py tests/test_script_lua_api_trigger.py
+tests/test_script_lua_api_instance.py tests/test_script_host_spike.py
+tests/test_script_lua_corpus.py -q` -- 156 passed, 306 subtests passed, 0
+failed (includes the two pinned regression guards this round updated:
+`test_the_5_real_player_names_are_excluded_above_not_forgotten` in
+`test_script_host_spike.py`, `BASELINE_TOTAL_STUB_CALLS` in
+`test_script_lua_corpus.py`). Full `pytest tests/` and
+`tools_bridge/pf_gate_preflight.py --repo .` run before push, folded in
+below if finished in time.
+
+### ADVERSARY
+
+Invoked at the point this round noticed the diff was ready for review (not
+strictly round-start, this round's own process gap -- next round should
+invoke it as the very first action instead, per house rule), via the
+`pf-adversary` subagent against `lua_api/player.py`'s new code in an
+isolated worktree. Result returned before push, folded in:
+
+- **Real defect found and fixed**: `PlayerContext(backpack=None)`,
+  `PlayerContext(equipped_template_ids=None)`, and a backpack row with a
+  non-numeric `quantity` each raised a raw `TypeError`/`AttributeError`
+  straight out of `ScriptHost.call` instead of degrading like every other
+  real closure in this file. Not exploitable today (no dispatcher builds a
+  `PlayerContext` from live data; every test hand-builds a well-formed one)
+  but a live crash surface for whichever future dispatcher round trusts a
+  `store.get_backpack` decode failure unconditionally. Fixed:
+  `_item_count`/new `_is_equipped` now catch and degrade to `0`/`False`
+  (see `player.py`'s own updated docstrings on both), with 3 new regression
+  tests reproducing the adversary's exact three inputs.
+- **Confirmed, not a new defect**: an arity-mismatch on `CheckItemNum`/
+  `CheckEquipItem` returns `STUB_DEFAULT` (Python `0`), truthy in real Lua
+  -- but `Quest.CheckOpenTime` (already shipped, real, boolean-shaped)
+  has the identical shape and the identical test-suite gap (checked at the
+  Python-return level, never real-Lua-truthiness level); this round
+  inherits, not introduces, that landmine.
+- **No crash from Lua-controlled arguments**: fuzzed every argument
+  position of all three names (`None`/bools/lists/dicts/bytes/nan/inf/
+  huge ints/non-integral floats/complex/arbitrary objects) through
+  `ScriptHost` -- zero exceptions, `_coerce_int` holds.
+- **Semantics re-verified independently against the corpus** (not trusted
+  from the module docstring alone): call counts/arities/sum-not-count
+  aggregation all matched grepping the real files directly; mutation
+  testing (`>=`->`>`, dropping the template-id filter, `CheckEquipItem`
+  forced `True`) caught by the existing test suite in all three cases.
+- **Sandbox posture preserved**: all three closures return only plain
+  `int`/`bool`/`STUB_DEFAULT` to Lua, no `BackpackState`/`ItemAttrState`/
+  frozenset object ever crosses the boundary.
+- **Open question raised, not yet answered** (left for whichever round
+  builds the live dispatcher): should that wiring re-validate through
+  `inventory.require_backpack_shape` before constructing a `PlayerContext`,
+  or should these closures keep defending themselves the way they do now?
+  This round picked "closures defend themselves" (see the fix above) as
+  the immediate, in-scope answer; a future dispatcher revalidating too is
+  defense in depth, not required by this round's fix.
+
+### TWO_SESSIONS_SAME_SCENE
+
+Not applicable the way it usually is for a shared-world door: a backpack
+and an equipment set are per-CHARACTER state (`PlayerContext.backpack`/
+`equipped_template_ids`, mirroring `store.get_backpack`/
+`store.list_equipped_items`'s own `character_id` keying), never a scene
+string -- two sessions in the same scene share nothing through this seam,
+and no live dispatcher exists yet for two sessions to race through anyway
+(same posture this file's own module docstring already states for
+`level`/`class_id`).
+
+### รอบหน้าทำอะไร
+
+1. Check the two open CORE-REQUEST letters from round `7v7yn2` first
+   (quest-flag-counter-daily-stamp-columns, quest-store-wiring-trips-the-
+   foundation-guard) -- if either is answered, wire it in citing the grant/
+   answer as authority, before claiming new work.
+2. Per `COO-DECISION 20260906_1846`'s own ranking, the inventory seam's
+   read side is now fully real (all three names); its WRITE side stays
+   blocked on `RE-280` -- do not guess bytes ahead of it. If `RE-280` has
+   answered by the next round, that is the next item in this lane's own
+   priority order, still ranked above item 3 (`Player.MobAppear`, LANE-A's
+   territory, explicitly not this lane's to build per that same letter).
+3. `CheckWishQuest` (Quest namespace, refused round `7v7yn2`) still needs an
+   RE ticket -- not blocking, low call count (1).
+4. If CI/gate surfaces a `lupa`-version or Windows-specific difference this
+   Linux-container run could not catch (same risk every prior LANE-Q round
+   flagged), fix it here rather than starting over, per `SYNC-NOTICE`'s own
+   standing instruction.
+
+SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- ตรรกะฝั่งเซิร์ฟเวอร์ของ 3 Player.* (นับของ inventory ที่มีอยู่ในกระเป๋า/สวมใส่) ถูกต้องและมีเทสยืนยันแล้ว แต่ยังไม่มี dispatcher จริงต่อกับ session ผู้เล่น (เหมือน GetLv/GetClass เดิม) | pirate-force-server PR (เปิดแล้ว, ดูหัวข้อ "จบรอบ" ในไฟล์รอบ pf_bridge), Player.* fns real 5/73 (+3 this round), inventory-seam read side 3/3 done
+
+## Round uadtc7 (2026-09-06) -- recovered #947, wired one shared QuestStateStore between Trigger and Quest
+
+### What changed
+
+Two parts.
+
+1. Recovered `pirate-force-server#947` (closed by the reaper, never merged)
+   by cherry-picking its two commits unchanged onto fresh `origin/main`
+   (`fd82da2`, `13f4c02`) -- the same 9 more `Quest.*`/2 more `Trigger.*`
+   real closures round `7v7yn2`'s own `docs/SCRIPT_LANE.md` section above
+   already describes in full; nothing about that code changed here.
+
+2. New this round: `script_host.ScriptHost.__init__`/`load_script_file`
+   gained `quest_context`/`quest_store` parameters and now build ONE
+   shared `lua_api.quest.QuestStateStore` (a fresh `InMemoryQuestStateStore`
+   + `DEFAULT_CONTEXT` when neither is given), passed to BOTH
+   `lua_api.trigger.build_namespace` (`quest_context=`/`quest_store=`) and
+   `lua_api.quest.build_namespace` (`context=`/`store=`) -- the exact gap
+   `lua_api.trigger.build_namespace`'s own docstring named ("NOT WIRED IN
+   `script_host.ScriptHost` THIS ROUND, SAID PLAINLY"), reverted before
+   push in `#947` because it tripped `tests/test_npc_interaction_wire.py`'s
+   `QuestAndShopStateGuardTests` (three new symbols with no exemption).
+   Chief (LANE-E) round `awnjat` pre-approved exactly three new symbol
+   names for `ALLOWED_SYMBOLS["script_host.py"]`
+   (`pf_bridge/notes_to_chief/20260906_2151_CHIEF-REPLY-LANE-Q-quest-
+   state-door-granted-1950-1951-not-yet-earned.md`), landed in the same
+   commit as the wiring it exempts, per that guard's own rule (an
+   exemption cannot be granted for code that does not exist yet). The
+   three actual offending symbols, measured by running the guard test
+   before adding the exemption (not assumed from the letter's own draft):
+   `quest_context`, `quest_store`, `_in_memory_quest_state_store` --
+   matches the letter's pre-approved list exactly. Local variable names
+   inside `ScriptHost.__init__` were kept as the bare parameter names
+   `quest_context`/`quest_store` (rebound in place) rather than new names
+   like `shared_quest_context` specifically because the guard flagged
+   those too on a first attempt and neither was in the pre-approval.
+
+### What this does NOT do yet, said plainly
+
+Still no production persistence -- `InMemoryQuestStateStore` is still the
+only `QuestStateStore` implementation in this codebase; chief's own
+DB-backed accessor (`store.py`'s `get_quest_flag`/`set_quest_flag`/
+`get_quest_counter`/`set_quest_counter`, `migrations/016_character_quest_
+state.sql`) is store.py's own write zone, not this lane's, and its own PR
+(`#954`) is ALSO closed unmerged -- re-landing it is chief's (LANE-E)
+job, not this lane's, and this round does not touch `store.py` or
+`migrations/`. Still no live dispatch -- nothing binds a `ScriptHost` run
+to a real player session/character id yet, same gap every prior round in
+this file already states. Player-visible impact: none yet.
+
+### Tests + gates
+
+Three new tests, `tests/test_script_host_spike.py`'s
+`OneScriptHostSharesOneQuestStateStoreTests`: the two namespaces hold the
+IDENTICAL store/context object (`is`, not equality); a
+`Trigger.QuestActiveProgress` write is visible to a later
+`Quest.GetQuestFlag` read in one `ScriptHost` run with no store/context
+injected (the default-sharing path every existing caller takes); an
+explicitly-injected store/context pair is the one both namespaces
+observably share (checked both through the Lua call and by reading the
+injected store object directly afterward). `docs/PYTEST_SKIP_PINS.json`'s
+`tests/test_script_host_spike.py` entry updated 22 -> 25, MEASURED via
+`tests/test_pytest_precondition_census.py`'s own AST walker, not counted
+by hand.
+
+`PYTHONPATH=src:tests python3 -m pytest tests/test_script_lua_api_quest.py
+tests/test_script_lua_api_trigger.py tests/test_script_lua_api_instance.py
+tests/test_script_lua_api_player.py tests/test_script_host_spike.py
+tests/test_script_lua_corpus.py tests/test_npc_interaction_wire.py -q`:
+194 passed, 333 subtests passed.
+
+Full `pytest tests/` on this branch, `origin/main` merged in (no-op,
+already current): 12544 passed, 327 skipped, 26403 subtests passed, 1
+failed. The 1 failure
+(`tests/test_lane_a_choose_npc_scene1.py::TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests::test_the_talk_trigger_is_still_missing_at_real_dispatch_today`)
+is `NOW.md`'s own `KNOWN_RED_MAIN` row -- confirmed pre-existing by
+`git stash` (reverting this round's own diff back to `origin/main`) and
+running that one test alone on the unmodified tree: fails identically.
+LANE-A's own file, not touched by this round, not this lane's write zone.
+
+`python3 tools_bridge/pf_gate_preflight.py --repo ../pirate-force-server`
+(from `pf_bridge`): PREFLIGHT PASS.
+
+### ADVERSARY
+
+`ADVERSARY_PENDING pirate-force-server` (this round's branch) -- invoked
+via the `pf-adversary` subagent after the diff was ready and the full
+suite already run, not at round start (this round's own process gap,
+same one round `qbr5h8` already logged and did not fix; next round
+should invoke it as the very first action instead). Result not back by
+push time; will be folded into this section or the next round file per
+house rule.
+
+### รอบหน้าทำอะไร
+
+1. If pf-adversary's pending result (see above) finds anything, it lands
+   as a follow-up commit on this branch or as this round file's own
+   addendum, per house rule -- read `pf_bridge/rounds/Q_*uadtc7*` first.
+2. `store.py`'s quest-state door (`pirate-force-server#954`, chief's own
+   PR) is ALSO closed unmerged -- not this lane's to re-land (write-zone:
+   `store.py`/`migrations/` are chief's), but the day it lands, switching
+   `ScriptHost`'s default `InMemoryQuestStateStore` for a live dispatch to
+   the real accessor is a one-parameter change per chief's own letter, not
+   a new design.
+3. Per `COO-DECISION 20260906_1846`'s ranking, item 2 (`inventory seam`)
+   is read-side already 3/3 real (round `qbr5h8`, `pirate-force-
+   server#953`, not yet merged) -- write side still blocked on `RE-280`.
+4. `CheckWishQuest` (Quest namespace) still needs an RE ticket -- low call
+   count (1), not blocking.
+5. Add a bad-VALUE log line to the 9 closures pf-adversary named in round
+   `7v7yn2` (still not done, carried forward again).
+
+SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- สคริปต์หนึ่งตัวที่เรียกทั้ง Trigger.QuestActiveProgress/QuestFinishProgress และ Quest.* ในรอบเดียวกันตอนนี้เห็นค่าที่อีกฝั่งเขียนจริงแล้ว (ก่อนหน้านี้แยกคนละที่เก็บ) แต่ยังไม่มี dispatch จริงต่อกับ session ผู้เล่นและยังไม่มีที่เก็บถาวรข้าม relog | pirate-force-server branch claude/hopeful-hopper-dyqifb (recovers #947 + new wiring commit 16349f3), 3 new tests
+
+## Round lvoma1 (2026-09-06) -- recovered both #953 and #947/#960 onto one branch, root cause was never this lane's
+
+### Why this round exists
+
+Three LANE-Q pull requests in a row died on the gate with the exact SAME
+failure, none of them this lane's own code:
+`tests/test_lane_a_choose_npc_scene1.py:1752`,
+`TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests`, an
+`AssertionError` whose own message named its fix
+("`runtime.py` is now queuing `extra_actions` (`CORE-REQUEST
+20260904_0137` landed) -- invert this assertion to `assertIn`... rather
+than deleting the test"). Confirmed with `get_job_logs` against all three
+gate runs (947: run `34036020824`; 953: run `34039804808`; 960: run
+`34043977287`) -- identical file, identical line, identical message each
+time; none of the three PRs' own diffs ever touched that file.
+
+`prompts/COMMON_LANE_ROUND.md`'s own house rule ("gate red, same cause,
+two rounds running -> stop, write COO, do not send a third blind PR") was
+already past its trigger by the time this round started (three failures,
+not two). Did not need to write that letter: `NOW.md`'s own top line
+already said the answer ("main เขียว (#957 merge 23:08) -> เปิด PR ได้
+fetch main ซ้ำก่อน"). Read `tests/test_lane_a_choose_npc_scene1.py` on
+fresh `origin/main` directly and confirmed the fix is there --
+LANE-A's own round `eknq8d` (`pirate-force-server#957`, "invert the
+talk-trigger assertion now that 0137 landed", merged
+2026-09-06T23:08+07:00, `COO-DECISION 2026-09-06T21:41`).
+
+### What this round built: nothing new -- recovered two dead branches onto the fixed main
+
+Both `claude/hopeful-hopper-dyqifb` (#960: recovers #947, plus the shared
+`QuestStateStore` wiring) and `claude/happy-tesla-qbr5h8` (#953:
+inventory seam read side) still existed, unmerged, based on the SAME old
+`origin/main` (`cf961be`). Cherry-picked all six commits from both
+(chronological order: `31def53`, `a168250`, `fd82da2`, `13f4c02`,
+`16349f3`, `88042c7`) onto one fresh branch from current `origin/main`
+(`be06164`, which already carries `#957`'s fix) -- combined into ONE PR
+because this lane may open only one PR per repo per round
+(`prompts/AGENTS.md` ยง7).
+
+Five merge conflicts, all bookkeeping (no logic conflict -- the two
+deltas touch disjoint namespaces, `lua_api/player.py` vs
+`lua_api/quest.py`+`lua_api/trigger.py`+`script_host.py`):
+
+1. `docs/PYTEST_SKIP_PINS.json`'s `test_script_host_spike.py` pinned-test
+   list -- combined delta (quest 1->10, player 2->5, trigger 5->7),
+   verified against the actual method names in
+   `tests/test_script_host_spike.py` after the auto-merge, not assumed.
+2. `tests/test_script_lua_corpus.py`'s `BASELINE_TOTAL_STUB_CALLS` --
+   RE-MEASURED from scratch rather than added (both deltas never ran in
+   the same corpus pass before this round): 4715 -> 3716, a 3-call
+   branch-shift gap from `Player.CheckItemNum` (154 -> 145) and
+   `Quest.GetQuestFlag` (159 -> 160) shifting once run together --
+   neither shift visible when either delta ran alone. See that file's own
+   comment for the full `report.real_call_counts` dump.
+3. `tests/test_script_host_spike.py` -- auto-merged clean, verified by
+   hand against (1) and (2) above.
+4. `docs/SCRIPT_LANE.md`'s status-table header/prose -- rewrote combined
+   (129/160 stub, 31/160 real: Quest 10, Player 5, Trigger 7, Instance 9).
+5. `docs/SCRIPT_LANE.md`'s own round-history sections -- interleaved
+   "Round 7v7yn2" / "Round qbr5h8" / "Round uadtc7" into chronological
+   order (this file was two independent branches' own append-only logs,
+   diverged after `7v7yn2`).
+
+### What this round does NOT do, said plainly
+
+No new API surface, no new player-visible behaviour beyond what rounds
+`qbr5h8`/`7v7yn2`/`uadtc7` already built and already got clean adversary
+results for (pf_bridge#1583 for the `QuestStateStore` sharing; round
+`qbr5h8`'s own three fixed crash bugs for the inventory seam). Did not
+chase `RE-285`'s own two not-RE follow-up leads (grep the corpus for
+other `Trigger.*` literal-argument calls; check the `.tgr` table `RE-273`
+opened) -- this round's whole budget went to the recovery above.
+
+### Tests + gates
+
+`PYTHONPATH=src:tests python3 -m pytest tests/test_script_lua_api_player.py
+tests/test_script_lua_api_quest.py tests/test_script_lua_api_trigger.py
+tests/test_script_lua_api_instance.py tests/test_script_host_spike.py
+tests/test_script_lua_corpus.py tests/test_npc_interaction_wire.py -q`:
+212 passed, 334 subtests passed, 0 failed (after the
+`BASELINE_TOTAL_STUB_CALLS` fix above -- red at 4715, green at 3716,
+confirmed by running it both ways rather than trusting the arithmetic).
+
+Full `pytest tests/` run before push -- see this round's own "จบรอบ"
+section in `pf_bridge/rounds/Q_20260906_2358_lvoma1_*.md` for the final
+count, folded in once it finishes (started as a background run; this
+section written while it was still in flight, per house rule against
+holding the round waiting on a single long command when other real work
+remains).
+
+`python3 tools_bridge/pf_gate_preflight.py --repo ../pirate-force-server`:
+folded in below once run.
+
+### ADVERSARY
+
+`pf-adversary` invoked at round start against the diff so far (the
+recovery/merge itself, not the already-adversary-clean logic underneath
+-- see prompt for the exact scope), in parallel with the full test run
+above. Result folded in below once it lands, or `ADVERSARY_PENDING` per
+house rule if it has not returned by push time.
+
+### TWO_SESSIONS_SAME_SCENE
+
+Not applicable, same reasoning both recovered deltas already established
+on their own branches: quest flag/counter state and backpack/equipment
+state are both keyed by `character_id`, never by scene; no live dispatch
+exists yet for two sessions to race through either seam.
+
+### รอบหน้าทำอะไร
+
+1. If this round's own `pf-adversary`/full-suite results (see above) were
+   still pending at push time, read them first, per house rule.
+2. `store.py`'s quest-state door (`pirate-force-server#954`, chief's own
+   PR, closed unmerged) is still not this lane's to re-land -- three of
+   this lane's own PRs (`#947`, `#960`, now this one) have each been
+   blocked or delayed waiting near it; worth a status check with
+   COO/chief if it is still unmerged next round.
+3. `RE-285`'s own two not-RE leads (grep the corpus for other `Trigger.*`
+   literal-argument calls near `GetContactMode`'s own shape; check the
+   `.tgr` per-trigger table `RE-273` opened for a contact-mode-shaped
+   column) -- neither chased this round.
+4. Per `COO-DECISION 20260906_1846`'s ranking: inventory seam write side
+   (`AddItem`/`RewardItemSelect`/`AddAndEquip`) still blocked on `RE-280`.
+5. Add a bad-VALUE log line to the 9 closures pf-adversary named in round
+   `7v7yn2` -- still not done, carried forward again.
+6. `CheckWishQuest` (Quest namespace) still needs LANE-GUILD's own state
+   door or an RE ticket -- low call count (1), not blocking.
+
+SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- โค้ดของ 12 ฟังก์ชันจริง (Quest.* 9 เพิ่ม, Trigger.* 2 เพิ่ม, Player.* 3 เพิ่ม) ที่หายไปสามรอบติดเพราะเกตแดงจากไฟล์ของ LANE-A (ไม่ใช่ของสายนี้) กลับมาอยู่บน PR เดียวแล้วหลัง main เขียว แต่ยังไม่ต่อกับ session ผู้เล่นจริงและยังไม่มีที่เก็บถาวรข้าม relog | pirate-force-server PR (ดูหัวข้อ "จบรอบ" ในไฟล์รอบ pf_bridge), API status 31/160 real

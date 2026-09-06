@@ -240,6 +240,64 @@ class RealTriggerNamespaceTests(unittest.TestCase):
         # the context's OWN trigger (55) is untouched
         self.assertEqual(reg.get_status("bg0001", 55), trigger.STUB_DEFAULT)
 
+    def test_quest_active_progress_and_finish_progress_write_the_shared_quest_store(self):
+        # The t_opnq_t1.lua/t_clsq.lua pair this round's module docstring
+        # derives Quest.Active/Finish's numeric values from: open sets 1,
+        # close (only reachable once the flag reads 1) sets 2.
+        from pirateforce_foundation.lua_api import quest as lua_api_quest
+
+        store = lua_api_quest.InMemoryQuestStateStore()
+        ns, calls = self._namespace(
+            quest_context=lua_api_quest.QuestContext(character_id=7, quest_id=0),
+            quest_store=store)
+        self.assertEqual(ns["QuestActiveProgress"](42), lua_api_quest.QUEST_ACTIVE)
+        self.assertEqual(store.get_quest_flag(7, 42), lua_api_quest.QUEST_ACTIVE)
+        self.assertEqual(ns["QuestFinishProgress"](42), lua_api_quest.QUEST_FINISH)
+        self.assertEqual(store.get_quest_flag(7, 42), lua_api_quest.QUEST_FINISH)
+        self.assertTrue(any(
+            c.startswith("LUA_TRIGGER_REAL Trigger.QuestActiveProgress ") for c in calls))
+        self.assertTrue(any(
+            c.startswith("LUA_TRIGGER_REAL Trigger.QuestFinishProgress ") for c in calls))
+
+    def test_quest_progress_functions_share_the_store_with_the_quest_namespace(self):
+        # The exact cross-namespace requirement build_namespace's own
+        # docstring names: Trigger.QuestActiveProgress and Quest.GetQuestFlag
+        # must see each other's writes when given the SAME store, the way
+        # script_host.ScriptHost wires them for one real script run.
+        from pirateforce_foundation.lua_api import quest as lua_api_quest
+        from pirateforce_foundation.lua_api import spec as api_spec
+
+        store = lua_api_quest.InMemoryQuestStateStore()
+        qcontext = lua_api_quest.QuestContext(character_id=3, quest_id=0)
+        trigger_ns, _ = self._namespace(quest_context=qcontext, quest_store=store)
+        quest_ns = lua_api_quest.build_namespace(
+            api_spec.NAMESPACE_METHODS["Quest"], lambda _msg: None,
+            context=qcontext, store=store)
+        trigger_ns["QuestActiveProgress"](900)
+        self.assertEqual(quest_ns["GetQuestFlag"](900), lua_api_quest.QUEST_ACTIVE)
+
+    def test_quest_progress_functions_bad_value_logs_a_line(self):
+        # pf-adversary (this round): same fix as lua_api.quest's own
+        # QuestFlagAndCounterTests::test_bad_value_same_arity_calls_log_a_line_not_silently.
+        ns, calls = self._namespace()
+        for name in ("QuestActiveProgress", "QuestFinishProgress"):
+            with self.subTest(method=name):
+                calls.clear()
+                ns[name](float("nan"))
+                self.assertTrue(
+                    any(c.startswith("LUA_TRIGGER_BAD_VALUE Trigger.%s " % name) for c in calls),
+                    calls,
+                )
+
+    def test_quest_progress_functions_wrong_arity_degrades_safely(self):
+        ns, calls = self._namespace()
+        for name, args in (("QuestActiveProgress", ()), ("QuestFinishProgress", (1, 2))):
+            with self.subTest(method=name):
+                calls.clear()
+                self.assertEqual(ns[name](*args), trigger.STUB_DEFAULT)
+                self.assertTrue(calls[0].startswith(
+                    "LUA_TRIGGER_BAD_ARITY Trigger.%s " % name), calls)
+
     def test_wrong_arity_real_calls_degrade_safely_instead_of_raising(self):
         # CRITICAL, pf-adversary (this round): the first draft's real
         # closures had fixed positional parameters, so a wrong-arity call

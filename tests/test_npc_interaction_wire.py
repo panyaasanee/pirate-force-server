@@ -683,6 +683,28 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             "lua_api_quest",
             "quest",
             "quest_clock",
+            # LANE-Q's shared QuestStateStore wiring: Trigger.QuestActive
+            # Progress/QuestFinishProgress and Quest.*'s own newly-real names
+            # (COO-DECISION 20260906_1846, pf_bridge round `7v7yn2`) must see
+            # the SAME store within one script run. PRE-APPROVED by chief
+            # (LANE-E) round `awnjat` on CORE-REQUEST `pf_bridge/notes_to_
+            # chief/20260906_1951_...md`, landed here by LANE-Q in the same
+            # PR as the wiring code it exempts (chief cannot grant an
+            # exemption for code that does not exist yet --
+            # test_every_symbol_exemption_is_still_earned refuses it).
+            # `quest_context`/`quest_store` are parameter names (pass-
+            # through only); `InMemoryQuestStateStore` is a class reference
+            # this guard's CamelCase normalizer reports as
+            # `_in_memory_quest_state_store` -- its own real logic lives in
+            # lua_api/quest.py, one directory down, not scanned by this
+            # guard, and is explicitly NOT the production persistence
+            # answer (chief's real accessor landed round `awnjat`,
+            # store.py's get_quest_flag/set_quest_flag/get_quest_counter/
+            # set_quest_counter -- switching ScriptHost to it later is a
+            # one-parameter change, not a new exemption).
+            "quest_context",
+            "quest_store",
+            "_in_memory_quest_state_store",
         },
         # The quest module itself.  It is the one place quest dispatch lives,
         # by the design the npc_interaction rows describe: a one-shot wire

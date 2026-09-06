@@ -219,7 +219,22 @@ class ScriptHost:
     needs neither the LANE-DB state door nor a wire frame). ``quest_clock``
     lets a caller inject a fixed clock for a deterministic test; leaving it
     ``None`` reads the real wall clock (``lua_api.quest.build_namespace``'s
-    own default). ``Player`` is likewise no longer a plain stub table: 2 of
+    own default). ``quest_context``/``quest_store`` let a caller share ONE
+    quest-state seam between ``Trigger.QuestActiveProgress``/
+    ``QuestFinishProgress`` and ``Quest.*``'s own flag/counter closures
+    within this single host's run (``lua_api.trigger.build_namespace``'s own
+    docstring names this exact gap; CORE-REQUEST
+    ``pf_bridge/notes_to_chief/20260906_1951_LANE-Q-CORE-REQUEST-quest-store-
+    wiring-trips-foundation-guard.md``, answered by chief round `awnjat`).
+    Leaving both ``None`` builds one fresh private
+    :class:`lua_api.quest.InMemoryQuestStateStore` and uses
+    :data:`lua_api.quest.DEFAULT_CONTEXT`, still shared between the two
+    namespaces (every existing caller before this round, and every test that
+    does not care, keeps working unchanged -- the two namespaces already
+    each had their OWN independent default store; this only makes the two
+    defaults the SAME instance instead of two different ones).
+
+    ``Player`` is likewise no longer a plain stub table: 2 of
     its 73 names (``GetLv``, ``GetClass``) are real, backed by an
     injectable ``PlayerContext`` rather than any registry or clock
     (``lua_api.player.py``'s own module docstring explains why these two
@@ -236,6 +251,8 @@ class ScriptHost:
                  instance_context: "Optional[lua_api_instance.InstanceContext]" = None,
                  instance_registry: "Optional[lua_api_instance.InstanceRegistry]" = None,
                  quest_clock: "Optional[lua_api_quest.Clock]" = None,
+                 quest_context: "Optional[lua_api_quest.QuestContext]" = None,
+                 quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
                  player_context: "Optional[lua_api_player.PlayerContext]" = None):
         _require_lupa()
         self.log = log or default_logger
@@ -251,20 +268,38 @@ class ScriptHost:
             register_builtins=False,
             attribute_filter=deny_every_attribute,
         )
+        # One shared quest-state seam for THIS host's run, so a script whose
+        # Trigger.QuestActiveProgress/QuestFinishProgress and Quest.* calls
+        # both land in this same call stack see each other's writes -- built
+        # once, here, rather than letting Trigger's and Quest's own
+        # build_namespace calls each default to their OWN private store (see
+        # the class docstring above and lua_api.trigger.build_namespace's own
+        # docstring for why that used to be the gap).
+        # Rebound in place (not into new local names) so the only new
+        # symbols this constructor introduces are the two parameters
+        # themselves -- both already earned in ALLOWED_SYMBOLS["script_
+        # host.py"] together with the InMemoryQuestStateStore reference,
+        # per the CORE-REQUEST cited above.
+        quest_context = (
+            quest_context if quest_context is not None else lua_api_quest.DEFAULT_CONTEXT)
+        quest_store = (
+            quest_store if quest_store is not None else lua_api_quest.InMemoryQuestStateStore())
         self.namespaces: dict = {}
         g = self.runtime.globals()
         for namespace, methods in lua_api_spec.NAMESPACE_METHODS.items():
             if namespace == "Trigger":
                 stub = lua_api_trigger.build_namespace(
                     methods, self.log,
-                    context=trigger_context, registry=trigger_registry)
+                    context=trigger_context, registry=trigger_registry,
+                    quest_context=quest_context, quest_store=quest_store)
             elif namespace == "Instance":
                 stub = lua_api_instance.build_namespace(
                     methods, self.log,
                     context=instance_context, registry=instance_registry)
             elif namespace == "Quest":
                 stub = lua_api_quest.build_namespace(
-                    methods, self.log, clock=quest_clock)
+                    methods, self.log, clock=quest_clock,
+                    context=quest_context, store=quest_store)
             elif namespace == "Player":
                 stub = lua_api_player.build_namespace(
                     methods, self.log, context=player_context)
@@ -295,6 +330,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       instance_context: "Optional[lua_api_instance.InstanceContext]" = None,
                       instance_registry: "Optional[lua_api_instance.InstanceRegistry]" = None,
                       quest_clock: "Optional[lua_api_quest.Clock]" = None,
+                      quest_context: "Optional[lua_api_quest.QuestContext]" = None,
+                      quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
                       player_context: "Optional[lua_api_player.PlayerContext]" = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
@@ -322,6 +359,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       instance_context=instance_context,
                       instance_registry=instance_registry,
                       quest_clock=quest_clock,
+                      quest_context=quest_context,
+                      quest_store=quest_store,
                       player_context=player_context)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
