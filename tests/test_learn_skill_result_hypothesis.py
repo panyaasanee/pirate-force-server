@@ -666,7 +666,24 @@ class ScenarioGateTests(unittest.TestCase):
             if module in path.read_text(encoding="utf-8")
             and path.name != f"{module}.py"
         )
-        self.assertEqual(importers, ["app.py", "runtime.py"])
+        # skill_learn_step_headless.py is GT-276's arming proof: an offline
+        # __main__ that reaches this lane through the SAME opt-in scenario
+        # gate every other caller uses.  It widens the import list but not
+        # the reach, and the two guards below are what say so -- nothing the
+        # server runs may import it, so it can never be on a live path.
+        self.assertEqual(
+            importers,
+            ["app.py", "runtime.py", "skill_learn_step_headless.py"],
+        )
+        harness = "skill_learn_step_headless"
+        for name in ("app.py", "runtime.py", "connection.py", "scenario.py"):
+            self.assertNotIn(
+                harness, (SRC_ROOT / name).read_text(encoding="utf-8"), name,
+            )
+        self.assertIn(
+            "load_learn_skill_result_hypothesis_scenario",
+            (SRC_ROOT / f"{harness}.py").read_text(encoding="utf-8"),
+        )
         for name in ("connection.py", "scenario.py"):
             self.assertNotIn(
                 module, (SRC_ROOT / name).read_text(encoding="utf-8"), name,
