@@ -3528,6 +3528,178 @@ class SQLiteStore:
             ).fetchone()
         return after["skill_points"]
 
+    def equip_item(
+        self,
+        character_id: int,
+        slot_id: int,
+        item_identity: int,
+        item_template_id: int,
+    ) -> None:
+        """Persist that `item_identity`/`item_template_id` is now worn at
+        `slot_id` for `character_id`, replacing whatever occupied that slot.
+
+        `PANYA-ORDER 20260906_1312` arm (b) ("equip weapon"), the write half
+        of `migrations/015_character_equipment.sql` -- see that file's own
+        docstring for why `slot_id` is an opaque validated byte rather than
+        a named enum (the wire-level slot/bit meaning is an open RE
+        question this round could not close,
+        `notes_to_chief/reference_codex_attr/
+        PF_ATTR_FIELD_SEMANTICS.tsv:478`) and why both the bag-instance
+        `item_identity` and the `item_template_id` are stored.
+
+        `INSERT OR REPLACE` against `UNIQUE(character_id, slot_id)`,
+        DELIBERATELY NOT `INSERT OR IGNORE` (unlike `grant_starting_
+        skills`): equipping a slot that already holds an item is a real
+        state change (an item swap) every time, never a repeat of the same
+        fact, so a second call for the same slot must overwrite, not no-op.
+
+        Raises `TypeError` for a non-int/bool argument, `ValueError` for
+        `slot_id` outside `0..255`, `item_identity` outside
+        `0..0x7FFFFFFFFFFFFFFF` or `item_template_id` outside
+        `0..0xFFFFFFFF` (the same bounds `migrations/
+        015_character_equipment.sql`'s `CHECK` constraints enforce, checked
+        here first so a violation raises a named `ValueError` instead of a
+        raw `sqlite3.IntegrityError`). Raises `KeyError` for a character
+        that does not exist or has been soft-deleted, or for a
+        `character_id` outside SQLite's representable `INTEGER` range
+        (matching `get_skill_points`/`spend_skill_points`: binding a wider
+        Python `int` straight into SQL raises a raw, undocumented
+        `OverflowError` instead, and an id that far out of range can never
+        be a real row's id either). Raises `WriteLockTimeout` instead of a
+        raw `sqlite3.OperationalError` when the write lock cannot be taken,
+        matching every other write door in this file. Nothing is written
+        when anything is refused.
+        """
+        for label, value in (
+            ("character_id", character_id),
+            ("slot_id", slot_id),
+            ("item_identity", item_identity),
+            ("item_template_id", item_template_id),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{label} must be an int")
+        if not 0 <= slot_id <= 0xFF:
+            raise ValueError("slot_id %d is outside the 0..255 range" % slot_id)
+        if not 0 <= item_identity <= 0x7FFFFFFFFFFFFFFF:
+            raise ValueError(
+                "item_identity %d is outside the representable range"
+                % item_identity
+            )
+        if not 0 <= item_template_id <= 0xFFFFFFFF:
+            raise ValueError(
+                "item_template_id %d is outside the u32 range"
+                % item_template_id
+            )
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+        equipped_at = _now()
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s equip at slot {slot_id} within "
+                    f"connect()'s busy_timeout: {error}"
+                ) from error
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            db.execute(
+                "INSERT OR REPLACE INTO character_equipment"
+                "(character_id,slot_id,item_identity,item_template_id,"
+                "equipped_at) VALUES (?,?,?,?,?)",
+                (character_id, slot_id, item_identity, item_template_id,
+                 equipped_at),
+            )
+
+    def unequip_slot(self, character_id: int, slot_id: int) -> bool:
+        """Remove whatever is equipped at `slot_id` for `character_id`.
+
+        Returns `True` if a row was removed, `False` if the slot was
+        already empty -- an empty slot is not an error (the same "removing
+        something already absent is a no-op, not a refusal" shape
+        `list_ground_drops_for_scene` callers rely on for an already-taken
+        drop), so a caller does not need to check occupancy first.
+
+        Raises `TypeError` for a non-int/bool argument, `ValueError` for
+        `slot_id` outside `0..255`, `KeyError` for a character that does not
+        exist or has been soft-deleted (or is outside SQLite's
+        representable `INTEGER` range, matching `equip_item`), and
+        `WriteLockTimeout` instead of a raw `sqlite3.OperationalError` when
+        the write lock cannot be taken.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if isinstance(slot_id, bool) or not isinstance(slot_id, int):
+            raise TypeError("slot_id must be an int")
+        if not 0 <= slot_id <= 0xFF:
+            raise ValueError("slot_id %d is outside the 0..255 range" % slot_id)
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s unequip at slot {slot_id} within "
+                    f"connect()'s busy_timeout: {error}"
+                ) from error
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            removed = db.execute(
+                "DELETE FROM character_equipment "
+                "WHERE character_id=? AND slot_id=?",
+                (character_id, slot_id),
+            ).rowcount
+        return removed > 0
+
+    def list_equipped_items(
+        self, character_id: int
+    ) -> "tuple[tuple[int, int, int], ...]":
+        """Every `(slot_id, item_identity, item_template_id)` currently
+        equipped by this character, ordered by `slot_id`.
+
+        The read half of the doors `equip_item`/`unequip_slot` above write.
+        Raises `TypeError` for a non-int/bool `character_id` and `KeyError`
+        for a character that does not exist or has been soft-deleted (or is
+        outside SQLite's representable `INTEGER` range, matching
+        `equip_item`), matching `list_character_skills`.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+        with self.connect() as db:
+            exists = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if exists is None:
+                raise KeyError(character_id)
+            rows = db.execute(
+                "SELECT slot_id,item_identity,item_template_id "
+                "FROM character_equipment WHERE character_id=? "
+                "ORDER BY slot_id",
+                (character_id,),
+            ).fetchall()
+        return tuple(
+            (int(r["slot_id"]), int(r["item_identity"]), int(r["item_template_id"]))
+            for r in rows
+        )
+
     @staticmethod
     def _character(r):
         return Character(int(r['id']),int(r['account_id']),int(r['selector']),r['name'],bytes(r['actor_wire']),bytes(r['avatar_wire']),int(r['identity_lo']),int(r['identity_hi']),Position(int(r['scene_id']),int(r['scene_seq']),float(r['x']),float(r['y']),float(r['z']),float(r['heading'])))
