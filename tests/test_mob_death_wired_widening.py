@@ -432,6 +432,18 @@ class RulingForTests(unittest.TestCase):
             "2026-09-06T11:50+07:00": "202609061150",
             "COO-DECISION widen-death-scope-bg0011-five-templates "
             "2026-09-06T11:50+07:00": "202609061150",
+            # ROUND 30ja9z shipped this key spelled "LANE-B-REQUEST-PENDING-
+            # COO", not "COO-DECISION", because scene 10 had no ruling
+            # letter yet at that point (split out of the four-scene request
+            # above when its raw data would not mine).  ROUND 9t75cr
+            # repoints it: COO-DECISION widen-death-scope-bg0010-six-
+            # templates 2026-09-06T14:53+07:00 ratifies the identical six
+            # templates, same "timestamp at the end" spelling as bg0006/7/
+            # 9/11 above.  The STATIC ticket for placement 50 (pf_bridge
+            # notes_to_chief/20260906_0903 + 1046 addendum) is unanswered
+            # and unaffected -- this ruling never covered that placement.
+            "COO-DECISION widen-death-scope-bg0010-six-templates "
+            "2026-09-06T14:53+07:00": "202609061453",
         }
         self.assertEqual(
             set(expected), set(mob_death.WIDENING_RULINGS),

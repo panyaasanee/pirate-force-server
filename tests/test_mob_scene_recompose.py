@@ -445,20 +445,27 @@ class SceneRecomposeTests(unittest.TestCase):
 
     def test_a_scene_with_no_composer_is_a_named_answer(self):
         # ROUND 4tnhzw (LANE-B): this test used to read scene id 9 as its
-        # "no composer" example; that stopped being true THIS round
+        # "no composer" example; that stopped being true in that round
         # (COO-DECISION 2026-09-06T07:48+07:00 registers Bg0009's roster and
         # COMPOSER_BG0009 in the same commit, the same "kept up with a
         # registration" shape every earlier scene here already went
-        # through).  Scene 10 (bg0010) is the replacement, verified rather
-        # than guessed: it is still in
+        # through).  It then read scene id 10, and THAT stopped being true in
+        # round 30ja9z, which registered Bg0010's roster and COMPOSER_BG0010
+        # in one commit -- the second time in two days this example was
+        # invalidated by the lane registering the very scene it named.
+        #
+        # Scene 304 (Dark Fog Sea) is the replacement, and it is picked to
+        # stop that from happening a third time rather than picked as the
+        # next number along.  Verified, not guessed: it is in
         # ``mob_scene_recompose.ACKNOWLEDGED_WITHOUT_COMPOSER`` at HEAD, and
-        # this round's own mining attempt on it refuses outright (a raw
-        # placements row carries the literal string 'UNRESOLVED' where a
-        # template id belongs -- see this round's STATIC ticket to chief),
-        # so it has neither a roster nor a composer and is not about to gain
-        # one by accident the way scene 9 just did.
+        # unlike scenes 9 and 10 it cannot be registered by a LANE-B round in
+        # passing -- ``scenarios/world_scene_registry_001.json`` carries
+        # ``login_entry_allowed: false`` for it, so no player can stand in it,
+        # and its own registry row records that it has NEVER been sent to a
+        # client by this project.  A scene nobody can enter is not a scene
+        # this lane will be mining monsters for.
         record = recompose.recompose_frames(
-            self.legacy, recompose.census_anchor(10, ANCHOR, 10),
+            self.legacy, recompose.census_anchor(304, ANCHOR, 10),
             self.register, ledger=self.ledger2)
         self.assertEqual(record.state, recompose.STATE_NO_COMPOSER)
         self.assertIsNone(record.pc)

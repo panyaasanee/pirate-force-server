@@ -91,6 +91,12 @@ LANE_B_MODULES = (
     "field_mob_tables_bg0006.py",
     "field_mob_tables_bg0007.py",
     "field_mob_tables_bg0009.py",
+    # ROUND 30ja9z: scene 10 (Deep Sea Temple floor 1), same miner, same
+    # provenance discipline as every module above -- no player stat, every
+    # column copied from a committed MOBS/STANDARD_MOB row, ``max_hp`` the one
+    # derived column derived the same way.  Listed in the same commit as the
+    # module itself.
+    "field_mob_tables_bg0010.py",
     "field_mob_tables_bg0011.py",
     "field_mob_tables_bg0015.py",
     "field_mobs.py",

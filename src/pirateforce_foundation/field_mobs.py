@@ -200,6 +200,7 @@ from . import field_mob_tables_bg0006
 from . import field_mob_tables_bg0007
 from . import field_mob_tables_bg0008
 from . import field_mob_tables_bg0009
+from . import field_mob_tables_bg0010
 from . import field_mob_tables_bg0011
 from . import field_mob_tables_bg0015
 # LANE-B's per-(viewer, monster) link for the client's name-colour selector
@@ -530,6 +531,7 @@ _SCENE_TABLE_MODULES = {
     field_mob_tables_bg0007.SCENE: field_mob_tables_bg0007,
     field_mob_tables_bg0008.SCENE: field_mob_tables_bg0008,
     field_mob_tables_bg0009.SCENE: field_mob_tables_bg0009,
+    field_mob_tables_bg0010.SCENE: field_mob_tables_bg0010,
     field_mob_tables_bg0011.SCENE: field_mob_tables_bg0011,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
@@ -631,6 +633,38 @@ BG0008_SCENE = field_mob_tables_bg0008.SCENE
 # fabricated -- a separate hand of work (drop mining), not a reason to
 # refuse the kill.
 BG0009_SCENE = field_mob_tables_bg0009.SCENE
+# ROUND 30ja9z.  Scene 10 (Deep Sea Temple floor 1).  SEVENTEEN placements
+# over SIX distinct templates (660 Skeleton Commander Lebiya, 661 Exotic Demon
+# Wolf, 662 Abyss Demon Wolf, 668 Navy Two Tripods, 671 Crusty Bone Fish, 673
+# Seabed Wanderer), mined under the same one identity rule (``cline``) as every
+# sibling scene above, with COMPOSER_BG0010 and the widening ruling landing in
+# this same commit.
+#
+# RATIFIED, ROUND 9t75cr.  Bg0010 was split out of the four-scene request
+# (0659/0748) when its raw data would not mine, and this scene shipped one
+# round (30ja9z) under a deliberately-not-COO-DECISION-spelled pending key
+# (``LANE-B-REQUEST-PENDING-COO ...``, per that round's own ASK-COO of
+# 2026-09-06T14:11+07:00) precisely so it could not be misread as a grant
+# it did not have.  COO-DECISION widen-death-scope-bg0010-six-templates
+# 2026-09-06T14:53+07:00 grants the kill for exactly the same six templates
+# (660, 661, 662, 668, 671, 673) -- unchanged content, only the key's
+# spelling moved, per that letter's own instruction ("one PR, same shape as
+# `wov0x5`"). Placement 50 stays out of this grant; the STATIC ticket
+# (0903+1046) still governs it separately.
+#
+# [LANE-B ASSUMPTION - awaiting COO confirmation] that registering the
+# READABLE rows of this scene is allowed while placement 50 stays unresolved.
+# COO-DECISION 2026-09-06T07:48+07:00 item 3 split Bg0010's unresolved row off
+# as its own STATIC ticket to chief and approved a generator change that
+# "reports the row and keeps going with the others, so the rest of bg0010's
+# result is readable without deciding for anyone".  That ticket (pf_bridge
+# notes_to_chief/20260906_0903 plus its 1046 addendum) still has no number and
+# no answer, and item 4 of the same letter grants "silent more than 1 hour,
+# keep going" without asking.  Placement 50 is NOT shipped here -- it is
+# absent from HOSTILE_PLACEMENTS and named in the module's own
+# UNRESOLVED_PLACEMENTS -- so nothing in this registration decides what that
+# row is.
+BG0010_SCENE = field_mob_tables_bg0010.SCENE
 # Same COO-DECISION as BG0006_SCENE's own comment.  Scene 11, FIVE distinct
 # templates (669, 674, 693, 696, 697).
 BG0011_SCENE = field_mob_tables_bg0011.SCENE

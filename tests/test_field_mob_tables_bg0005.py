@@ -548,9 +548,9 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             "LANE-B 20260904_1134, not a harmless leftover comment.",
         )
 
-    def test_this_lane_announces_nine_lane_composed_scenes_now(
+    def test_this_lane_announces_ten_lane_composed_scenes_now(
             self) -> None:
-        """Named, so nobody arms a tenth without seeing the count move.
+        """Named, so nobody arms an eleventh without seeing the count move.
 
         ~~``test_this_lane_has_armed_two_scenes_behind_that_shut_seam``,
         pinning ``(5, 14)``.~~  MOVED TO THREE AND RENAMED, ROUND am1fw8:
@@ -605,6 +605,16 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
         PLACEMENTS`` rather than here, since that flag does not change
         which scenes are in THIS set.
 
+        MOVED TO TEN, ROUND 9t75cr: scene 10 (Deep Sea Temple floor 1)
+        joins (COO-DECISION widen-death-scope-bg0010-six-templates
+        2026-09-06T14:53+07:00, built round 30ja9z, key swapped this
+        round). It ships no town target, no legacy-pending row and no
+        withheld placement, so like scenes 6/7/9/11 there is no "what else
+        is shut" here beyond the standing P-2 gate.  Placement 50 (a raw
+        'UNRESOLVED' template id in the scene's own placements table) is
+        not in this scene's hostile set at all and is not this round's to
+        answer -- it is a separate open STATIC ticket to chief.
+
         The set is still written as a tuple and not a count for the same
         reason as before: a scene LEAVING it has to be as visible as one
         joining.
@@ -614,7 +624,7 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             if scene_id not in (1, 2)
         )
         self.assertEqual(
-            armed_behind_the_seam, (3, 4, 5, 6, 7, 8, 9, 11, 14),
+            armed_behind_the_seam, (3, 4, 5, 6, 7, 8, 9, 10, 11, 14),
             "a scene joined or left the set of lane-composed scenes this "
             "lane ships a roster for.  Scenes 1 and 2 have their own "
             "dedicated arrival branches in runtime.py; every other scene "

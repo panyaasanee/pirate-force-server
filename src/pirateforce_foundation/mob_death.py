@@ -196,6 +196,7 @@ from . import field_mob_tables_bg0006
 from . import field_mob_tables_bg0007
 from . import field_mob_tables_bg0008
 from . import field_mob_tables_bg0009
+from . import field_mob_tables_bg0010
 from . import field_mob_tables_bg0011
 from . import field_mobs
 from . import mob_combat
@@ -743,6 +744,38 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     "2026-09-06T11:50+07:00": frozenset(
         {669, 674, 693, 696, 697}
     ),
+    # ROUND 30ja9z.  SCENE 10 (Deep Sea Temple floor 1), 6 distinct templates
+    # (660 Skeleton Commander Lebiya, 661 Exotic Demon Wolf, 662 Abyss Demon
+    # Wolf, 668 Navy Two Tripods, 671 Crusty Bone Fish, 673 Seabed Wanderer)
+    # over 17 placements.
+    #
+    # RATIFIED, ROUND 9t75cr (repoint per COO-DECISION widen-death-scope-
+    # bg0010-six-templates 2026-09-06T14:53+07:00, same shape round wov0x5
+    # used to repoint bg0006/7/9/11 above).  This scene shipped one round
+    # (30ja9z) under a deliberately-not-``COO-DECISION``-spelled pending key
+    # (``LANE-B-REQUEST-PENDING-COO widen-death-scope-bg0010-six-templates
+    # 2026-09-06T14:11+07:00``, citing this lane's own ASK-COO of the same
+    # timestamp) precisely so it could not be misread as a grant it did not
+    # have yet -- the letter above is that grant, for the identical six
+    # templates and no others; only the key's spelling and timestamp moved
+    # in this commit, the covered-template frozenset is byte-for-byte the
+    # same literal.  Placement 50 is NOT covered by this key: the STATIC
+    # ticket (0903+1046) still governs it separately, unresolved, and this
+    # ruling does not decide it.
+    #
+    # Why the roster could not simply ship without a ruling and wait:
+    # ``tests/test_mob_scene_registration_contract.py`` walks
+    # ``field_mobs.live_scenes()`` and requires roster, composer and ruling
+    # to arrive together -- "a new scene that skips one of them must not be
+    # able to register at all", its own words.  Measured, not assumed: with
+    # the roster registered and this key absent, that file raises 21 failures
+    # and 4 errors.  The tree offers no "spawns but cannot be killed" state,
+    # so the honest options were an accurately-labelled pending key or no
+    # monsters in scene 10 at all.
+    "COO-DECISION widen-death-scope-bg0010-six-templates "
+    "2026-09-06T14:53+07:00": frozenset(
+        {660, 661, 662, 668, 671, 673}
+    ),
 }
 
 # Companion to WIDENING_RULINGS, added this round (PANYA-DECISION
@@ -879,6 +912,17 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     "2026-09-06T11:50+07:00": field_mob_tables_bg0009.SCENE,
     "COO-DECISION widen-death-scope-bg0011-five-templates "
     "2026-09-06T11:50+07:00": field_mob_tables_bg0011.SCENE,
+    # Tied to Bg0010.  Same reverse-direction hazard as every entry
+    # above, and it is NOT theoretical here: template 668 ("Navy Two
+    # Tripods") shares its MOBS_TIP display name with Bg0011's template
+    # 693, so a reader comparing names alone would think the two scenes
+    # overlap.  They do not -- the ids differ -- and the scene tie would
+    # refuse the cross even if they did not.  RATIFIED round 9t75cr,
+    # repointed from the round-30ja9z pending key to COO-DECISION
+    # widen-death-scope-bg0010-six-templates 2026-09-06T14:53+07:00; see
+    # this key's own comment in WIDENING_RULINGS for the full history.
+    "COO-DECISION widen-death-scope-bg0010-six-templates "
+    "2026-09-06T14:53+07:00": field_mob_tables_bg0010.SCENE,
 }
 
 

@@ -219,10 +219,16 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # same terms again (COO-DECISION 2026-09-06T07:48+07:00), each
         # leaving ACKNOWLEDGED_WITHOUT_COMPOSER too.  This file's subject is
         # still scene 14 and none of its own answers moved.
+        # ROUND 9t75cr: ~~(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14)~~ ->
+        # (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14), scene 10 on the same
+        # terms again (COO-DECISION widen-death-scope-bg0010-six-templates
+        # 2026-09-06T14:53+07:00), leaving ACKNOWLEDGED_WITHOUT_COMPOSER
+        # too. This file's subject is still scene 14 and none of its own
+        # answers moved.
         status = gates.recompose_status()
         self.assertEqual(
             status["composer_scene_ids"],
-            (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14))
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14))
         self.assertTrue(status["has_composer"])
         self.assertFalse(status["acknowledged_without_composer"])
         self.assertTrue(status["accounted_for"])
@@ -380,6 +386,11 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # (including the new four-way collision at 0x202B) is in
         # ``tests/test_field_mobs.py``'s own collision card, which this set
         # mirrors exactly because both read the same live registry.
+        # ROUND 9t75cr: scene 10 (Bg0010) brought FOURTEEN more, re-derived
+        # the same way -- the full accounting (including the two collisions
+        # that gained a third member, 0x2020 and 0x202F) is in
+        # ``tests/test_field_mobs.py``'s own collision card, which this set
+        # still mirrors exactly because both read the same live registry.
         self.assertEqual(got, {
             (0x201C, "Bg0003", "Bg0015"),
             (0x201C, "Bg0003", "Bg0008"),
@@ -419,6 +430,20 @@ class Bg0015MeasurementTests(unittest.TestCase):
             (0x2046, "Bg0008", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
+            (0x2019, "Bg0010", "Bg0015"),
+            (0x2020, "Bg0010", "Bg0015"),
+            (0x2020, "Bg0010", "bg0004"),
+            (0x2021, "Bg0010", "bg0004"),
+            (0x2028, "Bg0003", "Bg0010"),
+            (0x202F, "Bg0010", "Bg0011"),
+            (0x202F, "Bg0010", "Bg0015"),
+            (0x2030, "Bg0010", "Bg0015"),
+            (0x2031, "Bg0007", "Bg0010"),
+            (0x205D, "Bg0002", "Bg0010"),
+            (0x205E, "Bg0002", "Bg0010"),
+            (0x205F, "Bg0002", "Bg0010"),
+            (0x2060, "Bg0002", "Bg0010"),
+            (0x2061, "Bg0002", "Bg0010"),
         })
 
     def test_the_one_collision_registration_would_create(self) -> None:
@@ -540,10 +565,14 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # the same mechanism a sixth time -- field_mobs.py's own
         # registration (COO-DECISION 2026-09-06T07:48+07:00), never this
         # module.
+        # ROUND 9t75cr: gains "Bg0010", by the same mechanism a seventh
+        # time -- field_mobs.py's own registration (COO-DECISION
+        # widen-death-scope-bg0010-six-templates 2026-09-06T14:53+07:00),
+        # never this module.
         self.assertEqual(
             set(before),
             {"bg0001", "Bg0002", "Bg0003", "bg0004", "bg0005", "bg0006",
-             "Bg0007", "Bg0008", "Bg0009", "Bg0011", "Bg0015"})
+             "Bg0007", "Bg0008", "Bg0009", "Bg0010", "Bg0011", "Bg0015"})
 
 
 class Bg0015WiredPathTests(unittest.TestCase):
