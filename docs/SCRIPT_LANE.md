@@ -823,6 +823,21 @@ singleton.
    this round's own change -- a future round making `Player.CheckBuff`
    real can move this number again in either direction, not necessarily
    downward.
+7. **CORRECTION (round `ksp5d3`, pf-adversary finding):** every number in
+   this section (5057 -> 5055, 19 -> 20) was measured on this round's OWN
+   branch state at the time, before the parallel `Instance.*` round
+   (`4fxvsq`) landed on `main` with its own independent 5057 -> 5020 move
+   and 19 -> 20 pin. This round's branch (`#874`) was then gate-closed
+   (one-open-claude-PR lock) and sat unmerged until round `0rgg6q`
+   cherry-picked it onto a `main` where `4fxvsq` had already landed --
+   correctly re-deriving the numbers for that rebased state in the CODE
+   (`BASELINE_TOTAL_STUB_CALLS=5018`, skip pin 21) but never updating THIS
+   narrative section to match, leaving the two self-contradictory. The
+   numbers actually in force today are the ones in the API status table
+   at the top of this file and in `docs/PYTEST_SKIP_PINS.json`, not the
+   5055/20 quoted above and below -- left uncorrected in place (this
+   project's own house rule against silently rewriting a past round's
+   measured record) rather than edited to look consistent in hindsight.
 
 ### Next round
 

@@ -111,9 +111,19 @@ SERVER_TIMEZONE_NAME = "Asia/Bangkok"
 #: there (Windows carries no system tz database and this project does not
 #: depend on the ``tzdata`` PyPI package), while the same call succeeds on
 #: Linux, which does have one. Not an approximation: Bangkok has been a
-#: fixed UTC+7 offset with no DST since 1920, so this is exactly equal to
-#: the named zone, not a stand-in for it.
-_SERVER_UTC_OFFSET_FALLBACK = timezone(timedelta(hours=7), name="ICT")
+#: fixed UTC+7 offset with no DST since 1920 (verified against the IANA
+#: ``tz`` database's own ``asia`` file: ``Zone Asia/Bangkok ... 7:00 - %z``
+#: with no ``RULES`` entry since 1920 Apr), so this is exactly equal to the
+#: named zone, not a stand-in for it. Keyed to the exact zone name it is
+#: equivalent to (see the guard in ``_server_clock`` below) -- pf-adversary
+#: (round ksp5d3) found that catching ``ZoneInfoNotFoundError``
+#: unconditionally would silently substitute Bangkok's offset for ANY zone
+#: name that later replaced ``SERVER_TIMEZONE_NAME`` and also failed to
+#: resolve (e.g. a future move to "Asia/Tokyo", UTC+9, on the same
+#: tzdata-less platform) -- 2 hours wrong with no error and no log line.
+_KNOWN_FIXED_OFFSETS = {
+    "Asia/Bangkok": timezone(timedelta(hours=7), name="ICT"),
+}
 
 #: A clock is anything callable with no arguments that returns a datetime;
 #: only its .hour/.minute are ever read (see _minutes_of_day), so a naive
@@ -130,7 +140,13 @@ def _server_clock() -> datetime:
     try:
         return datetime.now(ZoneInfo(SERVER_TIMEZONE_NAME))
     except ZoneInfoNotFoundError:
-        return datetime.now(_SERVER_UTC_OFFSET_FALLBACK)
+        fallback = _KNOWN_FIXED_OFFSETS.get(SERVER_TIMEZONE_NAME)
+        if fallback is None:
+            # No verified fixed-offset equivalent for this zone name -- fail
+            # loud rather than silently reusing Bangkok's offset for a zone
+            # that may not share it (see _KNOWN_FIXED_OFFSETS above).
+            raise
+        return datetime.now(fallback)
 
 
 def _minutes_of_day(moment: datetime) -> int:

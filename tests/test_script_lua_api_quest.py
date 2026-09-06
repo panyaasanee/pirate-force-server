@@ -143,23 +143,47 @@ class RealQuestNamespaceTests(unittest.TestCase):
         self.assertIsNotNone(now.tzinfo)
         self.assertEqual(now.utcoffset().total_seconds(), 7 * 3600)
 
+    @staticmethod
+    def _always_zoneinfo_not_found(key):
+        raise quest.ZoneInfoNotFoundError(key)
+
     def test_default_clock_falls_back_to_a_fixed_offset_without_tzdata(self):
         # Reproduces pirate-force-server#900's own gate failure (run
         # 34003119697): on an interpreter/platform whose zoneinfo has no
         # IANA database for "Asia/Bangkok" (Windows without the `tzdata`
         # PyPI package -- this repo pins none), ZoneInfo(...) raises
-        # ZoneInfoNotFoundError. Simulated here by pointing the module's own
-        # zone name at one no zoneinfo backend can resolve, on any platform,
-        # rather than relying on a Windows-only machine to catch a
-        # regression here.
-        original = quest.SERVER_TIMEZONE_NAME
-        quest.SERVER_TIMEZONE_NAME = "Not/A_Real_Zone_Q900_Regression_Probe"
+        # ZoneInfoNotFoundError. Simulated on any platform by monkeypatching
+        # the module's own ZoneInfo lookup itself (SERVER_TIMEZONE_NAME
+        # stays "Asia/Bangkok" -- the fallback below is keyed to that exact
+        # name, see test_unresolvable_non_bangkok_zone_fails_loud_instead_of_guessing).
+        original = quest.ZoneInfo
+        quest.ZoneInfo = self._always_zoneinfo_not_found
         try:
             now = quest._server_clock()
         finally:
-            quest.SERVER_TIMEZONE_NAME = original
+            quest.ZoneInfo = original
         self.assertIsNotNone(now.tzinfo)
         self.assertEqual(now.utcoffset().total_seconds(), 7 * 3600)
+
+    def test_unresolvable_non_bangkok_zone_fails_loud_instead_of_guessing(self):
+        # pf-adversary (round ksp5d3): catching ZoneInfoNotFoundError
+        # unconditionally would silently substitute Bangkok's UTC+7 for ANY
+        # zone name that later replaced SERVER_TIMEZONE_NAME and also failed
+        # to resolve -- e.g. a future move to "Asia/Tokyo" (UTC+9) deployed
+        # to the same tzdata-less platform would then read 2 hours wrong
+        # with no error. _server_clock must re-raise rather than reuse
+        # Bangkok's offset for a zone it has no verified fixed-offset
+        # equivalent for.
+        original_zoneinfo = quest.ZoneInfo
+        original_name = quest.SERVER_TIMEZONE_NAME
+        quest.ZoneInfo = self._always_zoneinfo_not_found
+        quest.SERVER_TIMEZONE_NAME = "Asia/Tokyo"
+        try:
+            with self.assertRaises(quest.ZoneInfoNotFoundError):
+                quest._server_clock()
+        finally:
+            quest.ZoneInfo = original_zoneinfo
+            quest.SERVER_TIMEZONE_NAME = original_name
 
 
 @LUPA_PACKAGE.skip_unless_present()
