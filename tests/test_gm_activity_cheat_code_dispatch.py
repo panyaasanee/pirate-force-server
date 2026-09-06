@@ -14,9 +14,10 @@ things that are only true because the two opcodes share one module:
     "this button sent nothing" (letter 20260906_0852).
 
 NOT CLAIMED anywhere below: that any real client has ever sent 0x6CEC to
-this server.  No row for Activity_CheatCodeVital exists in
-PF_FIELD_VALIDATION.tsv; these payloads are built here, from the pinned
-serializer layout, exactly as the 0x51E9 tests build theirs.
+this server.  Both Activity_CheatCodeVital rows in PF_FIELD_VALIDATION.tsv
+(W and R) read `observed_frames=0 ... status=NOT_OBSERVED`; these payloads
+are built here, from the pinned serializer layout, exactly as the 0x51E9
+tests build theirs.
 """
 from __future__ import annotations
 

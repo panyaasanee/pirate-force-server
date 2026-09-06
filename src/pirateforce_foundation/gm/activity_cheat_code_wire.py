@@ -45,7 +45,12 @@ one wide string already carry.
 this order, this wide-string shape". What each field MEANS -- is the u32
 a cheat-code numeric id, are the five strings a code name plus up to four
 parameters, is any of them optional -- is NOT proven. This message has
-never been captured (no row for it exists in PF_FIELD_VALIDATION.tsv) and
+never been captured (CORRECTED, round `eu2g1d`: the row DOES exist in
+PF_FIELD_VALIDATION.tsv -- two of them, W and R -- and both read
+`observed_frames=0 ... status=NOT_OBSERVED`.  The earlier wording here said
+no row existed, which is a stronger and false claim; what the table actually
+says is that the frame has never been seen, which is the claim this module
+needs) and
 no RE ticket has ever asked about it. Field names below are positional
 only (``field_0x14``, ``text_0x18``, ``text_0x34``, ``text_0x50``,
 ``text_0x6c``, ``text_0x88``) -- do not rename them to "code_id"/"code_name"/

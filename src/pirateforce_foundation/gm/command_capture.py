@@ -351,9 +351,10 @@ def capture_raw_activity_cheat_code(
     on disk with the failure named in the header.
 
     NOT CLAIMED, and this is the whole of what this lane knows: that any
-    client has ever sent this frame to this server.  No row for
-    Activity_CheatCodeVital exists in PF_FIELD_VALIDATION.tsv, so the
-    decode section prints POSITIONAL field names only -- see
+    client has ever sent this frame to this server.  Both
+    Activity_CheatCodeVital rows in PF_FIELD_VALIDATION.tsv (W and R) read
+    ``observed_frames=0 ... status=NOT_OBSERVED``, so the decode section
+    prints POSITIONAL field names only -- see
     ``gm/activity_cheat_code_wire.py``'s docstring for why they must not be
     renamed to semantic ones without an RE answer.
     """
