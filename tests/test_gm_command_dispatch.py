@@ -22,10 +22,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
+from pirateforce_foundation.gm import command_capture as gm_command_capture  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm.command_wire import (  # noqa: E402
     GM_RUN_GM_COMMAND_VITAL_ID,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from pf_gm_capture_mocks import close_that_really_closes_then_fails  # noqa: E402
 
 
 # A structurally valid GM_RunGMCommandVital payload (presence=0, the
@@ -463,6 +468,88 @@ class GmCommandDispatchTests(unittest.TestCase):
             "the coefficient and the codec must agree, measured not assumed",
         )
 
+    # ----- pf-adversary (round `vq07el`, D9): the quota charges CONTENT ---
+    # ----- bytes but is a cap on DISK bytes, and a small file still ------
+    # ----- consumes a whole filesystem block ------------------------------
+
+    def test_charged_capture_bytes_floors_a_small_call_at_one_disk_block(self):
+        # A tiny call's own content estimate (2048 header + a few bytes)
+        # is well under one filesystem block -- charging exactly that would
+        # let a scripted account's many small/empty commands consume far
+        # more real disk than the quota's running total ever shows.
+        small_content_estimate = gm_dispatch._estimate_capture_file_bytes(0, 0)
+        self.assertLess(
+            small_content_estimate, gm_dispatch.MIN_CAPTURE_FILE_DISK_BYTES,
+            "this test is only meaningful while the content estimate for a "
+            "trivial call is smaller than one disk block",
+        )
+        self.assertEqual(
+            gm_dispatch._charged_capture_bytes(0, 0),
+            gm_dispatch.MIN_CAPTURE_FILE_DISK_BYTES,
+        )
+
+    def test_charged_capture_bytes_does_not_floor_a_large_call(self):
+        # The floor must not LOWER a charge that already exceeds one disk
+        # block -- that would undercharge every real-sized command instead
+        # of only fixing the small-call gap it exists for.
+        large_content_estimate = gm_dispatch._estimate_capture_file_bytes(
+            1000, len("gm_listed"),
+        )
+        self.assertGreater(
+            large_content_estimate, gm_dispatch.MIN_CAPTURE_FILE_DISK_BYTES,
+        )
+        self.assertEqual(
+            gm_dispatch._charged_capture_bytes(1000, len("gm_listed")),
+            large_content_estimate,
+        )
+
+    def test_capture_quota_is_charged_at_the_disk_block_floor_not_the_smaller_content_estimate(self):
+        # End-to-end: a real GM account sending the smallest possible
+        # payload repeatedly must be refused after MIN_CAPTURE_FILE_DISK_BYTES
+        # bytes' worth of calls, not after the (larger) number of calls the
+        # unfloored content estimate would have allowed under the same cap.
+        config = self._config(["gm_listed"])
+        cap = gm_dispatch.MIN_CAPTURE_FILE_DISK_BYTES * 2
+        # Sanity: if this test's own arithmetic assumption stops holding
+        # (a future change makes the content estimate exceed the floor for
+        # this payload/account-name length), the test would pass for the
+        # wrong reason -- fail loudly instead.
+        content_estimate = gm_dispatch._estimate_capture_file_bytes(
+            len(_PRESENCE_ZERO_PAYLOAD), len("gm_listed"),
+        )
+        self.assertLess(content_estimate, gm_dispatch.MIN_CAPTURE_FILE_DISK_BYTES)
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", cap,
+        ), mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 100,
+        ):
+            first = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            second = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.1,
+            )
+            third = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.2,
+            )
+        self.assertIsNotNone(first.captured_path)
+        self.assertIsNotNone(second.captured_path)
+        self.assertIsNone(
+            third.captured_path,
+            "two calls already charged a full MIN_CAPTURE_FILE_DISK_BYTES "
+            "each against a two-block cap -- a third call using the "
+            "smaller, unfloored content estimate would wrongly still fit",
+        )
+        self.assertEqual(
+            third.refusal_reason, gm_dispatch.REFUSAL_CAPTURE_QUOTA_EXCEEDED,
+        )
+
     # ----- env-var override path still works (same as accounts.py) -------
 
     def test_env_override_path_is_honoured(self):
@@ -519,6 +606,228 @@ class GmCommandDispatchTests(unittest.TestCase):
             outcome.refusal_reason,
             f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}OSError",
         )
+
+    # ----- pf-adversary (round `vq07el`, D10): a failed write must not ----
+    # ----- permanently spend the quota it never actually used ------------
+
+    def test_a_failed_write_refunds_its_charge_so_a_later_call_still_fits(self):
+        # Cap set to exactly one call's charge: before this round's fix,
+        # the first (failing) call would have consumed the whole cap and
+        # the second (real) call -- same account, same payload size, no
+        # mock -- would have been wrongly refused as over-quota despite
+        # zero bytes ever landing on disk for the first call.
+        config = self._config(["gm_listed"])
+        payload = bytes(1000)
+        one_call_charge = gm_dispatch._charged_capture_bytes(
+            len(payload), len("gm_listed"),
+        )
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", one_call_charge,
+        ), mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 100,
+        ):
+            with mock.patch.object(
+                gm_dispatch, "capture_raw_gm_command",
+                side_effect=OSError("simulated ENOSPC"),
+            ):
+                failed = gm_dispatch.handle_gm_run_command_vital(
+                    "gm_listed", payload,
+                    config_path=config, capture_root=self.capture_root,
+                    now_ts=1000.0,
+                )
+            self.assertIsNone(failed.captured_path)
+            self.assertEqual(
+                failed.refusal_reason,
+                f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}OSError",
+            )
+
+            retried = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.1,
+            )
+        self.assertIsNotNone(
+            retried.captured_path,
+            "the failed call's charge was not refunded -- a real write "
+            "for the same account/size was wrongly refused as over-quota",
+        )
+
+    def test_a_failed_write_refund_never_pushes_the_running_total_negative(self):
+        # Two failures in a row for an account that never had a successful
+        # charge must not build a negative balance -- a negative running
+        # total would grant more budget than any call actually consumed
+        # once a real write later succeeds.
+        config = self._config(["gm_listed"])
+        with mock.patch.object(
+            gm_dispatch, "capture_raw_gm_command",
+            side_effect=OSError("simulated ENOSPC"),
+        ):
+            gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+            gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", _PRESENCE_ZERO_PAYLOAD,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.1,
+            )
+        self.assertEqual(
+            gm_dispatch._capture_quota_bytes_by_account.get("gm_listed", 0), 0,
+        )
+
+    # ----- pf-adversary (round `40bjg7`, follow-up `gn7gk5`): the refund ---
+    # ----- above must not fire for a write failure it cannot prove left ---
+    # ----- zero bytes on disk ----------------------------------------------
+
+    def test_a_real_write_failure_still_refunds_once_the_partial_file_is_confirmed_gone(self):
+        # Through the REAL command_capture path this time (only the
+        # syscall fails, not the whole function) -- the exact scenario
+        # pf-adversary reproduced against round `40bjg7`'s own D10 fix.
+        # os.unlink is not mocked, so command_capture's own cleanup runs
+        # for real and this must behave exactly like the mocked-function
+        # tests above: refunded, and nothing left on disk.
+        config = self._config(["gm_listed"])
+        payload = bytes(1000)
+        one_call_charge = gm_dispatch._charged_capture_bytes(
+            len(payload), len("gm_listed"),
+        )
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", one_call_charge,
+        ), mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 100,
+        ):
+            with mock.patch.object(
+                gm_command_capture.os, "write",
+                side_effect=OSError("simulated ENOSPC"),
+            ):
+                failed = gm_dispatch.handle_gm_run_command_vital(
+                    "gm_listed", payload,
+                    config_path=config, capture_root=self.capture_root,
+                    now_ts=1000.0,
+                )
+            self.assertEqual(
+                failed.refusal_reason,
+                f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}OSError",
+            )
+            retried = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.1,
+            )
+        self.assertIsNotNone(retried.captured_path)
+        leftover = list(self.capture_root.glob("*"))
+        self.assertEqual(
+            len(leftover), 1, "exactly the retried call's own file, nothing "
+            "left over from the failed one",
+        )
+
+    def test_a_write_failure_that_cannot_be_cleaned_up_is_not_refunded(self):
+        # Both the write AND command_capture's own cleanup unlink fail --
+        # real bytes may still be on disk for this call, so refunding here
+        # would silently recreate D9 (quota reads less than real disk use).
+        config = self._config(["gm_listed"])
+        payload = bytes(1000)
+        with mock.patch.object(
+            gm_command_capture.os, "write",
+            side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            gm_command_capture.os, "unlink",
+            side_effect=OSError("simulated EACCES"),
+        ):
+            outcome = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+        self.assertTrue(outcome.authorized)
+        self.assertIsNone(outcome.captured_path)
+        self.assertEqual(
+            outcome.refusal_reason,
+            f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}"
+            f"CaptureFileNotVerifiedRemoved",
+        )
+        charged = gm_dispatch._charged_capture_bytes(len(payload), len("gm_listed"))
+        self.assertEqual(
+            gm_dispatch._capture_quota_bytes_by_account.get("gm_listed", 0),
+            charged,
+            "the charge must still stand -- nothing proved the bytes never "
+            "reached disk",
+        )
+
+    # ----- pf-adversary (round `gn7gk5`, follow-up `79ahzl`): a write that -
+    # ----- fully SUCCEEDED, then failed only at close(), is the more ------
+    # ----- severe case -- a COMPLETE real capture, not an empty one -------
+
+    def test_a_close_only_failure_after_a_successful_write_is_not_refunded_when_unrecoverable(self):
+        config = self._config(["gm_listed"])
+        payload = bytes(1000)
+        with mock.patch.object(
+            gm_command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails(
+                "simulated close ENOSPC",
+            ),
+        ), mock.patch.object(
+            gm_command_capture.os, "unlink",
+            side_effect=OSError("simulated EACCES"),
+        ):
+            outcome = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.0,
+            )
+        self.assertTrue(outcome.authorized)
+        self.assertIsNone(outcome.captured_path)
+        self.assertEqual(
+            outcome.refusal_reason,
+            f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}"
+            f"CaptureFileNotVerifiedRemoved",
+        )
+        charged = gm_dispatch._charged_capture_bytes(len(payload), len("gm_listed"))
+        self.assertEqual(
+            gm_dispatch._capture_quota_bytes_by_account.get("gm_listed", 0),
+            charged,
+            "a full, real capture may be sitting on disk uncleaned -- "
+            "refunding here would charge nothing for real disk usage",
+        )
+
+    def test_a_close_only_failure_still_refunds_once_cleanup_confirms_removal(self):
+        # Same trigger, but os.unlink is real this time -- cleanup succeeds,
+        # so this must behave exactly like an ordinary write failure: safe
+        # to refund, and a later real call for the same account still fits.
+        config = self._config(["gm_listed"])
+        payload = bytes(1000)
+        one_call_charge = gm_dispatch._charged_capture_bytes(
+            len(payload), len("gm_listed"),
+        )
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", one_call_charge,
+        ), mock.patch.object(
+            gm_dispatch, "RATE_LIMIT_MAX_CALLS_PER_WINDOW", 100,
+        ):
+            with mock.patch.object(
+                gm_command_capture.os, "close",
+                side_effect=close_that_really_closes_then_fails(
+                    "simulated close ENOSPC",
+                ),
+            ):
+                failed = gm_dispatch.handle_gm_run_command_vital(
+                    "gm_listed", payload,
+                    config_path=config, capture_root=self.capture_root,
+                    now_ts=1000.0,
+                )
+            self.assertEqual(
+                failed.refusal_reason,
+                f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}OSError",
+            )
+            retried = gm_dispatch.handle_gm_run_command_vital(
+                "gm_listed", payload,
+                config_path=config, capture_root=self.capture_root,
+                now_ts=1000.1,
+            )
+        self.assertIsNotNone(retried.captured_path)
+        leftover = list(self.capture_root.glob("*"))
+        self.assertEqual(len(leftover), 1, leftover)
 
     # ----- pf-adversary (round 50x5xt, deferred): per-account rate limit --
 

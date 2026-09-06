@@ -78,6 +78,71 @@ _MAX_SAFE_ACCOUNT_LEN = 40
 _MAX_FILENAME_COLLISION_ATTEMPTS = 1000
 
 
+class CaptureFileNotVerifiedRemoved(OSError):
+    """A capture write failed and the partial file could not be confirmed removed.
+
+    pf-adversary (round `40bjg7`, follow-up round `gn7gk5`): before this
+    class existed, ``_capture_raw``'s write failure path (``os.write``
+    raising after ``os.open(..., O_CREAT | O_EXCL, ...)`` had already
+    created the file on disk) left that file behind with no cleanup
+    attempt, then raised the plain ``OSError`` that carried it. Every
+    caller of this module -- ``gm/dispatch.py``'s ``_authorize_and_capture``
+    -- reads a plain ``OSError`` from this function as "nothing was
+    written", refunds the quota it had already charged for the call, and
+    moves on: reproduced live (mocking only ``os.write``, letting the real
+    ``os.open`` run) as a leftover zero-length file on disk with the
+    account's tracked quota usage reading exactly what it read before the
+    call -- the same "quota tracks less than real disk usage" failure
+    round `40bjg7`'s own D9 fix exists to close, just relocated to this
+    path instead of fixed.
+
+    ``_capture_raw`` now attempts a best-effort ``os.unlink`` of the
+    partial file whenever ``os.write`` fails, and raises the ORIGINAL
+    ``OSError`` (unchanged) only when that cleanup succeeds -- a caller
+    reading a plain ``OSError`` from this function can now trust "zero
+    bytes remain on disk for this call" the same way it always assumed.
+    When the cleanup ITSELF fails (the partial file could not be removed,
+    so real bytes may still be sitting on disk from a call nothing ever
+    charged for), this class is raised instead, chained from the original
+    write error, so a caller can tell the two cases apart and refuse to
+    refund a charge it cannot prove was never spent.
+
+    EXPANDED (round `gn7gk5`, follow-up `79ahzl`): the same treatment now
+    also covers ``os.close(fd)`` failing, in both places it can --
+    immediately after a failed ``os.write`` (a close-time error was
+    previously raised BEFORE the unlink/classify logic above ever ran,
+    skipping this whole contract), and after a SUCCESSFUL ``os.write``
+    (POSIX ``close()`` can report a write's real outcome only at close
+    time -- documented for NFS, not exclusive to it -- so a write that
+    looked successful can still turn out not to have landed). The second
+    case is the more severe one: nothing before round `79ahzl` caught it
+    at all, so a fully-written, non-empty real capture could be left on
+    disk with its quota charge refunded as if the call had written
+    nothing.
+    """
+
+
+def _best_effort_unlink(path: Path) -> bool:
+    """Try to remove ``path``; return whether it is now confirmed absent.
+
+    Called only after a capture write has already failed, to answer the
+    one question ``_capture_raw``'s caller needs: is it now safe to treat
+    this call as having left zero bytes on disk? ``FileNotFoundError``
+    counts as success -- the property this returns is "does not exist
+    now", not "this specific call is what deleted it" (a second failure
+    racing the first, or an external cleanup, could have removed it
+    first, and the file being gone either way is exactly what matters to
+    the caller).
+    """
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def _hex_dump(raw: bytes) -> str:
     lines = []
     for offset in range(0, len(raw), 16):
@@ -284,9 +349,115 @@ def _capture_raw(
             suffix += 1
             continue
         try:
-            os.write(fd, file_body)
-        finally:
+            # pf-adversary (round `79ahzl`, follow-up `w87k4s`): this used
+            # to be a bare `os.write(fd, file_body)` whose return value was
+            # discarded. write(2) is not required to write every requested
+            # byte in one call, and a filesystem that fills up mid-write is
+            # the classic case where it writes fewer WITHOUT raising -- the
+            # exact same bug this package already found and fixed twice
+            # (`gm/commands.py`'s `_append_audit_record`, round `hs9m2r`,
+            # and `gm/login_scene_stage.py`'s copy of it) without ever
+            # porting the fix to this sibling call site, despite three
+            # consecutive rounds re-auditing this exact function's write
+            # path (`40bjg7`/`gn7gk5`/`79ahzl`) and this file's own
+            # `os.open` mode fix (round `vb3ktn`) being the precedent
+            # `commands.py`'s fix explicitly cites in the other direction.
+            # A short write here used to fall straight through to
+            # `return out_path` reporting ordinary full success -- no
+            # exception, no refusal_reason, quota charged as normal -- for
+            # a truncated capture file this module's own docstring promises
+            # never happens ("a lossless copy of every raw send lands on
+            # disk"). Looping until every byte lands (or raising if a call
+            # makes zero forward progress) means a short write now flows
+            # into the SAME `except OSError` below as any other write
+            # failure, inheriting the whole cleanup-then-classify contract
+            # rounds `gn7gk5`/`79ahzl` already built, with no new branch
+            # shape needed.
+            written = 0
+            while written < len(file_body):
+                count = os.write(fd, file_body[written:])
+                if count <= 0:
+                    raise OSError(
+                        f"short write to {out_path}: "
+                        f"{written}/{len(file_body)} bytes"
+                    )
+                written += count
+        except OSError as write_error:
+            # pf-adversary (round `gn7gk5`, follow-up `79ahzl`): this
+            # `os.close` used to be unguarded -- a close() failure here
+            # (real filesystems, not only NFS, can defer a write's own
+            # error to close time, so this is not a hypothetical second
+            # failure) raised BEFORE `_best_effort_unlink` ever ran,
+            # skipping the whole cleanup-then-classify contract this round
+            # exists to hold. It is swallowed here on purpose: the write
+            # already failed, `write_error` is the fact this call cares
+            # about, and the file's on-disk state is exactly what the
+            # unlink below verifies regardless of whether closing the fd
+            # itself succeeded.
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            # The file already exists on disk at this point (`os.open` with
+            # `O_CREAT` above already created it, empty or partially
+            # written) -- best-effort remove it so this failed call really
+            # does leave zero bytes behind, then tell the caller whether
+            # that promise held. See `CaptureFileNotVerifiedRemoved`'s own
+            # docstring for the failure this closes.
+            if _best_effort_unlink(out_path):
+                raise
+            raise CaptureFileNotVerifiedRemoved(
+                f"{caller_name}: write to {out_path} failed ({write_error!r}) "
+                f"and the partial file could not be removed -- bytes may "
+                f"still be on disk for a call nothing charged for"
+            ) from write_error
+        except BaseException:
+            # pf-adversary (round `lkwmkp`, D5): rounds `gn7gk5`/`79ahzl`
+            # replaced this function's original `try: os.write(...) finally:
+            # os.close(fd)` with an `except OSError` branch, and quietly
+            # traded away the guarantee the `finally` gave for free -- any
+            # NON-OSError escaping the write loop (`KeyboardInterrupt` or
+            # `SystemExit` at shutdown, `MemoryError` on the
+            # `file_body[written:]` slice) left the descriptor open AND the
+            # `O_CREAT|O_EXCL` file on disk, in a function whose whole
+            # subject is "a failed call really does leave zero bytes
+            # behind". On Windows that leaked handle also locks the file for
+            # the life of the process, so nothing can clean it up later.
+            # This branch restores the old guarantee without touching the
+            # OSError classification above: close, remove, re-raise the
+            # original exception unchanged (no `CaptureFileNotVerifiedRemoved`
+            # translation -- an interpreter shutdown is not a quota event).
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            _best_effort_unlink(out_path)
+            raise
+        try:
             os.close(fd)
+        except OSError as close_error:
+            # pf-adversary (round `gn7gk5`, follow-up `79ahzl`): the more
+            # severe half of the same finding -- `os.write` above can
+            # SUCCEED (every byte accepted into the kernel's write buffer)
+            # and the write's real outcome only surface here, at close()
+            # (deferred write-back error; documented for NFS, not
+            # exclusive to it). Before this branch existed, nothing caught
+            # this at all: the plain OSError propagated straight past this
+            # function untouched, dispatch.py's ordinary OSError handler
+            # refunded the quota, and a COMPLETE real capture -- not an
+            # empty or partial one -- was left on disk with nothing
+            # accounting for it. `fd` is already consumed by this failed
+            # close (POSIX: never retry `close()` on the same descriptor),
+            # so there is nothing left to close here -- only to classify,
+            # the same way a failed write is classified above.
+            if _best_effort_unlink(out_path):
+                raise
+            raise CaptureFileNotVerifiedRemoved(
+                f"{caller_name}: close for {out_path} failed ({close_error!r}) "
+                f"after a successful write -- the write's real outcome was "
+                f"never confirmed, and the file could not be removed to "
+                f"prove zero bytes remain"
+            ) from close_error
         return out_path
     raise OSError(
         f"{caller_name}: exceeded {_MAX_FILENAME_COLLISION_ATTEMPTS} "
