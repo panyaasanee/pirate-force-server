@@ -665,13 +665,20 @@ class RealPlayerNamespace:
                 self.calls.append("Player.ShowMessage")
                 if len(args) != 1:
                     _log_bad_arity(self._log, "ShowMessage", len(args), "1")
+                    self._sink.record_refusal(_message.REFUSE_BAD_ARITY)
                     return STUB_DEFAULT
-                message_id = _coerce_int(args[0], _message.MAX_MESSAGE_ID)
+                message_id = _coerce_int(args[0], _message.max_message_id())
                 if message_id is None or not _message.is_known_message_id(message_id):
                     # An id with no row in the shipped table is a message
                     # the client could never render -- refused by name, not
-                    # recorded as if it were showable.
+                    # recorded as if it were showable.  COUNTED as well as
+                    # logged: an unmined Trigger.VarN landing in one of the
+                    # table's 54 id gaps is an expected recurring event
+                    # (pf-adversary D12), so a run has to be able to say how
+                    # many it dropped without grepping its own log.
                     _log_bad_value(self._log, "ShowMessage", message_id=args[0])
+                    self._sink.record_refusal(
+                        _message.REFUSE_UNKNOWN_MESSAGE_ID)
                     return STUB_DEFAULT
                 # scene=None: an individual message belongs to the
                 # character, not to wherever they happen to be standing.

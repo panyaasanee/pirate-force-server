@@ -28,25 +28,49 @@ message table.  Derived, not guessed:
     the UI labels "skill details" / "up status" / "skill points:", which
     are not something a quest bails out with.
 
-WHAT IS DELIBERATELY NOT VENDORED HERE
---------------------------------------
-:data:`CATALOG` carries ``message_id``/``message_type``/``notify_type``
-and NOT the localized ``s_MESSAGE`` text, the same split
-``lua_api/api_spec.tsv`` already took for its own source table (it vendors
-the shape and leaves the bridge repository's own columns in the bridge).
-This lane needs the id space to VALIDATE what a script passes; it does not
-build a frame and so never needs the text.
+VENDORING: THE WHOLE ROW, ASCII-SAFE (COO-DECISION 2026-09-07T04:05)
+--------------------------------------------------------------------
+``message_catalog.tsv`` is a COMPLETE MIRROR of that table -- all four
+columns, ``s_MESSAGE`` included, with every character outside printable
+ASCII written as ``\\uXXXX`` so the file itself is pure ASCII on disk.
 
-That is a real limit, not a tidy one, and it is named here rather than
-discovered later: whoever finally emits the frame needs the text, and the
-text lives in the bridge table above (or in the frozen legacy seam's own
-``make_show_message(text)``, ``current/pf_login_game_server_v141.py``,
-which already builds ``ShowMessageVital`` 0x36D2 -- proven layout in
-``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``, one
-UNTAGGED_WSTRING16LE_LEN32LE at +0x14).  This module hands that future
-caller an ordered, per-character record of WHICH ids to show, in the order
-the scripts asked for them.  It does not send anything, and no module in
-this package constructs that vital.
+The previous shape vendored only the two integer columns and told
+whoever finally emits the frame to go read the bridge table for the text.
+COO ruled against that (letter ``20260907_0322`` from this lane, answered
+``20260907_0405``, option (a)): every lane that wires a frame would then
+need its own sibling checkout or its own second copy, which is drift with
+a schedule.  The text is kept where it is used; the cost of undoing that
+is one regenerate command.
+
+The escape is not decoration either.  The bridge console is cp874 and the
+Windows gate has already burned two rounds on encoding (#961, #967), so a
+vendored file that is ASCII BY CONSTRUCTION cannot reintroduce that class
+of failure.  :func:`escape_message_text` / :func:`unescape_message_text`
+are the only encoder/decoder pair, and ``tools/pf_regen_lua_message_catalog.py``
+imports the encoder rather than copying it.
+
+Three obligations came attached to the permission, and all three are met
+here rather than promised: the file carries a provenance header (source
+path, source sha256, row count, pull date); a regenerate script lives in
+the repository (``--check`` exits non-zero on drift); and the tie to the
+source table is a test, ``test_script_lua_api_message.py``'s
+``VendoredCatalogMatchesTheRealTableTests``, guarded by BRIDGE_GAMEDATA so
+it needs the bridge's tables directory and nothing else -- notably not
+lupa, which the previous home for that test also required for no reason.
+
+The one thing the text must never do is reach a terminal.
+:func:`message_text` returns the localized Thai string for the eventual
+frame builder, which writes it into a UTF-16LE payload; no log line in
+this package interpolates it, and a test pins that.
+
+Still true, and still named: this module builds no frame.  The frame
+builder that exists is the frozen legacy seam's ``make_show_message(text)``
+in ``current/pf_login_game_server_v141.py`` (``ShowMessageVital`` 0x36D2 --
+proven layout in ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``, one
+UNTAGGED_WSTRING16LE_LEN32LE at +0x14), and the dispatch that would call it
+lives in ``runtime.py``/``app.py``, outside this lane's write scope.  What
+this module hands that future caller is an ordered, per-audience record of
+WHICH ids to show -- and now the text to show for each of them.
 
 AUDIENCE
 --------
@@ -97,8 +121,10 @@ client, and a scene bucket is a record of intent, not a broadcast.
 from __future__ import annotations
 
 import csv
+import re
+import threading
 from pathlib import Path
-from typing import Optional, Protocol, Tuple
+from typing import Dict, Mapping, Optional, Protocol, Tuple
 
 #: 0 individual, 1 party, 2 scene, 3 channel -- see the module docstring's
 #: AUDIENCE section for the derivation.  Named constants rather than bare
@@ -132,23 +158,101 @@ def audience_name(audience: int) -> str:
     return _AUDIENCE_NAMES.get(audience, "?")
 
 
-def _load_catalog(path: Path = _CATALOG_PATH):
-    rows = {}
+#: The four columns of the vendored mirror, in file order.
+CATALOG_COLUMNS = ("message_id", "message_type", "notify_type", "message_text")
+
+#: A vendored row's text column holds ONLY printable ASCII; every other
+#: character -- and the backslash itself -- is written as ``\uXXXX``.  That
+#: makes the escape unambiguous in the one direction that matters: a
+#: backslash in a vendored line is ALWAYS the start of an escape, never a
+#: literal, so decoding is a single substitution with no lookahead rules.
+_ESCAPE_RE = re.compile(r"\\u([0-9a-f]{4})")
+_KEEP_LITERAL = frozenset(
+    chr(code) for code in range(0x20, 0x7F) if chr(code) != "\\")
+
+
+class MessageCatalogError(RuntimeError):
+    """The vendored catalog could not be read.
+
+    Raised LOUDLY and by name, with the path in the message.  The previous
+    shape loaded the file at import time under ``encoding="ascii"``, so one
+    stray byte or a missing file turned into an ImportError halfway up the
+    package -- which, because ``lua_api/__init__`` is what installs the
+    namespace hooks, made every Lua API name in this package vanish with no
+    line saying why.  A named error at first USE is the fix (pf-adversary
+    D5, round 6775u1).
+    """
+
+
+def escape_message_text(text: str) -> str:
+    """One line of localized text -> pure ASCII, ``\\uXXXX`` for the rest.
+
+    The inverse of :func:`unescape_message_text`, and the ONLY encoder --
+    ``tools/pf_regen_lua_message_catalog.py`` imports this rather than
+    keeping a second copy that could drift from the decoder that reads it.
+    """
+    return "".join(
+        ch if ch in _KEEP_LITERAL else "\\u%04x" % ord(ch) for ch in text)
+
+
+def unescape_message_text(escaped: str) -> str:
+    """``\\uXXXX`` back to the real characters.  Inverse of the above."""
+    return _ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), escaped)
+
+
+def _read_catalog(path: Path) -> Dict[int, Tuple[int, int, str]]:
+    rows: Dict[int, Tuple[int, int, str]] = {}
     with path.open(encoding="ascii", newline="") as handle:
-        for row in csv.DictReader(handle, delimiter="\t"):
-            rows[int(row["message_id"])] = (
-                int(row["message_type"]), int(row["notify_type"]))
+        # The provenance header is '#'-prefixed and is stripped BEFORE csv
+        # sees the stream: csv has no comment syntax, so a header line would
+        # otherwise arrive as a data row whose message_id is '# source ...'.
+        body = [line for line in handle if not line.startswith("#")]
+    for row in csv.DictReader(body, delimiter="\t"):
+        rows[int(row["message_id"])] = (
+            int(row["message_type"]),
+            int(row["notify_type"]),
+            unescape_message_text(row["message_text"]),
+        )
+    if not rows:
+        raise MessageCatalogError("%s has no rows" % path)
     return rows
 
 
-#: ``message_id -> (message_type, notify_type)``, the frozen ASCII half of
-#: ``TEXTDATA_TH__MESSAGE.tsv`` (see the module docstring).  907 rows.
-CATALOG = _load_catalog()
+_CATALOG_LOCK = threading.RLock()
+_CATALOG_CACHE: Optional[Dict[int, Tuple[int, int, str]]] = None
 
-#: The largest id in the shipped table.  Used as the coercion ceiling so a
-#: script that passes a wild number is refused at the door rather than
-#: reaching the catalog lookup with a 4-billion-element intent.
-MAX_MESSAGE_ID = max(CATALOG)
+
+def catalog() -> Mapping[int, Tuple[int, int, str]]:
+    """``message_id -> (message_type, notify_type, text)``, 907 rows.
+
+    LAZY and cached: read on first use, not at import.  Any failure raises
+    :class:`MessageCatalogError` naming the path -- never a silent partial
+    read and never an ImportError that takes the namespace hooks with it.
+    """
+    global _CATALOG_CACHE
+    with _CATALOG_LOCK:
+        if _CATALOG_CACHE is None:
+            try:
+                _CATALOG_CACHE = _read_catalog(_CATALOG_PATH)
+            except MessageCatalogError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - re-raised by name
+                raise MessageCatalogError(
+                    "cannot read the vendored message catalog %s: %r"
+                    % (_CATALOG_PATH, exc)) from exc
+        return _CATALOG_CACHE
+
+
+def max_message_id() -> int:
+    """The largest id in the shipped table.
+
+    The coercion ceiling the two closures pass to ``_coerce_int``, so a
+    script that passes a wild number is refused at the door rather than
+    reaching a lookup with a four-billion-element intent.  A FUNCTION, not
+    a module constant: a constant would have to be computed at import,
+    which is exactly the eager load this round removed.
+    """
+    return max(catalog())
 
 
 def is_known_message_id(message_id: int) -> bool:
@@ -158,13 +262,32 @@ def is_known_message_id(message_id: int) -> bool:
     bad-value line and refuses, because a message id with no row is a
     message the client could never render.
     """
-    return message_id in CATALOG
+    return message_id in catalog()
 
 
 def notify_type(message_id: int) -> Optional[int]:
     """``n_NOTIFY_TYPE`` for a known id, ``None`` for an unknown one."""
-    row = CATALOG.get(message_id)
+    row = catalog().get(message_id)
     return None if row is None else row[1]
+
+
+def message_type(message_id: int) -> Optional[int]:
+    """``n_TYPE`` for a known id, ``None`` for an unknown one."""
+    row = catalog().get(message_id)
+    return None if row is None else row[0]
+
+
+def message_text(message_id: int) -> Optional[str]:
+    """``s_MESSAGE`` for a known id, ``None`` for an unknown one.
+
+    NOT ASCII -- this is the localized Thai string the client renders.  It
+    must never reach a log line or anything else printed to the bridge
+    console (cp874, see the module docstring's VENDORING section); it
+    exists for the eventual frame builder, which writes it into a
+    UTF-16LE payload rather than to a terminal.
+    """
+    row = catalog().get(message_id)
+    return None if row is None else row[2]
 
 
 class MessageSink(Protocol):
@@ -197,6 +320,19 @@ class MessageSink(Protocol):
         to everyone in this scene, in the order recorded."""
         ...
 
+    def record_refusal(self, reason: str) -> int:
+        """Count one message a closure REFUSED before it ever got here.
+
+        pf-adversary D12 (round 6775u1): 51 of the 116 corpus call sites
+        pass ``Trigger.VarN`` rather than a literal, and the ids in those
+        ``.tgr`` tables are still unmined -- so an id landing in one of the
+        table's 54 gaps is an expected, recurring event, and it was leaving
+        exactly one log line behind and nothing countable.  A run can now
+        answer "how many did we drop, and for which reason" without
+        grepping its own log.  Returns the new count for that reason.
+        """
+        ...
+
 
 #: Per-bucket bounds, same shape/reasoning as ``lua_api.quest``'s own caps:
 #: a bound a looping script cannot grow past, refused by name rather than
@@ -209,6 +345,20 @@ MESSAGES_PER_SCENE_CAP = 1024
 #: The two audiences that belong to a SCENE rather than to the character
 #: whose script fired the trigger.
 BROADCAST_AUDIENCES = frozenset({AUDIENCE_SCENE, AUDIENCE_CHANNEL})
+
+#: Why a message never reached a bucket.  Named strings rather than free
+#: text so a count is groupable and a typo cannot invent a new reason.
+REFUSE_BAD_ARITY = "bad_arity"
+REFUSE_UNKNOWN_MESSAGE_ID = "unknown_message_id"
+REFUSE_BAD_AUDIENCE = "bad_audience"
+REFUSE_NO_SCENE = "no_scene"
+REFUSE_BUCKET_FULL = "bucket_full"
+REFUSE_TOO_MANY_BUCKETS = "too_many_buckets"
+
+REFUSAL_REASONS = frozenset({
+    REFUSE_BAD_ARITY, REFUSE_UNKNOWN_MESSAGE_ID, REFUSE_BAD_AUDIENCE,
+    REFUSE_NO_SCENE, REFUSE_BUCKET_FULL, REFUSE_TOO_MANY_BUCKETS,
+})
 
 
 class InMemoryMessageSink:
@@ -239,19 +389,35 @@ class InMemoryMessageSink:
         self._scene_messages_cap = messages_per_scene
         self._shown: dict = {}
         self._broadcast: dict = {}
+        self._refusals: dict = {}
+        # Same guard, for the same reason, as the two sibling stores in this
+        # package (``lua_api.quest.InMemoryQuestStateStore``,
+        # ``lua_api.trigger.TriggerStatusRegistry``): one world per scene is
+        # shared by every session in the process (AGENTS.md section 7, first
+        # line), so two sessions CAN reach one sink at once, and
+        # read-then-append is not atomic on its own.  RLock rather than Lock
+        # because ``record`` calls ``_append``, which takes it too.
+        self._lock = threading.RLock()
 
-    @staticmethod
-    def _append(buckets: dict, key, buckets_cap: int, entries_cap: int,
+    def _append(self, buckets: dict, key, buckets_cap: int, entries_cap: int,
                 entry) -> int:
-        rows = buckets.get(key)
-        if rows is None:
-            if len(buckets) >= buckets_cap:
+        with self._lock:
+            rows = buckets.get(key)
+            if rows is None:
+                if len(buckets) >= buckets_cap:
+                    self._count(REFUSE_TOO_MANY_BUCKETS)
+                    return 0
+                rows = buckets.setdefault(key, [])
+            if len(rows) >= entries_cap:
+                self._count(REFUSE_BUCKET_FULL)
                 return 0
-            rows = buckets.setdefault(key, [])
-        if len(rows) >= entries_cap:
-            return 0
-        rows.append(entry)
-        return len(rows)
+            rows.append(entry)
+            return len(rows)
+
+    def _count(self, reason: str) -> int:
+        with self._lock:
+            self._refusals[reason] = self._refusals.get(reason, 0) + 1
+            return self._refusals[reason]
 
     def record(self, scene: Optional[str], character_id: int, audience: int,
                message_id: int) -> int:
@@ -261,6 +427,7 @@ class InMemoryMessageSink:
                 # a message anyone could ever be shown -- refused, not
                 # quietly downgraded into the triggering character's bucket
                 # (that downgrade is exactly the defect this shape fixes).
+                self._count(REFUSE_NO_SCENE)
                 return 0
             return self._append(
                 self._broadcast, scene, self._scenes_cap,
@@ -269,8 +436,25 @@ class InMemoryMessageSink:
             self._shown, character_id, self._characters_cap,
             self._messages_cap, (audience, message_id))
 
+    def record_refusal(self, reason: str) -> int:
+        """See :meth:`MessageSink.record_refusal`.
+
+        An unrecognised reason is counted under its own name rather than
+        dropped: a counter that silently swallows what it does not
+        recognise is the same defect this counter exists to fix.
+        """
+        return self._count(reason)
+
+    def refusals(self) -> Tuple[Tuple[str, int], ...]:
+        """``((reason, count), ...)`` sorted by reason.  Empty when nothing
+        was refused, which is the state a healthy run ends in."""
+        with self._lock:
+            return tuple(sorted(self._refusals.items()))
+
     def messages_for(self, character_id: int) -> Tuple[Tuple[int, int], ...]:
-        return tuple(self._shown.get(character_id, ()))
+        with self._lock:
+            return tuple(self._shown.get(character_id, ()))
 
     def broadcasts_for(self, scene: str) -> Tuple[Tuple[int, int, int], ...]:
-        return tuple(self._broadcast.get(scene, ()))
+        with self._lock:
+            return tuple(self._broadcast.get(scene, ()))

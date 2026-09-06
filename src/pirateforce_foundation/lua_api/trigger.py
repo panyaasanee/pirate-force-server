@@ -515,17 +515,26 @@ class RealTriggerNamespace:
                 self.calls.append("Trigger.TriggerShowMessage")
                 if len(args) != 2:
                     _log_bad_arity(self._log, "TriggerShowMessage", len(args), "2")
+                    self._sink.record_refusal(_message.REFUSE_BAD_ARITY)
                     return STUB_DEFAULT
                 audience = _coerce_int(args[0], max(_message.AUDIENCES))
-                message_id = _coerce_int(args[1], _message.MAX_MESSAGE_ID)
+                message_id = _coerce_int(args[1], _message.max_message_id())
                 if (audience not in _message.AUDIENCES or message_id is None
                         or not _message.is_known_message_id(message_id)):
                     # Audience outside 0..3, or an id with no row in the
                     # shipped table: refused by name rather than clamped to
-                    # a neighbour audience or recorded as showable.
+                    # a neighbour audience or recorded as showable.  The two
+                    # halves are counted apart (pf-adversary D12): a run
+                    # dropping ids is an unmined .tgr table, a run dropping
+                    # audiences is a misread of the Var2 mapping, and one
+                    # combined number cannot tell those two apart.
                     self._log(
                         "LUA_TRIGGER_BAD_VALUE Trigger.TriggerShowMessage "
                         "audience=%r message_id=%r" % (args[0], args[1]))
+                    self._sink.record_refusal(
+                        _message.REFUSE_BAD_AUDIENCE
+                        if audience not in _message.AUDIENCES
+                        else _message.REFUSE_UNKNOWN_MESSAGE_ID)
                     return STUB_DEFAULT
                 # The SCENE is passed, not just the character: audiences
                 # 2/3 (scene/channel) belong to everyone in the scene, and
