@@ -113,9 +113,51 @@ def family_of(name: str) -> str:
 
 
 def _iter_py_files(base: Path):
+    """Every ``.py`` file under ``base``, in an order that does not depend on
+    the OS this runs on.
+
+    Two OS-dependent behaviours had to be removed here (pf-adversary, round
+    `d1b231`, both measured), because ``_build_source_hits`` records the FIRST
+    hit per name and 46 of the 160 SOURCE names are hit in more than one file
+    -- so this order decides those rows' ``evidence`` values, and a different
+    order on Windows is a Windows-only `CENSUS DRIFT`, exactly PR #961's shape:
+
+    1. ``sorted(<Path objects>)`` compares ``PurePath._str_normcase``, which on
+       Windows is ``str(path).lower()`` -- backslash separators AND case-folded.
+       Two proven divergences: ``["src/pf/Ui_shim.py", "src/pf/bootstrap.py"]``
+       orders ``[Ui_shim, bootstrap]`` on Linux and ``[bootstrap, Ui_shim]`` on
+       Windows; and against the existing ``gm/`` package a sibling ``gm2_*.py``
+       orders ``[gm/..., gm2_...]`` on Linux (``/`` 0x2F < ``2`` 0x32) but
+       ``[gm2_..., gm/...]`` on Windows (``2`` 0x32 < ``\\`` 0x5C). Sorting on
+       ``as_posix()`` is byte-order on both.
+    2. ``rglob("*.py")`` is case-INSENSITIVE on Windows, so a file named
+       ``X.PY`` would be scanned there and ignored here. The explicit
+       ``suffix == ".py"`` check makes both platforms agree with Linux.
+
+    Latent, not live, when it was found: no tracked ``.py`` has an uppercase
+    basename and the one live ``gm``/``gm_*`` prefix pair happens to order the
+    same on both platforms. It was one ordinary new filename away from firing.
+    Pinned by ``SourceHitPathSafetyTests``, which needs no sibling checkout and
+    therefore runs on the Windows gate."""
+
     if not base.exists():
         return []
-    return sorted(p for p in base.rglob("*.py") if p.is_file())
+    files = [
+        p for p in base.rglob("*.py") if p.is_file() and p.suffix == ".py"
+    ]
+    return sort_py_files(files)
+
+
+def sort_py_files(files):
+    """Order paths by the byte order of their POSIX spelling.
+
+    Split out of ``_iter_py_files`` so the ordering policy can be tested with
+    ``PureWindowsPath`` inputs, which reproduce Windows comparison semantics on
+    any host -- a test that only fed real ``Path`` objects would pass on Linux
+    for both the correct key and the broken ``sorted(files)`` it replaced, and
+    so could not catch a revert anywhere this project actually runs pytest."""
+
+    return sorted(files, key=lambda p: p.as_posix())
 
 
 _PASCAL_TOKEN = re.compile(r"[A-Z][a-z0-9]*|[A-Z]+(?![a-z])|[a-z0-9]+")

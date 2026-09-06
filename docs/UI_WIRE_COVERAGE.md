@@ -96,7 +96,7 @@ removed) as every lane's normal work lands.
 
 ## Non-claims
 
-1. This page does not claim any of the 161 `SOURCE` names are WIRED in the
+1. This page does not claim any of the 160 `SOURCE` names are WIRED in the
    `AGENTS.md` section 7 sense -- see "What this number is, and what it is
    not" above.
 2. `NAME-ONLY` does not mean "known wire shape" for every row in that tier --
