@@ -27,8 +27,14 @@ before this file drove that branch at all.
 
 WHAT THIS DOES NOT CLAIM.  It says nothing about whether any scene's shipped
 tables are still fresh against the live bridge tables -- that is what the
-(bridge-gated) regenerate-and-diff tests are for. It only says these three
+(bridge-gated) regenerate-and-diff tests are for. It only says these
 functions do what their one-line contracts say, using inputs this file owns.
+
+ROUND p4ts3e added a fourth group, ``UnnumberedTemplateIdTests``, for the
+same reason and in the same shape: ``_set_number_or_none`` and
+``_reason_token`` decide what happens to a placement whose template id is not
+a number at all, and that decision (skip the row, name it, keep the scene)
+has to hold where the gate runs, with no bridge clone beside it.
 """
 from __future__ import annotations
 
@@ -155,6 +161,95 @@ class AsciiDictGuardTests(unittest.TestCase):
         rendered = tool._ascii_dict({"name": "雨"})
         self.assertTrue(rendered.isascii())
         self.assertIn("\\u96e8", rendered)
+
+
+class UnnumberedTemplateIdTests(unittest.TestCase):
+    """One unreadable placement must not cost a scene its readable ones.
+
+    ``Bg0010``'s placement 50 names ``Mob_Set_99``, a Mob-Set its own scene
+    file never defines, so the decoder writes the literal string
+    ``UNRESOLVED`` where a number belongs.  ``int()`` used to raise on that
+    one cell and the whole scene refused to mine -- 99 readable placements
+    lost to one unreadable one.  COO-DECISION 2026-09-06T07:48+07:00 item 3
+    allows skipping it and forbids doing so quietly, which is the pair of
+    claims these tests hold.  No bridge clone required.
+    """
+
+    def test_a_numeric_cell_is_still_read_as_that_number(self) -> None:
+        tool = _load_tool()
+        self.assertEqual(tool._set_number_or_none("99"), 99)
+        self.assertEqual(tool._set_number_or_none(" 31 "), 31)
+
+    def test_a_non_numeric_cell_yields_none_instead_of_raising(self) -> None:
+        tool = _load_tool()
+        self.assertIsNone(tool._set_number_or_none("UNRESOLVED"))
+
+    def test_the_reason_token_stays_ascii_and_keeps_the_raw_word(self) -> None:
+        tool = _load_tool()
+        self.assertEqual(tool._reason_token("UNRESOLVED"), "UNRESOLVED")
+        token = tool._reason_token("Mob_Set 雨/9")
+        self.assertTrue(token.isascii())
+        self.assertEqual(token, "Mob_Set___9")
+
+    def test_an_empty_raw_cell_still_names_something(self) -> None:
+        tool = _load_tool()
+        self.assertEqual(tool._reason_token(""), "empty")
+
+    def test_the_skipped_row_is_named_in_unresolved_placements(self) -> None:
+        tool = _load_tool()
+        sources = _StubSources([
+            _placement("50", "UNRESOLVED"),
+            _placement("51", "31"),
+        ])
+        rows = tool.unresolved_placements(sources, tool.IDENTITY_RULE_CLINE)
+        by_index = {row["placement_index"]: row for row in rows}
+        self.assertIn(50, by_index)
+        self.assertEqual(
+            by_index[50]["reason"], "template_id_is_not_a_number_UNRESOLVED",
+        )
+        # 51 resolves to a MOBS row with a single-basename avatar, so it is
+        # carried, not unresolved: the skip is scoped to the bad cell alone.
+        self.assertNotIn(51, by_index)
+
+    def test_the_readable_rows_of_the_same_scene_are_still_carried(
+        self,
+    ) -> None:
+        tool = _load_tool()
+        sources = _StubSources([
+            _placement("50", "UNRESOLVED"),
+            _placement("51", "31"),
+        ])
+        carried = tool.unambiguous_placements(sources, tool.IDENTITY_RULE_CLINE)
+        self.assertEqual([item[0] for item in carried], [51])
+
+
+def _placement(index: str, template_ids: str) -> dict:
+    """One placements.tsv row, only the columns these two functions read."""
+    return {
+        "index": index, "template_ids": template_ids,
+        "x": "1.0", "y": "2.0", "z": "3.0",
+    }
+
+
+class _StubSources:
+    """The three attributes the two functions under test actually read.
+
+    Deliberately not a real ``Sources``: this file's whole point is helpers
+    that run where no bridge clone exists, and a real one reads gamedata.
+    """
+
+    crosswalk = {"stub": True}
+
+    def __init__(self, placements: list[dict]) -> None:
+        self.placements = placements
+        self.scene = "Bg0010"
+        self.mobs = {
+            "31": {"s_OUTFIT": "M011_000_000_SP3", "n_RANK": "1",
+                   "n_AI_COMBAT": "214"},
+        }
+
+    def resolve(self, set_number: int, rule: str) -> int | None:
+        return set_number if str(set_number) in self.mobs else None
 
 
 if __name__ == "__main__":
