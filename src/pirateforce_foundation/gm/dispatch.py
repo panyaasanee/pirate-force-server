@@ -53,7 +53,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import accounts as gm_accounts
-from .command_capture import DEFAULT_CAPTURE_ROOT, capture_raw_gm_command
+from .activity_cheat_code_wire import ACTIVITY_CHEAT_CODE_VITAL_ID
+from .command_capture import (
+    DEFAULT_CAPTURE_ROOT,
+    capture_raw_activity_cheat_code,
+    capture_raw_gm_command,
+)
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
 
@@ -351,28 +356,29 @@ class GmDispatchOutcome:
     refusal_reason: str | None
 
 
-def handle_gm_run_command_vital(
+def _authorize_and_capture(
     account_name: str,
     raw_payload: bytes,
     *,
-    config_path: str | None = None,
-    capture_root: str | Path = DEFAULT_CAPTURE_ROOT,
-    now_ts: float | None = None,
+    config_path: str | None,
+    capture_root: str | Path,
+    now_ts: float | None,
+    capture_fn,
 ) -> GmDispatchOutcome:
-    """Authorize, then (only if authorized) capture one inbound 0x51E9.
+    """The gate chain both inbound entry points below run, in one place.
 
-    ``account_name`` must be the authenticated login name for the
-    connection this payload arrived on -- the same value ``runtime.py``'s
-    own GM-state login check already uses (``self.token``), never anything
-    read out of ``raw_payload`` itself: the client has no message that
-    grants or claims GM status for itself (see ``gm/accounts.py``), so this
-    function must not be handed anything the client could have supplied as
-    the identity to check.
+    EXTRACTED, NOT REWRITTEN (round `eu2g1d`): the order of the checks --
+    authorization FIRST, then rate limit, then payload size, then capture
+    quota, then the write -- is the security property this module exists
+    for, and a second entry point that re-typed that order would be one
+    edit away from silently putting the write first.
 
-    ``raw_payload`` must be the vital's payload bytes only (after vital id
-    and version in the runtime-vital envelope), the same slice
-    ``command_wire``/``command_capture`` already expect -- this function
-    does not strip an envelope itself, matching the rest of this package.
+    THE RATE LIMIT AND CAPTURE QUOTA ARE SHARED ACROSS OPCODES ON PURPOSE.
+    Both are keyed on the account, not on (account, opcode): an authorized
+    but hostile GM account that could spend a fresh 20-calls-per-5s budget
+    and a fresh 50 MiB per opcode would get its whole budget multiplied by
+    the number of vitals this lane ever wires, which is the opposite of
+    what those two constants are for.  See their own comments above.
     """
     # pf-adversary (gm/ package sweep): ``type(account_name) is not str``,
     # not ``isinstance`` -- this value flows straight into
@@ -421,7 +427,7 @@ def handle_gm_run_command_vital(
         )
 
     try:
-        captured_path = capture_raw_gm_command(
+        captured_path = capture_fn(
             raw_payload, account_name, capture_root=capture_root, now_ts=now_ts,
         )
     except OSError as error:
@@ -432,4 +438,85 @@ def handle_gm_run_command_vital(
         )
     return GmDispatchOutcome(
         authorized=True, captured_path=captured_path, refusal_reason=None,
+    )
+
+
+def handle_activity_cheat_code_vital(
+    account_name: str,
+    raw_payload: bytes,
+    *,
+    config_path: str | None = None,
+    capture_root: str | Path = DEFAULT_CAPTURE_ROOT,
+    now_ts: float | None = None,
+) -> GmDispatchOutcome:
+    """Authorize, then (only if authorized) capture one inbound 0x6CEC.
+
+    WHY THIS EXISTS, IN ONE SENTENCE THAT NAMES A REAL FAILURE.  The
+    P-3 attended round this lane has asked for (letter
+    `20260906_0852_LANE-GM-TO-CHIEF-p3-button-capture-gt-body.md`) grades
+    "which GMUI button sends what" by clicking every row and then reading
+    `capture/gm_command_capture/`; its own stated FAIL branch is "the
+    folder is empty".  A button that sends Activity_CheatCodeVital instead
+    of GM_RunGMCommandVital produces that same empty folder today, so the
+    round would record "the client sent nothing" for a button that in fact
+    sent something this server threw away -- a false negative that costs an
+    attended booking and is unrecoverable after the fact.  This function is
+    what makes those two outcomes distinguishable.
+
+    SAME CONTRACT, SAME GATE, SAME BUDGET as
+    ``handle_gm_run_command_vital``: ``account_name`` is the authenticated
+    login name for the connection (never anything read out of
+    ``raw_payload`` -- the client has no message that grants or claims GM
+    status for itself, see ``gm/accounts.py``), ``raw_payload`` is the
+    payload slice after the runtime-vital envelope, and the rate limit and
+    capture quota are the account's, shared with 0x51E9 (see
+    ``_authorize_and_capture``).
+
+    WHAT IT DOES NOT DO, on purpose and for the same reason the 0x51E9
+    handler does not: it does not interpret one field and it sends nothing
+    back.  Activity_CheatCodeVital's SEMANTICS are unproven -- six fields,
+    proven tags and order, and no capture of it has ever existed
+    (`gm/activity_cheat_code_wire.py`, `[สมมติของสาย GM - รอ RE]`).  A
+    handler that answered it would be answering a message it cannot read.
+    """
+    return _authorize_and_capture(
+        account_name,
+        raw_payload,
+        config_path=config_path,
+        capture_root=capture_root,
+        now_ts=now_ts,
+        capture_fn=capture_raw_activity_cheat_code,
+    )
+
+
+def handle_gm_run_command_vital(
+    account_name: str,
+    raw_payload: bytes,
+    *,
+    config_path: str | None = None,
+    capture_root: str | Path = DEFAULT_CAPTURE_ROOT,
+    now_ts: float | None = None,
+) -> GmDispatchOutcome:
+    """Authorize, then (only if authorized) capture one inbound 0x51E9.
+
+    ``account_name`` must be the authenticated login name for the
+    connection this payload arrived on -- the same value ``runtime.py``'s
+    own GM-state login check already uses (``self.token``), never anything
+    read out of ``raw_payload`` itself: the client has no message that
+    grants or claims GM status for itself (see ``gm/accounts.py``), so this
+    function must not be handed anything the client could have supplied as
+    the identity to check.
+
+    ``raw_payload`` must be the vital's payload bytes only (after vital id
+    and version in the runtime-vital envelope), the same slice
+    ``command_wire``/``command_capture`` already expect -- this function
+    does not strip an envelope itself, matching the rest of this package.
+    """
+    return _authorize_and_capture(
+        account_name,
+        raw_payload,
+        config_path=config_path,
+        capture_root=capture_root,
+        now_ts=now_ts,
+        capture_fn=capture_raw_gm_command,
     )

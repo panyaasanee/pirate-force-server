@@ -452,8 +452,11 @@ GM_VITALS = (
         "gm.activity_cheat_code_wire",
         "layout proven in external/PF_SERIALIZER_FIELDS.tsv rows 4345-4356 "
         "(tag 0x14 @+0x14, five tagged wstrings, tag corrected to 0x48 by "
-        "PF_A2_STRING_WIRE_TAG_DELTA.tsv rows 4347-4356); decode-only, no "
-        "dispatch.py call site yet",
+        "PF_A2_STRING_WIRE_TAG_DELTA.tsv rows 4347-4356); ~~decode-only, no "
+        "dispatch.py call site yet~~ round eu2g1d: gm.dispatch."
+        "handle_activity_cheat_code_vital authorizes and captures it, the "
+        "same gate 0x51E9 gets -- STILL NO runtime.py call site (chief's "
+        "edit, CORE-REQUEST-GM-062) and still nothing answered back",
     ),
 )
 
