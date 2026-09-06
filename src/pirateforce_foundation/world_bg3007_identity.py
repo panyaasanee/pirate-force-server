@@ -74,9 +74,10 @@ FILES rather than assumed from the sibling:
   pinning the scene's arrival marker (``accounts.is_gm_account`` still
   gates ``/warp`` itself).  This module opens no door of its own: a census
   is composed FOR a session that is already there.
-* NO FACTION FRAME.  ``SCENE_NAME.n_SAVE`` is 0, so
-  ``world_faction_admission`` refuses this scene by its own published rule,
-  exactly as it refuses 126.  Nothing here widens that.
+* FACTION FRAME: SHIPS NOW.  ``SCENE_NAME.n_SAVE`` is 0; ``world_faction_
+  admission`` used to refuse this scene (exactly as it refused 126), but
+  LANE-A round q02brx (COO-DECISION 20260906_1347) widened it to every
+  login scene.  Nothing in THIS module changed to make that true.
 * ``n_SCENE_LV`` IS 30, NOT 0.  Scene 126's ocean panel declares level 0;
   this one declares 30.  Recorded as ``SCENE_DECLARED_LEVEL`` and used by
   nothing - the level each ACTOR ships is its own ``MOBS.n_LEVEL_MIN``,
@@ -186,7 +187,8 @@ SCENE_CLINE_TYPE = 3007
 # which declares 0.  Read by nothing: an actor ships its own level.
 SCENE_DECLARED_LEVEL = 30
 # SCENE_NAME.n_SAVE for this scene.  Kept as a named constant because
-# ``world_faction_admission`` refuses on it - see the module docstring.
+# ``world_faction_admission`` used to refuse on it - see the module
+# docstring for why that no longer holds (LANE-A round q02brx).
 SCENE_SAVE_FLAG = 0
 
 SOURCE_SHA256 = {

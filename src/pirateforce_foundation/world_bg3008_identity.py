@@ -136,9 +136,10 @@ inherited:
   pinning the scene's arrival marker (``accounts.is_gm_account`` still
   gates ``/warp`` itself).  This module opens no door of its own: a census
   is composed FOR a session that is already there.
-* NO FACTION FRAME.  ``SCENE_NAME.n_SAVE`` is 0, so
-  ``world_faction_admission`` refuses this scene by its own published rule,
-  exactly as it refuses 126 and 304.  Nothing here widens that.
+* FACTION FRAME: SHIPS NOW.  ``SCENE_NAME.n_SAVE`` is 0; ``world_faction_
+  admission`` used to refuse this scene (exactly as it refused 126 and
+  304), but LANE-A round q02brx (COO-DECISION 20260906_1347) widened it to
+  every login scene.  Nothing in THIS module changed to make that true.
 * NO CREW.  Measured: 0 of CLINE type 3008's 58 rows carry any ``n_CREW``
   value.  BUT ``n_LEADER_BK2``/``n_LEADER_BK3`` are a different column
   family and this scene uses them on exactly one row - CLINE 61610
@@ -218,7 +219,8 @@ SCENE_CLINE_TYPE = 3008
 # scene 126's 0.  Read by nothing: an actor ships its own level.
 SCENE_DECLARED_LEVEL = 80
 # SCENE_NAME.n_SAVE for this scene.  Kept as a named constant because
-# ``world_faction_admission`` refuses on it - see the module docstring.
+# ``world_faction_admission`` used to refuse on it - see the module
+# docstring for why that no longer holds (LANE-A round q02brx).
 SCENE_SAVE_FLAG = 0
 
 SOURCE_SHA256 = {

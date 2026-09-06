@@ -98,17 +98,21 @@ class PlayerHostilePairingTests(unittest.TestCase):
             )
             self.assertTrue(sent, f"identity {lo:#x}/{hi:#x}: {event}")
 
-    def test_unaccepted_scene_fails_closed_to_untouched_production_bytes(self):
-        # Any scene ``world_faction_admission`` does not admit must come
-        # back byte-identical to production, never a fabricated or
-        # half-composed frame.  MOVED this round (yfbqmg) from scene 130
-        # (Navy Training Camp, which world_faction_admission now admits
-        # since its registry row opened this round -- the TENTH AND LAST
-        # of the original ten doors) to scene 17 ("a ship at sea"): a
-        # PERMANENT choice rather than another door this lane will
-        # eventually open (n_SAVE 0 in the committed registry, so it can
-        # never satisfy world_faction_admission's own two-condition gate
-        # by a door flip alone).
+    def test_a_scene_that_used_to_be_unaccepted_is_accepted_now(self):
+        """CLOSED by LANE-A round q02brx -- history kept, not deleted.
+
+        THIS TEST USED TO PIN A REFUSAL AT SCENE 17.  This module composes
+        through ``projector.start_game(..., basic_faction=1, ...)``, which
+        calls ``player_wire.make_actor_attr_with_name_class_and_faction``
+        and therefore ``world_faction_admission.admits`` -- and
+        COO-DECISION 20260906_1347 widened that predicate to every
+        well-typed int scene id (ka1-A's R321 measurement: a login that
+        landed in scene 126 lost its faction for the rest of the session).
+        There is no longer a real, wire-encodable scene id this composer
+        refuses on scene-id grounds alone; the fail-closed shape itself is
+        still pinned by the two sibling tests below (bad scene_seq, no
+        selected character).
+        """
         character = _character(17, 0)
         pc, frame = self._production_start_game(character)
         out_pc, out_frame, sent, event = (
@@ -116,10 +120,14 @@ class PlayerHostilePairingTests(unittest.TestCase):
                 self.projector, character, None, pc, frame,
             )
         )
-        self.assertFalse(sent)
-        self.assertTrue(event.startswith(php.REFUSAL_COMPOSE), event)
-        self.assertEqual(out_pc, pc)
-        self.assertEqual(out_frame, frame)
+        self.assertTrue(sent, event)
+        self.assertEqual(event, php.SENT_EVENT)
+        self.assertEqual(
+            len(out_pc), len(pc) + field_mobs.FACTION_SPLICE_BYTES,
+        )
+        self.assertEqual(
+            len(out_frame), len(frame) + field_mobs.FACTION_SPLICE_BYTES,
+        )
 
     def test_nonzero_scene_seq_fails_closed(self):
         # scene 1 is accepted, but scene_seq must be exactly 0 -- a

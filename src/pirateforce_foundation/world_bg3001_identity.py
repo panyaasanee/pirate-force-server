@@ -180,11 +180,15 @@ NOT established (``world_density`` carries the same open question by name,
 on an unmeasured reading would move this round's own target by a factor of
 twenty.
 
-THE FACTION GAP, NAMED RATHER THAN HIDDEN.  ``SCENE_NAME.n_SAVE`` is 0 for
-this scene, and ``world_faction_admission.admits`` requires
-``login_entry_allowed AND n_SAVE == 1``.  So a login into scene 126 emits
-NO ``PLAYER_FACTION`` frame, exactly as scene 14's own D3 debt describes.
-This module does not widen that guard (shipping an unmeasured wire shape is
+THE FACTION GAP, CLOSED SINCE LANE-A ROUND q02brx.  ``SCENE_NAME.n_SAVE`` is
+0 for this scene, and ``world_faction_admission.admits`` used to require
+``login_entry_allowed AND n_SAVE == 1`` -- so a login into scene 126 shipped
+NO ``PLAYER_FACTION`` frame, exactly as scene 14's own D3 debt described,
+until ka1-A's R321 measurement (a login via the GM single-use relog ticket
+losing its faction for the rest of the session) made COO-DECISION
+20260906_1347 widen ``admits`` to every login scene.  A login into scene
+126 now DOES carry ``basic_faction``.  This module does not widen that
+guard itself (shipping an unmeasured wire shape is
 the decision ``COO-DECISION 20260828_2345`` requires an ask for).  What it
 costs here is smaller than it was for scene 14: every row this file ships
 is ``n_MOB_USAGE`` 2 or 7 (NPC/prop shapes) except the Jellyfish King, and
@@ -288,7 +292,8 @@ SCENE_CLINE_TYPE = 3001
 # this lane has opened (25..95) - an ocean panel carries no level band.
 SCENE_DECLARED_LEVEL = 0
 # SCENE_NAME.n_SAVE for this scene.  Kept as a named constant because
-# ``world_faction_admission`` refuses on it - see THE FACTION GAP above.
+# ``world_faction_admission`` used to refuse on it - see THE FACTION GAP
+# above for why that no longer holds (LANE-A round q02brx).
 SCENE_SAVE_FLAG = 0
 
 SOURCE_SHA256 = {

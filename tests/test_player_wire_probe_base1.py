@@ -223,15 +223,14 @@ class ProbeBase1LoginAttrTests(_LegacyCase):
             make_actor_attr_with_name_class_and_faction(
                 self.legacy, IDENTITY_LO, IDENTITY_HI, SCENE_ID, SCENE_SEQ, NAME, 2,
             )
-        # Scene 17 ("a ship at sea"), not admitted -- MOVED this round
-        # (yfbqmg) from scene 130 (Navy Training Camp), which
-        # world_faction_admission now admits since its registry row opened
-        # this round (the TENTH AND LAST of the original ten doors).  17 is
-        # a PERMANENT choice: n_SAVE 0 in the committed registry, so it can
-        # never satisfy the admission gate by a door flip alone.
+        # LANE-A round q02brx (COO-DECISION 20260906_1347) widened
+        # ``world_faction_admission.admits`` to every well-typed scene id --
+        # scene 17 no longer refuses here, on purpose (see
+        # ``tests/test_world_faction_admission.py``).  The only refusal left
+        # for THIS guard is a scene id that was never a legal one.
         with self.assertRaises(ValueError):
             make_actor_attr_with_name_class_and_faction(
-                self.legacy, IDENTITY_LO, IDENTITY_HI, 17, SCENE_SEQ, NAME, 1,
+                self.legacy, IDENTITY_LO, IDENTITY_HI, "17", SCENE_SEQ, NAME, 1,
             )
 
     def test_class_and_level_arguments_still_thread_through(self):

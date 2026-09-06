@@ -48,8 +48,12 @@ docstring and are repeated here only as a pointer:
   today is the GM single-use grant ``CORE-REQUEST-GM-038`` landed for this
   exact scene id, and the arrival census is composed for a session that is
   ALREADY THERE - it opens no door of its own.
-* NO FACTION FRAME.  ``n_SAVE`` is 0, so ``world_faction_admission``
-  refuses this scene by its own published rule; nothing here widens that.
+* FACTION FRAME: SHIPS NOW.  ``n_SAVE`` is 0, and ``world_faction_admission``
+  used to refuse any scene it did not read as ``login_entry_allowed AND
+  n_SAVE == 1`` -- LANE-A round q02brx (COO-DECISION 20260906_1347) widened
+  that to every login scene, so a login landing here (the GM single-use
+  relog ticket today) now carries ``basic_faction`` same as scene 1.
+  Nothing in THIS module changed to make that true.
 * FIVE SETS SHIP ``INVISIBLE`` bodies and one of them ships with no name
   at all, both under the precedent ``world_bg0004_identity`` set 107 and
   ``world_port_royal_identity``'s leader 917 already ship under.

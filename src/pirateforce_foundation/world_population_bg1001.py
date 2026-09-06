@@ -44,9 +44,10 @@ WHAT IS DIFFERENT FROM THE SIBLING SCENES, NAMED RATHER THAN LEFT IMPLICIT.
   control agreeing on the CLINE type this scene resolves through (unlike
   Atlantis's 56==56 agreement) - every count and every name below inherits
   that tag from the identity table, and the console line says so.
-* NO FACTION FRAME, same reason as every scene whose ``n_SAVE`` reads 0:
-  ``world_faction_admission`` refuses this scene by its own published rule
-  and nothing here widens that.
+* FACTION FRAME: SHIPS NOW.  This scene's ``n_SAVE`` reads 0;
+  ``world_faction_admission`` used to refuse on that, but LANE-A round
+  q02brx (COO-DECISION 20260906_1347) widened it to every login scene.
+  Nothing in THIS module changed to make that true.
 * NO INVISIBLE BODIES, NO EXTRA SPAWN POINTS, NO NON-ASCII NAME - this
   scene has none of the three complications Atlantis's own census carries.
 * There is no faction bit on any entry here, same as every sibling and for
