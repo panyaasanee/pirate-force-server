@@ -609,6 +609,7 @@
 # has to ship with it or a fresh clone cannot re-derive the two catalogs'
 # committed local TSV copies from ../pf_bridge/gamedata.
 !/tools/pf_class_skill_starting_kit_extract.py
+!/tools/pf_class_skill_curriculum_extract.py
 
 # LANE-B round ti9gxr - the generator for combat_pose.py's two committed local
 # TSV copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class
