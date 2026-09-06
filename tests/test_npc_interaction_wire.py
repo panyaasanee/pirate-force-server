@@ -654,6 +654,28 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
     # a red run green; the fix for a red run is to rename the symbol
     # (AGENTS.md section 7, the rule this round added).
     ALLOWED_SYMBOLS = {
+        # LANE-Q's sandboxed Lua host, wiring the real Quest namespace into
+        # ScriptHost.  GRANTED by chief (LANE-E) round `xcbnbn`/R364 on
+        # CORE-REQUEST `pf_bridge/notes_to_chief/20260906_0209_LANE-Q-CORE-
+        # REQUEST-*`, after reading the three names in this module rather
+        # than taking the request's word for them: `lua_api_quest` is an
+        # import alias, `quest` is that import's own source name, and
+        # `quest_clock` is an injectable clock parameter.  None of the three
+        # decides quest state, a reward, a completion, or any persistence --
+        # the namespace's own logic is a pure clock read in
+        # `lua_api/quest.py`, one directory down, which `glob("*.py")` above
+        # does not scan.  Same shape as `columbus_quest_dispatch.py` below.
+        # Residual hole, named rather than hidden: the bare symbol `quest`
+        # being allowed here means a module-level `quest = {}` in THIS file
+        # would also pass.  Accepted because a Lua host storing quest state
+        # in Python contradicts `prompts/LANE-Q.md` itself; any NEW name
+        # (`settle_quest_reward`, ...) is still red, and `reward`/`shop` are
+        # their own guard words.
+        "script_host.py": {
+            "lua_api_quest",
+            "quest",
+            "quest_clock",
+        },
         # The quest module itself.  It is the one place quest dispatch lives,
         # by the design the npc_interaction rows describe: a one-shot wire
         # effect that stores nothing.  Naming it here rather than clearing
