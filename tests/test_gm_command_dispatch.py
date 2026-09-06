@@ -10,6 +10,8 @@ config, before it ever authorizes a real capture.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import struct
 import sys
@@ -728,13 +730,19 @@ class GmCommandDispatchTests(unittest.TestCase):
         # would silently recreate D9 (quota reads less than real disk use).
         config = self._config(["gm_listed"])
         payload = bytes(1000)
+        # pf-adversary (round `0op9bt` ADDENDUM, D6): an unmocked `unlink`
+        # failure now retries for real and prints a real stderr line --
+        # mock `time.sleep` and swallow the print so this test stays fast
+        # and quiet.
         with mock.patch.object(
             gm_command_capture.os, "write",
             side_effect=OSError("simulated ENOSPC"),
         ), mock.patch.object(
             gm_command_capture.os, "unlink",
             side_effect=OSError("simulated EACCES"),
-        ):
+        ), mock.patch.object(
+            gm_command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(io.StringIO()):
             outcome = gm_dispatch.handle_gm_run_command_vital(
                 "gm_listed", payload,
                 config_path=config, capture_root=self.capture_root,
@@ -770,7 +778,9 @@ class GmCommandDispatchTests(unittest.TestCase):
         ), mock.patch.object(
             gm_command_capture.os, "unlink",
             side_effect=OSError("simulated EACCES"),
-        ):
+        ), mock.patch.object(
+            gm_command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(io.StringIO()):
             outcome = gm_dispatch.handle_gm_run_command_vital(
                 "gm_listed", payload,
                 config_path=config, capture_root=self.capture_root,
