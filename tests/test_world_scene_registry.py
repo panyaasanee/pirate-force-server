@@ -856,6 +856,37 @@ class ThePlayerBook(unittest.TestCase):
         self.assertEqual(bare.players_per_scene,
                          world_scene_registry.PLAYERS_PER_SCENE_CAP)
 
+    def test_the_scene_cap_is_shared_across_both_books_not_doubled(self):
+        # pf-adversary (round 6bpbe3): a monster-book scene and a
+        # player-book scene used to be counted separately, so scenes=1
+        # let the process remember TWO distinct scene keys (one per book)
+        # instead of the one bound both doors claim to share.
+        registry = world_scene_registry.WorldSceneRegistry(scenes=1)
+        self.assertTrue(
+            registry.note_balance("bg0002", SOLDIER, 900, CEILING).noted)
+        refused = registry.note_player(
+            "bg0003", ALICE, "Alice", 100, 100, (0, 0, 0))
+        self.assertEqual(
+            refused.reason, world_scene_registry.REFUSE_TOO_MANY_SCENES)
+        self.assertEqual(registry.scenes(), ("bg0002",))
+
+    def test_a_scene_already_known_to_one_book_is_free_in_the_other(self):
+        # The same scene folder noted by the monster book must not count
+        # AGAIN against the cap when the player book notes it too --
+        # only a genuinely NEW scene key should be refused.
+        registry = world_scene_registry.WorldSceneRegistry(scenes=1)
+        self.assertTrue(
+            registry.note_balance(SCENE, SOLDIER, 900, CEILING).noted)
+        self.assertTrue(
+            registry.note_player(SCENE, ALICE, "Alice", 100, 100,
+                                  (0, 0, 0)).noted)
+        self.assertEqual(registry.scenes(), (SCENE,))
+
+    def test_scenes_reports_a_scene_known_only_to_the_player_book(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0))
+        self.assertEqual(registry.scenes(), (SCENE,))
+
     def test_the_describe_line_is_ascii_and_names_its_subject(self):
         registry = world_scene_registry.WorldSceneRegistry()
         noted = world_scene_registry.describe_noted_player(
