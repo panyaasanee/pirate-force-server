@@ -1,1 +1,1 @@
-{"sha":"2315e2211ed3546a3fc8426b5af3f1bcd505bca4","conclusion":"failure","event":"push","ref":"refs/heads/claude/cool-babbage-rjqssc","run_id":"34016928715","utc":"2026-09-06T06:57:35Z"}
+{"sha":"2315e2211ed3546a3fc8426b5af3f1bcd505bca4","conclusion":"failure","event":"pull_request","ref":"refs/pull/920/merge","run_id":"34016936628","utc":"2026-09-06T06:59:45Z"}
