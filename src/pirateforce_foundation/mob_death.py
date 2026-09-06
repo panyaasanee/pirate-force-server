@@ -1331,8 +1331,33 @@ def ruling_for(mob: FieldMob) -> str | None:
             "a monster nobody authorised killing" % (
                 mob.actor_identity, mob.template_id, mob.scene),
         )
+    # ROUND 0wef26.  A HAND-WRITTEN LETTER OUTRANKS A DERIVED PERMIT, ALWAYS,
+    # and this partition is not a fourth tie-break term -- it is the 08:48
+    # letter's own reason, applied to a kind of permit that did not exist when
+    # it was written.  Item 1(b) of COO-DECISION 2026-08-29T08:48+07:00
+    # refuses to let "a letter written tomorrow move the provenance of every
+    # kill already recorded under one written yesterday".  It enforces that
+    # through term (b), age -- which works while every permit is a letter
+    # somebody signed on a date.  A derived permit breaks that: it is minted
+    # from the MOBS columns, it is narrower than the hand letter on a scene
+    # where the roster shipped fewer templates than the letter authorised,
+    # and term (a) -- narrower first -- outranks age.  MEASURED, not feared:
+    # without this partition, all 17 shipped Bg0002 rows changed the letter
+    # they are killed under, from the PANYA-DECISION 2026-08-27T20:10 letter
+    # (4 templates) to this round's derived permit (3), because the roster
+    # ships three of the four templates that letter covers.  That is exactly
+    # the provenance move item 1(b) exists to refuse, arriving through the
+    # term it does not govern.
+    #
+    # So the derived permits are consulted only where no signed letter covers
+    # the row at all -- which is the case the derivation was authorised for
+    # (COO-DECISION 2026-09-06T16:48+07:00 item 2: "new scenes enter
+    # automatically").  Inside that partition the ratified three-term order
+    # is unchanged, and it is the same expression, not a second copy.
+    derived_names = set(RULE_DERIVED_RULING_FOR_SCENE.values())
+    hand_written = [name for name in covering if name not in derived_names]
     return sorted(
-        covering,
+        hand_written or covering,
         key=lambda name: (
             len(WIDENING_RULINGS[name]), ruling_registered_at(name), name),
     )[0]

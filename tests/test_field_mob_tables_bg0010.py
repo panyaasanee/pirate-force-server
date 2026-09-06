@@ -279,8 +279,17 @@ class Bg0010ShapeTests(unittest.TestCase):
         may authorise a Bg0010 template, and this scene's own ruling may not
         reach a body standing in another scene.
         """
+        # ROUND 0wef26: this scene's own derived permit is skipped for the
+        # same reason RULING_NAME is -- both are THIS scene's permits, and
+        # the hazard measured here is another SCENE's ruling reaching a
+        # Bg0010 body.  The derived permit is tied to Bg0010 in
+        # WIDENING_RULING_SCENES, which the impostor half below drives.
+        own_permits = (
+            RULING_NAME,
+            mob_death.RULE_DERIVED_RULING_FOR_SCENE[EXPECTED_SCENE],
+        )
         for name, templates in mob_death.WIDENING_RULINGS.items():
-            if name == RULING_NAME:
+            if name in own_permits:
                 continue
             overlap = EXPECTED_TEMPLATES & set(templates)
             self.assertFalse(
