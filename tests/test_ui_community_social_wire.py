@@ -735,5 +735,188 @@ class WriteBlankPenpalLetterWireTests(unittest.TestCase):
         )
 
 
+class AllWstringFieldsCarryTag0x48Tests(unittest.TestCase):
+    """Every wstring field of every class in this module must carry the
+    ``0x48`` tag byte -- table-driven so a class added later without an
+    entry here is visible as a missing row, not as silent coverage.
+
+    Why this exists at all (pf-adversary, round `on8hbb`): a round-trip
+    test alone cannot catch a silent revert to
+    ``ui_social_wire.encode_untagged_wstring``/``read_untagged_wstring``.
+    That pair simply omits this byte, so encode and decode stay
+    self-consistent and every round-trip, truncation and trailing-byte
+    test in this file still passes while the bytes on the wire are wrong
+    for a real client. Proven by reverting the calls in a scratch copy of
+    the module: the rest of this file stayed green.
+
+    Round `on8hbb` covered the first three migrated classes with one
+    per-class method each (those three methods are kept above, unchanged);
+    round `d1b231` migrated the remaining ten and generalised that shape
+    into this table so that EVERY wstring field of EVERY class is checked
+    -- the per-class methods only ever checked the first wstring, so
+    ``ChangeActorPersonalData``'s second and third wstrings, and the
+    second wstring of ``OpenLetterInABottle``/``OpenPenpalLetter``/
+    ``ThrowPenpalLetter``, had no byte-level cover before this round.
+
+    Offsets are written out by hand from the tag legend, NOT computed
+    from the module under test (deriving them with the same helpers the
+    code uses would make the test agree with any mutation of them):
+    ``u64tag`` = 1 + 8 bytes, ``u32tag`` = 1 + 4, a bare u8 field = 1 + 1,
+    ``wstring_tag`` = 1 + 4 + 2*len(s), so the two-character ``"ab"``
+    used everywhere below is 9 bytes wide.
+    """
+
+    # (label, encode, decode, fields, expected offsets of each 0x48 byte)
+    CASES = (
+        (
+            "ChangeActorComment",
+            comm.encode_change_actor_comment_payload,
+            comm.decode_change_actor_comment_payload,
+            lambda: comm.ChangeActorCommentFields(1, "ab", 2),
+            (9,),
+        ),
+        (
+            "ChangeActorPenName",
+            comm.encode_change_actor_pen_name_payload,
+            comm.decode_change_actor_pen_name_payload,
+            lambda: comm.ChangeActorPenNameFields(1, "ab", 2),
+            (9,),
+        ),
+        (
+            "ChangeActorPersonalData",
+            comm.encode_change_actor_personal_data_payload,
+            comm.decode_change_actor_personal_data_payload,
+            lambda: comm.ChangeActorPersonalDataFields(1, "ab", "ab", "ab", 2),
+            (9, 18, 27),
+        ),
+        (
+            "CommunityPropertyChanged",
+            comm.encode_community_property_changed_payload,
+            comm.decode_community_property_changed_payload,
+            lambda: comm.CommunityPropertyChangedFields(1, 2, 3, 4, "ab"),
+            (25,),
+        ),
+        (
+            "OpenLetterInABottle",
+            comm.encode_open_letter_in_a_bottle_payload,
+            comm.decode_open_letter_in_a_bottle_payload,
+            lambda: comm.OpenLetterInABottleFields(1, 2, 3, "ab", "ab", 4, 5),
+            (20, 29),
+        ),
+        (
+            "OpenPenpalLetter",
+            comm.encode_open_penpal_letter_payload,
+            comm.decode_open_penpal_letter_payload,
+            lambda: comm.OpenPenpalLetterFields(1, 2, 3, "ab", "ab", 4),
+            (20, 29),
+        ),
+        (
+            "RemoveBlackList",
+            comm.encode_remove_black_list_payload,
+            comm.decode_remove_black_list_payload,
+            lambda: comm.RemoveBlackListFields(1, "ab", 2),
+            (9,),
+        ),
+        (
+            "RequestorConfirmSoulMateMatch",
+            comm.encode_requestor_confirm_soul_mate_match_payload,
+            comm.decode_requestor_confirm_soul_mate_match_payload,
+            lambda: comm.RequestorConfirmSoulMateMatchFields(1, "ab", 2, 3),
+            (9,),
+        ),
+        (
+            "SetReceiveActiveChange",
+            comm.encode_set_receive_active_change_payload,
+            comm.decode_set_receive_active_change_payload,
+            lambda: comm.SetReceiveActiveChangeFields(1, "ab", 2, 3),
+            (9,),
+        ),
+        (
+            "TargetConfirmSoulMateMatch",
+            comm.encode_target_confirm_soul_mate_match_payload,
+            comm.decode_target_confirm_soul_mate_match_payload,
+            lambda: comm.TargetConfirmSoulMateMatchFields(1, "ab", 2),
+            (9,),
+        ),
+        (
+            "ThrowLetterInABottle",
+            comm.encode_throw_letter_in_a_bottle_payload,
+            comm.decode_throw_letter_in_a_bottle_payload,
+            lambda: comm.ThrowLetterInABottleFields(1, "ab", 2),
+            (9,),
+        ),
+        (
+            "ThrowPenpalLetter",
+            comm.encode_throw_penpal_letter_payload,
+            comm.decode_throw_penpal_letter_payload,
+            lambda: comm.ThrowPenpalLetterFields(1, 2, "ab", "ab", 3),
+            (18, 27),
+        ),
+        (
+            "WriteBlankPenpalLetter",
+            comm.encode_write_blank_penpal_letter_payload,
+            comm.decode_write_blank_penpal_letter_payload,
+            lambda: comm.WriteBlankPenpalLetterFields(1, 2, "ab", 3),
+            (18,),
+        ),
+    )
+
+    def test_every_wstring_field_has_the_tag_byte(self):
+        for label, encode, _decode, make, offsets in self.CASES:
+            with self.subTest(cls=label):
+                payload = encode(make())
+                for offset in offsets:
+                    self.assertEqual(
+                        payload[offset], 0x48,
+                        f"{label}: expected the 0x48 wstring tag at byte "
+                        f"{offset}, found {payload[offset]:#04x}",
+                    )
+
+    def test_corrupting_any_wstring_tag_byte_fails_closed(self):
+        for label, encode, decode, make, offsets in self.CASES:
+            for offset in offsets:
+                with self.subTest(cls=label, offset=offset):
+                    payload = encode(make())
+                    corrupted = (
+                        payload[:offset] + bytes([0x00]) + payload[offset + 1:]
+                    )
+                    self.assertIsNone(
+                        decode(corrupted),
+                        f"{label}: decode accepted a payload whose wstring "
+                        f"tag byte at {offset} was zeroed",
+                    )
+
+    def test_table_covers_every_wstring_carrying_class_in_the_module(self):
+        # Guards the table itself: a class added or renamed later without
+        # a row above would otherwise be silently uncovered.
+        from dataclasses import fields as dataclass_fields
+
+        covered = {label for label, _e, _d, _m, _o in self.CASES}
+        expected = {}
+        for name in dir(comm):
+            if not name.endswith("Fields"):
+                continue
+            obj = getattr(comm, name)
+            if not isinstance(obj, type):
+                continue
+            wstring_count = sum(
+                1 for f in dataclass_fields(obj) if f.name.endswith("_wstring")
+            )
+            if wstring_count:
+                expected[name[: -len("Fields")]] = wstring_count
+        self.assertEqual(
+            covered, set(expected),
+            "table above is out of sync with the module's wstring-carrying "
+            "classes",
+        )
+        for label, _e, _d, _m, offsets in self.CASES:
+            with self.subTest(cls=label):
+                self.assertEqual(
+                    len(offsets), expected[label],
+                    f"{label} has {expected[label]} wstring field(s) but "
+                    f"{len(offsets)} offset(s) are checked",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

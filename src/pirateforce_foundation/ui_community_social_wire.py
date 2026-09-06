@@ -93,6 +93,29 @@ last field only, distinct from the ``0x0B`` u8 flavour every other field
 in this module uses) is already documented in that legend
 (``FINDINGS_R38_0x1B40_DECODED_LOGOUTVITAL.md``).
 
+WSTRING TAG MIGRATION COMPLETE (round `d1b231`). Every wstring field in
+every class here now encodes/decodes through ``ui_social_wire.wstring_tag``/
+``read_wstring_tag`` (tag byte ``0x48``), never the proven-wrong
+``encode_untagged_wstring``/``read_untagged_wstring`` pair -- see that pair's
+docstring for the measurement that proved it wrong. Rounds `on8hbb` (3
+classes) and `d1b231` (the remaining 10: ``ChangeActorPersonalData``,
+``CommunityPropertyChanged``, ``OpenLetterInABottle``, ``OpenPenpalLetter``,
+``RequestorConfirmSoulMateMatch``, ``SetReceiveActiveChange``,
+``TargetConfirmSoulMateMatch``, ``ThrowLetterInABottle``,
+``ThrowPenpalLetter``, ``WriteBlankPenpalLetter``) did the work. Each of the
+16 W/R field pairs migrated in round `d1b231` was checked individually
+against ``pf_bridge/notes_to_chief/reference_codex_attr/
+PF_A2_STRING_WIRE_TAG_DELTA.tsv`` first: every one carries a
+``corrected_tag=0x48`` row for BOTH directions (grepped by class name; no
+field was migrated on pattern-similarity alone). Note that
+``external/PF_SERIALIZER_FIELDS.tsv`` still spells these rows
+``UNTAGGED_WSTRING16LE_LEN32LE`` -- the delta table above is the correction
+to that table, not a contradiction of it. This module was the LAST of the
+six affected modules still calling the untagged pair; with it migrated, no
+module under ``src/pirateforce_foundation/`` calls that pair any more (the
+functions themselves are kept in ``ui_social_wire.py`` only as the
+documented record of the bug).
+
 Same scope line as every sibling module in this batch (``CORE-REQUEST
 1120``'s own words): "รับเฟรม (decode) + ตอบ ack/error frame ที่วางเปล่า ...
 ไม่ใช่การทำ business logic เต็ม". Not wired into ``runtime.py`` or
@@ -198,7 +221,11 @@ class ChangeActorPenNameFields:
 class ChangeActorPersonalDataFields:
     """Wire order: u64, wstring, wstring, wstring, u8(tag 0x08) --
     identical shape for W and R. The last field uses the alternate u8 tag
-    (``0x08``), not ``0x0B`` like every other field in this module."""
+    (``0x08``), not ``0x0B`` like every other field in this module.
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_wstring: str
@@ -218,7 +245,11 @@ class CommunityCommandNotAllowFields:
 @dataclass(frozen=True)
 class CommunityPropertyChangedFields:
     """Wire order: u64, u64, u8, u32, wstring -- identical shape for W
-    and R."""
+    and R.
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_u64: int
@@ -230,7 +261,11 @@ class CommunityPropertyChangedFields:
 @dataclass(frozen=True)
 class OpenLetterInABottleFields:
     """Wire order: u64, u64, u8, wstring, wstring, u8, u32 -- identical
-    shape for W and R."""
+    shape for W and R.
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_u64: int
@@ -244,7 +279,11 @@ class OpenLetterInABottleFields:
 @dataclass(frozen=True)
 class OpenPenpalLetterFields:
     """Wire order: u64, u64, u8, wstring, wstring, u32 -- identical shape
-    for W and R."""
+    for W and R.
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_u64: int
@@ -278,7 +317,11 @@ class ReplyLetterInABottleFields:
 
 @dataclass(frozen=True)
 class RequestorConfirmSoulMateMatchFields:
-    """Wire order: u64, wstring, u8, u8 -- identical shape for W and R."""
+    """Wire order: u64, wstring, u8, u8 -- identical shape for W and R.
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_wstring: str
@@ -290,7 +333,11 @@ class RequestorConfirmSoulMateMatchFields:
 class SetReceiveActiveChangeFields:
     """Wire order: u64, wstring, u8, u8 -- identical shape for W and R
     (same shape as ``RequestorConfirmSoulMateMatchFields`` -- see module
-    docstring's shared-shape note; kept as a distinct class/id)."""
+    docstring's shared-shape note; kept as a distinct class/id).
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_wstring: str
@@ -302,7 +349,11 @@ class SetReceiveActiveChangeFields:
 class TargetConfirmSoulMateMatchFields:
     """Wire order: u64, wstring, u8 -- identical shape for W and R (same
     shape as ``ChangeActorCommentFields`` -- see module docstring's
-    shared-shape note; kept as a distinct class/id)."""
+    shared-shape note; kept as a distinct class/id).
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_wstring: str
@@ -313,7 +364,11 @@ class TargetConfirmSoulMateMatchFields:
 class ThrowLetterInABottleFields:
     """Wire order: u64, wstring, u8 -- identical shape for W and R (same
     shape as ``ChangeActorCommentFields`` -- see module docstring's
-    shared-shape note; kept as a distinct class/id)."""
+    shared-shape note; kept as a distinct class/id).
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_wstring: str
@@ -323,7 +378,11 @@ class ThrowLetterInABottleFields:
 @dataclass(frozen=True)
 class ThrowPenpalLetterFields:
     """Wire order: u64, u64, wstring, wstring, u8 -- identical shape for
-    W and R."""
+    W and R.
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_u64: int
@@ -346,7 +405,11 @@ class UseBlankPenpalLetterFields:
 @dataclass(frozen=True)
 class WriteBlankPenpalLetterFields:
     """Wire order: u64, u64, wstring, u8 -- identical shape for W and
-    R."""
+    R.
+
+    Every ``wstring`` below is a TAGGED wstring (tag ``0x48``): this class was
+    migrated off ``encode_untagged_wstring``/``read_untagged_wstring`` in LANE-UI
+    round `d1b231` (see the module docstring's migration note)."""
 
     field1_u64: int
     field2_u64: int
@@ -405,9 +468,9 @@ def encode_change_actor_personal_data_payload(
 ) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
-    out += wire.encode_untagged_wstring(fields.field3_wstring)
-    out += wire.encode_untagged_wstring(fields.field4_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field3_wstring)
+    out += wire.wstring_tag(fields.field4_wstring)
     out += bytes([_TAG_U8_ALT, fields.field5_u8 & 0xFF])
     return bytes(out)
 
@@ -417,9 +480,9 @@ def decode_change_actor_personal_data_payload(
 ) -> ChangeActorPersonalDataFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
-        f3, offset = wire.read_untagged_wstring(payload, offset)
-        f4, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
+        f3, offset = wire.read_wstring_tag(payload, offset)
+        f4, offset = wire.read_wstring_tag(payload, offset)
         f5, offset = wire.read_u8tag(payload, offset, _TAG_U8_ALT)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
@@ -452,7 +515,7 @@ def encode_community_property_changed_payload(
     out += wire.u64tag(_TAG_U64, fields.field2_u64)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
     out += wire.u32tag(_TAG_U32, fields.field4_u32)
-    out += wire.encode_untagged_wstring(fields.field5_wstring)
+    out += wire.wstring_tag(fields.field5_wstring)
     return bytes(out)
 
 
@@ -464,7 +527,7 @@ def decode_community_property_changed_payload(
         f2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         f4, offset = wire.read_u32tag(payload, offset, _TAG_U32)
-        f5, offset = wire.read_untagged_wstring(payload, offset)
+        f5, offset = wire.read_wstring_tag(payload, offset)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
@@ -478,8 +541,8 @@ def encode_open_letter_in_a_bottle_payload(
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
     out += wire.u64tag(_TAG_U64, fields.field2_u64)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
-    out += wire.encode_untagged_wstring(fields.field4_wstring)
-    out += wire.encode_untagged_wstring(fields.field5_wstring)
+    out += wire.wstring_tag(fields.field4_wstring)
+    out += wire.wstring_tag(fields.field5_wstring)
     out += bytes([_TAG_U8, fields.field6_u8 & 0xFF])
     out += wire.u32tag(_TAG_U32, fields.field7_u32)
     return bytes(out)
@@ -492,8 +555,8 @@ def decode_open_letter_in_a_bottle_payload(
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         f2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
-        f4, offset = wire.read_untagged_wstring(payload, offset)
-        f5, offset = wire.read_untagged_wstring(payload, offset)
+        f4, offset = wire.read_wstring_tag(payload, offset)
+        f5, offset = wire.read_wstring_tag(payload, offset)
         f6, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         f7, offset = wire.read_u32tag(payload, offset, _TAG_U32)
         wire.require_exhausted(payload, offset)
@@ -509,8 +572,8 @@ def encode_open_penpal_letter_payload(
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
     out += wire.u64tag(_TAG_U64, fields.field2_u64)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
-    out += wire.encode_untagged_wstring(fields.field4_wstring)
-    out += wire.encode_untagged_wstring(fields.field5_wstring)
+    out += wire.wstring_tag(fields.field4_wstring)
+    out += wire.wstring_tag(fields.field5_wstring)
     out += wire.u32tag(_TAG_U32, fields.field6_u32)
     return bytes(out)
 
@@ -522,8 +585,8 @@ def decode_open_penpal_letter_payload(
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         f2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
-        f4, offset = wire.read_untagged_wstring(payload, offset)
-        f5, offset = wire.read_untagged_wstring(payload, offset)
+        f4, offset = wire.read_wstring_tag(payload, offset)
+        f5, offset = wire.read_wstring_tag(payload, offset)
         f6, offset = wire.read_u32tag(payload, offset, _TAG_U32)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
@@ -582,7 +645,7 @@ def encode_requestor_confirm_soul_mate_match_payload(
 ) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
     out += bytes([_TAG_U8, fields.field4_u8 & 0xFF])
     return bytes(out)
@@ -593,7 +656,7 @@ def decode_requestor_confirm_soul_mate_match_payload(
 ) -> RequestorConfirmSoulMateMatchFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         f4, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
@@ -607,7 +670,7 @@ def encode_set_receive_active_change_payload(
 ) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
     out += bytes([_TAG_U8, fields.field4_u8 & 0xFF])
     return bytes(out)
@@ -618,7 +681,7 @@ def decode_set_receive_active_change_payload(
 ) -> SetReceiveActiveChangeFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         f4, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
@@ -632,7 +695,7 @@ def encode_target_confirm_soul_mate_match_payload(
 ) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
     return bytes(out)
 
@@ -642,7 +705,7 @@ def decode_target_confirm_soul_mate_match_payload(
 ) -> TargetConfirmSoulMateMatchFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
@@ -655,7 +718,7 @@ def encode_throw_letter_in_a_bottle_payload(
 ) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
     return bytes(out)
 
@@ -665,7 +728,7 @@ def decode_throw_letter_in_a_bottle_payload(
 ) -> ThrowLetterInABottleFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
@@ -679,8 +742,8 @@ def encode_throw_penpal_letter_payload(
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
     out += wire.u64tag(_TAG_U64, fields.field2_u64)
-    out += wire.encode_untagged_wstring(fields.field3_wstring)
-    out += wire.encode_untagged_wstring(fields.field4_wstring)
+    out += wire.wstring_tag(fields.field3_wstring)
+    out += wire.wstring_tag(fields.field4_wstring)
     out += bytes([_TAG_U8, fields.field5_u8 & 0xFF])
     return bytes(out)
 
@@ -691,8 +754,8 @@ def decode_throw_penpal_letter_payload(
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         f2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
-        f3, offset = wire.read_untagged_wstring(payload, offset)
-        f4, offset = wire.read_untagged_wstring(payload, offset)
+        f3, offset = wire.read_wstring_tag(payload, offset)
+        f4, offset = wire.read_wstring_tag(payload, offset)
         f5, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
@@ -729,7 +792,7 @@ def encode_write_blank_penpal_letter_payload(
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
     out += wire.u64tag(_TAG_U64, fields.field2_u64)
-    out += wire.encode_untagged_wstring(fields.field3_wstring)
+    out += wire.wstring_tag(fields.field3_wstring)
     out += bytes([_TAG_U8, fields.field4_u8 & 0xFF])
     return bytes(out)
 
@@ -740,7 +803,7 @@ def decode_write_blank_penpal_letter_payload(
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         f2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
-        f3, offset = wire.read_untagged_wstring(payload, offset)
+        f3, offset = wire.read_wstring_tag(payload, offset)
         f4, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:

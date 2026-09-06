@@ -48,6 +48,16 @@ synthetic source strings, so a future edit that reintroduces either
 regex-style shortcut fails those tests directly, not just by luck of
 which import/alias shape a later round happens to pick.
 
+UPDATE (round `d1b231`): ``ui_community_social_wire.py`` -- the last of the
+six affected modules -- is now migrated too, so no module in the package
+calls the untagged pair any more. The per-module "still unmigrated today"
+pin that kept the wiring check honest was therefore replaced by a repo-wide
+invariant (``NoFoundationModuleCallsTheUntaggedPairTests``): no file under
+``src/pirateforce_foundation/`` except ``ui_social_wire.py`` itself (which
+defines the pair) may call it, and a synthetic witness proves the detector
+still returns True for the offending shape. The wiring check below is
+unchanged and still live for both modules.
+
 What this guards, and what it does not
 ---------------------------------------
 Parses `runtime.py`'s AST for any import of either guarded module --
@@ -95,14 +105,23 @@ sys.path.insert(0, str(ROOT / "src"))
 
 FOUNDATION_DIR = ROOT / "src" / "pirateforce_foundation"
 
-_GUARDED_MODULES = ("ui_community_social_wire",)
-# ``ui_express_wire`` migrated off the untagged pair in LANE-UI round
-# `me7s4u` (see that module's docstring) -- dropped from this tuple per
-# `test_guarded_modules_still_use_the_untagged_pair_today`'s own
-# instruction ("update this test's expectations alongside whatever round
-# migrated it"). Only ``ui_community_social_wire`` is still unmigrated and
-# still needs this guard.
+# Modules that ``COO-DECISION 20260906_1649``/``1745`` still forbid wiring
+# into ``runtime.py``. Both are migrated now (``ui_express_wire`` in round
+# `me7s4u`, ``ui_community_social_wire`` in rounds `on8hbb`+`d1b231`), so the
+# migration half of this guard no longer has a live subject -- see
+# ``NoFoundationModuleCallsTheUntaggedPairTests`` below, which replaced the
+# per-module "is it still unmigrated today" pin with a repo-wide invariant
+# once the last unmigrated module was fixed, exactly as
+# ``test_guarded_modules_still_use_the_untagged_pair_today`` instructed
+# ("update this test's expectations alongside whatever round migrated it").
+# The wiring half stays live: it still fails the moment either module is
+# imported by ``runtime.py``.
+_GUARDED_MODULES = ("ui_community_social_wire", "ui_express_wire")
 _UNTAGGED_PAIR_NAMES = ("encode_untagged_wstring", "read_untagged_wstring")
+# ``ui_social_wire.py`` DEFINES the untagged pair (kept as the documented
+# record of the bug), so it is the one file the repo-wide invariant below
+# cannot apply to.
+_UNTAGGED_PAIR_OWNER = "ui_social_wire.py"
 
 
 def _module_is_imported(source: str, module_name: str) -> bool:
@@ -235,24 +254,62 @@ class ExpressCommunitySocialMigrationGuardTests(unittest.TestCase):
                     "before wiring it, per COO-DECISION 20260906_1649.",
                 )
 
-    def test_guarded_modules_still_use_the_untagged_pair_today(self):
-        # Sanity check on the guard itself: if either module had already
-        # migrated on its own (nothing forbids fixing it early), the
-        # previous test would pass trivially and look like it is guarding
-        # something it is not. This pins today's actual state so a mutant
-        # that always passes gets caught.
-        for module_name in _GUARDED_MODULES:
-            with self.subTest(module=module_name):
-                module_source = (
-                    FOUNDATION_DIR / f"{module_name}.py"
-                ).read_text(encoding="utf-8")
-                self.assertTrue(
-                    _module_calls_untagged_pair(module_source),
-                    f"{module_name} no longer calls the untagged pair -- "
-                    "update this test's expectations alongside whatever "
-                    "round migrated it.",
-                )
 
+
+class NoFoundationModuleCallsTheUntaggedPairTests(unittest.TestCase):
+    """Repo-wide replacement for the old per-module
+    ``test_guarded_modules_still_use_the_untagged_pair_today`` pin.
+
+    That test asserted the OPPOSITE of what this one does: while any module
+    was still unmigrated it pinned "yes, it still calls the pair", so that
+    ``test_wiring_before_migration_is_caught`` could not pass trivially.
+    Round `d1b231` migrated ``ui_community_social_wire.py``, the last of the
+    six affected modules, which made that pin fail by design -- its own
+    message says to update it alongside the migrating round. Pinning "no
+    module calls the pair" from here on is strictly stronger than pinning it
+    for a hand-maintained tuple: a NEW module written against the wrong
+    helper is caught the moment it lands, without anyone remembering to add
+    it to a list.
+    """
+
+    def test_no_module_calls_the_untagged_pair(self):
+        checked = 0
+        for path in sorted(FOUNDATION_DIR.glob("*.py")):
+            if path.name == _UNTAGGED_PAIR_OWNER:
+                continue
+            checked += 1
+            with self.subTest(module=path.name):
+                self.assertFalse(
+                    _module_calls_untagged_pair(
+                        path.read_text(encoding="utf-8")
+                    ),
+                    f"{path.name} calls ui_social_wire."
+                    "encode_untagged_wstring/read_untagged_wstring, which is "
+                    "proven wrong (tag byte 0x48 missing -- see that pair's "
+                    "docstring). Use wire.wstring_tag/wire.read_wstring_tag "
+                    "instead. If this is a deliberate exception, it needs a "
+                    "COO decision, not a silent edit to this test.",
+                )
+        # Guards this test against becoming vacuous if FOUNDATION_DIR is
+        # ever wrong or empty: it only means anything while it is actually
+        # reading modules.
+        self.assertGreater(checked, 50, "expected to scan the whole package")
+
+    def test_the_detector_is_not_stuck_on_false(self):
+        # Companion to the above: the invariant is only worth anything if
+        # the detector would still say True for a real offending module.
+        # Rebuild one from the exact shape the migrated modules used to
+        # have (an in-repo file cannot serve as this witness any more --
+        # that is the point of the test above).
+        source = textwrap.dedent(
+            """
+            from . import ui_social_wire as wire
+
+            def encode(fields):
+                return wire.encode_untagged_wstring(fields.field2_wstring)
+            """
+        )
+        self.assertTrue(_module_calls_untagged_pair(source))
 
 class ImportDetectionTests(unittest.TestCase):
     """Regression coverage for pf-adversary defect 1 (round `u3pzcz`): a
