@@ -739,8 +739,20 @@ class ActorIdentitiesFromFieldMobRegistryTests(unittest.TestCase):
         # a MINED scene is now measured to answer its real roster.  Letter:
         # `notes_to_chief/20260905_1031_LANE-B-TO-LANE-A-scene-4-now-has-a-
         # combat-roster-your-guard-fired-as-designed.md`.
-        self.assertIsNone(field_mobs.scene_for_scene_id(OCEAN_WALLED_CITY))
-        result = self._compose(OCEAN_WALLED_CITY)
+        #
+        # [CROSS-LANE EDIT BY LANE-B, ROUND 4tnhzw - LANE-A MAY REVERT OR
+        # REPLACE] ~~OCEAN_WALLED_CITY~~ -> DEEP_SEA_TEMPLE, for the same
+        # reason this comment already describes twice: scene 6 is mined as
+        # of THIS round too (COO-DECISION 2026-09-06T07:48+07:00), so it
+        # stopped being an example of a scene that is not.  DEEP_SEA_TEMPLE
+        # (scene 10, bg0010) is the replacement, and it is not a convenient
+        # pick -- it is the one scene this same round's own mining attempt
+        # refused on: a raw placements row carries the literal string
+        # 'UNRESOLVED' where a template id belongs (this round's STATIC
+        # ticket to chief), so it stays genuinely unmined rather than merely
+        # unattempted.
+        self.assertIsNone(field_mobs.scene_for_scene_id(DEEP_SEA_TEMPLE))
+        result = self._compose(DEEP_SEA_TEMPLE)
         self.assertEqual(result.actor_identities, ())
         # And the other direction, which is what changed this round: scene 4
         # IS mined now, and answers its own seven rows rather than ().
@@ -814,7 +826,10 @@ class ActorIdentitiesFromFieldMobRegistryTests(unittest.TestCase):
         # OCEAN_WALLED_CITY, for the same reason as the test above: scene 4
         # is mined as of this round and is no longer an example of a scene
         # that is not.
-        ordinary = self._compose(OCEAN_WALLED_CITY)
+        # [CROSS-LANE EDIT BY LANE-B, ROUND 4tnhzw] ~~OCEAN_WALLED_CITY~~ ->
+        # DEEP_SEA_TEMPLE, for the same reason the test above just moved:
+        # scene 6 is mined as of this round too.
+        ordinary = self._compose(DEEP_SEA_TEMPLE)
         self.assertEqual(ordinary.actor_identities, ())
         self.assertFalse(any(
             line.startswith("WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE ")
