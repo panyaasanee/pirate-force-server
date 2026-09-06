@@ -5249,6 +5249,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # name); passing them conditionally keeps a
                         # scene-2 recompose composable in a session that
                         # committed them at a scene-1 arrival earlier.
+                        # CORE-REQUEST-GM-061 (R365 addendum): pf-adversary
+                        # found this exact call site erases the viewer-link
+                        # bit the arrival wiring just set, since it composed
+                        # with viewer_identity=None by omission -- same idiom
+                        # as the arrival call sites (mob_census_hostility
+                        # .hostile_override_for_scene_id), guarded the same
+                        # way: ``self.foundation.selected`` is not None here
+                        # because ``census_scene_id`` above already read
+                        # through it to reach this branch.
+                        viewer_identity = (
+                            (self.foundation.selected.identity_hi
+                             & 0xFFFFFFFF) << 32
+                            | (self.foundation.selected.identity_lo
+                               & 0xFFFFFFFF)
+                        )
                         recompose_record = (
                             mob_scene_recompose.recompose_frames(
                                 legacy, anchor_record,
@@ -5260,6 +5275,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                     if anchor_record.scene_id
                                     == world_population.SCENE_ID else ()
                                 ),
+                                viewer_identity=viewer_identity,
                             )
                         )
                         # The lane's wiring ask, point (3): the module's
@@ -5449,9 +5465,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self.events.append(dispatch.event)
                     if dispatch.step is not None:
                         try:
-                            self.mob_death_register = mob_death.commit_death(
-                                self.mob_death_register, dispatch.step,
+                            # LANE-B letter 20260906_0014 (D11, round
+                            # 2zybdx/dggvou): write the register back BEFORE
+                            # firing the hook, not after, so a subscriber
+                            # reading self.mob_death_register during the fire
+                            # sees THIS kill already recorded.
+                            new_register, pending = (
+                                mob_death.commit_death_and_prepare_hook(
+                                    self.mob_death_register, dispatch.step,
+                                )
                             )
+                            self.mob_death_register = new_register
+                            mob_death.fire_mob_death_hook(pending)
                         except mob_death.MobDeathContractError as error:
                             # Same per-session caveat as the ledger/register
                             # retries below: not reachable today.  Refuse by
@@ -5509,9 +5534,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             )
                             break
                         try:
-                            self.mob_death_register = mob_death.commit_death(
-                                self.mob_death_register, candidate,
+                            # LANE-B letter 20260906_0014 (D11, round
+                            # 2zybdx/dggvou): same reordering as the diag
+                            # branch above -- write back before firing.
+                            new_register, pending = (
+                                mob_death.commit_death_and_prepare_hook(
+                                    self.mob_death_register, candidate,
+                                )
                             )
+                            self.mob_death_register = new_register
+                            mob_death.fire_mob_death_hook(pending)
                         except mob_death.MobDeathContractError as error:
                             if error.reason == mob_death.REFUSE_REGISTER_STALE:
                                 # Same per-session caveat as the ledger retry
@@ -5646,6 +5678,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             death_step.record.scene,
                             death_step.record.actor_identity,
                         )
+                        # CORE-REQUEST-GM-061 (R365 addendum): same fix and
+                        # same guard as the MOB_COMBAT_BAR recompose above --
+                        # ``self.foundation.selected`` is not None here
+                        # because ``census_scene_id`` above already read
+                        # through it to reach this branch.
+                        death_viewer_identity = (
+                            (self.foundation.selected.identity_hi
+                             & 0xFFFFFFFF) << 32
+                            | (self.foundation.selected.identity_lo
+                               & 0xFFFFFFFF)
+                        )
                         recompose_dying = (
                             mob_scene_recompose.recompose_frames(
                                 legacy, anchor_record,
@@ -5655,6 +5698,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 dead_timer=mob_death.DYING_TIMER_SECONDS,
                                 objects=death_objects,
                                 transitioning=death_transitioning,
+                                viewer_identity=death_viewer_identity,
                             )
                         )
                         recompose_dead = (
@@ -5665,6 +5709,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 roster=roster,
                                 objects=death_objects,
                                 transitioning=death_transitioning,
+                                viewer_identity=death_viewer_identity,
                             )
                         )
                         # Point (3) of the wiring ask: the module's line
