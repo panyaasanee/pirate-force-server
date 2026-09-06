@@ -1,4 +1,11 @@
-"""Capture sink for GM_RunGMCommandVital (client->server, vital id 0x51E9).
+"""Capture sink for the inbound GM-surface vitals this lane authorizes.
+
+TWO OPCODES SINCE ROUND `eu2g1d`, not one: GM_RunGMCommandVital (0x51E9)
+and Activity_CheatCodeVital (0x6CEC).  Everything the rest of this
+docstring says about the 0x51E9 sink holds for both -- they share one
+`_capture_raw` and differ only in the opcode in the filename, the header
+line, the pin block and which decoder writes the `# decode:` section.
+The original text, written when there was one:
 
 This module guarantees a lossless copy of every raw send lands on disk --
 that guarantee does not change below.  RE-088 (STRUCTURAL-LAYOUT-PINNED,
@@ -157,8 +164,12 @@ _GM_RUN_COMMAND_PIN_LINES = (
     "# see docs/GM_LANE.md GM-002 / RE request queue\n"
 )
 _ACTIVITY_CHEAT_CODE_PIN_LINES = (
-    "# PF_SERIALIZER_FIELDS.tsv rows 4345-4356 (+ PF_A2_STRING_WIRE_TAG_DELTA\n"
-    "# rows 4347-4356): structural layout PINNED, field semantics NOT proven --\n"
+    "# PF_SERIALIZER_FIELDS.tsv rows 4345-4356 sha256 ba19699b0ff750e75abd\n"
+    "# 226eb3ae25e356f487e4fc325ec6512335dfbf7d3205, tags corrected by\n"
+    "# PF_A2_STRING_WIRE_TAG_DELTA.tsv base_rows 4347-4356 (that file's own\n"
+    "# base_row_number column, NOT its line numbers -- it is 409 lines long)\n"
+    "# sha256 e1f4f987c31f53d4dd87845aab01857c8415a8dbcd750af12df9c4cde208b3a2:\n"
+    "# structural layout PINNED, field semantics NOT proven --\n"
     "# see gm/activity_cheat_code_wire.py\n"
 )
 
@@ -337,12 +348,19 @@ def capture_raw_activity_cheat_code(
     WHY A SECOND INBOUND VITAL LANDS IN THE SAME FOLDER.  The capture bus
     exists to answer one question a GMUI button press asks -- "what did the
     client just send?" -- and it can only answer it for opcodes it is
-    called for.  Until this function existed, a button that sends 0x6CEC
-    rather than 0x51E9 left the folder empty, which reads on a test result
-    sheet exactly like "the client sent nothing at all".  The two answers
-    are opposite and an attended round cannot tell them apart after the
-    fact, so the file name carries the opcode (`..._0x6CEC.txt`) and both
-    opcodes share one folder rather than one opcode owning it.
+    called for.  A button that sends 0x6CEC rather than 0x51E9 leaves the
+    folder empty, which reads on a test result sheet exactly like "those
+    buttons send nothing" -- and the two answers are opposite.  So the file
+    name carries the opcode (`..._0x6CEC.txt`) and both opcodes share one
+    folder rather than one opcode owning it.
+
+    WHAT THIS DOES NOT YET DO, said here because the first draft of this
+    docstring said the opposite (pf-adversary, round `eu2g1d`, D3): NOTHING
+    CALLS IT ON A REAL FRAME.  `gm.dispatch.handle_activity_cheat_code_
+    vital` is its only caller and that handler has no `runtime.py` call
+    site, so today this function runs in tests and nowhere else.  The
+    ambiguity above is closed when chief wires CORE-REQUEST-GM-062, not
+    when this function merges.
 
     Same contract as ``capture_raw_gm_command`` in every other respect:
     ``raw`` is the payload slice after the runtime-vital envelope, the

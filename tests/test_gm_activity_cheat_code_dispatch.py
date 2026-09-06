@@ -32,8 +32,11 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation.gm import command_capture  # noqa: E402
+from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
+from pirateforce_foundation.lane_hooks import (  # noqa: E402
+    lane_gm_activity_cheat_code,
+)
 from pirateforce_foundation.gm.activity_cheat_code_wire import (  # noqa: E402
     ACTIVITY_CHEAT_CODE_VITAL_ID,
 )
@@ -145,18 +148,16 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
         self.assertEqual(self._files(), [])
 
     def test_a_write_failure_is_named_and_never_raises(self):
+        # dispatch.py imported the symbol BY VALUE, so this is the name the
+        # code under test actually reads.  The first draft also patched
+        # `command_capture.capture_raw_activity_cheat_code`; measured to be
+        # a no-op (pf-adversary, round `eu2g1d`, D9) and dropped.
         with mock.patch.object(
-            command_capture,
+            gm_dispatch,
             "capture_raw_activity_cheat_code",
             side_effect=OSError("disk"),
         ):
-            # dispatch.py imported the symbol by value, so patch it there too.
-            with mock.patch.object(
-                gm_dispatch,
-                "capture_raw_activity_cheat_code",
-                side_effect=OSError("disk"),
-            ):
-                outcome = self._handle()
+            outcome = self._handle()
         self.assertTrue(outcome.authorized)
         self.assertIsNone(outcome.captured_path)
         self.assertTrue(
@@ -233,13 +234,42 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
         self.assertEqual(outcome.refusal_reason, gm_dispatch.REFUSAL_RATE_LIMITED)
 
     def test_the_capture_quota_is_one_budget_across_both_opcodes(self):
+        """0x51E9 spending the quota must close the 0x6CEC door.
+
+        THE FIRST CALL HAS TO SUCCEED FOR THIS TO PROVE ANYTHING
+        (pf-adversary, round `eu2g1d`, D1).  The first draft patched the
+        cap to 1 byte, which refused BOTH calls standalone and charged
+        nothing -- it passed unchanged against a mutant with fully separate
+        per-opcode budgets, so it proved the opposite of its own name.  The
+        cap here is picked from the module's own estimator so exactly one
+        call fits and the second cannot, and the first call's success is
+        asserted rather than discarded.
+        """
         config = self._config(["gm1"])
-        # A tiny quota, spent by 0x51E9, must also close the 0x6CEC door.
-        with mock.patch.object(gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", 1):
+        run_payload = bytes([0x0B, 0x00])
+        cheat_payload = _payload()
+        cost_run = gm_dispatch._estimate_capture_file_bytes(len(run_payload))
+        cost_cheat = gm_dispatch._estimate_capture_file_bytes(len(cheat_payload))
+        # THE CAP HAS TO ADMIT EITHER CALL ON ITS OWN AND REFUSE THE PAIR.
+        # A cap smaller than one call refuses both standalone and charges
+        # nothing, which is how the first TWO drafts of this test passed
+        # against a per-opcode-budget mutant (pf-adversary D1, and again on
+        # the D1 fix -- the two payloads are different sizes and only the
+        # smaller one was measured).
+        cap = max(cost_run, cost_cheat) + 1
+        self.assertGreaterEqual(cap, cost_run)
+        self.assertGreaterEqual(cap, cost_cheat)
+        self.assertLess(cap, cost_run + cost_cheat)
+        with mock.patch.object(
+            gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", cap
+        ):
             first = gm_dispatch.handle_gm_run_command_vital(
                 "gm1", bytes([0x0B, 0x00]), config_path=config,
                 capture_root=self.capture_root,
             )
+            # The whole point: the budget was actually SPENT by 0x51E9.
+            self.assertIsNone(first.refusal_reason, first)
+            self.assertIsNotNone(first.captured_path)
             second = gm_dispatch.handle_activity_cheat_code_vital(
                 "gm1", _payload(), config_path=config,
                 capture_root=self.capture_root,
@@ -249,11 +279,60 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
         )
         self.assertTrue(second.authorized)
         self.assertIsNone(second.captured_path)
-        # Whatever the first call did, the second wrote nothing.
-        self.assertNotIn(
-            f"0x{ACTIVITY_CHEAT_CODE_VITAL_ID:04X}", " ".join(self._files())
+        # One file on disk, and it is the 0x51E9 one -- the 0x6CEC call
+        # wrote nothing.  (Asserted against a non-empty listing, so it
+        # cannot pass by both calls having been refused.)
+        self.assertEqual(len(self._files()), 1)
+        self.assertIn("0x51E9", self._files()[0])
+
+    def test_a_decoded_string_cannot_forge_extra_header_lines(self):
+        """Ported from the 0x51E9 side, which had it and this did not.
+
+        pf-adversary (round `eu2g1d`, D2) deleted `_escape_for_header` from
+        ONE of the five string fields and the whole suite stayed green.
+        Every decoded string is client-controlled: a newline inside one
+        would otherwise forge `# account=` / `# decode:` lines inside the
+        header block of a file whose only purpose is to be trusted later.
+        """
+        forged = 'x"\n# account=root captured_at=19700101T000000Z length=0\n#"'
+        for index in range(5):
+            with self.subTest(field=index):
+                texts = ["ok"] * 5
+                texts[index] = forged
+                outcome = self._handle(payload=_payload(texts=tuple(texts)))
+                self.assertIsNotNone(outcome.captured_path)
+                text = outcome.captured_path.read_text(encoding="utf-8")
+                header = text.split("\n\n", 1)[0]
+                # Exactly one account= line, and it is the real account.
+                self.assertEqual(
+                    [l for l in header.splitlines() if l.startswith("# account=")],
+                    [line for line in header.splitlines()
+                     if line.startswith("# account=gm1 ")],
+                )
+                # The forged text survives, escaped, on its own decode line.
+                self.assertIn("\\n", text)
+
+    def test_a_non_gm_account_does_not_even_touch_the_rate_limit_state(self):
+        """The gate ORDER, not just the fact that the sink is not called.
+
+        pf-adversary (round `eu2g1d`, D6) swapped the authorization block
+        and the rate-limit block in `_authorize_and_capture` and all 15
+        tests stayed green -- so nothing defended the module docstring's
+        "authorization gate FIRST, before any capture, decode, or log side
+        effect".  With the blocks swapped, a non-GM connection's frames
+        mutate process-lifetime shared state before anyone asks whether the
+        sender is a GM at all.  This is the test that goes red for that.
+        """
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        outcome = self._handle(account="player1")
+        self.assertFalse(outcome.authorized)
+        self.assertEqual(gm_dispatch._rate_limit_call_history, {})
+        # Same for the 0x51E9 entry point, which shares the chain.
+        gm_dispatch.handle_gm_run_command_vital(
+            "player1", bytes([0x0B, 0x00]),
+            config_path=self._config(["gm1"]), capture_root=self.capture_root,
         )
-        del first
+        self.assertEqual(gm_dispatch._rate_limit_call_history, {})
 
     def test_the_authorization_gate_runs_before_any_write_for_this_opcode_too(self):
         """A non-GM account must never reach the capture sink at all."""
@@ -263,6 +342,58 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
             outcome = self._handle(account="player1")
         sink.assert_not_called()
         self.assertFalse(outcome.authorized)
+
+
+class ActivityCheatCodeLaneHookTests(unittest.TestCase):
+    """The hook module, not the runtime call site chief still has to add.
+
+    `lane_hooks/lane_gm_activity_cheat_code.py` exists because this house's
+    convention is that the requester writes the hook and chief adds only
+    the `lane_hooks.fire(...)` line -- 0x51E9's runtime branch calls no
+    dispatch function directly (pf-adversary, round `eu2g1d`, D12).  These
+    tests prove the hook is registered and does what the 0x51E9 hook does;
+    they do NOT prove runtime fires it, and cannot until the call site
+    exists.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        gm_dispatch.reset_capture_quota_state_for_tests()
+
+    def _session(self, token):
+        class _Session:
+            def __init__(self):
+                self.token = token
+                self.events = []
+
+        return _Session()
+
+    def test_the_hook_point_is_registered_and_the_module_is_always_on(self):
+        self.assertIn(
+            "vital_inbound_activity_cheat_code", lane_hooks._HOOKS,
+        )
+        self.assertTrue(lane_gm_activity_cheat_code.production_allowed)
+
+    def test_a_non_gm_session_gets_a_named_refusal_event_and_no_write(self):
+        # The sink is patched rather than the capture root: the handler
+        # bound DEFAULT_CAPTURE_ROOT as a default argument at def time, so
+        # patching the module attribute would be the same no-op
+        # pf-adversary caught at D9.  Patching the sink is what actually
+        # proves nothing was written.
+        session = self._session("player1")
+        with mock.patch.object(
+            gm_dispatch, "capture_raw_activity_cheat_code"
+        ) as sink:
+            lane_gm_activity_cheat_code._on_activity_cheat_code(
+                session=session, payload=_payload(),
+            )
+        sink.assert_not_called()
+        self.assertEqual(
+            session.events,
+            [f"activity_cheat_code_refused_{gm_dispatch.REFUSAL_NOT_GM}"],
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover
