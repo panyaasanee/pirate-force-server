@@ -1,11 +1,19 @@
 """LANE-B: scene 7 (Bg0007) is a REGISTERED combat scene.
 
-COO-DECISION 2026-09-06T07:48+07:00 (notes_to_chief/20260906_0748_
+COO-DECISION widen-death-scope-bg0006-bg0007-bg0009-bg0011-four-scenes
+2026-09-06T11:50+07:00 (notes_to_chief/20260906_1150_COO-DECISION-b1122-
+widen-death-scope-bg0006-bg0007-bg0009-bg0011-four-scenes-ratified-repoint-
+four-strings-to-1150-coo-greps-ruling-keys-every-exec-round-LANE-B.md), the
+ratifying letter this module's ``RULING_NAME`` now cites.  Round 4tnhzw
+(this lane) first registered this scene citing notes_to_chief/20260906_0748_
 COO-DECISION-b0659-send-four-clean-scenes-now-bg0010-unresolved-is-a-static-
-ticket-body-to-chief-bg0009-zero-drop-m-avatars-are-ordinary-mobs-LANE-B.md),
-answering LANE-B-ASK-COO 2026-09-06T06:59+07:00 (notes_to_chief/20260906_0659_
-LANE-B-ASK-COO-five-scene-recon-bg0010-mining-crash-bg0009-two-ambiguous-
-rows.md).  ``field_mob_tables_bg0007`` is registered in
+ticket-body-to-chief-bg0009-zero-drop-m-avatars-are-ordinary-mobs-LANE-B.md,
+which only ASKED for a ruling (its own item 1 says "send a request"); COO
+1150 ratifies the same scene/templates (not reversed) and repoints the
+citation to itself.  That letter answers LANE-B-ASK-COO 2026-09-06T06:59+07:00
+(notes_to_chief/20260906_0659_LANE-B-ASK-COO-five-scene-recon-bg0010-mining-
+crash-bg0009-two-ambiguous-rows.md).  ``field_mob_tables_bg0007`` is
+registered in
 ``field_mobs._SCENE_TABLE_MODULES`` in the same commit that adds it, the same
 shape bg0003/bg0004/bg0005/bg0008/bg0006 already ship: no staged gate.
 
@@ -55,7 +63,7 @@ EXPECTED_CENSUS_DROPS_NORMAL = 9
 
 RULING_NAME = (
     "COO-DECISION widen-death-scope-bg0007-seven-templates "
-    "2026-09-06T07:48+07:00"
+    "2026-09-06T11:50+07:00"
 )
 
 # The whole SHIPPED roster, spelled out rather than counted.

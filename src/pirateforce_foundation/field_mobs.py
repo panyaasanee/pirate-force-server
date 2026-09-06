@@ -595,8 +595,14 @@ BG0004_SCENE = field_mob_tables_bg0004.SCENE
 # generated module carries the rows and the census that selected them.
 BG0005_SCENE = field_mob_tables_bg0005.SCENE
 # COO-DECISION widen-death-scope-bg0006-bg0007-bg0009-bg0011-four-scenes
-# 2026-09-06T07:48+07:00 (COO-DECISION as re-derived in this repository's
-# notes_to_chief mailbox at that timestamp), following the same "option (a):
+# 2026-09-06T11:50+07:00 (notes_to_chief/20260906_1150_COO-DECISION-b1122-
+# widen-death-scope-bg0006-bg0007-bg0009-bg0011-four-scenes-ratified-
+# repoint-four-strings-to-1150-coo-greps-ruling-keys-every-exec-round-
+# LANE-B.md) -- the ratifying letter itself, replacing the earlier
+# 2026-09-06T07:48+07:00 citation this comment carried before this letter:
+# that 0748 letter answered a request that only ASKED for a ruling, not
+# one that granted it, and 1150 ratifies the same four scenes/templates
+# under its own citation rather than reversing them.  Same "option (a):
 # register the roster, refuse loud and safe" methodology as
 # bg0003/bg0004/bg0005/bg0008 -- a rank, a combat AI, a drops table, no town
 # target, no player-model body.  Scene 6, TWO distinct templates (222, 226).

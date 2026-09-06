@@ -221,7 +221,7 @@ class GmCommandDispatchTests(unittest.TestCase):
     def test_capture_quota_refuses_once_the_estimated_total_exceeds_the_cap(self):
         config = self._config(["gm_listed"])
         payload = bytes(1000)
-        per_call_estimate = gm_dispatch._estimate_capture_file_bytes(1000)
+        per_call_estimate = gm_dispatch._estimate_capture_file_bytes(1000, len("gm_listed"))
         with mock.patch.object(
             gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT", per_call_estimate * 2,
         ), mock.patch.object(
@@ -261,7 +261,7 @@ class GmCommandDispatchTests(unittest.TestCase):
         payload = bytes(1000)
         with mock.patch.object(
             gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT",
-            gm_dispatch._estimate_capture_file_bytes(1000),
+            gm_dispatch._estimate_capture_file_bytes(1000, len("gm_one")),
         ):
             first = gm_dispatch.handle_gm_run_command_vital(
                 "gm_one", payload,
@@ -283,7 +283,7 @@ class GmCommandDispatchTests(unittest.TestCase):
         payload = bytes(1000)
         with mock.patch.object(
             gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT",
-            gm_dispatch._estimate_capture_file_bytes(1000),
+            gm_dispatch._estimate_capture_file_bytes(1000, len("gm_listed")),
         ):
             for _ in range(5):
                 outcome = gm_dispatch.handle_gm_run_command_vital(
@@ -302,7 +302,7 @@ class GmCommandDispatchTests(unittest.TestCase):
         payload = bytes(1000)
         with mock.patch.object(
             gm_dispatch, "MAX_CAPTURED_BYTES_PER_ACCOUNT",
-            gm_dispatch._estimate_capture_file_bytes(1000),
+            gm_dispatch._estimate_capture_file_bytes(1000, len("gm_listed")),
         ):
             capped = gm_dispatch.handle_gm_run_command_vital(
                 "gm_listed", payload, config_path=config,
@@ -375,7 +375,9 @@ class GmCommandDispatchTests(unittest.TestCase):
         payload = self._nested_body_payload(str1, str2)
         self.assertLessEqual(len(payload), gm_dispatch.MAX_RAW_PAYLOAD_LENGTH)
 
-        estimate = gm_dispatch._estimate_capture_file_bytes(len(payload))
+        estimate = gm_dispatch._estimate_capture_file_bytes(
+            len(payload), len("gm_listed"),
+        )
 
         config = self._config(["gm_listed"])
         outcome = gm_dispatch.handle_gm_run_command_vital(
@@ -391,6 +393,46 @@ class GmCommandDispatchTests(unittest.TestCase):
             "capture-quota estimate undercounts a real write -- the "
             "MAX_CAPTURED_BYTES_PER_ACCOUNT guard no longer bounds what "
             "actually lands on disk",
+        )
+
+    def test_capture_quota_estimate_covers_a_long_or_non_ascii_account_name(self):
+        # Regression for the OLD debt named but not fixed in round
+        # `eu2g1d-b` (that round's own D8 nonclaim: "the quota hole that
+        # does not count account_name -- old, not this round's -- still
+        # unfixed, next round's job"). `_sanitize_account`'s 40-char
+        # truncation (command_capture.py) only bounds the FILENAME -- the
+        # header line's `account=` value is
+        # `_escape_for_header(account_name)`, the FULL, untruncated,
+        # unsanitized account_name run through `unicode_escape`, and
+        # nothing upstream of this call (``accounts.is_gm_account`` above)
+        # caps how long an allowlisted account_name string may be. A
+        # non-BMP account_name character costs 10 escaped bytes
+        # (``\Uxxxxxxxx``) per source character -- verified directly
+        # against Python's own ``unicode_escape`` codec, not assumed:
+        # ``"\U00020000".encode("unicode_escape")`` is ``b'\\U00020000'``,
+        # 10 bytes for len-1 input.
+        astral_char = "\U00020000"  # non-BMP -- 10 escaped bytes/character
+        account_name = astral_char * 200
+        config = self._config([account_name])
+        payload = _PRESENCE_ZERO_PAYLOAD
+
+        estimate = gm_dispatch._estimate_capture_file_bytes(
+            len(payload), len(account_name),
+        )
+
+        outcome = gm_dispatch.handle_gm_run_command_vital(
+            account_name, payload,
+            config_path=config, capture_root=self.capture_root,
+            now_ts=1000.0,
+        )
+        self.assertIsNotNone(outcome.captured_path)
+        actual_bytes_written = outcome.captured_path.stat().st_size
+
+        self.assertGreaterEqual(
+            estimate, actual_bytes_written,
+            "capture-quota estimate undercounts a real write for a long/"
+            "non-ASCII account_name -- the MAX_CAPTURED_BYTES_PER_ACCOUNT "
+            "guard no longer bounds what actually lands on disk",
         )
 
     # ----- env-var override path still works (same as accounts.py) -------

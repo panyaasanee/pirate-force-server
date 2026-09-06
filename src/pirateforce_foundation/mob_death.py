@@ -673,35 +673,53 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     "2026-09-06T05:48+07:00": frozenset(
         {274, 277, 280, 281, 527, 544}
     ),
-    # COO-DECISION 2026-09-06T07:48+07:00 (notes_to_chief/20260906_0748_
-    # COO-DECISION-b0659-send-four-clean-scenes-now-bg0010-unresolved-is-a-
-    # static-ticket-body-to-chief-bg0009-zero-drop-m-avatars-are-ordinary-
-    # mobs-LANE-B.md), answering LANE-B-ASK-COO 2026-09-06T06:59+07:00
-    # (notes_to_chief/20260906_0659_LANE-B-ASK-COO-five-scene-recon-bg0010-
-    # mining-crash-bg0009-two-ambiguous-rows.md).  Item 1 of that letter
-    # relaxes the earlier "one letter for five scenes" plan (0548) to "one
-    # letter per ROUND OF SCENES THAT ACTUALLY READ" -- bg0010's raw
-    # placements TSV carries a literal 'UNRESOLVED' string where a
-    # template_id is supposed to be (a data defect, not a tool bug; see this
-    # round's own STATIC ticket to chief) and that one scene does not hold up
-    # the other four.  Four scenes, four entries below, one letter behind all
-    # of them, the same "option (a): register the roster, refuse loud and
-    # safe" methodology as bg0003/bg0004/bg0005/bg0008 (a rank, a combat AI,
-    # a drops table, no town target, no player-model body) -- re-verified
-    # against this round's own mining run, not copied from the 0659 recon
+    # COO-DECISION widen-death-scope-bg0006-bg0007-bg0009-bg0011-four-scenes
+    # 2026-09-06T11:50+07:00 (notes_to_chief/20260906_1150_COO-DECISION-
+    # b1122-widen-death-scope-bg0006-bg0007-bg0009-bg0011-four-scenes-
+    # ratified-repoint-four-strings-to-1150-coo-greps-ruling-keys-every-
+    # exec-round-LANE-B.md), ratifying this lane's own
+    # notes_to_chief/20260906_1122_LANE-B-ASK-COO-pr907-minted-four-ruling-
+    # names-citing-0748-and-has-merged.md: PR #907 (round 4tnhzw, this
+    # lane's own prior round) minted the four ruling keys below citing
+    # "COO-DECISION ... 2026-09-06T07:48+07:00", but that letter
+    # (notes_to_chief/20260906_0748_COO-DECISION-b0659-send-four-clean-
+    # scenes-now-bg0010-unresolved-is-a-static-ticket-body-to-chief-bg0009-
+    # zero-drop-m-avatars-are-ordinary-mobs-LANE-B.md) answers a letter that
+    # only ASKED for a ruling (its own item 1 says "send a request"), not
+    # one that grants it -- so #907 shipped a citation to a letter that was
+    # never an authorization.  COO-DECISION 1150 does not reverse the four
+    # scenes (its own item 1: "not reversed") -- it ratifies them
+    # and repoints the citation to itself; that repoint is the only change
+    # this entry and WIDENING_RULING_SCENES below make to the four keys.
+    # The covered template sets are untouched.
+    #
+    # The rest of this comment is unchanged from round 4tnhzw and still
+    # describes real, re-verified facts: answering LANE-B-ASK-COO
+    # 2026-09-06T06:59+07:00 (notes_to_chief/20260906_0659_LANE-B-ASK-COO-
+    # five-scene-recon-bg0010-mining-crash-bg0009-two-ambiguous-rows.md).
+    # Item 1 of that letter relaxes the earlier "one letter for five scenes"
+    # plan (0548) to "one letter per ROUND OF SCENES THAT ACTUALLY READ" --
+    # bg0010's raw placements TSV carries a literal 'UNRESOLVED' string
+    # where a template_id is supposed to be (a data defect, not a tool bug;
+    # see round 4tnhzw's own STATIC ticket to chief) and that one scene does
+    # not hold up the other four.  Four scenes, four entries below, the
+    # same "option (a): register the roster, refuse loud and safe"
+    # methodology as bg0003/bg0004/bg0005/bg0008 (a rank, a combat AI, a
+    # drops table, no town target, no player-model body) -- re-verified
+    # against round 4tnhzw's own mining run, not copied from the 0659 recon
     # summary, per that letter's own warning that 0659 was recon and not a
     # final count.
     #
     # Scene 6 (2 distinct templates: 222 Crull Two Horns, 226 Anger Lion).
     "COO-DECISION widen-death-scope-bg0006-two-templates "
-    "2026-09-06T07:48+07:00": frozenset(
+    "2026-09-06T11:50+07:00": frozenset(
         {222, 226}
     ),
     # Scene 7 (7 distinct templates: 388 Ominous Bird, 390 Dark roar, 393
     # Avarice Lerch, 395 Remain Alert Weapon, 397 Green Eye Minced, 526 Jet
     # cat thieves No.8, 536 Jet cat thieves No.7).
     "COO-DECISION widen-death-scope-bg0007-seven-templates "
-    "2026-09-06T07:48+07:00": frozenset(
+    "2026-09-06T11:50+07:00": frozenset(
         {388, 390, 393, 395, 397, 526, 536}
     ),
     # Scene 9 (5 distinct templates: 314 Captain Golem Rabia, 317 Destroy
@@ -716,13 +734,13 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # per the letter: drop mining is ticket P-1, not M4).  See
     # ``field_mobs.DROPS_UNMINED_PLACEMENTS['Bg0009']``.
     "COO-DECISION widen-death-scope-bg0009-five-templates "
-    "2026-09-06T07:48+07:00": frozenset(
+    "2026-09-06T11:50+07:00": frozenset(
         {314, 317, 320, 546, 549}
     ),
     # Scene 11 (5 distinct templates: 669 Steam Iron Giant, 674 Guard Soul,
     # 693 Navy Two Tripods, 696 Navy Tiger Mech, 697 Undead Besso).
     "COO-DECISION widen-death-scope-bg0011-five-templates "
-    "2026-09-06T07:48+07:00": frozenset(
+    "2026-09-06T11:50+07:00": frozenset(
         {669, 674, 693, 696, 697}
     ),
 }
@@ -854,13 +872,13 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     # scene sharing one of these template ids by coincidence (none do at
     # HEAD) would be refused here.
     "COO-DECISION widen-death-scope-bg0006-two-templates "
-    "2026-09-06T07:48+07:00": field_mob_tables_bg0006.SCENE,
+    "2026-09-06T11:50+07:00": field_mob_tables_bg0006.SCENE,
     "COO-DECISION widen-death-scope-bg0007-seven-templates "
-    "2026-09-06T07:48+07:00": field_mob_tables_bg0007.SCENE,
+    "2026-09-06T11:50+07:00": field_mob_tables_bg0007.SCENE,
     "COO-DECISION widen-death-scope-bg0009-five-templates "
-    "2026-09-06T07:48+07:00": field_mob_tables_bg0009.SCENE,
+    "2026-09-06T11:50+07:00": field_mob_tables_bg0009.SCENE,
     "COO-DECISION widen-death-scope-bg0011-five-templates "
-    "2026-09-06T07:48+07:00": field_mob_tables_bg0011.SCENE,
+    "2026-09-06T11:50+07:00": field_mob_tables_bg0011.SCENE,
 }
 
 

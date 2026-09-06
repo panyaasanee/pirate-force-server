@@ -55,9 +55,18 @@ NONCLAIMS -- read these before using one symbol from this file
   * Nothing is claimed about the ORIGINAL server, which is gone forever:
     the step plan, the record values, the spacing and the trigger policy are
     this project's own design.
-  * NO CLIENT HAS EVER SEEN ONE OF THESE FRAMES.  That half is an attended
-    GT ticket, queued and not run, and no coverage row grade moves on this
-    module alone.
+  * [SUPERSEDED, round xy58b1, 2026-09-06 -- see the UPDATE paragraph below]
+    This used to say "no client has ever seen one of these frames... queued
+    and not run."  That is no longer true for five of the six steps
+    (COUNT0/COUNT1_TRAIL0/COUNT1_TRAIL1/COUNT3_TRAIL0/COUNT3_TRAIL1, all run
+    under GT-058, CLOSED BOUNDED-NEGATIVE) and not true at all for the sixth
+    (COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0, run under GT-249, CLOSED-PROPOSED
+    PASS-PARTIAL) -- read the UPDATE paragraph before relying on this
+    bullet.  No coverage row grade moves on THIS DOCSTRING CORRECTION alone
+    (the underlying attended results it now describes were already real
+    before this round; docs/FUNCTIONAL_COVERAGE.json's own notes for this
+    module still say "queued and not run" and are not touched by this
+    change).
 
 Fail-closed contract
 --------------------
@@ -106,6 +115,60 @@ Basic Training, Normal Attack, Strive Jump -- per ``skill_catalog.py``)?
     the other steps' TRAIL0 half -- no TRAIL1 companion is sent for this
     step because its purpose is content, not isolating the trailing byte),
     and does not claim anything about a class other than 1.
+
+[UPDATE, round xy58b1, 2026-09-06] The content question above HAS BEEN RUN,
+against a real client, and ka1-A's proposed answer is PASS-PARTIAL with one
+serious open side effect -- this had sat in an attended-result letter for
+over a day with its substantive verdict never pulled into this module's own
+docstring (pf_bridge/notes_to_chief/20260905_0154_KA1A-RESULTS-gt249-*.md,
+the canonical un-consumed copy per its sibling 0153's own consumption stub
+-- 0153 and 0154 are byte-identical apart from one timestamp line, chief
+closed 0153 as the duplicate and left 0154 as this module's own result to
+consume; ticket GT-249 LEARN-SKILL-RESULT-REAL-KIT-CONTENT-001, run
+2026-09-05 01:53, BOOT_COMMIT f2a62bf0e08ac103fbad21633bfedc90b21e12ca,
+PASS-PARTIAL is ka1-A's proposed verdict, chief had not yet graded/closed
+the ticket in GAME_TEST_QUEUE.md -- still shown READY there -- as of this
+update):
+
+  * WIRE: the letter's own console-printed hex for step 6 hashes, re-derived
+    independently this round, to
+    ``LEARN_SKILL_RESULT_PROBE_PC_SHA256["COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0"]``
+    (79 bytes) -- the pre-envelope PC layer, not the 90-byte wire FRAME this
+    module also pins (``LEARN_SKILL_RESULT_PROBE_FRAME_SHA256``), which the
+    letter does not separately print and this update does not claim to have
+    independently re-verified.  All six steps' PC sizes (27/40/40/66/66/79)
+    and the two trigger firings 3.0s apart both match this module's plan.
+  * CONTENT: after COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0 landed, the client's
+    Skill window "special" tab populated with 3 of the 4 sent ids -- Normal
+    Attack (99), Strive Jump (110), VIP Strive Jump (111), each showing
+    correct name and icon.  Skill id 40000 (Gladiator Basic Training) did
+    NOT appear in either tab.  The Gladiator-named tab stayed empty
+    throughout.  So: this frame CAN move real client-visible content, the
+    first positive result in this lane's entire history -- but not all four
+    ids, and not into the tab class_catalog.starting_skill_ids(1) might
+    suggest.
+  * FIELD HINT (still not a proof): each populated row showed as
+    "<id> / 1" in what reads as an id/level pair -- since this step sends
+    the SAME value in all three wire positions, this only shows that ONE of
+    the three positions is read as something like a level, not which one.
+    Isolating that needs a follow-up step sending DISTINCT id vs level
+    values per position; not built by this round.
+  * NOT PERSISTENT: content vanished after relogin (expected --
+    ``database_write`` is ``none`` on this lane by design) and repeating the
+    trigger did not add or duplicate entries.
+  * NEW REGRESSION, UNEXPLAINED, NOT ISOLATED TO A FRAME: after the six-frame
+    sweep landed, the client stopped emitting any outbound movement frame
+    (TargetPosVital) for the rest of that session -- the tester could open
+    windows and drag items but could not walk -- and normal movement only
+    returned after a fresh login.  Which of the six frames (or their
+    interaction) causes this is UNKNOWN; nothing in this module isolates it,
+    and NOTHING HERE MAY BE PROMOTED (``production_allowed`` stays False)
+    until that cause is found, because shipping a frame that silently locks
+    player movement would be a severe regression, not a feature.  See the
+    letter above section 2.1 for the raw frame-timing evidence; the
+    follow-up attended ticket to isolate it (send each of the six frames
+    with its own observation window instead of the pinned all-six sweep) is
+    proposed but not yet opened as this update lands.
 """
 
 from __future__ import annotations

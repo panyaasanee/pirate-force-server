@@ -33,8 +33,12 @@ TAG LEGEND (every value below is confirmed elsewhere in this project, not
 invented here): ``0x08`` = u8
 (``FINDINGS_R38_0x1B40_DECODED_LOGOUTVITAL.md``), ``0x0B`` = u8, a second
 flavour used throughout ``current/pf_login_game_server_v141.py`` (e.g. its
-own ``vital_version`` field inside ``make_runtime_vitals``), ``0x32`` =
-u64/qword (``CLIENT_RE_QUEUE.md:3425``, ``FACTPACK_R100_INREPO_LOOT_SPAWN_
+own ``vital_version`` field inside ``make_runtime_vitals``), ``0x05`` = u8,
+a third flavour added for ``ui_dyeing_appraisal_relive_wire.py``'s
+``ReliveVital`` (``external/PF_TAG_CENSUS.tsv`` row
+``0x05  1  FIXED  56  UNKNOWN`` -- same "FIXED length 1" shape as ``0x08``/
+``0x0B``, no prior module needed this specific byte value before), ``0x32``
+= u64/qword (``CLIENT_RE_QUEUE.md:3425``, ``FACTPACK_R100_INREPO_LOOT_SPAWN_
 GAPLIST.md:143`` identity qword). The registry's
 ``UNTAGGED_WSTRING16LE_LEN32LE`` is exactly what its name says: a u32 LE
 length prefix followed by UTF-16LE payload bytes, with **no** leading tag
