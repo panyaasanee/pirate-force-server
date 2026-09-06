@@ -3676,6 +3676,7 @@ def hostile_census_frames(
     dead_timer: float = DEAD_TIMER_SECONDS,
     count_source: str = world_population.COUNT_SOURCE_CALLER,
     transitioning: tuple[str, int] | None = None,
+    viewer_identity: int | None = None,
 ) -> tuple[bytes, bytes]:
     """A hit/death frame that carries the WHOLE census, not one actor.
 
@@ -3683,6 +3684,18 @@ def hostile_census_frames(
     / :func:`repopulation_entries` -- see the latter's docstring for the
     CODEX_URGENT 2026-09-01T20:40+07:00 re-arm fix.  ``None`` (the default)
     keeps this function's old byte-for-byte behaviour.
+
+    ``viewer_identity`` (CORE-REQUEST-GM-061, round R365 addendum) PASSES
+    STRAIGHT THROUGH to :func:`full_roster_override`, unchanged in meaning.
+    Added because ``pirate-force-server#894`` wired the keyword into the
+    scene-arrival override (``mob_census_hostility
+    .hostile_override_for_scene_id``) but not into THIS composer, which is
+    the one every accepted combat hit and kill actually calls
+    (``mob_scene_recompose.recompose_frames`` -> here) -- so the
+    per-viewer name-colour link a scene arrival just set was being erased
+    by the very next hit frame, still ``viewer_identity=None`` by
+    omission.  ``None`` (the default, and every caller before this round)
+    is byte-identical to today.
 
     WHY THIS EXISTS.  ``mob_combat.bar_frames`` and this module's own
     ``death_frames`` each compose a NONEMPTY ONE-ENTRY
@@ -3800,7 +3813,7 @@ def hostile_census_frames(
     override = full_roster_override(
         legacy, roster, register, ledger=ledger, faction=faction,
         with_name=with_name, dead_timer=dead_timer,
-        transitioning=transitioning,
+        transitioning=transitioning, viewer_identity=viewer_identity,
     )
     composed = world_population.apply_identity_override(
         legacy, generation, override)

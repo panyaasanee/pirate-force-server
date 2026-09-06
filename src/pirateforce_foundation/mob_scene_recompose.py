@@ -1159,8 +1159,21 @@ def recompose_frames(
     faction: int = field_mobs.FIELD_MOB_FACTION,
     with_name: bool = True,
     transitioning: tuple[str, int] | None = None,
+    viewer_identity: int | None = None,
 ) -> SceneRecompose:
     """The full-census frame for a hit or a kill, in whichever scene it happened.
+
+    ``viewer_identity`` (CORE-REQUEST-GM-061, round R365 addendum) PASSES
+    STRAIGHT THROUGH to whichever composer :func:`_compose` picks --
+    ``diag_multi_object_wiring.hostile_census_frames`` for the scene-1
+    delegated path, ``mob_death.full_roster_override`` for every
+    non-delegated scene.  ``None`` (the default, and every caller before
+    this round) is byte-identical to today.  Closes the gap
+    ``pirate-force-server#894`` left open: that PR threaded the keyword
+    into the scene-arrival override only, so a real value set at arrival
+    was overwritten back to ``None`` by this function -- the composer
+    every accepted combat hit and kill actually calls -- on the very next
+    frame.
 
     ``transitioning`` -- CODEX_URGENT 2026-09-01T20:40+07:00's corpse re-arm
     fix (COO-DECISION 2026-09-01T21:48+07:00), passed straight through to
@@ -1340,7 +1353,7 @@ def recompose_frames(
             ledger=ledger, admitted=admission["ledger"],
             dead_timer=float(dead_timer), objects=objects,
             faction=faction, with_name=with_name,
-            transitioning=transitioning,
+            transitioning=transitioning, viewer_identity=viewer_identity,
         )
     except Exception as error:  # noqa: BLE001 - see the module docstring
         return SceneRecompose(
@@ -1436,6 +1449,7 @@ def _compose(
     faction: int,
     with_name: bool,
     transitioning: tuple[str, int] | None = None,
+    viewer_identity: int | None = None,
 ) -> tuple[bytes, bytes, int | None, str]:
     """Build one scene's full-census frame.  Raises; :func:`recompose_frames`
     is the only caller and it turns every raise into a named record."""
@@ -1452,7 +1466,7 @@ def _compose(
             legacy, anchor.anchor, anchor.actor_count, roster, register,
             ledger=ledger, objects=objects, dead_timer=dead_timer,
             faction=faction, with_name=with_name,
-            transitioning=transitioning,
+            transitioning=transitioning, viewer_identity=viewer_identity,
         )
         # NOT ``anchor.actor_count``: that is what was asked for, and this
         # composer returns bytes without saying how many bodies it put in
@@ -1526,7 +1540,7 @@ def _compose(
     override = mob_death.full_roster_override(
         legacy, roster, register, ledger=admitted, faction=faction,
         with_name=with_name, dead_timer=dead_timer,
-        transitioning=transitioning,
+        transitioning=transitioning, viewer_identity=viewer_identity,
     )
     composed = splice_identity_override(legacy, generation, override)
     return (
