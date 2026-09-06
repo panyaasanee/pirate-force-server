@@ -18,9 +18,11 @@ from . import mob_combat
 from . import mob_combat_membership
 from . import mob_death
 from . import mob_drop_presence
+from . import mob_ground_persistence
 from . import mob_loot
 from . import mob_pickup
 from . import mob_pickup_request
+from . import mob_respawn
 from . import mob_scene_recompose
 from . import scene_admission_gate
 from . import trace_path
@@ -4721,7 +4723,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # contradiction refuses instead of mislabeling.
                 ledger = mob_combat.open_ledger(roster, scene=folder)
                 ledger_identities = ledger.identities()
-                for record in self.mob_death_register.records:
+                respawned, respawn_outcome = (
+                    mob_respawn.sweep_the_session_register(
+                        self.mob_death_register))
+                for record in respawned.records:
                     # record.scene is the mob's own table tag, which IS the
                     # folder name (each table module's SCENE constant), so
                     # this comparison never crosses the model_id spelling
@@ -4757,6 +4762,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.mob_combat_ledger = ledger
                 self.mob_ai_register = register
                 self.mob_combat_scene_folder = folder
+                self.mob_death_register = respawned
+                for line in mob_respawn.describe_sweep(respawn_outcome):
+                    print(lane_hooks.console_safe(line))
                 # NOT WIRED HERE, ON PURPOSE (chief, round clw1zb/R297).
                 # LANE-B's letter 20260901_2255 asked for
                 # mob_loot_cell.reconcile_scene_transition() to be called at
@@ -5426,6 +5434,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             mob_scene_recompose.ground_companion_actions(
                                 getattr(self, "mob_loot_cell", None),
                                 legacy,
+                                world=mob_ground_persistence.world_ground(),
                             )
                         )
                         actions.extend(companion)
@@ -7568,6 +7577,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
                 self.events.append("lane_a_uia_notice_scenario_owns_frame")
             elif nested_id == LOGOUT_VITAL_ID:
+                if (
+                    logout_hypothesis_scenario is None
+                    and nested_id == LOGOUT_VITAL_ID
+                    and self.foundation.selected is not None
+                ):
+                    from . import ui_logout_exit_game
+                    outcome = ui_logout_exit_game.dispatch_real_exit_game_logout(
+                        self, legacy, parsed,
+                        close_timer_factory=close_timer_factory,
+                    )
+                    if outcome.handled:
+                        self.events.append(
+                            "ui_logout_exit_game_" + outcome.reason)
+                        return list(outcome.actions)
+                    self.events.append(
+                        "ui_logout_exit_game_" + outcome.reason)
+                    # falls through to the existing notice branch below
+                    # (subcode 3, or subcode 1 that failed a precondition
+                    # -- e.g. wrong_sequence -- keeps today's
+                    # refusal-notice behavior, unchanged)
                 try:
                     uia_notice, uia_notice_line = (
                         world_logout_button_notice.observe_parsed(
@@ -7666,6 +7695,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # closed session.
                 self.rx_frames += 1
                 self.events.append("logout_hypothesis_post_ack_frame_no_reply")
+                return []
+            if logout_hypothesis_scenario is None and self.logout_acknowledged:
+                # MIRRORS THE GUARD ABOVE for the real (non-hypothesis) exit
+                # game path (ui_logout_exit_game.dispatch_real_exit_game_logout,
+                # chief's round fyrtvt): that path sets this same
+                # self.logout_acknowledged flag and never reaches this line
+                # on the frame that sets it (its own branch above returns
+                # first), so this only fires on a LATER frame arriving after
+                # the session's lease is already closed -- pf-adversary
+                # measured that nothing previously stopped such a frame from
+                # being processed against an already-closed session.
+                self.rx_frames += 1
+                self.events.append(
+                    "ui_logout_exit_game_post_ack_frame_no_reply")
                 return []
             if nested_id == trace_path.TRACE_PATH_REQ_VITAL_ID:
                 # CORE-REQUEST-025 (LANE-A, 20260828_0427): the player's GO!

@@ -306,18 +306,49 @@ class LogoutAckFirstReorderScenarioWiredTests(unittest.TestCase):
     def test_unreachable_from_a_default_boot_with_no_scenario_at_all(self):
         # app.py passes logout_hypothesis_scenario=None whenever
         # --logout-hypothesis-scenario is not given -- every default boot.
-        # No RE_189_BRANCH3 action, no HYP_PF ack action, nothing at all:
-        # the dispatcher's own gate (`if logout_hypothesis_scenario is not
-        # None and nested_id == LOGOUT_VITAL_ID`) never even calls into the
-        # logout hypothesis dispatch for this request.
+        # No RE_189_BRANCH3 action, no HYP_PF ack action, nothing at all from
+        # the LOGOUT-HYPOTHESIS apparatus: the dispatcher's own gate (`if
+        # logout_hypothesis_scenario is not None and nested_id ==
+        # LOGOUT_VITAL_ID`) never even calls into the logout hypothesis
+        # dispatch for this request.
+        #
+        # FLIPPED (not deleted), chief's round fyrtvt, CORE-REQUEST
+        # 20260905_2006 (LANE-UI): a scenario-less default boot with a
+        # selected character is now exactly the real Exit Game path
+        # (`ui_logout_exit_game.dispatch_real_exit_game_logout`), which is a
+        # DIFFERENT, non-hypothesis mechanism from the one this test's name
+        # and comment describe -- it closes the session for real. The two
+        # assertions this test used to make about that ("still closed at
+        # None", "still not acknowledged") described the gap the CORE-REQUEST
+        # exists to close, not a property of the hypothesis gate above, which
+        # remains true and is still checked here.
         state = self._default_state("arfw-default")
         session_id = state.foundation.session_id
         actions = state.dispatch(self._logout_parsed(1))
         self.assertEqual(
             [a for a in actions if a[0].startswith(("HYP_PF", "RE_189"))], [],
         )
-        self.assertIsNone(self._session_closed_at(session_id))
-        self.assertFalse(state.logout_acknowledged)
+        self.assertIsNotNone(self._session_closed_at(session_id))
+        self.assertTrue(state.logout_acknowledged)
+
+    def test_a_later_frame_after_the_real_exit_is_refused_not_processed(self):
+        # pf-adversary (chief's round fyrtvt): the pre-existing guard three
+        # lines below this one in runtime.py ("logout_hypothesis_scenario is
+        # not None and self.logout_acknowledged") only ever covered the
+        # SCENARIO ack path. Nothing mirrored it for the real, non-hypothesis
+        # exit-game path this round adds, so a frame arriving after a real
+        # close used to run the rest of dispatch against an
+        # already-closed-in-the-DB session. This is the mirror guard's own
+        # test: any OTHER frame type sent after the real close must be
+        # refused, not processed.
+        state = self._default_state("arfw-post-ack-guard")
+        state.dispatch(self._logout_parsed(1))
+        self.assertTrue(state.logout_acknowledged)
+        actions = state.dispatch(
+            self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        self.assertEqual(actions, [])
+        self.assertIn(
+            "ui_logout_exit_game_post_ack_frame_no_reply", state.events)
 
     def test_default_boot_scenario_files_never_carry_this_policy(self):
         # Static proof over the whole scenarios/ directory, matching the
