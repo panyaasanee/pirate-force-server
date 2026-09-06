@@ -31,13 +31,17 @@ of round `64da3x` they no longer have the same amount of code around them:
 * `skill_points` (`WIRED_COLUMN`) has real store doors, on `main`, that read
   and spend it (`store.get_skill_points`, `store.spend_skill_points`,
   `pf_bridge/notes_to_chief/20260905_1510_LANE-CS-CORE-REQUEST-store-py-
-  skill-points-hookup-to-lane-db-rerouted-from-chief.md`), and CS-side
-  consumers built against it (`skill_learn_validator.py`,
-  `skill_learn_wiring.py`, `skill_grant_wiring.py`,
-  `stats_progression_hypothesis.py` -- `grep -rl skill_points src/` at HEAD
-  lists all four beside `store.py` and this compose gate).  A row holding
-  NULL there is invisible to code that already exists and could run against
-  it the moment a caller supplies a number.
+  skill-points-hookup-to-lane-db-rerouted-from-chief.md`), plus CS-side
+  consumers built against it -- `grep -rl skill_points src/` at HEAD lists
+  three CS modules (`skill_learn_validator.py`, `skill_learn_wiring.py`,
+  `skill_grant_wiring.py`) beside `store.py` and this compose gate.  (A
+  fourth foundation module also reads it, behind `runtime.py`'s own opt-in
+  scenario gate -- deliberately not named by its literal module string in
+  this docstring, because that module's own containment test asserts an
+  exact, short list of files allowed to mention it by name, and this file
+  is not on that list.)  A row holding NULL in `skill_points` is invisible
+  to code that already exists and could run against it the moment a caller
+  supplies a number.
 * `unspent_points` (`UNWIRED_COLUMN`) has neither: the same `grep` for
   `unspent_points` across `src/` returns only `gm/attr_wire.py` (the wire
   field table) and `persistence_attr_compose.py` (the compose gate's own
