@@ -783,13 +783,34 @@ OWNER_REFUSAL_REASON: dict[str, str] = {
 # WHAT WITHHOLDING MEANS OPERATIONALLY, same contract as Carlos: Nina still
 # mines, and would still ship, if this entry were removed -- she has a rank
 # and a combat AI, so ``field_mobs.load_roster`` would otherwise include her.
-# With this entry she does not reach a player's screen at all (dropped in
-# the same filter pass as the owner's refusal list, before the AI register,
-# the combat ledger or the census hostile override ever see her placement
-# index) -- not "on screen but unkillable".  A row this lane cannot name is
-# a row this lane does not place, the same choice made for Carlos and for
-# the same reason: a monster stuck at 0 HP forever, answered with silence on
-# every swing after the first, is worse than one fewer NPC in the world.
+# With this entry she is dropped before ``field_mobs.load_roster`` returns
+# her, so LANE-B's OWN consumers never see her placement index -- the AI
+# register (``mob_ai_control.open_register``), the combat ledger and the
+# census HOSTILE override this lane feeds all skip her, and she can never be
+# targeted or killed.
+#
+# ~~"she does not reach a player's screen at all"~~ IS STRUCK, ROUND
+# oabhhe-adv, pf-adversary: this entry is a LANE-B filter, and LANE-A's own
+# base census (``world_population_bg0008.py`` / ``world_bg0008_identity.py``,
+# neither of which reads ``LANE_WITHHELD_PLACEMENTS``) builds its actor list
+# straight from the mined identity table, placement 69 included -- so a
+# client that reaches Bg0008 today is sent an actor named "Nina", her real
+# ``n_id`` (529) and her player-model ``s_OUTFIT`` on the wire, standing in
+# the world, the same as every other placement.  What this entry actually
+# gives her is exactly "on screen but unkillable" -- the sentence above used
+# to deny that in terms, and it was wrong to.  This is not a new hole this
+# round dug: the base census's own indifference to this lane's withhold list
+# predates this entry and covers Carlos identically, unnoticed until this
+# round's adversary review actually executed the census path. A row this
+# lane cannot name is still a row this lane does not let die, the same
+# choice made for Carlos and for the same reason: a monster stuck at 0 HP
+# forever, answered with silence on every swing after the first, is worse
+# than one fewer killable NPC. Whether "unkillable but visible" is the
+# containment the COO's own reasoning ("I do not issue a kill letter for
+# content I cannot name") actually intended is put back to COO in
+# ``notes_to_chief/20260906_0725_LANE-B-ASK-COO-bg0008-nina-visible-not-
+# invisible-adversary-finding.md`` (this round's own letter) rather than
+# assumed here either way.
 LANE_WITHHELD_PLACEMENTS: dict[str, tuple[int, ...]] = {
     'Bg0008': (69,),
     'Bg0015': (87,),
