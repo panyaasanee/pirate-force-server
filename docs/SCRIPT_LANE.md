@@ -1128,3 +1128,65 @@ whoever traces `AddBonusPoint`/`AddBonusReward` next.
    `run_corpus_entry_points`'s real call-volume ranking (`stub_call_counts`)
    rather than the static census table alone, the same method this round
    used to find `Instance.*`.
+
+## Round ksp5d3 (2026-09-06) -- recovered #900, fixed the Windows gate failure it never got to explain
+
+Round `0rgg6q`'s recovery of `Quest.CheckOpenTime` (PR #900) was itself
+closed by the Windows gate going RED (`pf_bridge/notes_to_chief/
+20260906_0830_SYNC-NOTICE-pirate-force-server-pr900-closed-never-merged.md`),
+its branch (`claude/hopeful-hopper-0rgg6q`) kept intact per that notice.
+Per the notice's own instructions, read the gate log for the failing
+commit (run `34003119697`) rather than re-doing the round from scratch:
+exactly one pytest failure, `RealQuestNamespaceTests
+.test_default_clock_reads_the_bangkok_timezone`, `ModuleNotFoundError: No
+module named 'tzdata'`, raised inside `_server_clock()`'s own
+`ZoneInfo("Asia/Bangkok")` call.
+
+**Root cause.** Windows' stdlib `zoneinfo` carries no system IANA tz
+database (unlike Linux, which is why this passed in every prior round's
+own cloud-clone run of the suite -- not a flake, a real platform gap).
+Resolving a named zone there needs the `tzdata` PyPI package, which this
+repository pins no dependency on at all yet. `lua_api/quest.py`'s own
+module docstring already states Bangkok as "an explicit, stated
+assumption" for the timezone; what it did not yet account for is that
+Bangkok (ICT) has been a fixed UTC+7 offset with no DST since 1920 -- a
+fixed-offset `timezone` object is exactly equal to the named zone for
+this project's purposes, not an approximation standing in for it.
+
+**Fix.** `_server_clock()` now catches `ZoneInfoNotFoundError`
+specifically (any other exception still propagates -- a real bug
+elsewhere, e.g. a future typo in `SERVER_TIMEZONE_NAME`, is not masked)
+and falls back to `timezone(timedelta(hours=7))`. Added
+`test_default_clock_falls_back_to_a_fixed_offset_without_tzdata`, which
+reproduces the failure on any platform (points `SERVER_TIMEZONE_NAME` at
+an unresolvable zone name) rather than relying on a Windows-only machine
+to catch a regression here again.
+
+Cherry-picked `0rgg6q`'s own two commits (`e52220a`/`fb71ba5`) onto
+current `main` first -- clean, no conflicts (main had not touched
+`Quest.*`/`Instance.*` since) -- then added this fix as a third commit.
+`docs/SCRIPT_LANE.md`'s API status table above (147/160 stub, 13/160
+real) already reflects `CheckOpenTime` as `real` from that cherry-pick;
+this round does not change its status, only its portability.
+
+### Nonclaims
+
+1. Does not claim the Windows gate itself is green on this round's
+   commit -- out of scope for this cloud clone; claims only that the one
+   named failure's root cause is fixed and covered by a new test that
+   reproduces it on any platform.
+2. Does not touch any other `Quest.*` name, any other lane's write zone,
+   or `runtime.py`/`app.py`/`store.py`.
+3. Does not add the `tzdata` PyPI package as a dependency -- the fixed-
+   offset fallback makes that unnecessary for this one name; a future
+   round adding a dependency on `lupa` (already needed for the Lua host,
+   still unpinned per round `s2fxf6`) may want to revisit whether pinning
+   `tzdata` too is worth it for other timezone-sensitive code, not
+   decided here.
+
+### Next round
+
+Same three named blockers as round `vqng2z` left open (trigger-id ->
+script-file mapping / RE-273, LANE-DB's `Quest.*` state door, the
+remaining 12 `Trigger.*` names) -- check each fresh per house rule, do
+not re-quote this file.
