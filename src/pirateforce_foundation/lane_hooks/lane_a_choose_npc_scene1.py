@@ -120,15 +120,32 @@ any order, all of them before the flip):
     merge, not before.
 3.  Only then the flag, with an attended ticket that clicks a townsperson,
     a shop keeper and placement 30 in Port Royal and reports what opened.
-4.  Every other v141 behaviour that rides a ``TARGET_VITAL`` frame in
-    scene 1 is enumerated and either reproduced or shown unreachable.  The
-    responder branch runs INSTEAD of ``super().dispatch(parsed)``
-    (``runtime.py:9026-9027``), so it swallows the whole frame, not only
-    the ChooseNPC loop; pf-adversary ``zqmosn`` measured two that exist --
-    v141's V138 marker branch (its ``V138_MARKER1_READY_PC`` opens with a
-    ``TARGET_VITAL`` id) and the ``runtime_ack_sent`` latch, which only
-    v141 ever sets and which ``runtime.py:9457`` makes the census depend
-    on.
+4.  ~~Every other v141 behaviour that rides a ``TARGET_VITAL`` frame in
+    scene 1 is enumerated and either reproduced or shown unreachable.~~
+    ENUMERATION DONE AND LANE HALF DONE, ROUND ``eepcv6``, ADDITIVELY, AND
+    THE UNDONE HALF IS AGAIN NAMED RATHER THAN ESTIMATED.  The responder
+    branch runs INSTEAD of ``super().dispatch(parsed)``, so it swallows
+    the whole frame, not only the ChooseNPC loop.  The enumeration is
+    ``FROZEN_TARGET_VITAL_BEHAVIOURS`` below: EIGHT rows, walked in v141's
+    own source order down the one block every such frame enters
+    (``v141:3680``), each with the file:line it was derived from and a
+    verdict of UNREACHABLE / DISARMED / STAND_ASIDE / ACCEPTED_GAP.  The
+    two pf-adversary ``zqmosn`` named are rows 3 and 4, both STAND_ASIDE:
+    ``respond`` grew a three-state keyword for each -- ``runtime_ack_sent``
+    declines on an explicit ``False``, ``exact_frozen_marker1_ready_pc``
+    declines on an explicit ``True`` -- so the frozen path keeps the two
+    frames a responder must not swallow.  BOTH ARE INERT UNTIL THE CALL
+    SITE PASSES THEM: every call today omits them, both default to
+    ``None``, and ``None`` deliberately means "never told" rather than
+    "failed", so this module's behaviour is byte-identical to what it was
+    before.  The lines that arm them are chief's, written out verbatim in
+    ``FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING`` -- and that constant says why
+    they must land WITH the frozen-loop decline fallback rather than
+    without it.  Strike this item the day they merge, not before.
+    TWO ROWS STAY ``ACCEPTED_GAP`` AND THEY ARE REASONS THE FLAG IS STILL
+    FALSE: ``v129_post_action1_request_observed`` (bookkeeping, no frame)
+    and ``v126_action_target_arm``, which is why step 3's attended ticket
+    must click with a weapon bound.
 5.  ~~The responder honours the census authority ``runtime.py:10410``
     honours (``world_census_identity_resolved``) and DECLINES rather than
     composes on a boot whose login shipped Mob-Set numbers.~~  LANE HALF
@@ -171,8 +188,15 @@ CHIEF-OWNED ``runtime.py`` line, and the lane half of all three is now
 written.  What is left of them is chief's alone -- the queue line
 (CORE-REQUEST ``20260904_0137``), the two latch lines
 (``VENDOR_AND_MISSION_LATCH_WIRING``) and the census keyword plus its decline
-fallback (``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``).  Steps 4, 6 and 7
-are still lane A's own and still undone.  THIS LIST IS
+fallback (``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``).  ~~Steps 4, 6 and 7
+are still lane A's own and still undone.~~  CORRECTED AGAIN, ROUND
+``eepcv6``: steps 6 and 7 were done whole in round ``vxfepr``, and step 4
+went the same way steps 1/2/5 went -- a LANE half (the enumeration plus
+two decline keywords) plus a CHIEF-OWNED ``runtime.py`` pair
+(``FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING``).  So NO STEP ON THIS LIST IS
+STILL WAITING ON THIS LANE.  What stands between the list and step 3's
+attended ticket is four chief-owned lines in three groups, and the two
+``ACCEPTED_GAP`` rows step 4 leaves named.  THIS LIST IS
 NOT PROMISED COMPLETE: it is what two measured passes found, and every
 item on it after step 3 was found by the SECOND pass, on boot shapes the
 first pass never drove.
@@ -350,6 +374,150 @@ SCENE_N_ID = world_population.SCENE_ID
 # it is why the ask below is two lines rather than one.  The keyword is
 # shipped anyway because it is inert (nothing passes it) and because the
 # lane half has to exist before the call-site half can be asked for.
+# STEP 4 OF THE PROMOTION LIST: THE ENUMERATION ITSELF.
+#
+# The responder branch runs INSTEAD of ``super().dispatch(parsed)``
+# (runtime.py's own comment above the branch says so), so it swallows the
+# WHOLE frame, not only the ChooseNPC loop.  Step 4 asks for every other
+# v141 behaviour that rides a ``TARGET_VITAL`` frame in scene 1 to be
+# enumerated and either reproduced or SHOWN unreachable.  This is that
+# enumeration, walked in v141's own source order down the one block every
+# such frame enters -- ``elif parsed.outer_id == GSCN_RUNTIME_PROTOCOL_REQ
+# and self.teleport_sent:`` (v141:3680) -- with the reachability of each
+# row derived from the frozen file, never from a capture.
+#
+# ``verdict`` is one of:
+#   UNREACHABLE  -- the row's own guard cannot hold for a frame whose
+#                   nested id is TARGET_VITAL.  Nothing to do.
+#   DISARMED     -- reachable in v141, but this tree disarms the row
+#                   before any client connects, so the responder cannot
+#                   cost what is already off.
+#   STAND_ASIDE  -- reachable and live, NOT reproducible from a responder
+#                   (which is handed no session object), so ``respond()``
+#                   declines and lets the frozen path have the frame.
+#   ACCEPTED_GAP -- reachable, live, not reproduced, and knowingly left:
+#                   the row costs nothing on the frames scene 1 answers
+#                   today, and the reason is written out per row.
+#
+# EVERY ``ACCEPTED_GAP`` ROW IS A REASON THE FLAG IS STILL FALSE, not a
+# reason it may flip.  Step 3 (the attended ticket) is what turns the last
+# of them into a measurement.
+FROZEN_TARGET_VITAL_BEHAVIOURS = (
+    (
+        "v129_post_action1_request_observed",
+        "v141:3688-3699",
+        "ACCEPTED_GAP",
+        "Bookkeeping only -- appends to self.events and three counters, "
+        "queues no action and sends no bytes.  Gated on "
+        "quest3020_accept_success_sent, which nothing in this tree sets "
+        "for scene 1 today.  Costs a console/events trail, never a frame.",
+    ),
+    (
+        "v136_compositional_marker1_docking_prompt_once",
+        "v141:3701-3727",
+        "UNREACHABLE",
+        "Guarded by exact_empty_runtime_req, which requires "
+        "parsed.raw_pc == V136_EMPTY_RUNTIME_REQ_PC (v141:831-833) -- a "
+        "12-byte PC with vital_count 0 and nested_id None "
+        "(v141:5642-5645).  A frame whose nested id is TARGET_VITAL has a "
+        "nested id, so the equality can never hold.",
+    ),
+    (
+        "v140_marker1_ready_population_once",
+        "v141:3729-3760",
+        "STAND_ASIDE",
+        "V138_MARKER1_READY_PC IS a TARGET_VITAL frame -- v141:5874-5882 "
+        "asserts nested_id == TARGET_VITAL on it -- so it reaches this "
+        "branch.  Claiming it would swallow the population send and the "
+        "population_indices / population_refresh_anchor / "
+        "v138_marker1_population_sent commits that ride with it.  "
+        "respond() declines on exact_frozen_marker1_ready_pc=True.",
+    ),
+    (
+        "runtime_req_first_ack",
+        "v141:3768-3772",
+        "STAND_ASIDE",
+        "Unconditional on the FIRST frame of this block, TARGET_VITAL "
+        "included.  The constructor-exact empty RuntimeRes is what feeds "
+        "the client's receive watchdog; runtime.py gates a dozen of its "
+        "own paths on the same flag.  respond() declines on "
+        "runtime_ack_sent=False.",
+    ),
+    (
+        "v99_show_message_local_server_online",
+        "v141:3774-3781",
+        "STAND_ASIDE",
+        "Rides the same first frame, one line below the ack, gated on the "
+        "flag that line sets.  Covered by the same decline -- named as its "
+        "own row because it is its own send, not a detail of the ack.",
+    ),
+    (
+        "v100_music_control_current_scene",
+        "v141:3782-3787",
+        "STAND_ASIDE",
+        "Rides the same first frame as the ack and the welcome message, "
+        "gated on the same flag, covered by the same decline.  Its own "
+        "row because it is its own send: a player who loses this one "
+        "hears silence in a town that should have music.",
+    ),
+    (
+        "v126_action_target_arm",
+        "v141:3788-3816",
+        "ACCEPTED_GAP",
+        "Unconditional on every TARGET_VITAL frame: arms "
+        "action_target_last_identity / _last_kind / p30_action_target_armed, "
+        "read later by the ACTION_VITAL handler (v141:3818-3862) to gate "
+        "exact_target_bound_wield_action.  MEASURED by pf-adversary "
+        "`hd6tac` on the scene 14 responder: the attributes stayed None "
+        "through a claimed click.  Not reproducible from here (no session "
+        "object) and not declinable without declining every click there "
+        "is.  It costs nothing in Port Royal only because "
+        "exact_p30_target's strict match wants an arena-harness identity "
+        "and index shape scene 1's real actors do not have -- INCIDENTAL, "
+        "and it is why step 3's attended ticket must click with a weapon "
+        "bound before this flag flips.",
+    ),
+    (
+        "v134_p0_p30_p91_isolated_initial_ready",
+        "v141:4292-4300",
+        "DISARMED",
+        "The frozen three-actor NPC spawn.  Gated on runtime_ack_sent AND "
+        "last_target_pos, which only the position-vital path sets "
+        "(v141:4259) -- never a TARGET_VITAL frame on its own.  Beyond "
+        "that this tree disarms the branch at construction whenever the "
+        "world census is enabled (runtime.py:1564-1584), on purpose and "
+        "for reasons measured there.  Nothing left for a responder to "
+        "cost.",
+    ),
+)
+
+
+FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING = """runtime.py, the responder branch.
+Step 4's call-site half.  TWO keywords, both already attributes of the state
+object, and BOTH ARE ONE-WAY GUARDS -- they can only make the responder
+decline, never make it answer something it would not have answered:
+
+    response = scene_choose_npc_responder.respond(
+        ...,
+        runtime_ack_sent=self.runtime_ack_sent,
+        exact_frozen_marker1_ready_pc=(
+            parsed.raw_pc == legacy.V138_MARKER1_READY_PC
+        ),
+    )
+
+self.runtime_ack_sent is the frozen latch v141:3771 sets, the same one
+runtime.py already reads at 1747/1796/1848/1926/2149/2397/2468/2539/2616.
+legacy.V138_MARKER1_READY_PC is the frozen 76-byte constant at v141:844.
+
+AND THE DECLINE MUST FALL BACK TO THE FROZEN LOOP, NOT TO ``actions = []``
+-- the same second half WORLD_CENSUS_IDENTITY_RESOLVED_WIRING asks for, and
+here it is not a preference: a decline that answers with zero bytes on the
+FIRST runtime request would withhold the very ack the client is waiting for,
+which is worse than the swallow this guard exists to prevent.  If only one
+of the two halves can land, land neither.
+"""
+
+
 WORLD_CENSUS_IDENTITY_RESOLVED_WIRING = """runtime.py, the responder branch.
 TWO changes, and neither is useful without the other.
 
@@ -894,6 +1062,8 @@ def respond(
     world_census_identity_resolved: bool | None = None,
     vendor_open_latch_spent: bool | None = None,
     mission_dialog_latch_spent: bool | None = None,
+    runtime_ack_sent: bool | None = None,
+    exact_frozen_marker1_ready_pc: bool | None = None,
     **_ignored: Any,
 ) -> "lane_hooks.ChooseNpcResponse | None":
     """Answer one ChooseNPC click for scene 1, or decline (see module doc).
@@ -903,6 +1073,42 @@ def respond(
     breaking every registered responder at once.
     """
     if scene_id != SCENE_N_ID:
+        return None
+    if runtime_ack_sent is False:
+        # STEP 4 OF THE PROMOTION LIST, LANE HALF, GUARD 1 OF 2.  See
+        # ``FROZEN_TARGET_VITAL_BEHAVIOURS`` row 4-6 for why this frame is
+        # not ours to swallow: the responder branch runs INSTEAD of
+        # ``super().dispatch(parsed)``, so claiming the FIRST runtime
+        # request this connection ever sends costs three frozen sends at
+        # once -- the constructor-exact empty ``RuntimeRes`` ack
+        # (v141:3768-3772, the packet the client's own receive watchdog is
+        # waiting for), the welcome message (v141:3774-3781) and the scene
+        # music (v141:3782-3787) -- and leaves ``runtime_ack_sent`` False
+        # forever, which ``runtime.py`` itself gates on in a dozen places
+        # (runtime.py:1747, 1796, 1848, 1926, 2149, 2397, 2468, 2539, 2616).
+        # A player whose very first click lands before the ack would sit
+        # under a yellow "no Server data" watchdog for the whole session.
+        #
+        # ``is False`` and not a bare falsy test, for exactly the reason
+        # step 5's guard spells out one screen up: ``None`` means the call
+        # site never passed the keyword -- which is every call today, see
+        # ``FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING`` -- and MUST keep this
+        # module's pre-keyword behaviour byte for byte.
+        return None
+    if exact_frozen_marker1_ready_pc is True:
+        # STEP 4, GUARD 2 OF 2.  ``V138_MARKER1_READY_PC``
+        # (v141:844-850) is a fixed 76-byte PC whose nested id IS
+        # ``TARGET_VITAL`` -- v141:5874-5882 asserts exactly that, so this
+        # is a static fact about the frozen frame, not a reading of a
+        # capture.  It therefore reaches the responder branch
+        # (``nested_id in (TARGET_VITAL, CHOOSE_NPC)``) like any click,
+        # and claiming it swallows the frozen V140 marker1 population send
+        # (v141:3729-3760) together with everything that send commits:
+        # ``population_indices``, ``population_refresh_anchor`` and the
+        # ``v138_marker1_population_sent`` one-shot.  The lane cannot
+        # reproduce that -- a responder is handed no session object and
+        # composing a second population authority is the "second composer"
+        # this project has refused elsewhere -- so it stands aside.
         return None
     if world_census_identity_resolved is False:
         # STEP 5 OF THE PROMOTION LIST, LANE HALF.  ``is False`` and not a
