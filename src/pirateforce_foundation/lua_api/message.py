@@ -65,9 +65,9 @@ this package interpolates it, and a test pins that.
 
 Still true, and still named: this module builds no frame.  The frame
 builder that exists is the frozen legacy seam's ``make_show_message(text)``
-in ``current/pf_login_game_server_v141.py`` (``ShowMessageVital`` 0x36D2 --
-proven layout in ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``, one
-UNTAGGED_WSTRING16LE_LEN32LE at +0x14), and the dispatch that would call it
+in ``current/pf_login_game_server_v141.py`` -- the show-message vital, id
+``0x36D2``, proven layout in ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``,
+one UNTAGGED_WSTRING16LE_LEN32LE at +0x14 -- and the dispatch that would call it
 lives in ``runtime.py``/``app.py``, outside this lane's write scope.  What
 this module hands that future caller is an ordered, per-audience record of
 WHICH ids to show -- and now the text to show for each of them.
@@ -117,6 +117,23 @@ message from a stored one.
 Still NOT solved here, said plainly: nothing delivers any of this to a
 client, and a scene bucket is a record of intent, not a broadcast.
 """
+
+# THE HANDOFF NAME, IN A COMMENT ON PURPOSE (round 7kxfe9).  The vital this
+# module deliberately does NOT build is called ShowMessageVital, and a
+# future reader should be able to grep that spelling and land here.  It sits
+# in a full-line comment rather than in the docstring above because
+# tools/pf_ui_wire_name_census.py grades a name SOURCE ("appears in the
+# code") when its identifier is on any NON-COMMENT line under
+# src/pirateforce_foundation/, and it skips full-line comments precisely to
+# avoid that false positive -- but not docstring bodies, a gap its own
+# module docstring discloses.  Round 6775u1 spelled the name in the
+# docstring, which flipped that row NAME-ONLY -> SOURCE, put the project
+# count at 161 against a pinned 160, and left main RED in a module belonging
+# to another lane (measured on a pristine origin/main worktree, round
+# 7kxfe9).  Naming it in prose was never ownership -- this file's own
+# NoLaneQModuleBuildsTheVitalTests walks the AST and proves no code here
+# reaches for it -- so the fix belongs on this side of the line, and the
+# tool's gap is reported to its owner rather than worked around silently.
 
 from __future__ import annotations
 
