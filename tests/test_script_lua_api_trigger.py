@@ -276,6 +276,19 @@ class RealTriggerNamespaceTests(unittest.TestCase):
         trigger_ns["QuestActiveProgress"](900)
         self.assertEqual(quest_ns["GetQuestFlag"](900), lua_api_quest.QUEST_ACTIVE)
 
+    def test_quest_progress_functions_bad_value_logs_a_line(self):
+        # pf-adversary (this round): same fix as lua_api.quest's own
+        # QuestFlagAndCounterTests::test_bad_value_same_arity_calls_log_a_line_not_silently.
+        ns, calls = self._namespace()
+        for name in ("QuestActiveProgress", "QuestFinishProgress"):
+            with self.subTest(method=name):
+                calls.clear()
+                ns[name](float("nan"))
+                self.assertTrue(
+                    any(c.startswith("LUA_TRIGGER_BAD_VALUE Trigger.%s " % name) for c in calls),
+                    calls,
+                )
+
     def test_quest_progress_functions_wrong_arity_degrades_safely(self):
         ns, calls = self._namespace()
         for name, args in (("QuestActiveProgress", ()), ("QuestFinishProgress", (1, 2))):
