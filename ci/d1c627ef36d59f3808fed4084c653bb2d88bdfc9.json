@@ -1,1 +1,1 @@
-{"sha":"d1c627ef36d59f3808fed4084c653bb2d88bdfc9","conclusion":"success","event":"push","ref":"refs/heads/claude/upbeat-hamilton-l5tqxc","run_id":"34036101560","utc":"2026-09-06T13:54:44Z"}
+{"sha":"d1c627ef36d59f3808fed4084c653bb2d88bdfc9","conclusion":"failure","event":"pull_request","ref":"refs/pull/948/merge","run_id":"34036123572","utc":"2026-09-06T13:55:54Z"}
