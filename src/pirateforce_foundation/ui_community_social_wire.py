@@ -103,7 +103,14 @@ classes) and `d1b231` (the remaining 10: ``ChangeActorPersonalData``,
 ``RequestorConfirmSoulMateMatch``, ``SetReceiveActiveChange``,
 ``TargetConfirmSoulMateMatch``, ``ThrowLetterInABottle``,
 ``ThrowPenpalLetter``, ``WriteBlankPenpalLetter``) did the work. Each of the
-16 W/R field pairs migrated in round `d1b231` was checked individually
+15 W/R field pairs migrated in round `d1b231` was checked individually
+(corrected round `fvp9ke` from `16`, which re-derived as neither figure:
+the pre-migration module had exactly 15 ``wire.encode_untagged_wstring(``
+and 15 ``wire.read_untagged_wstring(`` call sites -- measured with
+``git show 6733292:<this file> | grep -c`` -- and the delta table carries 30
+rows, 15 fields times W/R, for these ten classes. 18 is the module's TOTAL
+wstring field count, which includes the three classes round `on8hbb`
+migrated)
 against ``pf_bridge/notes_to_chief/reference_codex_attr/
 PF_A2_STRING_WIRE_TAG_DELTA.tsv`` first: every one carries a
 ``corrected_tag=0x48`` row for BOTH directions (grepped by class name; no
