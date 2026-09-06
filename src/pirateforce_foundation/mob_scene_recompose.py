@@ -59,6 +59,7 @@ from . import diag_multi_object_wiring
 from . import field_mobs
 from . import mob_death
 from . import mob_drop_presence
+from . import mob_ground_persistence
 from . import mob_ledger_admission
 from . import world_population
 from . import world_population_bg0002
@@ -1723,7 +1724,9 @@ def _describe(record: "SceneRecompose") -> tuple[str, ...]:
 # is that a token must name what actually happened.  ``describe_presence``
 # is this lane's cause-neutral line for the exact same step, already shipped
 # and already pinned, so that is what prints here instead.
-def ground_companion_actions(cell: Any, legacy: Any) -> tuple:
+def ground_companion_actions(
+    cell: Any, legacy: Any, *, world: Any = None,
+) -> tuple:
     """The ground-drop frame a RECOMPOSE call site must send ALONGSIDE its
     own bar frame, so hitting one monster cannot wipe another's loot.
 
@@ -1741,10 +1744,64 @@ def ground_companion_actions(cell: Any, legacy: Any) -> tuple:
     byte-pinned test of the actor census (scene 1 and scene 2 alike)
     untouched by this fix.
 
+    ``world`` -- ADDED THIS ROUND, NOT A BEHAVIOUR CHANGE FOR THE EXISTING
+    CALL SITE.  The already-shipped call (``runtime.py``, CORE-REQUEST
+    ``GROUND_COMPANION_WIRING``, closed by the chief in round r045nx/R354)
+    passes no ``world=`` at all, so every already-pinned test and the
+    already-wired production call keep composing from ``cell`` alone --
+    THE SAME SESSION-SCOPED FLOOR AS BEFORE, byte for byte.
+
+    What ``world`` unlocks, when a caller supplies one: this is the piece
+    the chief's own letters name as still missing
+    (``pf_bridge/notes_to_chief/20260905_1446_CHIEF-R354b-TO-LANE-A...md``,
+    ``.../20260905_1542_COO-DECISION-chief1445-827...md``,
+    ``.../20260905_1812_CHIEF-R356-TO-LANE-A...md``) -- MEASURED there, on
+    the real dispatcher, that a SECOND session standing in the SAME scene
+    gets ``ground frames = 0`` from this function today, because ``cell``
+    only ever knows the rows ITS OWN kills put there
+    (``PANYA-DECISION 20260905_1140`` item 3's shared-world criterion, still
+    unmet).  Handing a :class:`mob_ground_persistence.WorldGround` in here
+    admits the scene's WORLD-STANDING rows into ``cell`` first
+    (:func:`mob_ground_persistence.seed_cell`, the exact seam that module
+    already built and already uses for arrival/warp) -- a row this cell
+    already holds is skipped, never duplicated -- and THEN composes from
+    ``cell`` exactly as before, so the encoder is not touched a second time
+    (REUSE, NOT A SECOND ENCODER, same rule as the rest of this function).
+    Gated behind ``world is not None`` on purpose: the registry is a single
+    process-wide singleton by default
+    (:func:`mob_ground_persistence.world_ground`), and several OTHER test
+    files in this tree already call ``mob_drop_presence.sustain_a_kill``
+    with real drops against that same default singleton with no isolation
+    of their own -- composing from it UNCONDITIONALLY here would make this
+    function's own output depend on which unrelated test happened to run
+    first in the same process.  An explicit ``world=`` opts a caller in
+    with its own isolated (or the real) registry, same shape
+    ``sustain_a_kill``'s own ``world=``/``store=`` already carry.
+
+    NEVER RAISES on this path either: :func:`mob_ground_persistence.seed_cell`
+    already promises that, and any exception this call cannot see coming is
+    still caught here so a seed failure costs at most "the world's rows
+    were not merged this hit", never the frame the cell already owns.
+
+    SEE :data:`WORLD_GROUND_COMPANION_WIRING` for the exact ``runtime.py``
+    change that would turn this optional merge into the production default
+    -- still a CORE-REQUEST, not done by this file, because ``runtime.py``
+    is the chief's.
+
     NOT YET WIRED to any call site -- see :data:`GROUND_COMPANION_WIRING`
     for the exact ``runtime.py`` patch and why it is scoped to the BAR
     (hit) recompose only, not the dying/dead one.
     """
+    if world is not None:
+        try:
+            seeded = mob_ground_persistence.seed_cell(cell, world=world)
+        except Exception:  # noqa: BLE001 - never raises, see docstring
+            seeded = None
+        if seeded is not None:
+            try:
+                print(mob_ground_persistence.describe_seeded(seeded))
+            except Exception:  # noqa: BLE001 - loses the LINE, not the merge
+                pass
     try:
         step = mob_drop_presence.sustain_a_kill(cell, legacy, ())
     except Exception:  # noqa: BLE001 - see module docstring: never raises
@@ -1759,6 +1816,37 @@ def ground_companion_actions(cell: Any, legacy: Any) -> tuple:
         return mob_drop_presence.loot_actions(step)
     except Exception:  # noqa: BLE001
         return ()
+
+
+# The second wiring ask -- OPTIONAL, and additive to GROUND_COMPANION_WIRING
+# above (which is already done: chief wired that one in round r045nx/R354,
+# runtime.py's ``if recompose_record.composed:`` arm already calls
+# ``ground_companion_actions`` with no ``world=``).  This one is what turns
+# the still-open TWO_SESSIONS_SAME_SCENE gap those letters measured into a
+# closed one, once the chief has a round to spend on it.
+WORLD_GROUND_COMPANION_WIRING = """runtime.py, the SAME call site
+GROUND_COMPANION_WIRING already named (today, the line reads
+    actions.extend(mob_scene_recompose.ground_companion_actions(
+        getattr(self, "mob_loot_cell", None), legacy))
+).
+
+ADD one import near this module's other ``from . import mob_scene_recompose``
+line:
+    from . import mob_ground_persistence
+
+AND add one keyword to the existing call, nothing else:
+    actions.extend(mob_scene_recompose.ground_companion_actions(
+        getattr(self, "mob_loot_cell", None), legacy,
+        world=mob_ground_persistence.world_ground()))
+
+That is the WHOLE change.  ``ground_companion_actions`` already does
+everything else (seeds the session's cell from the world's standing floor,
+then composes exactly as it does today) -- see its own docstring for why the
+merge is gated behind ``world is not None`` rather than being the function's
+own default.  No new branch, no new event: the seed step prints its own
+bounded line (``mob_ground_persistence.describe_seeded``), same convention
+as the two describe_* lines this call site already prints.
+"""
 
 
 # The wiring ask.  runtime.py is the chief's file; this is the whole change,

@@ -47,6 +47,7 @@ from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import mob_drop_presence  # noqa: E402
+from pirateforce_foundation import mob_ground_persistence  # noqa: E402
 from pirateforce_foundation import mob_loot  # noqa: E402
 from pirateforce_foundation import mob_scene_recompose as recompose  # noqa: E402
 from pirateforce_foundation import world_population_bg0002  # noqa: E402
@@ -227,6 +228,154 @@ class GroundCompanionActionsTests(GroundCompanionFixture):
         out = buf.getvalue()
         self.assertIn(mob_drop_presence.CONSOLE_TOKEN, out)
         self.assertIn("live=0", out)
+
+
+class WorldRegistryCompanionTests(GroundCompanionFixture):
+    """THE GAP the chief's own letters measured and could not close
+    themselves (this lane's to close, per ``COO-DECISION 20260905_1152``
+    item 2/3): ``pf_bridge/notes_to_chief/20260905_1446_CHIEF-R354b-TO-LANE-A-
+    companion-is-session-scoped-not-shared-registry-yours.md``,
+    ``.../20260905_1542_COO-DECISION-chief1445-827-stays-on-main-...md``,
+    ``.../20260905_1812_CHIEF-R356-TO-LANE-A-companion-is-30-bytes-...md``
+    all measure the SAME thing on the real dispatcher: ``#827``/``#828``'s
+    companion reads only ``self.mob_loot_cell`` (per-session,
+    ``runtime.py:1528``), so a SECOND session standing in the SAME scene
+    gets ``ground frames = 0`` -- failing ``PANYA-DECISION 20260905_1140``
+    item 3's shared-world criterion ("kill one monster, two items drop ->
+    relogin/second session sees the same floor").
+
+    Two ``DropLedgerCell`` instances below stand in for two sessions
+    (two logins, or a relogin) sharing ONE scene and ONE
+    :class:`mob_ground_persistence.WorldGround` -- exactly the shape
+    :func:`mob_ground_persistence.seed_cell` was already built for
+    (``TheSeedSeamTests`` in ``test_mob_ground_persistence.py`` proves the
+    seam itself; this class proves it reaches THIS module's own
+    companion frame end to end).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.world = mob_ground_persistence.WorldGround(clock=self.clock)
+
+    def test_without_world_a_second_sessions_companion_still_sees_nothing(
+            self):
+        """THE BUG, STILL REPRODUCIBLE ON THIS BUILD: session A's kill
+        already reaches the world registry today (the write side,
+        ``runtime.py:5856-5857``, is unconditional and unguarded -- no
+        ``world=`` needed there). But session B's own companion, called
+        with no ``world=`` -- exactly how ``runtime.py`` calls it today,
+        per ``GROUND_COMPANION_WIRING`` -- has no way to learn about it."""
+        drops = self._drop_monster_a()
+        mob_drop_presence.sustain_a_kill(
+            self.cell, self.legacy, drops, world=self.world)
+        session_b_cell = mob_loot.DropLedgerCell(
+            clock=self.clock, scene=SCENE2_FOLDER)
+        actions = recompose.ground_companion_actions(
+            session_b_cell, self.legacy)
+        self.assertEqual(
+            actions, (),
+            "a second session's companion, called the way runtime.py "
+            "calls it today (no world=), still knows nothing about the "
+            "first session's drop -- this is the open gap the letters "
+            "above measured, not yet the fix")
+
+    def test_with_world_a_second_sessions_companion_carries_the_first_kill(
+            self):
+        """THE FIX.  Same two sessions, same scene, same world -- handing
+        ``world=`` merges the registry's standing floor into session B's
+        cell before composing (:func:`mob_ground_persistence.seed_cell`,
+        reused, not reimplemented), so a hit on B's own monster (which
+        drops nothing) reannounces A's items instead of session B's screen
+        never having heard of them."""
+        drops = self._drop_monster_a()
+        mob_drop_presence.sustain_a_kill(
+            self.cell, self.legacy, drops, world=self.world)
+        session_b_cell = mob_loot.DropLedgerCell(
+            clock=self.clock, scene=SCENE2_FOLDER)
+        actions = recompose.ground_companion_actions(
+            session_b_cell, self.legacy, world=self.world)
+        self.assertGreater(len(actions), 0)
+        for label, pc, frame, _hold in actions:
+            self.assertEqual(label, mob_drop_presence.ACTION_LABEL)
+            self.assertEqual(frame, self.legacy.frame_pc(pc))
+        # Genuinely the SAME row, not a duplicate manufactured for session
+        # B: session B's own cell can take it, once, by its real key.
+        taken = session_b_cell.take(drops[0].drop_key)
+        self.assertEqual(taken.drop_key, drops[0].drop_key)
+
+    def test_a_recompose_in_between_does_not_change_the_outcome(self):
+        """Mirrors ``RecomposeIsBlindToTheFloorTests`` above: the bar
+        recompose itself is still blind to the floor (unchanged by this
+        round), so session B's bar frame is identical whether or not the
+        merge happened -- the companion is genuinely the whole fix, same
+        as the single-session case this file already pinned."""
+        drops = self._drop_monster_a()
+        mob_drop_presence.sustain_a_kill(
+            self.cell, self.legacy, drops, world=self.world)
+        session_b_cell = mob_loot.DropLedgerCell(
+            clock=self.clock, scene=SCENE2_FOLDER)
+        before = recompose.recompose_frames(
+            self.legacy, self.anchor, self.register, ledger=self.ledger)
+        actions = recompose.ground_companion_actions(
+            session_b_cell, self.legacy, world=self.world)
+        after = recompose.recompose_frames(
+            self.legacy, self.anchor, self.register, ledger=self.ledger)
+        self.assertEqual(before.pc, after.pc)
+        self.assertEqual(before.frame, after.frame)
+        self.assertGreater(len(actions), 0)
+
+    def test_never_raises_when_world_is_junk(self):
+        drops = self._drop_monster_a()
+        mob_drop_presence.sustain_a_kill(
+            self.cell, self.legacy, drops, world=self.world)
+        session_b_cell = mob_loot.DropLedgerCell(
+            clock=self.clock, scene=SCENE2_FOLDER)
+        self.assertEqual(
+            recompose.ground_companion_actions(
+                session_b_cell, self.legacy, world="not a world registry"),
+            ())
+
+    def test_the_seed_line_is_printed_and_never_the_ground_reannounce_token(
+            self):
+        drops = self._drop_monster_a()
+        mob_drop_presence.sustain_a_kill(
+            self.cell, self.legacy, drops, world=self.world)
+        session_b_cell = mob_loot.DropLedgerCell(
+            clock=self.clock, scene=SCENE2_FOLDER)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            recompose.ground_companion_actions(
+                session_b_cell, self.legacy, world=self.world)
+        out = buf.getvalue()
+        self.assertIn(mob_ground_persistence.WORLD_SEEDED_TOKEN, out)
+        self.assertNotIn(mob_drop_presence.GROUND_REANNOUNCE_TOKEN, out)
+
+
+class WorldGroundCompanionWiringTests(unittest.TestCase):
+    """The pasteable CORE-REQUEST for the still-open half -- turning the
+    optional ``world=`` merge above into the production default is
+    ``runtime.py``, the chief's file, not this one."""
+
+    def test_the_wiring_ask_names_the_import_the_kwarg_and_the_call_site(
+            self):
+        wiring = recompose.WORLD_GROUND_COMPANION_WIRING
+        self.assertIn("mob_ground_persistence", wiring)
+        self.assertIn("world=mob_ground_persistence.world_ground()", wiring)
+        self.assertIn("ground_companion_actions", wiring)
+        self.assertIn("mob_loot_cell", wiring)
+        # cp874-encodable, not ASCII-only, same convention as the sibling
+        # wiring-ask test above.
+        wiring.encode("cp874")
+
+    def test_runtime_py_has_not_taken_this_ask_yet(self):
+        # HONEST, SELF-UPDATING: flip this (like GROUND_COMPANION_WIRING's
+        # own sibling test says to) the round runtime.py's call site grows
+        # a world= keyword -- not before.
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("world=mob_ground_persistence.world_ground()",
+                          source)
 
 
 class WiringAskTests(unittest.TestCase):
