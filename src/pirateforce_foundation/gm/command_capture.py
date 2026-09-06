@@ -344,7 +344,24 @@ def _capture_raw(
             # `tests/test_gm_command_capture.py`'s
             # `test_capture_file_mode_is_owner_only_no_execute_regardless_of_umask`
             # and the round `vb3ktn` follow-up letter to COO.
-            fd = os.open(out_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            # os.O_BINARY (Windows only; getattr default 0 makes this a
+            # no-op on POSIX, where the flag does not exist) -- pf-adversary
+            # D6, round `lkwmkp`: without it, CPython's os.open() on Windows
+            # opens the descriptor in the C-runtime's default text mode, and
+            # the raw os.write() calls below are then subject to that
+            # runtime's own \n -> \r\n translation. file_body is UTF-8 bytes
+            # containing a hex dump and a decode section that can hold
+            # literal \n bytes not meant as line separators, so a silent
+            # CRLF rewrite would both corrupt the "lossless copy" this
+            # module's docstring promises and desync the short-write retry
+            # loop below, which assumes every byte handed to os.write()
+            # either lands on disk unchanged or is reported back as not
+            # written -- not silently expanded in place.
+            fd = os.open(
+                out_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                0o600,
+            )
         except FileExistsError:
             suffix += 1
             continue

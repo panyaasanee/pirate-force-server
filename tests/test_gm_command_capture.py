@@ -203,6 +203,78 @@ class GmCommandCaptureTests(unittest.TestCase):
         # suffix 0, 1, 2, 3 -- exactly bound + 1 attempts, not unbounded.
         self.assertEqual(mock_open.call_count, 4)
 
+    # ----- pf-adversary D6, round `lkwmkp`: capture bytes must not be -----
+    # ----- silently CRLF-translated by Windows' os.open() text mode --------
+
+    def test_capture_file_open_passes_o_binary_flag_when_available(self):
+        # This project never opens a raw-write descriptor with os.O_BINARY
+        # anywhere (grepped across src/, tests/, tools/ before this fix),
+        # and its trusted gate runs on windows-latest. Without the flag,
+        # CPython's os.open() on Windows leaves the descriptor in the
+        # C-runtime's default text mode, so the raw os.write() calls in
+        # `capture_raw_gm_command` would be subject to \n -> \r\n
+        # translation -- silently breaking this module's own "lossless
+        # copy" promise. os.O_BINARY does not exist on this (Linux) host,
+        # so it is monkeypatched to a sentinel bit that cannot collide with
+        # any real O_* flag CPython defines, purely to prove this call site
+        # threads the flag through when the platform provides it -- this
+        # does NOT prove anything about actual Windows CRLF behaviour,
+        # which no machine in this cloud environment can measure.
+        #
+        # pf-adversary (this round): the spy used to delegate to the real
+        # os.open() with the sentinel bit still set in the flags it forwarded
+        # -- harmless on Linux (an unrecognized oflag bit is ignored), but
+        # this bit has never been asked of the real Windows CRT open call
+        # this fix targets, and Microsoft documents an unrecognized oflag
+        # as unspecified rather than ignored. A red Windows gate from that
+        # would look like this fix broke Windows, when the real cause would
+        # be a test sending a syscall a value nothing asked it to accept.
+        # The wrapper below records the flags actually requested, then
+        # clears the sentinel bit before handing off to the real os.open --
+        # proving the call site threads the flag through without ever
+        # letting the untested bit reach a real syscall.
+        sentinel_bit = 1 << 30
+        real_open = command_capture.os.open
+
+        def _spy_then_real_open_without_sentinel(path, flags, *args, **kwargs):
+            return real_open(path, flags & ~sentinel_bit, *args, **kwargs)
+
+        with mock.patch.object(
+            command_capture.os, "O_BINARY", sentinel_bit, create=True,
+        ), mock.patch.object(
+            command_capture.os,
+            "open",
+            side_effect=_spy_then_real_open_without_sentinel,
+        ) as spy_open:
+            capture_raw_gm_command(
+                b"x", "panya", capture_root=self.root, now_ts=0,
+            )
+        self.assertEqual(spy_open.call_count, 1)
+        flags_arg = spy_open.call_args.args[1]
+        self.assertTrue(
+            flags_arg & sentinel_bit,
+            f"os.open() flags {oct(flags_arg)} do not include the "
+            f"O_BINARY sentinel bit {oct(sentinel_bit)} -- the getattr("
+            f"os, 'O_BINARY', 0) fallback regressed or was removed",
+        )
+
+    def test_capture_file_open_flags_unchanged_when_o_binary_absent(self):
+        # On POSIX (this CI host, and every platform this suite actually
+        # runs on today) os.O_BINARY does not exist, so getattr(...) must
+        # fall back to 0 -- the flags value passed to os.open() must be
+        # byte-for-byte the same as before this fix. This pins that the fix
+        # is a true no-op here, not a behaviour change riding along with it.
+        self.assertFalse(hasattr(os, "O_BINARY"))
+        with mock.patch.object(
+            command_capture.os, "open", side_effect=command_capture.os.open,
+        ) as spy_open:
+            capture_raw_gm_command(
+                b"z", "panya", capture_root=self.root, now_ts=2,
+            )
+        self.assertEqual(spy_open.call_count, 1)
+        flags_arg = spy_open.call_args.args[1]
+        self.assertEqual(flags_arg, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+
     # ----- pf-adversary (this round): capture files must not be world- -----
     # ----- readable/executable regardless of the process umask -------------
 
