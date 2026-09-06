@@ -40,6 +40,7 @@ the raw hex dump stays correct either way since it never depends on framing.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -76,6 +77,29 @@ _MAX_SAFE_ACCOUNT_LEN = 40
 # RATE_LIMIT_MAX_CALLS_PER_WINDOW, now also bounds how often this loop can
 # even be entered).
 _MAX_FILENAME_COLLISION_ATTEMPTS = 1000
+
+# COO-DECISION 2026-09-06T20:47+07:00 (pf_bridge letter
+# `20260906_2047_COO-DECISION-gm1940-unlink-bounded-retry-3-plus-doc-line-LANE-GM.md`,
+# answering this lane's own `1940` question): the cleanup unlink below gets a
+# BOUNDED retry and nothing more -- no background janitor, no quota refund
+# after the fact. The failure it exists for is Windows-only and transient by
+# nature: another process (an antivirus scanner, an indexer, a backup agent)
+# holding a handle open on the file we just closed makes DeleteFile fail with
+# a sharing violation for as long as it holds it, and it usually lets go in
+# milliseconds. Retrying costs nothing on the path where unlink succeeds --
+# and POSIX never enters the retry path at all for this reason (a handle held
+# elsewhere does not block unlink there), which is why the "succeeds first
+# try = no sleep at all" test below pins that the Linux path is unchanged.
+# Two constants, one place, so the total time this can add to a failing
+# capture call stays readable: 3 attempts, 2 gaps, 0.1 s of sleeping at the
+# very worst -- well under COO's ~300 ms ceiling.
+_UNLINK_ATTEMPTS = 3
+_UNLINK_RETRY_DELAY_SECONDS = 0.05
+
+# One line, on stderr, naming the file that stayed on disk. Same channel and
+# shape as this lane's other console tokens (`gm/chat_command_action.py`'s
+# CONSOLE_TOKEN / LV_CONSOLE_TOKEN), plain ASCII for the cp874 bridge console.
+_UNLINK_STUCK_CONSOLE_TOKEN = "GM_CAPTURE_UNLINK_STUCK"
 
 
 class CaptureFileNotVerifiedRemoved(OSError):
@@ -133,14 +157,56 @@ def _best_effort_unlink(path: Path) -> bool:
     racing the first, or an external cleanup, could have removed it
     first, and the file being gone either way is exactly what matters to
     the caller).
+
+    BOUNDED RETRY (round `0op9bt`, COO-DECISION `2047`): a failing unlink is
+    retried up to ``_UNLINK_ATTEMPTS`` times with ``_UNLINK_RETRY_DELAY_SECONDS``
+    between attempts, because the failure this function is most likely to
+    meet in production is a Windows sharing violation from another process
+    holding a transient handle, which typically clears in milliseconds. An
+    unlink that succeeds on the first attempt sleeps ZERO times -- the
+    success path is byte-for-byte the same work it was before.
+
+    WHEN THE RETRIES RUN OUT the answer is still ``False``: the caller
+    raises ``CaptureFileNotVerifiedRemoved`` and the quota charged for that
+    call is NOT refunded, exactly as before. There is no janitor, nothing
+    sweeps the file up later, and nothing re-credits that quota during the
+    life of the process -- **a capture quota left stuck this way is cleared
+    by RESTARTING THE PROCESS, and by nothing else** (COO ruled the janitor
+    out until the failure is measured on a real Windows machine). One
+    stderr line names the file that stayed behind so the operator can see
+    which one it was; see docs/GM_LANE.md.
     """
-    try:
-        os.unlink(path)
-    except FileNotFoundError:
-        return True
-    except OSError:
-        return False
-    return True
+    for attempt in range(1, _UNLINK_ATTEMPTS + 1):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            return True
+        except OSError:
+            if attempt >= _UNLINK_ATTEMPTS:
+                try:
+                    print(
+                        f"{_UNLINK_STUCK_CONSOLE_TOKEN} path={path} "
+                        f"attempts={_UNLINK_ATTEMPTS} -- file stayed on disk "
+                        f"and its capture quota stays charged; restart the "
+                        f"process to clear that quota",
+                        file=sys.stderr,
+                    )
+                except Exception:
+                    # This function is called from `_capture_raw`'s
+                    # `except BaseException` cleanup path too, which runs at
+                    # interpreter shutdown (KeyboardInterrupt/SystemExit) --
+                    # where `sys.stderr` can already be closed and a bare
+                    # `print` then raises. The ANSWER this function returns
+                    # is what the caller's quota decision depends on; a
+                    # failed log line must never replace the exception that
+                    # cleanup path is in the middle of re-raising.
+                    pass
+                return False
+            time.sleep(_UNLINK_RETRY_DELAY_SECONDS)
+        else:
+            return True
+    # Unreachable: the final iteration always returns on both branches.
+    return False
 
 
 def _hex_dump(raw: bytes) -> str:

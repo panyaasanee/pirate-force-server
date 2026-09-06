@@ -1,6 +1,8 @@
 """GM-002: raw GM_RunGMCommandVital capture sink writes bytes untouched."""
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import stat
 import sys
@@ -451,6 +453,160 @@ class GmCommandCaptureTests(unittest.TestCase):
     def test_best_effort_unlink_treats_already_gone_as_success(self):
         missing = Path(self.root) / "does_not_exist.txt"
         self.assertTrue(command_capture._best_effort_unlink(missing))
+
+    # ----- COO-DECISION `2047` (round `0op9bt`): the cleanup unlink gets a --
+    # ----- BOUNDED retry (Windows sharing violations are transient), the ---
+    # ----- exhausted case keeps the old contract, POSIX sees no change -----
+
+    def test_a_cleanup_unlink_that_succeeds_on_the_third_try_is_a_clean_removal(self):
+        # COO's first required test: fail twice, succeed on the third
+        # attempt. The caller must read the SAME plain OSError it reads when
+        # the very first unlink succeeds -- i.e. gm/dispatch.py refunds the
+        # quota -- because the partial file really is gone by the time this
+        # returns.
+        real_unlink = command_capture.os.unlink
+        attempts = []
+
+        def _unlink(path):
+            attempts.append(path)
+            if len(attempts) < 3:
+                raise OSError("simulated Windows sharing violation")
+            real_unlink(path)
+
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=_unlink,
+        ), mock.patch.object(command_capture.time, "sleep") as sleep_spy:
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+
+        self.assertEqual(len(attempts), 3, attempts)
+        self.assertNotIsInstance(
+            ctx.exception, CaptureFileNotVerifiedRemoved,
+            "the third attempt removed the file, so the caller must see the "
+            "plain OSError that means 'zero bytes on disk, safe to refund' -- "
+            "reporting the unverified subclass here would strand the quota "
+            "for a call that really did clean up after itself",
+        )
+        self.assertEqual(
+            sleep_spy.call_count, 2,
+            "three attempts means exactly two gaps between them",
+        )
+        self.assertEqual(
+            [c.args[0] for c in sleep_spy.call_args_list],
+            [command_capture._UNLINK_RETRY_DELAY_SECONDS] * 2,
+        )
+        self.assertLessEqual(
+            command_capture._UNLINK_RETRY_DELAY_SECONDS
+            * (command_capture._UNLINK_ATTEMPTS - 1),
+            0.3,
+            "COO capped the total added delay at ~300 ms for the whole "
+            "retry sequence",
+        )
+        self.assertEqual(
+            list(Path(self.root).glob("*")), [],
+            "the file the third attempt removed must really be gone",
+        )
+
+    def test_a_cleanup_unlink_that_fails_every_attempt_still_refuses_the_refund(self):
+        # COO's second required test: all three attempts fail. Nothing about
+        # the pre-retry contract changes -- CaptureFileNotVerifiedRemoved,
+        # the original write error still chained, the file still on disk,
+        # no refund -- and the operator gets exactly one stderr line naming
+        # the file that stayed behind (there is no janitor: that quota is
+        # only cleared by restarting the process).
+        attempts = []
+
+        def _unlink(path):
+            attempts.append(path)
+            raise OSError("simulated Windows sharing violation")
+
+        stderr = io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=_unlink,
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ) as sleep_spy, contextlib.redirect_stderr(stderr):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+
+        self.assertEqual(
+            len(attempts), 3, attempts,
+        )
+        self.assertEqual(
+            command_capture._UNLINK_ATTEMPTS, 3,
+            "COO-DECISION `2047` fixed the bound at three attempts -- "
+            "changing it is a decision, not a tuning knob",
+        )
+        self.assertEqual(
+            sleep_spy.call_count, 2,
+            "the last failure must not sleep before giving up",
+        )
+        self.assertIsInstance(
+            ctx.exception.__cause__, OSError,
+            "the original write failure must still be chained, not swallowed",
+        )
+        leftover = list(Path(self.root).glob("*"))
+        self.assertEqual(len(leftover), 1, leftover)
+        printed = stderr.getvalue().splitlines()
+        self.assertEqual(
+            len(printed), 1,
+            f"exactly one stuck-file line, got {printed!r}",
+        )
+        self.assertIn(command_capture._UNLINK_STUCK_CONSOLE_TOKEN, printed[0])
+        self.assertIn(str(leftover[0]), printed[0])
+        self.assertTrue(
+            printed[0].isascii(),
+            "the bridge console is cp874 -- a non-ASCII log line kills the "
+            "tool reading it",
+        )
+
+    def test_a_dead_stderr_cannot_turn_the_stuck_file_line_into_the_raised_error(self):
+        # `_best_effort_unlink` is also called from `_capture_raw`'s
+        # `except BaseException` path, which runs at interpreter shutdown --
+        # where `sys.stderr` can already be closed. If the new log line were
+        # allowed to raise there, it would replace the exception that path is
+        # re-raising and the caller's quota decision would be made on the
+        # wrong exception type entirely.
+        closed = io.StringIO()
+        closed.close()
+
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), mock.patch.object(command_capture.sys, "stderr", closed):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+
+        self.assertIsInstance(
+            ctx.exception.__cause__, OSError,
+            "the original write failure must still be the chained cause -- "
+            "not a ValueError from writing to a closed stream",
+        )
+
+    def test_a_cleanup_unlink_that_works_first_try_never_sleeps(self):
+        # COO's explicit condition on accepting the retry at all: "Linux must
+        # not be able to tell the difference". The retry path is entered only
+        # by a FAILING unlink, so the ordinary POSIX cleanup -- the only one
+        # this project's own gate and dev machines ever run -- still does
+        # exactly one syscall and no sleeping.
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(command_capture.time, "sleep") as sleep_spy:
+            with self.assertRaises(OSError):
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertEqual(
+            sleep_spy.call_count, 0,
+            "an unlink that succeeds on the first attempt must not sleep",
+        )
+        self.assertEqual(list(Path(self.root).glob("*")), [])
 
     # ----- pf-adversary (round `gn7gk5`, follow-up `79ahzl`): os.close() ---
     # ----- failing must not bypass the cleanup-then-classify contract -----
