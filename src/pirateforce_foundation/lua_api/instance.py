@@ -265,9 +265,12 @@ class InstanceRegistry:
         instances that actually run a ``CallScoreCount``-calling script, and
         deciding whether "calling this API" should look up and apply that
         row's reward, or whether the row only matters for
-        ``AddBonusPoint``/``AddBonusReward`` (which stay named stubs, see
-        ``STILL_STUBBED``) -- is real, unstarted work, not a guess this
-        function silently avoids.  What IS unambiguous from every one of the
+        ``AddBonusPoint``/``AddBonusReward`` (also pure invocation counters
+        as of round ``vmm7vf``, same non-claim as this method -- see
+        their own docstrings on :class:`InstanceRegistry`, not
+        ``STILL_STUBBED``, which is empty) -- is real, unstarted work, not
+        a guess this function silently avoids.  What IS unambiguous from
+        every one of the
         12 ``CallScoreCount`` call sites themselves is that the call happens
         per instance, a bare statement with no argument and no read of its
         own return value -- so THIS function counts the INVOCATIONS, the
