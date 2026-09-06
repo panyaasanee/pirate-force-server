@@ -119,14 +119,68 @@ class VitalRowTests(unittest.TestCase):
 
 
 class PagesTests(unittest.TestCase):
-    def test_only_one_page_name_is_committed_evidence(self):
-        # `GMUI_1.model`'s child tab is the only page name any committed
-        # artifact carries; the other two are placeholders naming the gap.
+    def test_all_three_pages_are_named_and_no_placeholder_survives(self):
+        # RE-283 (letter `20260906_2328`, consumed round `nfbat1`) read
+        # `GMUI_1.model` on the owner's machine: one UITabControl, three
+        # UITabPage children, named.  The two `UNNAMED_PAGE_*` placeholders
+        # this module used to carry are retired -- and a placeholder
+        # creeping back in is the regression this pins, because a
+        # placeholder that survives silently is what makes a later round
+        # re-ask a question that is already answered.
+        self.assertEqual(PAGES, ("GMUI_BASIC", "GMUI_ADVAN", "GMUI_ACTIVITY"))
         self.assertEqual(PAGE_KNOWN, "GMUI_BASIC")
         self.assertEqual(len(PAGES), 3)
+        for page in PAGES:
+            self.assertNotIn("UNNAMED", page)
+
+    def test_each_page_owns_the_caption_row_the_screenshot_census_found(self):
+        # Two independent readings agreeing: `PAGE_TITLE_ROW_IDS` came from
+        # the committed GT-207 screenshots' text block, `RE-283` came from
+        # the client model file on a machine this lane cannot reach, and
+        # nothing coordinated them.  If a later round edits one side only,
+        # this goes red rather than leaving two disagreeing tables in the
+        # same module.
         self.assertEqual(
-            sum(1 for page in PAGES if page.startswith("UNNAMED_PAGE")), 2
+            gmui_catalog.PAGE_CAPTION_ROW_BY_PAGE,
+            {"GMUI_BASIC": 1439, "GMUI_ADVAN": 1440, "GMUI_ACTIVITY": 1891},
         )
+        self.assertEqual(
+            sorted(gmui_catalog.PAGE_CAPTION_ROW_BY_PAGE.values()),
+            sorted(gmui_catalog.PAGE_TITLE_ROW_IDS),
+        )
+        self.assertEqual(
+            list(gmui_catalog.PAGE_CAPTION_ROW_BY_PAGE), list(PAGES),
+        )
+
+    def test_the_new_page_names_carry_their_provenance_and_no_opcode(self):
+        # The names are worth only as much as the file they were read from,
+        # so the sha256 of that file rides with them; and RE-283 came back
+        # PARTIAL at "what does a button send", so nothing in this module
+        # may start carrying an opcode on the strength of it.
+        self.assertIn("GMUI_1.model", gmui_catalog.PAGE_NAME_PROVENANCE)
+        self.assertIn(
+            "ffd7e5d1c44ffe36b5bacc2857aa049ae6cbea69e11f62541bd0632162bbc69f",
+            gmui_catalog.PAGE_NAME_PROVENANCE,
+        )
+        self.assertIn("PARTIAL", gmui_catalog.PAGES_NOTE)
+        self.assertEqual(
+            [row for row in BUTTONS if getattr(row, "opcode", None) is not None],
+            [],
+        )
+
+    def test_the_client_side_offsets_are_recorded_for_the_next_re_round(self):
+        # RE-283 left exactly one question open (walk the object the
+        # dispatcher fills to its send site).  These offsets are what that
+        # round would otherwise re-derive by hand; they are client memory
+        # layout, of no use to this server, and no test anywhere may treat
+        # them as a wire fact.
+        self.assertEqual(
+            gmui_catalog.PAGE_MEMBER_OFFSETS,
+            {"GMUI_BASIC": 0x14, "GMUI_ADVAN": 0x68, "GMUI_ACTIVITY": 0xB0},
+        )
+        self.assertEqual(list(gmui_catalog.PAGE_MEMBER_OFFSETS), list(PAGES))
+        self.assertEqual(gmui_catalog.CONFIRM_BUTTON_MEMBER_OFFSET, 0xE8)
+        self.assertEqual(gmui_catalog.CONFIRM_BUTTON_WIDGET_ID, "BUTTON_OK")
 
 
 class RowCensusTests(unittest.TestCase):
@@ -588,13 +642,18 @@ class LabelBlockTests(unittest.TestCase):
         )
 
     def test_a_tab_title_is_not_a_model_name(self):
-        # `PAGES` are model names (one known, two placeholders) and the
-        # titles are what a human reads on the strip.  Collapsing the two
-        # would let a round claim the other two models are named now.
+        # `PAGES` are the client's `UITabPage` IDs and the titles are what a
+        # human reads on the strip.  All three IDs are known now (RE-283,
+        # round `nfbat1`), which makes collapsing the two MORE tempting than
+        # it was while two of them were placeholders -- so the separation is
+        # still pinned: page 2's caption is an advancement word and its
+        # content is mob spawn/kill and chat bans (see
+        # `PAGE_2_TITLE_DOES_NOT_MATCH_ITS_CONTENT`), so a round that reads
+        # a caption as a page identity gets page 2 wrong.
         for _, words in gmui_catalog.page_titles():
             self.assertNotIn(words, PAGES)
-        self.assertEqual(PAGES[1], gmui_catalog.PAGE_UNNAMED_2)
-        self.assertEqual(PAGES[2], gmui_catalog.PAGE_UNNAMED_3)
+        self.assertEqual(PAGES[1], gmui_catalog.PAGE_2)
+        self.assertEqual(PAGES[2], gmui_catalog.PAGE_3)
 
 
 if __name__ == "__main__":  # pragma: no cover
