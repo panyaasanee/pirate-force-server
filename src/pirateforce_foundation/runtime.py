@@ -9653,19 +9653,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # Same frozen serializer, same fail-closed shape: any
                     # refusal or length drift falls back to the untouched
                     # production bytes with a named event, never a
-                    # half-composed frame.  UPDATED 2026-08-30 by chief
-                    # (LANE-A round `vvy6q7`, 20260830_0050 letter, item @2'):
-                    # the "only scene_id in (1, 2)" half of this comment
-                    # is STALE -- the composer now accepts {1, 2, 14} and
-                    # decides by rule (registry login_entry_allowed AND
-                    # n_SAVE == 1), not by a hardcoded list. The other half
-                    # still holds: any OTHER pinned scene (e.g. 278, 997/
-                    # FilmScene) still falls back to plain bytes here,
-                    # because those scenes have n_SAVE == 0, not because of
-                    # their scene_id -- and that fallback is now named
-                    # (`faction_refused_scene_997_n_save_is_0_not_1`) instead
-                    # of silent. Real for RE-073's FilmScene work and for any
-                    # future world-travel unlock of a scene with n_SAVE == 0.
+                    # half-composed frame.  UPDATED 2026-09-06 (LANE-A round
+                    # `q02brx`, COO-DECISION `20260906_1347`, reported by
+                    # LANE-A's letter `20260906_1546` to chief): the
+                    # registry-rule half of this comment is now STALE --
+                    # world_faction_admission.admits() no longer checks the
+                    # registry (login_entry_allowed / n_SAVE) at all; it
+                    # accepts every scene_id that is a real int, including
+                    # 278 and 997/FilmScene. Nothing below this comment
+                    # changed -- the composer still falls back to plain
+                    # bytes, with a named event, whenever admits() refuses
+                    # (now only a non-int scene_id, which a persisted row
+                    # cannot produce), never a half-composed frame.
                     try:
                         faction_pc, faction_frame = (
                             self.foundation.projector.start_game(
