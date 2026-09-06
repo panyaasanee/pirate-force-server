@@ -62,6 +62,7 @@ from . import accounts as gm_accounts
 from .activity_cheat_code_wire import ACTIVITY_CHEAT_CODE_VITAL_ID
 from .command_capture import (
     DEFAULT_CAPTURE_ROOT,
+    CaptureFileNotVerifiedRemoved,
     capture_raw_activity_cheat_code,
     capture_raw_gm_command,
 )
@@ -552,12 +553,29 @@ def _authorize_and_capture(
         captured_path = capture_fn(
             raw_payload, account_name, capture_root=capture_root, now_ts=now_ts,
         )
+    except CaptureFileNotVerifiedRemoved as error:
+        # pf-adversary (round `40bjg7`, follow-up `gn7gk5`): unlike the
+        # plain OSError branch below, this exception means command_capture
+        # could NOT confirm the partially-written file was removed -- real
+        # bytes may still be sitting on disk for this call. Refunding here
+        # would recreate the exact bug this follow-up exists to close (the
+        # quota reading less than what a call may actually have cost in
+        # real disk), just relocated from the estimate to the refund path.
+        # The charge stays; refusal_reason's exception-type suffix still
+        # lets a reader tell this apart from the ordinary write-failure
+        # case immediately below.
+        return GmDispatchOutcome(
+            authorized=True,
+            captured_path=None,
+            refusal_reason=f"{REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}{type(error).__name__}",
+        )
     except OSError as error:
         # pf-adversary (round `vq07el`, D10): the quota charge above already
-        # ran for this call; the write it was charged for never landed, so
-        # give the estimate back rather than let a write failure spend real
-        # budget on zero written bytes. See `_capture_quota_refund`'s own
-        # docstring for the failure this closes.
+        # ran for this call; command_capture.py has now confirmed (see
+        # CaptureFileNotVerifiedRemoved's own docstring, and the branch
+        # above) that a plain OSError here means zero bytes remain on disk
+        # for this call, so give the estimate back rather than let a write
+        # failure spend real budget on zero written bytes.
         _capture_quota_refund(account_name, len(raw_payload))
         return GmDispatchOutcome(
             authorized=True,

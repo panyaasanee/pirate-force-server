@@ -78,6 +78,58 @@ _MAX_SAFE_ACCOUNT_LEN = 40
 _MAX_FILENAME_COLLISION_ATTEMPTS = 1000
 
 
+class CaptureFileNotVerifiedRemoved(OSError):
+    """A capture write failed and the partial file could not be confirmed removed.
+
+    pf-adversary (round `40bjg7`, follow-up round `gn7gk5`): before this
+    class existed, ``_capture_raw``'s write failure path (``os.write``
+    raising after ``os.open(..., O_CREAT | O_EXCL, ...)`` had already
+    created the file on disk) left that file behind with no cleanup
+    attempt, then raised the plain ``OSError`` that carried it. Every
+    caller of this module -- ``gm/dispatch.py``'s ``_authorize_and_capture``
+    -- reads a plain ``OSError`` from this function as "nothing was
+    written", refunds the quota it had already charged for the call, and
+    moves on: reproduced live (mocking only ``os.write``, letting the real
+    ``os.open`` run) as a leftover zero-length file on disk with the
+    account's tracked quota usage reading exactly what it read before the
+    call -- the same "quota tracks less than real disk usage" failure
+    round `40bjg7`'s own D9 fix exists to close, just relocated to this
+    path instead of fixed.
+
+    ``_capture_raw`` now attempts a best-effort ``os.unlink`` of the
+    partial file whenever ``os.write`` fails, and raises the ORIGINAL
+    ``OSError`` (unchanged) only when that cleanup succeeds -- a caller
+    reading a plain ``OSError`` from this function can now trust "zero
+    bytes remain on disk for this call" the same way it always assumed.
+    When the cleanup ITSELF fails (the partial file could not be removed,
+    so real bytes may still be sitting on disk from a call nothing ever
+    charged for), this class is raised instead, chained from the original
+    write error, so a caller can tell the two cases apart and refuse to
+    refund a charge it cannot prove was never spent.
+    """
+
+
+def _best_effort_unlink(path: Path) -> bool:
+    """Try to remove ``path``; return whether it is now confirmed absent.
+
+    Called only after a capture write has already failed, to answer the
+    one question ``_capture_raw``'s caller needs: is it now safe to treat
+    this call as having left zero bytes on disk? ``FileNotFoundError``
+    counts as success -- the property this returns is "does not exist
+    now", not "this specific call is what deleted it" (a second failure
+    racing the first, or an external cleanup, could have removed it
+    first, and the file being gone either way is exactly what matters to
+    the caller).
+    """
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def _hex_dump(raw: bytes) -> str:
     lines = []
     for offset in range(0, len(raw), 16):
@@ -285,8 +337,23 @@ def _capture_raw(
             continue
         try:
             os.write(fd, file_body)
-        finally:
+        except OSError as write_error:
             os.close(fd)
+            # pf-adversary (round `40bjg7`, follow-up `gn7gk5`): the file
+            # already exists on disk at this point (`os.open` with
+            # `O_CREAT` above already created it, empty or partially
+            # written) -- best-effort remove it so this failed call really
+            # does leave zero bytes behind, then tell the caller whether
+            # that promise held. See `CaptureFileNotVerifiedRemoved`'s own
+            # docstring for the failure this closes.
+            if _best_effort_unlink(out_path):
+                raise
+            raise CaptureFileNotVerifiedRemoved(
+                f"{caller_name}: write to {out_path} failed ({write_error!r}) "
+                f"and the partial file could not be removed -- bytes may "
+                f"still be on disk for a call nothing charged for"
+            ) from write_error
+        os.close(fd)
         return out_path
     raise OSError(
         f"{caller_name}: exceeded {_MAX_FILENAME_COLLISION_ATTEMPTS} "

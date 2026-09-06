@@ -7,14 +7,17 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import struct
 
+from pirateforce_foundation.gm import command_capture
 from pirateforce_foundation.gm.command_capture import (
     GM_RUN_GM_COMMAND_VITAL_ID,
+    CaptureFileNotVerifiedRemoved,
     capture_raw_gm_command,
 )
 
@@ -318,6 +321,60 @@ class GmCommandCaptureTests(unittest.TestCase):
             for i in range(50)
         ]
         self.assertEqual(len(set(paths)), 50)
+
+
+    # ----- pf-adversary (round `40bjg7`, follow-up `gn7gk5`): a write -----
+    # ----- failure must not leave an unaccounted file on disk -------------
+
+    def test_a_write_failure_leaves_no_file_behind_when_cleanup_succeeds(self):
+        # Reproduces the adversary's own repro: only os.write is faked (the
+        # real os.open runs, so a real empty file exists at the moment the
+        # write fails) -- before this round, that file was left on disk with
+        # nothing accounting for it. It must be gone once this call returns.
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ):
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertNotIsInstance(
+            ctx.exception, CaptureFileNotVerifiedRemoved,
+            "cleanup succeeded (nothing else in this test touches os.unlink) "
+            "-- the caller must see a plain OSError, not the unverified-removal "
+            "subclass, or gm/dispatch.py would wrongly refuse to refund a call "
+            "that really did leave zero bytes on disk",
+        )
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(
+            leftover, [],
+            "a write failure left a file on disk that nothing will ever "
+            "account for -- the exact gap this test guards",
+        )
+
+    def test_a_write_failure_raises_the_unverified_subclass_when_cleanup_also_fails(self):
+        # Both os.write and the cleanup os.unlink fail: the caller cannot
+        # prove the partial file is gone, so it must see a DISTINCT
+        # exception type rather than the plain OSError it would otherwise
+        # read as "zero bytes on disk, safe to refund".
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertIsInstance(
+            ctx.exception.__cause__, OSError,
+            "the original write failure must still be chained, not swallowed",
+        )
+        # The real (unmocked-at-the-syscall-level) file genuinely still
+        # exists -- this test's own os.unlink mock is what prevented its
+        # removal, so the file is really there, not merely unasserted.
+        leftover = list(Path(self.root).glob("*"))
+        self.assertEqual(len(leftover), 1, leftover)
+
+    def test_best_effort_unlink_treats_already_gone_as_success(self):
+        missing = Path(self.root) / "does_not_exist.txt"
+        self.assertTrue(command_capture._best_effort_unlink(missing))
 
 
 if __name__ == "__main__":
