@@ -99,7 +99,7 @@ def _dispatch_booted_state(legacy, register_cleanup, token):
     Port Royal with the census armed by one ``TargetPosVital`` -- the same
     boot ``TheGateStaysClosedForAMeasuredReasonTests`` drives to measure
     today's frozen answer, pulled to module scope, ROUND ``vxfepr``, so
-    ``TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests`` can
+    ``TheRegisteredResponderMeasuresTheTalkTriggerAtRealDispatchTests`` can
     drive the SAME boot against a different registry state rather than a
     second copy of it -- a second copy is how the two classes would start
     measuring two different things while calling it one harness.
@@ -1624,7 +1624,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         self.assertNotIn("latch_kwarg_misnamed", answer.console_lines[0])
 
 
-class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
+class TheRegisteredResponderMeasuresTheTalkTriggerAtRealDispatchTests(
         unittest.TestCase):
     """Module docstring item 7, DONE ROUND ``vxfepr``.
     ``docs/FUNCTIONAL_COVERAGE.json``'s ``npc_conversation_handshake`` had
@@ -1709,7 +1709,7 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
     real dispatched click through the registered responder still resolves
     to an honest answer at all, does not change.
 
-    THE CLASS NAME IS HISTORIC AND IS NOW WRONG BY ITS VERB, ON PURPOSE
+    ~~THE CLASS NAME IS HISTORIC AND IS NOW WRONG BY ITS VERB, ON PURPOSE
     AND NOT BY OVERSIGHT.  This responder no longer DROPS the talk
     trigger at real dispatch -- the class name says it does.  Renaming
     the class would move ``docs/FUNCTIONAL_COVERAGE.json``'s
@@ -1719,7 +1719,21 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
     ``eknq8d`` records the rename as a follow-up in its round file and its
     letter rather than reaching into them.  Read the verb as "the class
     that measures whether it drops it", which is what it has always
-    tested.
+    tested.~~  STRUCK, ROUND ``20udga``: THE PREMISE WAS FALSE, MEASURED BY
+    pf-adversary ``eknq8d`` D4.  ``grade_subset`` (``tests/
+    test_foundation_legacy_seam.py``) digests ``(id, status, required,
+    evidence_refs, test_refs, next_missing_behavior)`` and excludes
+    ``notes`` -- the field the class name string lives in in both the JSON
+    and the seam comment -- so renaming it moves neither file's digest
+    pin, only prose, and prose in a file outside this lane's write zone is
+    still something this lane may correct when it is false, the same
+    convention the CORE-REQUEST/letter split already uses for chief-owned
+    CODE.  Renamed this round to
+    ``TheRegisteredResponderMeasuresTheTalkTriggerAtRealDispatchTests``,
+    which is honest whichever way a future measurement goes, in the same
+    commit as the JSON note and the seam comment (both updated, digest
+    reverified byte-identical); letter ``20260906_2315`` asked chief to do
+    this and is withdrawn by this round's own letter.
     """
 
     @classmethod
@@ -1794,19 +1808,30 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
         must be ABSENT, or the click was answered by the frozen loop and
         this test would be reading someone else's actions."""
         labels = self._labels_for_click("tok-scene1-dispatch-real-02", 3)
-        self.assertIn(
-            "V98_NPC_CONVERSATION_DEFAULT_P3_VIA_LANE_A", labels,
-            "runtime.py stopped queuing extra_actions (CORE-REQUEST "
-            "20260904_0137 was on main when this assertion was inverted, "
-            "round eknq8d) -- re-read this class's own docstring before "
-            "touching this assertion, rather than deleting the test",
-        )
-        self.assertNotIn("V98_NPC_CONVERSATION_DEFAULT_P3", labels)
-        self.assertNotIn("V98_NPC_FACE_PLAYER_POSITION_HEADING_P3", labels)
+        # ROUND 20udga (pf-adversary eknq8d D9): membership + a length check
+        # cannot see wire ORDER.  The real call site writes
+        # `actions.extend(response.extra_actions)` (runtime.py:10359,
+        # append, not prepend) -- MEASURED this round rather than assumed,
+        # after pf-adversary 20udga caught this comment naming a different,
+        # never-existing line (`actions[:0] = ...`) in an earlier draft.
+        # A future edit that reorders -- prepends instead of appending, or
+        # answers out of sequence -- would keep every membership/len
+        # assertion above green.  Pin the sequence itself, the way
+        # test_columbus_keeps_his_quest_action_through_this_responder
+        # already does for its own three-action answer.
         self.assertEqual(
-            len(labels), 2,
+            labels,
+            [
+                f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P3",
+                "V98_NPC_CONVERSATION_DEFAULT_P3_VIA_LANE_A",
+            ],
             "an answer to an ordinary scene-1 click through this responder "
-            "is exactly its face frame and its talk trigger",
+            "is exactly its face frame then its talk trigger, in that "
+            "order -- if this went red because runtime.py stopped queuing "
+            "extra_actions (CORE-REQUEST 20260904_0137 was on main when "
+            "this assertion was inverted, round eknq8d), re-read this "
+            "class's own docstring before touching this assertion, rather "
+            "than deleting the test",
         )
 
     def test_the_shop_click_opens_the_store_once_per_session(self):
@@ -1817,9 +1842,27 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
         frozen loop sets, and writes the latch back from
         ``response.latches_spent``.  Driven on ONE booted state, two clicks,
         because the whole point is what the SECOND click does -- a fresh
-        state per click would pass with no write-back at all."""
+        state per click would pass with no write-back at all.
+
+        ROUND ``20udga`` (pf-adversary ``eknq8d`` D3): a click on a
+        TOWNSPERSON before the shop is now the first thing this test does,
+        and the latch is asserted unspent first.  Without that, this test
+        cannot tell "opens once per session" from "opens once, ever, no
+        matter who is clicked first" -- an unconditional
+        ``self.shop_store5_open_sent = True`` on ANY click (a mutant
+        pf-adversary ran and measured green against the old version of
+        this test) leaves the suite passing while a click on any
+        townsperson before the shop silently burns the session's one
+        shop-open."""
         state = _dispatch_booted_state(
             self.legacy, self.addCleanup, "tok-scene1-dispatch-shop")
+        townsperson_click = _dispatch_click_pc(self.legacy, 0x2000 + 3 + 1)
+        state.dispatch(self.legacy.parse_outer(townsperson_click))
+        self.assertFalse(
+            state.shop_store5_open_sent,
+            "an ordinary townsperson's click must never spend the shop's "
+            "once-per-session latch",
+        )
         shop_index = self.legacy.V112_SHOP_TRIGGER_INDEX
         click = _dispatch_click_pc(self.legacy, 0x2000 + shop_index + 1)
         first = [a[0] for a in state.dispatch(self.legacy.parse_outer(click))]
@@ -1852,6 +1895,29 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
                 "V98_NPC_CONVERSATION_DEFAULT_P1_VIA_LANE_A",
                 "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE",
             ],
+        )
+
+    def test_a_click_on_the_monster_placement_gains_a_face_frame(self):
+        """ROUND ``20udga`` (pf-adversary ``eknq8d`` D2): the module
+        docstring's cost table has claimed a P30 row -- "(nothing -- refused
+        by name)" on main, "face (a gain)" through this responder -- since
+        round ``eknq8d``, but no dispatch-level test drove it; only P1 and
+        P91 were.  The frozen loop ``continue``s past ``V112_MONSTER_INDEX``
+        without composing anything (see the module docstring's own account
+        of the monster arm); this responder answers with a face frame and
+        nothing else, because the monster placement is one of the four
+        kinds that get no conversation extra."""
+        labels = self._labels_for_click(
+            "tok-scene1-dispatch-monster", self.legacy.V112_MONSTER_INDEX)
+        self.assertEqual(
+            labels,
+            [f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P"
+             f"{self.legacy.V112_MONSTER_INDEX}"],
+            "a click on the monster placement through this responder is a "
+            "gain over the frozen loop (which sends nothing here), not a "
+            "regression -- and it must stay exactly a face frame, no "
+            "conversation extra, or the monster arm's own no-talk-trigger "
+            "rule broke",
         )
 
 
