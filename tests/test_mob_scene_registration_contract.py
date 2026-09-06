@@ -84,6 +84,7 @@ from pirateforce_foundation import field_mob_tables_bg0006  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0007  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0008  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0009  # noqa: E402
+from pirateforce_foundation import field_mob_tables_bg0010  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0011  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0015  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
@@ -100,6 +101,7 @@ from pirateforce_foundation import world_population_bg0006  # noqa: E402
 from pirateforce_foundation import world_population_bg0007  # noqa: E402
 from pirateforce_foundation import world_population_bg0008  # noqa: E402
 from pirateforce_foundation import world_population_bg0009  # noqa: E402
+from pirateforce_foundation import world_population_bg0010  # noqa: E402
 from pirateforce_foundation import world_population_bg0011  # noqa: E402
 from pirateforce_foundation import world_population_bg0015  # noqa: E402
 
@@ -143,6 +145,24 @@ def _outcome_for(mob):
 # arrival census the roster override can then splice into" -- and the two
 # questions have different owners (this lane's roster tables vs this
 # lane's population builders) and can drift from each other independently.
+# f32 coordinate values that legitimately appear in more than one live
+# scene, with the evidence for each.  Read the strict companion test
+# ``test_no_scene_frame_carries_another_scenes_whole_position`` before adding
+# a row here: a single shared float is allowed to be a coincidence, a shared
+# (x, y, z) triple never is, and that second test takes no allowances at all.
+#
+# ROUND 30ja9z, the first and so far only entry.  424.9296875 is the GROUND
+# HEIGHT (z) of Bg0011 placements 20 and 49 ("Navy Two Tripods"), and
+# Bg0010's arrival census -- not its roster -- carries the same z.  Measured,
+# not inferred: the value sits at one offset in Bg0010's composed frame,
+# directly behind an f32 tag byte (0x2A) so it is a real aligned payload and
+# not an unaligned byte-window coincidence, and it is NOT any Bg0010 roster
+# row's own coordinate (`424.9296875 in {row coords}` is False for scene 10,
+# True for scene 11).  Bg0010 and Bg0011 are floors 1 and 2 of the same Deep
+# Sea Temple; two floors of one building sharing a ground height is what the
+# map data says, and neither scene's x or y comes near the other's.
+_SHARED_GROUND_HEIGHTS = frozenset({struct.pack("<f", 424.9296875)})
+
 _POPULATION_MODULE_BY_SCENE = {
     field_mob_tables.SCENE: world_population,
     field_mob_tables_bg0002.SCENE: world_population_bg0002,
@@ -153,6 +173,7 @@ _POPULATION_MODULE_BY_SCENE = {
     field_mob_tables_bg0007.SCENE: world_population_bg0007,
     field_mob_tables_bg0008.SCENE: world_population_bg0008,
     field_mob_tables_bg0009.SCENE: world_population_bg0009,
+    field_mob_tables_bg0010.SCENE: world_population_bg0010,
     field_mob_tables_bg0011.SCENE: world_population_bg0011,
     field_mob_tables_bg0015.SCENE: world_population_bg0015,
 }
@@ -388,7 +409,7 @@ class EverySceneComposerActuallyRunsTests(unittest.TestCase):
                     # between two frames that both exist.
                     continue
                 with self.subTest(scene=scene, neighbour=other_scene):
-                    leaked = own_coordinates & {
+                    leaked = (own_coordinates - _SHARED_GROUND_HEIGHTS) & {
                         other_record.frame[i:i + 4]
                         for i in range(len(other_record.frame) - 3)
                     }
@@ -398,3 +419,35 @@ class EverySceneComposerActuallyRunsTests(unittest.TestCase):
                         "coordinate values -- the check above is not "
                         "discriminating after all" % (
                             other_scene, len(leaked), scene))
+
+    def test_no_scene_frame_carries_another_scenes_whole_position(
+            self) -> None:
+        """The strict half of the control above, and the reason the one
+        allowance in ``_SHARED_GROUND_HEIGHTS`` costs nothing.
+
+        A single shared f32 can be an ordinary coincidence -- two maps built
+        on the same ground height carry the same z, and nothing follows from
+        it.  A shared (x, y, z) TRIPLE cannot: that is one actor standing at
+        another scene's exact placement, which is the failure the control
+        above exists to detect.  This walks the same ordered pairs with no
+        allowance of any kind, so relaxing that one z value cannot hide a
+        real leak: the leak this file is afraid of would have to move all
+        three axes, and this test refuses all three.
+        """
+        for scene, scene_id in self.live_ids.items():
+            own_positions = {
+                struct.pack("<f", mob.x) + struct.pack("<f", mob.y)
+                + struct.pack("<f", mob.z)
+                for mob in field_mobs.roster_for_scene_id(scene_id)
+            }
+            self.assertTrue(own_positions, scene)
+            for other_scene, other_record in self.records.items():
+                if other_scene == scene or not other_record.frame:
+                    continue
+                with self.subTest(scene=scene, neighbour=other_scene):
+                    for position in own_positions:
+                        self.assertNotIn(
+                            position, other_record.frame,
+                            "scene %r's frame carries a whole (x, y, z) "
+                            "position belonging to scene %r" % (
+                                other_scene, scene))

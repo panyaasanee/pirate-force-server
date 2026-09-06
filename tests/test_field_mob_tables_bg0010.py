@@ -1,33 +1,34 @@
-"""LANE-B: scene 10 (Bg0010) is a REGISTERED scene whose mobs CANNOT be killed.
+"""LANE-B: scene 10 (Bg0010, Deep Sea Temple floor 1) is a REGISTERED scene.
 
-Round 30ja9z.  Every sibling scene module this lane has shipped so far landed
-its roster and its ``mob_death`` widening ruling in the same commit, under a
-COO-DECISION that names the scene.  THIS ONE DOES NOT, and the split is the
-point of this file:
+Round 30ja9z.  Seventeen placements over six distinct templates, mined by
+``tools/pf_mine_scene_mob_roster.py`` under the project's one identity rule
+(``cline``), registered in ``field_mobs._SCENE_TABLE_MODULES`` with its
+composer (``mob_scene_recompose.COMPOSER_BG0010``) and its widening ruling in
+the same commit -- the three-part arrival
+``tests/test_mob_scene_registration_contract.py`` demands of every scene ("a
+new scene that skips one of them must not be able to register at all").
 
-* The SPAWN half (M3, "the field has monsters") ships here.  Seventeen
-  placements over six distinct templates, mined by
-  ``tools/pf_mine_scene_mob_roster.py`` under the project's one identity rule
-  (``cline``), registered in ``field_mobs._SCENE_TABLE_MODULES``.
-* The KILL half (M4) does NOT.  No letter widens the death scope to Bg0010,
-  so ``mob_death.WIDENING_RULINGS`` carries no Bg0010 key and
-  ``mob_death.ruling_for`` refuses all seventeen bodies.  That refusal is
-  PINNED below as the intended behaviour of this round, not tolerated as an
-  accident: a later round that adds the ruling has to come back here and say
-  so, instead of silently flipping seventeen monsters from decorative to
-  killable.
+THE RULING KEY IS NOT SPELLED ``COO-DECISION``, AND THAT IS PINNED BELOW.
+Every sibling scene registered under a letter that granted the kill.  Bg0010
+has no such letter: it was split out of the four-scene request (pf_bridge
+notes_to_chief/20260906_0659 and _0748) because its raw data would not mine,
+and the letter that ratified the other four (COO-DECISION 2026-09-06T11:50,
+item 3) states the rule this round obeys -- a lane cannot issue its own kill
+letter even when a test forces one, and the correct shape is to open the PR
+and send the request letter together.  So the key names itself
+``LANE-B-REQUEST-PENDING-COO`` and cites this lane's own ASK-COO of
+2026-09-06T14:11+07:00.  When COO answers, the next LANE-B round either
+repoints the key to the real letter or removes the key and this whole
+registration together.
 
 WHY THE ROSTER SHIPS AT ALL WHILE ONE ROW IS UNREADABLE.  Bg0010's raw
 placement 50 names ``Mob_Set_99``, which the scene's own file never defines;
-the generator reports it and keeps going (COO-DECISION 2026-09-06T07:48+07:00
-item 3 approved exactly that shape), and it is absent from
-``HOSTILE_PLACEMENTS`` and named in the module's ``UNRESOLVED_PLACEMENTS``.
-The STATIC ticket that asks what that row is (pf_bridge
-notes_to_chief/20260906_0903 plus its 1046 addendum) has no number and no
-answer.  Registering the sixteen-plus-one READABLE rows meanwhile is this
-lane's own call under item 4 of the same letter ("silent more than 1 hour,
-keep going, no need to ask") and is tagged as an assumption in
-``field_mobs``' own BG0010_SCENE comment.  Nothing here decides what
+the generator reports it and keeps going (COO-DECISION 2026-09-06T07:48 item
+3 approved exactly that shape), and it is absent from ``HOSTILE_PLACEMENTS``
+and named in the module's ``UNRESOLVED_PLACEMENTS``.  The STATIC ticket that
+asks what that row is (notes_to_chief/20260906_0903 plus its 1046 addendum)
+has no number and no answer; item 4 of the 0748 letter grants "silent more
+than 1 hour, keep going" without asking.  Nothing here decides what
 placement 50 is.
 """
 
@@ -65,6 +66,11 @@ EXPECTED_CENSUS_RANK = 17
 EXPECTED_CENSUS_AI_COMBAT = 17
 EXPECTED_CENSUS_RANK_AND_AI_COMBAT = 17
 EXPECTED_CENSUS_DROPS_NORMAL = 17
+
+RULING_NAME = (
+    "LANE-B-REQUEST-PENDING-COO widen-death-scope-bg0010-six-templates "
+    "2026-09-06T14:11+07:00"
+)
 
 # The raw row the crosswalk cannot resolve AT ALL -- the STATIC ticket's whole
 # subject.  ``UNRESOLVED_PLACEMENTS`` is a longer list than this one row: the
@@ -201,27 +207,57 @@ class Bg0010ShapeTests(unittest.TestCase):
         for mob in rows:
             mob_ai_control.profile_of(mob)  # must not raise
 
-    def test_every_shipped_row_refuses_a_kill_because_no_letter_covers_it(
+    def test_the_ruling_is_a_request_not_a_letter_and_covers_exactly_this_scene(
             self) -> None:
-        """M4 is deliberately withheld from this scene.  Pin it, do not assume.
+        """The key's spelling is load-bearing, so it is pinned by execution.
 
-        A ruling arriving later is fine and expected -- but it has to edit this
-        test to arrive, which is the whole point: seventeen monsters must not
-        become killable as a side effect of somebody else's round.
+        COO greps live keys spelled ``COO-DECISION widen-death-scope`` against
+        the ``notes_to_chief`` filenames every executive round and requires a
+        removal PR for any key with no letter behind it.  This scene's key is
+        deliberately outside that shape, so it can never be read as a grant
+        this lane does not have.
         """
-        for name, scene in mob_death.WIDENING_RULING_SCENES.items():
-            self.assertNotEqual(
-                scene, EXPECTED_SCENE,
-                "a ruling (%r) now ties the death scope to %s; the roster "
-                "shipped WITHOUT one on purpose, so update this test and "
-                "field_mobs' BG0010_SCENE comment together" % (
-                    name, EXPECTED_SCENE),
-            )
+        self.assertIn(RULING_NAME, mob_death.WIDENING_RULINGS)
+        self.assertFalse(RULING_NAME.startswith("COO-DECISION"))
+        self.assertIn("LANE-B-REQUEST-PENDING-COO", RULING_NAME)
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[RULING_NAME], EXPECTED_TEMPLATES)
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[RULING_NAME],
+            frozenset(
+                row[1] for row in field_mob_tables_bg0010.HOSTILE_PLACEMENTS),
+        )
+        self.assertEqual(
+            mob_death.WIDENING_RULING_SCENES[RULING_NAME], EXPECTED_SCENE)
+
         rows = field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
         self.assertEqual(len(rows), EXPECTED_HOSTILE_COUNT)
+        seen = set()
         for mob in rows:
-            with self.assertRaises(mob_death.MobDeathContractError):
-                mob_death.ruling_for(mob)
+            self.assertEqual(mob_death.ruling_for(mob), RULING_NAME)
+            seen.add(mob.template_id)
+        self.assertEqual(seen, EXPECTED_TEMPLATES)
+
+        a_shipped_row = rows[0]
+        stray = field_mobs.FieldMob(
+            placement_index=a_shipped_row.placement_index,
+            template_id=916,
+            x=a_shipped_row.x, y=a_shipped_row.y, z=a_shipped_row.z,
+            visual_preset=a_shipped_row.visual_preset,
+            display_name="stray-not-a-real-shipped-row",
+            level=a_shipped_row.level,
+            rank=a_shipped_row.rank,
+            ai_wander=a_shipped_row.ai_wander,
+            ai_combat=a_shipped_row.ai_combat,
+            speed_walk=a_shipped_row.speed_walk,
+            max_hp=a_shipped_row.max_hp,
+            drops_normal=a_shipped_row.drops_normal,
+            drops_equipment=a_shipped_row.drops_equipment,
+            drops_specially=a_shipped_row.drops_specially,
+            scene=EXPECTED_SCENE,
+        )
+        with self.assertRaises(mob_death.MobDeathContractError):
+            mob_death.ruling_for(stray)
 
     def test_registering_scene_ten_left_the_other_scenes_alone(self) -> None:
         self.assertEqual(len(field_mobs.roster_for_scene_id(1)), 4)
@@ -236,24 +272,44 @@ class Bg0010ShapeTests(unittest.TestCase):
         self.assertEqual(len(field_mobs.roster_for_scene_id(11)), 10)
         self.assertEqual(len(field_mobs.roster_for_scene_id(14)), 11)
 
-    def test_the_shipped_templates_do_not_ride_another_scenes_ruling(
-            self) -> None:
-        """Template ids are shared across scenes; the scene tie is what saves us.
+    def test_no_other_scenes_letter_reaches_a_bg0010_body(self) -> None:
+        """Template ids are shared across scenes; the scene tie is the guard.
 
-        660/661/662/668/671/673 must not be reachable through any OTHER
-        scene's ruling for a Bg0010 body.  ``ruling_for`` already refuses
-        above; this asserts the reason -- no ruling set contains one of these
-        templates under a scene tie that is not Bg0010's.
+        Both directions, because the hazard runs both ways: no OTHER ruling
+        may authorise a Bg0010 template, and this scene's own ruling may not
+        reach a body standing in another scene.
         """
         for name, templates in mob_death.WIDENING_RULINGS.items():
-            overlap = EXPECTED_TEMPLATES & set(templates)
-            if not overlap:
+            if name == RULING_NAME:
                 continue
-            self.assertNotEqual(
-                mob_death.WIDENING_RULING_SCENES.get(name), EXPECTED_SCENE,
-                "ruling %r would authorise Bg0010 templates %r" % (
+            overlap = EXPECTED_TEMPLATES & set(templates)
+            self.assertFalse(
+                overlap and mob_death.WIDENING_RULING_SCENES.get(name)
+                == EXPECTED_SCENE,
+                "ruling %r would also authorise Bg0010 templates %r" % (
                     name, sorted(overlap)),
             )
+
+        a_shipped_row = field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)[0]
+        impostor = field_mobs.FieldMob(
+            placement_index=a_shipped_row.placement_index,
+            template_id=a_shipped_row.template_id,
+            x=a_shipped_row.x, y=a_shipped_row.y, z=a_shipped_row.z,
+            visual_preset=a_shipped_row.visual_preset,
+            display_name=a_shipped_row.display_name,
+            level=a_shipped_row.level,
+            rank=a_shipped_row.rank,
+            ai_wander=a_shipped_row.ai_wander,
+            ai_combat=a_shipped_row.ai_combat,
+            speed_walk=a_shipped_row.speed_walk,
+            max_hp=a_shipped_row.max_hp,
+            drops_normal=a_shipped_row.drops_normal,
+            drops_equipment=a_shipped_row.drops_equipment,
+            drops_specially=a_shipped_row.drops_specially,
+            scene="Bg0011",
+        )
+        with self.assertRaises(mob_death.MobDeathContractError):
+            mob_death.ruling_for(impostor)
 
 
 @BRIDGE_GAMEDATA.skip_unless_present()

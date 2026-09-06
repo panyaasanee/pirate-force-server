@@ -70,6 +70,7 @@ from . import world_population_bg0006
 from . import world_population_bg0007
 from . import world_population_bg0008
 from . import world_population_bg0009
+from . import world_population_bg0010
 from . import world_population_bg0011
 from . import world_population_bg0015
 
@@ -180,6 +181,7 @@ COMPOSER_BG0006 = "bg0006_population_plus_roster_override"
 COMPOSER_BG0007 = "bg0007_population_plus_roster_override"
 COMPOSER_BG0008 = "bg0008_population_plus_roster_override"
 COMPOSER_BG0009 = "bg0009_population_plus_roster_override"
+COMPOSER_BG0010 = "bg0010_population_plus_roster_override"
 COMPOSER_BG0011 = "bg0011_population_plus_roster_override"
 COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
 
@@ -212,10 +214,15 @@ COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
 # :data:`COMPOSER_BG0009` and :data:`COMPOSER_BG0011`, same shape and same
 # reason (COO-DECISION 2026-09-06T07:48+07:00 registers all four rosters in
 # this same commit).
+# ROUND 30ja9z added :data:`COMPOSER_BG0010` (Deep Sea Temple floor 1), the
+# same one-entry edit for the same reason: ``field_mob_tables_bg0010``
+# joined ``field_mobs._SCENE_TABLE_MODULES`` in this same commit, and both
+# readers (the ``heals`` condition and :func:`_compose`'s guard) read THIS
+# tuple, so neither could be left behind.
 NON_DELEGATED_COMPOSER_KINDS = (
     COMPOSER_BG0002, COMPOSER_BG0003, COMPOSER_BG0004, COMPOSER_BG0005,
     COMPOSER_BG0006, COMPOSER_BG0007, COMPOSER_BG0008, COMPOSER_BG0009,
-    COMPOSER_BG0011, COMPOSER_BG0015,
+    COMPOSER_BG0010, COMPOSER_BG0011, COMPOSER_BG0015,
 )
 
 _COMPOSERS = {
@@ -245,6 +252,9 @@ _COMPOSERS = {
     ),
     world_population_bg0009.SCENE_N_ID: SceneComposer(
         world_population_bg0009.SCENE_N_ID, "Bg0009", COMPOSER_BG0009,
+    ),
+    world_population_bg0010.SCENE_N_ID: SceneComposer(
+        world_population_bg0010.SCENE_N_ID, "Bg0010", COMPOSER_BG0010,
     ),
     world_population_bg0011.SCENE_N_ID: SceneComposer(
         world_population_bg0011.SCENE_N_ID, "Bg0011", COMPOSER_BG0011,
@@ -350,6 +360,16 @@ def _build_bg0009(legacy, anchor, actor_count, *, scene_id):
 _build_bg0009.serves_scene_id = world_population_bg0009.SCENE_N_ID
 
 
+def _build_bg0010(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0010.build_bg0010_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0010.COUNT_SOURCE_CALLER,
+    )
+
+
+_build_bg0010.serves_scene_id = world_population_bg0010.SCENE_N_ID
+
+
 def _build_bg0011(legacy, anchor, actor_count, *, scene_id):
     return world_population_bg0011.build_bg0011_population(
         legacy, anchor, actor_count, scene_id=scene_id,
@@ -379,6 +399,7 @@ _POPULATION_BUILDERS = {
     COMPOSER_BG0007: _build_bg0007,
     COMPOSER_BG0008: _build_bg0008,
     COMPOSER_BG0009: _build_bg0009,
+    COMPOSER_BG0010: _build_bg0010,
     COMPOSER_BG0011: _build_bg0011,
     COMPOSER_BG0015: _build_bg0015,
 }
@@ -523,21 +544,20 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
     # the FIRST of the ten it opened).  A player has been able to stand in
     # this map for days with nothing in it to swing at; that, not the door,
     # is what this round changes.
-    # ADDED ROUND c42axq (LANE-A), same shape as the scene 4 entry above:
-    # scene 10 entered ``world_scene_travel.CENSUS_SOURCES`` this round
-    # (wiring the identity+census pair round u3jo4g built).  Verified rather
-    # than assumed: ``field_mobs.scene_for_scene_id(10)`` also returns
-    # ``None`` -- scene 10 is in neither of field_mobs' two tables either,
-    # so the identical reasoning applies verbatim.
-    10: (
-        "Bg0010 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py, registered round c42axq, door still shut); "
-        "field_mobs names no scene 10 at all, so it has no combat roster and "
-        "no strike can reach a recompose.  This composer is not live yet "
-        "(scene 10's login_entry_allowed is false), so no player reaches it "
-        "because of this entry; acknowledged now so the tripwire does not "
-        "fire silently the day the door opens."
-    ),
+    # ~~ADDED ROUND c42axq (LANE-A): 10: "Bg0010 -- lane A's arrival census
+    # composes it ... field_mobs names no scene 10 at all, so it has no combat
+    # roster and no strike can reach a recompose.  This composer is not live
+    # yet (scene 10's login_entry_allowed is false) ..."~~ STRUCK ROUND 30ja9z
+    # (LANE-B), on the same terms scene 5's entry was struck in round jqeo2m
+    # and scene 14's in round n4pv7k: BOTH of its clauses have stopped being
+    # true.  ``field_mobs.roster_for_scene_id(10)`` now returns 17 rows
+    # (``field_mob_tables_bg0010``, registered in this same commit), and
+    # ``scenarios/world_scene_registry_001.json`` carries
+    # ``login_entry_allowed: true`` for n_id 10 -- the door this entry
+    # predicted ("the day the door opens") is already open, and the entry's
+    # own text had gone stale sitting here saying otherwise.  Scene 10 has a
+    # real composer now (:data:`COMPOSER_BG0010`), so an acknowledgement
+    # would be a lie the tripwire is built to catch.
     # ADDED ROUND l03cgh (LANE-A), same shape as the scene 4 and scene 10
     # entries above: scene 5 entered ``world_scene_travel.CENSUS_SOURCES``
     # this round (built, wired AND opened in one round, unlike scenes 4/10's
