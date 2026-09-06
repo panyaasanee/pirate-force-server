@@ -1,0 +1,161 @@
+fn	namespace	call_count	files	hook_side	args_returns	system	status	system_exists	blocker	milestone
+Mob.AddBuff	Mob	411	239	AUTH	arity 2 (var|num)	buff	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M4
+Player.CheckBuff	Player	47	25	AUTH	arity 1 (var)	buff	STUB	NO	needs skill/buff state + cast wire frame, cross-lane w/ LANE-B/CS combat	M4
+Player.AddBuff	Player	32	17	AUTH	arity 2 (var|var)	buff	STUB	NO	needs skill/buff state + cast wire frame, cross-lane w/ LANE-B/CS combat	M4
+Mob.CheckMobbuff	Mob	3	3	AUTH	arity 2 (var|var)	buff	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M4
+Player.RemoveBuff	Player	2	2	AUTH	arity 1 (var)	buff	STUB	NO	needs skill/buff state + cast wire frame, cross-lane w/ LANE-B/CS combat	M4
+Quest.AddCriteriaCash	Quest	165	165	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character cash grant seam (Player.* queue, not built)	M5
+Quest.AddLvCriteriaCash	Quest	58	58	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character cash grant seam (Player.* queue, not built)	M5
+Player.GetCash	Player	7	7	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M5
+Player.AddCash	Player	6	6	AUTH	arity 1 (var)	cash	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
+Player.CastSkillAt	Player	69	46	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	needs skill/buff state + cast wire frame, cross-lane w/ LANE-B/CS combat	M4
+Trigger.CastSkillXYZ	Trigger	11	6	AUTH	arity 4 (var|var|var|var)	combat-skill	STUB	PARTIAL	needs skill-cast wire frame (LANE-CS territory)	M4
+Trigger.CastSkill	Trigger	9	9	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	needs skill-cast wire frame (LANE-CS territory)	M4
+Player.CheckSkill	Player	6	1	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	needs skill/buff state + cast wire frame, cross-lane w/ LANE-B/CS combat	M4
+Trigger.CastSkillBy	Trigger	5	5	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	needs skill-cast wire frame (LANE-CS territory)	M4
+Party.CastSkillAt	Party	3	3	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M4
+Player.CastSkillXYZ	Player	2	2	AUTH	arity 4 (var|var|var|var)	combat-skill	STUB	PARTIAL	needs skill/buff state + cast wire frame, cross-lane w/ LANE-B/CS combat	M4
+Quest.AddCriteriaExp	Quest	166	166	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character EXP grant seam (Player.* queue, not built)	M5
+Quest.AddCriteriaSkillPoint	Quest	166	166	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character skill-point grant seam (Player.* queue, not built)	M5
+Player.GetLv	Player	91	89	AUTH	arity 0	exp-level	REAL	YES		M5
+Player.GetClass	Player	60	14	AUTH	arity 0	exp-level	REAL	YES		M5
+Quest.AddLvCriteriaExp	Quest	59	59	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character EXP grant seam (Player.* queue, not built)	M5
+Quest.AddLvCriteriaSkillPoint	Quest	59	59	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character skill-point grant seam (Player.* queue, not built)	M5
+Player.AddExp	Player	2	2	AUTH	arity 1 (call)	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
+Player.AddPpClass	Player	2	2	AUTH	arity 1 (var)	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
+Player.AddSkillPoint	Player	2	2	AUTH	arity 1 (call)	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
+Player.GetPpClass	Player	1	1	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M5
+Player.GiveLvCriteriaPercentageEXP	Player	1	1	AUTH	arity 0	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
+Quest.GetQuestFlag	Quest	508	366	AUTH	arity 1 (var)	flag-quest-state	STUB	NO	needs per-character Quest flag state (LANE-DB column, COO-DECISION 20260905_2058)	M5
+Quest.SetFlag	Quest	417	304	AUTH	arity 1 (var)	flag-quest-state	STUB	NO	needs per-character Quest flag state (LANE-DB column, COO-DECISION 20260905_2058)	M5
+Quest.CheckMobKillCount	Quest	138	70	AUTH	arity 2 (var|var)	flag-quest-state	STUB	NO	needs per-character quest kill-count state (LANE-DB column)	M5
+Quest.MobKillCount	Quest	128	70	AUTH	arity 2 (var|var)	flag-quest-state	STUB	NO	needs per-character quest kill-count state (LANE-DB column)	M5
+Quest.SetQuestFlag	Quest	90	51	AUTH	arity 2 (var|num)	flag-quest-state	STUB	NO	needs per-character Quest flag state (LANE-DB column, COO-DECISION 20260905_2058)	M5
+Quest.GetFlag	Quest	67	67	AUTH	arity 0	flag-quest-state	STUB	NO	needs per-character Quest flag state (LANE-DB column, COO-DECISION 20260905_2058)	M5
+Quest.CanReportDailyQuest	Quest	61	61	AUTH	arity 0	flag-quest-state	STUB	NO	needs per-character daily-quest state, date-stamped (LANE-DB column)	M5
+Quest.ReportDailyQuest	Quest	61	61	AUTH	arity 0	flag-quest-state	STUB	NO	needs per-character daily-quest state, date-stamped (LANE-DB column)	M5
+Quest.GetMobKillCount	Quest	20	1	AUTH	arity 1 (var)	flag-quest-state	STUB	NO	needs per-character quest kill-count state (LANE-DB column)	M5
+Trigger.QuestActiveProgress	Trigger	8	8	AUTH	arity 1 (var)	flag-quest-state	STUB	NO	needs per-character Quest state (LANE-DB column, COO-DECISION 20260905_2058)	M5
+Trigger.QuestFinishProgress	Trigger	3	3	AUTH	arity 1 (var)	flag-quest-state	STUB	NO	needs per-character Quest state (LANE-DB column, COO-DECISION 20260905_2058)	M5
+Quest.CheckWishQuest	Quest	1	1	AUTH	arity 0	flag-quest-state	STUB	NO	needs per-character quest state (LANE-DB column)	M5
+Guild.GetGuildLevel	Guild	15	12	AUTH	arity 0	guild	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Player.CheckGuild	Player	15	15	AUTH	arity 0	guild	STUB	NO	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M final
+Guild.CheckPlayerGuildJob	Guild	7	7	AUTH	arity 1 (var)	guild	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Guild.AddMeritExp	Guild	6	6	AUTH	arity 1 (var)	guild	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Guild.GetPVPFaction	Guild	4	4	AUTH	arity 0	guild	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Guild.CheckMeritExp	Guild	2	2	AUTH	arity 1 (var)	guild	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Player.GetGuildRank	Player	2	2	AUTH	arity 0	guild	STUB	NO	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M final
+Guild.GiveDailySalary	Guild	1	1	AUTH	arity 0	guild	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Guild.SetPVPFaction	Guild	1	1	AUTH	arity 1 (var)	guild	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Quest.CheckGuildOfflineQuest	Quest	1	1	AUTH	arity 0	guild	STUB	NO	needs per-character guild-quest state, cross-lane w/ Guild namespace	M final
+Quest.ReportGuildOfflineQuest	Quest	1	1	AUTH	arity 0	guild	STUB	NO	needs per-character guild-quest state, cross-lane w/ Guild namespace	M final
+Quest.StartGuildOfflineQuest	Quest	1	1	AUTH	arity 0	guild	STUB	NO	needs per-character guild-quest state, cross-lane w/ Guild namespace	M final
+Player.EnterInstance	Player	32	17	AUTH	arity 1 (var)	instance	STUB	PARTIAL	needs the world-entry frame that moves a session into an instance, cross-lane w/ LANE-A M2	M3
+Instance.AddKeyEvent	Instance	15	13	AUTH	arity 1 (var)	instance	REAL	YES		M3/M4
+Instance.GetInstanceID	Instance	14	7	AUTH	arity 0	instance	REAL	YES		M3/M4
+Instance.CallScoreCount	Instance	12	12	AUTH	arity 0	instance	REAL	YES	real, but pure invocation counter -- NOT SCORECOUNT-wired yet (lua_api/instance.py module docstring)	M3/M4
+Instance.GetLastingTime	Instance	7	7	AUTH	arity 0	instance	REAL	YES		M3/M4
+Player.EnterInstanceThenPlayMovie	Player	6	5	AUTH	arity 2 (var|var)	instance	STUB	PARTIAL	needs outbound UI/cutscene/message wire frame, not owned by Q	M3
+Player.LoadInstanceGroup	Player	6	5	AUTH	arity 1 (var)	instance	STUB	PARTIAL	needs the world-entry frame that moves a session into an instance, cross-lane w/ LANE-A M2	M3
+Party.EnterInstance	Party	5	5	AUTH	arity 1 (var)	instance	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M3
+Player.LeaveInstance	Player	4	4	AUTH	arity 0	instance	STUB	PARTIAL	needs the world-entry frame that moves a session into an instance, cross-lane w/ LANE-A M2	M3
+Instance.AddBonusPoint	Instance	2	2	AUTH	arity 0-1	instance	REAL	YES	real, but pure invocation counter -- NOT SCORECOUNT-wired yet (lua_api/instance.py module docstring)	M3/M4
+Instance.RemoveKeyEvent	Instance	2	2	AUTH	arity 1 (var)	instance	REAL	YES		M3/M4
+Instance.AddBonusReward	Instance	1	1	AUTH	arity 0	instance	REAL	YES	real, but pure invocation counter -- NOT SCORECOUNT-wired yet (lua_api/instance.py module docstring)	M3/M4
+Instance.GetInstanceId	Instance	1	1	AUTH	arity 0	instance	REAL	YES		M3/M4
+Instance.SetLastingTime	Instance	1	1	AUTH	arity 1 (var)	instance	REAL	YES		M3/M4
+Player.AddItem	Player	1430	272	AUTH	arity 2 (var|var)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Quest.RewardItemSelect	Quest	1335	221	AUTH	arity 2 (var|var)	inventory	STUB	PARTIAL	needs per-character reward-choice state + Player.AddItem grant seam	M5
+Player.RemoveItem	Player	367	137	AUTH	arity 2 (var|var)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.CheckItemNum	Player	211	105	AUTH	arity 2 (var|var)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.GetItemNum	Player	99	72	AUTH	arity 1 (var)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.AddAndEquip	Player	48	11	AUTH	arity 2 (num|num)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.CheckEquipItem	Player	14	2	AUTH	arity 1 (num)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.CheckCollect	Player	11	11	AUTH	arity 1 (var)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.DropProcess	Player	9	8	AUTH	arity 1 (var)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.ItemAddon	Player	6	4	AUTH	arity 3 (var|var|var)	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Party.CheckPartyItem	Party	2	2	AUTH	arity 2 (var|var)	inventory	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Party.RemovePartyItem	Party	2	2	AUTH	arity 2 (expr|expr)	inventory	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Player.AppraiseCollectPiece	Player	1	1	AUTH	arity 0	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.AppraiseItem	Player	1	1	AUTH	arity 0	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.CheckAllCollectItemSynthesisBuff	Player	1	1	AUTH	arity 0	inventory	STUB	PARTIAL	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.ShowMessage	Player	61	45	AUTH	arity 1 (num)	message-wire	STUB	NO	needs outbound UI/cutscene/message wire frame, not owned by Q	unlisted
+Trigger.TriggerShowMessage	Trigger	55	8	AUTH	arity 2 (num|var)	message-wire	STUB	NO	needs client message/UI wire frame, not owned by Q	unlisted
+Player.OpenUI	Player	31	31	AUTH	arity 0-2	message-wire	STUB	NO	needs outbound UI/cutscene/message wire frame, not owned by Q	unlisted
+Player.OpenHelpUI	Player	26	23	AUTH	arity 1 (var)	message-wire	STUB	NO	needs outbound UI/cutscene/message wire frame, not owned by Q	unlisted
+Player.PlayMovie	Player	7	7	AUTH	arity 1 (var)	message-wire	STUB	NO	needs outbound UI/cutscene/message wire frame, not owned by Q	unlisted
+Party.PlayMovie	Party	2	2	AUTH	arity 1 (var)	message-wire	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	unlisted
+Party.ShowMessage	Party	1	1	AUTH	arity 1 (var)	message-wire	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	unlisted
+Mob.ShowAnimation	Mob	716	295	BOTH	arity 1 (var)	movie-ui (client-only)	STUB	NO	measured BOTH hook_side -- NOT UI-only, see nonclaims	unlisted
+Quest.PlayNPCMovie	Quest	100	54	UI	arity 2 (var|num)	movie-ui (client-only)	STUB	NO	client-only cutscene, no-op+log (measured UI-only hook_side)	unlisted
+Quest.PlayNPCVoice	Quest	8	2	BOTH	arity 1 (expr)	movie-ui (client-only)	STUB	NO	voice-line wire frame -- NOT client-only (measured BOTH hook_side, see nonclaims)	unlisted
+Player.CheckAchievement	Player	4	1	AUTH	arity 1 (var)	other:achievement	STUB	NO	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M final
+Quest.GetWeekDay	Quest	48	27	AUTH	arity 0	other:calendar-enum	STUB	NO	weekday enum unverified in committed artifacts -- needs RE ticket, not a guess	unlisted
+Scene.CamaraShake	Scene	2	2	AUTH	arity 2 (var|var)	other:camera-fx	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	unlisted
+Mob.CallMob	Mob	15	15	AUTH	arity 2 (var|var)	other:mob-lifecycle	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M3
+Mob.EndMove	Mob	15	8	AUTH	arity 0-1	other:mob-lifecycle	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M3
+Mob.CheckApproachTarget	Mob	8	8	AUTH	arity 0	other:mob-lifecycle	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M3/M4
+Mob.StartMove	Mob	8	8	AUTH	arity 1 (var)	other:mob-lifecycle	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M3
+Mob.CheckMobPosition	Mob	6	2	AUTH	arity 5 (var|var|var|var|var)	other:mob-lifecycle	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M3
+Mob.CheckMobalive	Mob	6	6	AUTH	arity 1 (var)	other:mob-lifecycle	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M4
+Mob.CheckMobAlive	Mob	1	1	AUTH	arity 1 (var)	other:mob-lifecycle	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M4
+Player.Addmoralized	Player	21	12	AUTH	arity 1 (expr)	other:moralized-grant	STUB	NO	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M final
+Player.CheckMoralized	Player	14	14	AUTH	arity 1 (var)	other:moralized-grant	STUB	NO	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M final
+Scene.ChangeMainMusic	Scene	8	6	AUTH	arity 0-2 (var|expr)	other:music	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	unlisted
+Player.CheckThrowAnyPenpalLetter	Player	2	2	AUTH	arity 0	other:penpal-letter	STUB	NO	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M final
+Player.CheckGender	Player	7	7	AUTH	arity 1 (var)	other:player-identity	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	unlisted
+Player.AddHP	Player	1	1	AUTH	arity 1 (var)	other:player-vitals-grant	STUB	NO	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M4
+Player.AddST	Player	1	1	AUTH	arity 1 (var)	other:player-vitals-grant	STUB	NO	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M4
+Player.GetCurrentHP	Player	1	1	AUTH	arity 0	other:player-vitals-read	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M4
+Player.GetCurrentST	Player	1	1	AUTH	arity 0	other:player-vitals-read	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M4
+Player.GetMaxHP	Player	1	1	AUTH	arity 0	other:player-vitals-read	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M4
+Player.GetMaxST	Player	1	1	AUTH	arity 0	other:player-vitals-read	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M4
+Party.SignUpArena	Party	2	2	AUTH	arity 0	other:pvp-arena-signup	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Player.BookBattleField	Player	1	1	AUTH	arity 1 (var)	other:pvp-arena-signup	STUB	NO	needs outbound UI/cutscene/message wire frame, not owned by Q	M final
+Player.SuveryOwner	Player	1	1	AUTH	arity 0	other:unclear-name	STUB	NO	needs outbound UI/cutscene/message wire frame, not owned by Q	unlisted
+Trigger.PlayFx	Trigger	57	44	AUTH	arity 0	other:vfx-wire	STUB	NO	needs effect-play wire frame, no encoder yet	unlisted
+Trigger.StartTriggerAnimation	Trigger	43	23	AUTH	arity 4-5 (var|var|var|num)	other:vfx-wire	STUB	NO	needs animation wire frame, no encoder yet	unlisted
+Trigger.StartAnimation	Trigger	19	18	AUTH	arity 3-4 (var|var|num|num)	other:vfx-wire	STUB	NO	needs animation wire frame, no encoder yet	unlisted
+Player.CheckPartyLeader	Player	4	4	AUTH	arity 0	party	STUB	NO	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M final
+Player.CheckSoulmate	Player	4	4	AUTH	arity 0	party	STUB	NO	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M final
+Party.GetNum	Party	2	2	AUTH	arity 0	party	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Party.Love	Party	2	2	AUTH	arity 1 (var)	party	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Player.CheckParty	Player	2	2	AUTH	arity 0	party	STUB	NO	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M final
+Party.CheckSoulmate	Party	1	1	AUTH	arity 0	party	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Party.PartySoul	Party	1	1	AUTH	arity 0	party	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Scene.PlacementOFF	Scene	173	19	AUTH	arity 1 (num)	scene-placement	STUB	PARTIAL	client binding measured no-op in this build (RE-057) -- see PF_LUA_API_SPEC.md nonclaims; server system_exists judged on OUR server, not the client	M2/M3
+Scene.PlacementON	Scene	96	46	AUTH	arity 1 (var)	scene-placement	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M2/M3
+Scene.CheckPlacementAlive	Scene	65	36	AUTH	arity 1 (var)	scene-placement	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M2/M3
+Trigger.HideModel	Trigger	62	47	AUTH	arity 0	scene-placement	STUB	PARTIAL	needs hide-model wire frame (LANE-A Scene.PlacementOFF territory)	M2/M3
+Scene.PlacementCancel	Scene	32	15	AUTH	arity 1 (var)	scene-placement	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M2/M3
+Trigger.HideTriggerModel	Trigger	13	6	AUTH	arity 0-1 (num)	scene-placement	STUB	PARTIAL	needs hide-model wire frame (LANE-A Scene.PlacementOFF territory)	M2/M3
+Scene.CheckPlacementCombat	Scene	1	1	AUTH	arity 1 (var)	scene-placement	STUB	PARTIAL	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M2/M3
+Player.OutVehicle	Player	11	5	AUTH	arity 0	ship	STUB	NO	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M final
+Player.BoatHealth	Player	1	1	AUTH	arity 1 (var)	ship	STUB	NO	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M final
+Player.ChangeShip	Player	1	1	AUTH	arity 1 (var)	ship	STUB	NO	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M final
+Player.EnableGlide	Player	1	1	AUTH	arity 0	ship	STUB	NO	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M final
+Player.GetBoatHealth	Player	1	1	AUTH	arity 0	ship	STUB	NO	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M final
+Player.HasAnySailorBeenSummoned	Player	1	1	AUTH	arity 0	ship	STUB	NO	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M final
+Player.MobAppear	Player	3532	295	AUTH	arity 2 (var|bool)	spawn	STUB	NO	LANE-A letter 20260906_0727(c).1: no function yet adds 1 mob to a populated scene + tells client	M3
+Guild.OpenGuildStorage	Guild	1	1	AUTH	arity 0	storage	STUB	NO	namespace has no dedicated lua_api module yet (falls to generic ApiNamespaceStub, script_host.py:270)	M final
+Player.OpenStorage	Player	1	1	AUTH	arity 0	storage	STUB	NO	needs per-character inventory/equipment state (LANE-DB column, Player.* queue not built)	M5
+Player.LoadStore	Player	3	3	AUTH	arity 1 (var)	store	STUB	PARTIAL	needs outbound UI/cutscene/message wire frame, not owned by Q	M5
+Player.LoadConditionStore	Player	1	1	AUTH	arity 1 (var)	store	STUB	PARTIAL	needs outbound UI/cutscene/message wire frame, not owned by Q	M5
+Player.LoadItemExchangeStore	Player	1	1	AUTH	arity 1 (var)	store	STUB	PARTIAL	needs outbound UI/cutscene/message wire frame, not owned by Q	M5
+Player.LoadSmithStore	Player	1	1	AUTH	arity 1 (var)	store	STUB	PARTIAL	needs outbound UI/cutscene/message wire frame, not owned by Q	M5
+Player.Teleport	Player	35	34	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Player.CameraFocus	Player	16	11	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Player.Warp	Player	10	10	AUTH	arity 4 (var|var|var|var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Player.TeleportThenPlayMovie	Player	8	7	AUTH	arity 2 (var|var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Player.ResetMarker	Player	7	7	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Player.TeleportWithVehicle	Player	6	5	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Player.TeleportCheck	Player	1	1	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Player.WarpNearestMarker	Player	1	1	AUTH	arity 0	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Quest.CountDownTime	Quest	54	54	AUTH	arity 1 (var)	timer	STUB	NO	needs per-character running quest timer (LANE-DB column)	M5
+Quest.CheckOpenTime	Quest	9	3	AUTH	arity 2 (num|num)	timer	REAL	YES		M5
+Trigger.NextStatus	Trigger	353	269	AUTH	arity 0	trigger-status	REAL	YES		M2
+Trigger.GetTriggerStatus	Trigger	134	71	AUTH	arity 1 (var)	trigger-status	REAL	YES		M2
+Trigger.SetTriggerStatus	Trigger	52	29	AUTH	arity 2 (var|var)	trigger-status	REAL	YES		M2
+Trigger.SetStatus	Trigger	2	2	AUTH	arity 1 (var)	trigger-status	REAL	YES		M2
+Trigger.GetContactMode	Trigger	1	1	AUTH	arity 1 (num)	trigger-status	STUB	NO	unclear enum semantics (1 call site) -- needs RE ticket, not a guess	M2
+Trigger.GetTeiggerStatus	Trigger	1	1	AUTH	arity 1 (var)	trigger-status	REAL	YES		M2
