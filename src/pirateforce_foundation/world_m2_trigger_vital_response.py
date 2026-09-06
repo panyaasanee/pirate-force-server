@@ -267,6 +267,36 @@ bytes.  ``_CANDIDATES`` maps each of ``CANDIDATE_TRIGGER_IDS`` (2, 3) to
 that.  Filling one entry is NOT by itself enough to make this module answer:
 tier 3 above still refuses until `ISLAND_CONTACT_DISCRIMINATOR` names a
 measured fact, and the seam still needs the three extra values above.
+
+WHERE TIER 3'S FACT IS SUPPOSED TO COME FROM, AND WHY THAT SOURCE IS STILL
+NOT ENOUGH ON ITS OWN
+-------------------------------------------------------------------------
+The three-tier shape above was ratified by `COO-DECISION 20260907_0405`
+(answering this lane's ASK-COO `20260907_0357`), which accepted item 3 whole
+-- INCLUDING "tier 3 is `None` today, so every pair is refused" -- and
+directed that the discriminator be sought in the client's own scene data,
+in `Data/Scene/Save/Bg3001/Bg3001.tgr` (the client ships it with backslash
+separators; Bg3001 IS scene 126, see
+`world_m2_sea_scene_cast`).  `RE-273` measured that a `.tgr` record carries
+a `u16` trigger ordinal, a script filename, and a fixed-size block holding
+two f32 triples read as position and extent.  If the record for an ordinal
+has a LOCAL extent box, that box is a candidate discriminator; if every
+record's box is scene-wide, this route is closed and that is a real answer.
+`RE-273`'s own field list for that block does not add up (it names 50 bytes
+of a 52-byte block), so the two triples' OFFSETS are not settled either and
+the ticket asks for the raw block bytes rather than trusting that list.
+LANE-A round `tsdl0w` sent the ticket body for that measurement to LANE-K
+(K assigns ticket numbers; A does not).
+
+READ THIS BEFORE FILLING THE SLOT FROM THAT TICKET'S RESULT.  A `.tgr`
+result is NOT sufficient by itself.  `RE-273` says so about its own finding:
+it did not prove that a `.tgr` trigger ordinal is the same number as the
+wire trigger id this module receives (`TriggerVital` 0x1FB2, tag 0x0F), and
+this project's rule is that two numbers are not crosswalked because they are
+equal.  So the `.tgr` ticket answers "does the client's data contain a local
+box at all", and a SECOND, separate measurement has to tie that box to the
+wire before `ISLAND_CONTACT_DISCRIMINATOR` may name it.  A round that fills
+this slot from the `.tgr` table alone has skipped that step.
 """
 from __future__ import annotations
 
@@ -423,9 +453,22 @@ def answer_guard_reason(
     return None
 
 
-def is_candidate_trigger_id(wire_trigger_id: object) -> bool:
-    """Thin boolean view of ``trigger_id_guard_reason`` -- for a caller that
-    only ever needed yes/no."""
+def _tier2_id_is_a_candidate(wire_trigger_id: object) -> bool:
+    """TIER 2 ONLY, AND PRIVATE ON PURPOSE.  ``True`` when the wire id is one
+    of ``CANDIDATE_TRIGGER_IDS`` -- which is NOT the same question as "may
+    this module answer that id", and answering the second with this function
+    is the id-only classifier `RE-234` item (3) exists to prevent.
+
+    It was public and named ``is_candidate_trigger_id`` until pf-adversary
+    pointed out, against the round that shipped the three tiers, that a
+    module whose whole claim is "a filled slot is not sufficient" was
+    exporting a yes/no view of tier 2 alone -- one import line away from the
+    guard, and with a docstring inviting a caller to use it.  The tier
+    discipline is a property of ``candidate_for_trigger_id`` and of nothing
+    else in this file, so everything else that can answer from the wire id
+    alone is private.  `COO-DECISION 20260907_0405` item 1 says the same
+    thing as a rule: no overload that takes the id by itself.
+    """
     return trigger_id_guard_reason(wire_trigger_id) is None
 
 
@@ -467,7 +510,11 @@ def candidate_for_trigger_id(
     wire_trigger_id)``, and it is REQUIRED: RE-234 item (3) measured that the
     wire id on its own cannot tell an island from open water, so a lookup
     that took the id alone would be exactly the unsafe classifier that ticket
-    warned about.  There is no id-only overload on purpose.
+    warned about.  There is no id-only overload on purpose: this is the
+    ONLY public function in this file that answers with a frame, and the
+    only public one that takes the wire id at all takes the scene id
+    first.  ``_tier2_id_is_a_candidate`` and ``trigger_id_guard_reason``
+    are tier-2 views, and the first of them is private for that reason.
 
     ``None`` covers every refusal without distinguishing them for the caller
     (ask ``answer_guard_reason`` if the difference matters): wrong scene,
