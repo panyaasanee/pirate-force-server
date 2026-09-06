@@ -10586,3 +10586,45 @@ attempted_bytes=<ไบต์> attempts=<N>` (ASCII ล้วน ผ่าน `c
 🔴 แก้คำในเอกสารข้างบนด้วย: `attempted_bytes` = `len(file_body)` **ไม่ใช่โควตาที่ค้าง** — โควตาที่
 `gm/dispatch.py` หักคือ `_charged_capture_bytes(...)` (มีพื้นเป็น block ของดิสก์) ซึ่งมากกว่าเสมอสำหรับ
 ไฟล์เล็ก · เลขในบรรทัดนี้ใช้ **ระบุว่าเป็นการเรียกไหน** ไม่ใช่เอาไปลบออกจากเพดานบัญชี
+
+## รอบสองของกฎเดียวกัน: เทสห้าม "ขอระบบไฟล์สร้างชื่อที่มีแต่ POSIX ยอม" (รอบ `vxr32s` · สาเหตุที่เกตปิด `#970`)
+
+`#970` คือใบกู้ `#962` ที่แก้เรื่อง `os.O_BINARY` ไปแล้ว — และถูกปิดซ้ำด้วยเกต Windows แดงที่
+`pytest_subset` **1 failed, 11618 passed** ใบเดียวคือ
+`tests/test_gm_command_capture.py::GmCommandCaptureTests::test_a_capture_root_with_a_newline_cannot_forge_a_second_stuck_line`
+ซึ่ง**เป็นเทสที่ `#970` เพิ่งเพิ่มเอง**ในรอบก่อน:
+
+```
+root = Path(self._tmp.name) / f"cap{forged}" / "capture"   # forged ขึ้นต้นด้วย "\n"
+...
+src\pirateforce_foundation\gm\command_capture.py:511: in _capture_raw
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+E   OSError: [WinError 123] The filename, directory name, or volume label syntax
+    is incorrect: '...\\tmppiftxjra\\cap\nGM_CAPTURE_UNLINK_STUCK path=C:\\clean account=admin\\capture'
+```
+
+⇒ เทสตายที่ `mkdir` **ก่อนถึง assert บรรทัดแรกของตัวเอง** · ขึ้นบรรทัดใหม่เป็นอักขระที่ถูกกฎในชื่อไฟล์ POSIX
+และผิดกฎบน Windows — เทสจึงตรึง *เครื่อง* อีกครั้ง คนละกลไกกับ `#962` แต่ชนิดเดียวกันเป๊ะ
+
+🔴 กฎที่กว้างกว่าเดิม (แทนที่กฎ `nfbat1` ที่พูดถึงแค่แฟล็ก `os.*`): **คุณสมบัติที่เทสต้องการพิสูจน์
+มักเป็นคุณสมบัติของ "สตริง" ไม่ใช่ของ "ไฟล์จริง"** — ถ้าพิสูจน์ได้โดยเรียกฟังก์ชันที่ประกอบบรรทัดนั้นตรง ๆ
+(ที่นี่คือ `_best_effort_unlink(path=...)`) ให้ทำแบบนั้น อย่าให้ระบบไฟล์เข้ามาเป็นเงื่อนไขที่ต่างกันต่อ OS ·
+ส่วนที่ *ต้อง* มีไฟล์จริง ให้แยกเป็นเทสของตัวเอง และ **ถามระบบไฟล์ ไม่ใช่ถาม `os.name`**:
+
+```python
+try:
+    root.mkdir(parents=True, exist_ok=True)
+except OSError:
+    return   # ระบบไฟล์นี้ไม่รับชื่อนี้ -- เทสพี่น้องข้างบนตรึงคุณสมบัติไว้แล้ว
+```
+
+`if os.name != "posix": return` **ไม่พอ** และรอบนี้จับได้ด้วยเครื่องมือของรอบเอง: ร่างแรกของ guard เขียนแบบนั้น
+แล้วการจำลองกฎชื่อไฟล์ของ Windows บนลินุกซ์ (แพตช์ `os.mkdir`/`os.open` ให้โยน `OSError(22)`
+เมื่อพบอักขระควบคุมหรือ `<>"|?*`) ทำให้เทสใบใหม่ของรอบนี้เองแดง — เพราะ `os.name` ยังเป็น `posix`
+ขณะที่ระบบไฟล์ปฏิเสธ นั่นคือช่องว่างเดียวกับที่ปิด `#962`/`#970` แค่ย้ายที่
+
+หลักฐานรอบ `vxr32s` (สองชั้นแยกกัน): (1) log ของ job เกตเอง — traceback และ `WinError 123` ตรงตัว
+(เกตยัง **ไม่** พิมพ์บรรทัด `FAILED <node id>` เพราะใบ `-rfE` ของ chief ยังไม่ลง จึงต้องอ่าน traceback แทน) ·
+(2) จำลองกฎชื่อไฟล์ของ Windows บนคลาวด์ลินุกซ์: ไฟล์เทสของ `#970` = **1 failed / 50 passed** (ใบเดียวกับเกตเป๊ะ)
+ไฟล์หลังแก้ = **52 passed** ทั้งในโหมดจำลองและโหมดลินุกซ์ปกติ · ฟันยังอยู่ (มิวแทนต์: ถอด
+`_fold_line_breaking_controls` ออกจากฟิลด์ `path` ⇒ แดงทั้งสองใบ)

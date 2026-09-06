@@ -910,6 +910,32 @@ class GmCommandCaptureTests(unittest.TestCase):
         self.assertIn("account=ทดสอบ", printed)
         self.assertNotIn("\\u0e17", printed)
 
+    def _stuck_line_for_path(self, path, stream=None):
+        """Print the stuck line for ``path`` without asking the filesystem
+        for that name.
+
+        The end-to-end sibling below can only build a hostile FILE NAME on a
+        host whose filesystem accepts one, and that is a property of the
+        machine, not of this code (round `vxr32s`: the Windows gate closed
+        `#970` on exactly that -- `WinError 123` out of `Path.mkdir`, before
+        a single assertion of the test could run). `_best_effort_unlink` is
+        the function that composes the line, and it takes the path as an
+        argument, so driving it directly asks the real printer the real
+        question on every host.
+        """
+        stderr = stream if stream is not None else io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(stderr):
+            removed = command_capture._best_effort_unlink(
+                path, account_name="panya", attempted_bytes=1,
+            )
+        self.assertFalse(removed)
+        return stderr.getvalue()
+
     def test_a_capture_root_with_a_newline_cannot_forge_a_second_stuck_line(self):
         # pf-adversary (round `nfbat1`): the newline defense went on
         # `account` only, while the comment justifying it argued -- in the
@@ -917,18 +943,61 @@ class GmCommandCaptureTests(unittest.TestCase):
         # `capture_root` carrying a newline therefore forged exactly the
         # second token line the account fix exists to prevent, with
         # attacker-chosen `path=`/`account=`/`attempted_bytes=` on it.
+        #
+        # Round `vxr32s`: the assertions below are unchanged; how the
+        # hostile path is delivered is what changed. The previous version
+        # built the name on disk (`Path(tmp) / f"cap{forged}" / "capture"`
+        # then let `_capture_raw` mkdir it), which is legal on POSIX and
+        # ILLEGAL on Windows -- `OSError: [WinError 123] The filename,
+        # directory name, or volume label syntax is incorrect` came out of
+        # `Path.mkdir` and closed `#970` with the test never reaching its
+        # own subject. A newline in a path STRING is what this defense is
+        # about; creating a directory with that name is the filesystem's
+        # business and it is entitled to refuse.
         forged = "\nGM_CAPTURE_UNLINK_STUCK path=C:\\clean account=admin"
-        root = Path(self._tmp.name) / f"cap{forged}" / "capture"
-        printed = self._stuck_line_for(root=root).splitlines()
+        hostile = Path(self._tmp.name) / f"cap{forged}" / "capture" / "x.bin"
+        printed = self._stuck_line_for_path(hostile).splitlines()
         self.assertEqual(
             len(printed), 1,
-            f"a newline in capture_root forged extra console lines: {printed}",
+            f"a newline in the capture path forged extra console lines: {printed}",
         )
         # The token can legitimately appear a second time INSIDE the line
         # (the hostile path contains those words as text) -- what must not
         # happen is a second LINE that a grep-this-token tool would read as
         # a report of its own. So: one line, starting with the real token,
         # with the newline visible as an escape rather than acted on.
+        self.assertTrue(
+            printed[0].startswith(command_capture._UNLINK_STUCK_CONSOLE_TOKEN),
+        )
+        self.assertIn("\\x0a", printed[0])
+
+    def test_the_same_forged_root_survives_capture_raw_where_the_fs_allows_it(self):
+        # The half of the round `nfbat1` test that DOES need the filesystem:
+        # that `capture_raw_gm_command` hands `_best_effort_unlink` the real
+        # path, so the fold above is reached in production and not only when
+        # a test calls the printer directly. It can only run where a newline
+        # is a legal filename character.
+        #
+        # ASK THE FILESYSTEM, DO NOT ASK `os.name` (round `vxr32s`): the
+        # first draft of this guard read `if os.name != "posix": return`,
+        # and the round's own Windows-name simulation caught it -- that is
+        # a guess about the host standing in for the property that actually
+        # decides, which is the same class of mistake that closed `#962`
+        # (a test asserting `os.O_BINARY` is absent) and `#970` (this test
+        # asking mkdir for a name Windows forbids). A probe answers it: if
+        # this filesystem refuses the name, the sibling above has already
+        # pinned the property on the printer itself.
+        forged = "\nGM_CAPTURE_UNLINK_STUCK path=C:\\clean account=admin"
+        root = Path(self._tmp.name) / f"cap{forged}" / "capture"
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        printed = self._stuck_line_for(root=root).splitlines()
+        self.assertEqual(
+            len(printed), 1,
+            f"a newline in capture_root forged extra console lines: {printed}",
+        )
         self.assertTrue(
             printed[0].startswith(command_capture._UNLINK_STUCK_CONSOLE_TOKEN),
         )
