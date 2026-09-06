@@ -271,14 +271,12 @@ class RealInstanceNamespaceTests(unittest.TestCase):
         # exact vocabulary): confirms the dict this lane used to record "not
         # yet real, no guessing" is empty now that AddBonusPoint/
         # AddBonusReward moved to REAL_METHODS as invocation counters.
+        # (Round vmm7vf: this replaces a former sibling test that looped
+        # `for name in instance.STILL_STUBBED`, which pf-adversary caught
+        # as silently vacuous the moment this dict became empty -- zero
+        # iterations, zero assertions, an always-green test with nothing
+        # left to prove. Removed rather than kept as dead weight.)
         self.assertEqual(instance.STILL_STUBBED, {})
-
-    def test_every_still_stubbed_name_is_reachable_and_logs_its_own_line(self):
-        for name in instance.STILL_STUBBED:
-            with self.subTest(method=name):
-                ns, calls = self._namespace()
-                ns[name]()
-                self.assertEqual(calls, ["LUA_API_STUB Instance.%s" % name])
 
     def test_still_stubbed_plus_real_accounts_for_all_9_names(self):
         from pirateforce_foundation.lua_api import spec as api_spec
