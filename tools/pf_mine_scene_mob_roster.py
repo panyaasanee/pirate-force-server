@@ -395,7 +395,9 @@ def unambiguous_placements(
         ]
         if len(template_ids) != 1:
             continue
-        set_number = int(template_ids[0])
+        set_number = _set_number_or_none(template_ids[0])
+        if set_number is None:
+            continue
         n_id = sources.resolve(set_number, rule)
         if n_id is None:
             continue
@@ -418,6 +420,45 @@ def unambiguous_placements(
             set_number,
         ))
     return kept
+
+
+def _reason_token(raw: str) -> str:
+    """The raw cell, safe to embed in a generated module's reason string.
+
+    Reasons are written into ``UNRESOLVED_PLACEMENTS`` verbatim and the gate
+    refuses non-ASCII in this repository's sources, so a stray byte in a data
+    file must not travel into generated code.  Anything outside ``[A-Za-z0-9]``
+    becomes ``_``, and the token is capped, so the reason stays one readable
+    word (``UNRESOLVED`` stays ``UNRESOLVED``).
+    """
+    token = "".join(ch if ch.isascii() and ch.isalnum() else "_" for ch in raw)
+    return token[:32] or "empty"
+
+
+def _set_number_or_none(raw: str) -> int | None:
+    """The placement's Mob-Set number, or ``None`` when the file has no number.
+
+    The decoder that writes ``<scene>.placements.tsv``
+    (``pf_decode_lua_npc.py``, the ``template_ids`` column) resolves each
+    placement's Mob-Set NAME against the definition block of the same scene
+    file, and writes the literal string ``UNRESOLVED`` when that block does
+    not define the name.  That string is raw data, not a bug in this tool:
+    ``Bg0010`` placement 50 names ``Mob_Set_99``, which its own scene file
+    never defines (LANE-B static ticket, pf_bridge
+    notes_to_chief/20260906_0903 and its 1046 addendum).
+
+    Before this function existed, ``int()`` raised on that one row and the
+    whole scene refused to mine - 99 readable placements lost to one
+    unreadable one.  Returning ``None`` lets the caller SKIP that row and
+    keep going; ``unresolved_placements`` still names it, with its reason,
+    in the generated module's ``UNRESOLVED_PLACEMENTS``, and ``main`` prints
+    it.  That is COO-DECISION 2026-09-06T07:48+07:00 item 3's own wording:
+    report the row and walk on, never swallow it silently.
+    """
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def unresolved_reason(sources: Sources, set_number: int, rule: str) -> str:
@@ -458,7 +499,16 @@ def unresolved_placements(sources: Sources, rule: str) -> list[dict]:
                 "reason": "placement_names_%d_templates" % len(template_ids),
             })
             continue
-        set_number = int(template_ids[0])
+        set_number = _set_number_or_none(template_ids[0])
+        if set_number is None:
+            out.append({
+                "placement_index": _int(row, "index", "placement"),
+                "set_number": 0,
+                "reason": "template_id_is_not_a_number_%s" % (
+                    _reason_token(template_ids[0]),
+                ),
+            })
+            continue
         reason = unresolved_reason(sources, set_number, rule)
         if reason:
             out.append({
@@ -1236,6 +1286,21 @@ def main(argv: list[str]) -> int:
         print("  withdrawn placement %-4d %-34s -> %s"
               % (item["placement_index"], item["was_display_name"],
                  item["now_display_name"] or "(no MOBS_TIP name)"))
+    # A placement whose template id is not a number at all is skipped rather
+    # than refused on (see _set_number_or_none), so it has to be SAID, here
+    # and in the module's own UNRESOLVED_PLACEMENTS.  A silently short scene
+    # is exactly what COO-DECISION 2026-09-06T07:48+07:00 item 3 forbids.
+    unnumbered = [
+        item for item in unresolved_placements(sources, rule)
+        if item["reason"].startswith("template_id_is_not_a_number_")
+    ]
+    if unnumbered:
+        print("  skipped %d placement(s) whose template id is not a number "
+              "(raw data, not a tool failure; the scene's other rows above "
+              "are unaffected):" % len(unnumbered))
+        for item in unnumbered:
+            print("    placement %-4d %s"
+                  % (item["placement_index"], item["reason"]))
     if args.out:
         args.out.write_text(module, encoding="ascii")
         print("wrote %s (%d bytes)" % (args.out, len(module)))
