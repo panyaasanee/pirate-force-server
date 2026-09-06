@@ -267,7 +267,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (143/160 stub, 17/160 real, as of round `gqjas5`)
+### API status table (140/160 stub, 20/160 real, as of round `qbr5h8`)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -284,16 +284,19 @@ NOT SCORECOUNT-wired -- see `lua_api/instance.py`'s module docstring and
 non-claim), the one `Quest.*` real row (`CheckOpenTime`) by
 `tests/test_script_lua_api_quest.py` (round `0rgg6q`, recovering the
 round-after-`4jsydv` commit that the guard exemption named below unblocked
--- see "Round vqng2z" further down) / see below), and the 2 `Player.*`
-real rows (`GetLv`, `GetClass`) by `tests/test_script_lua_api_player.py`
-(round `gqjas5`, see "Round gqjas5" below) / `proven` (real + a GT
-ticket where a tester watched it work on screen -- none yet).  Next lane
-priority, per charter: the remaining 12 `Trigger.*` rows (blocked on
-`RE-273`), then the rest of `Quest.*` (24 names still blocked on the
-LANE-DB per-character state door, `GetWeekDay` on an undocumented weekday
-enum -- both named in "Round vqng2z" below), then the rest of `Player.*`
-(71 names, grouped by blocker in `lua_api/player.py`'s own `STILL_STUBBED`
--- item/equipment state, a stat-grant write seam, other per-character
+-- see "Round vqng2z" further down) / see below), and the 5 `Player.*`
+real rows (`GetLv`, `GetClass` from round `gqjas5`, plus `CheckItemNum`/
+`GetItemNum`/`CheckEquipItem` -- the inventory seam's read side, round
+`qbr5h8`, see "Round qbr5h8" below) by `tests/test_script_lua_api_player.py`
+/ `proven` (real + a GT ticket where a tester watched it work on screen --
+none yet).  Next lane priority, per charter and `COO-DECISION
+20260906_1846`'s system-wide ranking: the remaining 12 `Trigger.*` rows
+(blocked on `RE-273`), then the rest of `Quest.*` (24 names still blocked
+on the LANE-DB per-character state door, `GetWeekDay` on an undocumented
+weekday enum -- both named in "Round vqng2z" below), then the rest of
+`Player.*` (68 names, grouped by blocker in `lua_api/player.py`'s own
+`STILL_STUBBED` -- item/equipment WRITE state (the inventory seam's write
+side, blocked on `RE-280`), a stat-grant write seam, other per-character
 stat reads, skill/buff state, teleport/vehicle/camera frames, UI/cutscene
 frames, the instance-entry frame, and `MobAppear` itself).  `Instance.*`
 is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
@@ -341,8 +344,8 @@ is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
 | Player | MobAppear | 3532 | stub |
 | Player | AddItem | 1430 | stub |
 | Player | RemoveItem | 367 | stub |
-| Player | CheckItemNum | 211 | stub |
-| Player | GetItemNum | 99 | stub |
+| Player | CheckItemNum | 211 | real |
+| Player | GetItemNum | 99 | real |
 | Player | GetLv | 91 | real |
 | Player | CastSkillAt | 69 | stub |
 | Player | ShowMessage | 61 | stub |
@@ -357,7 +360,7 @@ is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
 | Player | Addmoralized | 21 | stub |
 | Player | CameraFocus | 16 | stub |
 | Player | CheckGuild | 15 | stub |
-| Player | CheckEquipItem | 14 | stub |
+| Player | CheckEquipItem | 14 | real |
 | Player | CheckMoralized | 14 | stub |
 | Player | CheckCollect | 11 | stub |
 | Player | OutVehicle | 11 | stub |
@@ -1708,3 +1711,172 @@ pure function) to confirm the fail-closed contract holds at the actual
 call shape production uses, not only in the unit under test. Next round
 for this lane should invoke `pf-adversary` on this branch as its first
 action, per house rule, before claiming new work.
+
+## Round qbr5h8 (2026-09-06) -- Player.* inventory seam, read side: CheckItemNum/GetItemNum/CheckEquipItem real
+
+**Charter priority for this round, per `COO-DECISION 20260906_1846`'s
+system-wide ranking** (received this round: exactly one open letter to
+LANE-Q, `pf_bridge/notes_to_chief/
+20260906_1846_COO-DECISION-q1812-host-api-map-ranking-LANE-Q.md`): item 1
+(flag-quest-state) closed last round (`7v7yn2`, PR pirate-force-server#947,
+still open pending gate at this round's own start -- not this round's
+lock, not waited on, per house rule); item 2 is "inventory seam, **read
+side first**": `Player.CheckItemNum`/`GetItemNum`/`CheckEquipItem` bound to
+`inventory.py`/`store.py`'s existing types, no byte-guessing; the WRITE
+half (`AddItem`/`RewardItemSelect`/`AddAndEquip`) stays explicitly blocked
+on `RE-280` per that same letter and is untouched this round.
+
+### What was built
+
+`src/pirateforce_foundation/lua_api/player.py`'s `PlayerContext` widens by
+two fields -- `backpack: inventory.BackpackState` and
+`equipped_template_ids: frozenset[int]` -- both defaulting to empty (no
+items, no equips), the same "inert default, not a guess" posture
+`level`/`class_id` already established. Three new real closures:
+
+- `GetItemNum(templateId)` (99 calls/72 files, arity 1) -- sums
+  `ItemAttrState.quantity` across every backpack row whose `template_id`
+  matches (a stack split across two rows, e.g. a pre-merge V111 bag, adds
+  up; grepped call sites, e.g. `Quest/q_gather_new.lua:205`, always assign
+  the result into a local for later comparison, never read it as a bool).
+- `CheckItemNum(templateId, count)` (211 calls/105 files, arity 2) --
+  `GetItemNum(templateId) >= count`, matching every grepped call site's own
+  boolean-gate usage (e.g. `Quest/q_guildgather1.lua:41`,
+  `if(Player.CheckItemNum(Quest.Var2,Quest.Var3))and...`).
+- `CheckEquipItem(templateId)` (14 calls/2 files, arity 1) -- template-id
+  membership in `equipped_template_ids`, matching the only two files that
+  call it (`Quest/q_kill1_2.lua`, `Quest/q_con3.lua`, both OR/AND-chaining
+  several literal template ids as a plain boolean).
+
+All three fail closed exactly like every other real closure in this
+package: wrong arity logs `LUA_PLAYER_BAD_ARITY` and returns
+`STUB_DEFAULT`; an argument that will not coerce to a bounded int (own
+`_coerce_int`, identical shape to `lua_api.trigger._coerce_int`, kept as a
+separate copy per this package's own established no-cross-namespace-import
+convention) makes `GetItemNum` answer 0 and `CheckItemNum`/`CheckEquipItem`
+answer `False` rather than raising or guessing.
+
+**What this round does NOT do, said plainly**: no live dispatcher exists
+yet (same gap `GetLv`/`GetClass` already documented) -- nothing calls
+`store.get_backpack`/`store.list_equipped_items` and builds a real
+`PlayerContext` from an actual session; every test today (unit and Lua)
+supplies its own `PlayerContext` directly. `store.py`/`migrations/` are not
+this lane's write zone and were not touched. The write half of the
+inventory seam (`AddItem`/`RewardItemSelect`/`AddAndEquip`, still `stub` in
+the table below) stays blocked on `RE-280` exactly as COO's ranking letter
+says -- no bytes were guessed ahead of it.
+
+### Evidence, two layers
+
+- **Server-side, direct**: `tests/test_script_lua_api_player.py` -- 21 new
+  unit tests against `RealPlayerNamespace` directly (no lupa): default
+  context reads as empty/zero, quantity sums across matching rows only and
+  ignores non-matching ones, threshold comparison both sides, unheld/
+  unequipped items answer false, wrong arity for all three degrades to
+  `STUB_DEFAULT` rather than raising, a non-numeric or boolean argument
+  refuses (`_coerce_int`) rather than guessing -- plus 3 new
+  `LUPA_PACKAGE`-guarded Lua-integration tests reproducing the exact
+  grepped call shapes above through a live `ScriptHost`.
+- **Corpus-wide, measured not assumed**: ran the full 616-file corpus
+  through `script_host.run_corpus_entry_points` against a fixed clock.
+  `report.real_call_counts` -- `{'Player.GetItemNum': 88,
+  'Player.CheckItemNum': 154}` (`CheckEquipItem`'s 2 call sites do not
+  execute under `STANDARD_ENTRY_POINTS` today, contributing 0, same as
+  `Quest.CheckOpenTime`'s own partially-unreached call sites documented for
+  round `gqjas5`) -- folded into `tests/test_script_lua_corpus.py`'s
+  updated `BASELINE_TOTAL_STUB_CALLS` (4937 -> 4715; see that file's own
+  updated comment for the full measured-not-naive derivation, including the
+  20-call branch-shift remainder). `test_every_present_entry_point_gets_
+  called_or_its_failure_is_pinned`'s `KNOWN_LOAD_FAILURES`/
+  `KNOWN_ENTRY_POINT_CALL_FAILURES` both pass unchanged -- no new load or
+  call failure introduced.
+
+### Tests + gates
+
+`PYTHONPATH=src:tests python3 -m pytest tests/test_script_lua_api_player.py
+tests/test_script_lua_api_quest.py tests/test_script_lua_api_trigger.py
+tests/test_script_lua_api_instance.py tests/test_script_host_spike.py
+tests/test_script_lua_corpus.py -q` -- 156 passed, 306 subtests passed, 0
+failed (includes the two pinned regression guards this round updated:
+`test_the_5_real_player_names_are_excluded_above_not_forgotten` in
+`test_script_host_spike.py`, `BASELINE_TOTAL_STUB_CALLS` in
+`test_script_lua_corpus.py`). Full `pytest tests/` and
+`tools_bridge/pf_gate_preflight.py --repo .` run before push, folded in
+below if finished in time.
+
+### ADVERSARY
+
+Invoked at the point this round noticed the diff was ready for review (not
+strictly round-start, this round's own process gap -- next round should
+invoke it as the very first action instead, per house rule), via the
+`pf-adversary` subagent against `lua_api/player.py`'s new code in an
+isolated worktree. Result returned before push, folded in:
+
+- **Real defect found and fixed**: `PlayerContext(backpack=None)`,
+  `PlayerContext(equipped_template_ids=None)`, and a backpack row with a
+  non-numeric `quantity` each raised a raw `TypeError`/`AttributeError`
+  straight out of `ScriptHost.call` instead of degrading like every other
+  real closure in this file. Not exploitable today (no dispatcher builds a
+  `PlayerContext` from live data; every test hand-builds a well-formed one)
+  but a live crash surface for whichever future dispatcher round trusts a
+  `store.get_backpack` decode failure unconditionally. Fixed:
+  `_item_count`/new `_is_equipped` now catch and degrade to `0`/`False`
+  (see `player.py`'s own updated docstrings on both), with 3 new regression
+  tests reproducing the adversary's exact three inputs.
+- **Confirmed, not a new defect**: an arity-mismatch on `CheckItemNum`/
+  `CheckEquipItem` returns `STUB_DEFAULT` (Python `0`), truthy in real Lua
+  -- but `Quest.CheckOpenTime` (already shipped, real, boolean-shaped)
+  has the identical shape and the identical test-suite gap (checked at the
+  Python-return level, never real-Lua-truthiness level); this round
+  inherits, not introduces, that landmine.
+- **No crash from Lua-controlled arguments**: fuzzed every argument
+  position of all three names (`None`/bools/lists/dicts/bytes/nan/inf/
+  huge ints/non-integral floats/complex/arbitrary objects) through
+  `ScriptHost` -- zero exceptions, `_coerce_int` holds.
+- **Semantics re-verified independently against the corpus** (not trusted
+  from the module docstring alone): call counts/arities/sum-not-count
+  aggregation all matched grepping the real files directly; mutation
+  testing (`>=`->`>`, dropping the template-id filter, `CheckEquipItem`
+  forced `True`) caught by the existing test suite in all three cases.
+- **Sandbox posture preserved**: all three closures return only plain
+  `int`/`bool`/`STUB_DEFAULT` to Lua, no `BackpackState`/`ItemAttrState`/
+  frozenset object ever crosses the boundary.
+- **Open question raised, not yet answered** (left for whichever round
+  builds the live dispatcher): should that wiring re-validate through
+  `inventory.require_backpack_shape` before constructing a `PlayerContext`,
+  or should these closures keep defending themselves the way they do now?
+  This round picked "closures defend themselves" (see the fix above) as
+  the immediate, in-scope answer; a future dispatcher revalidating too is
+  defense in depth, not required by this round's fix.
+
+### TWO_SESSIONS_SAME_SCENE
+
+Not applicable the way it usually is for a shared-world door: a backpack
+and an equipment set are per-CHARACTER state (`PlayerContext.backpack`/
+`equipped_template_ids`, mirroring `store.get_backpack`/
+`store.list_equipped_items`'s own `character_id` keying), never a scene
+string -- two sessions in the same scene share nothing through this seam,
+and no live dispatcher exists yet for two sessions to race through anyway
+(same posture this file's own module docstring already states for
+`level`/`class_id`).
+
+### รอบหน้าทำอะไร
+
+1. Check the two open CORE-REQUEST letters from round `7v7yn2` first
+   (quest-flag-counter-daily-stamp-columns, quest-store-wiring-trips-the-
+   foundation-guard) -- if either is answered, wire it in citing the grant/
+   answer as authority, before claiming new work.
+2. Per `COO-DECISION 20260906_1846`'s own ranking, the inventory seam's
+   read side is now fully real (all three names); its WRITE side stays
+   blocked on `RE-280` -- do not guess bytes ahead of it. If `RE-280` has
+   answered by the next round, that is the next item in this lane's own
+   priority order, still ranked above item 3 (`Player.MobAppear`, LANE-A's
+   territory, explicitly not this lane's to build per that same letter).
+3. `CheckWishQuest` (Quest namespace, refused round `7v7yn2`) still needs an
+   RE ticket -- not blocking, low call count (1).
+4. If CI/gate surfaces a `lupa`-version or Windows-specific difference this
+   Linux-container run could not catch (same risk every prior LANE-Q round
+   flagged), fix it here rather than starting over, per `SYNC-NOTICE`'s own
+   standing instruction.
+
+SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- ตรรกะฝั่งเซิร์ฟเวอร์ของ 3 Player.* (นับของ inventory ที่มีอยู่ในกระเป๋า/สวมใส่) ถูกต้องและมีเทสยืนยันแล้ว แต่ยังไม่มี dispatcher จริงต่อกับ session ผู้เล่น (เหมือน GetLv/GetClass เดิม) | pirate-force-server PR (เปิดแล้ว, ดูหัวข้อ "จบรอบ" ในไฟล์รอบ pf_bridge), Player.* fns real 5/73 (+3 this round), inventory-seam read side 3/3 done

@@ -302,13 +302,14 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
 
         self.assertEqual(lua_api_quest.REAL_METHODS, frozenset({"CheckOpenTime"}))
 
-    def test_the_2_real_player_names_are_excluded_above_not_forgotten(self):
-        # Same regression shape as the guards above, for Player's own two
-        # real names (GetLv/GetClass, this round).
+    def test_the_5_real_player_names_are_excluded_above_not_forgotten(self):
+        # Same regression shape as the guards above, for Player's own real
+        # names (GetLv/GetClass from round gqjas5, plus CheckItemNum/
+        # GetItemNum/CheckEquipItem from round qbr5h8's inventory read seam).
         from pirateforce_foundation.lua_api import player as lua_api_player
 
         self.assertEqual(lua_api_player.REAL_METHODS, frozenset({
-            "GetLv", "GetClass",
+            "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):
