@@ -233,19 +233,22 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
         # A STUB, called for real through a live ScriptHost, must log its
         # own stub line.  The 5 Trigger.* names that became real (round
         # after s2fxf6), the 7 Instance.* names that became real (a later
-        # round) and the 1 Quest.* name that became real (round after
-        # 4jsydv, CheckOpenTime) are excluded here -- calling any of them
+        # round), the 1 Quest.* name that became real (round after
+        # 4jsydv, CheckOpenTime) and the 2 Player.* names that became real
+        # (GetLv/GetClass) are excluded here -- calling any of them
         # with a bare `()` is not a stub-reachability probe for them, it is
         # a wrong-arity call for the ones that take arguments (e.g.
         # GetTriggerStatus/SetTriggerStatus/SetLastingTime/AddKeyEvent) --
         # and their own reachability is proven exhaustively, at their real
         # arity, by tests/test_script_lua_api_trigger.py,
-        # tests/test_script_lua_api_instance.py and
-        # tests/test_script_lua_api_quest.py respectively.
+        # tests/test_script_lua_api_instance.py,
+        # tests/test_script_lua_api_quest.py and
+        # tests/test_script_lua_api_player.py respectively.
         from pirateforce_foundation.lua_api import quest as lua_api_quest
         from pirateforce_foundation.lua_api import spec as api_spec
         from pirateforce_foundation.lua_api import trigger as lua_api_trigger
         from pirateforce_foundation.lua_api import instance as lua_api_instance
+        from pirateforce_foundation.lua_api import player as lua_api_player
 
         for fn in api_spec.API_FUNCTIONS:
             if fn.namespace == "Trigger" and fn.method in lua_api_trigger.REAL_METHODS:
@@ -253,6 +256,8 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             if fn.namespace == "Instance" and fn.method in lua_api_instance.REAL_METHODS:
                 continue
             if fn.namespace == "Quest" and fn.method in lua_api_quest.REAL_METHODS:
+                continue
+            if fn.namespace == "Player" and fn.method in lua_api_player.REAL_METHODS:
                 continue
             with self.subTest(qualified=fn.qualified_name):
                 calls = []
@@ -296,6 +301,15 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
         from pirateforce_foundation.lua_api import quest as lua_api_quest
 
         self.assertEqual(lua_api_quest.REAL_METHODS, frozenset({"CheckOpenTime"}))
+
+    def test_the_2_real_player_names_are_excluded_above_not_forgotten(self):
+        # Same regression shape as the guards above, for Player's own two
+        # real names (GetLv/GetClass, this round).
+        from pirateforce_foundation.lua_api import player as lua_api_player
+
+        self.assertEqual(lua_api_player.REAL_METHODS, frozenset({
+            "GetLv", "GetClass",
+        }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):
         host = script_host.ScriptHost(log=lambda _msg: None)

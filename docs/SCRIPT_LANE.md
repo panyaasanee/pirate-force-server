@@ -267,7 +267,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (145/160 stub, 15/160 real, as of round `vmm7vf`)
+### API status table (143/160 stub, 17/160 real, as of round `gqjas5`)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -284,13 +284,19 @@ NOT SCORECOUNT-wired -- see `lua_api/instance.py`'s module docstring and
 non-claim), the one `Quest.*` real row (`CheckOpenTime`) by
 `tests/test_script_lua_api_quest.py` (round `0rgg6q`, recovering the
 round-after-`4jsydv` commit that the guard exemption named below unblocked
--- see "Round vqng2z" further down) / see below) / `proven` (real + a GT
+-- see "Round vqng2z" further down) / see below), and the 2 `Player.*`
+real rows (`GetLv`, `GetClass`) by `tests/test_script_lua_api_player.py`
+(round `gqjas5`, see "Round gqjas5" below) / `proven` (real + a GT
 ticket where a tester watched it work on screen -- none yet).  Next lane
 priority, per charter: the remaining 12 `Trigger.*` rows (blocked on
 `RE-273`), then the rest of `Quest.*` (24 names still blocked on the
 LANE-DB per-character state door, `GetWeekDay` on an undocumented weekday
-enum -- both named in "Round vqng2z" below).  `Instance.*` is now 9/9 real
--- no rows of that namespace remain in `STILL_STUBBED`.
+enum -- both named in "Round vqng2z" below), then the rest of `Player.*`
+(71 names, grouped by blocker in `lua_api/player.py`'s own `STILL_STUBBED`
+-- item/equipment state, a stat-grant write seam, other per-character
+stat reads, skill/buff state, teleport/vehicle/camera frames, UI/cutscene
+frames, the instance-entry frame, and `MobAppear` itself).  `Instance.*`
+is now 9/9 real -- no rows of that namespace remain in `STILL_STUBBED`.
 
 | namespace | method | call_count | status |
 |---|---|---:|---|
@@ -337,10 +343,10 @@ enum -- both named in "Round vqng2z" below).  `Instance.*` is now 9/9 real
 | Player | RemoveItem | 367 | stub |
 | Player | CheckItemNum | 211 | stub |
 | Player | GetItemNum | 99 | stub |
-| Player | GetLv | 91 | stub |
+| Player | GetLv | 91 | real |
 | Player | CastSkillAt | 69 | stub |
 | Player | ShowMessage | 61 | stub |
-| Player | GetClass | 60 | stub |
+| Player | GetClass | 60 | real |
 | Player | AddAndEquip | 48 | stub |
 | Player | CheckBuff | 47 | stub |
 | Player | Teleport | 35 | stub |

@@ -59,6 +59,7 @@ from .lua_api import quest as lua_api_quest
 from .lua_api import spec as lua_api_spec
 from .lua_api import trigger as lua_api_trigger
 from .lua_api import instance as lua_api_instance
+from .lua_api import player as lua_api_player
 
 #: Lua standard-library names the game's scripts must never reach
 #: (prompts/LANE-Q.md: "sandbox: an script access io/os/require/load of Lua
@@ -218,8 +219,15 @@ class ScriptHost:
     needs neither the LANE-DB state door nor a wire frame). ``quest_clock``
     lets a caller inject a fixed clock for a deterministic test; leaving it
     ``None`` reads the real wall clock (``lua_api.quest.build_namespace``'s
-    own default). Every other namespace is unchanged: a plain
-    ``ApiNamespaceStub``.
+    own default). ``Player`` is likewise no longer a plain stub table: 2 of
+    its 73 names (``GetLv``, ``GetClass``) are real, backed by an
+    injectable ``PlayerContext`` rather than any registry or clock
+    (``lua_api.player.py``'s own module docstring explains why these two
+    need neither a LANE-DB column nor a wire frame). ``player_context``
+    lets a caller say which level/class this host's script sees; leaving
+    it ``None`` gets ``lua_api.player.DEFAULT_CONTEXT`` (the same fixed
+    constants every fresh login composes today). Every other namespace is
+    unchanged: a plain ``ApiNamespaceStub``.
     """
 
     def __init__(self, log: Optional[Callable[[str], None]] = None, *,
@@ -227,7 +235,8 @@ class ScriptHost:
                  trigger_registry: "Optional[lua_api_trigger.TriggerStatusRegistry]" = None,
                  instance_context: "Optional[lua_api_instance.InstanceContext]" = None,
                  instance_registry: "Optional[lua_api_instance.InstanceRegistry]" = None,
-                 quest_clock: "Optional[lua_api_quest.Clock]" = None):
+                 quest_clock: "Optional[lua_api_quest.Clock]" = None,
+                 player_context: "Optional[lua_api_player.PlayerContext]" = None):
         _require_lupa()
         self.log = log or default_logger
         self.runtime = lupa.LuaRuntime(
@@ -256,6 +265,9 @@ class ScriptHost:
             elif namespace == "Quest":
                 stub = lua_api_quest.build_namespace(
                     methods, self.log, clock=quest_clock)
+            elif namespace == "Player":
+                stub = lua_api_player.build_namespace(
+                    methods, self.log, context=player_context)
             else:
                 stub = ApiNamespaceStub(namespace, methods, self.log)
             self.namespaces[namespace] = stub
@@ -282,7 +294,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       trigger_registry: "Optional[lua_api_trigger.TriggerStatusRegistry]" = None,
                       instance_context: "Optional[lua_api_instance.InstanceContext]" = None,
                       instance_registry: "Optional[lua_api_instance.InstanceRegistry]" = None,
-                      quest_clock: "Optional[lua_api_quest.Clock]" = None) -> ScriptHost:
+                      quest_clock: "Optional[lua_api_quest.Clock]" = None,
+                      player_context: "Optional[lua_api_player.PlayerContext]" = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
     Reads the file as bytes decoded latin-1, because latin-1 is the one
@@ -308,7 +321,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       trigger_registry=trigger_registry,
                       instance_context=instance_context,
                       instance_registry=instance_registry,
-                      quest_clock=quest_clock)
+                      quest_clock=quest_clock,
+                      player_context=player_context)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
     return host
@@ -363,13 +377,16 @@ STANDARD_ENTRY_POINTS: tuple = (
 
 #: Fully-qualified (``Namespace.Method``) names that are REAL today, not
 #: stubs -- the 5 of ``Trigger``'s 17 (``lua_api.trigger.REAL_METHODS``), the
-#: 7 of ``Instance``'s 9 (``lua_api.instance.REAL_METHODS``) and the 1 of
-#: ``Quest``'s 25 (``lua_api.quest.REAL_METHODS``, ``CheckOpenTime``).
+#: 7 of ``Instance``'s 9 (``lua_api.instance.REAL_METHODS``), the 1 of
+#: ``Quest``'s 25 (``lua_api.quest.REAL_METHODS``, ``CheckOpenTime``) and the
+#: 2 of ``Player``'s 73 (``lua_api.player.REAL_METHODS``, ``GetLv``/
+#: ``GetClass``).
 #: Every other namespace is a plain ``ApiNamespaceStub`` where 100% of
 #: tracked calls are stubs, but ``RealTriggerNamespace``/
-#: ``RealInstanceNamespace``/``RealQuestNamespace`` append BOTH real and
-#: stub calls to the same ``.calls`` list (``lua_api/trigger.py``,
-#: ``lua_api/instance.py``, ``lua_api/quest.py``), so
+#: ``RealInstanceNamespace``/``RealQuestNamespace``/``RealPlayerNamespace``
+#: append BOTH real and stub calls to the same ``.calls`` list
+#: (``lua_api/trigger.py``, ``lua_api/instance.py``, ``lua_api/quest.py``,
+#: ``lua_api/player.py``), so
 #: :func:`run_corpus_entry_points` checks the qualified name against this
 #: set, not against which Python object the call came from, to keep "real"
 #: and "still stubbed" from being silently conflated in the corpus-wide
@@ -378,6 +395,7 @@ REAL_QUALIFIED_NAMES: frozenset = frozenset(
     ["Trigger.%s" % _name for _name in lua_api_trigger.REAL_METHODS]
     + ["Instance.%s" % _name for _name in lua_api_instance.REAL_METHODS]
     + ["Quest.%s" % _name for _name in lua_api_quest.REAL_METHODS]
+    + ["Player.%s" % _name for _name in lua_api_player.REAL_METHODS]
 )
 
 
