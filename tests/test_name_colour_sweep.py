@@ -32,6 +32,12 @@ from pirateforce_foundation import (
     field_mob_tables_bg0015,
     field_mobs,
     name_colour_sweep,
+    scene2_prison_exile_tables,
+    world_bg1001_identity,
+    world_bg3001_identity,
+    world_bg3007_identity,
+    world_bg3008_identity,
+    world_bg4001_identity,
 )
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import NPC_STYLE_ACTOR_TYPE
@@ -49,6 +55,28 @@ BG_MODULES = (
     field_mob_tables_bg0010,
     field_mob_tables_bg0011,
     field_mob_tables_bg0015,
+)
+
+# pf-adversary (round dipufa, finding 2): the check below used to walk only
+# BG_MODULES + the v141 town table, and never looked at these five modules'
+# own placement tables (each row's element 0 is a placement index, same
+# shape as every table in BG_MODULES) -- no live collision today (their
+# indices top out in the low tens), but the module docstring's claim of
+# "disjoint from every placement-index table this repository ships" was not
+# what the test actually checked.  Listed here BY NAME because these five
+# modules do not share one common table attribute name
+# (KNOWN_PLACEMENTS/UNRESOLVED_PLACEMENTS vs _PLACEMENT_ROWS), so a
+# discovery loop would have to special-case them anyway; a later round that
+# adds a sixth such module and forgets to list it here is exactly the risk
+# pf-adversary named, and remains open.
+_EXTRA_PLACEMENT_ROW_SOURCES = (
+    (scene2_prison_exile_tables, "KNOWN_PLACEMENTS"),
+    (scene2_prison_exile_tables, "UNRESOLVED_PLACEMENTS"),
+    (world_bg1001_identity, "_PLACEMENT_ROWS"),
+    (world_bg3001_identity, "_PLACEMENT_ROWS"),
+    (world_bg3007_identity, "_PLACEMENT_ROWS"),
+    (world_bg3008_identity, "_PLACEMENT_ROWS"),
+    (world_bg4001_identity, "_PLACEMENT_ROWS"),
 )
 
 
@@ -88,6 +116,9 @@ class NameColourSweepPlacementBandTests(unittest.TestCase):
                 highest = max(highest, row[0])
         for row in self.legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS:
             highest = max(highest, row[0])
+        for module, attr in _EXTRA_PLACEMENT_ROW_SOURCES:
+            for row in getattr(module, attr):
+                highest = max(highest, row[0])
         self.assertLess(
             highest, name_colour_sweep.SWEEP_PLACEMENT_BASE,
             "a real placement index reaches into the reserved synthetic band",

@@ -54,9 +54,17 @@ ALSO carry the real Port Royal population and the real field-mob roster in
 the same session, and ``actor_identity`` is ``0x2000 + placement_index + 1``
 with no other collision guard anywhere in this codebase.
 ``tests/test_name_colour_sweep.py`` asserts the reserved band is disjoint
-from every placement-index table this repository ships (``population``'s
-115-row source and every ``field_mob_tables_bg*.PLACEMENTS``), not just
-eyeballed once here.
+from every placement-index table this round found by name (``population``'s
+115-row source, every ``field_mob_tables_bg*.SHIPPED_PLACEMENTS``, and
+``scene2_prison_exile_tables``/``world_bg1001_identity``/
+``world_bg3001_identity``/``world_bg3007_identity``/``world_bg3008_identity``/
+``world_bg4001_identity``'s own placement rows), not just eyeballed once
+here.  pf-adversary (round dipufa, finding 2): this is an ENUMERATED list,
+not a discovery scan -- a future module with its own placement-index table
+that nobody adds here would not be checked.  No live collision exists today
+(every table above tops out in the low hundreds), and the fix, if the
+enumerated-list risk becomes real, is either a discovery-based rewrite of
+this check or raising :data:`SWEEP_PLACEMENT_BASE` further.
 
 CANDIDATES THIS ROUND SHIPS, AND WHY EACH ONE IS SAFE TO COMPOSE.
 * ``faction`` (sets 1): three real ``n_ID`` rows from
@@ -109,6 +117,7 @@ import os
 from typing import Any
 
 from . import field_mobs
+from .gm import name_color_gate
 from .population import (
     FULL_MOVEMENT_MASK,
     MOVEMENT_ATTR_ID,
@@ -176,6 +185,20 @@ class SweepActor:
     npc_attr: bytes
 
 
+def standing_colour_wiring_refusal() -> name_color_gate.P2ColorWiringVerdict:
+    """This module's own reminder that it MEASURES, it does not DECIDE.
+
+    Returns the gate's standing refusal (``tests/test_gm_name_color_gate.py``
+    owns what it means) so a static scan
+    (``tests/test_gm_p2_color_call_site_tripwire.py``) can tell a P-2 colour
+    module that only builds candidates for an attended human to grade apart
+    from one that would wire a colour decision in code without consulting
+    the refusal first.  Nothing here reads ``.allowed`` and branches on it --
+    there is no colour decision in this module to gate.
+    """
+    return name_color_gate.p2_color_wiring_verdict()
+
+
 def sweep_enabled(env: dict | None = None) -> bool:
     value = (os.environ if env is None else env).get(SWEEP_ENV, "")
     return value in KNOWN_SETS
@@ -235,8 +258,16 @@ def _npc_faction_body(legacy: Any, actor_identity: int, label: str, faction: int
     """The NPC plain body plus EXACTLY the faction splice, nothing else.
 
     Reuses ``field_mobs``' own frozen splice-position helpers rather than
-    re-deriving them -- see module docstring.
+    re-deriving them -- see module docstring.  Validates ``faction`` the
+    same way ``field_mobs.hostile_npc_attr`` does (pf-adversary, round
+    dipufa, finding 7: the first draft trusted its only caller instead).
     """
+    field_mobs._require_int(faction, "faction", 0, 0xFFFFFFFF)
+    if faction == 0:
+        raise NameColourSweepError(
+            "faction 0 is the player constructor default -- see "
+            "field_mobs.hostile_npc_attr's own refusal for the same value"
+        )
     baseline = _npc_plain_body(legacy, actor_identity, label)
     offset = field_mobs._faction_splice_offset(
         legacy, baseline, NPC_BASE_TEMPLATE_ID, NPC_BASE_VISUAL_PRESET,
