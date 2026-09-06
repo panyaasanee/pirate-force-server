@@ -382,15 +382,15 @@ class WorldGroundCompanionWiringTests(unittest.TestCase):
         # wiring-ask test above.
         wiring.encode("cp874")
 
-    def test_runtime_py_has_not_taken_this_ask_yet(self):
-        # HONEST, SELF-UPDATING: flip this (like GROUND_COMPANION_WIRING's
-        # own sibling test says to) the round runtime.py's call site grows
-        # a world= keyword -- not before.
+    def test_runtime_py_has_taken_this_ask_now(self):
+        # FLIPPED, not deleted: chief pasted WORLD_GROUND_COMPANION_WIRING
+        # in round fyrtvt (CORE-REQUEST 20260906_0914, LANE-A).
         source = (
             ROOT / "src" / "pirateforce_foundation" / "runtime.py"
         ).read_text(encoding="utf-8")
-        self.assertNotIn("world=mob_ground_persistence.world_ground()",
-                          source)
+        self.assertIn("world=mob_ground_persistence.world_ground()",
+                      source)
+        self.assertIn("from . import mob_ground_persistence", source)
 
 
 class WiringAskTests(unittest.TestCase):

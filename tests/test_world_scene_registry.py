@@ -702,7 +702,7 @@ class TheWiringAsk(unittest.TestCase):
         for anchor in (
                 "def _sync_combat_scene_state",
                 "if folder != self.mob_combat_scene_folder:",
-                "for record in self.mob_death_register.records:",
+                "for record in respawned.records:",
                 "register = mob_ai_control.open_register(roster, epoch=0)",
         ):
             with self.subTest(anchor=anchor[:40]):
