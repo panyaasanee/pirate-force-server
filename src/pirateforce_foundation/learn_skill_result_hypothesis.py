@@ -1021,9 +1021,7 @@ def load_learn_skill_result_hypothesis_scenario(
             "learn skill result hypothesis scenario exceeds the exact "
             "allowlist"
         )
-    scenario = require_learn_skill_result_hypothesis_scenario(profile)
-    _select_step_plan(scenario.step_order)
-    return scenario
+    return require_learn_skill_result_hypothesis_scenario(profile)
 
 
 def require_learn_skill_result_hypothesis_scenario(
@@ -1040,4 +1038,14 @@ def require_learn_skill_result_hypothesis_scenario(
             "allowlist"
         )
     _require_step_plan()
+    # Accepting a profile and selecting its plan are ONE act, never two.
+    # The composer resolves the dispatcher's index argument against the
+    # ACTIVE plan, so a gate that admitted a one-step profile without
+    # selecting it would hand back the sweep's first frame under that step's
+    # action label -- right label, wrong bytes, every pin still green.  This
+    # is the exact confusion GT-276 exists to rule out, so the gate itself
+    # must make it unreachable, not just the one caller that happens to
+    # remember.  Selecting the same plan again is a no-op; a second,
+    # different plan in one process is refused by _select_step_plan.
+    _select_step_plan(value.step_order)
     return value

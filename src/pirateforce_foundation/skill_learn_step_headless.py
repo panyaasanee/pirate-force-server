@@ -24,6 +24,21 @@ It does NOT say the client accepts the frame, draws anything, or locks the
 walk -- nothing here has a client in it.  That is exactly the question
 GT-276 puts to an attended run, and this proof does not pre-empt one word
 of it.
+
+How to run it
+-------------
+From the repository root, with no PYTHONPATH and nothing installed::
+
+    python3 src/pirateforce_foundation/skill_learn_step_headless.py
+
+One step only::
+
+    python3 src/pirateforce_foundation/skill_learn_step_headless.py \
+        --step COUNT1_TRAIL0
+
+``python3 -m pirateforce_foundation.skill_learn_step_headless`` needs ``src``
+on PYTHONPATH already and is NOT the documented form: the ticket's re-run
+happens on a plain checkout.
 """
 
 from __future__ import annotations
@@ -33,7 +48,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+_THIS_FILE = Path(__file__).resolve()
+ROOT = _THIS_FILE.parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
@@ -126,8 +142,15 @@ def _run_every_step() -> int:
     """Each step needs its own process: one process serves one plan."""
     lines = []
     for label in L.LEARN_SKILL_RESULT_STEP_ORDER:
+        # Address the child by FILE, not by "-m <module>": the documented
+        # command has to run from a plain checkout with no PYTHONPATH set
+        # (NOW.md has ka1-A re-run this proof before an attended boot and
+        # cull the ticket when it does not reproduce), and "-m" needs src on
+        # the path before the interpreter can even find this module.  Run by
+        # path, __spec__ is None here, so naming the file is also the only
+        # form that works in both directions.
         done = subprocess.run(
-            [sys.executable, "-m", __spec__.name, "--step", label],
+            [sys.executable, str(_THIS_FILE), "--step", label],
             capture_output=True, text=True, cwd=str(ROOT),
         )
         sys.stdout.write(done.stdout)
