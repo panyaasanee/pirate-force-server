@@ -1,0 +1,395 @@
+"""RE-155: the env-gated, single-boot "dummy row" sweep for name colour.
+
+WHAT THIS IS FOR.  PANYA-ORDER 2026-09-06T21:3x+07:00 (relayed by ka1-A,
+``pf_bridge/notes_to_chief/20260906_2142_...`` + addendum ``20260906_2150_
+...``) and COO-DECISION 2026-09-06T22:41+07:00 (``pf_bridge/notes_to_chief/
+20260906_2241_COO-DECISION-panya2142-re155-owner-b-two-rounds-dummy-row-
+LANE-B.md``) order this lane to build an opt-in spawner that places two
+prototypes -- a plain NPC and the Training Iron Man practice dummy
+(``template_id`` 916) -- side by side, each candidate differing from its own
+``BASE`` by EXACTLY ONE field, labelled on the nameboard so an attended
+tester reads the answer off the screen instead of a hexdump.  This module
+does not decide a colour, does not hardcode a ``FontStyleID``, and sends
+nothing by itself: it is called from an attended/dev boot path, gated
+fail-closed by one environment variable, the same shape as
+``pose_trial.PF_POSE_TRIAL`` and ``gm/speed_wire.PF_SPEED_TRIAL``.
+
+WHY AN ENVIRONMENT VARIABLE.  Same reason as ``pose_trial``: argument parsing
+lives in ``app.py`` (chief's file), this lane may not edit it, and the
+attended bridge already arms trials via the process environment.
+
+FAIL-CLOSED.  ``PF_NAME_COLOUR_SWEEP`` unset, empty or not one of the known
+set names below means :func:`sweep_actors` returns an empty tuple and
+:func:`sweep_enabled` is False -- production spawns nothing extra.
+
+THE TWO PROTOTYPES, AND WHY THESE EXACT ROWS.
+* NPC: ``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS[0]`` in
+  ``current/pf_login_game_server_v141.py`` -- ``template_id`` 1, visual
+  preset ``P_MALE_002_000_SP1``, source name "Navy Transfer".  This is a
+  real, committed, currently-shipping town placement, composed with
+  ``legacy.make_npc_attr`` and NO faction splice at all -- byte-for-byte the
+  shape GT-131 (2026-08-30) captured showing every NPC green.  That is
+  ``BASE`` for the NPC row.
+* Mob: the Training Iron Man row LANE-B already mines and ships today
+  (``field_mob_tables.PLACEMENTS`` placement 103, ``template_id`` 916,
+  preset ``M016_000_000_N``), fetched through ``field_mobs.load_roster()``
+  and composed through ``field_mobs.hostile_npc_attr`` exactly as production
+  does (level splice + faction splice, faction 6).  That is ``BASE`` for the
+  mob row -- what a real client already renders today, still not proven
+  red (RE-195/RE-263).
+
+ONE FIELD PER CANDIDATE, MEASURED NOT ASSUMED.  Every candidate function
+below is checked by ``tests/test_name_colour_sweep.py`` to differ from its
+own ``BASE`` body by exactly the bytes the one field under test needs --
+mirroring the discipline ``field_mobs.hostile_npc_attr`` already holds
+itself to (see that function's own load-bearing test).  The NPC faction
+splice reuses ``field_mobs._faction_splice_offset``/``_basic_mask_offset``
+directly rather than re-deriving the insertion point, because those two
+helpers are what the frozen-body-plus-exactly-N-bytes test already trusts.
+
+SYNTHETIC IDENTITIES, NOT THE REAL ONES.  Every row in this sweep gets a
+placement index from :data:`SWEEP_PLACEMENT_BASE` upward -- never the
+prototype's own real placement index (0 or 103) -- because a live boot may
+ALSO carry the real Port Royal population and the real field-mob roster in
+the same session, and ``actor_identity`` is ``0x2000 + placement_index + 1``
+with no other collision guard anywhere in this codebase.
+``tests/test_name_colour_sweep.py`` asserts the reserved band is disjoint
+from every placement-index table this repository ships (``population``'s
+115-row source and every ``field_mob_tables_bg*.PLACEMENTS``), not just
+eyeballed once here.
+
+CANDIDATES THIS ROUND SHIPS, AND WHY EACH ONE IS SAFE TO COMPOSE.
+* ``faction`` (sets 1): three real ``n_ID`` rows from
+  ``gamedata/tables/CONSTDATA_TH__FACTION.tsv`` (38 data rows) outside the
+  1-6 range this project already uses -- 7, 12, 999 (low, mid, and the
+  table's own sentinel-shaped high value).  Reuses the exact splice
+  ``hostile_npc_attr`` already ships for the mob row; a new local splice for
+  the NPC row (which has no faction bit set in its own ``BASE``, unlike the
+  mob row) built from the same two frozen helpers.
+* ``actor_type`` (set 2): value 3, applied to the OUTER ``ActorEntry``, not
+  the ``NPCAttr`` body -- ``legacy.make_remote_actor_entry``'s first
+  argument, already a real, already-sent field
+  (``population.NPC_STYLE_ACTOR_TYPE`` is 4).  The ``NPCAttr``/movement
+  bytes are byte-identical to ``BASE``; only the envelope's own type tag
+  changes.
+* ``visual_preset`` ("skin", set 2): swapped to a second real, committed
+  preset (``M010_001_000_N``, "Sebastian", row 1 of the same frozen table)
+  for the SAME ``template_id`` -- deliberately a combination no placement
+  ships today, because the sweep's whole point is isolating one field.
+
+CANDIDATES THIS ROUND DOES **NOT** SHIP, AND WHY -- do not re-derive these
+as a TODO, read the reason first.
+* ``relation +0x98`` -- ``gm/name_color_gate.py`` and ``mob_viewer_link.py``
+  both warn, independently, that TWO different fields share the "+0x98"
+  name in two different classes: ``ActorAttr+0x98`` (u8, tag 0x0B, presence
+  ``+0x1B4 & 0x04000000`` -- the relation byte
+  ``gm/attr_wire.py`` FIELDS row ``x=39`` already models) and
+  ``NPCAttr+0x98`` (u64, tag 0x32, presence ``+0xBC & 0x08`` -- the viewer
+  identity ``mob_viewer_link.py`` implements, a DIFFERENT hypothesis).
+  Neither citation says ``NPCAttr`` -- the class this module's bodies are --
+  carries an EQUIVALENT relation byte anywhere in its own tail.  Splicing an
+  ``ActorAttr`` field into an ``NPCAttr`` body on the strength of a shared
+  hex offset between two admittedly-different classes is exactly the kind
+  of guess ``NOW.md`` P-2 forbids (no guessing a byte position) and the
+  letter this module ships with says so in as many words, as a real,
+  useful negative result for RE-155's candidate list -- not a placeholder.
+* ``rank`` -- ``field_mobs.FieldMob.rank`` (MOBS ``n_RANK``, mined and real)
+  is used ONLY for the M3 roster-eligibility predicate; nothing in
+  ``field_mobs.py`` or ``gm/attr_wire.py`` wires it to any BasicAttr/ActorAttr
+  bit or tag.  There is no known byte to flip.  Same refusal as above,
+  same reason: inventing an offset is not measurement.
+
+pf-adversary: this module is new this round and has not yet had adversary
+review; see the round file for ``ADVERSARY_PENDING``/``ADVERSARY_UNAVAILABLE``.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+import os
+from typing import Any
+
+from . import field_mobs
+from .population import (
+    FULL_MOVEMENT_MASK,
+    MOVEMENT_ATTR_ID,
+    NPC_ATTR_ID,
+    SCENE_ID,
+    SCENE_SEQUENCE,
+)
+
+# The one environment variable that arms this module.  Unset/empty/unknown
+# means every function below behaves as if the sweep does not exist.
+SWEEP_ENV = "PF_NAME_COLOUR_SWEEP"
+
+SET_FACTION = "1"
+SET_ACTOR_TYPE_AND_SKIN = "2"
+KNOWN_SETS = (SET_FACTION, SET_ACTOR_TYPE_AND_SKIN)
+
+# Reserved placement-index band for this experiment ONLY.  Never a real
+# placement index (see module docstring "SYNTHETIC IDENTITIES").
+SWEEP_PLACEMENT_BASE = 20000
+SWEEP_PLACEMENT_STRIDE = 10
+
+# The NPC prototype: PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS[0] in
+# current/pf_login_game_server_v141.py, transcribed by value (that table
+# belongs to chief and this lane does not import row 0 by index from a
+# 115-row list it may not edit).
+NPC_BASE_TEMPLATE_ID = 1
+NPC_BASE_VISUAL_PRESET = "P_MALE_002_000_SP1"
+NPC_BASE_SOURCE_NAME = "Navy Transfer"
+NPC_BASE_SOURCE_PLACEMENT_INDEX = 0
+
+# RE-071 precedent (LANE-B.md "known already" section): a bare actor with
+# name + HP 100/100 is a body this project has already sent successfully.
+# Chosen because color is what is under test here, not HP.
+NPC_BASE_HP = 100
+
+# A second real, committed preset (row 1, "Sebastian") used ONLY as the
+# "skin" candidate's alternate value -- see module docstring.
+SKIN_CANDIDATE_VISUAL_PRESET = "M010_001_000_N"
+
+MOB_TEMPLATE_ID = 916
+MOB_SOURCE_PLACEMENT_INDEX = 103
+
+# CONSTDATA_TH__FACTION.tsv n_ID values outside the 1-6 range this project's
+# own faction pairing (field_mobs.FIELD_MOB_FACTION / PLAYER_PAIR_FACTION)
+# uses.  All three are real rows of that 38-row table.
+FACTION_CANDIDATES = (7, 12, 999)
+
+ACTOR_TYPE_CANDIDATE = 3
+
+
+class NameColourSweepError(ValueError):
+    """Shape or contract error building a sweep row."""
+
+
+@dataclass(frozen=True)
+class SweepActor:
+    """One labelled dummy: bytes ready for ``make_runtime_remote_actors``."""
+
+    label: str
+    actor_type: int
+    actor_identity: int
+    x: float
+    y: float
+    z: float
+    npc_attr: bytes
+
+
+def sweep_enabled(env: dict | None = None) -> bool:
+    value = (os.environ if env is None else env).get(SWEEP_ENV, "")
+    return value in KNOWN_SETS
+
+
+def _spawn_anchor(legacy: Any) -> tuple[float, float, float]:
+    return (
+        float(legacy.V135_PLAYER_X),
+        float(legacy.V135_PLAYER_Y),
+        float(legacy.V135_PLAYER_Z),
+    )
+
+
+def _row_xyz(anchor: tuple[float, float, float], ordinal: int) -> tuple[float, float, float]:
+    x, y, z = anchor
+    # Lined up along +X, 150 units apart -- close enough to read every
+    # nameboard from one spot, far enough apart that boxes do not overlap.
+    return (x + 150.0 * ordinal, y, z)
+
+
+def _mob_prototype() -> field_mobs.FieldMob:
+    for mob in field_mobs.load_roster():
+        if (
+            mob.template_id == MOB_TEMPLATE_ID
+            and mob.placement_index == MOB_SOURCE_PLACEMENT_INDEX
+        ):
+            return mob
+    raise NameColourSweepError(
+        f"Training Iron Man (template {MOB_TEMPLATE_ID}, placement "
+        f"{MOB_SOURCE_PLACEMENT_INDEX}) is not in field_mobs.load_roster() "
+        "any more -- this module's mob prototype needs re-deriving"
+    )
+
+
+def _npc_plain_body(
+    legacy: Any,
+    actor_identity: int,
+    label: str,
+    *,
+    visual_preset: str = NPC_BASE_VISUAL_PRESET,
+) -> bytes:
+    """``legacy.make_npc_attr`` with no splice at all -- the GT-131 shape."""
+    return legacy.make_npc_attr(
+        NPC_BASE_TEMPLATE_ID,
+        actor_identity,
+        SCENE_ID,
+        SCENE_SEQUENCE,
+        visual_preset,
+        NPC_BASE_HP,
+        NPC_BASE_HP,
+        movement_speed=0.0,
+        basic_name=label,
+    )
+
+
+def _npc_faction_body(legacy: Any, actor_identity: int, label: str, faction: int) -> bytes:
+    """The NPC plain body plus EXACTLY the faction splice, nothing else.
+
+    Reuses ``field_mobs``' own frozen splice-position helpers rather than
+    re-deriving them -- see module docstring.
+    """
+    baseline = _npc_plain_body(legacy, actor_identity, label)
+    offset = field_mobs._faction_splice_offset(
+        legacy, baseline, NPC_BASE_TEMPLATE_ID, NPC_BASE_VISUAL_PRESET,
+    )
+    mask_at = field_mobs._basic_mask_offset(legacy, baseline, actor_identity)
+    mask = int.from_bytes(baseline[mask_at:mask_at + 2], "little")
+    if mask & field_mobs.BASIC_BIT_FACTION:
+        raise NameColourSweepError(
+            "NPC plain body already sets the faction bit; the splice below "
+            "would double the field"
+        )
+    composed = (
+        baseline[:mask_at]
+        + int(mask | field_mobs.BASIC_BIT_FACTION).to_bytes(2, "little")
+        + baseline[mask_at + 2:offset]
+        + bytes(legacy.u32tag(field_mobs.FACTION_TAG, faction))
+        + baseline[offset:]
+    )
+    if len(composed) != len(baseline) + field_mobs.FACTION_SPLICE_BYTES:
+        raise NameColourSweepError("NPC faction splice length drift")
+    return composed
+
+
+def _entry(
+    legacy: Any,
+    *,
+    label: str,
+    actor_type: int,
+    actor_identity: int,
+    npc_attr: bytes,
+    x: float,
+    y: float,
+    z: float,
+) -> SweepActor:
+    return SweepActor(label, actor_type, actor_identity, x, y, z, npc_attr)
+
+
+def _faction_set(legacy: Any) -> tuple[SweepActor, ...]:
+    anchor = _spawn_anchor(legacy)
+    mob = _mob_prototype()
+    rows: list[SweepActor] = []
+    ordinal = 0
+
+    npc_identity = SWEEP_PLACEMENT_BASE  # actor_identity computed below
+    for label, faction in (("N-BASE", None),) + tuple(
+        (f"N-F{value:02d}", value) for value in FACTION_CANDIDATES
+    ):
+        placement_index = SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+        identity = 0x2000 + placement_index + 1
+        x, y, z = _row_xyz(anchor, ordinal)
+        body = (
+            _npc_plain_body(legacy, identity, label)
+            if faction is None
+            else _npc_faction_body(legacy, identity, label, faction)
+        )
+        rows.append(_entry(
+            legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
+            actor_identity=identity, npc_attr=body, x=x, y=y, z=z,
+        ))
+        ordinal += 1
+
+    for label, faction in (("M-BASE", field_mobs.FIELD_MOB_FACTION),) + tuple(
+        (f"M-F{value:02d}", value) for value in FACTION_CANDIDATES
+    ):
+        placement_index = SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+        variant = replace(mob, placement_index=placement_index, display_name=label)
+        x, y, z = _row_xyz(anchor, ordinal)
+        body = field_mobs.hostile_npc_attr(legacy, variant, faction=faction)
+        rows.append(_entry(
+            legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
+            actor_identity=variant.actor_identity, npc_attr=body, x=x, y=y, z=z,
+        ))
+        ordinal += 1
+
+    return tuple(rows)
+
+
+def _actor_type_and_skin_set(legacy: Any) -> tuple[SweepActor, ...]:
+    anchor = _spawn_anchor(legacy)
+    mob = _mob_prototype()
+    rows: list[SweepActor] = []
+    ordinal = 0
+
+    def add_npc(label: str, *, actor_type: int, visual_preset: str) -> None:
+        nonlocal ordinal
+        placement_index = SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+        identity = 0x2000 + placement_index + 1
+        x, y, z = _row_xyz(anchor, ordinal)
+        body = _npc_plain_body(legacy, identity, label, visual_preset=visual_preset)
+        rows.append(_entry(
+            legacy, label=label, actor_type=actor_type, actor_identity=identity,
+            npc_attr=body, x=x, y=y, z=z,
+        ))
+        ordinal += 1
+
+    def add_mob(label: str, *, actor_type: int, visual_preset: str | None) -> None:
+        nonlocal ordinal
+        placement_index = SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+        variant = replace(mob, placement_index=placement_index, display_name=label)
+        if visual_preset is not None:
+            variant = replace(variant, visual_preset=visual_preset)
+        x, y, z = _row_xyz(anchor, ordinal)
+        body = field_mobs.hostile_npc_attr(
+            legacy, variant, faction=field_mobs.FIELD_MOB_FACTION,
+        )
+        rows.append(_entry(
+            legacy, label=label, actor_type=actor_type,
+            actor_identity=variant.actor_identity, npc_attr=body, x=x, y=y, z=z,
+        ))
+        ordinal += 1
+
+    add_npc("N-BASE", actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE, visual_preset=NPC_BASE_VISUAL_PRESET)
+    add_npc(f"N-AT{ACTOR_TYPE_CANDIDATE}", actor_type=ACTOR_TYPE_CANDIDATE, visual_preset=NPC_BASE_VISUAL_PRESET)
+    add_npc("N-SKIN", actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE, visual_preset=SKIN_CANDIDATE_VISUAL_PRESET)
+
+    add_mob("M-BASE", actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE, visual_preset=None)
+    add_mob(f"M-AT{ACTOR_TYPE_CANDIDATE}", actor_type=ACTOR_TYPE_CANDIDATE, visual_preset=None)
+    add_mob("M-SKIN", actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE, visual_preset=SKIN_CANDIDATE_VISUAL_PRESET)
+
+    return tuple(rows)
+
+
+def sweep_actors(legacy: Any, env: dict | None = None) -> tuple[SweepActor, ...]:
+    """The labelled dummy row for the armed set, or ``()`` if unarmed.
+
+    Nothing is sent, scheduled or persisted -- the caller owns dispatch, the
+    same contract ``field_mobs.build_field_mob_population`` documents.
+    """
+    value = (os.environ if env is None else env).get(SWEEP_ENV, "")
+    if value == SET_FACTION:
+        return _faction_set(legacy)
+    if value == SET_ACTOR_TYPE_AND_SKIN:
+        return _actor_type_and_skin_set(legacy)
+    return ()
+
+
+def build_sweep_population(legacy: Any, env: dict | None = None) -> tuple[bytes, bytes] | None:
+    """``(pc, frame)`` for the armed set's actors, or ``None`` if unarmed."""
+    actors = sweep_actors(legacy, env)
+    if not actors:
+        return None
+    entries = []
+    for actor in actors:
+        movement = legacy.make_remote_movement_attr(
+            actor.actor_identity, actor.x, actor.y, actor.z, 0.0,
+            mask=FULL_MOVEMENT_MASK,
+        )
+        entries.append(legacy.make_remote_actor_entry(
+            actor.actor_type,
+            actor.actor_identity,
+            [(NPC_ATTR_ID, actor.npc_attr), (MOVEMENT_ATTR_ID, movement)],
+        ))
+    pc, frame = legacy.make_runtime_remote_actors(entries)
+    if frame != legacy.frame_pc(pc):
+        raise NameColourSweepError("sweep frame drift")
+    return pc, frame
