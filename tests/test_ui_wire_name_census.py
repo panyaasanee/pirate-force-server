@@ -9,8 +9,13 @@ of the page silently going stale.
 
 Needs the sibling ``pf_bridge`` checkout (for the master catalog tsv and the
 two ``external/`` registries) the same way every other cross-repo census test
-in this suite does -- see tools/pf_vital_names.py's own DEFAULT_TSV. SKIPs
-loudly, with the missing path in the message, if that checkout is absent.
+in this suite does -- see tools/pf_vital_names.py's own DEFAULT_TSV, and (for
+example) tests/test_field_mob_tables_bg0002.py's bare ``ROOT.parent /
+"pf_bridge"``. No skip guard: the gate pins skip counts
+(docs/PYTEST_SKIP_PINS.json) and every sibling-repo census test in this suite
+assumes the checkout is there rather than adding a new pinned skip for it --
+if it is ever missing this file errors loudly (``CensusError``) instead of
+going quietly green.
 """
 from __future__ import annotations
 
@@ -29,13 +34,6 @@ EXPECT_NAME_ONLY = 157
 EXPECT_UNTOUCHED = 9
 
 
-def _bridge_missing_reason():
-    if not census.DEFAULT_TSV.exists():
-        return f"sibling pf_bridge checkout not found: {census.DEFAULT_TSV}"
-    return None
-
-
-@unittest.skipIf(_bridge_missing_reason(), _bridge_missing_reason() or "")
 class BuildRowsTests(unittest.TestCase):
     def test_row_count_matches_the_master_catalog(self):
         rows = census.build_rows()
@@ -83,7 +81,6 @@ class BuildRowsTests(unittest.TestCase):
         self.assertEqual(first, second)
 
 
-@unittest.skipIf(_bridge_missing_reason(), _bridge_missing_reason() or "")
 class CommittedArtifactTests(unittest.TestCase):
     def test_committed_artifact_matches_a_fresh_rederive(self):
         self.assertEqual(census.main(["--tsv", str(census.DEFAULT_TSV)]), 0)
