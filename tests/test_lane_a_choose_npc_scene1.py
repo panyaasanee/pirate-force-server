@@ -447,6 +447,19 @@ class TheMultiSelectAnswersEveryNamedIdentityTests(unittest.TestCase):
     its own conversation extra, in the frozen loop's own order), and --
     the exact asymmetry pf-adversary ``rlymq1`` measured -- the ORDER
     identities are named in no longer changes what gets composed.
+
+    THE ORDERING CLAIM ABOVE WAS PROSE ONLY UNTIL PF-ADVERSARY ``vxfepr``
+    MEASURED IT: the first draft of this class asserted membership
+    (``assertIn``) and counts (``len(...)``) for the multi-identity cases,
+    never the SEQUENCE, so a mutation that swapped every identity's
+    [face, extra] pair to [extra, face] passed the entire suite --
+    12313 tests, not just this file.
+    ``test_the_exact_action_sequence_is_face_then_extra_per_identity``
+    below is the fix: it drives THREE named identities, not two, so a
+    face-before-extra bug that only a MIDDLE identity's position would
+    reveal cannot hide behind a two-identity test, and it compares the
+    real ``extra_actions`` tuple against an explicit expected sequence
+    rather than checking membership.
     """
 
     @classmethod
@@ -472,6 +485,7 @@ class TheMultiSelectAnswersEveryNamedIdentityTests(unittest.TestCase):
                 "Port Royal placements on this legacy build"
             )
         cls.ordinary_a, cls.ordinary_b = ordinary[0], ordinary[1]
+        cls.ordinary_c = ordinary[2] if len(ordinary) >= 3 else None
         cls.vendor_idx = (
             vendor_idx if vendor_idx in cls.population_indices else None
         )
@@ -616,6 +630,54 @@ class TheMultiSelectAnswersEveryNamedIdentityTests(unittest.TestCase):
         self.assertEqual(len(answer.extra_actions), 1)
         self.assertEqual(answer.latches_spent, ())
         self.assertEqual(len(answer.console_lines), 1)
+
+    def test_the_exact_action_sequence_is_face_then_extra_per_identity(self):
+        """PF-ADVERSARY ``vxfepr`` MEASURED THE GAP THIS TEST CLOSES: every
+        other test in this class checks membership or a count, which a
+        mutation that swapped each identity's own [face, extra] pair to
+        [extra, face] still satisfies -- confirmed by actually running that
+        mutation, which passed the entire suite (12313 tests, not just this
+        file).  THREE named identities, not two: a face-before-extra bug
+        that only shows up at a MIDDLE identity's position cannot hide
+        behind a two-identity frame, because with two identities there is
+        no middle position for it to hide at."""
+        if self.ordinary_c is None:
+            raise unittest.SkipTest(
+                "fewer than three ordinary (non-hostile, non-special) "
+                "Port Royal placements on this legacy build"
+            )
+        legacy = self.legacy
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(
+                0x2000 + self.ordinary_a + 1,
+                0x2000 + self.ordinary_b + 1,
+                0x2000 + self.ordinary_c + 1,
+            ),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertIsNotNone(answer)
+        self.assertEqual(
+            answer.label,
+            f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P{self.ordinary_a}",
+        )
+        # Identity A's own pair is the primary answer, not in
+        # extra_actions -- so extra_actions is exactly: A's talk trigger,
+        # then B's face, then B's talk trigger, then C's face, then C's
+        # talk trigger.  Five entries for three ordinary identities,
+        # matching the frozen loop's own count (two actions per identity).
+        expected_labels = [
+            f"V98_NPC_CONVERSATION_DEFAULT_P{self.ordinary_a}_VIA_LANE_A",
+            f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P{self.ordinary_b}",
+            f"V98_NPC_CONVERSATION_DEFAULT_P{self.ordinary_b}_VIA_LANE_A",
+            f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P{self.ordinary_c}",
+            f"V98_NPC_CONVERSATION_DEFAULT_P{self.ordinary_c}_VIA_LANE_A",
+        ]
+        actual_labels = [action[0] for action in answer.extra_actions]
+        self.assertEqual(actual_labels, expected_labels)
+        self.assertEqual(len(answer.extra_actions), 5)
+        self.assertEqual(len(answer.console_lines), 3)
 
 
 class TheAnswerRepeatsTheCorrectedFrozenFrameTests(unittest.TestCase):
@@ -1226,7 +1288,10 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
     twice.  This module cannot write a latch back and does not try; it
     NAMES what it spent in ``latches_spent`` and the call site sets it.
     The once-ness is therefore chief's line to prove on a boot, not this
-    file's to claim -- see ``SHOP_AND_QUEST_LATCH_WIRING``.
+    file's to claim -- see ``VENDOR_AND_MISSION_LATCH_WIRING`` (renamed
+    from ``SHOP_AND_QUEST_LATCH_WIRING`` round ``rlymq1``; this reference
+    to the old name was missed then and fixed round ``vxfepr``,
+    pf-adversary ``vxfepr`` measured).
     """
 
     @classmethod
