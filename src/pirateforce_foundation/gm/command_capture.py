@@ -411,6 +411,28 @@ def _capture_raw(
                 f"and the partial file could not be removed -- bytes may "
                 f"still be on disk for a call nothing charged for"
             ) from write_error
+        except BaseException:
+            # pf-adversary (round `lkwmkp`, D5): rounds `gn7gk5`/`79ahzl`
+            # replaced this function's original `try: os.write(...) finally:
+            # os.close(fd)` with an `except OSError` branch, and quietly
+            # traded away the guarantee the `finally` gave for free -- any
+            # NON-OSError escaping the write loop (`KeyboardInterrupt` or
+            # `SystemExit` at shutdown, `MemoryError` on the
+            # `file_body[written:]` slice) left the descriptor open AND the
+            # `O_CREAT|O_EXCL` file on disk, in a function whose whole
+            # subject is "a failed call really does leave zero bytes
+            # behind". On Windows that leaked handle also locks the file for
+            # the life of the process, so nothing can clean it up later.
+            # This branch restores the old guarantee without touching the
+            # OSError classification above: close, remove, re-raise the
+            # original exception unchanged (no `CaptureFileNotVerifiedRemoved`
+            # translation -- an interpreter shutdown is not a quota event).
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            _best_effort_unlink(out_path)
+            raise
         try:
             os.close(fd)
         except OSError as close_error:
