@@ -131,6 +131,22 @@ def _letter_exists_for(pf_bridge_dir, date_match):
         return False
     for entry in notes_dir.iterdir():
         name = entry.name
+        # pf-adversary, round b08g3z, RAN this: the first draft accepted ANY
+        # filename carrying the stamp, so the lane's own
+        # "<letter>.md.CONSUMED.txt" stub -- a file this lane writes, in the
+        # same directory, when it consumes the letter -- satisfied the check
+        # on its own.  Delete COO's actual letter and the gate stayed green,
+        # which is the exact hole the file's own opening paragraph says this
+        # gate exists to close ("only a second, independently-timestamped
+        # artifact in the other repository can").  A letter is a ``.md``
+        # file; a stub, a marker and a receipt are not, and none of them can
+        # stand in for one.
+        if not name.endswith(".md"):
+            continue
+        if ".CONSUMED." in name:
+            continue
+        if not entry.is_file():
+            continue
         if name.startswith(stamp) and "COO-DECISION" in name and "widen" in name:
             return True
     return False
