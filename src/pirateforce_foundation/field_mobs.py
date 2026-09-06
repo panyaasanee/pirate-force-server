@@ -200,6 +200,7 @@ from . import field_mob_tables_bg0006
 from . import field_mob_tables_bg0007
 from . import field_mob_tables_bg0008
 from . import field_mob_tables_bg0009
+from . import field_mob_tables_bg0010
 from . import field_mob_tables_bg0011
 from . import field_mob_tables_bg0015
 # LANE-B's per-(viewer, monster) link for the client's name-colour selector
@@ -530,6 +531,7 @@ _SCENE_TABLE_MODULES = {
     field_mob_tables_bg0007.SCENE: field_mob_tables_bg0007,
     field_mob_tables_bg0008.SCENE: field_mob_tables_bg0008,
     field_mob_tables_bg0009.SCENE: field_mob_tables_bg0009,
+    field_mob_tables_bg0010.SCENE: field_mob_tables_bg0010,
     field_mob_tables_bg0011.SCENE: field_mob_tables_bg0011,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
@@ -631,6 +633,33 @@ BG0008_SCENE = field_mob_tables_bg0008.SCENE
 # fabricated -- a separate hand of work (drop mining), not a reason to
 # refuse the kill.
 BG0009_SCENE = field_mob_tables_bg0009.SCENE
+# ROUND 30ja9z.  Scene 10 (Deep Sea Temple).  SEVENTEEN placements over SIX
+# distinct templates (660, 661, 662, 668, 671, 673), mined under the same one
+# identity rule (``cline``) as every sibling scene above.
+#
+# THIS SCENE IS REGISTERED WITHOUT A DEATH-SCOPE RULING, AND THAT IS ON
+# PURPOSE.  Every sibling entry above names a COO-DECISION that widened
+# ``mob_death.WIDENING_RULINGS`` to that scene in the same round the roster
+# landed.  No such letter exists for Bg0010: this lane's ASK-COO of
+# 2026-09-06T13:5x+07:00 requests one and has not been answered.  So this
+# registration ships the SPAWN half only (M3, "the field has monsters") and
+# ``mob_death.kill`` still refuses every one of these 17 bodies, because
+# neither ``WIDENING_RULINGS`` nor ``WIDENING_RULING_SCENES`` carries a
+# Bg0010 key.  Do NOT read this constant as authorisation to kill: the M4
+# half arrives only with the letter, in a later round.
+# [LANE-B ASSUMPTION - awaiting COO confirmation] that registering the
+# READABLE rows of this scene is allowed while placement 50 stays
+# unresolved.  COO-DECISION 2026-09-06T07:48+07:00 item 3 split Bg0010's
+# unresolved row off as its own STATIC ticket to chief and approved a
+# generator change that "reports the row and keeps going with the others,
+# so the rest of bg0010's result is readable without deciding for anyone".
+# That ticket (pf_bridge notes_to_chief/20260906_0903 + its 1046 addendum)
+# still has no number and no answer, and item 4 of the same letter grants
+# "silent more than 1 hour, keep going" without asking.  Placement 50 is
+# NOT shipped here -- it is absent from HOSTILE_PLACEMENTS and named in the
+# module's own UNRESOLVED_PLACEMENTS -- so nothing in this registration
+# decides what that row is.
+BG0010_SCENE = field_mob_tables_bg0010.SCENE
 # Same COO-DECISION as BG0006_SCENE's own comment.  Scene 11, FIVE distinct
 # templates (669, 674, 693, 696, 697).
 BG0011_SCENE = field_mob_tables_bg0011.SCENE

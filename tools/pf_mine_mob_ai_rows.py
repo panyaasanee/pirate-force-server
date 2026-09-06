@@ -262,6 +262,7 @@ def load_roster_modules(repo_root: Path) -> tuple:
         from pirateforce_foundation import field_mob_tables_bg0007
         from pirateforce_foundation import field_mob_tables_bg0008
         from pirateforce_foundation import field_mob_tables_bg0009
+        from pirateforce_foundation import field_mob_tables_bg0010
         from pirateforce_foundation import field_mob_tables_bg0011
         from pirateforce_foundation import field_mob_tables_bg0015
     finally:
@@ -271,7 +272,8 @@ def load_roster_modules(repo_root: Path) -> tuple:
         field_mob_tables_bg0004, field_mob_tables_bg0005,
         field_mob_tables_bg0006, field_mob_tables_bg0007,
         field_mob_tables_bg0008, field_mob_tables_bg0009,
-        field_mob_tables_bg0011, field_mob_tables_bg0015,
+        field_mob_tables_bg0010, field_mob_tables_bg0011,
+        field_mob_tables_bg0015,
     )
 
 
