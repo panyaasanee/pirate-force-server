@@ -222,6 +222,22 @@ class MobCombatCensusWiringTests(unittest.TestCase):
             mob_combat.MobBalance(identity, row.max_hp, current_hp)
         )
 
+    def _viewer_identity(self, state):
+        """The SAME (identity_hi<<32)|identity_lo expression runtime.py's
+        combat-recompose call sites now use as the "viewer" for
+        CORE-REQUEST-GM-061 (R365 addendum) -- this session's own selected
+        character, one qword. Computed from the SAME ``state.foundation
+        .selected`` the dispatch itself reads, not a reconstruction of it.
+        Same helper as test_mob_combat_dispatch.py's/test_bg0002_census_
+        wiring.py's own ``_viewer_identity``, duplicated rather than shared
+        because these test modules do not import each other.
+        """
+        selected = state.foundation.selected
+        return (
+            (selected.identity_hi & 0xFFFFFFFF) << 32
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+
     # ----- MOB_COMBAT_BAR carries the full census after arrival ------------
 
     def test_bar_frame_after_arrival_census_is_the_full_recompose_not_one_entry(
@@ -241,10 +257,17 @@ class MobCombatCensusWiringTests(unittest.TestCase):
             "mob_combat_bar_census_compose_skipped_no_population_anchor",
             state.events,
         )
+        # CORE-REQUEST-GM-061 (R365 addendum): the real dispatch site now
+        # threads this session's own identity through as the viewer -- both
+        # the "expected" bytes and the substring-entry check below must be
+        # built the same way, or they compare a viewer-linked frame against
+        # a viewer-less one for the wrong reason.
+        viewer_identity = self._viewer_identity(state)
         expected_pc, expected_frame = mob_death.hostile_census_frames(
             self.legacy, state.population_refresh_anchor,
             state.world_census_actor_count, self.roster,
             state.mob_death_register, ledger=state.mob_combat_ledger,
+            viewer_identity=viewer_identity,
         )
         self.assertEqual(bar_pc, expected_pc)
         self.assertEqual(bar_frame, expected_frame)
@@ -261,6 +284,7 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         )
         other_entry = field_mobs.hostile_actor_entry(
             self.legacy, other, current_hp=other.max_hp,
+            viewer_identity=viewer_identity,
         )
         self.assertIn(other_entry, bar_pc)
 
@@ -283,16 +307,21 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         )
         dying_pc, dying_frame = actions[1][1], actions[1][2]
         dead_pc, dead_frame = actions[2][1], actions[2][2]
+        # CORE-REQUEST-GM-061 (R365 addendum): same viewer-identity threading
+        # as the bar test above, at both death composes.
+        viewer_identity = self._viewer_identity(state)
         expected_dying_pc, expected_dying_frame = mob_death.hostile_census_frames(
             self.legacy, state.population_refresh_anchor,
             state.world_census_actor_count, self.roster,
             state.mob_death_register, ledger=state.mob_combat_ledger,
             dead_timer=mob_death.DYING_TIMER_SECONDS,
+            viewer_identity=viewer_identity,
         )
         expected_dead_pc, expected_dead_frame = mob_death.hostile_census_frames(
             self.legacy, state.population_refresh_anchor,
             state.world_census_actor_count, self.roster,
             state.mob_death_register, ledger=state.mob_combat_ledger,
+            viewer_identity=viewer_identity,
         )
         self.assertEqual(dying_pc, expected_dying_pc)
         self.assertEqual(dying_frame, expected_dying_frame)
@@ -307,6 +336,7 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         )
         other_entry = field_mobs.hostile_actor_entry(
             self.legacy, other, current_hp=other.max_hp,
+            viewer_identity=viewer_identity,
         )
         self.assertIn(other_entry, dying_pc)
         self.assertIn(other_entry, dead_pc)

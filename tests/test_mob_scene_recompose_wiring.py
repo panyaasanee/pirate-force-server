@@ -217,6 +217,22 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
             mob_combat.MobBalance(identity, row.max_hp, current_hp)
         )
 
+    def _viewer_identity(self, state):
+        """The SAME (identity_hi<<32)|identity_lo expression runtime.py's
+        combat-recompose call sites now use as the "viewer" for
+        CORE-REQUEST-GM-061 (R365 addendum) -- this session's own selected
+        character, one qword. Computed from the SAME ``state.foundation
+        .selected`` the dispatch itself reads, not a reconstruction of it.
+        Same helper as test_mob_combat_dispatch.py's/test_bg0002_census_
+        wiring.py's own ``_viewer_identity``, duplicated rather than shared
+        because these test modules do not import each other.
+        """
+        selected = state.foundation.selected
+        return (
+            (selected.identity_hi & 0xFFFFFFFF) << 32
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+
     def _combat_labels(self, actions):
         return [
             label for label, _pc, _f, _d in actions
@@ -269,11 +285,14 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
         bar_pc, bar_frame = bar[1], bar[2]
         # The same compose the call site ran, through the same public
         # function, over the same session state.
+        # CORE-REQUEST-GM-061 (R365 addendum): the real dispatch site now
+        # threads this session's own identity through as the viewer.
         expected = mob_scene_recompose.recompose_frames(
             self.legacy, state.census_anchor_record,
             state.mob_death_register,
             ledger=state.mob_combat_ledger,
             roster=self.bg0002_roster,
+            viewer_identity=self._viewer_identity(state),
         )
         self.assertTrue(expected.composed, expected.state)
         self.assertEqual(expected.pc, bar_pc)
@@ -310,18 +329,23 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
         )
         dying = [a for a in actions if a[0] == "MOB_DEATH_DYING"][0]
         dead = [a for a in actions if a[0] == "MOB_DEATH_DEAD"][0]
+        # CORE-REQUEST-GM-061 (R365 addendum): same viewer-identity threading
+        # as the bar test above, at both death composes.
+        viewer_identity = self._viewer_identity(state)
         expected_dying = mob_scene_recompose.recompose_frames(
             self.legacy, state.census_anchor_record,
             state.mob_death_register,
             ledger=state.mob_combat_ledger,
             roster=self.bg0002_roster,
             dead_timer=mob_death.DYING_TIMER_SECONDS,
+            viewer_identity=viewer_identity,
         )
         expected_dead = mob_scene_recompose.recompose_frames(
             self.legacy, state.census_anchor_record,
             state.mob_death_register,
             ledger=state.mob_combat_ledger,
             roster=self.bg0002_roster,
+            viewer_identity=viewer_identity,
         )
         self.assertTrue(expected_dying.composed, expected_dying.state)
         self.assertTrue(expected_dead.composed, expected_dead.state)
@@ -380,16 +404,22 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
         actions, _console = self._attack(state, target)
         bar = [a for a in actions if a[0] == "MOB_COMBAT_BAR"]
         self.assertEqual(1, len(bar), self._combat_labels(actions))
+        # CORE-REQUEST-GM-061 (R365 addendum): the real dispatch site now
+        # threads this session's own identity through as the viewer, so
+        # ``with_objects`` (compared against the real bar frame below) must
+        # be built the same way.
+        viewer_identity = self._viewer_identity(state)
         with_objects = mob_scene_recompose.recompose_frames(
             self.legacy, state.census_anchor_record,
             state.mob_death_register,
             ledger=state.mob_combat_ledger, roster=roster,
-            objects=objects,
+            objects=objects, viewer_identity=viewer_identity,
         )
         without_objects = mob_scene_recompose.recompose_frames(
             self.legacy, state.census_anchor_record,
             state.mob_death_register,
             ledger=state.mob_combat_ledger, roster=roster,
+            viewer_identity=viewer_identity,
         )
         self.assertTrue(with_objects.composed, with_objects.state)
         self.assertTrue(without_objects.composed, without_objects.state)
