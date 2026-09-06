@@ -97,6 +97,24 @@ Same scope line as every sibling module in this batch (``CORE-REQUEST
 1120``'s own words): "รับเฟรม (decode) + ตอบ ack/error frame ที่วางเปล่า ...
 ไม่ใช่การทำ business logic เต็ม". Not wired into ``runtime.py`` or
 ``vital_walk.py``; wiring any of these is a separate ``CORE-REQUEST``.
+
+wstring tag-0x48 migration (LANE-UI round `on8hbb`, see ``ui_friend_wire.
+py``'s docstring for the bug and ``pf_bridge/notes_to_chief/
+20260906_1622_LANE-UI-TO-COO-wstring-tag-0x48-bug-affects-six-shipped-
+modules.md``): of the thirteen classes above with at least one wstring
+field, three are migrated onto ``wstring_tag``/``read_wstring_tag`` so
+far -- ``ChangeActorCommentFields``, ``ChangeActorPenNameFields``,
+``RemoveBlackListFields`` (each says so in its own class docstring). The
+other ten (``ChangeActorPersonalDataFields``,
+``CommunityPropertyChangedFields``, ``OpenLetterInABottleFields``,
+``OpenPenpalLetterFields``, ``RequestorConfirmSoulMateMatchFields``,
+``SetReceiveActiveChangeFields``, ``TargetConfirmSoulMateMatchFields``,
+``ThrowLetterInABottleFields``, ``ThrowPenpalLetterFields``,
+``WriteBlankPenpalLetterFields``) still call the untagged pair --
+``tests/test_ui_express_community_social_migration_guard.py``'s
+``_GUARDED_MODULES`` keeps this whole module listed until all thirteen
+are done (partial migration does not trip that guard, since it only
+checks whether the module still calls the untagged pair *at all*).
 """
 
 from __future__ import annotations
@@ -148,7 +166,15 @@ _TAG_U32 = 0x14
 
 @dataclass(frozen=True)
 class ChangeActorCommentFields:
-    """Wire order: u64, wstring, u8 -- identical shape for W and R."""
+    """Wire order: u64, tagged wstring (tag 0x48), u8 -- identical shape
+    for W and R. Migrated off ``encode_untagged_wstring``/
+    ``read_untagged_wstring`` onto ``wstring_tag``/``read_wstring_tag``
+    in LANE-UI round `on8hbb` (same fix as ``ui_friend_wire.py``/
+    ``ui_mail_wire.py``/``ui_party_wire.py``/``ui_trade_wire.py``/
+    ``ui_express_wire.py`` -- see ``ui_friend_wire.py``'s docstring for
+    the bug this proves wrong). Not wired into ``runtime.py`` -- this is
+    a shape correction ahead of wiring, not a live-bug fix like
+    ``ui_friend_wire.py``'s was."""
 
     field1_u64: int
     field2_wstring: str
@@ -157,9 +183,11 @@ class ChangeActorCommentFields:
 
 @dataclass(frozen=True)
 class ChangeActorPenNameFields:
-    """Wire order: u64, wstring, u8 -- identical shape for W and R
-    (same shape as ``ChangeActorCommentFields`` -- see module docstring's
-    shared-shape note; kept as a distinct class/id)."""
+    """Wire order: u64, tagged wstring (tag 0x48), u8 -- identical shape
+    for W and R (same shape as ``ChangeActorCommentFields`` -- see module
+    docstring's shared-shape note; kept as a distinct class/id). Migrated
+    off the untagged pair in LANE-UI round `on8hbb`, same as
+    ``ChangeActorCommentFields`` above."""
 
     field1_u64: int
     field2_wstring: str
@@ -228,9 +256,11 @@ class OpenPenpalLetterFields:
 
 @dataclass(frozen=True)
 class RemoveBlackListFields:
-    """Wire order: u64, wstring, u8 -- identical shape for W and R (same
-    shape as ``ChangeActorCommentFields`` -- see module docstring's
-    shared-shape note; kept as a distinct class/id)."""
+    """Wire order: u64, tagged wstring (tag 0x48), u8 -- identical shape
+    for W and R (same shape as ``ChangeActorCommentFields`` -- see module
+    docstring's shared-shape note; kept as a distinct class/id). Migrated
+    off the untagged pair in LANE-UI round `on8hbb`, same as
+    ``ChangeActorCommentFields`` above."""
 
     field1_u64: int
     field2_wstring: str
@@ -329,7 +359,7 @@ def encode_change_actor_comment_payload(
 ) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
     return bytes(out)
 
@@ -339,7 +369,7 @@ def decode_change_actor_comment_payload(
 ) -> ChangeActorCommentFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
@@ -352,7 +382,7 @@ def encode_change_actor_pen_name_payload(
 ) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
     return bytes(out)
 
@@ -362,7 +392,7 @@ def decode_change_actor_pen_name_payload(
 ) -> ChangeActorPenNameFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
@@ -506,7 +536,7 @@ def encode_remove_black_list_payload(
 ) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
     return bytes(out)
 
@@ -516,7 +546,7 @@ def decode_remove_black_list_payload(
 ) -> RemoveBlackListFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:

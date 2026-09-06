@@ -448,5 +448,49 @@ class RealQuestAgainstTheShippedFileTests(unittest.TestCase):
         self.assertEqual(result, 1)
 
 
+class QuestAcceptedReportedCrossLaneHelperTests(unittest.TestCase):
+    """``is_quest_accepted``/``is_quest_reported`` -- the cross-lane read
+    helper ``COO-DECISION 20260907_0043`` asked this lane's own quest-state
+    door to answer for LANE-A's future NPC-visibility filter. Plain
+    functions over :class:`quest.QuestStateStore`, no Lua involved.
+    """
+
+    def test_never_set_is_neither_accepted_nor_reported(self):
+        store = quest.InMemoryQuestStateStore()
+        self.assertFalse(quest.is_quest_accepted(store, 1, 100))
+        self.assertFalse(quest.is_quest_reported(store, 1, 100))
+
+    def test_active_flag_is_accepted_not_reported(self):
+        store = quest.InMemoryQuestStateStore()
+        store.set_quest_flag(1, 100, quest.QUEST_ACTIVE)
+        self.assertTrue(quest.is_quest_accepted(store, 1, 100))
+        self.assertFalse(quest.is_quest_reported(store, 1, 100))
+
+    def test_finish_flag_is_reported_not_accepted(self):
+        # Not "ever accepted" -- exactly Active, per the function's own
+        # docstring: once a quest is reported its flag moves off Active,
+        # matching s_QUEST_BEGIN/s_QUEST_END's own "appear while active,
+        # disappear once reported" shape (ka1-A's letter).
+        store = quest.InMemoryQuestStateStore()
+        store.set_quest_flag(1, 100, quest.QUEST_FINISH)
+        self.assertFalse(quest.is_quest_accepted(store, 1, 100))
+        self.assertTrue(quest.is_quest_reported(store, 1, 100))
+
+    def test_none_flag_value_is_neither(self):
+        store = quest.InMemoryQuestStateStore()
+        store.set_quest_flag(1, 100, quest.QUEST_NONE)
+        self.assertFalse(quest.is_quest_accepted(store, 1, 100))
+        self.assertFalse(quest.is_quest_reported(store, 1, 100))
+
+    def test_per_character_and_per_quest_isolation(self):
+        store = quest.InMemoryQuestStateStore()
+        store.set_quest_flag(1, 100, quest.QUEST_ACTIVE)
+        self.assertTrue(quest.is_quest_accepted(store, 1, 100))
+        # A different character, same quest id: unaffected.
+        self.assertFalse(quest.is_quest_accepted(store, 2, 100))
+        # Same character, a different quest id: unaffected.
+        self.assertFalse(quest.is_quest_accepted(store, 1, 101))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

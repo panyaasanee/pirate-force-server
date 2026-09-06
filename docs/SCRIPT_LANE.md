@@ -267,7 +267,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (129/160 stub, 31/160 real, as of round `lvoma1`, recovering both round `qbr5h8` and round `7v7yn2`/`uadtc7` onto one branch)
+### API status table (128/160 stub, 32/160 real, as of round `x6gxzd`)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -285,29 +285,31 @@ non-claim), the 10 `Quest.*` real rows (`CheckOpenTime` -- round `0rgg6q`,
 recovering the round-after-`4jsydv` commit that the guard exemption named
 below unblocked, see "Round vqng2z" further down -- plus 9 flag/counter/
 daily-stamp names added round `7v7yn2`, COO-DECISION `20260906_1846`, see
-"Round 7v7yn2" below) by `tests/test_script_lua_api_quest.py`, the 5
-`Player.*` real rows (`GetLv`, `GetClass` from round `gqjas5`, plus
+"Round 7v7yn2" below) by `tests/test_script_lua_api_quest.py`, the 6
+`Player.*` real rows (`GetLv`, `GetClass` from round `gqjas5`,
 `CheckItemNum`/`GetItemNum`/`CheckEquipItem` -- the inventory seam's read
-side, round `qbr5h8`, see "Round qbr5h8" below) by
-`tests/test_script_lua_api_player.py`, and the 7 `Trigger.*` real rows
-(the original 5 plus `QuestActiveProgress`/`QuestFinishProgress`, round
-`7v7yn2`, sharing `Quest.*`'s own state door) by
-`tests/test_script_lua_api_trigger.py` / `proven` (real + a GT
-ticket where a tester watched it work on screen -- none yet).  Next lane
-priority, per charter and `COO-DECISION 20260906_1846`'s system-wide
-ranking: the remaining 10 `Trigger.*` rows (`GetContactMode` needs no RE
-ticket any more -- `RE-285` closed that path negative, see "Round lvoma1"
-below; the rest need wire-frame encoders this lane does not own), then
-the rest of `Quest.*` (15 names: `CountDownTime`/reward-and-grant names
-still need a LANE-DB column or a `Player.*` grant seam this lane does not
-own yet, `GetWeekDay`/`CheckWishQuest` on undocumented enums/cross-lane
-guild state -- see "Round 7v7yn2" below), then the rest of `Player.*` (68
-names, grouped by blocker in `lua_api/player.py`'s own `STILL_STUBBED` --
-item/equipment WRITE state (the inventory seam's write side, blocked on
-`RE-280`), a stat-grant write seam, other per-character stat reads,
-skill/buff state, teleport/vehicle/camera frames, UI/cutscene frames, the
-instance-entry frame, and `MobAppear` itself).  `Instance.*` is now 9/9
-real -- no rows of that namespace remain in `STILL_STUBBED`.
+side, round `qbr5h8` -- plus `MobAppear`, a per-player visibility FLAG
+NOT a world spawn, round `x6gxzd`, COO-DECISION `20260907_0043`, see
+"Round x6gxzd" below) by `tests/test_script_lua_api_player.py`, and the 7
+`Trigger.*` real rows (the original 5 plus
+`QuestActiveProgress`/`QuestFinishProgress`, round `7v7yn2`, sharing
+`Quest.*`'s own state door) by `tests/test_script_lua_api_trigger.py` /
+`proven` (real + a GT ticket where a tester watched it work on screen --
+none yet).  Next lane priority, per charter and `COO-DECISION
+20260906_1846`'s system-wide ranking: the remaining 10 `Trigger.*` rows
+(`GetContactMode` needs no RE ticket any more -- `RE-285` closed that
+path negative, see "Round lvoma1" below; the rest need wire-frame
+encoders this lane does not own), then the rest of `Quest.*` (15 names:
+`CountDownTime`/reward-and-grant names still need a LANE-DB column or a
+`Player.*` grant seam this lane does not own yet, `GetWeekDay`/
+`CheckWishQuest` on undocumented enums/cross-lane guild state -- see
+"Round 7v7yn2" below), then the rest of `Player.*` (67 names, grouped by
+blocker in `lua_api/player.py`'s own `STILL_STUBBED` -- item/equipment
+WRITE state (the inventory seam's write side, blocked on `RE-280`), a
+stat-grant write seam, other per-character stat reads, skill/buff state,
+teleport/vehicle/camera frames, UI/cutscene frames, and the instance-entry
+frame).  `Instance.*` is now 9/9 real -- no rows of that namespace remain
+in `STILL_STUBBED`.
 
 | namespace | method | call_count | status |
 |---|---|---:|---|
@@ -349,7 +351,7 @@ real -- no rows of that namespace remain in `STILL_STUBBED`.
 | Party | CheckSoulmate | 1 | stub |
 | Party | PartySoul | 1 | stub |
 | Party | ShowMessage | 1 | stub |
-| Player | MobAppear | 3532 | stub |
+| Player | MobAppear | 3532 | real |
 | Player | AddItem | 1430 | stub |
 | Player | RemoveItem | 367 | stub |
 | Player | CheckItemNum | 211 | real |
@@ -2232,3 +2234,224 @@ exists yet for two sessions to race through either seam.
    door or an RE ticket -- low call count (1), not blocking.
 
 SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- โค้ดของ 12 ฟังก์ชันจริง (Quest.* 9 เพิ่ม, Trigger.* 2 เพิ่ม, Player.* 3 เพิ่ม) ที่หายไปสามรอบติดเพราะเกตแดงจากไฟล์ของ LANE-A (ไม่ใช่ของสายนี้) กลับมาอยู่บน PR เดียวแล้วหลัง main เขียว แต่ยังไม่ต่อกับ session ผู้เล่นจริงและยังไม่มีที่เก็บถาวรข้าม relog | pirate-force-server PR (ดูหัวข้อ "จบรอบ" ในไฟล์รอบ pf_bridge), API status 31/160 real
+
+## Round x6gxzd (2026-09-07) -- Player.MobAppear real (a per-player visibility FLAG, not a world spawn), plus a cross-lane accessor for LANE-A's future NPC filter
+
+### Why this round exists
+
+Two mailbox letters landed since round `lvoma1`'s own close, both
+`ADDRESSEE: LANE-Q`, both flowing from the same owner decision: `pf_bridge/
+notes_to_chief/20260907_0039_KA1A-PANYA-DECISION-COO-shared-world-plus-per-
+player-npc-visibility-rank-rule.md` (`PANYA-DECISION 20260907_0039`, via
+ka1-A) and `pf_bridge/notes_to_chief/20260907_0043_COO-DECISION-panya0039-
+quest-state-table-feeds-visibility-filter-LANE-Q.md` (`COO-DECISION
+20260907_0043`, the COO's own routing of that decision to this lane).
+Design, in the owner's own words: NPCs are per-player visibility FLAGS,
+monsters/loot/bosses stay one shared world (`rank 0` = flag, `rank>0` =
+shared world, decided by `n_RANK`/`n_AI_COMBAT`, no hand list). Two
+concrete asks land on this lane specifically:
+
+1. This lane's own item-1 quest-state door (`#965`, `QuestStateStore`)
+   must answer, per character: "has quest X been accepted yet / reported
+   yet" -- LANE-A's future NPC-visibility filter reads exactly that
+   against `CONSTDATA_TH__MOBS.tsv`'s `s_QUEST_BEGIN`/`s_QUEST_END`
+   columns, and the letter says add the accessor NOW, not wait for item 3.
+2. `Player.MobAppear` -- until now `STILL_STUBBED`, category "world spawn,
+   not nameable by this lane" (LANE-A's own `20260906_0727` letter) --
+   should become a stub THAT RECORDS the per-player flag (or stay a
+   documented no-op), because the owner's decision makes clear it was
+   NEVER meant to be a world spawn/despawn call in the first place: it is
+   `Player.*` (a per-player calling convention), not `Scene.*`, and ka1-A's
+   own measurement backs this from the corpus itself (1,766 `(id, true)` +
+   1,766 `(id, false)` calls, always through `Accept_Run`/`Report_Run`).
+   A third instruction accompanies this one: if any call site's `id`
+   argument is provably a `rank>0` mob (the 24 quest-tied monster rows),
+   do not decide anything -- write to COO with the id(s).
+
+### What this round built
+
+**`lua_api/player.py`: `Player.MobAppear` moves from `STILL_STUBBED` to
+`REAL_METHODS` (6/73 `Player.*` real now).** New seam,
+`PlayerMobAppearStore` (`Protocol`) / `InMemoryPlayerMobAppearStore`
+(default), the exact same shape `lua_api.quest.QuestStateStore` /
+`InMemoryQuestStateStore` already established: per-(character_id, mob_id)
+boolean flag, keyed and capped the same way, injectable via
+`build_namespace(..., store=...)` and now `ScriptHost(..., player_store=
+...)` / `load_script_file(..., player_store=...)`. `PlayerContext` gained
+one new field, `character_id: int = 0` (the only field this closure
+reads), same "0 = not a real character" sentinel `lua_api.quest.
+DEFAULT_CONTEXT` already uses. The closure itself does exactly one thing:
+coerce `(mob_id, visible)`, write through the store, log
+`LUA_PLAYER_REAL Player.MobAppear character=<n> mob_id=<n> visible=<bool>
+(per-player flag only, not a world spawn)`, return the value read back.
+It does NOT import, call, or reference `world_scene_registry`/
+`mob_ground_persistence`/`mob_death_persistence` (LANE-A's write zone) --
+confirmed by this file's own import list, unchanged (`.. inventory`,
+`..player_wire` only).
+
+**`lua_api/quest.py`: `is_quest_accepted`/`is_quest_reported`, the cross-
+lane accessor `COO-DECISION 20260907_0043` item 1 asked for.** Two plain
+functions, not new `QuestStateStore` methods and not new Lua-facing
+`Quest.*` names -- they wrap the SAME `store.get_quest_flag` the real
+`Quest.GetQuestFlag` closure already calls, compared against the SAME
+`QUEST_ACTIVE`/`QUEST_FINISH` constants this file already derived (see the
+module's own "QUEST.NONE/ACTIVE/FINISH, DERIVED NOT INVENTED" section).
+`is_quest_accepted` is `True` only while the flag equals `QUEST_ACTIVE`
+(NOT "ever accepted" -- a finished quest's flag is `QUEST_FINISH`, so this
+flips back to `False` once reported, matching `s_QUEST_BEGIN`/
+`s_QUEST_END`'s own "appear while active, vanish once reported" shape).
+LANE-A's own future filter calls these directly from Python; this lane
+does not read either `MOBS.tsv` column itself and does not decide which
+mob ids they gate -- that composition stays entirely LANE-A's item 3, per
+the decision's own "ลำดับ 1->2->3->4->5 ไม่เปลี่ยน" line.
+
+**The rank>0 question: checked, not decided, reported honestly.** Every
+one of the 3,532 `Player.MobAppear(...)` call sites in the corpus
+(`grep -rhoE "Player\.MobAppear\([^)]*\)" gamedata/lua/`, all 616 files)
+passes a table-driven `Quest.VarN` argument (`Var13`-`Var20`, 294-295
+sites each) -- ZERO literal mob-template-id calls. Which real `n_ID` (and
+therefore which `n_RANK`) any given call names lives in each quest's own
+`QUESTDATA_*.tsv` row (`n_VARI_13`..`n_VARI_20`-shaped columns, per the
+protocol map's own "Quest.Var1..Var20 come from game tables" rule), not
+mined this round -- so this round genuinely cannot say yes or no to "does
+any call site collide with a rank>0 mob id" from the script text alone.
+Reported plainly (see the module docstring's own "WHAT THIS ROUND
+DELIBERATELY DOES NOT DO" section, point 3) rather than guessed either
+way; NOT escalated to COO as a conflict, because no conflicting evidence
+was actually found -- an open measurement gap is a different thing from
+the "found a rank>0 collision, don't know what to do" case the letter
+asks to escalate.
+
+**Checked, found already fixed: the bad-VALUE logging item carried
+forward twice.** Round `lvoma1`'s own "รอบหน้าทำอะไร" repeated "add a
+bad-VALUE log line to the 9 closures pf-adversary named in round
+`7v7yn2`" as still-open. Re-read `lua_api/quest.py`'s own `_log_bad_value`
+docstring and its five call sites (`SetFlag`/`SetQuestFlag`/
+`MobKillCount`/`CheckMobKillCount`/`GetMobKillCount`) plus `GetQuestFlag`'s
+own equivalent (`_log_flag` with a `quest_id=-1` sentinel, which that
+function's own docstring explicitly calls out as already covering this
+case) -- all 9 of round `7v7yn2`'s real closures that can receive a
+right-arity, wrong-VALUE argument already log one. `GetFlag`/
+`CanReportDailyQuest`/`ReportDailyQuest` take no arguments, so there is no
+value to validate. This item was done in round `7v7yn2` itself; the
+carry-forward note in two round files since was stale bookkeeping, not a
+real gap. `lua_api/player.py` gained its OWN `_log_bad_value` this round
+(`MobAppear` is the first `Player.*` real closure with a right-arity,
+wrong-type failure mode), which is new work, not the carried-forward item.
+
+### What this round does NOT do, said plainly
+
+Does not implement `PANYA-DECISION 20260907_0039`'s own visibility filter
+(point 2, "ส่งตัวละครนี้ให้คนนี้ไหม") -- that composition (three-way OR
+across quest-state / `n_MOB_APPEAR` / the new flag store) stays LANE-A's
+item 3, after P-2, unbuilt here on purpose. Does not wire `MobAppear` (or
+`is_quest_accepted`/`is_quest_reported`) into any live network dispatch --
+no `ScriptHost` run is bound to a real player session yet, same gap every
+prior real-method round in this file has named. Does not touch
+`world_scene_registry`/`mob_ground_persistence`/`mob_death_persistence`,
+`runtime.py`, `app.py`, or `store.py`.
+
+### Tests + gates
+
+New tests: `tests/test_script_lua_api_player.py` (`MobAppear` --
+namespace-contract tests: sets/clears the flag, per-character isolation
+across two injected stores, wrong arity, wrong value type incl. a plain
+int rejected same as `_coerce_int`'s own bool-vs-int posture, a broken
+injected store raises rather than degrading since a store is a
+collaborator not untrusted script input, one Lua-integration test
+reproducing `q_kill5.lua`'s own `Delete_Run` call shape).
+`tests/test_script_lua_api_quest.py` (`is_quest_accepted`/
+`is_quest_reported` -- never-set/active/finished/none states, plus
+per-character and per-quest isolation). Updated:
+`tests/test_script_host_spike.py` (`q_kill5` fixture's own lifecycle test:
+`Player.MobAppear` moves out of the stub-call assertion into a new
+real-call assertion, 4 unconditional `Delete_Run` calls measured, not
+guessed -- the other 12 call sites in this fixture sit behind `if
+(Quest.VarN > 0)` and never fire under `STUB_DEFAULT=0`; renamed
+`test_the_5_real_player_names_are_excluded_above_not_forgotten` ->
+`test_the_6_..`). `tests/test_script_lua_corpus.py`:
+`BASELINE_TOTAL_STUB_CALLS` RE-MEASURED against the real 616-file corpus
+with `lupa` installed: 3716 -> 2620, EXACTLY (`report.real_call_counts`:
+`Player.MobAppear` fires 1096 times under the fixed clock) -- no
+branch-shift this time, unlike every prior real-method landing this file
+documents, because `MobAppear` is a pure side-effecting call inside
+branches other stub reads already gate, never itself a condition another
+call sits behind.
+
+`PYTHONPATH=src:tests python3 -m pytest tests/test_script_lua_api_player.py
+tests/test_script_lua_api_quest.py tests/test_script_lua_api_trigger.py
+tests/test_script_lua_api_instance.py tests/test_script_host_spike.py
+tests/test_script_lua_corpus.py tests/test_npc_interaction_wire.py -q`:
+225 passed, 335 subtests passed, 0 failed.
+`tests/test_pytest_precondition_census.py` (the AST census over every
+`docs/PYTEST_SKIP_PINS.json` pin, re-run after updating the two entries
+this round's renames/additions touch --
+`tests/test_script_host_spike.py`'s `lupa_package` pin, name only, count
+unchanged at 25; `tests/test_script_lua_api_player.py`'s own `lupa_package`
+pin, 6 -> 7): 69 passed, 1135 subtests passed.
+`python3 tools_bridge/pf_gate_preflight.py --repo ../pirate-force-server`:
+PREFLIGHT PASS.
+
+### ADVERSARY
+
+`ADVERSARY_UNAVAILABLE` -- this session's tool surface carries no `Task`/
+`Agent`-shaped subagent launcher and no `pf-adversary` tool (checked via
+`ToolSearch`, both a broad query and a direct `select:pf-adversary,Agent,
+Task` query, zero hits). Per house rule, did the self-review by hand
+instead: read every hunk in `git diff --cached` before each commit: (a)
+`MobAppear`'s closure rejects a plain Lua/Python int (`0`/`1`) as the
+visibility argument, not just non-bool garbage -- a script accidentally
+passing `1` instead of `true` gets `STUB_DEFAULT` and a `LUA_PLAYER_BAD_
+VALUE` line, not a silently-wrong "visible" write (a mutation test
+confirmed: removing the `isinstance(visible, bool)` check makes
+`test_mob_appear_bad_argument_type_refuses_rather_than_guesses` fail
+exactly as expected); (b) the injected-store-vs-context isolation tests
+mutate one namespace and assert the OTHER instance is untouched, not just
+that both started empty (same shape `OneScriptHostSharesOneQuestStateStore
+Tests` already established for the opposite claim -- shared, not
+isolated); (c) `PlayerMobAppearStore.set_mob_appear_flag`'s cap-refusal
+branches (`_MOB_APPEAR_CHARACTERS_CAP`/`_MOB_APPEAR_MOBS_PER_CHARACTER_
+CAP`) mirror `InMemoryQuestStateStore`'s own tested shape, and a
+non-positive cap raises `ValueError` in `__init__`, matching every sibling
+store's own contract; (d) `is_quest_accepted`/`is_quest_reported` take the
+store as an explicit argument rather than reading a module-global, so two
+different tests using two different stores cannot leak into each other
+(exercised directly by
+`test_per_character_and_per_quest_isolation`). Next round of this lane:
+try `pf-adversary` again as the FIRST action, per house rule for a session
+that found the tool missing.
+
+### TWO_SESSIONS_SAME_SCENE
+
+Not applicable, on the same grounds every prior round in this file gives:
+`PlayerMobAppearStore` is keyed by `character_id`, never by scene string,
+and (like `QuestStateStore`) is explicitly a PER-PLAYER bucket by design
+here, not a world-shared one -- two different `ScriptHost` runs still get
+two different default stores unless a future caller explicitly shares one
+object into both (no code does that today). This round's own design
+citation (`PANYA-DECISION 20260907_0039` point 3) makes the "per-player,
+not world" property a deliberate REQUIREMENT this round satisfies, not
+merely an accident that happens not to collide.
+
+### รอบหน้าทำอะไร
+
+1. `store.py`'s quest-state door (`pirate-force-server#954`) -- still
+   worth a status check with COO/chief if still unmerged.
+2. `RE-285`'s own two not-RE leads (grep the corpus for other `Trigger.*`
+   literal-argument calls; check the `.tgr` table `RE-273` opened) --
+   neither chased this round either.
+3. Inventory seam write side (`AddItem`/`RewardItemSelect`/`AddAndEquip`)
+   still blocked on `RE-280`.
+4. `CheckWishQuest` (Quest namespace) still needs LANE-GUILD's own state
+   door or an RE ticket -- low call count (1), not blocking.
+5. LANE-A's own item 3 (the actual NPC-visibility filter reading
+   `is_quest_accepted`/`is_quest_reported` against `s_QUEST_BEGIN`/
+   `s_QUEST_END`) is LANE-A's to build, after P-2 -- watch for a letter
+   back if the two functions' own shape needs to change once a real
+   caller exists.
+6. If a future round DOES find a literal, provably `rank>0` mob id
+   reaching `Player.MobAppear`, write to COO with the id per
+   `PANYA-DECISION 20260907_0039` point 3 -- not decided here because none
+   was found, not because the check was skipped.
+
+SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- Player.MobAppear (1,766+1,766 จุดเรียกในสคริปต์เควสจริง) กับ accessor สถานะเควสสำหรับฟิลเตอร์การมองเห็น NPC ของ LANE-A ทำงานจริงแล้วฝั่งเซิร์ฟเวอร์ (เก็บ/อ่านธงต่อผู้เล่นได้ ไม่ใช่แค่ log stub) แต่ยังไม่มี dispatch จริงต่อกับ session ผู้เล่น ยังไม่มีที่เก็บถาวรข้าม relog และ LANE-A ยังไม่ได้ต่อฟิลเตอร์เข้ากับมัน | pirate-force-server PR (ดูหัวข้อ "จบรอบ" ในไฟล์รอบ pf_bridge), API status 32/160 real
