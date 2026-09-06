@@ -96,8 +96,19 @@ THE SEAM, NAMED HONESTLY (for chief, one round out)
                      payload=bytes(parsed.nested_payload))
     return []
 
-regardless of what any subscribed hook does, because ``fire()`` is
-report-only by construction.  The GM_RUN_GM_COMMAND_VITAL_ID branch right
+and no subscribed hook can change WHAT that branch returns, because
+``fire()`` is report-only by construction: it has no return value to read
+and it swallows a failing hook.  One narrow exception, named here rather
+than glossed over (pf-adversary finding 2 against
+``pirate-force-server#951``): ``fire()`` catches ``Exception``, not
+``BaseException`` (``lane_hooks/__init__.py``, the three ``except
+Exception`` arms in and around ``fire()``), so a hook raising
+``SystemExit``/``KeyboardInterrupt`` propagates out and the ``return []``
+below it never runs at all.  That is inherited ``fire()`` behaviour shared
+by every hook point in this package, not something this module ships --
+this module subscribes to nothing and is imported by nothing outside its
+own test -- but "always returns []" is the wrong words for it, so they are
+not used.  The GM_RUN_GM_COMMAND_VITAL_ID branch right
 above it has the identical shape (also always ``return []``) -- it is NOT
 the contrast case.  The real contrast is ``FOUNDATION_CREATE`` a little
 further up, which builds its return list from a DIRECT call
@@ -131,6 +142,7 @@ IS the whole change, not a new dispatch shape").
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import NamedTuple
 
 from .lane_hooks.lane_a_island_trigger_log import M2_OBSERVED_ISLAND_TRIGGER_IDS
@@ -150,6 +162,19 @@ CANDIDATE_TRIGGER_IDS: tuple[int, ...] = tuple(
 # candidate registered yet".
 TRIGGER_ID_REFUSED_NOT_AN_INT = "TRIGGER_ID_REFUSED_NOT_AN_INT"
 TRIGGER_ID_REFUSED_NOT_M2 = "TRIGGER_ID_REFUSED_NOT_M2"
+
+# Named refusal for the TEST-ONLY `registry=` parameter of the two lookups
+# below.  It is deliberately LOUD (a raise), not fail-closed like the wire
+# input above, and the two postures are not in tension: `wire_trigger_id`
+# arrives from the network, so an unexpected value there is a fact about the
+# world and must never crash a session; `registry` can only ever be handed in
+# by a test in this repo, so an unexpected value there is a fact about the
+# TEST, and swallowing it would hide the bug behind a plausible `None`.
+# Raising here is what makes `candidate_for_trigger_id`'s "never raises on
+# wire input" claim checkable instead of merely asserted -- pf-adversary's
+# finding 1 against `pirate-force-server#951` was that the old docstring said
+# "Never raises" full stop while `registry=[]` raised a bare AttributeError.
+REGISTRY_REFUSED_NOT_A_MAPPING = "REGISTRY_REFUSED_NOT_A_MAPPING"
 
 
 class CandidateFrame(NamedTuple):
@@ -204,6 +229,23 @@ def is_candidate_trigger_id(wire_trigger_id: object) -> bool:
     return trigger_id_guard_reason(wire_trigger_id) is None
 
 
+def _table_for(
+    registry: "dict[int, CandidateFrame | None] | None",
+) -> "Mapping[int, CandidateFrame | None]":
+    """This module's own ``_CANDIDATES`` when ``registry`` is ``None``, else
+    ``registry`` itself -- after checking it really is a mapping.
+
+    Raises ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)`` otherwise, so a test
+    that hands in a list or a string fails at the call with a named reason
+    instead of deeper in with a bare ``AttributeError`` from ``.get``.
+    """
+    if registry is None:
+        return _CANDIDATES
+    if not isinstance(registry, Mapping):
+        raise TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)
+    return registry
+
+
 def candidate_for_trigger_id(
     wire_trigger_id: int,
     registry: "dict[int, CandidateFrame | None] | None" = None,
@@ -219,11 +261,20 @@ def candidate_for_trigger_id(
 
     ``registry`` defaults to this module's own ``_CANDIDATES`` and exists
     only so a test can pass a synthetic mapping without mutating production
-    state -- never set from calling code outside a test.  Never raises.
+    state -- never set from calling code outside a test.
+
+    Never raises on ``wire_trigger_id``: EVERY value of it, of every type,
+    is answered with ``None`` rather than an exception, because that
+    argument comes off the wire.  A ``registry`` that is not a mapping
+    raises ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)`` on purpose -- see
+    that constant for why the two arguments get opposite postures.  No
+    production call site passes ``registry`` at all (repo-wide grep for
+    ``registry=`` against this module: tests only), so no wire input can
+    reach that raise.
     """
     if trigger_id_guard_reason(wire_trigger_id) is not None:
         return None
-    table = _CANDIDATES if registry is None else registry
+    table = _table_for(registry)
     return table.get(wire_trigger_id)
 
 
@@ -231,6 +282,9 @@ def registered_count(
     registry: "dict[int, CandidateFrame | None] | None" = None,
 ) -> int:
     """How many of ``CANDIDATE_TRIGGER_IDS`` currently have a real candidate.
-    0 today, for both ids -- the whole point of this round's deliverable."""
-    table = _CANDIDATES if registry is None else registry
+    0 today, for both ids -- the whole point of this round's deliverable.
+
+    ``registry`` is the same test-only parameter, with the same named raise
+    on a non-mapping, as ``candidate_for_trigger_id``."""
+    table = _table_for(registry)
     return sum(1 for trigger_id in CANDIDATE_TRIGGER_IDS if table.get(trigger_id) is not None)

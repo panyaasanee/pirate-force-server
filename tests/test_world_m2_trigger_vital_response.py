@@ -133,5 +133,57 @@ class NonM2TriggerIdGuardTests(unittest.TestCase):
         self.assertFalse(trigger_response.is_candidate_trigger_id("2"))
 
 
+class TheTwoArgumentsGetOppositePosturesTests(unittest.TestCase):
+    """`wire_trigger_id` comes off the network and is answered, never
+    raised on; `registry` can only come from a test in this repo and is
+    refused LOUDLY, by name.
+
+    pf-adversary's finding 1 against `pirate-force-server#951` was that the
+    docstring promised "Never raises" while `registry=[]` raised a bare
+    `AttributeError` from `.get`. These tests pin both halves of the fixed
+    promise so the docstring cannot drift back into being false.
+    """
+
+    def test_no_wire_trigger_id_of_any_type_raises(self):
+        # The whole point of the fail-closed guard: a session must never die
+        # on a surprising trigger id, whatever the client put on the wire.
+        for hostile in (
+            -1, 0, 1, 7, 153, 154, 2 ** 62, True, False, 2.0, "2", b"\x02",
+            None, [], {}, object(),
+        ):
+            with self.subTest(wire_trigger_id=hostile):
+                self.assertIsNone(
+                    trigger_response.candidate_for_trigger_id(hostile)
+                )
+
+    def test_a_registry_that_is_not_a_mapping_is_refused_by_name(self):
+        for not_a_mapping in ([], "x", 7, object()):
+            with self.subTest(registry=not_a_mapping):
+                with self.assertRaises(TypeError) as raised:
+                    trigger_response.candidate_for_trigger_id(
+                        2, registry=not_a_mapping
+                    )
+                self.assertEqual(
+                    str(raised.exception),
+                    trigger_response.REGISTRY_REFUSED_NOT_A_MAPPING,
+                )
+
+    def test_registered_count_refuses_the_same_way(self):
+        with self.assertRaises(TypeError) as raised:
+            trigger_response.registered_count(registry=[])
+        self.assertEqual(
+            str(raised.exception),
+            trigger_response.REGISTRY_REFUSED_NOT_A_MAPPING,
+        )
+
+    def test_a_refused_wire_id_is_answered_before_a_bad_registry_is_seen(self):
+        # Guard order matters: the wire argument is checked FIRST, so a
+        # non-M2 id is still answered None rather than being turned into a
+        # raise by a malformed test registry sitting behind it.
+        self.assertIsNone(
+            trigger_response.candidate_for_trigger_id(7, registry=[])
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
