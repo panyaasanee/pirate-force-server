@@ -1,4 +1,10 @@
-"""Inbound dispatch entry point for GM_RunGMCommandVital (0x51E9, client->server).
+"""Inbound dispatch entry points for the GM-surface vitals (client->server).
+
+TWO OPCODES SINCE ROUND `eu2g1d`: GM_RunGMCommandVital (0x51E9), wired,
+and Activity_CheatCodeVital (0x6CEC), NOT wired -- see
+`handle_activity_cheat_code_vital`.  Both run the same gate chain
+(`_authorize_and_capture`) and share one per-account rate limit and one
+per-account capture quota.  The original text, written when there was one:
 
 Every other module in this package -- ``command_wire`` (structural decode),
 ``command_capture`` (forensic sink), ``commands`` (text grammar/log) -- is a
@@ -316,7 +322,16 @@ REFUSAL_CAPTURE_QUOTA_EXCEEDED = "capture_quota_exceeded"
 
 @dataclass(frozen=True)
 class GmDispatchOutcome:
-    """Result of one ``handle_gm_run_command_vital`` call.
+    """Result of one inbound-vital call -- 0x51E9 or 0x6CEC alike.
+
+    Round `eu2g1d` added the second entry point; every sentence below that
+    names ``handle_gm_run_command_vital`` or ``capture_raw_gm_command``
+    describes ``handle_activity_cheat_code_vital`` /
+    ``capture_raw_activity_cheat_code`` identically -- they run the same
+    gate chain and the same sink.  Named here because chief reads this
+    dataclass to decide what to log at the CORE-REQUEST-GM-062 call site,
+    and must not conclude ``captured_path`` is a 0x51E9-only field
+    (pf-adversary, round `eu2g1d`, D11).
 
     ``authorized`` is False for both an account simply not on the allowlist
     and a malformed allowlist config -- ``refusal_reason`` tells the two
@@ -456,12 +471,28 @@ def handle_activity_cheat_code_vital(
     `20260906_0852_LANE-GM-TO-CHIEF-p3-button-capture-gt-body.md`) grades
     "which GMUI button sends what" by clicking every row and then reading
     `capture/gm_command_capture/`; its own stated FAIL branch is "the
-    folder is empty".  A button that sends Activity_CheatCodeVital instead
-    of GM_RunGMCommandVital produces that same empty folder today, so the
-    round would record "the client sent nothing" for a button that in fact
-    sent something this server threw away -- a false negative that costs an
-    attended booking and is unrecoverable after the fact.  This function is
-    what makes those two outcomes distinguishable.
+    folder is empty", which that letter reads as "those buttons do not send
+    0x51E9" -- NOT as "the client sent nothing", a stronger reading the
+    letter's own nonclaim refuses (pf-adversary, round `eu2g1d`, D4).  A
+    button that sends Activity_CheatCodeVital instead produces that same
+    empty folder, so the sheet cannot tell "sent nothing" from "sent
+    something this server threw away" -- a false negative that costs an
+    attended booking and is unrecoverable after the fact.
+
+    THIS FUNCTION ALONE DOES NOT CLOSE THAT (pf-adversary, round `eu2g1d`,
+    D3).  Nothing calls it: there is no `runtime.py` call site for 0x6CEC
+    and no lane_hooks point, so it is reachable from tests only.  It makes
+    the two outcomes distinguishable ONLY ONCE chief wires the call site
+    CORE-REQUEST-GM-062 asks for.  Until then the folder is as empty as it
+    was, and a round file or ticket that says otherwise is wrong.
+
+    AND IT CLOSES THE AMBIGUITY FOR ONE OPCODE, NOT FOR THE FOLDER
+    (pf-adversary, D10).  `CheatVital` (0x162E) is also client->server,
+    also has a codec, and also has no sink -- a button sending it still
+    produces the same empty folder.  The general answer is to log every
+    unrecognised inbound vital id once at the dispatch point; adding sinks
+    one at a time never reaches it.  Raised to chief rather than guessed at
+    here.
 
     SAME CONTRACT, SAME GATE, SAME BUDGET as
     ``handle_gm_run_command_vital``: ``account_name`` is the authenticated
