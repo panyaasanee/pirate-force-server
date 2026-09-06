@@ -10365,6 +10365,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             f"{type(error).__name__}"
                         )
                         response = None
+                        # pf-adversary (round lk97bl, on this very patch):
+                        # frozen_fallback_guard_declined was computed from
+                        # session state BEFORE respond() ran and never
+                        # revisited, so an unrelated bug raising here (never
+                        # reaching any of the three guards) was silently
+                        # relabelled as a guard decline whenever the session
+                        # happened to also be pre-ack or census-unresolved --
+                        # rerouting a real failure into the ONE frozen-loop
+                        # call this branch exists specifically to avoid
+                        # running for a scene that claimed the vital family
+                        # (see the comment above this block, round hd6tac).
+                        # An exception is never a guard decline: force this
+                        # False so the except path always takes the ordinary
+                        # zero-byte decline below, matching what the
+                        # `frozen_fallback_guard_declined` comment already
+                        # claimed but the code did not enforce.
+                        frozen_fallback_guard_declined = False
                 if response is not None:
                     # Console-proof-before-frame, the same discipline the
                     # census call site uses for a lane's own printed lines.

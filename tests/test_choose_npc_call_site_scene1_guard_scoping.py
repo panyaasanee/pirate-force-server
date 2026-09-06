@@ -35,6 +35,21 @@ before this round's patch reached a commit -- full suite run, not a guess.
 This file's second test pins the shape that made it visible directly,
 without relying on those two files continuing to exercise scene 1's kwargs
 as a side effect of testing scene 2/14's own features.
+
+A THIRD DEFECT, ALSO REAL AND ALSO MEASURED, WAS CAUGHT BY PF-ADVERSARY
+(round `lk97bl`, reviewing this exact patch) AFTER THE FIRST TWO TESTS
+BELOW WERE ALREADY GREEN: ``frozen_fallback_guard_declined`` was computed
+from session-global state BEFORE ``respond()`` ran and never revisited
+based on what ``respond()`` actually did, so an UNRELATED bug raising
+inside ``respond()`` (never reaching any of the three guards) was
+silently relabelled as a guard decline whenever the session happened to
+also be pre-ack or census-unresolved -- rerouting a real failure into the
+frozen loop this whole call site exists to avoid running for a claimed
+scene, instead of the safe zero-byte decline every other exception at
+this call site gets.  The third test below reproduces exactly that shape
+and would have caught it; it is the reason ``response is not None`` is
+tested for explicitly rather than trusted to correlate with "no
+exception happened".
 """
 from __future__ import annotations
 
@@ -243,6 +258,49 @@ class TheThreeGuardsFallBackWithoutLeakingToAnotherSceneTests(
             "the scene-1 guards' fallback token must never fire for a "
             "different module's decline, however the session's global "
             "attributes happen to be set",
+        )
+
+    def test_an_unrelated_exception_is_never_relabelled_as_a_guard_decline(
+        self,
+    ) -> None:
+        """pf-adversary, round `lk97bl`, on this exact patch: a bug in
+        scene 1's own respond() that has nothing to do with any of the
+        three guards (it never reaches them -- it raises immediately) must
+        not be rerouted into the frozen loop just because the session
+        happens to also be in a guard-triggering state.  Before this
+        test's fix, `frozen_fallback_guard_declined` was computed once
+        from session-global attributes and never revisited after the
+        `except Exception` handler set `response = None`, so ANY bug in a
+        production scene-1 responder, on a pre-ack or census-unresolved
+        boot, would have silently swapped `super().dispatch(parsed)` in
+        for the safe zero-byte decline every other exception at this call
+        site gets -- reintroducing, only for that one state combination,
+        exactly the "crash-prone frozen loop for a claimed scene" exposure
+        this call site's own surrounding comment (round `hd6tac`) says it
+        exists to avoid."""
+        def _buggy_respond(**_ignored):
+            raise KeyError("unrelated bug, nothing to do with any guard")
+
+        self._swap_scene1_responder(SCENE1_MODULE, _buggy_respond)
+        state = self._state("tok_unrelated_exception")
+        state.world_census_identity_resolved = False
+        actions, _console = self._dispatch(
+            state, self._choose_npc_pc(ARBITRARY_ACTOR_IDENTITY),
+        )
+        self.assertEqual(
+            actions, [],
+            "an unrelated exception must stay the ordinary zero-byte "
+            "decline, never the frozen-loop fallback",
+        )
+        self.assertIn(
+            "scene_choose_npc_responder_failed_KeyError", state.events,
+        )
+        self.assertIn("scene_choose_npc_responder_declined", state.events)
+        self.assertNotIn(
+            "scene_choose_npc_responder_declined_frozen_fallback",
+            state.events,
+            "an exception is never a guard decline, however the "
+            "session's global attributes happen to be set",
         )
 
 
