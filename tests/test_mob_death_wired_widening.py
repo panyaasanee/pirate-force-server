@@ -63,7 +63,15 @@ LETHAL = Combatant(level=1000, ability_str=100000, ability_con=0)
 # mob_death.ruling_for(mob) in its place (COO-DECISION 2026-08-29T08:48+07:00
 # item 3) -- quoted here, not re-derived, so the tests below measure this
 # exact historical literal and not a convenient stand-in.
-RUNTIME_CALL_SITE_LITERAL = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
+RUNTIME_CALL_SITE_LITERAL = (
+    # The 2026-08-27T13:50 letter's key, under the name COO-DECISION
+    # 2026-09-07T04:05+07:00 renamed it to (round b08g3z).  Still the same
+    # ruling over the same scene and the same template set -- what the tests
+    # below measure is the SHAPE of that authority (a key tied to one scene
+    # refuses every other scene's monsters), and a rename cannot change it.
+    "COO-RULING-20260907-0405 widen-death-scope-bg0001 "
+    "2026-09-07T04:05+07:00"
+)
 
 
 class RulingForTests(unittest.TestCase):
@@ -438,7 +446,8 @@ class RulingForTests(unittest.TestCase):
             "COO-DECISION widen-death-scope-916-training-iron-man "
             "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
             "section 3, supersedes COO 0954)": "202608270955",
-            "COO-RULING-20260827-1350 widen-death-scope-bg0001": "202608271350",
+            "COO-RULING-20260907-0405 widen-death-scope-bg0001 "
+            "2026-09-07T04:05+07:00": "202609070405",
             "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
             "widen-death-scope-bg0002": "202608272010",
             "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "

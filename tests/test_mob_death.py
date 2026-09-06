@@ -112,7 +112,10 @@ WIDENED_916_RULING = (
 # round that call site passes no widened= argument at all, so do not trust
 # a hardcoded line number here (see the matching note on WIDENING_RULINGS
 # in mob_death.py).
-WIDENED_BG0001_RULING = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
+WIDENED_BG0001_RULING = (
+    "COO-RULING-20260907-0405 widen-death-scope-bg0001 "
+    "2026-09-07T04:05+07:00"
+)
 # THE CONTROL MOB'S OWN RULING, and why one is needed at all now.  Until round
 # 8ftmbx the subject of these tests was bg0001 placement 30, whose identity
 # 0x201F IS mob_death.SANCTIONED_FIRST_TARGET_IDENTITY -- so it died with

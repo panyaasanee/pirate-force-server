@@ -18,7 +18,8 @@ pf-adversary) that the SERVER cannot tell a real ruling string from a
 paraphrase or a hand mistake; only a second, independently-timestamped
 artifact in the other repository can.
 
-WHY THE FROZEN LIST HAS 8 KEYS, NOT 7.  COO's own text (b1712 item 3) says
+WHY THE FROZEN LIST HAD 8 KEYS, NOT 7 (7 since round b08g3z, see the
+last bullet).  COO's own text (b1712 item 3) says
 "3 of 7 keys have their date in the middle".  Measured directly against
 ``mob_death.WIDENING_RULINGS`` as it stands at the round this gate was
 written (round bvaptp), there are 8 keys that do not match the new
@@ -36,8 +37,16 @@ trailing-date schema, not 7:
     they are still WIDENING_RULINGS keys, so this file's enumeration (every
     key, per COO's own instruction) still has to place them somewhere, and
     the only place a key with no schema match can go is the frozen list;
-  * 1 (``COO-RULING-20260827-1350 widen-death-scope-bg0001``) carries no date
-    at all.
+  * 1 (``COO-RULING-20260827-1350 widen-death-scope-bg0001``) carried no date
+    at all.  REMOVED from the tuple in round b08g3z: COO-DECISION
+    2026-09-07T04:05+07:00 issued the successor letter this lane asked for,
+    the key was renamed to
+    ``COO-RULING-20260907-0405 widen-death-scope-bg0001 2026-09-07T04:05+07:00``
+    and now passes the schema-plus-letter path below like any other key, so
+    the frozen tuple holds 7.  A REMOVAL, which is what that decision
+    permits ("withdraw is not add"); nothing was added to the tuple, and the
+    closed-tuple assertion below is what proves the removal was earned --
+    if the renamed key still failed the schema the set equality would go red.
 
 Rather than force the count to 7 by leaving one of these 8 off the frozen
 tuple by hand (which would silently narrow what this gate protects -- the
@@ -79,7 +88,6 @@ FROZEN_WIDENING_RULING_KEYS = (
     "COO-DECISION widen-death-scope-916-training-iron-man "
     "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
     "section 3, supersedes COO 0954)",
-    "COO-RULING-20260827-1350 widen-death-scope-bg0001",
     "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
     "widen-death-scope-bg0002",
     "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "

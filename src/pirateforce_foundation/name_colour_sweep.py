@@ -74,7 +74,10 @@ CANDIDATES THIS ROUND SHIPS, AND WHY EACH ONE IS SAFE TO COMPOSE.
   ``hostile_npc_attr`` already ships for the mob row; a new local splice for
   the NPC row (which has no faction bit set in its own ``BASE``, unlike the
   mob row) built from the same two frozen helpers.
-* ``actor_type`` (set 2): value 3, applied to the OUTER ``ActorEntry``, not
+* ``actor_type`` (set 2): value 5 (``CAvatarNPC``; was 3 until round b08g3z
+  -- see :data:`NPC_ATTR_BINDING_ACTOR_TYPES` for the byte-proof that 3
+  binds no ``NPCAttr`` and so shows no nameplate at all), applied to the
+  OUTER ``ActorEntry``, not
   the ``NPCAttr`` body -- ``legacy.make_remote_actor_entry``'s first
   argument, already a real, already-sent field
   (``population.NPC_STYLE_ACTOR_TYPE`` is 4).  The ``NPCAttr``/movement
@@ -165,7 +168,27 @@ MOB_SOURCE_PLACEMENT_INDEX = 103
 # uses.  All three are real rows of that 38-row table.
 FACTION_CANDIDATES = (7, 12, 999)
 
-ACTOR_TYPE_CANDIDATE = 3
+# The actor_type values whose class still binds an ``NPCAttr`` at all, so a
+# candidate outside this set produces an actor with NO nameplate rather than a
+# nameplate of a different colour -- which is the wrong experiment twice over
+# (the tester records a FAIL that is really "nothing rendered", and RE-092's
+# collection sweep exempts CMyActor, so the row survives a wipe that removes
+# every other row and reads as a PASS).  Provenance, in this repo since
+# 2026-08-18: reports/PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_
+# 20260818.md line 129 -- the NPCAttr (0x0AD5) vtable +0x38 thunk 0x4697B0
+# is-a-checks CNetNPC and silently no-ops otherwise, "so 4, 5"; line 53 names
+# 5 CAvatarNPC and line 105 places it as a CHILD of CNetNPC (4, what we emit
+# today), and lines 168/170 show both share the same +0x74/+0x78 name getters
+# off actor+0x358.  So 5 is a real flip of the envelope's class -- a
+# different factory branch, a different object -- that still has a nameplate
+# to be coloured.
+NPC_ATTR_BINDING_ACTOR_TYPES = frozenset({4, 5})
+
+# Was 3 (CMyActor) until round b08g3z.  chief's letter 2026-09-07T03:41+07:00
+# carried pf-adversary's measurement that 3 is not in the set above; the
+# report line it cites is the one quoted there, read directly, not taken on
+# trust.  5 is the only remaining flip that keeps a nameplate.
+ACTOR_TYPE_CANDIDATE = 5
 
 
 class NameColourSweepError(ValueError):
@@ -216,7 +239,14 @@ def _row_xyz(anchor: tuple[float, float, float], ordinal: int) -> tuple[float, f
     x, y, z = anchor
     # Lined up along +X, 150 units apart -- close enough to read every
     # nameboard from one spot, far enough apart that boxes do not overlap.
-    return (x + 150.0 * ordinal, y, z)
+    # The +1 is why no row stands ON the anchor: the anchor is the player's
+    # own spawn point (``_spawn_anchor`` reads V135_PLAYER_X/Y/Z), so an
+    # ordinal-0 row would be inside the camera at the exact moment the tester
+    # is asked to read its nameplate colour -- chief's letter
+    # 2026-09-07T03:41+07:00, measured against those same frozen constants.
+    # Every row keeps its relative spacing; the whole line just starts one
+    # step out.
+    return (x + 150.0 * (ordinal + 1), y, z)
 
 
 def _mob_prototype() -> field_mobs.FieldMob:
