@@ -267,7 +267,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (141/160 stub, 12/160 real, as of round `4fxvsq`)
+### API status table (140/160 stub, 13/160 real, as of round `0rgg6q`)
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -277,12 +277,16 @@ called first.  Status is one of `stub` (this file logs `LUA_API_STUB` and
 returns a safe default) / `real` (implemented against the actual protocol,
 backed by a test -- every `Trigger.*` real row is backed by
 `tests/test_script_lua_api_trigger.py`, every `Instance.*` real row by
-`tests/test_script_lua_api_instance.py`, round `4fxvsq`, see below) /
-`proven` (real + a GT ticket where a tester watched it work on screen --
-none yet).  Next lane priority, per charter: the remaining 12 `Trigger.*`
-rows and 2 `Instance.*` rows (each named, one seam apiece, in
-`STILL_STUBBED`), then `Quest.*` (queue item 3, still blocked on the guard
-exemption named in round `4fxvsq` below).
+`tests/test_script_lua_api_instance.py` (round `4fxvsq`), the one
+`Quest.*` real row (`CheckOpenTime`) by `tests/test_script_lua_api_quest.py`
+(round `0rgg6q`, recovering the round-after-`4jsydv` commit that the guard
+exemption named below unblocked -- see "Round vqng2z" further down) / see
+below) / `proven` (real + a GT ticket where a tester watched it work on
+screen -- none yet).  Next lane priority, per charter: the remaining 12
+`Trigger.*` rows and 2 `Instance.*` rows (each named, one seam apiece, in
+`STILL_STUBBED`), then the rest of `Quest.*` (24 names still blocked on the
+LANE-DB per-character state door, `GetWeekDay` on an undocumented weekday
+enum -- both named in "Round vqng2z" below).
 
 | namespace | method | call_count | status |
 |---|---|---:|---|
@@ -416,7 +420,7 @@ exemption named in round `4fxvsq` below).
 | Quest | CountDownTime | 54 | stub |
 | Quest | GetWeekDay | 48 | stub |
 | Quest | GetMobKillCount | 20 | stub |
-| Quest | CheckOpenTime | 9 | stub |
+| Quest | CheckOpenTime | 9 | real |
 | Quest | PlayNPCVoice | 8 | stub |
 | Quest | CheckGuildOfflineQuest | 1 | stub |
 | Quest | CheckWishQuest | 1 | stub |
@@ -661,6 +665,185 @@ next round's first job. If both stay blocked, the next backup-work slot is
 `STILL_STUBBED`'s highest-call-volume name that turns out NOT to need a
 wire frame after all (re-check `GetContactMode`'s RE ticket status first;
 it is the only one of the 12 that is a pure RE gap like item 1, not a
+cross-lane wait).
+
+## Round vqng2z (2026-09-06) -- Quest.CheckOpenTime, 1/25 Quest.* real
+
+### All three named blockers, re-checked fresh, still blocked
+
+Same three checked at round start, per `AGENTS.md` SS7 house rule (grep
+before asserting "still blocked", never re-quote a stale round file):
+
+1. **Trigger-id -> script-file mapping.** No `COO-DECISION` answering round
+   `4jsydv`'s own ask (`notes_to_chief/20260906_0029_LANE-Q-ASK-COO-trigger-
+   id-to-script-file-mapping-needs-an-RE-ticket.md`) exists yet on
+   `origin/main` as of this round's start (checked every letter after it,
+   oldest to newest, through `20260906_0130`) -- still open.
+2. **LANE-DB's `Quest.*` state door.** `grep -rln "persistence_quest_state
+   \|character_quest_state" src/` -- zero hits, fresh this round.
+   `migrations/` still ends at `014_character_skills_learned_source.sql`,
+   no `015`. LANE-DB's own round `9vzzn7` (letter
+   `20260906_0108_LANE-DB-REPORT-...`) independently confirms the same
+   thing from the DB side: chief's whitelist (`COO-DECISION
+   20260905_2353`) has not landed on `main`, so the door's own code (built
+   once already, lost with the scratchpad session that built it, per house
+   rule "code that isn't on main doesn't exist") stays unbuilt until that
+   whitelist lands -- not this lane's write zone either way.
+3. **The remaining 12 `Trigger.*` names.** Unchanged: `lua_api/trigger.py`'s
+   own `STILL_STUBBED` still names a seam this lane does not own for each
+   of the 12 (a CS/A/UI wire-frame encoder, or `Quest.*` state per item 2,
+   or `GetContactMode`'s own RE ticket, item 1's exact shape one level
+   down).
+
+### What this round built instead: `Quest.CheckOpenTime`, the one `Quest.*`
+### name that needs neither the state door nor a wire frame
+
+Per `prompts/LANE-Q.md`'s own backup-work item 1 ("implement the next stub
+API that needs no other lane, highest call-site count first") and
+`COMMON_LANE_ROUND.md`'s standing backup rule, re-audited `STILL_STUBBED`
+plus every other stubbed namespace by the real call-volume ranking round
+`4jsydv`'s own `run_corpus_entry_points` produced, rather than the static
+`PF_GAMEDATA_LUA_API.tsv` call-site count alone. Every `Quest.*` name that
+reads or writes per-character progress needs the LANE-DB state door
+(blocker 2 above); every `Player.*`/`Mob.*`/`Scene.*`/etc. name with any
+real call volume needs either that same door, a wire-frame encoder this
+lane does not own, or LANE-A's world registry. Exactly one name in the
+whole 160-function surface needs none of those: `Quest.CheckOpenTime`
+(call count 9, 3 files) -- a pure question about the SERVER CLOCK, no
+per-character state, no outbound frame. Full reasoning, grepped call
+sites, and the Lua-numeral-truncation evidence for the `HH*100+MM`
+encoding: `src/pirateforce_foundation/lua_api/quest.py`'s own module
+docstring.
+
+**Deliberately NOT made real alongside it**: `Quest.GetWeekDay` (call
+count 48, the next-highest name that also touches no other lane) stays a
+stub. `QUESTDATA_TH__QUEST.tsv` proves some small-int weekday enum exists
+(`Q_WEEK3_KILL3`'s `n_VARI_9/10/11` read the constants 1/4/6 across every
+level row) but nothing in the committed artifacts says which day of the
+week `1` is or which direction the count runs -- guessing would silently
+gate weekly quest availability on the wrong day, the exact guess the
+charter forbids. Same posture `lua_api/trigger.py` already took on
+`GetContactMode`; named in `lua_api/quest.py`'s own `STILL_STUBBED`, not
+silently skipped.
+
+**What "real" means here**: no registry at all, unlike
+`lua_api.trigger.TriggerStatusRegistry` -- `CheckOpenTime` reads the
+server's own wall clock (an injectable `Clock = Callable[[], datetime]`,
+the same seam shape `build_namespace`'s `context`/`registry` params
+already use for Trigger), nothing to remember between calls. The default
+clock reads `Asia/Bangkok`, an explicit, tagged
+`[assumption of LANE-Q - pending COO confirmation]` (this project's own
+house convention for every other timestamp; nothing in the committed
+artifacts states a server timezone to confirm or refute it against).
+
+**A real finding from actually calling it against the shipped corpus**,
+not assumed from the call-site table: of the 9 real call sites, only 2
+(`Quest/q_con5.lua` and `Quest/q_arena2.lua`'s own `Accept_Check`) execute
+under today's corpus. `Quest/q_sea_join.lua`'s own `Accept_Run` gates its
+whole 7-window chain behind `if Player.CheckBuff(9903) then ... else <the
+chain> end`, and `Player.CheckBuff` is still a stub returning
+`STUB_DEFAULT` (0) -- TRUTHY in Lua, where only `nil`/`false` are falsy --
+so the stubbed condition always takes the `then` branch and the chain
+never runs today. Confirmed by printing `report.real_call_counts` directly
+(`{'Quest.CheckOpenTime': 2, ...}`), not inferred. A future round making
+`Player.CheckBuff` real can change this in either direction.
+
+`tests/test_script_lua_corpus.py`'s own `BASELINE_TOTAL_STUB_CALLS`
+(round `4jsydv`'s regression pin) moves **5057 -> 5055** in this commit
+(2 calls, not 9, moved from stub to real -- see that constant's own
+comment for the measured reasoning above), against a newly-required FIXED
+`quest_clock` (`FIXED_QUEST_CLOCK`, noon, outside every literal window the
+corpus uses) -- without it, `Quest/q_sea_join.lua`'s `or`-chain short-
+circuit would make this file's own pinned call counts depend on the real
+time of day the test suite happened to run, a flakiness class this
+project's fail-closed posture forbids.
+
+### Tests
+
+- New: `tests/test_script_lua_api_quest.py` (mirrors
+  `tests/test_script_lua_api_trigger.py`'s three-level shape: the pure
+  namespace object with no Lua dependency, a `LUPA_PACKAGE`-gated class
+  driving real Lua against an inline reproduction of `q_sea_join.lua`'s
+  own seven-window chain, and a `LUA_CORPUS_RUNNABLE`-gated class against
+  the actual shipped `q_con5.lua` file, not a copy).
+- Updated: `tests/test_script_host_spike.py` (the "every still-stubbed
+  name is reachable" probe now excludes `Quest.CheckOpenTime` the same way
+  it already excluded the 5 real `Trigger.*` names, plus a new regression
+  guard pinning `lua_api.quest.REAL_METHODS`) and
+  `tests/test_script_lua_corpus.py` (fixed clock, updated baseline, see
+  above).
+- `PYTHONPATH=src:tests PYTHONDONTWRITEBYTECODE=1 python3 -B -m pytest
+  tests/test_script_lua_api_trigger.py tests/test_script_host_spike.py
+  tests/test_script_lua_api_spec.py tests/test_script_lua_api_quest.py
+  tests/test_script_lua_corpus.py -q` = **89 passed, 244 subtests passed**
+  (lupa 2.8 installed, bridge corpus present).
+- `docs/PYTEST_SKIP_PINS.json`: `lupa_package`/`tests/test_script_host_
+  spike.py` 19 -> 20 (one new regression guard); two new entries for
+  `tests/test_script_lua_api_quest.py` (`lupa_package` count 2,
+  `lua_corpus_runnable` count 1) -- all three RE-MEASURED (`pip uninstall
+  -y lupa` then `pytest -rs`, counted from the `SKIPPED` summary lines),
+  not guessed: 5/20/2/1/9 skips respectively under each key/module pair
+  with lupa absent, 0 with it reinstalled.
+- `python3 tools/pf_pytest_precondition_census.py --run` = **RESULT:
+  PASS** (see round file for the sha this was checked against).
+
+### ADVERSARY
+
+`ADVERSARY_PENDING` or the result itself: see the `pf_bridge` round file
+(`rounds/Q_20260906_0148_vqng2z_quest-check-open-time-1-of-25-real.md`)
+for whichever landed before this commit's push, per `AGENTS.md` SS7's
+own timing rule (ordered at round start, not before commit).
+
+### `TWO_SESSIONS_SAME_SCENE:`
+
+N/A -- `Quest.CheckOpenTime` touches no shared world state at all (no
+registry, not even a private one): it reads a clock and returns a bool.
+Nothing here reads or writes `world_scene_registry` or any process
+singleton.
+
+### nonclaims
+
+1. Does not close any of the three queue items the charter itself tracks
+   (Trigger.*/Quest.* full lifecycle/the remaining stubs) -- all three
+   stay blocked outside this lane's write zone, re-confirmed fresh this
+   round, not re-quoted from a stale file.
+2. Does not make any change a player can see on screen: `CheckOpenTime` is
+   called today only from `Accept_Check`/`Accept_Run`, which nothing in
+   this server's own dispatch path calls yet (no live quest-accept flow
+   exists) -- this is coverage over the sandbox's own regression harness,
+   the same posture round `4jsydv`'s own work had.
+3. Does not verify `Asia/Bangkok` against the real client or a table --
+   tagged as an assumption pending COO confirmation, per house rule.
+4. Does not implement `Quest.GetWeekDay` despite its higher call count --
+   RE ambiguity, named above and in `STILL_STUBBED`, not silently skipped.
+5. Does not touch `runtime.py`/`app.py`/`store.py` or any other lane's
+   write zone. No new CORE-REQUEST.
+6. `BASELINE_TOTAL_STUB_CALLS`'s new value (5055) reflects today's OTHER
+   stub coverage (`Player.CheckBuff` still stub) as much as it reflects
+   this round's own change -- a future round making `Player.CheckBuff`
+   real can move this number again in either direction, not necessarily
+   downward.
+
+### Next round
+
+1. **Whichever of the three named blockers clears first is the next
+   round's first job** (same as round `4jsydv`'s own instruction) -- check
+   fresh, do not re-quote this file.
+2. If all three stay blocked: audit the remaining stub surface (72
+   `Player.*` + the rest of `Quest.*`/`Mob.*`/etc.) by real call-volume
+   (`run_corpus_entry_points`'s own ranking) for anything else that,
+   like `CheckOpenTime`, turns out to need neither the state door nor a
+   wire frame -- `Quest.GetWeekDay` is the next-highest such candidate but
+   is RE-blocked (see above); nothing else in `Quest.*` qualifies (every
+   remaining name needs the state door). Worth checking `Guild.*`/
+   `Party.*`/`Instance.*`'s own low-call-count names for a similar
+   pure-function candidate this lane has not audited yet.
+3. Follow-up named but not built this round: `Quest.GetWeekDay`'s RE
+   ticket (weekday enum semantics) could be folded into the same ask as
+   `GetContactMode`'s, if COO judges one RE runner slot can cover both --
+   not decided this round, flagged here for COO to rule on rather than
+   this lane opening a second RE ask on top of round `4jsydv`'s already-
+   pending one.
 cross-lane wire-frame wait).
 
 ## Round 4fxvsq (2026-09-06) -- Instance.* status machine, 7/9 real
