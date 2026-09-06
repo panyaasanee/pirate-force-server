@@ -64,9 +64,17 @@ caught it before this landed on `main`.
 ## Headline (regenerate; do not hand-edit these numbers)
 
 ```
-n/327 known (SOURCE) = 160/327
-  NAME-ONLY = 158  UNTOUCHED = 9
+n/327 known (SOURCE) = 161/327
+  NAME-ONLY = 159  UNTOUCHED = 7
 ```
+
+## Movement log (one line per round that moves the headline)
+
+| round | change | cause |
+| --- | --- | --- |
+| `2032` job 2 (first emit) | -- | baseline 160/327 |
+| `fvp9ke` 2026-09-07 | SOURCE 160 -> **161** | `ShowMessageVital` (`0x36D2`) crossed into `SOURCE` when LANE-Q's message wire landed on `main` (`src/pirateforce_foundation/lua_api/message.py:44`). Not this lane's code -- the number is the whole project's, as the COO-DECISION above says. It was found because the pinned test was RED on `main` at the start of this round: the pin working, not the pin being wrong. |
+| `fvp9ke` 2026-09-07 (second move, same round) | UNTOUCHED 9 -> **7**, NAME-ONLY 158 -> **159** | `GuildStorageOpenVital` (`0x5CAD`) and `GuildStorageResultVital` (`0x70D0`) crossed UNTOUCHED -> NAME-ONLY because this round's own `docs/UI_LANE.md` Stall row NAMES them, and that doc is one of the four NAME-ONLY sources this tool reads. 🔴 **Read this as a warning, not as progress**: writing a vital's name into a planning document moves this number without a single byte of code being written, and the two rows in question have zero server-side handler (`grep -rn "GuildStorage" src/pirateforce_foundation/` = 0 hits, measured the same round). A future round that wants the headline to go up must move rows into `SOURCE`, which needs real code; anyone can move rows into `NAME-ONLY` by typing. |
 
 ## By family
 
@@ -86,7 +94,7 @@ Every UI PR from this round onward carries a permanent scoreboard row,
 per the COO-DECISION above:
 
 ```
-wire-names known n/327: 160/327
+wire-names known n/327: 161/327
 ```
 
 K folds this into `SCOREBOARD_FACTS.tsv`. This is not a milestone flag and
@@ -96,7 +104,7 @@ removed) as every lane's normal work lands.
 
 ## Non-claims
 
-1. This page does not claim any of the 160 `SOURCE` names are WIRED in the
+1. This page does not claim any of the 161 `SOURCE` names are WIRED in the
    `AGENTS.md` section 7 sense -- see "What this number is, and what it is
    not" above.
 2. `NAME-ONLY` does not mean "known wire shape" for every row in that tier --
