@@ -64,8 +64,8 @@ caught it before this landed on `main`.
 ## Headline (regenerate; do not hand-edit these numbers)
 
 ```
-n/327 known (SOURCE) = 160/327
-  NAME-ONLY = 160  UNTOUCHED = 7
+n/327 known (SOURCE) = 30/327
+  NAME-ONLY = 286  UNTOUCHED = 11
 ```
 
 ## Movement log (one line per round that moves the headline)
@@ -76,6 +76,7 @@ n/327 known (SOURCE) = 160/327
 | `fvp9ke` 2026-09-07 | SOURCE 160 -> **161** | `ShowMessageVital` (`0x36D2`) crossed into `SOURCE` when LANE-Q's message wire landed on `main` (`src/pirateforce_foundation/lua_api/message.py:44`). Not this lane's code -- the number is the whole project's, as the COO-DECISION above says. It was found because the pinned test was RED on `main` at the start of this round: the pin working, not the pin being wrong. |
 | `fvp9ke` 2026-09-07 (second move, same round) | UNTOUCHED 9 -> **7**, NAME-ONLY 158 -> **159** | `GuildStorageOpenVital` (`0x5CAD`) and `GuildStorageResultVital` (`0x70D0`) crossed UNTOUCHED -> NAME-ONLY because this round's own `docs/UI_LANE.md` Stall row NAMES them, and that doc is one of the four NAME-ONLY sources this tool reads. 🔴 **Read this as a warning, not as progress**: writing a vital's name into a planning document moves this number without a single byte of code being written, and the two rows in question have zero server-side handler (`grep -rn "GuildStorage" src/pirateforce_foundation/` = 0 hits, measured the same round). A future round that wants the headline to go up must move rows into `SOURCE`, which needs real code; anyone can move rows into `NAME-ONLY` by typing. |
 | `mg3nr4` 2026-09-07 | SOURCE 161 -> **160**, NAME-ONLY 159 -> **160** | `ShowMessageVital` (`0x36D2`) crossed back `SOURCE` -> `NAME-ONLY` because LANE-Q moved that identifier into a FULL-LINE COMMENT in `src/pirateforce_foundation/lua_api/message.py` (line 122 on `main`), and this tool deliberately does not count full-line comments. 🔴 **Nobody's code regressed.** The row above and this one are the same phenomenon in opposite directions: this headline moves on edits to comments and to planning documents, with no change in what the server can do. `#987` pinned 161 from a tree derived BEFORE LANE-Q's `#988` landed, so `main` carried a red pin plus `CENSUS DRIFT` between `#987` merging and this commit -- the reason COO-DECISION `20260907_0546` made fixing the pin this round's first job. |
+| `mg3nr4` 2026-09-07 (second move, same round) | SOURCE 160 -> **30**, NAME-ONLY 160 -> **286**, UNTOUCHED 7 -> **11** | The tool stopped counting a name that appears only inside a DOCSTRING (COO-DECISION `20260907_0546` on LANE-Q's `0454` alert; AST-based, mutant-tested). 🔴 **Read this number, then read this cause. Nothing was deleted and no lane regressed.** 130 rows moved, and 126 of them are the same shape: a `ui_*_wire.py` module spells the full wire name ONLY in its docstring frame table (`Pets_SummonPetVital 0x4CEC 5 fields`) while the code beneath names the class `SummonPetFields`. So the old 160 was counting documentation, not code -- which is exactly the failure LANE-Q reported: writing the honest sentence "this module does NOT build XxxVital" used to push the bar UP. The 30 rows that survive are the ones an identifier is genuinely spelled for in code (`runtime.py`'s dispatch table, the `gm/` catalogs, the hypothesis modules). Whether a module that implements a frame under a shortened class name SHOULD count is a real question and is not settled here -- it is asked of COO in `pf_bridge/notes_to_chief/20260907_0624_LANE-UI-ASK-COO-docstring-rule-drops-n327-from-160-to-30.md`. Until COO rules, this page reports what the mechanical rule measures. |
 
 ## By family
 
@@ -95,7 +96,7 @@ Every UI PR from this round onward carries a permanent scoreboard row,
 per the COO-DECISION above:
 
 ```
-wire-names known n/327: 160/327
+wire-names known n/327: 30/327
 ```
 
 K folds this into `SCOREBOARD_FACTS.tsv`. This is not a milestone flag and
@@ -105,7 +106,7 @@ removed) as every lane's normal work lands.
 
 ## Non-claims
 
-1. This page does not claim any of the 160 `SOURCE` names are WIRED in the
+1. This page does not claim any of the 30 `SOURCE` names are WIRED in the
    `AGENTS.md` section 7 sense -- see "What this number is, and what it is
    not" above.
 2. `NAME-ONLY` does not mean "known wire shape" for every row in that tier --
@@ -115,17 +116,18 @@ removed) as every lane's normal work lands.
    ticket for a specific name.
 3. `UNTOUCHED` does not mean "unbuildable" -- it means nobody has referenced
    the identifier in code or in one of the four function-map files yet;
-   some of the 7 may already be answerable from `PF_SERIALIZER_FIELDS.tsv`
+   some of the 11 may already be answerable from `PF_SERIALIZER_FIELDS.tsv`
    under a different literal (e.g. a `_JP` regional twin) that this
    exact-identifier match does not fold together on purpose (folding them
    would hide real per-id gaps).
-4. `SOURCE` skips full-line comments (so a name used only as this
-   codebase's own generic prose, like a comment reusing `VitalData` as a
-   memory-layout term, no longer counts on that alone) but does NOT strip
-   trailing inline comments or docstring bodies -- a name mentioned only in
+4. `SOURCE` skips full-line comments AND docstring bodies (round `mg3nr4`,
+   AST-based; see the movement log). It still does NOT strip a trailing
+   inline comment -- a name mentioned only in
    `some_code = 1  # also called FooVital elsewhere` still counts as
-   `SOURCE` on that line. This is a known, disclosed gap in the mechanical
-   method, not a claim that every `SOURCE` row is a real reference.
+   `SOURCE` on that line, because the line does carry code and this tool
+   does not tokenize sub-line spans. That remains a known, disclosed gap in
+   the mechanical method, not a claim that every `SOURCE` row is a real
+   reference.
 5. This is not a substitute for the per-function status table in
    `docs/UI_LANE.md` ("layout known / needs RE / needs capture / done") --
    that table tracks UI's own pickup order; this page tracks the whole

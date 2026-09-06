@@ -87,10 +87,19 @@ from pf_preconditions import UI_WIRE_CENSUS_INPUTS  # noqa: E402
 # landed, so main carried a red pin + `CENSUS DRIFT` from the moment `#987`
 # merged until this commit (COO-DECISION `20260907_0546` item 5: if it merged
 # already, fixing the pin is the next round's first job -- this is it).
+#
+# Re-pinned a SECOND time in round `mg3nr4` to 30/286/11, in the same commit
+# as the change that caused it: the tool stopped counting a name that appears
+# only inside a docstring (COO-DECISION `20260907_0546`). 130 rows moved,
+# 126 of them `ui_*_wire.py` modules that spell the wire name in their
+# docstring frame table and name the class something shorter in the code.
+# The drop is a measurement fix, not a regression -- full reasoning in
+# docs/UI_WIRE_COVERAGE.md's movement log, open question to COO in
+# `pf_bridge/notes_to_chief/20260907_0624_LANE-UI-ASK-COO-docstring-rule-drops-n327-from-160-to-30.md`.
 EXPECT_TOTAL = 327
-EXPECT_SOURCE = 160
-EXPECT_NAME_ONLY = 160
-EXPECT_UNTOUCHED = 7
+EXPECT_SOURCE = 30
+EXPECT_NAME_ONLY = 286
+EXPECT_UNTOUCHED = 11
 
 
 @UI_WIRE_CENSUS_INPUTS.skip_unless_present()
@@ -520,6 +529,103 @@ class CoverageDocMatchesCommittedArtifactTests(unittest.TestCase):
     def test_artifact_row_count_is_the_whole_catalog(self):
         total, _ = self._counts()
         self.assertEqual(total, EXPECT_TOTAL)
+
+
+class DocstringNamesAreNotSourceTests(unittest.TestCase):
+    """A vital name that appears ONLY inside a docstring is prose, not a
+    reference -- COO-DECISION `pf_bridge/notes_to_chief/
+    20260907_0546_COO-DECISION-q0454-census-tool-skips-docstrings-LANE-UI.md`,
+    on LANE-Q's `0454` alert.
+
+    Why this matters more than a rounding error: before this rule, a lane
+    writing the HONEST note "this module does not build ``XxxVital``" pushed
+    n/327 UP by one with nothing wired. The metric moved in the opposite
+    direction from the thing it measures, and an inflated value reads as
+    progress on the encyclopedia page.
+
+    Unguarded on purpose: these drive ``_build_source_hits`` and
+    ``docstring_line_numbers`` over a synthetic tree in a temp directory, so
+    they need no `pf_bridge` sibling and therefore actually run on
+    `gate-windows`, the only CI that runs pytest here."""
+
+    NAME = "Community_ProbeOnlyVital"
+
+    def _hits(self, source):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pkg = root / "src" / "pirateforce_foundation"
+            pkg.mkdir(parents=True)
+            module = pkg / "ui_probe_wire.py"
+            module.write_text(source, encoding="utf-8")
+            with mock.patch.object(census, "ROOT", root):
+                return census._build_source_hits({self.NAME}, [module])
+
+    def test_name_only_in_a_module_docstring_is_not_a_source_hit(self):
+        hits = self._hits(f'"""Table of frames:\n\n    {self.NAME}  0x0001\n"""\n\nX = 1\n')
+        self.assertEqual(
+            hits,
+            {},
+            "a wire name that exists only in the module docstring must not "
+            "count as SOURCE; this is the exact shape of every ui_*_wire.py "
+            "docstring frame table",
+        )
+
+    def test_name_only_in_a_function_or_class_docstring_is_not_a_source_hit(self):
+        self.assertEqual(
+            self._hits(f'class Fields:\n    """See {self.NAME} rows."""\n\n    n = 1\n'),
+            {},
+        )
+        self.assertEqual(
+            self._hits(f'def build():\n    """Encodes {self.NAME}."""\n    return 1\n'),
+            {},
+        )
+
+    def test_the_same_name_in_real_code_is_still_a_source_hit(self):
+        # The other half of the mutant: the rule must remove docstring prose
+        # WITHOUT removing genuine references, or it would zero the census.
+        hits = self._hits(f'"""Doc."""\n\nWIRE_NAME = "{self.NAME}"\n')
+        self.assertEqual(
+            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:3"
+        )
+
+    def test_a_string_that_is_not_a_docstring_is_still_code(self):
+        # A bare string expression that is NOT the first statement of its
+        # body is not a docstring by Python's own definition, and a string
+        # bound to a name never was. Over-excluding either would silently
+        # drop real references.
+        hits = self._hits(f'X = 1\n"{self.NAME}"\n')
+        self.assertEqual(
+            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:2"
+        )
+
+    def test_a_reference_after_a_multi_line_docstring_keeps_its_own_line_number(self):
+        # Off-by-one guard: the exclusion covers lineno..end_lineno of the
+        # docstring literal and must not eat the line after its closing
+        # quotes.
+        source = f'"""line one\nline two\nline three\n"""\nWIRE = "{self.NAME}"\n'
+        hits = self._hits(source)
+        self.assertEqual(
+            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:5"
+        )
+
+    def test_a_file_that_does_not_parse_falls_back_to_comment_skipping_only(self):
+        # Fallback is the tool's PREVIOUS behaviour, which can only
+        # over-count. A parse error must never make a name silently vanish
+        # from the census, because that would look like a lane's module
+        # disappearing.
+        hits = self._hits(f'def broken(\nWIRE = "{self.NAME}"\n')
+        self.assertEqual(
+            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:2"
+        )
+        self.assertEqual(census.docstring_line_numbers("def broken(\n"), frozenset())
+
+    def test_full_line_comments_are_still_skipped_as_well(self):
+        self.assertEqual(self._hits(f"# {self.NAME} is not built here\nX = 1\n"), {})
+
+    def test_docstring_line_numbers_reports_the_whole_literal_span(self):
+        self.assertEqual(
+            census.docstring_line_numbers('"""a\nb\nc"""\nX = 1\n'), frozenset({1, 2, 3})
+        )
 
 
 if __name__ == "__main__":

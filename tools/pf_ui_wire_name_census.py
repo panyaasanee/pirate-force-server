@@ -28,8 +28,12 @@ Skipping full-line comments removes the one false positive found by
 pf-adversary on round `9dezrf`'s first draft (`VitalData` was SOURCE only
 because of a comment in `app.py` reusing the name as generic prose for an
 unrelated memory-layout concept, with no real reference anywhere else in the
-tree) -- it does NOT catch a name mentioned only inside a trailing inline
-comment or a docstring body; those remain a known, disclosed gap.
+tree). Round `mg3nr4` added the second exclusion, docstring bodies, by AST
+(COO-DECISION `pf_bridge/notes_to_chief/20260907_0546_COO-DECISION-q0454-
+census-tool-skips-docstrings-LANE-UI.md`): a lane writing the honest note
+"this module does NOT build `XxxVital`" used to push n/327 UP by one with
+nothing wired. A name mentioned only inside a TRAILING INLINE comment is
+still counted; that remains a known, disclosed gap.
 
 TIERS
 -----
@@ -63,6 +67,7 @@ Pure stdlib. No side effects on import.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -177,16 +182,76 @@ def is_client_req(name: str) -> bool:
     return "Req" in _PASCAL_TOKEN.findall(name)
 
 
+def docstring_line_numbers(text):
+    """Line numbers (1-based) covered by the DOCSTRINGS of ``text``.
+
+    A docstring here means exactly what Python means by it: a bare string
+    expression that is the FIRST statement of a module, class, function or
+    async function -- the thing ``ast.get_docstring`` returns. Every physical
+    line the string literal spans is returned, so a multi-line docstring
+    contributes its whole range.
+
+    Deliberately NOT excluded, because they are ordinary code, not prose:
+    a string assigned to a variable, a string argument to a call, a bare
+    string expression that is not the first statement of its body, and any
+    trailing inline comment. Excluding those would make the census stop
+    counting real references such as ``NAME = "ShowMessageVital"``.
+
+    A file that does not parse (``SyntaxError``, or a ``ValueError`` from a
+    NUL byte) yields the empty set: the fallback is the tool's PREVIOUS
+    behaviour for that file (comment-skip only), which can only over-count,
+    never silently drop a name that is genuinely in code. There is no such
+    file in the tree today; the branch exists so one bad file cannot take
+    the census with it.
+    """
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return frozenset()
+    lines = set()
+    for node in ast.walk(tree):
+        if not isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if not isinstance(first, ast.Expr):
+            continue
+        value = first.value
+        if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+            continue
+        end = getattr(value, "end_lineno", None) or value.lineno
+        lines.update(range(value.lineno, end + 1))
+    return frozenset(lines)
+
+
 def _build_source_hits(names, py_files):
     """One pass over every file in ``py_files`` (sorted, so deterministic):
-    for every identifier token on a non-comment line, record the FIRST
-    ``"relpath:line"`` it is seen at, for every name in ``names`` that is
-    still unresolved. Full-line comments (``line.lstrip().startswith("#")``)
-    are skipped so a name used only as this codebase's own descriptive
-    prose (e.g. a comment reusing a wire name as a generic term) is not
-    counted as a code reference; this does not catch a name mentioned only
-    in a trailing inline comment or inside a docstring body -- see
-    docs/UI_WIRE_COVERAGE.md's non-claims."""
+    for every identifier token on a line that is neither a full-line comment
+    nor part of a docstring, record the FIRST ``"relpath:line"`` it is seen
+    at, for every name in ``names`` that is still unresolved.
+
+    TWO kinds of line are skipped, for the same reason -- both are this
+    codebase's own prose about the game, not references to it:
+
+    * full-line comments (``line.lstrip().startswith("#")``), which removed
+      the one false positive pf-adversary found on round `9dezrf` (a comment
+      in `app.py` reusing `VitalData` as a generic memory-layout term);
+    * docstring bodies (``docstring_line_numbers``, AST-based), added round
+      `mg3nr4` per COO-DECISION `20260907_0546` on LANE-Q's `0454` alert.
+      Without this, a lane writing the honest note "this module does NOT
+      build `XxxVital`" pushed n/327 UP by one with nothing wired: the
+      metric moved opposite to what it measures, and an inflated value gets
+      read as progress. AST, not a three-quote regex, because the regex
+      would have to reimplement raw/f-prefixes, nesting and escapes.
+
+    STILL not caught, and still disclosed in docs/UI_WIRE_COVERAGE.md's
+    non-claims: a name that appears ONLY in a trailing inline comment
+    (``x = 1  # see FooVital``) counts as SOURCE, because that line does
+    carry code and this tool does not tokenize sub-line spans."""
     remaining = set(names)
     hits: dict = {}
     for path in py_files:
@@ -203,10 +268,13 @@ def _build_source_hits(names, py_files):
         # gate-windows's `pytest_subset` 9 failed on PR #961 (LANE-UI
         # round `on8hbb`, per COO-DECISION 20260907_0148 item 2).
         relpath = path.relative_to(ROOT).as_posix()
+        doc_lines = docstring_line_numbers(text)
         for lineno, line in enumerate(text.splitlines(), start=1):
             if not remaining:
                 break
             if line.lstrip().startswith("#"):
+                continue
+            if lineno in doc_lines:
                 continue
             for token in _IDENT_TOKEN.findall(line):
                 if token in remaining:
