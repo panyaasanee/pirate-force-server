@@ -126,9 +126,10 @@ class ClientSendExpressResultWireTests(unittest.TestCase):
         payload = express.encode_client_send_express_result_payload(
             express.ClientSendExpressResultFields(0, 0, "tail")
         )
-        # 9 (u64 tag+value) + 2 (u8 tag+value) = 11 bytes before the
-        # wstring's u32 length prefix starts.
-        self.assertEqual(payload[11:15], (8).to_bytes(4, "little"))
+        # 9 (u64 tag+value) + 2 (u8 tag+value) = 11 bytes, then
+        # wstring_tag's own tag byte (0x48) before its length prefix.
+        self.assertEqual(payload[11], 0x48)
+        self.assertEqual(payload[12:16], (8).to_bytes(4, "little"))
 
     def test_truncated_payload_fails_closed(self):
         payload = express.encode_client_send_express_result_payload(
