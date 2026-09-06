@@ -26,6 +26,7 @@ trade-zoom -- neither of which a single ``ChooseNpcResponse`` can carry.
 """
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 import sys
@@ -1129,7 +1130,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
             legacy.make_trade_zoom_store5 = real
         self.assertEqual(extras, ())
         self.assertEqual(
-            reason, "no_extra_vendor_builder_refused_RuntimeError")
+            reason, "no_extra_shop_builder_refused_RuntimeError")
         # A latch that was never spent must never be reported as spent:
         # the call site would set it and the shop would stay shut for the
         # rest of the session on the strength of an action nobody sent.
@@ -1170,7 +1171,7 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
             mission_dialog_latch_spent=False,
         )
         self.assertEqual(extras, ())
-        self.assertEqual(reason, "no_extra_mission_builder_refused_ValueError")
+        self.assertEqual(reason, "no_extra_quest_builder_refused_ValueError")
         self.assertEqual(latches, ())
 
     def test_a_spent_quest_latch_composes_nothing_and_never_an_empty_one(self):
@@ -1255,6 +1256,91 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
         self.assertIn("for _latch in response.latches_spent:", wiring)
         self.assertIn("WITHOUT (2), (1) IS A REGRESSION AND NOT A GAIN.",
                       wiring)
+
+    def test_the_wiring_names_keywords_respond_really_has(self):
+        """pf-adversary ``rlymq1`` D2, and the test that finding needed.
+
+        The neighbouring wiring constant pairs a keyword with an attribute
+        of the SAME name; this one cannot, because chief's code-name guard
+        forbids this lane binding his words.  So the constant is the only
+        place the two spellings are joined, ``**_ignored`` cannot refuse a
+        wrong one, and a one-character slip in that constant would be a
+        silent no-op.  Asserting the constant CONTAINS a string is not
+        enough -- the string has to be a parameter this function really
+        takes."""
+        parameters = inspect.signature(responder_mod.respond).parameters
+        wiring = responder_mod.VENDOR_AND_MISSION_LATCH_WIRING
+        for keyword in ("vendor_open_latch_spent",
+                        "mission_dialog_latch_spent"):
+            with self.subTest(keyword=keyword):
+                self.assertIn(keyword, parameters)
+                self.assertIn(f"{keyword}=self.", wiring)
+
+    def test_the_latch_names_the_lane_reports_are_the_frozen_ones(self):
+        """``latches_spent`` is consumed by ``setattr`` on the frozen state
+        object, so these two strings are the one thing in this round that
+        must NOT be renamed for the guard: a lane word here would set a
+        flag v141 does not have, with every test still green."""
+        fields = {
+            field.name
+            for field in dataclasses.fields(self.legacy.GameSessionState)
+        }
+        for attr in responder_mod._FROZEN_LATCH_ATTRS:
+            with self.subTest(attr=attr):
+                self.assertIn(attr, fields)
+
+    def test_a_latch_passed_under_the_frozen_spelling_is_shouted_about(self):
+        """The failure D2 measured: chief writes the symmetric line, the
+        keyword lands in ``**_ignored``, and nothing anywhere differs from
+        an unwired boot.  It differs now, on the console line."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + shop_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=None,
+            **{responder_mod._VENDOR_LATCH_ATTR: False},
+        )
+        self.assertIsNotNone(answer)
+        # The click still answers, and still answers as an unwired boot
+        # would -- the point is that the console no longer says so alone.
+        self.assertEqual(answer.extra_actions, ())
+        self.assertEqual(answer.latches_spent, ())
+        self.assertIn(
+            f"latch_kwarg_misnamed={responder_mod._VENDOR_LATCH_ATTR}",
+            answer.console_lines[0],
+        )
+
+    def test_an_ordinary_click_says_nothing_about_misnamed_keywords(self):
+        """A field that is always present and almost always empty is a
+        field nobody reads by the second boot, so this one appears only
+        when there is something to say."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + shop_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=None,
+            mob_loot_cell=None,
+        )
+        self.assertNotIn("latch_kwarg_misnamed", answer.console_lines[0])
+
+    def test_other_ignored_keywords_are_left_alone(self):
+        """The call site legitimately passes keywords this responder does
+        not want; shouting about those would drown the one that matters."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + shop_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=None,
+            mob_combat_ledger=object(),
+            mob_death_register=object(),
+        )
+        self.assertNotIn("latch_kwarg_misnamed", answer.console_lines[0])
 
 
 if __name__ == "__main__":
