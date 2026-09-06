@@ -26,10 +26,12 @@ trade-zoom -- neither of which a single ``ChooseNpcResponse`` can carry.
 """
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -760,10 +762,13 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
              "no_extra_monster_frozen_path_sends_none"),
         ):
             with self.subTest(placement=idx):
-                extras, got = responder_mod._conversation_extra(
+                extras, got, latches = responder_mod._conversation_extra(
                     legacy, placement, idx, PORT_ROYAL)
                 self.assertEqual(extras, ())
                 self.assertEqual(got, reason)
+                # Omitting the latch keywords is what every call site
+                # does today, and it must spend nothing.
+                self.assertEqual(latches, ())
 
     def test_a_legacy_without_the_frozen_indices_composes_nothing(self):
         """Fail closed in the direction that composes LESS: with no way to
@@ -774,12 +779,13 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
             def make_npc_conversation_empty(actor_identity):
                 raise AssertionError("must not be reached")
 
-        extras, reason = responder_mod._conversation_extra(
+        extras, reason, latches = responder_mod._conversation_extra(
             _NoConstants(), self.placements[self._ordinary_index()],
             self._ordinary_index(), PORT_ROYAL,
         )
         self.assertEqual(extras, ())
         self.assertEqual(reason, "no_extra_frozen_indices_unreadable")
+        self.assertEqual(latches, ())
 
     def test_a_refusing_builder_costs_the_extra_not_the_answer(self):
         """A responder must never take the listener thread down, and an
@@ -832,10 +838,11 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
         for mob in hostiles:
             idx = mob.actor_identity - 0x2000 - 1
             with self.subTest(placement=idx):
-                extras, reason = responder_mod._conversation_extra(
+                extras, reason, latches = responder_mod._conversation_extra(
                     legacy, self.placements[idx], idx, PORT_ROYAL)
                 self.assertEqual(extras, ())
                 self.assertEqual(reason, "no_extra_hostile_row_lane_b_registry")
+                self.assertEqual(latches, ())
 
     def test_an_unreadable_hostile_registry_composes_nothing(self):
         """Fail closed in the direction that composes LESS, and say which
@@ -850,7 +857,7 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
 
         field_mobs.roster_for_scene_id = _boom
         try:
-            extras, reason = responder_mod._conversation_extra(
+            extras, reason, latches = responder_mod._conversation_extra(
                 legacy, self.placements[selected_idx], selected_idx,
                 PORT_ROYAL,
             )
@@ -859,6 +866,7 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
         self.assertEqual(extras, ())
         self.assertEqual(
             reason, "no_extra_hostile_registry_unreadable_RuntimeError")
+        self.assertEqual(latches, ())
 
     def test_the_new_field_defaults_to_empty_for_every_other_responder(self):
         """The default is the safety argument for the other four
@@ -869,7 +877,12 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
             label="X", pc=b"p", frame=b"f", delay=0.0, console_lines=(),
         )
         self.assertEqual(response.extra_actions, ())
-        self.assertEqual(len(response), 6)
+        # ``latches_spent`` joined the tuple in round ``rlymq1`` with the
+        # same additive default, and for the same reason: a responder
+        # that never heard of it builds a response that means exactly
+        # what it meant before.
+        self.assertEqual(response.latches_spent, ())
+        self.assertEqual(len(response), 7)
 
 
 class TheCensusAuthorityIsHonouredTests(unittest.TestCase):
@@ -975,6 +988,359 @@ class TheCensusAuthorityIsHonouredTests(unittest.TestCase):
             "world_census_identity_resolved",
             inspect.signature(responder_mod.respond).parameters,
         )
+
+
+class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
+    """Step 2's SECOND half, round ``rlymq1``: the two latched actions.
+
+    The class above pins the action that rides along on EVERY ordinary
+    click.  This one pins the two the frozen loop sends ONCE PER SESSION --
+    the store-5 trade-zoom at the shop trigger
+    (``current/pf_login_game_server_v141.py:4433-4441``) and the q3020
+    conversation at the quest actor (``:4453-4461``) -- and the
+    three-state keyword that decides which of them this responder composes.
+
+    NONE OF IT REACHES A PLAYER YET, AND THE FIRST TEST IN THIS CLASS IS
+    THE ONE THAT SAYS SO: every call site on ``main`` omits both keywords,
+    and omitting them must answer exactly as this module answered before
+    they existed.  That control is not a formality -- it is the whole
+    safety argument for landing this half before chief's call-site lines.
+
+    WHAT IS DELIBERATELY NOT ASSERTED: that the shop opens once rather than
+    twice.  This module cannot write a latch back and does not try; it
+    NAMES what it spent in ``latches_spent`` and the call site sets it.
+    The once-ness is therefore chief's line to prove on a boot, not this
+    file's to claim -- see ``SHOP_AND_QUEST_LATCH_WIRING``.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+        cls.placements = responder_mod._placements_by_index(cls.legacy)
+        cls.population_indices = tuple(sorted(cls.placements))
+
+    def _shop_index(self):
+        idx = self.legacy.V112_SHOP_TRIGGER_INDEX
+        if idx not in self.placements:
+            self.fail(
+                "the shop trigger is expected to be answerable from this "
+                "responder's own table -- the module docstring's cost "
+                "table depends on it being reachable"
+            )
+        return idx
+
+    def _quest_placement(self):
+        """The quest actor is NOT a key of the placement table (pf-adversary
+        ``yjjtyn`` D4), so its arm is exercised with a placement object
+        carrying the frozen P0 identity rather than by clicking it.  Doing
+        it this way is the honest shape: the arm is unreachable from
+        ``respond()`` today and this test does not pretend otherwise."""
+        return types.SimpleNamespace(
+            actor_identity=self.legacy.V129_QUEST_ACTOR_ID,
+        )
+
+    def test_omitting_both_keywords_is_byte_identical_to_before(self):
+        """``None`` means "the call site never told us", which is every
+        call site today, and it must not compose a once-per-session action
+        on a boot that cannot record it."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        for kwargs in ({}, {"vendor_open_latch_spent": None}):
+            with self.subTest(kwargs=kwargs):
+                extras, reason, latches = responder_mod._conversation_extra(
+                    legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
+                    **kwargs,
+                )
+                self.assertEqual(extras, ())
+                self.assertEqual(
+                    reason, "no_extra_shop_trigger_needs_session_latch")
+                self.assertEqual(latches, ())
+
+    def test_an_unspent_shop_latch_composes_the_frozen_trade_zoom(self):
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        extras, reason, latches = responder_mod._conversation_extra(
+            legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
+            vendor_open_latch_spent=False,
+        )
+        self.assertEqual(len(extras), 1)
+        label, pc, frame, delay = extras[0]
+        self.assertEqual(
+            label,
+            "V112_TEST_HARNESS_TRADE_ZOOM_STORE5_SWORD_SOUL_VIA_LANE_A",
+        )
+        self.assertEqual(delay, 0.0)
+        expected_pc, expected_frame = legacy.make_trade_zoom_store5()
+        self.assertEqual(pc, expected_pc)
+        self.assertEqual(frame, expected_frame)
+        self.assertEqual(reason, "shop_trigger_trade_zoom_store5")
+        self.assertEqual(latches, ("shop_store5_open_sent",))
+
+    def test_the_trade_zoom_is_called_not_copied(self):
+        """Same rule the talk trigger follows: compose by CALLING the
+        frozen builder, never from a copy of its bytes, so the day the
+        frozen body changes this answer changes with it."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        sentinel = (b"sentinel-pc", b"sentinel-frame")
+        real = legacy.make_trade_zoom_store5
+        legacy.make_trade_zoom_store5 = lambda: sentinel
+        try:
+            extras, reason, latches = responder_mod._conversation_extra(
+                legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
+                vendor_open_latch_spent=False,
+            )
+        finally:
+            legacy.make_trade_zoom_store5 = real
+        self.assertEqual(extras[0][1], sentinel[0])
+        self.assertEqual(extras[0][2], sentinel[1])
+        self.assertEqual(latches, ("shop_store5_open_sent",))
+
+    def test_a_spent_shop_latch_composes_nothing_under_its_own_reason(self):
+        """The frozen loop records
+        ``v112_store5_duplicate_open_suppressed`` rather than re-opening
+        the store, and a capture must be able to tell that from "never
+        told"."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        extras, reason, latches = responder_mod._conversation_extra(
+            legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
+            vendor_open_latch_spent=True,
+        )
+        self.assertEqual(extras, ())
+        self.assertEqual(
+            reason, "no_extra_shop_trigger_already_open_this_session")
+        self.assertEqual(latches, ())
+
+    def test_a_refusing_trade_zoom_builder_costs_the_extra_not_the_answer(self):
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        real = legacy.make_trade_zoom_store5
+
+        def _boom():
+            raise RuntimeError("frozen builder refused")
+
+        legacy.make_trade_zoom_store5 = _boom
+        try:
+            extras, reason, latches = responder_mod._conversation_extra(
+                legacy, self.placements[shop_idx], shop_idx, PORT_ROYAL,
+                vendor_open_latch_spent=False,
+            )
+        finally:
+            legacy.make_trade_zoom_store5 = real
+        self.assertEqual(extras, ())
+        self.assertEqual(
+            reason, "no_extra_shop_builder_refused_RuntimeError")
+        # A latch that was never spent must never be reported as spent:
+        # the call site would set it and the shop would stay shut for the
+        # rest of the session on the strength of an action nobody sent.
+        self.assertEqual(latches, ())
+
+    def test_an_unspent_quest_latch_composes_the_frozen_q3020(self):
+        legacy = self.legacy
+        quest_idx = legacy.V129_QUEST_ACTOR_INDEX
+        extras, reason, latches = responder_mod._conversation_extra(
+            legacy, self._quest_placement(), quest_idx, PORT_ROYAL,
+            mission_dialog_latch_spent=False,
+        )
+        self.assertEqual(len(extras), 1)
+        label, pc, frame, delay = extras[0]
+        self.assertEqual(
+            label, "V134_P0_Q3020_NPC_CONVERSATION_ONCE_VIA_LANE_A")
+        expected_pc, expected_frame = legacy.make_npc_conversation_quest3020(
+            legacy.V129_QUEST_ACTOR_ID,
+        )
+        self.assertEqual(pc, expected_pc)
+        self.assertEqual(frame, expected_frame)
+        self.assertEqual(reason, "quest_actor_conversation_q3020")
+        self.assertEqual(latches, ("quest3020_conversation_sent",))
+
+    def test_the_quest_builder_refuses_any_identity_but_p0_and_that_is_named(
+            self):
+        """The frozen builder raises ``ValueError`` for any identity but
+        P0's (v141:791-794).  This arm is keyed on the frozen INDEX, so a
+        boot whose placement table gives index 0 some other identity
+        reaches it -- and must lose the extra, not the answer, and not the
+        listener thread."""
+        legacy = self.legacy
+        wrong = types.SimpleNamespace(
+            actor_identity=legacy.V129_QUEST_ACTOR_ID + 1,
+        )
+        extras, reason, latches = responder_mod._conversation_extra(
+            legacy, wrong, legacy.V129_QUEST_ACTOR_INDEX, PORT_ROYAL,
+            mission_dialog_latch_spent=False,
+        )
+        self.assertEqual(extras, ())
+        self.assertEqual(reason, "no_extra_quest_builder_refused_ValueError")
+        self.assertEqual(latches, ())
+
+    def test_a_spent_quest_latch_composes_nothing_and_never_an_empty_one(self):
+        """Composing the EMPTY conversation in place of a spent quest
+        conversation would replace a quest window with a blank one, which
+        the module docstring calls worse than the gap."""
+        legacy = self.legacy
+        real = legacy.make_npc_conversation_empty
+
+        def _must_not_run(actor_identity):
+            raise AssertionError("the quest arm must never compose the empty "
+                                 "conversation")
+
+        legacy.make_npc_conversation_empty = _must_not_run
+        try:
+            extras, reason, latches = responder_mod._conversation_extra(
+                legacy, self._quest_placement(),
+                legacy.V129_QUEST_ACTOR_INDEX, PORT_ROYAL,
+                mission_dialog_latch_spent=True,
+            )
+        finally:
+            legacy.make_npc_conversation_empty = real
+        self.assertEqual(extras, ())
+        self.assertEqual(
+            reason, "no_extra_quest_actor_already_sent_this_session")
+        self.assertEqual(latches, ())
+
+    def test_respond_carries_the_latch_name_and_the_console_says_so(self):
+        """End to end through ``respond()``: a click on the shop trigger
+        with the session saying "not opened yet" answers with the face
+        pair, the trade-zoom in ``extra_actions``, and the latch the call
+        site owes in ``latches_spent``."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + shop_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=None,
+            vendor_open_latch_spent=False,
+        )
+        self.assertIsNotNone(answer)
+        self.assertEqual(answer.latches_spent, ("shop_store5_open_sent",))
+        self.assertEqual(len(answer.extra_actions), 1)
+        self.assertEqual(
+            answer.extra_actions[0][0],
+            "V112_TEST_HARNESS_TRADE_ZOOM_STORE5_SWORD_SOUL_VIA_LANE_A",
+        )
+        self.assertIn("extra_reason=shop_trigger_trade_zoom_store5",
+                      answer.console_lines[0])
+        self.assertIn("latches=shop_store5_open_sent",
+                      answer.console_lines[0])
+
+    def test_respond_without_the_keyword_spends_nothing_and_says_none(self):
+        """The control for the test above, and the one that pins what
+        ``main``'s call sites get today."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + shop_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=None,
+        )
+        self.assertIsNotNone(answer)
+        self.assertEqual(answer.latches_spent, ())
+        self.assertEqual(answer.extra_actions, ())
+        self.assertIn("extra_reason=no_extra_shop_trigger_needs_session_latch",
+                      answer.console_lines[0])
+        self.assertIn("latches=none", answer.console_lines[0])
+
+    def test_the_wiring_the_lane_cannot_write_is_spelled_out_verbatim(self):
+        """The undone half is chief's, and a named ask is the difference
+        between a handoff and a hope.  Both lines must be in the constant,
+        and the constant must say why (2) is not optional."""
+        wiring = responder_mod.VENDOR_AND_MISSION_LATCH_WIRING
+        self.assertIn("vendor_open_latch_spent=self.shop_store5_open_sent",
+                      wiring)
+        self.assertIn(
+            "mission_dialog_latch_spent=self.quest3020_conversation_sent",
+            wiring)
+        self.assertIn("for _latch in response.latches_spent:", wiring)
+        self.assertIn("WITHOUT (2), (1) IS A REGRESSION AND NOT A GAIN.",
+                      wiring)
+
+    def test_the_wiring_names_keywords_respond_really_has(self):
+        """pf-adversary ``rlymq1`` D2, and the test that finding needed.
+
+        The neighbouring wiring constant pairs a keyword with an attribute
+        of the SAME name; this one cannot, because chief's code-name guard
+        forbids this lane binding his words.  So the constant is the only
+        place the two spellings are joined, ``**_ignored`` cannot refuse a
+        wrong one, and a one-character slip in that constant would be a
+        silent no-op.  Asserting the constant CONTAINS a string is not
+        enough -- the string has to be a parameter this function really
+        takes."""
+        parameters = inspect.signature(responder_mod.respond).parameters
+        wiring = responder_mod.VENDOR_AND_MISSION_LATCH_WIRING
+        for keyword in ("vendor_open_latch_spent",
+                        "mission_dialog_latch_spent"):
+            with self.subTest(keyword=keyword):
+                self.assertIn(keyword, parameters)
+                self.assertIn(f"{keyword}=self.", wiring)
+
+    def test_the_latch_names_the_lane_reports_are_the_frozen_ones(self):
+        """``latches_spent`` is consumed by ``setattr`` on the frozen state
+        object, so these two strings are the one thing in this round that
+        must NOT be renamed for the guard: a lane word here would set a
+        flag v141 does not have, with every test still green."""
+        fields = {
+            field.name
+            for field in dataclasses.fields(self.legacy.GameSessionState)
+        }
+        for attr in responder_mod._FROZEN_LATCH_ATTRS:
+            with self.subTest(attr=attr):
+                self.assertIn(attr, fields)
+
+    def test_a_latch_passed_under_the_frozen_spelling_is_shouted_about(self):
+        """The failure D2 measured: chief writes the symmetric line, the
+        keyword lands in ``**_ignored``, and nothing anywhere differs from
+        an unwired boot.  It differs now, on the console line."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + shop_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=None,
+            **{responder_mod._VENDOR_LATCH_ATTR: False},
+        )
+        self.assertIsNotNone(answer)
+        # The click still answers, and still answers as an unwired boot
+        # would -- the point is that the console no longer says so alone.
+        self.assertEqual(answer.extra_actions, ())
+        self.assertEqual(answer.latches_spent, ())
+        self.assertIn(
+            f"latch_kwarg_misnamed={responder_mod._VENDOR_LATCH_ATTR}",
+            answer.console_lines[0],
+        )
+
+    def test_an_ordinary_click_says_nothing_about_misnamed_keywords(self):
+        """A field that is always present and almost always empty is a
+        field nobody reads by the second boot, so this one appears only
+        when there is something to say."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + shop_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=None,
+            mob_loot_cell=None,
+        )
+        self.assertNotIn("latch_kwarg_misnamed", answer.console_lines[0])
+
+    def test_other_ignored_keywords_are_left_alone(self):
+        """The call site legitimately passes keywords this responder does
+        not want; shouting about those would drown the one that matters."""
+        legacy = self.legacy
+        shop_idx = self._shop_index()
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + shop_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=None,
+            mob_combat_ledger=object(),
+            mob_death_register=object(),
+        )
+        self.assertNotIn("latch_kwarg_misnamed", answer.console_lines[0])
 
 
 if __name__ == "__main__":
