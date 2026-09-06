@@ -1,0 +1,191 @@
+# Pirate Force - run the tests that need the pf_bridge checkout beside us.
+#
+# WHAT THIS FIXES.  gate-windows.yml checks out THIS repository and nothing
+# else.  Every test guarded by a precondition that resolves inside the sibling
+# `pf_bridge` working directory therefore skips on the gate, on every commit,
+# with a reason that reads exactly like a healthy skip - so no machine
+# anywhere was evaluating them.  LANE-UI measured that hole (letter `0335`
+# item D1); COO ordered this job as chief work-order item 3 (`0445`).
+#
+# WHY IT IS A SEPARATE FILE AND NOT A SECOND JOB IN gate-windows.yml.
+# merge-claude-pr.yml reads the conclusion of the JOB NAMED `gate` inside the
+# `gate-windows` workflow run, and publish-status writes one verdict per
+# commit from that same run.  A second job in that file would sit inside the
+# blast radius of both.  A separate workflow is invisible to the reaper by
+# construction, which is what "report only" has to mean on round one.
+#
+# WHY NO SECRET IS NEEDED, AND WHY THAT MATTERS.  Both repositories are
+# PUBLIC (measured 2026-09-07: the API reports visibility=public for
+# panyaasanee/pf_bridge and panyaasanee/pirate-force-server), so the clone
+# below is anonymous.  Round R371 refused to create a cross-repo token for
+# exactly this shape of job, because a token stored in the gated repository is
+# reachable by every agent round that opens a same-repo pull request.  That
+# refusal stands and is not being reversed here - this job needs no token at
+# all.  If the bridge is ever made private this clone fails loudly (see the
+# "landed where the tests look" check) instead of degrading into a green run
+# over zero tests.
+#
+# HOW IT BECOMES BLOCKING.  One value: PF_BRIDGE_GUARDED_BLOCKING below.
+# COO's condition is "one green round first, then block" - flip it to '1' in
+# the round that follows a green run and the pytest step stops being
+# forgiving.  Nothing else about the file changes.
+#
+# The `run:` blocks are bash on purpose.  Windows runners ship bash, `bash -n`
+# checks every block on a cloud clone, and PowerShell syntax cannot be checked
+# anywhere this repository's agents run (R382 measured that and said so).
+
+name: bridge-guarded-tests
+
+on:
+  push:
+    branches-ignore: ['ci-status']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per ref.  push and pull_request both fire on the same commit for a
+# branch with an open pull request; without this the second Windows runner is
+# pure waste, and a superseded run's verdict is noise either way.
+concurrency:
+  group: bridge-guarded-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # '0' = report only: the suite runs, the verdict is printed and summarised,
+  # and the job still ends green.  '1' = the job fails when a guarded test
+  # fails.  See "HOW IT BECOMES BLOCKING" above.
+  PF_BRIDGE_GUARDED_BLOCKING: '0'
+  # The bridge branch the guarded tests are read against.  main, never the
+  # pull request's own branch: a test here cites LETTERS, and a letter that
+  # only exists on an unmerged bridge branch is not yet a fact.
+  PF_BRIDGE_REF: 'main'
+
+jobs:
+  bridge-guarded:
+    # Same platform as the real gate.  These tests read filenames, letters and
+    # tables; Windows is where they would run if the gate could run them, so a
+    # verdict from anywhere else would not answer the question that was asked.
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+        with:
+          # Some guarded tools re-derive from history rather than the worktree.
+          fetch-depth: 0
+
+      - name: Pin the interpreter to the bridge's series
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Clone pf_bridge BESIDE the workspace
+        run: |
+          set -euo pipefail
+          # tests/pf_preconditions.py resolves the bridge as ROOT.parent /
+          # 'pf_bridge', so the clone has to land in the workspace's PARENT.
+          # actions/checkout cannot write outside the workspace; git can.
+          parent="$(dirname "$GITHUB_WORKSPACE")"
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          echo "cloning ${owner}/pf_bridge@${PF_BRIDGE_REF} into ${parent}"
+          git clone --depth 1 --single-branch \
+            --branch "${PF_BRIDGE_REF}" \
+            "https://github.com/${owner}/pf_bridge.git" \
+            "${parent}/pf_bridge"
+          git -C "${parent}/pf_bridge" log -1 --format='bridge HEAD %H %ci'
+
+      - name: Prove the clone landed where the tests look
+        run: |
+          set -euo pipefail
+          # Asking Python rather than assembling the path in the shell: on a
+          # Windows runner bash says /d/a/... and Python says D:\a\..., and the
+          # only answer that counts is the one tests/pf_preconditions.py
+          # computes for itself.
+          python - <<'PY' >> "$GITHUB_ENV"
+          import sys, pathlib
+          sys.path.insert(0, "tests")
+          import pf_preconditions as pf
+          bridge = pf.SIBLING / "pf_bridge"
+          if not bridge.is_dir():
+              raise SystemExit(
+                  "FATAL: no bridge at %s -- the clone step went somewhere "
+                  "else and every guarded test would have skipped again, "
+                  "silently" % (bridge,))
+          if not pf.BRIDGE_SIBLING.present:
+              raise SystemExit(
+                  "FATAL: BRIDGE_SIBLING still reports absent at %s" % (bridge,))
+          print("PF_BRIDGE_DIR=%s" % (bridge,))
+          PY
+          echo "PF_BRIDGE_DIR is now: ${PF_BRIDGE_DIR:-<set for later steps>}"
+
+      - name: Say which bridge preconditions are present now
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "tests")
+          sys.path.insert(0, ".")
+          import pf_preconditions as pf
+          from tools.pf_bridge_guarded_tests import bridge_precondition_names
+          names = bridge_precondition_names(pf)
+          print("bridge-dependent preconditions: %d" % len(names))
+          for name in names:
+              obj = getattr(pf, name)
+              print("  %-26s present=%s" % (name, obj.present))
+          PY
+
+      - name: Run the guarded tests
+        id: guarded
+        run: |
+          set -euo pipefail
+          # An empty list is a tool failure, not an empty job: the tool exits 2
+          # and `set -e` stops here rather than letting pytest run nothing and
+          # report success.
+          python tools/pf_bridge_guarded_tests.py > guarded_files.txt
+          count="$(wc -l < guarded_files.txt | tr -d ' ')"
+          echo "guarded test files: ${count}"
+          cat guarded_files.txt
+          rc=0
+          python -m pytest $(cat guarded_files.txt) -q -rf \
+            --tb=short > guarded_out.txt 2>&1 || rc=$?
+          tail -n 40 guarded_out.txt
+          echo "pytest exit ${rc}"
+          echo "rc=${rc}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### bridge-guarded tests"
+            echo ""
+            echo "files: ${count} - pytest exit ${rc}"
+            echo ""
+            echo '```'
+            { grep -E '^(FAILED|ERROR)|passed|failed' guarded_out.txt || true; } | tail -n 40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: The verdict, and the failing names LAST
+        if: always()
+        run: |
+          set -uo pipefail
+          rc="${{ steps.guarded.outputs.rc }}"
+          if [ -f guarded_out.txt ]; then
+            echo "----- failing test names (nothing after this block) -----"
+            grep -E '^(FAILED|ERROR)' guarded_out.txt || echo "(none)"
+          fi
+          if [ "${rc:-1}" = "0" ]; then
+            echo "GUARDED SUITE GREEN"
+            exit 0
+          fi
+          if [ "${PF_BRIDGE_GUARDED_BLOCKING}" = "1" ]; then
+            echo "GUARDED SUITE RED and this job is BLOCKING"
+            exit 1
+          fi
+          echo "GUARDED SUITE RED - REPORT ONLY, this job blocks nothing."
+          echo "The reaper reads the job named 'gate' in gate-windows only;"
+          echo "this workflow is not that job and is not a required check."
+          exit 0

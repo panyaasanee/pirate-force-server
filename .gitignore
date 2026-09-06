@@ -642,6 +642,12 @@
 # claim "it still matches the source" a command.
 !/tools/pf_regen_lua_message_catalog.py
 
+# LANE-E round 3py8sa (COO work order 0445 item 3) - names the test files that
+# only run when the pf_bridge checkout is beside this clone.  The report-only
+# job .github/workflows/bridge-guarded-tests.yml runs whatever it prints, so
+# an untracked copy of it is a workflow that cannot start.
+!/tools/pf_bridge_guarded_tests.py
+
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content
 /.claude/worktrees/
