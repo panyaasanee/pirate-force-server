@@ -244,12 +244,19 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
         cap here is picked from the module's own estimator so exactly one
         call fits and the second cannot, and the first call's success is
         asserted rather than discarded.
+
+        Uses ``_charged_capture_bytes`` (round `40bjg7`, D9), not the bare
+        ``_estimate_capture_file_bytes`` this test used before that round:
+        both payloads here are small enough that the disk-block floor, not
+        the content estimate, is what actually gets charged, so a cap
+        derived from the unfloored estimate would refuse the very first
+        call and this test would prove nothing about which budget it hit.
         """
         config = self._config(["gm1"])
         run_payload = bytes([0x0B, 0x00])
         cheat_payload = _payload()
-        cost_run = gm_dispatch._estimate_capture_file_bytes(len(run_payload), len("gm1"))
-        cost_cheat = gm_dispatch._estimate_capture_file_bytes(len(cheat_payload), len("gm1"))
+        cost_run = gm_dispatch._charged_capture_bytes(len(run_payload), len("gm1"))
+        cost_cheat = gm_dispatch._charged_capture_bytes(len(cheat_payload), len("gm1"))
         # THE CAP HAS TO ADMIT EITHER CALL ON ITS OWN AND REFUSE THE PAIR.
         # A cap smaller than one call refuses both standalone and charges
         # nothing, which is how the first TWO drafts of this test passed
