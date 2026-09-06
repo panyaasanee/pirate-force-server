@@ -74,7 +74,7 @@ from typing import Any
 
 from . import world_scene_folder
 from . import world_scene_registry
-from .population import MOVEMENT_ATTR_ID, RUNTIME_PROTOCOL_RES_ID
+from .population import MOVEMENT_ATTR_ID
 from .remote_player_hypothesis import (
     ACTOR_ATTR_EXTRA_GROUP_TAG,
     ACTOR_ATTR_EXTRA_GROUP_VALUE,
@@ -82,12 +82,6 @@ from .remote_player_hypothesis import (
     ACTOR_ATTR_MASK_PROBE as ACTOR_ATTR_MASK_LIVE_PLAYER,
     ACTOR_ATTR_MASK_TAG,
     BASIC_ATTR_MASK_TAG,
-    BASIC_BIT_CURRENT_HP,
-    BASIC_BIT_DEATH_TIMER_FORBIDDEN,
-    BASIC_BIT_MAX_HP,
-    BASIC_BIT_NAME,
-    BASIC_BIT_SCENE_ID,
-    BASIC_BIT_SCENE_SEQ,
     BASIC_MASK_PROBE as BASIC_MASK_LIVE_PLAYER,
     DB_ATTRIBUTE_IDENTITY_MASK,
     DB_ATTRIBUTE_MASK_TAG,
