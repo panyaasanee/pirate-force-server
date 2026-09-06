@@ -411,19 +411,27 @@ class RulingForTests(unittest.TestCase):
             # cited timestamp for ``re.search`` to have to skip past.
             "COO-DECISION widen-death-scope-bg0008-six-templates "
             "2026-09-06T05:48+07:00": "202609060548",
-            # Four scenes, one letter (notes_to_chief/20260906_0748_
-            # COO-DECISION-b0659-...), same "timestamp at the end" spelling
-            # as the bg0008 entry above, copied verbatim from item 1's own
-            # naming instruction rather than reordered to match the earlier
-            # entries.
+            # Four scenes, one letter -- but not the letter this dict cited
+            # at first.  Round 4tnhzw (this lane) minted these four keys
+            # citing notes_to_chief/20260906_0748_COO-DECISION-b0659-...,
+            # which only ASKED for a ruling (its own item 1 says "send a
+            # request"); notes_to_chief/20260906_1122_LANE-B-ASK-COO-pr907-
+            # minted-four-ruling-names-citing-0748-and-has-merged.md flagged
+            # that to COO, and notes_to_chief/20260906_1150_COO-DECISION-
+            # b1122-widen-death-scope-bg0006-bg0007-bg0009-bg0011-four-
+            # scenes-ratified-repoint-four-strings-to-1150-coo-greps-ruling-
+            # keys-every-exec-round-LANE-B.md ratifies the same four
+            # scenes/templates (not reversed) and repoints the citation to
+            # itself -- same "timestamp at the end" spelling as the bg0008
+            # entry above.
             "COO-DECISION widen-death-scope-bg0006-two-templates "
-            "2026-09-06T07:48+07:00": "202609060748",
+            "2026-09-06T11:50+07:00": "202609061150",
             "COO-DECISION widen-death-scope-bg0007-seven-templates "
-            "2026-09-06T07:48+07:00": "202609060748",
+            "2026-09-06T11:50+07:00": "202609061150",
             "COO-DECISION widen-death-scope-bg0009-five-templates "
-            "2026-09-06T07:48+07:00": "202609060748",
+            "2026-09-06T11:50+07:00": "202609061150",
             "COO-DECISION widen-death-scope-bg0011-five-templates "
-            "2026-09-06T07:48+07:00": "202609060748",
+            "2026-09-06T11:50+07:00": "202609061150",
         }
         self.assertEqual(
             set(expected), set(mob_death.WIDENING_RULINGS),
