@@ -1,1 +1,1 @@
-{"sha":"707eb9625ba92d405d0fe614e3a95f0fd3e8aacb","conclusion":"failure","event":"push","ref":"refs/heads/claude/awesome-goodall-sgv2fb","run_id":"34043816815","utc":"2026-09-06T16:20:52Z"}
+{"sha":"707eb9625ba92d405d0fe614e3a95f0fd3e8aacb","conclusion":"failure","event":"pull_request","ref":"refs/pull/959/merge","run_id":"34043838472","utc":"2026-09-06T16:22:00Z"}
