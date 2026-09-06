@@ -302,6 +302,31 @@ class QuestFlagAndCounterTests(unittest.TestCase):
         self.assertEqual(ns["MobKillCount"]("nope", 5), quest.STUB_DEFAULT)
         self.assertFalse(ns["CheckMobKillCount"]("nope", 5))
 
+    def test_bad_value_same_arity_calls_log_a_line_not_silently(self):
+        # pf-adversary (this round): a same-arity call with an unusable
+        # VALUE (not just a wrong argument COUNT) used to degrade with no
+        # log line at all for these five closures -- indistinguishable from
+        # the ordinary "never set" case. Every one now logs
+        # LUA_QUEST_BAD_VALUE, matching GetQuestFlag's own pre-existing
+        # precedent (proven by test_a_never_set_flag_reads_back_as_none...
+        # already, so not re-asserted here).
+        ns, calls = self._namespace()
+        cases = (
+            ("SetFlag", (float("nan"),)),
+            ("SetQuestFlag", (1, True)),
+            ("MobKillCount", (1, float("inf"))),
+            ("CheckMobKillCount", (True, 5)),
+            ("GetMobKillCount", (-1,)),
+        )
+        for name, args in cases:
+            with self.subTest(method=name):
+                calls.clear()
+                ns[name](*args)
+                self.assertTrue(
+                    any(c.startswith("LUA_QUEST_BAD_VALUE Quest.%s " % name) for c in calls),
+                    calls,
+                )
+
     def test_can_report_daily_quest_is_true_until_reported_then_false_same_day(self):
         ns, _calls = self._namespace(
             context=quest.QuestContext(1, 100), clock=_clock_at(10, 0))

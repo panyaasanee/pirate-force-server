@@ -486,6 +486,7 @@ class RealTriggerNamespace:
                     return STUB_DEFAULT
                 quest_id = _coerce_int(args[0], _MAX_QUEST_ID)
                 if quest_id is None:
+                    self._log("LUA_TRIGGER_BAD_VALUE Trigger.%s quest_id=%r" % (_api, args[0]))
                     return STUB_DEFAULT
                 after = self._quest_store.set_quest_flag(
                     self._quest_context.character_id, quest_id, _flag)

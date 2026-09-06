@@ -101,15 +101,30 @@ moving" rule.
 
 WHAT IS DELIBERATELY LEFT STUBBED, ONE MORE NAME THAN THE 12 COO NAMED.
 ``CheckWishQuest`` (1 call site, ``Quest/q_wish.lua``'s own ``Accept_Check``)
-was in COO-DECISION ``20260906_1846``'s list of 12, but grepping for what a
-"wish" precondition actually checks (``gamedata/tables/`` for any table with
-"wish" in its name or a column near ``q_wish``'s own quest id, ``external/``,
-``notes_to_chief/consumed/``) turns up NOTHING -- no table, no RE answer, no
-prior letter defines the semantics ``CheckWishQuest`` guards. Making it
-real would mean guessing a boolean condition for accepting a quest, exactly
-what ``prompts/LANE-Q.md`` forbids and the same posture already taken twice
-in this same file/its sibling for the same reason (``GetWeekDay`` here,
-``Trigger.GetContactMode`` in ``lua_api/trigger.py``). Left in
+was in COO-DECISION ``20260906_1846``'s list of 12. A FIRST grep pass (by
+filename and by a column literally named after the quest) found nothing and
+this docstring said so -- WRONG, caught by pf-adversary this round: a wider
+pass over TABLE CONTENTS, not just filenames, finds real evidence:
+``gamedata/tables/CONSTDATA_TH__VARIABLE_INTEGER.tsv`` rows 174/178
+(``GUILD_MAKEWISH_GUILDLV`` = 4, ``GUILD_MAKEWISH_CDTIME`` = 1200),
+``CONSTDATA_TH__GUILD_MEMBER.tsv``'s own ``f_CharWish_Chance`` column, and
+``TEXTDATA_TH__HELP_CONTENT.tsv`` row 2028's in-game help text describing a
+GUILD "Wishing Crystal" mechanic, once per day, granted through OTHER guild
+members completing a task -- matching ``Accept_Run``'s own
+``Player.OpenUI("Guild_MakeWish")`` call by name. So the semantics are NOT
+undocumented; what is still missing is which of THREE candidate gates (a
+guild level >= 4 floor, a literal 1200-unit cooldown of unknown unit, or a
+per-guild-member chance roll) ``CheckWishQuest()`` itself checks before a
+CHARACTER can accept the quest -- and the guild-level gate needs a
+guild-level accessor this lane has no seam for regardless (``Guild.*``/
+``Player.*`` are not real here). This makes the right classification
+CROSS-LANE with LANE-GUILD (the same category as ``CheckGuildOfflineQuest``/
+``ReportGuildOfflineQuest``/``StartGuildOfflineQuest`` below), not
+"undocumented" -- guessing WHICH gate(s) combine, and how, without
+LANE-GUILD's own state door is exactly what ``prompts/LANE-Q.md`` forbids,
+the same posture already taken for ``GetWeekDay`` here and
+``Trigger.GetContactMode`` in ``lua_api/trigger.py``, just for a different
+reason than this docstring first claimed. Left in
 ``STILL_STUBBED`` with a named reason rather than silently made to match
 COO's count; the deviation is called out plainly in this round's own round
 file, not buried here.
@@ -513,6 +528,23 @@ def _log_bad_arity(log: Callable[[str], None], api_name: str, got: int, want: st
     log("LUA_QUEST_BAD_ARITY Quest.%s got=%d want=%s" % (api_name, got, want))
 
 
+def _log_bad_value(log: Callable[[str], None], api_name: str, **raw_args: Any) -> None:
+    """Same-arity call, one or more arguments not a usable number.
+
+    pf-adversary (this round): a same-arity call that fails ``_coerce_int``
+    (a bool/NaN/huge float/oversized int, e.g.) degraded to
+    :data:`STUB_DEFAULT`/``False`` with NO log line for 9 of this round's
+    11 new real closures -- indistinguishable from the ordinary "never set"
+    case, unlike :func:`GetQuestFlag`'s own arity-1 path (already logs via
+    :func:`_log_flag` even on a bad value, quest_id=-1). This closes that
+    gap uniformly: every refused-by-value call now logs, keyword args named
+    after the closure's own parameter names so a reader sees exactly which
+    argument was bad.
+    """
+    log("LUA_QUEST_BAD_VALUE Quest.%s %s"
+        % (api_name, " ".join("%s=%r" % (k, v) for k, v in raw_args.items())))
+
+
 def _log_flag(log: Callable[[str], None], api_name: str, context: "QuestContext",
               quest_id: int, value: int) -> None:
     log("LUA_QUEST_REAL Quest.%s character=%d quest=%d flag=%d"
@@ -547,11 +579,16 @@ STILL_STUBBED: dict[str, str] = {
         "not a guess (same posture as Trigger.GetContactMode)"
     ),
     "CheckWishQuest": (
-        "1 call site (Quest/q_wish.lua Accept_Check), no table or doc in the "
-        "committed artifacts defines what a 'wish' precondition checks -- needs "
-        "an RE ticket, not a guess (same posture as GetWeekDay/GetContactMode); "
-        "COO-DECISION 20260906_1846 listed this among the 12, this round refuses "
-        "it anyway rather than guess, see round file"
+        "1 call site (Quest/q_wish.lua Accept_Check); CONSTDATA_TH__VARIABLE_INTEGER.tsv "
+        "(GUILD_MAKEWISH_GUILDLV=4, GUILD_MAKEWISH_CDTIME=1200) and "
+        "CONSTDATA_TH__GUILD_MEMBER.tsv's f_CharWish_Chance prove a real guild-level/"
+        "cooldown/chance-gated mechanic exists, but not which of the three (or what "
+        "combination) this function checks, and the guild-level gate needs a Guild.*/"
+        "Player.* accessor this lane has no seam for -- cross-lane with LANE-GUILD's "
+        "namespace (same category as CheckGuildOfflineQuest/ReportGuildOfflineQuest/"
+        "StartGuildOfflineQuest below), needs LANE-GUILD's own state door or an RE "
+        "ticket, not a guess; COO-DECISION 20260906_1846 listed this among the 12, "
+        "this round refuses it anyway rather than guess, see round file"
     ),
     "CountDownTime": "needs a per-character running quest timer; a fourth LANE-DB accessor not asked for this round (only flag/counter/daily-stamp were)",
     "RewardItemSelect": "needs per-character reward-choice state plus a Player.AddItem grant this lane does not own yet",
@@ -657,6 +694,7 @@ class RealQuestNamespace:
                     return STUB_DEFAULT
                 value = _coerce_int(args[0], _MAX_FLAG_VALUE)
                 if value is None:
+                    _log_bad_value(self._log, "SetFlag", value=args[0])
                     return STUB_DEFAULT
                 after = self._store.set_quest_flag(
                     self._context.character_id, self._context.quest_id, value)
@@ -674,6 +712,7 @@ class RealQuestNamespace:
                 quest_id = _coerce_int(args[0], _MAX_QUEST_ID)
                 value = _coerce_int(args[1], _MAX_FLAG_VALUE)
                 if quest_id is None or value is None:
+                    _log_bad_value(self._log, "SetQuestFlag", quest_id=args[0], value=args[1])
                     return STUB_DEFAULT
                 after = self._store.set_quest_flag(
                     self._context.character_id, quest_id, value)
@@ -691,6 +730,7 @@ class RealQuestNamespace:
                 mob_id = _coerce_int(args[0], _MAX_MOB_ID)
                 target = _coerce_int(args[1], _MAX_KILL_COUNT)
                 if mob_id is None or target is None:
+                    _log_bad_value(self._log, "MobKillCount", mob_id=args[0], target=args[1])
                     return STUB_DEFAULT
                 # Starts tracking at progress 0 -- every measured call site
                 # (module docstring) fires once, from `Accept_Run`, and the
@@ -721,6 +761,7 @@ class RealQuestNamespace:
                 mob_id = _coerce_int(args[0], _MAX_MOB_ID)
                 target = _coerce_int(args[1], _MAX_KILL_COUNT)
                 if mob_id is None or target is None:
+                    _log_bad_value(self._log, "CheckMobKillCount", mob_id=args[0], target=args[1])
                     return False
                 progress = self._store.get_quest_counter(
                     self._context.character_id, self._context.quest_id,
@@ -741,6 +782,7 @@ class RealQuestNamespace:
                     return STUB_DEFAULT
                 mob_id = _coerce_int(args[0], _MAX_MOB_ID)
                 if mob_id is None:
+                    _log_bad_value(self._log, "GetMobKillCount", mob_id=args[0])
                     return STUB_DEFAULT
                 progress = self._store.get_quest_counter(
                     self._context.character_id, self._context.quest_id,
