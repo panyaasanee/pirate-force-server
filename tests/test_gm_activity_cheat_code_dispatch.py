@@ -248,8 +248,8 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
         config = self._config(["gm1"])
         run_payload = bytes([0x0B, 0x00])
         cheat_payload = _payload()
-        cost_run = gm_dispatch._estimate_capture_file_bytes(len(run_payload))
-        cost_cheat = gm_dispatch._estimate_capture_file_bytes(len(cheat_payload))
+        cost_run = gm_dispatch._estimate_capture_file_bytes(len(run_payload), len("gm1"))
+        cost_cheat = gm_dispatch._estimate_capture_file_bytes(len(cheat_payload), len("gm1"))
         # THE CAP HAS TO ADMIT EITHER CALL ON ITS OWN AND REFUSE THE PAIR.
         # A cap smaller than one call refuses both standalone and charges
         # nothing, which is how the first TWO drafts of this test passed
