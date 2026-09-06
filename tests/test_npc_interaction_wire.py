@@ -332,6 +332,19 @@ EXPECTED_TABLES = {
     # 20260901_1459): this pin counts tables, it does not test this file's
     # own npc_interaction behaviour.
     "character_equipment",
+    # character_quest_flags / character_quest_counters: UNLIKE every other
+    # entry above, this pair is not "not quest/shop/reward state" -- it IS
+    # quest state, on purpose. LANE-Q CORE-REQUEST (pf_bridge/notes_to_chief/
+    # 20260906_1950_LANE-Q-CORE-REQUEST-quest-flag-counter-daily-stamp-
+    # columns.md), GRANTED by chief (LANE-E) round `awnjat`
+    # (migrations/016_character_quest_state.sql). See that same round's
+    # UPDATE note on docs/FUNCTIONAL_COVERAGE.json's `quest_accept_and_
+    # progress` row for why this does not move that row off `in_progress`:
+    # nothing calls these tables from a live dispatch yet, and they back a
+    # different subsystem (LANE-Q's Lua Quest/Trigger namespace) than that
+    # row's subject (Columbus's hardcoded quest3021/3205 dispatch).
+    "character_quest_flags",
+    "character_quest_counters",
 }
 
 
@@ -819,6 +832,36 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         "world_m2_sea_destination.py": {
             "destination_quest_id",
             "destination_quest_row_var2",
+        },
+        # store.py's generic quest-state persistence door (migrations/
+        # 016_character_quest_state.sql), on LANE-Q's CORE-REQUEST
+        # (pf_bridge/notes_to_chief/20260906_1950_LANE-Q-CORE-REQUEST-quest-
+        # flag-counter-daily-stamp-columns.md), GRANTED by chief (LANE-E)
+        # round `awnjat`. UNLIKE every other entry in this dict, this one
+        # does NOT argue the symbols are innocuous -- get_quest_flag/
+        # set_quest_flag/get_quest_counter/set_quest_counter ARE real
+        # quest-state persistence, on purpose: this is the exact scenario
+        # this class's own docstring names ("if someone lands quest
+        # tracking... the matrix has to be re-graded first"). docs/
+        # FUNCTIONAL_COVERAGE.json's `quest_accept_and_progress` row is
+        # updated the same round (see that file's own UPDATE note) rather
+        # than papered over here. What keeps this a schema/store DOOR and
+        # not the thing that row's "no quest state is stored server-side"
+        # sentence is about: nothing in this repository calls these four
+        # methods yet -- `lua_api.quest.QuestStateStore`'s only wired
+        # implementation today is the explicitly-non-production
+        # `InMemoryQuestStateStore` (PR #947) -- and that row is about
+        # Columbus's hardcoded quest3021/3205 dispatch, a different
+        # subsystem this door does not touch. The bare `quest` entry below
+        # is literal text inside two `WriteLockTimeout` f-string error
+        # messages, not an identifier.
+        "store.py": {
+            "get_quest_counter",
+            "get_quest_flag",
+            "quest",
+            "quest_id",
+            "set_quest_counter",
+            "set_quest_flag",
         },
     }
 

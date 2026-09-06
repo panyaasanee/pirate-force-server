@@ -3700,6 +3700,243 @@ class SQLiteStore:
             for r in rows
         )
 
+    def get_quest_flag(self, character_id: int, quest_id: int) -> "int | None":
+        """The flag `set_quest_flag` last wrote for this (character, quest),
+        or `None` if it was never set -- not an error, matching `lua_api.
+        quest.QuestStateStore.get_quest_flag`'s own contract
+        (`pf_bridge/notes_to_chief/20260906_1950_LANE-Q-CORE-REQUEST-quest-
+        flag-counter-daily-stamp-columns.md`, `migrations/
+        016_character_quest_state.sql`).  This lane does not interpret the
+        returned integer -- `Quest.None`/`Active`/`Finish` and any other
+        meaning belong to LANE-Q's own code, never to this door.
+
+        Raises `TypeError` for a non-int/bool argument, `ValueError` for
+        `quest_id` outside `0..65535` (the same bound the migration's
+        `CHECK` enforces, checked here first for a named error instead of a
+        raw `sqlite3.IntegrityError`), and `KeyError` for a character that
+        does not exist or has been soft-deleted (or is outside SQLite's
+        representable `INTEGER` range, matching `equip_item`).
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if isinstance(quest_id, bool) or not isinstance(quest_id, int):
+            raise TypeError("quest_id must be an int")
+        if not 0 <= quest_id <= 0xFFFF:
+            raise ValueError("quest_id %d is outside the 0..65535 range" % quest_id)
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+        with self.connect() as db:
+            exists = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if exists is None:
+                raise KeyError(character_id)
+            row = db.execute(
+                "SELECT flag_value FROM character_quest_flags "
+                "WHERE character_id=? AND quest_id=?",
+                (character_id, quest_id),
+            ).fetchone()
+        return None if row is None else int(row["flag_value"])
+
+    def set_quest_flag(self, character_id: int, quest_id: int, flag_value: int) -> int:
+        """Persist `flag_value` for this (character, quest), replacing
+        whatever was there, and return the value read back after the write
+        (never an echo of the argument, matching `equip_item`'s own return
+        discipline elsewhere in this file).
+
+        `INSERT OR REPLACE` against `UNIQUE(character_id, quest_id)`: a
+        second call for the same quest is a real state change every time
+        (`Active` -> `Finish`), never a repeat of an existing fact, the same
+        reasoning `equip_item` gives for not using `INSERT OR IGNORE`.
+
+        Raises `TypeError` for a non-int/bool argument, `ValueError` for
+        `quest_id` outside `0..65535` or `flag_value` outside
+        `0..4294967295` (`migrations/016_character_quest_state.sql`'s own
+        `CHECK` bounds), `KeyError` for a character that does not exist or
+        has been soft-deleted (or is outside SQLite's representable
+        `INTEGER` range), and `WriteLockTimeout` instead of a raw
+        `sqlite3.OperationalError` when the write lock cannot be taken.
+        Nothing is written when anything is refused.
+        """
+        for label, value in (
+            ("character_id", character_id),
+            ("quest_id", quest_id),
+            ("flag_value", flag_value),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{label} must be an int")
+        if not 0 <= quest_id <= 0xFFFF:
+            raise ValueError("quest_id %d is outside the 0..65535 range" % quest_id)
+        if not 0 <= flag_value <= 0xFFFFFFFF:
+            raise ValueError(
+                "flag_value %d is outside the u32 range" % flag_value
+            )
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+        updated_at = _now()
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s quest {quest_id} flag within "
+                    f"connect()'s busy_timeout: {error}"
+                ) from error
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            db.execute(
+                "INSERT OR REPLACE INTO character_quest_flags"
+                "(character_id,quest_id,flag_value,updated_at)"
+                " VALUES (?,?,?,?)",
+                (character_id, quest_id, flag_value, updated_at),
+            )
+            written = db.execute(
+                "SELECT flag_value FROM character_quest_flags "
+                "WHERE character_id=? AND quest_id=?",
+                (character_id, quest_id),
+            ).fetchone()
+        return int(written["flag_value"])
+
+    def get_quest_counter(
+        self, character_id: int, quest_id: int, counter_name: str
+    ) -> "int | None":
+        """The value `set_quest_counter` last wrote for this (character,
+        quest, counter_name), or `None` if it was never set -- not an
+        error, matching `get_quest_flag`'s own contract.  `counter_name` is
+        a caller-chosen key (a mob id rendered as text for kill-count
+        progress, or the fixed `"daily_report_epoch_day"` for the daily
+        stamp, per the CORE-REQUEST) -- this door does not interpret it.
+
+        Raises `TypeError` for a non-int/bool `character_id`/`quest_id` or a
+        non-`str` `counter_name`, `ValueError` for `quest_id` outside
+        `0..65535` or `counter_name` outside `1..128` characters
+        (`migrations/016_character_quest_state.sql`'s own bounds), and
+        `KeyError` for a character that does not exist or has been
+        soft-deleted (or is outside SQLite's representable `INTEGER`
+        range).
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if isinstance(quest_id, bool) or not isinstance(quest_id, int):
+            raise TypeError("quest_id must be an int")
+        if not isinstance(counter_name, str):
+            raise TypeError("counter_name must be a str")
+        if not 0 <= quest_id <= 0xFFFF:
+            raise ValueError("quest_id %d is outside the 0..65535 range" % quest_id)
+        if not 1 <= len(counter_name) <= 128:
+            raise ValueError(
+                "counter_name length %d is outside the 1..128 range"
+                % len(counter_name)
+            )
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+        with self.connect() as db:
+            exists = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if exists is None:
+                raise KeyError(character_id)
+            row = db.execute(
+                "SELECT counter_value FROM character_quest_counters "
+                "WHERE character_id=? AND quest_id=? AND counter_name=?",
+                (character_id, quest_id, counter_name),
+            ).fetchone()
+        return None if row is None else int(row["counter_value"])
+
+    def set_quest_counter(
+        self,
+        character_id: int,
+        quest_id: int,
+        counter_name: str,
+        counter_value: int,
+    ) -> int:
+        """Persist `counter_value` for this (character, quest,
+        counter_name), replacing whatever was there, and return the value
+        read back after the write.  An ABSOLUTE set, never an increment --
+        the CORE-REQUEST states LANE-Q's own `MobKillCount` calls this once
+        per quest-accept to start tracking at 0, and does not ask for
+        accumulation here (a future `increment_quest_counter` would be a
+        separate request, in that lane's own words).
+
+        `INSERT OR REPLACE` against `UNIQUE(character_id, quest_id,
+        counter_name)`, same overwrite-on-repeat shape `set_quest_flag`
+        uses above.
+
+        Raises `TypeError` for a non-int/bool `character_id`/`quest_id`/
+        `counter_value` or a non-`str` `counter_name`, `ValueError` for
+        `quest_id` outside `0..65535`, `counter_name` outside `1..128`
+        characters, or `counter_value` outside `0..4294967295`
+        (`migrations/016_character_quest_state.sql`'s own `CHECK` bounds),
+        `KeyError` for a character that does not exist or has been
+        soft-deleted (or is outside SQLite's representable `INTEGER`
+        range), and `WriteLockTimeout` instead of a raw `sqlite3.
+        OperationalError` when the write lock cannot be taken.  Nothing is
+        written when anything is refused.
+        """
+        for label, value in (
+            ("character_id", character_id),
+            ("quest_id", quest_id),
+            ("counter_value", counter_value),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{label} must be an int")
+        if not isinstance(counter_name, str):
+            raise TypeError("counter_name must be a str")
+        if not 0 <= quest_id <= 0xFFFF:
+            raise ValueError("quest_id %d is outside the 0..65535 range" % quest_id)
+        if not 1 <= len(counter_name) <= 128:
+            raise ValueError(
+                "counter_name length %d is outside the 1..128 range"
+                % len(counter_name)
+            )
+        if not 0 <= counter_value <= 0xFFFFFFFF:
+            raise ValueError(
+                "counter_value %d is outside the u32 range" % counter_value
+            )
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+        updated_at = _now()
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s quest {quest_id} counter "
+                    f"{counter_name!r} within connect()'s busy_timeout: "
+                    f"{error}"
+                ) from error
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            db.execute(
+                "INSERT OR REPLACE INTO character_quest_counters"
+                "(character_id,quest_id,counter_name,counter_value,"
+                "updated_at) VALUES (?,?,?,?,?)",
+                (character_id, quest_id, counter_name, counter_value,
+                 updated_at),
+            )
+            written = db.execute(
+                "SELECT counter_value FROM character_quest_counters "
+                "WHERE character_id=? AND quest_id=? AND counter_name=?",
+                (character_id, quest_id, counter_name),
+            ).fetchone()
+        return int(written["counter_value"])
+
     @staticmethod
     def _character(r):
         return Character(int(r['id']),int(r['account_id']),int(r['selector']),r['name'],bytes(r['actor_wire']),bytes(r['avatar_wire']),int(r['identity_lo']),int(r['identity_hi']),Position(int(r['scene_id']),int(r['scene_seq']),float(r['x']),float(r['y']),float(r['z']),float(r['heading'])))
