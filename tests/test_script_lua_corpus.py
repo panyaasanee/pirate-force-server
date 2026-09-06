@@ -240,7 +240,20 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: 159 -> 160 once both deltas run in the SAME corpus pass -- neither
 #: shift is visible when each delta is measured alone, exactly why this
 #: round remeasured instead of adding the two prior entries' own deltas).
-BASELINE_TOTAL_STUB_CALLS = 3716
+#:
+#: RE-MEASURED (LANE-Q, round x6gxzd): lua_api/player.py made
+#: Player.MobAppear real (COO-DECISION 20260907_0043 answering
+#: PANYA-DECISION 20260907_0039 -- a per-player visibility FLAG, not a
+#: world spawn; see that module's own docstring). MEASURED, not derived
+#: from the 3,532-call-site grep the naive way: report.real_call_counts
+#: against this same LUA_ROOT and FIXED_QUEST_CLOCK prints
+#: {'Player.MobAppear': 1096, ...unchanged...} -- 3716 - 1096 = 2620,
+#: EXACTLY (no branch-shift this time, unlike every prior real-method
+#: landing this file documents above): MobAppear is a side-effecting call
+#: inside branches other stub reads already gate (`if (Quest.VarN > 0)
+#: then Player.MobAppear(...)`), never itself a condition another call
+#: sits behind, so making it real changes no OTHER script's control flow.
+BASELINE_TOTAL_STUB_CALLS = 2620
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()
