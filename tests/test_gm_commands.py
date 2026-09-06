@@ -8,10 +8,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation.gm import commands as commands_module
 from pirateforce_foundation.gm.commands import (
     MAX_SAY_MESSAGE_LENGTH,
     GmCommand,
@@ -363,6 +365,65 @@ class LogGmCommandTests(unittest.TestCase):
             # command_capture.py: NTFS ignores this bit split, real access
             # control there is the containing directory's ACL.
             self.assertTrue(out.is_file())
+
+    def test_log_open_passes_o_binary_flag_when_available(self):
+        # Sibling of gm/command_capture.py's O_BINARY fix (pf-adversary D6,
+        # round `lkwmkp`): this audit log is also written via a raw
+        # os.open()+os.write() pair, one ndjson line per GM command. Without
+        # os.O_BINARY, Windows' default text-mode translation on that
+        # descriptor could turn an embedded `\n` inside the flag into extra
+        # bytes on disk, corrupting the one-line-per-record contract. The
+        # flag does not exist on this (POSIX) host, so it is monkeypatched
+        # to a sentinel bit that cannot collide with any real O_* flag,
+        # purely to prove this call site threads it through -- not to prove
+        # anything about actual Windows CRLF behaviour.
+        #
+        # pf-adversary (this round, same fix as command_capture.py's sibling
+        # test): delegate to the real os.open() with the sentinel bit
+        # cleared first -- this bit has never been asked of the real
+        # Windows CRT open call this fix targets, and an unrecognized oflag
+        # bit is documented by Microsoft as unspecified, not guaranteed
+        # ignored, so a real syscall must never see it.
+        sentinel_bit = 1 << 30
+        real_open = commands_module.os.open
+
+        def _spy_then_real_open_without_sentinel(path, flags, *args, **kwargs):
+            return real_open(path, flags & ~sentinel_bit, *args, **kwargs)
+
+        with mock.patch.object(
+            commands_module.os, "O_BINARY", sentinel_bit, create=True,
+        ), mock.patch.object(
+            commands_module.os,
+            "open",
+            side_effect=_spy_then_real_open_without_sentinel,
+        ) as spy_open:
+            log_gm_command(
+                parse_gm_command("lv 1"), "panya", log_path=self.log_path, now_ts=0,
+            )
+        self.assertEqual(spy_open.call_count, 1)
+        flags_arg = spy_open.call_args.args[1]
+        self.assertTrue(
+            flags_arg & sentinel_bit,
+            f"os.open() flags {oct(flags_arg)} do not include the "
+            f"O_BINARY sentinel bit {oct(sentinel_bit)} -- the getattr("
+            f"os, 'O_BINARY', 0) fallback regressed or was removed",
+        )
+
+    def test_log_open_flags_unchanged_when_o_binary_absent(self):
+        # On POSIX (every platform this suite actually runs on today)
+        # os.O_BINARY does not exist, so getattr(...) must fall back to 0 --
+        # the flags value passed to os.open() must be byte-for-byte the
+        # same as before this fix.
+        self.assertFalse(hasattr(os, "O_BINARY"))
+        with mock.patch.object(
+            commands_module.os, "open", side_effect=commands_module.os.open,
+        ) as spy_open:
+            log_gm_command(
+                parse_gm_command("lv 1"), "panya", log_path=self.log_path, now_ts=0,
+            )
+        self.assertEqual(spy_open.call_count, 1)
+        flags_arg = spy_open.call_args.args[1]
+        self.assertEqual(flags_arg, os.O_CREAT | os.O_APPEND | os.O_WRONLY)
 
     def test_log_directory_mode_is_owner_only_regardless_of_umask(self):
         # Sibling of gm/command_capture.py's directory-mode fix: a
