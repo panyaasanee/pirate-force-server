@@ -721,5 +721,189 @@ class TheWiringAsk(unittest.TestCase):
         # colleague.
 
 
+ALICE = 0x10000001
+BOB = 0x10000002
+
+
+class ThePlayerBook(unittest.TestCase):
+    """The fourth book: OTHER PLAYERS standing in a scene right now,
+    added under COO-DECISION 20260906_1147 beside the monster/grave/ground
+    books ``SceneWorldView`` already answered "what does this scene look
+    like right now" from.  Same shape and same reasoning as ``TheBookItself``
+    above, restated for the player door rather than the monster one.
+    """
+
+    def test_a_written_player_is_read_back(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        outcome = registry.note_player(
+            SCENE, ALICE, "Alice", 100, 100, (1.0, 2.0, 3.0))
+        self.assertTrue(outcome.noted)
+        row = registry.remembered_players(SCENE)[0]
+        self.assertEqual(row.actor_identity, ALICE)
+        self.assertEqual(row.name, "Alice")
+        self.assertEqual(row.current_hp, 100)
+        self.assertEqual(row.position, (1.0, 2.0, 3.0))
+
+    def test_two_sessions_in_one_scene_read_the_same_roster(self):
+        """The shared-world property, restated for players: two independent
+        readers of ONE registry see the same roster -- not a per-session
+        copy that only the writer can see."""
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0))
+        first_reader = registry.remembered_players(SCENE)
+        second_reader = registry.remembered_players(SCENE)
+        self.assertEqual(first_reader, second_reader)
+
+    def test_the_view_carries_players_too(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0))
+        scene_view = world_scene_registry.view(SCENE, registry=registry)
+        self.assertEqual(len(scene_view.players), 1)
+        self.assertFalse(scene_view.is_empty)
+        self.assertIn("players=1", world_scene_registry.describe_view(scene_view))
+
+    def test_an_empty_view_says_zero_players_too(self):
+        scene_view = world_scene_registry.view(
+            SCENE, registry=world_scene_registry.WorldSceneRegistry())
+        self.assertTrue(scene_view.is_empty)
+        self.assertIn("players=0", world_scene_registry.describe_view(scene_view))
+
+    def test_zero_health_is_refused_by_name_at_the_player_door_too(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        outcome = registry.note_player(SCENE, ALICE, "Alice", 0, 100, (0, 0, 0))
+        self.assertFalse(outcome.noted)
+        self.assertEqual(outcome.reason, world_scene_registry.REFUSE_BAD_HP)
+        self.assertEqual(registry.remembered_players(SCENE), ())
+
+    def test_the_row_type_refuses_zero_health_too(self):
+        with self.assertRaises(ValueError):
+            world_scene_registry.PlayerVital(ALICE, "Alice", 0, 100, (0, 0, 0))
+
+    def test_a_blank_name_is_refused_by_name(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        outcome = registry.note_player(SCENE, ALICE, "", 100, 100, (0, 0, 0))
+        self.assertEqual(outcome.reason, world_scene_registry.REFUSE_BAD_NAME)
+
+    def test_health_above_ceiling_is_refused(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        outcome = registry.note_player(SCENE, ALICE, "Alice", 200, 100, (0, 0, 0))
+        self.assertEqual(outcome.reason, world_scene_registry.REFUSE_BAD_HP)
+
+    def test_a_bad_position_is_refused(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        outcome = registry.note_player(
+            SCENE, ALICE, "Alice", 100, 100, (float("nan"), 0, 0))
+        self.assertEqual(outcome.reason, world_scene_registry.REFUSE_BAD_POSITION)
+
+    def test_forget_player_is_the_logout_door(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0))
+        self.assertTrue(registry.forget_player(SCENE, ALICE))
+        self.assertFalse(registry.forget_player(SCENE, ALICE))
+        self.assertEqual(registry.remembered_players(SCENE), ())
+
+    def test_the_player_cap_refuses_by_name_and_keeps_what_it_has(self):
+        registry = world_scene_registry.WorldSceneRegistry(players_per_scene=1)
+        self.assertTrue(
+            registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0)).noted)
+        refused = registry.note_player(SCENE, BOB, "Bob", 100, 100, (0, 0, 0))
+        self.assertEqual(
+            refused.reason, world_scene_registry.REFUSE_TOO_MANY_PLAYERS_IN_SCENE)
+        self.assertEqual(len(registry.remembered_players(SCENE)), 1)
+        # A row already held is still writable when the scene's player book
+        # is full: the cap bounds how many DISTINCT players are remembered,
+        # not how often one moves.
+        self.assertTrue(
+            registry.note_player(
+                SCENE, ALICE, "Alice", 90, 100, (1, 1, 1)).noted)
+
+    def test_a_bad_player_cap_is_refused_at_construction(self):
+        for bad in (0, -1, True, 1.5, "many"):
+            with self.subTest(cap=bad):
+                with self.assertRaises(ValueError):
+                    world_scene_registry.WorldSceneRegistry(players_per_scene=bad)
+
+    def test_players_and_monsters_do_not_share_an_identity_space(self):
+        """The same identity noted as a monster and as a player must not let
+        one door's write clobber the other's row -- they are different
+        actors that happen to share a number, and this book must not assume
+        the identity bands never collide the way the wire's own bands
+        usually do."""
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance(SCENE, SOLDIER, 900, CEILING)
+        registry.note_player(SCENE, SOLDIER, "Soldier", 100, 100, (0, 0, 0))
+        self.assertEqual(registry.remembered_one(SCENE, SOLDIER).current_hp, 900)
+        self.assertEqual(
+            registry.remembered_players(SCENE)[0].current_hp, 100)
+
+    def test_clear_empties_the_player_book_too(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0))
+        registry.clear()
+        self.assertEqual(registry.remembered_players(SCENE), ())
+
+    def test_a_scene_the_player_book_full_of_scenes_refuses_a_new_one(self):
+        registry = world_scene_registry.WorldSceneRegistry(scenes=1)
+        self.assertTrue(
+            registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0)).noted)
+        refused = registry.note_player("bg9999", BOB, "Bob", 100, 100, (0, 0, 0))
+        self.assertEqual(
+            refused.reason, world_scene_registry.REFUSE_TOO_MANY_SCENES)
+
+    def test_the_player_production_bound_is_pinned(self):
+        self.assertEqual(world_scene_registry.PLAYERS_PER_SCENE_CAP, 256)
+        bare = world_scene_registry.WorldSceneRegistry()
+        self.assertEqual(bare.players_per_scene,
+                         world_scene_registry.PLAYERS_PER_SCENE_CAP)
+
+    def test_the_scene_cap_is_shared_across_both_books_not_doubled(self):
+        # pf-adversary (round 6bpbe3): a monster-book scene and a
+        # player-book scene used to be counted separately, so scenes=1
+        # let the process remember TWO distinct scene keys (one per book)
+        # instead of the one bound both doors claim to share.
+        registry = world_scene_registry.WorldSceneRegistry(scenes=1)
+        self.assertTrue(
+            registry.note_balance("bg0002", SOLDIER, 900, CEILING).noted)
+        refused = registry.note_player(
+            "bg0003", ALICE, "Alice", 100, 100, (0, 0, 0))
+        self.assertEqual(
+            refused.reason, world_scene_registry.REFUSE_TOO_MANY_SCENES)
+        self.assertEqual(registry.scenes(), ("bg0002",))
+
+    def test_a_scene_already_known_to_one_book_is_free_in_the_other(self):
+        # The same scene folder noted by the monster book must not count
+        # AGAIN against the cap when the player book notes it too --
+        # only a genuinely NEW scene key should be refused.
+        registry = world_scene_registry.WorldSceneRegistry(scenes=1)
+        self.assertTrue(
+            registry.note_balance(SCENE, SOLDIER, 900, CEILING).noted)
+        self.assertTrue(
+            registry.note_player(SCENE, ALICE, "Alice", 100, 100,
+                                  (0, 0, 0)).noted)
+        self.assertEqual(registry.scenes(), (SCENE,))
+
+    def test_scenes_reports_a_scene_known_only_to_the_player_book(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0))
+        self.assertEqual(registry.scenes(), (SCENE,))
+
+    def test_the_describe_line_is_ascii_and_names_its_subject(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        noted = world_scene_registry.describe_noted_player(
+            registry.note_player(SCENE, ALICE, "Alice", 100, 100, (0, 0, 0)))
+        refused = world_scene_registry.describe_noted_player(
+            registry.note_player(SCENE, ALICE, "", 100, 100, (0, 0, 0)))
+        for line in (noted, refused):
+            line.encode("ascii")
+            self.assertTrue(line.startswith("WORLD_REGISTRY_PLAYER_"), line)
+        self.assertIn("hp=100/100", noted)
+        self.assertIn("reason=bad_name", refused)
+
+    def test_describe_noted_player_never_raises_on_a_shape_it_did_not_expect(self):
+        line = world_scene_registry.describe_noted_player(object())
+        line.encode("ascii")
+        self.assertTrue(line.startswith("WORLD_REGISTRY_PLAYER_"), line)
+
+
 if __name__ == "__main__":
     unittest.main()
