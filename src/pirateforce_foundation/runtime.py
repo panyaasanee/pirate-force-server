@@ -24,6 +24,7 @@ from . import mob_pickup
 from . import mob_pickup_request
 from . import mob_respawn
 from . import mob_scene_recompose
+from . import name_colour_sweep
 from . import scene_admission_gate
 from . import trace_path
 from . import vital_walk
@@ -12009,6 +12010,97 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 world_population.INITIAL_REAPPLY_MS / 1000.0,
                             ),
                         ]
+                        # CORE-REQUEST (LANE-B, pf_bridge
+                        # notes_to_chief/20260907_0027): RE-155's dummy row.
+                        # LANE-B owns the module and may not edit this file,
+                        # so the single call site is chief's half, wired the
+                        # round the request arrived (CHIEF.md section 6).
+                        #
+                        # TWO DECISIONS THE REQUEST ASKED CHIEF TO MAKE, AND
+                        # WHY EACH WENT THE WAY IT DID:
+                        #
+                        # 1. WHERE.  Here, in the scene-arrival census
+                        #    branch, NOT beside `pose_trial` at the combat
+                        #    echo.  LANE-B's own letter argued this and it
+                        #    is right for the reason it gave: `pose_trial`
+                        #    is a per-connection reply to one player's swing,
+                        #    while the shared-world rule (PANYA 1057/1140)
+                        #    says the world of a scene is shared by every
+                        #    session in it.  The sweep is scene furniture --
+                        #    a labelled row standing in bg0001 -- so it is
+                        #    composed exactly where the rest of that scene's
+                        #    population is composed, from the same `legacy`
+                        #    and the same anchor, and every session entering
+                        #    the scene composes the identical row.
+                        #    NONCLAIM: identical-per-session is NOT the same
+                        #    as one shared row registered in LANE-A's world
+                        #    registry.  `build_sweep_population` is a pure
+                        #    function of (anchor, env) and writes nothing to
+                        #    the registry, so two sessions each get their own
+                        #    copy that happens to agree.  For a read-only
+                        #    colour instrument with no combat state that is
+                        #    enough, and TWO_SESSIONS_SAME_SCENE holds for
+                        #    what the tester reads off the nameboard; it
+                        #    would NOT be enough for anything killable, and
+                        #    nothing here may be reused for one.
+                        #
+                        # 2. WHEN.  After the REAPPLY, not with the INITIAL.
+                        #    The census above sends the same bytes twice, the
+                        #    second time at INITIAL_REAPPLY_MS.  RE-222-RESULT
+                        #    measured this client's actor apply path to have
+                        #    "full-object replacement semantics"
+                        #    (quoted at mob_viewer_link.py:43-54).  Read
+                        #    strictly that is per-OBJECT, and the sweep's
+                        #    identities (SWEEP_PLACEMENT_BASE 20000+) appear
+                        #    in no census entry, so a reapply of the census
+                        #    should not touch them.  [PROPOSED, NOT MEASURED:]
+                        #    nothing in this house has measured what a second
+                        #    RuntimeRemoteActors frame does to actors the
+                        #    first one did not mention, and the whole point
+                        #    of the row is that a human reads it off the
+                        #    screen.  Half a second past the reapply costs
+                        #    the tester 3.5s and removes the one ordering
+                        #    that could explain an empty screen as anything
+                        #    other than the answer.  A round that MEASURES
+                        #    the collection semantics may move this to 0.0.
+                        #
+                        # Unarmed is the default and is byte-identical to
+                        # before this block: `build_sweep_population` returns
+                        # None unless PF_NAME_COLOUR_SWEEP is 1 or 2, so no
+                        # ordinary boot composes, sends or pays for anything
+                        # here.  A refusal from an ARMED sweep is caught and
+                        # printed rather than raised: this branch runs on the
+                        # listener thread with no except above it (see the
+                        # viewer_identity comment a few hundred lines up),
+                        # and an attended tester who armed the env deserves
+                        # to read why the row is missing on the console they
+                        # are already watching, not to lose the session.
+                        try:
+                            sweep_population = (
+                                name_colour_sweep.build_sweep_population(legacy)
+                            )
+                        except name_colour_sweep.NameColourSweepError as exc:
+                            sweep_population = None
+                            self.events.append("name_colour_sweep_refused")
+                            print(
+                                "NAME_COLOUR_SWEEP_REFUSED "
+                                f"{ascii(str(exc))}"
+                            )
+                        if sweep_population is not None:
+                            sweep_pc, sweep_frame = sweep_population
+                            sweep_count = len(
+                                name_colour_sweep.sweep_actors(legacy)
+                            )
+                            census_actions.append((
+                                f"NAME_COLOUR_SWEEP_{sweep_count}",
+                                sweep_pc, sweep_frame,
+                                (world_population.INITIAL_REAPPLY_MS + 500)
+                                / 1000.0,
+                            ))
+                            print(
+                                f"NAME_COLOUR_SWEEP_ARMED actors={sweep_count}"
+                                f" pc={len(sweep_pc)} frame={len(sweep_frame)}"
+                            )
 
             if self.arena_scenario is not None and self.arena_spawned:
                 if (
