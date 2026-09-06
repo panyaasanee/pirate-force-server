@@ -1,1 +1,1 @@
-{"sha":"36c0d0e1b73e374376d853ab484c24576d2ccd0d","conclusion":"failure","event":"push","ref":"refs/heads/claude/hopeful-hopper-7v7yn2","run_id":"34036013841","utc":"2026-09-06T13:51:17Z"}
+{"sha":"36c0d0e1b73e374376d853ab484c24576d2ccd0d","conclusion":"failure","event":"pull_request","ref":"refs/pull/947/merge","run_id":"34036020824","utc":"2026-09-06T13:59:23Z"}
