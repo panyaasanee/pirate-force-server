@@ -706,9 +706,15 @@ def make_learn_skill_result_step_response(
     _require_step_plan()
     if type(step_index) is not int or type(step_index) is bool:
         raise ValueError("learn skill result rejected: unknown_step_label")
-    if step_index < 0 or step_index >= len(LEARN_SKILL_RESULT_STEP_ORDER):
+    # The dispatcher enumerates the LOADED scenario's step order and hands
+    # back the position, so the index must be resolved against that same
+    # order or a one-step scenario would emit the sweep's first frame under
+    # the step's action label.  With no step scenario loaded this is the
+    # sweep's own order, byte for byte the behaviour that shipped.
+    step_order = _active_step_order()
+    if step_index < 0 or step_index >= len(step_order):
         raise ValueError("learn skill result rejected: unknown_step_label")
-    label = LEARN_SKILL_RESULT_STEP_ORDER[step_index]
+    label = step_order[step_index]
     pc, frame = make_learn_skill_result_response(
         legacy,
         LEARN_SKILL_RESULT_STEP_RECORDS[label],
@@ -749,6 +755,69 @@ _PROFILE_LEARN_SWEEP = LearnSkillResultHypothesisScenario(
 )
 
 
+# ------------------------------------------------- one step per boot (GT-276)
+# GT-249 / R312 sent all six steps on one accepted trigger and the client
+# could not walk afterwards.  Nobody knows which step did it, and the whole
+# point of GT-276 is to find out.  Isolating a step needs the dispatcher to
+# emit exactly ONE frame per accepted trigger, and the dispatcher is in
+# runtime.py, which this lane may not touch.  It does not need to: runtime
+# loops over the SCENARIO's step order, so a scenario whose step order names
+# one label makes it send one frame.
+#
+# The step scenarios are the same permission token as the sweep, not a new
+# mechanism and not a relaxation: each one is allowlisted body-exactly against
+# a body derived from the same frozen module constants, every frame it can
+# emit is still composed by the same pinned composer under the same drift
+# checks, and the six-step sweep file keeps behaving exactly as it does today
+# (nothing about it changes, including its bytes on disk).
+LEARN_SKILL_RESULT_STEP_SCENARIO_ID_PREFIX = (
+    "learn_skill_result_hypothesis_learn_step_"
+)
+
+
+def learn_skill_result_step_scenario_id(label: str) -> str:
+    """Scenario id of the one-frame-per-trigger file that isolates LABEL."""
+    if label not in LEARN_SKILL_RESULT_STEP_RECORDS:
+        raise ValueError("learn skill result rejected: unknown_step_label")
+    return LEARN_SKILL_RESULT_STEP_SCENARIO_ID_PREFIX + label.lower()
+
+
+_PROFILE_LEARN_STEP: dict[str, LearnSkillResultHypothesisScenario] = {
+    label: LearnSkillResultHypothesisScenario(
+        learn_skill_result_step_scenario_id(label),
+        LEARN_SKILL_RESULT_HYPOTHESIS_ID,
+        (label,),
+        LEARN_SKILL_RESULT_SPACING_SECONDS,
+    )
+    for label in LEARN_SKILL_RESULT_STEP_ORDER
+}
+
+# The plan the loaded scenario file selected, or None for "the whole sweep".
+# One process serves one scenario file (app.py loads it once, before any
+# connection), so this is process-wide by construction, exactly like the
+# scenario object itself; a second load that would change it is refused
+# rather than silently re-aiming a running server at a different frame.
+_ACTIVE_STEP_PLAN: tuple[str, ...] | None = None
+
+
+def _active_step_order() -> tuple[str, ...]:
+    """Labels the dispatcher's index argument is resolved against."""
+    if _ACTIVE_STEP_PLAN is None:
+        return LEARN_SKILL_RESULT_STEP_ORDER
+    return _ACTIVE_STEP_PLAN
+
+
+def _select_step_plan(plan: tuple[str, ...]) -> None:
+    global _ACTIVE_STEP_PLAN
+    if plan == LEARN_SKILL_RESULT_STEP_ORDER:
+        plan = None
+    if _ACTIVE_STEP_PLAN is not None and plan != _ACTIVE_STEP_PLAN:
+        raise RuntimeError(
+            "HYP-PF-033 refuses to change the loaded step plan in one process"
+        )
+    _ACTIVE_STEP_PLAN = plan
+
+
 def _record_schema(record: LearnSkillResultRecord) -> dict[str, int]:
     return {
         "record_u32_0": record.record_u32_0,
@@ -758,9 +827,23 @@ def _record_schema(record: LearnSkillResultRecord) -> dict[str, int]:
 
 
 def _expected_sweep() -> dict[str, Any]:
+    return _expected_plan(
+        LEARN_SKILL_RESULT_SCENARIO_ID, LEARN_SKILL_RESULT_STEP_ORDER,
+    )
+
+
+def _expected_plan(
+    scenario_id: str, labels: tuple[str, ...],
+) -> dict[str, Any]:
+    """The one allowlisted body for a plan, derived from module constants.
+
+    Called with the full step order this returns, key for key, the body the
+    committed sweep file has always had; called with one label it returns the
+    same body narrowed to that label.  Nothing here is a source of frames.
+    """
     return {
         "schema": 1,
-        "id": LEARN_SKILL_RESULT_SCENARIO_ID,
+        "id": scenario_id,
         "test_only": True,
         "production_allowed": False,
         "hypothesis_id": LEARN_SKILL_RESULT_HYPOTHESIS_ID,
@@ -775,18 +858,18 @@ def _expected_sweep() -> dict[str, Any]:
         "dispatch": {
             "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
             "trigger_classifier": "classify_chat_input_attempt",
-            "frames_per_accepted_request": len(LEARN_SKILL_RESULT_STEP_ORDER),
-            "step_order": list(LEARN_SKILL_RESULT_STEP_ORDER),
+            "frames_per_accepted_request": len(labels),
+            "step_order": list(labels),
             "step_records": {
                 label: [
                     _record_schema(record)
                     for record in LEARN_SKILL_RESULT_STEP_RECORDS[label]
                 ]
-                for label in LEARN_SKILL_RESULT_STEP_ORDER
+                for label in labels
             },
             "step_trailing_u8": {
                 label: LEARN_SKILL_RESULT_STEP_TRAILING[label]
-                for label in LEARN_SKILL_RESULT_STEP_ORDER
+                for label in labels
             },
             "spacing_seconds": LEARN_SKILL_RESULT_SPACING_SECONDS,
             "first_frame_delay_seconds": (
@@ -796,7 +879,7 @@ def _expected_sweep() -> dict[str, Any]:
             "action_label_prefix": LEARN_SKILL_RESULT_ACTION_LABEL_PREFIX,
             "action_labels": [
                 LEARN_SKILL_RESULT_ACTION_LABEL_PREFIX + label
-                for label in LEARN_SKILL_RESULT_STEP_ORDER
+                for label in labels
             ],
             "one_shot": False,
             "socket_action": "none",
@@ -909,21 +992,38 @@ def load_learn_skill_result_hypothesis_scenario(
         raise ValueError(
             "invalid learn skill result hypothesis scenario"
         ) from exc
-    if type(data) is not dict or data.get("id") != (
-        LEARN_SKILL_RESULT_SCENARIO_ID
+    if type(data) is not dict:
+        raise ValueError(
+            "learn skill result hypothesis scenario exceeds the exact "
+            "allowlist"
+        )
+    scenario_id = data.get("id")
+    if scenario_id == LEARN_SKILL_RESULT_SCENARIO_ID:
+        profile = _PROFILE_LEARN_SWEEP
+    else:
+        profile = next(
+            (
+                candidate
+                for candidate in _PROFILE_LEARN_STEP.values()
+                if candidate.scenario_id == scenario_id
+            ),
+            None,
+        )
+    if profile is None:
+        raise ValueError(
+            "learn skill result hypothesis scenario exceeds the exact "
+            "allowlist"
+        )
+    if not _exact_equal(
+        data, _expected_plan(profile.scenario_id, profile.step_order),
     ):
         raise ValueError(
             "learn skill result hypothesis scenario exceeds the exact "
             "allowlist"
         )
-    if not _exact_equal(data, _expected_sweep()):
-        raise ValueError(
-            "learn skill result hypothesis scenario exceeds the exact "
-            "allowlist"
-        )
-    return require_learn_skill_result_hypothesis_scenario(
-        _PROFILE_LEARN_SWEEP
-    )
+    scenario = require_learn_skill_result_hypothesis_scenario(profile)
+    _select_step_plan(scenario.step_order)
+    return scenario
 
 
 def require_learn_skill_result_hypothesis_scenario(
@@ -931,7 +1031,9 @@ def require_learn_skill_result_hypothesis_scenario(
 ) -> LearnSkillResultHypothesisScenario:
     if (
         type(value) is not LearnSkillResultHypothesisScenario
-        or value != _PROFILE_LEARN_SWEEP
+        or value not in (
+            _PROFILE_LEARN_SWEEP, *_PROFILE_LEARN_STEP.values(),
+        )
     ):
         raise ValueError(
             "learn skill result hypothesis scenario object exceeds the "
