@@ -2,6 +2,25 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "defaultMode": "bypassPermissions",
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(rm -r*)",
+      "Bash(rm -rf*)",
+      "Bash(git reset --hard*)",
+      "Bash(git branch -D*)",
+      "Bash(git clean -f*)",
+      "Bash(git checkout -- *)",
+      "Bash(curl*)",
+      "Bash(wget*)",
+      "Write(//root/**)",
+      "Edit(//root/**)",
+      "Write(//etc/**)",
+      "Edit(//etc/**)",
+      "Read(//root/.claude/**/tool-results/**)"
+    ],
     "allow": [
       "Skill",
       "Read",
@@ -49,6 +68,5 @@
       "mcp__github__get_check_run",
       "mcp__github__get_job_logs"
     ]
-  },
-  "enableAllProjectMcpServers": true
+  }
 }
