@@ -17,6 +17,13 @@ populates that slot, so the attended question "does sending one change what K
 does" had nothing to run against.  This lane builds the server side of
 exactly the RE-061-pinned wire shape and nothing more.
 
+  [SUPERSEDED, see the round-xy58b1 UPDATE in NONCLAIMS below] The attended
+  answer to "does sending one change what K does" is now in: negative, twice,
+  but confounded by an unrelated bug that has since been fixed.  RE-061's
+  read of the gate above is no longer the leading explanation for why the
+  window did not open in GT-058/GT-059 -- read the UPDATE paragraph before
+  treating anything in this section as still-operative causal fact.
+
 What RE-061 proved (static, verified two independent ways; do not re-prove)
 ---------------------------------------------------------------------------
   * CSkillAttr is NOT a standalone vital: it is an attr block, class id
@@ -73,9 +80,57 @@ NONCLAIMS -- read these before using one symbol from this file
     either direction (PF_FIELD_VALIDATION rows NOT_OBSERVED), so the step
     plan, the record values, the db_mask policy, the spacing and the
     trigger policy are this project's own design.
-  * NO CLIENT HAS EVER SEEN ONE OF THESE FRAMES from this project.  That
-    half is an attended GT ticket, queued and not run, and no coverage row
-    grade moves on this module alone.
+  * [UPDATE, round xy58b1, 2026-09-06] The sentence this replaces said "no
+    client has ever seen one of these frames... an attended GT ticket,
+    queued and not run."  THAT WAS STALE AND WRONG, and no coverage row
+    grade moves on this correction alone (the underlying claim it corrects
+    was already false before this round, not a change this round makes to
+    project truth).  A real client HAS seen these exact frames, twice,
+    byte-exact on the wire both times: GT-059 SKILL-ATTR-WINDOW-GATE-001
+    (CLOSED P2 FALSIFIED -- ticket text verbatim in
+    archive/GAME_TEST_QUEUE_ARCHIVE_20260827_closed.md, sign-off letter
+    20260824_2133_PANYA-VISUAL-SIGNOFF-GT059-* -- consult pf_bridge's own
+    notes_to_chief/consumed/ or archive/ tree for its current path, letters
+    move after consumption and this docstring does not track that -- Panya
+    watched two continuous videos start to finish, K pressed 4 times plus
+    the Skill button clicked twice across two sessions, the window never
+    opened) and its A/B follow-up GT-064 SKILL-ATTR-WINDOW-KPRESS-IN-GAP-001
+    (CLOSED PASS(P2), chief round R158 -- K pressed inside the 3.0s gap
+    between the two sweep frames, same negative).  So "does sending this
+    alone open the window" is answered, negative, do not re-run it and do
+    not write a new ticket asking it again.
+    HOWEVER both runs are CONFOUNDED by a bug neither ticket's authors knew
+    about yet: every login of that era sent class_id=0/level=0 in
+    ActorAttr/BasicAttr (CORE-REQUEST-022 had not landed), and GT-116
+    CLASS-LEVEL-LOGIN-SKILLWINDOW-UNBLOCK-001 (CLOSED PASS, 2026-08-28, an
+    ATTENDED result, not a fresh disassembly of 0x761ED0 -- nobody re-opened
+    the gate address itself this round) showed that wiring class_id=1/
+    level=1 into every login is BY ITSELF enough for the window to open with
+    zero skill entries, with no CSkillAttr frame ever sent.  That is
+    consistent with the gate's real trigger being class/level state rather
+    than the actor+0x3E8 container RE-061 pinned as the leading hypothesis,
+    but nobody has gone back and re-derived 0x761ED0 statically to confirm
+    that mechanism directly -- treat "RE-061's read is the whole story" as
+    unsupported by the fuller evidence, not as re-disproven by a new static
+    finding.
+    NEITHER GT-059 NOR GT-064 EVER TESTED THE WINDOW OPEN: both attended
+    sessions ran against the pre-GT-116 baseline where the window could not
+    open no matter what arrived, so "does the two-step sweep's arbitrary
+    probe record (key=1, both opaque fields 0 -- not a real skill id)
+    change what an ALREADY-OPEN window shows" was never asked and remains
+    genuinely untested.  A related sibling question -- does a DIFFERENT wire
+    lane's real-skill-id content frame change an already-open window -- HAS
+    now been asked and answered PASS-PARTIAL: see
+    LEARN-SKILL-RESULT-001's ``COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0`` update
+    below in that module's own docstring (ticket GT-249, run 2026-09-05, 3
+    of 4 real skill ids rendered) -- a different vital (0x673C, not this
+    module's 0x1661) answering a related but not identical question, so it
+    does not retroactively answer this module's own untested content
+    question.  ``production_allowed`` stays False here: this module's own
+    probe records are not real skill ids, so even against an open window
+    this sweep could not distinguish "content populated" from "arbitrary
+    garbage happened to render," and no new attended ticket for THIS module
+    is being opened this round.
 
 Fail-closed contract
 --------------------

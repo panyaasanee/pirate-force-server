@@ -887,11 +887,15 @@ class StatsProgressionStatic(unittest.TestCase):
         ("learn_skill_result_hypothesis.py", "CLearnSkillResultVital", 1),
         ("learn_skill_request_hypothesis.py", "CLearnSkillVital", 1),
         # SKILL-ATTR-001 (HYP-PF-035, 2026-08-24): the attr-block lane's
-        # owning module names its class twice, both in the docstring (the
-        # title sentence and the "not a standalone vital" pin sentence).
+        # owning module names its class in its docstring (the title sentence
+        # and the "not a standalone vital" pin sentence).  Round xy58b1
+        # (2026-09-06) added a third mention correcting a stale "queued and
+        # not run" nonclaim with the real GT-059/GT-064/GT-116 history --
+        # still docstring-only, so the count moved from 2 to 3 rather than
+        # tripping the "no code path may name a verb" restriction below.
         # The class is in this census list because STATS-PROG-001 counted
         # it alongside the five verbs, not because it is a verb.
-        ("skill_attr_hypothesis.py", "CSkillAttr", 2),
+        ("skill_attr_hypothesis.py", "CSkillAttr", 3),
     )
 
     def test_server_side_progression_gap_names_its_one_exception(self):
