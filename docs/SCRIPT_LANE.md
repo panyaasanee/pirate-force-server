@@ -1715,13 +1715,18 @@ action, per house rule, before claiming new work.
 ## Round qbr5h8 (2026-09-06) -- Player.* inventory seam, read side: CheckItemNum/GetItemNum/CheckEquipItem real
 
 **Charter priority for this round, per `COO-DECISION 20260906_1846`'s
-system-wide ranking** (received this round: exactly one open letter to
-LANE-Q, `pf_bridge/notes_to_chief/
-20260906_1846_COO-DECISION-q1812-host-api-map-ranking-LANE-Q.md`): item 1
-(flag-quest-state) closed last round (`7v7yn2`, PR pirate-force-server#947,
-still open pending gate at this round's own start -- not this round's
-lock, not waited on, per house rule); item 2 is "inventory seam, **read
-side first**": `Player.CheckItemNum`/`GetItemNum`/`CheckEquipItem` bound to
+system-wide ranking** (mailbox was empty this round -- every LANE-Q letter,
+`pf_bridge/notes_to_chief/20260906_1846_COO-DECISION-q1812-host-api-map-
+ranking-LANE-Q.md` included, already carries a `.CONSUMED.txt` twin;
+`1846` itself was consumed by round `7v7yn2`, which acted on its item 1.
+This round's authority is `pf_bridge/rounds/
+Q_20260906_1950_7v7yn2_flag-quest-state.md`'s own "รอบหน้าทำอะไร" section,
+citing `1846`'s item 2 as next -- see that round file's own mailbox
+correction for the full story): item 1 (flag-quest-state) closed last
+round (`7v7yn2`, PR pirate-force-server#947, still open pending gate at
+this round's own start -- not this round's lock, not waited on, per house
+rule); item 2 is "inventory seam, **read side first**":
+`Player.CheckItemNum`/`GetItemNum`/`CheckEquipItem` bound to
 `inventory.py`/`store.py`'s existing types, no byte-guessing; the WRITE
 half (`AddItem`/`RewardItemSelect`/`AddAndEquip`) stays explicitly blocked
 on `RE-280` per that same letter and is untouched this round.
