@@ -10533,6 +10533,17 @@ PANYA-ORDER `20260906_0155` (เส้นตาย 14:00) สั่งให้ 
 
 🔴 **ครบ 3 ครั้งแล้วยังลบไม่ได้ = สัญญาเดิมทุกข้อคงเดิม**: คืน `CaptureFileNotVerifiedRemoved`
 (chain จาก error เดิม) · `gm/dispatch.py` **ไม่คืนโควตา** ของสายเรียกนั้น · ไฟล์ยังอยู่บนดิสก์ ·
-พิมพ์ stderr **หนึ่งบรรทัด** `GM_CAPTURE_UNLINK_STUCK path=<ไฟล์> attempts=3` (ASCII ล้วน)
-**ไม่มี janitor และไม่มีอะไรคืนโควตานั้นให้ภายหลัง — โควตาที่ค้างแบบนี้ล้างได้ทางเดียวคือ
+พิมพ์ stderr **หนึ่งบรรทัด** `GM_CAPTURE_UNLINK_STUCK path=<ไฟล์> account=<บัญชี>
+attempted_bytes=<ไบต์> attempts=<N>` (ASCII ล้วน ผ่าน `console_safe` ทั้งสองฟิลด์ที่มาจากผู้ใช้จริง —
+`path`/`account`) **ไม่มี janitor และไม่มีอะไรคืนโควตานั้นให้ภายหลัง — โควตาที่ค้างแบบนี้ล้างได้ทางเดียวคือ
 รีสตาร์ต process** (COO ตัดข้อ janitor + คืนโควตาออกจนกว่าจะวัดอาการจริงบนเครื่อง Windows ได้)
+
+**ADDENDUM (รอบ `0op9bt`, ตามผล pf-adversary หลังปลดล็อกรอบก่อน)** — เส้นทาง shutdown
+(`_capture_raw`'s `except BaseException`, ที่ re-raise `KeyboardInterrupt`/`SystemExit` เดิมไม่แปลง)
+เรียก `_best_effort_unlink(..., retry=False)`: **หนึ่งครั้งเท่านั้น ไม่ sleep เลย** แม้ unlink จะล้ม
+(สองเส้นทางล้มเหลวปกติ — write ล้ม, close ล้ม — ยังได้ retry เต็ม 3 ครั้งเหมือนเดิม) เพราะ `time.sleep`
+ระหว่าง retry เปิดหน้าต่างช่วง shutdown ที่สัญญาณตัวที่สองอาจมาแทนที่ exception ที่กำลัง re-raise อยู่ ·
+บรรทัด log รอบ guard ก็กว้างขึ้นจาก `except Exception` เป็น `except BaseException` ด้วยเหตุผลเดียวกัน
+(`except Exception` ไม่ครอบ `KeyboardInterrupt`/`SystemExit` ซึ่งเป็นสองตัวที่ comment เดิมอ้างถึง) ·
+ทั้งสองข้อพิสูจน์ด้วยมิวแทนต์ (retry=True ที่เส้นทาง shutdown / แคบ guard กลับเป็น `except Exception`)
+ใน `tests/test_gm_command_capture.py`

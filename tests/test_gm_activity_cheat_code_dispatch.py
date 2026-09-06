@@ -21,6 +21,8 @@ tests build theirs.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import struct
 import sys
@@ -180,11 +182,17 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
     # ----- adversary reviews; these close it for the second opcode --------
 
     def test_a_real_write_failure_goes_through_the_shared_cleanup_and_is_not_refunded_when_unrecoverable(self):
+        # pf-adversary (round `0op9bt` ADDENDUM, D6): an unmocked `unlink`
+        # failure now retries for real and prints a real stderr line --
+        # mock `time.sleep` and swallow the print so this test stays fast
+        # and quiet.
         with mock.patch.object(
             gm_command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
         ), mock.patch.object(
             gm_command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
-        ):
+        ), mock.patch.object(
+            gm_command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(io.StringIO()):
             outcome = self._handle()
         self.assertTrue(outcome.authorized)
         self.assertIsNone(outcome.captured_path)
@@ -206,7 +214,9 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
             ),
         ), mock.patch.object(
             gm_command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
-        ):
+        ), mock.patch.object(
+            gm_command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(io.StringIO()):
             outcome = self._handle()
         self.assertTrue(outcome.authorized)
         self.assertIsNone(outcome.captured_path)

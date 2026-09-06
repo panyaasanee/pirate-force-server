@@ -50,6 +50,7 @@ from .activity_cheat_code_wire import (
     decode_activity_cheat_code_vital,
 )
 from .command_wire import GmCommandWireError, decode_gm_run_command_vital
+from .login_scene_override import console_safe
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
 
@@ -95,6 +96,13 @@ _MAX_FILENAME_COLLISION_ATTEMPTS = 1000
 # very worst -- well under COO's ~300 ms ceiling.
 _UNLINK_ATTEMPTS = 3
 _UNLINK_RETRY_DELAY_SECONDS = 0.05
+
+# pf-adversary (round `0op9bt`, D7): `_best_effort_unlink` below has a
+# comment calling its final loop iteration "unreachable" -- true only
+# because this holds. At 0, the loop body never runs at all and the
+# function would report "could not remove" without ever calling
+# `os.unlink`, silently.
+assert _UNLINK_ATTEMPTS >= 1, "_UNLINK_ATTEMPTS must allow at least one try"
 
 # One line, on stderr, naming the file that stayed on disk. Same channel and
 # shape as this lane's other console tokens (`gm/chat_command_action.py`'s
@@ -146,7 +154,13 @@ class CaptureFileNotVerifiedRemoved(OSError):
     """
 
 
-def _best_effort_unlink(path: Path) -> bool:
+def _best_effort_unlink(
+    path: Path,
+    *,
+    retry: bool = True,
+    account_name: str = "",
+    attempted_bytes: int = 0,
+) -> bool:
     """Try to remove ``path``; return whether it is now confirmed absent.
 
     Called only after a capture write has already failed, to answer the
@@ -166,6 +180,19 @@ def _best_effort_unlink(path: Path) -> bool:
     unlink that succeeds on the first attempt sleeps ZERO times -- the
     success path is byte-for-byte the same work it was before.
 
+    ``retry=False`` (pf-adversary round `0op9bt` ADDENDUM, D1): the ONE
+    caller of this function that runs from ``_capture_raw``'s
+    ``except BaseException`` branch passes this. That branch's whole job is
+    re-raising an in-flight ``KeyboardInterrupt``/``SystemExit``/etc.
+    UNCHANGED; ``time.sleep`` between retries opens a window, during
+    interpreter shutdown, where a second signal can arrive mid-sleep and
+    replace the exception Python actually delivers to the caller with
+    whatever the sleep itself raises. ``retry=False`` makes exactly one
+    unlink attempt -- zero sleeps -- so the shutdown path's timing is
+    whatever it already was without this cleanup call, while the two
+    ordinary failure paths (write failed, close failed) keep the full
+    bounded retry.
+
     WHEN THE RETRIES RUN OUT the answer is still ``False``: the caller
     raises ``CaptureFileNotVerifiedRemoved`` and the quota charged for that
     call is NOT refunded, exactly as before. There is no janitor, nothing
@@ -173,33 +200,53 @@ def _best_effort_unlink(path: Path) -> bool:
     life of the process -- **a capture quota left stuck this way is cleared
     by RESTARTING THE PROCESS, and by nothing else** (COO ruled the janitor
     out until the failure is measured on a real Windows machine). One
-    stderr line names the file that stayed behind so the operator can see
-    which one it was; see docs/GM_LANE.md.
+    stderr line names the file, the account, and the bytes this call
+    attempted so the operator can see which one it was and how much is
+    stuck; see docs/GM_LANE.md.
     """
-    for attempt in range(1, _UNLINK_ATTEMPTS + 1):
+    attempts = _UNLINK_ATTEMPTS if retry else 1
+    for attempt in range(1, attempts + 1):
         try:
             os.unlink(path)
         except FileNotFoundError:
             return True
         except OSError:
-            if attempt >= _UNLINK_ATTEMPTS:
+            if attempt >= attempts:
                 try:
+                    stream = sys.stderr
+                    # pf-adversary (round `0op9bt` ADDENDUM, D4): both
+                    # operator-controlled fields go through `console_safe`,
+                    # not just the account name -- `path` is built from
+                    # `capture_root` (a config value, not this project's own
+                    # `TemporaryDirectory`-only test fixtures) and a console
+                    # forced to `cp874:strict` raises on the first character
+                    # it cannot encode, which used to fall straight into
+                    # this guard and drop the whole line silently.
+                    safe_account = console_safe(account_name or "(unknown)", stream)
+                    safe_path = console_safe(str(path), stream)
                     print(
-                        f"{_UNLINK_STUCK_CONSOLE_TOKEN} path={path} "
-                        f"attempts={_UNLINK_ATTEMPTS} -- file stayed on disk "
-                        f"and its capture quota stays charged; restart the "
-                        f"process to clear that quota",
-                        file=sys.stderr,
+                        f"{_UNLINK_STUCK_CONSOLE_TOKEN} path={safe_path} "
+                        f"account={safe_account} attempted_bytes={attempted_bytes} "
+                        f"attempts={attempts} -- file stayed on disk and its "
+                        f"capture quota stays charged; restart the process to "
+                        f"clear that quota",
+                        file=stream,
                     )
-                except Exception:
+                except BaseException:
                     # This function is called from `_capture_raw`'s
                     # `except BaseException` cleanup path too, which runs at
                     # interpreter shutdown (KeyboardInterrupt/SystemExit) --
                     # where `sys.stderr` can already be closed and a bare
-                    # `print` then raises. The ANSWER this function returns
-                    # is what the caller's quota decision depends on; a
-                    # failed log line must never replace the exception that
-                    # cleanup path is in the middle of re-raising.
+                    # `print` then raises. Widened to `BaseException`
+                    # (pf-adversary round `0op9bt` ADDENDUM, D2): a plain
+                    # `except Exception` here does NOT cover
+                    # `KeyboardInterrupt`/`SystemExit`, the exact two named
+                    # one paragraph above as the reason this guard exists at
+                    # all -- so a `print` that raised one of them used to
+                    # escape uncaught. The ANSWER this function returns is
+                    # what the caller's quota decision depends on; a failed
+                    # log line must never replace the exception that cleanup
+                    # path is in the middle of re-raising.
                     pass
                 return False
             time.sleep(_UNLINK_RETRY_DELAY_SECONDS)
@@ -487,7 +534,9 @@ def _capture_raw(
             # does leave zero bytes behind, then tell the caller whether
             # that promise held. See `CaptureFileNotVerifiedRemoved`'s own
             # docstring for the failure this closes.
-            if _best_effort_unlink(out_path):
+            if _best_effort_unlink(
+                out_path, account_name=account_name, attempted_bytes=len(file_body)
+            ):
                 raise
             raise CaptureFileNotVerifiedRemoved(
                 f"{caller_name}: write to {out_path} failed ({write_error!r}) "
@@ -514,7 +563,15 @@ def _capture_raw(
                 os.close(fd)
             except OSError:
                 pass
-            _best_effort_unlink(out_path)
+            # `retry=False` (pf-adversary round `0op9bt` ADDENDUM, D1): this
+            # is the shutdown re-raise path -- see `_best_effort_unlink`'s
+            # own docstring for why it must not sleep here.
+            _best_effort_unlink(
+                out_path,
+                retry=False,
+                account_name=account_name,
+                attempted_bytes=len(file_body),
+            )
             raise
         try:
             os.close(fd)
@@ -533,7 +590,9 @@ def _capture_raw(
             # close (POSIX: never retry `close()` on the same descriptor),
             # so there is nothing left to close here -- only to classify,
             # the same way a failed write is classified above.
-            if _best_effort_unlink(out_path):
+            if _best_effort_unlink(
+                out_path, account_name=account_name, attempted_bytes=len(file_body)
+            ):
                 raise
             raise CaptureFileNotVerifiedRemoved(
                 f"{caller_name}: close for {out_path} failed ({close_error!r}) "
