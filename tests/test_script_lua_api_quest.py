@@ -143,6 +143,24 @@ class RealQuestNamespaceTests(unittest.TestCase):
         self.assertIsNotNone(now.tzinfo)
         self.assertEqual(now.utcoffset().total_seconds(), 7 * 3600)
 
+    def test_default_clock_falls_back_to_a_fixed_offset_without_tzdata(self):
+        # Reproduces pirate-force-server#900's own gate failure (run
+        # 34003119697): on an interpreter/platform whose zoneinfo has no
+        # IANA database for "Asia/Bangkok" (Windows without the `tzdata`
+        # PyPI package -- this repo pins none), ZoneInfo(...) raises
+        # ZoneInfoNotFoundError. Simulated here by pointing the module's own
+        # zone name at one no zoneinfo backend can resolve, on any platform,
+        # rather than relying on a Windows-only machine to catch a
+        # regression here.
+        original = quest.SERVER_TIMEZONE_NAME
+        quest.SERVER_TIMEZONE_NAME = "Not/A_Real_Zone_Q900_Regression_Probe"
+        try:
+            now = quest._server_clock()
+        finally:
+            quest.SERVER_TIMEZONE_NAME = original
+        self.assertIsNotNone(now.tzinfo)
+        self.assertEqual(now.utcoffset().total_seconds(), 7 * 3600)
+
 
 @LUPA_PACKAGE.skip_unless_present()
 class RealQuestLuaIntegrationTests(unittest.TestCase):

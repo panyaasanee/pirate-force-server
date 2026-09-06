@@ -83,13 +83,14 @@ rule, not silently asserted as fact.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 try:
-    from zoneinfo import ZoneInfo
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 except ImportError:  # pragma: no cover - stdlib since Python 3.9, this project's floor
     ZoneInfo = None  # type: ignore[assignment]
+    ZoneInfoNotFoundError = Exception  # type: ignore[assignment,misc]
 
 #: Mirrors ``script_host.STUB_DEFAULT`` without importing that module (which
 #: imports THIS package, via ``lua_api/__init__.py`` -> would be circular).
@@ -103,6 +104,17 @@ STUB_DEFAULT = 0
 #: timestamp (prompts/COMMON_LANE_ROUND.md).
 SERVER_TIMEZONE_NAME = "Asia/Bangkok"
 
+#: Fixed-offset fallback for interpreters/platforms whose stdlib ``zoneinfo``
+#: has no IANA database to read ``SERVER_TIMEZONE_NAME`` from -- measured on
+#: this project's own Windows gate (pirate-force-server#900, run
+#: 34003119697): ``ZoneInfo("Asia/Bangkok")`` raises ``ZoneInfoNotFoundError``
+#: there (Windows carries no system tz database and this project does not
+#: depend on the ``tzdata`` PyPI package), while the same call succeeds on
+#: Linux, which does have one. Not an approximation: Bangkok has been a
+#: fixed UTC+7 offset with no DST since 1920, so this is exactly equal to
+#: the named zone, not a stand-in for it.
+_SERVER_UTC_OFFSET_FALLBACK = timezone(timedelta(hours=7), name="ICT")
+
 #: A clock is anything callable with no arguments that returns a datetime;
 #: only its .hour/.minute are ever read (see _minutes_of_day), so a naive
 #: datetime works exactly as well as a tz-aware one for a caller (a test)
@@ -115,7 +127,10 @@ def _server_clock() -> datetime:
         raise RuntimeError(
             "zoneinfo is not available on this interpreter - cannot read the "
             "real server clock")
-    return datetime.now(ZoneInfo(SERVER_TIMEZONE_NAME))
+    try:
+        return datetime.now(ZoneInfo(SERVER_TIMEZONE_NAME))
+    except ZoneInfoNotFoundError:
+        return datetime.now(_SERVER_UTC_OFFSET_FALLBACK)
 
 
 def _minutes_of_day(moment: datetime) -> int:
