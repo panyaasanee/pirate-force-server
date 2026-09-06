@@ -47,10 +47,23 @@ line 18: same helper VA/span-end/SHA-256), with the same
 recorded for both. Because the two classes' callers dispatch into the
 exact same helper span (VA-for-VA and SHA-256-identical, not merely the
 same textual label), GT-018's tag-0x44 finding transfers to
-``DyeingVitalReq`` by construction -- this is the sound generalization
-``rounds/A_20260901_1737_njkvcc_...md``'s adversary pass explicitly
-distinguished from the invalid ``ReturnSelectServerVital`` case (which
-used a *different*, never-SHA-matched helper, ``0x5E69F0``). Field 1
+``DyeingVitalReq`` by construction. This is the same mechanism (a tag-push
+instruction living inside the shared helper's own code, not in caller
+code) that independently settled a related, longer-running question for
+``ReturnSelectServerVital`` -- corrected here after a pf-adversary pass on
+this module (round `42w728`) caught the first draft misattributing that
+history: ``ReturnSelectServerVital``'s field 3 shares the SAME
+``0x0089A6D0``/``0x0089A740`` helper span as ``DeleteActorVital`` and
+``DyeingVitalReq`` (``PF_A2_STRING_WIRE_TAG_DELTA.tsv`` lines 50-51,
+identical helper VA/span-end/SHA-256/``push_0x44`` to line 18's
+``DeleteActorVital`` row) -- ``0x5E69F0`` in that class's own row is its
+CALLER function's ``base_span_start``, not "a different helper" the first
+draft claimed. ``rounds/A_20260901_1737_njkvcc_...md`` flagged this as an
+open evidentiary gap, not an "invalid" case; that gap was independently
+closed positive four days before this round, in
+``notes_to_chief/20260902_0325_RE-196-RESULT-TAG44-AND-16BYTE-BODY-
+CONFIRMED.md``, which disassembled the pinned client image directly and
+confirmed the real ``0x44`` tag. Field 1
 (tag ``0x32``/u64 @+0x18, ``PF_SERIALIZER_FIELDS.tsv:5181/5183``) was
 already fully tagged and unaffected by this question. Kept opaque as
 ``bytes`` (not decoded to ``str``): no proven charset for this class's
