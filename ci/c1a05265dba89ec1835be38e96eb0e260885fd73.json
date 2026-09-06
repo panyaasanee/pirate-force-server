@@ -1,1 +1,1 @@
-{"sha":"c1a05265dba89ec1835be38e96eb0e260885fd73","conclusion":"failure","event":"push","ref":"refs/heads/claude/inspiring-feynman-9dezrf","run_id":"34045010607","utc":"2026-09-06T16:45:26Z"}
+{"sha":"c1a05265dba89ec1835be38e96eb0e260885fd73","conclusion":"failure","event":"pull_request","ref":"refs/pull/961/merge","run_id":"34045405402","utc":"2026-09-06T16:59:02Z"}
