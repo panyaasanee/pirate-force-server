@@ -26,11 +26,20 @@ click, the responder registered in one run and withdrawn in the other;
     ROW AND NOT THE VERDICT.  The P1 row's "(LOST)" is now conditional:
     this responder COMPOSES that talk trigger into ``extra_actions``, so
     the day chief's one line queues that field, an ordinary click keeps
-    it.  P91's "(LOST)" is unchanged and still measured -- the trade-zoom
+    it.  ~~P91's "(LOST)" is unchanged and still measured -- the trade-zoom
     is once-per-session state no argument reaches this responder carries
-    (step 2 below).  Until BOTH the chief line and the shop latch land,
-    the flip still costs the town its shop, so the gate below stays
-    False.
+    (step 2 below).~~  AMENDED AGAIN, ROUND ``rlymq1``, AND THE VERDICT
+    STILL DOES NOT MOVE.  The argument exists now: ``respond()`` takes the
+    two frozen latches as keywords and composes the trade-zoom at P91 (and
+    the q3020 conversation at the quest actor) when the session says the
+    once is unspent, naming what it spent in ``latches_spent``.  So P91's
+    "(LOST)" is CONDITIONAL exactly like P1's -- conditional on the chief
+    lines in ``SHOP_AND_QUEST_LATCH_WIRING``, which nothing passes today.
+    Until those land, every call still omits the keywords, both arms still
+    answer with today's reason strings, and the flip still costs the town
+    its shop, so the gate below stays False.  What changed this round is
+    that no LANE-owned work is left between the chief lines and the flip's
+    shop row -- not that the shop row is paid.
 
 THE FACE FRAME IS ALREADY AT PARITY, AND THAT IS NOT ENOUGH.  Its 14,142
 bytes are byte-identical to ``world_face_frame.build_face_state``'s, which
@@ -82,18 +91,28 @@ any order, all of them before the flip):
     get nothing -- among them every row LANE B's own registry calls
     hostile in this scene, which the frozen loop's single monster INDEX
     does not cover).
-    The two LATCHED actions are not, and cannot be from here as this
-    responder is called today: the trade-zoom at the shop trigger
+    ~~The two LATCHED actions are not, and cannot be from here as this
+    responder is called today~~ -- STRUCK IN THE LANE HALF, ROUND
+    ``rlymq1``, ADDITIVELY, AND THE UNDONE HALF IS AGAIN NAMED RATHER THAN
+    ESTIMATED.  The trade-zoom at the shop trigger
     (``shop_store5_open_sent``) and the q3020 conversation at the quest
     actor (``quest3020_conversation_sent``) are each ONCE PER SESSION in
-    the frozen loop, and ``respond()`` is handed no session state that
-    could say whether that once has been spent.  Composing them
-    unconditionally would re-open the shop on every click; composing the
-    EMPTY conversation in their place would replace a quest conversation
-    with a blank one.  So step 2 is not finished until the call site
-    passes those two latches (or their successor) as arguments -- a
-    keyword on ``respond``, which is why every responder in this package
-    takes ``**kwargs``.
+    the frozen loop, so ``respond()`` grew a keyword for each, three-state
+    like step 5's: ``None`` (every call site today) keeps this module's old
+    answer and old reason string byte for byte, an explicit ``False``
+    composes the frozen builder's own action, an explicit ``True`` composes
+    nothing under a duplicate-suppressed reason.  Composing them
+    unconditionally would still re-open the shop on every click, which is
+    why nothing here composes on ``None``; composing the EMPTY
+    conversation in their place would still replace a quest conversation
+    with a blank one, which is why nothing here ever does that.
+    THE LANE CANNOT WRITE THE LATCH BACK AND MUST NOT TRY: it is handed no
+    session object, so it returns the names of the flags its actions spent
+    in ``ChooseNpcResponse.latches_spent`` and the call site sets them.
+    STEP 2 IS THEREFORE NOT FINISHED, and the remainder is chief's, not
+    this lane's: two lines in ``runtime.py``, written out verbatim in
+    ``SHOP_AND_QUEST_LATCH_WIRING`` below.  Strike this item the day they
+    merge, not before.
 3.  Only then the flag, with an attended ticket that clicks a townsperson,
     a shop keeper and placement 30 in Port Royal and reports what opened.
 4.  Every other v141 behaviour that rides a ``TARGET_VITAL`` frame in
@@ -134,7 +153,15 @@ any order, all of them before the flip):
     three current ``test_refs`` exercise the builders, so the flip would
     have removed that capability for every Port Royal NPC but Columbus
     with all three still green.
-Steps 1-6 are lane A's own work.  Nothing here is chief's.  THIS LIST IS
+~~Steps 1-6 are lane A's own work.  Nothing here is chief's.~~  CORRECTED,
+ROUND ``rlymq1``, BECAUSE THE SENTENCE HAD STOPPED BEING TRUE AND WAS
+LOAD-BEARING: steps 1, 2 and 5 each ended as a LANE half plus a
+CHIEF-OWNED ``runtime.py`` line, and the lane half of all three is now
+written.  What is left of them is chief's alone -- the queue line
+(CORE-REQUEST ``20260904_0137``), the two latch lines
+(``SHOP_AND_QUEST_LATCH_WIRING``) and the census keyword plus its decline
+fallback (``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``).  Steps 4, 6 and 7
+are still lane A's own and still undone.  THIS LIST IS
 NOT PROMISED COMPLETE: it is what two measured passes found, and every
 item on it after step 3 was found by the SECOND pass, on boot shapes the
 first pass never drove.
@@ -344,6 +371,43 @@ TWO changes, and neither is useful without the other.
 """
 
 
+SHOP_AND_QUEST_LATCH_WIRING = """runtime.py, the responder branch.  Step 2's
+call-site half.  TWO changes, and the second is what makes the first safe.
+
+(1) At the respond() call (runtime.py:10081-10235), pass the two frozen
+    session latches.  Both are already attributes of the state object the
+    frozen loop itself sets (v141:3534-3535), so this reads like the
+    keywords already there:
+
+        response = scene_choose_npc_responder.respond(
+            ...,
+            shop_store5_open_sent=self.shop_store5_open_sent,
+            quest3020_conversation_sent=self.quest3020_conversation_sent,
+        )
+
+(2) In the SAME place that queues response.extra_actions (step 1's line),
+    record what those actions spent, immediately after queuing them:
+
+        for _latch in response.latches_spent:
+            if _latch in ("shop_store5_open_sent",
+                          "quest3020_conversation_sent"):
+                setattr(self, _latch, True)
+
+    The membership test is deliberate: the lane sends attribute NAMES, and
+    a call site should set only names it recognises rather than setattr
+    whatever a responder returns.
+
+WITHOUT (2), (1) IS A REGRESSION AND NOT A GAIN.  The frozen loop sets
+each flag in the same breath as it appends the action
+(v141:4434-4441, 4453-4461).  Passing the latches in while never writing
+them back leaves every click of P91 reading shop_store5_open_sent=False,
+so the trade-zoom is composed again and again and store 5 re-opens on
+every click -- worse than today's silence at that placement.  Take both
+changes or neither; the lane half is written so that taking NEITHER is
+byte-identical to main.
+"""
+
+
 def _placements_by_index(legacy: Any) -> dict[int, Any]:
     """Placement index -> resolved placement, rebuilt per call.
 
@@ -406,12 +470,30 @@ def _frozen_index(legacy: Any, name: str) -> int | None:
 
 def _conversation_extra(
     legacy: Any, placement: Any, selected_idx: int, scene_id: int,
-) -> tuple[tuple[tuple[str, bytes, bytes, float], ...], str]:
+    *,
+    shop_store5_open_sent: bool | None = None,
+    quest3020_conversation_sent: bool | None = None,
+) -> tuple[tuple[tuple[str, bytes, bytes, float], ...], str, tuple[str, ...]]:
     """The talk trigger the frozen loop emits beside the face frame.
 
-    Returns ``(extra_actions, reason)``; ``reason`` is what the console
-    line says about this click, so a capture can tell "composed it" from
-    each separate way of composing nothing.
+    Returns ``(extra_actions, reason, latches_spent)``; ``reason`` is what
+    the console line says about this click, so a capture can tell
+    "composed it" from each separate way of composing nothing, and
+    ``latches_spent`` names the once-per-session flags the call site must
+    set to ``True`` after it queues those actions (step 2's second half --
+    see ``SHOP_AND_QUEST_LATCH_WIRING``).
+
+    THE THIRD ELEMENT IS NEW, ROUND ``rlymq1``, AND THE ARITY CHANGE IS
+    DELIBERATE RATHER THAN AVOIDED.  A latched action a responder composes
+    but nobody records is WORSE than the gap it fills: the frozen loop
+    sets ``shop_store5_open_sent`` in the same breath as it appends
+    (``current/pf_login_game_server_v141.py:4434-4441``), so a shop
+    trigger composed here without a latch write would re-open store 5 on
+    EVERY click of P91 instead of once per session.  Returning the names
+    rather than mutating anything keeps this module free of the session
+    object it is not handed, and makes the missing call-site line
+    impossible to overlook -- it is a field on the response, not a
+    convention.
 
     WHAT IT REPRODUCES, AND FROM WHERE.  The frozen loop
     (``current/pf_login_game_server_v141.py:4395-4480``) answers an
@@ -442,10 +524,15 @@ def _conversation_extra(
 
     * the QUEST ACTOR (``V129_QUEST_ACTOR_INDEX``): the frozen loop sends
       ``make_npc_conversation_quest3020`` there, ONCE PER SESSION
-      (``quest3020_conversation_sent``).  This responder is handed no
-      session latch, so it cannot know whether that once has been spent.
-      Composing the EMPTY conversation instead would replace a quest
-      conversation with a blank one, which is worse than the gap.
+      (``quest3020_conversation_sent``).  ~~This responder is handed no
+      session latch, so it cannot know whether that once has been spent.~~
+      STRUCK IN THE LANE HALF ONLY, ROUND ``rlymq1``: the latch is a
+      keyword now, and an explicit ``False`` composes the q3020
+      conversation exactly as the frozen loop does.  ``None`` -- which is
+      still every call site today -- keeps the old refusal and the old
+      reason string, byte for byte.  Composing the EMPTY conversation in
+      its place would replace a quest conversation with a blank one, which
+      is worse than the gap, so that is still never done.
       NOTE: THIS ARM IS UNREACHABLE FROM ``respond()`` TODAY AND SAYING SO IS
       THE POINT (pf-adversary ``yjjtyn`` D4, MEASURED): P0 has no
       shippable identity, so it is not a key of ``_placements_by_index``
@@ -458,7 +545,14 @@ def _conversation_extra(
     * the SHOP TRIGGER (``V112_SHOP_TRIGGER_INDEX``): same latch shape --
       ``make_trade_zoom_store5`` once per session
       (``shop_store5_open_sent``), and no empty conversation at all.  This
-      arm IS reachable: P91 is in the table.
+      arm IS reachable: P91 is in the table, which is why it is the arm
+      that keeps the gate shut ("P91 ... (LOST)" in the module docstring's
+      cost table) and the arm this round exists for.  Same three-state
+      keyword as the quest actor: ``False`` composes the trade-zoom,
+      ``True`` composes nothing under a DUPLICATE-SUPPRESSED reason (the
+      frozen loop's own ``v112_store5_duplicate_open_suppressed`` event,
+      ``current/pf_login_game_server_v141.py:4445-4447``), ``None`` keeps
+      today's refusal.
     * the MONSTER (``V112_MONSTER_INDEX``): the frozen loop ``continue``s
       before composing anything for it.  This responder deliberately
       answers that click with a face frame (the module docstring's "P30 (a
@@ -479,10 +573,16 @@ def _conversation_extra(
       place.  Parity with the frozen loop is not the test here; the
       registry is.
 
-    Those two latched actions are the rest of step 2 in the module
+    ~~Those two latched actions are the rest of step 2 in the module
     docstring's list, and they need a session-state argument at the call
-    site before any lane can compose them honestly.  Named here rather
-    than half-covered.
+    site before any lane can compose them honestly.~~  LANE HALF DONE,
+    ROUND ``rlymq1``, ADDITIVELY.  The session-state argument is exactly
+    the thing this function still does not have on its own: it is handed
+    down from ``respond()``'s two new keywords, and EVERY CALL TODAY OMITS
+    THEM.  The undone half is the same shape as steps 1 and 5 -- one
+    chief-owned ``runtime.py`` line, written out verbatim in
+    ``SHOP_AND_QUEST_LATCH_WIRING``.  Strike step 2 the day that line
+    merges, not before.
     """
     # THE TWO NAMES BELOW READ ODDLY ON PURPOSE.  The frozen module's own
     # constants are `V112_SHOP_TRIGGER_INDEX` and `V129_QUEST_ACTOR_INDEX`
@@ -503,13 +603,74 @@ def _conversation_extra(
         # townsperson from the shop trigger, and composing a talk trigger
         # for the shop trigger would be an action the frozen path never
         # sent for that click.
-        return (), "no_extra_frozen_indices_unreadable"
+        return (), "no_extra_frozen_indices_unreadable", ()
     if selected_idx == mission_actor_idx:
-        return (), "no_extra_quest_actor_needs_session_latch"
+        # THREE STATES, AND ``is``-COMPARISONS ON PURPOSE.  ``None`` means
+        # the call site never passed the keyword, which is every call site
+        # today, and MUST answer exactly as this module answered before the
+        # keyword existed -- same empty tuple, same reason string, so the
+        # capture line and the tests that pin it do not move.  Only an
+        # explicit bool is the session telling us something.
+        if quest3020_conversation_sent is None:
+            return (), "no_extra_quest_actor_needs_session_latch", ()
+        if quest3020_conversation_sent is not False:
+            # The once is spent.  The frozen loop answers this click with
+            # the face frame alone and records
+            # ``v134_p0_q3020_npc_conversation_duplicate_suppressed``
+            # (`current/pf_login_game_server_v141.py:4466-4469`); so do we,
+            # under a reason of our own so a capture can tell "suppressed"
+            # from "never told".
+            return (), "no_extra_quest_actor_already_sent_this_session", ()
+        try:
+            quest_pc, quest_frame = legacy.make_npc_conversation_quest3020(
+                placement.actor_identity,
+            )
+        except Exception as error:  # noqa: BLE001 - same rule as the empty
+            # builder below: a responder must never take the listener
+            # thread down, and the frozen builder REFUSES outright for any
+            # identity but P0's (`ValueError`, v141:791-794).  That refusal
+            # is a real possibility here rather than a decorative guard --
+            # this arm is keyed on the frozen INDEX, and a boot whose
+            # placement table hands index 0 a different identity would
+            # reach it.  Named, never silent, and it costs the extra
+            # rather than the answer.
+            return (), (
+                f"no_extra_quest_builder_refused_{type(error).__name__}"
+            ), ()
+        return (
+            (
+                (
+                    "V134_P0_Q3020_NPC_CONVERSATION_ONCE_VIA_LANE_A",
+                    quest_pc, quest_frame, 0.0,
+                ),
+            ),
+            "quest_actor_conversation_q3020",
+            ("quest3020_conversation_sent",),
+        )
     if selected_idx == vendor_trigger_idx:
-        return (), "no_extra_shop_trigger_needs_session_latch"
+        if shop_store5_open_sent is None:
+            return (), "no_extra_shop_trigger_needs_session_latch", ()
+        if shop_store5_open_sent is not False:
+            return (), "no_extra_shop_trigger_already_open_this_session", ()
+        try:
+            shop_pc, shop_frame = legacy.make_trade_zoom_store5()
+        except Exception as error:  # noqa: BLE001 - see the quest arm.
+            return (), (
+                f"no_extra_shop_builder_refused_{type(error).__name__}"
+            ), ()
+        return (
+            (
+                (
+                    "V112_TEST_HARNESS_TRADE_ZOOM_STORE5_SWORD_SOUL"
+                    "_VIA_LANE_A",
+                    shop_pc, shop_frame, 0.0,
+                ),
+            ),
+            "shop_trigger_trade_zoom_store5",
+            ("shop_store5_open_sent",),
+        )
     if selected_idx == monster_idx:
-        return (), "no_extra_monster_frozen_path_sends_none"
+        return (), "no_extra_monster_frozen_path_sends_none", ()
     try:
         hostile_identities = frozenset(
             mob.actor_identity
@@ -526,9 +687,9 @@ def _conversation_extra(
         # its own reader.
         return (), (
             f"no_extra_hostile_registry_unreadable_{type(failure).__name__}"
-        )
+        ), ()
     if placement.actor_identity in hostile_identities:
-        return (), "no_extra_hostile_row_lane_b_registry"
+        return (), "no_extra_hostile_row_lane_b_registry", ()
     try:
         conv_pc, conv_frame = legacy.make_npc_conversation_empty(
             placement.actor_identity,
@@ -537,7 +698,7 @@ def _conversation_extra(
         # take the listener thread down for every player, and an answer
         # that loses its talk trigger is still a better answer than a
         # dropped click.  Named, never silent.
-        return (), f"no_extra_builder_refused_{type(error).__name__}"
+        return (), f"no_extra_builder_refused_{type(error).__name__}", ()
     return (
         (
             (
@@ -547,6 +708,7 @@ def _conversation_extra(
             ),
         ),
         "conversation_default",
+        (),
     )
 
 
@@ -560,6 +722,8 @@ def respond(
     scene_entry_registry: Any = None,
     mob_loot_cell: Any = None,
     world_census_identity_resolved: bool | None = None,
+    shop_store5_open_sent: bool | None = None,
+    quest3020_conversation_sent: bool | None = None,
     **_ignored: Any,
 ) -> "lane_hooks.ChooseNpcResponse | None":
     """Answer one ChooseNPC click for scene 1, or decline (see module doc).
@@ -696,8 +860,10 @@ def respond(
         # scene's frame can only refuse an id.
         pc, frame = compose_answer(
             legacy, entries, scene_id, mob_loot_cell)
-        extra_actions, extra_reason = _conversation_extra(
+        extra_actions, extra_reason, latches_spent = _conversation_extra(
             legacy, by_idx[selected_idx], selected_idx, scene_id,
+            shop_store5_open_sent=shop_store5_open_sent,
+            quest3020_conversation_sent=quest3020_conversation_sent,
         )
         console_lines = (
             f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_ANSWERED "
@@ -713,12 +879,20 @@ def respond(
             # after the pair; ``extra_reason=`` says which of the four
             # reasons in ``_conversation_extra`` this click took.
             f"extra_composed={len(extra_actions)} "
-            f"extra_reason={extra_reason}",
+            f"extra_reason={extra_reason} "
+            # ``latches=`` IS ON EVERY LINE, INCLUDING THE CLICKS THAT
+            # SPEND NONE, for the same reason ``extra_reason=`` is: a
+            # capture that cannot see the difference between "composed a
+            # once-per-session action and asked for the latch" and
+            # "composed one and did not" cannot catch the one failure this
+            # round can cause -- a shop that re-opens on every click.
+            f"latches={','.join(latches_spent) if latches_spent else 'none'}",
         )
         return lane_hooks.ChooseNpcResponse(
             label=f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_FACE_P{selected_idx}",
             pc=pc, frame=frame, delay=0.0, console_lines=console_lines,
             extra_actions=extra_actions,
+            latches_spent=latches_spent,
         )
     return None
 

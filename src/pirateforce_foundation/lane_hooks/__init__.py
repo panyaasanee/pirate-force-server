@@ -478,6 +478,34 @@ class ChooseNpcResponse(NamedTuple):
     ``bytes(frame)``, ``float(delay)``, and a malformed entry means "send
     the main pair only" -- never a dropped answer and never a raise on the
     frame path.
+
+    ``latches_spent`` IS THE ONCE-PER-SESSION HALF, ADDED ROUND ``rlymq1``,
+    AND IT EXISTS BECAUSE ``extra_actions`` ALONE IS NOT SAFE FOR EVERY
+    ACTION THE FROZEN LOOP SENDS.  Some of those actions are ONCE PER
+    SESSION on the frozen path -- the store-5 trade-zoom at the shop
+    trigger and the q3020 conversation at the quest actor, each guarded by
+    a flag on the state object (``shop_store5_open_sent``,
+    ``quest3020_conversation_sent``;
+    ``current/pf_login_game_server_v141.py:4433-4469``, which sets the flag
+    in the same breath as it appends).  A responder is handed no state
+    object and must not be, so it says INSTEAD which flags the actions it
+    just composed have spent: each entry is the ATTRIBUTE NAME of a latch
+    on the call site's own state, to be set ``True`` after those actions
+    are queued.
+
+    THE FAILURE THIS FIELD EXISTS TO PREVENT IS NOT HYPOTHETICAL, AND IT IS
+    WORSE THAN THE GAP IT FILLS: a call site that queues ``extra_actions``
+    and ignores this field re-opens the shop window on EVERY click of the
+    shop trigger, where today the player merely gets nothing from a lane
+    responder.  So a call site takes these two fields together or takes
+    neither.
+
+    NOTHING READS THIS ONE YET EITHER, and the line that would is the same
+    chief-owned ``runtime.py`` line, one ``for`` loop longer -- written out
+    verbatim in ``lane_a_choose_npc_scene1.SHOP_AND_QUEST_LATCH_WIRING``.
+    Entries are plain ``str`` attribute names; a call site should
+    ``setattr`` only names it recognises rather than trusting the tuple,
+    for the same reason it coerces the action fields above.
     """
 
     label: str
@@ -486,6 +514,7 @@ class ChooseNpcResponse(NamedTuple):
     delay: float
     console_lines: tuple[str, ...]
     extra_actions: tuple[tuple[str, bytes, bytes, float], ...] = ()
+    latches_spent: tuple[str, ...] = ()
 
 
 _SCENE_CHOOSE_NPC_RESPONDERS: dict[int, "ChooseNpcResponder"] = {}
