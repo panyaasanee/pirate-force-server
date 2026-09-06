@@ -93,36 +93,84 @@ class TheGroupingMatchesLiveCodeTests(unittest.TestCase):
     column is moved from `UNWIRED_COLUMNS` to `WIRED_COLUMNS` -- the module
     header's own instruction."""
 
+    #: Files that spell a column's name WITHOUT being a consumer of it: the
+    #: wire field table, the compose gate's own partition, the store door
+    #: itself, and this module.  `stats_progression_hypothesis.py` belongs
+    #: here for the same reason `gm/attr_wire.py` does and was missing until
+    #: pf-adversary (round `auo3bj`, D2) measured that its single match is
+    #: one `AttrField("skill_points", ...)` row -- a wire-layer table, not a
+    #: caller.  Spelled with forward slashes; `_files_naming` normalises.
     _CONSUMER_ALLOWED_FILES = {
         "gm/attr_wire.py",
         "persistence_attr_compose.py",
         "persistence_skill_points_null_audit.py",
+        "stats_progression_hypothesis.py",
         "store.py",
     }
+
+    #: The two store doors that actually read or spend the balance.  The
+    #: WIRED claim is asserted against a CALL to one of these, never against
+    #: the substring `skill_points` -- pf-adversary (round `auo3bj`, D2)
+    #: measured that the substring form stayed green with every real
+    #: consumer deleted, because a wire-field-table row satisfied it.
+    _STORE_DOORS = ("get_skill_points(", "spend_skill_points(")
 
     def _files_naming(self, needle):
         hits = []
         for path in SRC.rglob("*.py"):
-            rel = str(path.relative_to(SRC))
+            # `.as_posix()`, never `str()`: `str(WindowsPath("gm/attr_wire
+            # .py"))` is `'gm\\attr_wire.py'` on the gate runner, which
+            # would never match the forward-slash literals above -- the
+            # exact separator bug that already cost this diff one closure
+            # (`#949`) in a different helper, measured again here by
+            # pf-adversary (round `auo3bj`, D1) before it could cost a
+            # fourth.  Four sibling LANE-DB guards normalise the same way
+            # (`test_persistence_vitals.py:915`, `:1552`,
+            # `test_persistence_vitals_heal.py:1199`,
+            # `test_persistence_speed_walk_seed_008.py:713`).
+            rel = path.relative_to(SRC).as_posix()
             if needle in path.read_text(encoding="utf-8"):
                 hits.append(rel)
         return hits
 
+    def _files_calling_a_store_door(self):
+        """Files holding a real CALL to one of `_STORE_DOORS`, excluding the
+        door's own definition in `store.py`.
+
+        A line carrying a backtick is prose, not code: the house convention
+        spells code references inside backticks in docstrings, so
+        `skill_learn_wiring.py`'s two narrative mentions (lines 50 and 73)
+        are excluded while its two real call sites (lines 85 and 96) are
+        not.  Measured on this tree, not assumed.
+        """
+        hits = []
+        for path in SRC.rglob("*.py"):
+            rel = path.relative_to(SRC).as_posix()
+            if rel == "store.py":
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if "`" in line or line.lstrip().startswith("#"):
+                    continue
+                if any(door in line for door in self._STORE_DOORS):
+                    hits.append(rel)
+                    break
+        return hits
+
     def test_skill_points_has_a_consumer_beyond_the_wire_table_and_the_gate(
             self):
-        hits = self._files_naming("skill_points")
-        extra = [f for f in hits if f not in self._CONSUMER_ALLOWED_FILES]
-        self.assertTrue(extra, "skill_points has no consumer in src/: %r"
-                         % hits)
+        callers = self._files_calling_a_store_door()
+        self.assertTrue(
+            callers,
+            "skill_points is grouped WIRED, but no file under src/ actually "
+            "CALLS store.get_skill_points()/spend_skill_points() -- if the "
+            "last caller has gone, move the column to UNWIRED_COLUMNS "
+            "rather than deleting this test. Files merely naming the "
+            "column: %r" % (self._files_naming("skill_points"),))
 
     def test_unspent_points_has_no_consumer_beyond_the_wire_table_and_the_gate(
             self):
         hits = self._files_naming("unspent_points")
-        extra = [f for f in hits
-                 if f not in {"gm/attr_wire.py",
-                              "persistence_attr_compose.py",
-                              "persistence_skill_points_null_audit.py",
-                              "store.py"}]
+        extra = [f for f in hits if f not in self._CONSUMER_ALLOWED_FILES]
         self.assertFalse(
             extra,
             "unspent_points has grown a consumer -- move it to "
