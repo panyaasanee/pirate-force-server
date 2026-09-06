@@ -1907,6 +1907,54 @@ class SQLiteStore:
             if self.path != ":memory:" else self.path
         return audit
 
+    def skill_points_null_audit(self) -> dict:
+        """How many rows in THIS database hold NULL in `skill_points`
+        (`WIRED` -- has real store doors and CS-side consumers, see
+        `persistence_skill_points_null_audit`'s module header) and in
+        `unspent_points` (`UNWIRED` -- schema only, no caller anywhere yet),
+        reported as two separate groups rather than one folded number.
+
+        LANE-DB owns this method; no existing method is touched by it.  It
+        is the backlog item this lane's own round `64da3x` named as ready to
+        start (`pf_bridge/rounds/DB_20260905_1739_64da3x_skill_points_store_
+        doors.md`, "## งานสำรอง" item 2): a count, so COO/chief can see which
+        of the two typed columns opened by `006` actually has code that can
+        use a value today, before ruling on anything about the other one.
+
+        Goes through `connect_read_only` for the same reason `hp_pair_audit`
+        and `typed_column_null_audit` do: this is meant to be pointed at the
+        owner's canonical database, where `AGENTS.md` requires the hash not
+        to move, and `connect()`'s `PRAGMA journal_mode=WAL` would move it
+        even though nothing here writes.
+
+        A count that could not be taken comes back as `None`, not `0` --
+        `persistence_skill_points_null_audit.format_report` prints it as
+        `"not-counted"` -- because `SUM()` over zero rows is SQL NULL and
+        coercing it to `0` would make an empty database read identical to a
+        clean one.
+
+        Raises `ValueError` for an in-memory store and `FileNotFoundError`
+        for a path that does not exist -- both from `connect_read_only` --
+        and the same `persistence_vitals.VitalsError` family
+        `hp_pair_audit` raises for a database that predates
+        `006_character_typed_attribute_columns.sql` (`vitals.verify_schema`
+        checks every column in `persistence_typed_attrs.TYPED_COLUMNS`,
+        `skill_points`/`unspent_points` included, not only the three vitals).
+        """
+        from . import persistence_skill_points_null_audit as sp_audit
+        from . import persistence_vitals as vitals
+
+        with self.connect_read_only() as db:
+            vitals.verify_schema(db)
+            row = db.execute(sp_audit.audit_sql()).fetchone()
+        audit = {}
+        for key in row.keys():
+            value = row[key]
+            audit[key] = None if value is None else int(value)
+        audit["database"] = str(Path(self.path).resolve()) \
+            if self.path != ":memory:" else self.path
+        return audit
+
     def hp_pair_audit(self) -> dict:
         """How many rows in THIS database sit in one of the three broken
         HP-pair conditions `LANE-GM` measured while wiring `/lv`
