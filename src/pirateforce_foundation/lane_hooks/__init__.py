@@ -502,7 +502,10 @@ class ChooseNpcResponse(NamedTuple):
 
     NOTHING READS THIS ONE YET EITHER, and the line that would is the same
     chief-owned ``runtime.py`` line, one ``for`` loop longer -- written out
-    verbatim in ``lane_a_choose_npc_scene1.SHOP_AND_QUEST_LATCH_WIRING``.
+    verbatim in ``lane_a_choose_npc_scene1.VENDOR_AND_MISSION_LATCH_WIRING``
+    (renamed from ``SHOP_AND_QUEST_LATCH_WIRING`` round ``rlymq1``, when
+    chief's recursive quest/shop code-name guard forbade this lane binding
+    its own old name for the constant).
     Entries are plain ``str`` attribute names; a call site should
     ``setattr`` only names it recognises rather than trusting the tuple,
     for the same reason it coerces the action fields above.
