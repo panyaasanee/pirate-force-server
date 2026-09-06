@@ -187,6 +187,80 @@ class RealPlayerNamespaceTests(unittest.TestCase):
                 self.assertTrue(calls[0].startswith(
                     "LUA_PLAYER_BAD_ARITY Player.CheckEquipItem "), calls)
 
+    def test_mob_appear_true_sets_the_flag_and_returns_it(self):
+        ns, calls = self._namespace(context=player.PlayerContext(character_id=1))
+        self.assertIs(ns["MobAppear"](500, True), True)
+        self.assertTrue(calls[0].startswith("LUA_PLAYER_REAL Player.MobAppear "))
+
+    def test_mob_appear_false_clears_the_flag_and_returns_it(self):
+        ns, _calls = self._namespace(context=player.PlayerContext(character_id=1))
+        ns["MobAppear"](500, True)
+        self.assertIs(ns["MobAppear"](500, False), False)
+
+    def test_mob_appear_is_keyed_per_character_not_shared(self):
+        store = player.InMemoryPlayerMobAppearStore()
+        char_a, _ = self._namespace(
+            context=player.PlayerContext(character_id=1), store=store)
+        char_b, _ = self._namespace(
+            context=player.PlayerContext(character_id=2), store=store)
+        char_a["MobAppear"](500, True)
+        self.assertEqual(store.get_mob_appear_flag(1, 500), True)
+        self.assertIsNone(store.get_mob_appear_flag(2, 500))
+        # char_b writes its OWN flag on the same shared store -- must not
+        # disturb char_a's own already-set flag for the same mob id.
+        self.assertIs(char_b["MobAppear"](500, False), False)
+        self.assertEqual(store.get_mob_appear_flag(1, 500), True)
+        self.assertEqual(store.get_mob_appear_flag(2, 500), False)
+
+    def test_mob_appear_does_not_touch_a_second_injected_store(self):
+        # A regression guard for the exact shape lua_api.quest's own
+        # OneScriptHostSharesOneQuestStateStoreTests exists to catch:
+        # two DIFFERENT store instances must never be confused with a
+        # shared one just because both start empty.
+        store_a = player.InMemoryPlayerMobAppearStore()
+        store_b = player.InMemoryPlayerMobAppearStore()
+        ns_a, _ = self._namespace(
+            context=player.PlayerContext(character_id=1), store=store_a)
+        ns_a["MobAppear"](500, True)
+        self.assertIsNone(store_b.get_mob_appear_flag(1, 500))
+
+    def test_mob_appear_wrong_arity_degrades_safely_instead_of_raising(self):
+        ns, calls = self._namespace()
+        for args in ((), (1,), (1, True, 2)):
+            with self.subTest(argc=len(args)):
+                calls.clear()
+                result = ns["MobAppear"](*args)
+                self.assertEqual(result, player.STUB_DEFAULT)
+                self.assertTrue(calls[0].startswith(
+                    "LUA_PLAYER_BAD_ARITY Player.MobAppear "), calls)
+
+    def test_mob_appear_bad_argument_type_refuses_rather_than_guesses(self):
+        ns, calls = self._namespace()
+        self.assertEqual(ns["MobAppear"]("bad", True), player.STUB_DEFAULT)
+        self.assertEqual(ns["MobAppear"](500, "not-a-bool"), player.STUB_DEFAULT)
+        # A Lua/Python int (0/1) is never accepted as the visibility flag --
+        # only an actual bool -- same "booleans/ints are not interchangeable
+        # with each other's meaning" posture _coerce_int already takes in
+        # the other direction (a bool is refused as an int).
+        self.assertEqual(ns["MobAppear"](500, 1), player.STUB_DEFAULT)
+        self.assertTrue(all(
+            c.startswith("LUA_PLAYER_BAD_VALUE Player.MobAppear ") for c in calls))
+
+    def test_mob_appear_never_raises_on_a_malformed_store(self):
+        class _BrokenStore:
+            def set_mob_appear_flag(self, *_a, **_k):
+                raise RuntimeError("boom")
+
+        ns, _calls = self._namespace(store=_BrokenStore())
+        with self.assertRaises(RuntimeError):
+            # Documented, not silently swallowed: unlike the inventory
+            # closures above (which validate a caller-supplied CONTEXT
+            # field), MobAppear's store is an injected COLLABORATOR, not
+            # untrusted script input -- a broken store is this namespace's
+            # own caller-programming error, not a script's fault, so it
+            # propagates rather than degrading to a fake success.
+            ns["MobAppear"](500, True)
+
     def test_a_still_stubbed_method_logs_lua_api_stub_exactly_like_before(self):
         ns, calls = self._namespace()
         self.assertEqual(ns["AddItem"](1, 2), player.STUB_DEFAULT)
@@ -229,10 +303,11 @@ class RealPlayerNamespaceTests(unittest.TestCase):
 class RealPlayerLuaIntegrationTests(unittest.TestCase):
     """The same context checks, driven from real Lua through a ScriptHost."""
 
-    def _host(self, context=None):
+    def _host(self, context=None, store=None):
         from pirateforce_foundation import script_host
         calls = []
-        host = script_host.ScriptHost(log=calls.append, player_context=context)
+        host = script_host.ScriptHost(
+            log=calls.append, player_context=context, player_store=store)
         return host, calls
 
     def test_get_lv_from_lua_reads_the_injected_context(self):
@@ -295,3 +370,19 @@ class RealPlayerLuaIntegrationTests(unittest.TestCase):
             player.PlayerContext(equipped_template_ids=frozenset({2200225})))
         host.load("function Probe() return Player.CheckEquipItem(2200225) end")
         self.assertTrue(host.call("Probe"))
+
+    def test_mob_appear_from_lua_matches_the_real_q_kill5_delete_run_call_shape(self):
+        # tests/fixtures/lua_spike/q_kill5.lua's Delete_Run -- the 4 calls
+        # in this fixture NOT gated behind an `if (Quest.VarN > 0)` guard
+        # (grepped; see tests/test_script_lua_corpus.py's own
+        # BASELINE_TOTAL_STUB_CALLS note for the 12 that ARE gated and
+        # never fire under STUB_DEFAULT=0 this round):
+        # `Player.MobAppear(Quest.Var13, true)`.
+        store = player.InMemoryPlayerMobAppearStore()
+        host, calls = self._host(
+            player.PlayerContext(character_id=7), store=store)
+        host.load("function Probe() return Player.MobAppear(0, true) end")
+        self.assertIs(host.call("Probe"), True)
+        self.assertEqual(store.get_mob_appear_flag(7, 0), True)
+        self.assertTrue(any(
+            c.startswith("LUA_PLAYER_REAL Player.MobAppear ") for c in calls))

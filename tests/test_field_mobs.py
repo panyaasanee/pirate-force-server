@@ -937,6 +937,18 @@ class FieldMobTests(unittest.TestCase):
              # keyword -- but it names `field_mobs.hostile_npc_attr` in its
              # own docstring, which is what this census counts.
              "mob_viewer_link.py",
+             # ROUND dipufa (lane B, RE-155): the env-gated dummy-row sweep.
+             # It calls ``load_roster``, ``hostile_npc_attr``, the private
+             # ``_faction_splice_offset``/``_basic_mask_offset`` splice-point
+             # helpers, and the ``FieldMob``/``FieldMobContractError``/
+             # ``BASIC_BIT_FACTION``/``FACTION_TAG``/``FACTION_SPLICE_BYTES``/
+             # ``FIELD_MOB_FACTION``/``NPC_STYLE_ACTOR_TYPE`` names directly,
+             # to build labelled BASE + one-field-different candidate bodies
+             # for an attended tester.  IT DISPATCHES NOTHING: unset,
+             # ``PF_NAME_COLOUR_SWEEP`` makes every function in it a no-op,
+             # the same fail-closed shape as ``pose_trial.PF_POSE_TRIAL``; no
+             # runtime.py/app.py call site exists.
+             "name_colour_sweep.py",
              "player_hostile_pairing.py", "runtime.py",
              "scene_door_walk.py",
              "world_census_level.py",
