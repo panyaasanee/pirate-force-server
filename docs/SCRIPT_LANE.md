@@ -1471,11 +1471,34 @@ still blocked, unchanged from round `92j6so`.
 
 ### ADVERSARY
 
-`pf-adversary` invoked at round start against the new registry methods,
-dispatch handlers, and tests (concurrency, sandbox-escape surface, arity/
-coercion edge cases, "wired means observed not named" test-quality check).
-Result recorded in this round's `pf_bridge/rounds/Q_*.md` file, not here
-(`ADVERSARY_PENDING`/result token lives with the round, per house style).
+`pf-adversary` invoked at round start (own isolated git worktree) against
+the new registry methods, dispatch handlers, and tests. Result returned
+before push -- two confirmed findings, both fixed in a follow-up commit
+before this round closed:
+
+1. `call_score_count`'s own docstring still said "`AddBonusPoint`/
+   `AddBonusReward` (which stay named stubs, see `STILL_STUBBED`)" -- a
+   stale cross-reference this round's own diff made false three lines
+   away from the correctly-updated module docstring. Fixed.
+2. `test_every_still_stubbed_name_is_reachable_and_logs_its_own_line`
+   iterates `for name in instance.STILL_STUBBED`, which this round's own
+   change emptied -- the loop became silently vacuous (0 iterations,
+   always green, no assertion ever executes) the moment `STILL_STUBBED`
+   became `{}`. Removed; the sibling `test_still_stubbed_is_empty_now_
+   all_9_names_are_real` already covers the fact directly.
+
+No concurrency bug, sandbox-escape, or arity/coercion defect found:
+adversary stress-tested `add_bonus_point`/`add_bonus_reward` with 32
+threads x 5000 calls (exact tally, no lost updates) and fuzzed
+`AddBonusPoint`'s discarded argument (NaN/inf, huge ints, objects with a
+raising `__repr__`) with no crash. Adversary also flagged (informational,
+not blocking) that this counter has no named trigger for ever being
+revisited if the SCORECOUNT join stays unresolved -- recorded here so it
+is a decision for whoever next has charter priority on `Instance.*`, not
+silently forgotten: the trigger is either path (a) (an RE ticket answer)
+or a new `.npc` scene parser landing, per this doc's own recommendation
+above; absent either, this counter is the permanent real implementation
+by design, not a placeholder with an unstated expiry.
 
 ### Recommendation for whoever finishes `Trigger.*`/`Quest.*` next
 
