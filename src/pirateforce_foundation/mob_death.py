@@ -835,12 +835,20 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
 # one letter and a loop; the scene axis stays exactly as tight as it was.
 #
 # WHAT IT DOES NOT TOUCH.  Withheld and owner-refused placements are removed
-# from the ROSTER by ``field_mobs`` before this ever sees them, so they are
-# not in the derived set and this key does not reach them: Bg0015 placement
-# 87 (template 924) and Bg0008 placement 69 stay exactly as withheld as they
-# were, which is what item 4 of the same letter requires until ticket
-# 924/529 answers.  Verified by execution in the test file rather than
-# claimed here.
+# from the ROSTER by ``field_mobs`` before this ever sees them, so the permit
+# derived FOR THEIR OWN SCENE does not carry their template: Bg0015
+# placement 87 (template 924) and Bg0008 placement 69 (template 529, Nina)
+# stay exactly as withheld as they were, which is what item 4 of the same
+# letter requires until ticket 924/529 answers.
+#
+# Stated per scene deliberately, because the global version of that sentence
+# is false and stood here as true until pf-adversary measured it: template
+# 103 is owner-refused at Bg0002 placements 92-96 and is in bg0004's derived
+# permit at the same time, because bg0004 ships it.  That is harmless only
+# because every permit names a scene and bg0004's cannot reach a Bg0002
+# placement -- i.e. the scene tie is the entire mechanism keeping item 4
+# alive, not a second belt.  Verified by execution in the test file rather
+# than claimed here.
 #: The letter the whole derivation cites, in the shape COO-DECISION b1647's
 #: schema mandates and ``tests/test_mob_death_widening_schema_gate.py``
 #: enforces: a marker token, ``widen-death-scope``, and a trailing ISO
@@ -1342,8 +1350,11 @@ def ruling_for(mob: FieldMob) -> str | None:
     # from the MOBS columns, it is narrower than the hand letter on a scene
     # where the roster shipped fewer templates than the letter authorised,
     # and term (a) -- narrower first -- outranks age.  MEASURED, not feared:
-    # without this partition, all 17 shipped Bg0002 rows changed the letter
-    # they are killed under, from the PANYA-DECISION 2026-08-27T20:10 letter
+    # without this partition, all 12 shipped Bg0002 rows changed the letter
+    # they are killed under (twelve, not the seventeen this comment first
+    # said: HOSTILE_PLACEMENTS lists 17 and five are owner-refused, so
+    # ``load_roster('Bg0002')`` ships 12), from the PANYA-DECISION
+    # 2026-08-27T20:10 letter
     # (4 templates) to this round's derived permit (3), because the roster
     # ships three of the four templates that letter covers.  That is exactly
     # the provenance move item 1(b) exists to refuse, arriving through the

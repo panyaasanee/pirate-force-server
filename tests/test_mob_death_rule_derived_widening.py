@@ -102,12 +102,38 @@ class RuleDerivedWideningTests(unittest.TestCase):
             self.assertIn(name, mob_death.WIDENING_RULINGS)
 
     def test_ratified_scenes_gain_nothing_from_the_switch(self):
-        """Assertion 2: COO-DECISION 1648 item 2's "equals the old table"."""
-        already_permitted: set[int] = set()
-        for templates in _hand_typed_rulings().values():
-            already_permitted |= set(templates)
+        """Assertion 2: COO-DECISION 1648 item 2's "equals the old table".
 
-        derived_for_ratified: set[int] = set()
+        PER SCENE, and read off the REGISTERED permit rather than recomputed
+        from the roster.  Both halves are pf-adversary's finding on round
+        0wef26's branch, and both were real holes in the first shape of this
+        test:
+
+        *   It compared the union of every ratified scene's roster against
+            the union of ALL hand-typed letters, so a template counted as
+            "already permitted" when ANY scene's letter carried it.
+            Measured: template 669, which only the Bg0011 letter covers, was
+            injected into a different scene's derived permit for each of the
+            12 ratified scenes in turn -- green 12 times out of 12, full
+            suite unchanged.  A ratified scene's roster growing therefore
+            widened that scene's kill permit silently, which is precisely
+            what item 2 promises does not happen.
+        *   It never read a derived permit at all; it recomputed the rule.  A
+            literal pasted over an entry in ``WIDENING_RULINGS`` is what
+            ``kill`` actually consults, so that is what this now reads.
+
+        What item 2 promises, stated per scene: the permit derived FOR a
+        scene authorises nothing in that scene that the letters tied TO that
+        scene did not already authorise.  Measured on this tree: true for
+        all twelve, with zero templates of slack in any of them.
+        """
+        hand_by_scene: dict[str, set[int]] = {}
+        for name, templates in _hand_typed_rulings().items():
+            scene = mob_death.WIDENING_RULING_SCENES.get(name)
+            if scene is None:
+                continue
+            hand_by_scene.setdefault(scene, set()).update(templates)
+
         for scene in RATIFIED_SCENES_AT_SWITCH:
             self.assertIn(
                 scene, field_mobs.live_scenes(),
@@ -115,16 +141,38 @@ class RuleDerivedWideningTests(unittest.TestCase):
                 "this pin describes a tree that no longer exists and the "
                 "round that removed the scene owes it an update",
             )
-            for mob in field_mobs.load_roster(scene=scene):
-                derived_for_ratified.add(mob.template_id)
+            self.assertIn(
+                scene, mob_death.RULE_DERIVED_RULING_FOR_SCENE,
+                "ratified scene %r ships a roster but has no rule-derived "
+                "permit, so the switch item 2 authorised did not happen for "
+                "it" % (scene,),
+            )
+            name = mob_death.RULE_DERIVED_RULING_FOR_SCENE[scene]
+            derived_here = set(mob_death.WIDENING_RULINGS[name])
+            signed_here = hand_by_scene.get(scene, set())
 
-        self.assertEqual(
-            sorted(derived_for_ratified - already_permitted), [],
-            "the rule-derived permit authorises killing template(s) in an "
-            "ALREADY-RATIFIED scene that no hand-typed COO letter covers -- "
-            "that is a widening of a scene COO already ruled on, not the "
-            "automatic admission of a new one",
-        )
+            # Anti-vacuity, both directions: an empty derived permit or a
+            # scene with no signed letter of its own would make the subset
+            # below true for a reason that has nothing to do with item 2.
+            self.assertTrue(
+                derived_here,
+                "the derived permit for ratified scene %r is empty, so the "
+                "comparison below proves nothing" % (scene,),
+            )
+            self.assertTrue(
+                signed_here,
+                "ratified scene %r has no hand-typed letter tied to it, so "
+                "there is no 'old table' here to equal" % (scene,),
+            )
+
+            self.assertEqual(
+                sorted(derived_here - signed_here), [],
+                "the permit derived for ALREADY-RATIFIED scene %r "
+                "authorises killing template(s) %s that no letter tied to "
+                "%r covers -- that is a widening of a scene COO already "
+                "ruled on, not the automatic admission of a new one"
+                % (scene, sorted(derived_here - signed_here), scene),
+            )
 
     def test_a_signed_letter_outranks_a_derived_permit_on_every_shipped_row(
             self):
@@ -137,19 +185,31 @@ class RuleDerivedWideningTests(unittest.TestCase):
         NARROWER than the hand letter (the roster ships fewer templates than
         the letter authorised), and narrower is term (a), which outranks age.
 
-        Measured before the fix, not imagined: all 17 shipped Bg0002 rows
+        Measured before the fix, not imagined: all 12 shipped Bg0002 rows
         moved from the PANYA-DECISION 2026-08-27T20:10 letter (4 templates)
         to this round's derived permit (3).  ``ruling_for`` now consults
         derived permits only where no signed letter covers the row at all.
+
+        (Twelve, not the seventeen an earlier telling of this said:
+        ``field_mob_tables_bg0002.HOSTILE_PLACEMENTS`` lists 17 placements
+        and five of them are owner-refused, so ``load_roster('Bg0002')``
+        ships 12.  The seventeen is the table's length, not a count of rows
+        any player can meet.)
+
+        The guard at the bottom is the one pf-adversary caught being no
+        guard at all: it used to count a row as checked whenever a signed
+        letter covered it, which is true of nearly every shipped row and
+        stayed true with the whole derivation mutated away to ``{}``.  A row
+        only exercises the partition if BOTH kinds of permit cover it.
         """
         derived_names = set(mob_death.RULE_DERIVED_RULING_FOR_SCENE.values())
         checked = 0
         for scene in field_mobs.live_scenes():
             for mob in field_mobs.load_roster(scene=scene):
                 covering = mob_death.rulings_covering(mob)
-                if not covering:
-                    continue
-                if all(name in derived_names for name in covering):
+                signed = [n for n in covering if n not in derived_names]
+                derived = [n for n in covering if n in derived_names]
+                if not (signed and derived):
                     continue
                 checked += 1
                 self.assertNotIn(
@@ -161,8 +221,10 @@ class RuleDerivedWideningTests(unittest.TestCase):
                 )
         self.assertGreater(
             checked, 0,
-            "no shipped row is covered by both a signed letter and a derived "
-            "permit, so this test proves nothing about the partition",
+            "no shipped row is covered by BOTH a signed letter and a derived "
+            "permit, so this test proves nothing about the partition -- "
+            "either the derivation stopped producing permits or the signed "
+            "letters stopped covering shipped rows",
         )
 
     def test_every_registered_scenes_monsters_are_killable_under_the_rule(
@@ -207,10 +269,25 @@ class RuleDerivedWideningTests(unittest.TestCase):
         """Assertion 4: item 4's exceptions survive the switch.
 
         Withholding happens in ``field_mobs`` at roster-build time, so the
-        proof wanted here is that the withheld placement's template does not
-        arrive in the derived set through some OTHER placement -- which is
-        the way a template-keyed permit could quietly dissolve a
-        placement-keyed exception.
+        proof wanted here is that a withheld or refused placement's template
+        does not arrive in the permit that covers ITS OWN scene through some
+        other placement -- which is the way a template-keyed permit could
+        quietly dissolve a placement-keyed exception.
+
+        Scoped to the scene on purpose, because the global statement is
+        FALSE and was written down as true in an earlier telling of this
+        (``mob_death``'s comment has been corrected in the same commit):
+        template 103 is owner-refused at Bg0002 placements 92-96 and is at
+        the same time in bg0004's derived permit, because bg0004 ships it.
+        Nothing is wrong with that -- every permit names a scene, so
+        bg0004's cannot reach a Bg0002 placement -- but it means the scene
+        tie is the whole of what keeps item 4 alive, and that is what this
+        measures.
+
+        Both templates item 4 names are pinned by id: 924 (Bg0015 placement
+        87) and 529 (Bg0008 placement 69, Nina).  An earlier shape of this
+        test named only 924, and a mutant that pushed 529 into every derived
+        permit left the file 7/7 green.
         """
         derived: set[int] = set()
         for name in mob_death.RULE_DERIVED_RULING_FOR_SCENE.values():
@@ -237,14 +314,50 @@ class RuleDerivedWideningTests(unittest.TestCase):
             "no withheld or owner-refused placement was found to check -- "
             "this test would pass vacuously and prove nothing about item 4",
         )
-        # Template 924 (Bg0015 placement 87, withheld pending ticket 924/529)
-        # named explicitly, because it is the one item 4 turns on.
-        self.assertNotIn(
-            924, derived,
-            "template 924 has entered the rule-derived permit; "
-            "COO-DECISION 2026-09-06T16:48+07:00 item 4 keeps it withheld "
-            "until ticket 924/529 answers",
+        # The exception, measured in the shape item 4 states it: a template
+        # id, at the scene whose placement is the reason it is withheld.
+        pinned = 0
+        for scene in field_mobs.live_scenes():
+            excepted = tuple(field_mobs.lane_withheld_placements(scene))
+            excepted += tuple(field_mobs.owner_refused_placements(scene))
+            if not excepted:
+                continue
+            module = field_mobs._SCENE_TABLE_MODULES[scene]
+            template_of = {
+                row[0]: row[1] for row in module.HOSTILE_PLACEMENTS
+            }
+            name = mob_death.RULE_DERIVED_RULING_FOR_SCENE.get(scene)
+            here = set(mob_death.WIDENING_RULINGS[name]) if name else set()
+            for placement in excepted:
+                template = template_of.get(placement)
+                if template is None:
+                    continue
+                pinned += 1
+                self.assertNotIn(
+                    template, here,
+                    "template %d is withheld or owner-refused at %r "
+                    "placement %d, yet %r's own rule-derived permit "
+                    "authorises killing it -- the switch dissolved an "
+                    "exception COO-DECISION 2026-09-06T16:48+07:00 item 4 "
+                    "keeps alive until ticket 924/529 answers"
+                    % (template, scene, placement, scene),
+                )
+        self.assertGreater(
+            pinned, 0,
+            "no withheld or owner-refused placement resolved to a template, "
+            "so the per-scene half of item 4 was not measured at all",
         )
+
+        # The two templates item 4 turns on, named by id as well, so that
+        # renumbering a placement cannot quietly retire the pin above.
+        for template, where in ((924, "Bg0015 placement 87"),
+                                (529, "Bg0008 placement 69, Nina")):
+            self.assertNotIn(
+                template, derived,
+                "template %d (%s) has entered a rule-derived permit; "
+                "COO-DECISION 2026-09-06T16:48+07:00 item 4 keeps it "
+                "withheld until ticket 924/529 answers" % (template, where),
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover
