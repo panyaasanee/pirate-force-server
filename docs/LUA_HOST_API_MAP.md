@@ -6,7 +6,7 @@ Per `notes_to_chief/20260906_1704_KA1A-PANYA-DECISION...md` (PANYA, relayed by k
 Official count = this lane's own census (`gamedata/pf_lua_api_census.py` -> `api_spec.tsv`), re-run fresh this round: **160 names / 12,653 call sites / 8 namespaces**, byte-identical to the 2026-08-24 baseline. ka1-A's letter's 152 (regex over 6 namespaces: Player 73, Quest 34, Trigger 18, Mob 10, Instance 9, Scene 8) both **omits Guild(8)+Party(11)=19 entirely** and **over-counts Quest/Trigger/Scene by 11** (34/18/8 vs the measured 25/17/7) -- net -8, coincidentally close to 160 for unrelated reasons. This map uses 160 throughout.
 
 ## hook_side correction (measured this round from the corpus, not assumed)
-The letter assumed `Mob.ShowAnimation`(499)/`Quest.PlayNPCMovie`(100)/`Quest.PlayNPCVoice`(4) are UI-only ("found only in OpenAcceptUI_Run/OpenReportUI_Run"). Measured by finding each call site's enclosing top-level Lua function across all 616 files: only **`Quest.PlayNPCMovie` (100 calls) is actually UI-only**. `Mob.ShowAnimation` (716 calls, official count) and `Quest.PlayNPCVoice` (8 calls, official count) are **BOTH** -- both also called from `Accept_Run`/`Report_Run` (AUTH phase), e.g. `gamedata/lua/Quest/q_con_new.lua:218,367` calls `Quest.PlayNPCVoice` from inside `OpenReportUI_Run` AND `Report_Run`. Per spec item 6, UI-only names are no-op+log and not counted as backlog; **BOTH names still are** (they run during AUTH resolution too, even though their visible effect is a client animation/voice line).
+The letter assumed `Mob.ShowAnimation`(499)/`Quest.PlayNPCMovie`(100)/`Quest.PlayNPCVoice`(4) are UI-only ("found only in OpenAcceptUI_Run/OpenReportUI_Run"). Measured by finding each call site's enclosing top-level Lua function across all 616 files: only **`Quest.PlayNPCMovie` (100 calls) is actually UI-only**. `Mob.ShowAnimation` (716 calls, official count) and `Quest.PlayNPCVoice` (8 calls, official count) are **BOTH** -- both also called from `Report_Run` itself (AUTH phase). Proof, `gamedata/lua/Quest/q_con_new.lua`: `Mob.ShowAnimation` line 191 (`OpenAcceptUI_Run`, UI) + line 547 (`Report_Run`, AUTH); `Quest.PlayNPCVoice` line 218 (`OpenReportUI_Run`, UI) + line 698 (`Report_Run`, AUTH). Per spec item 6, UI-only names are no-op+log, not backlog; **BOTH names still are** (they run during AUTH resolution too) -- moved out of `movie-ui (client-only)` into `message-wire` below, since 724 calls need a real AUTH-side wire, not a no-op. (`pf-adversary` caught an earlier draft misciting line 367, which is inside `Accept_Run`, as the `Report_Run` proof; the BOTH conclusion itself was already correct, only that one citation was fixed.)
 
 ## Systems ranked by total call_count -- what COO uses to rank milestones
 
@@ -15,16 +15,16 @@ The letter assumed `Mob.ShowAnimation`(499)/`Quest.PlayNPCMovie`(100)/`Quest.Pla
 | inventory | 15 | 3537 | PARTIAL | L | item/equip grant+read seam; inventory.py/store.py exist but nothing wired to Lua |
 | spawn | 1 | 3532 | NO | L | 1 fn, 3532 calls, top gap; LANE-A confirms no add-mob-to-live-scene fn exists |
 | flag-quest-state | 12 | 1502 | NO | L | needs new per-char quest-state table; blocks 24 Quest.*+2 Trigger.* names |
-| movie-ui (client-only) | 3 | 824 | NO | S | no-op+log enough for the true UI-only case (see hook_side correction) |
+| message-wire | 9 | 907 | NO | L | now includes Mob.ShowAnimation(716)+Quest.PlayNPCVoice(8), both BOTH-hook -- AUTH-side half needs a real wire, not a no-op |
 | exp-level | 11 | 609 | PARTIAL/YES | M | read side real (GetLv/GetClass); needs a bounded grant/write seam |
 | trigger-status | 6 | 543 | NO/YES | S | 5/6 real; GetContactMode blocked only on an RE ticket |
 | buff | 5 | 495 | NO | M | new buff-state subsystem (apply/remove/check/duration), nothing exists yet |
 | scene-placement | 7 | 442 | PARTIAL | M | LANE-A territory; registry exists, not wired to Lua, cross-lane |
 | cash | 4 | 236 | PARTIAL | S | already a persisted typed attribute; only grant/spend seam missing |
-| message-wire | 7 | 183 | NO | M | one generic open-UI/movie/message wire type would serve all 7 |
 | other:vfx-wire | 3 | 119 | NO | S | small self-contained effect/animation wire encoders |
 | instance | 14 | 108 | PARTIAL/YES | M | registry mostly real (9/9); dungeon world-entry frame cross-lane w/ A, missing |
 | combat-skill | 7 | 105 | PARTIAL | L | full skill-cast wire + damage resolution, cross-lane w/ B/CS, blocks M4 |
+| movie-ui (client-only) | 1 | 100 | NO | S | the one genuinely UI-only name (Quest.PlayNPCMovie); ShowAnimation/PlayNPCVoice moved to message-wire |
 | teleport-warp | 8 | 84 | PARTIAL | M | M2 island-arrival proves the frame once; generalizing is bounded |
 | timer | 2 | 63 | NO/YES | S | CheckOpenTime real; CountDownTime needs one narrow timer column |
 | other:mob-lifecycle | 7 | 59 | PARTIAL | M | mob_ai_control.py/mob_combat.py exist; Lua wiring is bounded |
@@ -57,8 +57,8 @@ Player.MobAppear(3532)
 ### `flag-quest-state` -- 0/12 real
 Quest.GetQuestFlag(508), Quest.SetFlag(417), Quest.CheckMobKillCount(138), Quest.MobKillCount(128), Quest.SetQuestFlag(90), Quest.GetFlag(67), Quest.CanReportDailyQuest(61), Quest.ReportDailyQuest(61), Quest.GetMobKillCount(20), Trigger.QuestActiveProgress(8), Trigger.QuestFinishProgress(3), Quest.CheckWishQuest(1)
 
-### `movie-ui (client-only)` -- 0/3 real
-Mob.ShowAnimation(716), Quest.PlayNPCMovie(100), Quest.PlayNPCVoice(8)
+### `message-wire` -- 0/9 real
+Mob.ShowAnimation(716), Player.ShowMessage(61), Trigger.TriggerShowMessage(55), Player.OpenUI(31), Player.OpenHelpUI(26), Quest.PlayNPCVoice(8), Player.PlayMovie(7), Party.PlayMovie(2), Party.ShowMessage(1)
 
 ### `exp-level` -- 2/11 real
 Quest.AddCriteriaExp(166), Quest.AddCriteriaSkillPoint(166), Player.GetLv(91), Player.GetClass(60), Quest.AddLvCriteriaExp(59), Quest.AddLvCriteriaSkillPoint(59), Player.AddExp(2), Player.AddPpClass(2), Player.AddSkillPoint(2), Player.GetPpClass(1), Player.GiveLvCriteriaPercentageEXP(1)
@@ -75,9 +75,6 @@ Scene.PlacementOFF(173), Scene.PlacementON(96), Scene.CheckPlacementAlive(65), T
 ### `cash` -- 0/4 real
 Quest.AddCriteriaCash(165), Quest.AddLvCriteriaCash(58), Player.GetCash(7), Player.AddCash(6)
 
-### `message-wire` -- 0/7 real
-Player.ShowMessage(61), Trigger.TriggerShowMessage(55), Player.OpenUI(31), Player.OpenHelpUI(26), Player.PlayMovie(7), Party.PlayMovie(2), Party.ShowMessage(1)
-
 ### `other:vfx-wire` -- 0/3 real
 Trigger.PlayFx(57), Trigger.StartTriggerAnimation(43), Trigger.StartAnimation(19)
 
@@ -86,6 +83,9 @@ Player.EnterInstance(32), Instance.AddKeyEvent(15), Instance.GetInstanceID(14), 
 
 ### `combat-skill` -- 0/7 real
 Player.CastSkillAt(69), Trigger.CastSkillXYZ(11), Trigger.CastSkill(9), Player.CheckSkill(6), Trigger.CastSkillBy(5), Party.CastSkillAt(3), Player.CastSkillXYZ(2)
+
+### `movie-ui (client-only)` -- 0/1 real
+Quest.PlayNPCMovie(100)
 
 ### `teleport-warp` -- 0/8 real
 Player.Teleport(35), Player.CameraFocus(16), Player.Warp(10), Player.TeleportThenPlayMovie(8), Player.ResetMarker(7), Player.TeleportWithVehicle(6), Player.TeleportCheck(1), Player.WarpNearestMarker(1)
@@ -146,7 +146,7 @@ Player.SuveryOwner(1)
 
 ## Nonclaims
 - **Called != implemented, on either side.** `gamedata/PF_LUA_API_SPEC.md`'s own nonclaims (RE-057): `Scene.PlacementOFF`/`PlacementON`/`PlacementCancel` bind to a client no-op in the shipped build. This map's `system_exists` judges OUR server, not the client -- unrelated facts, do not conflate.
-- **`status`/`system_exists` measured from `script_host.py` + `lua_api/*` this round** (REAL_METHODS: trigger.py:309, instance.py:381, quest.py:233, player.py:83); Mob/Scene/Guild/Party have no dedicated module at all, fall to the generic `ApiNamespaceStub` (`script_host.py:270`) -- 0/36 real.
+- **`status` measured from `script_host.py`+`lua_api/*`** (REAL_METHODS: trigger.py:309, instance.py:381, quest.py:233, player.py:83); Mob/Scene/Guild/Party fall to the generic `ApiNamespaceStub` (`script_host.py:272`) -- 0/36 real. `system_exists` is wider: several `PARTIAL` rows also drew on a repo grep for unrelated modules (`inventory.py`, `store.py`, `persistence_vitals.py`), not just the two files above.
 - **No name is MISSING** (the letter's third status value): every one of 160 names dispatches through either a real handler or the generic stub, so nothing is unreachable/undefined; MISSING is unused in the TSV.
 - **`system`/`milestone` columns are this round's own judgment call**, grounded in `STILL_STUBBED` blocker text (Player/Trigger/Quest) and a repo grep for existing modules (Instance/Mob/Scene/Guild/Party had no such text to quote) -- not Panya's decision, COO should treat these as a starting proposal, not a ruling.
 - **No production code, tests, or `docs/SCRIPT_LANE.md` touched this round** per the letter's own instruction.
