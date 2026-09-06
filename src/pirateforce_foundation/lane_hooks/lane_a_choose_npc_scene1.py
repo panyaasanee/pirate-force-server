@@ -35,11 +35,40 @@ click, the responder registered in one run and withdrawn in the other;
     once is unspent, naming what it spent in ``latches_spent``.  So P91's
     "(LOST)" is CONDITIONAL exactly like P1's -- conditional on the chief
     lines in ``VENDOR_AND_MISSION_LATCH_WIRING``, which nothing passes today.
-    Until those land, every call still omits the keywords, both arms still
+    ~~Until those land, every call still omits the keywords, both arms still
     answer with today's reason strings, and the flip still costs the town
-    its shop, so the gate below stays False.  What changed this round is
-    that no LANE-owned work is left between the chief lines and the flip's
-    shop row -- not that the shop row is paid.
+    its shop, so the gate below stays False.~~  STRUCK, ROUND ``eknq8d``:
+    THEY LANDED, AND THE TWO "(LOST)" ROWS ARE NOW PAID -- MEASURED, NOT
+    ASSUMED.  ``runtime.py`` queues ``extra_actions``, passes
+    ``vendor_open_latch_spent``/``mission_dialog_latch_spent`` from the same
+    attributes the frozen loop sets, and writes ``latches_spent`` back.
+    Driven through ``runtime.make_state_class`` this round with this
+    responder registered
+    (``tests/test_lane_a_choose_npc_scene1.py``'s
+    ``TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests`` pins
+    all three rows):
+
+        click        on main today                       with this responder
+        ---------    --------------------------------    -------------------
+        P1           face + talk trigger                 face + talk trigger
+                     + Columbus quest 3021               + Columbus quest 3021
+        P91          face + TRADE_ZOOM_STORE5            face + TRADE_ZOOM_STORE5
+                                                         (second click in the
+                                                         same session: face
+                                                         alone -- the latch is
+                                                         written back)
+        P30          (nothing -- refused by name)        face (a gain)
+        P0           (nothing -- unresolvable)           (nothing -- the same)
+
+    WHAT IS STILL NOT PAID, AND IT IS NO LONGER THE ACTIONS: steps 4 and 5
+    below, whose chief-owned ``runtime.py`` lines are still absent from
+    ``main`` (grepped at HEAD this round: ``world_census_identity_resolved``,
+    ``runtime_ack_sent`` and ``exact_frozen_marker1_ready_pc`` appear at no
+    call site in ``runtime.py``).  Those three keywords are this module's
+    DECLINE guards, so flipping the gate today would take the scene over on
+    boots where it must stand aside.  That is why the gate below is still
+    False -- a different reason from the one this table carried before, and
+    a smaller one.
 
 THE FACE FRAME IS ALREADY AT PARITY, AND THAT IS NOT ENOUGH.  Its 14,142
 bytes are byte-identical to ``world_face_frame.build_face_state``'s, which
@@ -76,12 +105,17 @@ any order, all of them before the flip):
     ``yjjtyn``, ADDITIVELY: the type gained
     ``extra_actions`` (default ``()``, so every responder and the call
     site keep their present meaning) -- read that field's own paragraph in
-    ``lane_hooks/__init__.py`` before reading anything here as live.  THE
+    ``lane_hooks/__init__.py`` before reading anything here as live.  ~~THE
     LANE HALF IS DONE AND THE FIELD IS STILL INERT: the one line that
     queues it (``actions.extend(response.extra_actions)`` in runtime.py's
     responder branch, right after ``actions = [(response.label, ...)]``)
     is chief's, and CORE-REQUEST ``20260904_0137`` asks for it.  Strike
-    this item the day that line merges, not before.  runtime.py's own
+    this item the day that line merges, not before.~~  STRUCK, ROUND
+    ``eknq8d``: THAT LINE IS ON ``main``.  ``runtime.py`` queues the field
+    in its responder branch, inside a try whose failure path keeps the face
+    frame; the talk trigger reaches a real dispatched click's actions,
+    measured this round and pinned at dispatch level rather than at
+    ``respond()`` level.  runtime.py's own
     call-site comment named this as the fix and said whose it is: "a
     ``lane_hooks``/lane_a design change outside a runtime.py guard's
     scope".
@@ -114,10 +148,16 @@ any order, all of them before the flip):
     THE LANE CANNOT WRITE THE LATCH BACK AND MUST NOT TRY: it is handed no
     session object, so it returns the names of the flags its actions spent
     in ``ChooseNpcResponse.latches_spent`` and the call site sets them.
-    STEP 2 IS THEREFORE NOT FINISHED, and the remainder is chief's, not
+    ~~STEP 2 IS THEREFORE NOT FINISHED, and the remainder is chief's, not
     this lane's: two lines in ``runtime.py``, written out verbatim in
     ``VENDOR_AND_MISSION_LATCH_WIRING`` below.  Strike this item the day they
-    merge, not before.
+    merge, not before.~~  STRUCK, ROUND ``eknq8d``: THEY MERGED, BOTH OF
+    THEM, AND THE PAIR WAS MEASURED TOGETHER RATHER THAN GREPPED APART.
+    The call site reads ``self.shop_store5_open_sent`` and
+    ``self.quest3020_conversation_sent`` into the two keywords and sets
+    back only the two names it recognises out of ``latches_spent``.  Two
+    clicks on the shop trigger in ONE dispatched session now answer
+    trade-zoom-then-nothing rather than trade-zoom twice.
 3.  Only then the flag, with an attended ticket that clicks a townsperson,
     a shop keeper and placement 30 in Port Royal and reports what opened.
 4.  ~~Every other v141 behaviour that rides a ``TARGET_VITAL`` frame in
@@ -204,24 +244,39 @@ any order, all of them before the flip):
     drives it through ``runtime.make_state_class`` the same way
     ``TheGateStaysClosedForAMeasuredReasonTests`` drives today's frozen
     answer.  It is added to ``npc_conversation_handshake``'s own
-    ``test_refs`` in the same commit.  IT CURRENTLY PINS A GAP RATHER THAN
+    ``test_refs`` in the same commit.  ~~IT CURRENTLY PINS A GAP RATHER THAN
     A GUARANTEE, AND SAYS SO IN ITS OWN DOCSTRING: with the responder
     registered but ``runtime.py``'s queue line (CORE-REQUEST
     ``20260904_0137``) still unmerged, a real dispatched click answers
     with the face frame alone -- the talk trigger this class asserts is
     ABSENT, not present, because nothing yet reads ``extra_actions`` at
-    the real call site.  That assertion inverts, and the class docstring
-    says so, the day the queue line lands; the class stays either way,
-    because its other job -- proving a real dispatched click through the
-    registered responder still resolves at all -- does not change.
+    the real call site.~~  STRUCK, ROUND ``eknq8d``: IT PINS THE GUARANTEE
+    NOW.  The queue line landed, the absence assertion went RED on
+    ``origin/main`` (COO-DECISION ``2026-09-06T21:41`` read that red as
+    progress and ordered the inversion), and it is now ``assertIn`` under a
+    name that says what it measures.  That assertion inverted, and the class
+    docstring said it would, the day the queue line landed; the class stayed
+    either way, because its other job -- proving a real dispatched click
+    through the registered responder still resolves at all -- did not
+    change.  THE CLASS NAME STILL SAYS "DROPS" AND IS THEREFORE HISTORIC:
+    renaming it moves ``docs/FUNCTIONAL_COVERAGE.json`` and the digest pin
+    in ``tests/test_foundation_legacy_seam.py``, neither of which is this
+    lane's file -- round ``eknq8d`` left both alone and wrote the rename up
+    as a follow-up instead.
 ~~Steps 1-6 are lane A's own work.  Nothing here is chief's.~~  CORRECTED,
 ROUND ``rlymq1``, BECAUSE THE SENTENCE HAD STOPPED BEING TRUE AND WAS
 LOAD-BEARING: steps 1, 2 and 5 each ended as a LANE half plus a
 CHIEF-OWNED ``runtime.py`` line, and the lane half of all three is now
-written.  What is left of them is chief's alone -- the queue line
+written.  ~~What is left of them is chief's alone -- the queue line
 (CORE-REQUEST ``20260904_0137``), the two latch lines
 (``VENDOR_AND_MISSION_LATCH_WIRING``) and the census keyword plus its decline
-fallback (``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``).  STEPS 6 AND 7 ARE
+fallback (``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``).~~  AMENDED, ROUND
+``eknq8d``: THE FIRST TWO GROUPS ARE ON ``main`` (steps 1 and 2 are struck
+above and the strikes carry the measurement).  WHAT IS LEFT OF THIS LIST IS
+THE DECLINE HALF AND ONLY IT: step 5's census keyword plus its decline
+fallback (``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``) and step 4's two
+(``FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING``) -- three keywords, none of which
+appears at any call site in ``runtime.py`` at HEAD this round.  STEPS 6 AND 7 ARE
 NOW DONE TOO, ROUND ``vxfepr``, AND NEITHER WAITED ON A CHIEF LINE -- SEE
 THEIR OWN STRIKES ABOVE.  ~~Step 4 is still lane A's own and still
 undone.~~  DONE ROUND ``eepcv6``, AND IT WENT THE WAY STEPS 1/2/5 WENT
@@ -344,7 +399,14 @@ sufficient on its own:
     None`` for home -- see the CORE-REQUEST), so THE CRASH THIS FILE EXISTS
     TO PREVENT CANNOT HAPPEN TODAY.  Flipping this flag before that trigger
     widens changes nothing about that risk either way.
-2.  Once armed, this module answers EVERY scene-1 click instead of the
+2.  THIS REASON IS NOW THE LIVE ONE AND ROUND ``eknq8d`` NARROWED IT TO A
+    SENTENCE: the three DECLINE keywords steps 4 and 5 define are still
+    passed by nobody, so a flip today would take over the two frames the
+    responder must stand aside for (the frozen first ack, the exact
+    marker1-ready PC) and would answer on a boot whose census could not
+    resolve identity.  The ACTIONS half of this reason is paid -- see the
+    amended table at the top of this docstring.
+    Once armed, this module answers EVERY scene-1 click instead of the
     frozen path -- including clicks AFTER the player has already walked,
     which the frozen path answers correctly today (unlike scene 14, no
     known defect is on record for that case).  Swapping a working,

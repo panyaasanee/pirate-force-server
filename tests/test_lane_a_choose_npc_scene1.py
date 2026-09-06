@@ -1671,7 +1671,7 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
     two classes is which responder the real registry hands ``runtime.py``
     when the click lands.
 
-    THE FAILURE THIS PROVES IS THE MISSING CALL-SITE LINE, NOT THIS
+    ~~THE FAILURE THIS PROVES IS THE MISSING CALL-SITE LINE, NOT THIS
     RESPONDER.  ``TheTalkTriggerRidesAlongAsAnExtraActionTests`` and
     ``TheOncePerSessionLatchedActionsTests`` already prove, at the
     ``respond()`` level, that the talk trigger and the two latched
@@ -1681,14 +1681,45 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
     click through the registered responder today answers with the face
     frame alone -- and that is what
     ``test_the_talk_trigger_is_still_missing_at_real_dispatch_today``
-    asserts, an ABSENCE, not a presence.
+    asserts, an ABSENCE, not a presence.~~  STRUCK, ROUND ``eknq8d``:
+    THAT LINE IS ON ``main`` AND THE ASSERTION HAS BEEN INVERTED, WHICH
+    IS WHAT THE PARAGRAPH BELOW ASKED THE NEXT READER TO DO.
+    ``runtime.py`` now queues the collection half
+    (``actions.extend(response.extra_actions)``) and writes the two
+    once-per-session latches back, and it passes both latch keywords into
+    ``respond()`` -- so a REAL dispatched click through the registered
+    responder answers with the face frame AND the action beside it.
+    MEASURED THIS ROUND through this file's own harness, one click each,
+    responder registered:
 
-    THIS CLASS MUST BE RE-READ, NOT DELETED, THE DAY THAT LINE MERGES: at
-    that point the test named above should go RED, and the fix is to
-    invert its assertion (``assertIn`` in place of ``assertNotIn``), not
-    to remove the class -- its other job, proving a real dispatched click
-    through the registered responder still resolves to an honest answer
-    at all, does not change.
+        P3   LANE_A_CHOOSE_NPC_SCENE1_FACE_P3
+             + V98_NPC_CONVERSATION_DEFAULT_P3_VIA_LANE_A
+        P91  LANE_A_CHOOSE_NPC_SCENE1_FACE_P91
+             + V112_TEST_HARNESS_TRADE_ZOOM_STORE5_SWORD_SOUL_VIA_LANE_A
+             (second click in the SAME session: face frame alone)
+        P1   LANE_A_CHOOSE_NPC_SCENE1_FACE_P1
+             + V98_NPC_CONVERSATION_DEFAULT_P1_VIA_LANE_A
+             + CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE
+
+    THIS CLASS WAS RE-READ, NOT DELETED, THE DAY THAT LINE MERGED: the
+    test named above went RED on ``origin/main`` (COO-DECISION
+    ``2026-09-06T21:41``), and the fix was to invert its assertion
+    (``assertIn`` in place of ``assertNotIn``) and rename it to what it
+    now measures, not to remove the class -- its other job, proving a
+    real dispatched click through the registered responder still resolves
+    to an honest answer at all, does not change.
+
+    THE CLASS NAME IS HISTORIC AND IS NOW WRONG BY ITS VERB, ON PURPOSE
+    AND NOT BY OVERSIGHT.  This responder no longer DROPS the talk
+    trigger at real dispatch -- the class name says it does.  Renaming
+    the class would move ``docs/FUNCTIONAL_COVERAGE.json``'s
+    ``npc_conversation_handshake`` note and the comment plus digest pin in
+    ``tests/test_foundation_legacy_seam.py`` that both name this class by
+    string, and neither of those files is this lane's to edit; round
+    ``eknq8d`` records the rename as a follow-up in its round file and its
+    letter rather than reaching into them.  Read the verb as "the class
+    that measures whether it drops it", which is what it has always
+    tested.
     """
 
     @classmethod
@@ -1741,20 +1772,86 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
             "lane responder",
         )
 
-    def test_the_talk_trigger_is_still_missing_at_real_dispatch_today(self):
+    def test_the_talk_trigger_rides_the_real_dispatched_click_today(self):
         """SEE THE CLASS DOCSTRING BEFORE CHANGING THIS ASSERTION.  This is
-        the dispatch-level gap item 7 exists to name: ``respond()``
-        composes the talk trigger into ``extra_actions``
-        (``TheTalkTriggerRidesAlongAsAnExtraActionTests`` proves that), but
-        nothing in ``runtime.py`` reads that field at a real call site yet,
-        so it never reaches the actions a real dispatched click returns."""
+        the dispatch-level gap item 7 exists to name, and it is now closed
+        in the direction the docstring predicted: ``respond()`` composes
+        the talk trigger into ``extra_actions``
+        (``TheTalkTriggerRidesAlongAsAnExtraActionTests`` proves that), and
+        since CORE-REQUEST ``20260904_0137`` landed, ``runtime.py``'s
+        responder branch queues that field, so it DOES reach the actions a
+        real dispatched click returns.
+
+        THE ``_VIA_LANE_A`` SUFFIX IS WHAT MAKES THIS A MEASUREMENT AND NOT
+        A COINCIDENCE (the same reason
+        ``TheGateStaysClosedForAMeasuredReasonTests`` pins its own face
+        label): the frozen path's own talk trigger at this placement is
+        labelled ``V98_NPC_CONVERSATION_DEFAULT_P3`` with no suffix --
+        measured this round, responder withdrawn -- so a label that ends in
+        ``_VIA_LANE_A`` can only have come from this responder's
+        ``extra_actions``, through the call site's queue line.  The face
+        assertion below is the second half of that: the frozen face label
+        must be ABSENT, or the click was answered by the frozen loop and
+        this test would be reading someone else's actions."""
         labels = self._labels_for_click("tok-scene1-dispatch-real-02", 3)
-        self.assertNotIn(
+        self.assertIn(
             "V98_NPC_CONVERSATION_DEFAULT_P3_VIA_LANE_A", labels,
-            "runtime.py is now queuing extra_actions (CORE-REQUEST "
-            "20260904_0137 landed) -- invert this assertion to assertIn "
-            "and re-read this class's own docstring before doing so, "
-            "rather than deleting the test",
+            "runtime.py stopped queuing extra_actions (CORE-REQUEST "
+            "20260904_0137 was on main when this assertion was inverted, "
+            "round eknq8d) -- re-read this class's own docstring before "
+            "touching this assertion, rather than deleting the test",
+        )
+        self.assertNotIn("V98_NPC_CONVERSATION_DEFAULT_P3", labels)
+        self.assertNotIn("V98_NPC_FACE_PLAYER_POSITION_HEADING_P3", labels)
+        self.assertEqual(
+            len(labels), 2,
+            "an answer to an ordinary scene-1 click through this responder "
+            "is exactly its face frame and its talk trigger",
+        )
+
+    def test_the_shop_click_opens_the_store_once_per_session(self):
+        """THE SECOND HALF OF THE SAME CALL-SITE CHANGE, AND THE HALF THAT
+        DECIDES WHETHER THE FLIP COSTS THE TOWN ITS SHOP.  Step 2's lines
+        (``VENDOR_AND_MISSION_LATCH_WIRING``) landed with step 1's: the call
+        site passes ``vendor_open_latch_spent`` from the SAME attribute the
+        frozen loop sets, and writes the latch back from
+        ``response.latches_spent``.  Driven on ONE booted state, two clicks,
+        because the whole point is what the SECOND click does -- a fresh
+        state per click would pass with no write-back at all."""
+        state = _dispatch_booted_state(
+            self.legacy, self.addCleanup, "tok-scene1-dispatch-shop")
+        shop_index = self.legacy.V112_SHOP_TRIGGER_INDEX
+        click = _dispatch_click_pc(self.legacy, 0x2000 + shop_index + 1)
+        first = [a[0] for a in state.dispatch(self.legacy.parse_outer(click))]
+        self.assertIn(
+            "V112_TEST_HARNESS_TRADE_ZOOM_STORE5_SWORD_SOUL_VIA_LANE_A",
+            first,
+        )
+        self.assertTrue(state.shop_store5_open_sent)
+        second = [a[0] for a in state.dispatch(self.legacy.parse_outer(click))]
+        self.assertEqual(
+            second, [f"LANE_A_CHOOSE_NPC_SCENE1_FACE_P{shop_index}"],
+            "the second click re-opened the store: the latch write-back at "
+            "the call site is gone, or this responder stopped reading it",
+        )
+
+    def test_columbus_keeps_his_quest_action_through_this_responder(self):
+        """The one placement in this scene that carries a THIRD action from
+        a source outside this lane (``columbus_quest_dispatch``, additive at
+        the same call site).  The responder branch runs INSTEAD of the
+        frozen loop, so the question this pins is whether taking the scene
+        over silently costs Columbus his quest conversation.  It does not:
+        measured this round, the frozen path answers him with three actions
+        and so does this one, with the two lane labels in place of the two
+        frozen ones."""
+        labels = self._labels_for_click("tok-scene1-dispatch-columbus", 1)
+        self.assertEqual(
+            labels,
+            [
+                f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P1",
+                "V98_NPC_CONVERSATION_DEFAULT_P1_VIA_LANE_A",
+                "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE",
+            ],
         )
 
 
