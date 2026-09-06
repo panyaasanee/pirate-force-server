@@ -363,11 +363,21 @@ def make_actor_attr_with_name_class_and_faction(
     composed cast: a scene-14 login shipped the plain ActorAttr and no
     ``PLAYER_FACTION`` line, and ``HYP-PF-027`` measured that hostility
     renders from a faction PAIR, so 81 composed monsters could not read as
-    hostile.  ``world_faction_admission.admits`` now answers the WHERE
-    question from the scene registry (open at login AND ``n_SAVE`` 1) and is
-    fail-closed, with scenes 1 and 2 as a floor it cannot fall below.  WHAT is
-    unchanged: ``basic_faction`` must still be exactly 1 and ``scene_seq``
-    still 0, both still checked here.
+    hostile.  ``world_faction_admission.admits`` answered the WHERE question
+    from the scene registry (open at login AND ``n_SAVE`` 1) at that point,
+    with scenes 1 and 2 as a floor it could not fall below.
+
+    UPDATED AGAIN -- LANE-A round q02brx (COO-DECISION 20260906_1347).  The
+    registry-gated version above became a defect of its own: ka1-A's R321
+    measurement found a login into scene 126 (reached via the GM single-use
+    relog ticket) refused on BOTH registry conditions, shipped no faction
+    field, and the client -- which never re-reads the field after the first
+    login frame -- stayed factionless for the rest of that session in every
+    scene it later warped to.  ``world_faction_admission.admits`` no longer
+    reads the registry at all: it admits every well-typed ``int`` scene id
+    and is fail-closed only against what could never legally be a scene id.
+    WHAT is unchanged: ``basic_faction`` must still be exactly 1 and
+    ``scene_seq`` still 0, both still checked here.
 
     The frozen, class-less ``make_actor_attr_with_basic_faction`` below keeps
     its literal ``(1, 2)`` ON PURPOSE.  ``GT-032`` proved that function

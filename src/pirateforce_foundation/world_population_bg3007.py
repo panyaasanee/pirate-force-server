@@ -45,8 +45,10 @@ repeated here only as a pointer:
 
 * THE DOOR IS SHUT AND STAYS SHUT.  ``login_entry_allowed`` for scene 304 is
   ``false`` and this round does not flip it.
-* NO FACTION FRAME.  ``n_SAVE`` is 0, so ``world_faction_admission`` refuses
-  this scene by its own published rule; nothing here widens that.
+* FACTION FRAME: SHIPS NOW.  ``n_SAVE`` is 0; ``world_faction_admission``
+  used to refuse on that, but LANE-A round q02brx (COO-DECISION
+  20260906_1347) widened it to every login scene.  Nothing in THIS module
+  changed to make that true.
 * 15 SETS SHIP ``INVISIBLE`` bodies and one of them ships with no name at
   all, both under the precedent ``world_bg0004_identity`` set 107 and scene
   126's own set 53 already ship under.

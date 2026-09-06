@@ -553,9 +553,12 @@ class Scene14RegistryTests(unittest.TestCase):
             STILL PINS persist_position_allowed FALSE, asserted below.  This
             round flipped one boolean, not two.
         (3) no PLAYER_FACTION line, because the faction-1 compose refused
-            every scene but 2 and Port Royal.  Closed by this same commit:
-            world_faction_admission admits scene 14 now, asserted below
-            against the module rather than quoted from this docstring.
+            every scene but 2 and Port Royal.  Closed by round vvy6q7's
+            commit and widened further by LANE-A round q02brx
+            (COO-DECISION 20260906_1347): world_faction_admission no longer
+            asks the registry at all and admits scene 14 (and every other
+            scene) unconditionally, asserted below against the module
+            rather than quoted from this docstring.
         """
         self.assertTrue(self.target.login_entry_allowed)
         # (2): the second boolean did NOT move, and a round that moves it is
@@ -564,11 +567,12 @@ class Scene14RegistryTests(unittest.TestCase):
         # (3): the defect that was open when the old test was written.
         self.assertTrue(
             world_faction_admission.admits(VOLCANO_SCENE_ID, self.registry))
-        # ...and it is admitted for the two REASONS the COO wrote down,
-        # not because the module holds a literal 14 somewhere.
+        # ...and it is admitted the same way EVERY scene now is (LANE-A
+        # round q02brx) -- the registry's own save_flag is still 1 here,
+        # but that is no longer what ``admits`` reads.
         self.assertEqual(self.target.save_flag, 1)
         self.assertIn(
-            "open_at_login_and_n_save_1",
+            "every_login_scene",
             world_faction_admission.refusal_reason(
                 VOLCANO_SCENE_ID, self.registry),
         )
