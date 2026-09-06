@@ -1811,3 +1811,117 @@ observability gap.
    (blocked on `RE-280`).
 
 SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- ตรรกะฝั่งเซิร์ฟเวอร์ของ 9 Quest.* + 2 Trigger.* ถูกต้องและมีเทสยืนยันแล้ว แต่ยังไม่ต่อกับ session ผู้เล่นจริงและยังไม่มีที่เก็บถาวรข้าม relog | pirate-force-server PR, quest-flag fns real 9/12, Trigger fns real 2/2
+
+## Round uadtc7 (2026-09-06) -- recovered #947, wired one shared QuestStateStore between Trigger and Quest
+
+### What changed
+
+Two parts.
+
+1. Recovered `pirate-force-server#947` (closed by the reaper, never merged)
+   by cherry-picking its two commits unchanged onto fresh `origin/main`
+   (`fd82da2`, `13f4c02`) -- the same 9 more `Quest.*`/2 more `Trigger.*`
+   real closures round `7v7yn2`'s own `docs/SCRIPT_LANE.md` section above
+   already describes in full; nothing about that code changed here.
+
+2. New this round: `script_host.ScriptHost.__init__`/`load_script_file`
+   gained `quest_context`/`quest_store` parameters and now build ONE
+   shared `lua_api.quest.QuestStateStore` (a fresh `InMemoryQuestStateStore`
+   + `DEFAULT_CONTEXT` when neither is given), passed to BOTH
+   `lua_api.trigger.build_namespace` (`quest_context=`/`quest_store=`) and
+   `lua_api.quest.build_namespace` (`context=`/`store=`) -- the exact gap
+   `lua_api.trigger.build_namespace`'s own docstring named ("NOT WIRED IN
+   `script_host.ScriptHost` THIS ROUND, SAID PLAINLY"), reverted before
+   push in `#947` because it tripped `tests/test_npc_interaction_wire.py`'s
+   `QuestAndShopStateGuardTests` (three new symbols with no exemption).
+   Chief (LANE-E) round `awnjat` pre-approved exactly three new symbol
+   names for `ALLOWED_SYMBOLS["script_host.py"]`
+   (`pf_bridge/notes_to_chief/20260906_2151_CHIEF-REPLY-LANE-Q-quest-
+   state-door-granted-1950-1951-not-yet-earned.md`), landed in the same
+   commit as the wiring it exempts, per that guard's own rule (an
+   exemption cannot be granted for code that does not exist yet). The
+   three actual offending symbols, measured by running the guard test
+   before adding the exemption (not assumed from the letter's own draft):
+   `quest_context`, `quest_store`, `_in_memory_quest_state_store` --
+   matches the letter's pre-approved list exactly. Local variable names
+   inside `ScriptHost.__init__` were kept as the bare parameter names
+   `quest_context`/`quest_store` (rebound in place) rather than new names
+   like `shared_quest_context` specifically because the guard flagged
+   those too on a first attempt and neither was in the pre-approval.
+
+### What this does NOT do yet, said plainly
+
+Still no production persistence -- `InMemoryQuestStateStore` is still the
+only `QuestStateStore` implementation in this codebase; chief's own
+DB-backed accessor (`store.py`'s `get_quest_flag`/`set_quest_flag`/
+`get_quest_counter`/`set_quest_counter`, `migrations/016_character_quest_
+state.sql`) is store.py's own write zone, not this lane's, and its own PR
+(`#954`) is ALSO closed unmerged -- re-landing it is chief's (LANE-E)
+job, not this lane's, and this round does not touch `store.py` or
+`migrations/`. Still no live dispatch -- nothing binds a `ScriptHost` run
+to a real player session/character id yet, same gap every prior round in
+this file already states. Player-visible impact: none yet.
+
+### Tests + gates
+
+Three new tests, `tests/test_script_host_spike.py`'s
+`OneScriptHostSharesOneQuestStateStoreTests`: the two namespaces hold the
+IDENTICAL store/context object (`is`, not equality); a
+`Trigger.QuestActiveProgress` write is visible to a later
+`Quest.GetQuestFlag` read in one `ScriptHost` run with no store/context
+injected (the default-sharing path every existing caller takes); an
+explicitly-injected store/context pair is the one both namespaces
+observably share (checked both through the Lua call and by reading the
+injected store object directly afterward). `docs/PYTEST_SKIP_PINS.json`'s
+`tests/test_script_host_spike.py` entry updated 22 -> 25, MEASURED via
+`tests/test_pytest_precondition_census.py`'s own AST walker, not counted
+by hand.
+
+`PYTHONPATH=src:tests python3 -m pytest tests/test_script_lua_api_quest.py
+tests/test_script_lua_api_trigger.py tests/test_script_lua_api_instance.py
+tests/test_script_lua_api_player.py tests/test_script_host_spike.py
+tests/test_script_lua_corpus.py tests/test_npc_interaction_wire.py -q`:
+194 passed, 333 subtests passed.
+
+Full `pytest tests/` on this branch, `origin/main` merged in (no-op,
+already current): 12544 passed, 327 skipped, 26403 subtests passed, 1
+failed. The 1 failure
+(`tests/test_lane_a_choose_npc_scene1.py::TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests::test_the_talk_trigger_is_still_missing_at_real_dispatch_today`)
+is `NOW.md`'s own `KNOWN_RED_MAIN` row -- confirmed pre-existing by
+`git stash` (reverting this round's own diff back to `origin/main`) and
+running that one test alone on the unmodified tree: fails identically.
+LANE-A's own file, not touched by this round, not this lane's write zone.
+
+`python3 tools_bridge/pf_gate_preflight.py --repo ../pirate-force-server`
+(from `pf_bridge`): PREFLIGHT PASS.
+
+### ADVERSARY
+
+`ADVERSARY_PENDING pirate-force-server` (this round's branch) -- invoked
+via the `pf-adversary` subagent after the diff was ready and the full
+suite already run, not at round start (this round's own process gap,
+same one round `qbr5h8` already logged and did not fix; next round
+should invoke it as the very first action instead). Result not back by
+push time; will be folded into this section or the next round file per
+house rule.
+
+### รอบหน้าทำอะไร
+
+1. If pf-adversary's pending result (see above) finds anything, it lands
+   as a follow-up commit on this branch or as this round file's own
+   addendum, per house rule -- read `pf_bridge/rounds/Q_*uadtc7*` first.
+2. `store.py`'s quest-state door (`pirate-force-server#954`, chief's own
+   PR) is ALSO closed unmerged -- not this lane's to re-land (write-zone:
+   `store.py`/`migrations/` are chief's), but the day it lands, switching
+   `ScriptHost`'s default `InMemoryQuestStateStore` for a live dispatch to
+   the real accessor is a one-parameter change per chief's own letter, not
+   a new design.
+3. Per `COO-DECISION 20260906_1846`'s ranking, item 2 (`inventory seam`)
+   is read-side already 3/3 real (round `qbr5h8`, `pirate-force-
+   server#953`, not yet merged) -- write side still blocked on `RE-280`.
+4. `CheckWishQuest` (Quest namespace) still needs an RE ticket -- low call
+   count (1), not blocking.
+5. Add a bad-VALUE log line to the 9 closures pf-adversary named in round
+   `7v7yn2` (still not done, carried forward again).
+
+SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- สคริปต์หนึ่งตัวที่เรียกทั้ง Trigger.QuestActiveProgress/QuestFinishProgress และ Quest.* ในรอบเดียวกันตอนนี้เห็นค่าที่อีกฝั่งเขียนจริงแล้ว (ก่อนหน้านี้แยกคนละที่เก็บ) แต่ยังไม่มี dispatch จริงต่อกับ session ผู้เล่นและยังไม่มีที่เก็บถาวรข้าม relog | pirate-force-server branch claude/hopeful-hopper-dyqifb (recovers #947 + new wiring commit 16349f3), 3 new tests
