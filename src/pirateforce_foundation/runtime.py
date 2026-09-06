@@ -47,6 +47,7 @@ from . import lane_hooks
 from .lane_hooks import lane_b_mob_ai_tick
 from .gm.accounts import is_gm_account
 from .gm import chat_command_action
+from .gm import name_color_gate
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
 from .ui_friend_wire import (
     COMMUNITY_REMOVE_FRIEND_VITAL_ID, COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
@@ -12088,6 +12089,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             )
                         if sweep_population is not None:
                             sweep_pc, sweep_frame = sweep_population
+                            # NOT DECORATION, AND NOT A TEST BEING APPEASED.
+                            # `tests/test_gm_p2_color_call_site_tripwire.py`
+                            # scans every module that composes NPCAttr bytes
+                            # and mentions a P-2 colour token, and it went RED
+                            # on this file the moment this wire existed --
+                            # correctly.  The gate's whole point is that no
+                            # code may put a colour experiment on the wire
+                            # without consulting the standing refusal
+                            # (faction-only banned, COO-DECISION 20260905_2348;
+                            # no hardcoded FontStyleID), and this branch is
+                            # exactly such a place.  The verdict is KEPT and
+                            # PRINTED rather than read and branched on,
+                            # because there is no colour DECISION here to gate
+                            # -- the row exists so a human can grade a colour
+                            # off the nameboard.  What the console line buys
+                            # the attended tester is the reminder, in front of
+                            # them at the boot that matters, that a candidate
+                            # coming back a different colour is an OBSERVATION
+                            # and not permission to wire that field.
+                            colour_verdict = (
+                                name_color_gate.p2_color_wiring_verdict()
+                            )
+                            print(
+                                "NAME_COLOUR_SWEEP_STANDING_REFUSAL "
+                                f"allowed={colour_verdict.allowed} "
+                                f"blockers={len(colour_verdict.blockers)}"
+                            )
                             sweep_count = len(
                                 name_colour_sweep.sweep_actors(legacy)
                             )
