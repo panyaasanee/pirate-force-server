@@ -87,13 +87,18 @@ from pirateforce_foundation.learn_skill_result_hypothesis import (  # noqa: E402
     LEARN_SKILL_RESULT_TRAILING_TAG,
     LEARN_SKILL_RESULT_VITAL_ID,
     LEARN_SKILL_RESULT_VITAL_VERSION,
+    LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID,
     LearnSkillResultRecord,
+    LearnSkillResultIsolationScenario,
     decode_learn_skill_result_payload,
     encode_learn_skill_result_payload,
     load_learn_skill_result_hypothesis_scenario,
+    load_learn_skill_result_isolation_scenario,
+    make_learn_skill_result_isolation_response,
     make_learn_skill_result_response,
     make_learn_skill_result_step_response,
     require_learn_skill_result_hypothesis_scenario,
+    require_learn_skill_result_isolation_scenario,
 )
 
 
@@ -1165,6 +1170,163 @@ class DispatchTests(unittest.TestCase):
                     self.legacy, self.lifecycle, self.projector,
                     learn_skill_result_hypothesis_scenario=bad,
                 )
+
+
+class IsolationScenarioTests(_LegacyCase):
+    """LEARN-SKILL-RESULT-001 single-frame isolation probe.
+
+    [ADDED, round CS/fufcdn, 2026-09-06] Composition-half tests only: no
+    dispatch hookup exists yet in runtime.py (that hookup is a CORE-REQUEST
+    to chief, not this module's to add -- see the module docstring's
+    "isolation scenario" section).  These tests prove that one committed
+    scenario file per label composes EXACTLY the same bytes as that label's
+    entry inside the full six-frame sweep, and nothing else.
+    """
+
+    ISOLATION_SCENARIO_DIR = ROOT / "scenarios"
+
+    def _isolation_path(self, label: str) -> Path:
+        return self.ISOLATION_SCENARIO_DIR / (
+            "learn_skill_result_hypothesis_isolation_"
+            + label.lower() + ".json"
+        )
+
+    def test_every_label_has_a_committed_scenario_file_that_loads(self):
+        for label in LEARN_SKILL_RESULT_STEP_ORDER:
+            with self.subTest(label=label):
+                scenario = load_learn_skill_result_isolation_scenario(
+                    self._isolation_path(label)
+                )
+                self.assertEqual(
+                    scenario,
+                    LearnSkillResultIsolationScenario(
+                        LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID,
+                        LEARN_SKILL_RESULT_HYPOTHESIS_ID,
+                        label,
+                    ),
+                )
+
+    def test_each_isolation_frame_is_byte_identical_to_its_sweep_entry(self):
+        for index, label in enumerate(LEARN_SKILL_RESULT_STEP_ORDER):
+            with self.subTest(label=label):
+                scenario = load_learn_skill_result_isolation_scenario(
+                    self._isolation_path(label)
+                )
+                self.assertEqual(
+                    make_learn_skill_result_isolation_response(
+                        self.legacy, scenario,
+                    ),
+                    make_learn_skill_result_step_response(
+                        self.legacy, index,
+                    ),
+                )
+
+    def test_a_scenario_file_naming_a_foreign_label_is_refused(self):
+        data = json.loads(self._isolation_path("COUNT0_TRAIL0").read_text())
+        data["dispatch"]["target_step"] = "NOT_A_REAL_LABEL"
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False,
+        ) as handle:
+            json.dump(data, handle)
+            path = Path(handle.name)
+        try:
+            with self.assertRaises(ValueError) as raised:
+                load_learn_skill_result_isolation_scenario(path)
+            self.assertIn("unknown_step_label", str(raised.exception))
+        finally:
+            path.unlink()
+
+    def test_a_scenario_file_with_a_tampered_pin_is_refused(self):
+        data = json.loads(self._isolation_path("COUNT1_TRAIL0").read_text())
+        data["probe"]["pc_sha256"] = "0" * 64
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False,
+        ) as handle:
+            json.dump(data, handle)
+            path = Path(handle.name)
+        try:
+            with self.assertRaises(ValueError):
+                load_learn_skill_result_isolation_scenario(path)
+        finally:
+            path.unlink()
+
+    def test_a_malformed_dispatch_field_is_refused_with_value_error(self):
+        # pf-adversary round fufcdn: data.get("dispatch", {}).get(...) used
+        # to raise AttributeError when "dispatch" was present but not a
+        # dict, breaking the fail-closed contract's promise of ValueError
+        # only. Every one of these must refuse by ValueError, not crash.
+        base = json.loads(self._isolation_path("COUNT0_TRAIL0").read_text())
+        for bad_dispatch in (None, "x", [1, 2], 1, True):
+            with self.subTest(dispatch=bad_dispatch):
+                data = dict(base)
+                data["dispatch"] = bad_dispatch
+                with tempfile.NamedTemporaryFile(
+                    "w", suffix=".json", delete=False,
+                ) as handle:
+                    json.dump(data, handle)
+                    path = Path(handle.name)
+                try:
+                    with self.assertRaises(ValueError) as raised:
+                        load_learn_skill_result_isolation_scenario(path)
+                    self.assertIn(
+                        "unknown_step_label", str(raised.exception),
+                    )
+                finally:
+                    path.unlink()
+
+    def test_a_missing_dispatch_field_is_refused_with_value_error(self):
+        base = json.loads(self._isolation_path("COUNT0_TRAIL0").read_text())
+        data = dict(base)
+        del data["dispatch"]
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False,
+        ) as handle:
+            json.dump(data, handle)
+            path = Path(handle.name)
+        try:
+            with self.assertRaises(ValueError) as raised:
+                load_learn_skill_result_isolation_scenario(path)
+            self.assertIn("unknown_step_label", str(raised.exception))
+        finally:
+            path.unlink()
+
+    def test_wrong_id_is_refused(self):
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False,
+        ) as handle:
+            json.dump({"id": "not_the_isolation_scenario"}, handle)
+            path = Path(handle.name)
+        try:
+            with self.assertRaises(ValueError):
+                load_learn_skill_result_isolation_scenario(path)
+        finally:
+            path.unlink()
+
+    def test_require_refuses_an_out_of_allowlist_object(self):
+        for bad in (
+            object(),
+            LearnSkillResultIsolationScenario(
+                "wrong_id", LEARN_SKILL_RESULT_HYPOTHESIS_ID,
+                "COUNT0_TRAIL0",
+            ),
+            LearnSkillResultIsolationScenario(
+                LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID, "HYP-PF-999",
+                "COUNT0_TRAIL0",
+            ),
+            LearnSkillResultIsolationScenario(
+                LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID,
+                LEARN_SKILL_RESULT_HYPOTHESIS_ID,
+                "NOT_A_REAL_LABEL",
+            ),
+        ):
+            with self.assertRaises(ValueError):
+                require_learn_skill_result_isolation_scenario(bad)
+
+    def test_composing_refuses_a_bad_scenario_before_touching_bytes(self):
+        with self.assertRaises(ValueError):
+            make_learn_skill_result_isolation_response(
+                self.legacy, object(),
+            )
 
 
 if __name__ == "__main__":

@@ -939,3 +939,180 @@ def require_learn_skill_result_hypothesis_scenario(
         )
     _require_step_plan()
     return value
+
+
+# ------------------------------------------------------- isolation scenario
+# [ADDED, round CS/fufcdn, 2026-09-06] The module docstring's own
+# "[UPDATE, round xy58b1]" paragraph names a NEW REGRESSION (movement lock
+# after the six-frame sweep) and names the follow-up that would isolate it:
+# "send each of the six frames with its own observation window instead of
+# the pinned all-six sweep" -- proposed there, not built there.  This is
+# that capability's composition half ONLY: one pinned frame, chosen by
+# label, with no other frame sent and no spacing/sweep behavior at all.
+#
+# This does NOT explain or fix the regression, does NOT flip
+# ``production_allowed`` (stays False -- unchanged, still forbidden per the
+# docstring until the cause is found), and does NOT wire a dispatch trigger:
+# runtime.py's ``_dispatch_learn_skill_result_hypothesis`` (and app.py's CLI
+# surface) are chief's files per LANE-CS's own charter ("ห้ามแตะ ...
+# runtime.py/app.py ... จุดเสียบ = CORE-REQUEST ใบเดียวถึงchief") and firing
+# a single labeled step per attended trigger needs a new branch there this
+# module cannot add.  A CORE-REQUEST for that hookup is the round's letter
+# to chief; nothing below composes a byte until that hookup exists.
+LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID = (
+    "learn_skill_result_hypothesis_isolation_probe"
+)
+
+
+@dataclass(frozen=True)
+class LearnSkillResultIsolationScenario:
+    scenario_id: str
+    hypothesis_id: str
+    target_step: str
+
+
+def _isolation_profile(target_step: str) -> LearnSkillResultIsolationScenario:
+    return LearnSkillResultIsolationScenario(
+        LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID,
+        LEARN_SKILL_RESULT_HYPOTHESIS_ID,
+        target_step,
+    )
+
+
+def _expected_isolation_probe(target_step: Any) -> dict[str, Any]:
+    if target_step not in LEARN_SKILL_RESULT_STEP_ORDER:
+        raise ValueError("learn skill result rejected: unknown_step_label")
+    return {
+        "schema": 1,
+        "id": LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID,
+        "test_only": True,
+        "production_allowed": False,
+        "hypothesis_id": LEARN_SKILL_RESULT_HYPOTHESIS_ID,
+        "purpose": (
+            "isolate_which_single_frame_of_the_six_frame_sweep_precedes_the_"
+            "unexplained_post_sweep_movement_lock"
+        ),
+        "entry": {
+            "flow": "full_writable_character",
+            "required_sequence": "selected_and_runtime_ready",
+            "response_policy": (
+                "compose_pinned_learn_skill_result_single_frame_"
+                "no_write_no_close"
+            ),
+        },
+        "dispatch": {
+            "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
+            "trigger_classifier": "classify_chat_input_attempt",
+            "frames_per_accepted_request": 1,
+            "target_step": target_step,
+            "step_records": [
+                _record_schema(record)
+                for record in LEARN_SKILL_RESULT_STEP_RECORDS[target_step]
+            ],
+            "step_trailing_u8": LEARN_SKILL_RESULT_STEP_TRAILING[target_step],
+            "one_shot": True,
+            "socket_action": "none",
+        },
+        "wire": {
+            "vital_id": LEARN_SKILL_RESULT_VITAL_ID,
+            "vital_version": LEARN_SKILL_RESULT_VITAL_VERSION,
+        },
+        "probe": {
+            "payload_size": LEARN_SKILL_RESULT_PROBE_PAYLOAD_SIZE[target_step],
+            "payload_sha256": (
+                LEARN_SKILL_RESULT_PROBE_PAYLOAD_SHA256[target_step]
+            ),
+            "pc_size": LEARN_SKILL_RESULT_PROBE_PC_SIZE[target_step],
+            "pc_sha256": LEARN_SKILL_RESULT_PROBE_PC_SHA256[target_step],
+            "frame_size": LEARN_SKILL_RESULT_PROBE_FRAME_SIZE[target_step],
+            "frame_sha256": LEARN_SKILL_RESULT_PROBE_FRAME_SHA256[target_step],
+        },
+        "persisted_post_state": {
+            "database_write": "none",
+        },
+        "nonclaims": [
+            "any_meaning_for_the_three_record_members",
+            "any_meaning_for_the_trailing_u8",
+            "a_cause_or_fix_for_the_post_sweep_movement_lock",
+            "the_inbound_clearn_skill_request_0x36AA_or_any_learn_rule",
+            "the_vital_version_byte_which_is_our_design",
+            "client_acceptance_or_rendering_pending_the_attended_gt_ticket",
+            "any_wire_observation_of_this_single_frame_in_isolation",
+            "original_server_learn_skill_behavior",
+            "skill_persistence_or_database_write",
+            "production_dispatch_wiring",
+            "production_baseline_behavior",
+        ],
+    }
+
+
+def load_learn_skill_result_isolation_scenario(
+    path: str | Path,
+) -> LearnSkillResultIsolationScenario:
+    """Load the one allowlisted opt-in single-frame scenario, or refuse.
+
+    Same discipline as ``load_learn_skill_result_hypothesis_scenario``: the
+    file is a PERMISSION TOKEN naming which one of the six frozen labels to
+    fire, never a source of byte values -- the frame composed always comes
+    from this module's own frozen step plan for that label.
+    """
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "invalid learn skill result isolation scenario"
+        ) from exc
+    if type(data) is not dict or data.get("id") != (
+        LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID
+    ):
+        raise ValueError(
+            "learn skill result isolation scenario exceeds the exact "
+            "allowlist"
+        )
+    dispatch_field = data.get("dispatch")
+    if type(dispatch_field) is not dict:
+        raise ValueError("learn skill result rejected: unknown_step_label")
+    target_step = dispatch_field.get("target_step")
+    if target_step not in LEARN_SKILL_RESULT_STEP_ORDER:
+        raise ValueError("learn skill result rejected: unknown_step_label")
+    if not _exact_equal(data, _expected_isolation_probe(target_step)):
+        raise ValueError(
+            "learn skill result isolation scenario exceeds the exact "
+            "allowlist"
+        )
+    return require_learn_skill_result_isolation_scenario(
+        _isolation_profile(target_step)
+    )
+
+
+def require_learn_skill_result_isolation_scenario(
+    value: Any,
+) -> LearnSkillResultIsolationScenario:
+    if (
+        type(value) is not LearnSkillResultIsolationScenario
+        or value.scenario_id != LEARN_SKILL_RESULT_ISOLATION_SCENARIO_ID
+        or value.hypothesis_id != LEARN_SKILL_RESULT_HYPOTHESIS_ID
+        or value.target_step not in LEARN_SKILL_RESULT_STEP_ORDER
+    ):
+        raise ValueError(
+            "learn skill result isolation scenario object exceeds the "
+            "allowlist"
+        )
+    _require_step_plan()
+    return value
+
+
+def make_learn_skill_result_isolation_response(
+    legacy: Any, scenario: LearnSkillResultIsolationScenario,
+) -> tuple[bytes, bytes]:
+    """Compose exactly the one pinned frame ``scenario.target_step`` names.
+
+    Delegates to ``make_learn_skill_result_step_response`` for the same
+    label's index, so the bytes and pins are byte-identical to that label's
+    entry inside the full six-frame sweep -- this changes WHICH frames are
+    sent and WHEN an attended tester can look for the movement-lock symptom,
+    never WHAT bytes a given label composes.
+    """
+    scenario = require_learn_skill_result_isolation_scenario(scenario)
+    step_index = LEARN_SKILL_RESULT_STEP_ORDER.index(scenario.target_step)
+    return make_learn_skill_result_step_response(legacy, step_index)

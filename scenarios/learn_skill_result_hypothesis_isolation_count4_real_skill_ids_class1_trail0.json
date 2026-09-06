@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "id": "learn_skill_result_hypothesis_isolation_probe",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-033",
+  "purpose": "isolate_which_single_frame_of_the_six_frame_sweep_precedes_the_unexplained_post_sweep_movement_lock",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "compose_pinned_learn_skill_result_single_frame_no_write_no_close"
+  },
+  "dispatch": {
+    "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
+    "trigger_classifier": "classify_chat_input_attempt",
+    "frames_per_accepted_request": 1,
+    "target_step": "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0",
+    "step_records": [
+      {
+        "record_u32_0": 111,
+        "record_u16_4": 111,
+        "record_u32_8": 111
+      },
+      {
+        "record_u32_0": 40000,
+        "record_u16_4": 40000,
+        "record_u32_8": 40000
+      },
+      {
+        "record_u32_0": 99,
+        "record_u16_4": 99,
+        "record_u32_8": 99
+      },
+      {
+        "record_u32_0": 110,
+        "record_u16_4": 110,
+        "record_u32_8": 110
+      }
+    ],
+    "step_trailing_u8": 0,
+    "one_shot": true,
+    "socket_action": "none"
+  },
+  "wire": {
+    "vital_id": 26428,
+    "vital_version": 0
+  },
+  "probe": {
+    "payload_size": 57,
+    "payload_sha256": "CA5817A938C0A142EFC3B6A51CA88CF77AD1CCDF3240FF89C46762EFA34266ED",
+    "pc_size": 79,
+    "pc_sha256": "3814DBDBF889430547BB39801933DB95E010E97D7C9B06883778424A6DD06D90",
+    "frame_size": 90,
+    "frame_sha256": "74499AB968A42AAD326CACCF0E9A99BA1D2CF489EA90C513F3E64631D7CBE136"
+  },
+  "persisted_post_state": {
+    "database_write": "none"
+  },
+  "nonclaims": [
+    "any_meaning_for_the_three_record_members",
+    "any_meaning_for_the_trailing_u8",
+    "a_cause_or_fix_for_the_post_sweep_movement_lock",
+    "the_inbound_clearn_skill_request_0x36AA_or_any_learn_rule",
+    "the_vital_version_byte_which_is_our_design",
+    "client_acceptance_or_rendering_pending_the_attended_gt_ticket",
+    "any_wire_observation_of_this_single_frame_in_isolation",
+    "original_server_learn_skill_behavior",
+    "skill_persistence_or_database_write",
+    "production_dispatch_wiring",
+    "production_baseline_behavior"
+  ]
+}
