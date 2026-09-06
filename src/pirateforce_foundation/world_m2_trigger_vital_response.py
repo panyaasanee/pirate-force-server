@@ -267,6 +267,36 @@ bytes.  ``_CANDIDATES`` maps each of ``CANDIDATE_TRIGGER_IDS`` (2, 3) to
 that.  Filling one entry is NOT by itself enough to make this module answer:
 tier 3 above still refuses until `ISLAND_CONTACT_DISCRIMINATOR` names a
 measured fact, and the seam still needs the three extra values above.
+
+WHERE TIER 3'S FACT IS SUPPOSED TO COME FROM, AND WHY THAT SOURCE IS STILL
+NOT ENOUGH ON ITS OWN
+-------------------------------------------------------------------------
+The three-tier shape above was ratified by `COO-DECISION 20260907_0405`
+(answering this lane's ASK-COO `20260907_0357`), which accepted item 3 whole
+-- INCLUDING "tier 3 is `None` today, so every pair is refused" -- and
+directed that the discriminator be sought in the client's own scene data,
+in `Data/Scene/Save/Bg3001/Bg3001.tgr` (the client ships it with backslash
+separators; Bg3001 IS scene 126, see
+`world_m2_sea_scene_cast`).  `RE-273` measured that a `.tgr` record carries
+a `u16` trigger ordinal, a script filename, and a fixed-size block holding
+two f32 triples read as position and extent.  If the record for an ordinal
+has a LOCAL extent box, that box is a candidate discriminator; if every
+record's box is scene-wide, this route is closed and that is a real answer.
+`RE-273`'s own field list for that block does not add up (it names 50 bytes
+of a 52-byte block), so the two triples' OFFSETS are not settled either and
+the ticket asks for the raw block bytes rather than trusting that list.
+LANE-A round `tsdl0w` sent the ticket body for that measurement to LANE-K
+(K assigns ticket numbers; A does not).
+
+READ THIS BEFORE FILLING THE SLOT FROM THAT TICKET'S RESULT.  A `.tgr`
+result is NOT sufficient by itself.  `RE-273` says so about its own finding:
+it did not prove that a `.tgr` trigger ordinal is the same number as the
+wire trigger id this module receives (`TriggerVital` 0x1FB2, tag 0x0F), and
+this project's rule is that two numbers are not crosswalked because they are
+equal.  So the `.tgr` ticket answers "does the client's data contain a local
+box at all", and a SECOND, separate measurement has to tie that box to the
+wire before `ISLAND_CONTACT_DISCRIMINATOR` may name it.  A round that fills
+this slot from the `.tgr` table alone has skipped that step.
 """
 from __future__ import annotations
 
