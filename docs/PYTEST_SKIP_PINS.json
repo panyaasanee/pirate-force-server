@@ -1306,6 +1306,15 @@
         "CommittedCopiesAreThePinnedOnesTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run"
       ],
       "note": "round sgv2fb (LANE-CS), recovering round psufmp's PR #952 after the Windows gate closed it for exactly this defect shape (skip_census: 'UNPINNED: tests/test_class_skill_curriculum.py skipped 2 test(s) on precondition bridge_gamedata') - the local sandbox that built the module always has pf_bridge checked out beside it, so both @BRIDGE_GAMEDATA.skip_unless_present() tests ran there and this pin was missed on the first push, same as the bg0008 entry above. The first re-runs the counter-evidence measurement against CONSTDATA_TH__SKILL_CONTEXT.tsv in the bridge clone so the n_PASSIVE correlation noted in class_skill_curriculum's non-claims cannot drift unnoticed. The second re-runs tools/pf_class_skill_curriculum_extract.py --check against the bridge clone's gamedata so the three shipped, sha256-pinned TSV copies cannot drift from what a fresh mining produces. Pinned in a follow-up commit on the recovered branch, since the original commit had already gone out before the gate result came back."
+    },
+    {
+      "key": "bridge_sibling",
+      "module": "tests/test_mob_death_withheld_scene_deny_list.py",
+      "count": 1,
+      "tests": [
+        "Bg3001IsNotKillableYetTests::test_every_deny_list_row_cites_a_letter_that_exists"
+      ],
+      "note": "round 2fpnex (LANE-B), COO-DECISION b2131 item D3 (pf_bridge notes_to_chief/20260906_2241_COO-DECISION-b2131-*.md): the new deny-list WITHHELD_SCENE_LETTERS names, per row, the COO letter that deferred that scene's kill grant, and a citation nobody can check is an assertion rather than a citation -- so ONE test in this module reads ../pf_bridge/notes_to_chief/ to confirm the cited letter is really filed, exactly as the b1712 key gate in tests/test_mob_death_widening_schema_gate.py does, and it is pinned against the SAME precondition for the same reason. The other 11 tests in this module take no bridge sibling and run everywhere: the deny-list's behaviour (derive mints no permit, rulings_covering returns (), kill() refuses under a named signed letter) and the 13th-scene tripwire are asserted at full strength on a fresh clone, which is the half that must never be allowed to skip. PF_BRIDGE_DIR is accepted as an explicit override first, same as the sibling gate, and nothing in this project's gate runs sets it. MEASURED this round in a git worktree with no pf_bridge beside it: exactly 1 SKIPPED under [precondition:bridge_sibling], 11 passed; with the sibling present, 12 passed."
     }
   ],
   "windows_gate_excluded_modules": {
