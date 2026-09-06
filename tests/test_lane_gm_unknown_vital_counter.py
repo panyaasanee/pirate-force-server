@@ -78,14 +78,92 @@ class LaneGmUnknownVitalCounterTests(unittest.TestCase):
         self.assertEqual(session_a.events, ["unknown_vital_id_0x1234"])
         self.assertEqual(session_b.events, ["unknown_vital_id_0x1234"])
 
-    def test_a_string_shaped_id_is_coerced_before_formatting(self):
-        # A caller that hands in something int()-able (never str-formats
-        # it directly) still gets the fixed hex shape, not a str echoed
-        # back verbatim -- guards the format string against whatever the
-        # eventual call site's own id extraction hands in.
+    def test_an_id_this_hook_cannot_report_truthfully_is_dropped(self):
+        # This card replaces `test_a_string_shaped_id_is_coerced_before_
+        # formatting`, which pinned `int(vital_id)` and therefore pinned the
+        # bug: pf-adversary (round `vq07el`) fed the old code 4660.9 and got
+        # `unknown_vital_id_0x1234` -- a DIFFERENT id from the one handed in,
+        # written into the one record whose only job is to say which id
+        # arrived. 0x12345 produced a five-digit line the old comment called
+        # a "fixed hex shape"; -1 produced `0x-001`; True produced `0x0001`.
+        #
+        # Silence is recoverable and a wrong id in a P-3 capture is not, so
+        # every one of these is dropped instead of coerced.
+        for bad in ("4660", "0x51E9", 4660.9, -1, 0x10000, True, None):
+            with self.subTest(bad=bad):
+                session = _session()
+                counter._on_unknown_vital(session, bad)
+                self.assertEqual(session.events, [])
+
+    def test_the_edges_of_the_id_space_are_still_recorded(self):
+        # The refusal above must not have narrowed the hook to a subset of
+        # real ids: `nested_id = c.u16(0x12)`, so 0x0000 and 0xFFFF are both
+        # frames a client can actually send.
+        for good in (0x0000, 0xFFFF):
+            with self.subTest(good=good):
+                session = _session()
+                counter._on_unknown_vital(session, good)
+                self.assertEqual(
+                    session.events, [f"unknown_vital_id_0x{good:04X}"]
+                )
+
+    def test_one_session_cannot_record_the_whole_id_space(self):
+        # pf-adversary (round `vq07el`) walked 0x0000..0xFFFF once each
+        # against the real event list and measured 65,536 events, 15.05 MiB
+        # of heap and 65,536 flushed console lines -- from a peer that has
+        # not logged in, because this hook's call site is in dispatch() and
+        # dispatch() runs from the first frame. Dedup bounded REPEATS and
+        # nothing bounded DISTINCT ids.
         session = _session()
-        counter._on_unknown_vital(session, "4660")  # 0x1234
-        self.assertEqual(session.events, ["unknown_vital_id_0x1234"])
+        for vital_id in range(0x0000, 0x0100):
+            counter._on_unknown_vital(session, vital_id)
+        self.assertEqual(
+            len(session.events), counter.MAX_UNKNOWN_IDS_PER_SESSION + 1
+        )
+        self.assertEqual(session.events[-1], counter.CAP_REACHED_EVENT)
+
+    def test_the_cap_line_is_said_once_and_not_once_per_frame(self):
+        # The cap is worth nothing if reaching it is itself per-frame: that
+        # is the same flood wearing a different string.
+        session = _session()
+        for vital_id in range(0x0000, 0x0400):
+            counter._on_unknown_vital(session, vital_id)
+        self.assertEqual(
+            session.events.count(counter.CAP_REACHED_EVENT), 1
+        )
+
+    def test_the_truncation_is_visible_to_whoever_reads_the_capture(self):
+        # A cap that recorded nothing about itself would leave a truncated
+        # list looking like a complete one -- the exact false negative this
+        # module exists to close, re-introduced one layer up.
+        session = _session()
+        for vital_id in range(0x0000, 0x0100):
+            counter._on_unknown_vital(session, vital_id)
+        self.assertIn(counter.CAP_REACHED_EVENT, session.events)
+        self.assertIn(
+            str(counter.MAX_UNKNOWN_IDS_PER_SESSION), counter.CAP_REACHED_EVENT
+        )
+
+    def test_a_session_that_will_not_carry_the_set_records_nothing(self):
+        # Every attribute touch is guarded, because this runs per frame: an
+        # AttributeError here would not be one error, it would be one error
+        # per frame through fire(). And a hook that cannot dedup must not
+        # record -- without the set every frame is a first sighting, which
+        # is the per-frame line the contract forbids.
+        class _NoAttributes:
+            __slots__ = ()
+            events: list = []
+
+        session = _NoAttributes()
+        counter._on_unknown_vital(session, 0x1234)
+        self.assertEqual(_NoAttributes.events, [])
+
+    def test_a_session_with_no_events_list_does_not_raise(self):
+        class _NoEvents:
+            pass
+
+        session = _NoEvents()
+        counter._on_unknown_vital(session, 0x1234)  # must not raise
 
     def test_no_payload_parameter_exists_to_store_one(self):
         # The contract (COO-DECISION 20260906T11:49+07:00 item 3) is
