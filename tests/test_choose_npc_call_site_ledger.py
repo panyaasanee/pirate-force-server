@@ -50,6 +50,7 @@ from pirateforce_foundation import mob_combat                      # noqa: E402
 from pirateforce_foundation import mob_combat_membership           # noqa: E402
 from pirateforce_foundation import runtime                         # noqa: E402
 from pirateforce_foundation import scene2_prison_exile_tables as tables  # noqa: E402
+from pirateforce_foundation import world_population                # noqa: E402
 from pirateforce_foundation import world_scene_travel              # noqa: E402
 from pirateforce_foundation.gm.chat_command_action import (        # noqa: E402
     WARP_ACTION_LABEL,
@@ -571,6 +572,90 @@ class TheCallSiteHandsOverTheSessionLedgerTests(unittest.TestCase):
                 continue
             found |= {kw.arg for kw in node.keywords if kw.arg is not None}
         return found
+
+    def test_a_malformed_extra_actions_does_not_kill_the_dispatch_thread(
+        self,
+    ) -> None:
+        """CORE-REQUEST 20260904_0137's pair, pf-adversary (round `t0funk`),
+        reproduced: a responder handing back ``extra_actions=None`` instead
+        of the documented ``()`` default used to raise ``TypeError:
+        'NoneType' object is not iterable`` OUT OF ``state.dispatch()``
+        entirely -- uncaught, because ``actions.extend(response.
+        extra_actions)`` sat outside every try/except at this call site.
+        This project's own scar tissue (``pose_trial.py``'s interlock X07)
+        is that the frozen ``game_listener`` around ``dispatch()`` has NO
+        except handler at all, so that exception kills the connection's
+        listener thread.
+
+        No REGISTERED responder can trigger this today (only
+        ``lane_a_choose_npc_scene1`` ever returns non-default
+        ``extra_actions``/``latches_spent``, and it is
+        ``production_allowed = False``), which is why this test reaches
+        past the registry with a fake entry rather than a real click on a
+        real scene -- the same shape
+        ``test_every_registered_responder_accepts_the_call_sites_keywords``
+        above already uses to test a call-site guard no CURRENT responder
+        happens to trip.
+        """
+        module_name = "pirateforce_foundation.lane_hooks.fake_malformed_responder"
+
+        def _malformed_respond(**_ignored):
+            return lane_hooks.ChooseNpcResponse(
+                console_lines=(),
+                label="FAKE_MALFORMED_P0",
+                pc=b"",
+                frame=b"",
+                delay=0.0,
+                extra_actions=None,  # the shape under test: not a tuple
+            )
+
+        original_entry = lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS.get(1)
+        original_allowed = lane_hooks._PRODUCTION_ALLOWED.get(module_name)
+
+        def _restore():
+            if original_entry is None:
+                lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS.pop(1, None)
+            else:
+                lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS[1] = original_entry
+            if original_allowed is None:
+                lane_hooks._PRODUCTION_ALLOWED.pop(module_name, None)
+            else:
+                lane_hooks._PRODUCTION_ALLOWED[module_name] = original_allowed
+
+        self.addCleanup(_restore)
+        lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS[1] = lane_hooks.ChooseNpcResponder(
+            module_name, _malformed_respond,
+        )
+        lane_hooks._PRODUCTION_ALLOWED[module_name] = True
+
+        state = self._state("tok_malformed_extra_actions")
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, 1,
+            "a fresh session must start in scene 1 for this fake to fire",
+        )
+        placement = next(iter(
+            world_population.load_port_royal_placements(self.legacy)
+        ))
+        actions, console = self._dispatch(
+            state, self._choose_npc_pc(placement.actor_identity),
+        )
+        # If the guard regresses, `state.dispatch` above raises before this
+        # line is ever reached -- pytest reports that as an ERROR, which is
+        # the real assertion this test makes; everything below just proves
+        # the fail-CLOSED direction chosen is the one that shipped.
+        self.assertTrue(
+            actions, "the face frame the responder DID compose must still "
+            "ship even though the collection half was malformed",
+        )
+        self.assertIn(
+            "scene_choose_npc_responder_extra_actions_malformed_TypeError",
+            state.events,
+        )
+        self.assertFalse(
+            state.shop_store5_open_sent,
+            "the latch write-back must not run on the same malformed path "
+            "as the extend() that raised",
+        )
 
     def test_every_registered_responder_accepts_the_call_sites_keywords(
         self,

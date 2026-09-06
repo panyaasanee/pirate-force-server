@@ -764,6 +764,19 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             "trade_invite_vital_id",
             "trade_invite_vital_name",
             "ui_trade_wire",
+            # CORE-REQUEST 20260904_0137, the pair (chief round `t0funk`,
+            # answering lane A's own VENDOR_AND_MISSION_LATCH_WIRING in
+            # lane_hooks/lane_a_choose_npc_scene1.py). Two frozen
+            # once-per-session flags (v141:3534-3535) read once and
+            # written back once, at the one call site that composes the
+            # scene-1 responder's answer -- naming an attribute is not
+            # settling a trade or granting a quest, the same premise this
+            # file already accepts for `columbus_quest3021_conversation_
+            # sent` four entries up. Both are inert on the wire today:
+            # lane_a_choose_npc_scene1.production_allowed is False, so
+            # this responder is never registered.
+            "quest3020_conversation_sent",
+            "shop_store5_open_sent",
         },
         # `TradeInviteVital` in snake_case -- the PROVEN wire class name -- and
         # its pure encode/decode pair.  Round md7pjz-recovery withdrew a

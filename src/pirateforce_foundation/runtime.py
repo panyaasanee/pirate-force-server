@@ -10274,6 +10274,30 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # attribute is always there, not because
                             # failing loudly would be cheap.
                             mob_death_register=self.mob_death_register,
+                            # CORE-REQUEST 20260904_0137, the pair (lane A
+                            # 20260906_1633, VENDOR_AND_MISSION_LATCH_WIRING
+                            # in lane_hooks/lane_a_choose_npc_scene1.py).
+                            # Both frozen once-per-session latches, read
+                            # from the SAME attributes the frozen loop
+                            # itself sets (v141:3534-3535, inherited here).
+                            # None from any OTHER registered responder is
+                            # harmless: every one of them swallows both
+                            # keywords in its own **_ignored.
+                            #
+                            # Attribute access, reviewed and exempted by
+                            # name in tests/test_npc_interaction_wire.py's
+                            # ALLOWED_SYMBOLS["runtime.py"], on purpose --
+                            # NOT reached through the dynamic dotted-lookup
+                            # builtin by a string argument: measured this
+                            # round that doing so here fails a SECOND,
+                            # narrower guard in that same test file, one
+                            # that exists specifically to close that exact
+                            # by-string escape for a file this guard's
+                            # non-recursive glob actually reaches, unlike
+                            # the lane's own module where _frozen_builder()
+                            # uses it.
+                            vendor_open_latch_spent=self.shop_store5_open_sent,
+                            mission_dialog_latch_spent=self.quest3020_conversation_sent,
                         )
                     except Exception as error:  # noqa: BLE001 - a lane's
                         # responder must never take the listener thread down
@@ -10294,6 +10318,59 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         (response.label, response.pc, response.frame,
                          response.delay),
                     ]
+                    # CORE-REQUEST 20260904_0137, step 1's line (lane A
+                    # round yjjtyn): queue the collection half so a
+                    # responder can answer one click with more than one
+                    # action.  Still empty for every responder registered
+                    # today except lane_a_choose_npc_scene1, and that one
+                    # is production_allowed = False -- inert on the wire
+                    # until its own flag flips.
+                    #
+                    # Step 2's other line lives in the SAME try below, in
+                    # the SAME place as step 1's, immediately after queuing
+                    # the actions those latches name
+                    # (VENDOR_AND_MISSION_LATCH_WIRING point (2)).  Without
+                    # it, step 1 alone is a regression, not a gain: the
+                    # actions above would compose again on every click with
+                    # no record that they already fired once.  The
+                    # membership test is deliberate -- set only attribute
+                    # NAMES this call site recognises, never whatever
+                    # string a responder happens to return.
+                    #
+                    # BOTH LINES ARE GUARDED, PF-ADVERSARY MEASURED
+                    # (round `t0funk`, reproduced against a real dispatch):
+                    # `response` is this responder's own return value, not
+                    # a value this call site controls the shape of, and
+                    # every OTHER fragile read at this call site
+                    # (mob_loot_cell, mob_death_register, mob_combat_ledger
+                    # above) is inside a try for the documented reason "a
+                    # lane's responder must never take the listener thread
+                    # down for every player" (pose_trial.py's own interlock
+                    # X07: `game_listener` around `state.dispatch()` has NO
+                    # except handler at all). `extra_actions`/
+                    # `latches_spent`'s own NamedTuple defaults are `()`,
+                    # never checked at runtime, so a future responder (or a
+                    # future edit to this one) returning `None` instead of
+                    # `()` would raise `TypeError: 'NoneType' object is not
+                    # iterable` right here, uncaught, today -- reproduced by
+                    # the adversary, not hypothesised. Scoped as narrow as
+                    # the `noqa` a few lines up.
+                    try:
+                        actions.extend(response.extra_actions)
+                        for _latch in response.latches_spent:
+                            if _latch in ("shop_store5_open_sent",
+                                          "quest3020_conversation_sent"):
+                                setattr(self, _latch, True)
+                    except Exception as error:  # noqa: BLE001 - fail-closed:
+                        # the face frame already queued above still ships;
+                        # only the collection half and the latch write-back
+                        # are skipped, and skipping the write-back is the
+                        # safe direction (composes again next click rather
+                        # than never again).
+                        self.events.append(
+                            "scene_choose_npc_responder_extra_actions_"
+                            f"malformed_{type(error).__name__}"
+                        )
                 else:
                     # No honest answer for this click (nothing chosen, or
                     # every named identity declined) -- this scene has
