@@ -238,19 +238,44 @@ MAX_CAPTURED_BYTES_PER_ACCOUNT = 50 * 1024 * 1024  # 50 MiB
 # estimate fix)" for the byte-level derivation.
 #
 # Combined bound: hex dump (4.75x, applies to every raw byte) + decode-
-# section worst case (3x, applies only to the two strings' bytes, a subset
-# of raw_payload_length, so charging it against the full length is
+# section worst case (3x, applies only to the decoded strings' bytes, a
+# subset of raw_payload_length, so charging it against the full length is
 # conservative) = 7.75x. The multiplier below is deliberately rounder and
-# larger (8x) plus a flat 2 KiB (was 1 KiB) for the header lines that are
-# NOT part of raw_payload_length (account/timestamp/length line, RE-088
-# comment lines, docs pointer line, and the decode-section's fixed non-
-# string text: presence/field_0x10/field_0x14/field_0x18 labels), so this
-# estimate always meets or exceeds what capture_raw_gm_command actually
-# writes -- charging the quota too much fails closed slightly earlier than
-# the real disk usage would; charging it too little would let real usage
-# exceed the stated cap, which this guard exists to prevent.
-def _estimate_capture_file_bytes(raw_payload_length: int) -> int:
-    return raw_payload_length * 8 + 2048
+# larger (8x). Round `eu2g1d` added a second opcode whose decode section
+# re-prints FIVE strings (text_0x18/0x34/0x50/0x6c/0x88) instead of the
+# original two (string_0x1c/string_0x38) -- the 8x bound still covers it
+# unchanged (pf-adversary, round `eu2g1d-b`, D8: re-measured worst-case
+# ratio 0.966, i.e. still under the cap) because every one of those strings
+# is decoded FROM raw_payload_length bytes, so the total UTF-16 code units
+# across all of them together can never exceed what two strings could
+# already have carried -- splitting the same budget into more strings does
+# not raise the combined escape cost, only how it is divided.
+#
+# The flat 2 KiB (was 1 KiB) covers the header lines that are NOT part of
+# raw_payload_length: the FIXED labels/punctuation on the account/
+# timestamp/length line, the RE-088/pin comment lines, the docs pointer
+# line, and the decode-section's fixed non-string text (presence/
+# field_0x10/field_0x14/field_0x18 labels) -- it does NOT cover the
+# variable-length substring `command_capture._escape_for_header` writes
+# for the `account=` value itself (pf-adversary, round `eu2g1d-b`, old
+# debt named but not fixed in that round's own D8): account_name has no
+# length cap anywhere upstream of this call (`_sanitize_account`'s 40-char
+# truncation only bounds the FILENAME, not the header line, which prints
+# the escaped ORIGINAL account_name in full), and unicode_escape can turn
+# one non-BMP account_name character into a 10-byte `\Uxxxxxxxx` escape.
+# Charged explicitly below instead of folded into the flat allowance, so a
+# long or non-ASCII allowlisted account name cannot make the real write
+# exceed this estimate the same way an unbudgeted decode-section reprint
+# once did (see `test_gm_command_dispatch.py`'s sibling regression for
+# that defect). Together this estimate always meets or exceeds what
+# capture_raw_gm_command/capture_raw_activity_cheat_code actually write --
+# charging the quota too much fails closed slightly earlier than the real
+# disk usage would; charging it too little would let real usage exceed the
+# stated cap, which this guard exists to prevent.
+def _estimate_capture_file_bytes(
+    raw_payload_length: int, account_name_length: int,
+) -> int:
+    return raw_payload_length * 8 + account_name_length * 10 + 2048
 
 
 _capture_quota_lock = threading.Lock()
@@ -279,7 +304,7 @@ def _capture_quota_allows(account_name: str, raw_payload_length: int) -> bool:
     account must not both read a total that is under the cap, then both
     add their own charge past it.
     """
-    estimate = _estimate_capture_file_bytes(raw_payload_length)
+    estimate = _estimate_capture_file_bytes(raw_payload_length, len(account_name))
     with _capture_quota_lock:
         used = _capture_quota_bytes_by_account.get(account_name, 0)
         if used + estimate > MAX_CAPTURED_BYTES_PER_ACCOUNT:
