@@ -1,1 +1,1 @@
-{"sha":"d28c488a9eac11dc7900151517e7a933e8040f13","conclusion":"failure","event":"push","ref":"refs/heads/claude/keen-pasteur-vbp90w","run_id":"34022597299","utc":"2026-09-06T09:07:34Z"}
+{"sha":"d28c488a9eac11dc7900151517e7a933e8040f13","conclusion":"failure","event":"pull_request","ref":"refs/pull/926/merge","run_id":"34022599498","utc":"2026-09-06T09:19:46Z"}
