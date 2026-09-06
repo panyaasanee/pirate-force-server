@@ -2102,3 +2102,133 @@ house rule.
    `7v7yn2` (still not done, carried forward again).
 
 SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- สคริปต์หนึ่งตัวที่เรียกทั้ง Trigger.QuestActiveProgress/QuestFinishProgress และ Quest.* ในรอบเดียวกันตอนนี้เห็นค่าที่อีกฝั่งเขียนจริงแล้ว (ก่อนหน้านี้แยกคนละที่เก็บ) แต่ยังไม่มี dispatch จริงต่อกับ session ผู้เล่นและยังไม่มีที่เก็บถาวรข้าม relog | pirate-force-server branch claude/hopeful-hopper-dyqifb (recovers #947 + new wiring commit 16349f3), 3 new tests
+
+## Round lvoma1 (2026-09-06) -- recovered both #953 and #947/#960 onto one branch, root cause was never this lane's
+
+### Why this round exists
+
+Three LANE-Q pull requests in a row died on the gate with the exact SAME
+failure, none of them this lane's own code:
+`tests/test_lane_a_choose_npc_scene1.py:1752`,
+`TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests`, an
+`AssertionError` whose own message named its fix
+("`runtime.py` is now queuing `extra_actions` (`CORE-REQUEST
+20260904_0137` landed) -- invert this assertion to `assertIn`... rather
+than deleting the test"). Confirmed with `get_job_logs` against all three
+gate runs (947: run `34036020824`; 953: run `34039804808`; 960: run
+`34043977287`) -- identical file, identical line, identical message each
+time; none of the three PRs' own diffs ever touched that file.
+
+`prompts/COMMON_LANE_ROUND.md`'s own house rule ("gate red, same cause,
+two rounds running -> stop, write COO, do not send a third blind PR") was
+already past its trigger by the time this round started (three failures,
+not two). Did not need to write that letter: `NOW.md`'s own top line
+already said the answer ("main เขียว (#957 merge 23:08) -> เปิด PR ได้
+fetch main ซ้ำก่อน"). Read `tests/test_lane_a_choose_npc_scene1.py` on
+fresh `origin/main` directly and confirmed the fix is there --
+LANE-A's own round `eknq8d` (`pirate-force-server#957`, "invert the
+talk-trigger assertion now that 0137 landed", merged
+2026-09-06T23:08+07:00, `COO-DECISION 2026-09-06T21:41`).
+
+### What this round built: nothing new -- recovered two dead branches onto the fixed main
+
+Both `claude/hopeful-hopper-dyqifb` (#960: recovers #947, plus the shared
+`QuestStateStore` wiring) and `claude/happy-tesla-qbr5h8` (#953:
+inventory seam read side) still existed, unmerged, based on the SAME old
+`origin/main` (`cf961be`). Cherry-picked all six commits from both
+(chronological order: `31def53`, `a168250`, `fd82da2`, `13f4c02`,
+`16349f3`, `88042c7`) onto one fresh branch from current `origin/main`
+(`be06164`, which already carries `#957`'s fix) -- combined into ONE PR
+because this lane may open only one PR per repo per round
+(`prompts/AGENTS.md` ยง7).
+
+Five merge conflicts, all bookkeeping (no logic conflict -- the two
+deltas touch disjoint namespaces, `lua_api/player.py` vs
+`lua_api/quest.py`+`lua_api/trigger.py`+`script_host.py`):
+
+1. `docs/PYTEST_SKIP_PINS.json`'s `test_script_host_spike.py` pinned-test
+   list -- combined delta (quest 1->10, player 2->5, trigger 5->7),
+   verified against the actual method names in
+   `tests/test_script_host_spike.py` after the auto-merge, not assumed.
+2. `tests/test_script_lua_corpus.py`'s `BASELINE_TOTAL_STUB_CALLS` --
+   RE-MEASURED from scratch rather than added (both deltas never ran in
+   the same corpus pass before this round): 4715 -> 3716, a 3-call
+   branch-shift gap from `Player.CheckItemNum` (154 -> 145) and
+   `Quest.GetQuestFlag` (159 -> 160) shifting once run together --
+   neither shift visible when either delta ran alone. See that file's own
+   comment for the full `report.real_call_counts` dump.
+3. `tests/test_script_host_spike.py` -- auto-merged clean, verified by
+   hand against (1) and (2) above.
+4. `docs/SCRIPT_LANE.md`'s status-table header/prose -- rewrote combined
+   (129/160 stub, 31/160 real: Quest 10, Player 5, Trigger 7, Instance 9).
+5. `docs/SCRIPT_LANE.md`'s own round-history sections -- interleaved
+   "Round 7v7yn2" / "Round qbr5h8" / "Round uadtc7" into chronological
+   order (this file was two independent branches' own append-only logs,
+   diverged after `7v7yn2`).
+
+### What this round does NOT do, said plainly
+
+No new API surface, no new player-visible behaviour beyond what rounds
+`qbr5h8`/`7v7yn2`/`uadtc7` already built and already got clean adversary
+results for (pf_bridge#1583 for the `QuestStateStore` sharing; round
+`qbr5h8`'s own three fixed crash bugs for the inventory seam). Did not
+chase `RE-285`'s own two not-RE follow-up leads (grep the corpus for
+other `Trigger.*` literal-argument calls; check the `.tgr` table `RE-273`
+opened) -- this round's whole budget went to the recovery above.
+
+### Tests + gates
+
+`PYTHONPATH=src:tests python3 -m pytest tests/test_script_lua_api_player.py
+tests/test_script_lua_api_quest.py tests/test_script_lua_api_trigger.py
+tests/test_script_lua_api_instance.py tests/test_script_host_spike.py
+tests/test_script_lua_corpus.py tests/test_npc_interaction_wire.py -q`:
+212 passed, 334 subtests passed, 0 failed (after the
+`BASELINE_TOTAL_STUB_CALLS` fix above -- red at 4715, green at 3716,
+confirmed by running it both ways rather than trusting the arithmetic).
+
+Full `pytest tests/` run before push -- see this round's own "จบรอบ"
+section in `pf_bridge/rounds/Q_20260906_2358_lvoma1_*.md` for the final
+count, folded in once it finishes (started as a background run; this
+section written while it was still in flight, per house rule against
+holding the round waiting on a single long command when other real work
+remains).
+
+`python3 tools_bridge/pf_gate_preflight.py --repo ../pirate-force-server`:
+folded in below once run.
+
+### ADVERSARY
+
+`pf-adversary` invoked at round start against the diff so far (the
+recovery/merge itself, not the already-adversary-clean logic underneath
+-- see prompt for the exact scope), in parallel with the full test run
+above. Result folded in below once it lands, or `ADVERSARY_PENDING` per
+house rule if it has not returned by push time.
+
+### TWO_SESSIONS_SAME_SCENE
+
+Not applicable, same reasoning both recovered deltas already established
+on their own branches: quest flag/counter state and backpack/equipment
+state are both keyed by `character_id`, never by scene; no live dispatch
+exists yet for two sessions to race through either seam.
+
+### รอบหน้าทำอะไร
+
+1. If this round's own `pf-adversary`/full-suite results (see above) were
+   still pending at push time, read them first, per house rule.
+2. `store.py`'s quest-state door (`pirate-force-server#954`, chief's own
+   PR, closed unmerged) is still not this lane's to re-land -- three of
+   this lane's own PRs (`#947`, `#960`, now this one) have each been
+   blocked or delayed waiting near it; worth a status check with
+   COO/chief if it is still unmerged next round.
+3. `RE-285`'s own two not-RE leads (grep the corpus for other `Trigger.*`
+   literal-argument calls near `GetContactMode`'s own shape; check the
+   `.tgr` per-trigger table `RE-273` opened for a contact-mode-shaped
+   column) -- neither chased this round.
+4. Per `COO-DECISION 20260906_1846`'s ranking: inventory seam write side
+   (`AddItem`/`RewardItemSelect`/`AddAndEquip`) still blocked on `RE-280`.
+5. Add a bad-VALUE log line to the 9 closures pf-adversary named in round
+   `7v7yn2` -- still not done, carried forward again.
+6. `CheckWishQuest` (Quest namespace) still needs LANE-GUILD's own state
+   door or an RE ticket -- low call count (1), not blocking.
+
+SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- โค้ดของ 12 ฟังก์ชันจริง (Quest.* 9 เพิ่ม, Trigger.* 2 เพิ่ม, Player.* 3 เพิ่ม) ที่หายไปสามรอบติดเพราะเกตแดงจากไฟล์ของ LANE-A (ไม่ใช่ของสายนี้) กลับมาอยู่บน PR เดียวแล้วหลัง main เขียว แต่ยังไม่ต่อกับ session ผู้เล่นจริงและยังไม่มีที่เก็บถาวรข้าม relog | pirate-force-server PR (ดูหัวข้อ "จบรอบ" ในไฟล์รอบ pf_bridge), API status 31/160 real
