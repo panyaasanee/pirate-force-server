@@ -616,6 +616,36 @@ jobs:
           Write-Host ''
           Write-Host "ALL GREEN (partial gate) = $allGreen"
 
+          # ---- 9b. the failing test NAMES, printed LAST -----------------------
+          # LANE-GM letter `20260906_1921`, adopted by COO `0405` item 2.
+          # Section 5a already prints every FAILED line WITH its traceback -
+          # but it prints them BEFORE the skip census, which is ~60 KB of
+          # named skips.  The only way into this log from a Claude Code
+          # sandbox is get_job_logs with a tail, and GM measured that a tail
+          # long enough to reach back past the census blows the tool's own
+          # character quota (tail 245 = 58,819 characters returned; tail 700
+          # = 185,022 = nothing returned at all).  Round `q7950e` was spent
+          # guessing at a cause this log already knew.
+          # So copy the NAMES - only the names - to the very end of the job,
+          # after the verdict table, where a 60-line tail reaches them.  The
+          # tracebacks stay where they are: what the cloud cannot reach is
+          # the name, and a second copy of 200-line tracebacks down here
+          # would push the names back out of tail range again.
+          Write-Host ''
+          Write-Host '=== FAILED/ERROR TEST NAMES (tail-readable copy; tracebacks are above) ==='
+          if ($pytestLog -and (Test-Path -Path $pytestLog)) {
+            $failedHits = Get-Content -Path $pytestLog | Select-String -Pattern '^FAILED |^ERROR '
+            $failedNames = @($failedHits | ForEach-Object { $_.Line } | Select-Object -Unique)
+            if ($failedNames.Count -gt 0) {
+              $failedNames | ForEach-Object { Write-Host "  $_" }
+              Write-Host ("  ({0} FAILED/ERROR name(s) above)" -f $failedNames.Count)
+            } else {
+              Write-Host '  none - pytest printed no FAILED/ERROR line in this run.'
+            }
+          } else {
+            Write-Host '  no pytest log on disk - the pytest step did not reach the run.'
+          }
+
           $summary = @('## Windows gate result (PARTIAL)', '',
                        "**allGreen over the runnable subset = $allGreen**", '') + $rows
           $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
