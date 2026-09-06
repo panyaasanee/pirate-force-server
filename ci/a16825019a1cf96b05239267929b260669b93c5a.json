@@ -1,1 +1,1 @@
-{"sha":"a16825019a1cf96b05239267929b260669b93c5a","conclusion":"failure","event":"push","ref":"refs/heads/claude/happy-tesla-qbr5h8","run_id":"34039802840","utc":"2026-09-06T14:58:32Z"}
+{"sha":"a16825019a1cf96b05239267929b260669b93c5a","conclusion":"failure","event":"pull_request","ref":"refs/pull/953/merge","run_id":"34039804808","utc":"2026-09-06T15:03:47Z"}
