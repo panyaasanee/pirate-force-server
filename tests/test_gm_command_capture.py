@@ -989,11 +989,21 @@ class GmCommandCaptureTests(unittest.TestCase):
         # pinned the property on the printer itself.
         forged = "\nGM_CAPTURE_UNLINK_STUCK path=C:\\clean account=admin"
         root = Path(self._tmp.name) / f"cap{forged}" / "capture"
+        #
+        # pf-adversary (this round, D1): the first version of this branch was
+        # a bare `return`, which REPORTS PASS -- on windows-latest this test
+        # then asserted nothing forever, and the gate's skip census cannot
+        # see it (that machinery counts `skipTest`, not `return`).  Measured:
+        # with the path fold removed, this test stayed GREEN under Win32 name
+        # rules while its printer-level sibling went red.  A `skipTest` would
+        # need a census pin of its own; asserting the same property on the
+        # same path object needs none and leaves no host asserting nothing.
         try:
             root.mkdir(parents=True, exist_ok=True)
         except OSError:
-            return
-        printed = self._stuck_line_for(root=root).splitlines()
+            printed = self._stuck_line_for_path(root / "x.bin").splitlines()
+        else:
+            printed = self._stuck_line_for(root=root).splitlines()
         self.assertEqual(
             len(printed), 1,
             f"a newline in capture_root forged extra console lines: {printed}",
@@ -1002,6 +1012,18 @@ class GmCommandCaptureTests(unittest.TestCase):
             printed[0].startswith(command_capture._UNLINK_STUCK_CONSOLE_TOKEN),
         )
         self.assertIn("\\x0a", printed[0])
+
+    def test_the_stuck_token_is_the_literal_the_operator_greps(self):
+        # pf-adversary (this round, D4): every other assertion on this line
+        # compares the printed text against `_UNLINK_STUCK_CONSOLE_TOKEN`
+        # itself, so renaming the constant to `GM_CAPTURE_UNLINK_WEDGED`
+        # left all 213 tests green while `docs/GM_LANE.md` went on telling
+        # the operator to grep the old word.  This is the literal-floor
+        # lesson the retry delay already learned, applied to the token.
+        self.assertEqual(
+            command_capture._UNLINK_STUCK_CONSOLE_TOKEN,
+            "GM_CAPTURE_UNLINK_STUCK",
+        )
 
     def test_a_windows_path_keeps_its_backslashes_readable(self):
         # The other half of the same fold, and the OTHER scar in
