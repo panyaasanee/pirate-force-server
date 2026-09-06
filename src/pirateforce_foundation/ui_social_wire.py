@@ -151,15 +151,30 @@ def encode_untagged_wstring(s: str) -> bytes:
     ``encode_channel_tagged_wstring``/``read_channel_tagged_wstring``,
     tag ``0x48``, same helper VAs cited above) -- ``wstring_tag``/
     ``read_wstring_tag`` below promote that same pattern into this shared
-    module. NONE of the six affected modules are wired into
-    ``runtime.py``/``vital_walk.py`` yet (grepped clean this round), so
-    this is zero live-player impact TODAY -- but it must be fixed at each
-    of those six call sites (one migration per module, each its own
-    round, to respect the file-count-per-PR convention) before any of
-    them can be wired. Left in place, unmodified, so this round's fix does
-    not silently change six other modules' already-passing tests out from
-    under a diff that never touches them; new work must use
-    ``wstring_tag``/``read_wstring_tag`` instead, never this pair. See
+    module.
+
+    CORRECTION (round `4u0ncx`, pf-adversary): this docstring previously
+    claimed "NONE of the six affected modules are wired into
+    ``runtime.py``/``vital_walk.py`` yet (grepped clean this round)" --
+    that was wrong for four of the six. ``ui_friend_wire.py``,
+    ``ui_mail_wire.py``, ``ui_party_wire.py``, and ``ui_trade_wire.py`` are
+    all imported into ``runtime.py`` and dispatched to
+    ``production_allowed = True`` report-only lane hooks
+    (``lane_hooks/lane_ui_{friend,mail,party,trade}_wire_log.py``) that
+    call these modules' ``decode_*`` functions on genuine inbound payload
+    bytes today -- the hooks never reply or mutate state (``bytes_out=0``
+    throughout), so no byte sent to the client or persisted state was ever
+    wrong, but every one of those four modules is, right now, silently
+    failing to decode real frames shaped per the proven-correct tag
+    (falling back to an ``UNPARSED`` hex dump). Only ``ui_express_wire.py``
+    and ``ui_community_social_wire.py`` are genuinely unwired (no
+    ``runtime.py`` import found). Each of the six call sites must still be
+    fixed one migration per module, each its own round, to respect the
+    file-count-per-PR convention; this pair is left in place, unmodified,
+    so a round's fix does not silently change other modules' already-
+    passing tests out from under a diff that never touches them; new work
+    must use ``wstring_tag``/``read_wstring_tag`` instead, never this
+    pair. See
     module docstring for why this pair was never
     ``current/pf_login_game_server_v141.py``'s ``wstr_tag`` to begin with
     (a separate, still-true point: that frozen file's own tag is

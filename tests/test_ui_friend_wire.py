@@ -32,10 +32,10 @@ class RequestBeFriendWireTests(unittest.TestCase):
             friend.RequestBeFriendFields(1, "", 0)
         )
         self.assertEqual(payload[0], 0x32)  # u64 first
-        # wstring's 4-byte length prefix follows immediately after the
-        # 9-byte u64 field.
-        self.assertEqual(payload[9], 0)
-        self.assertEqual(payload[9:13], (0).to_bytes(4, "little"))
+        # wstring's tag byte (0x48) follows immediately after the 9-byte
+        # u64 field, then its 4-byte length prefix.
+        self.assertEqual(payload[9], 0x48)
+        self.assertEqual(payload[10:14], (0).to_bytes(4, "little"))
 
     def test_truncated_payload_fails_closed(self):
         payload = friend.encode_request_be_friend_payload(
