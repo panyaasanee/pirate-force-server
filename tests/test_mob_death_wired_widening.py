@@ -358,23 +358,72 @@ class RulingForTests(unittest.TestCase):
     def test_every_shipped_answer_is_unchanged_by_the_new_tie_break(self):
         """The COO change moves no shipped row, and this measures it.
 
-        The old key was ``(len(templates), name)``.  Every shipped row is
-        killed today under the letter that key named, and a provenance rule
-        that quietly re-recorded live rows would be a worse defect than the
-        one it fixes.  So the OLD key is recomputed here, over the same
-        covering sets, and required to agree on every row of every live scene.
+        WHAT THIS ASKED BEFORE ROUND 0wef26, AND WHY IT NO LONGER CAN.  The
+        tie-break before COO-DECISION 2026-08-29T08:48+07:00 was
+        ``(len(templates), name)``; this test recomputed that superseded key
+        over the live covering sets and required it to still agree, on the
+        reasoning that a provenance rule which quietly re-recorded live rows
+        would be worse than the one it fixed.  That recomputation was a valid
+        proxy for "nothing moved" only while every covering set was
+        hand-typed, because only then could no NEW letter appear beside an
+        old one on a shipped row.
+
+        Round 0wef26 ends that: ``mob_death`` now derives one permit per
+        registered scene from the MOBS columns (COO-DECISION
+        2026-09-06T16:48+07:00 item 2), so a shipped row can be covered by
+        its hand-written letter AND by the derived one.  On Bg0015 the two
+        cover sets are the same SIZE (6 templates each), so the superseded
+        key falls through to its name term and picks the derived permit,
+        while the ratified key falls through to ``ruling_registered_at`` and
+        picks ``COO-RULING-20260901-1046`` -- the older, hand-written letter,
+        which is the answer the ratified rule is FOR (item 1(b) of the 08:48
+        letter refuses the name sort as the deciding term precisely because a
+        letter written tomorrow must not move the provenance of a kill
+        already recorded under one written yesterday, and a permit derived
+        today is exactly "a letter written tomorrow").
+
+        So the superseded key is no longer a proxy for "nothing moved" -- it
+        is a third ordering that disagrees with the ratified one BY DESIGN.
+        What this test asks now is the thing it always meant: recompute each
+        shipped row's answer over the covering sets AS THEY WERE BEFORE the
+        derivation existed, and require the live answer to equal it.  That is
+        a direct measurement of "the switch moved no shipped row", and it
+        stays a real measurement when a thirteenth scene arrives.
         """
+        derived_names = set(mob_death.RULE_DERIVED_RULING_FOR_SCENE.values())
+        self.assertTrue(
+            derived_names,
+            "no derived permit is registered, so this test would compare the "
+            "live answer with itself and prove nothing",
+        )
         for scene, mob in self.shipped():
             with self.subTest(scene=scene, identity=hex(mob.actor_identity)):
                 covering = rulings_covering(mob)
                 if not covering:
                     continue   # the sanctioned target: no letter, by design
-                old = sorted(
-                    covering,
+                hand_typed = [
+                    name for name in covering if name not in derived_names
+                ]
+                if not hand_typed:
+                    # A scene admitted by the rule alone -- there is no
+                    # pre-switch answer to be unchanged from, which is what
+                    # "new scenes enter automatically" means.  Its answer
+                    # must still be one of its own covering letters.
+                    self.assertIn(ruling_for(mob), covering)
+                    continue
+                before = sorted(
+                    hand_typed,
                     key=lambda name: (
-                        len(mob_death.WIDENING_RULINGS[name]), name),
+                        len(mob_death.WIDENING_RULINGS[name]),
+                        mob_death.ruling_registered_at(name) or "",
+                        name),
                 )[0]
-                self.assertEqual(ruling_for(mob), old)
+                self.assertEqual(
+                    ruling_for(mob), before,
+                    "the derived permit changed which letter this shipped "
+                    "row is killed under; the switch was required to move no "
+                    "already-ratified row",
+                )
 
     def test_every_registered_letter_can_be_ordered_and_names_its_own_clock(self):
         """The convention ``ruling_registered_at`` depends on, pinned.
@@ -445,6 +494,28 @@ class RulingForTests(unittest.TestCase):
             "COO-DECISION widen-death-scope-bg0010-six-templates "
             "2026-09-06T14:53+07:00": "202609061453",
         }
+        # ROUND 0wef26.  The derived permits (COO-DECISION 2026-09-06T16:48
+        # +07:00 item 2, one per registered scene) are added here BY
+        # DERIVATION rather than typed out, and that is the point rather than
+        # a shortcut: the whole switch is that a new scene registers without
+        # a human writing anything, so a hand-typed line per derived permit
+        # would reintroduce exactly the per-scene manual step COO's letter
+        # removed, in a test file instead of a letter.
+        #
+        # What this test guards is NOT lost by that.  Its subject is the
+        # leftmost-timestamp convention ``ruling_registered_at`` depends on,
+        # and every derived name is built by ``rule_derived_ruling_name`` to
+        # carry exactly ONE timestamp, at the end -- so the assertion below
+        # still measures each derived name's parse, and would catch a
+        # derivation that started minting names carrying a second, cited
+        # timestamp the way the 916 letter's name does.  The stamp is spelled
+        # out from the letter's own constant, not copied from the name being
+        # checked, so this is a comparison and not a tautology.
+        derived_stamp = mob_death.RULE_DERIVED_RULING_LETTER_STAMP.replace(
+            "-", "").replace(":", "").replace("T", "").replace("+0700", "")
+        self.assertEqual(derived_stamp, "202609061648")
+        for name in mob_death.RULE_DERIVED_RULING_FOR_SCENE.values():
+            expected[name] = derived_stamp
         self.assertEqual(
             set(expected), set(mob_death.WIDENING_RULINGS),
             "a ruling was registered or removed without its registration time "
@@ -700,11 +771,34 @@ class RulingForTests(unittest.TestCase):
         # the scope line: this report covers live scenes and says so, rather
         # than reading as "there is nothing else"
         self.assertTrue([ln for ln in healthy if "scope=live_scenes(" in ln])
+        # ROUND 0wef26.  Popping bg0002's hand-written letter alone no longer
+        # orphans that scene, and the reason is the switch itself: since
+        # COO-DECISION 2026-09-06T16:48+07:00 item 2, ``mob_death`` also
+        # derives a permit per registered scene from the MOBS columns, and
+        # Bg0002's derived permit still covers all 17 rows after the letter
+        # is gone.  That is the intended outcome -- "new scenes enter
+        # automatically" means precisely that no single hand-written letter
+        # is load-bearing any more -- but it makes the one-pop simulation
+        # measure nothing, and a simulation that cannot fail is worse than no
+        # simulation.
+        #
+        # So the simulation now removes EVERY permit that covers the scene,
+        # which is what "no letter covers this monster" has meant since the
+        # derivation landed.  The assertion below is unchanged, and it still
+        # goes red if ``describe_widening_coverage`` stops naming an orphaned
+        # row -- the defect this whole test exists for.
         previous = dict(mob_death.WIDENING_RULINGS)
         try:
             mob_death.WIDENING_RULINGS.pop(
                 "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
                 "widen-death-scope-bg0002")
+            derived_for_bg0002 = mob_death.RULE_DERIVED_RULING_FOR_SCENE.get(
+                field_mobs.BG0002_SCENE)
+            self.assertIsNotNone(
+                derived_for_bg0002,
+                "Bg0002 has no derived permit, so this simulation is back to "
+                "removing one letter and the comment above is stale")
+            mob_death.WIDENING_RULINGS.pop(derived_for_bg0002)
             broken = mob_death.describe_widening_coverage()
         finally:
             # clear+update, not rebinding: any module that did
