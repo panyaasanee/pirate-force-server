@@ -451,9 +451,17 @@ class TestTheAnswer(unittest.TestCase):
         # (production_allowed = True) production module: one entry builder
         # and one carrier, reading a real other player's row out of
         # world_scene_registry's own (new this round) player book.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 43)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 33)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 32)
+        # 43 -> 44, 33 -> 34, 32 -> 33 on 2026-09-07 (LANE-B, round dipufa):
+        # name_colour_sweep.py, RE-155's env-gated (PF_NAME_COLOUR_SWEEP)
+        # dummy-row sweep -- one entry builder and one carrier, fail-closed
+        # (production bytes unchanged unless the env is armed).
+        self.assertEqual(counts["src_actor_stream_call_sites"], 44)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 34)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 33)
+        self.assertIn(
+            "name_colour_sweep.py",
+            counts["src_modules_building_actor_entries_names"],
+        )
         self.assertIn(
             "world_remote_player_actor.py",
             counts["src_modules_building_actor_entries_names"],

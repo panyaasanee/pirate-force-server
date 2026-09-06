@@ -488,6 +488,24 @@
       "note": "round 30ja9z (LANE-B), pinned round 9t75cr (recovering round 30ja9z's own miss - that round shipped field_mob_tables_bg0010.py unpinned, one of the twelve full-suite reds pf-adversary caught after unlock): field_mob_tables_bg0010.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, same shape as the bg0006/7/9/11 entries above - scene 10's arrival census and login door were already open (LANE-A). The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene Bg0010 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_name_colour_sweep.py",
+      "count": 10,
+      "tests": [
+        "NameColourSweepPlacementBandTests::test_reserved_band_is_above_every_shipped_placement_index",
+        "NameColourSweepPlacementBandTests::test_sweep_rows_stay_inside_their_own_reserved_band",
+        "NameColourSweepOneFieldPerCandidateTests::test_npc_base_has_no_faction_bit_set",
+        "NameColourSweepOneFieldPerCandidateTests::test_npc_faction_candidate_differs_from_base_by_exactly_the_splice",
+        "NameColourSweepOneFieldPerCandidateTests::test_faction_set_candidates_differ_from_a_same_label_base_by_exactly_the_splice",
+        "NameColourSweepOneFieldPerCandidateTests::test_actor_type_candidate_body_is_unaffected_by_actor_type",
+        "NameColourSweepOneFieldPerCandidateTests::test_skin_candidate_changes_only_the_preset_text",
+        "NameColourSweepLabelAndFrameTests::test_every_label_is_unique_ascii",
+        "NameColourSweepLabelAndFrameTests::test_build_sweep_population_frame_round_trips",
+        "NameColourSweepLabelAndFrameTests::test_unarmed_build_sweep_population_is_none"
+      ],
+      "note": "round 5kex52 (LANE-B), recovering round dipufa's PR #966 which the Windows gate closed for this exact miss - skip_census printed UNPINNED: tests/test_name_colour_sweep.py skipped 10 test(s) on precondition 'bridge_gamedata', and that was the ONLY red check in the whole table. Same defect shape as the bg0008 and bg0010 entries above and the same cause: the sandbox that wrote these tests always has pf_bridge checked out beside it, so the skip never fires locally and the first push goes out unpinned. The ten guarded tests are the three BRIDGE_GAMEDATA-decorated classes of the RE-155 name-colour sweep (GT-288): the placement-band census reads every shipped field_mob_tables_bg* module and the 115-row population table to prove the synthetic 20000+ band cannot collide with a real placement index, the one-field-per-candidate tests build real NPCAttr/hostile bodies through legacy.make_npc_attr and field_mobs.load_roster to prove each candidate differs from its base by exactly the spliced field, and the label/frame tests round-trip the built population frame. All three need the bridge clone's gamedata; the five NameColourSweepGateTests that prove the env gate is shut when PF_NAME_COLOUR_SWEEP is unset/empty/garbage are deliberately NOT guarded, so the gate-closed property is asserted at full strength on a fresh clone too."
+    },
+    {
       "key": "original_schema_history",
       "module": "tests/test_foundation.py",
       "count": 1,

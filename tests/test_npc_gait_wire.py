@@ -272,6 +272,10 @@ class FoundationPopulationEmitsNoGaitTests(_LegacyCase):
     KNOWN_GAIT_REQUESTING_MODULES = (
         "field_mob_hostile_bg0015.py", "field_mobs.py", "mob_death.py",
         "mob_diag_multi_object.py",
+        # ROUND dipufa (lane B, RE-155): the env-gated dummy-row sweep's
+        # plain-NPC composer passes movement_speed=0.0 (the dummy stands
+        # still) the same shape field_mobs.py's own composers already use.
+        "name_colour_sweep.py",
         # R310, the player's own login-speed seam -- see the docstring above.
         # `login_speed.py` is deliberately NOT here: it resolves the column
         # `speed_walk` and never spells `movement_speed`, and this list is
