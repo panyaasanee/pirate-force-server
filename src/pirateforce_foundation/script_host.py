@@ -185,6 +185,13 @@ class LoadReport:
     total: int = 0
     ok: int = 0
     failed: list = field(default_factory=list)
+    #: Paths whose load tripped a defect in OUR OWN host data rather than in
+    #: the game script (pf-adversary D11, round 7kxfe9).  Kept apart from
+    #: ``failed`` because the two need opposite responses: a name in
+    #: ``failed`` means go read that quest file, a name here means go fix
+    #: this repository, and a sweep that folds them together reports 616
+    #: broken quests when what broke was one vendored table.
+    host_failed: list = field(default_factory=list)
 
     @property
     def failed_paths(self):
@@ -398,6 +405,49 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
     return host
 
 
+def _host_side_error_types():
+    """Exception types that mean THIS REPOSITORY is broken, not the script.
+
+    pf-adversary D11 (round 7kxfe9): every sweep body caught bare
+    ``Exception`` and logged ``LUA_SCRIPT <file> ERR ...``, so a
+    ``MessageCatalogError`` -- raised because OUR vendored
+    ``lua_api/message_catalog.tsv`` is missing or corrupt -- came out
+    wearing the name of whichever quest file happened to be loading when
+    the catalog was first touched, and then again for the next one, and
+    the next: one host defect printed as up to 616 accusations against
+    innocent scripts, with the real cause named nowhere.
+
+    Imported lazily, inside the function, for the reason the catalog itself
+    is lazy: importing ``lua_api.message`` at module scope would put this
+    module on the import path of the package that imports it.  Exceptions
+    are rare; an import of an already-imported module is a dict lookup.
+    """
+    from .lua_api.message import MessageCatalogError
+
+    return (MessageCatalogError,)
+
+
+def _ascii_safe(exc: BaseException) -> str:
+    """Console-safe text for any exception (AGENTS.md section 7: everything
+    printed is ASCII -- the bridge console is cp874)."""
+    return str(exc).encode("ascii", "backslashreplace").decode("ascii")
+
+
+def _log_host_side(log: Callable[[str], None], rel: str,
+                   exc: BaseException) -> str:
+    """One ``LUA_HOST`` line, deliberately NOT ``LUA_SCRIPT``.
+
+    Still fail-closed: this logs and returns, it never re-raises, because
+    the charter's "one broken file must never take a boot down" holds for
+    our own defects too.  What changes is only that the line names the
+    defect and the file it was DISCOVERED in, instead of blaming the file.
+    """
+    message = _ascii_safe(exc)
+    log("LUA_HOST %s ERR %s discovered_at=%s"
+        % (type(exc).__name__, message, rel))
+    return message
+
+
 def load_corpus(root, log: Optional[Callable[[str], None]] = None) -> LoadReport:
     """Load every ``*.lua`` file under ``root`` into its own sandboxed host.
 
@@ -417,8 +467,11 @@ def load_corpus(root, log: Optional[Callable[[str], None]] = None) -> LoadReport
         rel = path.relative_to(root).as_posix()
         try:
             load_script_file(path, log=log)
+        except _host_side_error_types() as exc:  # our defect, not the script's
+            _log_host_side(log, rel, exc)
+            report.host_failed.append(rel)
         except Exception as exc:  # noqa: BLE001 - fail-closed by design, see module docstring
-            message = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+            message = _ascii_safe(exc)
             log("LUA_SCRIPT %s ERR %s" % (rel, message))
             report.failed.append(ScriptResult(rel, False, message))
         else:
@@ -528,6 +581,10 @@ class CorpusEntryPointReport:
     """
     total: int = 0
     load_failed: list = field(default_factory=list)
+    #: Same meaning as :attr:`LoadReport.host_failed` -- paths where a defect
+    #: in THIS repository surfaced, kept out of ``load_failed``/``call_failed``
+    #: so a sweep never reports our own broken data as broken quests.
+    host_failed: list = field(default_factory=list)
     no_entry_point: list = field(default_factory=list)
     ran: list = field(default_factory=list)
     call_failed: list = field(default_factory=list)
@@ -595,8 +652,12 @@ def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *
         rel = path.relative_to(root).as_posix()
         try:
             host = load_script_file(path, log=log, quest_clock=quest_clock)
+        except _host_side_error_types() as exc:  # our defect, not the script's
+            _log_host_side(log, rel, exc)
+            report.host_failed.append(rel)
+            continue
         except Exception as exc:  # noqa: BLE001 - fail-closed, see load_corpus
-            message = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+            message = _ascii_safe(exc)
             log("LUA_SCRIPT %s ERR %s" % (rel, message))
             report.load_failed.append(rel)
             continue
@@ -609,8 +670,23 @@ def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *
             for name in present:
                 try:
                     host.call(name)
+                except _host_side_error_types() as exc:  # our defect
+                    # An entry point that TOUCHES the broken catalog is the
+                    # commonest way this surfaces: the corpus reaches the
+                    # message-showing API long before it reaches anything
+                    # else that reads a vendored file.  (The API's own name
+                    # is deliberately NOT spelled here -- LANE-E's guard
+                    # `test_no_foundation_module_emits_the_legacy_system_message`
+                    # is a substring scan over src/ that does not skip
+                    # comments, and round 02mkqc turned it red by writing
+                    # the name in this very comment.  Same class of defect
+                    # as round 7kxfe9's docstring vs. the n/327 census.)
+                    message = _log_host_side(log, "%s entry=%s" % (rel, name), exc)
+                    run.ok = False
+                    run.errors[name] = message
+                    report.host_failed.append(rel)
                 except Exception as exc:  # noqa: BLE001 - fail-closed, one script must not sink the corpus
-                    message = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+                    message = _ascii_safe(exc)
                     log("LUA_SCRIPT %s ERR entry=%s %s" % (rel, name, message))
                     run.ok = False
                     run.errors[name] = message

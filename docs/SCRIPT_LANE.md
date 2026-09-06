@@ -2847,3 +2847,87 @@ concurrency as well as by keying: audiences `2/3` go to the SCENE bucket
 every session in that scene reads, `0/1` to the character's own, and the
 `RLock` added this round is what makes that true when two sessions in one
 scene write at the same instant rather than only in a single-threaded test.
+
+## Round 02mkqc (2026-09-07) -- paid three pf-adversary debts round 7kxfe9 named and deferred
+
+No new API name became real this round: the count stays at 34/160.  What
+changed is that three guards this lane wrote for itself stopped being
+weaker than their own sentences claimed.
+
+### D10 -- the "no module logs the localized text" guard was a substring scan
+
+It asked whether the seven characters `message_text(` appeared in a file,
+starting at `lua_api/` and stopping there.  Two holes, both now measured by
+a control test that runs the mutation rather than arguing about it:
+
+* `getattr(message, "message_text")(1)` never contains `message_text(` --
+  the paren follows the `getattr`.  The old guard read that file and found
+  nothing.
+* The walk never reached `script_host.py`, one layer up, which owns the log
+  callback every namespace writes through and is therefore the likeliest
+  place for this defect to actually appear.
+
+The guard is an AST walk now (`ast.Name` / `ast.Attribute` / an
+`ast.Constant` string equal to the name, which is the `getattr` shape) over
+`src/pirateforce_foundation/` entire.  Naming the function in PROSE stays
+legal, which matters because the house rule tells every lane to leave
+handoff notes and the honest note names things.
+
+### D7 -- a write-only counter, with an unbounded dict behind it
+
+`record_refusal` was on the `MessageSink` protocol; `refusals`, the reader,
+was not, so a sink could satisfy `check_sink` and still have no way to
+answer the one question the counter exists for.  It is on the protocol and
+in `SINK_METHODS` now.
+
+The dict behind it gave every string a caller passed its own key, in the
+one path a corpus sweep takes constantly (51 of 116 call sites pass an
+unmined `Trigger.VarN`), so a reason built out of runtime data grew it for
+the life of the process.  An undeclared reason is now counted under
+`REFUSE_OTHER`: the number stays exact, only the invented string is gone,
+and `MAX_REFUSAL_KEYS` (7) is pinned by a test that feeds the sink a
+thousand made-up reasons and reads the width back.
+
+### D11 -- our own broken data wore the script's name
+
+Every sweep body caught bare `Exception` and logged
+`LUA_SCRIPT <file> ERR ...`, so a `MessageCatalogError` -- raised because
+OUR vendored `lua_api/message_catalog.tsv` is missing or corrupt -- came
+out as an accusation against whichever quest file happened to be loading,
+and then the next one, up to 616 times, with the real cause named nowhere.
+
+Host-side errors are caught first now and logged as
+`LUA_HOST <type> ERR <message> discovered_at=<file>`, and recorded in a
+separate `host_failed` list on both reports.  The two lists need opposite
+responses: a name in `failed` means go read that quest file, a name in
+`host_failed` means go fix this repository.  Fail-closed is unchanged --
+this logs and continues, it never re-raises, so a bad vendored file still
+cannot take a boot down.
+
+### Two defects found while fixing those, both this lane's own
+
+`tests/test_script_lua_api_message.py` had its `if __name__ == "__main__":
+unittest.main()` block sitting two thirds of the way UP the file, so
+running the module directly executed the classes above it and exited before
+the twelve below were ever defined.  pytest never noticed, because pytest
+imports a module and does not execute its `__main__` -- which is exactly
+why it survived four rounds.  Moved to the end.
+
+The first draft of the D11 comment spelled a vital's name in a comment
+inside `script_host.py`, and LANE-E's own guard
+(`test_no_foundation_module_emits_the_legacy_system_message`, a substring
+scan over `src/` that does not skip comments) went red on the full suite.
+Same class of defect as round `7kxfe9`'s docstring versus the n/327 census,
+found the same way -- by running the whole suite, not by reading the diff.
+The comment says what it means without the name, and says why.
+
+### Numbers, all measured on this round's tree
+
+* `tests/test_script_lua_api_message.py`: 79 tests (was 67), +12.
+* Full suite before the de-naming fix: 3 failed / 12893 passed.  Two of the
+  three (`test_ui_wire_name_census.py`) are red on `origin/main` `550a36d`
+  itself, with nothing of this branch present -- see the round's ALERT
+  letter; the pin now reads 161 while a fresh derive returns 160, the
+  opposite direction from what `NOW.md` records.
+* `lua_api.trigger`: 8 of 17 real, measured from `REAL_METHODS`, correcting
+  the stale "5/17" carried in `RE-273`'s body.
