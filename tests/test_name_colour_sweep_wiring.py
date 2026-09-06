@@ -277,6 +277,22 @@ class NameColourSweepWiringTests(unittest.TestCase):
             state.world_census_actor_count + len(expected),
         )
 
+    def test_the_armed_line_reads_the_wire_count_off_the_queued_bytes(self):
+        """pf-adversary (round ``ky8m6j``, D4): the console token must count
+        what the collection about to go out SAYS, not what the module
+        produced.  "eight entries were built" and "the frame says 116 bodies
+        follow" are different claims, and only the second one is about the
+        wire.
+        """
+        _state, actions, console = self._arrive_capturing(
+            "sweep-wirecount", name_colour_sweep.SET_FACTION,
+        )
+        pc = self._labelled(actions, CENSUS_LABEL_PREFIX)[0][1]
+        start = world_population.WIRE_COUNT_TAG_OFFSET + 1
+        wire = int.from_bytes(pc[start:start + 2], "little")
+        self.assertIn("NAME_COLOUR_SWEEP_ARMED", console)
+        self.assertIn("wire=%d" % wire, console)
+
     def test_the_label_carries_the_sweep_count_at_send_time(self):
         """v141 prints ``[G>] <label> (N bytes)`` per queued action at SEND
         time, so the label is the only sweep token an attended tester sees

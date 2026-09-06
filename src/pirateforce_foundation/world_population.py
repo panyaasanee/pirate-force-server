@@ -1126,10 +1126,28 @@ def append_census_entries(
     census's own bookkeeping keeps counting the census -- the same split
     ``diag_multi_object_wiring.census_frames`` documents for the same reason.
 
-    RAISES ``ValueError`` on any shape it cannot vouch for (bad generation, a
-    non-bytes or empty entry, ``entry_bytes`` that does not account for the
-    whole collection, frame drift).  Callers on the listener thread must catch
-    it -- ``v141:7440`` has no ``except`` above them.
+    RAISES ``ValueError`` on a bad generation, a non-bytes or empty entry, or
+    an ``entry_bytes`` whose SUM does not account for the whole collection.
+    Callers on the listener thread must catch it -- ``v141:7440`` has no
+    ``except`` above them.
+
+    NONCLAIM (pf-adversary, round ``ky8m6j``), the same one
+    :func:`apply_identity_override` carries and for the same reason: the
+    ``offset != len(generation.pc)`` guard checks the SUM of ``entry_bytes``,
+    not how many of them there are.  A hand-built generation whose
+    ``entry_bytes`` has the right total but the wrong NUMBER of lengths is
+    accepted, and produces exactly the header-says-N/bodies-are-N+1
+    stream-tail misalignment this client answers with ErrorData=28317.
+    Dormant on every path this tree walks -- ``entry_bytes`` is only ever
+    ``tuple(len(entry) for entry in entries)`` from
+    :func:`build_world_population` or from ``runtime.py``'s census override --
+    and named here rather than fixed because catching it needs a structural
+    check against a source independent of ``generation`` itself, which no
+    caller has asked for.  A caller that builds a
+    ``WorldPopulationGeneration`` by hand must not trust this guard.
+    Likewise ``appended-census frame drift`` below is a belt, not a check:
+    ``make_runtime_remote_actors`` returns ``frame_pc(pc)`` itself
+    (``v141:1288``), so it cannot fire while that stays true.
     """
     if type(generation) is not WorldPopulationGeneration:
         raise ValueError(

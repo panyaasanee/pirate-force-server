@@ -11839,6 +11839,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # count, which is the difference between "115 actors
                         # went out" and "the header says 115".  ASCII only --
                         # the bridge console is cp874.
+                        # NOTE (pf-adversary, round ky8m6j D9): this line
+                        # describes `generation`, which is the census BEFORE
+                        # any splice.  On an armed sweep boot (and on a
+                        # diag-widen boot) the bytes that actually go out are
+                        # larger, and the NAME_COLOUR_SWEEP_ARMED /
+                        # DIAG_CENSUS line below carries the sent numbers.
+                        # Left reading `generation` on purpose so an unarmed
+                        # boot's line is byte-identical to every log this
+                        # house has ever grepped; a runbook that needs the
+                        # sent size reads the ARMED line, which says `wire=`
+                        # and `pc=` for the queued collection.
                         print(world_population.census_console_line(generation))
                         # WITHDRAWN HERE ON PURPOSE.  A ROUND THAT WANTS
                         # THIS LINE BACK MUST READ THIS BLOCK FIRST.
@@ -11964,6 +11975,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             ))
                         # RE-157 job 2 / MOB-COMBAT-001: stamp exactly the
                         # actor identities THIS commit put on the wire.
+                        # AMENDED (chief, round ky8m6j, pf-adversary D8): that
+                        # sentence is no longer literally true.  An armed
+                        # PF_NAME_COLOUR_SWEEP boot puts eight more identities
+                        # on the wire than are stamped here, deliberately --
+                        # see point 4 of the sweep comment below.  Measured:
+                        # a swing at one is declined at runtime.py's roster
+                        # gate (`target_is_field_mob`) before membership is
+                        # ever consulted, so the gap costs nothing today.  It
+                        # becomes real the day a sweep dummy is made
+                        # roster-backed: the swing would then be declined by
+                        # membership with no named reason.  Anything that
+                        # wants these bodies killable owes the registry work,
+                        # and this stamp, together.
                         # ``generation.actor_identities`` is the base
                         # bg0001 set (post mob-death-override splice, which
                         # only rewrites entry bytes, never the identity
@@ -12157,17 +12181,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                     "name_colour_sweep_merged_"
                                     f"{len(sweep_bodies)}"
                                 )
+                                # WIRE COUNT READ BACK OFF THE BYTES, not
+                                # counted off what the module produced
+                                # (pf-adversary, round ky8m6j D4): the two
+                                # numbers are the difference between "eight
+                                # entries were built" and "the collection
+                                # about to go out says 116 bodies follow",
+                                # which is the same distinction
+                                # world_population.census_console_line and
+                                # diag_multi_object_wiring.describe_census
+                                # both already make one screen above.
+                                try:
+                                    sweep_wire = (
+                                        diag_multi_object_wiring
+                                        .wire_actor_count(census_pc)
+                                    )
+                                except Exception:  # noqa: BLE001
+                                    sweep_wire = -1
                                 print(
                                     "NAME_COLOUR_SWEEP_ARMED "
                                     f"actors={len(sweep_bodies)} "
                                     f"census_actors={generation.actor_count} "
+                                    f"wire={sweep_wire} "
                                     f"pc={len(census_pc)} "
                                     f"frame={len(census_frame)}"
                                 )
                         else:
-                            unrecognised = (
-                                name_colour_sweep.unrecognised_env_value()
-                            )
+                            try:
+                                unrecognised = (
+                                    name_colour_sweep.unrecognised_env_value()
+                                )
+                            except Exception:  # noqa: BLE001
+                                # pf-adversary, round ky8m6j D6: this was the
+                                # one module call in the block still outside a
+                                # try, which is the exact shape the round
+                                # before this one was fixing.  An env read is
+                                # not expected to raise; the point is that no
+                                # call in this block may be the one that
+                                # unwinds the listener thread.
+                                unrecognised = None
                             if unrecognised is not None:
                                 # A typo used to boot an ordinary town in
                                 # total silence -- indistinguishable from a
