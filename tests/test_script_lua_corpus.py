@@ -191,7 +191,26 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: so a regression that raises this number (not a branch-shift fall) is
 #: still stub coverage getting worse, and the test below is written to
 #: catch that.
-BASELINE_TOTAL_STUB_CALLS = 4937
+#: RE-MEASURED THIS ROUND (LANE-Q, round qbr5h8): lua_api/player.py made
+#: Player.CheckItemNum/GetItemNum/CheckEquipItem real (COO-DECISION
+#: 20260906_1846's "inventory seam, read side"). MEASURED, not derived from
+#: the 211/99/14 call-site counts in api_spec.tsv the naive way:
+#: report.real_call_counts prints {'Player.GetItemNum': 88,
+#: 'Player.CheckItemNum': 154} against this same LUA_ROOT and
+#: FIXED_QUEST_CLOCK (CheckEquipItem's own 2 call sites, both in files with
+#: no STANDARD_ENTRY_POINTS entry point that reaches them under this fixed
+#: clock, contribute 0 -- absent from real_call_counts entirely, not a
+#: dropped key) -- 4937 - 242 = 4695, NOT the actual 4715. The remaining
+#: 20-call gap is the same emergent, measured-not-assumed branch-shift
+#: phenomenon this baseline's own comment already documents for round
+#: gqjas5's GetLv/GetClass: giving these three their real (nonzero-capable)
+#: answer instead of STUB_DEFAULT=0 changes which branches some scripts take
+#: on their way to a Report_Check/Accept_Check gate, which changes which
+#: OTHER still-stubbed names execute afterward in the same run -- some
+#: newly reached (raising the count), some no longer reached (lowering it),
+#: net +20 stub calls elsewhere this time. Not a discrepancy to chase down;
+#: see the paragraph above for the same shape from a prior round.
+BASELINE_TOTAL_STUB_CALLS = 4715
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()

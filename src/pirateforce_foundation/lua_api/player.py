@@ -1,5 +1,6 @@
-"""LANE-Q's ``Player`` namespace: the first two of 73 names to go real,
-``GetLv`` and ``GetClass``.
+"""LANE-Q's ``Player`` namespace: 5 of 73 names real
+(``GetLv``/``GetClass``, plus this round's ``CheckItemNum``/``GetItemNum``/
+``CheckEquipItem``).
 
 WHY THESE TWO, WHY TOGETHER.  ``docs/SCRIPT_LANE.md`` (round `bxly5p`) found
 both of LANE-Q's own charter blockers still closed at this round's own
@@ -33,8 +34,52 @@ fills from that existing `Character`, the same shape
 `lua_api.trigger.TriggerContext`/`lua_api.instance.InstanceContext` already
 established for their own namespaces.
 
+WHY THIS ROUND ALSO TAKES `CheckItemNum`/`GetItemNum`/`CheckEquipItem`
+(`COO-DECISION 20260906_1846`'s "inventory seam, read side" item, ranked
+#2 system-wide).  These are the three highest-call-count `_ITEM_STATE`
+names (`api_spec.tsv`: `CheckItemNum` 211 calls/105 files/arity 2,
+`GetItemNum` 99 calls/72 files/arity 1, `CheckEquipItem` 14 calls/2
+files/arity 1 -- 324 of the item/equipment group's calls) and, unlike
+every other `_ITEM_STATE` name, none of the three WRITES anything --
+COO's own ranking letter draws exactly this line ("read side first ...
+write side needs a wire frame answering the client, blocked on
+`RE-280`").  Grepped call shape, not guessed (`gamedata/lua/**/*.lua`):
+`Player.CheckItemNum(templateId, count)` -- `Quest/q_guildgather1.lua:41`,
+`Quest/q_week_gather1.lua:43`, 103 more files, always exactly 2 args, used
+as a boolean gate ("does the player hold at least `count` of item
+`templateId`"); `Player.GetItemNum(templateId)` -- `t_getm_t1.lua:7`,
+`Quest/q_gather_new.lua:205`, 70 more files, always exactly 1 arg, used as
+an integer (assigned into a local, later compared/subtracted); every
+`Player.CheckEquipItem(templateId)` call site (`Quest/q_kill1_2.lua:14-20`,
+`Quest/q_con3.lua:12-18`, both files, 14 calls total) chains several
+literal template ids with `or`/`and` as a plain boolean, e.g. "is any of
+these blades equipped".
+
+WHAT "REAL" MEANS HERE, FOR THESE THREE, PRECISELY.  `PlayerContext` widens
+by two fields, `backpack` (an `inventory.BackpackState`, the exact type
+`store.get_backpack`/`inventory.require_backpack_shape` already use --
+NOT a new item model) and `equipped_template_ids` (a `frozenset[int]`, the
+exact set `store.list_equipped_items`'s own `(slot_id, item_identity,
+item_template_id)` rows reduce to by dropping slot/identity, since none of
+these three questions is slot-aware). `GetItemNum` sums
+`ItemAttrState.quantity` across every backpack row whose `template_id`
+matches; `CheckItemNum` is that sum compared against the caller's second
+argument; `CheckEquipItem` is template-id membership in
+`equipped_template_ids`. Both new fields default to EMPTY (no items, no
+equips) -- the same "inert default, not a guess" posture `level`/
+`class_id` already take, not `INITIAL_BACKPACK`/`MERGED_V111_BACKPACK`
+(picking either specific golden as "the" default would assert something
+about who the anonymous default player is that nothing supports). `store.py`
+is charter-listed as NOT LANE-Q's write zone and this round does not import
+or call it: no live dispatcher exists yet (same posture `GetLv`/`GetClass`
+already documented above) to fetch a real session's actual backpack/
+equipment and build a `PlayerContext` from it -- that wiring, when it
+lands, calls `store.get_backpack(sid, character_id)` and
+`store.list_equipped_items(character_id)` and passes their results
+straight through to these two fields, no new store-side reads needed.
+
 WHY EVERY OTHER PLAYER.* NAME STAYS A STUB THIS ROUND, GROUPED, NOT
-GUESSED.  See `STILL_STUBBED` below -- 71 names, one of eight named
+GUESSED.  See `STILL_STUBBED` below -- 68 names, one of eight named
 category reasons each (item/equipment state, a stat-grant write seam,
 other per-character stat reads this lane's context does not carry yet,
 skill/buff state cross-lane with combat, a teleport/vehicle/camera wire
@@ -68,7 +113,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from .. import player_wire
+from .. import inventory, player_wire
 
 #: Mirrors ``script_host.STUB_DEFAULT`` without importing that module
 #: (``script_host`` imports THIS package, via ``lua_api/__init__.py`` ->
@@ -78,29 +123,124 @@ from .. import player_wire
 #: (``tests/test_script_lua_api_player.py``).
 STUB_DEFAULT = 0
 
-#: The two names this round makes real. See the module docstring for why
-#: these two, and why every other Player.* name is not real yet.
-REAL_METHODS = frozenset({"GetLv", "GetClass"})
+#: The corpus's own template-id/quantity bounds (matches
+#: ``inventory.require_backpack_shape``'s ``item_template_id``/``quantity``
+#: checks and ``store.equip_item``'s ``item_template_id`` bound exactly --
+#: not independently guessed) -- a sanity door on decoded arguments, same
+#: role ``lua_api.trigger._MAX_TRIGGER_ID``/``_MAX_STATUS`` play there.
+_MAX_TEMPLATE_ID = 0xFFFFFFFF
+_MAX_QUANTITY = 0xFFFF
+
+
+def _coerce_int(value, ceiling: int):
+    """Lua hands numbers back as floats; an int door that never raises.
+
+    Identical shape to ``lua_api.trigger._coerce_int`` (kept as a separate
+    copy, not a shared import, the same posture every namespace module in
+    this package already takes to avoid a cross-namespace coupling none of
+    them need): ``None`` means "not a usable number", booleans are
+    rejected explicitly (``True`` is an ``int`` in Python and would
+    otherwise silently become template id 1), and a decoded value outside
+    ``[0, ceiling]`` is refused rather than clamped.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        as_int = int(value)
+        if float(as_int) != value:
+            return None
+        value = as_int
+    if not isinstance(value, int):
+        return None
+    if value < 0 or value > ceiling:
+        return None
+    return value
+
+
+def _item_count(backpack: "inventory.BackpackState", template_id: int) -> int:
+    """Total quantity of ``template_id`` across every backpack row, or 0.
+
+    Sums rather than counts rows: two stacks of the same template (a
+    pre-merge V111 bag, for instance) must add up to the total a script's
+    ``GetItemNum`` expects, not the row count.
+
+    NEVER RAISES, MEASURED (pf-adversary, round `qbr5h8`).  A first draft
+    trusted ``context.backpack`` unconditionally -- fine for every test
+    today (``DEFAULT_CONTEXT``/every hand-built ``PlayerContext`` is
+    well-formed) but a live crash the day a future dispatcher passes
+    through a ``store.get_backpack`` decode failure, a bare ``None``, or a
+    row with a non-numeric ``quantity``: adversary reproduced
+    ``TypeError``/``AttributeError`` straight out of ``ScriptHost.call`` for
+    exactly those three shapes. Every OTHER real closure in this package
+    already treats bad input as "answer 0/False", never "raise" -- this
+    function now matches that contract for the CONTEXT, not just the Lua
+    arguments (``_coerce_int`` already covered those).
+    """
+    try:
+        return sum(
+            item.quantity for item in backpack.items
+            if item.template_id == template_id
+        )
+    except Exception:                                    # noqa: BLE001
+        return 0
+
+
+def _is_equipped(equipped_template_ids, template_id: int) -> bool:
+    """``template_id in equipped_template_ids``, or ``False`` -- never raises.
+
+    Same posture as :func:`_item_count`: a malformed
+    ``equipped_template_ids`` (e.g. ``None``) must degrade to "not
+    equipped", not crash the script call.
+    """
+    try:
+        return template_id in equipped_template_ids
+    except Exception:                                    # noqa: BLE001
+        return False
+
+
+#: The empty inventory/equipment state -- no items, nothing equipped. The
+#: same "inert default, not a guess" posture ``level``/``class_id`` already
+#: take on :data:`DEFAULT_CONTEXT` below, not either governed golden
+#: snapshot (``inventory.INITIAL_BACKPACK``/``MERGED_V111_BACKPACK``):
+#: picking one of those as "the" default anonymous player would assert
+#: something about who that player is that nothing supports.
+_EMPTY_BACKPACK = inventory.BackpackState(
+    inventory.BACKPACK_BASE_MASK, inventory.BACKPACK_BASE_IDENTITY,
+    inventory.BACKPACK_RANGE_MASK, (),
+)
+
+#: The five names real this round. See the module docstring for why these
+#: five, and why every other Player.* name is not real yet.
+REAL_METHODS = frozenset({
+    "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
+})
 
 
 @dataclass(frozen=True)
 class PlayerContext:
-    """What "the player running this script" means to ``GetLv``/``GetClass``.
+    """What "the player running this script" means to this namespace.
 
-    Both fields default to the exact constants every fresh login composes
-    today (``player_wire.PLAYER_LOGIN_LEVEL`` == 1, ``player_wire.
-    PLAYER_LOGIN_CLASS_ID`` == 1) -- not a guess, the same values
-    ``model.Character``'s own two fields (``level``, ``class_id``, both
-    ``int | None``) fall back to when a login does not override them. A
-    real per-session dispatcher (not built this round) supplies its own
-    ``PlayerContext`` built from that ``Character`` instead of relying on
-    this default, the same seam ``lua_api.trigger.TriggerContext``/
-    ``lua_api.instance.InstanceContext`` already established for their own
-    namespaces.
+    ``level``/``class_id`` default to the exact constants every fresh
+    login composes today (``player_wire.PLAYER_LOGIN_LEVEL`` == 1,
+    ``player_wire.PLAYER_LOGIN_CLASS_ID`` == 1) -- not a guess, the same
+    values ``model.Character``'s own two fields (``level``, ``class_id``,
+    both ``int | None``) fall back to when a login does not override them.
+    ``backpack``/``equipped_template_ids`` (this round) default to empty --
+    see :data:`_EMPTY_BACKPACK`'s own docstring for why empty rather than
+    either governed golden snapshot. A real per-session dispatcher (not
+    built this round) supplies its own ``PlayerContext`` built from that
+    ``Character`` plus ``store.get_backpack``/``store.list_equipped_items``
+    instead of relying on these defaults, the same seam
+    ``lua_api.trigger.TriggerContext``/``lua_api.instance.InstanceContext``
+    already established for their own namespaces.
     """
 
     level: int = player_wire.PLAYER_LOGIN_LEVEL
     class_id: int = player_wire.PLAYER_LOGIN_CLASS_ID
+    backpack: "inventory.BackpackState" = _EMPTY_BACKPACK
+    equipped_template_ids: frozenset = frozenset()
 
 
 #: The context a :class:`RealPlayerNamespace` gets when nothing more
@@ -109,7 +249,7 @@ class PlayerContext:
 #: a production singleton, mirroring ``lua_api.trigger.DEFAULT_CONTEXT``.
 DEFAULT_CONTEXT = PlayerContext()
 
-#: The remaining 71 names, one of eight grouped, grep-grounded reasons each
+#: The remaining 68 names, one of eight grouped, grep-grounded reasons each
 #: -- no per-name guess, the same posture ``lua_api.quest.STILL_STUBBED``
 #: takes for its own DB-blocked names. Category text is shared verbatim
 #: across every name in that category (the same repetition
@@ -156,13 +296,13 @@ _MOB_APPEAR = (
 )
 
 STILL_STUBBED: dict[str, str] = {
-    # item/equipment state (13)
+    # item/equipment state (10) -- CheckItemNum/GetItemNum/CheckEquipItem
+    # (the read-only three) moved to REAL_METHODS this round; the rest
+    # still need a write seam (AddAndEquip/AddItem/RemoveItem/...) this
+    # lane does not own yet.
     "AddAndEquip": _ITEM_STATE,
     "AddItem": _ITEM_STATE,
     "RemoveItem": _ITEM_STATE,
-    "CheckItemNum": _ITEM_STATE,
-    "GetItemNum": _ITEM_STATE,
-    "CheckEquipItem": _ITEM_STATE,
     "ItemAddon": _ITEM_STATE,
     "OpenStorage": _ITEM_STATE,
     "AppraiseItem": _ITEM_STATE,
@@ -286,6 +426,60 @@ class RealPlayerNamespace:
                 return class_id
 
             return get_class
+
+        if name == "GetItemNum":
+            def get_item_num(*args):
+                self.calls.append("Player.GetItemNum")
+                if len(args) != 1:
+                    _log_bad_arity(self._log, "GetItemNum", len(args), "1")
+                    return STUB_DEFAULT
+                template_id = _coerce_int(args[0], _MAX_TEMPLATE_ID)
+                count = (
+                    0 if template_id is None
+                    else _item_count(self._context.backpack, template_id)
+                )
+                self._log(
+                    "LUA_PLAYER_REAL Player.GetItemNum template_id=%r count=%d"
+                    % (args[0], count))
+                return count
+
+            return get_item_num
+
+        if name == "CheckItemNum":
+            def check_item_num(*args):
+                self.calls.append("Player.CheckItemNum")
+                if len(args) != 2:
+                    _log_bad_arity(self._log, "CheckItemNum", len(args), "2")
+                    return STUB_DEFAULT
+                template_id = _coerce_int(args[0], _MAX_TEMPLATE_ID)
+                required = _coerce_int(args[1], _MAX_QUANTITY)
+                if template_id is None or required is None:
+                    result = False
+                else:
+                    held = _item_count(self._context.backpack, template_id)
+                    result = held >= required
+                self._log(
+                    "LUA_PLAYER_REAL Player.CheckItemNum template_id=%r "
+                    "required=%r result=%s" % (args[0], args[1], result))
+                return result
+
+            return check_item_num
+
+        if name == "CheckEquipItem":
+            def check_equip_item(*args):
+                self.calls.append("Player.CheckEquipItem")
+                if len(args) != 1:
+                    _log_bad_arity(self._log, "CheckEquipItem", len(args), "1")
+                    return STUB_DEFAULT
+                template_id = _coerce_int(args[0], _MAX_TEMPLATE_ID)
+                result = template_id is not None and _is_equipped(
+                    self._context.equipped_template_ids, template_id)
+                self._log(
+                    "LUA_PLAYER_REAL Player.CheckEquipItem template_id=%r "
+                    "result=%s" % (args[0], result))
+                return result
+
+            return check_equip_item
 
         if name in self._stub_methods:
             qualified = "Player.%s" % name
