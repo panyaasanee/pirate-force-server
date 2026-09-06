@@ -521,8 +521,20 @@ class TheRosterGateTests(unittest.TestCase):
         # refusal for what it now is, and is asserted below rather than
         # dropped, because a scene that becomes mined is exactly when a
         # capitalised leftover in somebody's fixture stops being harmless.
+        #
+        # ROUND 4tnhzw: ~~"Bg0006"~~ -> "Bg0010".  The example moved AGAIN,
+        # for the identical reason: scene 6 acquired a mined roster this
+        # round too (COO-DECISION 2026-09-06T07:48+07:00), so "Bg0006" is
+        # now itself a wrong spelling of a mined scene ("bg0006", lowercase
+        # -- see field_mob_tables_bg0006.py's own casing note) rather than
+        # an example of an unmined one.  Scene 10 (bg0010) is the
+        # replacement, and it stays genuinely unmined rather than merely
+        # unattempted: this same round's own mining run on it refused
+        # outright (a raw placements row carries the literal string
+        # 'UNRESOLVED' where a template id belongs -- this round's STATIC
+        # ticket to chief).
         self.assertEqual(
-            self.world.bury(a_record(scene="Bg0006")),
+            self.world.bury(a_record(scene="Bg0010")),
             (False, graves.REFUSE_SCENE_HAS_NO_MINED_ROSTER))
         self.assertEqual(
             self.world.bury(a_record(scene="Bg0004")),

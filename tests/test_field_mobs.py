@@ -1136,30 +1136,89 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
           (61/281, 281/348, 280/343, 907/529, 529/103, 529/150), so no pair
           is two spellings of one monster, the same finding every earlier
           round made.
+
+        ~~seventeen pairs~~  THIS ROUND: four scenes at once (Bg0006, Bg0007,
+        Bg0009, Bg0011 -- COO-DECISION 2026-09-06T07:48+07:00), 2 + 9 + 5 + 10
+        = 26 placements between them, brought TWENTY-ONE more, the largest
+        single-round jump this card has recorded.  MEASURED, not predicted:
+        every one of the 38 pairs below was re-read off
+        ``cross_scene_identity_collisions()`` after all four scenes were
+        registered, not assembled by hand from the four scenes' own
+        placement lists.
+
+        * 0x202B IS THE FIRST FOUR-WAY COLLISION this lane ships: placement
+          42 exists in scenes 3, 4, 9 and 11 and resolves template 62, 97,
+          314 and 693 respectively -- four scenes, six pairs
+          (``C(4,2)``), all listed below rather than folded into one row,
+          for the same reason 0x2046's four-way already is.
+        * 0x202D is a NEW three-way collision (Bg0007/Bg0011/Bg0015,
+          templates 395/693/343).
+        * 0x201E gained a THIRD member: it was a two-way (Bg0003/Bg0015,
+          templates 62/350); Bg0007's placement 29 (template 388) makes it
+          three-way, reported as its own two new pairs
+          (Bg0003/Bg0007, Bg0007/Bg0015).
+        * The other fifteen new pairs are ordinary two-way collisions:
+          0x201D (Bg0003/Bg0007), 0x2024 (Bg0003/Bg0007), 0x2027
+          (Bg0011/bg0006), 0x2029 (Bg0003/Bg0007), 0x202C (Bg0007/Bg0011),
+          0x202E (Bg0011/Bg0015), 0x202F (Bg0011/Bg0015), 0x2032
+          (Bg0009/Bg0011), 0x2033 (Bg0002/Bg0011), 0x2035 (Bg0008/bg0006),
+          0x2039 (Bg0007/Bg0009).
+        * Every new pair still resolves a DIFFERENT template on each side --
+          checked over ALL 38 pairs by this test's own loop, not asserted in
+          prose: no ``template_a == template_b`` row exists at HEAD.
         """
+        rows = list(cross_scene_identity_collisions())
         got = {
             (row["actor_identity"], row["scene_a"], row["scene_b"])
-            for row in cross_scene_identity_collisions()
+            for row in rows
         }
         self.assertEqual(got, {
             (0x201C, "Bg0003", "Bg0015"),
             (0x201C, "Bg0003", "Bg0008"),
             (0x201C, "Bg0008", "Bg0015"),
+            (0x201D, "Bg0003", "Bg0007"),
             (0x201E, "Bg0003", "Bg0015"),
+            (0x201E, "Bg0003", "Bg0007"),
+            (0x201E, "Bg0007", "Bg0015"),
+            (0x2020, "Bg0015", "bg0004"),
+            (0x2024, "Bg0003", "Bg0007"),
+            (0x2027, "Bg0011", "bg0006"),
+            (0x2029, "Bg0003", "Bg0007"),
+            (0x202B, "Bg0003", "bg0004"),
+            (0x202B, "Bg0003", "Bg0009"),
+            (0x202B, "Bg0003", "Bg0011"),
+            (0x202B, "Bg0009", "Bg0011"),
+            (0x202B, "Bg0009", "bg0004"),
+            (0x202B, "Bg0011", "bg0004"),
+            (0x202C, "Bg0007", "Bg0011"),
+            (0x202D, "Bg0007", "Bg0011"),
+            (0x202D, "Bg0007", "Bg0015"),
+            (0x202D, "Bg0011", "Bg0015"),
+            (0x202E, "Bg0011", "Bg0015"),
+            (0x202F, "Bg0011", "Bg0015"),
+            (0x2032, "Bg0009", "Bg0011"),
+            (0x2033, "Bg0002", "Bg0011"),
             (0x2034, "Bg0008", "Bg0015"),
+            (0x2035, "Bg0008", "bg0006"),
+            (0x2039, "Bg0007", "Bg0009"),
             (0x203B, "Bg0002", "Bg0003"),
             (0x203C, "Bg0002", "bg0005"),
+            (0x2046, "Bg0003", "bg0004"),
             (0x2046, "Bg0003", "bg0005"),
             (0x2046, "Bg0003", "Bg0008"),
+            (0x2046, "bg0004", "bg0005"),
             (0x2046, "Bg0008", "bg0004"),
             (0x2046, "Bg0008", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
-            (0x2020, "Bg0015", "bg0004"),
-            (0x202B, "Bg0003", "bg0004"),
-            (0x2046, "Bg0003", "bg0004"),
-            (0x2046, "bg0004", "bg0005"),
         })
+        self.assertEqual(len(got), 38)
+        # THE CLAIM PROSE MAKES ABOVE, MEASURED: no colliding pair is two
+        # spellings of one monster.
+        for row in rows:
+            with self.subTest(identity=hex(row["actor_identity"]),
+                               a=row["scene_a"], b=row["scene_b"]):
+                self.assertNotEqual(row["template_a"], row["template_b"])
 
     def test_bg0001_vs_bg0002_matches_the_identities_the_load_roster_test_pins(
             self) -> None:

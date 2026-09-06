@@ -250,6 +250,19 @@ class Bg0006Census(unittest.TestCase):
         # scene 5), so this module never carries the "nothing imports this
         # yet" tripwire its four siblings each had to rename in a later
         # round -- this file starts with the widened, final shape directly.
+        # [CROSS-LANE EDIT BY LANE-B, ROUND 4tnhzw] mob_scene_recompose.py
+        # becomes a third importer, same addition round jqeo2m/oabhhe made
+        # on world_population_bg0005/bg0008's own copy of this test: scene
+        # 6 gained a combat roster (field_mob_tables_bg0006,
+        # COO-DECISION 2026-09-06T07:48+07:00) and a recompose composer
+        # (mob_scene_recompose.COMPOSER_BG0006) that calls THIS builder for
+        # this scene's MID-SESSION recompose census, the same relationship
+        # this module already has with world_population_bg0002/bg0003/
+        # bg0004/bg0005/bg0008.  The arrival census is lane A's (via the
+        # seam below); the recompose of that same census after a hit or a
+        # kill is lane B's, and lane B composes it by CALLING this builder
+        # rather than writing a second one.  runtime.py still does not
+        # import either.
         import ast
 
         importers = []
@@ -270,7 +283,8 @@ class Bg0006Census(unittest.TestCase):
                     break
         self.assertEqual(
             sorted(importers),
-            ["lane_a_scene_census.py", "world_population_handoff.py"])
+            ["lane_a_scene_census.py", "mob_scene_recompose.py",
+             "world_population_handoff.py"])
 
 
 if __name__ == "__main__":  # pragma: no cover

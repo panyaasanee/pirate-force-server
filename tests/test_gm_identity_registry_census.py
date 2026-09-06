@@ -375,7 +375,7 @@ class WithinOneSceneTests(unittest.TestCase):
         # WITHIN-scene question, so those collisions cannot help a roster
         # row pass here on another scene's census.  This number only tracks
         # how many scenes were checked.
-        # THIS ROUND: ~~6~~ -> 7.  Scene 8 (Bg0008) joined on the same terms
+        # ROUND oabhhe: ~~6~~ -> 7.  Scene 8 (Bg0008) joined on the same terms
         # scenes 14, 5, 3 and 4 did, and the per-scene subTest above is
         # again what proved it: all EIGHT of its shipped roster identities
         # are census identities of scene 8, so none is silently dropped by
@@ -384,9 +384,17 @@ class WithinOneSceneTests(unittest.TestCase):
         # widen-death-scope-bg0008-six-templates 2026-09-06T05:48+07:00) and
         # so never reaches ``census.roster_claims`` to be checked here at
         # all.  This number only tracks how many scenes were checked.
+        # THIS ROUND: ~~7~~ -> 11.  Scenes 6, 7, 9 and 11 joined on the same
+        # terms (COO-DECISION 2026-09-06T07:48+07:00), and the per-scene
+        # subTest above is again what proved it: all of their shipped roster
+        # identities (2, 9, 5 and 10 rows respectively) are census identities
+        # of their own scene, so none is silently dropped by
+        # ``apply_identity_override``.  This number only tracks how many
+        # scenes were checked.
         self.assertEqual(
-            7, checked,
-            "only scenes 1, 2, 3, 4, 5, 8 and 14 ship rosters today")
+            11, checked,
+            "only scenes 1, 2, 3, 4, 5, 6, 7, 8, 9, 11 and 14 ship rosters "
+            "today")
 
     def test_the_tripwire_fires_when_one_identity_names_two_placements(self):
         # The routing itself, driven directly.  Shipped data cannot reach

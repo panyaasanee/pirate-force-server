@@ -237,6 +237,19 @@ def load_roster_modules(repo_root: Path) -> tuple:
     scene table carries, ship or withhold being a decision one layer up, so
     it is mined anyway rather than the mining tool trying to read a
     withholding ruling it has no business knowing about.
+
+    ROUND (this round, four scenes at once): added
+    ``field_mob_tables_bg0006``, ``field_mob_tables_bg0007``,
+    ``field_mob_tables_bg0009`` and ``field_mob_tables_bg0011``, all
+    registered in the same commit exactly as every entry above, and the
+    refusal was likewise reproduced on each scene before this line was
+    written: with the rosters registered and this union unwidened,
+    ``mob_ai_control.open_register`` raised ``ai_row_missing`` on the FIRST
+    placement of scene 7 (AI_WANDER 10), scene 9 (AI_COMBAT 142) and scene
+    11 (AI_COMBAT 280) in turn -- scene 6's own two rows happened to want
+    only ids already in the union (134 and 111), so it alone did not crash,
+    which is why the widening is done for all four together rather than
+    trusted per-scene.
     """
     sys.path.insert(0, str(repo_root / "src"))
     try:
@@ -245,14 +258,20 @@ def load_roster_modules(repo_root: Path) -> tuple:
         from pirateforce_foundation import field_mob_tables_bg0003
         from pirateforce_foundation import field_mob_tables_bg0004
         from pirateforce_foundation import field_mob_tables_bg0005
+        from pirateforce_foundation import field_mob_tables_bg0006
+        from pirateforce_foundation import field_mob_tables_bg0007
         from pirateforce_foundation import field_mob_tables_bg0008
+        from pirateforce_foundation import field_mob_tables_bg0009
+        from pirateforce_foundation import field_mob_tables_bg0011
         from pirateforce_foundation import field_mob_tables_bg0015
     finally:
         sys.path.pop(0)
     return (
         field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0003,
         field_mob_tables_bg0004, field_mob_tables_bg0005,
-        field_mob_tables_bg0008, field_mob_tables_bg0015,
+        field_mob_tables_bg0006, field_mob_tables_bg0007,
+        field_mob_tables_bg0008, field_mob_tables_bg0009,
+        field_mob_tables_bg0011, field_mob_tables_bg0015,
     )
 
 

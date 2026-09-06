@@ -209,14 +209,20 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # ACKNOWLEDGED_WITHOUT_COMPOSER at the same time, which is what the
         # second half of this test reads.  This file's subject is still
         # scene 14 and none of its own answers moved.
-        # THIS ROUND: ~~(1, 2, 3, 4, 5, 14)~~ -> (1, 2, 3, 4, 5, 8, 14),
+        # ROUND oabhhe: ~~(1, 2, 3, 4, 5, 14)~~ -> (1, 2, 3, 4, 5, 8, 14),
         # scene 8 (Bg0008, Silver Harbour) on the same terms again -- and it
         # also leaves ACKNOWLEDGED_WITHOUT_COMPOSER, same as scene 4 did.
         # This file's subject is still scene 14 and none of its own answers
         # moved.
+        # THIS ROUND: ~~(1, 2, 3, 4, 5, 8, 14)~~ ->
+        # (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14), scenes 6, 7, 9 and 11 on the
+        # same terms again (COO-DECISION 2026-09-06T07:48+07:00), each
+        # leaving ACKNOWLEDGED_WITHOUT_COMPOSER too.  This file's subject is
+        # still scene 14 and none of its own answers moved.
         status = gates.recompose_status()
         self.assertEqual(
-            status["composer_scene_ids"], (1, 2, 3, 4, 5, 8, 14))
+            status["composer_scene_ids"],
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14))
         self.assertTrue(status["has_composer"])
         self.assertFalse(status["acknowledged_without_composer"])
         self.assertTrue(status["accounted_for"])
@@ -362,28 +368,55 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # ``tests/test_field_mob_tables_bg0004.py`` (ledger 2-of-7 refused,
         # each scene's kill letter refusing the others' rows, membership
         # scene-scoped) and not merely listed.
-        # THIS ROUND: scene 8's registration brought six more (the same set
-        # ``tests/test_field_mobs.py``'s own collision card measures and
+        # ROUND oabhhe: scene 8's registration brought six more (the same
+        # set ``tests/test_field_mobs.py``'s own collision card measures and
         # explains in full) -- 0x201C and 0x2046 each gain a further member
         # (three-way and four-way respectively, reported as pairs) and
         # 0x2034 is a new pair.  Every scene named here, including Bg0008
-        # now, is registered and reachable.
+        # then, is registered and reachable.
+        # THIS ROUND: four scenes at once (Bg0006, Bg0007, Bg0009, Bg0011)
+        # brought TWENTY-ONE more, re-derived the same way, not hand-typed
+        # from the four scenes' own placement lists -- the full accounting
+        # (including the new four-way collision at 0x202B) is in
+        # ``tests/test_field_mobs.py``'s own collision card, which this set
+        # mirrors exactly because both read the same live registry.
         self.assertEqual(got, {
             (0x201C, "Bg0003", "Bg0015"),
             (0x201C, "Bg0003", "Bg0008"),
             (0x201C, "Bg0008", "Bg0015"),
+            (0x201D, "Bg0003", "Bg0007"),
             (0x201E, "Bg0003", "Bg0015"),
+            (0x201E, "Bg0003", "Bg0007"),
+            (0x201E, "Bg0007", "Bg0015"),
             (0x2020, "Bg0015", "bg0004"),
+            (0x2024, "Bg0003", "Bg0007"),
+            (0x2027, "Bg0011", "bg0006"),
+            (0x2029, "Bg0003", "Bg0007"),
             (0x202B, "Bg0003", "bg0004"),
+            (0x202B, "Bg0003", "Bg0009"),
+            (0x202B, "Bg0003", "Bg0011"),
+            (0x202B, "Bg0009", "Bg0011"),
+            (0x202B, "Bg0009", "bg0004"),
+            (0x202B, "Bg0011", "bg0004"),
+            (0x202C, "Bg0007", "Bg0011"),
+            (0x202D, "Bg0007", "Bg0011"),
+            (0x202D, "Bg0007", "Bg0015"),
+            (0x202D, "Bg0011", "Bg0015"),
+            (0x202E, "Bg0011", "Bg0015"),
+            (0x202F, "Bg0011", "Bg0015"),
+            (0x2032, "Bg0009", "Bg0011"),
+            (0x2033, "Bg0002", "Bg0011"),
             (0x2034, "Bg0008", "Bg0015"),
+            (0x2035, "Bg0008", "bg0006"),
+            (0x2039, "Bg0007", "Bg0009"),
             (0x203B, "Bg0002", "Bg0003"),
             (0x203C, "Bg0002", "bg0005"),
             (0x2046, "Bg0003", "bg0004"),
             (0x2046, "Bg0003", "bg0005"),
             (0x2046, "Bg0003", "Bg0008"),
+            (0x2046, "bg0004", "bg0005"),
             (0x2046, "Bg0008", "bg0004"),
             (0x2046, "Bg0008", "bg0005"),
-            (0x2046, "bg0004", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
         })
@@ -500,13 +533,17 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # time -- field_mobs.py's own registration, never this module.  The
         # assertion this test exists for (reloading gates.py changes
         # nothing) is the one above and is still untouched.
-        # THIS ROUND: gains "Bg0008", by the same mechanism a fifth time --
+        # ROUND oabhhe: gains "Bg0008", by the same mechanism a fifth time --
         # field_mobs.py's own registration (COO-DECISION widen-death-scope-
         # bg0008-six-templates 2026-09-06T05:48+07:00), never this module.
+        # THIS ROUND: gains "bg0006", "Bg0007", "Bg0009" and "Bg0011", by
+        # the same mechanism a sixth time -- field_mobs.py's own
+        # registration (COO-DECISION 2026-09-06T07:48+07:00), never this
+        # module.
         self.assertEqual(
             set(before),
-            {"bg0001", "Bg0002", "Bg0003", "bg0004", "bg0005", "Bg0008",
-             "Bg0015"})
+            {"bg0001", "Bg0002", "Bg0003", "bg0004", "bg0005", "bg0006",
+             "Bg0007", "Bg0008", "Bg0009", "Bg0011", "Bg0015"})
 
 
 class Bg0015WiredPathTests(unittest.TestCase):
