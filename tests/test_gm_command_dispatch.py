@@ -435,6 +435,34 @@ class GmCommandDispatchTests(unittest.TestCase):
             "guard no longer bounds what actually lands on disk",
         )
 
+    def test_the_account_name_term_is_pinned_at_ten_bytes_a_character(self):
+        # The card above pins that the TERM EXISTS; pf-adversary (round
+        # `vq07el`) showed it does not pin the term's VALUE. Re-running that
+        # card with a coefficient of 2, 3, 4 or 5 passes all four, because
+        # the flat 2 KiB header allowance absorbs the difference at the 200
+        # characters it happens to use. A coefficient of 2 under-estimates
+        # for real from 220 characters up (est 2504 vs actual 2535), so the
+        # card was firing on "something changed", not on "the number is
+        # right" -- the shape of house wound 12.
+        #
+        # 10 is not a taste: a full sweep of Python's own unicode_escape over
+        # all 0x110000 codepoints puts the maximum escaped length at exactly
+        # 10 bytes (`\Uxxxxxxxx`, first reached at U+10000). Pin the
+        # derivative directly, where no header allowance can hide it.
+        per_character = (
+            gm_dispatch._estimate_capture_file_bytes(0, 1)
+            - gm_dispatch._estimate_capture_file_bytes(0, 0)
+        )
+        self.assertEqual(
+            per_character, 10,
+            "one account_name character must be charged the 10 bytes "
+            "unicode_escape can actually cost it",
+        )
+        self.assertEqual(
+            len("\U00020000".encode("unicode_escape")), per_character,
+            "the coefficient and the codec must agree, measured not assumed",
+        )
+
     # ----- env-var override path still works (same as accounts.py) -------
 
     def test_env_override_path_is_honoured(self):
