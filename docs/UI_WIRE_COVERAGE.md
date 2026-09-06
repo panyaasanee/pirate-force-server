@@ -39,7 +39,7 @@ question the RE-ticket search rule already requires before opening a new RE
 
 | Tier | Meaning | Evidence column |
 |---|---|---|
-| `SOURCE` | identifier appears in a `.py` file under `src/pirateforce_foundation/` (any lane) | `path:line` of the first hit |
+| `SOURCE` | identifier appears on a non-comment line of a `.py` file under `src/pirateforce_foundation/` (any lane) | `path:line` of the first hit |
 | `NAME-ONLY` | not in `SOURCE`, but the identifier appears in at least one of the project's three function-map files -- `docs/PF_VITAL_NAMES.json` (this repo's admitted-names table), `pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv` (serializer/handler VA table), `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` (proven wire layouts) -- or in this repo's own `docs/UI_LANE.md` function table | which of those file(s), `+`-joined |
 | `UNTOUCHED` | none of the above; the name exists only as a row in the master catalog | `-` |
 
@@ -50,14 +50,22 @@ names that do not follow a clean `Prefix_Rest` shape (e.g. the eight
 `CHitParade*Vital[_JP]` names land in several one-name families here instead
 of the prose's single "HitParade\_ 5" bucket) -- this is the mechanical
 number, the prose was Panya's own domain read, and they are allowed to
-differ. `is_client_req` flags names ending in `Req` (a client-sent request,
-per the project's own naming convention).
+differ. `is_client_req` flags a name that contains `Req` as its own
+PascalCase word (`tools/pf_ui_wire_name_census.py`'s `is_client_req()`) --
+this catches both wire-naming conventions the master catalog actually uses
+(`...VitalReq` and `...ReqVital[_REGION]`, e.g. `CTracePathReqVital`,
+confirmed client-inbound by this repo's own `trace_path.py` docstring)
+without also matching an unrelated word that merely starts the same way
+(`Community_RequestBeFriendVital` tokenizes to `Request`, not `Req`, so it
+is correctly not flagged). An earlier draft of this tool only checked for a
+trailing `Req` suffix and missed every `...ReqVital` name; pf-adversary
+caught it before this landed on `main`.
 
 ## Headline (regenerate; do not hand-edit these numbers)
 
 ```
-n/327 known (SOURCE) = 161/327
-  NAME-ONLY = 157  UNTOUCHED = 9
+n/327 known (SOURCE) = 160/327
+  NAME-ONLY = 158  UNTOUCHED = 9
 ```
 
 ## By family
@@ -78,7 +86,7 @@ Every UI PR from this round onward carries a permanent scoreboard row,
 per the COO-DECISION above:
 
 ```
-wire-names known n/327: 161/327
+wire-names known n/327: 160/327
 ```
 
 K folds this into `SCOREBOARD_FACTS.tsv`. This is not a milestone flag and
@@ -102,7 +110,14 @@ removed) as every lane's normal work lands.
    under a different literal (e.g. a `_JP` regional twin) that this
    exact-identifier match does not fold together on purpose (folding them
    would hide real per-id gaps).
-4. This is not a substitute for the per-function status table in
+4. `SOURCE` skips full-line comments (so a name used only as this
+   codebase's own generic prose, like a comment reusing `VitalData` as a
+   memory-layout term, no longer counts on that alone) but does NOT strip
+   trailing inline comments or docstring bodies -- a name mentioned only in
+   `some_code = 1  # also called FooVital elsewhere` still counts as
+   `SOURCE` on that line. This is a known, disclosed gap in the mechanical
+   method, not a claim that every `SOURCE` row is a real reference.
+5. This is not a substitute for the per-function status table in
    `docs/UI_LANE.md` ("layout known / needs RE / needs capture / done") --
    that table tracks UI's own pickup order; this page tracks the whole
    project's name coverage. A name can be `SOURCE` here and still have no GT

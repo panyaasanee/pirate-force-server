@@ -13,16 +13,23 @@ by family and split out `...Req` client-request names.
 
 WHAT "SOURCE" MEANS HERE, AND WHAT IT DOES NOT MEAN
 ----------------------------------------------------
-A name is tier ``SOURCE`` when its exact identifier appears in a Python file
-under ``src/pirateforce_foundation/`` (any lane's, not just UI's -- the
-official n/327 is a whole-project number, not a per-lane one, per the
-COO-DECISION above quoting ka1-A's own 69/327 as "not the official count").
-This is presence-in-code, found the same mechanical way `AGENTS.md` section 7
-requires before writing the word "wired": a name in this tier is NOT thereby
-claimed WIRED (`COO-DECISION 20260905_0947`) -- that word needs a mutation
-test, a single-writer guard and an observed round trip, none of which this
-census runs. Read ``docs/UI_WIRE_COVERAGE.md`` for the tier definitions this
-tool prints; do not read "SOURCE" as "done".
+A name is tier ``SOURCE`` when its exact identifier appears on a non-comment
+line of a Python file under ``src/pirateforce_foundation/`` (any lane's, not
+just UI's -- the official n/327 is a whole-project number, not a per-lane
+one, per the COO-DECISION above quoting ka1-A's own 69/327 as "not the
+official count"). This is presence-in-code, found the same mechanical way
+`AGENTS.md` section 7 requires before writing the word "wired": a name in
+this tier is NOT thereby claimed WIRED (`COO-DECISION 20260905_0947`) --
+that word needs a mutation test, a single-writer guard and an observed round
+trip, none of which this census runs. Read ``docs/UI_WIRE_COVERAGE.md`` for
+the tier definitions this tool prints; do not read "SOURCE" as "done".
+
+Skipping full-line comments removes the one false positive found by
+pf-adversary on round `9dezrf`'s first draft (`VitalData` was SOURCE only
+because of a comment in `app.py` reusing the name as generic prose for an
+unrelated memory-layout concept, with no real reference anywhere else in the
+tree) -- it does NOT catch a name mentioned only inside a trailing inline
+comment or a docstring body; those remain a known, disclosed gap.
 
 TIERS
 -----
@@ -111,22 +118,50 @@ def _iter_py_files(base: Path):
     return sorted(p for p in base.rglob("*.py") if p.is_file())
 
 
-def _first_source_hit(name: str, py_files, _cache={}):
-    """Return ``"relpath:line"`` of the first line containing ``name`` as a
-    whole identifier, scanning ``py_files`` in sorted (deterministic) order."""
-    pattern = _cache.get(name)
-    if pattern is None:
-        pattern = re.compile(r"\b" + re.escape(name) + r"\b")
-        _cache[name] = pattern
+_PASCAL_TOKEN = re.compile(r"[A-Z][a-z0-9]*|[A-Z]+(?![a-z])|[a-z0-9]+")
+
+
+def is_client_req(name: str) -> bool:
+    """True when ``name`` contains ``Req`` as its own PascalCase word --
+    matches both wire-naming conventions the master catalog actually uses
+    (`...VitalReq` and `...ReqVital[_REGION]`, e.g. `CTracePathReqVital`,
+    confirmed client-inbound by this repo's own trace_path.py comment) --
+    without also matching an unrelated English word that merely starts the
+    same way (`Community_RequestBeFriendVital` tokenizes to `Request`, not
+    `Req`, so it is correctly NOT flagged)."""
+    return "Req" in _PASCAL_TOKEN.findall(name)
+
+
+def _build_source_hits(names, py_files):
+    """One pass over every file in ``py_files`` (sorted, so deterministic):
+    for every identifier token on a non-comment line, record the FIRST
+    ``"relpath:line"`` it is seen at, for every name in ``names`` that is
+    still unresolved. Full-line comments (``line.lstrip().startswith("#")``)
+    are skipped so a name used only as this codebase's own descriptive
+    prose (e.g. a comment reusing a wire name as a generic term) is not
+    counted as a code reference; this does not catch a name mentioned only
+    in a trailing inline comment or inside a docstring body -- see
+    docs/UI_WIRE_COVERAGE.md's non-claims."""
+    remaining = set(names)
+    hits: dict = {}
     for path in py_files:
+        if not remaining:
+            break
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        relpath = path.relative_to(ROOT)
         for lineno, line in enumerate(text.splitlines(), start=1):
-            if pattern.search(line):
-                return f"{path.relative_to(ROOT)}:{lineno}"
-    return None
+            if not remaining:
+                break
+            if line.lstrip().startswith("#"):
+                continue
+            for token in _IDENT_TOKEN.findall(line):
+                if token in remaining:
+                    hits[token] = f"{relpath}:{lineno}"
+                    remaining.discard(token)
+    return hits
 
 
 def _load_admitted_names(path: Path = VITAL_NAMES_JSON):
@@ -175,13 +210,34 @@ def _load_name_only_sources():
     return hits
 
 
+_CENSUS_INPUT_CACHE: dict = {}
+
+
+def _census_inputs(tsv_path: Path):
+    """Compute (once per ``tsv_path``, cached for the life of the process --
+    every input here is a file this tool itself does not write, so nothing
+    inside one run of this process can invalidate it) the two expensive,
+    call-independent pieces build_rows() needs: the per-name SOURCE hit
+    index and the NAME-ONLY registry pool. Re-derive_rows below still runs
+    the tier decision fresh from these every call, so this cache changes
+    speed, not what gets computed."""
+    cache_key = str(tsv_path)
+    cached = _CENSUS_INPUT_CACHE.get(cache_key)
+    if cached is None:
+        names = load_names(tsv_path)
+        py_files = _iter_py_files(SRC_DIR)
+        source_hits = _build_source_hits({n for _, n in names}, py_files)
+        name_only_sources = _load_name_only_sources()
+        cached = (names, source_hits, name_only_sources)
+        _CENSUS_INPUT_CACHE[cache_key] = cached
+    return cached
+
+
 def build_rows(tsv_path: Path = DEFAULT_TSV):
-    names = load_names(tsv_path)
-    py_files = _iter_py_files(SRC_DIR)
-    name_only_sources = _load_name_only_sources()
+    names, source_hits, name_only_sources = _census_inputs(tsv_path)
     rows = []
     for wid, name in names:
-        hit = _first_source_hit(name, py_files)
+        hit = source_hits.get(name)
         if hit:
             tier, evidence = "SOURCE", hit
         else:
@@ -195,7 +251,7 @@ def build_rows(tsv_path: Path = DEFAULT_TSV):
                 "id": wid,
                 "name": name,
                 "family": family_of(name),
-                "is_client_req": "1" if name.endswith("Req") else "0",
+                "is_client_req": "1" if is_client_req(name) else "0",
                 "tier": tier,
                 "evidence": evidence,
             }

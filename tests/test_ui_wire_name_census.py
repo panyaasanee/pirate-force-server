@@ -26,11 +26,12 @@ from tools import pf_ui_wire_name_census as census
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Pinned this round (`9dezrf`) against DEFAULT_TSV as committed today. A tier
-# move for any name changes at least one of these four numbers.
+# Pinned this round (`9dezrf`, after pf-adversary's comment-line-exclusion
+# fix) against DEFAULT_TSV as committed today. A tier move for any name
+# changes at least one of these four numbers.
 EXPECT_TOTAL = 327
-EXPECT_SOURCE = 161
-EXPECT_NAME_ONLY = 157
+EXPECT_SOURCE = 160
+EXPECT_NAME_ONLY = 158
 EXPECT_UNTOUCHED = 9
 
 
@@ -70,10 +71,28 @@ class BuildRowsTests(unittest.TestCase):
             if row["tier"] == "UNTOUCHED":
                 self.assertEqual(row["evidence"], "-")
 
-    def test_is_client_req_flag_matches_the_req_suffix(self):
+    def test_is_client_req_flag_matches_the_helper_function(self):
+        # Checked against census.is_client_req(), not re-derived inline --
+        # a test that re-states the production rule tests the rule against
+        # itself and cannot catch the rule being wrong (pf-adversary, round
+        # `9dezrf`: the original `name.endswith("Req")` rule passed this
+        # exact shape of test while missing every `...ReqVital[_REGION]` name).
         rows = census.build_rows()
         for row in rows:
-            self.assertEqual(row["is_client_req"], "1" if row["name"].endswith("Req") else "0")
+            expected = "1" if census.is_client_req(row["name"]) else "0"
+            self.assertEqual(row["is_client_req"], expected)
+
+    def test_is_client_req_matches_both_wire_naming_conventions(self):
+        # Ground-truthed against this repo's own evidence, not the rule under
+        # test: trace_path.py's docstring calls CTracePathReqVital inbound
+        # (the client sends it) in so many words.
+        self.assertTrue(census.is_client_req("CTracePathReqVital"))
+        self.assertTrue(census.is_client_req("ItemOperateVitalReq"))
+        self.assertTrue(census.is_client_req("CHitParadeReqVital_JP"))
+        # "Request" is a different PascalCase word than the "Req" abbreviation
+        # the wire-naming convention actually uses -- must NOT be flagged.
+        self.assertFalse(census.is_client_req("Community_RequestBeFriendVital"))
+        self.assertFalse(census.is_client_req("Community_RequestSoulMateMatchVital"))
 
     def test_rerun_is_deterministic(self):
         first = census.render_tsv(census.build_rows())
