@@ -1,1 +1,1 @@
-{"sha":"a038e7f5568a2286d8f6b2740f4e7dab7e88c43c","conclusion":"success","event":"push","ref":"refs/heads/claude/eloquent-edison-ky8m6j","run_id":"34060381825","utc":"2026-09-06T21:42:50Z"}
+{"sha":"a038e7f5568a2286d8f6b2740f4e7dab7e88c43c","conclusion":"success","event":"pull_request","ref":"refs/pull/981/merge","run_id":"34060384020","utc":"2026-09-06T21:49:15Z"}
