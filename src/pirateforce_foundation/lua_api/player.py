@@ -166,6 +166,7 @@ except ImportError:  # pragma: no cover - stdlib since Python 3.8, this project'
     Protocol = object  # type: ignore[assignment,misc]
 
 from .. import inventory, player_wire
+from . import message as _message
 
 #: Mirrors ``script_host.STUB_DEFAULT`` without importing that module
 #: (``script_host`` imports THIS package, via ``lua_api/__init__.py`` ->
@@ -269,11 +270,11 @@ _EMPTY_BACKPACK = inventory.BackpackState(
     inventory.BACKPACK_RANGE_MASK, (),
 )
 
-#: The six names real so far. See the module docstring for why these six,
-#: and why every other Player.* name is not real yet.
+#: The seven names real so far. See the module docstring for why these
+#: seven, and why every other Player.* name is not real yet.
 REAL_METHODS = frozenset({
     "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
-    "MobAppear",
+    "MobAppear", "ShowMessage",
 })
 
 
@@ -390,7 +391,7 @@ class PlayerContext:
 #: a production singleton, mirroring ``lua_api.trigger.DEFAULT_CONTEXT``.
 DEFAULT_CONTEXT = PlayerContext()
 
-#: The remaining 68 names, one of eight grouped, grep-grounded reasons each
+#: The remaining 67 names, one of eight grouped, grep-grounded reasons each
 #: -- no per-name guess, the same posture ``lua_api.quest.STILL_STUBBED``
 #: takes for its own DB-blocked names. Category text is shared verbatim
 #: across every name in that category (the same repetition
@@ -490,7 +491,8 @@ STILL_STUBBED: dict[str, str] = {
     "TeleportWithVehicle": _TELEPORT_VEHICLE,
     "Warp": _TELEPORT_VEHICLE,
     "WarpNearestMarker": _TELEPORT_VEHICLE,
-    # UI/cutscene/message (11)
+    # UI/cutscene/message (10) -- ShowMessage moved to REAL_METHODS in
+    # round `6775u1`; the other ten still need their own outbound frame.
     "BookBattleField": _UI_MOVIE_MESSAGE,
     "EnterInstanceThenPlayMovie": _UI_MOVIE_MESSAGE,
     "LoadConditionStore": _UI_MOVIE_MESSAGE,
@@ -500,7 +502,6 @@ STILL_STUBBED: dict[str, str] = {
     "OpenHelpUI": _UI_MOVIE_MESSAGE,
     "OpenUI": _UI_MOVIE_MESSAGE,
     "PlayMovie": _UI_MOVIE_MESSAGE,
-    "ShowMessage": _UI_MOVIE_MESSAGE,
     "SuveryOwner": _UI_MOVIE_MESSAGE,
     # instance entry (3)
     "EnterInstance": _INSTANCE_ENTRY,
@@ -537,14 +538,17 @@ class RealPlayerNamespace:
     ``Var1``) -> bare :data:`STUB_DEFAULT`, silently.
     """
 
-    __slots__ = ("_context", "_store", "_log", "_stub_methods", "namespace", "calls")
+    __slots__ = ("_context", "_store", "_sink", "_log", "_stub_methods",
+                 "namespace", "calls")
 
     def __init__(self, methods: frozenset, context: PlayerContext,
                  log: Callable[[str], None],
-                 store: "PlayerMobAppearStore"):
+                 store: "PlayerMobAppearStore",
+                 sink: "_message.MessageSink"):
         self.namespace = "Player"
         self._context = context
         self._store = store
+        self._sink = sink
         self._log = log
         self._stub_methods = methods - REAL_METHODS
         self.calls: list = []
@@ -656,6 +660,36 @@ class RealPlayerNamespace:
 
             return mob_appear
 
+        if name == "ShowMessage":
+            def show_message(*args):
+                self.calls.append("Player.ShowMessage")
+                if len(args) != 1:
+                    _log_bad_arity(self._log, "ShowMessage", len(args), "1")
+                    return STUB_DEFAULT
+                message_id = _coerce_int(args[0], _message.MAX_MESSAGE_ID)
+                if message_id is None or not _message.is_known_message_id(message_id):
+                    # An id with no row in the shipped table is a message
+                    # the client could never render -- refused by name, not
+                    # recorded as if it were showable.
+                    _log_bad_value(self._log, "ShowMessage", message_id=args[0])
+                    return STUB_DEFAULT
+                shown = self._sink.record(
+                    self._context.character_id,
+                    _message.AUDIENCE_INDIVIDUAL, message_id)
+                # RECORDS which message to show. Does NOT build or send
+                # ShowMessageVital -- no module in this package does; see
+                # lua_api/message.py's own module docstring.
+                self._log(
+                    "LUA_PLAYER_REAL Player.ShowMessage character=%d "
+                    "message_id=%d audience=%s notify_type=%d shown=%d "
+                    "(recorded only, no frame sent)"
+                    % (self._context.character_id, message_id,
+                       _message.audience_name(_message.AUDIENCE_INDIVIDUAL),
+                       _message.notify_type(message_id), shown))
+                return shown
+
+            return show_message
+
         if name in self._stub_methods:
             qualified = "Player.%s" % name
 
@@ -677,7 +711,8 @@ class RealPlayerNamespace:
 
 def build_namespace(methods: frozenset, log: Callable[[str], None], *,
                      context: Optional[PlayerContext] = None,
-                     store: Optional["PlayerMobAppearStore"] = None) -> RealPlayerNamespace:
+                     store: Optional["PlayerMobAppearStore"] = None,
+                     sink: "Optional[_message.MessageSink]" = None) -> RealPlayerNamespace:
     """The ``Player`` global ``ScriptHost`` installs, real half included.
 
     ``context`` defaults to :data:`DEFAULT_CONTEXT` -- not a production
@@ -691,8 +726,15 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
     :class:`InMemoryPlayerMobAppearStore` -- not a process singleton, same
     posture ``lua_api.quest.build_namespace`` takes for its own default
     :class:`InMemoryQuestStateStore` -- so two unrelated tests/spikes that
-    both take the default can never collide.
+    both take the default can never collide. ``sink`` (round `6775u1`, for
+    ``ShowMessage``) defaults the same way to a FRESH PRIVATE
+    ``lua_api.message.InMemoryMessageSink``. A caller that wants
+    ``Player.ShowMessage`` and ``Trigger.TriggerShowMessage`` in the SAME
+    script run to land in one ordered record MUST pass the identical
+    ``sink`` instance to both this function and
+    ``lua_api.trigger.build_namespace``.
     """
     return RealPlayerNamespace(
         methods, context if context is not None else DEFAULT_CONTEXT, log,
-        store if store is not None else InMemoryPlayerMobAppearStore())
+        store if store is not None else InMemoryPlayerMobAppearStore(),
+        sink if sink is not None else _message.InMemoryMessageSink())

@@ -60,6 +60,7 @@ from .lua_api import spec as lua_api_spec
 from .lua_api import trigger as lua_api_trigger
 from .lua_api import instance as lua_api_instance
 from .lua_api import player as lua_api_player
+from .lua_api import message as lua_api_message
 
 #: Lua standard-library names the game's scripts must never reach
 #: (prompts/LANE-Q.md: "sandbox: an script access io/os/require/load of Lua
@@ -261,7 +262,8 @@ class ScriptHost:
                  quest_context: "Optional[lua_api_quest.QuestContext]" = None,
                  quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
                  player_context: "Optional[lua_api_player.PlayerContext]" = None,
-                 player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None):
+                 player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
+                 message_sink: "Optional[lua_api_message.MessageSink]" = None):
         _require_lupa()
         self.log = log or default_logger
         self.runtime = lupa.LuaRuntime(
@@ -292,6 +294,12 @@ class ScriptHost:
             quest_context if quest_context is not None else lua_api_quest.DEFAULT_CONTEXT)
         quest_store = (
             quest_store if quest_store is not None else lua_api_quest.InMemoryQuestStateStore())
+        # ONE sink per host run, normalized here rather than left to each
+        # build_namespace's own private default, so Player.ShowMessage and
+        # Trigger.TriggerShowMessage inside the SAME script land in one
+        # ordered record -- the same reason quest_store is normalized above.
+        message_sink = (
+            message_sink if message_sink is not None else lua_api_message.InMemoryMessageSink())
         self.namespaces: dict = {}
         g = self.runtime.globals()
         for namespace, methods in lua_api_spec.NAMESPACE_METHODS.items():
@@ -299,7 +307,8 @@ class ScriptHost:
                 stub = lua_api_trigger.build_namespace(
                     methods, self.log,
                     context=trigger_context, registry=trigger_registry,
-                    quest_context=quest_context, quest_store=quest_store)
+                    quest_context=quest_context, quest_store=quest_store,
+                    sink=message_sink)
             elif namespace == "Instance":
                 stub = lua_api_instance.build_namespace(
                     methods, self.log,
@@ -310,7 +319,8 @@ class ScriptHost:
                     context=quest_context, store=quest_store)
             elif namespace == "Player":
                 stub = lua_api_player.build_namespace(
-                    methods, self.log, context=player_context, store=player_store)
+                    methods, self.log, context=player_context, store=player_store,
+                    sink=message_sink)
             else:
                 stub = ApiNamespaceStub(namespace, methods, self.log)
             self.namespaces[namespace] = stub
@@ -341,7 +351,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       quest_context: "Optional[lua_api_quest.QuestContext]" = None,
                       quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
                       player_context: "Optional[lua_api_player.PlayerContext]" = None,
-                      player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None) -> ScriptHost:
+                      player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
+                      message_sink: "Optional[lua_api_message.MessageSink]" = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
     Reads the file as bytes decoded latin-1, because latin-1 is the one
@@ -371,7 +382,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       quest_context=quest_context,
                       quest_store=quest_store,
                       player_context=player_context,
-                      player_store=player_store)
+                      player_store=player_store,
+                      message_sink=message_sink)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
     return host

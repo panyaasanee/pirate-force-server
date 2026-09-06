@@ -109,6 +109,7 @@ from typing import Any, Callable, Optional
 
 from .. import mob_loot as _mob_loot  # scene_key: the one scene-fold used project-wide
 from . import quest as _quest  # QuestStateStore door: QuestActiveProgress/QuestFinishProgress
+from . import message as _message  # MessageSink door: TriggerShowMessage
                                 # share it with lua_api.quest's own nine real names
 
 #: Mirrors ``script_host.STUB_DEFAULT`` without importing that module (which
@@ -349,9 +350,10 @@ def install_trigger_status_registry(registry: Any) -> TriggerStatusRegistry:
 REAL_METHODS = frozenset({
     "GetTriggerStatus", "GetTeiggerStatus", "SetStatus", "NextStatus",
     "SetTriggerStatus", "QuestActiveProgress", "QuestFinishProgress",
+    "TriggerShowMessage",
 })
 
-#: The remaining ten, one honest sentence each for why they are NOT real
+#: The remaining nine, one honest sentence each for why they are NOT real
 #: this round -- no guessing, per charter.  Every reason names the missing
 #: seam, not "not done yet".
 STILL_STUBBED: dict[str, str] = {
@@ -369,7 +371,6 @@ STILL_STUBBED: dict[str, str] = {
     "StartTriggerAnimation": "needs an animation wire frame this server has no encoder for yet",
     "HideModel": "needs a hide-model wire frame (LANE-A's Scene.PlacementOFF territory)",
     "HideTriggerModel": "needs a hide-model wire frame (LANE-A's Scene.PlacementOFF territory)",
-    "TriggerShowMessage": "needs a client message/UI wire frame this lane does not own",
 }
 
 
@@ -401,12 +402,13 @@ class RealTriggerNamespace:
     """
 
     __slots__ = ("_context", "_registry", "_log", "_stub_methods", "namespace", "calls",
-                 "_quest_context", "_quest_store")
+                 "_quest_context", "_quest_store", "_sink")
 
     def __init__(self, methods: frozenset, context: TriggerContext,
                  registry: TriggerStatusRegistry, log: Callable[[str], None],
                  quest_context: "Optional[_quest.QuestContext]" = None,
-                 quest_store: "Optional[_quest.QuestStateStore]" = None):
+                 quest_store: "Optional[_quest.QuestStateStore]" = None,
+                 sink: "Optional[_message.MessageSink]" = None):
         self.namespace = "Trigger"
         self._context = context
         self._registry = registry
@@ -417,6 +419,8 @@ class RealTriggerNamespace:
             quest_context if quest_context is not None else _quest.DEFAULT_CONTEXT)
         self._quest_store = (
             quest_store if quest_store is not None else _quest.InMemoryQuestStateStore())
+        self._sink = (
+            sink if sink is not None else _message.InMemoryMessageSink())
 
     def __getitem__(self, name):
         if name == "GetTriggerStatus" or name == "GetTeiggerStatus":
@@ -506,6 +510,39 @@ class RealTriggerNamespace:
 
             return set_quest_progress
 
+        if name == "TriggerShowMessage":
+            def trigger_show_message(*args):
+                self.calls.append("Trigger.TriggerShowMessage")
+                if len(args) != 2:
+                    _log_bad_arity(self._log, "TriggerShowMessage", len(args), "2")
+                    return STUB_DEFAULT
+                audience = _coerce_int(args[0], max(_message.AUDIENCES))
+                message_id = _coerce_int(args[1], _message.MAX_MESSAGE_ID)
+                if (audience not in _message.AUDIENCES or message_id is None
+                        or not _message.is_known_message_id(message_id)):
+                    # Audience outside 0..3, or an id with no row in the
+                    # shipped table: refused by name rather than clamped to
+                    # a neighbour audience or recorded as showable.
+                    self._log(
+                        "LUA_TRIGGER_BAD_VALUE Trigger.TriggerShowMessage "
+                        "audience=%r message_id=%r" % (args[0], args[1]))
+                    return STUB_DEFAULT
+                shown = self._sink.record(
+                    self._quest_context.character_id, audience, message_id)
+                # RECORDS which message to show, for which audience. Does
+                # NOT build or send ShowMessageVital -- see
+                # lua_api/message.py's own module docstring.
+                self._log(
+                    "LUA_TRIGGER_REAL Trigger.TriggerShowMessage scene=%r "
+                    "trigger=%d character=%d audience=%s message_id=%d "
+                    "shown=%d (recorded only, no frame sent)"
+                    % (self._context.scene, self._context.trigger_id,
+                       self._quest_context.character_id,
+                       _message.audience_name(audience), message_id, shown))
+                return shown
+
+            return trigger_show_message
+
         if name in self._stub_methods:
             qualified = "Trigger.%s" % name
 
@@ -530,6 +567,7 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
                      registry: Optional[TriggerStatusRegistry] = None,
                      quest_context: "Optional[_quest.QuestContext]" = None,
                      quest_store: "Optional[_quest.QuestStateStore]" = None,
+                     sink: "Optional[_message.MessageSink]" = None,
                      ) -> RealTriggerNamespace:
     """The ``Trigger`` global ``ScriptHost`` installs, real half included.
 
@@ -588,4 +626,5 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
         log,
         quest_context=quest_context,
         quest_store=quest_store,
+        sink=sink,
     )
