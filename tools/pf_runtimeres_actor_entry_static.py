@@ -1009,8 +1009,12 @@ guard("make_remote_actor_entry" in _v141,
 # token) but not yet reachable from a live session -- see that module's own
 # PLAYER_PRESENCE_WIRING for the runtime.py call sites this lane is asking
 # chief for.
-guard(SRC_ACTOR_ENTRY_SITES == 33,
-      "src/ builds actor entries at exactly 33 call sites (4 spawns + the "
+# ROUND dipufa (lane B): 33 -> 34.  name_colour_sweep.py's own
+# build_sweep_population wraps the RE-155 dummy row's NPCAttr bytes into one
+# ActorEntry call site, gated fail-closed on PF_NAME_COLOUR_SWEEP -- the
+# same shape every other opt-in trial module in this list already carries.
+guard(SRC_ACTOR_ENTRY_SITES == 34,
+      "src/ builds actor entries at exactly 34 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
@@ -1018,7 +1022,8 @@ guard(SRC_ACTOR_ENTRY_SITES == 33,
       "bg0010, bg0005, bg0006, bg0008, bg0003, bg0007, bg0009, bg0011, "
       "bg4001, bg3001, bg1001, bg3007 and bg3008 censuses + the jqxe6v "
       "Bg0015 hostile-splice proof's civilian entry + the round-6bpbe3 "
-      "remote-player-actor production module)")
+      "remote-player-actor production module + the round-dipufa RE-155 "
+      "dummy-row sweep)")
 # ROUND y9s0xo (lane B): 25 -> 26.  mob_scene_recompose.py re-encodes the
 # collection when it splices a scene's roster override into a recompose --
 # the same encoder, one more call site, and no new actor ENTRY builder.
@@ -1039,15 +1044,19 @@ guard(SRC_ACTOR_ENTRY_SITES == 33,
 # ROUND 6bpbe3 (lane A): 42 -> 43, world_remote_player_actor.py's own
 # carrier (compose_other_live_players_frame's one
 # make_runtime_remote_actors call).
-guard(SRC_ACTOR_STREAM_SITES == 43,
-      "src/ sends the actor-entry carrier at exactly 43 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 32
+# ROUND dipufa (lane B): 43 -> 44, name_colour_sweep.py's own
+# build_sweep_population carrier call (see the SRC_ACTOR_ENTRY_SITES
+# comment above -- same module, same round).
+guard(SRC_ACTOR_STREAM_SITES == 44,
+      "src/ sends the actor-entry carrier at exactly 44 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 33
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mob_hostile_bg0015.py",
           "field_mobs.py",
           "hostile_hp_link_hypothesis.py",
           "mob_combat.py", "mob_death.py",
           "mob_diag_multi_object.py",
+          "name_colour_sweep.py",
           "npc_hostile_hypothesis.py", "npc_hp_link_hypothesis.py",
           "population.py", "remote_player_hypothesis.py",
           "runtimeres_death_hypothesis.py", "scenario.py",
@@ -1070,7 +1079,7 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 32
           "world_population_bg3008.py",
           "world_population_bg4001.py",
           "world_remote_player_actor.py"),
-      "32 named src/ modules build actor entries %s"
+      "33 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames
