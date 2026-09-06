@@ -74,7 +74,10 @@ CANDIDATES THIS ROUND SHIPS, AND WHY EACH ONE IS SAFE TO COMPOSE.
   ``hostile_npc_attr`` already ships for the mob row; a new local splice for
   the NPC row (which has no faction bit set in its own ``BASE``, unlike the
   mob row) built from the same two frozen helpers.
-* ``actor_type`` (set 2): value 3, applied to the OUTER ``ActorEntry``, not
+* ``actor_type`` (set 2): value 5 (``CAvatarNPC``; was 3 until round b08g3z
+  -- see :data:`NPC_ATTR_BINDING_ACTOR_TYPES` for the byte-proof that 3
+  binds no ``NPCAttr`` and so shows no nameplate at all), applied to the
+  OUTER ``ActorEntry``, not
   the ``NPCAttr`` body -- ``legacy.make_remote_actor_entry``'s first
   argument, already a real, already-sent field
   (``population.NPC_STYLE_ACTOR_TYPE`` is 4).  The ``NPCAttr``/movement
@@ -165,7 +168,62 @@ MOB_SOURCE_PLACEMENT_INDEX = 103
 # uses.  All three are real rows of that 38-row table.
 FACTION_CANDIDATES = (7, 12, 999)
 
-ACTOR_TYPE_CANDIDATE = 3
+# The actor_type values whose class still binds an ``NPCAttr`` at all.  A
+# candidate outside this set produces an actor with NO nameplate rather than
+# a nameplate of a different colour, and the tester then writes down FAIL for
+# a colour that was never drawn.  Provenance, in this repo since 2026-08-18:
+# reports/PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_20260818.md line
+# 129 -- the NPCAttr (0x0AD5) vtable +0x38 thunk 0x4697B0 is-a-checks
+# CNetNPC and silently no-ops otherwise, "(so 4, 5)".  The set is NOT
+# hand-copied from that sentence: tests/test_name_colour_sweep.py parses the
+# report's own row and fails if this literal drifts from it, the same
+# discipline tests/test_actor_type_dispatch_static.py already holds the
+# DISPATCH_COUNTS block to.
+#
+# Why 3 is out, corrected by pf-adversary in round b08g3z: the first draft of
+# this comment said an actor_type 3 row would survive RE-092's collection
+# wipe (which exempts CMyActor) and so read as a false PASS.  That cannot
+# fire, and the real fact is stronger -- report line 61: actor_type 3 is
+# refused outright unless the local-player global 0x1032EC4 is zero, so with
+# a local player already built the factory returns NULL and there is no
+# object in the manager at all, nothing to exempt and nothing to survive.
+#
+# NONCLAIM, and it is the open question of this candidate: report line 53
+# names 5 CAvatarNPC, line 105 places it as a CHILD of CNetNPC (4, what we
+# emit today), lines 168/170 show 4 and 5 sharing the +0x74/+0x78 name
+# GETTERS off actor+0x358, and line 62 shows both gated the same way by the
+# factory flag [this+0x6D] -- so 5 is a real flip of the envelope's class
+# under a controlled comparison.  But the name BOARD is built by vtable
+# +0x7C (report section 4, lines 175-177) and the report pins +0x7C for
+# CNetActor (0x456580) and CNetNPC (0x45C560) ONLY.  CAvatarNPC has its own
+# vtable (0xF0DFF8) and NOTHING committed in either repository carries its
+# +0x7C.  Report line 292 says so itself: whether CAvatarNPC is reachable
+# from a server-side stream "was not traced".  So: 5 is strictly better than
+# 3 (3 is proven to build no object; 5 is not proven to draw no board) and
+# it is NOT proven to draw one.  RE ticket body for the one dword that
+# settles it -- [0xF0DFF8 + 0x7C] vs 0x45C560 -- went to LANE-K in round
+# b08g3z; until it comes back, an AT5 row showing no nameplate is a known
+# possible outcome of set 2 and must not be recorded as a colour FAIL.
+NPC_ATTR_BINDING_ACTOR_TYPES = frozenset({4, 5})
+
+#: The committed artifact :data:`NPC_ATTR_BINDING_ACTOR_TYPES` is derived
+#: from, and the row inside it that carries the answer.
+ACTOR_TYPE_REPORT = (
+    "reports/PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_20260818.md"
+)
+
+#: Minimum distance, in world units, between any sweep row and any real
+#: Port Royal placement.  Not a guess: one row's spacing (150) plus enough
+#: margin that a tester reading label text off a nameboard cannot pick up the
+#: neighbouring real NPC's board instead.  The shipped layout clears it with
+#: 255.0; see :func:`_row_xyz`.
+ROW_CLEARANCE_FROM_REAL_NPCS = 200.0
+
+# Was 3 (CMyActor) until round b08g3z.  chief's letter 2026-09-07T03:41+07:00
+# carried pf-adversary's measurement that 3 is not in the set above; the
+# report line it cites is the one quoted there, read directly, not taken on
+# trust.  5 is the only remaining flip that keeps a nameplate.
+ACTOR_TYPE_CANDIDATE = 5
 
 
 class NameColourSweepError(ValueError):
@@ -214,9 +272,29 @@ def _spawn_anchor(legacy: Any) -> tuple[float, float, float]:
 
 def _row_xyz(anchor: tuple[float, float, float], ordinal: int) -> tuple[float, float, float]:
     x, y, z = anchor
-    # Lined up along +X, 150 units apart -- close enough to read every
-    # nameboard from one spot, far enough apart that boxes do not overlap.
-    return (x + 150.0 * ordinal, y, z)
+    # Lined up 150 units apart -- close enough to read every nameboard from
+    # one spot, far enough apart that boxes do not overlap.  Two things about
+    # this line are load-bearing and both were measured, in this repo, from
+    # ``legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS`` (115 rows) against
+    # ``_spawn_anchor``; :data:`ROW_CLEARANCE_FROM_REAL_NPCS` is the test that
+    # keeps them true.
+    #
+    # 1. NO ROW STANDS ON THE ANCHOR.  The anchor is the player's own spawn
+    #    point, so an ordinal-0 row would be inside the camera at the exact
+    #    moment the tester is asked to read its nameplate.  Hence ordinal + 1.
+    # 2. THE LINE RUNS -X, AWAY FROM TOWN.  Port Royal's real NPCs are all in
+    #    the +X direction from the spawn: "Navy Transfer" at 111.8 units and
+    #    "Sebastian" at 1227.5.  A +X line walks the dummies straight into
+    #    them -- worst case a dummy 56.6 units from the real "Sebastian",
+    #    38% of one row's spacing, and the SKIN candidate wears Sebastian's
+    #    own preset.  Running -X instead, the closest any dummy comes to any
+    #    real NPC is 255.0 units.  (chief's 2026-09-07T03:41 letter said the
+    #    nearest real NPC was Sebastian at 1,227 units and that nothing was
+    #    within 1,000; re-derived here, that skips placement 0 "Navy
+    #    Transfer" at 111.8 -- which is this module's own NPC prototype.  The
+    #    letter's conclusion, "get off the spawn point", stands; its distance
+    #    premise does not, and -X is what the real numbers ask for.)
+    return (x - 150.0 * (ordinal + 1), y, z)
 
 
 def _mob_prototype() -> field_mobs.FieldMob:

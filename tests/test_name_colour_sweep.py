@@ -8,6 +8,8 @@ nothing else -- the same discipline ``test_field_mobs.py`` holds
 ``hostile_npc_attr`` to; (4) every label is unique ASCII text, because the
 whole point of the sweep is a tester reading labels off a nameboard.
 """
+import math
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -278,6 +280,160 @@ class NameColourSweepLabelAndFrameTests(unittest.TestCase):
         self.assertIsNone(
             name_colour_sweep.build_sweep_population(self.legacy, env={}),
         )
+
+
+class CandidateIsAnExperimentThatCanBeReadTests(unittest.TestCase):
+    """Round b08g3z: the two ways a sweep row can be unreadable on screen.
+
+    Both were measured by pf-adversary through chief's letter
+    2026-09-07T03:41+07:00 and both are properties of the CANDIDATE CHOICE,
+    which is this lane's own, so both get a test that goes red on the
+    revert rather than a paragraph that does not.
+
+    NO PRECONDITION HERE, and round ot2cru had to measure that rather than
+    assume it either way.  This class opened with
+    ``BRIDGE_GAMEDATA.require(cls)`` in ``setUpClass``.
+    ``Precondition.require(case)`` takes a ``unittest.TestCase`` INSTANCE
+    and calls ``case.skipTest``; handed the class object it raises
+    ``TypeError`` instead of skipping, so on every checkout WITHOUT
+    ../pf_bridge beside it -- which is every fresh single-repo clone,
+    gate-windows included -- all three tests below ERRORED.  Measured on a
+    worktree with no sibling: ``5 passed, 10 skipped, 3 errors``, TypeError
+    at ``tests/pf_preconditions.py:126``, which is exactly the "11783
+    passed, 169 skipped, 3 errors" that turned pirate-force-server#990's
+    gate red and had the reaper close it.  Nothing reproduced in a cloud
+    round because a cloud round always has the sibling checked out.
+
+    The guard is DELETED rather than converted into the class decorator the
+    three classes above use, because the same measurement says these three
+    tests do not need the bridge at all: with the line simply gone and no
+    sibling present they are ``8 passed, 10 skipped`` -- the constants, the
+    static report and ``current/pf_login_game_server_v141.py`` are all
+    committed to THIS repository, and ``sweep_actors`` composes from the
+    generated ``field_mob_tables_bg*`` modules, which are committed too.
+    Decorating them would have bought a green gate by not running them,
+    and the actor_type pin is exactly the thing a single-repo gate should
+    be reading.  Hence docs/PYTEST_SKIP_PINS.json is untouched: the count
+    for this module is still 10, because no new skip exists.
+
+    A precondition that guards a whole class is a class DECORATOR here;
+    ``require`` is only for one discovered inside a test body, with the
+    test instance in hand.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_the_actor_type_candidate_still_binds_an_npc_attr(self) -> None:
+        """3 (``CMyActor``) produces NO nameplate, not a differently-coloured
+        one: reports/PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_
+        20260818.md line 129 -- ``NPCAttr``'s vtable ``+0x38`` thunk is-a
+        checks ``CNetNPC`` ("so 4, 5") and silently no-ops for anything
+        else.  A row with no nameplate is worse than no row: the tester
+        writes down FAIL for a colour that was never drawn.
+        """
+        self.assertIn(
+            name_colour_sweep.ACTOR_TYPE_CANDIDATE,
+            name_colour_sweep.NPC_ATTR_BINDING_ACTOR_TYPES,
+        )
+        # ...and it is still a FLIP, not a second copy of N-BASE.
+        self.assertNotEqual(
+            name_colour_sweep.ACTOR_TYPE_CANDIDATE,
+            field_mobs.NPC_STYLE_ACTOR_TYPE,
+        )
+
+    def test_the_binding_set_is_read_out_of_the_report_not_typed(self) -> None:
+        """pf-adversary D-8: a hand-typed pin and a hand-typed candidate,
+        edited in the same commit, prove each other and nothing else -- the
+        mutant that sets BOTH to include 6 (``Pet``, which is not a
+        ``CNetNPC`` descendant) was green.  So re-derive the set from the
+        artifact itself, the way
+        ``tests/test_actor_type_dispatch_static.py`` re-derives that same
+        report's DISPATCH_COUNTS block.
+        """
+        report = (ROOT / name_colour_sweep.ACTOR_TYPE_REPORT).read_text(
+            encoding="utf-8",
+        )
+        rows = [
+            line for line in report.splitlines()
+            if line.startswith("|") and "`NPCAttr`" in line
+            and "0x0AD5" in line and "0x4697B0" in line
+        ]
+        self.assertEqual(
+            len(rows), 1,
+            "the report's NPCAttr dispatch row is not exactly one line any "
+            "more -- re-read it before trusting this test",
+        )
+        accepted = re.search(r"\(so ([0-9,\s]+)\)", rows[0])
+        self.assertIsNotNone(
+            accepted,
+            "the NPCAttr row no longer spells which actor_types it accepts: "
+            + rows[0],
+        )
+        from_report = frozenset(
+            int(part) for part in accepted.group(1).replace(" ", "").split(",")
+            if part
+        )
+        self.assertEqual(
+            from_report, name_colour_sweep.NPC_ATTR_BINDING_ACTOR_TYPES,
+        )
+
+    def test_every_row_is_somewhere_a_tester_can_actually_read_it(self) -> None:
+        """Three ways a row is unreadable, all measured against the same
+        two frozen tables the module itself composes from.
+
+        1. ON THE SPAWN POINT.  The anchor IS the spawn point
+           (``_spawn_anchor`` reads V135_PLAYER_X/Y/Z), so an ordinal-0 row
+           is inside the camera at the moment the tester is asked to read
+           its nameplate.
+        2. ON TOP OF A REAL NPC.  Port Royal's own placements carry real
+           nameboards; a dummy standing next to one is a nameplate the
+           tester can read the wrong way round, and RE-155's entire output
+           is one colour per label -- a mis-read is indistinguishable from
+           a result.  Measured against every row of
+           ``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS``, not against the one
+           placement somebody eyeballed.
+        3. OFF THE PLAYER'S OWN PLANE.  A row displaced in Y or Z is
+           "not on the anchor" and still unreadable -- pf-adversary's D-11
+           mutant put every row 100,000 units in the air and the first
+           draft of this test stayed green.
+        """
+        anchor = name_colour_sweep._spawn_anchor(self.legacy)
+        real = [
+            (float(p[2]), float(p[3]), float(p[4]), p[6])
+            for p in self.legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS
+        ]
+        self.assertTrue(real)
+        floor = name_colour_sweep.ROW_CLEARANCE_FROM_REAL_NPCS
+        for value in name_colour_sweep.KNOWN_SETS:
+            rows = name_colour_sweep.sweep_actors(
+                self.legacy, env={"PF_NAME_COLOUR_SWEEP": value},
+            )
+            self.assertTrue(rows, value)
+            for row in rows:
+                with self.subTest(set=value, label=row.label):
+                    # (1) and (3): same plane as the player, not on top of
+                    # the player.
+                    self.assertNotEqual((row.x, row.y, row.z), anchor)
+                    self.assertAlmostEqual(row.y, anchor[1])
+                    self.assertAlmostEqual(row.z, anchor[2])
+                    # (2): clear of every real nameboard in the scene.
+                    for x, y, z, name in real:
+                        gap = math.dist((row.x, row.y, row.z), (x, y, z))
+                        self.assertGreaterEqual(
+                            gap, floor,
+                            "%s is %.1f units from the real %r -- closer "
+                            "than the %.1f-unit clearance this sweep needs "
+                            "to be readable" % (row.label, gap, name, floor),
+                        )
+            # The spacing the readability argument rests on is unchanged:
+            # consecutive rows are still one step apart, and the nearest row
+            # is one step off the anchor.
+            xs = sorted(abs(row.x - anchor[0]) for row in rows)
+            self.assertAlmostEqual(xs[0], 150.0)
+            for near, far in zip(xs, xs[1:]):
+                self.assertAlmostEqual(far - near, 150.0)
 
 
 if __name__ == "__main__":
