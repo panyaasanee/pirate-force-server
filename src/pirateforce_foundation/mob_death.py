@@ -749,31 +749,21 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # Wolf, 668 Navy Two Tripods, 671 Crusty Bone Fish, 673 Seabed Wanderer)
     # over 17 placements.
     #
-    # READ THE KEY.  THIS ONE IS NOT SPELLED ``COO-DECISION``, AND THAT IS
-    # THE POINT.  Every other entry in this dict names a letter that GRANTED
-    # the kill.  No such letter exists for Bg0010: this scene was split out of
-    # the four-scene request (0659/0748) because its raw data would not mine,
-    # and the letter that ratified the other four (COO-DECISION
-    # 2026-09-06T11:50+07:00, item 3) states the rule this key obeys --
-    # "a lane cannot issue its own kill letter, even when a test forces it;
-    # the correct way is to open the PR and send the request letter at the
-    # same time, then WAIT for the letter before merge", and COO greps live
-    # keys spelled ``COO-DECISION widen-death-scope`` against the
-    # ``notes_to_chief/*_COO-DECISION-*widen*`` filenames every executive
-    # round, requiring a removal PR for any key with no letter behind it.
+    # RATIFIED, ROUND 9t75cr (repoint per COO-DECISION widen-death-scope-
+    # bg0010-six-templates 2026-09-06T14:53+07:00, same shape round wov0x5
+    # used to repoint bg0006/7/9/11 above).  This scene shipped one round
+    # (30ja9z) under a deliberately-not-``COO-DECISION``-spelled pending key
+    # (``LANE-B-REQUEST-PENDING-COO widen-death-scope-bg0010-six-templates
+    # 2026-09-06T14:11+07:00``, citing this lane's own ASK-COO of the same
+    # timestamp) precisely so it could not be misread as a grant it did not
+    # have yet -- the letter above is that grant, for the identical six
+    # templates and no others; only the key's spelling and timestamp moved
+    # in this commit, the covered-template frozenset is byte-for-byte the
+    # same literal.  Placement 50 is NOT covered by this key: the STATIC
+    # ticket (0903+1046) still governs it separately, unresolved, and this
+    # ruling does not decide it.
     #
-    # So this key is spelled as what it actually is -- LANE-B's own REQUEST,
-    # pending ratification -- and cites this lane's own ASK-COO of
-    # 2026-09-06T14:11+07:00 (pf_bridge notes_to_chief/20260906_1411_LANE-B-
-    # ASK-COO-widen-death-scope-bg0010-six-templates.md).  It is deliberately
-    # outside the shape of COO's grep, so it can never be mistaken for a
-    # grant this lane does not have.  Two outcomes, both already decided:
-    # COO ratifies and the next LANE-B round repoints this key to the real
-    # letter (the same repoint round wov0x5 did for the four scenes above);
-    # COO refuses and the next LANE-B round removes this key AND the Bg0010
-    # registration together, in one PR, no exceptions.
-    #
-    # Why the roster cannot simply ship without a ruling and wait:
+    # Why the roster could not simply ship without a ruling and wait:
     # ``tests/test_mob_scene_registration_contract.py`` walks
     # ``field_mobs.live_scenes()`` and requires roster, composer and ruling
     # to arrive together -- "a new scene that skips one of them must not be
@@ -782,8 +772,8 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # and 4 errors.  The tree offers no "spawns but cannot be killed" state,
     # so the honest options were an accurately-labelled pending key or no
     # monsters in scene 10 at all.
-    "LANE-B-REQUEST-PENDING-COO widen-death-scope-bg0010-six-templates "
-    "2026-09-06T14:11+07:00": frozenset(
+    "COO-DECISION widen-death-scope-bg0010-six-templates "
+    "2026-09-06T14:53+07:00": frozenset(
         {660, 661, 662, 668, 671, 673}
     ),
 }
@@ -927,11 +917,12 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     # Tripods") shares its MOBS_TIP display name with Bg0011's template
     # 693, so a reader comparing names alone would think the two scenes
     # overlap.  They do not -- the ids differ -- and the scene tie would
-    # refuse the cross even if they did not.  See this key's own comment
-    # in WIDENING_RULINGS for why it is spelled LANE-B-REQUEST-PENDING-COO
-    # and not COO-DECISION.
-    "LANE-B-REQUEST-PENDING-COO widen-death-scope-bg0010-six-templates "
-    "2026-09-06T14:11+07:00": field_mob_tables_bg0010.SCENE,
+    # refuse the cross even if they did not.  RATIFIED round 9t75cr,
+    # repointed from the round-30ja9z pending key to COO-DECISION
+    # widen-death-scope-bg0010-six-templates 2026-09-06T14:53+07:00; see
+    # this key's own comment in WIDENING_RULINGS for the full history.
+    "COO-DECISION widen-death-scope-bg0010-six-templates "
+    "2026-09-06T14:53+07:00": field_mob_tables_bg0010.SCENE,
 }
 
 

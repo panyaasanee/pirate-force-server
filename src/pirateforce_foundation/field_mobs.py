@@ -640,17 +640,17 @@ BG0009_SCENE = field_mob_tables_bg0009.SCENE
 # sibling scene above, with COMPOSER_BG0010 and the widening ruling landing in
 # this same commit.
 #
-# THE ONE THING THAT IS DIFFERENT ABOUT THIS SCENE.  Every entry above names a
-# COO-DECISION that granted the kill.  This one does not, because no such
-# letter exists yet: Bg0010 was split out of the four-scene request (0659/
-# 0748) when its raw data would not mine, and COO-DECISION 2026-09-06T11:50
-# item 3 forbids a lane from issuing its own kill letter while the
-# registration contract forbids a roster without one.  The ruling key in
-# ``mob_death`` is therefore spelled ``LANE-B-REQUEST-PENDING-COO ...`` and
-# cites this lane's own ASK-COO of 2026-09-06T14:11+07:00 -- read that key's
-# comment before touching anything here.  If COO refuses, this constant, the
-# import, the ``_SCENE_TABLE_MODULES`` row, the composer and the ruling all
-# come out together in one PR.
+# RATIFIED, ROUND 9t75cr.  Bg0010 was split out of the four-scene request
+# (0659/0748) when its raw data would not mine, and this scene shipped one
+# round (30ja9z) under a deliberately-not-COO-DECISION-spelled pending key
+# (``LANE-B-REQUEST-PENDING-COO ...``, per that round's own ASK-COO of
+# 2026-09-06T14:11+07:00) precisely so it could not be misread as a grant
+# it did not have.  COO-DECISION widen-death-scope-bg0010-six-templates
+# 2026-09-06T14:53+07:00 grants the kill for exactly the same six templates
+# (660, 661, 662, 668, 671, 673) -- unchanged content, only the key's
+# spelling moved, per that letter's own instruction ("one PR, same shape as
+# `wov0x5`"). Placement 50 stays out of this grant; the STATIC ticket
+# (0903+1046) still governs it separately.
 #
 # [LANE-B ASSUMPTION - awaiting COO confirmation] that registering the
 # READABLE rows of this scene is allowed while placement 50 stays unresolved.

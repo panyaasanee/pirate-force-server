@@ -8,18 +8,14 @@ the same commit -- the three-part arrival
 ``tests/test_mob_scene_registration_contract.py`` demands of every scene ("a
 new scene that skips one of them must not be able to register at all").
 
-THE RULING KEY IS NOT SPELLED ``COO-DECISION``, AND THAT IS PINNED BELOW.
-Every sibling scene registered under a letter that granted the kill.  Bg0010
-has no such letter: it was split out of the four-scene request (pf_bridge
-notes_to_chief/20260906_0659 and _0748) because its raw data would not mine,
-and the letter that ratified the other four (COO-DECISION 2026-09-06T11:50,
-item 3) states the rule this round obeys -- a lane cannot issue its own kill
-letter even when a test forces one, and the correct shape is to open the PR
-and send the request letter together.  So the key names itself
-``LANE-B-REQUEST-PENDING-COO`` and cites this lane's own ASK-COO of
-2026-09-06T14:11+07:00.  When COO answers, the next LANE-B round either
-repoints the key to the real letter or removes the key and this whole
-registration together.
+THE RULING KEY, RATIFIED ROUND 9t75cr.  This scene shipped one round (30ja9z)
+under a key deliberately NOT spelled ``COO-DECISION`` -- it was split out of
+the four-scene request (pf_bridge notes_to_chief/20260906_0659 and _0748)
+because its raw data would not mine, and had no ruling letter yet, so the key
+named itself ``LANE-B-REQUEST-PENDING-COO`` and cited this lane's own
+ASK-COO of 2026-09-06T14:11+07:00 rather than claim a grant it did not have.
+COO-DECISION widen-death-scope-bg0010-six-templates 2026-09-06T14:53+07:00
+is that grant, for the identical six templates; only the key below moved.
 
 WHY THE ROSTER SHIPS AT ALL WHILE ONE ROW IS UNREADABLE.  Bg0010's raw
 placement 50 names ``Mob_Set_99``, which the scene's own file never defines;
@@ -68,8 +64,8 @@ EXPECTED_CENSUS_RANK_AND_AI_COMBAT = 17
 EXPECTED_CENSUS_DROPS_NORMAL = 17
 
 RULING_NAME = (
-    "LANE-B-REQUEST-PENDING-COO widen-death-scope-bg0010-six-templates "
-    "2026-09-06T14:11+07:00"
+    "COO-DECISION widen-death-scope-bg0010-six-templates "
+    "2026-09-06T14:53+07:00"
 )
 
 # The raw row the crosswalk cannot resolve AT ALL -- the STATIC ticket's whole
@@ -207,19 +203,23 @@ class Bg0010ShapeTests(unittest.TestCase):
         for mob in rows:
             mob_ai_control.profile_of(mob)  # must not raise
 
-    def test_the_ruling_is_a_request_not_a_letter_and_covers_exactly_this_scene(
+    def test_the_ruling_is_ratified_and_covers_exactly_this_scene(
             self) -> None:
         """The key's spelling is load-bearing, so it is pinned by execution.
 
-        COO greps live keys spelled ``COO-DECISION widen-death-scope`` against
-        the ``notes_to_chief`` filenames every executive round and requires a
-        removal PR for any key with no letter behind it.  This scene's key is
-        deliberately outside that shape, so it can never be read as a grant
-        this lane does not have.
+        ~~test_the_ruling_is_a_request_not_a_letter_and_covers_exactly_this_
+        scene~~ RENAMED AND TURNED AROUND, ROUND 9t75cr: round 30ja9z's own
+        key was deliberately outside COO's
+        ``COO-DECISION widen-death-scope`` grep shape, spelled
+        ``LANE-B-REQUEST-PENDING-COO`` so it could never be read as a grant
+        this lane did not have. COO-DECISION widen-death-scope-bg0010-six-
+        templates 2026-09-06T14:53+07:00 is that grant now, so this test
+        asserts the opposite of what it used to: the key IS inside COO's
+        grep shape, on purpose, because it now names a real letter.
         """
         self.assertIn(RULING_NAME, mob_death.WIDENING_RULINGS)
-        self.assertFalse(RULING_NAME.startswith("COO-DECISION"))
-        self.assertIn("LANE-B-REQUEST-PENDING-COO", RULING_NAME)
+        self.assertTrue(RULING_NAME.startswith("COO-DECISION"))
+        self.assertNotIn("LANE-B-REQUEST-PENDING-COO", RULING_NAME)
         self.assertEqual(
             mob_death.WIDENING_RULINGS[RULING_NAME], EXPECTED_TEMPLATES)
         self.assertEqual(

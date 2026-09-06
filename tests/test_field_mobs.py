@@ -1166,6 +1166,36 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         * Every new pair still resolves a DIFFERENT template on each side --
           checked over ALL 38 pairs by this test's own loop, not asserted in
           prose: no ``template_a == template_b`` row exists at HEAD.
+
+        ~~thirty-eight pairs~~  THIS ROUND: scene 10 (Bg0010, 17 hostile
+        placements -- COO-DECISION widen-death-scope-bg0010-six-templates
+        2026-09-06T14:53+07:00) brought FOURTEEN more.  MEASURED, not
+        predicted: re-read off ``cross_scene_identity_collisions()`` after
+        registration, one of the twelve reds pf-adversary caught in the
+        full-suite run after round 30ja9z's own unlock (that round mined
+        and registered the scene but pushed without walking this card).
+
+        * 0x2020 gained a member: it was a two-way (Bg0015/bg0004,
+          templates 353/94); scene 10's placement 31 (template 660) makes
+          it three-way, reported as its own two new pairs
+          (Bg0010/Bg0015, Bg0010/bg0004).
+        * 0x202F gained a member the identical way: it was a two-way
+          (Bg0011/Bg0015, templates 693/343); scene 10's placement 46
+          (template 673) makes it three-way, reported as its own two new
+          pairs (Bg0010/Bg0011, Bg0010/Bg0015).
+        * The other ten new pairs are ordinary two-way collisions:
+          0x2019 (Bg0010/Bg0015, 662/345), 0x2021 (Bg0010/bg0004, 661/94),
+          0x2028 (Bg0003/Bg0010, 194/668), 0x2030 (Bg0010/Bg0015, 671/343),
+          0x2031 (Bg0007/Bg0010, 397/671), and FOUR of one kind at once:
+          0x205D/0x205E/0x205F/0x2060 (Bg0002/Bg0010, 103/661 each) plus
+          0x2061 (Bg0002/Bg0010, 103/662) -- five placements of scene 10's
+          own "Exotic Demon Wolf"/"Abyss Demon Wolf" pair (templates 661
+          and 662, placements 90-95) landing on five of Atlantis's own
+          placement indices in a row, the same kind of dense run scene 4
+          against Bg0015 already produced once.
+        * Every new pair still resolves a DIFFERENT template on each side --
+          checked over ALL 52 pairs by this test's own loop, not asserted
+          in prose: no ``template_a == template_b`` row exists at HEAD.
         """
         rows = list(cross_scene_identity_collisions())
         got = {
@@ -1211,8 +1241,22 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             (0x2046, "Bg0008", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
+            (0x2019, "Bg0010", "Bg0015"),
+            (0x2020, "Bg0010", "Bg0015"),
+            (0x2020, "Bg0010", "bg0004"),
+            (0x2021, "Bg0010", "bg0004"),
+            (0x2028, "Bg0003", "Bg0010"),
+            (0x202F, "Bg0010", "Bg0011"),
+            (0x202F, "Bg0010", "Bg0015"),
+            (0x2030, "Bg0010", "Bg0015"),
+            (0x2031, "Bg0007", "Bg0010"),
+            (0x205D, "Bg0002", "Bg0010"),
+            (0x205E, "Bg0002", "Bg0010"),
+            (0x205F, "Bg0002", "Bg0010"),
+            (0x2060, "Bg0002", "Bg0010"),
+            (0x2061, "Bg0002", "Bg0010"),
         })
-        self.assertEqual(len(got), 38)
+        self.assertEqual(len(got), 52)
         # THE CLAIM PROSE MAKES ABOVE, MEASURED: no colliding pair is two
         # spellings of one monster.
         for row in rows:

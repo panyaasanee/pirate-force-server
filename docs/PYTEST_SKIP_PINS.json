@@ -479,6 +479,15 @@
       "note": "round 4tnhzw (LANE-B), same shape and same pre-push rehearsal as the bg0006 entry above: field_mob_tables_bg0011.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, scene 11's arrival census and login door were already open (LANE-A). The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene Bg0011 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0010.py",
+      "count": 1,
+      "tests": [
+        "Bg0010RegenerateTests::test_regenerating_reproduces_the_committed_module_byte_for_byte"
+      ],
+      "note": "round 30ja9z (LANE-B), pinned round 9t75cr (recovering round 30ja9z's own miss - that round shipped field_mob_tables_bg0010.py unpinned, one of the twelve full-suite reds pf-adversary caught after unlock): field_mob_tables_bg0010.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, same shape as the bg0006/7/9/11 entries above - scene 10's arrival census and login door were already open (LANE-A). The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene Bg0010 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed."
+    },
+    {
       "key": "original_schema_history",
       "module": "tests/test_foundation.py",
       "count": 1,

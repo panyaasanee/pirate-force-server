@@ -432,22 +432,18 @@ class RulingForTests(unittest.TestCase):
             "2026-09-06T11:50+07:00": "202609061150",
             "COO-DECISION widen-death-scope-bg0011-five-templates "
             "2026-09-06T11:50+07:00": "202609061150",
-            # ROUND 30ja9z.  The ONLY key in this dict that is not spelled
-            # "COO-DECISION", and the spelling is load-bearing: scene 10 has
-            # no ruling letter yet.  It was split out of the four-scene
-            # request above because its raw data would not mine, the STATIC
-            # ticket that asks what its one unreadable row is (pf_bridge
-            # notes_to_chief/20260906_0903 + 1046 addendum) is unanswered,
-            # and COO 1150 item 3 forbids a lane from issuing its own kill
-            # letter while requiring roster+composer+ruling to register
-            # together.  So the key names itself a REQUEST and cites this
-            # lane's own ASK-COO of 2026-09-06T14:11+07:00.  When COO
-            # answers, the next LANE-B round either repoints this key to the
-            # real letter or removes it together with the whole Bg0010
-            # registration -- and either way this line has to change, which
-            # is why the pin lives here.
-            "LANE-B-REQUEST-PENDING-COO widen-death-scope-bg0010-six-templates "
-            "2026-09-06T14:11+07:00": "202609061411",
+            # ROUND 30ja9z shipped this key spelled "LANE-B-REQUEST-PENDING-
+            # COO", not "COO-DECISION", because scene 10 had no ruling
+            # letter yet at that point (split out of the four-scene request
+            # above when its raw data would not mine).  ROUND 9t75cr
+            # repoints it: COO-DECISION widen-death-scope-bg0010-six-
+            # templates 2026-09-06T14:53+07:00 ratifies the identical six
+            # templates, same "timestamp at the end" spelling as bg0006/7/
+            # 9/11 above.  The STATIC ticket for placement 50 (pf_bridge
+            # notes_to_chief/20260906_0903 + 1046 addendum) is unanswered
+            # and unaffected -- this ruling never covered that placement.
+            "COO-DECISION widen-death-scope-bg0010-six-templates "
+            "2026-09-06T14:53+07:00": "202609061453",
         }
         self.assertEqual(
             set(expected), set(mob_death.WIDENING_RULINGS),

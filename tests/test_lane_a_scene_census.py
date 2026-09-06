@@ -198,6 +198,14 @@ PALE_SILVER_SEA = 305
 # than read off the census module: this constant exists so a silent change
 # in that module's roster shows up HERE as a failure.
 ATLANTIS_ROSTER_COUNT = 37
+# Navy Training Camp, scene 130: this lane's tenth-and-last of the original
+# ten composers (round `yfbqmg`), OPEN AT LOGIN on the registry file today
+# and, unlike scenes 3/4/5/6/7/8/9/10/11/14, never mined by LANE-B --
+# ROUND 9t75cr picked it as the replacement "ordinary unmined scene"
+# example below, one round after scene 10 (the previous replacement)
+# itself gained a mined roster in the very commit that named it as the
+# unmined example.
+NAVY_TRAINING_CAMP = 130
 
 
 def _legacy():
@@ -751,8 +759,23 @@ class ActorIdentitiesFromFieldMobRegistryTests(unittest.TestCase):
         # 'UNRESOLVED' where a template id belongs (this round's STATIC
         # ticket to chief), so it stays genuinely unmined rather than merely
         # unattempted.
-        self.assertIsNone(field_mobs.scene_for_scene_id(DEEP_SEA_TEMPLE))
-        result = self._compose(DEEP_SEA_TEMPLE)
+        #
+        # [CROSS-LANE EDIT BY LANE-B, ROUND 9t75cr - LANE-A MAY REVERT OR
+        # REPLACE] ~~DEEP_SEA_TEMPLE~~ -> NAVY_TRAINING_CAMP.  The
+        # 'UNRESOLVED' refusal predicted above was true only of placement
+        # 50; scene 10's other 17 placements resolved cleanly and shipped
+        # as ``field_mob_tables_bg0010.py`` in that SAME round's own
+        # commit, so this example was already false when it was written --
+        # caught by the full-suite run pf-adversary flagged after unlock,
+        # not by this file's own author. Scene 130 (Navy Training Camp) is
+        # this lane's tenth-and-last original composer, open at login
+        # (COO-DECISION 20260830_1441 / round `yfbqmg`) and genuinely
+        # unmined: it is not one of the ten scenes any COO ruling has
+        # granted LANE-B a death permit for, so it stays the safer pick
+        # even after a future round mines it, unlike a scene chosen only
+        # because a mining attempt happened to fail on one row.
+        self.assertIsNone(field_mobs.scene_for_scene_id(NAVY_TRAINING_CAMP))
+        result = self._compose(NAVY_TRAINING_CAMP)
         self.assertEqual(result.actor_identities, ())
         # And the other direction, which is what changed this round: scene 4
         # IS mined now, and answers its own seven rows rather than ().
@@ -829,7 +852,14 @@ class ActorIdentitiesFromFieldMobRegistryTests(unittest.TestCase):
         # [CROSS-LANE EDIT BY LANE-B, ROUND 4tnhzw] ~~OCEAN_WALLED_CITY~~ ->
         # DEEP_SEA_TEMPLE, for the same reason the test above just moved:
         # scene 6 is mined as of this round too.
-        ordinary = self._compose(DEEP_SEA_TEMPLE)
+        # [CROSS-LANE EDIT BY LANE-B, ROUND 9t75cr] ~~DEEP_SEA_TEMPLE~~ ->
+        # NAVY_TRAINING_CAMP, one round faster than the pattern above: scene
+        # 10 gained a mined roster in the SAME commit that named it here
+        # (field_mob_tables_bg0010.py, COO-DECISION widen-death-scope-
+        # bg0010-six-templates 2026-09-06T14:53+07:00), so this example was
+        # already false the moment it was written. Scene 130 (Navy Training
+        # Camp) is open at login and has no lane-B roster.
+        ordinary = self._compose(NAVY_TRAINING_CAMP)
         self.assertEqual(ordinary.actor_identities, ())
         self.assertFalse(any(
             line.startswith("WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE ")

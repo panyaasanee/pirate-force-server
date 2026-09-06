@@ -1071,8 +1071,28 @@ class GeneratedSiblingTablesAreProtectedOffBridgeTests(unittest.TestCase):
     # 2026-09-06T07:48+07:00) -- scene 7 wants AI_WANDER 10, scene 9 wants
     # AI_COMBAT 142, scene 11 wants AI_COMBAT 280 (scene 6's own two rows
     # were already covered).  Again additions only, verified the same way.
+    # RE-PINNED A THIRD TIME round 9t75cr (recovering round 30ja9z's own
+    # miss -- that round regenerated this module but pushed without
+    # recomputing this pin, one of the 12 full-suite reds pf-adversary
+    # caught): the union widened to include field_mob_tables_bg0010
+    # (COO-DECISION widen-death-scope-bg0010-six-templates
+    # 2026-09-06T14:53+07:00) -- scene 10 wants AI_COMBAT 315.  Verified
+    # additions-only against the pre-round tree with
+    # ``git diff 154f0f19 ce7bf293 -- src/pirateforce_foundation/
+    # field_mob_ai_tables.py``: one new AI_COMBAT_ROWS/AI_COMBAT_PARALLEL
+    # entry (315) and eight new PLACEMENT_AI_LINKS rows, nothing moved or
+    # removed. One of the eight, ``(47, 16, 301)``, duplicates an existing
+    # row verbatim (Bg0007 placement 47 and Bg0010 placement 47 share AI id
+    # 301; the table carries no scene column) -- pf-adversary measured this
+    # is inert at runtime (the AI lookup keys off the roster row's own AI id,
+    # never off this table's placement index, and nothing under ``src/``
+    # imports ``PLACEMENT_AI_LINKS`` for cross-scene lookup) but weakens this
+    # drift guard specifically, since ``set()``-based dedup would hide the
+    # loss of either copy. Left as recorded debt rather than fixed here:
+    # de-duplicating would need a scene-qualified key, which is a table
+    # schema change outside this round's scope.
     AI_TABLES_SHA256 = (
-        "2fb226233d063f18a6c0f7332568f949e168f5531401359e032d04ba900a8f0b")
+        "84694832c3ffd7f0f7441bdf911ed2f14216291b8490345ea6fc59782598bb90")
 
     @staticmethod
     def _digest(module, names):

@@ -527,14 +527,26 @@ class TheRosterGateTests(unittest.TestCase):
         # round too (COO-DECISION 2026-09-06T07:48+07:00), so "Bg0006" is
         # now itself a wrong spelling of a mined scene ("bg0006", lowercase
         # -- see field_mob_tables_bg0006.py's own casing note) rather than
-        # an example of an unmined one.  Scene 10 (bg0010) is the
-        # replacement, and it stays genuinely unmined rather than merely
-        # unattempted: this same round's own mining run on it refused
-        # outright (a raw placements row carries the literal string
-        # 'UNRESOLVED' where a template id belongs -- this round's STATIC
-        # ticket to chief).
+        # an example of an unmined one.
+        #
+        # ROUND 9t75cr: ~~"Bg0010"~~ -> "Bg3007".  The example moved a
+        # THIRD time, for the identical reason again, one round faster than
+        # the previous two turnarounds: round 30ja9z's own docstring
+        # predicted scene 10 would "stay genuinely unmined" because its own
+        # mining run refused outright on a raw 'UNRESOLVED' placement row --
+        # but that refusal was for placement 50 alone; the other 17
+        # placements resolved cleanly and shipped as
+        # ``field_mob_tables_bg0010.py`` in that SAME round's own commit, so
+        # this test's example was already false when it was written (caught
+        # by the full-suite run pf-adversary flagged after unlock, not by
+        # anything this file's own author checked). "Bg3007" is scene 304
+        # (Dark Fog Sea) -- the same scene this round's sibling module
+        # (``mob_scene_recompose.py``) picked as its own "no composer"
+        # example, for the same reason: ``login_entry_allowed: false`` in
+        # the registry, so it is not merely unmined today but the one scene
+        # nobody has a live reason to mine next.
         self.assertEqual(
-            self.world.bury(a_record(scene="Bg0010")),
+            self.world.bury(a_record(scene="Bg3007")),
             (False, graves.REFUSE_SCENE_HAS_NO_MINED_ROSTER))
         self.assertEqual(
             self.world.bury(a_record(scene="Bg0004")),
