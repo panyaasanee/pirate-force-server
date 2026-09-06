@@ -17,6 +17,7 @@ from . import mob_census_wire_count
 from . import mob_combat
 from . import mob_combat_membership
 from . import mob_death
+from . import mob_death_persistence
 from . import mob_drop_presence
 from . import mob_ground_persistence
 from . import mob_loot
@@ -4709,6 +4710,41 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
             if folder is None:
                 return None
+            # DEATH_SEED_WIRING (mob_death_persistence), the chief seam
+            # LANE-B's pf-adversary finding D2 asked for by way of
+            # notes_to_chief/20260906_1712 and COO-DECISION 1955 item (3).
+            # The WRITE half has been live for rounds -- mob_death.
+            # commit_death buries every accepted kill in the process-global
+            # book -- but nothing ever read it back, so a relog handed the
+            # new session a virgin DeathRegister and every mob the player
+            # had killed stood up again at full HP.  Two players in one
+            # scene never saw each other's kills for the same reason
+            # (PANYA 20260906_1057/1140: scene state is the world's, not the
+            # connection's).
+            #
+            # OUTSIDE the `folder != self.mob_combat_scene_folder` branch
+            # below, deliberately, and this is the whole of the contract:
+            # __init__ seeds mob_combat_scene_folder from the BOOT roster's
+            # own scene, so for a character whose stored scene is the boot
+            # scene that branch is false on its first evaluation and never
+            # runs -- a seed inside it would fire for scene 2 and never for
+            # bg0001, the scene the game boots into.
+            #
+            # BOTH STRUCTURES IN ONE STATEMENT, never a half: the loop that
+            # rehydrates the ledger's zeros lives inside that same branch,
+            # so a register seeded alone would leave the boot ledger at full
+            # HP with the register saying dead -- mob_death's own
+            # REFUSE_LEDGER_DISAGREES_WITH_REGISTER, which the arrival
+            # census reaches from an `else:` its `try` does not cover, and
+            # that unwinds the v141 listener thread (MEASURED on bg0001 by
+            # LANE-B's pf-adversary, 0x2068, ledger 198125 HP).  The
+            # function returns the caller's own two objects unchanged when
+            # either half cannot be done, and is idempotent and silent on a
+            # repeat, which is what running on every dispatch costs (~17 us
+            # on a 12-grave scene).
+            self.mob_death_register, self.mob_combat_ledger = (
+                mob_death_persistence.seed_the_session_state(
+                    self.mob_death_register, self.mob_combat_ledger, folder))
             roster = (
                 field_mobs.load_roster(folder)
                 if folder in field_mobs.live_scenes()
