@@ -747,4 +747,5 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
     return RealPlayerNamespace(
         methods, context if context is not None else DEFAULT_CONTEXT, log,
         store if store is not None else InMemoryPlayerMobAppearStore(),
-        sink if sink is not None else _message.InMemoryMessageSink())
+        _message.check_sink(sink) if sink is not None
+        else _message.InMemoryMessageSink())

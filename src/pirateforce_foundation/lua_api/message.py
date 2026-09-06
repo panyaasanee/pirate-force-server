@@ -208,13 +208,60 @@ def escape_message_text(text: str) -> str:
     ``tools/pf_regen_lua_message_catalog.py`` imports this rather than
     keeping a second copy that could drift from the decoder that reads it.
     """
-    return "".join(
-        ch if ch in _KEEP_LITERAL else "\\u%04x" % ord(ch) for ch in text)
+    out = []
+    for ch in text:
+        if ch in _KEEP_LITERAL:
+            out.append(ch)
+            continue
+        code = ord(ch)
+        if code > 0xFFFF:
+            # pf-adversary D2, round 7kxfe9: "\\u%04x" % 0x1F3C6 renders
+            # "\\u1f3c6", which the 4-hex-digit decoder reads as U+1F3C + a
+            # literal "6".  It round-tripped through the ENCODER's own tests
+            # (they re-encode what they just decoded) and through --check
+            # (both sides share this function), so the corruption was
+            # invisible on every machine without the source table.  The
+            # shipped table is all-BMP today, measured; the day it is not,
+            # this raises instead of silently rewriting a message.
+            raise ValueError(
+                "message text contains a non-BMP character U+%04X, which "
+                "this 4-hex-digit escape cannot represent: widen the format "
+                "before regenerating" % code)
+        out.append("\\u%04x" % code)
+    return "".join(out)
 
 
 def unescape_message_text(escaped: str) -> str:
     """``\\uXXXX`` back to the real characters.  Inverse of the above."""
     return _ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), escaped)
+
+
+#: The header line that carries a digest of the file's OWN body.
+BODY_DIGEST_PREFIX = "# body_sha256: "
+
+
+def body_digest(text: str) -> str:
+    """sha256 of everything in the vendored file that is not a ``#`` line.
+
+    pf-adversary D1/D3/D4/D5 (round 7kxfe9) all share one shape: the tie
+    that proves the vendored copy is honest needs the SOURCE table, and the
+    Windows gate -- the machine that decides whether a PR merges -- has no
+    bridge checkout at all (``.github/workflows/gate-windows.yml`` does not
+    fetch one).  So every row of the text column could be replaced with the
+    same string, or a hand-edit could strip the trailing space eight rows
+    depend on, and the gate stayed green.
+
+    A digest of the file's own body needs nothing but the file, so the test
+    that checks it runs EVERYWHERE, including there.  It does not prove the
+    copy matches the source -- only the source-digest test can do that --
+    it proves nobody has edited the copy since it was generated, which is
+    the half that was unguarded on the machine that matters.
+    """
+    import hashlib
+
+    body = "".join(line + "\n" for line in text.splitlines()
+                   if not line.startswith("#"))
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
 def _read_catalog(path: Path) -> Dict[int, Tuple[int, int, str]]:
@@ -224,7 +271,19 @@ def _read_catalog(path: Path) -> Dict[int, Tuple[int, int, str]]:
         # sees the stream: csv has no comment syntax, so a header line would
         # otherwise arrive as a data row whose message_id is '# source ...'.
         body = [line for line in handle if not line.startswith("#")]
-    for row in csv.DictReader(body, delimiter="\t"):
+    reader = csv.DictReader(body, delimiter="\t")
+    for line_number, row in enumerate(reader, start=2):
+        # pf-adversary D3, round 7kxfe9: a hand-inserted TAB inside a text
+        # cell makes csv split that row into FIVE fields, and DictReader
+        # files the surplus under restkey and hands back a silently
+        # TRUNCATED message -- with the row count, and therefore the header
+        # check, still agreeing.  A row that is not exactly four fields is
+        # an error here rather than a shorter message later.
+        if row.get(None) is not None or any(
+                row.get(column) is None for column in CATALOG_COLUMNS):
+            raise MessageCatalogError(
+                "%s line %d does not have exactly %d fields"
+                % (path, line_number, len(CATALOG_COLUMNS)))
         rows[int(row["message_id"])] = (
             int(row["message_type"]),
             int(row["notify_type"]),
@@ -349,6 +408,36 @@ class MessageSink(Protocol):
         grepping its own log.  Returns the new count for that reason.
         """
         ...
+
+
+#: Every method a sink handed to ``build_namespace`` must have.
+SINK_METHODS = ("record", "record_refusal", "messages_for", "broadcasts_for")
+
+
+def check_sink(sink):
+    """Raise a NAMED TypeError at INJECTION time for an incomplete sink.
+
+    pf-adversary D6, round 7kxfe9.  ``record_refusal`` was added to the
+    :class:`MessageSink` protocol this round, and a sink written against
+    last round's protocol still satisfied every check there was -- until a
+    script refused a message, at which point an ``AttributeError`` came out
+    of the middle of a Lua call.  That is not a rare path: 51 of the 116
+    corpus call sites pass an unmined ``Trigger.VarN``, the harness supplies
+    ``STUB_DEFAULT`` = 0 for those, and 0 has no row, so the refusal path is
+    the one a corpus sweep takes constantly.
+
+    A ``Protocol`` is a static promise; nothing checks it at runtime.  This
+    is that check, placed where the caller can act on it (the injection)
+    rather than where a script trips over it, and it names the missing
+    method instead of the attribute lookup that failed.
+    """
+    missing = [name for name in SINK_METHODS if not callable(
+        getattr(sink, name, None))]
+    if missing:
+        raise TypeError(
+            "%s is not a MessageSink: missing %s"
+            % (type(sink).__name__, ", ".join(missing)))
+    return sink
 
 
 #: Per-bucket bounds, same shape/reasoning as ``lua_api.quest``'s own caps:

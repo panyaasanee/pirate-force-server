@@ -695,3 +695,174 @@ class SinkIsThreadSafeTests(unittest.TestCase):
         finally:
             stop.set()
             writer.join()
+
+
+class BodyDigestGuardsTheFileOnEveryMachineTests(unittest.TestCase):
+    """pf-adversary D1/D3/D4/D5, round `7kxfe9`.
+
+    The tie to the source table needs the source table, and the Windows
+    gate -- the machine that decides whether a PR merges -- has no bridge
+    checkout (`.github/workflows/gate-windows.yml` does not fetch one).
+    Measured there by the adversary: replacing all 907 text cells with one
+    repeated string left the suite green.  So did a hand-stripped trailing
+    space on the eight rows that end in one, and a TAB pasted into a cell.
+
+    A digest of the file's OWN body needs nothing but the file, so these
+    run everywhere.  They do not prove the copy matches the source; they
+    prove nobody edited the copy after it was generated.
+    """
+
+    def setUp(self):
+        self.path = (ROOT / "src" / "pirateforce_foundation" / "lua_api"
+                     / "message_catalog.tsv")
+        self.text = self.path.read_text(encoding="ascii")
+
+    def test_the_header_carries_a_digest_of_the_body_below_it(self):
+        declared = [line[len(message.BODY_DIGEST_PREFIX):]
+                    for line in self.text.splitlines()
+                    if line.startswith(message.BODY_DIGEST_PREFIX)]
+        self.assertEqual(len(declared), 1)
+        self.assertEqual(declared[0], message.body_digest(self.text))
+
+    def test_changing_one_character_of_one_row_breaks_the_digest(self):
+        # The mutation the adversary actually ran, in miniature: if this
+        # assertion could not fail, the test above would be decoration.
+        mutated = self.text.replace("\\u0e40", "\\u0e41", 1)
+        self.assertNotEqual(mutated, self.text)
+        self.assertNotEqual(message.body_digest(mutated),
+                            message.body_digest(self.text))
+
+    def test_stripping_a_trailing_space_breaks_the_digest(self):
+        # Eight rows end in a real space (id 150, 243, 391, 392, 619, 667,
+        # 706, 799); `git apply --whitespace=fix`, an editor, or a
+        # pre-commit hook silently removes those.
+        stripped = "\n".join(line.rstrip() for line in self.text.splitlines())
+        self.assertNotEqual(stripped + "\n", self.text)
+        self.assertNotEqual(message.body_digest(stripped),
+                            message.body_digest(self.text))
+
+    def test_the_digest_ignores_the_header_so_a_restamp_is_not_drift(self):
+        # Re-pulling on a later date rewrites `# pulled:` and must not read
+        # as a body edit -- otherwise the check cries wolf and gets removed.
+        restamped = self.text.replace("# pulled: ", "# pulled: 1999-01-01 #")
+        self.assertNotEqual(restamped, self.text)
+        self.assertEqual(message.body_digest(restamped),
+                         message.body_digest(self.text))
+
+
+class LoaderRefusesAMalformedRowTests(unittest.TestCase):
+    """pf-adversary D3: a TAB inside a text cell splits one row into five
+    fields, `csv.DictReader` files the surplus under restkey, and the
+    message comes back TRUNCATED with the row count -- and therefore the
+    header row-count check -- still agreeing."""
+
+    def setUp(self):
+        self._saved = message._CATALOG_CACHE
+        self._saved_path = message._CATALOG_PATH
+
+    def tearDown(self):
+        message._CATALOG_CACHE = self._saved
+        message._CATALOG_PATH = self._saved_path
+
+    def _load(self, body):
+        import tempfile
+
+        message._CATALOG_CACHE = None
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "message_catalog.tsv"
+            path.write_text("# header\n" + "\t".join(message.CATALOG_COLUMNS)
+                            + "\n" + body, encoding="ascii")
+            message._CATALOG_PATH = path
+            return message.catalog()
+
+    def test_a_five_field_row_is_an_error_not_a_truncated_message(self):
+        with self.assertRaises(message.MessageCatalogError) as caught:
+            self._load("1\t35\t0\thel\tlo\n")
+        self.assertIn("fields", str(caught.exception))
+
+    def test_a_three_field_row_is_an_error_too(self):
+        with self.assertRaises(message.MessageCatalogError):
+            self._load("1\t35\t0\n")
+
+    def test_a_well_formed_row_still_loads(self):
+        self.assertEqual(self._load("1\t35\t0\thello\n"), {1: (35, 0, "hello")})
+
+
+class EncoderRefusesWhatItCannotRepresentTests(unittest.TestCase):
+    """pf-adversary D2: `"\\u%04x" % 0x1F3C6` renders `\\u1f3c6`, which the
+    four-hex-digit decoder reads as U+1F3C followed by a literal `6`.  It
+    survived the round-trip test (which re-encodes what it just decoded)
+    and `--check` (both sides share the encoder), so the corruption was
+    invisible on every machine without the source table."""
+
+    def test_a_non_bmp_character_raises_instead_of_corrupting(self):
+        with self.assertRaises(ValueError) as caught:
+            message.escape_message_text("\U0001F3C6 champion")
+        self.assertIn("non-BMP", str(caught.exception))
+
+    def test_the_highest_bmp_character_is_still_accepted(self):
+        text = "￿"
+        self.assertEqual(
+            message.unescape_message_text(message.escape_message_text(text)),
+            text)
+
+    def test_the_shipped_table_is_all_bmp_today(self):
+        # The fact that makes the guard a tripwire rather than a blocker.
+        for message_id, (_t, _n, text) in message.catalog().items():
+            with self.subTest(message_id=message_id):
+                self.assertFalse([ch for ch in text if ord(ch) > 0xFFFF])
+
+
+class InjectedSinkIsCheckedAtInjectionTests(unittest.TestCase):
+    """pf-adversary D6: a sink written against last round's protocol passed
+    every check there was until a script refused a message, at which point
+    an AttributeError came out of the middle of a Lua call.  51 of the 116
+    corpus call sites take that path."""
+
+    class SinkFromLastRound:
+        def record(self, scene, character_id, audience, message_id):
+            return 1
+
+        def messages_for(self, character_id):
+            return ()
+
+        def broadcasts_for(self, scene):
+            return ()
+
+    def test_an_incomplete_sink_is_refused_by_name_when_it_is_injected(self):
+        for build in (player.build_namespace, trigger.build_namespace):
+            with self.subTest(build=build.__module__):
+                with self.assertRaises(TypeError) as caught:
+                    build(frozenset({"ShowMessage", "TriggerShowMessage"}),
+                          lambda _line: None, sink=self.SinkFromLastRound())
+                self.assertIn("record_refusal", str(caught.exception))
+
+    def test_the_complete_sink_this_package_ships_passes(self):
+        self.assertIs(message.check_sink(message.InMemoryMessageSink()).__class__,
+                      message.InMemoryMessageSink)
+
+
+class RegenerateScriptSeparatesDriftFromInconclusiveTests(unittest.TestCase):
+    """pf-adversary D8: `--check` exited 1 both when the copy had drifted
+    and when there was no bridge checkout to compare against -- so anyone
+    wiring it into CI gets a false RED on every gate run, the gate having
+    no bridge.  The house convention for exactly this is
+    pf_gate_preflight.py's own three states."""
+
+    def _tool(self):
+        import importlib
+
+        sys.path.insert(0, str(ROOT / "tools"))
+        try:
+            return importlib.import_module("pf_regen_lua_message_catalog")
+        finally:
+            sys.path.remove(str(ROOT / "tools"))
+
+    def test_a_missing_source_table_is_inconclusive_not_drift(self):
+        tool = self._tool()
+        saved = tool.SOURCE
+        try:
+            tool.SOURCE = ROOT / "no" / "such" / "table.tsv"
+            self.assertEqual(tool.main(["--check"]), 2)
+        finally:
+            tool.SOURCE = saved

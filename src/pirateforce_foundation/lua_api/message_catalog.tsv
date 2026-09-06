@@ -4,6 +4,7 @@
 # source_sha256: 002f3145cc6f53c70fd2d3fda81d492d0db1574bf0fc07285606497632d08609
 # source_rows: 907
 # pulled: 2026-09-07
+# body_sha256: 263fce02bf5df688913e8ad777d512534317f0eaa315ddd6a5e02aaa40c210fc
 # message_text is \uXXXX-escaped so this file stays pure ASCII;
 # decode with lua_api.message.unescape_message_text().
 message_id	message_type	notify_type	message_text

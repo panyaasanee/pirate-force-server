@@ -420,7 +420,8 @@ class RealTriggerNamespace:
         self._quest_store = (
             quest_store if quest_store is not None else _quest.InMemoryQuestStateStore())
         self._sink = (
-            sink if sink is not None else _message.InMemoryMessageSink())
+            _message.check_sink(sink) if sink is not None
+            else _message.InMemoryMessageSink())
 
     def __getitem__(self, name):
         if name == "GetTriggerStatus" or name == "GetTeiggerStatus":

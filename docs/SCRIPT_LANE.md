@@ -2762,6 +2762,72 @@ modules and 0 skips.
   `.tgr` table, a run dropping audiences is a misread of the `Var2`
   mapping, and one combined number cannot tell those two apart.
 
+### pf-adversary came back BEFORE the unlock, and did not approve
+
+13 defects, 12 of them measured with a control run.  Six are fixed in this
+round; the rest are named below rather than tucked away.
+
+The one that mattered most (D1) is that the drift tie STILL does not run on
+the machine that decides whether a PR merges: `.github/workflows/
+gate-windows.yml` fetches no bridge checkout, so `BRIDGE_GAMEDATA` skips
+there.  Measured: all 907 text cells replaced with one repeated string,
+`52 passed, 11 skipped, 0 failed`.  Moving the test was a real widening and
+the claim "strictly wider" is true -- but it left out the machine that
+matters, and saying "wider" without saying that is the half-truth this lane
+keeps having to be caught at.
+
+The fix is the adversary's own best proposal: the header now carries
+`# body_sha256:` of the file's own body, checked by a class with NO
+precondition, so it runs on the gate.  It does not prove the copy matches
+the source -- only the source-digest test can -- it proves nobody has edited
+the copy since it was generated, which was the unguarded half.  That single
+change closes D1 (mass rewrite), D3 (a TAB inside a cell), D4 (eight rows
+end in a trailing space that any whitespace-fixing tool removes) and D5 (a
+provenance header nothing on the gate could check).
+
+Also fixed:
+
+- **D2 (the encoder corrupts silently above the BMP).** `"\u%04x" % 0x1F3C6`
+  renders `\u1f3c6`, which the four-hex-digit decoder reads as U+1F3C plus a
+  literal `6`.  It passed the round-trip test (which re-encodes what it just
+  decoded) and `--check` (both sides share the encoder).  The shipped table
+  is all-BMP today, measured -- so this is a tripwire, not a blocker:
+  `escape_message_text` now raises rather than rewriting a message.
+- **D3 (a malformed row).** `_read_catalog` refuses a row that is not
+  exactly four fields, instead of handing back a truncated message with the
+  row count still agreeing.
+- **D6 (extending the sink protocol broke last round's sinks).** A sink
+  written against `6775u1`'s protocol raised `AttributeError` out of the
+  middle of a Lua call the first time a message was refused -- and 51 of the
+  116 corpus call sites pass an unmined `Trigger.VarN`, for which the
+  harness supplies 0, which has no row, so the refusal path is the one a
+  corpus sweep takes constantly.  `check_sink` now refuses an incomplete
+  sink AT INJECTION, naming the missing method.
+- **D8 (`--check` conflated RED with INCONCLUSIVE).** No bridge checkout now
+  exits 2 and says so; drift still exits 1.
+
+NAMED, NOT FIXED: D7 (`refusals()` is not on the protocol, so a future
+injected sink cannot be asked "how many did you drop"; three of the six
+reasons are counted inside `InMemoryMessageSink` rather than at the
+closure) · D9 (the bridge's `check_new_skips` does not recognise
+`@X.skip_unless_present()`, the very idiom `pf_preconditions` orders every
+lane to use -- a preflight hole, and chief's file) · D10 (this round's own
+"no module logs the text" guard is a substring scan that misses
+`script_host.py` one directory up and trips on the word in a comment) ·
+D11 (`script_host.py`'s `except Exception` around entry points turns a
+catalog failure into "this script failed", blaming the script rather than
+the data file) · D13 (`AGENTS.md` forbids tracking decoded game data and
+this vendors 907 rows of it; the adversary found precedent at a smaller
+scale and could not settle whether this repository is public -- recorded
+for COO, not acted on).
+
+Two of its findings corrected THIS round's own prose, and both are in the
+round file: there is no per-file or per-PR size ceiling for this repository
+at all (the "400 KB" this lane cited is a bridge queue-file ceiling), and
+62 of the 907 rows contain characters cp874 cannot represent, including
+three ids the corpus really passes -- the table is not "Thai", it is Thai
+with unlocalized CJK in it.
+
 ### What this round did NOT do
 
 Nothing reaches a player's screen.  No frame is built here and no dispatch

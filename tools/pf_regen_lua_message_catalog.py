@@ -46,7 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.lua_api.message import (  # noqa: E402
-    CATALOG_COLUMNS, escape_message_text,
+    BODY_DIGEST_PREFIX, CATALOG_COLUMNS, body_digest, escape_message_text,
 )
 
 SOURCE_RELPATH = "gamedata/tables/TEXTDATA_TH__MESSAGE.tsv"
@@ -75,26 +75,43 @@ def render(rows, source_relpath: str, source_sha256: str, pulled: str) -> str:
     a hand-edit that adds or drops a row is caught even in a clone with no
     bridge beside it.
     """
-    lines = [
+    body = ["\t".join(CATALOG_COLUMNS)]
+    for message_id, message_type, notify, text in rows:
+        body.append("%d\t%d\t%d\t%s" % (
+            message_id, message_type, notify, escape_message_text(text)))
+    rendered_body = "\n".join(body) + "\n"
+    header = [
         "# VENDORED MIRROR -- do not hand-edit.",
         "# regenerate: python3 tools/pf_regen_lua_message_catalog.py",
         "# source: pf_bridge/%s" % source_relpath,
         "# source_sha256: %s" % source_sha256,
         "# source_rows: %d" % len(rows),
         "# pulled: %s" % pulled,
+        # A digest of the BODY BELOW, not of the source: this one is
+        # checkable on a machine with no bridge checkout, which is the
+        # machine the gate runs on (pf-adversary D1/D3/D4/D5, round 7kxfe9).
+        "%s%s" % (BODY_DIGEST_PREFIX, body_digest(rendered_body)),
         "# message_text is \\uXXXX-escaped so this file stays pure ASCII;",
         "# decode with lua_api.message.unescape_message_text().",
-        "\t".join(CATALOG_COLUMNS),
     ]
-    for message_id, message_type, notify, text in rows:
-        lines.append("%d\t%d\t%d\t%s" % (
-            message_id, message_type, notify, escape_message_text(text)))
-    return "\n".join(lines) + "\n"
+    return "\n".join(header) + "\n" + rendered_body
+
+
+class SourceMissing(Exception):
+    """The bridge checkout this script reads from is not beside this repo.
+
+    A DISTINCT outcome from "the copy has drifted" -- pf-adversary D8,
+    round 7kxfe9: collapsing the two into one non-zero exit gives anyone who
+    wires --check into CI a false RED on every gate run, because the gate
+    has no bridge checkout.  The house convention for exactly this is
+    pf_gate_preflight.py's own three states (pass / red / inconclusive), so
+    --check exits 0, 1 and 2 respectively.
+    """
 
 
 def build(pulled: str) -> str:
     if not SOURCE.exists():
-        raise SystemExit(
+        raise SourceMissing(
             "source table not found: %s (this script needs a pf_bridge "
             "checkout beside this repository)" % SOURCE)
     digest = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
@@ -122,7 +139,12 @@ def main(argv=None) -> int:
         pulled = (stamped[0][len("# pulled: "):] if stamped and args.check
                   else date.today().isoformat())
 
-    rendered = build(pulled)
+    try:
+        rendered = build(pulled)
+    except SourceMissing as exc:
+        print("INCONCLUSIVE: %s" % exc)
+        print("         Nothing was compared.  This is not a drift report.")
+        return 2
     if args.check:
         if rendered == current:
             print("OK: %s matches %s" % (TARGET.name, SOURCE_RELPATH))
