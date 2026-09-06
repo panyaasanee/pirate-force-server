@@ -39,7 +39,11 @@ a third flavour added for ``ui_dyeing_appraisal_relive_wire.py``'s
 ``0x05  1  FIXED  56  UNKNOWN`` -- same "FIXED length 1" shape as ``0x08``/
 ``0x0B``, no prior module needed this specific byte value before), ``0x32``
 = u64/qword (``CLIENT_RE_QUEUE.md:3425``, ``FACTPACK_R100_INREPO_LOOT_SPAWN_
-GAPLIST.md:143`` identity qword). The registry's
+GAPLIST.md:143`` identity qword). ``0x44`` = tagged string8 (one byte per
+char, opaque, u32 LE length prefix) -- ``delete_actor.py``'s
+``DeleteActorVital`` parser proved this shape first (GT-055); see
+``string8tag``/``read_string8tag`` below for the reusable pair added when
+``DyeingVitalReq`` was proven to share the identical helper span. The registry's
 ``UNTAGGED_WSTRING16LE_LEN32LE`` is exactly what its name says: a u32 LE
 length prefix followed by UTF-16LE payload bytes, with **no** leading tag
 byte -- unlike ``current/pf_login_game_server_v141.py``'s own ``wstr_tag``
@@ -121,6 +125,26 @@ def encode_untagged_wstring(s: str) -> bytes:
     return struct.pack("<I", len(payload)) + payload
 
 
+def string8tag(tag: int, s: bytes) -> bytes:
+    """Tag byte + u32 LE byte length + N raw ``basic_string<char>`` bytes
+    (one byte per char, opaque -- no charset assumed). This is the SAME
+    wire shape ``delete_actor.py``'s strict parser proved for
+    ``DeleteActorVital``'s trailing field under tag ``0x44`` (GT-055,
+    ``44 | uint32le byte_len | N raw string8 bytes``), added here as a
+    reusable pair (this function + ``read_string8tag`` below) because
+    ``DyeingVitalReq``'s field 2 shares it: ``PF_A2_STRING_WIRE_TAG_DELTA
+    .tsv:362-363`` records the identical helper VA/file_off/span_end/
+    SHA-256 for both classes' string call sites (``0x0089A6D0``..
+    ``0x0089A733``, sha ``a0674fb3...96c29319bd``) and the same
+    ``tag_instruction_va=0x0089A6F1``/``push_0x44`` -- not a guess by
+    class-name similarity, a byte-identical shared helper span. Kept
+    opaque (``bytes``, not decoded to ``str``) for the same reason
+    ``delete_actor.py`` does: no proven charset for this string8 flavour,
+    unlike the UTF-16LE wstring helpers above."""
+
+    return bytes([tag]) + struct.pack("<I", len(s)) + s
+
+
 def read_u8tag(buf: bytes, offset: int, expected_tag: int) -> tuple[int, int]:
     if offset + 2 > len(buf):
         raise WireDecodeError("truncated u8 field")
@@ -190,6 +214,27 @@ def read_untagged_wstring(buf: bytes, offset: int) -> tuple[str, int]:
         # only ever catches WireDecodeError).
         raise WireDecodeError("malformed UTF-16LE payload") from error
     return text, end
+
+
+def read_string8tag(
+    buf: bytes, offset: int, expected_tag: int
+) -> tuple[bytes, int]:
+    """Read ``string8tag``'s shape back: tag byte, u32 LE length, then that
+    many raw bytes, returned opaque (see ``string8tag`` above)."""
+
+    if offset + 5 > len(buf):
+        raise WireDecodeError("truncated string8 tag+length header")
+    tag = buf[offset]
+    if tag != expected_tag:
+        raise WireDecodeError(
+            "expected tag 0x%02X, got 0x%02X" % (expected_tag, tag)
+        )
+    length = struct.unpack_from("<I", buf, offset + 1)[0]
+    start = offset + 5
+    end = start + length
+    if end > len(buf):
+        raise WireDecodeError("truncated string8 payload")
+    return buf[start:end], end
 
 
 def require_exhausted(buf: bytes, offset: int) -> None:
