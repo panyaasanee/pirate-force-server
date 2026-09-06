@@ -196,7 +196,11 @@ from . import field_mob_tables_bg0002
 from . import field_mob_tables_bg0003
 from . import field_mob_tables_bg0004
 from . import field_mob_tables_bg0005
+from . import field_mob_tables_bg0006
+from . import field_mob_tables_bg0007
 from . import field_mob_tables_bg0008
+from . import field_mob_tables_bg0009
+from . import field_mob_tables_bg0011
 from . import field_mob_tables_bg0015
 # LANE-B's per-(viewer, monster) link for the client's name-colour selector
 # (COO-DECISION 20260905_2348, CORE-REQUEST-GM-061).  Imported for the
@@ -522,7 +526,11 @@ _SCENE_TABLE_MODULES = {
     field_mob_tables_bg0003.SCENE: field_mob_tables_bg0003,
     field_mob_tables_bg0004.SCENE: field_mob_tables_bg0004,
     field_mob_tables_bg0005.SCENE: field_mob_tables_bg0005,
+    field_mob_tables_bg0006.SCENE: field_mob_tables_bg0006,
+    field_mob_tables_bg0007.SCENE: field_mob_tables_bg0007,
     field_mob_tables_bg0008.SCENE: field_mob_tables_bg0008,
+    field_mob_tables_bg0009.SCENE: field_mob_tables_bg0009,
+    field_mob_tables_bg0011.SCENE: field_mob_tables_bg0011,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
@@ -586,6 +594,16 @@ BG0004_SCENE = field_mob_tables_bg0004.SCENE
 # identity rule (``cline``, COO-DECISION 2026-08-29T03:45+07:00); the
 # generated module carries the rows and the census that selected them.
 BG0005_SCENE = field_mob_tables_bg0005.SCENE
+# COO-DECISION widen-death-scope-bg0006-bg0007-bg0009-bg0011-four-scenes
+# 2026-09-06T07:48+07:00 (COO-DECISION as re-derived in this repository's
+# notes_to_chief mailbox at that timestamp), following the same "option (a):
+# register the roster, refuse loud and safe" methodology as
+# bg0003/bg0004/bg0005/bg0008 -- a rank, a combat AI, a drops table, no town
+# target, no player-model body.  Scene 6, TWO distinct templates (222, 226).
+BG0006_SCENE = field_mob_tables_bg0006.SCENE
+# Same COO-DECISION as BG0006_SCENE's own comment.  Scene 7, SEVEN distinct
+# templates (388, 390, 393, 395, 397, 526, 536).
+BG0007_SCENE = field_mob_tables_bg0007.SCENE
 # COO-DECISION widen-death-scope-bg0008-six-templates 2026-09-06T05:48+07:00
 # (notes_to_chief/20260906_0548_COO-DECISION-b0441-widen-death-scope-bg0008-
 # six-templates-nina-withheld-with-carlos-one-letter-for-five-scenes-next-
@@ -598,6 +616,18 @@ BG0005_SCENE = field_mob_tables_bg0005.SCENE
 # own comment for why, and mob_death.WIDENING_RULINGS' own bg0008 entry for
 # what the six that DO ship are covered under.
 BG0008_SCENE = field_mob_tables_bg0008.SCENE
+# Same COO-DECISION as BG0006_SCENE's own comment.  Scene 9, FIVE distinct
+# templates (314, 317, 320, 546, 549) -- 546 ("Black braid Edward") and 549
+# ("Bermuda Banshee") are placements 56/57, an ordinary monster body
+# (``s_OUTFIT`` starting ``M0``, not a ``P_`` player model), so unlike
+# Bg0008's Nina this lane does NOT withhold either one; nobody has a drop
+# table for them yet, tagged DROPS_UNMINED in their own module rather than
+# fabricated -- a separate hand of work (drop mining), not a reason to
+# refuse the kill.
+BG0009_SCENE = field_mob_tables_bg0009.SCENE
+# Same COO-DECISION as BG0006_SCENE's own comment.  Scene 11, FIVE distinct
+# templates (669, 674, 693, 696, 697).
+BG0011_SCENE = field_mob_tables_bg0011.SCENE
 BG0015_SCENE = field_mob_tables_bg0015.SCENE
 
 
@@ -821,6 +851,24 @@ LANE_WITHHELD_REASON: dict[str, str] = {
         'coo_decision_20260906_0548'
     ),
     'Bg0015': 'no_death_ruling_covers_template_924_coo_decision_20260905_0545',
+}
+
+# DOCUMENTARY ONLY -- unlike LANE_WITHHELD_PLACEMENTS, nothing here is
+# filtered out of what load_roster ships.  COO-DECISION 2026-09-06T07:48+07:00
+# item 2 (notes_to_chief/20260906_0748_COO-DECISION-b0659-send-four-clean-
+# scenes-now-bg0010-unresolved-is-a-static-ticket-body-to-chief-bg0009-zero-
+# drop-m-avatars-are-ordinary-mobs-LANE-B.md): Bg0009 placements 56 (MOBS
+# 546, "Black braid Edward") and 57 (MOBS 549, "Bermuda Banshee") both mine
+# 0/0/0 in every drop column, but the withhold test this lane applies to
+# Carlos and Nina needs BOTH a player-model avatar AND zero drops -- these
+# two carry `s_OUTFIT` starting `M0` (an ordinary monster body), so only
+# half the condition holds and the letter ships them normally.  A row here
+# means "killable today, no drop table behind it yet" -- flagged so the
+# drop-mining hand of work (P-1, a separate ticket) has a named list to
+# start from instead of a fresh scan.  Never write a drop table by hand
+# against this flag; that is exactly the fabrication this project refuses.
+DROPS_UNMINED_PLACEMENTS: dict[str, tuple[int, ...]] = {
+    'Bg0009': (56, 57),
 }
 
 

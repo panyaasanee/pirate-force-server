@@ -75,6 +75,10 @@ AI_WANDER_BG0015_ROW = 22
 # every foreign key a scene table carries, ship or withhold being a decision
 # one layer up in field_mobs, not this generator's to make.
 AI_WANDER_BG0008_NINA_ROW = 2
+# THIS ROUND: Bg0007 placement 28 ("Ominous Bird") wants AI_WANDER 10, mined
+# for the first time -- the same union-widening reason every entry above
+# gives.
+AI_WANDER_BG0007_ROW = 10
 MINED_AGGRO_RADIUS = 1200
 # ROUND 8ftmbx: ~~(58, 63, 132)~~ -> ().  All three were bg0001 rows
 # COO-DECISION 2026-08-29T00:41+07:00 withdrew, and what the town still ships
@@ -234,6 +238,7 @@ class MinedRowTests(unittest.TestCase):
         # mined and correct, but nothing on the live roster reads it today
         # -- Bg0015 is not in ``field_mobs._SCENE_TABLE_MODULES``.
         self.assertEqual(sorted(rows), [AI_WANDER_BG0008_NINA_ROW,
+                                        AI_WANDER_BG0007_ROW,
                                         AI_WANDER_OFFENSIVE_ROW,
                                         AI_WANDER_PASSIVE_ROW,
                                         AI_WANDER_DUMMY_ROW,
@@ -257,6 +262,11 @@ class MinedRowTests(unittest.TestCase):
         # row either -- mined and correct, same standing as row 22 above.
         _script, _faction, offensive, aggro = rows[AI_WANDER_BG0008_NINA_ROW]
         self.assertEqual((offensive, aggro), (0, 0))
+        # THIS ROUND: AI_WANDER 10, Bg0007 placement 28 ("Ominous Bird",
+        # shipped and killable -- unlike the two rows above, this one IS
+        # read by a live roster row).
+        _script, _faction, offensive, aggro = rows[AI_WANDER_BG0007_ROW]
+        self.assertEqual((offensive, aggro), (1, 600))
 
     def test_no_wander_row_is_offensive_with_no_radius(self):
         # THE ONE DIRECTION THE TABLE SUPPORTS.  An earlier version of this

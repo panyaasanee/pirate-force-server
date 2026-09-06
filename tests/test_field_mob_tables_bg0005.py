@@ -548,9 +548,9 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             "LANE-B 20260904_1134, not a harmless leftover comment.",
         )
 
-    def test_this_lane_announces_five_lane_composed_scenes_now(
+    def test_this_lane_announces_nine_lane_composed_scenes_now(
             self) -> None:
-        """Named, so nobody arms a fifth without seeing the count move.
+        """Named, so nobody arms a tenth without seeing the count move.
 
         ~~``test_this_lane_has_armed_two_scenes_behind_that_shut_seam``,
         pinning ``(5, 14)``.~~  MOVED TO THREE AND RENAMED, ROUND am1fw8:
@@ -592,6 +592,19 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
         forbids an on-screen monster-hit GT for scenes 3/4/5/8/14 until P-2
         closes, so no player has yet SEEN any of this either.
 
+        MOVED TO NINE, ROUND 4tnhzw: scenes 6, 7, 9 and 11 join at once
+        (COO-DECISION 2026-09-06T07:48+07:00) -- none of the four ships a
+        town target, a legacy-pending row, or a withheld placement (no
+        player-model avatar exists in any of their hostile sets), so unlike
+        Bg0008's own arrival there is no "what else is shut" beyond the
+        standing P-2 gate every scene here already carries.  The death
+        ruling each of the four's own templates travels under is its own
+        COO letter (see ``mob_death.WIDENING_RULINGS``' four new entries);
+        Bg0009 additionally flags two rows (546, 549) as DROPS_UNMINED
+        rather than withheld, named in ``field_mobs.DROPS_UNMINED_
+        PLACEMENTS`` rather than here, since that flag does not change
+        which scenes are in THIS set.
+
         The set is still written as a tuple and not a count for the same
         reason as before: a scene LEAVING it has to be as visible as one
         joining.
@@ -601,7 +614,7 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             if scene_id not in (1, 2)
         )
         self.assertEqual(
-            armed_behind_the_seam, (3, 4, 5, 8, 14),
+            armed_behind_the_seam, (3, 4, 5, 6, 7, 8, 9, 11, 14),
             "a scene joined or left the set of lane-composed scenes this "
             "lane ships a roster for.  Scenes 1 and 2 have their own "
             "dedicated arrival branches in runtime.py; every other scene "

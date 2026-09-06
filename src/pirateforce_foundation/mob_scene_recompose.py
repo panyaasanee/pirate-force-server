@@ -66,7 +66,11 @@ from . import world_population_bg0002
 from . import world_population_bg0003
 from . import world_population_bg0004
 from . import world_population_bg0005
+from . import world_population_bg0006
+from . import world_population_bg0007
 from . import world_population_bg0008
+from . import world_population_bg0009
+from . import world_population_bg0011
 from . import world_population_bg0015
 
 
@@ -172,7 +176,11 @@ COMPOSER_BG0002 = "bg0002_population_plus_roster_override"
 COMPOSER_BG0003 = "bg0003_population_plus_roster_override"
 COMPOSER_BG0004 = "bg0004_population_plus_roster_override"
 COMPOSER_BG0005 = "bg0005_population_plus_roster_override"
+COMPOSER_BG0006 = "bg0006_population_plus_roster_override"
+COMPOSER_BG0007 = "bg0007_population_plus_roster_override"
 COMPOSER_BG0008 = "bg0008_population_plus_roster_override"
+COMPOSER_BG0009 = "bg0009_population_plus_roster_override"
+COMPOSER_BG0011 = "bg0011_population_plus_roster_override"
 COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
 
 # EVERY COMPOSER KIND THAT BUILDS ITS OWN CENSUS HERE, rather than delegating
@@ -200,9 +208,14 @@ COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
 # registers the roster; this composer is what stops that roster's first
 # strike from reaching the one-entry world-wipe frame
 # ``test_mob_scene_recompose.py``'s own drift pin exists to catch).
+# THIS ROUND ALSO added :data:`COMPOSER_BG0006`, :data:`COMPOSER_BG0007`,
+# :data:`COMPOSER_BG0009` and :data:`COMPOSER_BG0011`, same shape and same
+# reason (COO-DECISION 2026-09-06T07:48+07:00 registers all four rosters in
+# this same commit).
 NON_DELEGATED_COMPOSER_KINDS = (
     COMPOSER_BG0002, COMPOSER_BG0003, COMPOSER_BG0004, COMPOSER_BG0005,
-    COMPOSER_BG0008, COMPOSER_BG0015,
+    COMPOSER_BG0006, COMPOSER_BG0007, COMPOSER_BG0008, COMPOSER_BG0009,
+    COMPOSER_BG0011, COMPOSER_BG0015,
 )
 
 _COMPOSERS = {
@@ -221,8 +234,20 @@ _COMPOSERS = {
     world_population_bg0005.SCENE_N_ID: SceneComposer(
         world_population_bg0005.SCENE_N_ID, "bg0005", COMPOSER_BG0005,
     ),
+    world_population_bg0006.SCENE_N_ID: SceneComposer(
+        world_population_bg0006.SCENE_N_ID, "Bg0006", COMPOSER_BG0006,
+    ),
+    world_population_bg0007.SCENE_N_ID: SceneComposer(
+        world_population_bg0007.SCENE_N_ID, "Bg0007", COMPOSER_BG0007,
+    ),
     world_population_bg0008.SCENE_N_ID: SceneComposer(
         world_population_bg0008.SCENE_N_ID, "Bg0008", COMPOSER_BG0008,
+    ),
+    world_population_bg0009.SCENE_N_ID: SceneComposer(
+        world_population_bg0009.SCENE_N_ID, "Bg0009", COMPOSER_BG0009,
+    ),
+    world_population_bg0011.SCENE_N_ID: SceneComposer(
+        world_population_bg0011.SCENE_N_ID, "Bg0011", COMPOSER_BG0011,
     ),
     world_population_bg0015.SCENE_N_ID: SceneComposer(
         world_population_bg0015.SCENE_N_ID, "Bg0015", COMPOSER_BG0015,
@@ -285,6 +310,26 @@ def _build_bg0005(legacy, anchor, actor_count, *, scene_id):
 _build_bg0005.serves_scene_id = world_population_bg0005.SCENE_N_ID
 
 
+def _build_bg0006(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0006.build_bg0006_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0006.COUNT_SOURCE_CALLER,
+    )
+
+
+_build_bg0006.serves_scene_id = world_population_bg0006.SCENE_N_ID
+
+
+def _build_bg0007(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0007.build_bg0007_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0007.COUNT_SOURCE_CALLER,
+    )
+
+
+_build_bg0007.serves_scene_id = world_population_bg0007.SCENE_N_ID
+
+
 def _build_bg0008(legacy, anchor, actor_count, *, scene_id):
     return world_population_bg0008.build_bg0008_population(
         legacy, anchor, actor_count, scene_id=scene_id,
@@ -293,6 +338,26 @@ def _build_bg0008(legacy, anchor, actor_count, *, scene_id):
 
 
 _build_bg0008.serves_scene_id = world_population_bg0008.SCENE_N_ID
+
+
+def _build_bg0009(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0009.build_bg0009_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0009.COUNT_SOURCE_CALLER,
+    )
+
+
+_build_bg0009.serves_scene_id = world_population_bg0009.SCENE_N_ID
+
+
+def _build_bg0011(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0011.build_bg0011_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0011.COUNT_SOURCE_CALLER,
+    )
+
+
+_build_bg0011.serves_scene_id = world_population_bg0011.SCENE_N_ID
 
 
 def _build_bg0015(legacy, anchor, actor_count, *, scene_id):
@@ -310,7 +375,11 @@ _POPULATION_BUILDERS = {
     COMPOSER_BG0003: _build_bg0003,
     COMPOSER_BG0004: _build_bg0004,
     COMPOSER_BG0005: _build_bg0005,
+    COMPOSER_BG0006: _build_bg0006,
+    COMPOSER_BG0007: _build_bg0007,
     COMPOSER_BG0008: _build_bg0008,
+    COMPOSER_BG0009: _build_bg0009,
+    COMPOSER_BG0011: _build_bg0011,
     COMPOSER_BG0015: _build_bg0015,
 }
 
@@ -507,15 +576,19 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
     # CAN reach this scene's arrival census -- they still reach no combat
     # roster and no strike, because none exists for this scene in
     # field_mobs, the same fact the scene 5 entry records.
-    6: (
-        "Bg0006 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py, registered and opened round fx0007); "
-        "field_mobs names no scene 6 at all, so it has no combat roster and "
-        "no strike can reach a recompose.  This composer IS live (scene 6's "
-        "login_entry_allowed is true), so a player can reach the arrival "
-        "census; there is simply nothing in field_mobs for it to recompose "
-        "against yet."
-    ),
+    # ~~6: "Bg0006 -- lane A's arrival census composes it (lane_hooks/
+    # lane_a_scene_census.py, registered and opened round fx0007);
+    # field_mobs names no scene 6 at all, so it has no combat roster and no
+    # strike can reach a recompose.  This composer IS live (scene 6's
+    # login_entry_allowed is true), so a player can reach the arrival
+    # census; there is simply nothing in field_mobs for it to recompose
+    # against yet."~~ REMOVED THIS ROUND (LANE-B), the same removal (not a
+    # strike-in-place) rounds r6isy5, n8kq4r and oabhhe made for scenes 4,
+    # 14 and 8: ``field_mob_tables_bg0006`` is registered in ``field_mobs
+    # ._SCENE_TABLE_MODULES`` and :data:`COMPOSER_BG0006` above is its
+    # composer (COO-DECISION widen-death-scope-bg0006-two-templates
+    # 2026-09-06T07:48+07:00), so scene 6 no longer belongs in a dict of
+    # scenes that are missing one.
     # ~~8: "Bg0008 -- lane A's arrival census composes it (lane_hooks/
     # lane_a_scene_census.py, registered and opened round p4wire);
     # field_mobs names no scene 8 at all, so it has no combat roster and no
@@ -566,15 +639,18 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
     # census -- they still reach no combat roster and no strike, because
     # none exists for this scene in field_mobs, the same fact the scene
     # 3/5/6/8 entries record.
-    7: (
-        "Bg0007 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py, registered and opened this round); "
-        "field_mobs names no scene 7 at all, so it has no combat roster and "
-        "no strike can reach a recompose.  This composer IS live (scene 7's "
-        "login_entry_allowed is true), so a player can reach the arrival "
-        "census; there is simply nothing in field_mobs for it to recompose "
-        "against yet."
-    ),
+    # ~~7: "Bg0007 -- lane A's arrival census composes it (lane_hooks/
+    # lane_a_scene_census.py, registered and opened this round); field_mobs
+    # names no scene 7 at all, so it has no combat roster and no strike can
+    # reach a recompose.  This composer IS live (scene 7's login_entry_
+    # allowed is true), so a player can reach the arrival census; there is
+    # simply nothing in field_mobs for it to recompose against yet."~~
+    # REMOVED THIS ROUND (LANE-B), the same removal rounds r6isy5, n8kq4r
+    # and oabhhe made for scenes 4, 14 and 8: ``field_mob_tables_bg0007`` is
+    # registered in ``field_mobs._SCENE_TABLE_MODULES`` and
+    # :data:`COMPOSER_BG0007` above is its composer (COO-DECISION
+    # widen-death-scope-bg0007-seven-templates 2026-09-06T07:48+07:00), so
+    # scene 7 no longer belongs in a dict of scenes that are missing one.
     # ADDED ROUND ir0lpw (LANE-A), same shape as the scene 3/5/6/7/8 entries
     # above: scene 9 entered ``world_scene_travel.CENSUS_SOURCES`` this
     # round (built, wired AND opened in one round, same compressed pass
@@ -587,15 +663,18 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
     # this scene's arrival census -- they still reach no combat roster and
     # no strike, because none exists for this scene in field_mobs, the
     # same fact the scene 3/5/6/7/8 entries record.
-    9: (
-        "Bg0009 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py, registered and opened this round); "
-        "field_mobs names no scene 9 at all, so it has no combat roster and "
-        "no strike can reach a recompose.  This composer IS live (scene 9's "
-        "login_entry_allowed is true), so a player can reach the arrival "
-        "census; there is simply nothing in field_mobs for it to recompose "
-        "against yet."
-    ),
+    # ~~9: "Bg0009 -- lane A's arrival census composes it (lane_hooks/
+    # lane_a_scene_census.py, registered and opened this round); field_mobs
+    # names no scene 9 at all, so it has no combat roster and no strike can
+    # reach a recompose.  This composer IS live (scene 9's login_entry_
+    # allowed is true), so a player can reach the arrival census; there is
+    # simply nothing in field_mobs for it to recompose against yet."~~
+    # REMOVED THIS ROUND (LANE-B), the same removal rounds r6isy5, n8kq4r
+    # and oabhhe made for scenes 4, 14 and 8: ``field_mob_tables_bg0009`` is
+    # registered in ``field_mobs._SCENE_TABLE_MODULES`` and
+    # :data:`COMPOSER_BG0009` above is its composer (COO-DECISION
+    # widen-death-scope-bg0009-five-templates 2026-09-06T07:48+07:00), so
+    # scene 9 no longer belongs in a dict of scenes that are missing one.
     # ADDED ROUND 68mm02 (LANE-A), same shape as the scene 3/5/6/7/8/9
     # entries above: scene 11 entered ``world_scene_travel.CENSUS_SOURCES``
     # this round (built, wired AND opened in one round, same compressed
@@ -611,15 +690,21 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
     # elevated-risk row (``the_two_interiors``, shared only with scene 10)
     # -- see this round's own round file for the reasoning, not repeated
     # here.
-    11: (
-        "Bg0011 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py, registered and opened this round); "
-        "field_mobs names no scene 11 at all, so it has no combat roster "
-        "and no strike can reach a recompose.  This composer IS live "
-        "(scene 11's login_entry_allowed is true), so a player can reach "
-        "the arrival census; there is simply nothing in field_mobs for it "
-        "to recompose against yet."
-    ),
+    # ~~11: "Bg0011 -- lane A's arrival census composes it (lane_hooks/
+    # lane_a_scene_census.py, registered and opened this round); field_mobs
+    # names no scene 11 at all, so it has no combat roster and no strike can
+    # reach a recompose.  This composer IS live (scene 11's login_entry_
+    # allowed is true), so a player can reach the arrival census; there is
+    # simply nothing in field_mobs for it to recompose against yet."~~
+    # REMOVED THIS ROUND (LANE-B), the same removal rounds r6isy5, n8kq4r
+    # and oabhhe made for scenes 4, 14 and 8: ``field_mob_tables_bg0011`` is
+    # registered in ``field_mobs._SCENE_TABLE_MODULES`` and
+    # :data:`COMPOSER_BG0011` above is its composer (COO-DECISION
+    # widen-death-scope-bg0011-five-templates 2026-09-06T07:48+07:00), so
+    # scene 11 no longer belongs in a dict of scenes that are missing one.
+    # This scene is also the elevated-risk row (``the_two_interiors``,
+    # shared only with scene 10) named in round 68mm02's own comment above;
+    # nothing about that risk tag changes by having a composer now.
     # ADDED ROUND yfbqmg (LANE-A), same shape as the scene 3/5/6/7/8/9/11
     # entries above: scene 130 entered ``world_scene_travel.CENSUS_SOURCES``
     # this round (built, wired AND opened in one round, the TENTH AND LAST
