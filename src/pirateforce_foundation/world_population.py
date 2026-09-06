@@ -1093,6 +1093,83 @@ def apply_identity_override(
     )
 
 
+def append_census_entries(
+    legacy: Any,
+    generation: WorldPopulationGeneration,
+    entries: tuple[bytes, ...] | list[bytes],
+) -> tuple[bytes, bytes]:
+    """An already-built census, with extra ready-made entry bytes ADDED to it.
+
+    Returns ``(pc, frame)``.  The sibling of :func:`apply_identity_override`:
+    that one REPLACES entry bytes for identities the census already carries,
+    this one APPENDS bodies the census never had.  Same walk over
+    ``WIRE_HEADER_BYTES`` + ``generation.entry_bytes``, same encoder
+    (``legacy.make_runtime_remote_actors`` / ``legacy.frame_pc``) over a wider
+    input, same whole-collection guard.
+
+    WHY A CALLER MUST USE THIS INSTEAD OF ENCODING ITS OWN COLLECTION.
+    ``RE-092`` (2026-08-26 22:23) measured this client's remote-actor consumer
+    as replace-by-omission at COLLECTION scope: a later
+    ``make_runtime_remote_actors`` frame does not merge with the actors already
+    on screen, it replaces the set, so every actor the new collection does not
+    mention is REMOVED.  A second collection carrying only an extra body
+    therefore empties the town down to that body.  Anything that wants to add
+    an actor to a scene the census already announced has to re-send the whole
+    census with the extra entries in it -- which is what this function is.
+
+    ``generation`` IS NOT MODIFIED, AND MUST NOT BE.  ``generation.actor_count``
+    is what ``runtime.py`` stores as ``self.world_census_actor_count`` and hands
+    back to :func:`build_world_population` on every later recompose, and that
+    function refuses any count above ``CENSUS_COUNT``.  A "helpfully" widened
+    count there would turn every later hit into a compose failure, which RE-092
+    says empties the town.  So the extra bodies live in the BYTES and the
+    census's own bookkeeping keeps counting the census -- the same split
+    ``diag_multi_object_wiring.census_frames`` documents for the same reason.
+
+    RAISES ``ValueError`` on any shape it cannot vouch for (bad generation, a
+    non-bytes or empty entry, ``entry_bytes`` that does not account for the
+    whole collection, frame drift).  Callers on the listener thread must catch
+    it -- ``v141:7440`` has no ``except`` above them.
+    """
+    if type(generation) is not WorldPopulationGeneration:
+        raise ValueError(
+            "append_census_entries needs a WorldPopulationGeneration")
+    if type(entries) not in (tuple, list):
+        raise ValueError("entries must be a tuple or list of entry bytes")
+    for position, entry in enumerate(entries):
+        # An entry that encodes to nothing still counts in the collection's
+        # count field, which is the stream-tail misalignment this client
+        # answers with ErrorData=28317 (see build_world_population).
+        if type(entry) is not bytes or not entry:
+            raise ValueError(
+                f"appended entry {position} is not non-empty bytes")
+    if not entries:
+        return generation.pc, generation.frame
+    offset = WIRE_HEADER_BYTES
+    merged = []
+    for length in generation.entry_bytes:
+        merged.append(generation.pc[offset:offset + length])
+        offset += length
+    if offset != len(generation.pc):
+        raise ValueError(
+            "generation.entry_bytes does not account for the whole "
+            "collection: the entries cannot be appended safely"
+        )
+    merged.extend(entries)
+    if len(merged) > 0xFFFF:
+        # The collection count is a u16 (WIRE_COUNT_TAG_OFFSET above).  Refuse
+        # rather than let the encoder wrap it and mis-tell the client how many
+        # bodies follow.
+        raise ValueError(
+            f"appended collection would carry {len(merged)} entries, "
+            "more than the u16 count field can name"
+        )
+    pc, frame = legacy.make_runtime_remote_actors(merged)
+    if frame != legacy.frame_pc(pc):
+        raise ValueError("appended-census frame drift")
+    return pc, frame
+
+
 def census_console_line(generation: WorldPopulationGeneration) -> str:
     """The single ASCII line a boot prints before the census goes on the wire.
 

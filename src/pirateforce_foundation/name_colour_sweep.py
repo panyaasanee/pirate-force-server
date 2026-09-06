@@ -404,12 +404,49 @@ def sweep_actors(legacy: Any, env: dict | None = None) -> tuple[SweepActor, ...]
     return ()
 
 
-def build_sweep_population(legacy: Any, env: dict | None = None) -> tuple[bytes, bytes] | None:
-    """``(pc, frame)`` for the armed set's actors, or ``None`` if unarmed."""
-    actors = sweep_actors(legacy, env)
-    if not actors:
+def unrecognised_env_value(env: dict | None = None) -> str | None:
+    """The raw value of ``PF_NAME_COLOUR_SWEEP`` when it is set but unknown.
+
+    ``None`` when the variable is absent, empty, or names a real set -- so a
+    caller that prints on a non-``None`` return stays silent on every ordinary
+    boot and on both armed boots.
+
+    WHY (chief, round ``ky8m6j``, pf-adversary finding D7).  ``sweep_actors``
+    answers an unknown value with ``()``, which is the right REFUSAL but was
+    indistinguishable, byte for byte and line for line, from a build that has
+    no sweep in it at all: an attended tester who typed
+    ``PF_NAME_COLOUR_SWEEP=true`` got a silent ordinary town and no way to tell
+    a typo from a stale binary.  The caller prints the value back so the
+    console says which of the two happened.
+    """
+    value = (os.environ if env is None else env).get(SWEEP_ENV, "")
+    if not value or value in KNOWN_SETS:
         return None
-    entries = []
+    return value
+
+
+def sweep_entries(legacy: Any, env: dict | None = None) -> tuple[bytes, ...]:
+    """Per-actor entry bytes for the armed set, or ``()`` if unarmed.
+
+    CHIEF EXTRACTION (round ``ky8m6j``), NOT A NEW SELECTOR: this is the loop
+    that was inside :func:`build_sweep_population`, lifted out unchanged so a
+    caller can put these bodies inside SOMEBODY ELSE'S collection instead of
+    encoding a second one.  ``build_sweep_population`` now calls it and its
+    output is byte-identical to before the extraction.
+
+    WHY A CALLER WANTS THE ENTRIES AND NOT THE FRAME.  ``RE-092`` measured the
+    client's remote-actor consumer as replace-by-omission at COLLECTION scope,
+    so sending this row as its own ``make_runtime_remote_actors`` frame does
+    not add eight dummies to the town -- it replaces the town WITH the eight
+    dummies, and the ``N-BASE`` control has no real NPC left to be read
+    against.  ``runtime.py`` therefore appends these entries to the arrival
+    census (``world_population.append_census_entries``) and sends one
+    collection.  ``build_sweep_population`` is kept for tests and for any
+    caller that genuinely wants a standalone collection; it is not the way to
+    put this row on a live screen.
+    """
+    actors = sweep_actors(legacy, env)
+    entries: list[bytes] = []
     for actor in actors:
         movement = legacy.make_remote_movement_attr(
             actor.actor_identity, actor.x, actor.y, actor.z, 0.0,
@@ -420,7 +457,22 @@ def build_sweep_population(legacy: Any, env: dict | None = None) -> tuple[bytes,
             actor.actor_identity,
             [(NPC_ATTR_ID, actor.npc_attr), (MOVEMENT_ATTR_ID, movement)],
         ))
-    pc, frame = legacy.make_runtime_remote_actors(entries)
+    return tuple(entries)
+
+
+def build_sweep_population(legacy: Any, env: dict | None = None) -> tuple[bytes, bytes] | None:
+    """``(pc, frame)`` for the armed set's actors ALONE, or ``None`` if unarmed.
+
+    NOT THE LIVE PATH ANY MORE (chief, round ``ky8m6j``).  A collection that
+    carries only this row erases every other actor on the client -- see
+    :func:`sweep_entries` and RE-092.  Kept because it is a standalone,
+    testable encoding of the same bytes and because callers outside a live
+    scene census (harnesses, byte comparisons) still want it.
+    """
+    entries = sweep_entries(legacy, env)
+    if not entries:
+        return None
+    pc, frame = legacy.make_runtime_remote_actors(list(entries))
     if frame != legacy.frame_pc(pc):
         raise NameColourSweepError("sweep frame drift")
     return pc, frame

@@ -18,17 +18,29 @@ client:
     test runner happened to inherit", because the module reads ``os.environ``
     directly and a leaked variable from another test would make an armed boot
     look like the default one.
-  * ARMED, the row is queued ONCE, on the same scene-arrival frame as the
-    census, and its bytes are the module's own -- compared against an
-    independently computed ``build_sweep_population``, not against a
-    reconstruction of the dispatch's arithmetic.
-  * The row is scheduled AFTER the census reapply (3.5s vs 3.0s), which is the
-    one ordering decision chief made that LANE-B's letter left open.  Pinned
-    here so a round that moves it has to come and change this line and read
-    the reason in ``runtime.py`` first.
-  * The sweep's actor identities are disjoint from the census's.  A collision
-    would mean the row's dummies and real bg0001 mobs fight over the same
-    actor slot in the client's collection.
+  * ARMED, the row goes out INSIDE the census collection and there is NO
+    second ``RuntimeRemoteActors`` frame anywhere.  This is the correction
+    round ``ky8m6j`` owed round ``52u95a``: RE-092 measured this client's
+    remote-actor consumer as replace-by-omission at COLLECTION scope, so a
+    second frame carrying only the dummies would have replaced the whole town
+    with them and destroyed the ``N-BASE`` control the ticket reads against.
+    The regression test for that is
+    ``test_no_second_collection_is_ever_queued``, and it is the most important
+    assertion in this file.
+  * The merged bytes carry the module's own entries -- compared against an
+    independently computed ``sweep_entries``, not against a reconstruction of
+    the dispatch's arithmetic -- and the wire count equals census + row.
+  * ``generation``/``world_census_actor_count`` keep counting the CENSUS.  A
+    widened count is handed back to ``build_world_population`` on every later
+    recompose, which refuses a count above ``CENSUS_COUNT``, and RE-092 says a
+    compose failure there empties the town.
+  * Every refusal path is EXECUTED here, not described: a sibling exception
+    from the module (``FieldMobContractError``, which is NOT a
+    ``NameColourSweepError``) and a merge failure both leave the ordinary
+    census queued and the listener thread alive.
+  * The sweep's actor identities are disjoint from the census's, and are
+    deliberately absent from ``mob_combat_announced_membership``: the row is a
+    read-only colour instrument, not something killable.
 
 NOT proven here, and not provable without a person at a screen: whether the
 client draws any of these dummies at all, and what colour it paints their
@@ -40,10 +52,13 @@ the count back from the module instead.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -51,6 +66,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import name_colour_sweep  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
@@ -194,81 +210,219 @@ class NameColourSweepWiringTests(unittest.TestCase):
 
     # ----- armed ------------------------------------------------------------
 
-    def test_armed_set_1_queues_exactly_one_sweep_action(self):
-        actions = self._arrive(
-            "sweep-armed-1", name_colour_sweep.SET_FACTION,
-        )
-        sweep = self._labelled(actions, SWEEP_LABEL_PREFIX)
-        self.assertEqual(len(sweep), 1, [a[0] for a in actions])
+    def _arrive_capturing(self, token, env_value):
+        """``_arrive``, with the console this boot printed captured too."""
+        env = ({} if env_value is None
+               else {name_colour_sweep.SWEEP_ENV: env_value})
+        console = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True):
+            with contextlib.redirect_stdout(console):
+                state = self._state(token)
+                actions = self._step(state)
+        return state, actions, console.getvalue()
 
-    def test_armed_set_2_queues_exactly_one_sweep_action(self):
-        actions = self._arrive(
-            "sweep-armed-2", name_colour_sweep.SET_ACTOR_TYPE_AND_SKIN,
-        )
-        sweep = self._labelled(actions, SWEEP_LABEL_PREFIX)
-        self.assertEqual(len(sweep), 1, [a[0] for a in actions])
+    def test_no_second_collection_is_ever_queued(self):
+        """THE RE-092 REGRESSION TEST.  Round ``52u95a`` queued the row as its
+        own ``make_runtime_remote_actors`` frame; RE-092 (2026-08-26 22:23)
+        had already measured that a later collection REPLACES the actor set,
+        so that frame would have erased every real NPC in Port Royal and left
+        the ticket reading colours off eight dummies in an empty town.  Armed
+        or unarmed, this dispatch queues exactly two actions from this branch.
+        """
+        for env_value in (
+            name_colour_sweep.SET_FACTION,
+            name_colour_sweep.SET_ACTOR_TYPE_AND_SKIN,
+        ):
+            with self.subTest(env_value=env_value):
+                actions = self._arrive(f"sweep-one-frame-{env_value}",
+                                       env_value)
+                self.assertEqual(
+                    self._labelled(actions, SWEEP_LABEL_PREFIX), [],
+                )
+                census = self._labelled(actions, CENSUS_LABEL_PREFIX)
+                self.assertEqual(len(census), 2, [a[0] for a in actions])
 
-    def test_the_queued_sweep_bytes_are_the_modules_own(self):
-        """Compared against an INDEPENDENT build, not against a rebuild of
-        the dispatch's own arithmetic: the point is that the dispatcher ships
-        what LANE-B's module composed, byte for byte.
+    def test_both_census_actions_carry_the_same_merged_bytes(self):
+        """The row arrives WITH the census and is still there after the
+        reapply repeats it.  Two identical frames is what the census already
+        did before this lane existed; the sweep does not change that shape.
+        """
+        actions = self._arrive("sweep-both", name_colour_sweep.SET_FACTION)
+        census = self._labelled(actions, CENSUS_LABEL_PREFIX)
+        self.assertEqual(census[0][1], census[1][1])
+        self.assertEqual(census[0][2], census[1][2])
+        self.assertEqual(
+            [census[0][3], census[1][3]],
+            [0.0, world_population.INITIAL_REAPPLY_MS / 1000.0],
+        )
+
+    def test_the_merged_bytes_carry_the_modules_own_entries(self):
+        """Compared against an INDEPENDENT build, not against a rebuild of the
+        dispatch's own arithmetic: the point is that the dispatcher ships what
+        LANE-B's module composed, byte for byte, inside its own collection.
         """
         env = {name_colour_sweep.SWEEP_ENV: name_colour_sweep.SET_FACTION}
         with mock.patch.dict(os.environ, env, clear=True):
             state = self._state("sweep-bytes")
             actions = self._step(state)
-            expected = name_colour_sweep.build_sweep_population(self.legacy)
-        self.assertIsNotNone(expected)
-        expected_pc, expected_frame = expected
-        label, pc, frame, _delay = self._labelled(
-            actions, SWEEP_LABEL_PREFIX,
-        )[0]
-        self.assertEqual(pc, expected_pc)
-        self.assertEqual(frame, expected_frame)
+            expected = name_colour_sweep.sweep_entries(self.legacy)
+        self.assertTrue(expected)
+        pc = self._labelled(actions, CENSUS_LABEL_PREFIX)[0][1]
+        for position, entry in enumerate(expected):
+            with self.subTest(entry=position):
+                self.assertIn(entry, pc)
+        start = world_population.WIRE_COUNT_TAG_OFFSET + 1
+        self.assertEqual(
+            int.from_bytes(pc[start:start + 2], "little"),
+            state.world_census_actor_count + len(expected),
+        )
 
-    def test_the_label_carries_the_actor_count_that_went_out(self):
-        """v141 prints ``[G>] <label> (N bytes)`` per queued action at send
-        time, so the label is what an attended tester reads on the console to
-        tell a boot that composed six dummies from one that composed none.
-        A label that disagrees with the row it names is worse than no label.
+    def test_the_label_carries_the_sweep_count_at_send_time(self):
+        """v141 prints ``[G>] <label> (N bytes)`` per queued action at SEND
+        time, so the label is the only sweep token an attended tester sees
+        that proves the row left the server.  The compose-time console line
+        cannot: a socket that dropped between composing and sending prints
+        exactly the same thing.
+        """
+        for env_value in (
+            name_colour_sweep.SET_FACTION,
+            name_colour_sweep.SET_ACTOR_TYPE_AND_SKIN,
+        ):
+            with self.subTest(env_value=env_value):
+                env = {name_colour_sweep.SWEEP_ENV: env_value}
+                with mock.patch.dict(os.environ, env, clear=True):
+                    state = self._state(f"sweep-label-{env_value}")
+                    actions = self._step(state)
+                    expected = len(name_colour_sweep.sweep_actors(self.legacy))
+                labels = [
+                    a[0] for a in self._labelled(actions, CENSUS_LABEL_PREFIX)
+                ]
+                self.assertEqual(len(labels), 2, labels)
+                for label in labels:
+                    self.assertTrue(
+                        label.endswith(f"_SWEEP_{expected}"), label,
+                    )
+
+    def test_the_census_bookkeeping_still_counts_only_the_census(self):
+        """``world_census_actor_count`` is handed back to
+        ``build_world_population`` on every recompose, which refuses a count
+        above ``CENSUS_COUNT``.  A "helpfully" widened count would turn the
+        first hit of the boot into a compose failure -- and RE-092 says a
+        compose failure empties the town.
+        """
+        armed_state, _actions, _console = self._arrive_capturing(
+            "sweep-count-armed", name_colour_sweep.SET_FACTION,
+        )
+        control_state, _actions, _console = self._arrive_capturing(
+            "sweep-count-unarmed", None,
+        )
+        self.assertEqual(
+            armed_state.world_census_actor_count,
+            control_state.world_census_actor_count,
+        )
+        self.assertEqual(
+            armed_state.world_census_indices,
+            control_state.world_census_indices,
+        )
+        self.assertEqual(
+            armed_state.census_anchor_record.actor_count,
+            control_state.census_anchor_record.actor_count,
+        )
+
+    def test_a_sibling_exception_from_the_module_is_caught_not_escaped(self):
+        """``NameColourSweepError`` and ``field_mobs.FieldMobContractError``
+        are SIBLINGS -- both subclass ``ValueError``, neither subclasses the
+        other -- so the narrow ``except NameColourSweepError`` round ``52u95a``
+        wrote never covered the ``load_roster``/``hostile_npc_attr`` raises
+        this path walks through.  An escape here unwinds the listener thread
+        (v141:7440 has no ``except``).  This test EXECUTES that path rather
+        than describing it.
         """
         env = {name_colour_sweep.SWEEP_ENV: name_colour_sweep.SET_FACTION}
+        console = io.StringIO()
         with mock.patch.dict(os.environ, env, clear=True):
-            state = self._state("sweep-label")
-            actions = self._step(state)
-            expected_count = len(name_colour_sweep.sweep_actors(self.legacy))
-        label = self._labelled(actions, SWEEP_LABEL_PREFIX)[0][0]
-        self.assertEqual(label, f"{SWEEP_LABEL_PREFIX}{expected_count}")
+            with mock.patch.object(
+                name_colour_sweep, "sweep_entries",
+                side_effect=field_mobs.FieldMobContractError("roster drift"),
+            ):
+                with contextlib.redirect_stdout(console):
+                    state = self._state("sweep-sibling-raise")
+                    actions = self._step(state)
+        labels = [a[0] for a in self._labelled(actions, CENSUS_LABEL_PREFIX)]
+        self.assertEqual(len(labels), 2, labels)
+        for label in labels:
+            self.assertNotIn("_SWEEP_", label)
+        self.assertIn(
+            "name_colour_sweep_refused_FieldMobContractError", state.events,
+        )
+        self.assertIn("NAME_COLOUR_SWEEP_REFUSED", console.getvalue())
+        self.assertIn("roster drift", console.getvalue())
 
-    def test_the_row_is_scheduled_after_the_census_reapply(self):
-        """Chief's ordering decision, pinned.  The reason is in runtime.py at
-        the wire: nothing in this house has measured what a second
-        RuntimeRemoteActors frame does to actors the first did not mention,
-        and the row exists to be READ off a screen, so it goes out after the
-        census has finished repeating itself.
+    def test_a_merge_refusal_ships_the_untouched_census(self):
+        """Fail closed to the town that shipped yesterday.  An armed boot that
+        cannot splice must send the ordinary census, not a half-built frame
+        and not nothing.
         """
-        actions = self._arrive(
-            "sweep-order", name_colour_sweep.SET_FACTION,
+        env = {name_colour_sweep.SWEEP_ENV: name_colour_sweep.SET_FACTION}
+        console = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(
+                world_population, "append_census_entries",
+                side_effect=ValueError("appended-census frame drift"),
+            ):
+                with contextlib.redirect_stdout(console):
+                    state = self._state("sweep-merge-refused")
+                    armed = self._step(state)
+        armed_census = self._labelled(armed, CENSUS_LABEL_PREFIX)
+        self.assertEqual(len(armed_census), 2)
+        # The census that shipped is this session's OWN untouched census --
+        # asserted against its wire count and its label, not against another
+        # session's bytes: the arrival census carries a per-viewer identity
+        # (CORE-REQUEST-GM-061), so two sessions never agree byte for byte.
+        start = world_population.WIRE_COUNT_TAG_OFFSET + 1
+        for label, pc, _frame, _delay in armed_census:
+            self.assertNotIn("_SWEEP_", label)
+            self.assertEqual(
+                int.from_bytes(pc[start:start + 2], "little"),
+                state.world_census_actor_count,
+            )
+        self.assertIn(
+            "name_colour_sweep_merge_refused_ValueError", state.events,
         )
-        census_delays = [
-            a[3] for a in self._labelled(actions, CENSUS_LABEL_PREFIX)
-        ]
-        sweep_delay = self._labelled(actions, SWEEP_LABEL_PREFIX)[0][3]
-        self.assertEqual(
-            sorted(census_delays),
-            [0.0, world_population.INITIAL_REAPPLY_MS / 1000.0],
+        self.assertIn("NAME_COLOUR_SWEEP_MERGE_REFUSED", console.getvalue())
+
+    def test_an_unknown_env_value_says_so_on_the_console(self):
+        """A typo used to boot an ordinary town in TOTAL silence -- byte for
+        byte and line for line identical to a build with no sweep in it, so a
+        tester could not tell ``PF_NAME_COLOUR_SWEEP=true`` from a stale
+        binary.  Now the console names the value it refused.
+        """
+        _state, actions, console = self._arrive_capturing(
+            "sweep-typo-console", "true",
         )
-        self.assertGreater(sweep_delay, max(census_delays))
-        self.assertEqual(
-            sweep_delay,
-            (world_population.INITIAL_REAPPLY_MS + 500) / 1000.0,
+        self.assertEqual(len(self._labelled(actions, CENSUS_LABEL_PREFIX)), 2)
+        self.assertIn("NAME_COLOUR_SWEEP_UNARMED value=", console)
+        self.assertIn("true", console)
+        self.assertIn(
+            "name_colour_sweep_unarmed_unknown_value", _state.events,
         )
 
-    def test_the_sweep_identities_do_not_collide_with_the_census(self):
+    def test_an_unarmed_boot_prints_no_sweep_line_at_all(self):
+        """The other half of the line above: the console stays clean on every
+        ordinary boot, so the token means something when it appears.
+        """
+        _state, _actions, console = self._arrive_capturing(
+            "sweep-silent", None,
+        )
+        self.assertNotIn("NAME_COLOUR_SWEEP", console)
+
+    def test_the_sweep_identities_are_on_the_wire_but_not_in_combat_membership(
+            self):
         """A shared actor identity would put a dummy and a real bg0001 mob in
-        the same slot of the client's collection, and whichever frame arrived
-        second would win -- which is exactly the kind of result that reads as
-        "the colour experiment did nothing".
+        the same slot of the client's collection.  And the dummies stay OUT of
+        ``mob_combat_announced_membership`` on purpose: the row is a read-only
+        colour instrument, so a swing at one is declined rather than accepted
+        into a combat state nothing here maintains.
         """
         env = {name_colour_sweep.SWEEP_ENV: name_colour_sweep.SET_FACTION}
         with mock.patch.dict(os.environ, env, clear=True):
@@ -284,11 +438,11 @@ class NameColourSweepWiringTests(unittest.TestCase):
         self.assertTrue(sweep_identities)
         self.assertEqual(sweep_identities & census_identities, set())
 
-    def test_the_row_is_queued_once_per_session_not_once_per_frame(self):
+    def test_the_row_is_merged_once_per_session_not_once_per_frame(self):
         """The census branch is one-shot per session (``world_census_sent``
         latches).  The sweep is inside it, so it inherits that -- but the
         inheritance is the claim, and a future edit that moves the block one
-        indent level out would silently re-send six dummies on every step.
+        indent level out would silently re-send the row on every step.
         """
         env = {name_colour_sweep.SWEEP_ENV: name_colour_sweep.SET_FACTION}
         with mock.patch.dict(os.environ, env, clear=True):
@@ -296,9 +450,112 @@ class NameColourSweepWiringTests(unittest.TestCase):
             first = self._step(state)
             second = self._step(state, xyz=(11.0, 21.0, 31.0))
             third = self._step(state, xyz=(12.0, 22.0, 32.0))
-        self.assertEqual(len(self._labelled(first, SWEEP_LABEL_PREFIX)), 1)
-        self.assertEqual(self._labelled(second, SWEEP_LABEL_PREFIX), [])
-        self.assertEqual(self._labelled(third, SWEEP_LABEL_PREFIX), [])
+        self.assertTrue(
+            all("_SWEEP_" in a[0]
+                for a in self._labelled(first, CENSUS_LABEL_PREFIX))
+        )
+        self.assertEqual(self._labelled(second, CENSUS_LABEL_PREFIX), [])
+        self.assertEqual(self._labelled(third, CENSUS_LABEL_PREFIX), [])
+
+
+class AppendCensusEntriesTests(unittest.TestCase):
+    """``world_population.append_census_entries`` on its own.
+
+    The sibling of ``apply_identity_override``: that one REPLACES entry bytes
+    for identities the census already carries, this one APPENDS bodies it
+    never had.  Every refusal below is a shape that would otherwise reach
+    ``make_runtime_remote_actors`` and mis-tell the client how many bodies
+    follow -- the stream-tail misalignment this client answers with
+    ErrorData=28317.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+
+    def _generation(self):
+        anchor = (100.0, 200.0, 300.0)
+        return world_population.build_world_population(
+            self.legacy, anchor, 3,
+            scene_id=world_population.SCENE_ID,
+        )
+
+    def test_appending_nothing_returns_the_untouched_bytes(self):
+        generation = self._generation()
+        pc, frame = world_population.append_census_entries(
+            self.legacy, generation, (),
+        )
+        self.assertEqual(pc, generation.pc)
+        self.assertEqual(frame, generation.frame)
+
+    def test_appending_widens_the_wire_count_and_keeps_the_originals(self):
+        generation = self._generation()
+        extra = name_colour_sweep.sweep_entries(
+            self.legacy, {name_colour_sweep.SWEEP_ENV:
+                          name_colour_sweep.SET_FACTION},
+        )
+        self.assertTrue(extra)
+        pc, frame = world_population.append_census_entries(
+            self.legacy, generation, extra,
+        )
+        self.assertEqual(frame, self.legacy.frame_pc(pc))
+        start = world_population.WIRE_COUNT_TAG_OFFSET + 1
+        self.assertEqual(
+            int.from_bytes(pc[start:start + 2], "little"),
+            generation.actor_count + len(extra),
+        )
+        # every original body still there, in front of every new one
+        offset = world_population.WIRE_HEADER_BYTES
+        for length in generation.entry_bytes:
+            self.assertIn(generation.pc[offset:offset + length], pc)
+            offset += length
+        for entry in extra:
+            self.assertIn(entry, pc)
+
+    def test_the_generation_itself_is_not_modified(self):
+        generation = self._generation()
+        before = (generation.pc, generation.frame, generation.actor_count,
+                  generation.entry_bytes)
+        world_population.append_census_entries(
+            self.legacy, generation, (b"\x01\x02",),
+        )
+        self.assertEqual(
+            before,
+            (generation.pc, generation.frame, generation.actor_count,
+             generation.entry_bytes),
+        )
+
+    def test_an_empty_or_non_bytes_entry_is_refused(self):
+        generation = self._generation()
+        for bad in (b"", "not bytes", None, bytearray(b"\x01")):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    world_population.append_census_entries(
+                        self.legacy, generation, (bad,),
+                    )
+
+    def test_a_generation_whose_entry_bytes_do_not_span_the_pc_is_refused(self):
+        generation = self._generation()
+        broken = replace(
+            generation, entry_bytes=generation.entry_bytes[:-1],
+        )
+        with self.assertRaises(ValueError):
+            world_population.append_census_entries(
+                self.legacy, broken, (b"\x01\x02",),
+            )
+
+    def test_something_that_is_not_a_generation_is_refused(self):
+        with self.assertRaises(ValueError):
+            world_population.append_census_entries(
+                self.legacy, object(), (b"\x01",),
+            )
+
+    def test_entries_must_be_a_sequence_not_a_bare_bytes_object(self):
+        generation = self._generation()
+        with self.assertRaises(ValueError):
+            world_population.append_census_entries(
+                self.legacy, generation, b"\x01\x02",
+            )
 
 
 if __name__ == "__main__":

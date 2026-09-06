@@ -11989,107 +11989,117 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 self.mob_combat_announced_membership_generation,
                             )
                         )
-                        # The count is in the LABEL too: v141 prints every
-                        # queued action as "[G>] <label> (N bytes)" at SEND
-                        # time (v141:7762), so the attended tester can tell the
-                        # four staircase boots apart from the console alone,
-                        # and a boot that composed but never sent is visibly
-                        # different from one that sent.  Labels keep the
-                        # CENSUS count (generation.actor_count) so no existing
-                        # grep moves -- the DIAG_CENSUS line above carries the
-                        # diagnostic +5 separately.
-                        census_actions = [
-                            (
-                                "WORLD_CENSUS_INITIAL_"
-                                f"{generation.actor_count}",
-                                census_pc, census_frame, 0.0,
-                            ),
-                            (
-                                "WORLD_CENSUS_REAPPLY_"
-                                f"{generation.actor_count}",
-                                census_pc, census_frame,
-                                world_population.INITIAL_REAPPLY_MS / 1000.0,
-                            ),
-                        ]
                         # CORE-REQUEST (LANE-B, pf_bridge
-                        # notes_to_chief/20260907_0027): RE-155's dummy row.
-                        # LANE-B owns the module and may not edit this file,
-                        # so the single call site is chief's half, wired the
-                        # round the request arrived (CHIEF.md section 6).
+                        # notes_to_chief/20260907_0027): RE-155's labelled
+                        # dummy row, composed INSIDE this census.  LANE-B owns
+                        # the module and may not edit this file, so the single
+                        # call site is chief's half (CHIEF.md section 6).
                         #
-                        # TWO DECISIONS THE REQUEST ASKED CHIEF TO MAKE, AND
-                        # WHY EACH WENT THE WAY IT DID:
+                        # 1. WHERE.  Here, in the scene-arrival census branch,
+                        #    NOT beside `pose_trial` at the combat echo.
+                        #    `pose_trial` is a per-connection reply to one
+                        #    player's swing, while the shared-world rule
+                        #    (PANYA 1057/1140) says the world of a scene is
+                        #    shared by every session in it.  The sweep is
+                        #    scene furniture -- a labelled row standing in
+                        #    bg0001 -- so it is composed exactly where the
+                        #    rest of that scene's population is composed.
+                        #    NONCLAIM: identical-per-session is NOT one shared
+                        #    row registered in LANE-A's world registry.
+                        #    `sweep_entries` is a pure function of (anchor,
+                        #    env) and writes nothing to the registry, so two
+                        #    sessions each get their own copy that agrees.
+                        #    Enough for a read-only colour instrument with no
+                        #    combat state; NOT enough for anything killable,
+                        #    and nothing here may be reused for one.
                         #
-                        # 1. WHERE.  Here, in the scene-arrival census
-                        #    branch, NOT beside `pose_trial` at the combat
-                        #    echo.  LANE-B's own letter argued this and it
-                        #    is right for the reason it gave: `pose_trial`
-                        #    is a per-connection reply to one player's swing,
-                        #    while the shared-world rule (PANYA 1057/1140)
-                        #    says the world of a scene is shared by every
-                        #    session in it.  The sweep is scene furniture --
-                        #    a labelled row standing in bg0001 -- so it is
-                        #    composed exactly where the rest of that scene's
-                        #    population is composed, from the same `legacy`
-                        #    and the same anchor, and every session entering
-                        #    the scene composes the identical row.
-                        #    NONCLAIM: identical-per-session is NOT the same
-                        #    as one shared row registered in LANE-A's world
-                        #    registry.  `build_sweep_population` is a pure
-                        #    function of (anchor, env) and writes nothing to
-                        #    the registry, so two sessions each get their own
-                        #    copy that happens to agree.  For a read-only
-                        #    colour instrument with no combat state that is
-                        #    enough, and TWO_SESSIONS_SAME_SCENE holds for
-                        #    what the tester reads off the nameboard; it
-                        #    would NOT be enough for anything killable, and
-                        #    nothing here may be reused for one.
+                        # 2. ONE COLLECTION, NOT TWO.  R380 queued this row as
+                        #    its OWN make_runtime_remote_actors frame after the
+                        #    census reapply.  pf-adversary measured that this
+                        #    is fatal and the measurement was already in the
+                        #    house: RE-092 (2026-08-26 22:23) proved this
+                        #    client's remote-actor consumer is
+                        #    replace-by-omission at COLLECTION scope, so the
+                        #    second frame would not add eight dummies to Port
+                        #    Royal -- it would replace Port Royal WITH the
+                        #    eight dummies, destroying the `N-BASE` control the
+                        #    ticket exists to read against (PANYA 2142 put the
+                        #    row in town precisely for that comparison).  The
+                        #    entries are therefore appended to this census and
+                        #    ONE collection goes out, the same shape
+                        #    `mob_death.hostile_census_frames` and
+                        #    `diag_multi_object_wiring.census_frames` already
+                        #    use for the same reason.  With one frame the
+                        #    ordering question R380 spent a paragraph on
+                        #    (0.0s vs 3.5s) does not exist: the row arrives
+                        #    with the census, on both the INITIAL and the
+                        #    REAPPLY.
                         #
-                        # 2. WHEN.  After the REAPPLY, not with the INITIAL.
-                        #    The census above sends the same bytes twice, the
-                        #    second time at INITIAL_REAPPLY_MS.  RE-222-RESULT
-                        #    measured this client's actor apply path to have
-                        #    "full-object replacement semantics"
-                        #    (quoted at mob_viewer_link.py:43-54).  Read
-                        #    strictly that is per-OBJECT, and the sweep's
-                        #    identities (SWEEP_PLACEMENT_BASE 20000+) appear
-                        #    in no census entry, so a reapply of the census
-                        #    should not touch them.  [PROPOSED, NOT MEASURED:]
-                        #    nothing in this house has measured what a second
-                        #    RuntimeRemoteActors frame does to actors the
-                        #    first one did not mention, and the whole point
-                        #    of the row is that a human reads it off the
-                        #    screen.  Half a second past the reapply costs
-                        #    the tester 3.5s and removes the one ordering
-                        #    that could explain an empty screen as anything
-                        #    other than the answer.  A round that MEASURES
-                        #    the collection semantics may move this to 0.0.
+                        # 3. `generation` IS NOT WIDENED.  actor_count keeps
+                        #    counting the census: it is handed back to
+                        #    build_world_population on every recompose, which
+                        #    refuses a count above CENSUS_COUNT.  The dummies
+                        #    live in the BYTES only.
+                        #
+                        # 4. THE DUMMIES ARE DELIBERATELY NOT IN
+                        #    `mob_combat_announced_membership` (stamped a few
+                        #    lines above from generation.actor_identities).
+                        #    They are a read-only colour instrument: a swing at
+                        #    one is declined by the membership check rather
+                        #    than accepted into a combat state nothing here
+                        #    maintains.  A round that ever wants these bodies
+                        #    killable owes the registry work in point 1, not a
+                        #    membership line here.
                         #
                         # Unarmed is the default and is byte-identical to
-                        # before this block: `build_sweep_population` returns
-                        # None unless PF_NAME_COLOUR_SWEEP is 1 or 2, so no
-                        # ordinary boot composes, sends or pays for anything
-                        # here.  A refusal from an ARMED sweep is caught and
-                        # printed rather than raised: this branch runs on the
-                        # listener thread with no except above it (see the
-                        # viewer_identity comment a few hundred lines up),
-                        # and an attended tester who armed the env deserves
-                        # to read why the row is missing on the console they
-                        # are already watching, not to lose the session.
+                        # before this block: `sweep_entries` returns () unless
+                        # PF_NAME_COLOUR_SWEEP is 1 or 2, so no ordinary boot
+                        # composes, sends or pays for anything here.
+                        #
+                        # EVERY refusal below catches `Exception`, not
+                        # `NameColourSweepError`.  pf-adversary measured that
+                        # NameColourSweepError and field_mobs
+                        # .FieldMobContractError are SIBLINGS (both subclass
+                        # ValueError), so the narrow catch R380 wrote never
+                        # covered the load_roster()/hostile_npc_attr() raises
+                        # this path walks through, and an escape unwinds the
+                        # listener thread (v141:7440 has no except).  Same
+                        # catch-all, same reason, as the census composer above
+                        # and world_density.m1_console_line below.
+                        sweep_suffix = ""
                         try:
-                            sweep_population = (
-                                name_colour_sweep.build_sweep_population(legacy)
+                            sweep_bodies = name_colour_sweep.sweep_entries(
+                                legacy,
                             )
-                        except name_colour_sweep.NameColourSweepError as exc:
-                            sweep_population = None
-                            self.events.append("name_colour_sweep_refused")
+                        except Exception as error:  # noqa: BLE001
+                            sweep_bodies = ()
+                            self.events.append(
+                                "name_colour_sweep_refused_"
+                                f"{type(error).__name__}"
+                            )
                             print(
                                 "NAME_COLOUR_SWEEP_REFUSED "
-                                f"{ascii(str(exc))}"
+                                f"{type(error).__name__} "
+                                f"{ascii(str(error))}"
                             )
-                        if sweep_population is not None:
-                            sweep_pc, sweep_frame = sweep_population
-                            # NOT DECORATION, AND NOT A TEST BEING APPEASED.
+                        if sweep_bodies and self.diag_multi_objects:
+                            # Two attended diagnostics, one collection.  The
+                            # diag splice above already rebuilt census_pc from
+                            # `generation` plus its own five bodies, and
+                            # appending to `generation` again here would drop
+                            # them.  Refuse the newer one loudly instead of
+                            # silently erasing the older one; nothing needs
+                            # both armed at once.
+                            self.events.append(
+                                "name_colour_sweep_refused_diag_active"
+                            )
+                            print(
+                                "NAME_COLOUR_SWEEP_REFUSED diag_multi_object "
+                                f"active objects={len(self.diag_multi_objects)}"
+                            )
+                            sweep_bodies = ()
+                        if sweep_bodies:
+                            # NOT DECORATION.
                             # `tests/test_gm_p2_color_call_site_tripwire.py`
                             # scans every module that composes NPCAttr bytes
                             # and mentions a P-2 colour token, and it went RED
@@ -12098,16 +12108,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # code may put a colour experiment on the wire
                             # without consulting the standing refusal
                             # (faction-only banned, COO-DECISION 20260905_2348;
-                            # no hardcoded FontStyleID), and this branch is
-                            # exactly such a place.  The verdict is KEPT and
-                            # PRINTED rather than read and branched on,
-                            # because there is no colour DECISION here to gate
-                            # -- the row exists so a human can grade a colour
-                            # off the nameboard.  What the console line buys
-                            # the attended tester is the reminder, in front of
-                            # them at the boot that matters, that a candidate
-                            # coming back a different colour is an OBSERVATION
-                            # and not permission to wire that field.
+                            # no hardcoded FontStyleID).  The verdict is KEPT
+                            # and PRINTED rather than branched on, because
+                            # there is no colour DECISION here to gate -- the
+                            # row exists so a human can grade a colour off the
+                            # nameboard, and a candidate coming back a
+                            # different colour is an OBSERVATION, not
+                            # permission to wire that field.
                             colour_verdict = (
                                 name_color_gate.p2_color_wiring_verdict()
                             )
@@ -12116,19 +12123,85 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 f"allowed={colour_verdict.allowed} "
                                 f"blockers={len(colour_verdict.blockers)}"
                             )
-                            sweep_count = len(
-                                name_colour_sweep.sweep_actors(legacy)
+                            try:
+                                census_pc, census_frame = (
+                                    world_population.append_census_entries(
+                                        legacy, generation, sweep_bodies,
+                                    )
+                                )
+                            except Exception as error:  # noqa: BLE001
+                                # Fail closed to the census that was already
+                                # built: an armed boot that cannot merge ships
+                                # the ordinary town, not a broken frame and
+                                # not a dead listener thread.
+                                self.events.append(
+                                    "name_colour_sweep_merge_refused_"
+                                    f"{type(error).__name__}"
+                                )
+                                print(
+                                    "NAME_COLOUR_SWEEP_MERGE_REFUSED "
+                                    f"{type(error).__name__} "
+                                    f"{ascii(str(error))}"
+                                )
+                            else:
+                                # The count goes in the LABEL, not only in a
+                                # compose-time print: v141:7762 prints every
+                                # queued action as "[G>] <label> (N bytes)" at
+                                # SEND time, so a socket that dropped between
+                                # composing and sending is visibly different
+                                # from a row that went out.  The census count
+                                # itself is untouched, so no existing grep
+                                # moves.
+                                sweep_suffix = f"_SWEEP_{len(sweep_bodies)}"
+                                self.events.append(
+                                    "name_colour_sweep_merged_"
+                                    f"{len(sweep_bodies)}"
+                                )
+                                print(
+                                    "NAME_COLOUR_SWEEP_ARMED "
+                                    f"actors={len(sweep_bodies)} "
+                                    f"census_actors={generation.actor_count} "
+                                    f"pc={len(census_pc)} "
+                                    f"frame={len(census_frame)}"
+                                )
+                        else:
+                            unrecognised = (
+                                name_colour_sweep.unrecognised_env_value()
                             )
-                            census_actions.append((
-                                f"NAME_COLOUR_SWEEP_{sweep_count}",
-                                sweep_pc, sweep_frame,
-                                (world_population.INITIAL_REAPPLY_MS + 500)
-                                / 1000.0,
-                            ))
-                            print(
-                                f"NAME_COLOUR_SWEEP_ARMED actors={sweep_count}"
-                                f" pc={len(sweep_pc)} frame={len(sweep_frame)}"
-                            )
+                            if unrecognised is not None:
+                                # A typo used to boot an ordinary town in
+                                # total silence -- indistinguishable from a
+                                # build with no sweep in it (pf-adversary D7).
+                                self.events.append(
+                                    "name_colour_sweep_unarmed_unknown_value"
+                                )
+                                print(
+                                    "NAME_COLOUR_SWEEP_UNARMED value="
+                                    f"{ascii(unrecognised)}"
+                                )
+                        # The count is in the LABEL too: v141 prints every
+                        # queued action as "[G>] <label> (N bytes)" at SEND
+                        # time (v141:7762), so the attended tester can tell the
+                        # four staircase boots apart from the console alone,
+                        # and a boot that composed but never sent is visibly
+                        # different from one that sent.  Labels keep the
+                        # CENSUS count (generation.actor_count) so no existing
+                        # grep moves -- the DIAG_CENSUS line above carries the
+                        # diagnostic +5 separately, and the sweep suffix is
+                        # empty on every unarmed boot.
+                        census_actions = [
+                            (
+                                "WORLD_CENSUS_INITIAL_"
+                                f"{generation.actor_count}{sweep_suffix}",
+                                census_pc, census_frame, 0.0,
+                            ),
+                            (
+                                "WORLD_CENSUS_REAPPLY_"
+                                f"{generation.actor_count}{sweep_suffix}",
+                                census_pc, census_frame,
+                                world_population.INITIAL_REAPPLY_MS / 1000.0,
+                            ),
+                        ]
 
             if self.arena_scenario is not None and self.arena_spawned:
                 if (
