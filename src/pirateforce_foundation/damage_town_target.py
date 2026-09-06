@@ -12,12 +12,31 @@ Iron Man four times, the owner photographed **891** on screen, and the server
 console printed `damage announced -891, applied 891` with the dummy's HP
 moving 192779 -> 189215.  Two independent layers, one number.
 
-    That pair -- a number on a screen and the same number on the wire -- is
-    the only thing that makes a damage formula more than arithmetic, and it
-    is what this module pins.  `mob_combat.py` already carries one such pin
-    (`pin_attacker`/`pin_subject`, the GT-035 ladder).  This is the SECOND
-    watched ladder, on a different actor, and it is the first one on the
-    dummy this lane actually tests against.
+    891 IS NOT A NEW PIN, AND THIS MODULE DOES NOT PRETEND IT IS.  A draft of
+    this docstring said the tree gained its first guard on that number this
+    round.  pf-adversary refuted it out of THIS LANE'S OWN FILES, landed
+    2026-09-05: `tests/test_damage_by_skill.py` (`assertEqual(expected_damage,
+    891)` against template 916), `tests/test_damage_by_class_skill.py`
+    (`assertEqual(expected, 891)` for all five classes) and LANE-B's
+    `tests/test_mob_combat.py` (`(891, 223)` for every shipped scene-1 mob)
+    all go red already if `ATK_BASE` or `MOB_ABILITY_CON` moves.  Anyone
+    reading this module for coverage of the formula constants should read
+    those three first.
+
+    What was NOT in the tree before this round, and is what this module is
+    for, is the join between that number and a human eye:
+
+      - the observed literals from R322C, so a future reader can see what was
+        watched rather than only what the code computes;
+      - the only assertion in the tree that reads
+        `runtime.MOB_COMBAT_DEFAULT_ATTACKER` -- the constant that decides
+        what a player actually swings with -- rather than
+        `mob_combat.pin_attacker()` directly.  The three pins above would all
+        stay green if `runtime.py` were repointed at a different attacker
+        tomorrow; the player-visible number would change and nothing would
+        say so;
+      - a clamp-aware ladder (see `applied_damage`), which the three pins do
+        not model at all.
 
 NO NEW ARITHMETIC, NO RE-TYPED CONSTANT.  Every number below that takes part
 in the calculation comes from somewhere else and is imported, never copied:
@@ -74,10 +93,18 @@ NONCLAIMS.
     frozen formula (`mob_combat.py`'s docstring carries its provenance); what
     R322C proves is that the server's number reaches the player's screen
     unchanged, not that the client would have computed the same one.
-  - Does not claim anything about a weapon.  The Paladin in R322C was
-    unarmed; step 3 of `GT-274` (equip, then hit again) was NOT run because
-    `GT-272` has not passed.  Nothing here says what an equipped character
-    does.
+  - Does not claim anything about a weapon, and cannot: damage reads no
+    equipment field at all, and `combat_pose.equip_type_for_class` reads the
+    CLASS's starting right hand rather than what is equipped (its own
+    docstring names that seam).  Step 3 of `GT-274` (equip, then hit again)
+    was NOT run because `GT-272` has not passed -- but even had it run, the
+    pose half would have printed the same `equip_type`.
+  - Does not claim the four observed numbers can be re-derived.  891 can (see
+    the arithmetic above); 192779 CANNOT -- it is not in any committed table.
+    It is the dummy's HP inside ONE connection's combat ledger, which
+    `runtime.py` opens per connection, so a second player in the same scene
+    would have seen 198125 at that instant.  It is recorded here as what the
+    console printed, and nothing computes from it.
   - Does not claim a skill was involved.  The four hits were the bare-hit
     path (`mob_combat.attack_from_observed_action`, LANE-B's), which reads no
     skill id at all -- see `damage_by_skill.py`'s docstring for that split.
@@ -124,24 +151,59 @@ def town_target_defender(mob: Any) -> Combatant:
     return mob_combat.mob_defender(mob)
 
 
-def on_screen_damage(attacker: Combatant, mob: Any) -> int:
-    """What one hit from ``attacker`` prints on the player's screen.
+def unclamped_hit_damage(attacker: Combatant, mob: Any) -> int:
+    """The formula's answer for one hit, BEFORE the ledger clamps it.
 
-    The name is the claim R322C earned: for that actor, on that date, the
-    number this returns is the number the owner photographed.
+    Named for what it is, not for what R322C happened to see.  A draft of
+    this function was called ``on_screen_damage`` and its docstring said "what
+    one hit prints on the player's screen"; pf-adversary showed that is false
+    on the last hit of a kill, where `mob_combat.apply_hit` sends
+    ``min(requested, remaining HP)`` and the client prints THAT.  On the
+    dummy's 223rd hit the wire carries -323, not -891.  The screen and this
+    number agree only while the target has room, which is the one condition
+    R322C was measured under and the one condition a reader would otherwise
+    assume always holds.  Use :func:`applied_damage` when the target may be
+    near death.
     """
     return mob_combat.resolve_damage(attacker, town_target_defender(mob))
 
 
+def applied_damage(attacker: Combatant, mob: Any, current_hp: int) -> int:
+    """What the client actually prints for one hit at ``current_hp``.
+
+    The clamp is `mob_combat.apply_hit`'s own (``applied = min(requested,
+    current_hp - HP_FLOOR)``), mirrored here in terms of that module's own
+    floor constant rather than a re-typed zero, because this function has no
+    ledger to ask.  Returns 0 for a hit on something already at the floor --
+    the case `apply_hit` answers with silence rather than a frame.
+    """
+    if type(current_hp) is not int or type(current_hp) is bool or (
+            current_hp < mob_combat.HP_FLOOR):
+        raise TownTargetDamageError(
+            "current_hp must be an int at or above the floor")
+    room = current_hp - mob_combat.HP_FLOOR
+    return min(unclamped_hit_damage(attacker, mob), room)
+
+
 def hp_after_hits(
         attacker: Combatant, mob: Any, hp_before: int, hits: int) -> int:
-    """The dummy's HP after ``hits`` uninterrupted hits, floored at zero.
+    """The dummy's HP after ``hits`` uninterrupted hits.
 
     Written as the trace R322C actually recorded (192779 -> 189215 over four
-    hits) so the pin can check the ladder, not just one subtraction.
+    hits) so the pin can check the ladder, not just one subtraction.  It walks
+    the hits one at a time through :func:`applied_damage` rather than
+    multiplying, because multiplying models the wrong thing at the end of a
+    kill: the last hit is clamped, and a caller who wants to know how many
+    hits the dummy has left is asking exactly about that hit.
     """
     if type(hits) is not int or type(hits) is bool or hits < 0:
         raise TownTargetDamageError("hits must be a non-negative int")
     if type(hp_before) is not int or type(hp_before) is bool or hp_before < 0:
         raise TownTargetDamageError("hp_before must be a non-negative int")
-    return max(0, hp_before - hits * on_screen_damage(attacker, mob))
+    current = hp_before
+    for _ in range(hits):
+        landed = applied_damage(attacker, mob, current)
+        if landed == 0:
+            break
+        current -= landed
+    return current

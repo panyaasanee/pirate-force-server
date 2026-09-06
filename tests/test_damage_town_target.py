@@ -77,7 +77,7 @@ class TheNumberTheOwnerSaw(unittest.TestCase):
         # every player today, so if that constant is ever pointed at the real
         # character this pin is what notices.
         self.assertEqual(
-            damage_town_target.on_screen_damage(
+            damage_town_target.unclamped_hit_damage(
                 runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob()),
             damage_town_target.R322C_OBSERVED_DAMAGE_PER_HIT,
         )
@@ -92,24 +92,50 @@ class TheNumberTheOwnerSaw(unittest.TestCase):
             damage_town_target.R322C_OBSERVED_HP_AFTER,
         )
 
-    def test_the_watched_number_is_nowhere_near_the_min_hit_floor(self):
-        # A pin that silently sits on the clamp would keep passing after the
-        # formula collapsed, so the pin states it is off the floor.
-        self.assertGreater(
-            damage_town_target.R322C_OBSERVED_DAMAGE_PER_HIT,
-            mob_combat.MIN_HIT,
+    def test_the_computed_number_is_off_the_min_hit_floor(self):
+        # A draft of this test compared two literals (891 > MIN_HIT) and would
+        # have stayed green with ATK_BASE/K_ATK_STR/K_ATK_LV all zeroed --
+        # pf-adversary named that input.  It now calls the function, so a
+        # formula that collapses onto the floor fails here.
+        computed = damage_town_target.unclamped_hit_damage(
+            runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob())
+        self.assertGreater(computed, mob_combat.MIN_HIT)
+        self.assertLess(computed, field_mobs.TOWN_TARGET_MAX_HP)
+
+    def test_the_last_hit_of_a_kill_is_clamped_not_the_watched_number(self):
+        # The screen shows the CLAMPED number on a hit that ends at zero, so
+        # the module must not promise 891 there.  R322C never watched this
+        # case: it is asserted against mob_combat's own clamp rule, and named
+        # in the module docstring as unwatched.
+        mob = town_target_mob()
+        attacker = runtime.MOB_COMBAT_DEFAULT_ATTACKER
+        full = damage_town_target.unclamped_hit_damage(attacker, mob)
+        self.assertEqual(
+            damage_town_target.applied_damage(attacker, mob, full - 1),
+            full - 1,
         )
-        self.assertLess(
-            damage_town_target.R322C_OBSERVED_DAMAGE_PER_HIT,
-            field_mobs.TOWN_TARGET_MAX_HP,
+        self.assertEqual(
+            damage_town_target.applied_damage(attacker, mob, full + 1), full)
+        self.assertEqual(
+            damage_town_target.applied_damage(
+                attacker, mob, mob_combat.HP_FLOOR),
+            0,
         )
+
+    def test_the_ladder_walks_hits_instead_of_multiplying(self):
+        # Multiplying overshoots at the end of a kill; walking does not.
+        mob = town_target_mob()
+        attacker = runtime.MOB_COMBAT_DEFAULT_ATTACKER
+        full = damage_town_target.unclamped_hit_damage(attacker, mob)
+        self.assertEqual(
+            damage_town_target.hp_after_hits(attacker, mob, full + 5, 2), 0)
 
     def test_hits_and_hp_refuse_nonsense_by_name(self):
         for bad in (-1, True, 1.0, "4"):
             with self.assertRaises(damage_town_target.TownTargetDamageError):
                 damage_town_target.hp_after_hits(
                     runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob(),
-                    100, bad)
+                    100000, bad)
             with self.assertRaises(damage_town_target.TownTargetDamageError):
                 damage_town_target.hp_after_hits(
                     runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob(),
@@ -135,8 +161,18 @@ class TheClassCannotEnterTheNumber(unittest.TestCase):
     """
 
     def test_the_combatant_record_carries_no_class_or_skill_field(self):
+        # Deliberately NOT an exact-set assertion.  A draft pinned the field
+        # set exactly, which would have gone red -- in a LANE-CS file, with a
+        # message about classes -- the day LANE-B lands the paired-model
+        # adoption its own module already costs out (mob_combat.py's
+        # REAL_DAMAGE_ATTACK_HALF / REAL_DEFENCE_DEFERRED_BECAUSE).  What this
+        # lane may hold LANE-B to is the absence of a class or skill term, not
+        # the absence of every future term.
         fields = set(mob_combat.Combatant.__dataclass_fields__)
-        self.assertEqual(fields, {"level", "ability_str", "ability_con"})
+        self.assertLessEqual({"level", "ability_str", "ability_con"}, fields)
+        for name in fields:
+            self.assertNotIn("class", name)
+            self.assertNotIn("skill", name)
 
     def test_two_attackers_differing_only_in_nothing_but_class_cannot_exist(self):
         # Stated as construction rather than prose: the record cannot even be
@@ -155,7 +191,7 @@ class ThisModuleAddsNoArithmeticOfItsOwn(unittest.TestCase):
     )
 
     def test_it_defines_none_of_the_formula_constants(self):
-        tree = ast.parse(MODULE_PATH.read_text(encoding="ascii"))
+        tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
         assigned = {
             target.id
             for node in ast.walk(tree)
@@ -167,7 +203,7 @@ class ThisModuleAddsNoArithmeticOfItsOwn(unittest.TestCase):
             self.assertNotIn(name, assigned, "%s re-typed here" % name)
 
     def test_the_only_module_level_numbers_are_the_four_observations(self):
-        tree = ast.parse(MODULE_PATH.read_text(encoding="ascii"))
+        tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
         observed = {}
         for node in tree.body:
             if not isinstance(node, ast.Assign):
