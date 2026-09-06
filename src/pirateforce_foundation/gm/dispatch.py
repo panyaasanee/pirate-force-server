@@ -62,6 +62,7 @@ from . import accounts as gm_accounts
 from .activity_cheat_code_wire import ACTIVITY_CHEAT_CODE_VITAL_ID
 from .command_capture import (
     DEFAULT_CAPTURE_ROOT,
+    CaptureFileNotVerifiedRemoved,
     capture_raw_activity_cheat_code,
     capture_raw_gm_command,
 )
@@ -272,10 +273,58 @@ MAX_CAPTURED_BYTES_PER_ACCOUNT = 50 * 1024 * 1024  # 50 MiB
 # charging the quota too much fails closed slightly earlier than the real
 # disk usage would; charging it too little would let real usage exceed the
 # stated cap, which this guard exists to prevent.
+#
+# pf-adversary (round `vq07el`, D9 -- not fixed that round, first task of
+# round `40bjg7`): everything above charges CONTENT bytes, but
+# MAX_CAPTURED_BYTES_PER_ACCOUNT is a cap on DISK usage (the module comment
+# above it says "certifying exact disk usage"), and one authorized call is
+# always exactly one new file (`command_capture.py`'s collision-suffix loop
+# never reuses a name) -- a file smaller than one filesystem block still
+# consumes a whole block on disk. Measured this round, not assumed:
+# `os.stat().st_blocks * 512` on this container's filesystem
+# (`os.statvfs().f_bsize == 4096`) for files of 1, 100, 2048 and 4096
+# content bytes all report 4096 disk bytes; 4097 content bytes reports
+# 8192. The flat 2048-byte header allowance below already assumed disk
+# bytes tracked content bytes 1:1, which undercounts by roughly 2x for any
+# call whose estimate lands under one block -- exactly the case a scripted
+# account sending many small or empty commands hits, and the case the
+# quota exists to bound.
+#
+# 4096 matches the production deployment target (Panya's Windows machine,
+# NTFS cluster size 4 KB for any volume under 16 TB), not just this
+# container's own ext4 block size -- confirmed by COO (`notes_to_chief`
+# `20260906_1548`, answering the nonclaim this comment used to carry).
+# Chosen as the floor because it floors the estimate UP, which fails this
+# guard closed slightly earlier on a filesystem with a smaller block size,
+# never later on one with a larger one that this constant did not predict.
+#
+# NOT folded into `_estimate_capture_file_bytes` itself: that function's own
+# per-character/per-byte slope is pinned directly by
+# `test_the_account_name_term_is_pinned_at_ten_bytes_a_character` (round
+# `vq07el`) by subtracting the function's output at two adjacent inputs --
+# a floor applied inside it would flatten that slope to zero everywhere
+# under the floor and silently defeat the exact regression test that
+# guards this module's other estimate term. The floor is a DISK-usage
+# concern layered on top of the CONTENT-byte estimate, so it is applied
+# once, at `_charged_capture_bytes` below, at the two call sites
+# (`_capture_quota_allows`, `_capture_quota_refund`) that actually charge
+# or refund an account's running total -- never inside the pure estimate
+# function itself.
+MIN_CAPTURE_FILE_DISK_BYTES = 4096
+
+
 def _estimate_capture_file_bytes(
     raw_payload_length: int, account_name_length: int,
 ) -> int:
     return raw_payload_length * 8 + account_name_length * 10 + 2048
+
+
+def _charged_capture_bytes(raw_payload_length: int, account_name_length: int) -> int:
+    """What one call actually costs the account's quota: content estimate, floored at one disk block."""
+    return max(
+        MIN_CAPTURE_FILE_DISK_BYTES,
+        _estimate_capture_file_bytes(raw_payload_length, account_name_length),
+    )
 
 
 _capture_quota_lock = threading.Lock()
@@ -304,13 +353,48 @@ def _capture_quota_allows(account_name: str, raw_payload_length: int) -> bool:
     account must not both read a total that is under the cap, then both
     add their own charge past it.
     """
-    estimate = _estimate_capture_file_bytes(raw_payload_length, len(account_name))
+    estimate = _charged_capture_bytes(raw_payload_length, len(account_name))
     with _capture_quota_lock:
         used = _capture_quota_bytes_by_account.get(account_name, 0)
         if used + estimate > MAX_CAPTURED_BYTES_PER_ACCOUNT:
             return False
         _capture_quota_bytes_by_account[account_name] = used + estimate
         return True
+
+
+def _capture_quota_refund(account_name: str, raw_payload_length: int) -> None:
+    """Undo the charge ``_capture_quota_allows`` made for a call whose write failed.
+
+    pf-adversary (round `vq07el`, D10): this module charges the quota
+    BEFORE the write (has to -- the quota exists to refuse an over-budget
+    account, which means it must be checked before the write is attempted,
+    not after), but until this round nothing refunded that charge when
+    ``capture_fn`` then raised ``OSError``. Every write failure -- a full
+    disk, a permissions change mid-session, a same-second filename
+    collision that also loses the ``O_CREAT|O_EXCL`` race -- permanently
+    shrank that account's remaining budget for bytes it never actually
+    wrote to disk, with no way back short of a process restart
+    (``reset_capture_quota_state_for_tests`` is test-only). A GM account
+    that hit a transient write failure enough times could exhaust its own
+    50 MiB budget without ever writing 50 MiB, then have every subsequent
+    real command refused with ``REFUSAL_CAPTURE_QUOTA_EXCEEDED`` -- a
+    guard meant to bound a hostile scripted sender instead locking out an
+    innocent one.
+
+    Recomputes the identical estimate ``_capture_quota_allows`` charged
+    (``_charged_capture_bytes``, the same pure function of the same two
+    inputs) rather than threading a charged amount through
+    ``_authorize_and_capture`` and back -- one fewer value to keep in sync
+    between the charge site and this one. Floors the running total at
+    zero: two failed writes for the same account cannot refund past what
+    earlier successful charges actually put there, which would let a batch
+    of failures build up a negative balance and grant more budget than any
+    call ever consumed.
+    """
+    estimate = _charged_capture_bytes(raw_payload_length, len(account_name))
+    with _capture_quota_lock:
+        used = _capture_quota_bytes_by_account.get(account_name, 0)
+        _capture_quota_bytes_by_account[account_name] = max(0, used - estimate)
 
 
 # Refusal reasons are stable strings a caller (or a test) can match on --
@@ -470,7 +554,30 @@ def _authorize_and_capture(
         captured_path = capture_fn(
             raw_payload, account_name, capture_root=capture_root, now_ts=now_ts,
         )
+    except CaptureFileNotVerifiedRemoved as error:
+        # pf-adversary (round `40bjg7`, follow-up `gn7gk5`): unlike the
+        # plain OSError branch below, this exception means command_capture
+        # could NOT confirm the partially-written file was removed -- real
+        # bytes may still be sitting on disk for this call. Refunding here
+        # would recreate the exact bug this follow-up exists to close (the
+        # quota reading less than what a call may actually have cost in
+        # real disk), just relocated from the estimate to the refund path.
+        # The charge stays; refusal_reason's exception-type suffix still
+        # lets a reader tell this apart from the ordinary write-failure
+        # case immediately below.
+        return GmDispatchOutcome(
+            authorized=True,
+            captured_path=None,
+            refusal_reason=f"{REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}{type(error).__name__}",
+        )
     except OSError as error:
+        # pf-adversary (round `vq07el`, D10): the quota charge above already
+        # ran for this call; command_capture.py has now confirmed (see
+        # CaptureFileNotVerifiedRemoved's own docstring, and the branch
+        # above) that a plain OSError here means zero bytes remain on disk
+        # for this call, so give the estimate back rather than let a write
+        # failure spend real budget on zero written bytes.
+        _capture_quota_refund(account_name, len(raw_payload))
         return GmDispatchOutcome(
             authorized=True,
             captured_path=None,

@@ -1758,5 +1758,171 @@ class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
         )
 
 
+class TheFrozenTargetVitalBehavioursAreEnumeratedTests(unittest.TestCase):
+    """STEP 4 OF THE MODULE'S PROMOTION LIST: THE ENUMERATION HALF.
+
+    The responder branch runs INSTEAD of ``super().dispatch(parsed)``, so
+    it swallows the WHOLE frame.  Step 4 asks for every other v141
+    behaviour riding a ``TARGET_VITAL`` frame in scene 1 to be enumerated
+    with a verdict.  These tests do not re-derive the verdicts -- that is
+    the module's job and its rows carry the file:line each came from --
+    they pin the SHAPE of the table so it cannot be silently emptied,
+    reworded into uselessness, or quietly grown a verdict nobody defined.
+
+    THE MUTANT THIS CLASS EXISTS FOR: deleting a STAND_ASIDE row (or
+    downgrading it to ACCEPTED_GAP) is exactly how the two frames a
+    responder must not swallow would stop being anybody's problem, with
+    both decline guards still green because they are tested separately
+    below."""
+
+    VERDICTS = frozenset(
+        {"UNREACHABLE", "DISARMED", "STAND_ASIDE", "ACCEPTED_GAP"}
+    )
+
+    def test_every_row_is_a_four_field_row_with_a_defined_verdict(self):
+        rows = responder_mod.FROZEN_TARGET_VITAL_BEHAVIOURS
+        self.assertGreaterEqual(len(rows), 8)
+        for row in rows:
+            with self.subTest(row=row[0] if row else row):
+                self.assertEqual(len(row), 4)
+                name, provenance, verdict, reason = row
+                self.assertTrue(name)
+                # Provenance is the whole point of the table: a row that
+                # cannot say which frozen lines it was read off is an
+                # opinion, and this file's house rule is that a negative
+                # claim carries its grep.
+                self.assertRegex(provenance, r"^v141:\d+(-\d+)?$")
+                self.assertIn(verdict, self.VERDICTS)
+                # Long enough to be a reason rather than a label.  The
+                # shortest honest row in the table today is well over this.
+                self.assertGreater(len(reason), 60)
+
+    def test_row_names_are_unique(self):
+        names = [row[0] for row in responder_mod.FROZEN_TARGET_VITAL_BEHAVIOURS]
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_the_two_frames_a_responder_must_not_swallow_are_stand_aside(self):
+        """The two pf-adversary ``zqmosn`` named, by name, with the verdict
+        that has a guard behind it.  Renaming or re-verdicting either row
+        without moving its guard goes red here."""
+        verdicts = {
+            row[0]: row[2]
+            for row in responder_mod.FROZEN_TARGET_VITAL_BEHAVIOURS
+        }
+        self.assertEqual(
+            verdicts["v140_marker1_ready_population_once"], "STAND_ASIDE"
+        )
+        self.assertEqual(verdicts["runtime_req_first_ack"], "STAND_ASIDE")
+
+    def test_every_stand_aside_row_is_covered_by_a_decline_keyword(self):
+        """A STAND_ASIDE verdict is a PROMISE that ``respond`` declines on
+        that frame.  Three rows carry it -- the two above plus the welcome
+        message and the scene music, which ride the ack's own frame -- and
+        every one of them must be answered by one of the two keywords.  A
+        fourth STAND_ASIDE row added without a guard fails here rather
+        than shipping as a promise nothing keeps."""
+        stand_aside = {
+            row[0]
+            for row in responder_mod.FROZEN_TARGET_VITAL_BEHAVIOURS
+            if row[2] == "STAND_ASIDE"
+        }
+        guarded = {
+            # exact_frozen_marker1_ready_pc=True
+            "v140_marker1_ready_population_once",
+            # runtime_ack_sent=False, all three of them
+            "runtime_req_first_ack",
+            "v99_show_message_local_server_online",
+            "v100_music_control_current_scene",
+        }
+        self.assertEqual(stand_aside, guarded)
+
+    def test_the_wiring_constant_names_both_keywords_and_the_fallback(self):
+        wiring = responder_mod.FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING
+        self.assertIn("runtime_ack_sent=self.runtime_ack_sent", wiring)
+        self.assertIn("exact_frozen_marker1_ready_pc", wiring)
+        self.assertIn("V138_MARKER1_READY_PC", wiring)
+        # The half that makes the other half safe.  A wiring note that
+        # asks for the keywords WITHOUT the frozen-loop decline fallback
+        # would withhold the client's first ack -- worse than the swallow.
+        self.assertIn("land neither", wiring)
+
+
+class TheFrozenFirstFrameIsNotSwallowedTests(unittest.TestCase):
+    """STEP 4, LANE HALF: the two decline guards themselves.
+
+    Both keywords are ONE-WAY: they can only make the responder decline.
+    Both are inert until chief's call site passes them (see
+    ``FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING``), so -- exactly as with step
+    5's keyword -- half of this class pins that omitting them is
+    byte-for-byte the old behaviour and that ``None`` is not read as a
+    verdict."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+        cls.placements = responder_mod._placements_by_index(cls.legacy)
+        cls.population_indices = tuple(sorted(cls.placements))
+
+    def _click(self, **extra):
+        idx = self.population_indices[0]
+        return responder_mod.respond(
+            legacy=self.legacy,
+            chosen_identities=(0x2000 + idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+            **extra,
+        )
+
+    def test_declines_before_the_frozen_first_runtime_ack(self):
+        self.assertIsNone(self._click(runtime_ack_sent=False))
+
+    def test_answers_once_the_frozen_ack_has_gone_out(self):
+        self.assertIsNotNone(self._click(runtime_ack_sent=True))
+
+    def test_declines_on_the_exact_frozen_marker1_ready_frame(self):
+        self.assertIsNone(self._click(exact_frozen_marker1_ready_pc=True))
+
+    def test_answers_on_an_ordinary_frame(self):
+        self.assertIsNotNone(self._click(exact_frozen_marker1_ready_pc=False))
+
+    def test_the_marker_guard_is_the_right_way_round(self):
+        """``exact_frozen_marker1_ready_pc`` declines on TRUE while
+        ``runtime_ack_sent`` declines on FALSE -- opposite polarities on
+        two keywords added in one commit is exactly the pair a reader
+        (or a copy-paste) inverts.  Both directions are pinned so an
+        inverted guard cannot pass by declining somewhere else."""
+        self.assertIsNone(self._click(exact_frozen_marker1_ready_pc=True))
+        self.assertIsNotNone(self._click(runtime_ack_sent=True))
+
+    def test_omitted_keywords_are_byte_for_byte_the_old_behaviour(self):
+        """The mutant this pins: a bare falsy test
+        (``if not runtime_ack_sent``) instead of ``is False``, which would
+        decline on every call the real call site makes today; and the
+        mirror mutant on the marker keyword (``if
+        exact_frozen_marker1_ready_pc`` is already the truthy test, so the
+        one that hides there is ``is not False``)."""
+        omitted = self._click()
+        passed_none = self._click(
+            runtime_ack_sent=None, exact_frozen_marker1_ready_pc=None
+        )
+        self.assertIsNotNone(omitted)
+        self.assertIsNotNone(passed_none)
+        # THE WHOLE RESPONSE, for the reason pf-adversary ``6dvcer`` D4
+        # gave one class up: a hand-picked subset let a mutant through
+        # that changed the TEXT of ``console_lines`` while keeping its
+        # length.
+        self.assertEqual(omitted, passed_none)
+
+    def test_a_decline_beats_an_answer_when_both_guards_speak(self):
+        """A frame can be both the marker-ready PC and the first runtime
+        request of the connection.  Either guard alone is enough; this
+        pins that neither cancels the other out."""
+        self.assertIsNone(
+            self._click(
+                runtime_ack_sent=False, exact_frozen_marker1_ready_pc=True
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

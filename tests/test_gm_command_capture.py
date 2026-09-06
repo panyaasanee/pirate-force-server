@@ -7,16 +7,23 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import struct
 
+from pirateforce_foundation.gm import command_capture
 from pirateforce_foundation.gm.command_capture import (
     GM_RUN_GM_COMMAND_VITAL_ID,
+    CaptureFileNotVerifiedRemoved,
     capture_raw_gm_command,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from pf_gm_capture_mocks import close_that_really_closes_then_fails  # noqa: E402
 
 
 def _wstring(text: str) -> bytes:
@@ -318,6 +325,275 @@ class GmCommandCaptureTests(unittest.TestCase):
             for i in range(50)
         ]
         self.assertEqual(len(set(paths)), 50)
+
+
+    # ----- pf-adversary (round `40bjg7`, follow-up `gn7gk5`): a write -----
+    # ----- failure must not leave an unaccounted file on disk -------------
+
+    def test_a_write_failure_leaves_no_file_behind_when_cleanup_succeeds(self):
+        # Reproduces the adversary's own repro: only os.write is faked (the
+        # real os.open runs, so a real empty file exists at the moment the
+        # write fails) -- before this round, that file was left on disk with
+        # nothing accounting for it. It must be gone once this call returns.
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ):
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertNotIsInstance(
+            ctx.exception, CaptureFileNotVerifiedRemoved,
+            "cleanup succeeded (nothing else in this test touches os.unlink) "
+            "-- the caller must see a plain OSError, not the unverified-removal "
+            "subclass, or gm/dispatch.py would wrongly refuse to refund a call "
+            "that really did leave zero bytes on disk",
+        )
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(
+            leftover, [],
+            "a write failure left a file on disk that nothing will ever "
+            "account for -- the exact gap this test guards",
+        )
+
+    def test_a_write_failure_raises_the_unverified_subclass_when_cleanup_also_fails(self):
+        # Both os.write and the cleanup os.unlink fail: the caller cannot
+        # prove the partial file is gone, so it must see a DISTINCT
+        # exception type rather than the plain OSError it would otherwise
+        # read as "zero bytes on disk, safe to refund".
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertIsInstance(
+            ctx.exception.__cause__, OSError,
+            "the original write failure must still be chained, not swallowed",
+        )
+        # The real (unmocked-at-the-syscall-level) file genuinely still
+        # exists -- this test's own os.unlink mock is what prevented its
+        # removal, so the file is really there, not merely unasserted.
+        leftover = list(Path(self.root).glob("*"))
+        self.assertEqual(len(leftover), 1, leftover)
+
+    def test_best_effort_unlink_treats_already_gone_as_success(self):
+        missing = Path(self.root) / "does_not_exist.txt"
+        self.assertTrue(command_capture._best_effort_unlink(missing))
+
+    # ----- pf-adversary (round `gn7gk5`, follow-up `79ahzl`): os.close() ---
+    # ----- failing must not bypass the cleanup-then-classify contract -----
+    # ----- the write-failure branch above already holds ------------------
+
+    def test_a_close_failure_right_after_a_write_failure_is_swallowed_and_still_cleans_up(self):
+        # Before this round, this exact combination (os.write raises, THEN
+        # the os.close(fd) in the except block also raises) propagated the
+        # close() error immediately, before _best_effort_unlink ever ran --
+        # skipping the whole classify contract. os.unlink is real here
+        # (only write and close are faked), so cleanup must still succeed
+        # and the ORIGINAL write error must be what the caller sees.
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails("simulated close EIO"),
+        ):
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertNotIsInstance(ctx.exception, CaptureFileNotVerifiedRemoved)
+        self.assertIn("simulated ENOSPC", str(ctx.exception))
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(leftover, [])
+
+    def test_a_close_failure_after_a_successful_write_is_not_silently_refunded(self):
+        # THE MORE SEVERE CASE (pf-adversary): os.write fully SUCCEEDS
+        # (every byte accepted) and only the terminal os.close(fd) then
+        # fails -- a real, documented POSIX behavior (deferred write-back
+        # error surfacing at close, not exclusive to NFS). Before this
+        # round nothing caught this at all: it propagated a bare OSError
+        # past this function untouched. os.unlink is real here, so cleanup
+        # must succeed and this must be classified exactly like a write
+        # failure, not silently ignored.
+        with mock.patch.object(
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails(
+                "simulated close ENOSPC",
+            ),
+        ):
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertNotIsInstance(ctx.exception, CaptureFileNotVerifiedRemoved)
+        self.assertIn("simulated close ENOSPC", str(ctx.exception))
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(
+            leftover, [],
+            "a write that fully succeeded, then failed only at close(), "
+            "left a COMPLETE real capture on disk with no cleanup attempt",
+        )
+
+    def test_a_close_failure_after_a_successful_write_raises_unverified_when_cleanup_also_fails(self):
+        # Both the write-succeeded-close-failed case above AND the cleanup
+        # unlink fail: real, complete content may still be on disk, so the
+        # caller must see the distinct subclass, not a plain OSError.
+        with mock.patch.object(
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails(
+                "simulated close ENOSPC",
+            ),
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertIsInstance(ctx.exception.__cause__, OSError)
+        leftover = list(Path(self.root).glob("*"))
+        self.assertEqual(len(leftover), 1, leftover)
+        # The write really did complete -- this is a full, real capture
+        # file, not an empty one, unlike the write-failure scenarios above.
+        self.assertGreater(leftover[0].stat().st_size, 0)
+
+    def test_the_close_failure_helper_leaves_no_descriptor_open(self):
+        # The guard that makes every close-failure test in this package mean
+        # the same thing on Windows as on Linux. A `side_effect` that only
+        # raises leaks the descriptor; on Linux nothing notices, on Windows
+        # the open handle locks the file and every one of those tests
+        # reports the wrong exception class and then breaks its own temp-dir
+        # cleanup -- the RED gate on #926 and #937. This test fails on ANY
+        # platform the moment the helper stops closing for real, so the
+        # Windows-only failure cannot come back invisibly.
+        #
+        # It guards ONE definition on purpose: pf-adversary (round `lkwmkp`,
+        # D3) broke the first version of this fix by deleting `real_close`
+        # from the copy of the helper that lived in
+        # `test_gm_command_dispatch.py` -- Linux stayed 93 passed and the
+        # Windows emulation went red, i.e. the guard proved the state of the
+        # copy next to it and nothing else. There is now a single definition
+        # in `tests/pf_gm_capture_mocks.py` that all three files import.
+        #
+        # Known limit (same review): `os.fstat` below asserts a negative
+        # about an fd NUMBER, which the OS may hand out again. Nothing opens
+        # a descriptor between the close and the assert in a single-threaded
+        # run, so today this can only produce a false RED, never a false
+        # green -- but under `pytest-xdist` it would need the helper's own
+        # bookkeeping instead.
+        opened = []
+        real_open = os.open
+
+        def spy_open(*args, **kwargs):
+            fd = real_open(*args, **kwargs)
+            opened.append(fd)
+            return fd
+
+        with mock.patch.object(
+            command_capture.os, "open", side_effect=spy_open,
+        ), mock.patch.object(
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails("simulated close EIO"),
+        ):
+            with self.assertRaises(OSError):
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertEqual(len(opened), 1, opened)
+        with self.assertRaises(OSError):
+            # EBADF: the descriptor the capture opened is gone, so nothing
+            # holds the capture file open once the failure has propagated.
+            os.fstat(opened[0])
+
+    def test_a_non_oserror_from_the_write_loop_still_closes_and_cleans_up(self):
+        # pf-adversary (round `lkwmkp`, D5): rounds `gn7gk5`/`79ahzl`
+        # replaced this function's `try/finally` with `except OSError`, so
+        # any non-OSError escaping the write loop (`MemoryError` on the
+        # `file_body[written:]` slice, `KeyboardInterrupt` at shutdown) left
+        # both the descriptor and the `O_CREAT|O_EXCL` file behind -- on
+        # Windows locked for the life of the process. The exception itself
+        # must still propagate unchanged: an interpreter shutdown is not a
+        # quota event and must not be dressed up as one.
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=MemoryError("simulated"),
+        ):
+            with self.assertRaises(MemoryError):
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(
+            leftover, [],
+            "a non-OSError during the write left the partial capture file "
+            "on disk, in the one function that promises it never does",
+        )
+
+    # ----- pf-adversary (follow-up review of round `79ahzl`): os.write's ---
+    # ----- return value was never checked -- the SAME bug this package ----
+    # ----- already found and fixed twice (gm/commands.py round `hs9m2r`, --
+    # ----- gm/login_scene_stage.py's copy of it) and never ported here ----
+
+    def test_a_resumed_short_write_still_produces_a_complete_untruncated_file(self):
+        # Same shape as gm/commands.py's own
+        # test_a_short_write_to_the_audit_log_is_not_reported_as_success
+        # (round hs9m2r): one os.write call reports fewer bytes than asked,
+        # with no exception -- the write LOOP must resume and finish the
+        # file rather than silently accepting the short count as done.
+        #
+        # pf-adversary (follow-up review of round w87k4s): the original
+        # version of this test asserted only `endswith(b"\n")` and
+        # `b"hello world" in content` -- both still pass against a real
+        # regression (dropping the loop's `file_body[written:]` slice on
+        # retry, so the resumed call re-sends the WHOLE buffer instead of
+        # only what's left, duplicating the leading bytes into the file
+        # header). Reproduced live: 525 bytes starting `##...` instead of
+        # 524 bytes starting `#...`, and the weak assertions above both
+        # still passed on that corrupted file. Compare byte-for-byte
+        # against an independently-captured clean run instead -- the one
+        # property this module's own docstring actually promises ("a
+        # lossless copy of every raw send lands on disk").
+        payload = b"hello world, this is more than one byte long"
+        clean_path = capture_raw_gm_command(
+            payload, "panya", capture_root=self.root, now_ts=0,
+        )
+        expected = clean_path.read_bytes()
+        clean_path.unlink()
+
+        real_write = command_capture.os.write
+        state = {"first": True}
+
+        def short_once(fd, data):
+            if state["first"] and len(data) > 1:
+                state["first"] = False
+                return real_write(fd, data[:1])
+            return real_write(fd, data)
+
+        with mock.patch.object(command_capture.os, "write", side_effect=short_once):
+            out = capture_raw_gm_command(
+                payload, "panya", capture_root=self.root, now_ts=0,
+            )
+        self.assertEqual(out.read_bytes(), expected)
+
+    def test_a_write_making_no_progress_fails_closed_and_cleans_up(self):
+        # Same shape as gm/commands.py's own
+        # test_a_write_making_no_progress_fails_closed (round hs9m2r): a
+        # write reporting 0 bytes with no exception must not be reported as
+        # success -- before this fix it fell straight through to
+        # `return out_path`, no exception, no refusal, quota charged
+        # normally, for a file this module's own docstring promises is
+        # never truncated.
+        with mock.patch.object(command_capture.os, "write", return_value=0):
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertNotIsInstance(ctx.exception, CaptureFileNotVerifiedRemoved)
+        self.assertIn("short write", str(ctx.exception))
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(
+            leftover, [],
+            "a write making zero progress left a (empty) file on disk "
+            "that the cleanup path failed to remove",
+        )
+
+    def test_a_write_making_no_progress_raises_unverified_when_cleanup_also_fails(self):
+        with mock.patch.object(
+            command_capture.os, "write", return_value=0,
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved):
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        leftover = list(Path(self.root).glob("*"))
+        self.assertEqual(len(leftover), 1, leftover)
 
 
 if __name__ == "__main__":
