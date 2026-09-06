@@ -177,8 +177,10 @@ def encode_untagged_wstring(s: str) -> bytes:
     stretched the bug): ``ui_friend_wire.py`` (round `4u0ncx`,
     `pirate-force-server#934`), ``ui_mail_wire.py``, ``ui_party_wire.py``,
     and ``ui_trade_wire.py`` are now all migrated onto ``wstring_tag``/
-    ``read_wstring_tag``. Only ``ui_express_wire.py`` and
-    ``ui_community_social_wire.py`` still call this pair, and remain
+    ``read_wstring_tag``. ``ui_express_wire.py`` migrated too (round
+    `me7s4u`) despite staying unwired -- nothing forbids fixing a module
+    early, only wiring one before its own fix lands. Only
+    ``ui_community_social_wire.py`` still calls this pair, and remains
     unwired (`COO-DECISION 20260906_1649`: no module of the six gets wired
     before its own migration lands). This pair is left in place,
     unmodified, so a round's fix does not silently change other modules'

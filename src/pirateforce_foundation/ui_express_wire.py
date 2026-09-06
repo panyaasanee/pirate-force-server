@@ -55,14 +55,23 @@ notes the two happen to be wire-identical; nothing here claims the two
 actions are the same action.
 
 ``Express_ClientSendExpressResultVital``'s third field is
-``UNTAGGED_WSTRING16LE_LEN32LE`` (u32 LE length + UTF-16LE payload, no tag
-byte) -- the same shape ``ui_mail_wire.py``'s wstring fields already use via
-``ui_social_wire.encode_untagged_wstring``/``read_untagged_wstring``. Unlike
-the ``Channel_`` row's byte-exact static disassembly report, no such report
-exists for this class -- the shape here is taken at face value from
-``PF_SERIALIZER_FIELDS.tsv``'s own label, same as every other
-``UNTAGGED_WSTRING16LE_LEN32LE`` row this lane has already implemented
-without a superseding report (``ui_mail_wire.py``, ``ui_friend_wire.py``).
+``UNTAGGED_WSTRING16LE_LEN32LE`` per ``PF_SERIALIZER_FIELDS.tsv``'s own
+label, but that label is not the real wire shape (see
+``ui_social_wire.encode_untagged_wstring``'s docstring): the actual codec
+always writes a tag byte ``0x48`` before the u32 LE length + UTF-16LE
+payload, proven byte-exact against disassembly in
+``reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md``
+and confirmed live for four other wstring fields that shipped without it
+(``ui_friend_wire.py``/``ui_mail_wire.py``/``ui_party_wire.py``/
+``ui_trade_wire.py``). This module's own field originally reused
+``ui_social_wire``'s untagged pair too (same live-misdecoding bug those
+four had) and was migrated onto ``wire.wstring_tag``/``wire.read_wstring_tag``
+below in the same round that recovered
+``tests/test_ui_express_community_social_migration_guard.py`` (round
+`me7s4u`) -- see that commit's message for the migration itself; this
+docstring only records the resulting shape, not a separate history
+document the way the four sibling modules each carry in their own
+docstrings.
 
 Grepped first, per ``AGENTS.md`` section 7's mandatory search: no hit for
 any of the four class names above in ``CLIENT_RE_QUEUE.md`` or
@@ -175,7 +184,7 @@ def encode_client_send_express_result_payload(
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
     out += bytes([_TAG_U8, fields.field2_u8 & 0xFF])
-    out += wire.encode_untagged_wstring(fields.field3_wstring)
+    out += wire.wstring_tag(fields.field3_wstring)
     return bytes(out)
 
 
@@ -185,7 +194,7 @@ def decode_client_send_express_result_payload(
     try:
         field1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         field2, offset = wire.read_u8tag(payload, offset, _TAG_U8)
-        field3, offset = wire.read_untagged_wstring(payload, offset)
+        field3, offset = wire.read_wstring_tag(payload, offset)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
