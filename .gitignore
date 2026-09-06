@@ -630,6 +630,11 @@
 # what pf-adversary flagged on this round's first draft.
 !/tools/pf_scene_cast_sources_extract.py
 
+# LANE-UI round 9dezrf - PANYA 2032 job 2, the n/327 wire-name coverage
+# census (docs/UI_WIRE_COVERAGE.md) and its committed artifact.
+!/tools/pf_ui_wire_name_census.py
+!/reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv
+
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content
 /.claude/worktrees/
