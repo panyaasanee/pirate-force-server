@@ -37,20 +37,38 @@ future round would otherwise re-derive:
     `RE-234 CLIENT-RESPONSE-PATH-FOR-TRIGGERVITAL-1FB2-ISLAND-001`
     (`pf_bridge/CLIENT_RE_QUEUE.md`, CLOSED DONE/MIXED by LANE-A round
     `2mnd7b`; result letter `pf_bridge/notes_to_chief/20260904_1953_RE-234-
-    RESULT-TRIGGERVITAL-NOOP-ID-ONLY-UNSAFE.md`; repro verifier
-    `pf_bridge/staged/re234_static_verify.py` PASS 18/18)
+    RESULT-TRIGGERVITAL-NOOP-ID-ONLY-UNSAFE.md`)
+
+    An earlier version of this citation also named a repro verifier,
+    `pf_bridge/staged/re234_static_verify.py`, "PASS 18/18".  pf-adversary
+    found no such path; re-measured this round with
+    `git ls-tree -r --name-only origin/main | grep re234_static_verify` in
+    the bridge clone: ZERO hits, `staged/` included.  A citation nobody can
+    re-run is worse than no citation, so it is gone rather than softened.
+    What survives below is measured from files that ARE in the tree.
 
 item (1) measured the client's handler for a TriggerVital RESPONSE at
 `[0x00710440,0x00710445)` = `B0 01 C2 04 00` = `mov al,1; ret 4`: a five-byte
 success no-op that reads nothing and opens no UI.  LANE-A's own consumption
 letter `pf_bridge/notes_to_chief/20260906_1939_LANE-A-R322A-CONSUMED-re234-
-refutes-0x1FB2-reply-bg3001-tgr-is-the-door.md` adds the control that keeps
-that from being an empty-tag artifact: the same VA is the registered handler
-for `ChooseNPC`, `ChooseNPCByTableID`, `TriggerModule_Client` and
-`GeneralUIHandleModule` (`external/PF_PROTOCOL_REGISTRY.tsv:97,98,109,110,
-442`), i.e. a SHARED stub, and `external/PF_SERIALIZER_FIELDS.tsv:1475-1486`
-shows real tags on both W and R -- the client deserialises an inbound
-TriggerVital fine and then throws the result away.
+refutes-0x1FB2-reply-bg3001-tgr-is-the-door.md` claimed a control that keeps
+that from being an empty-tag artifact, and NAMED THE WRONG ROWS: it read
+`external/PF_PROTOCOL_REGISTRY.tsv:97,98,109,110,442` by line number, but
+line 98 is TriggerVital itself (the subject, not a control) and line 442's
+`GeneralUIHandleModule` carries handler_va `0x0073D360`, not this VA.
+pf-adversary caught it.  The honest control is a whole-file count of the
+handler_va column (field 8), re-measured this round in the bridge clone:
+
+    awk -F'\t' '$8=="0x00710440"' external/PF_PROTOCOL_REGISTRY.tsv | wc -l
+        -> 69     (of 520 rows; TriggerVital is one of the 69, so 68 OTHER
+                   classes are dispatched to the very same five bytes)
+
+which is a STRONGER reading than the wrong one it replaces, not a weaker
+one: 68 unrelated classes sharing one `mov al,1; ret 4` is a shared stub by
+any reading, where four hand-picked neighbours could have been coincidence.
+`external/PF_SERIALIZER_FIELDS.tsv:1475-1486` shows real tags on both W and
+R -- the client deserialises an inbound TriggerVital fine and then throws
+the result away.
 
 So the honest statement of the block, in the shape RE-234 left it:
 
@@ -112,8 +130,15 @@ sailing, so `lane_a_island_trigger_log.M2_OBSERVED_ISLAND_TRIGGER_IDS` is
 to decide the world -- narrow its scope with scene/context first."
 
 This module is the first non-log-only consumer of that map.  So it narrows,
-in the same three-tier shape this lane's sibling `world_sea_edge_crossing.
-crossing_target()` already uses (COO-DECISION `20260905_1748` item 6):
+in three tiers.  An earlier version of this sentence said the tiers were
+"the same shape" as this lane's sibling `world_sea_edge_crossing.
+crossing_target()` (COO-DECISION `20260905_1748` item 6).  That was too
+strong and pf-adversary said so: that function REFUSES on two things (the
+source scene, then the id's presence in its target table) and its third
+stage RESOLVES a destination -- a stage that succeeds for both ids rather
+than refusing anything.  What this module borrows from it is the argument
+ORDER (scene first) and the fail-closed posture, not a third refusing tier;
+tier 3 below has no counterpart there:
 
   TIER 1  SOURCE SCENE.  The session must be IN scene 126
           (`M2_ISLAND_CONTACT_SCENE_ID`) -- the one scene R318/R322A
@@ -304,6 +329,7 @@ from collections.abc import Mapping
 from typing import NamedTuple
 
 from .lane_hooks.lane_a_island_trigger_log import M2_OBSERVED_ISLAND_TRIGGER_IDS
+from .world_sea_edge_crossing import SEA_EDGE_SOURCE_SCENE_ID
 
 # The wire trigger ids this slot exists for -- reused from the hook module
 # that already keys its ISLAND override by these two ids (2 Prison Exile,
@@ -335,11 +361,23 @@ TRIGGER_ID_REFUSED_NOT_M2 = "TRIGGER_ID_REFUSED_NOT_M2"
 REGISTRY_REFUSED_NOT_A_MAPPING = "REGISTRY_REFUSED_NOT_A_MAPPING"
 
 # TIER 1.  The one scene R318/R322A actually sailed while ids 2 and 3 were
-# observed.  Same constant, same value and same posture as this lane's
-# sibling `world_sea_edge_crossing.SEA_EDGE_SOURCE_SCENE_ID` -- both refuse
-# outside it rather than acting as a general trigger-to-scene table.
-M2_ISLAND_CONTACT_SCENE_ID = 126
+# observed.  IMPORTED from this lane's sibling rather than re-typed: the
+# comment here used to say "same constant" while the file typed `126` a
+# second time, which pf-adversary pointed out is the one spelling of "same
+# constant" a rename cannot keep true.  Both modules refuse outside this
+# scene rather than acting as a general trigger-to-scene table, so they are
+# the same FACT (which scene the M2 sea leg is sailed in), not merely two
+# variables that happen to hold the same number today.
+M2_ISLAND_CONTACT_SCENE_ID = SEA_EDGE_SOURCE_SCENE_ID
 
+# Two named reasons, not one.  `world_m2_survey_plan.scene_guard_reason` was
+# split this way by an earlier pf-adversary round for a reason this module
+# had not yet paid: a caller passing a scene id of the wrong TYPE has a bug
+# of a different shape than a caller standing in the wrong scene, and
+# collapsing them means `"126"` off a TEXT column or a JSON round-trip is
+# reported forever as "you are in the wrong scene" when the truth is "that
+# is a string".
+SCENE_REFUSED_NOT_AN_INT = "SCENE_REFUSED_NOT_AN_INT"
 SCENE_REFUSED_NOT_THE_SEA_SCENE = "SCENE_REFUSED_NOT_THE_SEA_SCENE"
 
 # TIER 3.  The NAME of the measured fact that separates "wire trigger id 3
@@ -395,6 +433,38 @@ _CANDIDATES: dict[int, CandidateFrame | None] = {
 }
 
 
+def _is_a_wire_int(value: object) -> bool:
+    """The module's ONE answer to "did the wire hand us an integer".
+
+    pf-adversary counted FOUR spellings of this question in this one file
+    and killed none of them with a test: mutating `type(x) is not int` to
+    `isinstance(x, int)` left all 30 tests green, and the docstring reason
+    given for the strict spelling (`126.0 == 126`) does not actually
+    separate the two -- `isinstance(126.0, int)` is False as well.  The only
+    input the two spellings disagree on is an `int` SUBCLASS, and the file
+    disagreed with ITSELF about that: an `IntEnum` valued 126 was refused as
+    a scene id and accepted as a trigger id in the same module.
+
+    This is the isinstance spelling, matching the sibling this file's guards
+    cite, `world_m2_survey_plan.scene_guard_reason`.  So:
+
+      * `126.0`, `"126"`, `None`, `b"\x02"`, `[]`, `object()` -> False.
+        A float is refused even though `126.0 == 126`, which is the whole
+        reason a bare equality check is not enough.
+      * `True`/`False` -> False.  `bool` subclasses `int` in Python, and
+        `True == 1` would otherwise pass a stray boolean off as an id.
+      * an `IntEnum` or other `int` subclass valued 126 -> True, the same
+        answer in BOTH guards now.  Refusing it would be a distinction with
+        no safety behind it: it IS the integer, and nothing downstream can
+        tell the difference.
+
+    `tests/test_world_m2_trigger_vital_response.py` pins the int-subclass
+    row specifically, because that row is the only one that dies when the
+    spelling is mutated.
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def trigger_id_guard_reason(wire_trigger_id: object) -> str | None:
     """``None`` when ``wire_trigger_id`` is one of ``CANDIDATE_TRIGGER_IDS``;
     otherwise the NAMED reason it is not.
@@ -404,7 +474,7 @@ def trigger_id_guard_reason(wire_trigger_id: object) -> str | None:
     Python and would otherwise pass a stray boolean off as a trigger id).
     Never raises.
     """
-    if isinstance(wire_trigger_id, bool) or not isinstance(wire_trigger_id, int):
+    if not _is_a_wire_int(wire_trigger_id):
         return TRIGGER_ID_REFUSED_NOT_AN_INT
     if wire_trigger_id not in CANDIDATE_TRIGGER_IDS:
         return TRIGGER_ID_REFUSED_NOT_M2
@@ -413,18 +483,26 @@ def trigger_id_guard_reason(wire_trigger_id: object) -> str | None:
 
 def scene_guard_reason(current_scene_id: object) -> str | None:
     """``None`` when ``current_scene_id`` IS ``M2_ISLAND_CONTACT_SCENE_ID``;
-    otherwise ``SCENE_REFUSED_NOT_THE_SEA_SCENE``.
+    otherwise the NAMED reason it is not -- ``SCENE_REFUSED_NOT_AN_INT`` for
+    a value of the wrong type, ``SCENE_REFUSED_NOT_THE_SEA_SCENE`` for an
+    integer scene the player is simply not standing in.
 
-    ``type(...) is not int`` rather than ``isinstance``, the same first
-    clause this lane's ``world_sea_edge_crossing.crossing_target`` uses, and
-    it is NOT redundant with the equality below: ``126.0 == 126`` is true in
-    Python, so a float scene id would otherwise pass tier 1.  No separate
-    ``bool`` clause is needed here (unlike ``trigger_id_guard_reason``, where
-    the refusal REASON has to be the type one): ``type(True) is bool``, so a
-    boolean is already refused by the same line.  Never raises.
+    TWO reasons, not one.  This guard used to answer
+    ``SCENE_REFUSED_NOT_THE_SEA_SCENE`` for both, which meant ``"126"`` --
+    the shape a scene id has after a TEXT column or a JSON round-trip --
+    was reported forever as "wrong scene" when the truth is "wrong type",
+    and a caller reading the reason would go looking at the player's
+    position instead of at its own serialisation.  ``world_m2_survey_plan``
+    was split the same way, by an earlier pf-adversary round, before this
+    module copied the collapsed version.
+
+    Type test is ``_is_a_wire_int`` -- see there for why the file now has
+    one spelling of that question instead of four, and for what changed
+    (an ``int`` subclass such as an ``IntEnum`` valued 126 is now accepted
+    here, as it already was in ``trigger_id_guard_reason``).  Never raises.
     """
-    if type(current_scene_id) is not int:
-        return SCENE_REFUSED_NOT_THE_SEA_SCENE
+    if not _is_a_wire_int(current_scene_id):
+        return SCENE_REFUSED_NOT_AN_INT
     if current_scene_id != M2_ISLAND_CONTACT_SCENE_ID:
         return SCENE_REFUSED_NOT_THE_SEA_SCENE
     return None
@@ -532,7 +610,22 @@ def candidate_for_trigger_id(
     exception, because both arguments come from a live session.  A
     ``registry`` that is not a mapping raises
     ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)`` on purpose -- see that
-    constant for why the arguments get opposite postures.  No production
+    constant for why the arguments get opposite postures.
+
+    THAT RAISE IS CONDITIONAL, AND ON THE SHIPPED MODULE IT CANNOT HAPPEN
+    HERE AT ALL.  The three tiers are checked BEFORE the registry is
+    touched, deliberately -- a malformed test registry must not be able to
+    turn a refusal into a traceback -- and tier 3 refuses every input while
+    ``ISLAND_CONTACT_DISCRIMINATOR`` is ``None``.  So today
+    ``candidate_for_trigger_id(126, 2, registry=[])`` answers ``None``, not
+    ``TypeError``, and pf-adversary was right that the flat promise above
+    read as though it did otherwise.  The raise becomes reachable through
+    this function only once a discriminator is measured (the tests reach it
+    by overriding the discriminator locally, which is why they see it);
+    ``registered_count`` validates its registry unconditionally and is the
+    place to look for the unconditional version of the same posture.  Three
+    tests pin this ordering in each direction, so making the raise
+    unconditional here would be an edit to them, not a bug fix.  No production
     call site passes a registry at all: repo-wide grep for this module's
     name finds importers only in its own test file, and the parameter is
     third and keyword-named in every call there (a POSITIONAL third argument

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import sys
 import types
+import enum
+import importlib
 import unittest
 from pathlib import Path
 
@@ -26,6 +28,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
     world_m2_trigger_vital_response as trigger_response,
+    world_sea_edge_crossing,
+)
+from pirateforce_foundation.lane_hooks import (  # noqa: E402
+    lane_a_island_trigger_log as island_trigger_log,
 )
 
 SEA = trigger_response.M2_ISLAND_CONTACT_SCENE_ID
@@ -121,17 +127,42 @@ class ThreeTierGuardTests(M2RegistryIsolation):
                     trigger_response.SCENE_REFUSED_NOT_THE_SEA_SCENE,
                 )
 
-    def test_tier1_refuses_a_non_int_or_bool_scene_id(self):
+    def test_tier1_refuses_a_non_int_or_bool_scene_id_by_its_own_name(self):
+        # pf-adversary: collapsing "wrong type" into "wrong scene" sends a
+        # caller holding "126" off a TEXT column to look at the player's
+        # position. The two reasons are now separate constants.
         for scene_id in ("126", None, 126.0, True, False, [], object()):
             with self.subTest(scene_id=scene_id):
                 self.assertEqual(
                     trigger_response.scene_guard_reason(scene_id),
-                    trigger_response.SCENE_REFUSED_NOT_THE_SEA_SCENE,
+                    trigger_response.SCENE_REFUSED_NOT_AN_INT,
                 )
+
+    def test_the_two_tier1_refusals_are_different_strings(self):
+        # The mutant this kills: re-pointing SCENE_REFUSED_NOT_AN_INT at the
+        # other constant reads as a tidy-up and undoes the split.
+        self.assertNotEqual(
+            trigger_response.SCENE_REFUSED_NOT_AN_INT,
+            trigger_response.SCENE_REFUSED_NOT_THE_SEA_SCENE,
+        )
+        self.assertEqual(
+            trigger_response.scene_guard_reason("126"),
+            trigger_response.SCENE_REFUSED_NOT_AN_INT,
+        )
+        self.assertEqual(
+            trigger_response.scene_guard_reason(125),
+            trigger_response.SCENE_REFUSED_NOT_THE_SEA_SCENE,
+        )
 
     def test_tier1_passes_only_scene_126(self):
         self.assertIsNone(trigger_response.scene_guard_reason(SEA))
         self.assertEqual(SEA, 126)
+
+    def test_the_sea_scene_id_equals_the_siblings_constant(self):
+        self.assertEqual(
+            trigger_response.M2_ISLAND_CONTACT_SCENE_ID,
+            world_sea_edge_crossing.SEA_EDGE_SOURCE_SCENE_ID,
+        )
 
     def test_tier2_runs_after_tier1_not_before(self):
         # A non-M2 id in the WRONG scene must report the SCENE reason: the
@@ -183,6 +214,137 @@ class ThreeTierGuardTests(M2RegistryIsolation):
             trigger_response.answer_guard_reason(SEA, 4),
             trigger_response.TRIGGER_ID_REFUSED_NOT_M2,
         )
+
+
+class OneSpellingOfIsThisAnIntTests(M2RegistryIsolation):
+    """pf-adversary A8: four spellings of "is this an int" lived in this one
+    file, no test separated them, and the file contradicted ITSELF -- an
+    `IntEnum` valued 126 was refused as a scene id and accepted as a trigger
+    id. There is one spelling now, and these tests are what hold it.
+    """
+
+    class Scene(enum.IntEnum):
+        ATLANTIS = 126
+
+    class Trigger(enum.IntEnum):
+        SPICE_PARADISE = 3
+
+    class Counted(int):
+        """A plain `int` subclass -- not an enum -- so the pin is on the
+        SUBCLASS rule, not on anything `enum` does."""
+
+    def test_an_int_subclass_is_answered_the_same_way_by_both_guards(self):
+        # THE mutant this kills: `isinstance(x, int) and not isinstance(x,
+        # bool)` -> `type(x) is int`. Nothing else in this file changes.
+        self.assertIsNone(trigger_response.scene_guard_reason(self.Scene.ATLANTIS))
+        self.assertIsNone(
+            trigger_response.trigger_id_guard_reason(self.Trigger.SPICE_PARADISE)
+        )
+        self.assertIsNone(
+            trigger_response.scene_guard_reason(self.Counted(126))
+        )
+        self.assertIsNone(
+            trigger_response.trigger_id_guard_reason(self.Counted(3))
+        )
+
+    def test_the_two_guards_never_disagree_about_a_type(self):
+        # The property the file broke, stated directly: whatever the type
+        # rule is, both guards apply the SAME one.
+        for value in (
+            126, self.Scene.ATLANTIS, self.Counted(126), 126.0, "126", True,
+            False, None, [], object(), b"\x7e",
+        ):
+            with self.subTest(value=value):
+                scene_reason = trigger_response.scene_guard_reason(value)
+                self.assertEqual(
+                    scene_reason == trigger_response.SCENE_REFUSED_NOT_AN_INT,
+                    trigger_response.trigger_id_guard_reason(value)
+                    == trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
+                )
+
+    def test_a_float_that_equals_the_scene_is_still_refused(self):
+        # The reason the docstring gives for being strict, kept honest:
+        # `126.0 == 126` is True in Python.
+        self.assertEqual(126.0, trigger_response.M2_ISLAND_CONTACT_SCENE_ID)
+        self.assertEqual(
+            trigger_response.scene_guard_reason(126.0),
+            trigger_response.SCENE_REFUSED_NOT_AN_INT,
+        )
+
+    def test_bool_is_refused_by_both_even_though_it_subclasses_int(self):
+        self.assertEqual(
+            trigger_response.trigger_id_guard_reason(True),
+            trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
+        )
+        self.assertEqual(
+            trigger_response.scene_guard_reason(True),
+            trigger_response.SCENE_REFUSED_NOT_AN_INT,
+        )
+
+    def test_the_candidate_ids_are_sorted_and_that_is_load_bearing(self):
+        # LOW, from the same run: `sorted()` could be deleted from
+        # CANDIDATE_TRIGGER_IDS and no test noticed. The order is what makes
+        # this tuple reproducible across runs, since it is built from a
+        # SET in the hook module.
+        self.assertEqual(
+            trigger_response.CANDIDATE_TRIGGER_IDS,
+            tuple(sorted(trigger_response.CANDIDATE_TRIGGER_IDS)),
+        )
+        self.assertEqual(trigger_response.CANDIDATE_TRIGGER_IDS, (2, 3))
+
+
+class TwoSpellingsNoValueTestCanSeparateTests(M2RegistryIsolation):
+    """Two of this file's claims are about HOW something is written, and no
+    assertion on today's VALUES can tell the two spellings apart:
+
+      * `M2_ISLAND_CONTACT_SCENE_ID = SEA_EDGE_SOURCE_SCENE_ID` vs `= 126`.
+        Both give 126, and `assertIs` passes for both because CPython
+        interns small ints.
+      * `tuple(sorted(hook_dict))` vs `tuple(hook_dict)`. The hook's dict is
+        written `{2: ..., 3: ...}`, so insertion order ALREADY matches
+        sorted order and the two agree on today's data.
+
+    Both were measured surviving as mutants this round. The house rule is
+    to grep the MECHANISM, not the spelling, so neither is pinned by
+    matching source text: each is pinned by moving the thing it depends on
+    and reimporting, which is the only way the difference becomes a value.
+    """
+
+    def reimported_with(self, module, attribute, value):
+        """This module, reimported while `module.attribute` is `value`.
+        Both modules are restored before returning, so nothing leaks into
+        the rest of the file even when an assertion fails.
+        """
+        original = getattr(module, attribute)
+        setattr(module, attribute, value)
+        try:
+            importlib.reload(trigger_response)
+            return {
+                "scene": trigger_response.M2_ISLAND_CONTACT_SCENE_ID,
+                "ids": trigger_response.CANDIDATE_TRIGGER_IDS,
+            }
+        finally:
+            setattr(module, attribute, original)
+            importlib.reload(trigger_response)
+
+    def test_moving_the_siblings_scene_id_moves_this_modules(self):
+        # Kills the mutant `M2_ISLAND_CONTACT_SCENE_ID = 126`.
+        seen = self.reimported_with(
+            world_sea_edge_crossing, "SEA_EDGE_SOURCE_SCENE_ID", 777
+        )
+        self.assertEqual(seen["scene"], 777)
+        self.assertEqual(trigger_response.M2_ISLAND_CONTACT_SCENE_ID, SEA)
+
+    def test_the_candidate_ids_are_sorted_not_merely_copied(self):
+        # Kills the mutant `tuple(M2_OBSERVED_ISLAND_TRIGGER_IDS)`: with the
+        # hook's dict written the other way round, a copy would give (3, 2).
+        seen = self.reimported_with(
+            island_trigger_log,
+            "M2_OBSERVED_ISLAND_TRIGGER_IDS",
+            {3: 154, 2: 153},
+        )
+        self.assertEqual(seen["ids"], (2, 3))
+        self.assertEqual(trigger_response.CANDIDATE_TRIGGER_IDS, (2, 3))
 
 
 class LookupIsAPassThroughTests(M2RegistryIsolation):
@@ -384,18 +546,58 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
     def test_no_wire_trigger_id_of_any_type_raises(self):
         # The whole point of the fail-closed guard: a session must never die
         # on a surprising trigger id, whatever the client put on the wire.
+        #
+        # WITH THE DISCRIMINATOR MEASURED, on purpose. pf-adversary measured
+        # that the shipped-module version of these two tests passed because
+        # TIER 3 refuses everything, so gutting tiers 1 and 2 to `return
+        # None` left them green -- they were named for a guard they never
+        # reached. Overriding tier 3 puts the named guard back in the path,
+        # and the day a real discriminator lands they keep measuring the
+        # same thing instead of turning red for an unrelated reason.
+        self.measured_discriminator()
         for hostile in self.HOSTILE:
             with self.subTest(wire_trigger_id=hostile):
                 self.assertIsNone(
                     trigger_response.candidate_for_trigger_id(SEA, hostile)
                 )
+                if hostile not in trigger_response.CANDIDATE_TRIGGER_IDS or (
+                    isinstance(hostile, bool)
+                ):
+                    self.assertIn(
+                        trigger_response.answer_guard_reason(SEA, hostile),
+                        (
+                            trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
+                            trigger_response.TRIGGER_ID_REFUSED_NOT_M2,
+                        ),
+                    )
 
     def test_no_scene_id_of_any_type_raises(self):
+        self.measured_discriminator()
         for hostile in self.HOSTILE:
             with self.subTest(current_scene_id=hostile):
                 self.assertIsNone(
                     trigger_response.candidate_for_trigger_id(hostile, 3)
                 )
+                if hostile != trigger_response.M2_ISLAND_CONTACT_SCENE_ID or (
+                    isinstance(hostile, bool)
+                ):
+                    self.assertIn(
+                        trigger_response.answer_guard_reason(hostile, 3),
+                        (
+                            trigger_response.SCENE_REFUSED_NOT_AN_INT,
+                            trigger_response.SCENE_REFUSED_NOT_THE_SEA_SCENE,
+                        ),
+                    )
+
+    def test_the_hostile_sweep_reaches_the_named_tiers_not_just_tier3(self):
+        # The control for the two tests above: with tier 3 overridden, the
+        # one hostile row that is a legitimate (scene, id) pair gets THROUGH
+        # the guard. If that stops being true, the sweep above has gone back
+        # to being answered by something other than tiers 1 and 2.
+        self.measured_discriminator()
+        self.assertIsNone(trigger_response.answer_guard_reason(SEA, 2))
+        self.assertIn(126, self.HOSTILE)
+        self.assertIsNone(trigger_response.answer_guard_reason(126, 3))
 
     def test_a_registry_that_is_not_a_mapping_is_refused_by_name(self):
         self.measured_discriminator()
