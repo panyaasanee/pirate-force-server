@@ -568,6 +568,36 @@ BRIDGE_SERIALIZER_TABLE = Precondition(
     "the eight-table key would also hide it on a machine that has it",
 )
 
+#: The three files tools/pf_ui_wire_name_census.py actually reads to build
+#: its rows, named on their own for the same reason BRIDGE_SERIALIZER_TABLE
+#: is (round on8hbb, LANE-UI, measured by pf-adversary): the census tool's
+#: own test file (tests/test_ui_wire_name_census.py) shipped with NO
+#: precondition guard at all (a prior round, `9dezrf`, deleted its original
+#: `unittest.skipIf` guard on a false citation that another test file's bare
+#: path construction was project precedent for skipping the guard entirely --
+#: it was not; that file has its own BRIDGE_GAMEDATA-shaped guard two lines
+#: below the path it cited). Reproduced directly: on a checkout with no
+#: ../pf_bridge sibling (the exact shape of the gate-windows single-repo
+#: runner), 10 of that test file's 11 tests fail outright instead of
+#: skipping -- which is PR #961's reported "pytest_subset 9 failed" (the file
+#: had 10 tests before this round added an 11th), with no OS-path-separator
+#: mechanism involved at all.
+UI_WIRE_CENSUS_INPUTS = Precondition(
+    "ui_wire_census_inputs",
+    [
+        SIBLING / "pf_bridge" / "VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv",
+        SIBLING / "pf_bridge" / "external" / "PF_PROTOCOL_REGISTRY.tsv",
+        SIBLING / "pf_bridge" / "external" / "PF_SERIALIZER_FIELDS.tsv",
+    ],
+    "the wire-name census inputs "
+    "../pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv, "
+    "../pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv and "
+    "../pf_bridge/external/PF_SERIALIZER_FIELDS.tsv",
+    "they live in the pf_bridge sibling repository, which the single-repo "
+    "gate checkout does not have; tools/pf_ui_wire_name_census.py is their "
+    "only consumer and its build_rows()/main() cannot answer without them",
+)
+
 #: The attribute-semantics corpus.  Named on its own, like
 #: BRIDGE_SERIALIZER_TABLE above, because a consumer reads exactly this ONE
 #: file - but for a DIFFERENT failure than the one that entry measured, and
@@ -751,6 +781,7 @@ REGISTRY = {
         BRIDGE_GAMEDATA,
         BRIDGE_LUA_SCRIPTS,
         BRIDGE_SERIALIZER_TABLE,
+        UI_WIRE_CENSUS_INPUTS,
         BRIDGE_ATTR_CORPUS,
         BRIDGE_GM_INSTALL_BAT,
         GAME_INSTALL_TREE,

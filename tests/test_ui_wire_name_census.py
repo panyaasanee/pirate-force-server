@@ -9,24 +9,38 @@ of the page silently going stale.
 
 Needs the sibling ``pf_bridge`` checkout (for the master catalog tsv and the
 two ``external/`` registries) the same way every other cross-repo census test
-in this suite does -- see tools/pf_vital_names.py's own DEFAULT_TSV, and (for
-example) tests/test_field_mob_tables_bg0002.py's bare ``ROOT.parent /
-"pf_bridge"``. No skip guard: the gate pins skip counts
-(docs/PYTEST_SKIP_PINS.json) and every sibling-repo census test in this suite
-assumes the checkout is there rather than adding a new pinned skip for it --
-if it is ever missing this file errors loudly (``CensusError``) instead of
-going quietly green.
+in this suite does. Guarded with ``UI_WIRE_CENSUS_INPUTS``
+(``tests/pf_preconditions.py``), named for the exact three files this tool
+reads (not the too-broad ``EXTERNAL_RE_TABLES``/``BRIDGE_SIBLING`` keys --
+see that precondition's own docstring for why).
+
+CORRECTION (round `on8hbb`, pf-adversary, measured): this file previously
+claimed "No skip guard: ... every sibling-repo census test in this suite
+assumes the checkout is there rather than adding a new pinned skip for it",
+citing tests/test_field_mob_tables_bg0002.py's bare ``ROOT.parent /
+"pf_bridge"`` path construction as precedent. That citation was false --
+that file has its own ``BRIDGE_GAMEDATA.skip_unless_present()`` guard two
+lines below the path literal it cited. A guard used to exist here too (a
+``unittest.skipIf`` deleted in round `9dezrf` on the same false citation).
+Reproduced directly on a checkout with no ``../pf_bridge`` sibling (the exact
+shape of the ``gate-windows`` single-repo runner): 10 of this file's then-10
+tests FAILED outright instead of skipping -- this is PR #961's reported
+``pytest_subset`` "9 failed" (one of the ten tests does not call
+``build_rows()``), with no OS-path-separator mechanism involved at all.
 """
 from __future__ import annotations
 
 import pathlib
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from tools import pf_ui_wire_name_census as census
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from tools import pf_ui_wire_name_census as census  # noqa: E402
+from pf_preconditions import UI_WIRE_CENSUS_INPUTS  # noqa: E402
 
 # Pinned this round (`9dezrf`, after pf-adversary's comment-line-exclusion
 # fix) against DEFAULT_TSV as committed today. A tier move for any name
@@ -37,6 +51,7 @@ EXPECT_NAME_ONLY = 158
 EXPECT_UNTOUCHED = 9
 
 
+@UI_WIRE_CENSUS_INPUTS.skip_unless_present()
 class BuildRowsTests(unittest.TestCase):
     def test_row_count_matches_the_master_catalog(self):
         rows = census.build_rows()
@@ -102,6 +117,7 @@ class BuildRowsTests(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+@UI_WIRE_CENSUS_INPUTS.skip_unless_present()
 class WindowsPathSafetyTests(unittest.TestCase):
     """Regression test for the actual cause of PR #961's Windows-only
     `pytest_subset` failures (COO-DECISION 20260907_0148, LANE-UI round
@@ -138,6 +154,7 @@ class WindowsPathSafetyTests(unittest.TestCase):
         self.assertGreater(checked, 0)
 
 
+@UI_WIRE_CENSUS_INPUTS.skip_unless_present()
 class CommittedArtifactTests(unittest.TestCase):
     def test_committed_artifact_matches_a_fresh_rederive(self):
         self.assertEqual(census.main(["--tsv", str(census.DEFAULT_TSV)]), 0)
