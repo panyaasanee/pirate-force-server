@@ -118,7 +118,10 @@ def _iter_py_files(base: Path):
 
     Two OS-dependent behaviours had to be removed here (pf-adversary, round
     `d1b231`, both measured), because ``_build_source_hits`` records the FIRST
-    hit per name and 46 of the 160 SOURCE names are hit in more than one file
+    hit per name and 46 of the SOURCE names are hit in more than one file
+    (the 46 re-derives; an absolute SOURCE total is deliberately not repeated
+    here -- it moves whenever any lane lands a wire module, and a number
+    frozen in a docstring is exactly how this file went stale before)
     -- so this order decides those rows' ``evidence`` values, and a different
     order on Windows is a Windows-only `CENSUS DRIFT`, exactly PR #961's shape:
 

@@ -872,6 +872,46 @@ class AllWstringFieldsCarryTag0x48Tests(unittest.TestCase):
                         f"{offset}, found {payload[offset]:#04x}",
                     )
 
+    def test_the_table_offsets_are_exactly_where_the_0x48_bytes_are(self):
+        """pf-adversary D3, round `fvp9ke`. The test above only asks
+        "is byte N equal to 0x48"; it never asks "is byte N the only place a
+        0x48 appears". Measured that round: rewriting
+        ``ChangeActorPersonalData``'s row from ``(9, 18, 27)`` to
+        ``(9, 9, 9)`` -- i.e. inspecting one byte three times and leaving two
+        of its three wstrings completely unchecked -- left this whole file
+        green, and stayed green when those two fields were then emitted as
+        raw untagged ``len32 + UTF-16LE`` inline (a shape the migration-guard
+        detector cannot see either, because it never names the old pair).
+
+        Anchoring the FULL set of 0x48 positions closes that: a row can no
+        longer claim N fields while looking at fewer, and a field that stops
+        being tagged shows up as a missing position rather than as an
+        unexamined byte. Held exactly for all 13 rows when written.
+        """
+        for label, encode, _decode, make, offsets in self.CASES:
+            with self.subTest(cls=label):
+                payload = encode(make())
+                self.assertEqual(
+                    [i for i, b in enumerate(payload) if b == 0x48],
+                    list(offsets),
+                    f"{label}: the 0x48 bytes in the encoded payload are not "
+                    "exactly the offsets this table claims -- either a "
+                    "wstring field lost its tag, or the table is inspecting "
+                    "fewer fields than it says it does",
+                )
+
+    def test_no_row_inspects_the_same_byte_twice(self):
+        """Companion to the above, and the cheaper half of the same D3 fix:
+        duplicate offsets in a row are never legitimate -- two wstring fields
+        cannot begin at the same byte -- so reject them structurally instead
+        of relying on the position check to notice."""
+        for label, _e, _d, _m, offsets in self.CASES:
+            with self.subTest(cls=label):
+                self.assertEqual(
+                    len(set(offsets)), len(offsets),
+                    f"{label}: duplicate offset(s) in the table row",
+                )
+
     def test_corrupting_any_wstring_tag_byte_fails_closed(self):
         for label, encode, decode, make, offsets in self.CASES:
             for offset in offsets:
@@ -915,6 +955,35 @@ class AllWstringFieldsCarryTag0x48Tests(unittest.TestCase):
                     len(offsets), expected[label],
                     f"{label} has {expected[label]} wstring field(s) but "
                     f"{len(offsets)} offset(s) are checked",
+                )
+
+    def test_each_row_is_bound_to_its_own_classs_encoder(self):
+        """pf-adversary D3 (second half), round `fvp9ke`: rows are matched to
+        classes by LABEL STRING only, and this module deliberately keeps
+        several byte-identical classes as distinct ids. Measured that round:
+        re-pointing the ``SetReceiveActiveChange`` row at
+        ``encode/decode_requestor_confirm_soul_mate_match_payload`` and then
+        reverting the real ``SetReceiveActiveChange`` field left this file at
+        75 passed -- the class became silently uncovered while the table
+        still claimed it.
+
+        Bind the row to the module function whose name is derived from the
+        label, so a mis-pointed row is a failure rather than a coincidence.
+        """
+        import re
+
+        for label, encode, decode, _m, _o in self.CASES:
+            snake = re.sub(r"(?<!^)(?=[A-Z])", "_", label).lower()
+            with self.subTest(cls=label):
+                self.assertIs(
+                    encode,
+                    getattr(comm, f"encode_{snake}_payload"),
+                    f"{label}: row's encoder is not encode_{snake}_payload",
+                )
+                self.assertIs(
+                    decode,
+                    getattr(comm, f"decode_{snake}_payload"),
+                    f"{label}: row's decoder is not decode_{snake}_payload",
                 )
 
 

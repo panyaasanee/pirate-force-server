@@ -50,6 +50,7 @@ that instead.
 """
 from __future__ import annotations
 
+import io
 import pathlib
 import sys
 import tempfile
@@ -66,10 +67,22 @@ from pf_preconditions import UI_WIRE_CENSUS_INPUTS  # noqa: E402
 # Pinned this round (`9dezrf`, after pf-adversary's comment-line-exclusion
 # fix) against DEFAULT_TSV as committed today. A tier move for any name
 # changes at least one of these four numbers.
+# Re-pinned round `fvp9ke` 2026-09-07, two independent moves:
+#  * `ShowMessageVital` (0x36D2) NAME-ONLY -> SOURCE, because LANE-Q's
+#    message wire landed on main (`lua_api/message.py:44`). That move was
+#    already RED on main when this round started -- the pin caught another
+#    lane's real change; it was not "adjusted to fit".
+#  * `GuildStorageOpenVital` (0x5CAD) and `GuildStorageResultVital` (0x70D0)
+#    UNTOUCHED -> NAME-ONLY, because this round's own `docs/UI_LANE.md` Stall
+#    row names them and that doc is one of the tool's four NAME-ONLY sources.
+#    NOTE, and do not let a later round misread it: naming a vital in the
+#    plan is NOT progress toward it working. See UI_WIRE_COVERAGE.md's
+#    movement log, which says the same thing where readers of the number
+#    will actually see it.
 EXPECT_TOTAL = 327
-EXPECT_SOURCE = 160
-EXPECT_NAME_ONLY = 158
-EXPECT_UNTOUCHED = 9
+EXPECT_SOURCE = 161
+EXPECT_NAME_ONLY = 159
+EXPECT_UNTOUCHED = 7
 
 
 @UI_WIRE_CENSUS_INPUTS.skip_unless_present()
@@ -312,6 +325,193 @@ class CommittedArtifactTests(unittest.TestCase):
         rendered = census.render_tsv(census.build_rows())
         parsed = census.parse_tsv(rendered)
         self.assertEqual(census.render_tsv(parsed), rendered)
+
+
+# ---------------------------------------------------------------------------
+# D7 (pf-adversary, round `d1b231`): every test above this line is gated by
+# ``@UI_WIRE_CENSUS_INPUTS.skip_unless_present()``, so on a checkout WITHOUT a
+# sibling ``pf_bridge`` -- which is exactly what ``gate-windows`` builds --
+# they all skip and NOTHING in this file runs. The consequence measured that
+# round: the two ``return 1`` exit paths of ``main()`` (artifact absent,
+# artifact stale) and the ``return 2`` CensusError path have never been
+# executed by any test on any machine, on any OS. A `CENSUS DRIFT` that
+# silently returned 0 would have shipped green.
+#
+# The class below closes that hole and is deliberately NOT decorated: it feeds
+# ``main()`` a fixed row list through ``build_rows`` and a temp-dir artifact
+# path, so it depends on no file outside this repo and runs on the gate.
+# Mocking ``build_rows`` is the point, not a shortcut -- what is under test is
+# main()'s CONTRACT (which exit code and which stderr token for which state of
+# the artifact file), not the census derivation, which the gated classes above
+# already cover.
+_FAKE_ROWS = [
+    {
+        "id": "0x1001",
+        "name": "Community_ThrowLetterInABottle",
+        "family": "Community",
+        "is_client_req": "1",
+        "tier": "SOURCE",
+        "evidence": "src/pirateforce_foundation/ui_community_social_wire.py:1",
+    },
+    {
+        "id": "0x1002",
+        "name": "Pets_Feed",
+        "family": "Pets",
+        "is_client_req": "0",
+        "tier": "UNTOUCHED",
+        "evidence": "-",
+    },
+]
+
+
+class MainExitCodeTests(unittest.TestCase):
+    """The non-zero exit paths of ``main()``, with no sibling checkout."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.artifact = Path(self._tmp.name) / "census.tsv"
+        patcher = mock.patch.object(census, "build_rows", return_value=list(_FAKE_ROWS))
+        self.build_rows = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _run(self, *extra):
+        return census.main(["--artifact", str(self.artifact), *extra])
+
+    def test_missing_artifact_exits_1_and_names_the_file(self):
+        self.assertFalse(self.artifact.exists())
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            code = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("CENSUS DRIFT", err.getvalue())
+        self.assertIn("does not exist", err.getvalue())
+        self.assertIn(str(self.artifact), err.getvalue())
+
+    def test_stale_artifact_exits_1_and_says_rerun_with_emit(self):
+        # One byte of drift is enough: a single tier flipped in the committed
+        # copy, which is the real-world shape (someone edits the artifact by
+        # hand, or forgets --emit after a source change moves a name's tier).
+        stale = census.render_tsv(_FAKE_ROWS).replace("UNTOUCHED", "SOURCE   ")
+        self.artifact.write_text(stale, encoding="utf-8", newline="")
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            code = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("CENSUS DRIFT", err.getvalue())
+        self.assertIn("does not match a fresh re-derive", err.getvalue())
+
+    def test_artifact_missing_its_trailing_newline_is_drift_not_a_pass(self):
+        # render_tsv() ends with "\n". An artifact committed without it is a
+        # different byte stream and must fail, or the `--emit` output and the
+        # committed file could disagree forever.
+        rendered = census.render_tsv(_FAKE_ROWS)
+        self.artifact.write_text(rendered.rstrip("\n"), encoding="utf-8", newline="")
+        with mock.patch("sys.stderr", new_callable=io.StringIO):
+            self.assertEqual(self._run(), 1)
+
+    def test_matching_artifact_exits_0(self):
+        self.artifact.write_text(census.render_tsv(_FAKE_ROWS), encoding="utf-8", newline="")
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            code = self._run()
+        self.assertEqual(code, 0)
+        self.assertIn("PASS", out.getvalue())
+
+    def test_emit_writes_the_artifact_and_then_passes(self):
+        self.assertFalse(self.artifact.exists())
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            code = self._run("--emit")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            self.artifact.read_text(encoding="utf-8"), census.render_tsv(_FAKE_ROWS)
+        )
+
+    def test_emit_writes_lf_not_crlf_under_windows_newline_translation(self):
+        # The `newline=""` in main() is load-bearing: without it Python's text
+        # mode writes "\r\n" on Windows, read_text()'s own universal-newline
+        # translation hides that on read so THIS tool still passes, and every
+        # other tool reading the artifact byte-for-byte sees a different file.
+        #
+        # Reading the bytes back on Linux CANNOT catch that -- text mode here
+        # writes "\n" whether or not `newline=""` is passed, so the assertion
+        # would hold against a mutant that deleted it (measured this round:
+        # deleting `newline=""` left the whole file green). So emulate what
+        # Windows text mode actually does -- translate "\n" to os.linesep when
+        # the caller did NOT pin `newline` -- and then check the bytes. This
+        # goes red on that mutant on any OS.
+        real_write_text = pathlib.Path.write_text
+
+        def windows_write_text(self, data, encoding=None, errors=None, newline=None):
+            if newline is None:
+                data = data.replace("\n", "\r\n")
+            self.write_bytes(data.encode(encoding or "utf-8", errors or "strict"))
+            return len(data)
+
+        with mock.patch.object(pathlib.Path, "write_text", windows_write_text):
+            with mock.patch("sys.stdout", new_callable=io.StringIO):
+                self._run("--emit")
+        self.assertIs(pathlib.Path.write_text, real_write_text)
+        raw = self.artifact.read_bytes()
+        self.assertNotIn(b"\r\n", raw)
+        self.assertTrue(raw.endswith(b"\n"))
+
+    def test_census_error_exits_2_not_1(self):
+        # A missing INPUT is a different failure from a stale artifact, and
+        # the caller (the gate) is entitled to tell them apart.
+        self.build_rows.side_effect = census.CensusError("boom")
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            code = self._run()
+        self.assertEqual(code, 2)
+        self.assertIn("CENSUS ERROR", err.getvalue())
+        self.assertNotIn("CENSUS DRIFT", err.getvalue())
+
+    def test_summary_exits_0_and_does_not_create_the_artifact(self):
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            code = self._run("--summary")
+        self.assertEqual(code, 0)
+        self.assertFalse(self.artifact.exists())
+        self.assertIn("Community", out.getvalue())
+
+
+class CoverageDocMatchesCommittedArtifactTests(unittest.TestCase):
+    """`docs/UI_WIRE_COVERAGE.md` says "regenerate; do not hand-edit these
+    numbers" -- but until this round nothing checked that anyone obeyed it,
+    so the page could sit stale against its own artifact indefinitely (it
+    did, for one name, at the start of round `fvp9ke`).
+
+    Deliberately NOT gated on the sibling `pf_bridge` checkout: it reads the
+    COMMITTED artifact in this repo instead of re-deriving, so it runs on
+    `gate-windows` where the gated classes above all skip.
+    """
+
+    def setUp(self):
+        self.artifact = census.DEFAULT_ARTIFACT
+        self.doc = ROOT / "docs" / "UI_WIRE_COVERAGE.md"
+
+    def _counts(self):
+        rows = census.parse_tsv(self.artifact.read_text(encoding="utf-8"))
+        total, by_tier, _ = census.summarize(rows)
+        return total, by_tier
+
+    def test_headline_numbers_match_the_artifact(self):
+        total, by_tier = self._counts()
+        text = self.doc.read_text(encoding="utf-8")
+        self.assertIn(
+            f"n/327 known (SOURCE) = {by_tier['SOURCE']}/{total}", text
+        )
+        self.assertIn(
+            f"NAME-ONLY = {by_tier['NAME-ONLY']}  UNTOUCHED = {by_tier['UNTOUCHED']}",
+            text,
+        )
+
+    def test_scoreboard_line_matches_the_artifact(self):
+        total, by_tier = self._counts()
+        text = self.doc.read_text(encoding="utf-8")
+        self.assertIn(
+            f"wire-names known n/327: {by_tier['SOURCE']}/{total}", text
+        )
+
+    def test_artifact_row_count_is_the_whole_catalog(self):
+        total, _ = self._counts()
+        self.assertEqual(total, EXPECT_TOTAL)
 
 
 if __name__ == "__main__":

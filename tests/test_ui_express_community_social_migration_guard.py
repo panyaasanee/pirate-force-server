@@ -159,12 +159,19 @@ def _resolve_untagged_pair_aliases(tree: ast.AST) -> tuple[set[str], dict[str, s
     function_aliases: dict[str, set[str]] = {name: set() for name in _UNTAGGED_PAIR_NAMES}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            if node.level == 1 and node.module is None:
+            # `node.level >= 1`, not `== 1` (round `fvp9ke`, pf-adversary D2
+            # follow-up): a module inside a subpackage reaches the wire
+            # module as `from .. import ui_social_wire`, level 2. Pinning
+            # level 1 made every such file invisible to this detector even
+            # once the scan above started reading them. Measured that round:
+            # a `lane_hooks/` file calling both halves of the pair through a
+            # level-2 import left this file green until this line changed.
+            if node.level >= 1 and node.module is None:
                 for alias in node.names:
                     if alias.name == "ui_social_wire":
                         module_aliases.add(alias.asname or alias.name)
             elif (
-                node.level == 1 and node.module == "ui_social_wire"
+                node.level >= 1 and node.module == "ui_social_wire"
             ) or (
                 node.level == 0
                 and node.module == "pirateforce_foundation.ui_social_wire"
@@ -273,17 +280,28 @@ class NoFoundationModuleCallsTheUntaggedPairTests(unittest.TestCase):
     """
 
     def test_no_module_calls_the_untagged_pair(self):
+        # `rglob`, not `glob` (round `fvp9ke`, pf-adversary D2): this test's
+        # own docstring and failure message both say "no module UNDER
+        # src/pirateforce_foundation/", but `glob` stops at the top
+        # directory, so 66 files in `lane_hooks/`, `lua_api/`, `gm/`,
+        # `world_data/` and `data/` were never read -- and the `checked > 50`
+        # vacuity guard passed happily on the 219 that were. Measured that
+        # round: a hook file placed under `lane_hooks/` calling BOTH halves
+        # of the proven-wrong pair left this file fully green. `lane_hooks/`
+        # is exactly where the already-migrated modules reach `runtime.py`
+        # from, so it is where the next wrong call site would appear.
         checked = 0
-        for path in sorted(FOUNDATION_DIR.glob("*.py")):
+        for path in sorted(FOUNDATION_DIR.rglob("*.py")):
             if path.name == _UNTAGGED_PAIR_OWNER:
                 continue
             checked += 1
-            with self.subTest(module=path.name):
+            rel = path.relative_to(FOUNDATION_DIR).as_posix()
+            with self.subTest(module=rel):
                 self.assertFalse(
                     _module_calls_untagged_pair(
                         path.read_text(encoding="utf-8")
                     ),
-                    f"{path.name} calls ui_social_wire."
+                    f"{rel} calls ui_social_wire."
                     "encode_untagged_wstring/read_untagged_wstring, which is "
                     "proven wrong (tag byte 0x48 missing -- see that pair's "
                     "docstring). Use wire.wstring_tag/wire.read_wstring_tag "
@@ -292,8 +310,20 @@ class NoFoundationModuleCallsTheUntaggedPairTests(unittest.TestCase):
                 )
         # Guards this test against becoming vacuous if FOUNDATION_DIR is
         # ever wrong or empty: it only means anything while it is actually
-        # reading modules.
-        self.assertGreater(checked, 50, "expected to scan the whole package")
+        # reading modules. Raised from 50 to 250 together with the switch to
+        # `rglob` -- 50 was low enough that the top-level-only scan (219
+        # files) cleared it without complaint, which is how D2 hid.
+        self.assertGreater(checked, 250, "expected to scan the whole package")
+        # And prove the recursion actually happened, rather than trusting a
+        # count: at least one scanned path must live in a subpackage.
+        self.assertTrue(
+            any(
+                p.relative_to(FOUNDATION_DIR).parent != Path(".")
+                for p in FOUNDATION_DIR.rglob("*.py")
+            ),
+            "expected the scan to reach subpackages of the foundation "
+            "package, not just its top directory",
+        )
 
     def test_the_detector_is_not_stuck_on_false(self):
         # Companion to the above: the invariant is only worth anything if

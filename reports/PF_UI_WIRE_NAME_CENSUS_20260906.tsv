@@ -48,7 +48,7 @@ id	name	family	is_client_req	tier	evidence
 0x29E4	DyeingVitalReq	(unprefixed)	1	SOURCE	src/pirateforce_foundation/ui_dyeing_appraisal_relive_wire.py:16
 0x2A00	DyeingVitalRes	(unprefixed)	0	SOURCE	src/pirateforce_foundation/ui_dyeing_appraisal_relive_wire.py:13
 0x2A39	Equipment_RunLuckyEnhancementItemVital	Equipment_	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
-0x2A3E	StallOpenVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
+0x2A3E	StallOpenVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv+docs/UI_LANE.md
 0x2A7A	TradeZoomVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x2A90	TargetPosVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/gm/chat_command.py:17
 0x2AB1	AppraisalVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/ui_dyeing_appraisal_relive_wire.py:11
@@ -62,14 +62,14 @@ id	name	family	is_client_req	tier	evidence
 0x3058	ActionItemVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x309A	UpdateAttrVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/damage_hp_link_hypothesis.py:19
 0x309E	CBoardcastVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
-0x30FE	StallStartVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
+0x30FE	StallStartVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv+docs/UI_LANE.md
 0x310B	Community_InitalizeActorCommunityVital	Community_	0	NAME-ONLY	pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x310C	MiscNotifyVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x3123	CKnockdownVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x369A	StorageOpenVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x36AA	CLearnSkillVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/learn_skill_request_hypothesis.py:2
 0x36CF	CreateActorVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/delete_refresh_hypothesis.py:13
-0x36D2	ShowMessageVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
+0x36D2	ShowMessageVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/lua_api/message.py:44
 0x36DB	DeleteActorVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/delete_actor.py:1
 0x36EF	SelectActorVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/delete_refresh_hypothesis.py:12
 0x3700	TradeInviteVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/lane_hooks/lane_ui_trade_wire_log.py:1
@@ -83,7 +83,7 @@ id	name	family	is_client_req	tier	evidence
 0x3C4D	Community_CommunityCommandNotAllowVital	Community_	0	SOURCE	src/pirateforce_foundation/ui_community_social_wire.py:14
 0x3D4B	GetWorldInfoVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/logout_dialog_open_hypothesis.py:65
 0x3DD6	ReliveMarkerVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/ui_dyeing_appraisal_relive_wire.py:81
-0x3DE4	StallOperateVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
+0x3DE4	StallOperateVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv+docs/UI_LANE.md
 0x3E0F	CShotMissileVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x3E10	EquipFashionVital	(unprefixed)	0	NAME-ONLY	pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x3E1C	DyeingRemoveVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/ui_dyeing_appraisal_relive_wire.py:14
@@ -154,7 +154,7 @@ id	name	family	is_client_req	tier	evidence
 0x5C35	ChangeFeatureVitalReq	(unprefixed)	1	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x5C5F	ChangeFeatureVitalRes	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x5C79	Pets_SetPetSkillVital	Pets_	0	SOURCE	src/pirateforce_foundation/ui_pets_wire.py:26
-0x5CAD	GuildStorageOpenVital	(unprefixed)	0	UNTOUCHED	-
+0x5CAD	GuildStorageOpenVital	(unprefixed)	0	NAME-ONLY	docs/UI_LANE.md
 0x5CD2	TriggerCastSkillVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/damage_by_skill.py:109
 0x5CE2	ItemMallPurchaseVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x5D4B	CarryableServiceVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
@@ -186,7 +186,7 @@ id	name	family	is_client_req	tier	evidence
 0x6F52	TranslatePortalVitalRes	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x6F6A	ItemMallGiftNotifyVital	(unprefixed)	0	NAME-ONLY	pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x709E	ReturnSelectServerVital	(unprefixed)	0	SOURCE	src/pirateforce_foundation/logout_dialog_open_hypothesis.py:70
-0x70D0	GuildStorageResultVital	(unprefixed)	0	UNTOUCHED	-
+0x70D0	GuildStorageResultVital	(unprefixed)	0	NAME-ONLY	docs/UI_LANE.md
 0x71AD	Community_UpdateActorCommunityDataToDBVital	Community_	0	SOURCE	src/pirateforce_foundation/ui_community_social_wire.py:42
 0x73DD	Community_SSRequestLetterInABottleDataVital	Community_	0	UNTOUCHED	-
 0x7593	CHitParadeActorDataVital	(unprefixed)	0	NAME-ONLY	pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
