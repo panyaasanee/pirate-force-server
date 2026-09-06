@@ -1512,3 +1512,85 @@ absent either clearing, is a fresh pure-function stub audit across
 "unambiguous from every call site, no state door needed" shape
 `Instance.*`'s first seven had -- not attempted this round, named here so
 it is a decision for whoever picks it up next, not a re-discovery.
+
+## Round gk0dz4 (2026-09-06) -- recover #915, fix stale REAL_METHODS guard, Instance.* 9/9 lands
+
+`pirate-force-server#915` (round `vmm7vf`, above) was closed unmerged by
+the gate's one-open-`claude/*`-pull-request lock after a real test
+failure (job `34013631038`, head `e9dedc8`) --
+`pf_bridge/notes_to_chief/20260906_1246_SYNC-NOTICE-pirate-force-server-pr915-closed-never-merged.md`.
+This session's own branch is fixed by its harness rather than freely
+assigned, so recovery here is by cherry-picking `vmm7vf`'s four kept
+commits from `claude/happy-tesla-vmm7vf` (base `4e64b7d`, already an
+ancestor of `main` at cherry-pick time) onto this branch, unchanged, then
+fixing the actual cause in one more commit.
+
+**Root cause**: round `vmm7vf` widened `lua_api/instance.REAL_METHODS`
+from 7 to 9 names and correctly updated
+`tests/test_script_lua_api_instance.py`, but left a second, independent
+regression guard on the same constant --
+`tests/test_script_host_spike.py`'s
+`test_the_7_real_instance_names_are_excluded_above_not_forgotten` --
+unrenamed and unwidened. That guard exists specifically to catch
+`REAL_METHODS` drifting without its own update; it caught its own
+author's drift, via the gate's `pytest_subset` step and independently via
+`PinFileTests` in `tests/test_pytest_precondition_census.py` (which checks
+the pin file's recorded test names against the source).
+
+**Fix**: renamed the guard to
+`test_the_9_real_instance_names_are_excluded_above_not_forgotten`,
+extended its frozenset with `AddBonusPoint`/`AddBonusReward`, and updated
+`docs/PYTEST_SKIP_PINS.json`'s `lupa_package` pin for that module to the
+new name (count unchanged at 21 -- rename only).
+
+### ADVERSARY
+
+`pf-adversary` invoked at the point this round found the root cause (own
+isolated worktree, detached at the fix commit). Result: **no real defects
+found**. Independently read `lua_api/instance.py`'s actual `REAL_METHODS`
+(not the commit message) and confirmed the renamed guard's frozenset
+matches it member-for-member; `git grep`'d the whole tree for the old test
+name and found only the already-correct pin-file rename plus one
+historical-narrative reference in this doc's own `vmm7vf` section above
+(left alone, correctly, as an accurate record of what that round did at
+the time); verified `PYTEST_SKIP_PINS.json` stays valid JSON with its
+`lupa_package`/`test_script_host_spike.py` entry's `count` (21) matching
+its `tests` array length; ran the three affected test files clean (106
+passed, 25 skipped for missing `lupa`, 1103 subtests, 0 failed); and
+proved the fix is not vacuous by reverting just the frozenset body while
+keeping the rename, which reproduced a fresh, correct failure (calling the
+test function directly, bypassing `unittest`'s class-level skip
+dispatch, since this interpreter has no `lupa`).
+
+Adversary raised one open, unresolved design question rather than a
+defect, recorded here verbatim rather than answered: is there a static
+check (beyond each module's own hand-maintained guard test) that would
+catch the *next* time a `REAL_METHODS`/`STILL_STUBBED`-shaped set in any
+`lua_api/*.py` module widens without its sibling guard test in
+`test_script_host_spike.py` being updated -- or does every future
+widening rely on a human (or another gate run) noticing the same two-file
+coupling by hand, as happened here? Named as a decision for whoever next
+touches this pattern, not resolved this round.
+
+### Tests + gates
+
+Full suite, `PYTHONPATH=src:tests python3 -m pytest tests/ -q -rs`, run
+three times this round on progressively later trees: once on the four
+cherry-picked commits alone (`1 failed` -- reproduced the exact original
+gate failure, confirming root cause before any fix); once after the fix,
+before merging `origin/main` a second time (`12209 passed, 369 skipped,
+25084 subtests passed`); once more on the final tree after merging
+`origin/main` again mid-round (LANE-A's `#919` landed, zero file overlap):
+`12258 passed, 369 skipped, 25095 subtests passed in 607.15s`, exit 0.
+`python3 tools_bridge/pf_gate_preflight.py --repo ../pirate-force-server`
+(from `pf_bridge`): PREFLIGHT PASS, re-verified after each merge.
+
+### Recommendation for whoever finishes `Trigger.*`/`Quest.*` next
+
+Unchanged from round `vmm7vf`: this lane's only two named blockers are
+`RE-273` (still `OPEN`, needs the bridge's own client copy) and
+`persistence_quest_state.py` landing (still does not exist anywhere in
+this repository) -- both re-checked fresh this round. `Instance.*` stays
+9/9 real; this round changed no API behavior, only recovered the already-
+real work's path onto `main` and fixed the test-suite regression that had
+blocked it.
