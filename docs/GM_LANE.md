@@ -10547,3 +10547,24 @@ attempted_bytes=<ไบต์> attempts=<N>` (ASCII ล้วน ผ่าน `c
 (`except Exception` ไม่ครอบ `KeyboardInterrupt`/`SystemExit` ซึ่งเป็นสองตัวที่ comment เดิมอ้างถึง) ·
 ทั้งสองข้อพิสูจน์ด้วยมิวแทนต์ (retry=True ที่เส้นทาง shutdown / แคบ guard กลับเป็น `except Exception`)
 ใน `tests/test_gm_command_capture.py`
+
+## เทสของสาย GM ห้ามตรึง "โฮสต์เป็น POSIX" (รอบ `nfbat1` · สาเหตุที่เกตปิด `#962`)
+
+`#962` (ชุดแก้ D1-D8 + O_BINARY) ถูก `merge-claude-pr.yml` ปิดเพราะเกต Windows แดงที่
+`pytest_subset` — **2 failed, 11536 passed** และทั้งสองใบคือบรรทัดแรกของเทสคู่แฝด
+`test_capture_file_open_flags_unchanged_when_o_binary_absent`
+(`tests/test_gm_command_capture.py:269`) กับ `test_log_open_flags_unchanged_when_o_binary_absent`
+(`tests/test_gm_commands.py:417`): `self.assertFalse(hasattr(os, "O_BINARY"))` →
+`AssertionError: True is not false` · `os.O_BINARY` **มีจริงบน windows-latest** ซึ่งเป็นเครื่องที่เกต
+ของโปรเจกต์นี้เดิน ⇒ ประโยคนั้นเป็นการตรึง *เครื่อง* ไม่ใช่ตรึง *โค้ด*
+
+🔴 กฎของสายนี้ต่อจากนี้: เทสที่ต้องการเดินสาขา fallback ของ `getattr(os, "<FLAG>", 0)`
+ให้ **จำลองการไม่มีแฟล็ก** ด้วย context manager `_o_binary_removed` (ลบ attribute ชั่วคราว คืนใน
+`finally`) ไม่ใช่สมมติว่าโฮสต์ไม่มีให้ — สาขานั้นจะถูกเดินจริงทุกแพลตฟอร์ม และเทสไม่แดงเพราะเครื่อง
+(บ้านนี้มีแบบอย่างอยู่แล้วที่ `test_gm_commands.py` ใช้ `if os.name == "posix":` แยกทางสำหรับโหมดไฟล์)
+
+หลักฐานรอบ `nfbat1` (สองชั้นแยกกัน): (1) log ของ job เกตเอง — ชื่อเทสสองใบและข้อความ assert ตรงตัว ·
+(2) จำลองบนคลาวด์ลินุกซ์ด้วยการใส่ `os.O_BINARY` เข้าไปในโมดูล `os` ก่อนเรียก pytest → ไฟล์ก่อนแก้ให้
+**2 failed / 94 passed** เท่ากับเกตเป๊ะ ไฟล์หลังแก้ให้ **96 passed** และไม่ใส่ก็ 96 passed เหมือนกัน ·
+ฟันของเทสยังอยู่ (มิวแทนต์: fallback `0`→`4` ทำให้สองใบ "absent" แดง · ถอดแฟล็กออกจากนิพจน์ flags
+ทำให้สองใบ "when available" แดง)
