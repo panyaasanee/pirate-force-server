@@ -87,6 +87,7 @@ from pirateforce_foundation import field_mob_tables_bg0009  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0010  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0011  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0015  # noqa: E402
+from pirateforce_foundation import field_mob_tables_bg3001  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
@@ -104,6 +105,7 @@ from pirateforce_foundation import world_population_bg0009  # noqa: E402
 from pirateforce_foundation import world_population_bg0010  # noqa: E402
 from pirateforce_foundation import world_population_bg0011  # noqa: E402
 from pirateforce_foundation import world_population_bg0015  # noqa: E402
+from pirateforce_foundation import world_population_bg3001  # noqa: E402
 
 
 V141 = ROOT / "current" / "pf_login_game_server_v141.py"
@@ -176,6 +178,8 @@ _POPULATION_MODULE_BY_SCENE = {
     field_mob_tables_bg0010.SCENE: world_population_bg0010,
     field_mob_tables_bg0011.SCENE: world_population_bg0011,
     field_mob_tables_bg0015.SCENE: world_population_bg0015,
+    # ROUND mf71tm: scene 126, the first ocean panel with a roster.
+    field_mob_tables_bg3001.SCENE: world_population_bg3001,
 }
 
 
@@ -196,6 +200,41 @@ def _live_scene_ids():
                 scene, len(ids), ids))
         mapping[scene] = ids[0]
     return mapping
+
+
+# A LIVE SCENE WHOSE ROSTER IS DELIBERATELY NOT KILLABLE YET.
+#
+# WHY THIS SET EXISTS, AND WHY IT IS NOT A HOLE IN THE CONTRACT.  Until round
+# mf71tm this file's item (a) read "every live scene's roster resolves to a
+# ruling", which quietly encodes an assumption nobody chose: that a lane may
+# not SHIP a roster before COO has granted permission to kill it.  A lane that
+# mines a scene therefore has exactly two moves on the day it ships - wait a
+# full round-trip for the letter, or mint a placeholder key so the contract
+# goes green.  Round 30ja9z took the second (its key spelled itself
+# "LANE-B-REQUEST-PENDING-COO"), and pf-adversary then measured what that key
+# actually was: kill() derives the ruling by sweeping the table and NEVER
+# reads the spelling, so a key that says on its face that it is unapproved is
+# a working kill permission end to end against real v141.  The placeholder is
+# not a weaker permission than a letter; it is the SAME permission with an
+# apologetic name.
+#
+# So the state this set names is the honest third move, and it is STRICTER
+# than either: the roster ships, and every one of its rows must be REFUSED by
+# kill(), which the test below drives all the way to mob_death.kill rather
+# than reading off a helper.  A scene leaves this set the day a real ruling
+# covers it - and if a lane ever adds a scene here to dodge the tie check, the
+# refusal test fails the moment any key starts covering its templates.
+#
+# ADDING A SCENE HERE IS NOT A LANE'S CALL TO MAKE SILENTLY: the entry must
+# name the letter that asks for the ruling, so the set cannot become a parking
+# lot for rosters nobody ever asked permission for.
+ROSTER_SHIPPED_KILL_NOT_YET_GRANTED = {
+    # ROUND mf71tm (LANE-B), scene 126 (Bg3001), templates 8041 and 8180.
+    # Ask: pf_bridge notes_to_chief/20260906_1644_LANE-B-ASK-COO-widen-death-
+    # scope-bg3001-two-templates.md (and 1643, the reading that produced the
+    # roster at all).  Removed from this set when that letter is answered.
+    "Bg3001",
+}
 
 
 class EverySceneKillLetterIsTiedToItsOwnSceneTests(unittest.TestCase):
@@ -231,6 +270,11 @@ class EverySceneKillLetterIsTiedToItsOwnSceneTests(unittest.TestCase):
                     "scene %r is live in field_mobs.live_scenes() and ships "
                     "no roster row through its own scene id %d" % (
                         scene, scene_id))
+                if scene in ROSTER_SHIPPED_KILL_NOT_YET_GRANTED:
+                    # Not skipped: checked HARDER, by the test below, which
+                    # drives every one of this scene's rows into kill() and
+                    # requires a refusal.  See that set's own comment.
+                    continue
                 for mob in roster:
                     with self.subTest(identity=hex(mob.actor_identity)):
                         ruling = mob_death.ruling_for(mob)
@@ -273,6 +317,14 @@ class EverySceneKillLetterIsTiedToItsOwnSceneTests(unittest.TestCase):
         live_ids = _live_scene_ids()
         for scene, scene_id in live_ids.items():
             roster = field_mobs.roster_for_scene_id(scene_id)
+            if scene in ROSTER_SHIPPED_KILL_NOT_YET_GRANTED:
+                # There is no ruling for these rows to impersonate WITH -
+                # mob_death.ruling_for RAISES on them rather than returning
+                # None - so the question this loop asks is not defined for
+                # them.  The stronger question that IS defined is asked by
+                # the test right below: kill() must refuse them in their own
+                # scene, which is the state this scene is in on purpose.
+                continue
             for other_scene in live_ids:
                 if other_scene == scene:
                     continue
@@ -306,6 +358,45 @@ class EverySceneKillLetterIsTiedToItsOwnSceneTests(unittest.TestCase):
                             mob_death.kill(
                                 _legacy(), relabelled,
                                 _outcome_for(relabelled), widened=ruling)
+                        self.assertIn(
+                            "target_outside_the_sanctioned_scope",
+                            str(box.exception))
+
+
+    def test_a_roster_shipped_without_a_grant_is_refused_by_kill(
+            self) -> None:
+        """The other half of ROSTER_SHIPPED_KILL_NOT_YET_GRANTED, and the
+        half that makes membership of that set cost something.
+
+        Every row of a scene in that set is driven all the way into
+        ``mob_death.kill`` - not read off ``rulings_covering``, for the same
+        reason the impersonation test above does not - and must be REFUSED.
+        The day a real ruling covers one of these templates this test goes
+        red, which is the day the scene has to leave the set and face the
+        ordinary scene-tie check instead.  So the set cannot quietly become
+        a place where rosters live forever without a letter.
+        """
+        live_ids = _live_scene_ids()
+        for scene in ROSTER_SHIPPED_KILL_NOT_YET_GRANTED:
+            with self.subTest(scene=scene):
+                self.assertIn(
+                    scene, live_ids,
+                    "%r is named as a shipped-but-not-granted roster and is "
+                    "not live at all; delete the entry" % (scene,))
+                roster = field_mobs.roster_for_scene_id(live_ids[scene])
+                self.assertTrue(roster)
+                for mob in roster:
+                    with self.subTest(identity=hex(mob.actor_identity)):
+                        self.assertEqual(
+                            mob_death.rulings_covering(mob), (),
+                            "a ruling now covers this row, so this scene no "
+                            "longer belongs in "
+                            "ROSTER_SHIPPED_KILL_NOT_YET_GRANTED")
+                        with self.assertRaises(
+                                mob_death.MobDeathContractError) as box:
+                            mob_death.kill(
+                                _legacy(), mob, _outcome_for(mob),
+                                widened=None)
                         self.assertIn(
                             "target_outside_the_sanctioned_scope",
                             str(box.exception))

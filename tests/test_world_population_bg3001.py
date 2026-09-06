@@ -331,9 +331,30 @@ class Bg3001Census(unittest.TestCase):
                              for alias in node.names]
                 if "world_population_bg3001" in names:
                     importers.append(path.name)
+        # [CROSS-LANE EDIT BY LANE-B, ROUND mf71tm] mob_scene_recompose.py
+        # becomes a third importer, the same addition LANE-B made on
+        # world_population_bg0010's own copy of this test in round 9t75cr
+        # and on bg0011's in round 4tnhzw, for the same reason: scene 126
+        # gained a combat roster (field_mob_tables_bg3001, mined under the
+        # ocean hostility reading) and a recompose composer
+        # (mob_scene_recompose.COMPOSER_BG3001) that calls THIS builder for
+        # this scene's MID-SESSION recompose census.  The arrival census
+        # stays lane A's, through the seam below; the recompose of that same
+        # census after a hit is lane B's, and lane B composes it by CALLING
+        # this builder rather than writing a second one.  runtime.py still
+        # imports neither.
+        #
+        # WHAT IS DIFFERENT FROM THE bg0010 EDIT, so this is not read as the
+        # same event twice: scene 126's two rows are NOT killable.  No
+        # ruling covers templates 8041/8180, kill() refuses them, and the
+        # contract file's ROSTER_SHIPPED_KILL_NOT_YET_GRANTED names the
+        # scene and the letter that asks COO for one.  So what a recompose
+        # in this scene can do today is redraw the census after a hit, not
+        # after a death.
         self.assertEqual(
             sorted(set(importers)),
-            ["lane_a_scene_census.py", "world_population_handoff.py"])
+            ["lane_a_scene_census.py", "mob_scene_recompose.py",
+             "world_population_handoff.py"])
 
 
 if __name__ == "__main__":

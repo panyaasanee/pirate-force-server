@@ -73,6 +73,7 @@ from . import world_population_bg0009
 from . import world_population_bg0010
 from . import world_population_bg0011
 from . import world_population_bg0015
+from . import world_population_bg3001
 
 
 # No flag gates this module: it is lane B's always-on half, per CHARTER-02.
@@ -183,6 +184,7 @@ COMPOSER_BG0008 = "bg0008_population_plus_roster_override"
 COMPOSER_BG0009 = "bg0009_population_plus_roster_override"
 COMPOSER_BG0010 = "bg0010_population_plus_roster_override"
 COMPOSER_BG0011 = "bg0011_population_plus_roster_override"
+COMPOSER_BG3001 = "bg3001_population_plus_roster_override"
 COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
 
 # EVERY COMPOSER KIND THAT BUILDS ITS OWN CENSUS HERE, rather than delegating
@@ -223,6 +225,7 @@ NON_DELEGATED_COMPOSER_KINDS = (
     COMPOSER_BG0002, COMPOSER_BG0003, COMPOSER_BG0004, COMPOSER_BG0005,
     COMPOSER_BG0006, COMPOSER_BG0007, COMPOSER_BG0008, COMPOSER_BG0009,
     COMPOSER_BG0010, COMPOSER_BG0011, COMPOSER_BG0015,
+    COMPOSER_BG3001,
 )
 
 _COMPOSERS = {
@@ -261,6 +264,21 @@ _COMPOSERS = {
     ),
     world_population_bg0015.SCENE_N_ID: SceneComposer(
         world_population_bg0015.SCENE_N_ID, "Bg0015", COMPOSER_BG0015,
+    ),
+    # ROUND mf71tm.  Scene 126 (Bg3001), the FIRST ocean panel with a roster
+    # and so the first row here that is not an island or a town.  Nothing
+    # about the composition is different -- LANE-A's census builder has
+    # existed for this scene since round 4uztfj and this row only points at
+    # it -- but two things about the SCENE are, and are worth saying where
+    # someone adding the next ocean panel will read them: its door is shut
+    # (login_entry_allowed false, LANE-A's, and this row does not open it),
+    # and its roster's two rows are not killable by anybody yet (no ruling
+    # covers templates 8041/8180; the letter asking for one went out the
+    # same round).  So this row makes the two creatures compose and
+    # recompose correctly WHEN a session is in scene 126 -- which today is
+    # the GM single-use grant, not an ordinary login.
+    world_population_bg3001.SCENE_N_ID: SceneComposer(
+        world_population_bg3001.SCENE_N_ID, "Bg3001", COMPOSER_BG3001,
     ),
 }
 
@@ -380,6 +398,16 @@ def _build_bg0011(legacy, anchor, actor_count, *, scene_id):
 _build_bg0011.serves_scene_id = world_population_bg0011.SCENE_N_ID
 
 
+def _build_bg3001(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg3001.build_bg3001_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg3001.COUNT_SOURCE_CALLER,
+    )
+
+
+_build_bg3001.serves_scene_id = world_population_bg3001.SCENE_N_ID
+
+
 def _build_bg0015(legacy, anchor, actor_count, *, scene_id):
     return world_population_bg0015.build_bg0015_population(
         legacy, anchor, actor_count, scene_id=scene_id,
@@ -401,6 +429,7 @@ _POPULATION_BUILDERS = {
     COMPOSER_BG0009: _build_bg0009,
     COMPOSER_BG0010: _build_bg0010,
     COMPOSER_BG0011: _build_bg0011,
+    COMPOSER_BG3001: _build_bg3001,
     COMPOSER_BG0015: _build_bg0015,
 }
 
@@ -757,12 +786,26 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
     # 126's login_entry_allowed is still false and this round did not touch
     # it, so the only session that reaches its arrival census is a GM
     # single-use entry (CORE-REQUEST-GM-038).
-    126: (
-        "Bg3001 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py, registered this round, ordinary login "
-        "door still shut); field_mobs names no scene 126 at all, so it has "
-        "no combat roster and no strike can reach a recompose."
-    ),
+    # ~~126: "Bg3001 -- lane A's arrival census composes it ... field_mobs
+    # names no scene 126 at all, so it has no combat roster and no strike
+    # can reach a recompose."~~ STRUCK ROUND mf71tm (LANE-B), on exactly the
+    # terms scene 10's entry was struck in round 30ja9z: the clause that
+    # earned the entry has stopped being true.
+    # ``field_mobs.roster_for_scene_id(126)`` now returns 2 rows
+    # (``field_mob_tables_bg3001``, registered in this same commit) and
+    # :data:`COMPOSER_BG3001` above is its composer, so an acknowledgement
+    # here would now be the lie this tripwire exists to catch.
+    #
+    # WHAT HAS *NOT* CHANGED, said here because the struck text said it and
+    # somebody will look for where it went: scene 126's own
+    # ``login_entry_allowed`` is still FALSE and this round did not touch
+    # it, so the only session that reaches this scene's arrival census is
+    # still the GM single-use entry (CORE-REQUEST-GM-038) -- unlike scene
+    # 10, whose door was already open when its entry was struck.  And no
+    # strike can KILL either of the two rows yet: neither template 8041 nor
+    # 8180 is inside any ``mob_death.WIDENING_RULINGS`` set, so kill()
+    # refuses them, which ``tests/test_field_mob_tables_bg3001.py`` pins on
+    # purpose until COO answers the letter this round sent.
     # ADDED ROUND vwekfq (LANE-A): scene 17 (Bg1001, "one ship at sea")
     # entered ``world_scene_travel.CENSUS_SOURCES`` this round
     # (``world_bg1001_identity`` / ``world_population_bg1001``, a 7-actor

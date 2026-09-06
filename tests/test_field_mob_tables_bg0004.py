@@ -211,13 +211,20 @@ EXPECTED_CONTROL_FINDINGS = {
 # bg0001 is byte-identical (verified by regenerating and diffing).  The
 # previous digest is kept, not deleted:
 # ~~574fdca1391eb0aa4bc4a5a2b46b50c090839a86baf94426573312afff2866a5~~
+# ROUND mf71tm: re-pinned. The GENERATOR grew a HOSTILITY_RULE header
+# line this round, so every module it writes -- bg0001's included --
+# was regenerated and every one grew the same six-line block. The ROWS
+# did not move: the regenerated file was diffed against the committed
+# one before this re-pin and the diff was those six lines and nothing
+# else. This pin still means "this round did not touch that file's
+# rows"; it is re-pinned when a round changes bg0001 on purpose.
 BG0001_UNTOUCHED_SHA256 = (
-    "c1a341c9d7721db45b07e2e7df2840719da5fcbcf5521d7f31eabd4a1ce26934"
+    "88ac7e0488de68263eb184bbe528318249023fb3e7cfd7a37e9791085791942d"
 )
 # ROUND hor2lh: ~~9708~~ -> 12316, the comment correction described
 # above.  This constant still means "this round did not touch that
 # file"; it is re-pinned when a round changes bg0001 on purpose.
-BG0001_UNTOUCHED_SIZE = 12316
+BG0001_UNTOUCHED_SIZE = 12711  # ~~12316~~, same reason as the sha above
 
 
 #: The frozen serializer every door-walking test in this project drives, so
@@ -1082,8 +1089,25 @@ class GeneratedSiblingTablesAreProtectedOffBridgeTests(unittest.TestCase):
     # field_mob_ai_tables.py``: one new AI_COMBAT_ROWS/AI_COMBAT_PARALLEL
     # entry (315) and eight new PLACEMENT_AI_LINKS rows, nothing moved or
     # removed. One of the eight, ``(47, 16, 301)``, duplicates an existing
-    # row verbatim (Bg0007 placement 47 and Bg0010 placement 47 share AI id
-    # 301; the table carries no scene column) -- pf-adversary measured this
+    # row verbatim (~~Bg0007~~ **Bg0015** placement 47 and Bg0010 placement
+    # 47 share AI id 301; the table carries no scene column).
+    #
+    # ROUND mf71tm corrects TWO things this paragraph said, both found by
+    # pf-adversary on the merged round-9t75cr diff (D3, D4).  FIRST, the
+    # scene was wrong: measured over ``field_mobs.live_scenes()``, the only
+    # two live rosters shipping a placement 47 at all are Bg0010 (template
+    # 671) and Bg0015 (template 343); Bg0007's placement 47 exists ONLY as
+    # an unresolved row in its own module and ships no hostile placement 47.
+    # A round that opens Bg0007 looking for this debt finds nothing there.
+    # SECOND, the sentence below used to open "pf-adversary measured this is
+    # inert at runtime" -- and the commit that wrote it says in its own
+    # message ``ADVERSARY_UNAVAILABLE this session``.  It was a self-review,
+    # and it is now labelled as one.  (An adversary pass has since checked
+    # the claim independently and could not break it: it searched for a call
+    # site indexing by placement index and found that nothing under ``src/``
+    # imports ``PLACEMENT_AI_LINKS`` at all.)
+    #
+    # SELF-REVIEW, round 9t75cr, INDEPENDENTLY CONFIRMED round mf71tm: this
     # is inert at runtime (the AI lookup keys off the roster row's own AI id,
     # never off this table's placement index, and nothing under ``src/``
     # imports ``PLACEMENT_AI_LINKS`` for cross-scene lookup) but weakens this
@@ -1091,8 +1115,15 @@ class GeneratedSiblingTablesAreProtectedOffBridgeTests(unittest.TestCase):
     # loss of either copy. Left as recorded debt rather than fixed here:
     # de-duplicating would need a scene-qualified key, which is a table
     # schema change outside this round's scope.
+    # ROUND mf71tm: re-pinned after regenerating field_mob_ai_tables.py
+    # for scene 126 (Bg3001), which the AI miner's own union grew to
+    # include in the same commit. THREE lines added, nothing removed and
+    # no existing row changed: one AI_WANDER row (id 38, the id both of
+    # that scene's rows carry and no land scene had asked for) and its
+    # two PLACEMENT_AI_LINKS entries. 110 links -> 112, 6 wander rows ->
+    # 7, combat rows unchanged at 34.
     AI_TABLES_SHA256 = (
-        "84694832c3ffd7f0f7441bdf911ed2f14216291b8490345ea6fc59782598bb90")
+        "9957630eb9e9498ab7e7ab1c26cc4e1b9dff4240d0cd18c21d1c329e3289dde5")
 
     @staticmethod
     def _digest(module, names):

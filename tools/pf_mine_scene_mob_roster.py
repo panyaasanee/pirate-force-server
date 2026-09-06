@@ -134,6 +134,58 @@ IDENTITY_RULE_SETNUM = "setnum"
 IDENTITY_RULE_CLINE = "cline"
 IDENTITY_RULES = (IDENTITY_RULE_CLINE, IDENTITY_RULE_SETNUM)
 
+# WHICH PLACEMENTS ARE HOSTILE, AND WHY THERE ARE NOW TWO READINGS.  The
+# docstring above says the four candidate readings agree on bg0001 and that
+# the agreement is a property of THAT scene, not a law, and that "a scene
+# where the four disagree must be read before its roster is shipped".  Round
+# mf71tm read the five ocean-panel scenes the client registers by n_ID (126
+# Bg3001, 127 Bg3002, 128 Bg3003, 304 Bg3007, 305 Bg3008) and they disagree
+# in the same shape, all five:
+#
+#     n_RANK != 0 AND n_AI_COMBAT != 0   ->  0 rows in every one of the five
+#     n_AI_COMBAT != 0 alone             ->  8 / 17 / 21 / 23 / 32 rows
+#     n_RANK != 0 alone                  ->  2 /  1 /  0 /  0 /  0 rows
+#     n_DROPS_NORMAL != 0 alone          ->  0 rows in every one of the five
+#
+# and the two families do not overlap ANYWHERE at sea.  Reading the rows
+# rather than the counts says which family is which: every n_AI_COMBAT row in
+# all five scenes is either an ``SP_*`` hull at level 120 (a SHIP - the same
+# ``SP_*`` placements LANE-A's own world_population_bg3001 census ships as
+# the scene's 20 hulls) or an ``INVISIBLE`` body at level 1 (the weather
+# markers that census counts as "4 named Tornado and 6 nameless"), while the
+# n_RANK rows are ``M0*`` creature models at level 60 - the two of the three
+# creatures that census names (the level-60 Jellyfish King row and the
+# level-60 Thai-named M081 row).  So at sea the combat-AI column marks the
+# scenery that sails and blows, and the rank column marks the monsters; in a
+# town the two coincide and bg0001 could not tell them apart.
+#
+# TOWN IS THE DEFAULT AND IS UNCHANGED.  Every module already generated was
+# generated under ``town`` and re-generating it under ``town`` still produces
+# it; ``--verify-frozen`` still re-derives bg0001 against v141 under it.
+# ``ocean`` is not a widening of ``town``: it is a DIFFERENT reading for a
+# scene family where ``town`` is empty, and this generator refuses to pick
+# between them by itself - the caller names one.
+#
+# [assumption of LANE-B - awaiting COO confirmation] that the rank column is
+# the right one to read at sea is this lane's reading of the table, not a
+# ruling; the letter that puts it to COO is
+# notes_to_chief/20260906_1643_LANE-B-ASK-COO-every-ocean-panel-ships-zero-
+# hostiles-under-the-town-predicate-and-the-two-columns-swap.md.  Nothing about
+# KILLING these rows is decided here: WIDENING_RULINGS in mob_death.py is a
+# separate permission and this round asks for it separately.
+HOSTILITY_RULE_TOWN = "rank_and_ai_combat"
+HOSTILITY_RULE_OCEAN = "rank"
+HOSTILITY_RULES = (HOSTILITY_RULE_TOWN, HOSTILITY_RULE_OCEAN)
+# The command line says which family of scene it is reading; the generated
+# module records which COLUMNS that meant.  Both spellings are accepted on
+# the command line so a reader of either can re-run the exact mining.
+HOSTILITY_RULE_ALIASES = {
+    "town": HOSTILITY_RULE_TOWN,
+    "ocean": HOSTILITY_RULE_OCEAN,
+    HOSTILITY_RULE_TOWN: HOSTILITY_RULE_TOWN,
+    HOSTILITY_RULE_OCEAN: HOSTILITY_RULE_OCEAN,
+}
+
 # CROSSWALK CONTROLS.  Two placement-level anchors the owner confirmed by hand
 # (PANYA-EVIDENCE 2026-08-27 12:40, quoted in world_port_royal_identity.py),
 # keyed by Mob-Set number, and the Prison Exile agreement above.  A crosswalk
@@ -544,14 +596,31 @@ def _roster_row(sources: Sources, item: tuple) -> dict:
     }
 
 
+def _is_hostile(mob: dict, hostility: str) -> bool:
+    """Does THIS reading call this MOBS row hostile.  See HOSTILITY_RULES."""
+    if hostility == HOSTILITY_RULE_TOWN:
+        return _nonzero(mob, "n_RANK") and _nonzero(mob, "n_AI_COMBAT")
+    if hostility == HOSTILITY_RULE_OCEAN:
+        return _nonzero(mob, "n_RANK")
+    raise MineError("unknown hostility rule %r" % hostility)
+
+
 def hostile_roster(
     sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+    hostility: str = HOSTILITY_RULE_TOWN,
 ) -> list[dict]:
-    """Placements whose resolved MOBS row has BOTH a rank and a combat AI."""
+    """Placements this hostility reading selects.  Default: town (unchanged).
+
+    ``town`` is BOTH a rank and a combat AI, which is what every module
+    generated before round mf71tm shipped under and what --verify-frozen
+    re-derives.  ``ocean`` is a rank alone, for the scene family where the
+    two columns do not coincide; the constant block at the top of this file
+    carries the measurement that separates them.
+    """
     return [
         _roster_row(sources, item)
         for item in unambiguous_placements(sources, rule)
-        if _nonzero(item[6], "n_RANK") and _nonzero(item[6], "n_AI_COMBAT")
+        if _is_hostile(item[6], hostility)
     ]
 
 
@@ -854,6 +923,12 @@ from __future__ import annotations
 
 SCENE = %(scene)r
 IDENTITY_RULE = %(rule)r
+# Which column reading selected the rows below.  'rank_and_ai_combat' is the
+# town reading every module before round mf71tm shipped under; 'rank' is the
+# ocean-panel reading, where the combat-AI column marks ships and weather
+# markers instead of monsters.  The generator's own HOSTILITY_RULES block
+# carries the per-scene measurement behind that split.
+HOSTILITY_RULE = %(hostility)r
 SCENE_CLINE_TYPE = %(cline_type)s
 SOURCE_DIGESTS = %(digests)s
 PREDICATE_CENSUS = %(census)s
@@ -972,6 +1047,7 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
                   town: list[dict] | None = None,
                   withdrawn: list[dict] | None = None,
                   controls: dict[str, str] | None = None,
+                  hostility: str = HOSTILITY_RULE_TOWN,
                   rank_zero_combat: list[dict] | None = None,
                   pending: list[dict] | None = None,
                   legacy_control_row: dict | None = None,
@@ -1149,6 +1225,7 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
     body = _HEADER % {
         "scene": scene,
         "rule": rule,
+        "hostility": hostility,
         "cline_type": repr(cline_type),
         "digests": _ascii_dict(digests),
         "census": _ascii_dict(census),
@@ -1198,6 +1275,12 @@ def main(argv: list[str]) -> int:
                         help="also ship the rows the previous rule selected "
                              "that this one withdraws, labelled per row as "
                              "the legacy reading pending migration")
+    parser.add_argument("--hostility-rule", default=HOSTILITY_RULE_TOWN,
+                        choices=sorted(HOSTILITY_RULE_ALIASES),
+                        help="which column reading marks a placement hostile "
+                             "(default: town, a rank AND a combat AI; ocean "
+                             "is a rank alone, for the ocean panels where "
+                             "the combat-AI rows are ships and weather)")
     parser.add_argument("--identity-rule", default=IDENTITY_RULE_CLINE,
                         choices=list(IDENTITY_RULES),
                         help="how a Mob-Set number becomes a MOBS.n_ID "
@@ -1224,13 +1307,23 @@ def main(argv: list[str]) -> int:
         if args.predicate_census:
             for name, value in sorted(census.items()):
                 print("census %-20s %d" % (name, value))
-        roster = hostile_roster(sources, rule)
+        hostility = HOSTILITY_RULE_ALIASES[args.hostility_rule]
+        roster = hostile_roster(sources, rule, hostility)
         town = town_target_roster(sources, rule)
         if not roster and not town:
+            selects = ("both a rank and a combat AI"
+                       if hostility == HOSTILITY_RULE_TOWN else "a rank")
+            hint = ""
+            if (hostility == HOSTILITY_RULE_TOWN
+                    and census["rank"] and not census["rank_and_ai_combat"]):
+                hint = (" -- %d placement(s) here DO have a rank with no "
+                        "combat AI, which is the ocean-panel shape; read the "
+                        "rows, then --hostility-rule ocean if they are "
+                        "creature models" % census["rank"])
             raise MineError(
-                "scene %r ships nothing under rule %r: no placement has both "
-                "a rank and a combat AI, and none is on the town-target "
-                "allowlist" % (args.scene, rule)
+                "scene %r ships nothing under rule %r / hostility %r: no "
+                "placement has %s, and none is on the town-target allowlist%s"
+                % (args.scene, rule, hostility, selects, hint)
             )
         withdrawn = withdrawn_under_rule(sources, rule)
         pending = []
@@ -1266,7 +1359,8 @@ def main(argv: list[str]) -> int:
                 )
         module = render_module(
             args.scene, roster, sources.digests(), census,
-            rule=rule, cline_type=sources.cline_type, town=town,
+            rule=rule, hostility=hostility,
+            cline_type=sources.cline_type, town=town,
             withdrawn=withdrawn, controls=controls,
             rank_zero_combat=rank_zero_combat, pending=pending,
             legacy_control_row=legacy_control_row,

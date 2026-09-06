@@ -1255,8 +1255,23 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             (0x205F, "Bg0002", "Bg0010"),
             (0x2060, "Bg0002", "Bg0010"),
             (0x2061, "Bg0002", "Bg0010"),
+            # ROUND mf71tm: scene 126 (Bg3001) arrives with two placements
+            # and brings THREE new pairs, all on the same identity 0x201E,
+            # which was already a two-way collision (Bg0003/Bg0015) and is
+            # now four-way.  Measured from cross_scene_identity_collisions()
+            # itself, not hand-assembled: Bg3001's placement 29 (Jellyfish
+            # King, template 8041) lands on the identity that scenes 3, 7
+            # and 15 already share.  Its other placement (37) collides with
+            # nothing.  Nothing about this is new in kind -- an identity is
+            # derived per scene from the placement index, so two scenes with
+            # a placement at the same index always meet here -- and the
+            # per-pair "different template on each side" loop below covers
+            # these three the same as the other 52.
+            (0x201E, "Bg0003", "Bg3001"),
+            (0x201E, "Bg0007", "Bg3001"),
+            (0x201E, "Bg0015", "Bg3001"),
         })
-        self.assertEqual(len(got), 52)
+        self.assertEqual(len(got), 55)
         # THE CLAIM PROSE MAKES ABOVE, MEASURED: no colliding pair is two
         # spellings of one monster.
         for row in rows:

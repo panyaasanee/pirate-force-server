@@ -202,6 +202,7 @@ from . import field_mob_tables_bg0008
 from . import field_mob_tables_bg0009
 from . import field_mob_tables_bg0010
 from . import field_mob_tables_bg0011
+from . import field_mob_tables_bg3001
 from . import field_mob_tables_bg0015
 # LANE-B's per-(viewer, monster) link for the client's name-colour selector
 # (COO-DECISION 20260905_2348, CORE-REQUEST-GM-061).  Imported for the
@@ -534,6 +535,7 @@ _SCENE_TABLE_MODULES = {
     field_mob_tables_bg0010.SCENE: field_mob_tables_bg0010,
     field_mob_tables_bg0011.SCENE: field_mob_tables_bg0011,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
+    field_mob_tables_bg3001.SCENE: field_mob_tables_bg3001,
 }
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
 # ROUND am1fw8.  Scene 3 (the jungle map behind Port Royal's second gate),
@@ -669,6 +671,33 @@ BG0010_SCENE = field_mob_tables_bg0010.SCENE
 # templates (669, 674, 693, 696, 697).
 BG0011_SCENE = field_mob_tables_bg0011.SCENE
 BG0015_SCENE = field_mob_tables_bg0015.SCENE
+# ROUND mf71tm.  Scene 126 (Bg3001, "Atlantic Ocean: Rising Sun Sea"), the
+# FIRST ocean panel this lane has given a roster and the first scene mined
+# under HOSTILITY_RULE 'rank' rather than 'rank_and_ai_combat'.  The town
+# predicate ships NOTHING here and in all four sibling ocean panels: at sea
+# the combat-AI column belongs to the SP_* hulls at level 120 and the
+# INVISIBLE weather markers at level 1 (both of which LANE-A's own
+# world_population_bg3001 census already ships as scenery), while the rank
+# column belongs to the two level-60 M0* creature rows this registration
+# adds.  The generator's HOSTILITY_RULES block carries that measurement for
+# all five panels; this comment does not repeat it.
+#
+# TWO placements, TWO distinct templates (8041 Jellyfish King,
+# 8180 the Thai-named M081 row), HP 43275 each from the level-60
+# STANDARD_MOB row.  What this registration does NOT do, said plainly rather
+# than left to be discovered: it does not widen death scope (neither
+# template is in mob_death.WIDENING_RULINGS, so a kill here is refused
+# exactly as it was yesterday -- the letter asking COO for that ruling went
+# out this round), it does not compose scene 126's arrival (that is
+# mob_scene_recompose's own table and this round does not touch it), and it
+# does not open scene 126's door, which is LANE-A's and is still shut.
+#
+# [assumption of LANE-B - awaiting COO confirmation] reading the rank column
+# instead of the intersection at sea is this lane's reading of the client's
+# own tables, not a ruling.  If COO reads it the other way, what reverts is
+# this constant, the SCENE entry above, the import above and the generated
+# module -- no other module imports any of them yet.
+BG3001_SCENE = field_mob_tables_bg3001.SCENE
 
 
 def assert_scene_table_keys_match_their_own_modules(table: Any) -> None:
@@ -1540,9 +1569,17 @@ def cross_scene_identity_collisions(
     the collision set is a computed fact any round can reproduce, not a
     number copied from a previous round's letter.
 
-    ``table_modules`` defaults to the two scenes :func:`load_roster` can
+    ~~``table_modules`` defaults to the two scenes :func:`load_roster` can
     actually load today (``field_mob_tables`` / bg0001,
-    ``field_mob_tables_bg0002`` / Bg0002).  It deliberately does NOT default
+    ``field_mob_tables_bg0002`` / Bg0002).~~  STALE, corrected round mf71tm
+    (pf-adversary D6, found while checking a different claim): the default
+    is :data:`_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`, which is THIRTEEN
+    modules as of this round -- every scene this lane ships a roster for,
+    Bg0015 and Bg3001 included.  The paragraph below is what it grew out of
+    and is kept because its reasoning about Bg0015 is still the reason this
+    function reads modules rather than importing them; the COUNT in the
+    struck sentence had simply gone unmaintained for ten scenes.
+    It deliberately does NOT default
     to also including the third scene's own mined table (Bg0015): that
     module exists (mined, committed, generator-reproducible) but
     COO-DECISION 2026-08-26T12:46+07:00 requires it to stay unimported

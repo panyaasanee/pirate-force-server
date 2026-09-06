@@ -80,8 +80,17 @@ GAMEDATA = ROOT.parent / "pf_bridge" / "gamedata"
 # bg0001 is byte-identical (verified by regenerating and diffing).  The
 # previous digest is kept, not deleted:
 # ~~574fdca1391eb0aa4bc4a5a2b46b50c090839a86baf94426573312afff2866a5~~
+# ROUND mf71tm: ~~c1a341c9d7721db45b07e2e7df2840719da5fcbcf5521d7f31eabd4a1ce26934~~.
+# Re-pinned on purpose, for the reason this constant exists to expose: the
+# GENERATOR changed this round (it now stamps HOSTILITY_RULE into every
+# module it writes, so the reading that selected a roster is readable off
+# the roster), so every generated module including bg0001's was regenerated
+# and every one of them grew the same six-line header block.  bg0001's ROWS
+# are byte-identical - diffing the regenerated file against the committed
+# one before this re-pin showed six added lines and nothing else - which is
+# the claim this pin is here to make checkable rather than assertable.
 BG0001_UNTOUCHED_SHA256 = (
-    "c1a341c9d7721db45b07e2e7df2840719da5fcbcf5521d7f31eabd4a1ce26934"
+    "88ac7e0488de68263eb184bbe528318249023fb3e7cfd7a37e9791085791942d"
 )
 # ROUND 8ftmbx: ~~10570~~ -> 9704.  bg0001's own module shrank when
 # COO-DECISION 2026-08-29T00:41+07:00 withdrew its nine set-number rows;
@@ -91,7 +100,9 @@ BG0001_UNTOUCHED_SHA256 = (
 # ROUND hor2lh: ~~9708~~ -> 12316, the comment correction described
 # above.  This constant still means "this round did not touch that
 # file"; it is re-pinned when a round changes bg0001 on purpose.
-BG0001_UNTOUCHED_SIZE = 12316
+# ROUND mf71tm: ~~12316~~ -> 12711, the generator's own new header block (see
+# the sha above); bg0001's rows did not move.
+BG0001_UNTOUCHED_SIZE = 12711
 
 EXPECTED_SCENE = "Bg0002"
 EXPECTED_HOSTILE_COUNT = 17

@@ -70,6 +70,16 @@ AI_WANDER_DUMMY_ROW = 21
 # Round n8kq4r: Bg0015's row, mined for the first time -- see the class-level
 # note on test_the_links_table_agrees_with_the_roster.
 AI_WANDER_BG0015_ROW = 22
+# ROUND mf71tm: the wander id BOTH of scene 126's (Bg3001) two rows carry --
+# the first ocean panel to ship a roster, and the first row in this union
+# that no land scene ever asked for.  Its own table row is
+# ('RUN;1;2\\nIDLE;5;7', faction 11, offensive 1, aggro 3000): a monster
+# that CAN initiate, with the same 3000 aggro radius the practice dummy's
+# row carries.  It cannot actually initiate anything today for a reason
+# that has nothing to do with this row - an ocean-panel monster's
+# n_AI_COMBAT is 0, so profile_of resolves the same contradiction downward
+# that AI_WANDER_DUMMY_ROW's comment below describes.
+AI_WANDER_BG3001_ROW = 38
 # This round: Bg0008 placement 69 ("Nina", withheld) wants AI_WANDER 2, and
 # it is mined for the same reason Carlos's 22 was -- the generator resolves
 # every foreign key a scene table carries, ship or withhold being a decision
@@ -242,7 +252,8 @@ class MinedRowTests(unittest.TestCase):
                                         AI_WANDER_OFFENSIVE_ROW,
                                         AI_WANDER_PASSIVE_ROW,
                                         AI_WANDER_DUMMY_ROW,
-                                        AI_WANDER_BG0015_ROW])
+                                        AI_WANDER_BG0015_ROW,
+                                        AI_WANDER_BG3001_ROW])
         _script, _faction, offensive, aggro = rows[AI_WANDER_OFFENSIVE_ROW]
         self.assertEqual((offensive, aggro), (1, MINED_AGGRO_RADIUS))
         _script, _faction, offensive, aggro = rows[AI_WANDER_PASSIVE_ROW]

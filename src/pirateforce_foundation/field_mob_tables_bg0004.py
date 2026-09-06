@@ -39,6 +39,12 @@ from __future__ import annotations
 
 SCENE = 'bg0004'
 IDENTITY_RULE = 'cline'
+# Which column reading selected the rows below.  'rank_and_ai_combat' is the
+# town reading every module before round mf71tm shipped under; 'rank' is the
+# ocean-panel reading, where the combat-AI column marks ships and weather
+# markers instead of monsters.  The generator's own HOSTILITY_RULES block
+# carries the per-scene measurement behind that split.
+HOSTILITY_RULE = 'rank_and_ai_combat'
 SCENE_CLINE_TYPE = 4
 SOURCE_DIGESTS = {
     'cline': 'aa4a55b8db882eb965d0b7e186cd7bc7b5a81da8f057fee24586a27c94b2dc40',

@@ -398,9 +398,17 @@ class WithinOneSceneTests(unittest.TestCase):
         # census identities of scene 10, so none is silently dropped by
         # ``apply_identity_override``.  This number only tracks how many
         # scenes were checked.
+        # ROUND mf71tm: ~~12~~ -> 13.  Scene 126 (Bg3001) joined, and NOT on
+        # the same terms as every scene above it: it ships a roster with NO
+        # death ruling at all (see the contract file's
+        # ROSTER_SHIPPED_KILL_NOT_YET_GRANTED).  What the per-scene subTest
+        # above proved is the same either way and is the only thing this
+        # number tracks: both of its shipped roster identities are census
+        # identities of scene 126, so neither is silently dropped by
+        # ``apply_identity_override``.
         self.assertEqual(
-            12, checked,
-            "only scenes 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 and 14 ship "
+            13, checked,
+            "only scenes 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14 and 126 ship "
             "rosters today")
 
     def test_the_tripwire_fires_when_one_identity_names_two_placements(self):

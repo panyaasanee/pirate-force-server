@@ -139,13 +139,20 @@ EXPECTED_AI_WANDER_IDS = frozenset({11, 16})
 # bg0001 is byte-identical (verified by regenerating and diffing).  The
 # previous digest is kept, not deleted:
 # ~~574fdca1391eb0aa4bc4a5a2b46b50c090839a86baf94426573312afff2866a5~~
+# ROUND mf71tm: re-pinned. The GENERATOR grew a HOSTILITY_RULE header
+# line this round, so every module it writes -- bg0001's included --
+# was regenerated and every one grew the same six-line block. The ROWS
+# did not move: the regenerated file was diffed against the committed
+# one before this re-pin and the diff was those six lines and nothing
+# else. This pin still means "this round did not touch that file's
+# rows"; it is re-pinned when a round changes bg0001 on purpose.
 BG0001_UNTOUCHED_SHA256 = (
-    "c1a341c9d7721db45b07e2e7df2840719da5fcbcf5521d7f31eabd4a1ce26934"
+    "88ac7e0488de68263eb184bbe528318249023fb3e7cfd7a37e9791085791942d"
 )
 # ROUND hor2lh: ~~9708~~ -> 12316, the comment correction described
 # above.  This constant still means "this round did not touch that
 # file"; it is re-pinned when a round changes bg0001 on purpose.
-BG0001_UNTOUCHED_SIZE = 12316
+BG0001_UNTOUCHED_SIZE = 12711  # ~~12316~~, same reason as the sha above
 
 
 def _load_tool():

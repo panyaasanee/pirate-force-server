@@ -56,6 +56,12 @@ SRC = ROOT / "src" / "pirateforce_foundation"
 LANE_B_MODULES = (
     "field_drop_tables.py",
     "field_mob_ai_tables.py",
+    # ROUND mf71tm: scene 126's (Bg3001) generated roster, the first mined
+    # under the ocean hostility reading.  No player stat of any kind -- it
+    # reads MOBS-table rows the same validated way every other scene's
+    # roster does, and its one derived column (max_hp) is
+    # STANDARD_MOB[n_LEVEL_MIN].n_HPMAX like all of them.
+    "field_mob_tables_bg3001.py",
     # ROUND jqxe6v: the Bg0015 (scene 14) hostile entry-byte composer, built
     # against COO-DECISION 2026-08-31T16:48+07:00's layer-1 unlock.  No
     # player stat of any kind -- it reads MOBS-table rows the same validated

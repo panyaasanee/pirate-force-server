@@ -265,6 +265,17 @@ def load_roster_modules(repo_root: Path) -> tuple:
         from pirateforce_foundation import field_mob_tables_bg0010
         from pirateforce_foundation import field_mob_tables_bg0011
         from pirateforce_foundation import field_mob_tables_bg0015
+        # ROUND mf71tm: scene 126 (Bg3001), the first OCEAN panel with a
+        # roster, registered in field_mobs in the same commit.  Its two rows
+        # are the shape this union exists for: both carry AI_WANDER 38, an
+        # id no land scene in the union has ever asked the bridge tables
+        # for, and AI_COMBAT 0 (an ocean-panel monster has a rank and no
+        # combat AI - that is the whole reason it needed a different
+        # hostility reading to be mined at all).  Left out, the first swing
+        # in scene 126 would unwind the listener with ai_row_missing, which
+        # is the failure rounds n8kq4r and jqeo2m added their own scenes to
+        # prevent.
+        from pirateforce_foundation import field_mob_tables_bg3001
     finally:
         sys.path.pop(0)
     return (
@@ -273,7 +284,7 @@ def load_roster_modules(repo_root: Path) -> tuple:
         field_mob_tables_bg0006, field_mob_tables_bg0007,
         field_mob_tables_bg0008, field_mob_tables_bg0009,
         field_mob_tables_bg0010, field_mob_tables_bg0011,
-        field_mob_tables_bg0015,
+        field_mob_tables_bg0015, field_mob_tables_bg3001,
     )
 
 

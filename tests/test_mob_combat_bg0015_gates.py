@@ -228,7 +228,9 @@ class Bg0015MeasurementTests(unittest.TestCase):
         status = gates.recompose_status()
         self.assertEqual(
             status["composer_scene_ids"],
-            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14))
+            # ROUND mf71tm: 126 joins (Bg3001, first ocean panel with a
+            # roster; registered without a death ruling on purpose).
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 126))
         self.assertTrue(status["has_composer"])
         self.assertFalse(status["acknowledged_without_composer"])
         self.assertTrue(status["accounted_for"])
@@ -444,6 +446,15 @@ class Bg0015MeasurementTests(unittest.TestCase):
             (0x205F, "Bg0002", "Bg0010"),
             (0x2060, "Bg0002", "Bg0010"),
             (0x2061, "Bg0002", "Bg0010"),
+            # ROUND mf71tm: scene 126's two placements bring three pairs,
+            # all on identity 0x201E, which was already a collision and is
+            # now four-way.  Measured from
+            # field_mobs.cross_scene_identity_collisions() itself, not hand
+            # assembled -- the same source tests/test_field_mobs.py's own
+            # card reads.
+            (0x201E, "Bg0003", "Bg3001"),
+            (0x201E, "Bg0007", "Bg3001"),
+            (0x201E, "Bg0015", "Bg3001"),
         })
 
     def test_the_one_collision_registration_would_create(self) -> None:
@@ -569,10 +580,18 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # time -- field_mobs.py's own registration (COO-DECISION
         # widen-death-scope-bg0010-six-templates 2026-09-06T14:53+07:00),
         # never this module.
+        # ROUND mf71tm: gains "Bg3001", by the same mechanism an eighth
+        # time -- field_mobs.py's own registration, never this module.  This
+        # one is NOT a COO-DECISION registration like the seven above it:
+        # scene 126 ships a roster with no death ruling at all, on purpose
+        # (the letter asking for one went out the same round).  The
+        # assertion this test exists for -- reloading gates.py changes
+        # nothing -- is the one above and is still untouched.
         self.assertEqual(
             set(before),
             {"bg0001", "Bg0002", "Bg0003", "bg0004", "bg0005", "bg0006",
-             "Bg0007", "Bg0008", "Bg0009", "Bg0010", "Bg0011", "Bg0015"})
+             "Bg0007", "Bg0008", "Bg0009", "Bg0010", "Bg0011", "Bg0015",
+             "Bg3001"})
 
 
 class Bg0015WiredPathTests(unittest.TestCase):

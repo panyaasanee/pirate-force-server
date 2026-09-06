@@ -241,8 +241,11 @@ class Bg0008ShapeTests(unittest.TestCase):
         raw = BG0001_PATH.read_bytes()
         self.assertEqual(
             hashlib.sha256(raw).hexdigest(),
-            "c1a341c9d7721db45b07e2e7df2840719da5fcbcf5521d7f31eabd4a1ce26934")
-        self.assertEqual(len(raw), 12316)
+            "88ac7e0488de68263eb184bbe528318249023fb3e7cfd7a37e9791085791942d")
+        # ROUND mf71tm: ~~12316~~. The generator grew a HOSTILITY_RULE
+        # header line, so bg0001's module was regenerated with every other
+        # one; the diff was that six-line block and no row moved.
+        self.assertEqual(len(raw), 12711)
 
     def test_the_shipped_templates_have_a_death_ruling_a_stray_row_and_nina_still_refuse(
             self) -> None:
