@@ -376,6 +376,70 @@ class GmCommandCaptureTests(unittest.TestCase):
         missing = Path(self.root) / "does_not_exist.txt"
         self.assertTrue(command_capture._best_effort_unlink(missing))
 
+    # ----- pf-adversary (round `gn7gk5`, follow-up `79ahzl`): os.close() ---
+    # ----- failing must not bypass the cleanup-then-classify contract -----
+    # ----- the write-failure branch above already holds ------------------
+
+    def test_a_close_failure_right_after_a_write_failure_is_swallowed_and_still_cleans_up(self):
+        # Before this round, this exact combination (os.write raises, THEN
+        # the os.close(fd) in the except block also raises) propagated the
+        # close() error immediately, before _best_effort_unlink ever ran --
+        # skipping the whole classify contract. os.unlink is real here
+        # (only write and close are faked), so cleanup must still succeed
+        # and the ORIGINAL write error must be what the caller sees.
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "close", side_effect=OSError("simulated close EIO"),
+        ):
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertNotIsInstance(ctx.exception, CaptureFileNotVerifiedRemoved)
+        self.assertIn("simulated ENOSPC", str(ctx.exception))
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(leftover, [])
+
+    def test_a_close_failure_after_a_successful_write_is_not_silently_refunded(self):
+        # THE MORE SEVERE CASE (pf-adversary): os.write fully SUCCEEDS
+        # (every byte accepted) and only the terminal os.close(fd) then
+        # fails -- a real, documented POSIX behavior (deferred write-back
+        # error surfacing at close, not exclusive to NFS). Before this
+        # round nothing caught this at all: it propagated a bare OSError
+        # past this function untouched. os.unlink is real here, so cleanup
+        # must succeed and this must be classified exactly like a write
+        # failure, not silently ignored.
+        with mock.patch.object(
+            command_capture.os, "close", side_effect=OSError("simulated close ENOSPC"),
+        ):
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertNotIsInstance(ctx.exception, CaptureFileNotVerifiedRemoved)
+        self.assertIn("simulated close ENOSPC", str(ctx.exception))
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(
+            leftover, [],
+            "a write that fully succeeded, then failed only at close(), "
+            "left a COMPLETE real capture on disk with no cleanup attempt",
+        )
+
+    def test_a_close_failure_after_a_successful_write_raises_unverified_when_cleanup_also_fails(self):
+        # Both the write-succeeded-close-failed case above AND the cleanup
+        # unlink fail: real, complete content may still be on disk, so the
+        # caller must see the distinct subclass, not a plain OSError.
+        with mock.patch.object(
+            command_capture.os, "close", side_effect=OSError("simulated close ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertIsInstance(ctx.exception.__cause__, OSError)
+        leftover = list(Path(self.root).glob("*"))
+        self.assertEqual(len(leftover), 1, leftover)
+        # The write really did complete -- this is a full, real capture
+        # file, not an empty one, unlike the write-failure scenarios above.
+        self.assertGreater(leftover[0].stat().st_size, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
