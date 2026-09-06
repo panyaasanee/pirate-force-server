@@ -52,8 +52,10 @@
 -- `commit_ground_drop`'s "second writer for one key" scenario explicitly
 -- is NOT (that one is a real collision this project refuses loudly). This
 -- door's write side therefore uses `INSERT OR REPLACE` against this exact
--- constraint, deliberately mirroring `write_typed_attributes`' upsert
--- shape rather than `grant_starting_skills`' `INSERT OR IGNORE` (a skill
+-- constraint -- overwrite-on-repeat in spirit, same as `write_typed_
+-- attributes`' `UPDATE`, though that method's own SQL shape is a plain
+-- `UPDATE` on an already-existing row, not an `INSERT OR REPLACE` --
+-- rather than `grant_starting_skills`' `INSERT OR IGNORE` (a skill
 -- grant is idempotent-on-repeat; an equip call is a fresh state change
 -- every time, even when it repeats the same item in the same slot).
 --
