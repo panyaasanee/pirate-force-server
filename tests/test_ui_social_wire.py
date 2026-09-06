@@ -40,6 +40,52 @@ class U64TagTests(unittest.TestCase):
             wire.read_u64tag(bytes([0x32, 1, 2]), 0, 0x32)
 
 
+class String8TagTests(unittest.TestCase):
+    # Added round `42w728` for DyeingVitalReq (see ui_social_wire.py's
+    # module docstring's ``0x44`` tag legend entry and
+    # ui_dyeing_appraisal_relive_wire.py's DyeingVitalReq section).
+
+    def test_round_trip(self):
+        encoded = wire.string8tag(0x44, b"hello")
+        self.assertEqual(encoded[0], 0x44)
+        value, offset = wire.read_string8tag(encoded, 0, 0x44)
+        self.assertEqual(value, b"hello")
+        self.assertEqual(offset, len(encoded))
+
+    def test_round_trip_empty_string(self):
+        encoded = wire.string8tag(0x44, b"")
+        value, offset = wire.read_string8tag(encoded, 0, 0x44)
+        self.assertEqual(value, b"")
+        self.assertEqual(offset, len(encoded))
+
+    def test_opaque_bytes_are_not_charset_decoded(self):
+        raw = bytes(range(256))
+        encoded = wire.string8tag(0x44, raw)
+        value, _ = wire.read_string8tag(encoded, 0, 0x44)
+        self.assertEqual(value, raw)
+
+    def test_wrong_tag_fails_closed(self):
+        encoded = wire.string8tag(0x44, b"hi")
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_string8tag(encoded, 0, 0x99)
+
+    def test_truncated_header_fails_closed(self):
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_string8tag(bytes([0x44, 1, 0]), 0, 0x44)
+
+    def test_truncated_payload_fails_closed(self):
+        encoded = wire.string8tag(0x44, b"hello")
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_string8tag(encoded[:-1], 0, 0x44)
+
+    def test_reads_at_nonzero_offset(self):
+        prefix = wire.u64tag(0x32, 42)
+        encoded = prefix + wire.string8tag(0x44, b"tail")
+        value, offset = wire.read_string8tag(encoded, len(prefix), 0x44)
+        self.assertEqual(value, b"tail")
+        self.assertEqual(offset, len(encoded))
+
+
 class UntaggedWstringTests(unittest.TestCase):
     def test_round_trip_ascii(self):
         encoded = wire.encode_untagged_wstring("hello")
