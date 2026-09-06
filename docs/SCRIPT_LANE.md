@@ -806,12 +806,17 @@ the wrong-arity degrade-safely proof, lupa-guarded real-Lua integration
 including two hosts sharing one registry vs. two hosts with no registry
 given not leaking into each other -- the same shared-world property proof
 `456vso` wrote for `Trigger.*` -- and a worked example against the REAL
-shipped `gamedata/lua/t_inscnt.lua`, guarded by `BRIDGE_LUA_SCRIPTS`
-directly rather than the combined `LUA_CORPUS_RUNNABLE` key, because the
-enclosing class already guards the whole class on `LUPA_PACKAGE` and this
-one method only needs to add the ONE extra thing on top -- see
-`pf_preconditions.AllOfThese`'s own docstring for why re-stacking a second
-full precondition for one test would have been the wrong shape).
+shipped `gamedata/lua/t_inscnt.lua`, guarded by the combined
+`LUA_CORPUS_RUNNABLE` key rather than a bare `BRIDGE_LUA_SCRIPTS`
+decorator stacked under a class-level `LUPA_PACKAGE` guard -- round
+PIN-DRIFT-FIX found the stacked form was exactly the shape
+`pf_preconditions.AllOfThese`'s own docstring warns against: on a
+machine without lupa, `unittest.TestCase.run()` uses the class's own
+skip reason for every method once the class is skipped, so the stacked
+method-level decorator's own reason never fired, and a real gate
+measured it as `PIN DRIFT: ... 'bridge_lua_scripts': pinned 1, observed
+0`. The other 3 methods in this class now each carry their own
+`LUPA_PACKAGE` decorator directly instead of one class-level decorator).
 `tests/test_script_host_spike.py`'s `test_every_still_stubbed_name_is_
 reachable_from_every_namespace_table` now also excludes `Instance.*`'s 7
 real names (same treatment as `Trigger.*`'s 5), plus a new regression guard

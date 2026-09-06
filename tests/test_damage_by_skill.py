@@ -289,5 +289,48 @@ class CandidateSkillIdFromActionFieldsTests(unittest.TestCase):
             "candidate_skill_id_from_action_fields", damage_by_skill.__all__)
 
 
+class CandidateSkillIdIsAKnownSkillTests(unittest.TestCase):
+    """`candidate_skill_id_is_a_known_skill` (round `sar0vq`) -- pinned
+    against the real GT-243 hex (skill 110, a real starting-kit id) and a
+    synthetic value chosen to sit outside the 8-id catalog, not invented
+    "plausible" numbers."""
+
+    def test_gt243_skill_110_is_a_known_skill(self):
+        candidate = damage_by_skill.candidate_skill_id_from_action_fields(
+            {"action_u32_30": _GT243_SKILL_110_ACTION_U32_30},
+            wield_action_code=_GT243_WIELD_Z_ACTION_U32_30)
+        self.assertTrue(
+            damage_by_skill.candidate_skill_id_is_a_known_skill(candidate))
+
+    def test_a_value_outside_the_8_id_catalog_is_not_a_known_skill(self):
+        outside_catalog = max(skill_catalog.STARTING_KIT_SKILL_IDS) + 1
+        self.assertNotIn(outside_catalog, skill_catalog.STARTING_KIT_SKILL_IDS)
+        self.assertFalse(
+            damage_by_skill.candidate_skill_id_is_a_known_skill(outside_catalog))
+
+    def test_every_starting_kit_id_is_a_known_skill(self):
+        """Every one of the 8 real ids must read True -- this is a catalog
+        membership check, not the (already refused-by-name-elsewhere)
+        attack-vs-not-attack classification."""
+        for skill_id in skill_catalog.STARTING_KIT_SKILL_IDS:
+            with self.subTest(skill_id=skill_id):
+                self.assertTrue(
+                    damage_by_skill.candidate_skill_id_is_a_known_skill(skill_id))
+
+    def test_delegates_to_skill_catalog_is_known_skill_id(self):
+        """Not a second copy of the catalog membership rule -- proven by
+        mocking the real accessor and checking it is actually called."""
+        with mock.patch.object(
+            skill_catalog, "is_known_skill_id", return_value=True
+        ) as mocked:
+            result = damage_by_skill.candidate_skill_id_is_a_known_skill(99)
+        mocked.assert_called_once_with(99)
+        self.assertTrue(result)
+
+    def test_exported_in_dunder_all(self):
+        self.assertIn(
+            "candidate_skill_id_is_a_known_skill", damage_by_skill.__all__)
+
+
 if __name__ == "__main__":
     unittest.main()

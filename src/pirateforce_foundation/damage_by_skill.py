@@ -148,6 +148,20 @@ rather than left at "cloud-static work is exhausted" -- see
 `candidate_skill_id_from_action_fields` below, which reads the field under
 that explicit CANDIDATE label and has no caller in this repository, the
 same as everything else in this module today.
+
+[UPDATE, round `sar0vq`]: `candidate_skill_id_from_action_fields` returns a
+raw `int` or `None`, with no way for a caller to tell "not the WIELD
+sentinel" apart from "not a real skill id either" -- both look like a
+plain, non-None integer.  `candidate_skill_id_is_a_known_skill` below closes
+that one gap using data already on `main` (`skill_catalog.
+is_known_skill_id`, itself derived from the committed starting-kit table),
+not a new capture: it answers whether a non-None candidate is at least IN
+the 8-id starting-kit catalog before any caller trusts it further.  This is
+a narrower question than "is it the skill the player used" -- a True answer
+still does not confirm the field is the skill-id field at all (that is
+`RE-271`'s open question); it only rules out the case where the candidate
+is not even a real catalog id, which a caller wiring this up prematurely
+would otherwise have no defense against.
 """
 from __future__ import annotations
 
@@ -161,6 +175,7 @@ __all__ = [
     "is_classified_attack_skill",
     "resolve_skill_damage",
     "candidate_skill_id_from_action_fields",
+    "candidate_skill_id_is_a_known_skill",
 ]
 
 # The one starting-kit skill id with an unambiguous client-given attack
@@ -244,3 +259,24 @@ def candidate_skill_id_from_action_fields(action_fields, wield_action_code):
     if value == wield_action_code:
         return None
     return value
+
+
+def candidate_skill_id_is_a_known_skill(candidate_skill_id: int) -> bool:
+    """Is a non-None return of :func:`candidate_skill_id_from_action_fields`
+    at least IN the 8-id starting-kit catalog?
+
+    Callers must not read a ``True`` return as "this is confirmed to be the
+    skill the player used" -- see the module docstring's round-`sar0vq`
+    update for the two things a ``True`` answer does NOT establish (whether
+    `action_u32_30` is the skill-id field at all is `RE-271`'s open
+    question, still unanswered).  A ``False`` return is a stronger signal:
+    it means the raw field value is not a real starting-kit skill id, so any
+    caller that wired this candidate straight through to
+    :func:`resolve_skill_damage` without this check would eventually hand it
+    a value :func:`skill_catalog.is_known_skill_id` itself already refuses.
+
+    Do not call this with ``None`` (the WIELD case) -- that case has its own
+    meaning at the caller (:func:`candidate_skill_id_from_action_fields`
+    already returns ``None`` for it) and is not a skill id to look up.
+    """
+    return skill_catalog.is_known_skill_id(candidate_skill_id)
