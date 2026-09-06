@@ -36,6 +36,11 @@ import os
 import time
 from pathlib import Path
 
+from .activity_cheat_code_wire import (
+    ACTIVITY_CHEAT_CODE_VITAL_ID,
+    GmActivityCheatCodeWireError,
+    decode_activity_cheat_code_vital,
+)
 from .command_wire import GmCommandWireError, decode_gm_run_command_vital
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
@@ -113,34 +118,73 @@ def _decode_section(raw: bytes) -> str:
     )
 
 
-def capture_raw_gm_command(
+def _activity_cheat_code_decode_section(raw: bytes) -> str:
+    """The `# decode:` block for one Activity_CheatCodeVital payload.
+
+    Same posture as `_decode_section` above and for the same reason: the
+    field names it prints are POSITIONAL, never semantic -- see
+    `gm/activity_cheat_code_wire.py`'s own docstring, which refuses to
+    rename them to `code_id`/`arg1`.. without an RE answer.  A decode that
+    fails prints the failure and the hex dump underneath still carries the
+    exact bytes, so a capture is never lost to a decoder disagreeing with
+    what the client sent.
+    """
+    try:
+        body = decode_activity_cheat_code_vital(raw)
+    except GmActivityCheatCodeWireError as exc:
+        return (
+            "# decode: FAILED against PF_SERIALIZER_FIELDS.tsv rows 4345-4356"
+            f" pin -- {exc}\n"
+        )
+    return (
+        "# decode: structurally valid (field names are positional, not"
+        " semantic)\n"
+        f"# decode: field_0x14={body.field_0x14}\n"
+        f"# decode: text_0x18=\"{_escape_for_header(body.text_0x18)}\"\n"
+        f"# decode: text_0x34=\"{_escape_for_header(body.text_0x34)}\"\n"
+        f"# decode: text_0x50=\"{_escape_for_header(body.text_0x50)}\"\n"
+        f"# decode: text_0x6c=\"{_escape_for_header(body.text_0x6c)}\"\n"
+        f"# decode: text_0x88=\"{_escape_for_header(body.text_0x88)}\"\n"
+    )
+
+
+#: The two provenance lines each capture header carries under its own
+#: `account=` line.  They name the pin the decode section was written
+#: against, so a capture file read a month from now says what "structurally
+#: valid" was measured against rather than leaving a reader to guess.
+_GM_RUN_COMMAND_PIN_LINES = (
+    "# RE-088: structural layout PINNED, field semantics NOT proven --\n"
+    "# see docs/GM_LANE.md GM-002 / RE request queue\n"
+)
+_ACTIVITY_CHEAT_CODE_PIN_LINES = (
+    "# PF_SERIALIZER_FIELDS.tsv rows 4345-4356 (+ PF_A2_STRING_WIRE_TAG_DELTA\n"
+    "# rows 4347-4356): structural layout PINNED, field semantics NOT proven --\n"
+    "# see gm/activity_cheat_code_wire.py\n"
+)
+
+
+def _capture_raw(
     raw: bytes,
     account_name: str,
     *,
-    capture_root: str | Path = DEFAULT_CAPTURE_ROOT,
-    now_ts: float | None = None,
+    capture_root: str | Path,
+    now_ts: float | None,
+    vital_id: int,
+    vital_name: str,
+    decode_section,
+    pin_lines: str,
+    caller_name: str,
 ) -> Path:
-    """Write one raw GM_RunGMCommandVital capture: a timestamped file with a
-    hex dump header followed by the untouched raw bytes.
+    """The capture sink both public entry points below are.
 
-    ``raw`` should be the vital's payload bytes only (after vital id and
-    version in the runtime-vital envelope) -- the same slice
-    ``command_wire.decode_gm_run_command_vital`` expects.  This is not
-    enforced (there is no envelope-stripping logic in this lane to enforce
-    it with; wiring is chief's territory), so a caller that hands in the
-    whole frame gets a wrong-but-not-crashing decode section (see module
-    docstring) while the raw hex dump underneath stays correct regardless.
-
-    Returns the path written.  Never raises on the content of ``raw`` --
-    this is a capture sink, not a validator; anything the client sends,
-    however malformed, is exactly what GM-002 needs on disk.
-
-    Filenames are guaranteed unique even when two captures share the same
-    account and the same (second-resolution) timestamp: a colliding name
-    gets a numeric suffix instead of silently overwriting the earlier
-    capture.  Losing a capture silently would defeat the point of this
-    module -- it exists so nothing a tester sends while probing 0x51E9 gets
-    thrown away.
+    EXTRACTED, NOT REWRITTEN (round `eu2g1d`).  Every guarantee documented
+    on `capture_raw_gm_command` -- the 0o700 directory re-chmod on every
+    call, the 0o600 `O_EXCL` create, the collision suffix, the header
+    escaping -- lives here now and is shared, so a second inbound GM vital
+    cannot get a weaker version of any of them by being captured through a
+    copy of this code that drifts.  The 0x51E9 filename, header line and
+    decode block are byte-identical to what this function wrote before the
+    extraction; `tests/test_gm_command_capture.py` is what says so.
     """
     if not isinstance(raw, (bytes, bytearray)):
         raise TypeError("raw must be bytes")
@@ -175,7 +219,7 @@ def capture_raw_gm_command(
     ts = now_ts if now_ts is not None else time.time()
     ts_label = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(ts))
     safe_account = _sanitize_account(account_name)
-    base_name = f"{ts_label}_{safe_account}_0x51E9"
+    base_name = f"{ts_label}_{safe_account}_0x{vital_id:04X}"
     # The header is plain-text metadata a human or a future tool might grep
     # for an "account=" line -- an account_name containing a newline must
     # not be able to forge extra header lines (e.g. a second, fake
@@ -184,11 +228,10 @@ def capture_raw_gm_command(
     # hex dump below regardless.
     header_account = _escape_for_header(account_name)
     header = (
-        f"# GM_RunGMCommandVital raw capture (0x{GM_RUN_GM_COMMAND_VITAL_ID:04X})\n"
+        f"# {vital_name} raw capture (0x{vital_id:04X})\n"
         f"# account={header_account} captured_at={ts_label} length={len(raw)}\n"
-        f"# RE-088: structural layout PINNED, field semantics NOT proven --\n"
-        f"# see docs/GM_LANE.md GM-002 / RE request queue\n"
-        f"{_decode_section(bytes(raw))}\n"
+        f"{pin_lines}"
+        f"{decode_section(bytes(raw))}\n"
     )
     file_body = (header + _hex_dump(bytes(raw)) + "\n").encode("utf-8")
 
@@ -235,6 +278,93 @@ def capture_raw_gm_command(
             os.close(fd)
         return out_path
     raise OSError(
-        f"capture_raw_gm_command: exceeded {_MAX_FILENAME_COLLISION_ATTEMPTS} "
+        f"{caller_name}: exceeded {_MAX_FILENAME_COLLISION_ATTEMPTS} "
         f"filename collision retries for base name {base_name!r} under {root}"
+    )
+
+
+def capture_raw_gm_command(
+    raw: bytes,
+    account_name: str,
+    *,
+    capture_root: str | Path = DEFAULT_CAPTURE_ROOT,
+    now_ts: float | None = None,
+) -> Path:
+    """Write one raw GM_RunGMCommandVital capture: a timestamped file with a
+    hex dump header followed by the untouched raw bytes.
+
+    ``raw`` should be the vital's payload bytes only (after vital id and
+    version in the runtime-vital envelope) -- the same slice
+    ``command_wire.decode_gm_run_command_vital`` expects.  This is not
+    enforced (there is no envelope-stripping logic in this lane to enforce
+    it with; wiring is chief's territory), so a caller that hands in the
+    whole frame gets a wrong-but-not-crashing decode section (see module
+    docstring) while the raw hex dump underneath stays correct regardless.
+
+    Returns the path written.  Never raises on the content of ``raw`` --
+    this is a capture sink, not a validator; anything the client sends,
+    however malformed, is exactly what GM-002 needs on disk.
+
+    Filenames are guaranteed unique even when two captures share the same
+    account and the same (second-resolution) timestamp: a colliding name
+    gets a numeric suffix instead of silently overwriting the earlier
+    capture.  Losing a capture silently would defeat the point of this
+    module -- it exists so nothing a tester sends while probing 0x51E9 gets
+    thrown away.
+    """
+    return _capture_raw(
+        raw,
+        account_name,
+        capture_root=capture_root,
+        now_ts=now_ts,
+        vital_id=GM_RUN_GM_COMMAND_VITAL_ID,
+        vital_name="GM_RunGMCommandVital",
+        decode_section=_decode_section,
+        pin_lines=_GM_RUN_COMMAND_PIN_LINES,
+        caller_name="capture_raw_gm_command",
+    )
+
+
+def capture_raw_activity_cheat_code(
+    raw: bytes,
+    account_name: str,
+    *,
+    capture_root: str | Path = DEFAULT_CAPTURE_ROOT,
+    now_ts: float | None = None,
+) -> Path:
+    """Write one raw Activity_CheatCodeVital (0x6CEC) capture.
+
+    WHY A SECOND INBOUND VITAL LANDS IN THE SAME FOLDER.  The capture bus
+    exists to answer one question a GMUI button press asks -- "what did the
+    client just send?" -- and it can only answer it for opcodes it is
+    called for.  Until this function existed, a button that sends 0x6CEC
+    rather than 0x51E9 left the folder empty, which reads on a test result
+    sheet exactly like "the client sent nothing at all".  The two answers
+    are opposite and an attended round cannot tell them apart after the
+    fact, so the file name carries the opcode (`..._0x6CEC.txt`) and both
+    opcodes share one folder rather than one opcode owning it.
+
+    Same contract as ``capture_raw_gm_command`` in every other respect:
+    ``raw`` is the payload slice after the runtime-vital envelope, the
+    return value is the path written, and no content of ``raw`` can make
+    this raise -- a payload the decoder rejects still gets its exact bytes
+    on disk with the failure named in the header.
+
+    NOT CLAIMED, and this is the whole of what this lane knows: that any
+    client has ever sent this frame to this server.  No row for
+    Activity_CheatCodeVital exists in PF_FIELD_VALIDATION.tsv, so the
+    decode section prints POSITIONAL field names only -- see
+    ``gm/activity_cheat_code_wire.py``'s docstring for why they must not be
+    renamed to semantic ones without an RE answer.
+    """
+    return _capture_raw(
+        raw,
+        account_name,
+        capture_root=capture_root,
+        now_ts=now_ts,
+        vital_id=ACTIVITY_CHEAT_CODE_VITAL_ID,
+        vital_name="Activity_CheatCodeVital",
+        decode_section=_activity_cheat_code_decode_section,
+        pin_lines=_ACTIVITY_CHEAT_CODE_PIN_LINES,
+        caller_name="capture_raw_activity_cheat_code",
     )
