@@ -305,11 +305,64 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
             trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
         )
 
-    def test_is_candidate_trigger_id_agrees_with_the_guard(self):
-        self.assertTrue(trigger_response.is_candidate_trigger_id(2))
-        self.assertTrue(trigger_response.is_candidate_trigger_id(3))
-        self.assertFalse(trigger_response.is_candidate_trigger_id(7))
-        self.assertFalse(trigger_response.is_candidate_trigger_id("2"))
+    def test_tier2_id_is_a_candidate_agrees_with_the_guard(self):
+        self.assertTrue(trigger_response._tier2_id_is_a_candidate(2))
+        self.assertTrue(trigger_response._tier2_id_is_a_candidate(3))
+        self.assertFalse(trigger_response._tier2_id_is_a_candidate(7))
+        self.assertFalse(trigger_response._tier2_id_is_a_candidate("2"))
+
+    def test_no_public_name_answers_candidacy_from_the_wire_id_alone(self):
+        """`COO-DECISION 20260907_0405` item 1: no overload that takes the
+        trigger id by itself.
+
+        pf-adversary, run against the round that shipped the three tiers,
+        found the file breaking that rule while claiming to keep it: a public
+        ``is_candidate_trigger_id(wire_trigger_id)`` sat one import line away
+        from the guard, its own docstring offering itself to "a caller that
+        only ever needed yes/no", and a test pinned its ``True``.  Renaming it
+        fixes today; this test is what stops it coming back under a new name.
+
+        The rule pinned here is narrow and mechanical, so it cannot rot into
+        a slogan: a PUBLIC callable defined in this module whose parameters
+        mention the wire trigger id must also take ``current_scene_id``.
+        ``trigger_id_guard_reason`` is the deliberate exception and is named
+        here, once, so that adding a second exception is an edit to this list
+        rather than a silent pass.
+        """
+        import inspect
+
+        allowed_id_only = {"trigger_id_guard_reason"}
+        offenders = []
+        for name, obj in vars(trigger_response).items():
+            if name.startswith("_") or not inspect.isfunction(obj):
+                continue
+            if obj.__module__ != trigger_response.__name__:
+                continue
+            params = list(inspect.signature(obj).parameters)
+            if "wire_trigger_id" not in params:
+                continue
+            if name in allowed_id_only:
+                continue
+            if "current_scene_id" not in params:
+                offenders.append(name)
+        self.assertEqual(offenders, [])
+
+    def test_the_guard_takes_the_scene_id_first(self):
+        """Argument ORDER, not just presence -- a caller that gets it
+        backwards must not be able to compile a working call by accident.
+        Same order as this lane's sibling
+        ``world_sea_edge_crossing.crossing_target``.
+        """
+        import inspect
+
+        self.assertEqual(
+            list(
+                inspect.signature(
+                    trigger_response.candidate_for_trigger_id
+                ).parameters
+            )[:2],
+            ["current_scene_id", "wire_trigger_id"],
+        )
 
 
 class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):

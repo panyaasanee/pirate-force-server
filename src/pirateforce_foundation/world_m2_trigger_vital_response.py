@@ -453,9 +453,22 @@ def answer_guard_reason(
     return None
 
 
-def is_candidate_trigger_id(wire_trigger_id: object) -> bool:
-    """Thin boolean view of ``trigger_id_guard_reason`` -- for a caller that
-    only ever needed yes/no."""
+def _tier2_id_is_a_candidate(wire_trigger_id: object) -> bool:
+    """TIER 2 ONLY, AND PRIVATE ON PURPOSE.  ``True`` when the wire id is one
+    of ``CANDIDATE_TRIGGER_IDS`` -- which is NOT the same question as "may
+    this module answer that id", and answering the second with this function
+    is the id-only classifier `RE-234` item (3) exists to prevent.
+
+    It was public and named ``is_candidate_trigger_id`` until pf-adversary
+    pointed out, against the round that shipped the three tiers, that a
+    module whose whole claim is "a filled slot is not sufficient" was
+    exporting a yes/no view of tier 2 alone -- one import line away from the
+    guard, and with a docstring inviting a caller to use it.  The tier
+    discipline is a property of ``candidate_for_trigger_id`` and of nothing
+    else in this file, so everything else that can answer from the wire id
+    alone is private.  `COO-DECISION 20260907_0405` item 1 says the same
+    thing as a rule: no overload that takes the id by itself.
+    """
     return trigger_id_guard_reason(wire_trigger_id) is None
 
 
@@ -497,7 +510,11 @@ def candidate_for_trigger_id(
     wire_trigger_id)``, and it is REQUIRED: RE-234 item (3) measured that the
     wire id on its own cannot tell an island from open water, so a lookup
     that took the id alone would be exactly the unsafe classifier that ticket
-    warned about.  There is no id-only overload on purpose.
+    warned about.  There is no id-only overload on purpose: this is the
+    ONLY public function in this file that answers with a frame, and the
+    only public one that takes the wire id at all takes the scene id
+    first.  ``_tier2_id_is_a_candidate`` and ``trigger_id_guard_reason``
+    are tier-2 views, and the first of them is private for that reason.
 
     ``None`` covers every refusal without distinguishing them for the caller
     (ask ``answer_guard_reason`` if the difference matters): wrong scene,
