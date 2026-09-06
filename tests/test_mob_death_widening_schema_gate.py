@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -123,13 +124,44 @@ def _schema_date_match(key):
 def _letter_exists_for(pf_bridge_dir, date_match):
     """A ``notes_to_chief/`` file stamped with this key's own date, naming
     ``COO-DECISION`` and ``widen`` in its filename (COO-DECISION b1712 item
-    1's letter requirement)."""
+    1's letter requirement).
+
+    SEARCHED RECURSIVELY, THE ARCHIVE INCLUDED -- COO-DECISION
+    2026-09-07T05:46+07:00 item 2, answering this lane's 0512 letter.  The
+    first draft read ``notes_to_chief/`` one level deep, which quietly made
+    "never archive a letter that is the base of a live ruling key" a rule
+    the house had to remember: LANE-K sweeps letters out of the mailbox on
+    age, cannot know which letter some key in the OTHER repository stands
+    on, and the key would go red weeks later with nobody having touched it.
+    A letter that has been filed is still a letter, so the finder is what
+    changes, not the sweeping rule.
+
+    WHERE A SWEPT LETTER ACTUALLY IS, measured in round ot2cru against the
+    bridge checkout rather than taken from the decision's wording.  The
+    decision says "``notes_to_chief/**`` recursive, ``archive/`` included",
+    which reads as ``notes_to_chief/archive/``.  That directory does not
+    exist.  LANE-K's sweeps land in ``pf_bridge/archive/`` in dated folders
+    of their own -- ``archive/notes_to_chief_2026-08/``,
+    ``archive/notes_to_chief_2026-09/``,
+    ``archive/notes_to_chief_2026-08-29_lane-b-r256-carveout-closed/`` and
+    eleven more -- and two of the letters already in there are
+    ``COO-DECISION ... widen-death-scope-bg0002 ...`` letters, i.e. exactly
+    the shape this function looks for.  A finder that only walked
+    ``notes_to_chief/**`` would satisfy the decision's words and still go
+    red on the first sweep, which is the failure the decision exists to
+    prevent.  So BOTH roots are walked, recursively.  The ``.md``-only rule
+    below is unchanged and applies at every depth in both.
+    """
     year, month, day, hour, minute = date_match.groups()
     stamp = "%s%s%s_%s%s" % (year, month, day, hour, minute)
-    notes_dir = pf_bridge_dir / "notes_to_chief"
-    if not notes_dir.is_dir():
+    roots = [pf_bridge_dir / "notes_to_chief", pf_bridge_dir / "archive"]
+    entries = []
+    for root in roots:
+        if root.is_dir():
+            entries.extend(root.rglob("*"))
+    if not entries:
         return False
-    for entry in notes_dir.iterdir():
+    for entry in entries:
         name = entry.name
         # pf-adversary, round b08g3z, RAN this: the first draft accepted ANY
         # filename carrying the stamp, so the lane's own
@@ -220,3 +252,99 @@ class WideningRulingSchemaGateTests(unittest.TestCase):
             )
 
         self.assertFalse(failures, "\n".join(failures))
+
+
+class LetterFinderReachesTheWholeMailboxTests(unittest.TestCase):
+    """COO-DECISION 2026-09-07T05:46+07:00 item 2: a filed letter still counts.
+
+    These tests build their own bridge-shaped directory in a temporary
+    folder, so they need NO sibling checkout and run on the single-repo
+    Windows gate as well -- which matters, because the defect they guard
+    against (a letter swept into the archive taking a live ruling key red
+    with it) would otherwise only ever be discovered weeks later, by
+    whoever next ran the gate on a machine that had the sibling.
+    """
+
+    #: The shape of a real key that reaches the letter check: schema-
+    #: conforming, so ``_schema_date_match`` returns its trailing date.  This
+    #: is the bg0001 key as it stands after round b08g3z's rename.
+    KEY = (
+        "COO-RULING-20260907-0405 widen-death-scope-bg0001 "
+        "2026-09-07T04:05+07:00"
+    )
+    LETTER = (
+        "20260907_0405_COO-DECISION-widen-death-scope-bg0001-succeeds-"
+        "0041-LANE-B.md"
+    )
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.bridge = Path(self.tmp.name)
+        (self.bridge / "notes_to_chief").mkdir()
+        (self.bridge / "archive").mkdir()
+        self.date_match = _schema_date_match(self.KEY)
+        self.assertIsNotNone(
+            self.date_match,
+            "the key these tests are built on stopped matching the b1647 "
+            "schema -- fix the key here before reading anything below",
+        )
+
+    def _write(self, relative, text="letter body\n"):
+        target = self.bridge / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        return target
+
+    def test_a_letter_in_the_mailbox_is_found(self) -> None:
+        self._write("notes_to_chief/" + self.LETTER)
+        self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_letter_swept_into_the_archive_is_still_found(self) -> None:
+        """The case COO-DECISION 0546 item 2 names outright.  LANE-K's real
+        sweep destinations are dated folders under ``archive/`` -- measured
+        against the bridge checkout in round ot2cru, fourteen of them, e.g.
+        ``archive/notes_to_chief_2026-09/``.  Reverting the finder to a
+        single-level ``notes_to_chief`` scan turns this test red, which is
+        the mutant this test exists to catch.
+        """
+        self._write("archive/notes_to_chief_2026-09/" + self.LETTER)
+        self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_letter_filed_deeper_still_is_found(self) -> None:
+        self._write(
+            "archive/notes_to_chief_2026-08/consumed/" + self.LETTER)
+        self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_no_letter_anywhere_is_red(self) -> None:
+        """The other half of COO-DECISION 0546 item 2: recursion must not
+        turn the check into one that always passes.  Nothing is written
+        here at all.
+        """
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_letter_for_another_day_does_not_answer_for_this_key(self) -> None:
+        self._write(
+            "archive/notes_to_chief_2026-09/"
+            "20260906_1647_COO-DECISION-widen-death-scope-bg0001.md")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_the_lanes_own_stub_still_cannot_stand_in_for_a_letter(self) -> None:
+        """pf-adversary D-1 (round b08g3z), re-asserted at depth: the
+        ``.md``-only rule has to survive the recursion, or walking the
+        archive would hand the hole back -- ``.CONSUMED.txt`` stubs are
+        swept along with the letters they mark, so after a sweep there are
+        MORE of them below the archive than in the mailbox.
+        """
+        self._write("notes_to_chief/" + self.LETTER + ".CONSUMED.txt")
+        self._write(
+            "archive/notes_to_chief_2026-09/" + self.LETTER + ".CONSUMED.txt")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_directory_named_like_a_letter_is_not_a_letter(self) -> None:
+        """Only reachable once the walk is recursive: ``rglob`` yields
+        directories too, and a sweep that made a folder per letter would
+        otherwise answer for it.
+        """
+        (self.bridge / "archive" / self.LETTER).mkdir()
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))

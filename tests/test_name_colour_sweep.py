@@ -289,11 +289,40 @@ class CandidateIsAnExperimentThatCanBeReadTests(unittest.TestCase):
     2026-09-07T03:41+07:00 and both are properties of the CANDIDATE CHOICE,
     which is this lane's own, so both get a test that goes red on the
     revert rather than a paragraph that does not.
+
+    NO PRECONDITION HERE, and round ot2cru had to measure that rather than
+    assume it either way.  This class opened with
+    ``BRIDGE_GAMEDATA.require(cls)`` in ``setUpClass``.
+    ``Precondition.require(case)`` takes a ``unittest.TestCase`` INSTANCE
+    and calls ``case.skipTest``; handed the class object it raises
+    ``TypeError`` instead of skipping, so on every checkout WITHOUT
+    ../pf_bridge beside it -- which is every fresh single-repo clone,
+    gate-windows included -- all three tests below ERRORED.  Measured on a
+    worktree with no sibling: ``5 passed, 10 skipped, 3 errors``, TypeError
+    at ``tests/pf_preconditions.py:126``, which is exactly the "11783
+    passed, 169 skipped, 3 errors" that turned pirate-force-server#990's
+    gate red and had the reaper close it.  Nothing reproduced in a cloud
+    round because a cloud round always has the sibling checked out.
+
+    The guard is DELETED rather than converted into the class decorator the
+    three classes above use, because the same measurement says these three
+    tests do not need the bridge at all: with the line simply gone and no
+    sibling present they are ``8 passed, 10 skipped`` -- the constants, the
+    static report and ``current/pf_login_game_server_v141.py`` are all
+    committed to THIS repository, and ``sweep_actors`` composes from the
+    generated ``field_mob_tables_bg*`` modules, which are committed too.
+    Decorating them would have bought a green gate by not running them,
+    and the actor_type pin is exactly the thing a single-repo gate should
+    be reading.  Hence docs/PYTEST_SKIP_PINS.json is untouched: the count
+    for this module is still 10, because no new skip exists.
+
+    A precondition that guards a whole class is a class DECORATOR here;
+    ``require`` is only for one discovered inside a test body, with the
+    test instance in hand.
     """
 
     @classmethod
     def setUpClass(cls) -> None:
-        BRIDGE_GAMEDATA.require(cls)
         cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
     def test_the_actor_type_candidate_still_binds_an_npc_attr(self) -> None:
