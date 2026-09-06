@@ -22,28 +22,49 @@ from pirateforce_foundation import runtime
 MODULE_PATH = (pathlib.Path(damage_town_target.__file__)).resolve()
 
 
+def town_target_rows():
+    """The shipped Training Iron Man rows out of the default (town) roster.
+
+    Lives in the test rather than in the module under test on purpose -- see
+    that module's "THE ROSTER ROW ARRIVES AS AN ARGUMENT" paragraph.
+    """
+    return sorted(
+        (mob for mob in field_mobs.load_roster()
+         if mob.template_id == field_mobs.TOWN_TARGET_N_ID),
+        key=lambda mob: mob.placement_index,
+    )
+
+
+def town_target_mob():
+    rows = town_target_rows()
+    assert rows, "the default roster ships no Training Iron Man"
+    return rows[0]
+
+
 class TownTargetIsTheShippedDummy(unittest.TestCase):
 
     def test_the_row_is_the_named_practice_dummy(self):
-        mob = damage_town_target.town_target_mob()
+        mob = town_target_mob()
         self.assertEqual(mob.template_id, field_mobs.TOWN_TARGET_N_ID)
         self.assertEqual(mob.display_name, field_mobs.TOWN_TARGET_NAME)
         self.assertEqual(mob.level, field_mobs.TOWN_TARGET_LEVEL)
         self.assertEqual(mob.max_hp, field_mobs.TOWN_TARGET_MAX_HP)
 
-    def test_all_four_shipped_dummies_share_one_defender_shape(self):
-        rows = [mob for mob in field_mobs.load_roster()
-                if mob.template_id == field_mobs.TOWN_TARGET_N_ID]
-        self.assertGreater(len(rows), 0)
+    def test_the_town_ships_more_than_one_dummy_and_they_all_agree(self):
+        # The town ships FOUR of these, and the letter does not say which one
+        # the owner hit -- so the pin is only meaningful if they cannot
+        # disagree.  Asserted, not assumed.
+        rows = town_target_rows()
+        self.assertGreater(len(rows), 1)
         self.assertEqual(
-            {mob_combat.mob_defender(mob) for mob in rows},
-            {damage_town_target.town_target_defender()},
+            {damage_town_target.town_target_defender(mob) for mob in rows},
+            {mob_combat.mob_defender(town_target_mob())},
         )
 
     def test_the_defender_record_is_the_one_production_builds(self):
-        mob = damage_town_target.town_target_mob()
+        mob = town_target_mob()
         self.assertEqual(
-            damage_town_target.town_target_defender(),
+            damage_town_target.town_target_defender(mob),
             mob_combat.mob_defender(mob),
         )
 
@@ -57,14 +78,14 @@ class TheNumberTheOwnerSaw(unittest.TestCase):
         # character this pin is what notices.
         self.assertEqual(
             damage_town_target.on_screen_damage(
-                runtime.MOB_COMBAT_DEFAULT_ATTACKER),
+                runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob()),
             damage_town_target.R322C_OBSERVED_DAMAGE_PER_HIT,
         )
 
     def test_the_four_hit_hp_ladder_matches_the_console_trace(self):
         self.assertEqual(
             damage_town_target.hp_after_hits(
-                runtime.MOB_COMBAT_DEFAULT_ATTACKER,
+                runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob(),
                 damage_town_target.R322C_OBSERVED_HP_BEFORE,
                 damage_town_target.R322C_OBSERVED_HITS,
             ),
@@ -87,15 +108,18 @@ class TheNumberTheOwnerSaw(unittest.TestCase):
         for bad in (-1, True, 1.0, "4"):
             with self.assertRaises(damage_town_target.TownTargetDamageError):
                 damage_town_target.hp_after_hits(
-                    runtime.MOB_COMBAT_DEFAULT_ATTACKER, 100, bad)
+                    runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob(),
+                    100, bad)
             with self.assertRaises(damage_town_target.TownTargetDamageError):
                 damage_town_target.hp_after_hits(
-                    runtime.MOB_COMBAT_DEFAULT_ATTACKER, bad, 1)
+                    runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob(),
+                    bad, 1)
 
     def test_the_ladder_floors_at_zero_rather_than_going_negative(self):
         self.assertEqual(
             damage_town_target.hp_after_hits(
-                runtime.MOB_COMBAT_DEFAULT_ATTACKER, 10, 1000),
+                runtime.MOB_COMBAT_DEFAULT_ATTACKER, town_target_mob(),
+                10, 1000),
             0,
         )
 

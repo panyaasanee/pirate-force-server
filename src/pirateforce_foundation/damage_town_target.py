@@ -21,17 +21,30 @@ moving 192779 -> 189215.  Two independent layers, one number.
 
 NO NEW ARITHMETIC, NO RE-TYPED CONSTANT.  Every number below that takes part
 in the calculation comes from somewhere else and is imported, never copied:
-the defender record is built by `mob_combat.mob_defender` from the roster row
-`field_mobs.load_roster()` ships for template `field_mobs.TOWN_TARGET_N_ID`
-(that function is also what production uses, so this module cannot drift from
-it), and the subtraction is `mob_combat.resolve_damage` itself.  The only
-literals this file defines are the four OBSERVED values from the letter named
+the defender record is built by `mob_combat.mob_defender` from the SHIPPED
+roster row the caller hands in (that function is also what production uses,
+so this module cannot drift from it), and the subtraction is
+`mob_combat.resolve_damage` itself.  The only literals this file defines are the four OBSERVED values from the letter named
 above -- what the owner saw, not what the code computes -- so that the two can
 be compared instead of one being derived from the other.  If a later round
 changes `ATK_BASE`, `K_ATK_STR`, `K_ATK_LV`, `DEF_BASE`, `K_DEF_CON`,
 `K_DEF_LV`, `MOB_ABILITY_CON`, or the dummy's mined level, the pin in
 `tests/test_damage_town_target.py` goes red and says the player-visible number
 moved.  That is the whole point.
+
+THE ROSTER ROW ARRIVES AS AN ARGUMENT, AND THAT IS NOT AN ACCIDENT.  A first
+draft of this module looked the dummy up itself, out of the default roster.
+The full suite refused it, and the refusal was right: the roster module in
+this tree carries a tripwire that lists, by name, every module under `src/`
+that so much as mentions it, and the list lives in that module's own test
+file -- LANE-B's write zone, not LANE-CS's.  Widening a LANE-B tripwire to
+land a LANE-CS pin would be trespassing to save one function call.  So the
+caller supplies the row (`tests/test_damage_town_target.py` takes it from the
+shipped town roster, which a test may do freely) and this module stays inside
+its own lane's boundary.  Nothing about the pin is weaker for it: the row the
+test hands in is the shipped one, not a hand-built stand-in, and the test
+asserts that every one of the four dummies the town ships produces the same
+defender record.
 
 WHAT THE MEASUREMENT DOES **NOT** SAY -- and this is the finding, not a
 footnote.  891 does not depend on the character who swung.  Running the
@@ -74,13 +87,14 @@ NONCLAIMS.
 
 from __future__ import annotations
 
-from . import field_mobs
+from typing import Any
+
 from . import mob_combat
 from .mob_combat import Combatant
 
 
 class TownTargetDamageError(RuntimeError):
-    """Raised when the shipped roster no longer carries the practice dummy."""
+    """Raised when a ladder is asked for with numbers that are not numbers."""
 
 
 # ---------------------------------------------------------------------------
@@ -94,61 +108,33 @@ R322C_OBSERVED_HP_BEFORE = 192779
 R322C_OBSERVED_HP_AFTER = 189215
 
 
-def town_target_mob() -> field_mobs.FieldMob:
-    """The shipped Training Iron Man row, out of the default (town) roster.
+def town_target_defender(mob: Any) -> Combatant:
+    """The defender record production builds for ``mob`` -- not a copy of it.
 
-    The town ships FOUR of these dummies, not one -- a first draft of this
-    function refused on that and was wrong to.  What the damage number
-    actually needs from the row is its level, and what the ladder needs is
-    its max HP; the owner hit whichever one was nearest and the letter does
-    not record which placement that was.  So this refuses on the thing that
-    would really make the pin ambiguous -- the four rows disagreeing about
-    level or max HP -- and otherwise returns the lowest placement index,
-    which is a stable choice rather than roster order.
-
-    Refuses by name when the roster ships none of them at all: "the dummy
-    this lane measures against" stops meaning anything the moment it is gone.
-    """
-    matches = sorted(
-        (mob for mob in field_mobs.load_roster()
-         if mob.template_id == field_mobs.TOWN_TARGET_N_ID),
-        key=lambda mob: mob.placement_index,
-    )
-    if not matches:
-        raise TownTargetDamageError(
-            "the default roster ships no row for template %d (%s); this "
-            "lane's standard test dummy is gone"
-            % (field_mobs.TOWN_TARGET_N_ID, field_mobs.TOWN_TARGET_NAME))
-    shapes = {(mob.level, mob.max_hp) for mob in matches}
-    if len(shapes) != 1:
-        raise TownTargetDamageError(
-            "the %d shipped rows for template %d disagree about level/max HP "
-            "(%s); there is no single dummy to measure against"
-            % (len(matches), field_mobs.TOWN_TARGET_N_ID, sorted(shapes)))
-    return matches[0]
-
-
-def town_target_defender() -> Combatant:
-    """The defender record production builds for that row -- not a copy of it.
+    ``mob`` must be the typed shipped-roster record for the practice dummy;
+    it is not re-typed or re-validated here, because `mob_combat.mob_defender`
+    already refuses anything else by name and a second, weaker copy of that
+    check is how two refusals drift apart.
 
     Deliberately goes through `mob_combat.mob_defender` instead of assembling
     a `Combatant` here: that function is what the live hit path uses, so a
     change to how a monster's defence record is built cannot pass this module
     by.
     """
-    return mob_combat.mob_defender(town_target_mob())
+    return mob_combat.mob_defender(mob)
 
 
-def on_screen_damage(attacker: Combatant) -> int:
+def on_screen_damage(attacker: Combatant, mob: Any) -> int:
     """What one hit from ``attacker`` prints on the player's screen.
 
-    The name is the claim R322C earned: for this actor, on that date, the
+    The name is the claim R322C earned: for that actor, on that date, the
     number this returns is the number the owner photographed.
     """
-    return mob_combat.resolve_damage(attacker, town_target_defender())
+    return mob_combat.resolve_damage(attacker, town_target_defender(mob))
 
 
-def hp_after_hits(attacker: Combatant, hp_before: int, hits: int) -> int:
+def hp_after_hits(
+        attacker: Combatant, mob: Any, hp_before: int, hits: int) -> int:
     """The dummy's HP after ``hits`` uninterrupted hits, floored at zero.
 
     Written as the trace R322C actually recorded (192779 -> 189215 over four
@@ -158,4 +144,4 @@ def hp_after_hits(attacker: Combatant, hp_before: int, hits: int) -> int:
         raise TownTargetDamageError("hits must be a non-negative int")
     if type(hp_before) is not int or type(hp_before) is bool or hp_before < 0:
         raise TownTargetDamageError("hp_before must be a non-negative int")
-    return max(0, hp_before - hits * on_screen_damage(attacker))
+    return max(0, hp_before - hits * on_screen_damage(attacker, mob))
