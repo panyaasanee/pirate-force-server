@@ -1,6 +1,7 @@
 """GM-003 v1: GM command grammar -- parse and log only, no gameplay effect."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import stat
@@ -24,6 +25,31 @@ from pirateforce_foundation.gm.commands import (
     log_gm_command,
     parse_gm_command,
 )
+
+
+@contextlib.contextmanager
+def _o_binary_removed(module_os):
+    """Make ``os.O_BINARY`` absent for the block, on EVERY platform.
+
+    Twin of `tests/test_gm_command_capture.py`'s helper of the same name,
+    for the same reason: the sibling "flags unchanged" test below used to
+    assert `not hasattr(os, "O_BINARY")`, a statement about the HOST that
+    is true on this Linux clone and false on the windows-latest gate. That
+    pair of assertions was the whole of `pirate-force-server#962`'s
+    `2 failed` (`AssertionError: True is not false`,
+    `tests\\test_gm_commands.py:417`). The branch under test is the
+    FALLBACK of `getattr(os, "O_BINARY", 0)`, so the absence is simulated
+    and the pin keeps its teeth on both platforms. Restores in `finally`.
+    """
+    had = hasattr(module_os, "O_BINARY")
+    saved = getattr(module_os, "O_BINARY", None)
+    if had:
+        delattr(module_os, "O_BINARY")
+    try:
+        yield
+    finally:
+        if had:
+            setattr(module_os, "O_BINARY", saved)
 
 
 class _LyingTuple(tuple):
@@ -410,17 +436,25 @@ class LogGmCommandTests(unittest.TestCase):
         )
 
     def test_log_open_flags_unchanged_when_o_binary_absent(self):
-        # On POSIX (every platform this suite actually runs on today)
-        # os.O_BINARY does not exist, so getattr(...) must fall back to 0 --
-        # the flags value passed to os.open() must be byte-for-byte the
-        # same as before this fix.
-        self.assertFalse(hasattr(os, "O_BINARY"))
-        with mock.patch.object(
-            commands_module.os, "open", side_effect=commands_module.os.open,
-        ) as spy_open:
-            log_gm_command(
-                parse_gm_command("lv 1"), "panya", log_path=self.log_path, now_ts=0,
-            )
+        # Where os.O_BINARY does not exist, getattr(...) must fall back to
+        # 0 -- the flags value passed to os.open() must be byte-for-byte
+        # the same as before this fix.
+        #
+        # The absence is SIMULATED rather than assumed (see
+        # `_o_binary_removed` at the top of this file): asserting
+        # `not hasattr(os, "O_BINARY")` was a claim about the host, true
+        # here and false on the windows-latest gate, and it is what turned
+        # `#962` red. The fallback branch of `getattr(os, "O_BINARY", 0)`
+        # is now exercised on every platform.
+        with _o_binary_removed(commands_module.os):
+            self.assertFalse(hasattr(commands_module.os, "O_BINARY"))
+            with mock.patch.object(
+                commands_module.os, "open", side_effect=commands_module.os.open,
+            ) as spy_open:
+                log_gm_command(
+                    parse_gm_command("lv 1"), "panya", log_path=self.log_path,
+                    now_ts=0,
+                )
         self.assertEqual(spy_open.call_count, 1)
         flags_arg = spy_open.call_args.args[1]
         self.assertEqual(flags_arg, os.O_CREAT | os.O_APPEND | os.O_WRONLY)
