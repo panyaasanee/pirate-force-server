@@ -225,8 +225,22 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: so the combined total is measured fresh below, not added arithmetically
 #: from the two entries above (this comment's own standing rule: branch
 #: shift is emergent, never additive across independent real-method
-#: landings).
-BASELINE_TOTAL_STUB_CALLS = 4715
+#: landings). MEASURED: report.real_call_counts against this same LUA_ROOT
+#: and FIXED_QUEST_CLOCK now prints {'Player.CheckItemNum': 145,
+#: 'Player.GetItemNum': 88, 'Player.GetLv': 60, 'Player.GetClass': 48,
+#: 'Quest.GetQuestFlag': 160, 'Quest.SetFlag': 405, 'Quest.SetQuestFlag':
+#: 47, 'Quest.GetFlag': 67, 'Quest.MobKillCount': 106,
+#: 'Quest.CheckMobKillCount': 105, 'Quest.GetMobKillCount': 1,
+#: 'Quest.CanReportDailyQuest': 45, 'Quest.ReportDailyQuest': 60,
+#: 'Quest.CheckOpenTime': 2, 'Trigger.QuestActiveProgress': 7, plus the
+#: unchanged Trigger/Instance real names} -- total_stub_calls
+#: 4715 -> 3716, NOT 4715 - (995 Quest calls + 7 Trigger calls) = 3713 (a
+#: 3-call gap, the same branch-shift phenomenon again, this time from
+#: CheckItemNum itself shifting 154 -> 145 and GetQuestFlag shifting
+#: 159 -> 160 once both deltas run in the SAME corpus pass -- neither
+#: shift is visible when each delta is measured alone, exactly why this
+#: round remeasured instead of adding the two prior entries' own deltas).
+BASELINE_TOTAL_STUB_CALLS = 3716
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()
