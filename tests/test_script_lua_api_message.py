@@ -6,10 +6,24 @@ the RETURNED VALUE and the recorded SIDE EFFECT, never the presence of a
 name -- the posture AGENTS.md section 7 ("WIRED means observed, not named")
 requires of a new seam.
 
-No lupa here on purpose: every test below is a namespace-contract test that
-runs with or without the Lua runtime, so this file adds no new skip pin.
-The Lua-integration half lives in `test_script_host_spike.py` /
-`test_script_lua_corpus.py`, which already own the lupa pin.
+Round `7kxfe9` measured this module in the three machine states it can be
+run in and found TWO classes that need something a fresh clone has not
+got, where round `6775u1`'s own header claimed there were none ("no lupa
+here on purpose: every test below ... runs with or without the Lua
+runtime").  That sentence was false as written: three
+`OneScriptHostSharesOneMessageSinkTests` tests build a real `ScriptHost`,
+which raises without lupa, so on a lupa-free machine this module was RED
+rather than skipped -- an unguarded dependency, which is exactly what
+docs/PYTEST_SKIP_PINS.json exists to stop.  Both classes are now guarded
+and pinned:
+
+  * `OneScriptHostSharesOneMessageSinkTests` under LUPA_PACKAGE (3 tests).
+  * `VendoredCatalogMatchesTheRealTableTests` under BRIDGE_GAMEDATA (2) --
+    the drift tie between the vendored catalog and the game's own table.  It USED to live in `test_script_lua_corpus.py`, whose
+composite key also demands lupa; comparing two TSV files never needed a Lua
+runtime, so on a bridge machine with no lupa the one test that proves the
+copy is honest was silently not running.  Moving it here is a strict
+widening of where it runs (skip census re-measured in the same round).
 """
 
 from __future__ import annotations
@@ -21,7 +35,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pf_preconditions import BRIDGE_GAMEDATA, LUPA_PACKAGE, SIBLING
+
 from pirateforce_foundation.lua_api import message, player, trigger
+
+SOURCE_TABLE = (SIBLING / "pf_bridge" / "gamedata" / "tables"
+                / "TEXTDATA_TH__MESSAGE.tsv")
 
 # Every literal message id the 616-file corpus passes to one of the three
 # message names, transcribed from the grep recorded in this round's file.
@@ -34,8 +53,8 @@ CORPUS_TRIGGER_IDS = (914, 915, 916, 917, 918, 919, 920, 921)
 class MessageCatalogTests(unittest.TestCase):
 
     def test_the_catalog_is_the_shipped_table_not_a_range(self):
-        self.assertEqual(len(message.CATALOG), 907)
-        self.assertEqual(message.MAX_MESSAGE_ID, 961)
+        self.assertEqual(len(message.catalog()), 907)
+        self.assertEqual(message.max_message_id(), 961)
         # 907 rows inside 1..961 means the id space has holes -- a plain
         # range check would wave through ids the game never shipped.
         self.assertFalse(message.is_known_message_id(962))
@@ -179,6 +198,9 @@ class PlayerShowMessageTests(unittest.TestCase):
             def record(self, *_args):
                 raise RuntimeError("sink is down")
 
+            def record_refusal(self, _reason):
+                return 0
+
             def messages_for(self, _character_id):
                 return ()
 
@@ -247,6 +269,7 @@ class TriggerShowMessageTests(unittest.TestCase):
         self.assertEqual(self.sink.messages_for(0), ())
 
 
+@LUPA_PACKAGE.skip_unless_present()
 class OneScriptHostSharesOneMessageSinkTests(unittest.TestCase):
     """Player and Trigger inside one host run land in ONE ordered record.
 
@@ -344,3 +367,502 @@ class NoLaneQModuleBuildsTheVitalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EscapeRoundTripTests(unittest.TestCase):
+    """The vendored file is ASCII BY CONSTRUCTION, and reversibly so."""
+
+    def test_every_shipped_row_survives_encode_then_decode_exactly(self):
+        for message_id, (_type, _notify, text) in message.catalog().items():
+            with self.subTest(message_id=message_id):
+                escaped = message.escape_message_text(text)
+                self.assertEqual(message.unescape_message_text(escaped), text)
+
+    def test_the_escape_of_every_shipped_row_is_pure_ascii(self):
+        for message_id, (_t, _n, text) in message.catalog().items():
+            with self.subTest(message_id=message_id):
+                escaped = message.escape_message_text(text)
+                escaped.encode("ascii")  # raises if it is not
+
+    def test_a_literal_backslash_does_not_become_an_escape_on_the_way_back(self):
+        # The source table has no backslash today (grepped, round 7kxfe9:
+        # zero of 907 rows).  That is a fact about TODAY's table, not a
+        # property of the format, so the encoder escapes the backslash
+        # itself and this test is what stops a future row from silently
+        # turning `เ` typed by a translator into a Thai character.
+        for text in ("a\\b", "\\u0e40", "\\\\", "back\\slash"):
+            with self.subTest(text=text):
+                escaped = message.escape_message_text(text)
+                self.assertNotIn("\\\\", escaped.replace("\\u005c", ""))
+                self.assertEqual(message.unescape_message_text(escaped), text)
+
+    def test_tabs_and_newlines_cannot_break_the_row_shape(self):
+        # A tab in a text column would split one row into two fields and a
+        # newline would split it into two rows; both are escaped away.
+        escaped = message.escape_message_text("a\tb\nc\r")
+        self.assertNotIn("\t", escaped)
+        self.assertNotIn("\n", escaped)
+        self.assertNotIn("\r", escaped)
+        self.assertEqual(message.unescape_message_text(escaped), "a\tb\nc\r")
+
+
+class VendoredCatalogFileTests(unittest.TestCase):
+    """What the vendored file can prove about ITSELF, with no bridge beside
+    this clone -- which is the state most machines that run this suite are
+    in.  The tie to the real table is the next class down; this one catches
+    the half that does not need the source: a hand-edit that adds or drops
+    a row, or a header that has stopped describing the body under it."""
+
+    def setUp(self):
+        self.path = (ROOT / "src" / "pirateforce_foundation" / "lua_api"
+                     / "message_catalog.tsv")
+        self.raw = self.path.read_bytes()
+
+    def test_the_file_on_disk_is_pure_ascii(self):
+        self.raw.decode("ascii")
+        self.assertEqual([b for b in self.raw if b > 127], [])
+
+    def test_the_header_names_its_source_and_a_digest_of_it(self):
+        header = [line for line in self.raw.decode("ascii").splitlines()
+                  if line.startswith("#")]
+        joined = "\n".join(header)
+        self.assertIn("# source: pf_bridge/gamedata/tables/"
+                      "TEXTDATA_TH__MESSAGE.tsv", joined)
+        self.assertIn("# regenerate: python3 "
+                      "tools/pf_regen_lua_message_catalog.py", joined)
+        digest = [line for line in header
+                  if line.startswith("# source_sha256: ")]
+        self.assertEqual(len(digest), 1)
+        self.assertEqual(len(digest[0].split(": ", 1)[1]), 64)
+        pulled = [line for line in header if line.startswith("# pulled: ")]
+        self.assertEqual(len(pulled), 1)
+
+    def test_the_header_row_count_is_the_body_row_count(self):
+        # A header that says 907 over a body of 906 is a lie that no other
+        # test in this file would notice: every id lookup would still work.
+        text = self.raw.decode("ascii")
+        declared = [int(line.split(": ", 1)[1]) for line in text.splitlines()
+                    if line.startswith("# source_rows: ")]
+        self.assertEqual(len(declared), 1)
+        body = [line for line in text.splitlines()
+                if line and not line.startswith("#")]
+        self.assertEqual(declared[0], len(body) - 1)  # minus the column row
+        self.assertEqual(declared[0], len(message.catalog()))
+
+    def test_the_column_row_is_the_four_columns_the_loader_names(self):
+        text = self.raw.decode("ascii")
+        columns = [line for line in text.splitlines()
+                   if line and not line.startswith("#")][0]
+        self.assertEqual(tuple(columns.split("\t")), message.CATALOG_COLUMNS)
+
+
+@BRIDGE_GAMEDATA.skip_unless_present()
+class VendoredCatalogMatchesTheRealTableTests(unittest.TestCase):
+    """The drift tie itself.
+
+    pf-adversary (round 6775u1) mutated all 907 rows of the vendored file to
+    garbage and every test then in this module still passed, because they
+    checked the copy against ITSELF.  This is the tie to the source, and as
+    of round 7kxfe9 it compares ALL FOUR columns, text included -- the
+    column the previous round did not vendor at all.
+    """
+
+    def test_every_column_of_every_row_matches_the_shipped_table(self):
+        import csv
+
+        real = {}
+        with SOURCE_TABLE.open(encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle, delimiter="\t"):
+                real[int(row["n_ID"])] = (
+                    int(row["n_TYPE"]), int(row["n_NOTIFY_TYPE"]),
+                    row["s_MESSAGE"])
+        self.assertEqual(dict(message.catalog()), real)
+
+    def test_the_regenerate_script_reports_no_drift(self):
+        # The script is the thing a human runs; a test that only compared
+        # dictionaries would leave the script itself unexercised, and a
+        # regenerate script that has quietly stopped working is the same
+        # failure as no script at all.
+        import subprocess
+
+        tool = ROOT / "tools" / "pf_regen_lua_message_catalog.py"
+        done = subprocess.run(
+            [sys.executable, str(tool), "--check"],
+            capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+
+class CatalogIsLazyAndFailsLoudTests(unittest.TestCase):
+    """pf-adversary D5, round 6775u1.
+
+    The catalog used to be read at IMPORT time under `encoding="ascii"`.
+    One stray byte, or the file simply missing from a wheel, turned into an
+    ImportError raised from inside `lua_api/__init__` -- the module that
+    installs every namespace hook -- so all 160 Lua API names vanished and
+    the traceback named an import, not a data file.
+    """
+
+    def setUp(self):
+        self._saved = message._CATALOG_CACHE
+
+    def tearDown(self):
+        message._CATALOG_CACHE = self._saved
+
+    def test_a_missing_file_raises_a_named_error_that_carries_the_path(self):
+        message._CATALOG_CACHE = None
+        missing = ROOT / "no" / "such" / "message_catalog.tsv"
+        saved_path = message._CATALOG_PATH
+        try:
+            message._CATALOG_PATH = missing
+            with self.assertRaises(message.MessageCatalogError) as caught:
+                message.catalog()
+        finally:
+            message._CATALOG_PATH = saved_path
+        self.assertIn("message_catalog.tsv", str(caught.exception))
+
+    def test_a_file_with_no_rows_is_an_error_not_an_empty_catalog(self):
+        # An empty catalog would make is_known_message_id() False for every
+        # id -- every message in the game silently refused, with no error.
+        import tempfile
+
+        message._CATALOG_CACHE = None
+        saved_path = message._CATALOG_PATH
+        with tempfile.TemporaryDirectory() as folder:
+            empty = Path(folder) / "message_catalog.tsv"
+            empty.write_text("# header only\nmessage_id\tmessage_type\t"
+                             "notify_type\tmessage_text\n", encoding="ascii")
+            try:
+                message._CATALOG_PATH = empty
+                with self.assertRaises(message.MessageCatalogError):
+                    message.catalog()
+            finally:
+                message._CATALOG_PATH = saved_path
+
+    def test_importing_the_module_does_not_read_the_file(self):
+        # The property that makes the above possible at all: nothing is read
+        # until something asks.  Measured by reloading the module and
+        # checking the cache is still empty, not by reading the source.
+        import importlib
+
+        reloaded = importlib.reload(message)
+        try:
+            self.assertIsNone(reloaded._CATALOG_CACHE)
+        finally:
+            reloaded.catalog()  # leave the module usable for other tests
+
+    def test_the_ceiling_is_the_same_before_and_after_the_first_load(self):
+        message._CATALOG_CACHE = None
+        first = message.max_message_id()
+        second = message.max_message_id()
+        self.assertEqual(first, second)
+        self.assertEqual(first, 961)
+
+
+class CatalogAccessorsTests(unittest.TestCase):
+
+    def test_message_type_is_readable_not_merely_vendored(self):
+        # pf-adversary D8, round 6775u1: the column was carried with no
+        # reader at all.  It has one now, and a known row pins a real value.
+        self.assertEqual(message.message_type(1), 35)
+        self.assertIsNone(message.message_type(962))
+
+    def test_message_text_returns_the_localized_string(self):
+        text = message.message_text(1)
+        self.assertIsInstance(text, str)
+        self.assertTrue(text)
+        # Non-ASCII by nature -- that is the whole point of the escape.
+        self.assertRaises(UnicodeEncodeError, text.encode, "ascii")
+        self.assertIsNone(message.message_text(962))
+
+    def test_no_module_in_this_package_logs_the_localized_text(self):
+        # House rule: everything printed to the bridge console is ASCII
+        # (cp874 dies otherwise).  The text is for a UTF-16LE frame payload,
+        # never for a log line -- pinned here rather than trusted, by
+        # reading every source file in the package for a call to it.
+        package = ROOT / "src" / "pirateforce_foundation" / "lua_api"
+        callers = [path.name for path in sorted(package.rglob("*.py"))
+                   if "message_text(" in path.read_text(encoding="utf-8")
+                   and path.name != "message.py"]
+        self.assertEqual(callers, [])
+
+
+class RefusalCountersTests(unittest.TestCase):
+    """pf-adversary D12, round 6775u1: a dropped message left one log line
+    and nothing countable, in the exact place drops are EXPECTED (51 of the
+    116 corpus call sites pass an unmined `Trigger.VarN`)."""
+
+    def setUp(self):
+        self.lines = []
+        self.sink = message.InMemoryMessageSink()
+
+    def test_a_clean_run_counts_nothing(self):
+        self.sink.record(None, 7, message.AUDIENCE_INDIVIDUAL, 856)
+        self.assertEqual(self.sink.refusals(), ())
+
+    def test_an_unknown_id_from_player_show_message_is_counted(self):
+        namespace = player.build_namespace(
+            frozenset({"ShowMessage"}), self.lines.append,
+            context=player.PlayerContext(character_id=7), sink=self.sink)
+        namespace["ShowMessage"](962)
+        namespace["ShowMessage"](963)
+        self.assertEqual(dict(self.sink.refusals()),
+                         {message.REFUSE_UNKNOWN_MESSAGE_ID: 2})
+
+    def test_the_two_trigger_refusals_do_not_share_one_number(self):
+        namespace = trigger.build_namespace(
+            frozenset({"TriggerShowMessage"}), self.lines.append,
+            context=trigger.TriggerContext(scene="bg0002", trigger_id=1),
+            sink=self.sink)
+        namespace["TriggerShowMessage"](9, 918)    # audience outside 0..3
+        namespace["TriggerShowMessage"](2, 962)    # id with no row
+        namespace["TriggerShowMessage"](2)         # wrong arity
+        self.assertEqual(dict(self.sink.refusals()), {
+            message.REFUSE_BAD_AUDIENCE: 1,
+            message.REFUSE_UNKNOWN_MESSAGE_ID: 1,
+            message.REFUSE_BAD_ARITY: 1,
+        })
+
+    def test_a_cap_refusal_is_counted_under_its_own_reason(self):
+        small = message.InMemoryMessageSink(messages_per_character=1)
+        small.record(None, 7, message.AUDIENCE_INDIVIDUAL, 856)
+        small.record(None, 7, message.AUDIENCE_INDIVIDUAL, 856)
+        self.assertEqual(dict(small.refusals()),
+                         {message.REFUSE_BUCKET_FULL: 1})
+
+    def test_a_scene_message_with_no_scene_is_counted_as_such(self):
+        self.sink.record(None, 7, message.AUDIENCE_SCENE, 918)
+        self.assertEqual(dict(self.sink.refusals()),
+                         {message.REFUSE_NO_SCENE: 1})
+
+    def test_every_reason_a_closure_can_raise_is_in_the_declared_set(self):
+        for reason in (message.REFUSE_BAD_ARITY,
+                       message.REFUSE_UNKNOWN_MESSAGE_ID,
+                       message.REFUSE_BAD_AUDIENCE,
+                       message.REFUSE_NO_SCENE,
+                       message.REFUSE_BUCKET_FULL,
+                       message.REFUSE_TOO_MANY_BUCKETS):
+            self.assertIn(reason, message.REFUSAL_REASONS)
+
+
+class SinkIsThreadSafeTests(unittest.TestCase):
+    """pf-adversary D9, round 6775u1: this sink had no lock while both of
+    its sibling stores in the same package do, and one world per scene is
+    shared by every session in the process (AGENTS.md section 7)."""
+
+    def test_concurrent_writers_lose_no_message_and_exceed_no_cap(self):
+        import threading
+
+        cap = 200
+        writers = 8
+        each = 50
+        sink = message.InMemoryMessageSink(messages_per_character=cap)
+        barrier = threading.Barrier(writers)
+
+        def write():
+            barrier.wait()
+            for _ in range(each):
+                sink.record(None, 7, message.AUDIENCE_INDIVIDUAL, 856)
+
+        threads = [threading.Thread(target=write) for _ in range(writers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        stored = sink.messages_for(7)
+        self.assertEqual(len(stored), cap)
+        self.assertEqual(dict(sink.refusals()),
+                         {message.REFUSE_BUCKET_FULL: writers * each - cap})
+
+    def test_reading_while_writing_never_hands_back_a_moving_tuple(self):
+        import threading
+
+        sink = message.InMemoryMessageSink()
+        stop = threading.Event()
+
+        def write():
+            while not stop.is_set():
+                sink.record("bg0002", 7, message.AUDIENCE_SCENE, 918)
+
+        writer = threading.Thread(target=write)
+        writer.start()
+        try:
+            for _ in range(200):
+                rows = sink.broadcasts_for("bg0002")
+                self.assertTrue(
+                    all(row == (message.AUDIENCE_SCENE, 918, 7)
+                        for row in rows))
+        finally:
+            stop.set()
+            writer.join()
+
+
+class BodyDigestGuardsTheFileOnEveryMachineTests(unittest.TestCase):
+    """pf-adversary D1/D3/D4/D5, round `7kxfe9`.
+
+    The tie to the source table needs the source table, and the Windows
+    gate -- the machine that decides whether a PR merges -- has no bridge
+    checkout (`.github/workflows/gate-windows.yml` does not fetch one).
+    Measured there by the adversary: replacing all 907 text cells with one
+    repeated string left the suite green.  So did a hand-stripped trailing
+    space on the eight rows that end in one, and a TAB pasted into a cell.
+
+    A digest of the file's OWN body needs nothing but the file, so these
+    run everywhere.  They do not prove the copy matches the source; they
+    prove nobody edited the copy after it was generated.
+    """
+
+    def setUp(self):
+        self.path = (ROOT / "src" / "pirateforce_foundation" / "lua_api"
+                     / "message_catalog.tsv")
+        self.text = self.path.read_text(encoding="ascii")
+
+    def test_the_header_carries_a_digest_of_the_body_below_it(self):
+        declared = [line[len(message.BODY_DIGEST_PREFIX):]
+                    for line in self.text.splitlines()
+                    if line.startswith(message.BODY_DIGEST_PREFIX)]
+        self.assertEqual(len(declared), 1)
+        self.assertEqual(declared[0], message.body_digest(self.text))
+
+    def test_changing_one_character_of_one_row_breaks_the_digest(self):
+        # The mutation the adversary actually ran, in miniature: if this
+        # assertion could not fail, the test above would be decoration.
+        mutated = self.text.replace("\\u0e40", "\\u0e41", 1)
+        self.assertNotEqual(mutated, self.text)
+        self.assertNotEqual(message.body_digest(mutated),
+                            message.body_digest(self.text))
+
+    def test_stripping_a_trailing_space_breaks_the_digest(self):
+        # Eight rows end in a real space (id 150, 243, 391, 392, 619, 667,
+        # 706, 799); `git apply --whitespace=fix`, an editor, or a
+        # pre-commit hook silently removes those.
+        stripped = "\n".join(line.rstrip() for line in self.text.splitlines())
+        self.assertNotEqual(stripped + "\n", self.text)
+        self.assertNotEqual(message.body_digest(stripped),
+                            message.body_digest(self.text))
+
+    def test_the_digest_ignores_the_header_so_a_restamp_is_not_drift(self):
+        # Re-pulling on a later date rewrites `# pulled:` and must not read
+        # as a body edit -- otherwise the check cries wolf and gets removed.
+        restamped = self.text.replace("# pulled: ", "# pulled: 1999-01-01 #")
+        self.assertNotEqual(restamped, self.text)
+        self.assertEqual(message.body_digest(restamped),
+                         message.body_digest(self.text))
+
+
+class LoaderRefusesAMalformedRowTests(unittest.TestCase):
+    """pf-adversary D3: a TAB inside a text cell splits one row into five
+    fields, `csv.DictReader` files the surplus under restkey, and the
+    message comes back TRUNCATED with the row count -- and therefore the
+    header row-count check -- still agreeing."""
+
+    def setUp(self):
+        self._saved = message._CATALOG_CACHE
+        self._saved_path = message._CATALOG_PATH
+
+    def tearDown(self):
+        message._CATALOG_CACHE = self._saved
+        message._CATALOG_PATH = self._saved_path
+
+    def _load(self, body):
+        import tempfile
+
+        message._CATALOG_CACHE = None
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "message_catalog.tsv"
+            path.write_text("# header\n" + "\t".join(message.CATALOG_COLUMNS)
+                            + "\n" + body, encoding="ascii")
+            message._CATALOG_PATH = path
+            return message.catalog()
+
+    def test_a_five_field_row_is_an_error_not_a_truncated_message(self):
+        with self.assertRaises(message.MessageCatalogError) as caught:
+            self._load("1\t35\t0\thel\tlo\n")
+        self.assertIn("fields", str(caught.exception))
+
+    def test_a_three_field_row_is_an_error_too(self):
+        with self.assertRaises(message.MessageCatalogError):
+            self._load("1\t35\t0\n")
+
+    def test_a_well_formed_row_still_loads(self):
+        self.assertEqual(self._load("1\t35\t0\thello\n"), {1: (35, 0, "hello")})
+
+
+class EncoderRefusesWhatItCannotRepresentTests(unittest.TestCase):
+    """pf-adversary D2: `"\\u%04x" % 0x1F3C6` renders `\\u1f3c6`, which the
+    four-hex-digit decoder reads as U+1F3C followed by a literal `6`.  It
+    survived the round-trip test (which re-encodes what it just decoded)
+    and `--check` (both sides share the encoder), so the corruption was
+    invisible on every machine without the source table."""
+
+    def test_a_non_bmp_character_raises_instead_of_corrupting(self):
+        with self.assertRaises(ValueError) as caught:
+            message.escape_message_text("\U0001F3C6 champion")
+        self.assertIn("non-BMP", str(caught.exception))
+
+    def test_the_highest_bmp_character_is_still_accepted(self):
+        text = "￿"
+        self.assertEqual(
+            message.unescape_message_text(message.escape_message_text(text)),
+            text)
+
+    def test_the_shipped_table_is_all_bmp_today(self):
+        # The fact that makes the guard a tripwire rather than a blocker.
+        for message_id, (_t, _n, text) in message.catalog().items():
+            with self.subTest(message_id=message_id):
+                self.assertFalse([ch for ch in text if ord(ch) > 0xFFFF])
+
+
+class InjectedSinkIsCheckedAtInjectionTests(unittest.TestCase):
+    """pf-adversary D6: a sink written against last round's protocol passed
+    every check there was until a script refused a message, at which point
+    an AttributeError came out of the middle of a Lua call.  51 of the 116
+    corpus call sites take that path."""
+
+    class SinkFromLastRound:
+        def record(self, scene, character_id, audience, message_id):
+            return 1
+
+        def messages_for(self, character_id):
+            return ()
+
+        def broadcasts_for(self, scene):
+            return ()
+
+    def test_an_incomplete_sink_is_refused_by_name_when_it_is_injected(self):
+        for build in (player.build_namespace, trigger.build_namespace):
+            with self.subTest(build=build.__module__):
+                with self.assertRaises(TypeError) as caught:
+                    build(frozenset({"ShowMessage", "TriggerShowMessage"}),
+                          lambda _line: None, sink=self.SinkFromLastRound())
+                self.assertIn("record_refusal", str(caught.exception))
+
+    def test_the_complete_sink_this_package_ships_passes(self):
+        self.assertIs(message.check_sink(message.InMemoryMessageSink()).__class__,
+                      message.InMemoryMessageSink)
+
+
+class RegenerateScriptSeparatesDriftFromInconclusiveTests(unittest.TestCase):
+    """pf-adversary D8: `--check` exited 1 both when the copy had drifted
+    and when there was no bridge checkout to compare against -- so anyone
+    wiring it into CI gets a false RED on every gate run, the gate having
+    no bridge.  The house convention for exactly this is
+    pf_gate_preflight.py's own three states."""
+
+    def _tool(self):
+        import importlib
+
+        sys.path.insert(0, str(ROOT / "tools"))
+        try:
+            return importlib.import_module("pf_regen_lua_message_catalog")
+        finally:
+            sys.path.remove(str(ROOT / "tools"))
+
+    def test_a_missing_source_table_is_inconclusive_not_drift(self):
+        tool = self._tool()
+        saved = tool.SOURCE
+        try:
+            tool.SOURCE = ROOT / "no" / "such" / "table.tsv"
+            self.assertEqual(tool.main(["--check"]), 2)
+        finally:
+            tool.SOURCE = saved

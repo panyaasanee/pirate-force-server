@@ -2515,6 +2515,12 @@ those `Trigger.Var2` branches, which is where the domain comes from.
   `lua_api/api_spec.tsv` already took for its own source table.  Named as
   a real limit rather than a tidy one: whoever finally emits the frame
   needs the text, and it stays in the bridge table.
+  **SUPERSEDED by round `7kxfe9`** (COO-DECISION `20260907_0405`, option
+  (a)): the file is now a complete four-column mirror with the text
+  vendored as `\uXXXX` escapes.  See that round's own section below --
+  this bullet is kept as written because the reasoning it records is what
+  the letter to COO argued against, and deleting it would hide that the
+  lane changed its mind on instruction.
 - **`lua_api/player.py`**: `ShowMessage` moves `STILL_STUBBED` ->
   `REAL_METHODS` (7/73 `Player.*` real).
 - **`lua_api/trigger.py`**: `TriggerShowMessage` moves `STILL_STUBBED` ->
@@ -2660,3 +2666,184 @@ character and is tagged, because fanning out to a party needs a party
 registry this lane does not own -- a named gap, not a hidden one.  Caps are
 per bucket, and nothing is sent on the wire either way.
 
+
+
+## Round 7kxfe9 (2026-09-07) -- the message catalog becomes a checkable mirror, and four named debts from `6775u1` are paid
+
+Round order came from the mailbox, not from the queue: COO-DECISION
+`20260907_0405` answered this lane's `20260907_0322` letter and told it to
+vendor the localized `s_MESSAGE` column as ASCII escapes, with a provenance
+header and a regenerate script.  `NOW.md`'s LANE-Q ladder item 5
+(exp-level) is the NEXT round's work and is not touched here.
+
+### The vendored file is now a mirror, and "it still matches" is a command
+
+`lua_api/message_catalog.tsv` carries all four columns of
+`pf_bridge/gamedata/tables/TEXTDATA_TH__MESSAGE.tsv`.  Every character
+outside printable ASCII -- and the backslash itself -- is written `\uXXXX`,
+so the file is **ASCII by construction**: 0 non-ASCII bytes on disk,
+measured, which is the class of failure that burned `#961`/`#967` on the
+Windows gate.  180 KB.
+
+Round-trip is EXACT, measured over all 907 rows rather than argued: encode
+then decode reproduces the source string for every row, and the loaded
+catalog compares equal to a fresh parse of the source table, all four
+columns.  The source has no backslash today (0 of 907, grepped) -- that is
+a fact about today's table, not a property of the format, so the encoder
+escapes the backslash anyway and a test pins that a literal `\u0e40` typed
+by a future translator survives as those six characters instead of turning
+into a Thai letter.
+
+Three obligations came attached to the permission, and all three are code:
+
+1. `tools/pf_regen_lua_message_catalog.py` rewrites the file from the
+   source; `--check` exits non-zero and prints the first differing line.
+   It imports the encoder from `lua_api.message` rather than keeping a
+   second copy that could drift from the decoder.
+2. The file's header names the source path, a sha256 of the source, the row
+   count, and the pull date.
+3. The tie is a test, not a belief --
+   `VendoredCatalogMatchesTheRealTableTests` compares all four columns AND
+   runs the regenerate script's own `--check`.
+
+### The drift test moved, because where it lived it was not running
+
+The tie added in `6775u1` sat in `test_script_lua_corpus.py`, whose key is
+`lua_corpus_runnable` = bridge corpus AND lupa.  Comparing two TSV files
+needs no Lua runtime, so on a bridge machine without lupa the one test that
+proves the vendored copy is honest was silently skipped.  It now lives in
+`test_script_lua_api_message.py` under `BRIDGE_GAMEDATA`, which is a
+strictly wider set of machines.  Pins re-measured, not predicted:
+`lua_corpus_runnable` in `test_script_lua_corpus.py` 10 -> 9, and 2 new
+`bridge_gamedata` skips here.
+
+### A hole this round found in its own module while measuring
+
+Running this module on a lupa-free interpreter was RED, not skipped: three
+`OneScriptHostSharesOneMessageSinkTests` tests build a real `ScriptHost`,
+which raises without lupa -- while the module's own header (written last
+round) claimed every test in it ran with or without the Lua runtime.  That
+sentence was false.  The class is now guarded by `LUPA_PACKAGE` and pinned
+(3), the header says what is actually true, and the measurement is
+recorded: before the fix `3 failed, 51 passed, 9 skipped`; after,
+`51 passed, 12 skipped`; with lupa present, `132 passed` across the three
+modules and 0 skips.
+
+### The four named debts from `6775u1`
+
+- **D5 (fail-closed load).** The catalog was read at import under
+  `encoding="ascii"`, so one stray byte or a missing file became an
+  ImportError from inside `lua_api/__init__` -- the module that installs
+  every namespace hook -- and all 160 API names vanished with a traceback
+  naming an import, not a data file.  It is now LAZY and cached behind a
+  lock, and any failure raises `MessageCatalogError` naming the path.  A
+  file with a header but no rows is an ERROR, not an empty catalog (an
+  empty catalog would refuse every message in the game in silence).
+  `MAX_MESSAGE_ID` became `max_message_id()` for the same reason: a module
+  constant would have to be computed at import, which is the eager load
+  this removes.
+- **D8 (`message_type` had no reader).** It has one -- `message_type()` --
+  and the column is now justified by the file's contract rather than by
+  use: the file is a MIRROR of the source table, so every column belongs
+  to it by definition.
+- **D9 (no lock).** `InMemoryMessageSink` now holds an `RLock`, like both
+  of its sibling stores in this package, because one world per scene is
+  shared by every session in the process and read-then-append is not
+  atomic.  Pinned by two concurrency tests: eight threads writing 400
+  messages into a 200-cap bucket store exactly 200 and count exactly 200
+  refusals; a reader never observes a half-written row.
+- **D12 (drops were not countable).** 51 of the 116 corpus call sites pass
+  an unmined `Trigger.VarN`, so an id landing in one of the table's 54 gaps
+  is an EXPECTED recurring event that was leaving one log line and no
+  number.  The sink now counts refusals by named reason
+  (`unknown_message_id`, `bad_audience`, `bad_arity`, `no_scene`,
+  `bucket_full`, `too_many_buckets`), read back with `refusals()`.  Bad
+  audience and bad id are counted APART: a run dropping ids is an unmined
+  `.tgr` table, a run dropping audiences is a misread of the `Var2`
+  mapping, and one combined number cannot tell those two apart.
+
+### pf-adversary came back BEFORE the unlock, and did not approve
+
+13 defects, 12 of them measured with a control run.  Six are fixed in this
+round; the rest are named below rather than tucked away.
+
+The one that mattered most (D1) is that the drift tie STILL does not run on
+the machine that decides whether a PR merges: `.github/workflows/
+gate-windows.yml` fetches no bridge checkout, so `BRIDGE_GAMEDATA` skips
+there.  Measured: all 907 text cells replaced with one repeated string,
+`52 passed, 11 skipped, 0 failed`.  Moving the test was a real widening and
+the claim "strictly wider" is true -- but it left out the machine that
+matters, and saying "wider" without saying that is the half-truth this lane
+keeps having to be caught at.
+
+The fix is the adversary's own best proposal: the header now carries
+`# body_sha256:` of the file's own body, checked by a class with NO
+precondition, so it runs on the gate.  It does not prove the copy matches
+the source -- only the source-digest test can -- it proves nobody has edited
+the copy since it was generated, which was the unguarded half.  That single
+change closes D1 (mass rewrite), D3 (a TAB inside a cell), D4 (eight rows
+end in a trailing space that any whitespace-fixing tool removes) and D5 (a
+provenance header nothing on the gate could check).
+
+Also fixed:
+
+- **D2 (the encoder corrupts silently above the BMP).** `"\u%04x" % 0x1F3C6`
+  renders `\u1f3c6`, which the four-hex-digit decoder reads as U+1F3C plus a
+  literal `6`.  It passed the round-trip test (which re-encodes what it just
+  decoded) and `--check` (both sides share the encoder).  The shipped table
+  is all-BMP today, measured -- so this is a tripwire, not a blocker:
+  `escape_message_text` now raises rather than rewriting a message.
+- **D3 (a malformed row).** `_read_catalog` refuses a row that is not
+  exactly four fields, instead of handing back a truncated message with the
+  row count still agreeing.
+- **D6 (extending the sink protocol broke last round's sinks).** A sink
+  written against `6775u1`'s protocol raised `AttributeError` out of the
+  middle of a Lua call the first time a message was refused -- and 51 of the
+  116 corpus call sites pass an unmined `Trigger.VarN`, for which the
+  harness supplies 0, which has no row, so the refusal path is the one a
+  corpus sweep takes constantly.  `check_sink` now refuses an incomplete
+  sink AT INJECTION, naming the missing method.
+- **D8 (`--check` conflated RED with INCONCLUSIVE).** No bridge checkout now
+  exits 2 and says so; drift still exits 1.
+
+NAMED, NOT FIXED: D7 (`refusals()` is not on the protocol, so a future
+injected sink cannot be asked "how many did you drop"; three of the six
+reasons are counted inside `InMemoryMessageSink` rather than at the
+closure) · D9 (the bridge's `check_new_skips` does not recognise
+`@X.skip_unless_present()`, the very idiom `pf_preconditions` orders every
+lane to use -- a preflight hole, and chief's file) · D10 (this round's own
+"no module logs the text" guard is a substring scan that misses
+`script_host.py` one directory up and trips on the word in a comment) ·
+D11 (`script_host.py`'s `except Exception` around entry points turns a
+catalog failure into "this script failed", blaming the script rather than
+the data file) · D13 (`AGENTS.md` forbids tracking decoded game data and
+this vendors 907 rows of it; the adversary found precedent at a smaller
+scale and could not settle whether this repository is public -- recorded
+for COO, not acted on).
+
+Two of its findings corrected THIS round's own prose, and both are in the
+round file: there is no per-file or per-PR size ceiling for this repository
+at all (the "400 KB" this lane cited is a bridge queue-file ceiling), and
+62 of the 907 rows contain characters cp874 cannot represent, including
+three ids the corpus really passes -- the table is not "Thai", it is Thai
+with unlocalized CJK in it.
+
+### What this round did NOT do
+
+Nothing reaches a player's screen.  No frame is built here and no dispatch
+exists; `runtime.py`/`app.py` remain outside this lane's write scope.  The
+localized text is now AVAILABLE to whoever builds the frame -- that is the
+whole change in reach -- and a test pins that no module in this package
+passes it to a log line, because the bridge console is cp874.
+
+`Party.ShowMessage` (1 call site) is still a stub.  D7 (audience meaning is
+Lua-layer evidence only, zero wire confirmation) and the `.tgr` VarN mining
+lead (`RE-273`) are unchanged and still named.
+
+### TWO_SESSIONS_SAME_SCENE
+
+Applicable, unchanged in shape from `6775u1` and now enforced under
+concurrency as well as by keying: audiences `2/3` go to the SCENE bucket
+every session in that scene reads, `0/1` to the character's own, and the
+`RLock` added this round is what makes that true when two sessions in one
+scene write at the same instant rather than only in a single-threaded test.

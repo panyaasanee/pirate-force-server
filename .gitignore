@@ -636,6 +636,12 @@
 !/tools/pf_ui_wire_name_census.py
 !/reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv
 
+# LANE-Q round 7kxfe9 - regenerates lua_api/message_catalog.tsv from the
+# bridge's own TEXTDATA_TH__MESSAGE.tsv (COO-DECISION 20260907_0405).  A
+# vendored file with no way to re-derive it is a belief; --check makes the
+# claim "it still matches the source" a command.
+!/tools/pf_regen_lua_message_catalog.py
+
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content
 /.claude/worktrees/

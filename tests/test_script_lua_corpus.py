@@ -74,27 +74,14 @@ class FullCorpusLoadsHeadlessTests(unittest.TestCase):
         except Exception as exc:  # noqa: BLE001 - this IS the assertion
             self.fail("load_corpus raised instead of failing closed: %r" % exc)
 
-    def test_the_vendored_message_catalog_still_matches_the_real_table(self):
-        # pf-adversary (round 6775u1) mutated all 907 rows of
-        # lua_api/message_catalog.tsv to garbage and every test in
-        # test_script_lua_api_message.py still passed: that file checked the
-        # vendored copy against ITSELF (a row count and a max id), never
-        # against its source.  This is the missing tie, in the same shape
-        # test_the_two_named_charter_fixtures_are_identical_to_the_real_files
-        # below already uses for the two vendored .lua fixtures -- here it
-        # compares CONTENT rather than bytes, because the vendored file
-        # deliberately drops the localized s_MESSAGE column.
-        import csv
-
-        from pirateforce_foundation.lua_api import message as lua_api_message
-
-        source = (LUA_ROOT.parent / "tables" / "TEXTDATA_TH__MESSAGE.tsv")
-        real = {}
-        with source.open(encoding="utf-8", newline="") as handle:
-            for row in csv.DictReader(handle, delimiter="\t"):
-                real[int(row["n_ID"])] = (
-                    int(row["n_TYPE"]), int(row["n_NOTIFY_TYPE"]))
-        self.assertEqual(lua_api_message.CATALOG, real)
+    # test_the_vendored_message_catalog_still_matches_the_real_table MOVED,
+    # round 7kxfe9, to tests/test_script_lua_api_message.py's
+    # VendoredCatalogMatchesTheRealTableTests under BRIDGE_GAMEDATA.  It was
+    # here because this module already required a bridge checkout -- but this
+    # module's key ALSO requires lupa, and comparing two TSV files never
+    # needed a Lua runtime.  On a bridge machine without lupa the one test
+    # that proves the vendored copy is honest was silently not running, which
+    # is the same hole in a different shape.  Strictly wider now.
 
     def test_the_two_named_charter_fixtures_are_identical_to_the_real_files(self):
         # docs/SCRIPT_LANE.md/test_script_host_spike.py vendor byte-for-byte
