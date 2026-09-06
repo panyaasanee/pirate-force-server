@@ -355,7 +355,7 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
                 host.call("Probe")
                 self.assertEqual(calls, ["LUA_API_STUB %s" % fn.qualified_name])
 
-    def test_the_7_real_trigger_names_are_excluded_above_not_forgotten(self):
+    def test_the_8_real_trigger_names_are_excluded_above_not_forgotten(self):
         # A regression guard on the exclusion itself: if REAL_METHODS ever
         # grew or shrank without the corpus's own 17-name Trigger table
         # changing, this fails loudly instead of the test above silently
@@ -367,6 +367,8 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "GetTriggerStatus", "GetTeiggerStatus", "SetStatus",
             "NextStatus", "SetTriggerStatus",
             "QuestActiveProgress", "QuestFinishProgress",
+            # TriggerShowMessage joined in round `6775u1` (message-wire).
+            "TriggerShowMessage",
         }))
 
     def test_the_9_real_instance_names_are_excluded_above_not_forgotten(self):
@@ -396,7 +398,7 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "CanReportDailyQuest", "ReportDailyQuest",
         }))
 
-    def test_the_6_real_player_names_are_excluded_above_not_forgotten(self):
+    def test_the_7_real_player_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the guards above, for Player's own real
         # names (GetLv/GetClass from round gqjas5, CheckItemNum/GetItemNum/
         # CheckEquipItem from round qbr5h8's inventory read seam, MobAppear
@@ -406,6 +408,8 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
         self.assertEqual(lua_api_player.REAL_METHODS, frozenset({
             "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
             "MobAppear",
+            # ShowMessage joined in round `6775u1` (message-wire).
+            "ShowMessage",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):

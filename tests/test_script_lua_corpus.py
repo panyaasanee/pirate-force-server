@@ -253,7 +253,23 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: inside branches other stub reads already gate (`if (Quest.VarN > 0)
 #: then Player.MobAppear(...)`), never itself a condition another call
 #: sits behind, so making it real changes no OTHER script's control flow.
-BASELINE_TOTAL_STUB_CALLS = 2620
+#: RE-MEASURED (LANE-Q, round 6775u1): the message-wire landed TWO real
+#: names at once -- Player.ShowMessage and Trigger.TriggerShowMessage
+#: (lua_api/message.py, NOW.md's LANE-Q system order item 4). MEASURED
+#: against this same LUA_ROOT/FIXED_QUEST_CLOCK: real_call_counts prints
+#: {'Player.ShowMessage': 23, ...} and NO 'Trigger.TriggerShowMessage' key
+#: at all -- 2620 - 23 = 2597, EXACTLY, and no branch shift. Both halves of
+#: that are worth stating plainly, because landing two names in one round
+#: is exactly how a branch shift hides: (a) the drop equals ONE name's
+#: measured count, so the other name did not silently move anything; (b)
+#: Trigger.TriggerShowMessage genuinely fires ZERO times here -- every one
+#: of its 8 call files (t_msg_mod.lua and friends) reaches it only past
+#: `Scene.CheckPlacementAlive(Trigger.Var1) == true`, and Scene.* is still
+#: a stub returning STUB_DEFAULT (0), so the corpus census cannot exercise
+#: it until LANE-A's Scene.* seam exists. Its 55 call sites are real in the
+#: source and unreachable in this harness; that is a gap this pin makes
+#: visible rather than a count to celebrate.
+BASELINE_TOTAL_STUB_CALLS = 2597
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()

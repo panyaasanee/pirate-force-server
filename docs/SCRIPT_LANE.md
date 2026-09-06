@@ -2455,3 +2455,121 @@ merely an accident that happens not to collide.
    was found, not because the check was skipped.
 
 SCOREBOARD: COMING | ผู้เล่นยังไม่เห็นอะไรใหม่บนจอ -- Player.MobAppear (1,766+1,766 จุดเรียกในสคริปต์เควสจริง) กับ accessor สถานะเควสสำหรับฟิลเตอร์การมองเห็น NPC ของ LANE-A ทำงานจริงแล้วฝั่งเซิร์ฟเวอร์ (เก็บ/อ่านธงต่อผู้เล่นได้ ไม่ใช่แค่ log stub) แต่ยังไม่มี dispatch จริงต่อกับ session ผู้เล่น ยังไม่มีที่เก็บถาวรข้าม relog และ LANE-A ยังไม่ได้ต่อฟิลเตอร์เข้ากับมัน | pirate-force-server PR (ดูหัวข้อ "จบรอบ" ในไฟล์รอบ pf_bridge), API status 32/160 real
+
+## Round 6775u1 (2026-09-07) -- the message-wire: Player.ShowMessage and Trigger.TriggerShowMessage real against the game's own message table
+
+**Charter position**: `NOW.md`'s LANE-Q system order (COO `20260906_1846`)
+item 4, "message-wire" -- items 1 (flag-quest-state), 2 (inventory read
+side) and 3 (`Player.MobAppear`) landed in rounds `7v7yn2`, `qbr5h8` and
+`x6gxzd`.  116 of the corpus's call sites move from "logs a stub line" to
+"validated and recorded".
+
+### What a script means by "show a message" -- derived, not guessed
+
+No script in the 616-file corpus ever hands a STRING to a message name.
+Every call passes an INTEGER, and that integer is a row id in
+`pf_bridge/gamedata/tables/TEXTDATA_TH__MESSAGE.tsv` (907 rows, ids 1..961
+with holes; columns `n_ID  n_TYPE  n_NOTIFY_TYPE  s_MESSAGE`).
+
+Evidence, all three legs, because coverage alone would not have settled it:
+
+1. **Coverage.** Every literal id at a `Player.ShowMessage` /
+   `Trigger.TriggerShowMessage` / `Party.ShowMessage` call site has a row:
+   `1, 4, 421, 824, 855, 856, 859, 860, 882, 885, 890, 897` (Player) and
+   `914..921` (Trigger).  Zero misses.
+2. **Refutation of the competitors, not silence about them.**
+   `TEXTDATA_TH__TIP_MESSAGE.tsv` stops at id 561 -- 17 of the 20 literal
+   ids have no row there, so it is REFUTED outright.
+   `TEXTDATA_TH__UI_MESSAGE.tsv` covers every id by range and is NOT
+   refuted by coverage; it is refuted by CONTENT.  Its 855/856/859 are the
+   UI labels "skill details" / "up status" / "skill points:", which is not
+   what a quest bails out with.
+3. **Meaning agrees with surrounding logic.**  `856` = "quest not
+   accepted, or quest state does not match" and it is passed exactly where
+   a quest script bails on a state check; `855` = "item count already at
+   the cap"; `859` = "not enough of the related item"; `914..921` are
+   arena-announcer broadcast lines, and every one of them is passed from a
+   `t_*_msg` trigger.
+
+**Audience** (`TriggerShowMessage`'s first argument) is the corpus's own,
+from `gamedata/lua/t_msg_mod.lua`'s Big5 header comment ("Var2 = message
+type (1 individual, 2 party, 3 scene, 4 channel)") read WITH that file's
+own if-chain, which maps `Var2 == 1 -> TriggerShowMessage(0, ...)`,
+`== 2 -> 1`, `== 3 -> 2`, `== 4 -> 3`.  So the wire value is the comment's
+number minus one: `0 individual, 1 party, 2 scene, 3 channel`.  The only
+literal audience anywhere in the corpus is `2`; `0/1/3` arrive through
+those `Trigger.Var2` branches, which is where the domain comes from.
+
+### What was built
+
+- **`lua_api/message.py`** (new): `CATALOG` (907 rows, loaded from the
+  vendored `lua_api/message_catalog.tsv`), `is_known_message_id`,
+  `notify_type`, the four `AUDIENCE_*` constants + `AUDIENCES` domain, and
+  the `MessageSink` `Protocol` / `InMemoryMessageSink` seam -- the same
+  shape `lua_api.quest.QuestStateStore` and
+  `lua_api.player.PlayerMobAppearStore` already established.
+- **`lua_api/message_catalog.tsv`** (new): the ASCII half of the shipped
+  table -- `message_id`, `message_type`, `notify_type`.  The localized
+  `s_MESSAGE` text is deliberately NOT vendored, the same split
+  `lua_api/api_spec.tsv` already took for its own source table.  Named as
+  a real limit rather than a tidy one: whoever finally emits the frame
+  needs the text, and it stays in the bridge table.
+- **`lua_api/player.py`**: `ShowMessage` moves `STILL_STUBBED` ->
+  `REAL_METHODS` (7/73 `Player.*` real).
+- **`lua_api/trigger.py`**: `TriggerShowMessage` moves `STILL_STUBBED` ->
+  `REAL_METHODS` (8/17 `Trigger.*` real).
+- **`script_host.py`**: ONE `message_sink` per host run, normalized in
+  `ScriptHost.__init__` (not left to each `build_namespace`'s own private
+  default) so `Player.ShowMessage` and `Trigger.TriggerShowMessage` inside
+  the same script land in one ordered record -- the same reason
+  `quest_store` is normalized there.  Injectable through
+  `ScriptHost(..., message_sink=...)` / `load_script_file(...)`.
+
+Both closures REFUSE rather than clamp: an id with no row in the shipped
+table is a message the client could never render, and an audience outside
+`0..3` is not a neighbouring audience.  Both log a bad-value line and
+return `STUB_DEFAULT` without recording anything.
+
+### What this round does NOT do, said plainly
+
+**Nothing reaches the client.**  This lane records WHICH message ids to
+show, in order, per character.  It does not build `ShowMessageVital`
+(`0x36D2`, proven layout in `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`:
+one `UNTAGGED_WSTRING16LE_LEN32LE` at `+0x14`), and no module in this
+package does.  The frozen legacy seam already has that builder
+(`current/pf_login_game_server_v141.py`'s `make_show_message(text)`,
+exercised by `tests/test_system_message_wire.py`), and the dispatch that
+would call it lives in `runtime.py`/`app.py`, outside this lane's write
+zone.  `tests/test_system_message_wire.py`'s own
+`ShowMessageOwnershipGuardTests` scans `src/pirateforce_foundation/*.py`
+non-recursively, so `lua_api/` is outside it -- this round therefore adds
+the same guard for this lane's own directory
+(`tests/test_script_lua_api_message.py::NoLaneQModuleBuildsTheVitalTests`,
+AST-based so `message.py`'s docstring can NAME the vital in its handoff
+note without being mistaken for owning it).  The coverage row
+`chat/server_system_message` stays accurate.
+
+`Party.ShowMessage` (1 call site) is NOT real: there is no `lua_api/party.py`
+yet, and standing one up for a single call site was not worth the round.
+It reads the same catalog when it lands; audience `AUDIENCE_PARTY`.
+
+### Tests + measurement
+
+New `tests/test_script_lua_api_message.py` (25 tests, lupa-free on purpose
+so it adds no skip pin): catalog holes are real (a range check would wave
+through ids the game never shipped), every literal corpus id resolves,
+sink ordering/per-character isolation/cap refusal without eviction, both
+closures' arity/bad-value/float-vs-bool doors, a broken sink raising rather
+than degrading to silence, the shared-sink wiring through `ScriptHost`
+(mutation guard: un-normalize the sink in `ScriptHost` and it fails), two
+hosts not sharing a default, and the vital-ownership guard above.
+
+`BASELINE_TOTAL_STUB_CALLS` RE-MEASURED: 2620 -> **2597**.  The drop is
+exactly `Player.ShowMessage`'s own measured 23 calls, and
+`Trigger.TriggerShowMessage` fires **zero** times in the corpus census --
+every one of its 8 call files reaches it only past
+`Scene.CheckPlacementAlive(Trigger.Var1) == true`, and `Scene.*` is still a
+stub returning `0`.  Its 55 call sites are real in the source and
+unreachable in this harness until LANE-A's `Scene.*` seam exists.  Landing
+two names at once is exactly how a branch shift hides, so both halves are
+stated rather than one number reported.
