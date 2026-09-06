@@ -192,7 +192,11 @@ from . import field_mob_tables_bg0002
 from . import field_mob_tables_bg0003
 from . import field_mob_tables_bg0004
 from . import field_mob_tables_bg0005
+from . import field_mob_tables_bg0006
+from . import field_mob_tables_bg0007
 from . import field_mob_tables_bg0008
+from . import field_mob_tables_bg0009
+from . import field_mob_tables_bg0011
 from . import field_mobs
 from . import mob_combat
 from . import world_population
@@ -669,6 +673,58 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     "2026-09-06T05:48+07:00": frozenset(
         {274, 277, 280, 281, 527, 544}
     ),
+    # COO-DECISION 2026-09-06T07:48+07:00 (notes_to_chief/20260906_0748_
+    # COO-DECISION-b0659-send-four-clean-scenes-now-bg0010-unresolved-is-a-
+    # static-ticket-body-to-chief-bg0009-zero-drop-m-avatars-are-ordinary-
+    # mobs-LANE-B.md), answering LANE-B-ASK-COO 2026-09-06T06:59+07:00
+    # (notes_to_chief/20260906_0659_LANE-B-ASK-COO-five-scene-recon-bg0010-
+    # mining-crash-bg0009-two-ambiguous-rows.md).  Item 1 of that letter
+    # relaxes the earlier "one letter for five scenes" plan (0548) to "one
+    # letter per ROUND OF SCENES THAT ACTUALLY READ" -- bg0010's raw
+    # placements TSV carries a literal 'UNRESOLVED' string where a
+    # template_id is supposed to be (a data defect, not a tool bug; see this
+    # round's own STATIC ticket to chief) and that one scene does not hold up
+    # the other four.  Four scenes, four entries below, one letter behind all
+    # of them, the same "option (a): register the roster, refuse loud and
+    # safe" methodology as bg0003/bg0004/bg0005/bg0008 (a rank, a combat AI,
+    # a drops table, no town target, no player-model body) -- re-verified
+    # against this round's own mining run, not copied from the 0659 recon
+    # summary, per that letter's own warning that 0659 was recon and not a
+    # final count.
+    #
+    # Scene 6 (2 distinct templates: 222 Crull Two Horns, 226 Anger Lion).
+    "COO-DECISION widen-death-scope-bg0006-two-templates "
+    "2026-09-06T07:48+07:00": frozenset(
+        {222, 226}
+    ),
+    # Scene 7 (7 distinct templates: 388 Ominous Bird, 390 Dark roar, 393
+    # Avarice Lerch, 395 Remain Alert Weapon, 397 Green Eye Minced, 526 Jet
+    # cat thieves No.8, 536 Jet cat thieves No.7).
+    "COO-DECISION widen-death-scope-bg0007-seven-templates "
+    "2026-09-06T07:48+07:00": frozenset(
+        {388, 390, 393, 395, 397, 526, 536}
+    ),
+    # Scene 9 (5 distinct templates: 314 Captain Golem Rabia, 317 Destroy
+    # Magic Flower, 320 Skeleton Commander Corella, 546 Black braid Edward,
+    # 549 Bermuda Banshee).  546 and 549 are placements 56/57, the two rows
+    # item 2 of the 0748 letter names by hand: an ordinary monster body
+    # (``s_OUTFIT`` starting ``M0``, not ``P_``) with no drops table mined
+    # yet is NOT the Carlos/Nina withhold condition, which needs BOTH a
+    # player-model avatar AND zero drops -- these two carry only the second
+    # half, so this lane ships them and flags DROPS_UNMINED in their own
+    # module rather than fabricating a drop table (a separate hand of work,
+    # per the letter: drop mining is ticket P-1, not M4).  See
+    # ``field_mobs.DROPS_UNMINED_PLACEMENTS['Bg0009']``.
+    "COO-DECISION widen-death-scope-bg0009-five-templates "
+    "2026-09-06T07:48+07:00": frozenset(
+        {314, 317, 320, 546, 549}
+    ),
+    # Scene 11 (5 distinct templates: 669 Steam Iron Giant, 674 Guard Soul,
+    # 693 Navy Two Tripods, 696 Navy Tiger Mech, 697 Undead Besso).
+    "COO-DECISION widen-death-scope-bg0011-five-templates "
+    "2026-09-06T07:48+07:00": frozenset(
+        {669, 674, 693, 696, 697}
+    ),
 }
 
 # Companion to WIDENING_RULINGS, added this round (PANYA-DECISION
@@ -793,6 +849,18 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     # template ids by coincidence (none do at HEAD) would be refused here.
     "COO-DECISION widen-death-scope-bg0008-six-templates "
     "2026-09-06T05:48+07:00": field_mob_tables_bg0008.SCENE,
+    # Tied to Bg0006, Bg0007, Bg0009 and Bg0011 respectively, same
+    # reverse-direction hazard as every entry above: a mob in any earlier
+    # scene sharing one of these template ids by coincidence (none do at
+    # HEAD) would be refused here.
+    "COO-DECISION widen-death-scope-bg0006-two-templates "
+    "2026-09-06T07:48+07:00": field_mob_tables_bg0006.SCENE,
+    "COO-DECISION widen-death-scope-bg0007-seven-templates "
+    "2026-09-06T07:48+07:00": field_mob_tables_bg0007.SCENE,
+    "COO-DECISION widen-death-scope-bg0009-five-templates "
+    "2026-09-06T07:48+07:00": field_mob_tables_bg0009.SCENE,
+    "COO-DECISION widen-death-scope-bg0011-five-templates "
+    "2026-09-06T07:48+07:00": field_mob_tables_bg0011.SCENE,
 }
 
 
