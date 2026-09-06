@@ -69,6 +69,12 @@ counting a wire name that appears only inside a docstring, and 126 of the 130
 rows that moved are `ui_*_wire.py` modules whose docstring frame table spells
 the wire name while the code below names the class something shorter. The movement log lives on that
 page, one line per round that moves the number -- do not duplicate it here.
+🔴 **This file is also one of the four NAME-ONLY sources that census reads.**
+Writing a vital's name into the table below, or deleting one from it, moves
+the number with no code written either way. Re-run
+`python3 tools/pf_ui_wire_name_census.py --emit` before committing an edit to
+this page, or the pinned test goes red in the next round with nothing to
+point at (pf-adversary D5, round `mg3nr4`).
 
 ## Function table
 

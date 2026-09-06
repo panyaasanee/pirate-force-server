@@ -182,50 +182,79 @@ def is_client_req(name: str) -> bool:
     return "Req" in _PASCAL_TOKEN.findall(name)
 
 
-def docstring_line_numbers(text):
-    """Line numbers (1-based) covered by the DOCSTRINGS of ``text``.
+def _parse(text):
+    """``ast.parse`` with the two encodings this project actually receives.
 
-    A docstring here means exactly what Python means by it: a bare string
-    expression that is the FIRST statement of a module, class, function or
-    async function -- the thing ``ast.get_docstring`` returns. Every physical
-    line the string literal spans is returned, so a multi-line docstring
-    contributes its whole range.
-
-    Deliberately NOT excluded, because they are ordinary code, not prose:
-    a string assigned to a variable, a string argument to a call, a bare
-    string expression that is not the first statement of its body, and any
-    trailing inline comment. Excluding those would make the census stop
-    counting real references such as ``NAME = "ShowMessageVital"``.
-
-    A file that does not parse (``SyntaxError``, or a ``ValueError`` from a
-    NUL byte) yields the empty set: the fallback is the tool's PREVIOUS
-    behaviour for that file (comment-skip only), which can only over-count,
-    never silently drop a name that is genuinely in code. There is no such
-    file in the tree today; the branch exists so one bad file cannot take
-    the census with it.
-    """
+    A leading UTF-8 BOM makes ``ast.parse`` raise, and this repo is synced
+    from a Windows/PowerShell bridge whose default output encoding writes
+    one. Round `mg3nr4`, pf-adversary D7: without the strip, one BOM'd file
+    would silently fall back to the no-exclusion path, its docstrings would
+    start counting again, and the only symptom would be a pin going red with
+    nothing naming the cause. Returns ``None`` when the text does not parse
+    at all, so callers can both fall back AND count the fallback."""
     try:
-        tree = ast.parse(text)
-    except (SyntaxError, ValueError):
+        return ast.parse(text.lstrip("\ufeff"))
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+
+
+def prose_string_line_numbers(text):
+    """Line numbers (1-based) of every BARE STRING STATEMENT in ``text``.
+
+    A bare string statement is an ``ast.Expr`` whose value is a string
+    constant: it evaluates the string and throws it away. Python assigns no
+    meaning to one beyond the first-statement case it calls a docstring, so
+    every one of them is prose about the code, never a reference from it.
+    Every physical line the literal spans is returned.
+
+    WHY NOT JUST DOCSTRINGS (round `mg3nr4`, pf-adversary D1). The first
+    version of this matched Python's own docstring definition -- the first
+    statement of a module, class, function or async function, i.e. what
+    ``ast.get_docstring`` returns. Measured on that version: prepending one
+    extra one-line docstring above each ``ui_*_wire.py`` module docstring
+    demotes the original prose block to a SECOND bare string,
+    which is then not a docstring, and n/327 jumps 30 -> 149 with no wire
+    code touched. A lint rule asking for a one-line summary, or anyone
+    splitting a long docstring, would have done it by accident and the
+    movement log would have read it as 119 rows of progress. Counting every
+    bare string statement has no such spelling to slip through.
+
+    Deliberately NOT excluded, because they are code, not prose: a string
+    bound to a name (``WIRE_NAME = "ShowMessageVital"``), a string passed as
+    an argument, a string in a collection, an f-string, and any trailing
+    inline comment.
+    """
+    tree = _parse(text)
+    if tree is None:
         return frozenset()
     lines = set()
     for node in ast.walk(tree):
-        if not isinstance(
-            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-        ):
+        if not isinstance(node, ast.Expr):
             continue
-        body = getattr(node, "body", None)
-        if not body:
-            continue
-        first = body[0]
-        if not isinstance(first, ast.Expr):
-            continue
-        value = first.value
+        value = node.value
         if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
             continue
         end = getattr(value, "end_lineno", None) or value.lineno
         lines.update(range(value.lineno, end + 1))
     return frozenset(lines)
+
+
+def unparseable_py_files(py_files):
+    """The subset of ``py_files`` whose text does not parse.
+
+    Exists so the fallback in ``prose_string_line_numbers`` cannot be a
+    silent skip (round `mg3nr4`, pf-adversary D7): a file in here has its
+    prose counted as code, which moves the census with nothing to point at.
+    Pinned empty over the real tree by the test file."""
+    bad = []
+    for path in py_files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if _parse(text) is None:
+            bad.append(path)
+    return bad
 
 
 def _build_source_hits(names, py_files):
@@ -240,8 +269,10 @@ def _build_source_hits(names, py_files):
     * full-line comments (``line.lstrip().startswith("#")``), which removed
       the one false positive pf-adversary found on round `9dezrf` (a comment
       in `app.py` reusing `VitalData` as a generic memory-layout term);
-    * docstring bodies (``docstring_line_numbers``, AST-based), added round
-      `mg3nr4` per COO-DECISION `20260907_0546` on LANE-Q's `0454` alert.
+    * bare string statements (``prose_string_line_numbers``, AST-based),
+      added round `mg3nr4` per COO-DECISION `20260907_0546` on LANE-Q's
+      `0454` alert -- docstrings and every other string that is evaluated
+      and discarded.
       Without this, a lane writing the honest note "this module does NOT
       build `XxxVital`" pushed n/327 UP by one with nothing wired: the
       metric moved opposite to what it measures, and an inflated value gets
@@ -268,13 +299,20 @@ def _build_source_hits(names, py_files):
         # gate-windows's `pytest_subset` 9 failed on PR #961 (LANE-UI
         # round `on8hbb`, per COO-DECISION 20260907_0148 item 2).
         relpath = path.relative_to(ROOT).as_posix()
-        doc_lines = docstring_line_numbers(text)
-        for lineno, line in enumerate(text.splitlines(), start=1):
+        prose_lines = prose_string_line_numbers(text)
+        # split("\n"), not splitlines(): splitlines() also breaks on FF,
+        # VT, FS, GS, RS, NEL, U+2028 and U+2029, which ast does NOT count
+        # as line breaks. One form feed inside a docstring shifts every
+        # later line number and the exclusion inverts -- real code skipped,
+        # docstring prose counted (round `mg3nr4`, pf-adversary D6; latent
+        # today, 0 such characters in the tree). read_text already
+        # normalises \r\n and \r.
+        for lineno, line in enumerate(text.split("\n"), start=1):
             if not remaining:
                 break
             if line.lstrip().startswith("#"):
                 continue
-            if lineno in doc_lines:
+            if lineno in prose_lines:
                 continue
             for token in _IDENT_TOKEN.findall(line):
                 if token in remaining:

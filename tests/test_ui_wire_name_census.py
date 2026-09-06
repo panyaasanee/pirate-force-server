@@ -526,12 +526,36 @@ class CoverageDocMatchesCommittedArtifactTests(unittest.TestCase):
             f"wire-names known n/327: {by_tier['SOURCE']}/{total}", text
         )
 
+    def test_the_prose_numbers_in_the_non_claims_match_the_artifact(self):
+        # pf-adversary D4 (round `mg3nr4`): the two tests above bound the
+        # headline and the scoreboard, and NOTHING bound the three other
+        # absolute numbers on the page. Measured: rewriting non-claim 1's
+        # count to 999 or non-claim 3's to 4242 left the whole file green.
+        # Not hypothetical -- round `fvp9ke` moved UNTOUCHED 9 -> 7 and left
+        # non-claim 3 reading "some of the 9" for a whole round.
+        total, by_tier = self._counts()
+        text = self.doc.read_text(encoding="utf-8")
+        self.assertIn(f"any of the {by_tier['SOURCE']} `SOURCE` names", text)
+        self.assertIn(f"some of the {by_tier['UNTOUCHED']} may already", text)
+
+    def test_the_plan_page_quotes_the_same_number(self):
+        # `docs/UI_LANE.md` repeats the headline for readers who never open
+        # the coverage page. It had no binding at all (same finding).
+        #
+        # 🔴 Note for whoever edits that file: it is ALSO one of the four
+        # NAME-ONLY sources the census reads, so writing or deleting a vital
+        # NAME there moves tiers. Only digits are bound here, and digits are
+        # not vital names, so this assertion cannot feed itself.
+        total, by_tier = self._counts()
+        text = (ROOT / "docs" / "UI_LANE.md").read_text(encoding="utf-8")
+        self.assertIn(f"Current: **{by_tier['SOURCE']}/{total}**", text)
+
     def test_artifact_row_count_is_the_whole_catalog(self):
         total, _ = self._counts()
         self.assertEqual(total, EXPECT_TOTAL)
 
 
-class DocstringNamesAreNotSourceTests(unittest.TestCase):
+class ProseStringNamesAreNotSourceTests(unittest.TestCase):
     """A vital name that appears ONLY inside a docstring is prose, not a
     reference -- COO-DECISION `pf_bridge/notes_to_chief/
     20260907_0546_COO-DECISION-q0454-census-tool-skips-docstrings-LANE-UI.md`,
@@ -588,14 +612,99 @@ class DocstringNamesAreNotSourceTests(unittest.TestCase):
             hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:3"
         )
 
-    def test_a_string_that_is_not_a_docstring_is_still_code(self):
-        # A bare string expression that is NOT the first statement of its
-        # body is not a docstring by Python's own definition, and a string
-        # bound to a name never was. Over-excluding either would silently
-        # drop real references.
-        hits = self._hits(f'X = 1\n"{self.NAME}"\n')
+    def test_a_second_bare_string_is_prose_too_not_only_the_first(self):
+        # THE D1 BYPASS, pinned shut (round `mg3nr4`, pf-adversary). The
+        # first version of this rule matched Python's own docstring
+        # definition -- first statement only -- so prepending one extra
+        # one-line docstring above a module's prose block demoted that block
+        # to a "not a docstring" and made it count as code again. Measured
+        # on that version: doing it to every ui_*_wire.py moved n/327 from
+        # 30 to 149 with no wire code touched, and a lint rule asking for a
+        # one-line summary would have done it by accident. An earlier draft
+        # of this very test asserted the OPPOSITE and pinned the hole open.
+        self.assertEqual(self._hits(f'"""Summary."""\n"{self.NAME}"\n'), {})
+        self.assertEqual(self._hits(f'X = 1\n"{self.NAME}"\n'), {})
+
+    def test_a_string_bound_to_a_name_or_passed_as_an_argument_is_code(self):
+        # The other side of the same knife: exclude bare STATEMENTS, never
+        # string values. Over-excluding here would zero the census.
         self.assertEqual(
-            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:2"
+            self._hits(f'"""Doc."""\n\nWIRE_NAME = "{self.NAME}"\n')[self.NAME],
+            "src/pirateforce_foundation/ui_probe_wire.py:3",
+        )
+        self.assertEqual(
+            self._hits(f'"""Doc."""\n\nregister("{self.NAME}")\n')[self.NAME],
+            "src/pirateforce_foundation/ui_probe_wire.py:3",
+        )
+        self.assertEqual(
+            self._hits(f'"""Doc."""\n\nNAMES = ["{self.NAME}"]\n')[self.NAME],
+            "src/pirateforce_foundation/ui_probe_wire.py:3",
+        )
+
+    def test_a_method_docstring_inside_a_class_is_prose(self):
+        # pf-adversary D2: the earlier witnesses used a TOP-LEVEL class and a
+        # TOP-LEVEL def, so `for node in ast.walk(tree)` and a top-level-only
+        # scan were indistinguishable. Measured that round: the top-level
+        # mutant left all of these green while the live census moved 30 -> 36,
+        # and the only test that caught it is guarded and skips on
+        # gate-windows. Six runtime.py METHOD docstrings were the difference.
+        self.assertEqual(
+            self._hits(
+                "class Handler:\n"
+                "    def run(self):\n"
+                f'        """Handles {self.NAME}."""\n'
+                "        return 1\n"
+            ),
+            {},
+        )
+
+    def test_an_async_method_docstring_is_prose(self):
+        # pf-adversary D3: the async branch of the first version was never
+        # measured (no `async def` exists in src/). Under the bare-statement
+        # rule there is no per-node-type branch left to go untested, and this
+        # witness keeps it that way if one is ever reintroduced.
+        self.assertEqual(
+            self._hits(
+                "class Handler:\n"
+                "    async def run(self):\n"
+                f'        """Handles {self.NAME}."""\n'
+                "        return 1\n"
+            ),
+            {},
+        )
+
+    def test_a_form_feed_does_not_shift_the_excluded_line_numbers(self):
+        # pf-adversary D6: str.splitlines() breaks on FF/VT/FS/GS/RS/NEL/
+        # U+2028/U+2029 and ast does not, so one form feed inside a docstring
+        # shifted every later line number and INVERTED the exclusion -- real
+        # code skipped, docstring prose counted. Latent (0 such characters in
+        # the tree today), fixed by splitting on "\n" only.
+        source = (
+            '"""line one\x0cline two\n"""\n'
+            "def f():\n"
+            f'    """Mentions {self.NAME}."""\n'
+            "    return 1\n"
+        )
+        self.assertEqual(self._hits(source), {})
+
+    def test_a_utf8_bom_does_not_disable_the_rule(self):
+        # pf-adversary D7: ast.parse raises on a leading BOM, which would
+        # drop that file back to comment-skip-only and start counting its
+        # docstrings again. This repo syncs from a Windows/PowerShell bridge
+        # whose default output encoding writes one.
+        self.assertEqual(self._hits(f'\ufeff"""Mentions {self.NAME}."""\nX = 1\n'), {})
+
+    def test_no_file_in_the_tree_falls_back_to_the_unparseable_path(self):
+        # The fallback is deliberately permissive, so it must not be a silent
+        # skip: a file in this list has its prose counted as code, which moves
+        # the census with nothing to point at. Reads only this repo, so it
+        # runs on gate-windows.
+        bad = census.unparseable_py_files(census._iter_py_files(census.SRC_DIR))
+        self.assertEqual(
+            [p.name for p in bad],
+            [],
+            "these files did not parse, so their docstrings are being counted "
+            "as code -- fix the file or the census number is wrong",
         )
 
     def test_a_reference_after_a_multi_line_docstring_keeps_its_own_line_number(self):
@@ -617,14 +726,14 @@ class DocstringNamesAreNotSourceTests(unittest.TestCase):
         self.assertEqual(
             hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:2"
         )
-        self.assertEqual(census.docstring_line_numbers("def broken(\n"), frozenset())
+        self.assertEqual(census.prose_string_line_numbers("def broken(\n"), frozenset())
 
     def test_full_line_comments_are_still_skipped_as_well(self):
         self.assertEqual(self._hits(f"# {self.NAME} is not built here\nX = 1\n"), {})
 
-    def test_docstring_line_numbers_reports_the_whole_literal_span(self):
+    def test_prose_string_line_numbers_reports_the_whole_literal_span(self):
         self.assertEqual(
-            census.docstring_line_numbers('"""a\nb\nc"""\nX = 1\n'), frozenset({1, 2, 3})
+            census.prose_string_line_numbers('"""a\nb\nc"""\nX = 1\n'), frozenset({1, 2, 3})
         )
 
 

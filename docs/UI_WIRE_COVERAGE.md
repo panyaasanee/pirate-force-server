@@ -128,7 +128,20 @@ removed) as every lane's normal work lands.
    does not tokenize sub-line spans. That remains a known, disclosed gap in
    the mechanical method, not a claim that every `SOURCE` row is a real
    reference.
-5. This is not a substitute for the per-function status table in
+5. 🔴 `docs/UI_LANE.md` is BOTH one of the four NAME-ONLY sources this
+   census reads AND the page where the headline is quoted back. Editing the
+   prose there moves tiers in both directions, and only the UP direction is
+   called out in the movement log above: round `fvp9ke` pushed
+   `GuildStorageOpenVital`/`GuildStorageResultVital` UNTOUCHED -> NAME-ONLY
+   just by naming them in the Stall row, and those two rows have no registry
+   entry at all, so a later round that rewrites that row and drops the names
+   sends them silently back to UNTOUCHED and turns the pinned test red with
+   no code change to point at. This actually fired, in the small, in round
+   `mg3nr4`: rewriting one sentence of `UI_LANE.md` removed the last mention
+   of `ShowMessageVital` and the artifact's evidence column for `0x36D2`
+   changed in the same commit. If you edit that file, re-run
+   `--emit` before you commit. (pf-adversary D5.)
+6. This is not a substitute for the per-function status table in
    `docs/UI_LANE.md` ("layout known / needs RE / needs capture / done") --
    that table tracks UI's own pickup order; this page tracks the whole
    project's name coverage. A name can be `SOURCE` here and still have no GT
