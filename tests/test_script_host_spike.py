@@ -86,6 +86,70 @@ class TwoNamedSpikeScriptsRunHeadlessTests(unittest.TestCase):
 
 
 @LUPA_PACKAGE.skip_unless_present()
+class OneScriptHostSharesOneQuestStateStoreTests(unittest.TestCase):
+    """The wiring CORE-REQUEST 20260906_1951 asked for, now landed.
+
+    Before this round, ``ScriptHost`` let ``lua_api.trigger.build_namespace``
+    and ``lua_api.quest.build_namespace`` each default to their OWN private
+    ``InMemoryQuestStateStore`` (``lua_api.trigger.build_namespace``'s own
+    docstring named this gap). A script whose ``Trigger.QuestActiveProgress``
+    call and later ``Quest.GetQuestFlag`` call land in the SAME
+    ``ScriptHost`` run would then see two different stores -- the write from
+    one namespace invisible to a read from the other. These tests exercise
+    the real, per-instance-attribute identity (not just "both calls
+    succeeded") and the observable Lua-level consequence.
+    """
+
+    def test_trigger_and_quest_namespaces_hold_the_identical_store_object(self):
+        host = script_host.ScriptHost()
+        # __slots__ on both RealTriggerNamespace/RealQuestNamespace name the
+        # exact attribute; `is`, not equality, because two DIFFERENT but
+        # equally-empty InMemoryQuestStateStore instances would compare
+        # unequal to each other in any case (no __eq__ defined) but the
+        # bug this test guards against is two SEPARATE instances, which
+        # `is` catches directly rather than through their absence of writes.
+        self.assertIs(
+            host.namespaces["Trigger"]._quest_store,
+            host.namespaces["Quest"]._store,
+        )
+        self.assertIs(
+            host.namespaces["Trigger"]._quest_context,
+            host.namespaces["Quest"]._context,
+        )
+
+    def test_a_trigger_quest_progress_write_is_visible_to_a_later_quest_read(self):
+        # QUEST_ACTIVE = 1 (lua_api.quest.QUEST_ACTIVE) -- not re-imported
+        # here on purpose: this test only cares that SOME non-default value
+        # written by Trigger.QuestActiveProgress is the SAME value
+        # Quest.GetQuestFlag reads back, in one ScriptHost run, with no
+        # store/context passed in explicitly (the default-sharing path
+        # every existing caller before this round already takes).
+        host = script_host.ScriptHost()
+        host.load(
+            "function Run()\n"
+            "  Trigger.QuestActiveProgress(42)\n"
+            "  return Quest.GetQuestFlag(42)\n"
+            "end\n"
+        )
+        self.assertEqual(host.call("Run"), 1)
+
+    def test_an_explicitly_injected_store_is_the_one_both_namespaces_share(self):
+        from pirateforce_foundation.lua_api import quest as lua_api_quest
+
+        store = lua_api_quest.InMemoryQuestStateStore()
+        context = lua_api_quest.QuestContext(character_id=7, quest_id=0)
+        host = script_host.ScriptHost(quest_context=context, quest_store=store)
+        host.load(
+            "function Run()\n"
+            "  Trigger.QuestFinishProgress(99)\n"
+            "  return Quest.GetQuestFlag(99)\n"
+            "end\n"
+        )
+        self.assertEqual(host.call("Run"), 2)  # QUEST_FINISH
+        self.assertEqual(store.get_quest_flag(7, 99), 2)
+
+
+@LUPA_PACKAGE.skip_unless_present()
 class SandboxActuallyBlocksTheBannedGlobalsTests(unittest.TestCase):
     """The charter's sandbox line, verified from inside a running script."""
 
