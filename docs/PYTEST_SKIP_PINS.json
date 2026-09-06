@@ -443,6 +443,42 @@
       "note": "round oabhhe (LANE-B), pin added round oabhhe-adv after the Windows gate caught it UNPINNED on the first push: field_mob_tables_bg0008.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, same shape as the bg0003/bg0004/bg0005 entries above - scene 8's arrival census and login door were already open (LANE-A), so nothing was gated. The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene Bg0008 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed. The local sandbox that built this module always has pf_bridge checked out beside it, so this skip never fired locally and the first push went out unpinned; the Windows gate runs from a fresh clone with no bridge sibling, where bridge_gamedata is genuinely ABSENT, and skip_census correctly refused the drift. Pinned in a follow-up commit on the same branch/PR rather than the original one, since the original had already gone out before the gate result came back."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0006.py",
+      "count": 1,
+      "tests": [
+        "Bg0006RegenerateTests::test_regenerating_reproduces_the_committed_module_byte_for_byte"
+      ],
+      "note": "round 4tnhzw (LANE-B), pinned in the SAME commit as the test this time, per the lesson round oabhhe-adv wrote down (rounds/B_20260906_0725_oabhhe-adv_fix-nina-invisibility-overclaim.md): field_mob_tables_bg0006.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, same shape as the bg0003/bg0004/bg0005/bg0008 entries above - scene 6's arrival census and login door were already open (LANE-A), so nothing was gated. The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene bg0006 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed. Rehearsed with git worktree add --detach to a directory with no pf_bridge sibling before push, per this same round's own AGENTS.md section 7 obligation, rather than after a gate failure."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0007.py",
+      "count": 1,
+      "tests": [
+        "Bg0007RegenerateTests::test_regenerating_reproduces_the_committed_module_byte_for_byte"
+      ],
+      "note": "round 4tnhzw (LANE-B), same shape and same pre-push rehearsal as the bg0006 entry above: field_mob_tables_bg0007.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, scene 7's arrival census and login door were already open (LANE-A). The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene Bg0007 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0009.py",
+      "count": 1,
+      "tests": [
+        "Bg0009RegenerateTests::test_regenerating_reproduces_the_committed_module_byte_for_byte"
+      ],
+      "note": "round 4tnhzw (LANE-B), same shape and same pre-push rehearsal as the bg0006 entry above: field_mob_tables_bg0009.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, scene 9's arrival census and login door were already open (LANE-A). The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene Bg0009 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0011.py",
+      "count": 1,
+      "tests": [
+        "Bg0011RegenerateTests::test_regenerating_reproduces_the_committed_module_byte_for_byte"
+      ],
+      "note": "round 4tnhzw (LANE-B), same shape and same pre-push rehearsal as the bg0006 entry above: field_mob_tables_bg0011.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, scene 11's arrival census and login door were already open (LANE-A). The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene Bg0011 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed."
+    },
+    {
       "key": "original_schema_history",
       "module": "tests/test_foundation.py",
       "count": 1,
