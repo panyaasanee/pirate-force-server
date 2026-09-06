@@ -43,13 +43,23 @@ GAPLIST.md:143`` identity qword). ``0x44`` = tagged string8 (one byte per
 char, opaque, u32 LE length prefix) -- ``delete_actor.py``'s
 ``DeleteActorVital`` parser proved this shape first (GT-055); see
 ``string8tag``/``read_string8tag`` below for the reusable pair added when
-``DyeingVitalReq`` was proven to share the identical helper span. The registry's
-``UNTAGGED_WSTRING16LE_LEN32LE`` is exactly what its name says: a u32 LE
-length prefix followed by UTF-16LE payload bytes, with **no** leading tag
-byte -- unlike ``current/pf_login_game_server_v141.py``'s own ``wstr_tag``
-helper, which prepends tag ``0x48``. Reusing ``wstr_tag`` here would put a
-byte on the wire this registry entry does not license, which is why this
-file defines its own untagged variant instead.
+``DyeingVitalReq`` was proven to share the identical helper span.
+
+CORRECTED round `42w728`, previously wrong in this file since it was
+written: the registry's ``UNTAGGED_WSTRING16LE_LEN32LE`` label does NOT
+mean "no tag byte" -- that was this file's own misreading of a label that
+only describes a helper CALL SPAN boundary (the exact same misreading
+RE-196 already caught once for the ``0x44``/string8 flavour, on the exact
+same label-naming pattern). ``notes_to_chief/reference_codex_attr/
+PF_A2_STRING_WIRE_TAG_DELTA.tsv`` measures a real ``push_0x48`` tag
+instruction inside the shared codec (helper VA ``0x0089A810``/
+``0x0089A880``) for every one of this label's 348 rows, matching
+``current/pf_login_game_server_v141.py``'s own ``wstr_tag`` helper
+exactly -- there never was a conflict to avoid by not reusing it. Use
+``wstring_tag``/``read_wstring_tag`` below for any new wstring16le field;
+``encode_untagged_wstring``/``read_untagged_wstring`` are kept only for
+six already-shipped modules' existing call sites pending migration (see
+that function's own docstring for the full list and status).
 
 FAIL-CLOSED ON DECODE, STATED AS A PROPERTY: every ``decode_*`` function in
 this file's sibling modules returns ``None`` on any malformed input
@@ -118,11 +128,63 @@ def u64tag(tag: int, v: int) -> bytes:
 
 def encode_untagged_wstring(s: str) -> bytes:
     """``UNTAGGED_WSTRING16LE_LEN32LE``: u32 LE length + UTF-16LE payload,
-    no tag byte. See module docstring for why this is not
-    ``current/pf_login_game_server_v141.py``'s ``wstr_tag``."""
+    no tag byte.
+
+    PROVEN WRONG for every field this registry label actually covers
+    (found round `42w728`'s pf-adversary pass, filed to COO/chief the same
+    round -- this function's own callers were never re-audited against it
+    until then): ``notes_to_chief/reference_codex_attr/
+    PF_A2_STRING_WIRE_TAG_DELTA.tsv`` -- the SAME [MEASURED] correction
+    table ``string8tag`` below already relies on for the ``0x44`` string8
+    flavour -- also carries a ``corrected_tag=0x48`` row for every one of
+    its 348 ``UNTAGGED_WSTRING16LE_LEN32LE`` rows (174 W + 174 R, 87
+    unique messages; ``PF_A2_A3_STRING_WIRE_CORRECTION.md``'s stated
+    census), each with a real ``push_0x48`` tag instruction proven to live
+    inside the SAME shared codec (helper VA ``0x0089A810``/``0x0089A880``)
+    this registry label's own name claims has "no tag byte". This function
+    (and ``read_untagged_wstring`` below) omit that tag byte and were
+    already relied on, before this correction was noticed, by every
+    wstring field in ``ui_friend_wire.py``, ``ui_mail_wire.py``,
+    ``ui_party_wire.py``, ``ui_trade_wire.py``, ``ui_express_wire.py``, and
+    ``ui_community_social_wire.py``. ``ui_channel_wire.py`` already proves
+    the fix in production (its own local
+    ``encode_channel_tagged_wstring``/``read_channel_tagged_wstring``,
+    tag ``0x48``, same helper VAs cited above) -- ``wstring_tag``/
+    ``read_wstring_tag`` below promote that same pattern into this shared
+    module. NONE of the six affected modules are wired into
+    ``runtime.py``/``vital_walk.py`` yet (grepped clean this round), so
+    this is zero live-player impact TODAY -- but it must be fixed at each
+    of those six call sites (one migration per module, each its own
+    round, to respect the file-count-per-PR convention) before any of
+    them can be wired. Left in place, unmodified, so this round's fix does
+    not silently change six other modules' already-passing tests out from
+    under a diff that never touches them; new work must use
+    ``wstring_tag``/``read_wstring_tag`` instead, never this pair. See
+    module docstring for why this pair was never
+    ``current/pf_login_game_server_v141.py``'s ``wstr_tag`` to begin with
+    (a separate, still-true point: that frozen file's own tag is
+    ``0x48`` too, which is what this correction converges back onto)."""
 
     payload = s.encode("utf-16le")
     return struct.pack("<I", len(payload)) + payload
+
+
+_TAG_WSTRING16LE = 0x48
+
+
+def wstring_tag(s: str) -> bytes:
+    """Tag byte ``0x48`` + u32 LE byte length + UTF-16LE payload -- the
+    CORRECT shape for ``UNTAGGED_WSTRING16LE_LEN32LE`` registry rows (see
+    ``encode_untagged_wstring`` above for the full provenance and why that
+    sibling function is wrong). Same proof shape as ``string8tag`` below,
+    promoted from ``ui_channel_wire.py``'s already-shipped
+    ``encode_channel_tagged_wstring`` (identical helper VAs
+    ``0x0089A810``/``0x0089A880``) into this shared module so new modules
+    do not have to redefine it locally. Use this, never
+    ``encode_untagged_wstring``, for any new wstring16le field."""
+
+    payload = s.encode("utf-16le")
+    return bytes([_TAG_WSTRING16LE]) + struct.pack("<I", len(payload)) + payload
 
 
 def string8tag(tag: int, s: bytes) -> bytes:
@@ -214,6 +276,23 @@ def read_untagged_wstring(buf: bytes, offset: int) -> tuple[str, int]:
         # only ever catches WireDecodeError).
         raise WireDecodeError("malformed UTF-16LE payload") from error
     return text, end
+
+
+def read_wstring_tag(buf: bytes, offset: int) -> tuple[str, int]:
+    """Read ``wstring_tag``'s shape back: tag byte ``0x48``, u32 LE length,
+    UTF-16LE payload (see ``wstring_tag``/``encode_untagged_wstring``
+    above for provenance). Reuses ``read_untagged_wstring``'s decode body
+    for the length+payload half so the UTF-16LE edge cases (odd length,
+    unpaired surrogate) stay defined in exactly one place."""
+
+    if offset + 1 > len(buf):
+        raise WireDecodeError("truncated wstring tag byte")
+    tag = buf[offset]
+    if tag != _TAG_WSTRING16LE:
+        raise WireDecodeError(
+            "expected tag 0x%02X, got 0x%02X" % (_TAG_WSTRING16LE, tag)
+        )
+    return read_untagged_wstring(buf, offset + 1)
 
 
 def read_string8tag(

@@ -86,6 +86,73 @@ class String8TagTests(unittest.TestCase):
         self.assertEqual(offset, len(encoded))
 
 
+class WstringTagTests(unittest.TestCase):
+    # Added round `42w728`: `encode_untagged_wstring`/`read_untagged_wstring`
+    # below were found (this round's pf-adversary pass) to be missing a
+    # real `0x48` tag byte proven by `PF_A2_STRING_WIRE_TAG_DELTA.tsv` for
+    # every `UNTAGGED_WSTRING16LE_LEN32LE` row -- see `wstring_tag`'s
+    # docstring. These are the correct replacement, promoted from
+    # `ui_channel_wire.py`'s already-shipped local pair.
+
+    def test_round_trip_ascii(self):
+        encoded = wire.wstring_tag("hello")
+        self.assertEqual(encoded[0], 0x48)
+        text, offset = wire.read_wstring_tag(encoded, 0)
+        self.assertEqual(text, "hello")
+        self.assertEqual(offset, len(encoded))
+
+    def test_round_trip_empty(self):
+        encoded = wire.wstring_tag("")
+        text, offset = wire.read_wstring_tag(encoded, 0)
+        self.assertEqual(text, "")
+        self.assertEqual(offset, len(encoded))
+
+    def test_round_trip_non_ascii(self):
+        encoded = wire.wstring_tag("ทดสอบ")
+        text, offset = wire.read_wstring_tag(encoded, 0)
+        self.assertEqual(text, "ทดสอบ")
+        self.assertEqual(offset, len(encoded))
+
+    def test_wrong_tag_fails_closed(self):
+        encoded = bytearray(wire.wstring_tag("hi"))
+        encoded[0] = 0x00
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_wstring_tag(bytes(encoded), 0)
+
+    def test_truncated_tag_byte_fails_closed(self):
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_wstring_tag(b"", 0)
+
+    def test_truncated_length_prefix_fails_closed(self):
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_wstring_tag(bytes([0x48, 1, 0]), 0)
+
+    def test_truncated_payload_fails_closed(self):
+        encoded = wire.wstring_tag("hello")
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_wstring_tag(encoded[:-1], 0)
+
+    def test_reads_at_nonzero_offset(self):
+        prefix = wire.u64tag(0x32, 9)
+        encoded = prefix + wire.wstring_tag("tail")
+        text, offset = wire.read_wstring_tag(encoded, len(prefix))
+        self.assertEqual(text, "tail")
+        self.assertEqual(offset, len(encoded))
+
+    def test_matches_channel_wires_own_tagged_helper_byte_for_byte(self):
+        # ui_channel_wire.py already ships this exact shape locally
+        # (encode_channel_tagged_wstring); this shared promotion must not
+        # diverge from it.
+        from pirateforce_foundation import ui_channel_wire as channel
+
+        for s in ("", "hello", "ทดสอบ"):
+            with self.subTest(s=s):
+                self.assertEqual(
+                    wire.wstring_tag(s),
+                    channel.encode_channel_tagged_wstring(s),
+                )
+
+
 class UntaggedWstringTests(unittest.TestCase):
     def test_round_trip_ascii(self):
         encoded = wire.encode_untagged_wstring("hello")

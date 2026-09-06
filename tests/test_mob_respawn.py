@@ -734,30 +734,43 @@ class WiringLineTests(unittest.TestCase):
     def setUpClass(cls):
         cls.runtime_source = RUNTIME.read_text(encoding="utf-8")
 
-    def test_nothing_in_runtime_py_calls_the_sweep_yet(self):
-        # THE PINNED NEGATIVE.  The day chief pastes MOB_RESPAWN_WIRING this
-        # test is FLIPPED, in this lane's own file, not deleted.
-        self.assertNotIn("mob_respawn", self.runtime_source)
+    def test_something_in_runtime_py_calls_the_sweep_now(self):
+        # THE PINNED NEGATIVE, FLIPPED (not deleted) -- chief pasted
+        # MOB_RESPAWN_WIRING in round fyrtvt: CORE-REQUEST 20260905_1952.
+        self.assertIn("mob_respawn.sweep_the_session_register",
+                      self.runtime_source)
 
-    def test_the_order_names_an_anchor_that_exists(self):
-        self.assertIn(
-            "for record in self.mob_death_register.records:",
-            self.runtime_source)
+    def test_the_order_names_an_anchor_that_existed_before_the_paste(self):
+        # "ledger_identities = ledger.identities()" is the insertion point
+        # for edit (1) and is untouched by the paste, so it still anchors
+        # the order text against runtime.py.  The OTHER anchor this order
+        # named, "for record in self.mob_death_register.records:", was
+        # edit (2)'s own target -- the paste replaces it with
+        # "for record in respawned.records:" by design, so once wired that
+        # string is gone from runtime.py on purpose, not a drift.
         self.assertIn("ledger_identities = ledger.identities()",
                       self.runtime_source)
         for anchor in ("for record in self.mob_death_register.records:",
                        "ledger_identities = ledger.identities()"):
             self.assertIn(anchor, mob_respawn.MOB_RESPAWN_WIRING)
 
-    def test_each_anchor_appears_exactly_once_in_runtime_py(self):
+    def test_the_post_paste_loop_reads_the_swept_register(self):
+        # Edit (2), confirmed landed: the loop now iterates the swept
+        # register, not the raw session field.
+        self.assertIn("for record in respawned.records:",
+                      self.runtime_source)
+        self.assertEqual(
+            self.runtime_source.count("for record in respawned.records:"),
+            1)
+
+    def test_the_surviving_anchor_appears_exactly_once_in_runtime_py(self):
         # An order that names an anchor appearing twice is an order that can
         # be pasted into the wrong block and still look obeyed.  Round
         # a7k5gy is what that costs: three days of a gate that was False on
         # every frame, with nothing red anywhere.
-        for anchor in ("for record in self.mob_death_register.records:",
-                       "ledger_identities = ledger.identities()"):
-            self.assertEqual(
-                self.runtime_source.count(anchor), 1, anchor)
+        self.assertEqual(
+            self.runtime_source.count("ledger_identities = ledger.identities()"),
+            1)
 
     def test_the_order_names_the_function_it_asks_to_be_called(self):
         self.assertIn("sweep_the_session_register",
