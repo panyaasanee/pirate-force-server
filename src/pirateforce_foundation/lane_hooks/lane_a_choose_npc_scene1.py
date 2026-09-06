@@ -104,9 +104,20 @@ any order, all of them before the flip):
     ``TARGET_VITAL`` id) and the ``runtime_ack_sent`` latch, which only
     v141 ever sets and which ``runtime.py:9457`` makes the census depend
     on.
-5.  The responder honours the census authority ``runtime.py:9103`` honours
-    (``world_census_identity_resolved``) and DECLINES rather than composes
-    on a boot whose login shipped Mob-Set numbers.  Measured on a
+5.  ~~The responder honours the census authority ``runtime.py:9103``
+    honours (``world_census_identity_resolved``) and DECLINES rather than
+    composes on a boot whose login shipped Mob-Set numbers.~~  LANE HALF
+    DONE, ROUND ``6dvcer``, ADDITIVELY, AND THE UNDONE HALF IS NAMED
+    RATHER THAN ESTIMATED: ``respond`` grew a
+    ``world_census_identity_resolved`` keyword that declines on an
+    explicit ``False``.  IT IS INERT UNTIL THE CALL SITE PASSES IT --
+    every call today omits it, the keyword defaults to ``None``, and
+    ``None`` deliberately means "never told" rather than "failed", so this
+    module's behaviour is byte-identical to what it was before.  The one
+    line that arms it is chief's (``runtime.py``); it is written out
+    verbatim in ``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING`` below.  Strike
+    this item the day that line merges, not before.  The measured cost
+    that makes it necessary is unchanged and stated here:  Measured on a
     second-password-bypass boot, where the frozen v134 fallback arms
     ``(0, 30, 91)``: with the gate open a click on P0 answered with
     silence where the frozen path opened a quest conversation, and a click
@@ -275,6 +286,34 @@ from .lane_a_scene_census import scene_is_open_to_players
 production_allowed = False
 
 SCENE_N_ID = world_population.SCENE_ID
+
+# THE ONE LINE THAT ARMS STEP 5, WRITTEN OUT SO NOBODY HAS TO GUESS IT.
+# ``respond`` below grew the keyword; the call site does not pass it yet,
+# and until it does this module behaves byte-for-byte as it did before
+# (the keyword defaults to ``None``, which means "the call site never told
+# me", NOT "the census failed").  The call site is chief's file, so this
+# constant is the ask, spelled the way runtime.py would have to spell it:
+#
+#     response = responder.respond(
+#         legacy=self.legacy,
+#         chosen_identities=chosen,
+#         population_indices=self.world_population_indices,
+#         last_target_pos=self.last_target_pos,
+#         scene_id=scene_id,
+#         scene_entry_registry=self.scene_entry_registry,
+#         mob_loot_cell=getattr(self, "mob_loot_cell", None),
+#         world_census_identity_resolved=self.world_census_identity_resolved,
+#     )
+#
+# ``self.world_census_identity_resolved`` is the census's own flag, the
+# same one ``runtime.py:9103`` already gates ``rebuild_face_actions`` on.
+WORLD_CENSUS_IDENTITY_RESOLVED_WIRING = (
+    "runtime.py, the responder branch that calls respond(): add the keyword "
+    "world_census_identity_resolved=self.world_census_identity_resolved. "
+    "Without it this responder cannot honour the census authority "
+    "runtime.py:9103 honours, and step 5 of the promotion list in this "
+    "module's docstring cannot be struck."
+)
 
 
 def _placements_by_index(legacy: Any) -> dict[int, Any]:
@@ -492,6 +531,7 @@ def respond(
     scene_id: int = SCENE_N_ID,
     scene_entry_registry: Any = None,
     mob_loot_cell: Any = None,
+    world_census_identity_resolved: bool | None = None,
     **_ignored: Any,
 ) -> "lane_hooks.ChooseNpcResponse | None":
     """Answer one ChooseNPC click for scene 1, or decline (see module doc).
@@ -501,6 +541,25 @@ def respond(
     breaking every registered responder at once.
     """
     if scene_id != SCENE_N_ID:
+        return None
+    if world_census_identity_resolved is False:
+        # STEP 5 OF THE PROMOTION LIST, LANE HALF.  ``is False`` and not a
+        # bare falsy test on purpose: ``None`` means the call site never
+        # passed the keyword (which is every call today -- see
+        # ``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``) and MUST keep the
+        # behaviour this module had before the keyword existed, byte for
+        # byte.  Only an explicit ``False`` -- the census telling us it
+        # could not resolve identities on this boot -- declines.
+        #
+        # WHY DECLINING IS THE SAFE ANSWER AND ANSWERING IS NOT, MEASURED
+        # (pf-adversary ``zqmosn``, second pass, on a
+        # second-password-bypass boot where the frozen v134 fallback arms
+        # ``(0, 30, 91)``): with this responder registered, a click on P0
+        # answered with SILENCE where the frozen path opened a quest
+        # conversation, and a click on P91 shipped two actors after login
+        # had announced three.  Declining hands the frame back to
+        # ``super().dispatch(parsed)`` -- the frozen loop -- which is the
+        # behaviour a player already has today.
         return None
     if not scene_is_open_to_players(scene_id, scene_entry_registry):
         return None
