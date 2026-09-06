@@ -67,21 +67,29 @@ from pf_preconditions import UI_WIRE_CENSUS_INPUTS  # noqa: E402
 # Pinned this round (`9dezrf`, after pf-adversary's comment-line-exclusion
 # fix) against DEFAULT_TSV as committed today. A tier move for any name
 # changes at least one of these four numbers.
-# Re-pinned round `fvp9ke` 2026-09-07, two independent moves:
-#  * `ShowMessageVital` (0x36D2) NAME-ONLY -> SOURCE, because LANE-Q's
-#    message wire landed on main (`lua_api/message.py:44`). That move was
-#    already RED on main when this round started -- the pin caught another
-#    lane's real change; it was not "adjusted to fit".
-#  * `GuildStorageOpenVital` (0x5CAD) and `GuildStorageResultVital` (0x70D0)
-#    UNTOUCHED -> NAME-ONLY, because this round's own `docs/UI_LANE.md` Stall
-#    row names them and that doc is one of the tool's four NAME-ONLY sources.
-#    NOTE, and do not let a later round misread it: naming a vital in the
-#    plan is NOT progress toward it working. See UI_WIRE_COVERAGE.md's
-#    movement log, which says the same thing where readers of the number
-#    will actually see it.
+# Re-pinned round `fvp9ke` 2026-09-07 to 161/159/7 for two independent moves
+# (`ShowMessageVital` 0x36D2 NAME-ONLY -> SOURCE when LANE-Q's message wire
+# landed; `GuildStorageOpenVital` 0x5CAD and `GuildStorageResultVital` 0x70D0
+# UNTOUCHED -> NAME-ONLY because that round's own `docs/UI_LANE.md` Stall row
+# names them and that doc is one of the tool's four NAME-ONLY sources).
+# NOTE, and do not let a later round misread it: naming a vital in the plan is
+# NOT progress toward it working. See UI_WIRE_COVERAGE.md's movement log.
+#
+# Re-pinned again round `mg3nr4` 2026-09-07 to 160/160/7. ONE row moved back:
+# `ShowMessageVital` (0x36D2) SOURCE -> NAME-ONLY, because LANE-Q moved that
+# name into a full-line comment in `lua_api/message.py` (line 122 on main),
+# and this tool deliberately does not count full-line comments. Measured, not
+# assumed: `--emit` on the merged tree rewrites exactly that one artifact row
+# and nothing else.
+# This is NOT a regression of anyone's code. It is a name leaving the tier on
+# a documentation edit, which is the same class of movement as the two
+# GuildStorage rows above. `#987` pinned 161 from a tree derived BEFORE `#988`
+# landed, so main carried a red pin + `CENSUS DRIFT` from the moment `#987`
+# merged until this commit (COO-DECISION `20260907_0546` item 5: if it merged
+# already, fixing the pin is the next round's first job -- this is it).
 EXPECT_TOTAL = 327
-EXPECT_SOURCE = 161
-EXPECT_NAME_ONLY = 159
+EXPECT_SOURCE = 160
+EXPECT_NAME_ONLY = 160
 EXPECT_UNTOUCHED = 7
 
 
