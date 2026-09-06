@@ -1047,8 +1047,14 @@ guard(SRC_ACTOR_ENTRY_SITES == 34,
 # ROUND dipufa (lane B): 43 -> 44, name_colour_sweep.py's own
 # build_sweep_population carrier call (see the SRC_ACTOR_ENTRY_SITES
 # comment above -- same module, same round).
-guard(SRC_ACTOR_STREAM_SITES == 44,
-      "src/ sends the actor-entry carrier at exactly 44 call sites")
+# ROUND ky8m6j (chief, R381): 44 -> 45, world_population's new
+# append_census_entries -- the public splice that puts extra bodies INSIDE an
+# already-built census instead of encoding a second collection (RE-092:
+# a later collection replaces the actor set, so a second frame empties the
+# town down to whatever it carries).  A carrier, not a new entry builder,
+# so SRC_ACTOR_ENTRY_SITES does not move.
+guard(SRC_ACTOR_STREAM_SITES == 45,
+      "src/ sends the actor-entry carrier at exactly 45 call sites")
 guard(SRC_MODULES_WITH_ACTOR_ENTRY == 33
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mob_hostile_bg0015.py",
