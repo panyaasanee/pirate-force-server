@@ -10109,7 +10109,46 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     )
                     chosen_identities = ()
                 response = None
+                # CORE-REQUEST 20260906_2318 (lane A round eknq8d),
+                # WORLD_CENSUS_IDENTITY_RESOLVED_WIRING and
+                # FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING in
+                # lane_hooks/lane_a_choose_npc_scene1.py.  Precomputed here,
+                # BEFORE respond() runs, in the exact order and on the exact
+                # three conditions respond() itself declines on (its first
+                # three `if ...: return None` guards) -- so this flag is
+                # true precisely when a None response below is explained by
+                # one of THESE THREE keywords and not by any other decline
+                # path (no identity chosen, scene not open, population not
+                # yet composed, or a raised exception), which is the
+                # distinction the decline branch below needs to fall back
+                # to the frozen loop only for the guards that ask for it.
+                #
+                # SCOPED TO SCENE 1's OWN RESPONDER, DELIBERATELY: the three
+                # attributes read below (runtime_ack_sent,
+                # world_census_identity_resolved) and parsed.raw_pc are
+                # SESSION-global, not scene-specific, and every OTHER
+                # registered responder (scene2, scene14, the roster scenes)
+                # ignores these three keywords in its own **_ignored and
+                # declines for reasons of its own that have nothing to do
+                # with them.  Without this module check, a coincidental
+                # True (e.g. the session's very first frame, before
+                # runtime_ack_sent flips) would reroute an UNRELATED decline
+                # from an already-production responder into the frozen
+                # loop -- a real regression this round must not ship.  Scene
+                # 1's own responder is production_allowed = False today, so
+                # this whole branch stays unreachable in production either
+                # way; the module check is what keeps it that way on purpose
+                # rather than by accident of session timing.
+                frozen_fallback_guard_declined = False
                 if chosen_identities:
+                    if scene_choose_npc_responder.module == (
+                        lane_hooks.lane_a_choose_npc_scene1.__name__
+                    ):
+                        frozen_fallback_guard_declined = (
+                            self.runtime_ack_sent is False
+                            or parsed.raw_pc == legacy.V138_MARKER1_READY_PC
+                            or self.world_census_identity_resolved is False
+                        )
                     # WIRED-v2 evidence, on the production path, only for a
                     # frame this branch actually hands to the responder --
                     # not merely because the guard condition matched, the
@@ -10298,6 +10337,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # uses it.
                             vendor_open_latch_spent=self.shop_store5_open_sent,
                             mission_dialog_latch_spent=self.quest3020_conversation_sent,
+                            # CORE-REQUEST 20260906_2318 (lane A round
+                            # eknq8d), FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING
+                            # and WORLD_CENSUS_IDENTITY_RESOLVED_WIRING in
+                            # lane_hooks/lane_a_choose_npc_scene1.py.  All
+                            # three are one-way guards -- they can only make
+                            # the responder decline something it would
+                            # otherwise have answered, never the reverse --
+                            # and the decline branch a few lines below falls
+                            # back to the frozen loop specifically when one
+                            # of these three fires (frozen_fallback_guard_
+                            # declined above), so this pair does not make a
+                            # census-unresolved or pre-ack boot silent.
+                            runtime_ack_sent=self.runtime_ack_sent,
+                            exact_frozen_marker1_ready_pc=(
+                                parsed.raw_pc == legacy.V138_MARKER1_READY_PC
+                            ),
+                            world_census_identity_resolved=(
+                                self.world_census_identity_resolved
+                            ),
                         )
                     except Exception as error:  # noqa: BLE001 - a lane's
                         # responder must never take the listener thread down
@@ -10371,9 +10429,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "scene_choose_npc_responder_extra_actions_"
                             f"malformed_{type(error).__name__}"
                         )
+                elif frozen_fallback_guard_declined:
+                    # CORE-REQUEST 20260906_2318, the fallback half without
+                    # which the keywords above regress the boot rather than
+                    # protect it (WORLD_CENSUS_IDENTITY_RESOLVED_WIRING:
+                    # "a decline that answers with zero bytes ... is worse
+                    # than the swallow this guard exists to prevent" --
+                    # FROZEN_TARGET_VITAL_BEHAVIOUR_WIRING says the same of
+                    # the ack/marker1 pair.  A distinct event, not the
+                    # ordinary decline token below, per that constant's own
+                    # request ("today both produce
+                    # scene_choose_npc_responder_declined and nothing else",
+                    # adversary D5).
+                    self.events.append(
+                        "scene_choose_npc_responder_declined_frozen_fallback"
+                    )
+                    actions = super().dispatch(parsed)
                 else:
                     # No honest answer for this click (nothing chosen, or
-                    # every named identity declined) -- this scene has
+                    # every named identity declined for a reason none of
+                    # the three guards above name) -- this scene has
                     # claimed the vital family, so the frozen branch's own
                     # crash-prone loop is skipped regardless, the same as an
                     # ordinary refusal: no bytes, not an invented frame.
