@@ -455,7 +455,13 @@ class TestTheAnswer(unittest.TestCase):
         # name_colour_sweep.py, RE-155's env-gated (PF_NAME_COLOUR_SWEEP)
         # dummy-row sweep -- one entry builder and one carrier, fail-closed
         # (production bytes unchanged unless the env is armed).
-        self.assertEqual(counts["src_actor_stream_call_sites"], 44)
+        # 44 -> 45 on 2026-09-07 (chief, round ky8m6j):
+        # world_population.append_census_entries, the carrier that splices
+        # extra bodies into an already-built census rather than sending a
+        # second collection (RE-092 measured a second collection as
+        # replace-by-omission at set scope).  Carrier only -- no new entry
+        # builder, so the two counts below do not move.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 45)
         self.assertEqual(counts["src_actor_entry_call_sites"], 34)
         self.assertEqual(counts["src_modules_building_actor_entries"], 33)
         self.assertIn(
