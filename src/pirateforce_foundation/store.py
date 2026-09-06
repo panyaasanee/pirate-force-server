@@ -1907,6 +1907,49 @@ class SQLiteStore:
             if self.path != ":memory:" else self.path
         return audit
 
+    def hp_pair_audit(self) -> dict:
+        """How many rows in THIS database sit in one of the three broken
+        HP-pair conditions `LANE-GM` measured while wiring `/lv`
+        (`pf_bridge/notes_to_chief/20260906_0436_LANE-GM-TO-LANE-DB-slash-
+        lv-blocked-by-broken-hp-pair-rows.md`): `hp_max IS NULL`,
+        `hp_current > hp_max`, `hp_max = 0`.
+
+        LANE-DB owns this method; no existing method is touched by it.  It
+        is the read-only backlog item LANE-DB's reply to that letter
+        promised
+        (`pf_bridge/notes_to_chief/20260906_0536_LANE-DB-REPLY-gm0436-hp-
+        pair-rows-not-a-blocker-for-0156-logged-as-backlog.md`): a count, not
+        a fix, so COO can see the size of the debt before ruling on one.
+
+        Goes through `connect_read_only` for the same reason
+        `typed_column_null_audit` does: this is meant to be pointed at the
+        owner's canonical database, where `AGENTS.md` requires the hash not
+        to move, and `connect()`'s `PRAGMA journal_mode=WAL` would move it
+        even though nothing here writes.
+
+        A count that could not be taken comes back as `None`, not `0` --
+        `persistence_hp_pair_audit.format_report` prints it as
+        `"not-counted"` -- because `SUM()` over zero rows is SQL NULL and
+        coercing it to `0` would make an empty database read identical to a
+        clean one.
+
+        Raises `ValueError` for an in-memory store and `FileNotFoundError`
+        for a path that does not exist -- both from `connect_read_only`.
+        """
+        from . import persistence_hp_pair_audit as hp_pair_audit
+        from . import persistence_vitals as vitals
+
+        with self.connect_read_only() as db:
+            vitals.verify_schema(db)
+            row = db.execute(hp_pair_audit.audit_sql()).fetchone()
+        audit = {}
+        for key in row.keys():
+            value = row[key]
+            audit[key] = None if value is None else int(value)
+        audit["database"] = str(Path(self.path).resolve()) \
+            if self.path != ":memory:" else self.path
+        return audit
+
     def apply_hp_damage(self, character_id: int, amount: int):
         """Subtract `amount` from this character's stored `hp_current`, with a
         floor of zero, and return the `persistence_vitals.DamageOutcome`.
