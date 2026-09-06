@@ -64,13 +64,20 @@ CONDITIONS: tuple[str, ...] = (HP_MAX_NULL, HP_CURRENT_ABOVE_MAX, HP_MAX_ZERO)
 #: `persistence_vitals` resolves the login gate against -- not retyped as
 #: the strings `"hp_current"`/`"hp_max"`, so a rename of either column moves
 #: this module with it instead of leaving a stale predicate behind.
+#:
+#: Every predicate that can see a NULL operand is guarded with an explicit
+#: `IS NOT NULL` (pf-adversary, PR #896 follow-up): SQL three-valued logic
+#: makes `hp_max = 0` evaluate to NULL, not FALSE, when `hp_max IS NULL`, so
+#: `SUM()` over an all-NULL-`hp_max` table returned SQL NULL for the
+#: `hp_max_is_zero` condition -- rendered as `not-counted` even though the
+#: true count for that condition is a well-defined `0`.
 _PREDICATE: dict[str, str] = {
     HP_MAX_NULL: f"{HP_MAX_COLUMN} IS NULL",
     HP_CURRENT_ABOVE_MAX: (
         f"{HP_CURRENT_COLUMN} IS NOT NULL AND {HP_MAX_COLUMN} IS NOT NULL "
         f"AND {HP_CURRENT_COLUMN} > {HP_MAX_COLUMN}"
     ),
-    HP_MAX_ZERO: f"{HP_MAX_COLUMN} = 0",
+    HP_MAX_ZERO: f"{HP_MAX_COLUMN} IS NOT NULL AND {HP_MAX_COLUMN} = 0",
 }
 
 
@@ -120,7 +127,7 @@ def format_report(audit: dict) -> str:
         "HP_PAIR_AUDIT database=%s" % (audit.get("database"),),
         "HP_PAIR_AUDIT characters live=%s any=%s" % (
             _count(audit.get("characters_live")),
-            audit.get("characters_any")),
+            _count(audit.get("characters_any"))),
     ]
     for name in CONDITIONS:
         lines.append("HP_PAIR_AUDIT %s live=%s any=%s" % (

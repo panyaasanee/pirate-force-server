@@ -323,6 +323,65 @@ class AnUncountedZeroIsNotACountedZeroTests(_Workspace):
         self.assertIn("HP_PAIR_AUDIT hp_max_is_zero live=0 any=0", text)
 
 
+class AllRowsNullDoesNotHideARealZeroTests(_Workspace):
+    """pf-adversary (PR #896 follow-up): SQL three-valued logic makes
+    `hp_max = 0` evaluate to NULL, not FALSE, when `hp_max IS NULL` --
+    an unguarded predicate turns `SUM(hp_max = 0)` over an all-NULL-`hp_max`
+    table into SQL NULL, which `_count()` cannot tell apart from "the query
+    itself could not run" even though the real count for that condition is a
+    well-defined zero. Every row here has `hp_max IS NULL`, so this table
+    genuinely has zero rows with `hp_max = 0` -- the report must say `0`,
+    not `not-counted`, for that one condition."""
+
+    def test_hp_max_zero_counts_a_real_zero_when_every_row_is_null(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.sqlite3"
+            store = SQLiteStore(path, MIGRATIONS)
+            store.migrate()
+            account_id = store.ensure_account("all-null")
+            # `create_character` seeds hp_max at birth (COO-DECISION
+            # 20260902_0443), so `hp_max IS NULL` only occurs on a row that
+            # predates that seeding -- reproduced the same way
+            # `EachConditionIsReallyReachableTests.
+            # test_hp_max_null_survives_the_column_check` above proves the
+            # shape is reachable at all: a direct `UPDATE`, not through
+            # `write_typed_attributes` (which refuses `None` outright).
+            for key in ("f", "g"):
+                character = self._make_character(
+                    store, account_id, key.upper(), key)
+                db = sqlite3.connect(path)
+                try:
+                    db.execute(
+                        "UPDATE characters SET hp_max = NULL WHERE id = ?",
+                        (character.id,))
+                    db.commit()
+                finally:
+                    db.close()
+            audit = store.hp_pair_audit()
+        self.assertEqual(audit[audit_module.HP_MAX_NULL + "_any"], 2)
+        self.assertEqual(audit[audit_module.HP_MAX_ZERO + "_any"], 0)
+        self.assertEqual(audit[audit_module.HP_MAX_ZERO + "_live"], 0)
+        text = audit_module.format_report(audit)
+        self.assertIn("HP_PAIR_AUDIT hp_max_is_zero live=0 any=0", text)
+
+
+class TheCharactersAnyLineNeverPrintsABarePythonNoneTests(unittest.TestCase):
+    """pf-adversary (PR #896 follow-up): `characters_live` went through
+    `_count()` from the start but `characters_any` did not -- harmless on
+    the real `store.hp_pair_audit()` path (`COUNT(*)` never returns SQL
+    NULL, even over an empty table), but a caller that hand-builds a
+    partial audit dict (as `format_report({})` below already does, in
+    `TheReportSaysWhichDatabaseTests`) got a bare Python `None` printed
+    where every other missing value renders as `not-counted`."""
+
+    def test_a_missing_characters_any_renders_not_counted_not_none(self):
+        text = audit_module.format_report({"database": "/x"})
+        self.assertIn(
+            "HP_PAIR_AUDIT characters live=not-counted any=not-counted",
+            text)
+        self.assertNotIn("any=None", text)
+
+
 class TheReportSaysWhichDatabaseTests(unittest.TestCase):
     def test_the_path_is_the_first_line(self):
         text = audit_module.format_report({"database": "/tmp/x.sqlite3"})
