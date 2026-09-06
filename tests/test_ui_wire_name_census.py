@@ -19,8 +19,10 @@ going quietly green.
 """
 from __future__ import annotations
 
+import pathlib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tools import pf_ui_wire_name_census as census
 
@@ -98,6 +100,42 @@ class BuildRowsTests(unittest.TestCase):
         first = census.render_tsv(census.build_rows())
         second = census.render_tsv(census.build_rows())
         self.assertEqual(first, second)
+
+
+class WindowsPathSafetyTests(unittest.TestCase):
+    """Regression test for the actual cause of PR #961's Windows-only
+    `pytest_subset` failures (COO-DECISION 20260907_0148, LANE-UI round
+    `on8hbb`): on real Windows, `Path.relative_to(...)` returns a
+    `WindowsPath`, whose `str()` renders backslashes
+    (`src\\pirateforce_foundation\\x.py`) instead of the forward slashes
+    baked into the committed artifact (generated on Linux). This test
+    cannot run on real Windows here, so it simulates the same shape of
+    return value with `PureWindowsPath` instead, and would fail if
+    `_build_source_hits` ever goes back to `str(relpath)` instead of
+    `relpath.as_posix()`."""
+
+    def test_source_hit_evidence_uses_posix_separators_even_under_a_windows_style_relative_to(self):
+        real_relative_to = pathlib.Path.relative_to
+
+        def fake_relative_to(self, *args, **kwargs):
+            result = real_relative_to(self, *args, **kwargs)
+            return pathlib.PureWindowsPath(str(result))
+
+        census._CENSUS_INPUT_CACHE.clear()
+        try:
+            with mock.patch.object(pathlib.Path, "relative_to", fake_relative_to):
+                rows = census.build_rows()
+        finally:
+            # Leave no mocked-path-derived entries cached for later tests.
+            census._CENSUS_INPUT_CACHE.clear()
+
+        checked = 0
+        for row in rows:
+            if row["tier"] != "SOURCE":
+                continue
+            self.assertNotIn("\\", row["evidence"], row["evidence"])
+            checked += 1
+        self.assertGreater(checked, 0)
 
 
 class CommittedArtifactTests(unittest.TestCase):

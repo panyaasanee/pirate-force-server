@@ -151,7 +151,13 @@ def _build_source_hits(names, py_files):
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        relpath = path.relative_to(ROOT)
+        # .as_posix(), not str(relpath): on Windows, str() renders
+        # backslashes ("src\\pirateforce_foundation\\x.py"), which never
+        # matches the forward-slash evidence baked into the committed
+        # artifact (generated on Linux) -- this was the actual cause of
+        # gate-windows's `pytest_subset` 9 failed on PR #961 (LANE-UI
+        # round `on8hbb`, per COO-DECISION 20260907_0148 item 2).
+        relpath = path.relative_to(ROOT).as_posix()
         for lineno, line in enumerate(text.splitlines(), start=1):
             if not remaining:
                 break
@@ -344,7 +350,13 @@ def main(argv=None) -> int:
 
     rendered = render_tsv(rows)
     if args.emit:
-        args.artifact.write_text(rendered, encoding="utf-8")
+        # newline="" -- write exactly the "\n" this module already joins
+        # with, not whatever this OS's default text-mode translation would
+        # do (Windows would otherwise write "\r\n", which read_text's own
+        # universal-newline translation on read masks in this comparison
+        # but which other tools reading this artifact byte-for-byte would
+        # not).
+        args.artifact.write_text(rendered, encoding="utf-8", newline="")
 
     if not args.artifact.exists():
         print(f"CENSUS DRIFT: artifact {args.artifact} does not exist (run with --emit)", file=sys.stderr)
