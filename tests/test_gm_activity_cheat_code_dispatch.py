@@ -236,6 +236,32 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
         )
         self.assertEqual(self._files(), [])
 
+    def test_a_resumed_short_write_still_produces_a_complete_untruncated_file_for_this_opcode_too(self):
+        # pf-adversary (follow-up review of round w87k4s): flagged that this
+        # opcode had NO resumption test at all (unlike the zero-progress and
+        # failure-with-cleanup tests above), and separately that the sibling
+        # 0x51E9 version of this test used weak assertions that pass on a
+        # corrupted file. Closes both at once: byte-for-byte comparison
+        # against an independently-captured clean run, for the second
+        # opcode specifically.
+        payload = _payload()
+        clean = self._handle(payload=payload, now_ts=0.0)
+        expected = clean.captured_path.read_bytes()
+        clean.captured_path.unlink()
+
+        real_write = gm_command_capture.os.write
+        state = {"first": True}
+
+        def short_once(fd, data):
+            if state["first"] and len(data) > 1:
+                state["first"] = False
+                return real_write(fd, data[:1])
+            return real_write(fd, data)
+
+        with mock.patch.object(gm_command_capture.os, "write", side_effect=short_once):
+            out = self._handle(payload=payload, now_ts=0.0)
+        self.assertEqual(out.captured_path.read_bytes(), expected)
+
     # ----- what only the SECOND opcode can prove --------------------------
 
     def test_the_capture_file_names_and_headers_its_own_opcode(self):

@@ -451,6 +451,26 @@ class GmCommandCaptureTests(unittest.TestCase):
         # (round hs9m2r): one os.write call reports fewer bytes than asked,
         # with no exception -- the write LOOP must resume and finish the
         # file rather than silently accepting the short count as done.
+        #
+        # pf-adversary (follow-up review of round w87k4s): the original
+        # version of this test asserted only `endswith(b"\n")` and
+        # `b"hello world" in content` -- both still pass against a real
+        # regression (dropping the loop's `file_body[written:]` slice on
+        # retry, so the resumed call re-sends the WHOLE buffer instead of
+        # only what's left, duplicating the leading bytes into the file
+        # header). Reproduced live: 525 bytes starting `##...` instead of
+        # 524 bytes starting `#...`, and the weak assertions above both
+        # still passed on that corrupted file. Compare byte-for-byte
+        # against an independently-captured clean run instead -- the one
+        # property this module's own docstring actually promises ("a
+        # lossless copy of every raw send lands on disk").
+        payload = b"hello world, this is more than one byte long"
+        clean_path = capture_raw_gm_command(
+            payload, "panya", capture_root=self.root, now_ts=0,
+        )
+        expected = clean_path.read_bytes()
+        clean_path.unlink()
+
         real_write = command_capture.os.write
         state = {"first": True}
 
@@ -462,12 +482,9 @@ class GmCommandCaptureTests(unittest.TestCase):
 
         with mock.patch.object(command_capture.os, "write", side_effect=short_once):
             out = capture_raw_gm_command(
-                b"hello world, this is more than one byte long",
-                "panya", capture_root=self.root, now_ts=0,
+                payload, "panya", capture_root=self.root, now_ts=0,
             )
-        content = out.read_bytes()
-        self.assertTrue(content.endswith(b"\n"), content[-20:])
-        self.assertIn(b"hello world", content)
+        self.assertEqual(out.read_bytes(), expected)
 
     def test_a_write_making_no_progress_fails_closed_and_cleans_up(self):
         # Same shape as gm/commands.py's own
