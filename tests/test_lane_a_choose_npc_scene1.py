@@ -94,6 +94,79 @@ def _shut_registry(work: Path):
     return world_scene_travel.load_scene_registry(path)
 
 
+def _dispatch_booted_state(legacy, register_cleanup, token):
+    """A fully booted, real ``runtime.make_state_class`` state, standing at
+    Port Royal with the census armed by one ``TargetPosVital`` -- the same
+    boot ``TheGateStaysClosedForAMeasuredReasonTests`` drives to measure
+    today's frozen answer, pulled to module scope, ROUND ``vxfepr``, so
+    ``TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests`` can
+    drive the SAME boot against a different registry state rather than a
+    second copy of it -- a second copy is how the two classes would start
+    measuring two different things while calling it one harness.
+    ``register_cleanup`` is a test's own ``addCleanup``, taken as a
+    parameter rather than assumed, since this function is shared by two
+    classes and neither owns the other's fixtures."""
+    tmp = tempfile.TemporaryDirectory()
+    register_cleanup(tmp.cleanup)
+    store = SQLiteStore(Path(tmp.name) / "state.sqlite3",
+                        ROOT / "migrations")
+    store.migrate()
+    lifecycle = CharacterLifecycle(
+        store,
+        Position(PORT_ROYAL, 0, legacy.V135_PLAYER_X,
+                 legacy.V135_PLAYER_Y, legacy.V135_PLAYER_Z),
+        legacy.extract_avatar_attr_wire_from_actor,
+    )
+    state_type = make_state_class(legacy, lifecycle, LegacyProjector(legacy))
+    state = state_type(token)
+    state.dispatch(legacy.parse_outer(
+        legacy._synthetic_client_login_pc(token)))
+    state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+    character = store.list_characters(state.foundation.account_id)[-1]
+    state.dispatch(legacy.parse_outer(
+        legacy._synthetic_start_game_pc(character.selector)))
+    # The first step: what arms the census, and the state every click
+    # driven from this boot is measured from.
+    state.dispatch(legacy.parse_outer(_dispatch_target_pos_pc(legacy)))
+    return state
+
+
+def _dispatch_target_pos_pc(legacy, xyz=(10.0, 20.0, 30.0)):
+    return (
+        legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+        + legacy.u32tag(0x14, 0)
+        + legacy.u8tag(0x08, 0)
+        + legacy.u8tag(0x0B, 2)
+        + legacy.u16tag(0x12, 1)
+        + legacy.u16tag(0x12, legacy.TARGET_POS_VITAL)
+        + legacy.u8tag(0x0B, 0)
+        + b"".join(legacy.f32tag(v) for v in (*xyz, 0.0))
+        + legacy.u8tag(0x0B, 0)
+        + legacy.u8tag(0x0B, 0)
+    )
+
+
+def _dispatch_click_pc(legacy, actor_identity):
+    return (
+        legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+        + legacy.u32tag(0x14, 0)
+        + legacy.u8tag(0x08, 0)
+        + legacy.u8tag(0x0B, 2)
+        + legacy.u16tag(0x12, 1)
+        + legacy.u16tag(0x12, legacy.CHOOSE_NPC)
+        + legacy.u8tag(0x0B, 0)
+        + legacy.qwordtag(0x32, actor_identity)
+    )
+
+
+def _dispatch_labels_for_click(
+        legacy, register_cleanup, token, placement_index):
+    state = _dispatch_booted_state(legacy, register_cleanup, token)
+    actions = state.dispatch(legacy.parse_outer(
+        _dispatch_click_pc(legacy, 0x2000 + placement_index + 1)))
+    return [action[0] for action in actions]
+
+
 class ResponderRegistryTests(unittest.TestCase):
     """Registration itself, and the gate's withdrawal of it.
 
@@ -332,11 +405,15 @@ class TheResponderAnswersDirectlyTests(unittest.TestCase):
         )
         self.assertIsNone(answer)
 
-    def test_a_multi_select_click_answers_only_the_first_named_identity(self):
-        """Same documented gap ``lane_a_choose_npc_scene14.py`` ships with
-        (module docstring point (2)): at most one ``ChooseNpcResponse`` per
-        call, pinned here rather than fixed, so it cannot silently get
-        worse for this scene either."""
+    def test_a_multi_select_click_answers_the_first_named_identity_directly(
+            self):
+        """FIXED, ROUND ``vxfepr`` (module docstring item 6): the class
+        below, ``TheMultiSelectAnswersEveryNamedIdentityTests``, is where
+        the fix is actually pinned -- this test keeps only the half that
+        was always true and stays true after the fix: the FIRST named
+        identity that resolves is still this response's own ``label``/
+        ``pc``/``frame``, byte for byte what a single-identity click
+        always answered."""
         legacy = self.legacy
         first_idx, second_idx = self.population_indices[:2]
         answer = responder_mod.respond(
@@ -352,6 +429,193 @@ class TheResponderAnswersDirectlyTests(unittest.TestCase):
             answer.label,
             f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P{first_idx}",
         )
+
+
+class TheMultiSelectAnswersEveryNamedIdentityTests(unittest.TestCase):
+    """Module docstring item 6, FIXED ROUND ``vxfepr``.  The frozen loop
+    answers EVERY distinct identity a ChooseNPC frame names
+    (``current/pf_login_game_server_v141.py:4406-4480``, ``for
+    actor_identity in dict.fromkeys(choose_identities)`` with no early
+    return); before this round ``respond()`` answered only the first that
+    resolved and returned.  These tests drive two (and a repeated)
+    identity in one frame -- what a real multi-select click sends -- and
+    pin the fixed shape: the first identity that resolves is still this
+    response's own ``label``/``pc``/``frame`` pair, byte for byte what a
+    single-identity click always answered
+    (``TheResponderAnswersDirectlyTests`` above already pins that), every
+    identity after it rides in ``extra_actions`` (its own face frame, then
+    its own conversation extra, in the frozen loop's own order), and --
+    the exact asymmetry pf-adversary ``rlymq1`` measured -- the ORDER
+    identities are named in no longer changes what gets composed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = legacy = _legacy()
+        cls.placements = responder_mod._placements_by_index(legacy)
+        cls.population_indices = tuple(sorted(cls.placements))
+        monster_idx = world_population.SHIPPED_MONSTER_INDEX
+        vendor_idx = legacy.V112_SHOP_TRIGGER_INDEX
+        mission_idx = legacy.V129_QUEST_ACTOR_INDEX
+        hostile = frozenset(
+            mob.actor_identity
+            for mob in field_mobs.roster_for_scene_id(PORT_ROYAL)
+        )
+        ordinary = [
+            idx for idx in cls.population_indices
+            if idx not in (monster_idx, vendor_idx, mission_idx)
+            and cls.placements[idx].actor_identity not in hostile
+        ]
+        if len(ordinary) < 2:
+            raise unittest.SkipTest(
+                "fewer than two ordinary (non-hostile, non-special) "
+                "Port Royal placements on this legacy build"
+            )
+        cls.ordinary_a, cls.ordinary_b = ordinary[0], ordinary[1]
+        cls.vendor_idx = (
+            vendor_idx if vendor_idx in cls.population_indices else None
+        )
+
+    def test_a_second_named_identity_answers_too_not_just_the_first(self):
+        legacy = self.legacy
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(
+                0x2000 + self.ordinary_a + 1, 0x2000 + self.ordinary_b + 1,
+            ),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertIsNotNone(answer)
+        second_face_label = (
+            f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P{self.ordinary_b}"
+        )
+        extra_labels = [action[0] for action in answer.extra_actions]
+        self.assertIn(
+            second_face_label, extra_labels,
+            "the second named identity's own face frame must ride in "
+            "extra_actions, not be dropped",
+        )
+        # Four actions for two identities, matching the frozen loop's own
+        # count for two ordinary townspeople (module docstring item 6):
+        # the primary pair, plus [id_a's talk trigger, id_b's face, id_b's
+        # talk trigger] in extra_actions.
+        self.assertEqual(len(answer.extra_actions), 3)
+        self.assertEqual(len(answer.console_lines), 2)
+
+    def test_the_order_identities_are_named_in_does_not_change_what_opens(
+            self):
+        """THE EXACT ASYMMETRY pf-adversary ``rlymq1`` MEASURED: a frame
+        naming the shop trigger SECOND used to spend nothing; it must now
+        spend the same latch a shop-trigger-first frame spends."""
+        if self.vendor_idx is None:
+            raise unittest.SkipTest(
+                "V112_SHOP_TRIGGER_INDEX is not in this population")
+        legacy = self.legacy
+        shop_first = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(
+                0x2000 + self.vendor_idx + 1, 0x2000 + self.ordinary_a + 1,
+            ),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+            vendor_open_latch_spent=False,
+        )
+        shop_second = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(
+                0x2000 + self.ordinary_a + 1, 0x2000 + self.vendor_idx + 1,
+            ),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+            vendor_open_latch_spent=False,
+        )
+        for answer, order in (
+                (shop_first, "shop-first"), (shop_second, "shop-second")):
+            self.assertIsNotNone(answer)
+            self.assertIn(
+                "shop_store5_open_sent", answer.latches_spent,
+                f"the {order} frame must still open the shop",
+            )
+            all_actions = (
+                (answer.label, answer.pc, answer.frame, answer.delay),
+            ) + answer.extra_actions
+            self.assertTrue(
+                any(
+                    action[0].startswith(
+                        "V112_TEST_HARNESS_TRADE_ZOOM_STORE5")
+                    for action in all_actions
+                ),
+                f"the {order} frame must still compose the trade-zoom "
+                f"action somewhere in the answer",
+            )
+
+    def test_a_repeated_identity_in_one_frame_answers_once(self):
+        """Same de-dup the frozen loop's own comment explains
+        (``current/pf_login_game_server_v141.py:4406-4408``): a
+        double-click can enqueue the same ChooseNPC repeatedly in one
+        frame, and one response per distinct actor avoids opening the same
+        client path several times."""
+        legacy = self.legacy
+        single = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + self.ordinary_a + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+        )
+        repeated = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(
+                0x2000 + self.ordinary_a + 1, 0x2000 + self.ordinary_a + 1,
+            ),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertIsNotNone(single)
+        self.assertIsNotNone(repeated)
+        self.assertEqual(single.label, repeated.label)
+        self.assertEqual(single.pc, repeated.pc)
+        self.assertEqual(single.frame, repeated.frame)
+        self.assertEqual(single.extra_actions, repeated.extra_actions)
+        self.assertEqual(len(repeated.console_lines), 1)
+
+    def test_one_resolvable_and_one_out_of_population_identity_still_answers(
+            self):
+        legacy = self.legacy
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(
+                0x2000 + 999_997 + 1, 0x2000 + self.ordinary_a + 1,
+            ),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertIsNotNone(answer)
+        self.assertEqual(
+            answer.label,
+            f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P{self.ordinary_a}",
+        )
+        self.assertEqual(len(answer.console_lines), 1)
+
+    def test_a_single_identity_click_is_byte_identical_to_before_this_round(
+            self):
+        """THE REGRESSION GUARD THIS WHOLE CLASS EXISTS BESIDE: the fix
+        must not change what ONE named identity answers.  The other tests
+        in this class cover the multi-identity shapes that did not exist
+        to pin before this round; this one covers the extra_actions/
+        latches_spent angle the single-identity tests in
+        ``TheResponderAnswersDirectlyTests`` did not have to."""
+        legacy = self.legacy
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + self.ordinary_a + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertIsNotNone(answer)
+        self.assertEqual(len(answer.extra_actions), 1)
+        self.assertEqual(answer.latches_spent, ())
+        self.assertEqual(len(answer.console_lines), 1)
 
 
 class TheAnswerRepeatsTheCorrectedFrozenFrameTests(unittest.TestCase):
@@ -518,65 +782,17 @@ class TheGateStaysClosedForAMeasuredReasonTests(unittest.TestCase):
         cls.legacy = _legacy()
 
     def _booted_state(self, token):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        store = SQLiteStore(Path(tmp.name) / "state.sqlite3",
-                            ROOT / "migrations")
-        store.migrate()
-        legacy = self.legacy
-        lifecycle = CharacterLifecycle(
-            store,
-            Position(PORT_ROYAL, 0, legacy.V135_PLAYER_X,
-                     legacy.V135_PLAYER_Y, legacy.V135_PLAYER_Z),
-            legacy.extract_avatar_attr_wire_from_actor,
-        )
-        state_type = make_state_class(
-            legacy, lifecycle, LegacyProjector(legacy))
-        state = state_type(token)
-        state.dispatch(legacy.parse_outer(
-            legacy._synthetic_client_login_pc(token)))
-        state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
-        character = store.list_characters(state.foundation.account_id)[-1]
-        state.dispatch(legacy.parse_outer(
-            legacy._synthetic_start_game_pc(character.selector)))
-        # The first step: what arms the census, and the state every click
-        # in this class is measured from.
-        state.dispatch(legacy.parse_outer(self._target_pos_pc()))
-        return state
+        return _dispatch_booted_state(self.legacy, self.addCleanup, token)
 
     def _target_pos_pc(self, xyz=(10.0, 20.0, 30.0)):
-        legacy = self.legacy
-        return (
-            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
-            + legacy.u32tag(0x14, 0)
-            + legacy.u8tag(0x08, 0)
-            + legacy.u8tag(0x0B, 2)
-            + legacy.u16tag(0x12, 1)
-            + legacy.u16tag(0x12, legacy.TARGET_POS_VITAL)
-            + legacy.u8tag(0x0B, 0)
-            + b"".join(legacy.f32tag(v) for v in (*xyz, 0.0))
-            + legacy.u8tag(0x0B, 0)
-            + legacy.u8tag(0x0B, 0)
-        )
+        return _dispatch_target_pos_pc(self.legacy, xyz)
 
     def _click_pc(self, actor_identity):
-        legacy = self.legacy
-        return (
-            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
-            + legacy.u32tag(0x14, 0)
-            + legacy.u8tag(0x08, 0)
-            + legacy.u8tag(0x0B, 2)
-            + legacy.u16tag(0x12, 1)
-            + legacy.u16tag(0x12, legacy.CHOOSE_NPC)
-            + legacy.u8tag(0x0B, 0)
-            + legacy.qwordtag(0x32, actor_identity)
-        )
+        return _dispatch_click_pc(self.legacy, actor_identity)
 
     def _labels_for_click(self, token, placement_index):
-        state = self._booted_state(token)
-        actions = state.dispatch(self.legacy.parse_outer(
-            self._click_pc(0x2000 + placement_index + 1)))
-        return [action[0] for action in actions]
+        return _dispatch_labels_for_click(
+            self.legacy, self.addCleanup, token, placement_index)
 
     def test_todays_answer_to_an_ordinary_click_carries_the_talk_trigger(
             self):
@@ -1341,6 +1557,140 @@ class TheOncePerSessionLatchedActionsTests(unittest.TestCase):
             mob_death_register=object(),
         )
         self.assertNotIn("latch_kwarg_misnamed", answer.console_lines[0])
+
+
+class TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests(
+        unittest.TestCase):
+    """Module docstring item 7, DONE ROUND ``vxfepr``.
+    ``docs/FUNCTIONAL_COVERAGE.json``'s ``npc_conversation_handshake`` had
+    three ``test_refs`` before this round, and all three exercise a
+    BUILDER, never a real dispatch through a registered scene-1
+    responder -- so a premature flip of this module's gate would have
+    removed the talk trigger for every Port Royal NPC but Columbus with
+    all three still green.  This class is the dispatch-level test that
+    closes that gap, and it is added to that capability's own
+    ``test_refs`` in the same commit.
+
+    REGISTERING THE REAL SLOT, NOT A PRIVATE ONE, ON PURPOSE.
+    ``ResponderRegistryTests`` above registers a private scene id because
+    its only job is proving the decorator ran; this class's job is
+    proving what scene 1's OWN dispatch does with this responder standing
+    in, which only the real slot exercises -- ``runtime.py``'s call site
+    reads ``lane_hooks.scene_choose_npc_responder(self.foundation.
+    selected.position.scene_id)`` with the state's REAL scene id, never a
+    stand-in.  ``setUp`` registers it and ``addCleanup`` restores the slot
+    to empty -- this module's normal, gate-closed state
+    (``ResponderRegistryTests`` pins that emptiness) -- before the next
+    test in the suite runs, whichever class it belongs to.
+
+    THE REGISTRY SLOT ALONE IS NOT ENOUGH, MEASURED RATHER THAN ASSUMED.
+    ``runtime.py``'s own call site (``runtime.py:10091-10098``) reads a
+    candidate from the registry and then separately gates it on
+    ``lane_hooks.module_production_allowed(candidate.module)`` before
+    routing to it -- and that function's own docstring says its answer is
+    "NOT LIVE: the answer is the snapshot ``_discover()`` took at import",
+    a plain ``dict`` (``_PRODUCTION_ALLOWED``), not this module's live
+    ``production_allowed`` attribute.  Registering the responder without
+    also patching that snapshot measurably does nothing: the first draft
+    of this class registered the slot alone and the dispatched click still
+    came back with the FROZEN loop's labels, because
+    ``module_production_allowed`` still answered ``False``.  ``setUp``
+    patches the one entry this module owns in that snapshot dict, by its
+    fully qualified name, and restores whatever value was there before
+    (which is ``False`` on every real boot -- this module's own gate) in
+    the same ``addCleanup`` that empties the registry slot.
+
+    Driven through the SAME boot ``TheGateStaysClosedForAMeasuredReasonTests``
+    uses to measure today's frozen answer (``_dispatch_booted_state`` and
+    friends, module scope, this file) -- the only difference between the
+    two classes is which responder the real registry hands ``runtime.py``
+    when the click lands.
+
+    THE FAILURE THIS PROVES IS THE MISSING CALL-SITE LINE, NOT THIS
+    RESPONDER.  ``TheTalkTriggerRidesAlongAsAnExtraActionTests`` and
+    ``TheOncePerSessionLatchedActionsTests`` already prove, at the
+    ``respond()`` level, that the talk trigger and the two latched
+    actions are composed correctly into ``extra_actions``.  Nothing in
+    ``runtime.py`` queues that field yet (CORE-REQUEST ``20260904_0137``,
+    ``VENDOR_AND_MISSION_LATCH_WIRING``'s step 1), so a REAL dispatched
+    click through the registered responder today answers with the face
+    frame alone -- and that is what
+    ``test_the_talk_trigger_is_still_missing_at_real_dispatch_today``
+    asserts, an ABSENCE, not a presence.
+
+    THIS CLASS MUST BE RE-READ, NOT DELETED, THE DAY THAT LINE MERGES: at
+    that point the test named above should go RED, and the fix is to
+    invert its assertion (``assertIn`` in place of ``assertNotIn``), not
+    to remove the class -- its other job, proving a real dispatched click
+    through the registered responder still resolves to an honest answer
+    at all, does not change.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+
+    def setUp(self):
+        # THE REAL SLOT IS NORMALLY EMPTY (``production_allowed = False``
+        # withdraws it right after import -- ``ResponderRegistryTests``
+        # pins that).  This test's whole point requires it filled for its
+        # duration, and ``addCleanup`` -- registered BEFORE the fill, so it
+        # still runs if registration itself ever raised -- empties it
+        # again unconditionally, the same discipline
+        # ``ResponderRegistryTests`` uses for its own private scene id.
+        self.assertIsNone(lane_hooks.scene_choose_npc_responder(PORT_ROYAL))
+        self.addCleanup(
+            lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS.pop, PORT_ROYAL, None,
+        )
+        lane_hooks.choose_npc_responder(PORT_ROYAL)(responder_mod.respond)
+        # THE SECOND GATE, MEASURED IN THE CLASS DOCSTRING ABOVE: the
+        # registry slot alone does not route a real click here --
+        # ``runtime.py``'s call site also reads
+        # ``module_production_allowed()``'s SNAPSHOT, never this module's
+        # live attribute.  Restore whatever the snapshot held before this
+        # test -- present or absent -- rather than assuming either.
+        if QUALIFIED_MODULE in lane_hooks._PRODUCTION_ALLOWED:
+            original = lane_hooks._PRODUCTION_ALLOWED[QUALIFIED_MODULE]
+            self.addCleanup(
+                lane_hooks._PRODUCTION_ALLOWED.__setitem__,
+                QUALIFIED_MODULE, original,
+            )
+        else:
+            self.addCleanup(
+                lane_hooks._PRODUCTION_ALLOWED.pop, QUALIFIED_MODULE, None,
+            )
+        lane_hooks._PRODUCTION_ALLOWED[QUALIFIED_MODULE] = True
+
+    def _labels_for_click(self, token, placement_index):
+        return _dispatch_labels_for_click(
+            self.legacy, self.addCleanup, token, placement_index)
+
+    def test_a_real_click_resolves_through_the_registered_responder(self):
+        """Baseline: the click reaches this lane's own answer at all, not
+        an exception and not the frozen path's labels."""
+        labels = self._labels_for_click("tok-scene1-dispatch-real-01", 3)
+        self.assertIn(f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P3", labels)
+        self.assertNotIn(
+            "V98_NPC_FACE_PLAYER_POSITION_HEADING_P3", labels,
+            "the frozen path answered this click, not the registered "
+            "lane responder",
+        )
+
+    def test_the_talk_trigger_is_still_missing_at_real_dispatch_today(self):
+        """SEE THE CLASS DOCSTRING BEFORE CHANGING THIS ASSERTION.  This is
+        the dispatch-level gap item 7 exists to name: ``respond()``
+        composes the talk trigger into ``extra_actions``
+        (``TheTalkTriggerRidesAlongAsAnExtraActionTests`` proves that), but
+        nothing in ``runtime.py`` reads that field at a real call site yet,
+        so it never reaches the actions a real dispatched click returns."""
+        labels = self._labels_for_click("tok-scene1-dispatch-real-02", 3)
+        self.assertNotIn(
+            "V98_NPC_CONVERSATION_DEFAULT_P3_VIA_LANE_A", labels,
+            "runtime.py is now queuing extra_actions (CORE-REQUEST "
+            "20260904_0137 landed) -- invert this assertion to assertIn "
+            "and re-read this class's own docstring before doing so, "
+            "rather than deleting the test",
+        )
 
 
 if __name__ == "__main__":

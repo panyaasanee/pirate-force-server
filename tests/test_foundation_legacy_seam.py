@@ -793,7 +793,32 @@ GRADE_SUBSET_SHA256 = (
     # Parent digest, kept greppable:
     #   parent DB3F2D0DC76426B0EF93DBF33809E3E0A87AA99FDD1F9D4559371C846238064B, recorded by round uq2lxw
     #   this pin, recorded by round elvg52:
-    "4C3049CD66DEE97F40B94CAA0C9F837FEA7DCE480F368B3BBADFA1F147F1E386"
+    #   4C3049CD66DEE97F40B94CAA0C9F837FEA7DCE480F368B3BBADFA1F147F1E386
+    #
+    # ROUND vxfepr (LANE-A, 2026-09-06 +07:00) moves this pin, and it is the
+    # same kind of movement as every block above: a ref, never a grade.
+    # npc_interaction/npc_conversation_handshake gains one test ref
+    # (tests/test_lane_a_choose_npc_scene1.py).  The row's STATUS DOES NOT
+    # MOVE and stays runtime_pass for the same frozen-loop evidence it
+    # always had.  Why the ref has to move with the prose: this round's own
+    # module docstring item 7 named the exact gap a machine reading only the
+    # structured refs would have missed -- the three refs before this round
+    # exercised builders, never a real dispatch through a registered scene-1
+    # ChooseNPC responder, so a premature flip of that responder's own gate
+    # would have removed the talk trigger for every Port Royal NPC but
+    # Columbus with all three still green.
+    # ``TheRegisteredResponderDropsTheTalkTriggerAtRealDispatchTests``
+    # (tests/test_lane_a_choose_npc_scene1.py) registers that responder onto
+    # the real scene-1 slot and drives it through
+    # runtime.make_state_class, closing the dispatch-level gap; today it
+    # pins an absence (the talk trigger is still missing at real dispatch,
+    # because runtime.py does not yet queue ChooseNpcResponse.extra_actions
+    # -- CORE-REQUEST 20260904_0137), by design, and its own docstring names
+    # what must change the day that line lands.
+    # Parent digest, kept greppable:
+    #   parent 4C3049CD66DEE97F40B94CAA0C9F837FEA7DCE480F368B3BBADFA1F147F1E386, recorded by round elvg52
+    #   this pin, recorded by round vxfepr:
+    "94CF4E4A0354D327FC63E61D757BFF16A77A3357CE8769525276C9786754E9FE"
 )
 
 
