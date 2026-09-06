@@ -1059,15 +1059,20 @@ class GeneratedSiblingTablesAreProtectedOffBridgeTests(unittest.TestCase):
     AI_TABLE_NAMES = (
         "AI_COMBAT_ROWS", "AI_COMBAT_PARALLEL", "AI_WANDER_ROWS",
         "PLACEMENT_AI_LINKS")
-    # RE-PINNED this round: field_mob_ai_tables.py was regenerated with
+    # RE-PINNED round oabhhe: field_mob_ai_tables.py was regenerated with
     # tools/pf_mine_mob_ai_rows.py's union widened to include
     # field_mob_tables_bg0008 (Silver Harbour) -- Bg0008's nine hostile
     # placements want AI_COMBAT 162/200/471 and AI_WANDER 2, none of which
     # the previous union ever asked the bridge tables for.  Every existing
     # row is untouched (verified by diffing the regenerated module against
     # the previous one: additions only, nothing moved or removed).
+    # RE-PINNED AGAIN round 4tnhzw: the union widened a second time to
+    # include field_mob_tables_bg0006/bg0007/bg0009/bg0011 (COO-DECISION
+    # 2026-09-06T07:48+07:00) -- scene 7 wants AI_WANDER 10, scene 9 wants
+    # AI_COMBAT 142, scene 11 wants AI_COMBAT 280 (scene 6's own two rows
+    # were already covered).  Again additions only, verified the same way.
     AI_TABLES_SHA256 = (
-        "a83c4d9b9ae24cf1a243f7d2c24e28b2337b2eb43f9ad5189e4dde1ff573895f")
+        "2fb226233d063f18a6c0f7332568f949e168f5531401359e032d04ba900a8f0b")
 
     @staticmethod
     def _digest(module, names):

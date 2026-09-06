@@ -173,13 +173,47 @@ class Bg0009TableShape(unittest.TestCase):
             identity._RESOLVED_ROWS = original
         identity._self_check()
 
-    def test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet(
+    def test_the_lane_b_hostile_roster_module_agrees_with_this_table(
         self,
     ) -> None:
-        hits = list(
-            (ROOT / "src" / "pirateforce_foundation").glob(
-                "field_mob_tables_bg0009*"))
-        self.assertEqual(hits, [])
+        """~~test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet~~
+
+        RENAMED AND TURNED AROUND, round 4tnhzw (LANE-B), in the same commit
+        that made the old assertion false -- the same turn rounds jqeo2m/
+        am1fw8/r6isy5/oabhhe already made for scenes 5/3/4/8's own sibling
+        tests.  ``field_mob_tables_bg0009.py`` exists now and is registered
+        in ``field_mobs._SCENE_TABLE_MODULES`` (COO-DECISION widen-death-
+        scope-bg0009-five-templates 2026-09-06T07:48+07:00).
+
+        A cross-lane edit, made rather than left red for the same reason
+        every earlier scene's turn-around gave: leaving a shared tripwire
+        failing is not an option the round that trips it can choose.  The
+        two lanes mined this scene's crosswalk independently, so this
+        asserts they landed on the same MOBS row for every placement lane B
+        ships.  LANE-A: correct the wording if this file's convention wants
+        something else here; the assertion itself is the point.
+        """
+        from pirateforce_foundation import field_mob_tables_bg0009
+        from pirateforce_foundation import field_mobs
+
+        self.assertTrue(
+            (ROOT / "src" / "pirateforce_foundation"
+             / "field_mob_tables_bg0009.py").is_file())
+        self.assertIn(
+            field_mob_tables_bg0009.SCENE, field_mobs._SCENE_TABLE_MODULES)
+        sets = field_mob_tables_bg0009.SET_NUMBER_FOR_PLACEMENT
+        for row in field_mob_tables_bg0009.HOSTILE_PLACEMENTS:
+            placement_index, template_id, _x, _y, _z, _visual, display_name = (
+                row[0], row[1], row[2], row[3], row[4], row[5], row[6])
+            theirs = identity.IDENTITIES.get(sets[placement_index])
+            self.assertIsNotNone(
+                theirs,
+                "lane B mines placement %d, which this table calls "
+                "unresolved" % placement_index)
+            self.assertEqual(
+                (theirs.mobs_n_id, theirs.name),
+                (template_id, display_name),
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover
