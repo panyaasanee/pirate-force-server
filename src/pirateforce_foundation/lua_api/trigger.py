@@ -43,9 +43,19 @@ name, sharing the identical :class:`lua_api.quest.QuestStateStore` door
 ``lua_api.quest``'s own nine newly-real names use -- not a second, competing
 implementation of quest-flag state. See :func:`build_namespace` below for
 how a caller shares one store instance between both namespaces (proven in
-this round's own tests) -- NOT yet wired that way inside
-``script_host.ScriptHost`` itself, see :func:`build_namespace`'s own
-docstring for why and what is asked to fix it.
+this round's own tests). WIRED inside ``script_host.ScriptHost`` itself
+as of round ``uadtc7`` -- ``ScriptHost.__init__`` resolves one
+``quest_context``/``quest_store`` pair and passes the SAME objects (by
+reference, ``is``, not two equally-empty instances) to both this
+namespace's :func:`build_namespace` and ``lua_api.quest``'s own, so a
+script that calls both families in the same ``ScriptHost`` run observes
+each other's writes. No corpus script is KNOWN to call a ``Trigger.*``
+progress name and a ``Quest.*`` name from the same file/run today (the
+two files that pair ``QuestActiveProgress``/``QuestFinishProgress`` with
+their own flag check are always run as separate ``ScriptHost`` instances
+in the corpus as shipped) -- this wiring is a correctness property ahead
+of a live witness, not yet an observed behaviour change, same posture as
+every other real closure before its own dispatcher lands.
 
 WRONG-ARITY CALLS DO NOT CRASH THE HOST, MEASURED (pf-adversary, this
 round).  A first draft gave the five real closures fixed positional
@@ -537,21 +547,31 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
     ``quest_store`` instance to both this function and
     ``lua_api.quest.build_namespace``.
 
-    NOT WIRED IN ``script_host.ScriptHost`` THIS ROUND, SAID PLAINLY.  A
-    first draft threaded ``quest_context``/``quest_store`` through
-    ``ScriptHost.__init__``/``load_script_file`` too, sharing one store
-    between the ``Trigger`` and ``Quest`` namespace builders the way this
-    docstring describes -- reverted before push because it trips
-    ``tests/test_npc_interaction_wire.py``'s foundation quest/shop guard
-    (three new symbols in ``script_host.py`` -- ``quest_context``,
-    ``quest_store``, and the normalized ``InMemoryQuestStateStore``
-    reference -- none in that test's ``ALLOWED_SYMBOLS``), and that
-    exemption is chief's to grant after reading the names, not this lane's
-    to add itself (the guard's own rule, and the same posture the EARLIER
-    ``lua_api_quest``/``quest``/``quest_clock`` exemption already went
-    through, per ``pf_bridge/notes_to_chief/consumed/
-    20260906_0510_CHIEF-GRANT-...``). Asked for again this round:
-    ``pf_bridge/notes_to_chief/20260906_1951_LANE-Q-CORE-REQUEST-quest-store-wiring-trips-foundation-guard.md``.
+    WIRED IN ``script_host.ScriptHost`` as of round ``uadtc7``. An EARLIER
+    draft (round ``7v7yn2``) threaded ``quest_context``/``quest_store``
+    through ``ScriptHost.__init__``/``load_script_file`` too, sharing one
+    store between the ``Trigger`` and ``Quest`` namespace builders the way
+    this docstring describes -- reverted before that round's own push
+    because it tripped ``tests/test_npc_interaction_wire.py``'s foundation
+    quest/shop guard (three new symbols in ``script_host.py`` --
+    ``quest_context``, ``quest_store``, and the normalized
+    ``InMemoryQuestStateStore`` reference -- none in that test's
+    ``ALLOWED_SYMBOLS`` at the time). Chief pre-approved exactly those
+    three names (``pf_bridge/notes_to_chief/consumed/
+    20260906_2151_CHIEF-REPLY-LANE-Q-quest-state-door-granted-1950-1951-
+    not-yet-earned.md``, answering round ``7v7yn2``'s own CORE-REQUEST
+    ``20260906_1951``), and round ``uadtc7`` landed the wiring plus the
+    grant in the same commit, per the guard's own rule that an exemption
+    cannot be granted for a symbol that does not exist yet. Both
+    ``ScriptHost.__init__`` and ``load_script_file`` now resolve ONE
+    ``quest_context``/``quest_store`` pair (defaulting to
+    ``lua_api.quest.DEFAULT_CONTEXT``/a fresh ``InMemoryQuestStateStore``
+    when neither is given) and pass the SAME objects to both this
+    namespace's :func:`build_namespace` and ``lua_api.quest``'s own --
+    :class:`OneScriptHostSharesOneQuestStateStoreTests` in
+    ``tests/test_script_host_spike.py`` proves the identity (``is``, not
+    equality) and that a write through one namespace is visible through
+    the other in the same run.
     Until it lands, a live ``ScriptHost`` running BOTH namespaces still
     gets ``QuestActiveProgress``/``QuestFinishProgress`` and ``Quest.*``
     each fully working on their OWN independent private store -- only the
