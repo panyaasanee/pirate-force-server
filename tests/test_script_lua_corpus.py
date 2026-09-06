@@ -191,7 +191,33 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: so a regression that raises this number (not a branch-shift fall) is
 #: still stub coverage getting worse, and the test below is written to
 #: catch that.
-BASELINE_TOTAL_STUB_CALLS = 4937
+#:
+#: RE-MEASURED THIS ROUND (LANE-Q, COO-DECISION 20260906_1846
+#: "flag-quest-state"): lua_api/quest.py made 9 more of Quest's 25 names
+#: real (GetQuestFlag/SetFlag/SetQuestFlag/GetFlag/MobKillCount/
+#: CheckMobKillCount/GetMobKillCount/CanReportDailyQuest/ReportDailyQuest)
+#: and lua_api/trigger.py made 2 more of Trigger's 17
+#: (QuestActiveProgress/QuestFinishProgress), sharing the same
+#: QuestStateStore door. MEASURED, not derived from api_spec.tsv's
+#: call-site counts the naive way: report.real_call_counts against this
+#: same LUA_ROOT and FIXED_QUEST_CLOCK prints {'Quest.GetQuestFlag': 159,
+#: 'Quest.SetFlag': 405, 'Quest.SetQuestFlag': 47, 'Quest.GetFlag': 67,
+#: 'Quest.MobKillCount': 106, 'Quest.CheckMobKillCount': 105,
+#: 'Quest.GetMobKillCount': 1, 'Quest.CanReportDailyQuest': 45,
+#: 'Quest.ReportDailyQuest': 60, 'Trigger.QuestActiveProgress': 7,
+#: 'Trigger.QuestFinishProgress': 0} -- 995 new Quest calls + 7 new Trigger
+#: calls, against 4937 - 3931 = 1006 fewer stub calls: an 11-call gap in
+#: the OTHER direction from every previous entry in this comment (those
+#: were all narrower than naive subtraction; this one is wider), the exact
+#: same branch-shift phenomenon documented above turned the other way --
+#: confirmed by Player.GetClass ALSO shifting this round, 42 -> 48, with
+#: not one line of lua_api/player.py touched: a script's own control flow
+#: through Report_Check/Accept_Check reached six more Player.GetClass
+#: calls once an earlier Quest.* comparison in the SAME script stopped
+#: reading STUB_DEFAULT=0. Not a discrepancy to chase down, per this
+#: comment's own standing rule -- named here because the direction flipped,
+#: not because the rule changed.
+BASELINE_TOTAL_STUB_CALLS = 3931
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()

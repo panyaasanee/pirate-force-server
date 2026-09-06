@@ -66,16 +66,22 @@ class TwoNamedSpikeScriptsRunHeadlessTests(unittest.TestCase):
         # every API name this specific script's source calls by name must
         # actually have fired through the stub, in namespaces that are not
         # each other (COO-DECISION 20260905_0947: "wired" means observed).
+        # Quest.MobKillCount/SetFlag/CheckMobKillCount moved OUT of this set
+        # this round (COO-DECISION 20260906_1846) -- they fire for real now,
+        # asserted separately below, not silently dropped.
         self.assertEqual(called, {
             "Mob.ShowAnimation",
-            "Quest.MobKillCount",
-            "Quest.SetFlag",
             "Quest.CountDownTime",
-            "Quest.CheckMobKillCount",
             "Quest.AddCriteriaExp",
             "Quest.AddCriteriaSkillPoint",
             "Quest.AddCriteriaCash",
             "Player.MobAppear",
+        })
+        real_called = {
+            c.split(" ", 2)[1] for c in calls if c.startswith("LUA_QUEST_REAL ")
+        }
+        self.assertEqual(real_called, {
+            "Quest.MobKillCount", "Quest.SetFlag", "Quest.CheckMobKillCount",
         })
 
 
@@ -214,9 +220,14 @@ class SandboxActuallyBlocksTheBannedGlobalsTests(unittest.TestCase):
 @LUPA_PACKAGE.skip_unless_present()
 class ApiNamespaceStubBehaviourTests(unittest.TestCase):
     def test_unknown_property_style_key_returns_the_safe_default_silently(self):
+        # Quest.Active is deliberately NOT probed here any more: it became a
+        # genuine named status constant (1, not the STUB_DEFAULT bucket)
+        # this round -- see lua_api/quest.py's own module docstring for the
+        # two-script derivation. Quest.StringVar2 takes its place as an
+        # ordinary "anything else" table-data property.
         calls = []
         host = script_host.ScriptHost(log=calls.append)
-        host.load("function Probe() return Quest.Var1, Quest.StringVar1, Quest.Active end")
+        host.load("function Probe() return Quest.Var1, Quest.StringVar1, Quest.StringVar2 end")
         result = host.call("Probe")
         self.assertEqual(result, (0, 0, 0))
         self.assertEqual(calls, [])  # not API surface - no LUA_API_STUB line
@@ -224,9 +235,9 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
     def test_known_api_name_logs_exactly_once_per_call_and_returns_default(self):
         calls = []
         host = script_host.ScriptHost(log=calls.append)
-        host.load("function Probe() return Quest.GetQuestFlag(5) end")
+        host.load("function Probe() return Quest.GetWeekDay() end")
         self.assertEqual(host.call("Probe"), 0)
-        self.assertEqual(calls, ["LUA_API_STUB Quest.GetQuestFlag"])
+        self.assertEqual(calls, ["LUA_API_STUB Quest.GetWeekDay"])
 
     def test_every_still_stubbed_name_is_reachable_from_every_namespace_table(self):
         # Not a sample: every qualified name the census found THAT IS STILL
@@ -269,16 +280,18 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
                 host.call("Probe")
                 self.assertEqual(calls, ["LUA_API_STUB %s" % fn.qualified_name])
 
-    def test_the_5_real_trigger_names_are_excluded_above_not_forgotten(self):
+    def test_the_7_real_trigger_names_are_excluded_above_not_forgotten(self):
         # A regression guard on the exclusion itself: if REAL_METHODS ever
         # grew or shrank without the corpus's own 17-name Trigger table
         # changing, this fails loudly instead of the test above silently
-        # covering fewer names than it used to.
+        # covering fewer names than it used to. QuestActiveProgress/
+        # QuestFinishProgress joined this round (COO-DECISION 20260906_1846).
         from pirateforce_foundation.lua_api import trigger as lua_api_trigger
 
         self.assertEqual(lua_api_trigger.REAL_METHODS, frozenset({
             "GetTriggerStatus", "GetTeiggerStatus", "SetStatus",
             "NextStatus", "SetTriggerStatus",
+            "QuestActiveProgress", "QuestFinishProgress",
         }))
 
     def test_the_9_real_instance_names_are_excluded_above_not_forgotten(self):
@@ -295,12 +308,18 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "CallScoreCount", "AddBonusPoint", "AddBonusReward",
         }))
 
-    def test_the_1_real_quest_name_is_excluded_above_not_forgotten(self):
+    def test_the_10_real_quest_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the Trigger guard above, for Quest's own
-        # single real name.
+        # real set: CheckOpenTime (round 4jsydv/s2fxf6 lineage) plus the 9
+        # flag/counter/daily-stamp names COO-DECISION 20260906_1846 added
+        # this round.
         from pirateforce_foundation.lua_api import quest as lua_api_quest
 
-        self.assertEqual(lua_api_quest.REAL_METHODS, frozenset({"CheckOpenTime"}))
+        self.assertEqual(lua_api_quest.REAL_METHODS, frozenset({
+            "CheckOpenTime", "GetQuestFlag", "SetFlag", "SetQuestFlag",
+            "GetFlag", "MobKillCount", "CheckMobKillCount", "GetMobKillCount",
+            "CanReportDailyQuest", "ReportDailyQuest",
+        }))
 
     def test_the_2_real_player_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the guards above, for Player's own two
