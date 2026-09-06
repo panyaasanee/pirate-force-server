@@ -1243,6 +1243,15 @@
         "FullCorpusEntryPointCallsTests::test_stub_vs_real_call_split_is_not_conflated"
       ],
       "note": "round s2fxf6 (LANE-Q), count updated round 4jsydv (LANE-Q). This module loads the real 616 shipped scripts from ../pf_bridge/gamedata/lua/, so it needs TWO unrelated things at once: the bridge corpus beside this clone and the lupa package in this interpreter. It is guarded by ONE composite key (lua_corpus_runnable = BRIDGE_LUA_SCRIPTS AND LUPA_PACKAGE) rather than two stacked skipUnless decorators, because unittest records one skip reason per test: whichever decorator sits outermost wins when both conditions are false, and this census grades each key independently against a static count, so the losing key would expect N and observe zero. No pair of static counts is right in all four machine states; one key has exactly one count in every state. Full reasoning in the AllOfThese docstring in tests/pf_preconditions.py. MEASURED 2026-09-05 (round s2fxf6): 4 skips under this key on a lupa-free venv, 0 on this lane's cloud round with both pieces present. RE-MEASURED 2026-09-05 (round 4jsydv), after adding FullCorpusEntryPointCallsTests (5 tests, same class-level skip_unless_present() decorator as the existing class): 9 skips under this key on a lupa-free venv (`pip uninstall -y lupa` then pytest -rs in this same cloud session, count confirmed from the SKIPPED summary lines, not assumed from the source diff), 0 with lupa reinstalled and the bridge corpus present (all nine ran)."
+    },
+    {
+      "key": "bridge_sibling",
+      "module": "tests/test_mob_death_widening_schema_gate.py",
+      "count": 1,
+      "tests": [
+        "WideningRulingSchemaGateTests::test_widening_ruling_keys_are_frozen_or_carry_their_own_letter"
+      ],
+      "note": "round bvaptp (LANE-B), COO-DECISION b1712 item 2 (pf_bridge notes_to_chief/20260906_1745_COO-DECISION-b1712-*.md): the new WIDENING_RULINGS key gate needs to read ../pf_bridge/notes_to_chief/ to confirm a new ruling key's letter actually exists, so on a fresh clone with no bridge sibling it must skip loudly rather than pass silently or hard-fail. BRIDGE_SIBLING already existed in tests/pf_preconditions.py with zero real callers (grep of tests/ before this round found none), so this is that precondition's first pin entry rather than a new key. PF_BRIDGE_DIR is also accepted as an explicit override (checked first; falls through to BRIDGE_SIBLING.require(self) only when the env var is unset or not a directory), which does not change this pin: nothing sets PF_BRIDGE_DIR in this project's own gate runs today, so the guarded branch below is the one that actually executes there. MEASURED this round: renaming ../pf_bridge produced exactly 1 SKIPPED line under [precondition:bridge_sibling], restoring it produced 0."
     }
   ],
   "windows_gate_excluded_modules": {
