@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import dataclasses
 import unittest
 from pathlib import Path
 
@@ -163,9 +164,20 @@ class PagesTests(unittest.TestCase):
             gmui_catalog.PAGE_NAME_PROVENANCE,
         )
         self.assertIn("PARTIAL", gmui_catalog.PAGES_NOTE)
+        # pf-adversary (round `vxr32s`, D7; confirmed at HEAD in round
+        # `wxh2tw`): this used to read `getattr(row, "opcode", None)`, and
+        # `ButtonRow`'s field is named `client_frame`. `getattr` with a
+        # default turned a missing attribute into a passing assertion, so
+        # the card was a tautology that would have stayed green with an
+        # opcode on every row. Named field, no `getattr`, plus a guard so
+        # the next rename cannot recreate the same blind spot silently.
         self.assertEqual(
-            [row for row in BUTTONS if getattr(row, "opcode", None) is not None],
-            [],
+            [row for row in BUTTONS if row.client_frame is not None], [],
+        )
+        self.assertFalse(
+            [f for f in dataclasses.fields(BUTTONS[0]) if f.name == "opcode"],
+            "a field literally named `opcode` exists again -- re-point the "
+            "assertion above at it, or this card goes blind a second time",
         )
 
     def test_the_client_side_offsets_are_recorded_for_the_next_re_round(self):

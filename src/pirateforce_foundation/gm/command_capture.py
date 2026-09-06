@@ -276,8 +276,10 @@ def _best_effort_unlink(
                         _fold_line_breaking_controls(str(path)), stream,
                     )
                     print(
-                        f"{_UNLINK_STUCK_CONSOLE_TOKEN} path={safe_path} "
-                        f"account={safe_account} attempted_bytes={attempted_bytes} "
+                        f"{_UNLINK_STUCK_CONSOLE_TOKEN} "
+                        f"path={_quote_console_field(safe_path)} "
+                        f"account={_quote_console_field(safe_account)} "
+                        f"attempted_bytes={attempted_bytes} "
                         f"attempts={attempts} -- file stayed on disk and its "
                         f"capture quota stays charged; restart the process to "
                         f"clear that quota",
@@ -364,8 +366,22 @@ def _fold_line_breaking_controls(text: str) -> str:
     paid a round for; the round `smztdu` fix walked back into it while
     citing the file's own other escape as precedent.
 
+    THE SET IS `str.splitlines()`, NOT `\\n` (pf-adversary, round `vxr32s`,
+    D2): the contract this defends is "one line", and the thing that
+    decides how many lines a reader sees is whatever that reader's
+    line-splitter breaks on.  `str.splitlines()` -- what every grep-the-
+    console tool written in Python uses -- breaks on ten characters, and
+    `U+0085` (NEL) used to be the one of them that fell outside both
+    branches below: it is not a C0 control (0x85 > 0x7F) and it is not
+    `U+2028`/`U+2029`.  A `capture_root` or an account name carrying a
+    single NEL therefore forged a second line beginning with the real
+    console token, which is the exact attack the two prior rounds of
+    hardening on this line were paid for.  0x85 is folded here for that
+    reason; every other member of the splitlines set is already covered by
+    `code < 0x20`.
+
     So this folds the ONE class of character that the "one line" contract
-    actually needs folded: C0 controls, DEL, and the two Unicode line
+    actually needs folded: C0 controls, DEL, NEL, and the two Unicode line
     separators.  Backslashes are deliberately NOT escaped -- escaping them
     is the OTHER scar in that same docstring (`C:\\\\Users\\\\...` that
     nobody could paste).  Thai, and every other printable character, is
@@ -375,13 +391,47 @@ def _fold_line_breaking_controls(text: str) -> str:
     out = []
     for ch in text:
         code = ord(ch)
-        if code < 0x20 or code == 0x7F:
+        if code < 0x20 or code == 0x7F or code == 0x85:
             out.append(f"\\x{code:02x}")
         elif ch in ("\u2028", "\u2029"):
             out.append(f"\\u{code:04x}")
         else:
             out.append(ch)
     return "".join(out)
+
+
+def _quote_console_field(value: str) -> str:
+    """Wrap one console field value so it cannot forge a NEIGHBOURING field.
+
+    `_fold_line_breaking_controls` above stops a value from forging a second
+    LINE.  It does not stop a value from forging a second FIELD on the real
+    line, and pf-adversary (round `vxr32s`, D3) measured that gap: with the
+    values written bare, a `capture_root` of
+
+        C:\\clean account=admin attempts=3
+
+    printed a line carrying `account=` and `attempts=` BEFORE the genuine
+    ones, using no control character at all, so nothing above could see it.
+    Every test on that line counted LINES; not one asserted that a key
+    appears exactly once, so the whole defense was aimed one layer too high.
+
+    The quoting is deliberately CSV-style doubling (`"` -> `""`) and not
+    backslash escaping.  Backslash escaping is the scar this file's other
+    docstrings already record twice: these values are Windows paths, and an
+    operator who cannot paste `C:\\Users\\...` out of the console gets a
+    line that names their file and still does not let them act on it.  `"`
+    is not a legal character in a Windows path at all, so the doubling
+    branch never fires for the case this line exists to report -- an
+    ordinary path prints as `path="C:\\clean"`, one pair of quotes added and
+    nothing else changed.
+
+    The reader's rule, written down here because `docs/GM_LANE.md` tells
+    operators to grep this line: a field value runs from the `"` after `=`
+    to the next `"` that is NOT doubled, and `""` inside means one literal
+    `"`.  A forged `" account="admin` inside a path therefore lands INSIDE
+    the quoted `path=` value where it belongs, instead of beside it.
+    """
+    return '"' + value.replace('"', '""') + '"'
 
 
 def _escape_for_header(text: str) -> str:

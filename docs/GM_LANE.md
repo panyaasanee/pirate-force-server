@@ -10628,3 +10628,133 @@ except OSError:
 (2) จำลองกฎชื่อไฟล์ของ Windows บนคลาวด์ลินุกซ์: ไฟล์เทสของ `#970` = **1 failed / 50 passed** (ใบเดียวกับเกตเป๊ะ)
 ไฟล์หลังแก้ = **52 passed** ทั้งในโหมดจำลองและโหมดลินุกซ์ปกติ · ฟันยังอยู่ (มิวแทนต์: ถอด
 `_fold_line_breaking_controls` ออกจากฟิลด์ `path` ⇒ แดงทั้งสองใบ)
+
+---
+
+## Round `wxh2tw` -- why the EXECUTE button did nothing, and the rule that keeps tests off POSIX
+
+### 1. Tests must not ask the host for a POSIX-only favour (COO-DECISION `0445`, item 3)
+
+Two consecutive Windows gate closures on this lane's pull requests (`#962`,
+`#970`) were the same shape: a test that asked the HOST for something only a
+POSIX host provides, and died before reaching its own subject.  `#962`
+asserted the interpreter has no `os.O_BINARY`; `#970` asked `Path.mkdir` for
+a directory whose name begins with a newline and got `WinError 123`.
+
+COO accepted this lane's proposed rule and this is where it lives until
+`AGENTS.md` §7 has room for it (that file is over its 30 KB ceiling):
+
+1. **Never ask the filesystem to create a name, flag, or permission that is
+   POSIX-only.**  A test that needs a hostile *string* is testing a string.
+2. **Prove a string property by calling the function that composes the
+   string.**  `_best_effort_unlink(path=...)` takes the path as an argument,
+   so it answers the real question on every host.
+3. **When a test genuinely needs a real file, ASK THE FILESYSTEM, never
+   `os.name`** -- `try: root.mkdir(...) except OSError: <assert the same
+   property on the same path object>`.  Guessing the host from `os.name` is
+   the same class of mistake one layer up, and a bare `return` in that
+   branch reports PASS while asserting nothing, invisible to the gate's skip
+   census (which counts `skipTest`, not `return`).
+
+### 2. GT-279: the frames arrived, the allowlist refused them, and nothing said so
+
+The attended boot R322B (`pf_bridge/notes_to_chief/20260907_0123_KA1A-R322B-
+RESULTS-*`) established on the owner's machine that the GM panel's row
+widgets are **radio buttons** and the sender is the **EXECUTE button in the
+bottom-right corner** -- and that pressing it puts real
+`GM_RunGMCommandVital` (0x51E9) frames on the wire.  Three were captured.
+The server answered each with an empty `RuntimeRes` and no
+`capture/gm_command_capture` directory ever appeared, so the letter closed
+with an open question: the v141 path, or the account allowlist?
+
+**The allowlist is a SUFFICIENT explanation, and it has not been shown to be
+the one that happened.**  `gm/accounts.py::load_gm_accounts` treats a missing
+allowlist file as an empty allowlist by design -- nobody is GM until an
+operator lists an account, and this lane's rule (1) is that a client can never
+elevate itself.  `config/gm_accounts.json` is not in the shipped tree, so IF a
+frame reached `gm/dispatch.py` it was refused with `REFUSAL_NOT_GM` and,
+correctly, wrote nothing.
+
+That "if" is load-bearing and this section stated it as settled in its first
+draft (pf-adversary, round `wxh2tw`, N8, and the cited letter is right and the
+first draft was wrong).  The R322B letter's own words are "must find where the
+frame went -- the v141 path or the account allowlist", and its nonclaims say it
+does not claim where the capture hook broke.  Nothing measured since then
+separates the two: **a frame that never reached the hook and a frame the
+allowlist refused produce the identical observation** -- empty `RuntimeRes`,
+empty disk.  What is established is narrower and worth stating exactly: the
+fire point exists (`runtime.py`, the `GM_RUN_GM_COMMAND_VITAL_ID` branch), the
+hook module is discovered and `production_allowed = True`, and the refusal path
+reproduces the reported symptom byte for byte when fed R322B's real frame.
+
+**This is why the console line below is the right next step either way.**  It
+is the instrument that tells the two apart on the next boot, at no cost to a
+boot of its own: if `GM_COMMAND_REFUSED_NOT_GM` prints, the frame reached
+dispatch and the allowlist refused it; if the button is pressed and NOTHING
+prints, the frame never got that far and the question moves to the v141 path.
+Neither answer was obtainable before, and one attended boot was already spent
+failing to get it.
+
+What was wrong is that it was **invisible**.  From a game client, a frame
+that never reached the hook, a hook that never fired, and a frame the
+allowlist refused all look the same: a silent server and an empty disk.  The
+reason existed only in `GmDispatchOutcome.refusal_reason` and in
+`session.events`, neither of which anyone reads at a keyboard at 01:17.
+
+`gm/allowlist_probe.py` closes that.  On the first `REFUSAL_NOT_GM` in a
+process, one line goes to the operator's console:
+
+```
+GM_COMMAND_REFUSED_NOT_GM account="admin" allowlist="config/gm_accounts.json"
+  source=default accounts=missing -- this account is not on the server-side GM
+  allowlist, ...
+```
+
+* `source` is `argument` / `env` / `default`, so the operator knows which of
+  the three resolution rules chose that path.
+* `accounts` is `missing` (no file), `unreadable` (a file that is not a valid
+  allowlist -- NOT the same as empty, and the operator must not be sent to
+  edit a file that parses fine), or a **count**.  Allowlist contents are
+  never printed; the only name on the line is the account that just sent the
+  frame, which is the operator's own.
+* It prints **once per process**, so holding EXECUTE cannot bury it.
+* **The client is told nothing either way.**  No reply frame is sent on any
+  path.  A non-GM player must not be able to tell a GM-capable server from
+  any other server by pressing a button.
+
+**To make an account GM for an attended boot**: create `config/gm_accounts.json`
+(or point `PF_GM_ACCOUNTS_CONFIG` at a file) containing
+`{"gm_accounts": ["<login name>"]}`, and restart the server.  Matching is
+exact and case-sensitive.  This file is intentionally NOT shipped: an
+allowlist in the repository would be a GM grant that arrives with a
+`git pull`.
+
+### 3. The console-field grammar for both GM lines
+
+`GM_CAPTURE_UNLINK_STUCK` and `GM_COMMAND_REFUSED_NOT_GM` share one
+composition, and operators grep both, so the reading rule is written down
+once here.
+
+Operator-controlled values (account names, capture roots, allowlist paths)
+take two steps before they reach the console:
+
+1. `_fold_line_breaking_controls` folds **everything `str.splitlines()`
+   breaks on** -- C0 controls, DEL, `U+0085` (NEL), `U+2028`, `U+2029`.  NEL
+   was outside this set until round `wxh2tw` and forged a second line
+   beginning with a real token (pf-adversary, round `vxr32s`, D2).  Thai and
+   every other printable character is left alone and handed to
+   `console_safe`; backslashes are NOT escaped, so `C:\Users\...` stays
+   pasteable.
+2. `_quote_console_field` wraps the value so it cannot forge a **neighbouring
+   field**.  Before round `wxh2tw` the values were bare, and a capture root
+   of `C:\clean account=admin attempts=3` printed those keys ahead of the
+   genuine ones using no control character at all -- every test on that line
+   counted LINES, and none asked whether a key appeared twice (pf-adversary,
+   round `vxr32s`, D3).
+
+**How to read one of these lines:** a value runs from the `"` after `=` to
+the next `"` that is **not doubled**; `""` inside means one literal `"`; the
+**first** occurrence of a key is the real one.  Quoting is CSV-style
+doubling rather than backslash escaping on purpose -- `"` is not a legal
+character in a Windows path, so an ordinary path prints as `path="C:\clean"`
+with one pair of quotes added and nothing else changed.
