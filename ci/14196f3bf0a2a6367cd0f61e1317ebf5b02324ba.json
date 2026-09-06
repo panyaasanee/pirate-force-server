@@ -1,1 +1,1 @@
-{"sha":"14196f3bf0a2a6367cd0f61e1317ebf5b02324ba","conclusion":"success","event":"push","ref":"refs/heads/claude/nice-meitner-0wef26","run_id":"34035870854","utc":"2026-09-06T13:50:33Z"}
+{"sha":"14196f3bf0a2a6367cd0f61e1317ebf5b02324ba","conclusion":"failure","event":"pull_request","ref":"refs/pull/946/merge","run_id":"34035913236","utc":"2026-09-06T13:56:06Z"}
