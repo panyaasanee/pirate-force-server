@@ -101,8 +101,15 @@ _UNLINK_RETRY_DELAY_SECONDS = 0.05
 # comment calling its final loop iteration "unreachable" -- true only
 # because this holds. At 0, the loop body never runs at all and the
 # function would report "could not remove" without ever calling
-# `os.unlink`, silently.
-assert _UNLINK_ATTEMPTS >= 1, "_UNLINK_ATTEMPTS must allow at least one try"
+# `os.unlink`, silently. Raised rather than asserted (pf-adversary round
+# `smztdu`, finding 2): ``python -O`` strips a bare ``assert`` entirely --
+# verified (``python3 -O`` makes this line a no-op) -- and this project has
+# already hit that exact mistake once and fixed it the same way
+# (``world_port_royal_identity.py``'s own comment on its module-level
+# ``raise ValueError`` says so in nearly these words): a consistency guard
+# that must always hold is not a development aid to compile away.
+if _UNLINK_ATTEMPTS < 1:
+    raise ValueError("_UNLINK_ATTEMPTS must allow at least one try")
 
 # One line, on stderr, naming the file that stayed on disk. Same channel and
 # shape as this lane's other console tokens (`gm/chat_command_action.py`'s
@@ -222,7 +229,29 @@ def _best_effort_unlink(
                     # forced to `cp874:strict` raises on the first character
                     # it cannot encode, which used to fall straight into
                     # this guard and drop the whole line silently.
-                    safe_account = console_safe(account_name or "(unknown)", stream)
+                    #
+                    # `_escape_for_header` FIRST, `console_safe` second (pf-
+                    # adversary round `smztdu`, finding 1): `console_safe`
+                    # only folds characters the STREAM cannot encode -- a
+                    # literal newline is representable in every encoding
+                    # this project uses, so it passes straight through
+                    # unchanged and this "one line" (docs/GM_LANE.md's own
+                    # words) becomes two, the second one carrying
+                    # attacker-chosen `path=`/`attempted_bytes=`/
+                    # `attempts=` text a grep-this-token tool cannot tell
+                    # from the real line. `account_name` is the account
+                    # login name (`gm/accounts.py`'s `gm_accounts` entries
+                    # match it verbatim; nothing in this codebase restricts
+                    # its characters), and this file already treats it as
+                    # needing exactly this defense for the on-disk header
+                    # (`header_account = _escape_for_header(account_name)`
+                    # above, "an account_name containing a newline must not
+                    # be able to forge extra header lines") -- this stderr
+                    # line is the other place a newline in the same field
+                    # can forge a fake line, so it gets the same escape.
+                    safe_account = console_safe(
+                        _escape_for_header(account_name) or "(unknown)", stream,
+                    )
                     safe_path = console_safe(str(path), stream)
                     print(
                         f"{_UNLINK_STUCK_CONSOLE_TOKEN} path={safe_path} "

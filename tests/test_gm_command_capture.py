@@ -651,6 +651,30 @@ class GmCommandCaptureTests(unittest.TestCase):
         self.assertEqual(unlink_spy.call_count, 1, "retry=False means one try")
         self.assertEqual(sleep_spy.call_count, 0)
 
+    def test_the_shutdown_call_site_also_names_the_account_and_bytes(self):
+        # pf-adversary (round `smztdu`, finding 3): the third call site
+        # (BaseException/shutdown) -- same content pin as the write-failure
+        # and close-failure sites above, for the same reason: nothing
+        # caught `account_name=""`/`attempted_bytes=0` being passed here
+        # instead of the real values before this test existed.
+        stderr = io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=SystemExit(3),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit):
+                capture_raw_gm_command(
+                    b"x", "thongchai", capture_root=self.root, now_ts=0,
+                )
+        printed = stderr.getvalue().splitlines()
+        self.assertEqual(len(printed), 1, printed)
+        self.assertIn("account=thongchai", printed[0])
+        self.assertNotIn("attempted_bytes=0", printed[0])
+
     def test_a_dead_stderr_during_the_shutdown_reraise_path_still_reraises_the_original_exception(self):
         # pf-adversary (round `0op9bt` ADDENDUM, D2): the log-line guard
         # around the shutdown-path unlink used to be `except Exception`,
@@ -712,6 +736,58 @@ class GmCommandCaptureTests(unittest.TestCase):
         self.assertNotIn(
             "attempted_bytes=0", printed[0],
             "the real capture header+payload is never zero bytes",
+        )
+
+    def test_an_account_name_with_a_newline_cannot_forge_a_second_stuck_file_line(self):
+        # pf-adversary (round `smztdu`, finding 1): `console_safe` only
+        # folds characters the STREAM cannot encode -- a literal `\n` is
+        # representable in every encoding this project uses, so it used to
+        # pass straight through unescaped, and `account_name` here is the
+        # account's real login name (`gm/accounts.py`'s `gm_accounts` match
+        # it verbatim; nothing restricts its characters). This exact field
+        # already needed the same defense once before, for the on-disk
+        # header line (`header_account = _escape_for_header(account_name)`
+        # a few lines above in the source, "an account_name containing a
+        # newline must not be able to forge extra header lines") -- this
+        # pins that the stderr line gets the same escape.
+        # Punctuation (":", "/") is deliberate: `_sanitize_account` (used
+        # for the FILENAME only, a separate field from the one this test
+        # targets) drops anything outside ASCII alnum/-/_, so a payload
+        # built only from those characters would also show up sanitized
+        # into `path=`, confounding a plain substring/count check on the
+        # stderr line with an unrelated, pre-existing property of the
+        # filename. Non-alnum punctuation here is dropped from the
+        # filename but preserved (escaped) in the field this test guards.
+        hostile_account = (
+            "normal_gm\n"
+            "FORGED: path=/etc/passwd attempted_bytes=999999999 attempts=3"
+        )
+        stderr = io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved):
+                capture_raw_gm_command(
+                    b"x", hostile_account, capture_root=self.root, now_ts=0,
+                )
+        raw_output = stderr.getvalue()
+        printed = raw_output.splitlines()
+        self.assertEqual(
+            len(printed), 1,
+            f"{printed!r}: a newline in the account name must not split "
+            "this into two lines -- the second one forged, "
+            "attacker-controlled",
+        )
+        self.assertIn("\\n", printed[0], "the newline must be VISIBLE, escaped")
+        self.assertIn(
+            "FORGED", printed[0],
+            "the rest of the account name must still be readable, just "
+            "folded onto the one real line, not dropped",
         )
 
     def test_the_stuck_file_line_still_prints_when_capture_root_is_not_ascii(self):
@@ -838,6 +914,41 @@ class GmCommandCaptureTests(unittest.TestCase):
         # The write really did complete -- this is a full, real capture
         # file, not an empty one, unlike the write-failure scenarios above.
         self.assertGreater(leftover[0].stat().st_size, 0)
+
+    def test_the_close_failure_call_site_also_names_the_account_and_bytes(self):
+        # pf-adversary (round `smztdu`, finding 3): D3's own test above
+        # exercises only the WRITE-failure call site. Mutating
+        # `account_name=account_name, attempted_bytes=len(file_body)` to
+        # `account_name="", attempted_bytes=0` at the OTHER two call sites
+        # (this close-failure one, and the BaseException/shutdown one) left
+        # the whole three-file suite green -- confirmed by hand before this
+        # test existed. This is the close-failure site's own content pin --
+        # the file's own docs call this the MORE severe case (a complete
+        # real capture, not an empty one, left unaccounted for).
+        stderr = io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "close",
+            side_effect=close_that_really_closes_then_fails(
+                "simulated close ENOSPC",
+            ),
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved):
+                capture_raw_gm_command(
+                    b"x", "thongchai", capture_root=self.root, now_ts=0,
+                )
+        printed = stderr.getvalue().splitlines()
+        self.assertEqual(len(printed), 1, printed)
+        self.assertIn("account=thongchai", printed[0])
+        self.assertNotIn(
+            "attempted_bytes=0", printed[0],
+            "a successful write followed by a failed close is the MORE "
+            "severe case -- a real, non-empty capture -- and must not "
+            "report zero attempted bytes",
+        )
 
     def test_the_close_failure_helper_leaves_no_descriptor_open(self):
         # The guard that makes every close-failure test in this package mean
