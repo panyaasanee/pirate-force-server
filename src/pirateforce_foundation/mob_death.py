@@ -461,7 +461,17 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # NOT the szdkgs mistake in reverse: that draft removed the ONLY template
     # the live roster still had (97) and made four shipped dummies unkillable.
     # 916 is what the live roster has, and 916 is what stays.
-    "COO-RULING-20260827-1350 widen-death-scope-bg0001": frozenset(
+    # RENAMED, not re-authorised, under COO-DECISION 2026-09-07T04:05+07:00
+    # (notes_to_chief/20260907_0405_COO-DECISION-widen-death-scope-bg0001-
+    # succeeds-0041-LANE-B.md), which succeeds the 2026-08-27T13:50 letter
+    # without changing the scope that letter and 20260829_0041 left behind.
+    # The old spelling ("COO-RULING-20260827-1350 widen-death-scope-bg0001")
+    # carried no date at all and so could never satisfy the b1647 schema; it
+    # was the last frozen key of this lane's own making.  The template set is
+    # BYTE-IDENTICAL and WIDENING_RULING_SCENES still ties it to bg0001, so
+    # no mob becomes killable that was not killable before this rename.
+    "COO-RULING-20260907-0405 widen-death-scope-bg0001 "
+    "2026-09-07T04:05+07:00": frozenset(
         {916}
     ),
     # PANYA-DECISION 2026-08-27T20:10+07:00 ("M1-P" item 3, notes_to_chief/
@@ -1014,7 +1024,8 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     "COO-DECISION widen-death-scope-916-training-iron-man "
     "2026-08-27T09:55+07:00 (ref PANYA-DECISION 2026-08-27T09:50+07:00 "
     "section 3, supersedes COO 0954)": field_mob_tables.SCENE,
-    "COO-RULING-20260827-1350 widen-death-scope-bg0001": field_mob_tables.SCENE,
+    "COO-RULING-20260907-0405 widen-death-scope-bg0001 "
+    "2026-09-07T04:05+07:00": field_mob_tables.SCENE,
     "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
     "widen-death-scope-bg0002": field_mob_tables_bg0002.SCENE,
     "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "

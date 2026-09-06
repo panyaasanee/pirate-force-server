@@ -280,5 +280,60 @@ class NameColourSweepLabelAndFrameTests(unittest.TestCase):
         )
 
 
+class CandidateIsAnExperimentThatCanBeReadTests(unittest.TestCase):
+    """Round b08g3z: the two ways a sweep row can be unreadable on screen.
+
+    Both were measured by pf-adversary through chief's letter
+    2026-09-07T03:41+07:00 and both are properties of the CANDIDATE CHOICE,
+    which is this lane's own, so both get a test that goes red on the
+    revert rather than a paragraph that does not.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        BRIDGE_GAMEDATA.require(cls)
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_the_actor_type_candidate_still_binds_an_npc_attr(self) -> None:
+        """3 (``CMyActor``) produces NO nameplate, not a differently-coloured
+        one: reports/PF_MPAUDIT_FOLLOWUP001_ACTOR_TYPE_DISPATCH_STATIC_
+        20260818.md line 129 -- ``NPCAttr``'s vtable ``+0x38`` thunk is-a
+        checks ``CNetNPC`` ("so 4, 5") and silently no-ops for anything
+        else.  A row with no nameplate is worse than no row: the tester
+        writes down FAIL for a colour that was never drawn.
+        """
+        self.assertIn(
+            name_colour_sweep.ACTOR_TYPE_CANDIDATE,
+            name_colour_sweep.NPC_ATTR_BINDING_ACTOR_TYPES,
+        )
+        # ...and it is still a FLIP, not a second copy of N-BASE.
+        self.assertNotEqual(
+            name_colour_sweep.ACTOR_TYPE_CANDIDATE,
+            field_mobs.NPC_STYLE_ACTOR_TYPE,
+        )
+
+    def test_no_sweep_row_stands_on_the_players_own_spawn_point(self) -> None:
+        """The anchor IS the spawn point (``_spawn_anchor`` reads
+        V135_PLAYER_X/Y/Z), so a row placed at ordinal 0 is inside the
+        camera when the tester is asked to read its nameplate.
+        """
+        anchor = name_colour_sweep._spawn_anchor(self.legacy)
+        for value in name_colour_sweep.KNOWN_SETS:
+            rows = name_colour_sweep.sweep_actors(
+                self.legacy, env={"PF_NAME_COLOUR_SWEEP": value},
+            )
+            self.assertTrue(rows, value)
+            for row in rows:
+                with self.subTest(set=value, label=row.label):
+                    self.assertNotEqual((row.x, row.y, row.z), anchor)
+            # The spacing the readability argument rests on is unchanged:
+            # consecutive rows are still one step apart, the line just
+            # starts one step out from the anchor.
+            xs = sorted(row.x for row in rows)
+            self.assertAlmostEqual(xs[0] - anchor[0], 150.0)
+            for near, far in zip(xs, xs[1:]):
+                self.assertAlmostEqual(far - near, 150.0)
+
+
 if __name__ == "__main__":
     unittest.main()
