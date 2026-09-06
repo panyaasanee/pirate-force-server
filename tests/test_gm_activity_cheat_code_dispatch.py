@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import lane_hooks  # noqa: E402
+from pirateforce_foundation.gm import command_capture as gm_command_capture  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_gm_activity_cheat_code,
@@ -166,6 +167,74 @@ class ActivityCheatCodeDispatchTests(unittest.TestCase):
             ),
             outcome.refusal_reason,
         )
+
+    # ----- pf-adversary (round `79ahzl`, follow-up `w87k4s`): the test ----
+    # ----- above mocks capture_raw_activity_cheat_code WHOLESALE, so it ---
+    # ----- never runs the real _capture_raw/os.write/os.close machinery --
+    # ----- rounds `gn7gk5`/`79ahzl` built and tested only through the -----
+    # ----- 0x51E9 opcode -- flagged as an open gap by two consecutive -----
+    # ----- adversary reviews; these close it for the second opcode --------
+
+    def test_a_real_write_failure_goes_through_the_shared_cleanup_and_is_not_refunded_when_unrecoverable(self):
+        with mock.patch.object(
+            gm_command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+        ), mock.patch.object(
+            gm_command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ):
+            outcome = self._handle()
+        self.assertTrue(outcome.authorized)
+        self.assertIsNone(outcome.captured_path)
+        self.assertEqual(
+            outcome.refusal_reason,
+            f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}"
+            f"CaptureFileNotVerifiedRemoved",
+        )
+        self.assertEqual(len(self._files()), 1, self._files())
+
+    def test_a_real_close_only_failure_after_a_successful_write_is_not_silently_refunded(self):
+        # The more severe half (pf-adversary, round `gn7gk5`): a write that
+        # fully succeeds and only fails at the terminal close() -- proven
+        # here for the SECOND opcode too, not just 0x51E9.
+        with mock.patch.object(
+            gm_command_capture.os, "close",
+            side_effect=OSError("simulated close ENOSPC"),
+        ), mock.patch.object(
+            gm_command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ):
+            outcome = self._handle()
+        self.assertTrue(outcome.authorized)
+        self.assertIsNone(outcome.captured_path)
+        self.assertEqual(
+            outcome.refusal_reason,
+            f"{gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX}"
+            f"CaptureFileNotVerifiedRemoved",
+        )
+        leftover = self._files()
+        self.assertEqual(len(leftover), 1, leftover)
+        self.assertGreater(
+            (self.capture_root / leftover[0]).stat().st_size, 0,
+            "the write really did complete -- a full real capture, not an "
+            "empty file",
+        )
+
+    def test_a_write_making_no_progress_fails_closed_for_this_opcode_too(self):
+        # pf-adversary (round `79ahzl` follow-up review): os.write's return
+        # value was never checked here either -- a write reporting 0 bytes
+        # written, with no exception, used to fall straight through to
+        # ordinary full success for this opcode too. Same shape as
+        # `gm/commands.py`'s own `test_a_write_making_no_progress_fails_closed`
+        # (round `hs9m2r`), proven here for the second opcode.
+        with mock.patch.object(gm_command_capture.os, "write", return_value=0):
+            outcome = self._handle()
+        self.assertTrue(outcome.authorized)
+        self.assertIsNone(outcome.captured_path)
+        self.assertTrue(
+            outcome.refusal_reason.startswith(
+                gm_dispatch.REFUSAL_CAPTURE_WRITE_FAILED_PREFIX
+            ),
+            outcome.refusal_reason,
+        )
+        self.assertEqual(self._files(), [])
 
     # ----- what only the SECOND opcode can prove --------------------------
 

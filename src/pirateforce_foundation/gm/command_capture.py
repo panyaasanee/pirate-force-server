@@ -349,7 +349,39 @@ def _capture_raw(
             suffix += 1
             continue
         try:
-            os.write(fd, file_body)
+            # pf-adversary (round `79ahzl`, follow-up `w87k4s`): this used
+            # to be a bare `os.write(fd, file_body)` whose return value was
+            # discarded. write(2) is not required to write every requested
+            # byte in one call, and a filesystem that fills up mid-write is
+            # the classic case where it writes fewer WITHOUT raising -- the
+            # exact same bug this package already found and fixed twice
+            # (`gm/commands.py`'s `_append_audit_record`, round `hs9m2r`,
+            # and `gm/login_scene_stage.py`'s copy of it) without ever
+            # porting the fix to this sibling call site, despite three
+            # consecutive rounds re-auditing this exact function's write
+            # path (`40bjg7`/`gn7gk5`/`79ahzl`) and this file's own
+            # `os.open` mode fix (round `vb3ktn`) being the precedent
+            # `commands.py`'s fix explicitly cites in the other direction.
+            # A short write here used to fall straight through to
+            # `return out_path` reporting ordinary full success -- no
+            # exception, no refusal_reason, quota charged as normal -- for
+            # a truncated capture file this module's own docstring promises
+            # never happens ("a lossless copy of every raw send lands on
+            # disk"). Looping until every byte lands (or raising if a call
+            # makes zero forward progress) means a short write now flows
+            # into the SAME `except OSError` below as any other write
+            # failure, inheriting the whole cleanup-then-classify contract
+            # rounds `gn7gk5`/`79ahzl` already built, with no new branch
+            # shape needed.
+            written = 0
+            while written < len(file_body):
+                count = os.write(fd, file_body[written:])
+                if count <= 0:
+                    raise OSError(
+                        f"short write to {out_path}: "
+                        f"{written}/{len(file_body)} bytes"
+                    )
+                written += count
         except OSError as write_error:
             # pf-adversary (round `gn7gk5`, follow-up `79ahzl`): this
             # `os.close` used to be unguarded -- a close() failure here

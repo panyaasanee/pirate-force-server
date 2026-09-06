@@ -440,6 +440,66 @@ class GmCommandCaptureTests(unittest.TestCase):
         # file, not an empty one, unlike the write-failure scenarios above.
         self.assertGreater(leftover[0].stat().st_size, 0)
 
+    # ----- pf-adversary (follow-up review of round `79ahzl`): os.write's ---
+    # ----- return value was never checked -- the SAME bug this package ----
+    # ----- already found and fixed twice (gm/commands.py round `hs9m2r`, --
+    # ----- gm/login_scene_stage.py's copy of it) and never ported here ----
+
+    def test_a_resumed_short_write_still_produces_a_complete_untruncated_file(self):
+        # Same shape as gm/commands.py's own
+        # test_a_short_write_to_the_audit_log_is_not_reported_as_success
+        # (round hs9m2r): one os.write call reports fewer bytes than asked,
+        # with no exception -- the write LOOP must resume and finish the
+        # file rather than silently accepting the short count as done.
+        real_write = command_capture.os.write
+        state = {"first": True}
+
+        def short_once(fd, data):
+            if state["first"] and len(data) > 1:
+                state["first"] = False
+                return real_write(fd, data[:1])
+            return real_write(fd, data)
+
+        with mock.patch.object(command_capture.os, "write", side_effect=short_once):
+            out = capture_raw_gm_command(
+                b"hello world, this is more than one byte long",
+                "panya", capture_root=self.root, now_ts=0,
+            )
+        content = out.read_bytes()
+        self.assertTrue(content.endswith(b"\n"), content[-20:])
+        self.assertIn(b"hello world", content)
+
+    def test_a_write_making_no_progress_fails_closed_and_cleans_up(self):
+        # Same shape as gm/commands.py's own
+        # test_a_write_making_no_progress_fails_closed (round hs9m2r): a
+        # write reporting 0 bytes with no exception must not be reported as
+        # success -- before this fix it fell straight through to
+        # `return out_path`, no exception, no refusal, quota charged
+        # normally, for a file this module's own docstring promises is
+        # never truncated.
+        with mock.patch.object(command_capture.os, "write", return_value=0):
+            with self.assertRaises(OSError) as ctx:
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        self.assertNotIsInstance(ctx.exception, CaptureFileNotVerifiedRemoved)
+        self.assertIn("short write", str(ctx.exception))
+        leftover = list(Path(self.root).glob("*")) if Path(self.root).exists() else []
+        self.assertEqual(
+            leftover, [],
+            "a write making zero progress left a (empty) file on disk "
+            "that the cleanup path failed to remove",
+        )
+
+    def test_a_write_making_no_progress_raises_unverified_when_cleanup_also_fails(self):
+        with mock.patch.object(
+            command_capture.os, "write", return_value=0,
+        ), mock.patch.object(
+            command_capture.os, "unlink", side_effect=OSError("simulated EACCES"),
+        ):
+            with self.assertRaises(CaptureFileNotVerifiedRemoved):
+                capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
+        leftover = list(Path(self.root).glob("*"))
+        self.assertEqual(len(leftover), 1, leftover)
+
 
 if __name__ == "__main__":
     unittest.main()
