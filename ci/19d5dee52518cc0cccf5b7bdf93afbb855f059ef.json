@@ -1,1 +1,1 @@
-{"sha":"19d5dee52518cc0cccf5b7bdf93afbb855f059ef","conclusion":"failure","event":"push","ref":"refs/heads/claude/magical-goldberg-whpkwf","run_id":"34038800176","utc":"2026-09-06T14:47:28Z"}
+{"sha":"19d5dee52518cc0cccf5b7bdf93afbb855f059ef","conclusion":"failure","event":"pull_request","ref":"refs/pull/951/merge","run_id":"34038907038","utc":"2026-09-06T14:47:48Z"}
