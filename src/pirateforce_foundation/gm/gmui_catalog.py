@@ -107,10 +107,15 @@ THE ONE THING THE SCREENSHOTS AGREE ON AND STILL CANNOT SETTLE
 Page 1's rows are evenly spaced ~40 px apart except between row 5 (~y=525)
 and row 6 (~y=605), where there is an ~80 px gap -- one row-height of
 nothing, in BOTH tab-1 shots.  That is the width of a widget that is
-present in the layout and not drawn in this state.  So 17 is a FLOOR that
+present in the layout and not drawn in this state.  ~~So 17 is a FLOOR that
 two independent shots agree on, not a proven ceiling, and
 :func:`total_is_confirmed_on_screen` stays False until an attended pass
-says otherwise.  `PAGE_1_UNEXPLAINED_GAP` carries this in a constant so a
+says otherwise.~~  The attended pass ran (`GT-269`, `KA1A` round `R321`,
+2026-09-06): a human counted 7/5/5 at the panel and reported the gap as
+empty, so 17 is a confirmed count of DRAWN rows and that predicate is True
+since round `vq07el`.  The half it did not buy is in
+:data:`PAGE_1_GAP_ANSWERED` -- looking cannot rule out a widget that is in
+the layout and not painted.  `PAGE_1_UNEXPLAINED_GAP` carries this in a constant so a
 reader who greps rather than reads still meets it.  The label block adds a
 CANDIDATE for what is not drawn there (`PAGE_1_GAP_CANDIDATE`) and does not
 settle it: exactly one string of the page-1 run has no widget, and it falls
@@ -124,10 +129,15 @@ THE COUNT P-3 ASKED FOR
 =======================
 `progress()` returns `(closed, total)` for the rows -- `(0, 17)` today:
 seventeen GM functions on three pages, none of which this server answers.
-`total_is_unknown()` is now False (there IS a measured count) while
-`total_is_confirmed_on_screen()` is still False (the count is
-screenshot-bounded, see the gap above).  Both are needed: a round may now
-write "0 of 17", and may not write "17 is all of them".
+`total_is_unknown()` is now False (there IS a measured count) and
+`total_is_confirmed_on_screen()` is now True as well (a human counted the
+rows at the panel -- see the gap section above).  What replaced the old
+caveat is a THIRD predicate: `labels_are_confirmed_on_screen()`, still
+False, because the same attended pass read eight of the seventeen captions
+as something other than the table row the census points them at
+(`data/gmui_observed_labels.tsv`, `label_disagreements()`).  So a round may
+now write "0 of 17" and "17 rows are drawn", and may not write "we know
+what the 17 rows say".
 `assert_backed` below still makes it impossible to fill a row with a claim
 nothing backs, which is what will matter when rows start claiming handlers.
 
@@ -150,6 +160,9 @@ import hashlib
 _DATA_PATH = Path(__file__).parent / "data" / "gm_tool_log_types.tsv"
 _ROW_CENSUS_PATH = Path(__file__).parent / "data" / "gmui_widget_census.tsv"
 _LABEL_BLOCK_PATH = Path(__file__).parent / "data" / "gmui_label_block.tsv"
+_OBSERVED_LABELS_PATH = (
+    Path(__file__).parent / "data" / "gmui_observed_labels.tsv"
+)
 
 #: sha256 of this package's own copy of the client's `TEXTDATA_TH__GMTOOL`
 #: table (`pf_bridge/gamedata/tables/TEXTDATA_TH__GMTOOL.tsv`, copied
@@ -211,6 +224,26 @@ LABEL_SOURCE_TABLE_SHA256 = (
 #: at import time, same as `SOURCE_SHA256`.
 LABEL_BLOCK_SHA256 = (
     "6e86ea1107ab9408a11d874cc6d80aab3131e81bd1ce27f2cdbe410758c2992f"
+)
+
+#: sha256 of what an attended pass read OFF THE SCREEN, pinned the same way
+#: and for a sharper reason than the two above: the block and the census are
+#: derived from committed artifacts and can be re-derived, while this file
+#: is a transcription of somebody's eyes on a photograph and can never be
+#: re-derived from anything in this repository.  An edit to it is an edit to
+#: the only copy of the evidence.
+OBSERVED_LABELS_SHA256 = (
+    "5152e1d763274115e8f6ab1c877f969810fc3dd39c54f8222387860d870e797c"
+)
+
+#: Where that transcription came from, named so a reader can go back to it.
+#: `GT-269` ran in `KA1A` round `R321`; the labels are section 5 of
+#: `pf_bridge/notes_to_chief/20260906_1255_KA1A-R321-RESULTS-faction-missing-
+#: on-126-login-RE272-lv-GT217-269-queue-stale.md`, read by `ka1-A` off
+#: three photographs and confirmed afterwards by the owner.
+OBSERVED_LABELS_SOURCE = (
+    "GT-269 PASS-CLIENT, KA1A round R321, 2026-09-06 12:4x +07:00; "
+    "notes_to_chief/20260906_1255_KA1A-R321-RESULTS-*.md section 5"
 )
 
 #: What each `n_ID` in the copied block is, on the panel.  THIS DICT IS THE
@@ -308,6 +341,27 @@ PAGE_1_UNEXPLAINED_GAP = (
     "of layout with nothing drawn in it.  So the census counts what is "
     "DRAWN, and total_is_confirmed_on_screen() stays False until an "
     "attended pass rules out an undrawn widget there"
+)
+
+#: What that attended pass actually answered (`GT-269`, `KA1A` round `R321`,
+#: 2026-09-06).  Kept beside the doubt it answers rather than replacing it,
+#: because the doubt is still half-standing and a reader who meets only the
+#: answer would not know which half.
+#:
+#: ANSWERED: nothing is drawn in the gap.  A human looked at the panel and
+#: reported the space as empty, so the census counts every row the client
+#: paints and 17 is a confirmed count of DRAWN rows, not a floor.
+#:
+#: NOT ANSWERED, AND NOT ANSWERABLE BY LOOKING: whether a widget exists in
+#: the layout and is not painted.  `PAGE_1_GAP_CANDIDATE` (1396) remains one
+#: story that fits an empty row-height of layout, and the eight
+#: `DISAGREES` rows in `gmui_observed_labels.tsv` -- five of them on page 1,
+#: the same run 1396 belongs to -- are a second reason not to bank it.
+PAGE_1_GAP_ANSWERED = (
+    "GT-269 attended pass (KA1A round R321, 2026-09-06 12:4x +07:00): the "
+    "page 1 gap has NO VISIBLE WIDGET, so 17 is a confirmed count of drawn "
+    "rows; whether an undrawn row occupies the layout there is a different "
+    "question and looking cannot settle it"
 )
 
 #: Said once, in a constant, so a future reader who greps rather than reads
@@ -770,6 +824,182 @@ def _load_row_census() -> tuple[RowCensusEntry, ...]:
 ROW_CENSUS = _load_row_census()
 
 
+#: The three verdicts a transcribed label can carry against the table row
+#: the census points the same row at.  There is deliberately no fourth value
+#: meaning "close enough": every row here is either the same caption, a
+#: different caption, or a reading the observer themself called unclear.
+AGREEMENT_AGREES = "AGREES"
+AGREEMENT_DISAGREES = "DISAGREES"
+AGREEMENT_UNCERTAIN = "UNCERTAIN"
+AGREEMENTS = (AGREEMENT_AGREES, AGREEMENT_DISAGREES, AGREEMENT_UNCERTAIN)
+
+
+@dataclass(frozen=True)
+class ObservedLabel:
+    """One row's caption AS A HUMAN READ IT ON THE SCREEN.
+
+    This is the second evidence layer for the census, and it is a layer the
+    house rules keep separate on purpose: `label_row_id` says which row of
+    the client's own text table this house BELIEVES the caption is, and
+    `observed_text` says what somebody saw.  Neither is allowed to be read
+    as the other, which is exactly why a `DISAGREES` row does not edit the
+    census: nothing here outranks a committed table, and nothing in a
+    committed table outranks a photograph.  A disagreement is a question,
+    and :func:`label_disagreements` is where it stays until an attended pass
+    answers it.
+    """
+
+    page: int
+    row: int
+    agreement: str
+    observed_text: str
+    note: str
+
+    @property
+    def contradicts_the_table(self) -> bool:
+        return self.agreement == AGREEMENT_DISAGREES
+
+
+def _parse_observed_line(line: str) -> ObservedLabel:
+    """One tsv line -> one entry, refusing anything it cannot account for.
+
+    Split out from :func:`_load_observed_labels` for the same reason
+    :func:`_parse_census_line` is: every refusal below stays reachable from
+    a test without writing a bad row into the pinned file, which the pin
+    would reject first and hide the refusal being tested.
+
+    NOTE ON MESSAGES.  No refusal here prints `observed_text`.  The house
+    console is cp874 and these strings are Thai read off a screenshot; a
+    tool that dies while reporting a bad row is worse than the bad row.
+    Page and row identify a line unambiguously anyway.
+    """
+    columns = line.split("\t")
+    if len(columns) != 5:
+        raise GmuiCatalogError(
+            f"gmui_observed_labels.tsv row has {len(columns)} columns, "
+            f"expected 5: {columns[0:2]!r}"
+        )
+    entry = ObservedLabel(
+        page=int(columns[0]),
+        row=int(columns[1]),
+        agreement=columns[2],
+        observed_text=columns[3],
+        note=columns[4],
+    )
+    if entry.agreement not in AGREEMENTS:
+        raise GmuiCatalogError(
+            f"observed label at page {entry.page} row {entry.row} has "
+            f"agreement {entry.agreement!r}, expected one of {AGREEMENTS}"
+        )
+    if not entry.observed_text.strip():
+        raise GmuiCatalogError(
+            f"observed label at page {entry.page} row {entry.row} carries no "
+            "text -- a row nobody could read is not an observation, it is an "
+            "absence, and belongs outside this file"
+        )
+    if not entry.note.strip():
+        raise GmuiCatalogError(
+            f"observed label at page {entry.page} row {entry.row} carries no "
+            "note -- the note is where the reading is compared to the table "
+            "row the census names, and a verdict with no comparison behind "
+            "it is a claim"
+        )
+    return entry
+
+
+def _load_observed_labels() -> tuple[ObservedLabel, ...]:
+    """Every censused row's on-screen reading, or an import-time failure.
+
+    Pinned and total, both by construction.  TOTAL matters more than it
+    looks: a file that may cover a subset would let a later round quietly
+    delete the rows that disagree and leave a green suite behind, which is
+    the exact failure this whole module is built against.
+    """
+    raw = _OBSERVED_LABELS_PATH.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != OBSERVED_LABELS_SHA256:
+        raise GmuiCatalogError(
+            f"gmui_observed_labels.tsv has drifted from its pin: expected "
+            f"{OBSERVED_LABELS_SHA256}, got {digest}"
+        )
+    entries = tuple(
+        _parse_observed_line(line)
+        for line in raw.decode("utf-8").splitlines()[1:]
+        if line.strip()
+    )
+    seen = [(entry.page, entry.row) for entry in entries]
+    duplicated = sorted({key for key in seen if seen.count(key) > 1})
+    if duplicated:
+        raise GmuiCatalogError(
+            f"gmui_observed_labels.tsv reads the same row twice: {duplicated}"
+        )
+    censused = {(entry.page, entry.row) for entry in ROW_CENSUS}
+    unknown = sorted(set(seen) - censused)
+    if unknown:
+        raise GmuiCatalogError(
+            f"gmui_observed_labels.tsv reads rows the census does not carry: "
+            f"{unknown} -- an observation of a row nobody counted cannot be "
+            "compared to anything"
+        )
+    unread = sorted(censused - set(seen))
+    if unread:
+        raise GmuiCatalogError(
+            f"gmui_observed_labels.tsv is missing censused rows: {unread} -- "
+            "this file is total over the census on purpose, so that dropping "
+            "an inconvenient reading breaks the import instead of the record"
+        )
+    return entries
+
+
+OBSERVED_LABELS = _load_observed_labels()
+
+
+def observed_label(page: int, row: int) -> ObservedLabel:
+    """The on-screen reading of one censused row."""
+    for entry in OBSERVED_LABELS:
+        if entry.page == page and entry.row == row:
+            return entry
+    raise GmuiCatalogError(
+        f"no observed label for page {page} row {row}"
+    )
+
+
+def label_disagreements() -> tuple[ObservedLabel, ...]:
+    """Rows where the screen and the table do not say the same thing.
+
+    Eight of seventeen today, five of them on page 1.  Read the note on
+    :func:`labels_are_confirmed_on_screen` before treating that as a finding
+    about the table: the far likelier reading is that the transcription is a
+    paraphrase, and this house cannot tell the two apart from the cloud.
+    """
+    return tuple(entry for entry in OBSERVED_LABELS if entry.contradicts_the_table)
+
+
+def labels_are_confirmed_on_screen() -> bool:
+    """True only once every censused row's caption reads the same both ways.
+
+    FALSE today, and the reason is worth stating rather than assuming.  The
+    eight `DISAGREES` rows have TWO possible causes and this house cannot
+    choose between them without another attended pass:
+
+    * the transcription is a paraphrase.  Most likely.  The readings were
+      taken off photographs, and several differ from the table only in one
+      token (``ที่นี่`` for ``ที่บิน``, ``ตัวบุคคล`` for ``ตัวละคร``).
+    * the census points page 1 at the wrong id run.  Five of the seven page
+      1 rows disagree, which is a suspicious place for random transcription
+      noise to land -- and `PAGE_1_GAP_CANDIDATE` (1396) is a row of exactly
+      that run, so if the run is wrong the gap story is wrong with it.
+
+    A grep of every committed `gamedata/tables/*.tsv` for the observed page 1
+    strings (``ฉากที่นี่``, ``ล็อกผู้เล่น``, ``ฆ่าผู้เล่น``) as a UI caption
+    returns nothing -- round `vq07el` ran it -- which argues for the first
+    cause, since a wrong-run reading would have to be SOME row somewhere.
+    It is not proof: absence in the copied tables is not absence in the
+    client.  So this stays False and the question goes to the screen.
+    """
+    return not label_disagreements()
+
+
 def _row_census_buttons() -> tuple[ButtonRow, ...]:
     """One `ButtonRow` per censused row, claiming nothing but its shape.
 
@@ -884,14 +1114,24 @@ def total_is_unknown() -> bool:
 def total_is_confirmed_on_screen() -> bool:
     """True once an attended pass has confirmed the count AT the screen.
 
-    Deliberately a hardcoded `False` and not a computation: the thing it
-    reports is not a property of any table in this repository, it is whether
-    a human has looked.  See :data:`PAGE_1_UNEXPLAINED_GAP` for the specific
-    doubt, and the round `y1evqj` letter for the `ATTENDED:` block that
-    would settle it.  A later round flips this in the same commit as the
-    evidence, or not at all.
+    TRUE since round `vq07el`, flipped in the same commit as the evidence it
+    rests on, which is the condition the previous revision of this docstring
+    set: `GT-269` ran attended in `KA1A` round `R321` and a human counted
+    7 / 5 / 5 off three photographs -- the census's own numbers, arrived at
+    independently -- and answered the page 1 gap: nothing is DRAWN there.
+    See :data:`PAGE_1_GAP_ANSWERED`.
+
+    STILL A HARDCODED CONSTANT, not a computation, for the same reason it
+    was one while it was False: what it reports is whether a human looked,
+    and no table in this repository knows that.
+
+    WHAT IT DOES NOT SAY.  It says the COUNT of drawn rows is confirmed.  It
+    says nothing about whether the captions are right --
+    :func:`labels_are_confirmed_on_screen` is the predicate for that and is
+    still False -- and nothing about an undrawn widget occupying the gap,
+    which no amount of looking can rule in or out.
     """
-    return False
+    return True
 
 
 def progress() -> tuple[int, int]:

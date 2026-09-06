@@ -258,16 +258,21 @@ class CountHonestyTests(unittest.TestCase):
         self.assertFalse(total_is_unknown())
         self.assertEqual(progress(), (0, 17))
 
-    def test_a_known_count_is_still_not_a_confirmed_one(self):
-        # `total_is_unknown()` going False is exactly the moment a round
-        # could start writing "17 buttons" as if the number were settled.
-        # `PAGE_1_UNEXPLAINED_GAP` is why it is not, and this card is what
-        # makes deleting that doubt a visible edit.
-        self.assertFalse(gmui_catalog.total_is_confirmed_on_screen())
-        # The doubt has to name the two rows it sits between, or a later
-        # reader cannot check it against the screenshots.
+    def test_a_confirmed_count_is_still_only_a_count_of_drawn_rows(self):
+        # This card used to assert `total_is_confirmed_on_screen()` was
+        # False.  `GT-269` ran attended (`KA1A` round `R321`, 2026-09-06) and
+        # a human counted 7/5/5 off the panel itself, so round `vq07el`
+        # flipped it in the same commit as the reading -- the condition the
+        # predicate's own docstring set.
+        self.assertTrue(gmui_catalog.total_is_confirmed_on_screen())
+        # What the flip is NOT allowed to take with it.  The doubt still has
+        # to name the two rows it sits between, the answer has to keep
+        # saying it covers only what is drawn, and the captions -- eight of
+        # which the same attended pass contradicted -- stay unconfirmed.
         self.assertIn("row 5", gmui_catalog.PAGE_1_UNEXPLAINED_GAP)
         self.assertIn("row 6", gmui_catalog.PAGE_1_UNEXPLAINED_GAP)
+        self.assertIn("NO VISIBLE WIDGET", gmui_catalog.PAGE_1_GAP_ANSWERED)
+        self.assertFalse(gmui_catalog.labels_are_confirmed_on_screen())
 
     def test_every_screenshot_the_census_cites_is_pinned_by_content(self):
         # Four PNGs, each with a sha256 -- "the screenshots" must not be
@@ -521,8 +526,11 @@ class LabelBlockTests(unittest.TestCase):
         )
         # The candidate must not be allowed to turn into a measurement by
         # accident: page 2 has an undrawn string and no gap, so an undrawn
-        # string does not reserve space, and the count stays unconfirmed.
-        self.assertFalse(gmui_catalog.total_is_confirmed_on_screen())
+        # string does not reserve space.  The attended pass of `GT-269` did
+        # not change that -- it confirmed nothing is DRAWN in the gap, which
+        # is not the same question -- so 1396 stays a candidate and the
+        # answer constant has to keep conceding the half it cannot reach.
+        self.assertIn("looking cannot settle it", gmui_catalog.PAGE_1_GAP_ANSWERED)
         for row_id in gmui_catalog.UNDRAWN_BLOCK_ROWS:
             self.assertEqual(
                 gmui_catalog.GMUI_LABEL_BLOCK_ROLES[row_id], "undrawn"

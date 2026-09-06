@@ -1,0 +1,18 @@
+page	row	agreement	observed_text	note
+1	1	AGREES	ตัวละครซ่อนตัว	paired option radios read as ซ่อนตัว / ปรากฏตัว, which is block rows 1387 and 1388 verbatim
+1	2	DISAGREES	ฉากที่นี่	block row 1389 is ฉากบิน: -- same row position, different word for the second token
+1	3	DISAGREES	NPC ที่นี่	block row 1393 is NPC ที่บิน: -- latin prefix agrees, thai tail does not
+1	4	DISAGREES	ผู้เล่นที่นี่	block row 1394 is ผู้เล่นที่บิน: -- same shape of difference as row 3
+1	5	DISAGREES	ล็อกผู้เล่น	block row 1395 is เรียกผู้เล่น: -- different verb
+1	6	DISAGREES	ฆ่าผู้เล่น	block row 1397 is เตะผู้เล่น: -- different verb; this is the row that sits after the page 1 gap
+1	7	AGREES	ข้อมูลล่าสุด	block row 1398 verbatim apart from the trailing colon
+2	1	AGREES	มอนสเตอร์เกิด	block row 1399 is มอนสเตอร์ที่เกิด: -- same words, observer dropped the infix and the colon
+2	2	UNCERTAIN	ตี...มอน	observer recorded the reading as unclear on the photograph; block row 1400 is สังหารมอน: and is neither confirmed nor contradicted
+2	3	DISAGREES	แบนสนทนาโดยทั่วไป	block row 1401 is แบนสนทนาโดยพื้นที่: -- โดยทั่วไป and โดยพื้นที่ are different qualifiers
+2	4	DISAGREES	แบนสนทนาตัวบุคคล	block row 1407 is แบนสนทนาตัวละคร: -- ตัวบุคคล and ตัวละคร are different nouns
+2	5	AGREES	ใส่คำสั่ง	block row 1412 verbatim apart from the trailing colon
+3	1	AGREES	ไอเทมดรอป	block row 1892 verbatim; the second inline caption read as พื้นที่ดรอป, which is block row 1893 verbatim
+3	2	AGREES	BUFF ฉาก	block row 1894 verbatim
+3	3	DISAGREES	เปลี่ยนฝ่าย	block row 1671 is เปลี่ยนค่าย -- ฝ่าย and ค่าย are different nouns; 1671 is also the one row id that came from glyph shape, not from the id run
+3	4	AGREES	แชทอิสระ	block row 1895 verbatim; the paired options read as ปิด / เปิด and are not in the copied block
+3	5	AGREES	กิจกรรมกอบกู้	block row 1896 verbatim; the second captioned numeric read as ได้จำนวน and is not asserted to any id
