@@ -1252,6 +1252,16 @@
         "WideningRulingSchemaGateTests::test_widening_ruling_keys_are_frozen_or_carry_their_own_letter"
       ],
       "note": "round bvaptp (LANE-B), COO-DECISION b1712 item 2 (pf_bridge notes_to_chief/20260906_1745_COO-DECISION-b1712-*.md): the new WIDENING_RULINGS key gate needs to read ../pf_bridge/notes_to_chief/ to confirm a new ruling key's letter actually exists, so on a fresh clone with no bridge sibling it must skip loudly rather than pass silently or hard-fail. BRIDGE_SIBLING already existed in tests/pf_preconditions.py with zero real callers (grep of tests/ before this round found none), so this is that precondition's first pin entry rather than a new key. PF_BRIDGE_DIR is also accepted as an explicit override (checked first; falls through to BRIDGE_SIBLING.require(self) only when the env var is unset or not a directory), which does not change this pin: nothing sets PF_BRIDGE_DIR in this project's own gate runs today, so the guarded branch below is the one that actually executes there. MEASURED this round: renaming ../pf_bridge produced exactly 1 SKIPPED line under [precondition:bridge_sibling], restoring it produced 0."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_class_skill_curriculum.py",
+      "count": 2,
+      "tests": [
+        "NPassiveStaysUndecodedTests::test_table_wide_n_passive_one_is_mostly_actively_cast",
+        "CommittedCopiesAreThePinnedOnesTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run"
+      ],
+      "note": "round sgv2fb (LANE-CS), recovering round psufmp's PR #952 after the Windows gate closed it for exactly this defect shape (skip_census: 'UNPINNED: tests/test_class_skill_curriculum.py skipped 2 test(s) on precondition bridge_gamedata') - the local sandbox that built the module always has pf_bridge checked out beside it, so both @BRIDGE_GAMEDATA.skip_unless_present() tests ran there and this pin was missed on the first push, same as the bg0008 entry above. The first re-runs the counter-evidence measurement against CONSTDATA_TH__SKILL_CONTEXT.tsv in the bridge clone so the n_PASSIVE correlation noted in class_skill_curriculum's non-claims cannot drift unnoticed. The second re-runs tools/pf_class_skill_curriculum_extract.py --check against the bridge clone's gamedata so the three shipped, sha256-pinned TSV copies cannot drift from what a fresh mining produces. Pinned in a follow-up commit on the recovered branch, since the original commit had already gone out before the gate result came back."
     }
   ],
   "windows_gate_excluded_modules": {

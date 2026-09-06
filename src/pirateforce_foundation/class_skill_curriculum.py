@@ -48,12 +48,21 @@ shares in CHARCREATE_CLASS (99 Normal Attack, 110 Strive Jump, 111 VIP
 Strive Jump).  Reading that as "the every-class bucket" is the obvious
 inference but it is an inference:
 
-    [assumption of lane CS, pending COO confirmation] 1024 == "granted to
-    all classes".  If COO rules otherwise, the revert is local -- callers
-    use ``shared_bucket_skill_ids()``, which is named after the raw bucket,
-    and no per-class accessor folds 1024 in.  ``curriculum_skill_ids(class)``
-    deliberately returns ONLY that class's own bucket, so a wrong reading of
-    1024 cannot silently widen any class's list.
+    [COO round 2141: the meaning of 1024 is still NOT proven.  The only
+    evidence is that 99/110/111 match s_SKILL_1/3/4 of all five classes --
+    do not say "every class" until a second witness lands.]  Round sgv2fb
+    measured the second witness COO asked for on the other 8 ids in this
+    bucket (2950, 2955, 2957, 2960, 2965, 2968, 2971, 2978 -- Joint Jump,
+    Magic Circle, Energy Absorb, Team Energy/Defensive/Attacking Call,
+    Sunbeam, Life Transfer): zero references in any of the 616 committed
+    ``gamedata/lua/`` scripts, so no quest grants them and no quest names
+    one of them as class- or vehicle-specific either.  Still inconclusive
+    either way -- status stays NOT PROVEN, per COO's own ruling not to ask
+    again.  Callers use ``shared_bucket_skill_ids()``, which is named after
+    the raw bucket, and no per-class accessor folds 1024 in.
+    ``curriculum_skill_ids(class)`` deliberately returns ONLY that class's
+    own bucket, so a wrong reading of 1024 cannot silently widen any
+    class's list.
 
 NO SKILL TYPE IS DECODED HERE, AND ONE TEMPTING SHORTCUT IS EXPLICITLY
 REFUSED.  SKILL_CONTEXT still has no basic/attack/AOE/buff/heal/passive enum
