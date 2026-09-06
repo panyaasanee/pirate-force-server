@@ -45,7 +45,19 @@ _TAG_FIELD2_U64 = 0x32
 
 @dataclass(frozen=True)
 class PartyInviteFields:
-    """``PartyInviteVital``'s three proven fields, in wire order."""
+    """``PartyInviteVital``'s three proven fields, in wire order.
+
+    MIGRATED round `rqwwp8` (`COO-DECISION 20260906_1745` item 2): field3
+    moved off ``ui_social_wire.py``'s ``encode_untagged_wstring``/
+    ``read_untagged_wstring`` (proven wrong, tag byte ``0x48`` missing) onto
+    ``wstring_tag``/``read_wstring_tag``. ``runtime.py`` imports
+    ``PARTY_INVITE_VITAL_ID`` and dispatches real inbound frames to
+    ``lane_hooks/lane_ui_party_wire_log.py`` (``production_allowed = True``,
+    report-only, ``bytes_out=0``) -- before this fix every real
+    ``PartyInviteVital`` frame shaped per the proven-correct tag was
+    silently failing to decode (falling back to an ``UNPARSED`` hex dump),
+    same defect class as ``ui_friend_wire.py``'s ``RequestBeFriendFields``
+    (round `4u0ncx`, `pirate-force-server#934`)."""
 
     field1_u8: int
     field2_u64: int
@@ -64,7 +76,7 @@ def encode_party_invite_payload(fields: PartyInviteFields) -> bytes:
     out = bytearray()
     out += bytes([_TAG_FIELD1_U8, fields.field1_u8 & 0xFF])
     out += wire.u64tag(_TAG_FIELD2_U64, fields.field2_u64)
-    out += wire.encode_untagged_wstring(fields.field3_wstring)
+    out += wire.wstring_tag(fields.field3_wstring)
     return bytes(out)
 
 
@@ -72,7 +84,7 @@ def decode_party_invite_payload(payload: bytes) -> PartyInviteFields | None:
     try:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_FIELD1_U8)
         field2, offset = wire.read_u64tag(payload, offset, _TAG_FIELD2_U64)
-        field3, offset = wire.read_untagged_wstring(payload, offset)
+        field3, offset = wire.read_wstring_tag(payload, offset)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None

@@ -12,6 +12,20 @@ fields in a row and it would be easy to guess "recipient/subject/body"
 etc., but nothing in the registry or any capture proves which is which,
 so none of that guessing happens here). Field shapes are copied
 field-for-field from ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``.
+
+MIGRATED round `rqwwp8` (`COO-DECISION 20260906_1745` item 2) off
+``ui_social_wire.py``'s ``encode_untagged_wstring``/``read_untagged_wstring``
+(proven wrong, tag byte ``0x48`` missing) onto ``wstring_tag``/
+``read_wstring_tag`` for all seven wstring fields in this file (six in
+``SendMailFields``, one in ``GetMailContentFields``). ``runtime.py`` imports
+``COMMUNITY_SEND_MAIL_VITAL_ID``/``COMMUNITY_GET_MAIL_CONTENT_VITAL_ID``/
+``COMMUNITY_DELETE_MAIL_VITAL_ID`` and dispatches real inbound frames to
+``lane_hooks/lane_ui_mail_wire_log.py`` (``production_allowed = True``,
+report-only, ``bytes_out=0``) -- before this fix, every real
+``Community_SendMailVital``/``Community_GetMailContentVital`` frame shaped
+per the proven-correct tag was silently failing to decode (falling back to
+an ``UNPARSED`` hex dump), same defect class as ``ui_friend_wire.py``'s
+``RequestBeFriendFields`` (round `4u0ncx`, `pirate-force-server#934`).
 """
 
 from __future__ import annotations
@@ -71,13 +85,13 @@ class DeleteMailFields:
 def encode_send_mail_payload(fields: SendMailFields) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
-    out += wire.encode_untagged_wstring(fields.field2_wstring)
+    out += wire.wstring_tag(fields.field2_wstring)
     out += wire.u64tag(_TAG_U64, fields.field3_u64)
-    out += wire.encode_untagged_wstring(fields.field4_wstring)
-    out += wire.encode_untagged_wstring(fields.field5_wstring)
-    out += wire.encode_untagged_wstring(fields.field6_wstring)
-    out += wire.encode_untagged_wstring(fields.field7_wstring)
-    out += wire.encode_untagged_wstring(fields.field8_wstring)
+    out += wire.wstring_tag(fields.field4_wstring)
+    out += wire.wstring_tag(fields.field5_wstring)
+    out += wire.wstring_tag(fields.field6_wstring)
+    out += wire.wstring_tag(fields.field7_wstring)
+    out += wire.wstring_tag(fields.field8_wstring)
     out += bytes([_TAG_U8, fields.field9_u8 & 0xFF])
     return bytes(out)
 
@@ -85,13 +99,13 @@ def encode_send_mail_payload(fields: SendMailFields) -> bytes:
 def decode_send_mail_payload(payload: bytes) -> SendMailFields | None:
     try:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
-        f2, offset = wire.read_untagged_wstring(payload, offset)
+        f2, offset = wire.read_wstring_tag(payload, offset)
         f3, offset = wire.read_u64tag(payload, offset, _TAG_U64)
-        f4, offset = wire.read_untagged_wstring(payload, offset)
-        f5, offset = wire.read_untagged_wstring(payload, offset)
-        f6, offset = wire.read_untagged_wstring(payload, offset)
-        f7, offset = wire.read_untagged_wstring(payload, offset)
-        f8, offset = wire.read_untagged_wstring(payload, offset)
+        f4, offset = wire.read_wstring_tag(payload, offset)
+        f5, offset = wire.read_wstring_tag(payload, offset)
+        f6, offset = wire.read_wstring_tag(payload, offset)
+        f7, offset = wire.read_wstring_tag(payload, offset)
+        f8, offset = wire.read_wstring_tag(payload, offset)
         f9, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
@@ -104,7 +118,7 @@ def encode_get_mail_content_payload(fields: GetMailContentFields) -> bytes:
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
     out += wire.u64tag(_TAG_U64, fields.field2_u64)
     out += bytes([_TAG_U8, fields.field3_u8 & 0xFF])
-    out += wire.encode_untagged_wstring(fields.field4_wstring)
+    out += wire.wstring_tag(fields.field4_wstring)
     return bytes(out)
 
 
@@ -115,7 +129,7 @@ def decode_get_mail_content_payload(
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         f2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
-        f4, offset = wire.read_untagged_wstring(payload, offset)
+        f4, offset = wire.read_wstring_tag(payload, offset)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None

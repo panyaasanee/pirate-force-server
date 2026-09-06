@@ -32,10 +32,22 @@ _TAG_FIELD2_U64 = 0x32
 
 @dataclass(frozen=True)
 class TradeInviteFields:
-    """Wire order: u8, u64, untagged wstring -- identical field shape to
-    ``ui_party_wire.PartyInviteFields`` (same tags, same order), but kept
-    as its own type: nothing proves the two classes share a meaning, only
-    that they happen to share a shape."""
+    """Wire order: u8, u64, tagged wstring (tag ``0x48``) -- identical field
+    shape to ``ui_party_wire.PartyInviteFields`` (same tags, same order),
+    but kept as its own type: nothing proves the two classes share a
+    meaning, only that they happen to share a shape.
+
+    MIGRATED round `rqwwp8` (`COO-DECISION 20260906_1745` item 2): field3
+    moved off ``ui_social_wire.py``'s ``encode_untagged_wstring``/
+    ``read_untagged_wstring`` (proven wrong, tag byte ``0x48`` missing) onto
+    ``wstring_tag``/``read_wstring_tag``. ``runtime.py`` imports
+    ``TRADE_INVITE_VITAL_ID`` and dispatches real inbound frames to
+    ``lane_hooks/lane_ui_trade_wire_log.py`` (``production_allowed = True``,
+    report-only, ``bytes_out=0``) -- before this fix every real
+    ``TradeInviteVital`` frame shaped per the proven-correct tag was
+    silently failing to decode (falling back to an ``UNPARSED`` hex dump),
+    same defect class as ``ui_friend_wire.py``'s ``RequestBeFriendFields``
+    (round `4u0ncx`, `pirate-force-server#934`)."""
 
     field1_u8: int
     field2_u64: int
@@ -46,7 +58,7 @@ def encode_trade_invite_payload(fields: TradeInviteFields) -> bytes:
     out = bytearray()
     out += bytes([_TAG_FIELD1_U8, fields.field1_u8 & 0xFF])
     out += wire.u64tag(_TAG_FIELD2_U64, fields.field2_u64)
-    out += wire.encode_untagged_wstring(fields.field3_wstring)
+    out += wire.wstring_tag(fields.field3_wstring)
     return bytes(out)
 
 
@@ -54,7 +66,7 @@ def decode_trade_invite_payload(payload: bytes) -> TradeInviteFields | None:
     try:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_FIELD1_U8)
         field2, offset = wire.read_u64tag(payload, offset, _TAG_FIELD2_U64)
-        field3, offset = wire.read_untagged_wstring(payload, offset)
+        field3, offset = wire.read_wstring_tag(payload, offset)
         wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
