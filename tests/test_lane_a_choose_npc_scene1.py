@@ -923,10 +923,12 @@ class TheCensusAuthorityIsHonouredTests(unittest.TestCase):
         passed_none = self._click(world_census_identity_resolved=None)
         self.assertIsNotNone(omitted)
         self.assertIsNotNone(passed_none)
-        self.assertEqual(omitted.label, passed_none.label)
-        self.assertEqual(omitted.pc, passed_none.pc)
-        self.assertEqual(omitted.frame, passed_none.frame)
-        self.assertEqual(omitted.extra_actions, passed_none.extra_actions)
+        # THE WHOLE TUPLE, NOT A HAND-PICKED FOUR (pf-adversary ``6dvcer``
+        # D4): an earlier version of this test compared label/pc/frame/
+        # extra_actions and let a mutant through that changed the TEXT of
+        # ``console_lines`` while keeping its length -- ``delay`` and
+        # ``console_lines`` are both read at the call site.
+        self.assertEqual(omitted, passed_none)
 
     def test_the_decline_is_checked_before_any_frame_is_composed(self):
         """A decline must cost nothing, not compose-then-throw-away: with
@@ -953,8 +955,20 @@ class TheCensusAuthorityIsHonouredTests(unittest.TestCase):
         """The ask chief reads is the ask this module actually honours --
         a renamed keyword here must not leave the constant pointing at the
         old name."""
+        # THE WHOLE ASSIGNMENT, NOT THE NAME ALONE (pf-adversary ``6dvcer``
+        # D3 mutant M2): substituting ``self.world_census_sent`` on the
+        # right-hand side left the feature's name in the file and the test
+        # green while the ask pointed chief at the one flag the frozen
+        # fallback sets to True on exactly the boot this guard exists for.
         self.assertIn(
-            "world_census_identity_resolved",
+            "world_census_identity_resolved=self.world_census_identity_resolved",
+            responder_mod.WORLD_CENSUS_IDENTITY_RESOLVED_WIRING,
+        )
+        # And the ask must still carry its second half (D1): the keyword
+        # alone turns a census-failed boot silent, because a decline at the
+        # call site is ``actions = []`` and not the frozen loop.
+        self.assertIn(
+            "actions = []",
             responder_mod.WORLD_CENSUS_IDENTITY_RESOLVED_WIRING,
         )
         self.assertIn(

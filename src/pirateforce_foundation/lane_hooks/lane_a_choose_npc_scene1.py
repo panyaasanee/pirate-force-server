@@ -35,7 +35,8 @@ click, the responder registered in one run and withdrawn in the other;
 THE FACE FRAME IS ALREADY AT PARITY, AND THAT IS NOT ENOUGH.  Its 14,142
 bytes are byte-identical to ``world_face_frame.build_face_state``'s, which
 is what runtime.py really sends today (``rebuild_face_actions``,
-``runtime.py:9103-9107``, gated on the census's own
+``runtime.py:10410-10414`` -- re-derived at HEAD this round,
+the old ``9103`` pin had rotted -- gated on the census's own
 ``world_census_identity_resolved``).  An earlier draft of this round read
 that equality as "the flip is free" and was wrong: THE ANSWER TO A CLICK
 IS NOT ONE ACTION.  The frozen loop also emits the empty NPCConversation
@@ -104,7 +105,7 @@ any order, all of them before the flip):
     ``TARGET_VITAL`` id) and the ``runtime_ack_sent`` latch, which only
     v141 ever sets and which ``runtime.py:9457`` makes the census depend
     on.
-5.  ~~The responder honours the census authority ``runtime.py:9103``
+5.  ~~The responder honours the census authority ``runtime.py:10410``
     honours (``world_census_identity_resolved``) and DECLINES rather than
     composes on a boot whose login shipped Mob-Set numbers.~~  LANE HALF
     DONE, ROUND ``6dvcer``, ADDITIVELY, AND THE UNDONE HALF IS NAMED
@@ -287,33 +288,60 @@ production_allowed = False
 
 SCENE_N_ID = world_population.SCENE_ID
 
-# THE ONE LINE THAT ARMS STEP 5, WRITTEN OUT SO NOBODY HAS TO GUESS IT.
-# ``respond`` below grew the keyword; the call site does not pass it yet,
-# and until it does this module behaves byte-for-byte as it did before
-# (the keyword defaults to ``None``, which means "the call site never told
-# me", NOT "the census failed").  The call site is chief's file, so this
-# constant is the ask, spelled the way runtime.py would have to spell it:
+# WHAT ARMING STEP 5 ACTUALLY COSTS -- TWO LINES, NOT ONE, AND THE
+# SECOND ONE IS THE IMPORTANT ONE (pf-adversary, round ``6dvcer``, D1).
+# An earlier draft of this round wrote that declining "hands the frame back
+# to ``super().dispatch(parsed)`` -- the frozen loop".  THAT IS FALSE, and
+# this file's own docstring said so 500 lines above the sentence that
+# claimed it: the call site sets ``actions = []`` on a decline with NO
+# fallback (``runtime.py:10255-10262``); ``super().dispatch(parsed)`` sits
+# in the OTHER arm, the one taken only when no responder is registered
+# (``runtime.py:10263-10264``).
 #
-#     response = responder.respond(
-#         legacy=self.legacy,
-#         chosen_identities=chosen,
-#         population_indices=self.world_population_indices,
-#         last_target_pos=self.last_target_pos,
-#         scene_id=scene_id,
-#         scene_entry_registry=self.scene_entry_registry,
-#         mob_loot_cell=getattr(self, "mob_loot_cell", None),
-#         world_census_identity_resolved=self.world_census_identity_resolved,
-#     )
+# MEASURED through ``runtime.make_state_class`` itself, one ordinary click
+# on placement 3, three runs:
 #
-# ``self.world_census_identity_resolved`` is the census's own flag, the
-# same one ``runtime.py:9103`` already gates ``rebuild_face_actions`` on.
-WORLD_CENSUS_IDENTITY_RESOLVED_WIRING = (
-    "runtime.py, the responder branch that calls respond(): add the keyword "
-    "world_census_identity_resolved=self.world_census_identity_resolved. "
-    "Without it this responder cannot honour the census authority "
-    "runtime.py:9103 honours, and step 5 of the promotion list in this "
-    "module's docstring cannot be struck."
-)
+#     responder withdrawn (main today)   ['..._FACE_PLAYER_POSITION_HEADING_P3',
+#                                         'V98_NPC_CONVERSATION_DEFAULT_P3']
+#     responder answering                ['LANE_A_CHOOSE_NPC_SCENE1_FACE_P3']
+#     responder declining                []            <- ZERO bytes
+#
+# So on a boot whose census could not resolve identities, arming the
+# keyword ALONE turns "a wrong frame for two placements" into "no frame for
+# every placement in the town".  That is a worse boot, not a safer one, and
+# it is why the ask below is two lines rather than one.  The keyword is
+# shipped anyway because it is inert (nothing passes it) and because the
+# lane half has to exist before the call-site half can be asked for.
+WORLD_CENSUS_IDENTITY_RESOLVED_WIRING = """runtime.py, the responder branch.
+TWO changes, and neither is useful without the other.
+
+(1) At the respond() call (runtime.py:10081-10235), add the keyword.  The
+    surrounding names are LOCALS and attributes of the state object, so it
+    reads exactly like the keywords already there:
+
+        response = scene_choose_npc_responder.respond(
+            legacy=legacy,
+            chosen_identities=chosen_identities,
+            population_indices=self.population_indices,
+            last_target_pos=self.last_target_pos,
+            scene_id=self.foundation.selected.position.scene_id,
+            scene_entry_registry=scene_entry_registry,
+            mob_combat_ledger=self.mob_combat_ledger,
+            mob_loot_cell=self.mob_loot_cell,
+            mob_death_register=self.mob_death_register,
+            world_census_identity_resolved=self.world_census_identity_resolved,
+        )
+
+    self.world_census_identity_resolved is the census's own flag, the same
+    one runtime.py:10410 already gates rebuild_face_actions on.
+
+(2) At the decline branch (runtime.py:10255-10262), a decline that came
+    from THIS guard must fall back to the frozen loop rather than to
+    actions = [].  Without (2), (1) makes an already-bad boot silent.
+    Whoever writes (2) decides how the two decline reasons are told apart;
+    the lane's proposal is a distinct event, because today both produce
+    scene_choose_npc_responder_declined and nothing else (adversary D5).
+"""
 
 
 def _placements_by_index(legacy: Any) -> dict[int, Any]:
@@ -551,15 +579,22 @@ def respond(
         # byte.  Only an explicit ``False`` -- the census telling us it
         # could not resolve identities on this boot -- declines.
         #
-        # WHY DECLINING IS THE SAFE ANSWER AND ANSWERING IS NOT, MEASURED
+        # DECLINING IS NOT FREE, AND THE COST IS NAMED RATHER THAN
+        # HIDDEN (pf-adversary ``6dvcer`` D1): the call site answers a
+        # decline with ``actions = []`` -- ZERO bytes -- not with the
+        # frozen loop.  Read ``WORLD_CENSUS_IDENTITY_RESOLVED_WIRING``
+        # before arming this: on its own the keyword makes a census-failed
+        # boot SILENT for the whole town rather than wrong for two
+        # placements.  It is inert today (nothing passes the keyword) and
+        # the ask that arms it is two lines, not one.
+        #
+        # WHY ANSWERING IS NOT SAFE EITHER, MEASURED
         # (pf-adversary ``zqmosn``, second pass, on a
         # second-password-bypass boot where the frozen v134 fallback arms
         # ``(0, 30, 91)``): with this responder registered, a click on P0
         # answered with SILENCE where the frozen path opened a quest
         # conversation, and a click on P91 shipped two actors after login
-        # had announced three.  Declining hands the frame back to
-        # ``super().dispatch(parsed)`` -- the frozen loop -- which is the
-        # behaviour a player already has today.
+        # had announced three.
         return None
     if not scene_is_open_to_players(scene_id, scene_entry_registry):
         return None
