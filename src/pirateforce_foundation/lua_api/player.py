@@ -1,6 +1,6 @@
-"""LANE-Q's ``Player`` namespace: 5 of 73 names real
-(``GetLv``/``GetClass``, plus this round's ``CheckItemNum``/``GetItemNum``/
-``CheckEquipItem``).
+"""LANE-Q's ``Player`` namespace: 6 of 73 names real
+(``GetLv``/``GetClass``, ``CheckItemNum``/``GetItemNum``/``CheckEquipItem``,
+plus this round's ``MobAppear``).
 
 WHY THESE TWO, WHY TOGETHER.  ``docs/SCRIPT_LANE.md`` (round `bxly5p`) found
 both of LANE-Q's own charter blockers still closed at this round's own
@@ -79,16 +79,63 @@ lands, calls `store.get_backpack(sid, character_id)` and
 straight through to these two fields, no new store-side reads needed.
 
 WHY EVERY OTHER PLAYER.* NAME STAYS A STUB THIS ROUND, GROUPED, NOT
-GUESSED.  See `STILL_STUBBED` below -- 68 names, one of eight named
+GUESSED.  See `STILL_STUBBED` below -- 67 names, one of seven named
 category reasons each (item/equipment state, a stat-grant write seam,
 other per-character stat reads this lane's context does not carry yet,
 skill/buff state cross-lane with combat, a teleport/vehicle/camera wire
-frame, a UI/cutscene/message wire frame, the instance-entry frame, and
-`MobAppear` itself, which LANE-A's own letter names explicitly as not
-servable: `pf_bridge/notes_to_chief/20260906_0727_LANE-A-TO-LANE-Q-world-
-registry-interface-and-trigger-hit-hook-point.md`, section (c).1, "there is
-no function name that means add one monster to an already-populated scene
-and tell the client -- Player.MobAppear cannot be serviced yet").
+frame, a UI/cutscene/message wire frame, the instance-entry frame).
+`MobAppear` itself moves to `REAL_METHODS` THIS round -- see the next
+section for exactly what "real" means for it and, just as importantly,
+what it deliberately still does not do.
+
+WHY `MobAppear` IS REAL NOW, AND WHY IT IS STILL A FLAG, NOT A SPAWN
+(`COO-DECISION 20260907_0043` answering `PANYA-DECISION 20260907_0039`/
+ka1-A's own `20260907_0039_KA1A-PANYA-DECISION-COO-shared-world-plus-
+per-player-npc-visibility-rank-rule.md`).  LANE-A's own letter
+(`pf_bridge/notes_to_chief/20260906_0727_LANE-A-TO-LANE-Q-world-registry-
+interface-and-trigger-hit-hook-point.md`, section (c).1) still states,
+unchanged this round, that there is no function name meaning "add one
+monster to an already-populated scene and tell the client" -- so this
+round does NOT bind `MobAppear` to any spawn/despawn frame, world
+registry, or census composer (LANE-A's write zone, untouched by this
+diff). What changed is the OWNER'S OWN DESIGN DECISION, not LANE-A's
+world-registry readiness: `Player.MobAppear(id, true/false)` is now known
+to be a PER-PLAYER VISIBILITY FLAG, never a world event
+(`PANYA-DECISION 20260907_0039` point 3: "ติ๊ก/ดับธงในบันทึกของผู้เล่นคนนั้น
+-- ไม่สร้าง/ลบตัวละครในโลกร่วม"; ka1-A's own measurement: 1,766 `(id,
+true)` calls plus 1,766 `(id, false)` calls across `Accept_Run`/
+`Report_Run`, always through the `Player.*` calling convention, never
+`Scene.*`) -- a shape this lane CAN service today without waiting on
+LANE-A's item 3 (the visibility filter itself), because recording a flag
+needs no world registry, no wire frame, and no census composer, only the
+same injectable-store seam `lua_api.quest.QuestStateStore` already
+established for this package. `PlayerMobAppearStore` below is that seam:
+``set_mob_appear_flag``/``get_mob_appear_flag``, keyed by
+(character_id, mob_id), an inert process-memory bucket by default
+(:class:`InMemoryPlayerMobAppearStore`), same "correct to reset on
+reboot, wrong to reset on relog" question `lua_api.quest.
+InMemoryQuestStateStore`'s own docstring raises for quest state -- open
+here too, not yet answered, and not this round's decision to make.
+
+WHAT THIS ROUND DELIBERATELY DOES NOT DO.  (1) It does not read or write
+LANE-A's `world_scene_registry`/`mob_ground_persistence`/
+`mob_death_persistence` -- confirmed by this file's own imports (`..
+inventory`, `..player_wire` only, unchanged). (2) It does not implement
+`PANYA-DECISION 20260907_0039`'s own visibility filter (point 2: "ส่ง
+ตัวละครนี้ให้คนนี้ไหม") -- that composition, and the eventual read of
+this store from a census/appear frame, stays LANE-A's item 3, after P-2,
+per the decision's own "ลำดับ 1->2->3->4->5 ไม่เปลี่ยน" line; this round only
+gives A's future filter a store to read FROM. (3) It does not decide the
+`rank>0` question `PANYA-DECISION 20260907_0039` point 3 raises ("ถ้าเจอ
+สคริปต์เรียก MobAppear กับ id ที่ rank>0 อย่าตัดสินเอง"): grepping every one
+of the 3,532 `Player.MobAppear(...)` call sites in the corpus
+(`gamedata/lua/**/*.lua`) shows every single argument is a table-driven
+`Quest.VarN` (`Var13`-`Var20`, the two highest-count shapes each 294-295
+sites), never a literal mob-template id -- so which real `n_ID` (and
+therefore which `n_RANK`) any given call actually names is not visible
+from the script text alone; it lives in each quest's own
+`QUESTDATA_*.tsv` row, not mined this round. Reported plainly rather than
+guessed one way or the other; see this round's own round file.
 
 WHAT "REAL" MEANS HERE, PRECISELY, AND WHAT IT DOES NOT MEAN.  Same posture
 as `lua_api.trigger.RealTriggerNamespace`/`lua_api.quest.RealQuestNamespace`:
@@ -113,6 +160,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+try:
+    from typing import Protocol
+except ImportError:  # pragma: no cover - stdlib since Python 3.8, this project's floor
+    Protocol = object  # type: ignore[assignment,misc]
+
 from .. import inventory, player_wire
 
 #: Mirrors ``script_host.STUB_DEFAULT`` without importing that module
@@ -130,6 +182,12 @@ STUB_DEFAULT = 0
 #: role ``lua_api.trigger._MAX_TRIGGER_ID``/``_MAX_STATUS`` play there.
 _MAX_TEMPLATE_ID = 0xFFFFFFFF
 _MAX_QUANTITY = 0xFFFF
+
+#: ``mob_id`` (``MobAppear``'s first argument): same reasoning/value as
+#: ``lua_api.quest._MAX_MOB_ID`` -- no table this round mined caps mob
+#: template ids explicitly; kept wide, a sanity door against a garbage
+#: float arriving from Lua, not a guessed game rule.
+_MAX_MOB_ID = 0xFFFFFFFF
 
 
 def _coerce_int(value, ceiling: int):
@@ -211,11 +269,85 @@ _EMPTY_BACKPACK = inventory.BackpackState(
     inventory.BACKPACK_RANGE_MASK, (),
 )
 
-#: The five names real this round. See the module docstring for why these
-#: five, and why every other Player.* name is not real yet.
+#: The six names real so far. See the module docstring for why these six,
+#: and why every other Player.* name is not real yet.
 REAL_METHODS = frozenset({
     "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
+    "MobAppear",
 })
+
+
+class PlayerMobAppearStore(Protocol):
+    """The seam :func:`build_namespace`'s ``store`` parameter names: a
+    per-(character, mob template id) boolean visibility FLAG, never a
+    world-registry entry -- see the module docstring's "WHY `MobAppear` IS
+    REAL NOW" section for the full design citation
+    (`COO-DECISION 20260907_0043`/`PANYA-DECISION 20260907_0039`).
+
+    Same shape as ``lua_api.quest.QuestStateStore``: every method takes
+    already-COERCED plain ints/bools -- the caller (this module's own
+    ``MobAppear`` closure) validates whatever a script handed in before it
+    ever reaches a store; a store implementation never sees an unvalidated
+    Lua value.
+    """
+
+    def get_mob_appear_flag(self, character_id: int, mob_id: int) -> Optional[bool]:
+        """The stored flag, or ``None`` if this (character, mob) has never
+        had one set."""
+        ...
+
+    def set_mob_appear_flag(self, character_id: int, mob_id: int,
+                             visible: bool) -> bool:
+        """Write the flag; returns the value now on record (read back
+        after the write, same contract as
+        ``QuestStateStore.set_quest_flag``, never a bare echo of the
+        argument)."""
+        ...
+
+
+#: Per-store bounds, same shape/reasoning as ``lua_api.quest``'s
+#: ``CHARACTERS_CAP``/``QUESTS_PER_CHARACTER_CAP``: a cap a script cannot
+#: grow past by looping, refused by name rather than silently evicted.
+_MOB_APPEAR_CHARACTERS_CAP = 4096
+_MOB_APPEAR_MOBS_PER_CHARACTER_CAP = 4096
+
+
+class InMemoryPlayerMobAppearStore:
+    """The default :class:`PlayerMobAppearStore` when no real one is
+    injected -- PROCESS MEMORY, an INERT BUCKET for tests and spikes, same
+    role ``lua_api.quest.InMemoryQuestStateStore`` plays for quest state
+    (see that class's own docstring for the "correct to reset on reboot,
+    open question on relog" framing this store inherits unanswered, not
+    resolved here). Never raises on a read/write a script's own arguments
+    could reach; a non-positive cap is a caller-programming error and does
+    raise ``ValueError``, same distinction every other in-package store
+    documents for itself.
+    """
+
+    def __init__(self, characters: int = _MOB_APPEAR_CHARACTERS_CAP,
+                 mobs_per_character: int = _MOB_APPEAR_MOBS_PER_CHARACTER_CAP) -> None:
+        for name, value in (("characters", characters),
+                            ("mobs_per_character", mobs_per_character)):
+            if type(value) is bool or not isinstance(value, int) or value < 1:
+                raise ValueError("%s must be a positive int" % name)
+        self._characters_cap = characters
+        self._mobs_per_character_cap = mobs_per_character
+        self._flags: dict = {}
+
+    def get_mob_appear_flag(self, character_id: int, mob_id: int) -> Optional[bool]:
+        return self._flags.get(character_id, {}).get(mob_id)
+
+    def set_mob_appear_flag(self, character_id: int, mob_id: int,
+                             visible: bool) -> bool:
+        rows = self._flags.get(character_id)
+        if rows is None:
+            if len(self._flags) >= self._characters_cap:
+                return self.get_mob_appear_flag(character_id, mob_id) or False
+            rows = self._flags.setdefault(character_id, {})
+        if mob_id not in rows and len(rows) >= self._mobs_per_character_cap:
+            return rows.get(mob_id, False)
+        rows[mob_id] = visible
+        return visible
 
 
 @dataclass(frozen=True)
@@ -227,12 +359,20 @@ class PlayerContext:
     ``player_wire.PLAYER_LOGIN_CLASS_ID`` == 1) -- not a guess, the same
     values ``model.Character``'s own two fields (``level``, ``class_id``,
     both ``int | None``) fall back to when a login does not override them.
-    ``backpack``/``equipped_template_ids`` (this round) default to empty --
-    see :data:`_EMPTY_BACKPACK`'s own docstring for why empty rather than
-    either governed golden snapshot. A real per-session dispatcher (not
-    built this round) supplies its own ``PlayerContext`` built from that
-    ``Character`` plus ``store.get_backpack``/``store.list_equipped_items``
-    instead of relying on these defaults, the same seam
+    ``backpack``/``equipped_template_ids`` (round `qbr5h8`) default to
+    empty -- see :data:`_EMPTY_BACKPACK`'s own docstring for why empty
+    rather than either governed golden snapshot. ``character_id`` (this
+    round) is the ONLY field ``MobAppear`` reads to key its per-player flag
+    store -- 0 by default, the same "not a real character" sentinel
+    ``lua_api.quest.DEFAULT_CONTEXT``'s own ``character_id=0`` already uses
+    (character ids in this codebase start at 1, per ``store.py``'s own
+    autoincrement primary key), so two unrelated tests/spikes that both
+    take the default share the default's own bucket with each other
+    (harmless: neither is a live player) rather than colliding with a real
+    one. A real per-session dispatcher (not built this round) supplies its
+    own ``PlayerContext`` built from that ``Character`` plus
+    ``store.get_backpack``/``store.list_equipped_items`` instead of relying
+    on these defaults, the same seam
     ``lua_api.trigger.TriggerContext``/``lua_api.instance.InstanceContext``
     already established for their own namespaces.
     """
@@ -241,6 +381,7 @@ class PlayerContext:
     class_id: int = player_wire.PLAYER_LOGIN_CLASS_ID
     backpack: "inventory.BackpackState" = _EMPTY_BACKPACK
     equipped_template_ids: frozenset = frozenset()
+    character_id: int = 0
 
 
 #: The context a :class:`RealPlayerNamespace` gets when nothing more
@@ -287,14 +428,6 @@ _INSTANCE_ENTRY = (
     "lane's own Instance.* registry (lua_api/instance.py) only tracks "
     "state AFTER entry, never the entry frame itself"
 )
-_MOB_APPEAR = (
-    "LANE-A's own letter (pf_bridge/notes_to_chief/"
-    "20260906_0727_LANE-A-TO-LANE-Q-world-registry-interface-and-trigger-"
-    "hit-hook-point.md, section (c).1) states explicitly there is no "
-    "function yet that adds one monster to an already-populated scene and "
-    "tells the client -- not nameable by this lane, not a guess"
-)
-
 STILL_STUBBED: dict[str, str] = {
     # item/equipment state (10) -- CheckItemNum/GetItemNum/CheckEquipItem
     # (the read-only three) moved to REAL_METHODS this round; the rest
@@ -373,13 +506,25 @@ STILL_STUBBED: dict[str, str] = {
     "EnterInstance": _INSTANCE_ENTRY,
     "LeaveInstance": _INSTANCE_ENTRY,
     "LoadInstanceGroup": _INSTANCE_ENTRY,
-    # world spawn (1)
-    "MobAppear": _MOB_APPEAR,
 }
 
 
 def _log_bad_arity(log: Callable[[str], None], api_name: str, got: int, want: str) -> None:
     log("LUA_PLAYER_BAD_ARITY Player.%s got=%d want=%s" % (api_name, got, want))
+
+
+def _log_bad_value(log: Callable[[str], None], api_name: str, **raw_args) -> None:
+    """One bad-VALUE line (right arity, unusable argument) -- same shape as
+    ``lua_api.quest._log_bad_value``, this namespace's first use of it
+    (``pf-adversary``, round `7v7yn2`, named this gap for `Quest.*`'s own
+    nine closures; ``Player.MobAppear`` is the first ``Player.*`` real
+    closure that can be given a right-arity, wrong-TYPE argument -- every
+    prior real closure here either has no failure mode past arity
+    (``GetLv``/``GetClass``) or already degrades to a plain 0/False result
+    without a distinct bad-value log line, per its own docstring).
+    """
+    log("LUA_PLAYER_BAD_VALUE Player.%s %s" % (
+        api_name, " ".join("%s=%r" % (k, v) for k, v in raw_args.items())))
 
 
 class RealPlayerNamespace:
@@ -392,12 +537,14 @@ class RealPlayerNamespace:
     ``Var1``) -> bare :data:`STUB_DEFAULT`, silently.
     """
 
-    __slots__ = ("_context", "_log", "_stub_methods", "namespace", "calls")
+    __slots__ = ("_context", "_store", "_log", "_stub_methods", "namespace", "calls")
 
     def __init__(self, methods: frozenset, context: PlayerContext,
-                 log: Callable[[str], None]):
+                 log: Callable[[str], None],
+                 store: "PlayerMobAppearStore"):
         self.namespace = "Player"
         self._context = context
+        self._store = store
         self._log = log
         self._stub_methods = methods - REAL_METHODS
         self.calls: list = []
@@ -481,6 +628,34 @@ class RealPlayerNamespace:
 
             return check_equip_item
 
+        if name == "MobAppear":
+            def mob_appear(*args):
+                self.calls.append("Player.MobAppear")
+                if len(args) != 2:
+                    _log_bad_arity(self._log, "MobAppear", len(args), "2")
+                    return STUB_DEFAULT
+                mob_id = _coerce_int(args[0], _MAX_MOB_ID)
+                visible = args[1]
+                if mob_id is None or not isinstance(visible, bool):
+                    _log_bad_value(self._log, "MobAppear",
+                                    mob_id=args[0], visible=args[1])
+                    return STUB_DEFAULT
+                after = self._store.set_mob_appear_flag(
+                    self._context.character_id, mob_id, visible)
+                # NOT a world spawn/despawn -- a per-player visibility flag
+                # only (PANYA-DECISION 20260907_0039 point 3, COO-DECISION
+                # 20260907_0043 point 2); see the module docstring's "WHY
+                # MobAppear IS REAL NOW" section. LANE-A's own world
+                # registry (world_scene_registry/mob_ground_persistence/
+                # mob_death_persistence) is untouched by this closure.
+                self._log(
+                    "LUA_PLAYER_REAL Player.MobAppear character=%d mob_id=%d "
+                    "visible=%s (per-player flag only, not a world spawn)"
+                    % (self._context.character_id, mob_id, after))
+                return after
+
+            return mob_appear
+
         if name in self._stub_methods:
             qualified = "Player.%s" % name
 
@@ -501,7 +676,8 @@ class RealPlayerNamespace:
 
 
 def build_namespace(methods: frozenset, log: Callable[[str], None], *,
-                     context: Optional[PlayerContext] = None) -> RealPlayerNamespace:
+                     context: Optional[PlayerContext] = None,
+                     store: Optional["PlayerMobAppearStore"] = None) -> RealPlayerNamespace:
     """The ``Player`` global ``ScriptHost`` installs, real half included.
 
     ``context`` defaults to :data:`DEFAULT_CONTEXT` -- not a production
@@ -510,7 +686,13 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
     specifically probe context behaviour) gets the same fixed constants
     every fresh login composes, the same posture
     ``lua_api.trigger.build_namespace``/``lua_api.quest.build_namespace``
-    already take for their own default context/registry/clock.
+    already take for their own default context/registry/clock. ``store``
+    (this round, for ``MobAppear``) defaults to a FRESH PRIVATE
+    :class:`InMemoryPlayerMobAppearStore` -- not a process singleton, same
+    posture ``lua_api.quest.build_namespace`` takes for its own default
+    :class:`InMemoryQuestStateStore` -- so two unrelated tests/spikes that
+    both take the default can never collide.
     """
     return RealPlayerNamespace(
-        methods, context if context is not None else DEFAULT_CONTEXT, log)
+        methods, context if context is not None else DEFAULT_CONTEXT, log,
+        store if store is not None else InMemoryPlayerMobAppearStore())

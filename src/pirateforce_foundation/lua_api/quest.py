@@ -128,6 +128,22 @@ reason than this docstring first claimed. Left in
 ``STILL_STUBBED`` with a named reason rather than silently made to match
 COO's count; the deviation is called out plainly in this round's own round
 file, not buried here.
+
+CROSS-LANE ACCESSOR ADDED THIS ROUND, NOT A NEW LUA-FACING NAME.
+``COO-DECISION 20260907_0043`` (answering ``PANYA-DECISION 20260907_0039``/
+ka1-A's own shared-world-plus-per-player-NPC-visibility letter) asks this
+lane's own item-1 door to also answer, per character: "has quest X been
+accepted yet / reported yet" -- because LANE-A's future NPC-visibility
+filter reads exactly that against ``CONSTDATA_TH__MOBS.tsv``'s
+``s_QUEST_BEGIN``/``s_QUEST_END`` columns. :func:`is_quest_accepted`/
+:func:`is_quest_reported` below are that answer: two plain functions over
+the SAME :class:`QuestStateStore` seam and the SAME :data:`QUEST_ACTIVE`/
+:data:`QUEST_FINISH` constants this file already derived above -- no new
+state, no new store method, no new Lua-facing ``Quest.*`` name (LANE-A
+calls these from Python, never from a script). They do not decide which
+mob ids ``s_QUEST_BEGIN``/``s_QUEST_END`` gate, and do not read either
+table column themselves -- see each function's own docstring for the
+precise boundary.
 """
 from __future__ import annotations
 
@@ -516,6 +532,50 @@ class InMemoryQuestStateStore:
                 return rows.get(key, STUB_DEFAULT)
             rows[key] = counter_value
             return counter_value
+
+
+def is_quest_accepted(store: "QuestStateStore", character_id: int, quest_id: int) -> bool:
+    """Cross-lane read helper for LANE-A's NPC-visibility filter
+    (``COO-DECISION 20260907_0043`` answering ``PANYA-DECISION
+    20260907_0039``): "has this character accepted quest ``quest_id`` and
+    not yet reported it" -- exactly the predicate ``s_QUEST_BEGIN``
+    (``gamedata/tables/CONSTDATA_TH__MOBS.tsv``) needs to gate an NPC's
+    per-player visibility on, per ka1-A's own letter (``pf_bridge/
+    notes_to_chief/20260907_0039_KA1A-PANYA-DECISION-COO-shared-world-
+    plus-per-player-npc-visibility-rank-rule.md``: "โผล่เมื่อรับเควสไหน").
+
+    ``True`` iff the stored flag equals :data:`QUEST_ACTIVE` -- NOT "has
+    ever been accepted" (a finished quest's flag is :data:`QUEST_FINISH`,
+    not :data:`QUEST_ACTIVE`, so this returns ``False`` once the same
+    quest is reported; see :func:`is_quest_reported` for that half).  This
+    is a plain function, not a :class:`QuestStateStore` method, because it
+    adds no new state and no new door -- ``Quest.GetQuestFlag``'s own real
+    closure above already answers exactly this store the same way; this
+    only names the two comparisons LANE-A needs so that lane does not have
+    to import :data:`QUEST_ACTIVE`/:data:`QUEST_FINISH` and re-derive the
+    comparison itself. Takes the store explicitly (no context/injection) --
+    LANE-A's own call site owns the character id and, per its letter's own
+    boundary note, is where this belongs.
+
+    DOES NOT decide which mob ids are gated by ``s_QUEST_BEGIN``/
+    ``s_QUEST_END``, and does not read either table column -- that mapping
+    (id -> which quest columns) and its combination with ``n_MOB_APPEAR``/
+    rank stays entirely LANE-A's own filter (``PANYA-DECISION
+    20260907_0039`` point 2), unbuilt by this lane on purpose.
+    """
+    return store.get_quest_flag(character_id, quest_id) == QUEST_ACTIVE
+
+
+def is_quest_reported(store: "QuestStateStore", character_id: int, quest_id: int) -> bool:
+    """The other half of :func:`is_quest_accepted`: "has this character
+    reported/turned in quest ``quest_id``" -- the predicate
+    ``s_QUEST_END`` needs (ka1-A's own letter: "หายเมื่อส่งเควสไหน").
+
+    ``True`` iff the stored flag equals :data:`QUEST_FINISH`. See
+    :func:`is_quest_accepted`'s own docstring for the full citation and
+    for what this pair deliberately does NOT decide.
+    """
+    return store.get_quest_flag(character_id, quest_id) == QUEST_FINISH
 
 
 def _log_real(log: Callable[[str], None], start_raw: Any, end_raw: Any,

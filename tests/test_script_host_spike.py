@@ -67,15 +67,15 @@ class TwoNamedSpikeScriptsRunHeadlessTests(unittest.TestCase):
         # actually have fired through the stub, in namespaces that are not
         # each other (COO-DECISION 20260905_0947: "wired" means observed).
         # Quest.MobKillCount/SetFlag/CheckMobKillCount moved OUT of this set
-        # this round (COO-DECISION 20260906_1846) -- they fire for real now,
-        # asserted separately below, not silently dropped.
+        # in round 7v7yn2 (COO-DECISION 20260906_1846); Player.MobAppear
+        # moves out THIS round (COO-DECISION 20260907_0043) -- all fire for
+        # real now, asserted separately below, not silently dropped.
         self.assertEqual(called, {
             "Mob.ShowAnimation",
             "Quest.CountDownTime",
             "Quest.AddCriteriaExp",
             "Quest.AddCriteriaSkillPoint",
             "Quest.AddCriteriaCash",
-            "Player.MobAppear",
         })
         real_called = {
             c.split(" ", 2)[1] for c in calls if c.startswith("LUA_QUEST_REAL ")
@@ -83,6 +83,17 @@ class TwoNamedSpikeScriptsRunHeadlessTests(unittest.TestCase):
         self.assertEqual(real_called, {
             "Quest.MobKillCount", "Quest.SetFlag", "Quest.CheckMobKillCount",
         })
+        # Player.MobAppear: only Delete_Run's own 4 calls are unconditional
+        # in this fixture (grepped) -- the 12 sibling calls in Accept_Run/
+        # Report_Run all sit behind `if (Quest.VarN > 0) then ...`, and
+        # Quest.VarN reads STUB_DEFAULT=0 (no per-instance quest data wired
+        # yet), so `0 > 0` is false and those never fire this round, same
+        # branch-shift shape this file's other real-method landings already
+        # measure rather than assume.
+        real_player_called = [
+            c for c in calls if c.startswith("LUA_PLAYER_REAL Player.MobAppear ")
+        ]
+        self.assertEqual(len(real_player_called), 4)
 
 
 @LUPA_PACKAGE.skip_unless_present()
@@ -385,14 +396,16 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "CanReportDailyQuest", "ReportDailyQuest",
         }))
 
-    def test_the_5_real_player_names_are_excluded_above_not_forgotten(self):
+    def test_the_6_real_player_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the guards above, for Player's own real
-        # names (GetLv/GetClass from round gqjas5, plus CheckItemNum/
-        # GetItemNum/CheckEquipItem from round qbr5h8's inventory read seam).
+        # names (GetLv/GetClass from round gqjas5, CheckItemNum/GetItemNum/
+        # CheckEquipItem from round qbr5h8's inventory read seam, MobAppear
+        # this round -- COO-DECISION 20260907_0043).
         from pirateforce_foundation.lua_api import player as lua_api_player
 
         self.assertEqual(lua_api_player.REAL_METHODS, frozenset({
             "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
+            "MobAppear",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):

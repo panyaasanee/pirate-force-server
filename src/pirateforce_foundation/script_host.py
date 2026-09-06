@@ -234,15 +234,22 @@ class ScriptHost:
     each had their OWN independent default store; this only makes the two
     defaults the SAME instance instead of two different ones).
 
-    ``Player`` is likewise no longer a plain stub table: 2 of
-    its 73 names (``GetLv``, ``GetClass``) are real, backed by an
-    injectable ``PlayerContext`` rather than any registry or clock
-    (``lua_api.player.py``'s own module docstring explains why these two
-    need neither a LANE-DB column nor a wire frame). ``player_context``
-    lets a caller say which level/class this host's script sees; leaving
-    it ``None`` gets ``lua_api.player.DEFAULT_CONTEXT`` (the same fixed
-    constants every fresh login composes today). Every other namespace is
-    unchanged: a plain ``ApiNamespaceStub``.
+    ``Player`` is likewise no longer a plain stub table: 6 of
+    its 73 names (``GetLv``, ``GetClass``, ``CheckItemNum``, ``GetItemNum``,
+    ``CheckEquipItem``, ``MobAppear``) are real, backed by an injectable
+    ``PlayerContext`` rather than any registry or clock (``lua_api.player.py``'s
+    own module docstring explains why each needs neither a LANE-DB column
+    nor a wire frame). ``player_context`` lets a caller say which
+    level/class/backpack/equipment/character id this host's script sees;
+    leaving it ``None`` gets ``lua_api.player.DEFAULT_CONTEXT`` (the same
+    fixed constants every fresh login composes today). ``player_store``
+    (this round, for ``MobAppear``'s per-player visibility flag -- NOT a
+    world spawn, see ``lua_api/player.py``'s own docstring) lets a caller
+    inject a shared :class:`lua_api.player.PlayerMobAppearStore`; leaving
+    it ``None`` builds one fresh private
+    :class:`lua_api.player.InMemoryPlayerMobAppearStore` per host, the same
+    posture ``quest_store`` takes for its own default. Every other
+    namespace is unchanged: a plain ``ApiNamespaceStub``.
     """
 
     def __init__(self, log: Optional[Callable[[str], None]] = None, *,
@@ -253,7 +260,8 @@ class ScriptHost:
                  quest_clock: "Optional[lua_api_quest.Clock]" = None,
                  quest_context: "Optional[lua_api_quest.QuestContext]" = None,
                  quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
-                 player_context: "Optional[lua_api_player.PlayerContext]" = None):
+                 player_context: "Optional[lua_api_player.PlayerContext]" = None,
+                 player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None):
         _require_lupa()
         self.log = log or default_logger
         self.runtime = lupa.LuaRuntime(
@@ -302,7 +310,7 @@ class ScriptHost:
                     context=quest_context, store=quest_store)
             elif namespace == "Player":
                 stub = lua_api_player.build_namespace(
-                    methods, self.log, context=player_context)
+                    methods, self.log, context=player_context, store=player_store)
             else:
                 stub = ApiNamespaceStub(namespace, methods, self.log)
             self.namespaces[namespace] = stub
@@ -332,7 +340,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       quest_clock: "Optional[lua_api_quest.Clock]" = None,
                       quest_context: "Optional[lua_api_quest.QuestContext]" = None,
                       quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
-                      player_context: "Optional[lua_api_player.PlayerContext]" = None) -> ScriptHost:
+                      player_context: "Optional[lua_api_player.PlayerContext]" = None,
+                      player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
     Reads the file as bytes decoded latin-1, because latin-1 is the one
@@ -361,7 +370,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       quest_clock=quest_clock,
                       quest_context=quest_context,
                       quest_store=quest_store,
-                      player_context=player_context)
+                      player_context=player_context,
+                      player_store=player_store)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
     return host
