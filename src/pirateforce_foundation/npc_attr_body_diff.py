@@ -56,6 +56,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .gm import name_color_gate
+
+
+def standing_colour_wiring_refusal() -> name_color_gate.P2ColorWiringVerdict:
+    """This module's own reminder that it MEASURES, it does not DECIDE.
+
+    Same shape, same reason, as ``name_colour_sweep``'s function of this
+    name: this module names P-2 colour fields (the codex semantic for
+    ``NPCAttr+0x98`` is literally ``associated_actor_id_for_name_color``), so
+    the static scan in ``tests/test_gm_p2_color_call_site_tripwire.py`` is
+    entitled to ask whether it wires a colour decision.  It does not: it
+    walks bytes and reports which fields two bodies disagree about.  Nothing
+    here reads ``.allowed`` and branches on it, because there is no colour
+    decision in this module to gate.
+    """
+    return name_color_gate.p2_color_wiring_verdict()
+
 #: Fixed-width tags, from the frozen encoders named in the docstring.
 #: A closed set on purpose: unknown tag => refuse, never a guessed width.
 TAG_WIDTHS = {

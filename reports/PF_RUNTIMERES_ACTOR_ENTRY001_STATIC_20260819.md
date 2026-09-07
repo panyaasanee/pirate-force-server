@@ -308,7 +308,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "src_modules_forbidding_names": [
     "remote_player_hypothesis.py"
   ],
-  "src_modules_mentioning_basicattr_bit_0x0080": 8,
+  "src_modules_mentioning_basicattr_bit_0x0080": 9,
   "src_modules_passing_zero_hp_by_named_constant": [
     "damage_hp_link_hypothesis.py",
     "hostile_hp_link_hypothesis.py",
@@ -581,6 +581,16 @@ to the state of `src/` at this commit, deliberately and upward, never loosened.
 | `src_modules_building_actor_entries` | 7 | **8** | HYP-PF-038 |
 | `src_modules_mentioning_basicattr_bit_0x0080` | 6 | **7** | HYP-PF-038 |
 | `src_modules_doing_both` (SET) | 2 | **3** | HYP-PF-038 |
+
+### Round `phv2u0` (LANE-B, 2026-09-07): `src_modules_mentioning_basicattr_bit_0x0080` 8 -> 9
+
+`npc_attr_body_diff.py` is a WALKER, not an emitter: it names BasicAttr bit `0x0080`
+(`Main_Dead_threshold_operand_vs_DURATION_DYING_minus_0_5`, codex order 8) in its field
+table so that a body carrying the bit can be decoded and reported instead of refused.
+It ORs nothing into any mask, composes no body and sends no frame - the same
+over-reporting shape this note already describes for `hostile_hp_link_hypothesis.py`,
+one step further removed. Re-pinned here in the commit that added the module, as
+`tests/test_static_verifier_pins_cloud.py` requires.
 
 Two things the table does not say and this note must:
 
