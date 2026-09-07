@@ -395,6 +395,22 @@ class UnmeasuredSkillPointsError(RuntimeError):
     """
 
 
+#: `characters` columns that ALREADY have a subtracting door of their own,
+#: mapped to that door's name.  `spend_typed_attribute` REFUSES these, and
+#: the refusal is the whole point rather than a limitation: a column with
+#: two subtract doors has two refusal shapes, and a caller that catches the
+#: wrong one reads "not paid" as "paid".  `add_typed_attribute`'s own
+#: docstring named that harm before either door existed; pf-adversary
+#: (round `dcz2sv`, `D4`) measured that the generic door reintroduced it --
+#: `spend_skill_points` raises `InsufficientSkillPointsError`, the generic
+#: door raises `InsufficientTypedAttributeError`, and
+#: `skill_grant_wiring.py`/`skill_learn_wiring.py` document the former as
+#: THE refusal of the skill-points spend path.
+COLUMNS_WITH_THEIR_OWN_SPEND_DOOR = {
+    "skill_points": "spend_skill_points",
+}
+
+
 class InsufficientTypedAttributeError(RuntimeError):
     """`spend_typed_attribute` refused: the balance does not cover `amount`.
 
@@ -3719,12 +3735,13 @@ class SQLiteStore:
         DELTA MUST BE >= 0, and that is a narrowing this lane chose rather
         than one the request asked for -- LANE-Q left the sign to this lane
         and does not rely on negatives.  A subtracting door has to answer
-        "what happens at the floor", and this repository already has that
-        door with that answer (`spend_skill_points`, which refuses a spend
-        below its balance with `InsufficientSkillPointsError`).  Two doors
-        subtracting with different refusal shapes is how a caller ends up
-        catching the wrong one.  Ask for it in a letter and it can widen;
-        widening is a smaller change than taking it back.
+        "what happens at the floor", and two doors subtracting with
+        different refusal shapes is how a caller ends up catching the wrong
+        one.  THE LETTER CAME (`pf_bridge/notes_to_chief/20260907_1942`) and
+        the door was built: `spend_typed_attribute`, below, which owns the
+        floor rule for every typed column EXCEPT the one that already had a
+        named door of its own (`skill_points`/`spend_skill_points`, which it
+        refuses by name for exactly the reason this paragraph gives).
 
         THE RESULT IS VALIDATED, NOT CLAMPED.  `persistence_typed_attrs.
         validate` decides whether the value AFTER the addition is storable
@@ -3764,9 +3781,10 @@ class SQLiteStore:
             raise TypeError("delta must be an int")
         if delta < 0:
             raise ValueError(
-                f"delta must be >= 0, got {delta!r} -- this door only adds; "
-                "spend_skill_points is the subtracting door and owns the "
-                "floor rule"
+                f"delta must be >= 0, got {delta!r} -- this door only "
+                "adds; spend_typed_attribute is the subtracting door and "
+                "owns the floor rule (spend_skill_points still owns "
+                "skill_points)"
             )
         if not _fits_sqlite_integer(delta):
             raise ValueError(
@@ -3888,13 +3906,25 @@ class SQLiteStore:
 
         THE RESULT IS VALIDATED, NOT CLAMPED, on the way out too:
         `persistence_typed_attrs.validate` decides whether the value AFTER
-        the subtraction is storable for that column's wire kind.  Today
-        every typed column is unsigned, so `validate` would refuse a
-        negative anyway -- contract 3 is checked FIRST and separately
-        regardless, because a caller must be able to tell "you cannot
-        afford this" from "this column cannot hold that number", and
-        because a signed column added later must not silently turn an
-        overdraft into a stored negative.
+        the subtraction is storable for that column's wire kind.  IT IS NOT
+        A SECOND NET AGAINST AN OVERDRAFT, and an earlier version of this
+        paragraph said it was ("today every typed column is unsigned").
+        pf-adversary (round `dcz2sv`, `D3`) measured that false against a
+        column that shipped in migration `006`: `speed_walk` is `f32`, and
+        `KIND_STORAGE["f32"]` is `(-F32_MAX, F32_MAX)`, so
+        `validate("speed_walk", -100.0)` is ACCEPTED and the `CHECK`
+        constraint accepts it too.  With contract 3's check removed, a
+        spend of 500 against `speed_walk = 400.0` stores `-100.0` and
+        nothing objects.  So contract 3 is the ONLY thing standing between
+        a caller and a negative balance on a signed column, it is checked
+        FIRST, and `test_a_signed_column_cannot_be_overdrawn_either` is
+        where that is measured rather than promised.
+
+        THE RETURN TYPE FOLLOWS THE COLUMN, NOT THE ANNOTATION.  `-> int`
+        is inherited from `add_typed_attribute` and is true of every `u*`
+        column; a `f32` column such as `speed_walk` returns a `float`.
+        Named here rather than corrected, because narrowing the annotation
+        would be a claim about columns this door does not own.
 
         RETRY IS SAFE FOR EVERY EXCEPTION NAMED HERE, for the same reason
         `add_typed_attribute` states: read, `UPDATE` and read-back all run
@@ -3902,16 +3932,48 @@ class SQLiteStore:
         exception before re-raising, so a raise means nothing was
         committed.
 
+        THE `AND <column>=?` CLAUSE ON THE `UPDATE` CANNOT FIRE inside one
+        `BEGIN IMMEDIATE` -- said out loud because `add_typed_attribute`
+        says it and an earlier version of this docstring dropped the
+        admission while keeping the clause.  It is there for the same
+        reason that door's is: so that removing either guard alone cannot
+        silently widen what the method may do.  pf-adversary (round
+        `dcz2sv`, `D7`) confirms nothing kills a mutant that deletes it,
+        and that is a property of the clause, not a gap in the tests.
+
+        CONTRACT 4 IS READ-BACK, AND IT IS NOT INDEPENDENTLY MEASURABLE.
+        The value returned is re-read inside the transaction rather than
+        computed, but for every column `read_back[column] == after` by
+        construction, so a body that returned `after` directly would pass
+        every test in this file (pf-adversary `D7`).  The read-back is kept
+        because it is the shape that stays correct if a column ever gains a
+        trigger or a generated default; the honest statement is that it is
+        a discipline here, not a measured guarantee.
+
         Raises `TypeError` for a non-int/bool `character_id` or `amount` or
-        a non-str `column`, `ValueError` for a negative `amount` or for
-        either integer outside SQLite's representable `INTEGER` range,
-        `TypedAttrError` for an unknown column or an unstorable result,
+        a non-str `column`, `ValueError` for a negative `amount`, for
+        either integer outside SQLite's representable `INTEGER` range, or
+        for a column that has a subtracting door of its own
+        (`COLUMNS_WITH_THEIR_OWN_SPEND_DOOR`), `TypedAttrError` for an
+        unknown column or an unstorable result,
         `UnmeasuredTypedAttributeError` for a NULL column,
         `InsufficientTypedAttributeError` when the balance does not cover
         `amount`, `KeyError` for a character that does not exist or has
-        been soft-deleted, and `WriteLockTimeout` instead of a raw
-        `sqlite3.OperationalError` when the write lock cannot be taken.
-        Nothing is written when anything is refused.
+        been soft-deleted, `WriteLockTimeout` instead of a raw
+        `sqlite3.OperationalError` when the write lock cannot be taken, and
+        `persistence_vitals.SchemaDriftError` from the `verify_schema` call
+        every write door in this file makes -- named because this list
+        reads as closed and pf-adversary (round `dcz2sv`, `D6`) measured
+        that one escaping it.  Nothing is written when anything is refused.
+
+        WHAT THIS DOOR DOES NOT SOLVE, so a caller is not surprised: it
+        takes `connect()`'s full write-lock budget (5,000 ms), so a caller
+        running inline on a player's dispatch thread would freeze that
+        session for five seconds under contention -- the same cost round
+        `i7ihga` built `equip_item_nowait` to avoid for the equip hook
+        (pf-adversary `D5`).  Measured here: 0.002 s uncontended, 5.02 s
+        contended.  No `_nowait` sibling exists yet; ask for one in a
+        letter when a call site is actually on that thread.
         """
         if isinstance(character_id, bool) or not isinstance(character_id, int):
             raise TypeError("character_id must be an int")
@@ -3940,6 +4002,15 @@ class SQLiteStore:
             raise typed_attrs.TypedAttrError(
                 f"{column!r} is not a typed attribute column "
                 f"(built: {sorted(typed_attrs.TYPED_COLUMNS)})"
+            )
+        own_door = COLUMNS_WITH_THEIR_OWN_SPEND_DOOR.get(column)
+        if own_door is not None:
+            raise ValueError(
+                f"{column!r} already has a subtracting door of its own "
+                f"({own_door}) with its own refusal types -- use it.  Two "
+                "subtract doors on one column is how a caller ends up "
+                "catching the wrong refusal and reading 'not paid' as "
+                "'paid'"
             )
 
         with self.connect() as db:

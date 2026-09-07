@@ -34,6 +34,8 @@ against `spend_skill_points`' own type rather than asserted in prose.
 """
 from __future__ import annotations
 
+import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -47,8 +49,11 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.persistence_typed_attrs import (  # noqa: E402
     TYPED_COLUMNS,
     TypedAttrError,
+    validate,
 )
+from pirateforce_foundation.persistence_vitals import SchemaDriftError  # noqa: E402
 from pirateforce_foundation.store import (  # noqa: E402
+    COLUMNS_WITH_THEIR_OWN_SPEND_DOOR,
     InsufficientSkillPointsError,
     InsufficientTypedAttributeError,
     SQLiteStore,
@@ -205,9 +210,20 @@ class SpendTypedAttributeTests(_StoreFixture):
             self.store.read_typed_attributes(character.id)["cash"], 10
         )
 
-    def test_every_column_lane_q_can_send_is_actually_spendable(self):
+    def test_every_column_lane_q_can_send_has_exactly_one_spend_door(self):
         """Derived from `reward.KIND_COLUMN` rather than a hand-typed list,
-        so a fourth reward kind upstream cannot quietly arrive unspendable.
+        so a fourth reward kind upstream cannot quietly arrive with no way
+        to be spent -- and so that "exactly one door" is measured per
+        column rather than asserted once in prose.
+
+        `skill_points` is in that map and is NOT spendable here on
+        purpose: it already had `spend_skill_points`, with its own two
+        refusal types, before this door existed.  pf-adversary (round
+        `dcz2sv`, `D4`) measured what two doors on one column cost --
+        `except InsufficientSkillPointsError` around the generic door lets
+        an overdraft escape uncaught, while `skill_grant_wiring.py` and
+        `skill_learn_wiring.py` document that type as THE refusal of the
+        skill-points spend path.
         """
         from pirateforce_foundation.lua_api import reward
 
@@ -217,10 +233,75 @@ class SpendTypedAttributeTests(_StoreFixture):
                 character = self._with(
                     column, 10, login="acct-" + column, name="C" + column[:6]
                 )
-                self.assertEqual(
-                    self.store.spend_typed_attribute(character.id, column, 4),
-                    6,
+                own_door = COLUMNS_WITH_THEIR_OWN_SPEND_DOOR.get(column)
+                if own_door is None:
+                    self.assertEqual(
+                        self.store.spend_typed_attribute(
+                            character.id, column, 4),
+                        6,
+                    )
+                    continue
+                with self.assertRaises(ValueError) as caught:
+                    self.store.spend_typed_attribute(character.id, column, 4)
+                self.assertIn(own_door, str(caught.exception))
+                self.assertTrue(
+                    callable(getattr(self.store, own_door, None)),
+                    f"{column} is pointed at {own_door}, which does not exist",
                 )
+                self.assertEqual(
+                    self.store.read_typed_attributes(character.id)[column], 10
+                )
+
+    def test_a_column_with_its_own_door_is_refused_before_anything_is_read(self):
+        """The refusal is a caller error, not an overdraft and not an
+        unmeasured balance, so it must not be reachable through either of
+        those `except` clauses."""
+        character = self._with("skill_points", 100)
+        with self.assertRaises(ValueError) as caught:
+            self.store.spend_typed_attribute(character.id, "skill_points", 1)
+        self.assertNotIsInstance(
+            caught.exception, InsufficientTypedAttributeError
+        )
+        self.assertNotIsInstance(
+            caught.exception, UnmeasuredTypedAttributeError
+        )
+        self.assertEqual(
+            self.store.spend_skill_points(character.id, 1), 99,
+            "the door this refusal points at must actually work",
+        )
+
+    def test_a_signed_column_cannot_be_overdrawn_either(self):
+        """`validate` is NOT a second net under contract 3, and this is the
+        column that proves it: `speed_walk` is `f32`, so
+        `KIND_STORAGE["f32"]` accepts negatives and so does migration
+        `006`'s CHECK.  With contract 3's check removed, a spend of 500
+        against 400.0 stores -100.0 and nothing objects (pf-adversary,
+        round `dcz2sv`, `D3`).  Every other test in this file spends an
+        unsigned column, so without this one the overdraft rule is only
+        measured where the type system would have caught it anyway.
+        """
+        self.assertLess(validate("speed_walk", -100.0), 0)
+        character = self._with("speed_walk", 400.0)
+        with self.assertRaises(InsufficientTypedAttributeError):
+            self.store.spend_typed_attribute(character.id, "speed_walk", 500)
+        self.assertEqual(
+            self.store.read_typed_attributes(character.id)["speed_walk"], 400.0
+        )
+        self.assertEqual(
+            self.store.spend_typed_attribute(character.id, "speed_walk", 400),
+            0.0,
+        )
+
+    def test_a_drifted_schema_is_refused_by_name(self):
+        """`verify_schema` runs inside the transaction and its exception is
+        named in the docstring's Raises list.  Nothing measured it before
+        (pf-adversary, round `dcz2sv`, `D6`/`D7`): a mutant deleting the
+        call survived the whole file."""
+        character = self._with("cash", 10)
+        with sqlite3.connect(self.path) as db:
+            db.execute("ALTER TABLE characters DROP COLUMN mp_max")
+        with self.assertRaises(SchemaDriftError):
+            self.store.spend_typed_attribute(character.id, "cash", 1)
 
     def test_bools_are_not_ints_here(self):
         character = self._with("cash", 10)
@@ -291,6 +372,66 @@ class SpendAtomicityTests(_StoreFixture):
             self.store.read_typed_attributes(character.id)["cash"],
             0,
             "a concurrent spend was lost -- this door is not atomic",
+        )
+
+    #: One spender, as a separate OS process.  Written as source rather
+    #: than a module-level function because `spawn` (Windows, and macOS
+    #: since 3.8) cannot pickle a closure over the fixture, and this file
+    #: must measure the same thing on the gate as it does here.
+    _SPENDER_SOURCE = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from pirateforce_foundation.store import SQLiteStore
+store = SQLiteStore(sys.argv[2], sys.argv[3])
+paid = 0
+for _ in range(int(sys.argv[5])):
+    store.spend_typed_attribute(int(sys.argv[4]), "cash", 1)
+    paid += 1
+print(paid)
+"""
+
+    PROCESSES = 3
+    SPENDS_PER_PROCESS = 20
+
+    def test_spenders_in_separate_processes_do_not_lose_a_spend(self):
+        """THE CONTROL THE THREAD TEST ABOVE CANNOT BE, and the defect that
+        earned it: pf-adversary (round `dcz2sv`, `D1`) replaced this
+        method's body with a read-modify-write serialised by a module-level
+        `threading.Lock`, and every test in this file stayed green -- while
+        four PROCESSES spending 160 units from a balance of 160 left 119
+        units in the row, nothing raised anywhere.  A door whose only
+        serialisation is in-process is a door that pays a quest twice the
+        first time a tool, a migration or a second server touches the same
+        file.
+
+        `BEGIN IMMEDIATE` is what makes this hold, and it holds across
+        processes, which is the property `NOW.md`'s shared-world bullet
+        actually needs and the thread test cannot see.
+        """
+        total = self.PROCESSES * self.SPENDS_PER_PROCESS
+        character = self._with("cash", total)
+        argv = [
+            str(ROOT / "src"), str(self.path), str(ROOT / "migrations"),
+            str(character.id), str(self.SPENDS_PER_PROCESS),
+        ]
+        running = [
+            subprocess.Popen(
+                [sys.executable, "-c", self._SPENDER_SOURCE, *argv],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            for _ in range(self.PROCESSES)
+        ]
+        paid = 0
+        for process in running:
+            out, err = process.communicate(timeout=120)
+            self.assertEqual(process.returncode, 0, err)
+            paid += int(out.strip())
+        self.assertEqual(paid, total)
+        self.assertEqual(
+            self.store.read_typed_attributes(character.id)["cash"],
+            0,
+            "a spend from another process was lost -- the serialisation is "
+            "in-process, not SQLite's write lock",
         )
 
     def test_the_floor_holds_under_the_same_race(self):
