@@ -31,6 +31,8 @@ from pirateforce_foundation import (  # noqa: E402
     world_m2_trigger_vital_response as trigger_response,
     world_sea_edge_crossing,
 )
+from pf_preconditions import BRIDGE_SIBLING  # noqa: E402
+
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_a_island_trigger_log as island_trigger_log,
 )
@@ -42,6 +44,13 @@ SEA = trigger_response.M2_ISLAND_CONTACT_SCENE_ID
 # module's own import-time state rather than to whatever the previously
 # executed test happened to leave behind.
 REGISTRY_AT_IMPORT = dict(trigger_response._CANDIDATES)
+
+MEASURED = trigger_response.ISLAND_CONTACT_DISCRIMINATOR
+# The centre of `RE-289` ordinal 2's box, i.e. the position the letter
+# reports as the trigger's own `pos`. Named once, here, so a test that wants
+# "inside" does not carry six transcribed numbers of its own.
+ORD2_CENTRE = (-5426.19, 5129.33, 86.01)
+ORD3_CENTRE = (-1916.55, -6137.92, 86.02)
 
 
 class M2RegistryIsolation(unittest.TestCase):
@@ -58,49 +67,53 @@ class M2RegistryIsolation(unittest.TestCase):
 
     def setUp(self):
         self._registry_before = dict(trigger_response._CANDIDATES)
-        self._discriminator_before = trigger_response.ISLAND_CONTACT_DISCRIMINATOR
         self._boxes_before = dict(trigger_response.ISLAND_EXTENT_BOXES)
 
     def tearDown(self):
-        after = dict(trigger_response._CANDIDATES)
-        trigger_response._CANDIDATES.clear()
-        trigger_response._CANDIDATES.update(self._registry_before)
-        trigger_response.ISLAND_CONTACT_DISCRIMINATOR = self._discriminator_before
-        trigger_response.ISLAND_EXTENT_BOXES.clear()
-        trigger_response.ISLAND_EXTENT_BOXES.update(self._boxes_before)
+        # NOTHING IS RESTORED HERE ANY MORE, because nothing can be written
+        # (COO-DECISION 20260907_0945 item 1 + item 2). The old tearDown
+        # cleared and rewrote `_CANDIDATES`, `ISLAND_CONTACT_DISCRIMINATOR`
+        # and `ISLAND_EXTENT_BOXES` -- which made this file, as COO put it,
+        # a working demonstration of the hole it was testing. It is an
+        # ASSERTION now: if a test found a way to write tier-3 state, this
+        # is where the file says so.
         self.assertEqual(
-            after,
+            dict(trigger_response._CANDIDATES),
             self._registry_before,
             "this test mutated the module's production registry",
         )
-
-    def measured_discriminator(self, name="TEST_ONLY_PRETEND_MEASURED"):
-        """Pretend, for one test only, that somebody measured the thing tier
-        3 is waiting for, AND return the one reading that matches it.
-        Restored by tearDown above.
-
-        This is the ONLY way a test may make tier 3 pass. Setting
-        `ISLAND_CONTACT_DISCRIMINATOR` in the module to satisfy a test would
-        be a claim that the fact was measured, which it was not.
-
-        THE RETURN VALUE IS THE HALF THIS ROUND ADDED. Before this round,
-        setting the name WAS passing tier 3 -- which is exactly the defect
-        `IslandContactEvidence` exists to close, and the reason a test that
-        wants through tier 3 now has to hold a reading in its hand and pass
-        it. A test that only calls this and passes nothing is measuring the
-        refusal, which is a legitimate thing to measure and is now visibly
-        different from measuring the pass.
-        """
-        trigger_response.ISLAND_CONTACT_DISCRIMINATOR = name
-        trigger_response.ISLAND_EXTENT_BOXES[3] = TEST_ONLY_BOX
-        return trigger_response.IslandContactEvidence(
-            discriminator=name, x=10.0, y=10.0, z=10.0, source="TEST_ONLY"
+        self.assertEqual(
+            dict(trigger_response.ISLAND_EXTENT_BOXES),
+            self._boxes_before,
+            "this test mutated the module's committed extent table",
+        )
+        self.assertEqual(
+            trigger_response.ISLAND_CONTACT_DISCRIMINATOR, MEASURED
         )
 
-    def open_water_reading(self, name="TEST_ONLY_PRETEND_MEASURED"):
-        """A reading from the same measurement, taken OUTSIDE every box."""
+    def contact_reading(self, x=ORD2_CENTRE[0], y=ORD2_CENTRE[1], z=ORD2_CENTRE[2]):
+        """A reading under the module's REAL measurement, defaulting to the
+        centre of the box `RE-289` measured for `.tgr` ordinal 2.
+
+        THIS HELPER NO LONGER PRETENDS ANYTHING. Until `RE-289` answered it
+        wrote `ISLAND_CONTACT_DISCRIMINATOR` and a fake box, and that write
+        is now an `AttributeError`; the measurement exists, so a test that
+        wants through tier 3 uses it and stands where the letter says the
+        box is.
+        """
         return trigger_response.IslandContactEvidence(
-            discriminator=name, x=9999.0, y=9999.0, z=9999.0, source="TEST_ONLY"
+            discriminator=MEASURED, x=x, y=y, z=z, source="TEST_ONLY"
+        )
+
+    def open_water_reading(self, name=None):
+        """A reading from the same measurement, taken OUTSIDE every box.
+
+        (0, 0) is the middle of the scene and is in NEITHER box: ordinal 2
+        is at x -6426..-4426, ordinal 3 at y -7038..-5238.
+        """
+        return trigger_response.IslandContactEvidence(
+            discriminator=MEASURED if name is None else name,
+            x=0.0, y=0.0, z=86.0, source="TEST_ONLY",
         )
 
 
@@ -135,10 +148,18 @@ class RegistryStartsEmptyTests(M2RegistryIsolation):
         self.assertEqual(trigger_response._CANDIDATES, REGISTRY_AT_IMPORT)
         self.assertEqual(REGISTRY_AT_IMPORT, {2: None, 3: None})
 
-    def test_the_discriminator_is_unmeasured_on_the_shipped_module(self):
-        # If this ever fails, somebody claimed a measurement. That claim needs
-        # a ticket behind it, not a green test.
-        self.assertIsNone(trigger_response.ISLAND_CONTACT_DISCRIMINATOR)
+    def test_the_discriminator_names_the_measurement_re289_returned(self):
+        # It was `None` until 2026-09-07T09:55+07:00. The claim behind the
+        # name is a ticket result, which is what the citation tests below
+        # check for; a name with no letter behind it is what this file is
+        # built to refuse.
+        self.assertEqual(
+            trigger_response.ISLAND_CONTACT_DISCRIMINATOR,
+            "RE-289_BG3001_TGR_POINT_BOX_CONTAINMENT",
+        )
+        # The name may not claim an island: RE-289 nonclaim (2) says what was
+        # measured is a trigger box coinciding with an effect marker.
+        self.assertNotIn("ISLAND_IS", trigger_response.ISLAND_CONTACT_DISCRIMINATOR)
 
 
 class ThreeTierGuardTests(M2RegistryIsolation):
@@ -204,11 +225,16 @@ class ThreeTierGuardTests(M2RegistryIsolation):
         )
 
     def test_tier3_refuses_the_one_input_that_reaches_it(self):
+        # The REASON changed this round and the refusal did not. Before
+        # `RE-289` answered, a call with no reading was refused because
+        # nothing had been measured; now it is refused because the caller
+        # supplied no position. A caller that passes nothing still gets
+        # nothing, which is the property this test has always held.
         for wire_trigger_id in (2, 3):
             with self.subTest(wire_trigger_id=wire_trigger_id):
                 self.assertEqual(
                     trigger_response.answer_guard_reason(SEA, wire_trigger_id),
-                    trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
+                    trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
                 )
 
     def test_a_filled_slot_is_still_not_answered_while_tier3_refuses(self):
@@ -230,7 +256,7 @@ class ThreeTierGuardTests(M2RegistryIsolation):
         )
 
     def test_all_three_tiers_pass_only_together(self):
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         self.assertIsNone(trigger_response.answer_guard_reason(SEA, 3, evidence))
         self.assertEqual(
             trigger_response.answer_guard_reason(SEA - 1, 3),
@@ -331,7 +357,7 @@ class OneSpellingOfIsThisAnIntTests(M2RegistryIsolation):
     def test_an_int_subclass_that_equals_everything_cannot_pass_tier1(self):
         # D1(b): with a discriminator measured AND a matching reading in
         # hand, `#993` handed back a live CandidateFrame FOR SCENE 999.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         sneaky = self.EqAlwaysTrue(999)
         self.assertEqual(
             trigger_response.answer_guard_reason(sneaky, sneaky, evidence),
@@ -442,17 +468,16 @@ class TwoSpellingsNoValueTestCanSeparateTests(M2RegistryIsolation):
         # duplicated-literal shape A9 paid for one screen higher up. Same
         # mechanism kills it: move what it depends on, reimport, and the
         # literal stops tracking.
-        original = trigger_response.ISLAND_CONTACT_DISCRIMINATOR
-        try:
-            seen = self.reimported_with(
-                island_trigger_log,
-                "M2_OBSERVED_ISLAND_TRIGGER_IDS",
-                {8: 800, 9: 900},
-            )
-            self.assertEqual(seen["ids"], (8, 9))
-            self.assertEqual(seen["registry_keys"], (8, 9))
-        finally:
-            trigger_response.ISLAND_CONTACT_DISCRIMINATOR = original
+        # No save/restore of the discriminator any more: it is read-only
+        # since this round, and `reimported_with` reloads the module in its
+        # own `finally`, which is what puts every module-level constant back.
+        seen = self.reimported_with(
+            island_trigger_log,
+            "M2_OBSERVED_ISLAND_TRIGGER_IDS",
+            {8: 800, 9: 900},
+        )
+        self.assertEqual(seen["ids"], (8, 9))
+        self.assertEqual(seen["registry_keys"], (8, 9))
         self.assertEqual(sorted(trigger_response._CANDIDATES), [2, 3])
 
     def test_the_candidate_ids_are_sorted_not_merely_copied(self):
@@ -486,24 +511,28 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
     def test_a_blank_discriminator_is_not_a_measurement(self):
         # THE defect, stated as a value. On both shipped trees this returned
         # None and handed back a frame.
-        for blank in ("", "   ", "\t", 0, object()):
+        # HOW THIS TEST REACHES THE STATE NOW. It used to assign the blank
+        # to the module, which is the very move item 1 of COO-DECISION
+        # 20260907_0945 closed; the blank goes into the private tier-3
+        # function's `discriminator` seam instead. `answer_guard_reason`
+        # does not forward that seam, on purpose -- the pin below is that
+        # the public entry point has no such argument at all.
+        reading = self.contact_reading()
+        for blank in ("", "   ", "\t", 0, object(), None):
             with self.subTest(discriminator=blank):
-                trigger_response.ISLAND_CONTACT_DISCRIMINATOR = blank
                 self.assertEqual(
-                    trigger_response.answer_guard_reason(SEA, 3),
+                    trigger_response._tier3_contact_reason(
+                        reading, discriminator=blank
+                    ),
                     trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
                 )
-                self.assertIsNone(
-                    trigger_response.candidate_for_trigger_id(
-                        SEA, 3, registry={3: _fake()}
-                    )
-                )
+        with self.assertRaises(TypeError):
+            trigger_response.answer_guard_reason(SEA, 3, reading, discriminator="")
 
     def test_naming_the_discriminator_is_not_enough_on_its_own(self):
         # The one-line M2 close, refused: the name is set and a candidate is
         # registered, and the answer is still None because no session
         # reading was handed in.
-        self.measured_discriminator()
         self.assertEqual(
             trigger_response.answer_guard_reason(SEA, 3),
             trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
@@ -514,8 +543,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
 
     def test_a_bare_truthy_value_is_not_evidence(self):
         # What a caller reaches for when it wants the guard to go away.
-        self.measured_discriminator()
-        for pretend in (True, 1, "yes", ("TEST_ONLY_PRETEND_MEASURED", True, "x")):
+        for pretend in (True, 1, "yes", (MEASURED, True, "x")):
             with self.subTest(island_contact=pretend):
                 self.assertEqual(
                     trigger_response.answer_guard_reason(SEA, 3, pretend),
@@ -525,9 +553,12 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
     def test_a_reading_from_another_discriminator_is_refused_by_name(self):
         # Evidence gathered under an older measurement cannot be replayed
         # against a newer one.
-        self.measured_discriminator("RE-289-ORDINAL-V2")
+        # No pretending needed now: the module enforces one real name, and
+        # a reading tagged with any other name is the stale case.
         stale = trigger_response.IslandContactEvidence(
-            discriminator="RE-289-ORDINAL-V1", x=10.0, y=10.0, z=10.0, source="RE-289"
+            discriminator="RE-289-ORDINAL-V1",
+            x=ORD2_CENTRE[0], y=ORD2_CENTRE[1], z=ORD2_CENTRE[2],
+            source="RE-289",
         )
         self.assertEqual(
             trigger_response.answer_guard_reason(SEA, 3, stale),
@@ -537,7 +568,6 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
     def test_open_water_is_refused_by_its_own_name(self):
         # `RE-234` item (3)'s finding, as a named refusal: the id alone
         # cannot tell an island from open water, so the reading has to.
-        evidence = self.measured_discriminator()
         open_water = self.open_water_reading()
         self.assertEqual(
             trigger_response.answer_guard_reason(SEA, 3, open_water),
@@ -556,7 +586,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
         # in open water that handed in `in_contact=True` was accepted. The
         # reading now carries coordinates the server owns, and a coordinate
         # that is not exactly a number is not a position.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         for junk in ("10.0", None, True, [10.0]):
             with self.subTest(x=junk):
                 self.assertEqual(
@@ -582,7 +612,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
             def __hash__(self):  # noqa: D105
                 return 0
 
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         forged = evidence._replace(discriminator=BoomStr(evidence.discriminator))
         self.assertEqual(
             trigger_response.answer_guard_reason(SEA, 3, forged),
@@ -594,7 +624,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
         # overriding the fields with properties passed every check. Same
         # spelling question this file spends sixty lines on in
         # `_is_a_wire_int`, and the draft answered it the loose way.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         name = evidence.discriminator
 
         class Forged(trigger_response.IslandContactEvidence):
@@ -613,17 +643,51 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
         # The refusal that stops "assign the name" from being enough even
         # with a well-formed reading in hand: RE-289 is open, so there is no
         # box to be inside of.
-        evidence = self.measured_discriminator()
-        trigger_response.ISLAND_EXTENT_BOXES.clear()
+        evidence = self.contact_reading()
         self.assertEqual(
-            trigger_response.answer_guard_reason(SEA, 3, evidence),
+            trigger_response._tier3_contact_reason(evidence, boxes={}),
             trigger_response.CONTACT_REFUSED_NO_EXTENT_TABLE,
         )
+        # And the public entry point cannot be handed a table at all.
+        with self.assertRaises(TypeError):
+            trigger_response.answer_guard_reason(SEA, 3, evidence, boxes={})
 
-    def test_the_shipped_extent_table_is_empty(self):
-        # If this fails somebody committed an extent. That needs RE-289's
-        # result behind it, not a green test.
-        self.assertEqual(trigger_response.ISLAND_EXTENT_BOXES, {})
+    def test_the_shipped_extent_table_is_exactly_what_re289_measured(self):
+        # It was `{}` until this round. Every number below is re-derived here
+        # from the letter's `pos` and `extent` rather than copied a second
+        # time, so a typo in the module is a red test and not a wider box:
+        # the arithmetic is `pos +/- extent / 2` and it is stated in the
+        # module beside the table.
+        expected = {}
+        for ordinal, (pos, extent) in {
+            2: (ORD2_CENTRE, (2000.0, 2000.0, 500.0)),
+            3: (ORD3_CENTRE, (1800.0, 1800.0, 500.0)),
+        }.items():
+            expected[ordinal] = (
+                pos[0] - extent[0] / 2, pos[1] - extent[1] / 2,
+                pos[2] - extent[2] / 2,
+                pos[0] + extent[0] / 2, pos[1] + extent[1] / 2,
+                pos[2] + extent[2] / 2,
+            )
+        self.assertEqual(
+            sorted(trigger_response.ISLAND_EXTENT_BOXES), sorted(expected)
+        )
+        for ordinal, box in expected.items():
+            with self.subTest(ordinal=ordinal):
+                # Component-wise and to six places: `pos - extent / 2` is
+                # binary floating point on both sides and the module holds a
+                # DECIMAL LITERAL, so exact equality here would be a test of
+                # IEEE-754 rounding rather than of the transcription.
+                self.assertEqual(len(trigger_response.ISLAND_EXTENT_BOXES[ordinal]), 6)
+                for got, want in zip(
+                    trigger_response.ISLAND_EXTENT_BOXES[ordinal], box
+                ):
+                    self.assertAlmostEqual(got, want, places=6)
+        # Ordinals 6/7/8 and 68/69/70 are the 37.2%-on-one-axis edge walls
+        # RE-289 separated out. A round that adds one has turned "touching
+        # an island" into "sailing near the edge of the map".
+        for wall in (6, 7, 8, 68, 69, 70, 1):
+            self.assertNotIn(wall, trigger_response.ISLAND_EXTENT_BOXES)
 
     def test_a_reading_wrong_in_two_ways_reports_the_earlier_one(self):
         # pf-adversary: swapping checks 3 and 4 inside `_tier3_contact_reason`
@@ -631,7 +695,6 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
         # in two ways at once. A stale reading taken in open water must
         # report the STALE half -- the reading cannot be judged for position
         # at all until it is established which measurement it belongs to.
-        self.measured_discriminator("RE-289-V2")
         stale_and_adrift = trigger_response.IslandContactEvidence(
             discriminator="RE-289-V1", x=9999.0, y=9999.0, z=9999.0, source="RE-289"
         )
@@ -641,9 +704,8 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
         )
         # And with the table emptied as well, the discriminator still wins:
         # three things wrong, one answer, and it is the earliest.
-        trigger_response.ISLAND_EXTENT_BOXES.clear()
         self.assertEqual(
-            trigger_response.answer_guard_reason(SEA, 3, stale_and_adrift),
+            trigger_response._tier3_contact_reason(stale_and_adrift, boxes={}),
             trigger_response.CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR,
         )
 
@@ -663,7 +725,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
     def test_tier3_runs_after_tier1_and_tier2_not_before(self):
         # Order pin in the new direction: a wrong scene with GOOD evidence
         # still reports the scene, not the contact.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         self.assertEqual(
             trigger_response.answer_guard_reason(SEA - 1, 3, evidence),
             trigger_response.SCENE_REFUSED_NOT_THE_SEA_SCENE,
@@ -675,7 +737,6 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
 
     def test_tier3_never_raises_on_any_reading(self):
         # Same posture as the other two session-sourced arguments.
-        self.measured_discriminator()
         for hostile in (None, object(), [], b"\x01", 2.0, {"x": 1.0}):
             with self.subTest(island_contact=hostile):
                 self.assertEqual(
@@ -744,19 +805,22 @@ class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
         one.  A good row alongside a bad one must still work.
         """
         reading = trigger_response.IslandContactEvidence(
-            "bg3001_extent", 5.0, 5.0, 5.0, "attended"
+            MEASURED, 5.0, 5.0, 5.0, "attended"
         )
-        trigger_response.ISLAND_CONTACT_DISCRIMINATOR = "bg3001_extent"
-        trigger_response.ISLAND_EXTENT_BOXES[1] = (0.0, 0.0, 0.0, 10.0, 10.0)
         self.assertEqual(
-            trigger_response.answer_guard_reason(SEA, 3, reading),
+            trigger_response._tier3_contact_reason(
+                reading, boxes={1: (0.0, 0.0, 0.0, 10.0, 10.0)}
+            ),
             trigger_response.CONTACT_REFUSED_OPEN_WATER,
         )
-        trigger_response.ISLAND_EXTENT_BOXES[2] = (
-            0.0, 0.0, 0.0, 10.0, 10.0, 10.0,
-        )
         self.assertIsNone(
-            trigger_response.answer_guard_reason(SEA, 3, reading)
+            trigger_response._tier3_contact_reason(
+                reading,
+                boxes={
+                    1: (0.0, 0.0, 0.0, 10.0, 10.0),
+                    2: (0.0, 0.0, 0.0, 10.0, 10.0, 10.0),
+                },
+            )
         )
 
     def test_the_module_side_discriminator_refuses_a_str_subclass(self):
@@ -787,19 +851,19 @@ class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
             def __hash__(self):
                 return 0
 
-        trigger_response.ISLAND_CONTACT_DISCRIMINATOR = Boom("bg3001_extent")
         reading = trigger_response.IslandContactEvidence(
             "bg3001_extent", 1.0, 1.0, 1.0, "attended"
         )
         self.assertEqual(
-            trigger_response.answer_guard_reason(SEA, 3, reading),
+            trigger_response._tier3_contact_reason(
+                reading, discriminator=Boom("bg3001_extent")
+            ),
             trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
         )
-        self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(
-                SEA, 3, island_contact=reading
-            )
-        )
+        # ...and the module's own constant is a plain `str`, so the shipped
+        # tree never takes that path at all. The check above is what keeps
+        # it that way when a later round transcribes a new measurement.
+        self.assertIs(type(trigger_response.ISLAND_CONTACT_DISCRIMINATOR), str)
 
 
 class FieldOrderIsTheContractTests(M2RegistryIsolation):
@@ -816,7 +880,7 @@ class FieldOrderIsTheContractTests(M2RegistryIsolation):
         # `registry`, and got a silent `None` with no error, no warning and
         # no way to notice. A `*` turns that into a TypeError at the call.
         # Nothing in the repo imports this module, so this costs no caller.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         with self.assertRaises(TypeError):
             trigger_response.candidate_for_trigger_id(SEA, 3, evidence)
         # The keyword spelling is the one that works.
@@ -860,7 +924,7 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
     given, unedited, once all three tiers pass."""
 
     def test_a_registered_candidate_comes_back_unchanged(self):
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         fake = _fake()
         synthetic_registry = {2: fake, 3: None}
 
@@ -874,7 +938,7 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
         self.assertEqual(result.frame, b"\x12\x34\x56")
 
     def test_the_other_id_in_the_same_synthetic_registry_stays_none(self):
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         synthetic_registry = {2: _fake(), 3: None}
 
         self.assertIsNone(
@@ -900,14 +964,16 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
         self.assertIsNone(
             trigger_response.candidate_for_trigger_id(SEA, 2, registry={})
         )
-        # And with the production table actually carrying something, so the
-        # mutant would have a different answer to give.
-        trigger_response._CANDIDATES[2] = _fake()
-        try:
-            self.assertEqual(trigger_response.registered_count(registry={}), 0)
-            self.assertEqual(trigger_response.registered_count(), 1)
-        finally:
-            trigger_response._CANDIDATES[2] = None
+        # HOW THE MUTANT IS KILLED NOW. It used to be killed by writing a
+        # candidate into the production table so the fallback would give a
+        # different answer -- which COO-DECISION 20260907_0945 item 1 made
+        # impossible, and item 2 says the suite should not have been doing
+        # in the first place. `_table_for` is asked directly instead: the
+        # empty mapping it is handed is the mapping it must return, BY
+        # IDENTITY, and `x or _CANDIDATES` cannot satisfy that.
+        empty = {}
+        self.assertIs(trigger_response._table_for(empty), empty)
+        self.assertIs(trigger_response._table_for(None), trigger_response._CANDIDATES)
 
     def test_registered_count_is_scoped_to_candidate_trigger_ids(self):
         # Mutant killer: `sum(... for trigger_id in table)` reads identically
@@ -926,7 +992,7 @@ class RegistryTypeDisagreementTests(M2RegistryIsolation):
     Mapping)` cannot silently become `dict` or `hasattr(..., "get")`."""
 
     def test_a_read_only_mapping_that_is_not_a_dict_is_accepted(self):
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         fake = _fake()
         proxy = types.MappingProxyType({2: fake, 3: None})
 
@@ -939,7 +1005,7 @@ class RegistryTypeDisagreementTests(M2RegistryIsolation):
         self.assertEqual(trigger_response.registered_count(registry=proxy), 1)
 
     def test_an_object_that_merely_owns_a_get_is_refused_by_name(self):
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
 
         class NotAMappingButHasGet:
             def get(self, key, default=None):  # pragma: no cover - never called
@@ -975,7 +1041,7 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
         # Even a poisoned synthetic registry that DOES carry an entry for a
         # non-M2 id must not be answered -- this slot is only ever for 2/3 --
         # and that holds even with tier 3 satisfied.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         poisoned_registry = {7: _fake(va="sub_NOT_M2", vital_id=1, frame=b"\x00")}
         self.assertIsNone(
             trigger_response.candidate_for_trigger_id(
@@ -1356,7 +1422,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         # reached. Overriding tier 3 puts the named guard back in the path,
         # and the day a real discriminator lands they keep measuring the
         # same thing instead of turning red for an unrelated reason.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         # D7: `assertIsNone(candidate_for_trigger_id(...))` was satisfied by
         # the EMPTY production registry no matter what the guard did -- all
         # the killing power sat in the `assertIn` below. A registry POISONED
@@ -1392,7 +1458,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
                     )
 
     def test_no_scene_id_of_any_type_raises(self):
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         # Same D7 poisoning on the scene sweep: id 3 IS registered here, so
         # every None below is the SCENE guard refusing and nothing else.
         poisoned = {3: _fake(va="sub_POISON", vital_id=1, frame=b"\xde\xad")}
@@ -1425,13 +1491,13 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         # one hostile row that is a legitimate (scene, id) pair gets THROUGH
         # the guard. If that stops being true, the sweep above has gone back
         # to being answered by something other than tiers 1 and 2.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         self.assertIsNone(trigger_response.answer_guard_reason(SEA, 2, evidence))
         self.assertIn(126, self.HOSTILE)
         self.assertIsNone(trigger_response.answer_guard_reason(126, 3, evidence))
 
     def test_a_registry_that_is_not_a_mapping_is_refused_by_name(self):
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         for not_a_mapping in ([], "x", 7, object()):
             with self.subTest(registry=not_a_mapping):
                 with self.assertRaises(TypeError) as raised:
@@ -1455,7 +1521,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         # Guard order matters: the three tiers are checked FIRST, so a non-M2
         # id is still answered None rather than being turned into a raise by
         # a malformed test registry sitting behind it.
-        evidence = self.measured_discriminator()
+        evidence = self.contact_reading()
         self.assertIsNone(
             trigger_response.candidate_for_trigger_id(
                 SEA, 7, registry=[], island_contact=evidence
@@ -1463,7 +1529,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         )
 
     def test_a_refused_scene_is_answered_before_a_bad_registry_is_seen(self):
-        self.measured_discriminator()
+        self.contact_reading()
         self.assertIsNone(
             trigger_response.candidate_for_trigger_id(1, 3, registry=[])
         )
@@ -1478,3 +1544,230 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Tier3StateIsReadOnlyToImportersTests(M2RegistryIsolation):
+    """COO-DECISION `20260907_0945` item 1, as tests.
+
+    pf-adversary's repro for the tier-3 hole had three legs -- the
+    discriminator, the extent table and the candidate registry -- and every
+    one of them was an ordinary attribute an importer could assign. The
+    round that answers `RE-289` is precisely the round in which those three
+    stop being placeholders and start being the thing that decides whether
+    the server tells a player they are touching an island, so this is the
+    round the writes have to stop.
+    """
+
+    def test_the_three_tier3_names_cannot_be_reassigned_by_an_importer(self):
+        for name, value in (
+            ("ISLAND_CONTACT_DISCRIMINATOR", "anything at all"),
+            ("ISLAND_EXTENT_BOXES", {1: (0.0, 0.0, 0.0, 1e9, 1e9, 1e9)}),
+            ("_CANDIDATES", {2: _fake(), 3: _fake()}),
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(AttributeError) as raised:
+                    setattr(trigger_response, name, value)
+                self.assertIn("read-only to importers", str(raised.exception))
+                with self.assertRaises(AttributeError):
+                    delattr(trigger_response, name)
+
+    def test_the_two_tables_cannot_be_mutated_in_place(self):
+        # The other half: a proxy that could be `.update()`d would make the
+        # freeze above cosmetic.
+        for table in (
+            trigger_response.ISLAND_EXTENT_BOXES,
+            trigger_response._CANDIDATES,
+        ):
+            with self.subTest(table=type(table).__name__):
+                self.assertIsInstance(table, types.MappingProxyType)
+                with self.assertRaises(TypeError):
+                    table[99] = None
+                for method in ("clear", "update", "pop", "popitem"):
+                    self.assertFalse(hasattr(table, method))
+
+    def test_an_unfrozen_name_is_still_writable(self):
+        # The freeze is a NAMED SET, not a blanket ban: a module that refuses
+        # every write cannot be reloaded or patched by any tool in the repo,
+        # and the tests above would pass just as well on a module that had
+        # been made uselessly rigid. This is the control that says which.
+        original = trigger_response.CANDIDATE_TRIGGER_IDS
+        try:
+            trigger_response.CANDIDATE_TRIGGER_IDS = (2, 3)
+            self.assertEqual(trigger_response.CANDIDATE_TRIGGER_IDS, (2, 3))
+        finally:
+            trigger_response.CANDIDATE_TRIGGER_IDS = original
+
+    def test_the_public_guard_has_no_seam_for_either_table(self):
+        # The seams live on the PRIVATE tier-3 function. If they ever appear
+        # on the public entry points, a wire caller can supply the boxes it
+        # is judged against and the freeze above has bought nothing.
+        import inspect
+
+        for function in (
+            trigger_response.answer_guard_reason,
+            trigger_response.candidate_for_trigger_id,
+            trigger_response.registered_count,
+        ):
+            parameters = inspect.signature(function).parameters
+            with self.subTest(function=function.__name__):
+                self.assertNotIn("discriminator", parameters)
+                self.assertNotIn("boxes", parameters)
+
+    def test_the_reload_hole_is_named_and_not_pretended_away(self):
+        # `importlib.reload` re-executes the module body, which writes the
+        # module dict directly and cannot be intercepted. The module says so
+        # in `_FrozenTier3Module`'s docstring rather than claiming a lock it
+        # does not have; this test is what keeps that sentence honest, and
+        # it is also the pin that a reload RESTORES the shipped values
+        # rather than leaving a test's leftovers behind.
+        importlib.reload(trigger_response)
+        self.assertEqual(trigger_response.ISLAND_CONTACT_DISCRIMINATOR, MEASURED)
+        self.assertIn("bypass", trigger_response._FrozenTier3Module.__doc__)
+
+
+class EveryBoxCitesTheLetterItCameFromTests(M2RegistryIsolation):
+    """COO-DECISION `20260907_0945` item 3: "the right to say an extent was
+    measured comes from an RE result letter, not from a round that commits
+    numbers -- a table with no letter behind it is a tier-3 refusal, not a
+    pass with a warning".
+
+    🔴 WHY THIS IS NOT THE GATE COO NAMED, STATED PLAINLY.  The decision
+    said to reuse `tests/test_mob_death_widening_schema_gate._letter_exists_
+    for` and to write no second oracle.  That function is imported below and
+    IS the house gate -- but it requires the filename to contain both
+    "COO-DECISION" and "widen", so it can certify a death-widening ruling
+    and cannot certify an RE result letter, and `tests/test_mob_death_
+    widening_schema_gate.py` is LANE-B's file, outside this lane's write
+    zone.  So this class checks the letter by the SHA256 OF ITS CONTENT,
+    which answers a strictly narrower question than the house gate ("this
+    exact letter is on the bridge") and makes no claim at all about who
+    wrote it -- the handwriting question that COO's "no second oracle" rule
+    is about.  The ask to make the house gate take its name tokens as a
+    parameter is `notes_to_chief/20260907_1022_LANE-A-ASK-COO-the-house-
+    letter-gate-cannot-certify-an-RE-letter.md`.
+    [assumption of LANE-A - pending COO confirmation]
+    """
+
+    def bridge(self):
+        import os
+
+        env = os.environ.get("PF_BRIDGE_DIR")
+        if env and Path(env).is_dir():
+            return Path(env)
+        # "not found = skip with a reason, never silently pass" -- the same
+        # precondition every other bridge-lookup in this repo uses.
+        BRIDGE_SIBLING.require(self)
+        return BRIDGE_SIBLING.paths[0]
+
+    def test_every_committed_box_carries_a_citation_naming_re289(self):
+        boxes = trigger_response.ISLAND_EXTENT_BOXES
+        citations = trigger_response.ISLAND_EXTENT_BOX_CITATIONS
+        self.assertEqual(sorted(boxes), sorted(citations))
+        self.assertEqual(
+            sorted(boxes), sorted(trigger_response.ISLAND_EXTENT_BOX_ORDINALS)
+        )
+        for ordinal in boxes:
+            with self.subTest(ordinal=ordinal):
+                citation = citations[ordinal]
+                self.assertIn("RE-289", citation)
+                self.assertIn(trigger_response.RE289_RESULT_LETTER_SHA256, citation)
+                # The citation has to carry the RAW measurement, not just a
+                # ticket number: a reader must be able to redo `pos +/-
+                # extent / 2` without opening the letter.
+                self.assertIn("pos ", citation)
+                self.assertIn("extent ", citation)
+
+    def test_the_cited_letter_is_on_the_bridge_with_the_cited_hash(self):
+        import hashlib
+
+        bridge = self.bridge()
+        # BOTH roots, and recursively, for the reason LANE-B's gate gives:
+        # LANE-K sweeps letters into `pf_bridge/archive/<dated folder>/` on
+        # age, and a letter that has been filed is still a letter. A gate
+        # that only looked in the mailbox would go red weeks from now with
+        # nobody having touched this table.
+        roots = [bridge / "notes_to_chief", bridge / "archive"]
+        wanted = trigger_response.RE289_RESULT_LETTER_SHA256
+        found = []
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for entry in root.rglob(trigger_response.RE289_RESULT_LETTER):
+                if entry.is_file():
+                    found.append(entry)
+        self.assertTrue(
+            found,
+            "the extent table cites %s and no such file exists under %s or "
+            "%s -- COO-DECISION 20260907_0945 item 3: a table with no letter "
+            "behind it is a refusal, not a pass with a warning"
+            % (trigger_response.RE289_RESULT_LETTER, roots[0], roots[1]),
+        )
+        digests = {
+            hashlib.sha256(entry.read_bytes()).hexdigest() for entry in found
+        }
+        self.assertIn(
+            wanted,
+            digests,
+            "a letter with the cited NAME is on the bridge but its content "
+            "hashes to %s, not the %s this table was copied from -- the "
+            "numbers in the module and the numbers in the letter are no "
+            "longer known to agree" % (sorted(digests), wanted),
+        )
+
+    def test_the_house_letter_gate_is_imported_not_reimplemented(self):
+        # The gate COO named. It is imported so that the day it grows a
+        # parameter for its name tokens, this file switches to calling it
+        # and deletes its own walk -- and so that a rename of it is a red
+        # test here rather than a silent divergence.
+        from test_mob_death_widening_schema_gate import _letter_exists_for
+
+        self.assertTrue(callable(_letter_exists_for))
+
+    def test_the_keys_of_the_extent_table_are_never_used_as_wire_ids(self):
+        # RE-289 nonclaim (1): nothing has shown the .tgr ordinal equals the
+        # wire trigger id. They are equal today by coincidence of numbering.
+        # The pin is behavioural, not a grep: move the table's keys off the
+        # wire ids entirely and a reading inside ordinal 2's box must STILL
+        # pass, because containment reads values and never indexes by id.
+        reading = self.contact_reading()
+        relabelled = {
+            777: trigger_response.ISLAND_EXTENT_BOXES[2],
+            888: trigger_response.ISLAND_EXTENT_BOXES[3],
+        }
+        self.assertIsNone(
+            trigger_response._tier3_contact_reason(reading, boxes=relabelled)
+        )
+        # ...and a table keyed by the wire ids but holding the WRONG boxes
+        # must refuse, which a lookup by id would not do.
+        swapped = {2: trigger_response.ISLAND_EXTENT_BOXES[3]}
+        self.assertEqual(
+            trigger_response._tier3_contact_reason(reading, boxes=swapped),
+            trigger_response.CONTACT_REFUSED_OPEN_WATER,
+        )
+
+    def test_a_reading_at_each_measured_centre_passes_and_the_edges_hold(self):
+        # The measurement, exercised end to end through the public guard.
+        for centre in (ORD2_CENTRE, ORD3_CENTRE):
+            with self.subTest(centre=centre):
+                self.assertIsNone(
+                    trigger_response.answer_guard_reason(
+                        SEA, 3, self.contact_reading(*centre)
+                    )
+                )
+        # One metre outside ordinal 2's x half-width, at its own centre in y
+        # and z: this is the boundary the "extent is FULL width" reading
+        # puts there, and the fail-closed direction is that it refuses.
+        just_outside = (ORD2_CENTRE[0] - 1000.01, ORD2_CENTRE[1], ORD2_CENTRE[2])
+        self.assertEqual(
+            trigger_response.answer_guard_reason(
+                SEA, 3, self.contact_reading(*just_outside)
+            ),
+            trigger_response.CONTACT_REFUSED_OPEN_WATER,
+        )
+        # And nothing is answered even when all three tiers pass, because no
+        # candidate frame has been cited: item 4(b) is still in force.
+        self.assertIsNone(
+            trigger_response.candidate_for_trigger_id(
+                SEA, 3, island_contact=self.contact_reading(*ORD3_CENTRE)
+            )
+        )
