@@ -11,7 +11,7 @@ boot print
 while BOTH skill tabs on screen stayed empty, "show all" included.  The rows
 are in the database.  Nothing reads them back out onto the wire.  Every skill
 a client has ever displayed in this project's history came out of
-``learn_skill_result_hypothesis``'s pinned sweep, under an opt-in flag, with
+the HYP-PF-033 sweep lane's pinned steps, under an opt-in flag, with
 values that lane calls opaque on purpose -- so on a normal login the window is
 empty and there is no code path that could fill it.  This module is the read
 half: character row in, ``(pc, frame)`` out, no flag, no fixed table.
@@ -37,7 +37,7 @@ order, and this module honours it in the only way that is honest about today:
 
 THE REASON THIS IS NOT WIRED IN THIS ROUND (read this before using the module)
 ----------------------------------------------
-``learn_skill_result_hypothesis``'s own docstring records, from GT-249 run on
+The HYP-PF-033 sweep lane's own docstring records, from GT-249 run on
 a real client on 2026-09-05: after its six-frame sweep landed, the client
 stopped emitting any outbound movement frame for the rest of the session --
 the player could open windows and drag items but COULD NOT WALK until a fresh
@@ -62,12 +62,12 @@ game where nobody can move.  So:
 
 NONCLAIMS -- inherited and new
 -------------------------------
-  * Every nonclaim in ``learn_skill_result_hypothesis`` still stands and is
+  * Every nonclaim in the HYP-PF-033 sweep lane still stands and is
     not repeated here.  In particular the three record members' SEMANTICS are
     unknown; this module puts the skill id in all three wire positions for the
     same reason GT-249's step 6 did -- the position that means "skill id", if
-    any, is unproven -- and that convention is imported from that module's own
-    helper rather than restated, so the two cannot drift apart.
+    any, is unproven -- and the composer it uses is the SAME frame module the
+    sweep lane composes with, so the two cannot drift apart.
   * GT-249 measured that 3 of 4 sent ids appeared and id ``40000`` did not,
     and that the class-named tab stayed empty throughout.  Reading the ids
     from the database instead of the class table changes NONE of that: the
@@ -84,7 +84,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .learn_skill_result_hypothesis import (
+from .learn_skill_result_frame import (
     LearnSkillResultRecord,
     make_learn_skill_result_response,
 )
