@@ -1645,6 +1645,26 @@ class TheOrderCheckMeasuresOrderInsteadOfTrustingRegistration(
             projection.project_levels(mob, _RegisteredButNotIndexed({7}))
         self.assertIn("will not be indexed", str(caught.exception))
 
+    def test_a_mapping_registered_as_a_sequence_is_refused_by_index(self):
+        """The `KeyError` arm of the index walk, walked rather than written.
+
+        A mapping keyed by something other than `0..len-1` is the shape that
+        raises `KeyError` instead of `IndexError` when this helper asks for
+        position 0, and registering one as a `Sequence` is the only way it
+        gets that far.  Without this the arm would be a branch nothing walks
+        -- the defect this module was raised about twice.
+        """
+        mob = town_target_mob()
+
+        class _RegisteredMapping(dict):
+            pass
+
+        collections.abc.Sequence.register(_RegisteredMapping)
+        with self.assertRaises(
+                projection.UnorderedLevelRequestError) as caught:
+            projection.project_levels(mob, _RegisteredMapping({"a": 7}))
+        self.assertIn("will not be indexed", str(caught.exception))
+
     def test_a_container_whose_index_order_is_not_its_walk_order(self):
         """The other half of "the order given": one object, two orders."""
         mob = town_target_mob()

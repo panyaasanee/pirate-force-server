@@ -565,8 +565,14 @@ def _room(mob: Any, current_hp: Any = None) -> int:
     already refused by type; the record's now is too, through
     :class:`HpWillNotReadAsAnIntError`, and the coercion is gone -- there is
     no `int()` left in this function for a mutant to delete.
+
+    `mob.max_hp` is read directly rather than through a `getattr` default,
+    because every path here goes through :func:`damage_at_level` first and a
+    record that reached it is a typed `FieldMob` with that field.  A default
+    would be a branch nothing can walk, which is the defect T1-C and D4 were
+    both raised about in this same file.
     """
-    ceiling = _require_hp_int(getattr(mob, "max_hp", None), "max_hp")
+    ceiling = _require_hp_int(mob.max_hp, "max_hp")
     start = ceiling if current_hp is None else _require_hp_int(
         current_hp, "current_hp")
     if not mob_combat.HP_FLOOR <= start <= ceiling:
