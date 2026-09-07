@@ -33,7 +33,7 @@ import tempfile
 import sys
 import unittest
 from unittest import mock
-from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR
 from pathlib import Path
 
 from pf_preconditions import (BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS,
@@ -468,13 +468,17 @@ class Float32RoundingTests(unittest.TestCase):
         self.assertFalse(qc.is_exact_float32(value))
         self.assertEqual(qc.multiplier_decimal(value), Decimal(repr(value)))
 
-    def test_only_one_point_four_cells_moved_and_exactly_fourteen_did(self):
-        """The blast radius of this round's change, measured not asserted.
+    def test_the_fourteen_cells_wn088m_moved_up_are_moved_back_down(self):
+        """The blast radius of THIS round's change, measured not asserted.
 
-        Recomputes every plain-triple resolution both ways and requires
-        that the naive float floor and the decimal floor differ ONLY on
-        cells whose multiplier recovers to 1.4 -- 0.1/0.3/0.85 widen
-        upward and never lost a unit, which is why this survived a round.
+        Round ``wn088m`` could not read the width of the client's multiply
+        and bet on single precision, implemented as a decimal recovery of
+        the authored multiplier; that bet paid 14 shipped resolutions one
+        MORE than the client does.  RE-295 read the multiply (``mulsd``,
+        double) so the bet is settled and those 14 come back down.  This
+        test recomputes both readings over the whole corpus and requires
+        the disagreement to be exactly those cells -- a fifteenth means
+        the two readings differ somewhere nobody looked.
         """
         curve = qc.load_curve()
         moved = []
@@ -489,39 +493,90 @@ class Float32RoundingTests(unittest.TestCase):
                      row.sp_multiplier)):
                 amount, reason = qc.resolve_for_api(api, row.quest_id)
                 self.assertIsNone(reason)
-                naive = int(base * mult)
-                if naive != amount.amount:
-                    moved.append((row.quest_id, api, naive, amount.amount))
-                    self.assertEqual(amount.amount, naive + 1)
+                authored = int((Decimal(base) * qc.multiplier_decimal(mult))
+                               .to_integral_value(rounding=ROUND_FLOOR))
+                if authored != amount.amount:
+                    moved.append((row.quest_id, api, authored, amount.amount))
+                    # The client pays one LESS than the table's decimal.
+                    self.assertEqual(amount.amount, authored - 1)
                     self.assertEqual(qc.multiplier_decimal(mult),
                                      Decimal("1.4"))
-        # 16 cells in the mirror carry 1.4; 14 of them had an integer
-        # true product and so lost a unit to the binary floor.  The other
-        # two were fractional either way, which is why the count is 14
-        # and not 16 -- measured, not rounded off in prose.
+        # The same 14 cells and the same eight quests round wn088m named,
+        # walked in the other direction.
         self.assertEqual(len(moved), 14)
         self.assertEqual({q for q, _, _, _ in moved},
                          {2170, 2171, 2172, 2173, 2174, 2175, 2176, 2177})
         self.assertEqual({api for _, api, _, _ in moved},
                          {"AddCriteriaExp", "AddCriteriaSkillPoint"})
 
-    def test_the_naive_float_floor_would_underpay_a_real_quest(self):
-        """The concrete failure this round closed, spelled out.
+    def test_the_multiply_is_double_and_a_single_multiply_would_show(self):
+        """The one instruction the whole round turns on (RE-295).
 
-        Quest 2170 at level 40 pays 15800 * 1.4 = 22120 experience.  The
-        mirror's float32 1.4 makes that product 22119.9996..., so
-        ``int(...)`` -- what this module did until round ``wn088m`` -- paid
-        22119.  One unit, silently, on every 1.4 quest.
+        ``15800 * float32(1.4)`` is the case that separates the readings:
+        at double it is ``22119.999623298645`` and truncates to 22119; a
+        product kept in single rounds UP to exactly ``22120.0`` and
+        truncates to 22120.  A single-precision multiply therefore fails
+        here, which is what makes this pin worth having.
+        """
+        widened = qc.widen_float32(1.4)
+        product = qc.client_product(15800, widened)
+        self.assertEqual(product, 22119.999623298645)
+        self.assertEqual(qc.round_amount(Decimal(product)), 22119)
+        single = qc.widen_float32(qc.widen_float32(15800.0) * widened)
+        self.assertEqual(single, 22120.0)
+        self.assertNotEqual(int(single), qc.round_amount(Decimal(product)))
+
+    def test_the_base_goes_through_float32_before_the_multiply(self):
+        """``cvtsi2ss`` at 0x00608DC7, which no shipped row exercises.
+
+        Every base in the curve is under 2**24 so float32 holds it exactly
+        (pinned below); this uses a hand-made base because the module
+        reproduces the instruction, not the corpus.
+        """
+        self.assertEqual(qc.client_product(16777217, 1.0), 16777216.0)
+        self.assertNotEqual(qc.client_product(16777217, 1.0),
+                            float(16777217) * 1.0)
+        curve = qc.load_curve()
+        biggest = max(max(row.cash, row.exp, row.skill_point)
+                      for row in curve.values())
+        self.assertEqual(biggest, 14252800)
+        self.assertLess(biggest, 2 ** 24)
+        # ...so on shipped data the step is the identity, and saying so is
+        # not the same as saying the step is not there.
+        for row in curve.values():
+            for base in (row.cash, row.exp, row.skill_point):
+                self.assertEqual(qc.widen_float32(float(base)), float(base))
+
+    def test_an_operand_no_float32_can_hold_is_named_not_an_overflowerror(self):
+        """script_host blames the running script for a foreign exception
+        type (pf-adversary D11), so this module names itself -- and names
+        WHICH operand, since the base goes through float32 too now."""
+        with self.assertRaises(qc.QuestCriteriaError) as caught:
+            qc.client_product(10 ** 400, 1.0)
+        self.assertIn("base", str(caught.exception))
+        with self.assertRaises(qc.QuestCriteriaError) as caught:
+            qc.client_product(1, 1e300)
+        self.assertIn("multiplier", str(caught.exception))
+
+    def test_the_client_underpays_its_own_table_and_we_pay_what_it_pays(self):
+        """The concrete number this round moved, spelled out.
+
+        Quest 2170 at level 40: the designer typed 1.4 against a base of
+        15800 and meant 22120 experience.  The client stores 1.4 in a
+        float32 column, multiplies at double and truncates, so it pays
+        22119.  This server pays 22119 -- and keeps the 22120 on the
+        result, because a reward that differs from its own table is worth
+        seeing, not worth hiding.
         """
         amount, reason = qc.resolve_for_api("AddCriteriaExp", 2170)
         self.assertIsNone(reason)
         self.assertEqual(amount.base, 15800)
-        self.assertEqual(amount.amount, 22120)
-        self.assertEqual(int(amount.raw), 22119)  # the bug, kept as evidence
-        self.assertLess(amount.raw, 22120)
+        self.assertEqual(amount.amount, 22119)
+        self.assertEqual(amount.raw, 22119.999623298645)
+        self.assertEqual(amount.exact, Decimal("22120.0"))  # what 1.4 meant
 
-    def test_rounding_lives_at_one_place_and_that_place_is_floor(self):
-        """COO-DECISION 20260907_0845, checkable rather than remembered.
+    def test_rounding_lives_at_one_place_and_that_place_truncates(self):
+        """RE-295's ``cvttsd2si``, checkable rather than remembered.
 
         The first draft of this test counted the string
         ``to_integral_value`` and nothing else.  pf-adversary (D3, round
@@ -533,9 +588,17 @@ class Float32RoundingTests(unittest.TestCase):
         with it -- and the token count is kept only as a cheap second
         signal beside it.
         """
-        self.assertIs(qc.ROUNDING_MODE, ROUND_FLOOR)
+        self.assertIs(qc.ROUNDING_MODE, ROUND_DOWN)
         self.assertEqual(qc.round_amount(Decimal("22.9")), 22)
         self.assertEqual(qc.round_amount(Decimal("22.0")), 22)
+        # Truncate toward zero, not floor: identical on everything the
+        # mirror can produce (all operands >= 0) and different below zero,
+        # which only the public `resolve` can reach.  The module claims
+        # exactly that, so exactly that is pinned.
+        self.assertEqual(qc.round_amount(Decimal("-22.5")), -22)
+        self.assertEqual(Decimal("-22.5").to_integral_value(
+            rounding=ROUND_FLOOR), Decimal("-23"))
+        self.assertEqual(qc.resolve(qc.KIND_EXP, 1, -0.25).amount, -22)
         self.assertEqual(qc.resolve(qc.KIND_EXP, 1, 0.25).amount, 22)
         original = qc.ROUNDING_MODE
         try:
@@ -549,7 +612,7 @@ class Float32RoundingTests(unittest.TestCase):
                   / "quest_criteria.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("to_integral_value"), 1)
 
-    def test_every_resolution_is_its_own_exact_value_through_round_amount(self):
+    def test_every_resolution_is_its_own_client_product_through_round(self):
         """No second rounding path can creep in beside the first."""
         curve = qc.load_curve()
         for row in list(qc.load_reward_rows().values())[:200]:
@@ -563,25 +626,143 @@ class Float32RoundingTests(unittest.TestCase):
                     amount.exact,
                     Decimal(base_row.exp)
                     * qc.multiplier_decimal(row.exp_multiplier))
-                self.assertEqual(amount.amount, qc.round_amount(amount.exact))
+                self.assertEqual(
+                    amount.raw,
+                    qc.client_product(base_row.exp, row.exp_multiplier))
+                self.assertEqual(amount.amount,
+                                 qc.round_amount(Decimal(amount.raw)))
 
     def test_the_log_line_shows_the_authored_multiplier_not_the_widened_one(self):
         amount, _ = qc.resolve_for_api("AddCriteriaExp", 2170)
         line = amount.log_fields()
         self.assertIn("mult=1.4", line)
-        self.assertIn("amount=22120", line)
-        # A whole-number product does not shout an exact= nobody needs...
-        self.assertNotIn("exact=", line)
-        # ...but the float32 product the recovery acted on IS printed,
-        # because it is the only operator-visible sign that a recovery
-        # happened (pf-adversary D9, round wn088m).
-        self.assertIn("raw=22119.999623298645", line)
+        self.assertIn("amount=22119", line)
+        # The product the cast truncated, and the number the table's own
+        # decimal would have paid: the only operator-visible sign that the
+        # client and its designer disagree (pf-adversary D9, round
+        # wn088m, re-aimed by RE-295).
+        self.assertIn("product=22119.999623298645", line)
+        self.assertIn("authored=22120 ", line)
+        self.assertNotIn("22120.0", line)  # _plain, not str(Decimal)
         line.encode("ascii")
+
+        # A resolution the client pays exactly says neither.
+        clean = qc.resolve(qc.KIND_EXP, 15, 1.5).log_fields()
+        self.assertNotIn("product=", clean)
+        self.assertNotIn("authored=", clean)
+        self.assertIn("amount=1050", clean)
+        clean.encode("ascii")
 
     def test_a_fractional_reward_cannot_hide_behind_a_clean_integer(self):
         fractional = qc.resolve(qc.KIND_EXP, 1, 0.25)
-        self.assertIn("exact=22.5", fractional.log_fields())
-        self.assertIn("amount=22", fractional.log_fields())
+        line = fractional.log_fields()
+        self.assertIn("product=22.5", line)
+        self.assertIn("amount=22", line)
+        # ...and `authored=` stays quiet here, because the table's own
+        # decimal pays the SAME 22.  Printing it on every fractional
+        # product made it 171 false positives against 14 real ones
+        # (pf-adversary D3, round na0ftg).
+        self.assertNotIn("authored=", line)
+        line.encode("ascii")
+
+    def test_authored_prints_only_where_the_paid_integer_actually_differs(self):
+        """The 12:1 signal-to-noise pf-adversary D3 measured, closed.
+
+        Counted over every shipped plain-triple resolution: `authored=`
+        must appear exactly on the 14 cells where the client's integer and
+        the table's integer differ, not on the 185 where the two Decimals
+        differ at all.
+        """
+        curve = qc.load_curve()
+        printed = differ = 0
+        for row in qc.load_reward_rows().values():
+            base_row = curve.get(row.criteria_level)
+            if base_row is None:
+                continue
+            for kind, base, mult in (
+                    (qc.KIND_CASH, base_row.cash, row.cash_multiplier),
+                    (qc.KIND_EXP, base_row.exp, row.exp_multiplier),
+                    (qc.KIND_SKILL_POINT, base_row.skill_point,
+                     row.sp_multiplier)):
+                amount = qc.resolve(kind, row.criteria_level, mult)
+                if "authored=" in amount.log_fields():
+                    printed += 1
+                if amount.exact != amount.amount:
+                    differ += 1
+        self.assertEqual(printed, 14)
+        self.assertEqual(differ, 185)
+
+    def test_the_log_line_never_grows_an_exponent_on_a_round_number(self):
+        """``_plain``: ``22120``, not ``2.212E+4`` and not ``22120.0``."""
+        self.assertEqual(qc._plain(Decimal("22120.0")), "22120")
+        self.assertEqual(qc._plain(Decimal("22.50")), "22.5")
+        self.assertEqual(qc._plain(Decimal("0.00")), "0")
+        self.assertEqual(qc._plain(Decimal("-22.50")), "-22.5")
+        self.assertEqual(qc._plain(Decimal("1E+9")), "1000000000")
+
+    def test_the_log_formatter_cannot_raise_after_the_grant_is_made(self):
+        """pf-adversary D2, round na0ftg: `quantize` raised
+        InvalidOperation past the decimal context's 28 digits, and
+        `log_fields` runs AFTER `store.add_typed_attribute` returns -- so
+        the reward was paid and the line blamed a quest script."""
+        self.assertEqual(qc._plain(Decimal("1E+40")), "1" + "0" * 40)
+        self.assertEqual(qc._plain(Decimal("-1E+40")), "-1" + "0" * 40)
+        # Specials never come out of a product; a formatter that raises on
+        # them is still a formatter that raises.
+        self.assertEqual(qc._plain(Decimal("NaN")), "NaN")
+        self.assertEqual(qc._plain(Decimal("Infinity")), "Infinity")
+        line = qc.resolve(qc.KIND_EXP, 255, 1e21).log_fields()
+        self.assertIn("amount=", line)
+        line.encode("ascii")
+
+    def test_a_base_the_client_could_not_load_is_refused_not_wrapped(self):
+        """`cvtsi2ss` reads a SIGNED DWORD (pf-adversary D4, na0ftg).
+
+        The client would wrap 2**31 to -2**31 and pay a negative reward.
+        Nobody has observed that paying out, so this refuses rather than
+        inventing it -- and the message names the int32 boundary, not the
+        float32 one 12 orders of magnitude away.
+        """
+        self.assertEqual(qc.client_product(qc.INT32_MAX, 0.0), 0.0)
+        for bad in (qc.INT32_MAX + 1, qc.INT32_MIN - 1, 10 ** 400):
+            with self.subTest(base=bad):
+                with self.assertRaises(qc.QuestCriteriaError) as caught:
+                    qc.client_product(bad, 1.0)
+                self.assertIn("int32", str(caught.exception))
+                # ...and it does not dump 401 digits into a cp874 console.
+                self.assertLess(len(str(caught.exception)), 100)
+                str(caught.exception).encode("ascii")
+        for bad in (1.5, None, "90", True):
+            with self.subTest(base=bad):
+                with self.assertRaises(qc.QuestCriteriaError) as caught:
+                    qc.client_product(bad, 1.0)
+                self.assertIn("must be an int", str(caught.exception))
+
+    def test_a_multiplier_that_is_not_a_float_is_refused_by_name(self):
+        """The guard used to be `isinstance(multiplier, float)`, so a
+        Decimal walked past it and died as decimal.InvalidOperation deep
+        inside multiplier_decimal (pf-adversary D6, round na0ftg)."""
+        self.assertEqual(qc.resolve(qc.KIND_EXP, 40, Decimal("1.4")).amount,
+                         qc.resolve(qc.KIND_EXP, 40, 1.4).amount)
+        for bad in (Decimal("Infinity"), float("inf"), float("nan")):
+            with self.subTest(multiplier=bad):
+                with self.assertRaises(qc.QuestCriteriaError):
+                    qc.resolve(qc.KIND_EXP, 40, bad)
+        for bad in (None, "1.4", object()):
+            with self.subTest(multiplier=bad):
+                with self.assertRaises(qc.QuestCriteriaError) as caught:
+                    qc.resolve(qc.KIND_EXP, 40, bad)
+                self.assertIn("not a number", str(caught.exception))
+
+    def test_a_negative_zero_multiplier_cannot_poison_the_memo(self):
+        """pf-adversary D8, round na0ftg: the memo was keyed by the float,
+        and `hash(-0.0) == hash(0.0)`, so one resolution with a negative
+        zero made every later zero-multiplier line read `mult=-0`."""
+        qc.reset_caches()
+        self.assertIn("mult=-0 ", qc.resolve(qc.KIND_EXP, 40, -0.0).log_fields())
+        self.assertIn("mult=0 ", qc.resolve(qc.KIND_EXP, 40, 0.0).log_fields())
+        qc.reset_caches()
+        self.assertIn("mult=0 ", qc.resolve(qc.KIND_EXP, 40, 0.0).log_fields())
 
 
 
@@ -630,7 +811,7 @@ class QuestDispatchTests(unittest.TestCase):
         ns["AddCriteriaExp"]()
         self.assertIn("LUA_QUEST_CRITERIA Quest.AddCriteriaExp quest=2170",
                       calls[0])
-        self.assertIn("amount=22120", calls[0])
+        self.assertIn("amount=22119", calls[0])
         self.assertNotIn("refused", calls[0])
         # The default context still refuses, for the same honest reason.
         default_calls = []
