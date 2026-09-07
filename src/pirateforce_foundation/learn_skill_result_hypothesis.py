@@ -212,16 +212,31 @@ from .learn_skill_result_frame import (  # noqa: F401  (re-exported)
     LEARN_SKILL_RESULT_SERIALIZER_VA,
     LEARN_SKILL_RESULT_TRAILING_OBJECT_OFFSET,
     LEARN_SKILL_RESULT_TRAILING_TAG,
-    LEARN_SKILL_RESULT_VITAL_ID,
+    LEARN_SKILL_RESULT_VITAL_ID as _frame_vital_id,
     LEARN_SKILL_RESULT_VITAL_VERSION,
     LEARN_SKILL_RESULT_WRITE_LOOP_LEN,
     LEARN_SKILL_RESULT_WRITE_LOOP_SHA256,
     LEARN_SKILL_RESULT_WRITE_LOOP_VA,
     LearnSkillResultRecord,
+    _require_int,
     decode_learn_skill_result_payload,
     encode_learn_skill_result_payload,
     make_learn_skill_result_response,
 )
+
+# docs/HYPOTHESIS_LEDGER.json binds HYP-PF-033 to THIS file through a literal
+# source_ref marker, so the assignment stays here even though the value now
+# lives in the frame module (pf-adversary D1: the move alone turned
+# tests/test_hypothesis_ledger.py red, and the ledger's own content hash puts
+# editing the marker out of this lane's reach).  Two names, one value, and a
+# raise if they ever drift -- restating a constant is only safe when nothing
+# can restate it differently.
+LEARN_SKILL_RESULT_VITAL_ID = 0x673C
+if LEARN_SKILL_RESULT_VITAL_ID != _frame_vital_id:
+    raise RuntimeError(
+        "HYP-PF-033 vital id drift between the ledger marker and the frame "
+        "module"
+    )
 
 # PF-HYPOTHESIS-LEDGER: HYP-PF-033 active
 
