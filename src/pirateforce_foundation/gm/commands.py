@@ -110,6 +110,33 @@ COMMAND_USAGE = {
     # `gm/attr_wire.build_named_field_update` -- see that module's docstring
     # for why the two are not interchangeable doors.
     "speed": "speed <value>",
+    # A LANE-GM TOOLING COMMAND, like `gmprobe` and unlike the six above: it
+    # WRITES nothing -- no file, no row, no frame but its own sentence.  NOT
+    # "changes nothing at all", which this comment said until pf-adversary
+    # measured it (round `h7bwnl`, D5): the loader it calls prints
+    # `GM_LOGIN_SCENE_CONFIG_REFUSED` to stderr for every row the running
+    # process would refuse, INCLUDING rows belonging to other accounts, so
+    # typing `staged` does put lines on the server console.
+    #
+    # `staged` answers what THIS account's next login is staged to open, by
+    # asking the same lookup the login asks.  NOT "reads back what a previous
+    # cross-scene `/warp` wrote into `config/gm_login_scene.json`", which was
+    # this comment's other retracted half: since `h7bwnl` it consults both
+    # login-scene maps and the GM allowlist, so it can answer for a
+    # standalone entry no `/warp` ever wrote.  See `gm/staged_readback.py`'s
+    # module docstring for why a staged warp was the one durable effect this
+    # lane produced with no on-screen sentence of its own.  Appended LAST for
+    # the third time, for the reason both comments above give: growing the
+    # tuple by one at the end is a smaller drift than reordering anything
+    # already pinned ahead of it.
+    #
+    # NO ARGUMENTS, and that is a property rather than a convenience: a
+    # command with no arguments has no typed token to echo, resolve, or
+    # spell into a message, so the whole class of hazards the `warp <scene
+    # name>` form had to close (pf-adversary round `osxc85`, D1/D2) cannot
+    # exist here.  The identity whose staging is read is the session's
+    # authenticated `.token`, never anything in the payload.
+    "staged": "staged",
 }
 
 COMMAND_NAMES = tuple(COMMAND_USAGE)
@@ -276,11 +303,27 @@ OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED = "staged_login_scene_coords_ignored"
 # the gameplay command did not execute, a row was written.
 OUTCOME_LV_ROW_WRITTEN = "lv_row_written"
 
+# `staged` (`gm/staged_readback.py`).  NOT `composed`, and the difference is
+# what a reader of the audit file concludes rather than a nicety.  Everywhere
+# else in this vocabulary `composed` marks a GAMEPLAY frame that the caller
+# then puts on the wire, and the row that follows it is `queued`; a row of
+# `composed` with no `queued` after it therefore reads, correctly for every
+# other command, as "the frame was built and nothing sent it".  `staged`
+# composes a NOTICE -- `is_notice=True`, so no `queued` row is ever written
+# for it -- and borrowing `composed` minted exactly that never-sent
+# signature for a command that worked (pf-adversary round `qpauwp`, D6).
+# Its own word says what happened and claims no more: the readback was
+# answered, a notice frame carrying the answer went back to the caller, and
+# nothing durable moved anywhere.  `executed` stays False for the same
+# reason it does for the two outcomes above -- no gameplay command ran.
+OUTCOME_STAGED_READBACK_ANSWERED = "staged_readback_answered"
+
 AUDIT_OUTCOMES = (
     OUTCOME_COMPOSED,
     OUTCOME_STAGED_LOGIN_SCENE,
     OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
     OUTCOME_LV_ROW_WRITTEN,
+    OUTCOME_STAGED_READBACK_ANSWERED,
 )
 AUDIT_OUTCOME_PREFIXES = (OUTCOME_WITHHELD_PREFIX, OUTCOME_REFUSED_PREFIX)
 
@@ -397,6 +440,17 @@ def parse_gm_command(text: str) -> GmCommand:
         # merely happens to parse there.
         _require_number(args[0], "value")
         return GmCommand(name, tuple(args), stripped)
+
+    if name == "staged":
+        # NO ARGUMENTS AT ALL -- and the check is `rest.split()`, not
+        # `rest`, so `staged   ` (trailing spaces, which a chat client sends
+        # more often than not) is the same command as `staged`.  Anything
+        # else is a parse refusal carrying the table's own sentence, so a
+        # GM who typed `staged 123` reading the answer learns the command
+        # takes nothing, rather than watching their argument be ignored.
+        if rest.split():
+            raise GmCommandParseError(COMMAND_USAGE["staged"])
+        return GmCommand(name, (), stripped)
 
     if name == "gmprobe":
         args = rest.split()

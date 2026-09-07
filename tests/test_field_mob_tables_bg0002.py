@@ -94,10 +94,24 @@ BG0001_UNTOUCHED_SHA256 = (
 BG0001_UNTOUCHED_SIZE = 12316
 
 EXPECTED_SCENE = "Bg0002"
-EXPECTED_HOSTILE_COUNT = 17
-EXPECTED_TEMPLATE_COUNT = 4
-EXPECTED_TEMPLATES = {31, 34, 35, 103}
-EXPECTED_UNAMBIGUOUS = 49
+# ROUND najn72: the scene was re-mined under the CROSSWALK identity rule and
+# the owner's outfit rule (NOW.md `1313` "an enemy is n_RANK + n_AI_COMBAT,
+# s_OUTFIT decides nothing"; owner tick 20260908_0025 item 1, "do them
+# together"), regenerated with
+#   tools/pf_mine_scene_mob_roster.py --gamedata <bridge>/gamedata
+#     --scene Bg0002 --identity-rule cline --outfit-rule any
+# ~~17 rows / 4 templates {31, 34, 35, 103} / 49 unambiguous~~ ->
+# 52 rows / 9 templates {27..35} / 104 unambiguous.  The templates are the
+# whole 27-35 census block the PANYA-DECISION ADDENDUM named, and
+# mob_death's Bg0002 widening ruling moved to exactly that set in the same
+# commit -- which is the point of the owner's "together": neither the roster
+# nor the ruling is allowed to be ahead of the other.
+EXPECTED_HOSTILE_COUNT = 52
+EXPECTED_TEMPLATE_COUNT = 9
+EXPECTED_TEMPLATES = set(range(27, 36))
+EXPECTED_UNAMBIGUOUS = 104
+EXPECTED_IDENTITY_RULE = "cline"
+EXPECTED_OUTFIT_RULE = "any"
 
 
 def _load_tool():
@@ -147,21 +161,35 @@ class Bg0002ShapeTests(unittest.TestCase):
             module.PREDICATE_CENSUS["rank_and_ai_combat"], EXPECTED_HOSTILE_COUNT
         )
 
-    def test_template_27_mountain_deer_is_not_in_this_roster(self) -> None:
-        # The decision letter's own block is templates 1-41; 1-26 are
-        # single-instance NPCs and 27-35 are the monster block. This pins
-        # the concrete reason template 27 (Mountain Deer, the DIAG-001
-        # body) is absent from THIS table specifically, so a future reader
-        # does not mistake the absence for an oversight: CONSTDATA_TH__
-        # MOBS.tsv row 27's s_OUTFIT is a ";"-joined two-variant list, which
-        # fails the mining tool's own single-unambiguous-basename rule --
-        # see mob_diag_multi_object.py for where template 27's row actually
-        # lives (hand-mined, not generated).
+    def test_the_whole_27_35_monster_block_is_in_this_roster(self) -> None:
+        # ROUND najn72.  ~~test_template_27_mountain_deer_is_not_in_this_
+        # roster~~ INVERTED, and the old reason is kept because it is what
+        # changed: templates 27-30, 32 and 33 used to be absent because
+        # CONSTDATA_TH__MOBS.tsv gives them a ";"-joined multi-variant
+        # s_OUTFIT, which failed the mining tool's single-unambiguous-
+        # basename rule.  The owner WITHDREW that rule (COO-DECISION
+        # 20260907_1346, NOW.md `1313`: s_OUTFIT has no effect on who is an
+        # enemy), so their absence WAS the oversight and this table is now
+        # the whole 27-35 monster block of the decision letter's own
+        # numbering (1-26 are single-instance NPCs).
+        # Template 27 (Mountain Deer) is now in TWO places on purpose: here
+        # as a real Bg0002 placement, and in mob_diag_multi_object.py as the
+        # hand-mined DIAG-001 body standing at the bg0001 test point.  The
+        # two are separated by SCENE, not by template -- mob_death's
+        # WIDENING_RULING_SCENES ties each ruling to one scene and kill()
+        # checks mob.scene, which tests/test_mob_death.py drives across the
+        # crossing rather than asserting here.
         module = _load_generated_module()
         templates = {row[1] for row in module.HOSTILE_PLACEMENTS}
-        self.assertNotIn(27, templates)
-        for excluded in (27, 28, 29, 30, 32, 33):
-            self.assertNotIn(excluded, templates)
+        self.assertEqual(templates, EXPECTED_TEMPLATES)
+        for expected in (27, 28, 29, 30, 32, 33):
+            self.assertIn(expected, templates)
+        # And the rule labels say so per row, so nothing infers the rule
+        # from the counts above.
+        self.assertEqual(module.IDENTITY_RULE, EXPECTED_IDENTITY_RULE)
+        self.assertEqual(
+            set(module.IDENTITY_RULE_PER_PLACEMENT.values()),
+            {EXPECTED_IDENTITY_RULE})
 
     def test_field_mob_tables_bg0001_is_untouched_by_this_round(self) -> None:
         raw = BG0001_PATH.read_bytes()
@@ -234,31 +262,48 @@ class Bg0002RegenerateAndDiffTest(unittest.TestCase):
     def test_regenerating_reproduces_the_committed_module_byte_for_byte(self) -> None:
         tool = _load_tool()
         sources = tool.Sources(GAMEDATA, EXPECTED_SCENE)
-        tool.check_controls(sources)
-        census = tool.predicate_census(sources)
-        roster = tool.hostile_roster(sources)
-        # Round szdkgs: the generator grew an identity rule and this scene is
-        # still mined under the legacy set-number one, on purpose -- see
-        # LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION in bg0001's module and
-        # this lane's round note.  The call below names that rule explicitly
-        # rather than inheriting the tool's new default, so a future round
-        # that re-mines this scene through the crosswalk has to come here and
-        # say so.
+        # ROUND najn72: ~~check_controls~~ -> check_crosswalk_controls.  The
+        # tool picks the control by rule (see its main()), and this scene is
+        # on the crosswalk now: the set-number control re-derives an identity
+        # scheme this scene no longer uses, and its findings are not what the
+        # module carries.  Taken from the tool's own branch rather than
+        # hand-copied so a control change lands here too.
+        controls = tool.check_crosswalk_controls(sources)
+        census = tool.predicate_census(
+            sources, rule=tool.IDENTITY_RULE_CLINE,
+            outfit_rule=tool.OUTFIT_RULE_ANY)
+        roster = tool.hostile_roster(
+            sources, rule=tool.IDENTITY_RULE_CLINE,
+            outfit_rule=tool.OUTFIT_RULE_ANY)
+        # ROUND najn72: "a future round that re-mines this scene through the
+        # crosswalk has to come here and say so" -- this is that round, and
+        # this is it saying so.  ~~IDENTITY_RULE_SETNUM + the tool's default
+        # outfit rule~~ -> the crosswalk and the owner's outfit rule, both
+        # named explicitly for the same reason the old pair was: the tool's
+        # DEFAULTS must not be able to move this scene silently, in either
+        # direction.  NOW.md `1313` rules bg0002 onto `cline` and takes
+        # s_OUTFIT out of the hostility decision; the owner's tick
+        # 20260908_0025 item 1 orders it in one commit with mob_death's
+        # widening ruling.
         regenerated = tool.render_module(
             EXPECTED_SCENE, roster, sources.digests(), census,
-            rule=tool.IDENTITY_RULE_SETNUM, cline_type=sources.cline_type,
-            controls={"legacy_setnum_controls": "re-derived"},
+            rule=tool.IDENTITY_RULE_CLINE, cline_type=sources.cline_type,
+            controls=controls,
             withdrawn=tool.withdrawn_under_rule(
-                sources, tool.IDENTITY_RULE_SETNUM),
+                sources, tool.IDENTITY_RULE_CLINE,
+                outfit_rule=tool.OUTFIT_RULE_ANY),
             unresolved=tool.unresolved_placements(
-                sources, tool.IDENTITY_RULE_SETNUM),
+                sources, tool.IDENTITY_RULE_CLINE,
+                outfit_rule=tool.OUTFIT_RULE_ANY),
             rank_zero_combat=[
                 tool._roster_row(sources, item)
                 for item in tool.unambiguous_placements(
-                    sources, tool.IDENTITY_RULE_SETNUM)
+                    sources, tool.IDENTITY_RULE_CLINE,
+                    outfit_rule=tool.OUTFIT_RULE_ANY)
                 if tool._nonzero(item[6], "n_AI_COMBAT")
                 and not tool._nonzero(item[6], "n_RANK")
             ],
+            outfit_rule=tool.OUTFIT_RULE_ANY,
         )
         committed = MODULE_PATH.read_text(encoding="ascii")
         self.assertEqual(
@@ -271,18 +316,25 @@ class Bg0002RegenerateAndDiffTest(unittest.TestCase):
     def test_the_predicate_census_matches_the_recorded_finding(self) -> None:
         tool = _load_tool()
         sources = tool.Sources(GAMEDATA, EXPECTED_SCENE)
-        census = tool.predicate_census(sources)
+        census = tool.predicate_census(
+            sources, rule=tool.IDENTITY_RULE_CLINE,
+            outfit_rule=tool.OUTFIT_RULE_ANY)
         self.assertEqual(census["unambiguous"], EXPECTED_UNAMBIGUOUS)
         self.assertEqual(census["ai_combat"], EXPECTED_HOSTILE_COUNT)
         self.assertEqual(census["drops_normal"], EXPECTED_HOSTILE_COUNT)
         self.assertEqual(census["rank"], EXPECTED_HOSTILE_COUNT)
         self.assertEqual(census["rank_and_ai_combat"], EXPECTED_HOSTILE_COUNT)
 
-    def test_hostile_roster_count_is_seventeen_from_live_gamedata(self) -> None:
+    def test_hostile_roster_count_is_fifty_two_from_live_gamedata(self) -> None:
+        # ROUND najn72: ~~..._is_seventeen_...~~ -> fifty-two, and the rules
+        # are named at the call rather than inherited from the tool's
+        # defaults (see the byte-for-byte control above for why).
         tool = _load_tool()
         sources = tool.Sources(GAMEDATA, EXPECTED_SCENE)
         tool.check_controls(sources)
-        roster = tool.hostile_roster(sources)
+        roster = tool.hostile_roster(
+            sources, rule=tool.IDENTITY_RULE_CLINE,
+            outfit_rule=tool.OUTFIT_RULE_ANY)
         self.assertEqual(len(roster), EXPECTED_HOSTILE_COUNT)
         self.assertEqual(
             len({row["template_id"] for row in roster}), EXPECTED_TEMPLATE_COUNT
@@ -291,14 +343,18 @@ class Bg0002RegenerateAndDiffTest(unittest.TestCase):
             {row["template_id"] for row in roster}, EXPECTED_TEMPLATES
         )
 
-    def test_template_27_fails_only_the_outfit_ambiguity_half_of_selection(
-            self) -> None:
+    def test_template_27_was_excluded_by_the_outfit_half_alone(self) -> None:
         # Confirms, against LIVE gamedata rather than a hand-typed claim,
         # that template 27 (Mountain Deer) really does pass the
-        # RANK+AI_COMBAT hostility predicate and really is excluded solely
-        # by the outfit-unambiguous half of the selection rule -- the exact
-        # distinction mob_diag_multi_object.py's own provenance comment and
-        # mob_death.py's WIDENING_RULINGS comment both depend on.
+        # RANK+AI_COMBAT hostility predicate and really was excluded solely
+        # by the outfit-unambiguous half of the selection rule.
+        # ROUND najn72: the claim is now provable IN BOTH DIRECTIONS on the
+        # same sources, which is strictly stronger than the one-sided
+        # absence it used to assert -- flip only the outfit rule, with the
+        # identity rule held at the crosswalk, and template 27 appears.  That
+        # is the whole content of "the outfit half alone", and it is why the
+        # owner withdrawing that half (COO-DECISION 20260907_1346, NOW.md
+        # `1313`) put the 27-35 block into this scene's roster.
         tool = _load_tool()
         sources = tool.Sources(GAMEDATA, EXPECTED_SCENE)
         mob27 = sources.mobs.get("27")
@@ -307,8 +363,14 @@ class Bg0002RegenerateAndDiffTest(unittest.TestCase):
         self.assertTrue(tool._nonzero(mob27, "n_AI_COMBAT"))
         outfit = (mob27.get("s_OUTFIT") or "").strip()
         self.assertIn(";", outfit)
-        roster = tool.hostile_roster(sources)
-        self.assertNotIn(27, {row["template_id"] for row in roster})
+        withdrawn_rule = tool.hostile_roster(
+            sources, rule=tool.IDENTITY_RULE_CLINE,
+            outfit_rule=tool.OUTFIT_RULE_UNAMBIGUOUS)
+        self.assertNotIn(27, {row["template_id"] for row in withdrawn_rule})
+        owners_rule = tool.hostile_roster(
+            sources, rule=tool.IDENTITY_RULE_CLINE,
+            outfit_rule=tool.OUTFIT_RULE_ANY)
+        self.assertIn(27, {row["template_id"] for row in owners_rule})
 
     #: R322B, attended 2026-09-07: the console this scene printed on the
     #: owner's machine was ``MOB_CENSUS_HOSTILITY scene_id=2 roster=12
@@ -378,10 +440,25 @@ class Bg0002RegenerateAndDiffTest(unittest.TestCase):
             "the outfit-ambiguity gap in this scene changed size; re-read it "
             "before changing any number that quotes it",
         )
-        # The complement: what the rule does ship, and the number the game's
-        # own census printed.
-        roster = tool.hostile_roster(sources)
+        # ROUND najn72: THE GAP IS CLOSED, and this is where that is
+        # measured rather than announced.  The 40 placements counted above
+        # are exactly what the outfit half was refusing; with the owner's
+        # rule in force the same sources ship 52 rows -- 12 under the old
+        # reading (the number R322B's console printed) plus those 40.  The
+        # owner's screen question ("why is only the fish attackable") has a
+        # data answer AND a fix in the same file now.
+        old_reading = tool.hostile_roster(
+            sources, rule=tool.IDENTITY_RULE_CLINE,
+            outfit_rule=tool.OUTFIT_RULE_UNAMBIGUOUS)
+        roster = tool.hostile_roster(
+            sources, rule=tool.IDENTITY_RULE_CLINE,
+            outfit_rule=tool.OUTFIT_RULE_ANY)
         self.assertEqual(len(roster), EXPECTED_HOSTILE_COUNT)
+        self.assertEqual(
+            len(roster) - len(old_reading), refused_placements,
+            "the rows the owner's outfit rule readmits are no longer the "
+            "rows the outfit half was refusing -- re-read both before "
+            "changing either number")
 
 
 if __name__ == "__main__":

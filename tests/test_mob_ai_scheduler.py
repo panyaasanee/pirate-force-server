@@ -49,7 +49,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
-    field_mob_tables_bg0002, field_mobs, mob_aggro, mob_ai_control,
+    field_mob_tables_bg0002, field_mob_tables_bg0003, field_mobs, mob_aggro,
+    mob_ai_control,
     mob_ai_scheduler, mob_combat,
 )
 from pirateforce_foundation.mob_ai_scheduler import (  # noqa: E402
@@ -63,7 +64,14 @@ OTHER_PLAYER = 0x750060
 # The two mined values this file states rather than reads back out of the
 # module it tests -- same convention test_mob_ai_control.py uses.
 MINED_AGGRO_RADIUS = 1200
-BG0002_OFFENSIVE_PLACEMENT = 92  # Orc Chief, ai_wander=11 (offensive), ai_combat=332
+# ROUND najn72: ~~OFFENSIVE_SCENE_PLACEMENT = 92 (Orc Chief)~~.  Scene 2 was
+# re-mined through the crosswalk with the owner's outfit rule (NOW.md `1313`,
+# tick 20260908_0025): all 52 of its shipped placements are ai_wander 16, and
+# placements 92-96 are gone from the table.  The offensive subject moves to
+# Bg0003 placement 33 ("Ward Apes", ai_wander 11, ai_combat 133), which this
+# lane genuinely SHIPS -- unlike the Orc Chief rows, which the owner's own
+# refusal list kept out of every roster this scheduler ever drove.
+OFFENSIVE_SCENE_PLACEMENT = 33
 
 
 class SchedulerTickTests(unittest.TestCase):
@@ -72,15 +80,15 @@ class SchedulerTickTests(unittest.TestCase):
         self.register = mob_ai_control.open_register(self.roster)
         self.ledger = mob_combat.open_ledger(self.roster)
 
-        bg0002_roster = field_mobs._parse_hostile_placements(
-            field_mob_tables_bg0002)
+        bg0002_roster = field_mobs.load_roster(
+            scene=field_mob_tables_bg0003.SCENE)
         self.bg0002_by_placement = {
             m.placement_index: m for m in bg0002_roster}
         self.bg0002_register = mob_ai_control.open_register(bg0002_roster)
         self.bg0002_ledger = mob_combat.open_ledger(bg0002_roster)
 
     def test_a_charging_monster_acquires_through_the_scheduler_without_a_hit(self):
-        mob = self.bg0002_by_placement[BG0002_OFFENSIVE_PLACEMENT]
+        mob = self.bg0002_by_placement[OFFENSIVE_SCENE_PLACEMENT]
         new_register, results = tick_session(
             self.bg0002_register, self.bg0002_ledger, PLAYER,
             (mob.x + 100.0, mob.y, mob.z))
@@ -99,7 +107,7 @@ class SchedulerTickTests(unittest.TestCase):
         self.assertIs(mob_aggro.ATTACK_INTENT_DELIVERABLE, False)
 
     def test_a_monster_outside_its_mined_radius_does_not_acquire(self):
-        mob = self.bg0002_by_placement[BG0002_OFFENSIVE_PLACEMENT]
+        mob = self.bg0002_by_placement[OFFENSIVE_SCENE_PLACEMENT]
         _new_register, results = tick_session(
             self.bg0002_register, self.bg0002_ledger, PLAYER,
             (mob.x + float(MINED_AGGRO_RADIUS) + 1.0, mob.y, mob.z))
@@ -150,7 +158,7 @@ class SchedulerTickTests(unittest.TestCase):
             self.assertTrue(new_register.is_tracked(identity))
 
     def test_a_call_is_pure_on_the_register_it_was_given(self):
-        mob = self.bg0002_by_placement[BG0002_OFFENSIVE_PLACEMENT]
+        mob = self.bg0002_by_placement[OFFENSIVE_SCENE_PLACEMENT]
         before_generation = self.bg0002_register.generation
         tick_session(self.bg0002_register, self.bg0002_ledger, PLAYER,
                      (mob.x + 100.0, mob.y, mob.z))
@@ -162,7 +170,7 @@ class SchedulerTickTests(unittest.TestCase):
             "dataclasses are frozen, but this pins the observable promise")
 
     def test_two_calls_with_the_same_inputs_agree(self):
-        mob = self.bg0002_by_placement[BG0002_OFFENSIVE_PLACEMENT]
+        mob = self.bg0002_by_placement[OFFENSIVE_SCENE_PLACEMENT]
         first_register, first_results = tick_session(
             self.bg0002_register, self.bg0002_ledger, PLAYER,
             (mob.x + 100.0, mob.y, mob.z))
@@ -176,7 +184,7 @@ class SchedulerTickTests(unittest.TestCase):
             first_register.identities(), second_register.identities())
 
     def test_a_dead_player_is_not_visible_to_any_monster(self):
-        mob = self.bg0002_by_placement[BG0002_OFFENSIVE_PLACEMENT]
+        mob = self.bg0002_by_placement[OFFENSIVE_SCENE_PLACEMENT]
         _new_register, results = tick_session(
             self.bg0002_register, self.bg0002_ledger, PLAYER,
             (mob.x + 100.0, mob.y, mob.z), player_alive=False)

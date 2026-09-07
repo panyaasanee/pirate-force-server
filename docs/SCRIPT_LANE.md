@@ -397,7 +397,7 @@ encoders this lane does not own), then the rest of `Quest.*` (15 names:
 `CountDownTime`/reward-and-grant names still need a LANE-DB column or a
 `Player.*` grant seam this lane does not own yet, `GetWeekDay`/
 `CheckWishQuest` on undocumented enums/cross-lane guild state -- see
-"Round 7v7yn2" below), then the rest of `Player.*` (63 names, grouped by
+"Round 7v7yn2" below), then the rest of `Player.*` (62 names, grouped by
 blocker in `lua_api/player.py`'s own `STILL_STUBBED` -- item/equipment
 WRITE state (the inventory seam's write side, blocked on `RE-280`), a
 stat-grant write seam, other per-character stat reads, skill/buff state,

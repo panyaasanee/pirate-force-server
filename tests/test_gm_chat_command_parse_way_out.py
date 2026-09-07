@@ -73,6 +73,12 @@ SILENT_BEFORE_THIS_ROUND = (
 # `test_gm_source_is_cp874_safe.py` and none of these characters has a cp874
 # mapping.  RLO = the bidi override `has_format_characters` refuses.
 RLO = "\u202e"
+
+# The verbs whose bare form IS the command, so the table-sentence sweep in
+# `TheUsageHintItselfTests` has no arity error to ask them for. One entry
+# today (`staged`, LANE-GM round `qpauwp`); every entry is paid for by
+# `TheCommandsThatTakeNoArgumentsTests`.
+NO_ARGUMENT_COMMANDS = ("staged",)
 ZWSP = "\u200b"
 HEBREW = "\u05d0\u05d1\u05d2"
 CJK = "\u4e2d\u6587"
@@ -868,7 +874,12 @@ class TheUsageHintItselfTests(unittest.TestCase):
             # reordering anything already pinned ahead of it -- see
             # COMMAND_USAGE's own comment for each addition's placement
             # reasoning.
-            ("warp", "npc", "item", "lv", "spawn", "say", "gmprobe", "speed"),
+            # `staged` appended after `speed` by LANE-GM round `qpauwp`,
+            # the third addition to grow this tuple by one at the end.
+            (
+                "warp", "npc", "item", "lv", "spawn", "say", "gmprobe",
+                "speed", "staged",
+            ),
             tuple(gm_commands.COMMAND_USAGE),
         )
         self.assertEqual(
@@ -880,6 +891,13 @@ class TheUsageHintItselfTests(unittest.TestCase):
         prevent -- so the parser's arity errors must BE the table's values,
         not merely resemble them."""
         for name, usage in gm_commands.COMMAND_USAGE.items():
+            if name in NO_ARGUMENT_COMMANDS:
+                # A verb that takes no arguments has no arity error to
+                # compare: typing it bare IS the command. Pinned by
+                # `TheCommandsThatTakeNoArgumentsTests` below instead, so
+                # this exemption cannot quietly grow to cover a verb that
+                # merely forgot to check its arity.
+                continue
             with self.subTest(command=name):
                 with self.assertRaises(gm_commands.GmCommandParseError) as caught:
                     gm_commands.parse_gm_command(name)
@@ -916,6 +934,51 @@ class TheUsageHintItselfTests(unittest.TestCase):
         ):
             with self.subTest(body=body[:20]):
                 self.assertIn(gm_commands.usage_hint_for(body), allowed)
+
+
+class TheCommandsThatTakeNoArgumentsTests(unittest.TestCase):
+    """The exemption `NO_ARGUMENT_COMMANDS` buys, paid for in full.
+
+    `staged` (LANE-GM round `qpauwp`) is the first verb in this grammar whose
+    bare form is the whole command, so the table-sentence sweep above cannot
+    ask it for an arity error. That sweep is what keeps every OTHER verb's
+    way-out honest, so the exemption is only safe while these assertions
+    hold: the verb parses bare, it carries no arguments, and it still refuses
+    an argument with the table's own sentence.
+    """
+
+    def test_every_exempt_verb_is_really_in_the_table(self):
+        for name in NO_ARGUMENT_COMMANDS:
+            with self.subTest(command=name):
+                self.assertIn(name, gm_commands.COMMAND_USAGE)
+
+    def test_the_bare_verb_parses_and_carries_no_arguments(self):
+        for name in NO_ARGUMENT_COMMANDS:
+            with self.subTest(command=name):
+                parsed = gm_commands.parse_gm_command(name)
+                self.assertEqual(name, parsed.name)
+                self.assertEqual((), parsed.args)
+
+    def test_trailing_whitespace_is_still_the_bare_verb(self):
+        """A chat client sends `staged   ` as often as `staged`, and the two
+        must not be one command and one refusal."""
+        for name in NO_ARGUMENT_COMMANDS:
+            with self.subTest(command=name):
+                self.assertEqual(
+                    (), gm_commands.parse_gm_command(f"{name}   ").args
+                )
+
+    def test_an_argument_is_refused_with_the_tables_own_sentence(self):
+        for name in NO_ARGUMENT_COMMANDS:
+            for body in (f"{name} 12", f"{name} anything at all"):
+                with self.subTest(body=body):
+                    with self.assertRaises(
+                        gm_commands.GmCommandParseError
+                    ) as caught:
+                        gm_commands.parse_gm_command(body)
+                    self.assertEqual(
+                        gm_commands.COMMAND_USAGE[name], str(caught.exception)
+                    )
 
 
 class TheSigilHasOneDefinitionTests(unittest.TestCase):

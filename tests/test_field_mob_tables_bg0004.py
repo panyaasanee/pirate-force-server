@@ -436,7 +436,12 @@ class Bg0004ShapeTests(unittest.TestCase):
             self) -> None:
         """A sixth scene must not move the five already on the wire."""
         self.assertEqual(len(field_mobs.roster_for_scene_id(1)), 4)
-        self.assertEqual(len(field_mobs.roster_for_scene_id(2)), 12)
+        # ROUND najn72: ~~12~~ -> 52.  Scene 2 was re-mined through the
+        # crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+        # 20260908_0025).  This line means "registering THIS scene left
+        # scene 2 alone", and it still does: the number moved in the
+        # round that re-mined scene 2, not in this one.
+        self.assertEqual(len(field_mobs.roster_for_scene_id(2)), 52)
         self.assertEqual(len(field_mobs.roster_for_scene_id(3)), 12)
         self.assertEqual(len(field_mobs.roster_for_scene_id(5)), 6)
         # Written as the live count minus the withheld list rather than as a
@@ -612,8 +617,8 @@ class Bg0004DeathRulingTests(unittest.TestCase):
                     self.assertNotIn(
                         RULING_0546, mob_death.rulings_covering(mob))
         # And the reverse direction, which is the half a one-sided check
-        # misses: Bg0002's letter covers template 103 and must not reach
-        # THIS scene's Orc Chief.
+        # misses: a letter of ANOTHER scene that covers template 103 must
+        # not reach THIS scene's Orc Chief.
         orc = [mob for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
                if mob.template_id == 103]
         self.assertEqual(len(orc), 1)
@@ -623,15 +628,49 @@ class Bg0004DeathRulingTests(unittest.TestCase):
         # THIS scene in WIDENING_RULING_SCENES, so the hazard this loop
         # measures -- another scene's letter reaching this scene's Orc Chief
         # -- is not something it can be.
+        # ROUND najn72: THE WITNESS RAN OUT, and it is replaced rather than
+        # deleted.  Bg0002's letter used to be the foreign letter naming 103;
+        # the scene was re-mined through the crosswalk (NOW.md `1313`, tick
+        # 20260908_0025), no Bg0002 row carries 103 any more, and its ruling
+        # dropped 103 in the same commit -- so there is now NO letter of any
+        # other scene that names one of this scene's five templates.
+        # Measured, not assumed: the first assertion below is that emptiness,
+        # said out loud so a future letter re-creating the overlap turns this
+        # into a real comparison again instead of passing vacuously.
+        # The mechanism is then driven anyway, on a permit built HERE: a
+        # tied letter naming 103 for a different scene, which must not cover
+        # this scene's Orc Chief.  That is stronger than the data
+        # coincidence it replaces -- it holds whatever the shipped letters
+        # happen to say this week.
         derived = mob_death.RULE_DERIVED_RULING_FOR_SCENE[EXPECTED_SCENE]
-        bg0002_letters = [
+        foreign_letters = [
             name for name, templates in mob_death.WIDENING_RULINGS.items()
             if 103 in templates and name not in (RULING_0546, derived)
         ]
-        self.assertTrue(bg0002_letters)
-        for name in bg0002_letters:
+        self.assertEqual(
+            foreign_letters, [],
+            "a letter of another scene names template 103 again -- this "
+            "card's original witness is back and should be compared here "
+            "as well as the synthetic one below",
+        )
+        for name in foreign_letters:
             with self.subTest(letter=name):
                 self.assertNotIn(name, mob_death.rulings_covering(orc[0]))
+        probe = "TEST-ONLY najn72 foreign-letter probe naming template 103"
+        self.assertNotIn(probe, mob_death.WIDENING_RULINGS)
+        mob_death.WIDENING_RULINGS[probe] = frozenset({103})
+        mob_death.WIDENING_RULING_SCENES[probe] = field_mobs.BG0002_SCENE
+        try:
+            self.assertNotIn(probe, mob_death.rulings_covering(orc[0]))
+            # and the same permit DOES reach a row of the scene it names,
+            # so the negative above is the tie doing its job and not the
+            # probe being inert.
+            standin = dataclasses.replace(
+                orc[0], scene=field_mobs.BG0002_SCENE)
+            self.assertIn(probe, mob_death.rulings_covering(standin))
+        finally:
+            del mob_death.WIDENING_RULINGS[probe]
+            del mob_death.WIDENING_RULING_SCENES[probe]
 
 
 class Bg0004CollisionWalkTests(unittest.TestCase):
@@ -1072,8 +1111,27 @@ class GeneratedSiblingTablesAreProtectedOffBridgeTests(unittest.TestCase):
     DROP_TABLE_NAMES = (
         "DROPS_NORMAL", "DROPS_EQUIPMENT", "DROPS_SPECIALLY", "ITEMS",
         "REFERENCED_BY", "SCENES")
+    # RE-PINNED round najn72: field_drop_tables.py was regenerated with
+    # tools/pf_mine_scene_drop_tables.py after LANE-B re-mined Bg0002 through
+    # the crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+    # 20260908_0025) -- the scene went 12 -> 52 shipped placements and the 40
+    # readmitted rows name DROPS_SPECIALLY sets 2802202, 2802222 and 2802228,
+    # none of which the previous union ever asked the bridge tables for (a
+    # kill on one of those rows raised MobLootContractError unknown_drop_set,
+    # measured before the regeneration).
+    # THIS ONE IS NOT ADDITIONS-ONLY, and saying so is the point of the pin.
+    # Diffed with ``git diff origin/main HEAD -- src/pirateforce_foundation/
+    # field_drop_tables.py``: three new DROPS_SPECIALLY sets, three new ITEMS
+    # rows (2414002 Sediment Wolf, 2414022 Mountain Deer, 2414028 Rock
+    # turtle), and REFERENCED_BY entries that GREW and RE-ORDERED --
+    # 2701001 and 5400001 go from (31, 34, 35) to all nine of {27..35}, and
+    # 2701003/5400003 keep the same members in a different order.  No drop
+    # set and no item row was removed.  REFERENCED_BY is in this digest on
+    # purpose (D1 measured that reverting an entry stayed green off-bridge),
+    # so a re-ordering is a re-pin here rather than something the guard is
+    # allowed to shrug at.
     DROP_TABLES_SHA256 = (
-        "ddca33f5abbd10a9959d9ce02476316a55bbcd397c8827b8c32b415858004727")
+        "562f4c0a2db2d88689fcba5b987856a83a33f884770e5e5f8e5664ce3fa0378b")
 
     AI_TABLE_NAMES = (
         "AI_COMBAT_ROWS", "AI_COMBAT_PARALLEL", "AI_WANDER_ROWS",
@@ -1110,8 +1168,25 @@ class GeneratedSiblingTablesAreProtectedOffBridgeTests(unittest.TestCase):
     # loss of either copy. Left as recorded debt rather than fixed here:
     # de-duplicating would need a scene-qualified key, which is a table
     # schema change outside this round's scope.
+    # RE-PINNED A FOURTH TIME round najn72: the union did not widen by a new
+    # SCENE this time -- Bg0002 was RE-MINED (crosswalk identity rule + the
+    # owner's outfit rule, NOW.md `1313`, tick 20260908_0025) and its own
+    # roster went 12 -> 52 placements, wanting AI_COMBAT 110, 150, 164 and
+    # 210, none of which the previous union asked for (attacking one of the
+    # readmitted rows raised MobAiControlError ai_row_missing, measured
+    # before the regeneration).
+    # AND THIS ONE REMOVES ROWS, which no previous re-pin of this constant
+    # did.  Diffed with ``git diff origin/main HEAD -- src/
+    # pirateforce_foundation/field_mob_ai_tables.py``: four new
+    # AI_COMBAT_ROWS/AI_COMBAT_PARALLEL entries and 45 new PLACEMENT_AI_LINKS
+    # rows, and FIVE REMOVED -- (92, 11, 332) through (96, 11, 332), the Orc
+    # Chief placements Bg0002 no longer resolves under the crosswalk.  That
+    # removal is the honest one: the links table is mined from the scene
+    # tables, and those placements are not in a scene table any more.  It
+    # also removes the last ai_wander 11 row Bg0002 ever had, which is why
+    # this lane's charging-monster fixtures moved to Bg0003 in the same PR.
     AI_TABLES_SHA256 = (
-        "84694832c3ffd7f0f7441bdf911ed2f14216291b8490345ea6fc59782598bb90")
+        "12b16528ec6c8ea1eb9e3010c992f9d6a12c763b94cd2030bbb2025f2d14d773")
 
     @staticmethod
     def _digest(module, names):

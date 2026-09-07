@@ -46,9 +46,16 @@ class EveryShippedMonsterGetsItsOwnRules(unittest.TestCase):
                 else:
                     self.assertIsNone(program, f"{scene} {mob.template_id}")
                     without += 1
-        self.assertEqual(with_rules, 99,
-                         "99 shipped roster placements carry an AI_COMBAT row; "
-                         "if this moved, say which scene changed")
+        # ROUND najn72: ~~99~~ -> 139.  The scene that changed is Bg0002,
+        # re-mined through the crosswalk with the owner's outfit rule
+        # (NOW.md `1313`, tick 20260908_0025): 12 shipped placements -> 52,
+        # every one of them carrying an AI_COMBAT row, so +40.  What this
+        # card proves is the join, and it is now driven over 40 more rows
+        # and four combat programs (110, 150, 164, 210) that were mined into
+        # field_mob_ai_tables for the first time in the same commit.
+        self.assertEqual(with_rules, 139,
+                         "139 shipped roster placements carry an AI_COMBAT "
+                         "row; if this moved, say which scene changed")
         self.assertGreater(without, 0,
                            "n_AI_COMBAT == 0 is a value, not a missing row")
 

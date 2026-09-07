@@ -153,6 +153,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import quest_criteria
+from . import quest_rewards
 from . import quest_vars
 from . import reward as lua_api_reward
 
@@ -695,6 +696,19 @@ def _pay_criteria(log: Callable[[str], None], api_name: str,
     -- today always ``None``, for the measured reason in
     :func:`lua_api.reward.pay`: nothing implements the atomic delta yet.
     """
+    state = quest_rewards.unpayable_group_for(
+        context.quest_id, "Quest.%s" % api_name)
+    if state is not None:
+        # The half-transaction gate, on the one give side that carries no
+        # column of its own (COO-DECISION `20260908_0242` item 4, and
+        # pf-adversary D1 of round `l0rbyx`, which MEASURED what leaving
+        # this out costs: refusing `q_class`'s charge while these three
+        # kept paying handed the player 15,000 cash, 19,350 exp and 6,450
+        # skill points per run).  Refused BEFORE the resolve, so the log
+        # does not first announce an amount nobody is going to pay.
+        quest_rewards.log_group_refusal(
+            log, context.quest_id, "Quest.%s" % api_name, state)
+        return None
     amount = _log_criteria(log, api_name, context)
     if amount is None:
         return None
@@ -999,8 +1013,20 @@ class RealQuestNamespace:
 
         var_index = _var_index_of(name)
         if var_index is not None:
-            return quest_vars.resolve_for_namespace(
+            # Through `quest_rewards`, not `quest_vars`, because the
+            # half-transaction gate has to be in FRONT of the join: a
+            # `VarN` that is the take side of a group whose give side is
+            # still a stub must come back as the stub default (COO-DECISION
+            # `20260908_0242` item 4).  See
+            # `quest_rewards.resolve_var_for_namespace`.
+            return quest_rewards.resolve_var_for_namespace(
                 self._log, self._context.quest_id, var_index, STUB_DEFAULT,
+                self._var_facts_said)
+
+        reward_name = quest_rewards.lua_name_of(name)
+        if reward_name is not None:
+            return quest_rewards.resolve_for_namespace(
+                self._log, self._context.quest_id, reward_name, STUB_DEFAULT,
                 self._var_facts_said)
 
         if name in self._stub_methods:
