@@ -357,6 +357,18 @@ and `test_tornado_eagle_strict_profile`) for the GEO-PF-006 GT-034 observation s
 counts test functions in those files, so it moves in the same commit as the tests. Re-derived on the cloud clone
 by `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
 
+**Re-pin, chief round 386 (2026-09-07): `package_a_pinned_test_functions` 93 -> 96, and the L06
+guard re-spelled.** Same rule as the re-pins above, not drift and not a correction:
+`tests/test_runtime_console.py` is one of the seven package-A pinned files, and round 386 added three
+tests to it (`ConsoleMirrorFactoryTests`) when CORE-REQUEST-GM-064 gave LANE-GM a factory
+(`build_console_mirror`) for the object `RuntimeConsole` installs as stdout/stderr. The pinned-impact
+number counts test functions in those files, so it moves in the same commit as the tests. The L06
+assumption site moved with it in spelling only: `RuntimeConsole.__init__` still swaps stdout and stderr
+process-wide, it now builds the two mirrors through the factory, so the guard's regex reads
+`sys.stdout = build_console_mirror(` instead of `sys.stdout = _Mirror`. `assumption_sites_total` and
+every per-layer and per-path count are unchanged at 40 / capture 6 / runtime_console.py 1. Re-derived on
+the cloud clone by `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
+
 **Re-pin, chief round 176 (2026-08-26): `checkpoint_calls_at_try_depth_zero` 3 -> 4.** Not drift
 and not a correction: `CORE-REQUEST-004` (the door out of town, LANE-A BUILD-002/M2) wired
 `world_travel_gate` into `runtime.py`'s default dispatch path, and the two-phase departure it
@@ -421,7 +433,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "package_a_files_new": 1,
   "package_a_sites_covered": 32,
   "package_a_pinned_test_files": 7,
-  "package_a_pinned_test_functions": 93,
+  "package_a_pinned_test_functions": 96,
   "package_b_files_touched": 5,
   "package_b_files_new": 2,
   "package_b_sites_covered": 6,
