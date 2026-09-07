@@ -114,9 +114,16 @@ class M2RegistryIsolation(unittest.TestCase):
             trigger_response.ISLAND_CONTACT_DISCRIMINATOR, SHIPPED_DISCRIMINATOR
         )
 
-    def tier3(self, reading, boxes=None):
+    def tier3(self, reading, boxes=None, wire_trigger_id=2):
         """Tier 3 as it will behave the day a discriminator is named, run
         against the REAL committed table unless a test hands in its own.
+
+        `wire_trigger_id` DEFAULTS TO 2 BECAUSE `contact_reading` DEFAULTS
+        TO ORDINAL 2'S CENTRE, and since pf-adversary's C1 the two have to
+        agree for tier 3 to pass. A test that moves the reading and not the
+        id is now testing the wrong-island refusal, which is a real test but
+        a DIFFERENT one -- so every caller that moves the position states
+        the id it means.
 
         The public `answer_guard_reason` cannot reach a pass on the shipped
         tree at all -- `ISLAND_CONTACT_DISCRIMINATOR` is `None` -- and no
@@ -125,7 +132,7 @@ class M2RegistryIsolation(unittest.TestCase):
         private function, through the seam that exists for it.
         """
         return trigger_response._tier3_contact_reason(
-            reading, discriminator=MEASURED, boxes=boxes
+            reading, wire_trigger_id, discriminator=MEASURED, boxes=boxes
         )
 
     def contact_reading(self, x=ORD2_CENTRE[0], y=ORD2_CENTRE[1], z=ORD2_CENTRE[2]):
@@ -577,7 +584,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
             with self.subTest(discriminator=blank):
                 self.assertEqual(
                     trigger_response._tier3_contact_reason(
-                        reading, discriminator=blank
+                        reading, 2, discriminator=blank
                     ),
                     trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
                 )
@@ -589,7 +596,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
         # registered, and the answer is still None because no session
         # reading was handed in.
         self.assertEqual(
-            trigger_response._tier3_contact_reason(None, discriminator=MEASURED),
+            trigger_response._tier3_contact_reason(None, 2, discriminator=MEASURED),
             trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
         )
         self.assertIsNone(
@@ -602,7 +609,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
             with self.subTest(island_contact=pretend):
                 self.assertEqual(
                     trigger_response._tier3_contact_reason(
-                        pretend, discriminator=MEASURED
+                        pretend, 2, discriminator=MEASURED
                     ),
                     trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
                 )
@@ -802,7 +809,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
             with self.subTest(island_contact=hostile):
                 self.assertEqual(
                     trigger_response._tier3_contact_reason(
-                        hostile, discriminator=MEASURED
+                        hostile, 2, discriminator=MEASURED
                     ),
                     trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
                 )
@@ -868,9 +875,23 @@ class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
         one.  A good row alongside a bad one must still work.
         """
         reading = self.contact_reading(5.0, 5.0, 5.0)
+        # THE ID WHOSE OWN ROW IS THE MALFORMED ONE, which is the case that
+        # matters since C1: the typo is in the row this call is judged
+        # against, so the skip has to leave the id with no box rather than
+        # unpack five floats into six names.
+        self.assertEqual(
+            self.tier3(
+                reading,
+                boxes={1: (0.0, 0.0, 0.0, 10.0, 10.0)},
+                wire_trigger_id=1,
+            ),
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+        )
+        # ...and an id with no row at all in a table of one bad row is the
+        # same refusal by the same route.
         self.assertEqual(
             self.tier3(reading, boxes={1: (0.0, 0.0, 0.0, 10.0, 10.0)}),
-            trigger_response.CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
         )
         self.assertIsNone(
             self.tier3(
@@ -926,7 +947,7 @@ class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
         )
         self.assertEqual(
             trigger_response._tier3_contact_reason(
-                reading, discriminator=Boom("bg3001_extent")
+                reading, 2, discriminator=Boom("bg3001_extent")
             ),
             trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
         )
@@ -2392,31 +2413,67 @@ class EveryBoxCitesTheLetterItCameFromTests(M2RegistryIsolation):
                         "RE-289 artifact contains it" % (ordinal, number),
                     )
 
-    def test_the_keys_of_the_extent_table_are_never_used_as_wire_ids(self):
-        # RE-289 nonclaim (1): nothing has shown the .tgr ordinal equals the
-        # wire trigger id. They are equal today by coincidence of numbering.
-        # The pin is behavioural, not a grep: move the table's keys off the
-        # wire ids entirely and a reading inside ordinal 2's box must STILL
-        # pass, because containment reads values and never indexes by id.
+    def test_the_keys_of_the_extent_table_are_the_wire_ids_since_re298(self):
+        # THIS TEST USED TO PIN THE OPPOSITE, and it is REPLACED rather than
+        # deleted so the reversal is on the record.  It read: "RE-289
+        # nonclaim (1): nothing has shown the .tgr ordinal equals the wire
+        # trigger id ... move the table's keys off the wire ids entirely and
+        # a reading inside ordinal 2's box must STILL pass, because
+        # containment reads values and never indexes by id."  That was the
+        # right pin while nothing crosswalked the two numbers.
+        #
+        # `RE-298` crosswalked them -- 15 island points over 2 id/ordinal
+        # pairings, plus an open-water pair on a third id that has no box
+        # at all -- and pf-adversary's C1
+        # measured what the old pin was protecting: a reading taken inside
+        # island 2 passing all three tiers under wire id 3.  So the pin
+        # flips, and its new direction is the NARROWER one.
         reading = self.contact_reading()
         relabelled = {
             777: trigger_response.ISLAND_EXTENT_BOXES[2],
             888: trigger_response.ISLAND_EXTENT_BOXES[3],
         }
-        self.assertIsNone(self.tier3(reading, boxes=relabelled))
-        # ...and a table keyed by the wire ids but holding the WRONG boxes
-        # must refuse, which a lookup by id would not do.
+        # The same box, relabelled off the wire ids, no longer answers for
+        # id 2 -- there is no row for the id at all now.
+        self.assertEqual(
+            self.tier3(reading, boxes=relabelled),
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+        )
+        # A table keyed by the wire id but holding the WRONG box still
+        # refuses, and by the OPEN-WATER name, because with only that row in
+        # the table the reading is inside nothing at all.
         swapped = {2: trigger_response.ISLAND_EXTENT_BOXES[3]}
         self.assertEqual(
             self.tier3(reading, boxes=swapped),
             trigger_response.CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
         )
+        # And THE C1 CASE ITSELF, on the real committed table: a reading at
+        # the centre of ordinal 2, carrying wire id 3.  Every tier passed
+        # this on `#1052`.
+        self.assertEqual(
+            self.tier3(reading, wire_trigger_id=3),
+            trigger_response.CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT,
+        )
 
     def test_a_reading_at_each_measured_centre_passes_and_the_edges_hold(self):
         # The measurement, exercised end to end through the public guard.
-        for centre in (ORD1_CENTRE, ORD2_CENTRE, ORD3_CENTRE):
+        for ordinal, centre in ((1, ORD1_CENTRE), (2, ORD2_CENTRE), (3, ORD3_CENTRE)):
             with self.subTest(centre=centre):
-                self.assertIsNone(self.tier3(self.contact_reading(*centre)))
+                self.assertIsNone(
+                    self.tier3(self.contact_reading(*centre), wire_trigger_id=ordinal)
+                )
+                # ...and the SAME centre under either OTHER id is the
+                # wrong-island refusal, which is the whole of C1 swept over
+                # all six ordered pairs rather than asserted once.
+                for other in (1, 2, 3):
+                    if other == ordinal:
+                        continue
+                    self.assertEqual(
+                        self.tier3(
+                            self.contact_reading(*centre), wire_trigger_id=other
+                        ),
+                        trigger_response.CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT,
+                    )
         # One metre outside ordinal 2's x half-width, at its own centre in y
         # and z: this is the boundary the "extent is FULL width" reading
         # puts there, and the fail-closed direction is that it refuses.
@@ -2425,9 +2482,11 @@ class EveryBoxCitesTheLetterItCameFromTests(M2RegistryIsolation):
             self.tier3(self.contact_reading(*just_outside)),
             trigger_response.CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
         )
-        # And on the SHIPPED module none of that is reachable at all: the
-        # public guard refuses on the unmeasured discriminator first, and
-        # both candidate slots are empty besides.
+        # And on the SHIPPED module none of that reaches a player: the
+        # discriminator IS measured since `RE-298`, so what refuses here is
+        # the empty candidate slot, not tier 3.  (This comment said "the
+        # unmeasured discriminator" until this round, which stopped being
+        # true the moment `RE-298` filled it.)
         self.assertIsNone(
             trigger_response.candidate_for_trigger_id(
                 SEA, 3, island_contact=self.contact_reading(*ORD3_CENTRE)
@@ -2492,8 +2551,12 @@ class ThePassPathHasActuallyBeenRunTests(M2RegistryIsolation):
         # The module's oldest promise, and until this round no test could
         # reach the line that keeps it: what is registered is what is
         # returned, not a copy and not a re-encoding.
+        # THE CENTRE MOVED WITH THE ID THIS ROUND.  It used to stand at
+        # ordinal 2's centre while asking for id 3, and that combination is
+        # now pf-adversary's C1 refusal -- the test was reaching the pass
+        # path through the hole it was not testing.
         registered = _fake(vital_id=3)
-        got = self.passing(3, {3: registered})
+        got = self.passing(3, {3: registered}, centre=ORD3_CENTRE)
         self.assertIs(got, registered)
 
     def test_a_passing_call_with_an_EMPTY_slot_is_still_None(self):
@@ -2574,6 +2637,216 @@ class ThePassPathHasActuallyBeenRunTests(M2RegistryIsolation):
         )
 
 
+class Tier2AndTier3HaveToAgreeOnWhichIslandTests(M2RegistryIsolation):
+    """pf-adversary's C1 against `pirate-force-server#1052`, as a class.
+
+    THE DEFECT, STATED AS A VALUE.  On the tree `#1052` shipped:
+
+        answer_guard_reason(126, 3, reading at the rx248 ship position)
+        -> None
+
+    `rx248` is a position `RE-298` measured INSIDE ORDINAL 2'S BOX.  Tier 2
+    asked "is the id 2 or 3", tier 3 asked "is the ship inside SOME
+    committed island", and no tier asked whether the two answers were about
+    the SAME island.  The day `_CANDIDATES` holds a frame, a ship berthed at
+    Prison Exile asks for id 3 and is handed Spice Paradise's frame.
+
+    THE RIGHT TO CLOSE IT IS `RE-298`, NOT ARITHMETIC.  Two numbers being
+    equal has never been a crosswalk in this file, and the comment at
+    `ISLAND_EXTENT_BOX_ORDINALS` said so for three rounds.  What changed is
+    that `M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` now holds fifteen island
+    points, each inside the box of the ordinal whose number equals the wire
+    id the client sent, and each inside no other box -- plus an open-water
+    pair, on a third id with no box, inside none of them.  That is TWO
+    id/ordinal pairings and one negative case, not a large number, and the
+    last test in this class computes all three counts from the committed
+    tables rather than repeating the sentence.
+    """
+
+    MEASURED = "a discriminator this test measured, not the module"
+
+    def reading(self, centre):
+        return trigger_response.IslandContactEvidence(
+            discriminator=self.MEASURED,
+            x=centre[0], y=centre[1], z=centre[2],
+            source="Tier2AndTier3HaveToAgreeOnWhichIslandTests",
+        )
+
+    def tier3(self, centre, wire_trigger_id, boxes=None):
+        return trigger_response._tier3_contact_reason(
+            self.reading(centre),
+            wire_trigger_id,
+            discriminator=self.MEASURED,
+            boxes=trigger_response.ISLAND_EXTENT_BOXES if boxes is None else boxes,
+        )
+
+    def test_the_measured_c1_input_is_refused_by_its_own_name(self):
+        # The exact call pf-adversary measured returning None, through the
+        # PUBLIC door, on the shipped discriminator and the shipped table.
+        rx248 = trigger_response.IslandContactEvidence(
+            discriminator=trigger_response.ISLAND_CONTACT_DISCRIMINATOR,
+            x=-6231.26, y=4871.58, z=86.0, source="RE-298",
+        )
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, rx248),
+            trigger_response.CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT,
+        )
+        # ...and the SAME reading under the id it was actually captured
+        # with still passes, so this is a narrowing and not a wall.
+        self.assertIsNone(trigger_response.answer_guard_reason(SEA, 2, rx248))
+
+    def test_wrong_island_and_open_water_are_different_sentences(self):
+        # The split that makes the refusal readable: a later round that sees
+        # `OUTSIDE_EVERY` goes and looks at the table, and here the table is
+        # right and the PAIR is wrong. Collapsing the two -- the mutant that
+        # deletes the `if containing:` branch -- dies here.
+        self.assertEqual(
+            self.tier3(ORD2_CENTRE, 3),
+            trigger_response.CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT,
+        )
+        self.assertEqual(
+            self.tier3((0.0, 0.0, 0.0), 3),
+            trigger_response.CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
+        )
+
+    def test_any_box_will_no_longer_do(self):
+        # THE MUTANT THIS CLASS IS FOR: `if wire_trigger_id in containing`
+        # back to `if containing`, which is the shipped `#1052` behaviour.
+        # It survives every test in the file that predates this round.
+        for centre, wrong in ((ORD1_CENTRE, 2), (ORD2_CENTRE, 3), (ORD3_CENTRE, 1)):
+            with self.subTest(centre=centre, wire_trigger_id=wrong):
+                self.assertIsNotNone(self.tier3(centre, wrong))
+
+    def test_an_id_with_no_row_is_refused_and_never_falls_back(self):
+        # The unreachable-today refusal, exercised through the seam, because
+        # a refusal nobody can exercise is a refusal nobody is testing --
+        # and because the day `CANDIDATE_TRIGGER_IDS` grows before the table
+        # does, "no row" must not degrade into "any row".
+        self.assertEqual(
+            self.tier3(ORD2_CENTRE, 2, boxes={3: trigger_response.ISLAND_EXTENT_BOXES[3]}),
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+        )
+        # A row that EXISTS for the id but cannot be read is the same
+        # sentence, not the open-water one: the module did not measure this
+        # ship to be off the island, it failed to read the island.
+        self.assertEqual(
+            self.tier3(ORD2_CENTRE, 2, boxes={2: (0.0, 0.0, 0.0, 1.0, 1.0)}),
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+        )
+
+    def test_tier3_never_raises_on_the_wire_id_either(self):
+        # The file's oldest promise, extended to the argument this round
+        # added. `bool` is in the sweep on purpose: it subclasses `int`, so
+        # `type(key) is int` and `isinstance(key, int)` disagree about it,
+        # and a table keyed `{True: box}` must not answer for id 1.
+        for hostile in (None, object(), [], b"\x01", 2.0, "2", True, {1: 2}):
+            with self.subTest(wire_trigger_id=hostile):
+                self.assertEqual(
+                    self.tier3(ORD2_CENTRE, hostile),
+                    trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+                )
+        # An `int` SUBCLASS key cannot answer for the plain int either --
+        # the mutant `type(key) is int` -> `isinstance(key, int)`.
+        class Ordinal(int):
+            pass
+
+        box = trigger_response.ISLAND_EXTENT_BOXES[2]
+        self.assertEqual(
+            self.tier3(ORD2_CENTRE, 2, boxes={Ordinal(2): box}),
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+        )
+
+    def test_the_containment_helper_reports_every_ordinal_not_the_first(self):
+        # `_ordinals_containing_position` returning only its first hit would
+        # make the wrong-island refusal depend on table order, which nothing
+        # else in the file pins. Two overlapping rows, and both must show.
+        box = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        self.assertEqual(
+            trigger_response._ordinals_containing_position(
+                5.0, 5.0, 5.0, {2: box, 3: box}
+            ),
+            (2, 3),
+        )
+        # And the weaker public question is still the honest view over it.
+        self.assertTrue(
+            trigger_response._position_is_inside_a_committed_extent(
+                5.0, 5.0, 5.0, {3: box}
+            )
+        )
+        self.assertFalse(
+            trigger_response._position_is_inside_a_committed_extent(
+                50.0, 5.0, 5.0, {3: box}
+            )
+        )
+
+    def test_a_key_that_is_not_a_plain_int_never_contains_anything(self):
+        # The skip in `_ordinals_containing_position`, pinned separately
+        # from the one in `_readable_extent_for` because deleting either
+        # alone left the file green. A key of some other type cannot be a
+        # wire id, and reporting it as "containing" puts a value the module
+        # cannot compare into the tuple `wire_trigger_id in containing`
+        # runs against.
+        box = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        for key in ("2", 2.0, True, None):
+            with self.subTest(key=key):
+                self.assertEqual(
+                    trigger_response._ordinals_containing_position(
+                        5.0, 5.0, 5.0, {key: box}
+                    ),
+                    (),
+                )
+
+    def test_the_bounds_are_inclusive_on_all_twelve_half_axes(self):
+        # pf-adversary C8, closed here because this round is already inside
+        # the geometry: `<=` -> `<` survived every test in the file, so the
+        # boundary the "extent is FULL width" reading puts at the box edge
+        # was decided by nothing. A ship exactly on a bound is INSIDE --
+        # the same direction the just-outside test one class down asserts
+        # from the other side.
+        box = trigger_response.ISLAND_EXTENT_BOXES[2]
+        x0, y0, z0, x1, y1, z1 = box
+        centre = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+        for axis, bound in enumerate((x0, y0, z0, x1, y1, z1)):
+            with self.subTest(axis=axis, bound=bound):
+                point = list(centre)
+                point[axis % 3] = bound
+                self.assertIsNone(
+                    self.tier3(tuple(point), 2),
+                    "a position exactly on a bound of ordinal 2 was refused",
+                )
+
+    def test_the_crosswalk_this_change_rests_on_re_derives_from_the_tables(self):
+        # NOT A RESTATEMENT OF THE COMMENT: the two counts the comment at
+        # `ISLAND_EXTENT_BOX_ORDINALS` claims are computed here from
+        # `M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` and the box table, so a
+        # round that edits either one and not the comment goes red.
+        boxes = trigger_response.ISLAND_EXTENT_BOXES
+        island_points = 0
+        pairings = set()
+        open_water_points = 0
+        for label, wire_id, x, y, z in (
+            trigger_response.M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS
+        ):
+            containing = trigger_response._ordinals_containing_position(x, y, z, boxes)
+            if not containing:
+                open_water_points += 1
+                continue
+            # EVERY island point is inside EXACTLY ONE box, and it is the
+            # one whose ordinal equals the id the client sent. That is the
+            # crosswalk, and it is what licenses the lookup.
+            self.assertEqual(containing, (wire_id,), label)
+            island_points += 1
+            pairings.add((wire_id, containing[0]))
+        self.assertEqual(island_points, 15)
+        self.assertEqual(len(pairings), 2)
+        self.assertEqual(open_water_points, 2)
+        # The open-water pair is `RE-298`'s control and carries id 35, which
+        # has no box -- the half of the crosswalk no round before it had.
+        self.assertNotIn(
+            trigger_response.M2_OPEN_WATER_CONTROL_ORDINAL, boxes
+        )
+
+
 class RE298DecidesIslandFromOpenWaterTests(M2RegistryIsolation):
     """`RE-298`, and the reason the discriminator has a name today.
 
@@ -2633,13 +2906,13 @@ class RE298DecidesIslandFromOpenWaterTests(M2RegistryIsolation):
         boxes = trigger_response.ISLAND_EXTENT_BOXES
         self.assertIsNone(
             trigger_response._tier3_contact_reason(
-                self.shipped_reading(*self.RX248_SHIP), boxes=boxes
+                self.shipped_reading(*self.RX248_SHIP), 2, boxes=boxes
             ),
             "rx248 was measured inside box ordinal 2",
         )
         self.assertEqual(
             trigger_response._tier3_contact_reason(
-                self.shipped_reading(*self.RX112_SHIP), boxes=boxes
+                self.shipped_reading(*self.RX112_SHIP), 2, boxes=boxes
             ),
             trigger_response.CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
             "rx112 was measured outside all three island boxes",
@@ -2691,10 +2964,10 @@ class RE298DecidesIslandFromOpenWaterTests(M2RegistryIsolation):
                     continue
                 with self.subTest(bound=index, delta=delta):
                     pass_side = trigger_response._tier3_contact_reason(
-                        self.shipped_reading(*self.RX248_SHIP), boxes=mutated
+                        self.shipped_reading(*self.RX248_SHIP), 2, boxes=mutated
                     )
                     fail_side = trigger_response._tier3_contact_reason(
-                        self.shipped_reading(*self.RX112_SHIP), boxes=mutated
+                        self.shipped_reading(*self.RX112_SHIP), 2, boxes=mutated
                     )
                     intact = (
                         pass_side is None
@@ -2746,6 +3019,9 @@ class TheTiersOwnNamesAreAllFrozenTests(M2RegistryIsolation):
         "registered_count",
         "_table_for",
         "_position_is_inside_a_committed_extent",
+        "_ordinals_containing_position",
+        "_readable_extent_for",
+        "_is_a_readable_row",
         "_is_a_wire_int",
     )
 
@@ -2930,6 +3206,8 @@ class TheFreezeIsCensusedNotJustDerivedTests(M2RegistryIsolation):
         "CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED": "tier 3 returns it",
         "CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR": "tier 3 returns it",
         "CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT": "tier 3 returns it",
+        "CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT": "tier 3 returns it",
+        "CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID": "tier 3 returns it",
         "CONTACT_REFUSED_NO_EXTENT_TABLE": "tier 3 returns it",
         "EXTENT_TABLE_REFUSED_NOT_A_MAPPING": "the named raise of the seam",
         "REGISTRY_REFUSED_NOT_A_MAPPING": "the named raise of the seam",

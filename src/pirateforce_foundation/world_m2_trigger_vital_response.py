@@ -374,7 +374,8 @@ AND THAT SHAPE HAD A HOLE IN IT, WHICH pf-adversary MEASURED (C1 against
 geometry, and NOTHING CHECKED THAT THEY AGREED, so a reading taken inside
 island 2 passed all three tiers while carrying wire id 3.  `RE-298` had by
 then supplied the crosswalk the paragraph above demanded -- fifteen island
-points, seven id/ordinal pairings, and an open-water control -- so tier 3
+points over TWO id/ordinal pairings, and an open-water pair carrying a
+third id with no box at all -- so tier 3
 indexes the table by the wire id NOW, and the paragraph above is satisfied
 rather than skipped.  See ``ISLAND_EXTENT_BOX_ORDINALS`` for the evidence
 and for what a round would need to widen it back.
@@ -672,10 +673,19 @@ CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID = (
 # from an attended session each fall inside the box of the ordinal whose
 # number equals the wire id the client sent at that moment, and inside NO
 # OTHER BOX -- and `RE-298`'s open-water pair (id 35) falls inside no
-# committed box at all.  Seven distinct id/ordinal pairings over two
-# artifacts produced three days apart by different parties, neither derived
-# from the other.  That is what the ticket was asking for, and the file has
-# carried the evidence since `RE-298` while tier 3 went on ignoring it.
+# committed box at all.
+#
+# THE COUNT, SAID EXACTLY, because the round that wrote the sentence above
+# first wrote "seven pairings" and its own test refuted it before the
+# commit: the observations carry TWO distinct id/ordinal pairings (2 and 3)
+# across fifteen points, plus a third id, 35, that pairs with NO box.  Two
+# pairings is not many, and the strength is not in that number -- it is
+# that the two artifacts were produced three days apart by different
+# parties from different sources, that no point is inside more than one
+# box, and that a point exists which is inside NONE.  A crosswalk with no
+# negative case is not one.  `test_the_crosswalk_this_change_rests_on_re_
+# derives_from_the_tables` computes all three counts from the committed
+# tables, so this paragraph goes red rather than stale.
 #
 # SO THE `.values()` SWEEP IS GONE, and what replaced it is narrower, not
 # wider: tier 3 now asks whether the reported position is inside THE BOX OF
@@ -1356,9 +1366,7 @@ def _ordinals_containing_position(
     table = ISLAND_EXTENT_BOXES if boxes is None else boxes
     found: list[int] = []
     for ordinal, box in table.items():
-        if type(ordinal) is not int:
-            continue
-        if type(box) is not tuple or len(box) != 6:
+        if type(ordinal) is not int or not _is_a_readable_row(box):
             continue
         x0, y0, z0, x1, y1, z1 = box
         if x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1:
@@ -1505,9 +1513,9 @@ def _tier3_contact_reason(
         raise TypeError(EXTENT_TABLE_REFUSED_NOT_A_MAPPING)
     if not table:
         return CONTACT_REFUSED_NO_EXTENT_TABLE
-    if not _is_a_wire_int(wire_trigger_id) or not _ordinal_is_in_table(
+    if not _is_a_wire_int(wire_trigger_id) or _readable_extent_for(
         wire_trigger_id, table
-    ):
+    ) is None:
         return CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID
     containing = _ordinals_containing_position(
         island_contact.x, island_contact.y, island_contact.z, table
@@ -1519,11 +1527,29 @@ def _tier3_contact_reason(
     return CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT
 
 
-def _ordinal_is_in_table(
+def _readable_extent_for(
     wire_trigger_id: object,
     table: "Mapping[int, object]",
-) -> bool:
-    """``True`` when ``table`` has a row keyed by exactly this plain ``int``.
+) -> "tuple[object, ...] | None":
+    """The box ``table`` holds for exactly this plain ``int``, or ``None``.
+
+    THE RETURN IS ANNOTATED ``tuple[object, ...]``, NOT SIX FLOATS, because
+    six floats is more than ``_is_a_readable_row`` checks: it counts the
+    fields and does not look inside them.  A seam row of six strings is
+    "readable" here and raises on comparison in
+    ``_ordinals_containing_position`` -- a hazard the ``.values()`` sweep
+    had too, unchanged by this round and named rather than annotated away.
+    The caller only tests this against ``None``.
+
+    READABLE, NOT MERELY PRESENT, and the difference is a measured one: a
+    row whose value is a five-field typo is a key that EXISTS and a box
+    nothing can be judged against.  Answering "the id has a row" for it
+    sent tier 3 on to report `OUTSIDE_EVERY_COMMITTED_EXTENT` -- "we
+    measured this island and you are not on it" -- when the truth is "we
+    cannot read the row for this island".  The first version of this
+    function did exactly that and a test caught it before the commit.  So
+    the same row filter ``_ordinals_containing_position`` applies decides
+    here too: exactly the rows either one can act on.
 
     NOT ``wire_trigger_id in table``, and the difference is the same one
     step 3 of ``_tier3_contact_reason`` cost three rounds to learn: ``in``
@@ -1536,10 +1562,22 @@ def _ordinal_is_in_table(
     halves are exact before ``==`` runs.  Keeps this function's promise
     never to raise on either argument, which ``in`` did not.
     """
-    for key in table.keys():
-        if type(key) is int and key == wire_trigger_id:
-            return True
-    return False
+    for key, box in table.items():
+        if type(key) is int and key == wire_trigger_id and _is_a_readable_row(box):
+            return box
+    return None
+
+
+def _is_a_readable_row(box: object) -> bool:
+    """``True`` for a value this module will unpack as a six-bound box.
+
+    ONE SPELLING, because the two callers have to agree.  A row this says
+    ``False`` about is skipped by ``_ordinals_containing_position`` AND
+    reported as no-extent by ``_readable_extent_for``; if they disagreed,
+    a malformed row would make its id "present but never containing", which
+    is the open-water verdict wearing a typo's clothes.
+    """
+    return type(box) is tuple and len(box) == 6
 
 
 def answer_guard_reason(
@@ -1997,6 +2035,17 @@ class _FrozenTier3Module(ModuleType):
             "_trigger_id_guard_reason",
             "scene_guard_reason",
             "_position_is_inside_a_committed_extent",
+            # SAME D1 SHAPE, THIS ROUND'S TWO NEW FUNCTIONS.  Closing C1
+            # minted `_ordinals_containing_position` (which owns the
+            # geometry the name above used to own) and `_ordinal_is_in_table`
+            # (which decides whether the id has a box at all).  Either one
+            # rebound is tier 3 deciding whatever the caller wants: the
+            # first can return every ordinal, the second can return `True`
+            # for anything.  They go in the set in the SAME commit that
+            # creates them, which is what D1 cost the lane a round to learn.
+            "_ordinals_containing_position",
+            "_readable_extent_for",
+            "_is_a_readable_row",
             "_tier3_contact_reason",
             "answer_guard_reason",
             "_tier2_id_is_a_candidate",
