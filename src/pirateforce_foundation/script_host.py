@@ -256,6 +256,17 @@ class MirrorHealth:
     breaks every host in the process, not one of them.  A caller that wants
     an isolated tally -- every test here does -- passes its own instance.
 
+    WHAT THE LOCK IS AND IS NOT, MEASURED (same posture ``lua_api/spec.py``
+    takes about its own ``_LOCK``).  The 16-thread test in this lane's
+    tests does NOT kill a no-lock mutant: with ``self._failures = 1``
+    replaced for ``+= 1`` two tests go red, but simply deleting the lock
+    leaves all ten green, because CPython does not interleave this
+    particular body often enough to lose a count in one run.  So the lock
+    is [PROPOSED] protection against a caller with more contention than any
+    test here produces -- it also keeps ``failures``, ``last_error`` and
+    ``last_failed_at`` from being read half-updated, which no test here
+    produces either -- and not a guard some test proves is load-bearing.
+
     ``clock`` returns a :class:`datetime`; an aware one is converted to UTC,
     a naive one is taken as UTC already (a test injecting a fixed clock is
     the only caller that passes one).  It is called with the lock held: it

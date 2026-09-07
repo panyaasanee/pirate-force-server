@@ -3683,6 +3683,23 @@ has all 8 namespaces, and -- the end-to-end one -- a sweep over a corpus
 with a broken mirror puts the innocent script in `host_failed`, writes no
 `LUA_SCRIPT` line at all, and writes `LUA_HOST`.
 
+### The mutant that SURVIVED, named rather than left out
+
+Six mutants were run against the new tests (command in the round file).
+Five die: catching bare `Exception` in `guard_mirrors` instead of
+`_host_side_error_types()` (1 failed), latching the counter at 1 (2
+failed), dropping `_ascii_safe` from `record` (1 failed), returning `{}`
+instead of `None` from a degraded build (1 failed), and dropping the
+`LUA_HOST_DEGRADED` line (1 failed).
+
+**Deleting `MirrorHealth`'s lock entirely leaves all ten green.** The
+16-thread test does not produce enough contention for CPython to lose a
+count in this body. The lock stays, and the docstring now says what it is:
+[PROPOSED] protection against a caller with more contention than any test
+here writes, plus a guarantee that the three fields are never read
+half-updated -- not a guard a test proves load-bearing. Same posture
+`lua_api/spec.py` already takes about its own `_LOCK`.
+
 ### Item 4 of the decision: there is nowhere to plug this in
 
 Measured this round: `grep -rn "def .*health\|/health" --include=*.py src/`
