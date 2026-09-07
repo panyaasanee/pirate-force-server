@@ -96,9 +96,13 @@ REFUSALS: frozenset = frozenset({
 
 class QuestRewardStore(Protocol):
     """The ONE method this lane needs from a character store, and its
-    contract.  Asked of LANE-DB as a ``CORE-REQUEST`` on 2026-09-07;
-    ``store.py`` does not implement it yet, which is why :func:`pay`
-    refuses on a real store today rather than paying badly.
+    contract.  Asked of LANE-DB as a ``CORE-REQUEST`` on 2026-09-07 and
+    ANSWERED: ``store.SQLiteStore.add_typed_attribute`` is on ``main``
+    (measured this round, ``git grep -c add_typed_attribute origin/main --
+    src/pirateforce_foundation/store.py`` = 2), so :func:`pay` no longer
+    refuses a real store -- it pays a real row.  What still refuses is a
+    store WITHOUT the method, and that refusal is the one the reasons
+    below are about.
 
     ``add_typed_attribute(character_id, column, delta) -> int``
 
@@ -124,14 +128,23 @@ class QuestRewardStore(Protocol):
     store it is handed.  That is why the contract above is written down
     here and repeated in the CORE-REQUEST rather than left implied.
 
-    NOT YET ANSWERED, AND NAMED SO IT IS NOT MISTAKEN FOR ANSWERED
-    (pf-adversary, this round): what happens when the add half-succeeds --
-    the ``UPDATE`` commits and then the read-back or the return raises.
-    :func:`pay` logs ``refused=store_error unpaid=N`` for that, which is a
-    lie about experience that is on disk, and a caller that retried on
-    ``store_error`` would pay twice.  Nothing in this lane retries today,
-    so the hazard is written down rather than guarded against; the retry
-    contract has to be settled with LANE-DB before anything does.
+    ANSWERED BY LANE-DB, AND CARRIED HERE RATHER THAN CITED (their letter
+    ``pf_bridge/notes_to_chief/20260907_1453_LANE-DB-TO-Q-add-typed-
+    attribute-is-on-the-branch-your-tripwire-is-turned-round.md``, and the
+    method's own docstring says the same in ``store.py``): the read, the
+    ``UPDATE`` and the read-back all run inside ONE ``BEGIN IMMEDIATE``,
+    and ``store.connect()`` rolls the transaction back on any exception
+    before re-raising.  So a raise out of ``add_typed_attribute`` means
+    NOTHING was committed, and a retry pays exactly once.  The half-paid
+    case this docstring used to name -- committed on disk while the caller
+    sees ``refused=store_error`` -- cannot be produced by that method's own
+    body.
+
+    WHAT IS STILL NOT PROMISED, so this is not read as more than it is: a
+    process killed between ``COMMIT`` and return is outside that guarantee
+    and needs an idempotency key nobody has written.  :func:`pay` therefore
+    still does not retry, and a caller that adds a retry loop owes that key
+    first.
     """
 
     def add_typed_attribute(self, character_id: int, column: str,
