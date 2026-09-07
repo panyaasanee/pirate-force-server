@@ -363,15 +363,27 @@ two numbers are not crosswalked because they are equal.
 SO HERE IS WHY THAT IS NOT THE STEP-SKIPPING THE PARAGRAPH ABOVE FORBIDS.
 The sentence above was written when the plan was a table of `wire id -> the
 box for that id`, which a `.tgr` ordinal cannot key without the crosswalk.
-That is NOT the shape that was built.  ``ISLAND_EXTENT_BOXES`` is consulted
-BY VALUE ONLY -- ``_position_is_inside_a_committed_extent`` iterates
-``.values()`` and no code path in this file indexes it by a wire id -- so
-the question tier 3 asks is "is this session standing inside ANY box the
-measurement produced", which is answered by the session's own coordinates
-and by geometry, and does not depend on which ordinal the box came from.
-The wire id keeps exactly the job it had: tier 2, "is this one of the two
+That is NOT the shape that was built THAT ROUND.  ``ISLAND_EXTENT_BOXES``
+was consulted BY VALUE ONLY -- the containment test iterated ``.values()``
+and no code path in the file indexed it by a wire id -- so the question
+tier 3 asked was "is this session standing inside ANY box the measurement
+produced", answered by the session's own coordinates and by geometry alone.
+
+AND THAT SHAPE HAD A HOLE IN IT, WHICH pf-adversary MEASURED (C1 against
+`pirate-force-server#1052`): tier 2 checked the id, tier 3 checked the
+geometry, and NOTHING CHECKED THAT THEY AGREED, so a reading taken inside
+island 2 passed all three tiers while carrying wire id 3.  `RE-298` had by
+then supplied the crosswalk the paragraph above demanded -- fifteen island
+points over TWO id/ordinal pairings, and an open-water pair carrying a
+third id with no box at all -- so tier 3
+indexes the table by the wire id NOW, and the paragraph above is satisfied
+rather than skipped.  See ``ISLAND_EXTENT_BOX_ORDINALS`` for the evidence
+and for what a round would need to widen it back.
+
+The wire id still keeps the job it had at tier 2, "is this one of the two
 ids attended runs actually observed", which was never trusted on its own
-and is the reason tier 3 exists at all.
+and is the reason tier 3 exists at all.  What is new is that tier 3 no
+longer answers a question the id is absent from.
 
 WHAT THE CROSSWALK IS STILL NEEDED FOR, so a later round does not read the
 paragraph above as "the ticket is unnecessary": knowing WHICH island a given
@@ -616,17 +628,72 @@ CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR = (
 CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT = (
     "CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT"
 )
+# THE SHIP IS STANDING IN A MEASURED ISLAND, BUT NOT THE ONE ITS WIRE ID
+# CLAIMS.  Split from the name above rather than folded into it, for the
+# same reason `OPEN_WATER` was split off in the first place: a later round
+# reading "OUTSIDE EVERY" concludes the ship was at sea and goes looking at
+# the table, and here the table is right and the PAIR is wrong.  This is
+# pf-adversary's C1 against `pirate-force-server#1052`, measured on the tree
+# that shipped it: `answer_guard_reason(126, 3, reading@rx248)` returned
+# `None` -- a pass -- while `rx248` is a position inside ordinal 2's box.
+# Tier 2 asked "is the id 2 or 3", tier 3 asked "is the ship inside SOME
+# island", and nothing asked whether they were the SAME island, so a ship
+# berthed at Prison Exile could ask for and receive Spice Paradise's frame
+# the day `_CANDIDATES` holds one.
+CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT = (
+    "CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT"
+)
+# THE ID PASSED TIER 2 AND THE TABLE HAS NO ROW FOR IT.  Not reachable on
+# the shipped tree -- `CANDIDATE_TRIGGER_IDS` is (2, 3) and both have boxes
+# -- and it exists because the two sets are maintained in different places
+# from different letters, so the day one grows without the other this
+# refuses instead of falling back to "any box", which is the behaviour
+# being deleted.  Fail-closed in the direction the whole file leans.
+CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID = (
+    "CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID"
+)
 
 
-# THE KEYS OF THE EXTENT TABLE ARE `.tgr` FILE ORDINALS, NOT WIRE TRIGGER
-# IDS, AND THE DIFFERENCE IS THE WHOLE REASON THIS CONSTANT HAS A NAME.
-# `RE-289` nonclaim (1): nothing has shown that ordinal 2 in
-# `Bg3001.tgr` is the id the client puts in a `TriggerVital 0x1FB2` tag
-# `0x0F`.  They are equal today by coincidence of numbering, which is
-# exactly the shape of accident this file exists to refuse -- so the
-# containment test iterates `.values()` and NEVER indexes by a wire id.  If
-# a later round wants a per-id box it needs the crosswalk ticket first, not
-# a `[wire_trigger_id]` on this table.
+# THE KEYS OF THE EXTENT TABLE ARE `.tgr` FILE ORDINALS, AND SINCE `RE-298`
+# TIER 3 IS ALLOWED TO READ THEM AS WIRE TRIGGER IDS.  THAT PERMISSION IS
+# NEW AND IT IS THE ONLY REASON THIS ROUND'S CHANGE IS NOT THE ACCIDENT THE
+# PARAGRAPH BELOW WAS WRITTEN TO REFUSE.
+#
+# WHAT THIS COMMENT SAID UNTIL THIS ROUND, kept because the reasoning was
+# right on the day it was written: `RE-289` nonclaim (1) -- nothing had
+# shown that ordinal 2 in `Bg3001.tgr` is the id the client puts in a
+# `TriggerVital 0x1FB2` tag `0x0F`; they were equal by coincidence of
+# numbering, which is the shape of accident this file exists to refuse; so
+# the containment test iterated `.values()` and NEVER indexed by a wire id,
+# and a later round wanting a per-id box was told to get the crosswalk
+# first.
+#
+# THE CROSSWALK ARRIVED.  `M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` below is
+# it, and it is not an argument from equal numbers: FIFTEEN island points
+# from an attended session each fall inside the box of the ordinal whose
+# number equals the wire id the client sent at that moment, and inside NO
+# OTHER BOX -- and `RE-298`'s open-water pair (id 35) falls inside no
+# committed box at all.
+#
+# THE COUNT, SAID EXACTLY, because the round that wrote the sentence above
+# first wrote "seven pairings" and its own test refuted it before the
+# commit: the observations carry TWO distinct id/ordinal pairings (2 and 3)
+# across fifteen points, plus a third id, 35, that pairs with NO box.  Two
+# pairings is not many, and the strength is not in that number -- it is
+# that the two artifacts were produced three days apart by different
+# parties from different sources, that no point is inside more than one
+# box, and that a point exists which is inside NONE.  A crosswalk with no
+# negative case is not one.  `test_the_crosswalk_this_change_rests_on_re_
+# derives_from_the_tables` computes all three counts from the committed
+# tables, so this paragraph goes red rather than stale.
+#
+# SO THE `.values()` SWEEP IS GONE, and what replaced it is narrower, not
+# wider: tier 3 now asks whether the reported position is inside THE BOX OF
+# THE ID THE SESSION SENT.  Every input that used to pass still has to pass
+# the same geometry, and the inputs that used to pass on the WRONG island
+# no longer do (`CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT`).  A round
+# that ever wants to widen this back to "any box" needs a letter saying the
+# crosswalk was wrong, not a convenience.
 ISLAND_EXTENT_BOX_ORDINALS = (1, 2, 3)
 
 # HOW A ROW WAS DERIVED FROM THE LETTER, once, here, so the arithmetic is
@@ -1235,6 +1302,14 @@ def _position_is_inside_a_committed_extent(
     """``True`` when ``(x, y, z)`` falls inside ANY box in ``boxes``, which
     defaults to ``ISLAND_EXTENT_BOXES``.  ``False`` when the table is empty.
 
+    NO TIER ASKS THIS QUESTION ANY MORE.  Tier 3 asked it until this round
+    and that was pf-adversary's C1: "inside some island" is not "inside the
+    island this id names", and the gap between the two sentences was a
+    pass.  It is now a one-line view over ``_ordinals_containing_position``,
+    which owns the geometry and which tier 3 asks instead.  Kept because it
+    is the honest spelling of the weaker question and the tests that pin the
+    weaker one are the tests that would notice the geometry drifting.
+
     ``boxes`` EXISTS FOR THE TESTS AND FOR NOTHING ELSE, and it is on a
     PRIVATE function on purpose -- COO-DECISION `20260907_0945` item 2 says
     the test suite must stop being a working demonstration of the hole it is
@@ -1252,23 +1327,51 @@ def _position_is_inside_a_committed_extent(
     row written the other way round simply never contains anything, which
     is the fail-closed direction.
 
-    A row of the WRONG ARITY is skipped, not unpacked.  That hazard was
-    named only for reversed bounds until pf-adversary measured the other
-    one: a five-field typo raised ``ValueError: not enough values to
-    unpack`` straight out of ``candidate_for_trigger_id``, whose caller is
-    promised a named refusal and never an exception.  `RE-289`'s answer is
-    expected to arrive as hand-transcribed floats, so a typo in this table
-    is the likely failure, not the exotic one -- and skipping the row is
-    the same fail-closed direction reversed bounds already take.
+    A row of the WRONG ARITY, or with a key that is not a plain ``int``, is
+    skipped rather than unpacked or compared -- see
+    ``_ordinals_containing_position``, which does the skipping now and
+    carries the measurement behind it.
+    """
+    return bool(_ordinals_containing_position(x, y, z, boxes))
+
+
+def _ordinals_containing_position(
+    x: float,
+    y: float,
+    z: float,
+    boxes: "Mapping[int, object] | None" = None,
+) -> tuple[int, ...]:
+    """The ORDINALS whose box contains ``(x, y, z)``, in table order.
+
+    THE ONE PLACE THE GEOMETRY IS WRITTEN, since this round.
+    ``_position_is_inside_a_committed_extent`` is now a one-line view over
+    it and tier 3 asks this one, because tier 3's question stopped being
+    "is the ship inside SOME island" -- see
+    ``CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT`` for the pass this
+    file was giving away while those were the same question.  Two copies of
+    an inclusive six-bound comparison would have been two places for the
+    `<=` pf-adversary's C8 says nothing pins yet to drift apart.
+
+    Rows are skipped, never unpacked, when the KEY is not a plain ``int``
+    or the value is not a 6-tuple.  Both skips are the fail-closed
+    direction and both are reachable only through the ``boxes`` seam on the
+    shipped tree; the arity one has a measured history (a five-field typo
+    raised ``ValueError`` out of ``candidate_for_trigger_id``, whose caller
+    is promised a named refusal and never an exception), and the key one is
+    new with the per-id lookup: a key of some other type cannot be the wire
+    id this module now compares against, and comparing it could dispatch to
+    a caller's ``__eq__``.  Same lesson, third sighting, as step 3 of
+    ``_tier3_contact_reason``: BOTH sides have to be exact before ``==``.
     """
     table = ISLAND_EXTENT_BOXES if boxes is None else boxes
-    for box in table.values():
-        if type(box) is not tuple or len(box) != 6:
+    found: list[int] = []
+    for ordinal, box in table.items():
+        if type(ordinal) is not int or not _is_a_readable_row(box):
             continue
         x0, y0, z0, x1, y1, z1 = box
         if x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1:
-            return True
-    return False
+            found.append(ordinal)
+    return tuple(found)
 
 
 _UNSET = object()
@@ -1276,6 +1379,7 @@ _UNSET = object()
 
 def _tier3_contact_reason(
     island_contact: object,
+    wire_trigger_id: object,
     *,
     discriminator: object = _UNSET,
     boxes: "Mapping[int, object] | None" = None,
@@ -1285,7 +1389,17 @@ def _tier3_contact_reason(
     would be one import away from answering the world with a fact that never
     passed tiers 1 and 2.  ``answer_guard_reason`` is the only caller.
 
-    Five refusals, in this order, each a different thing being wrong:
+    ``wire_trigger_id`` IS REQUIRED AND IS NOT A SEAM.  It is the id tier 2
+    just admitted, handed down so tier 3 can ask its question about THE
+    ISLAND THAT ID NAMES rather than about islands in general.  It has no
+    default, because every default available is a lie: ``None`` would mean
+    "no island in particular", which is the passing-on-the-wrong-island
+    behaviour this parameter deletes, and any int would answer for an
+    island the caller never named.  A caller with no id has no business
+    reaching tier 3 at all -- ``_answer_guard_reason`` is the only
+    production route here and it arrives with the id already checked.
+
+    SEVEN refusals, in this order, each a different thing being wrong:
 
       1. ``ISLAND_CONTACT_DISCRIMINATOR`` is unmeasured -- ``None``, any
          non-``str``, or a string that is empty or ALL WHITESPACE.  THE
@@ -1332,10 +1446,23 @@ def _tier3_contact_reason(
          YET.  `RE-289` is numbered and open.  A discriminator NAME without
          a table behind it decides nothing, and this is the refusal that
          says so instead of quietly passing.
-      5. the position is not inside any committed extent: the session is in
-         OPEN WATER.  `RE-234` item (3)'s finding -- the wire id alone
-         cannot tell an island from open water -- now decided HERE, by the
-         committed table, rather than by the presence of a frame.
+      5. the wire id has NO ROW in the committed table.  Unreachable on the
+         shipped tree (`CANDIDATE_TRIGGER_IDS` is (2, 3), both have boxes)
+         and kept because the two sets are written from different letters
+         in different parts of this file, so the day one grows first this
+         refuses instead of falling back to the sweep being deleted.
+      6. the position is inside a committed extent, but NOT the one this
+         id names -- pf-adversary's C1, and the reason this function grew
+         an argument.  It was measured as a PASS on `#1052`: the `rx248`
+         reading, which is a position inside ordinal 2's box, went through
+         all three tiers carrying wire id 3.  The right to refuse it comes
+         from `RE-298`, not from the numbers being equal; see
+         ``ISLAND_EXTENT_BOX_ORDINALS``.
+      7. the position is not inside any committed extent at all: the
+         session is in OPEN WATER.  `RE-234` item (3)'s finding -- the wire
+         id alone cannot tell an island from open water -- now decided
+         HERE, by the committed table, rather than by the presence of a
+         frame.
          SAY WHOSE COORDINATES THESE ARE, because an earlier draft of
          this line said "coordinates the server owns" and that is FALSE:
          they arrive in ``island_contact`` from the caller, and the caller
@@ -1360,7 +1487,7 @@ def _tier3_contact_reason(
     default, because ``None`` is itself one of the values a test needs to
     pass in: it is the state this module shipped in until `RE-289` answered.
 
-    Returns ``None`` only when all five are satisfied.  Never raises on
+    Returns ``None`` only when all seven are satisfied.  Never raises on
     ``island_contact``, and unlike the first draft of this function that
     sentence is now pinned by a test that hands in an actual reading built
     from hostile field types, not only by non-readings that die at step 2.
@@ -1386,11 +1513,71 @@ def _tier3_contact_reason(
         raise TypeError(EXTENT_TABLE_REFUSED_NOT_A_MAPPING)
     if not table:
         return CONTACT_REFUSED_NO_EXTENT_TABLE
-    if not _position_is_inside_a_committed_extent(
+    if not _is_a_wire_int(wire_trigger_id) or _readable_extent_for(
+        wire_trigger_id, table
+    ) is None:
+        return CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID
+    containing = _ordinals_containing_position(
         island_contact.x, island_contact.y, island_contact.z, table
-    ):
-        return CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT
+    )
+    if wire_trigger_id in containing:
+        return None
+    if containing:
+        return CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT
+    return CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT
+
+
+def _readable_extent_for(
+    wire_trigger_id: object,
+    table: "Mapping[int, object]",
+) -> "tuple[object, ...] | None":
+    """The box ``table`` holds for exactly this plain ``int``, or ``None``.
+
+    THE RETURN IS ANNOTATED ``tuple[object, ...]``, NOT SIX FLOATS, because
+    six floats is more than ``_is_a_readable_row`` checks: it counts the
+    fields and does not look inside them.  A seam row of six strings is
+    "readable" here and raises on comparison in
+    ``_ordinals_containing_position`` -- a hazard the ``.values()`` sweep
+    had too, unchanged by this round and named rather than annotated away.
+    The caller only tests this against ``None``.
+
+    READABLE, NOT MERELY PRESENT, and the difference is a measured one: a
+    row whose value is a five-field typo is a key that EXISTS and a box
+    nothing can be judged against.  Answering "the id has a row" for it
+    sent tier 3 on to report `OUTSIDE_EVERY_COMMITTED_EXTENT` -- "we
+    measured this island and you are not on it" -- when the truth is "we
+    cannot read the row for this island".  The first version of this
+    function did exactly that and a test caught it before the commit.  So
+    the same row filter ``_ordinals_containing_position`` applies decides
+    here too: exactly the rows either one can act on.
+
+    NOT ``wire_trigger_id in table``, and the difference is the same one
+    step 3 of ``_tier3_contact_reason`` cost three rounds to learn: ``in``
+    on a Mapping runs the TABLE's ``__contains__`` and then ``__eq__``
+    between whatever the table holds and whatever the caller sent, either
+    of which a hostile value can own.  This walks the keys the module can
+    vouch for -- ``type(key) is int``, the same predicate ``_is_a_wire_int``
+    applies to the other side -- and compares two plain ints, which cannot
+    dispatch anywhere.  The caller checks ``_is_a_wire_int`` first, so both
+    halves are exact before ``==`` runs.  Keeps this function's promise
+    never to raise on either argument, which ``in`` did not.
+    """
+    for key, box in table.items():
+        if type(key) is int and key == wire_trigger_id and _is_a_readable_row(box):
+            return box
     return None
+
+
+def _is_a_readable_row(box: object) -> bool:
+    """``True`` for a value this module will unpack as a six-bound box.
+
+    ONE SPELLING, because the two callers have to agree.  A row this says
+    ``False`` about is skipped by ``_ordinals_containing_position`` AND
+    reported as no-extent by ``_readable_extent_for``; if they disagreed,
+    a malformed row would make its id "present but never containing", which
+    is the open-water verdict wearing a typo's clothes.
+    """
+    return type(box) is tuple and len(box) == 6
 
 
 def answer_guard_reason(
@@ -1402,8 +1589,13 @@ def answer_guard_reason(
     first failing tier gives, in tier order (scene, then id, then contact).
 
     Since `RE-289` the third tier can PASS: a reading tagged with the
-    module's measured discriminator whose position falls inside one of the
-    THREE committed boxes returns ``None`` from all three tiers -- and
+    module's measured discriminator whose position falls inside THE
+    COMMITTED BOX OF THE WIRE ID IT WAS SENT WITH returns ``None`` from all
+    three tiers.  "OF THE WIRE ID IT WAS SENT WITH" is this round's change
+    and it is a NARROWING: until now any of the three boxes would do, so a
+    reading taken at island 2 passed while carrying id 3 (pf-adversary C1,
+    measured as a pass on `#1052`).  The permission to tie the two together
+    is `RE-298`'s crosswalk, not the numbers being equal -- and
     since `RE-298` named that discriminator, it can do so ON THE SHIPPED
     TREE, not only through the private seam.  A call that
     supplies no reading at all still gets
@@ -1414,7 +1606,7 @@ def answer_guard_reason(
 
     ``island_contact`` IS THE THIRD ARGUMENT AND IT DEFAULTS TO ``None``,
     which is a refusal, not a pass -- see ``IslandContactEvidence`` for why
-    the parameter exists at all and ``_tier3_contact_reason`` for the four
+    the parameter exists at all and ``_tier3_contact_reason`` for the seven
     ways it is refused.  The default keeps every call written before this
     round answering EXACTLY what it answered before -- which was true of
     EVERY call while the discriminator was unmeasured.  `RE-298` ended
@@ -1474,7 +1666,10 @@ def _answer_guard_reason(
     if trigger_reason is not None:
         return trigger_reason
     return _tier3_contact_reason(
-        island_contact, discriminator=discriminator, boxes=boxes
+        island_contact,
+        wire_trigger_id,
+        discriminator=discriminator,
+        boxes=boxes,
     )
 
 
@@ -1840,6 +2035,17 @@ class _FrozenTier3Module(ModuleType):
             "_trigger_id_guard_reason",
             "scene_guard_reason",
             "_position_is_inside_a_committed_extent",
+            # SAME D1 SHAPE, THIS ROUND'S TWO NEW FUNCTIONS.  Closing C1
+            # minted `_ordinals_containing_position` (which owns the
+            # geometry the name above used to own) and `_ordinal_is_in_table`
+            # (which decides whether the id has a box at all).  Either one
+            # rebound is tier 3 deciding whatever the caller wants: the
+            # first can return every ordinal, the second can return `True`
+            # for anything.  They go in the set in the SAME commit that
+            # creates them, which is what D1 cost the lane a round to learn.
+            "_ordinals_containing_position",
+            "_readable_extent_for",
+            "_is_a_readable_row",
             "_tier3_contact_reason",
             "answer_guard_reason",
             "_tier2_id_is_a_candidate",
@@ -1898,6 +2104,8 @@ class _FrozenTier3Module(ModuleType):
             "CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED",
             "CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR",
             "CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT",
+            "CONTACT_REFUSED_INSIDE_ANOTHER_ISLANDS_EXTENT",
+            "CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID",
             "CONTACT_REFUSED_NO_EXTENT_TABLE",
             "EXTENT_TABLE_REFUSED_NOT_A_MAPPING",
             "REGISTRY_REFUSED_NOT_A_MAPPING",
