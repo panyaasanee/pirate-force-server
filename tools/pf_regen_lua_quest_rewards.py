@@ -122,13 +122,68 @@ GIVE_UNCONDITIONAL_APIS = (
     "Quest.AddLvCriteriaExp", "Quest.AddLvCriteriaSkillPoint",
 )
 
-#: The TAKE-side call shape.  Only one exists in the corpus today and it is
-#: not spelled here as a literal: a take is a ``VarN`` the SIGNEDNESS table
-#: already classified as :data:`KIND_MONEY`, whose call site that table
-#: recorded.  Deriving the take side from the file that already carries the
-#: provenance, rather than re-scanning for it, is what keeps the two tables
-#: from disagreeing about the same five cells.
+#: GIVE-side calls that DELIVER THE THING BOUGHT and carry no reward
+#: column: the argument is a ``Quest.VarN``, not a ``Quest.RewardItemK``,
+#: so :data:`GIVE_BY_API`'s column rule cannot describe them.  Closed and
+#: read from the corpus, one call site each, both of them the purchase a
+#: script charged for on the line above:
+#:
+#:   * ``Player.BoatHealth(Quest.Var3)``  q_boat_health.lua:20
+#:   * ``Player.ChangeShip(Quest.Var2)``  q_ship.lua:49
+#:
+#: They are members for the same reason the criteria payouts are (D1,
+#: round ``l0rbyx``): the take is charged FOR them, so a group that
+#: refuses the take while leaving them out -- or that never forms because
+#: nobody classified them -- is not describing the transaction the script
+#: performs.  Both are stubs today, so both make their group unpayable,
+#: which is the point: the charge cannot run ahead of the delivery.
+GIVE_ARGUMENT_APIS = (
+    "Player.BoatHealth", "Player.ChangeShip",
+)
+
+#: The TAKE-side kind the SIGNEDNESS table carries.  A take whose MINUS
+#: SIGN IS IN THE SHIPPED CELL (``n_VARI_4`` = 4294952296 = -15000) is
+#: classified there, with the call site that proves it, so this tool reads
+#: it from the file that already carries the provenance rather than
+#: re-deriving it -- that is what keeps the two tables from disagreeing
+#: about the same cells.
 TAKE_KIND = KIND_MONEY
+
+#: The TAKE-side call shapes that the signedness table CANNOT see, as
+#: ``api -> (0-based argument position, what the argument has to look
+#: like)``.  Closed and lane-authored, the same contract
+#: :data:`GIVE_BY_API` carries.
+#:
+#: WHY THIS EXISTS (pf-adversary D3, round ``l0rbyx``: "the take side must
+#: stop coming from the signedness table alone").  MEASURED on the corpus:
+#: ``Player.AddCash`` has 6 call sites in 306 quest scripts and they come
+#: in THREE shapes, not one --
+#:
+#:   * ``Player.AddCash(Quest.Var4)``      q_class.lua:60, q_guild_boss2.lua:59
+#:     -- the cell itself is negative, so the signedness table sees it;
+#:   * ``Player.AddCash(-Quest.Var3)``     q_ship.lua:50
+#:   * ``Player.AddCash(Quest.Var2 * -1)`` q_boat_health.lua:21
+#:     -- the cell is POSITIVE and the SCRIPT negates it, so the signedness
+#:     table classifies the cell as ordinary and sees no take at all.
+#:
+#: The last two are the ones that cost a player money.  ``q_ship.lua``'s
+#: ``Report_Run`` charges ``Quest.Var3`` for a ship and then hands it over
+#: with ``Player.ChangeShip`` -- a STUB -- so before this shape was read
+#: the buyer paid and no ship arrived, the exact hole COO-DECISION
+#: ``20260908_0242`` item 4 closed for ``q_class`` and left open here
+#: because the minus sign was in the wrong place to be seen.
+TAKE_BY_API = {
+    "Player.AddCash": 0,
+}
+
+#: A ``Quest.VarN`` the SCRIPT negates at the call site, in the two
+#: spellings the corpus uses.  Anchored and whole-argument on purpose: a
+#: partial match would read ``Quest.Var2 * -1 + Quest.Var3`` (which does
+#: not exist today) as a plain take and be wrong about which cell.
+_SCRIPT_NEGATED_VAR = (
+    re.compile(rb"^\s*-\s*Quest\.Var(\d+)\s*$"),
+    re.compile(rb"^\s*Quest\.Var(\d+)\s*\*\s*-\s*1\s*$"),
+)
 
 TOOL = Path(__file__).name
 
@@ -183,6 +238,15 @@ def give_sites(path: Path):
             text = line.decode("ascii", "replace").rstrip("\r").strip()
             found.append((enclosing_function(lines, number), 0, None, api,
                           number, text))
+        for api in GIVE_ARGUMENT_APIS:
+            # Matched on the CALL, not on the argument: unlike
+            # `GIVE_BY_API` there is no column to read out of it, and
+            # unlike `GIVE_UNCONDITIONAL_APIS` the call is not empty.
+            if arguments_of(line, api.encode("ascii")) is None:
+                continue
+            text = line.decode("ascii", "replace").rstrip("\r").strip()
+            found.append((enclosing_function(lines, number), 0, None, api,
+                          number, text))
         for api in sorted(GIVE_BY_API):
             position, prefix, source_prefix = GIVE_BY_API[api]
             args = arguments_of(line, api.encode("ascii"))
@@ -196,6 +260,40 @@ def give_sites(path: Path):
                 text = line.decode("ascii", "replace").rstrip("\r").strip()
                 found.append((enclosing_function(lines, number), slot,
                               source_prefix, api, number, text))
+    return found
+
+
+def take_sites(path: Path):
+    """``[(function, var_index, api, line_number)]`` for SCRIPT-negated takes.
+
+    The other half of :func:`give_sites`, and deliberately its mirror
+    image: bytes in, bytes matched, ASCII out, one entry per call site
+    that a reader can open the file and check.  Only the shapes in
+    :data:`TAKE_BY_API` are read; a ``Player.AddCash`` whose argument is
+    anything else (a bare ``Quest.VarN``, an expression nobody has
+    classified) is NOT reported here, because a take this function is not
+    certain of would gate a cell the player is entitled to.  The
+    signedness table still carries the cell-negative takes.
+    """
+    data = path.read_bytes()
+    lines = data.split(b"\n")
+    found = []
+    for number, line in enumerate(lines, start=1):
+        for api in sorted(TAKE_BY_API):
+            position = TAKE_BY_API[api]
+            args = arguments_of(line, api.encode("ascii"))
+            if args is None or position >= len(args):
+                continue
+            for pattern in _SCRIPT_NEGATED_VAR:
+                match = pattern.match(args[position])
+                if match is None:
+                    continue
+                index = int(match.group(1))
+                if not 1 <= index <= VAR_COUNT:
+                    continue
+                found.append((enclosing_function(lines, number), index, api,
+                              number))
+                break
     return found
 
 
@@ -213,33 +311,54 @@ def scan_groups(rows, corpus: Path):
         scripts.setdefault(script.strip().lower(), script.strip())
     out = []
     for key in sorted(scripts):
-        takes = [column for (column_script, _index), column
-                 in sorted(load_signedness().items())
-                 if column_script == key and column.kind == TAKE_KIND]
-        if not takes:
-            continue
+        signed_takes = [column for (column_script, _index), column
+                        in sorted(load_signedness().items())
+                        if column_script == key and column.kind == TAKE_KIND]
         path = corpus_file_for(corpus, key)
         if path is None:
             continue
         relative = path.relative_to(corpus).as_posix()
+        # TWO SOURCES, ONE LIST (pf-adversary D3, round `l0rbyx`).  The
+        # signedness table carries the takes whose minus sign is in the
+        # shipped CELL; `take_sites` reads the ones whose minus sign is in
+        # the SCRIPT.  Neither can see the other's, and a group built from
+        # only the first left `q_ship.lua` charging for a ship it never
+        # delivered.  Keyed by (var_index, call_site) so a cell that both
+        # sources happen to describe is one member, not two.
+        script_takes = [
+            (index, api, "%s:%d" % (relative, number), function)
+            for function, index, api, number in take_sites(path)
+        ]
+        if not signed_takes and not script_takes:
+            continue
         gives = give_sites(path)
         if not gives:
             continue
+        lines = path.read_bytes().split(b"\n")
         take_by_function = {}
-        for column in takes:
+        seen_takes = set()
+        for column in signed_takes:
             number = int(column.call_site.rsplit(":", 1)[1])
-            lines = path.read_bytes().split(b"\n")
+            member = (column.var_index, column.api_name, column.call_site)
+            if member in seen_takes:
+                continue
+            seen_takes.add(member)
             take_by_function.setdefault(
-                enclosing_function(lines, number), []).append(column)
-        for function, columns in sorted(take_by_function.items(),
-                                        key=lambda item: item[0] or ""):
+                enclosing_function(lines, number), []).append(member)
+        for index, api, call_site, function in script_takes:
+            member = (index, api, call_site)
+            if member in seen_takes:
+                continue
+            seen_takes.add(member)
+            take_by_function.setdefault(function, []).append(member)
+        for function, members_take in sorted(take_by_function.items(),
+                                             key=lambda item: item[0] or ""):
             members = [entry for entry in gives if entry[0] == function]
             if not members:
                 continue
-            for column in sorted(columns, key=lambda c: c.var_index):
+            for index, api, call_site in sorted(members_take):
                 out.append((scripts[key], function, TAKE,
-                            "n_VARI_%d" % column.var_index, column.api_name,
-                            column.call_site))
+                            "n_VARI_%d" % index, api, call_site))
             for _function, slot, source_prefix, api, number, _text in sorted(
                     members, key=lambda entry: (entry[2] or "", entry[3],
                                                 entry[1])):
