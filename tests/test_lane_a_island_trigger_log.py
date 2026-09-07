@@ -494,6 +494,44 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
             + FRAME_114[self._ID_AT + 2:]
         )
 
+    def test_the_guard_verdict_reaches_the_console_through_the_dispatcher(self):
+        # THE HEADLESS_PROOF TOKEN, END TO END: a real captured frame goes
+        # through the real dispatcher, the real hook fires, and the REAL
+        # guard's verdict lands on stderr next to the "what arrived" line.
+        # A GT ticket cites this token, so it has to survive the whole path,
+        # not just a direct call to `guard_verdict_line`.
+        state = self._logged_in_session("capguard")
+        actions, console = self._dispatch(state, FRAME_114)
+        guard = [
+            line for line in console.splitlines()
+            if line.startswith(hooklog.GUARD_TOKEN)
+        ]
+        self.assertEqual(len(guard), 1, console)
+        self.assertIn("id=40", guard[0])
+        self.assertIn("verdict=", guard[0])
+        # BOTH lines, and they are DIFFERENT lines. What arrived and what
+        # was decided about it never stand in for one another.
+        self.assertEqual(len(self._lane_a_lines(console)), 1, console)
+        # And printing a verdict is still not answering a frame.
+        self.assertEqual(actions, [], "the guard line must not send bytes")
+
+    def test_the_verdict_line_survives_a_payload_the_walker_cannot_read(self):
+        # An UNPARSED frame still gets a verdict line -- with `id=None` and
+        # `pos=?` -- because a frame the walker cannot read is exactly the
+        # case a grader must be able to tell apart from a frame that never
+        # arrived. Tier 2 refuses `None` by name, so the line is honest.
+        state = self._logged_in_session("capunparsed")
+        broken = FRAME_114[:self._ID_AT - 1] + bytes([0x7F]) + FRAME_114[self._ID_AT:]
+        actions, console = self._dispatch(state, broken)
+        guard = [
+            line for line in console.splitlines()
+            if line.startswith(hooklog.GUARD_TOKEN)
+        ]
+        self.assertEqual(len(guard), 1, console)
+        self.assertIn("pos=?", guard[0])
+        self.assertNotIn("verdict=PASS", guard[0])
+        self.assertEqual(actions, [])
+
     def test_the_captured_frame_prints_its_prop_line_and_answers_nothing(self):
         state = self._logged_in_session("capfr114")
         rx_before = state.rx_frames
@@ -683,6 +721,147 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
                 self.assertEqual(len(lines), 1, console)
                 lines[0].encode("ascii")
                 lines[0].encode("cp874")
+
+
+class TheGuardVerdictReachesTheConsoleTests(unittest.TestCase):
+    """`LANE_A_M2_GUARD`: the line M2 has been missing.
+
+    Until this round `world_m2_trigger_vital_response` decided nothing
+    anybody could see -- nothing in `src/` imported it, so every round of
+    this lane could only argue about that module's own tests, and no GT
+    ticket could carry a `HEADLESS_PROOF:` token because there was no
+    console line to quote. These tests pin the line, both readers behind
+    it, and the fact that printing a verdict still sends nothing.
+    """
+
+    # The five R307 nested payloads, keyed by frame number, exactly as the
+    # module's own fixture above quotes them.
+    FRAME_217 = NESTED_PAYLOADS[217]
+
+    def test_the_position_is_read_from_the_frame_the_lane_already_captured(self):
+        # Real R307 bytes. The three 0x2A fields are orders 4/5/6 of the SAME
+        # serializer row block the trigger id comes from, so no new tag width
+        # is needed -- the previous round's plan said `_TAG_WIDTHS[0x12] = 2`
+        # would be, and this test is why it is not.
+        for frame, payload in sorted(NESTED_PAYLOADS.items()):
+            with self.subTest(frame=frame):
+                position = hooklog.position_after_trigger_id(payload)
+                self.assertIsNotNone(position, f"frame {frame} walked to None")
+                self.assertEqual(len(position), 3)
+                for axis in position:
+                    self.assertIsInstance(axis, float)
+                # Every R307 frame was captured at the sailing altitude the
+                # crosswalk observations also carry. If this ever changes the
+                # fixture changed, not the reader.
+                self.assertAlmostEqual(position[2], 186.0, places=2)
+
+    def test_a_partial_position_is_no_position(self):
+        # Two coordinates and a missing third would put the ship at whatever
+        # the caller's default axis is -- which is what pf-adversary's D2
+        # against the previous round measured the cost of. `None`, not a
+        # guess, and never an exception.
+        whole = self.FRAME_217
+        for cut in range(1, len(whole)):
+            with self.subTest(cut=cut):
+                got = hooklog.position_after_trigger_id(whole[:cut])
+                if got is not None:
+                    self.assertEqual(len(got), 3, whole[:cut].hex())
+
+    def test_a_position_field_before_the_trigger_id_is_not_the_ship(self):
+        # The reader starts collecting only AFTER the id field. A 0x2A that
+        # arrives first belongs to something else, and treating it as x
+        # would silently shift every axis by one.
+        leading = bytes.fromhex("2A00002043") + self.FRAME_217
+        self.assertEqual(
+            hooklog.position_after_trigger_id(leading),
+            hooklog.position_after_trigger_id(self.FRAME_217),
+        )
+
+    def test_an_unknown_tag_stops_the_position_walk(self):
+        # Same closed-tag posture as `first_tag_value`: an unknown byte is a
+        # refusal, not a width to guess. 0x12 is the one that matters -- it
+        # starts the NEXT vital, and walking through it would read that
+        # vital's coordinates as this ship's.
+        self.assertIsNone(
+            hooklog.position_after_trigger_id(
+                bytes.fromhex("0F03000B0412902A0B002A7BFCC6452A29879644"
+                              "2A0000AC42")
+            )
+        )
+
+    def test_the_r307_island_frame_passes_all_three_tiers_on_the_real_guard(self):
+        # THE TOKEN. Real captured bytes, the real committed extent table,
+        # the shipped discriminator -- no seam, no fixture table. `PASS`
+        # means the scene admits, the id is a candidate, and the ship
+        # position falls inside the committed box OF THAT ID.
+        line = hooklog.guard_verdict_line(
+            126, 3, hooklog.position_after_trigger_id(self.FRAME_217),
+        )
+        self.assertTrue(line.startswith(hooklog.GUARD_TOKEN), line)
+        self.assertIn("scene=126", line)
+        self.assertIn("id=3", line)
+        self.assertIn("verdict=PASS", line)
+        self.assertIn("bytes_out=0", line)
+
+    def test_every_refusal_the_line_prints_is_a_named_one(self):
+        # A verdict that is not PASS is the NAMED reason of the first tier
+        # that refused, verbatim from the guard -- never a bare "no", never
+        # a traceback, and never this file's own wording.
+        position = hooklog.position_after_trigger_id(self.FRAME_217)
+        cases = (
+            (1, 3, position),          # wrong scene -> tier 1
+            (126, 40, position),       # not a candidate id -> tier 2
+            (126, 3, None),            # no position -> tier 3, no evidence
+            (None, 3, position),       # no scene at all -> tier 1
+            (126, 2, position),        # right scene, WRONG island -> tier 3
+        )
+        for scene, trigger_id, pos in cases:
+            with self.subTest(scene=scene, trigger_id=trigger_id):
+                line = hooklog.guard_verdict_line(scene, trigger_id, pos)
+                verdict = line.split("verdict=")[1].split(" ")[0]
+                self.assertNotEqual(verdict, "PASS", line)
+                self.assertTrue(verdict.isupper(), line)
+                self.assertIn("bytes_out=0", line)
+
+    def test_the_guard_line_is_ascii_and_cp874(self):
+        # The bridge console is cp874. A line the grader cannot read is a
+        # token nobody can quote.
+        for scene, trigger_id in ((126, 3), (1, 40), (None, None)):
+            line = hooklog.guard_verdict_line(
+                scene, trigger_id,
+                hooklog.position_after_trigger_id(self.FRAME_217),
+            )
+            with self.subTest(scene=scene, trigger_id=trigger_id):
+                line.encode("ascii")
+                line.encode("cp874")
+
+    def test_a_half_built_session_gets_a_named_refusal_not_a_traceback(self):
+        # `_scene_id_of` walks four optional attributes. A hook that raises
+        # on an inbound frame turns a printed verdict into one swallowed
+        # `LANE_HOOK ... ERR` line with nothing in it.
+        class Empty:
+            pass
+
+        partial = Empty()
+        partial.foundation = Empty()
+        for session in (None, object(), Empty(), partial):
+            with self.subTest(session=type(session).__name__):
+                self.assertIsNone(hooklog._scene_id_of(session))
+
+    def test_the_guard_module_is_not_imported_at_module_level(self):
+        # MEASURED, NOT STYLE: `world_m2_trigger_vital_response` imports
+        # `M2_OBSERVED_ISLAND_TRIGGER_IDS` from this hook, so a top-level
+        # import here closes a cycle and BOTH this hook and
+        # `lane_q_trigger_vital_dispatch` fail discovery at boot with
+        # `IMPORT_FAILED ImportError(... partially initialized module ...)`
+        # -- i.e. the frame log this round builds on stops printing at all.
+        source = io.open(
+            hooklog.__file__, encoding="utf-8"
+        ).read()
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("import ", "from ")) and not line[:1].isspace():
+                self.assertNotIn("world_m2_trigger_vital_response", stripped)
 
 
 if __name__ == "__main__":
