@@ -115,6 +115,31 @@ _LOCKED = "database is locked"
 #: `_begin_immediate_for_damage`.
 DAMAGE_LOCK_BUSY_TIMEOUT_MS = 3000
 
+#: How long `equip_item_nowait` lets SQLite's busy handler wait before it
+#: gives up, in milliseconds.
+#:
+#: WHY A SEPARATE, MUCH SHORTER CEILING THAN EVERY OTHER WRITE DOOR.  The
+#: caller of that method is a `lane_hooks` hook, which runs INLINE ON THE
+#: CONNECTION'S OWN DISPATCH THREAD (`game_listener` handles one connection
+#: on one thread).  A `pf-adversary` pass on `pirate-force-server#1064`
+#: measured what `connect()`'s 5,000 ms means there, with a second
+#: connection holding `BEGIN IMMEDIATE`:
+#:
+#:     uncontended: 0.002s -> LANE_DB_EQUIP wrote ...
+#:     CONTENDED:   5.01s  -> LANE_DB_EQUIP store_refused err=WriteLockTimeout
+#:
+#: i.e. a five-second stall of one player's whole connection, bought to
+#: persist one equip.  A hook that is report-only in its RETURN contract is
+#: not report-only in TIME, and this ceiling is the difference.
+#:
+#: !! THIS NUMBER IS A CEILING, NOT A MEASURED OPTIMUM -- the same honesty
+#: `DAMAGE_LOCK_BUSY_TIMEOUT_MS` states about itself.  Nobody has measured
+#: the distribution of equip-lock waits on a loaded server; 250 ms is chosen
+#: as "long enough that an ordinary uncontended write (0.002 s above) never
+#: sees it, short enough that a player never feels it".  A measurement, not
+#: an argument, is what should replace it.
+EQUIP_LOCK_BUSY_TIMEOUT_MS = 250
+
 #: Printed to stdout, once, the one time this budget is spent and the write
 #: is refused -- so a hit that never lands is visible on the console instead
 #: of only living inside a caught exception a combat caller might swallow.
@@ -287,6 +312,53 @@ _SQLITE_INT64_MAX = 2 ** 63 - 1
 
 def _fits_sqlite_integer(value: int) -> bool:
     return _SQLITE_INT64_MIN <= value <= _SQLITE_INT64_MAX
+
+
+def _check_equip_arguments(
+    character_id, slot_id, item_identity, item_template_id
+) -> None:
+    """Every argument check `SQLiteStore.equip_item` performs, in the order
+    it performs them, raising exactly what it raises.
+
+    WHY THIS IS A FUNCTION AND NOT A SECOND COPY INSIDE
+    `equip_item_nowait`.  Both doors write the same row into the same table
+    under the same `CHECK` constraints, so a second inline copy would be a
+    duplicated predicate for one column -- the shape `pf-adversary` has
+    already charged this lane for once (`D7`, LANE-DB round `5vzis0`), and
+    the shape that lets two doors drift into disagreeing about what a legal
+    `slot_id` is.
+
+    WHAT DID NOT CHANGE WHEN THIS WAS EXTRACTED.  `equip_item`'s observable
+    behaviour: the same exception types, the same messages, the same order,
+    and still nothing written when anything is refused (the checks all run
+    before `connect()`).  `test_equip_item_argument_refusals_are_unchanged_
+    by_the_extraction` pins that as a fact rather than a comment -- this
+    lane's charter (`COO-DECISION 20260901_1100`) allows adding a method to
+    `store.py` but not changing an existing one's behaviour, and an
+    extraction is only allowed BECAUSE the behaviour is identical.
+    """
+    for label, value in (
+        ("character_id", character_id),
+        ("slot_id", slot_id),
+        ("item_identity", item_identity),
+        ("item_template_id", item_template_id),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(f"{label} must be an int")
+    if not 0 <= slot_id <= 0xFF:
+        raise ValueError("slot_id %d is outside the 0..255 range" % slot_id)
+    if not 0 <= item_identity <= 0x7FFFFFFFFFFFFFFF:
+        raise ValueError(
+            "item_identity %d is outside the representable range"
+            % item_identity
+        )
+    if not 0 <= item_template_id <= 0xFFFFFFFF:
+        raise ValueError(
+            "item_template_id %d is outside the u32 range"
+            % item_template_id
+        )
+    if not _fits_sqlite_integer(character_id):
+        raise KeyError(character_id)
 
 
 class WriteLockTimeout(sqlite3.OperationalError):
@@ -3783,28 +3855,8 @@ class SQLiteStore:
         matching every other write door in this file. Nothing is written
         when anything is refused.
         """
-        for label, value in (
-            ("character_id", character_id),
-            ("slot_id", slot_id),
-            ("item_identity", item_identity),
-            ("item_template_id", item_template_id),
-        ):
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise TypeError(f"{label} must be an int")
-        if not 0 <= slot_id <= 0xFF:
-            raise ValueError("slot_id %d is outside the 0..255 range" % slot_id)
-        if not 0 <= item_identity <= 0x7FFFFFFFFFFFFFFF:
-            raise ValueError(
-                "item_identity %d is outside the representable range"
-                % item_identity
-            )
-        if not 0 <= item_template_id <= 0xFFFFFFFF:
-            raise ValueError(
-                "item_template_id %d is outside the u32 range"
-                % item_template_id
-            )
-        if not _fits_sqlite_integer(character_id):
-            raise KeyError(character_id)
+        _check_equip_arguments(
+            character_id, slot_id, item_identity, item_template_id)
         equipped_at = _now()
         with self.connect() as db:
             try:
@@ -3830,6 +3882,93 @@ class SQLiteStore:
                 (character_id, slot_id, item_identity, item_template_id,
                  equipped_at),
             )
+
+    def equip_item_nowait(
+        self,
+        character_id: int,
+        slot_id: int,
+        item_identity: int,
+        item_template_id: int,
+    ) -> int:
+        """`equip_item`, on a lock budget short enough for a caller that is
+        standing on a player's own dispatch thread, returning the row id it
+        wrote.
+
+        WHO THIS IS FOR, AND WHY `equip_item` COULD NOT SIMPLY BE USED.  A
+        `lane_hooks` hook runs inline on the connection's thread, so the
+        5,000 ms `connect()` gives every write door is, for that caller, a
+        five-second freeze of one player's session bought to persist one
+        equip -- measured, not feared: see
+        `EQUIP_LOCK_BUSY_TIMEOUT_MS`'s own comment for the two-line
+        measurement.  `connect()` is not touched (raising the ceiling for
+        every path in the server to fix one path would be a change nobody
+        measured) and neither is `equip_item`: this door applies
+        `PRAGMA busy_timeout` to ITS OWN connection after `connect()` has
+        opened it, the exact shape `_begin_immediate_under_contention` and
+        `_begin_immediate_for_damage` already use under
+        `COO-DECISION 20260903_1248`.
+
+        A REFUSED PRAGMA IS COUNTED AND PRINTED, NEVER SWALLOWED -- point 4
+        of that same decision, and the reason this door shares
+        `_note_pragma_busy_timeout_refused` rather than a bare
+        `except sqlite3.Error: pass`.  A connection whose pragma was refused
+        still attempts `BEGIN IMMEDIATE` at whatever timeout it already has,
+        exactly as the two doors above do: the refusal changes what is
+        VISIBLE, not what is attempted.
+
+        WHY IT RETURNS THE ROW ID.  So a caller can say "the row is there"
+        instead of "the call returned".  The id is read back inside the same
+        transaction that wrote it (`last_insert_rowid()`), so a caller's
+        success line cannot outlive a rollback: if the commit that
+        `connect()` performs on the way out fails, this method raises and
+        the caller never reaches its own announcement.
+
+        Everything else -- the arguments, every refusal, the bounds, the
+        `INSERT OR REPLACE` swap semantics against
+        `UNIQUE(character_id, slot_id)`, the `KeyError` for an unknown or
+        soft-deleted character -- is `equip_item`'s contract unchanged, and
+        the argument checks are literally the same code
+        (`_check_equip_arguments`), not a second copy of it.
+        """
+        _check_equip_arguments(
+            character_id, slot_id, item_identity, item_template_id)
+        equipped_at = _now()
+        with self.connect() as db:
+            try:
+                db.execute(
+                    "PRAGMA busy_timeout=%d" % EQUIP_LOCK_BUSY_TIMEOUT_MS)
+            except sqlite3.Error:
+                _note_pragma_busy_timeout_refused(
+                    "equip", EQUIP_LOCK_BUSY_TIMEOUT_MS)
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s equip at slot {slot_id} within "
+                    f"{EQUIP_LOCK_BUSY_TIMEOUT_MS} ms: {error}"
+                ) from error
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            db.execute(
+                "INSERT OR REPLACE INTO character_equipment"
+                "(character_id,slot_id,item_identity,item_template_id,"
+                "equipped_at) VALUES (?,?,?,?,?)",
+                (character_id, slot_id, item_identity, item_template_id,
+                 equipped_at),
+            )
+            written = db.execute(
+                "SELECT id FROM character_equipment "
+                "WHERE character_id=? AND slot_id=?",
+                (character_id, slot_id),
+            ).fetchone()
+        return int(written["id"])
 
     def unequip_slot(self, character_id: int, slot_id: int) -> bool:
         """Remove whatever is equipped at `slot_id` for `character_id`.
