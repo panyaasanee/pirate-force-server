@@ -43,9 +43,23 @@ same measured reason this docstring gives below for LANE-B's encoder and
 SUBSTRING, so prose naming it here would be counted as an importer and
 turn a guard red on a sentence.  ``tests/test_persistence_standard_
 status.py`` carries the full name, in the constant its assertion reads,
-and is where the caller list is actually measured: empty today, that one
-name on the day the import returns, and never in the set that test's loop
-skips.
+and is where the caller list is actually measured.
+
+AND TODAY THE PREMISE RETIRES FOR REAL, IN THIS MODULE'S OWNER'S OWN
+ROUND, WHICH IS THE ONLY WAY ``2050`` ALLOWS IT TO GO.  LANE-DB round
+``6n7pam`` wrote a sibling module that turns a character's experience into
+a LEVEL, and it needs exactly one thing from this table: the row for
+``level + 1``, whose ``n_EXP_CURRENTLV`` is the number the client's own XP
+bar divides by -- the single proven fact about this table, named below.
+That module is this one's first production caller and the "no caller"
+sentence is not written anywhere in this file any more.  The pin retires
+in the same commit
+(``tests/test_persistence_standard_status.py::TheFirstCallerTests``),
+which no longer asserts an empty caller set: it names that one caller,
+still fails on any undeclared second one, and adds a MECHANISM test that
+bends a row in memory and measures the caller's answer moving with it --
+so an import that never reads a row cannot pass for a caller.  What has
+not changed is the first paragraph: this module still writes nothing.
 
 WHAT THIS MODULE DOES DO.  ``CONSTDATA_TH__STANDARD_STATUS.tsv`` is a
 plain, already-committed gamedata table -- ``class_catalog.py``'s own

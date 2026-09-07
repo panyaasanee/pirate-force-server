@@ -23,9 +23,19 @@ WHAT THIS FILE PROVES (wire/DB layer only -- nothing here is on a screen):
 5. The console line is one ASCII line and shouts on a refusal.
 
 WHAT THIS FILE DOES NOT PROVE.  Nothing here evaluates `0x430E10`, so
-nothing here claims which branch the client actually took at sea.  It does
-not claim the module has a production caller -- it has none, and the module
-says so.  It has not run against the canonical database.
+nothing here claims which branch the client actually took at sea.  It has
+not run against the canonical database.
+
+THE CALLER SENTENCE, KEPT ACCURATE RATHER THAN CONVENIENT (chief's letter
+`20260907_2305`, LANE-E round R394).  On `main` at the time of this round
+the module still has no production caller: what changes that is
+`pirate-force-server#1084`, which calls `resolve_for_scene_exit` from
+`runtime.py::_note_client_confirmed_scene` -- the moment the field holding
+the scene a CLIENT frame backed moves, with the scene the character just
+LEFT.  That pull request is OPEN, not merged, so "it has none" is still the
+true sentence today and "it has one" becomes true on the merge, not on this
+edit.  Nothing in this file measures the caller either way: no test here
+greps for one, so neither state can turn this file red.
 """
 import sys
 import tempfile
