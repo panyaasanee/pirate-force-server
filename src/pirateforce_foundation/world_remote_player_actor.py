@@ -70,8 +70,9 @@ below.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
+from . import player_wire
 from . import world_scene_folder
 from . import world_scene_registry
 from .population import MOVEMENT_ATTR_ID
@@ -334,43 +335,166 @@ def clear_player_presence(
     return book.forget_player(folder, actor_identity)
 
 
+#: WHERE THE HP PAIR OF A LIVE-PLAYER ROW COMES FROM.  Two sources, never
+#: mixed, and each one is what the client of THAT character was already told
+#: at its own login -- so a second session is shown the same pair the first
+#: session is showing itself.
+PRESENCE_HP_SOURCE_ROW = "character_row"
+PRESENCE_HP_SOURCE_LOGIN_CONSTANTS = "player_wire_login_constants"
+
+PRESENCE_REFUSED_NO_POSITION = "character_row_has_no_position"
+PRESENCE_REFUSED_HP_PAIR_HALF_SET = "character_row_hp_pair_only_half_set"
+PRESENCE_REFUSED_HP_PAIR_NOT_INTS = "character_row_hp_pair_is_not_two_ints"
+PRESENCE_REFUSED_HP_CURRENT_BELOW_ONE = "character_row_hp_current_below_one"
+PRESENCE_REFUSED_HP_MAX_BELOW_ONE = "character_row_hp_max_below_one"
+PRESENCE_REFUSED_HP_CURRENT_ABOVE_MAX = "character_row_hp_current_above_max"
+
+
+class PresenceHpPair(NamedTuple):
+    """The pair a presence row will carry, and WHICH source it came from."""
+
+    current_hp: int
+    max_hp: int
+    source: str
+
+
+def hp_pair_for_character(selected: Any) -> PresenceHpPair:
+    """The HP pair to remember for ``selected``, or raise by name.
+
+    THIS FUNCTION EXISTS TO CLOSE THE ONE OPEN QUESTION THIS LANE'S OWN ASK
+    CARRIED.  ``PLAYER_PRESENCE_WIRING`` used to hand chief a paste with
+    ``<current hp>`` / ``<max hp>`` in it and say the read had no single
+    obvious source.  It has one, and it is not a new guess:
+
+    * ``model.Character`` carries ``hp_current`` / ``hp_max``, and
+      ``PANYA-DECISION 20260901_1059`` (quoted in that dataclass) makes the
+      three login vitals ALL-OR-NONE: a row either carries the pair its own
+      login sent, or carries neither and its login sent
+      ``player_wire.PLAYER_LOGIN_HP_CURRENT`` / ``_HP_MAX``.  So both-None is
+      not missing data -- it is the constants, named
+      :data:`PRESENCE_HP_SOURCE_LOGIN_CONSTANTS`, and it is exactly what that
+      character's own client is displaying.
+    * HALF a pair is a state no login in this tree can produce.  Filling the
+      missing half from the constants would put a row's 380 beside a
+      constant's 100 on one bar, so this refuses by name instead.
+
+    AND IT NEVER LETS A ZERO THROUGH.  ``HP == 0`` is the client's DEATH
+    predicate (0x43BD7A / 0x43BDAA, the Q1 finding this module's header
+    already cites, which is why the encoder refuses HP < 1 too).  A presence
+    row built from a zero pair would put a dead-looking second player in the
+    world book that every later frame reads, so the refusal happens at the
+    write door as well, not only at the encoder.
+    """
+    current = getattr(selected, "hp_current", None)
+    maximum = getattr(selected, "hp_max", None)
+    if current is None and maximum is None:
+        return PresenceHpPair(
+            player_wire.PLAYER_LOGIN_HP_CURRENT,
+            player_wire.PLAYER_LOGIN_HP_MAX,
+            PRESENCE_HP_SOURCE_LOGIN_CONSTANTS,
+        )
+    if current is None or maximum is None:
+        _refuse(PRESENCE_REFUSED_HP_PAIR_HALF_SET, repr((current, maximum)))
+    for value in (current, maximum):
+        if type(value) is not int or type(value) is bool:
+            _refuse(PRESENCE_REFUSED_HP_PAIR_NOT_INTS, repr((current, maximum)))
+    if current < 1:
+        _refuse(PRESENCE_REFUSED_HP_CURRENT_BELOW_ONE, repr(current))
+    if maximum < 1:
+        _refuse(PRESENCE_REFUSED_HP_MAX_BELOW_ONE, repr(maximum))
+    if current > maximum:
+        _refuse(PRESENCE_REFUSED_HP_CURRENT_ABOVE_MAX, repr((current, maximum)))
+    return PresenceHpPair(current, maximum, PRESENCE_HP_SOURCE_ROW)
+
+
+def register_presence_for_character(
+    selected: Any, *, position: Any = None, registry: Any = None,
+) -> "world_scene_registry.PlayerNoteOutcome":
+    """Remember the character ``selected`` as standing where it stands.
+
+    THE WHOLE POINT: this is the one-argument door the two ``runtime.py``
+    call sites of :data:`PLAYER_PRESENCE_WIRING` need, so neither paste has
+    to read a field of the character row itself.  Scene, identity, name and
+    position all come off the row that call site already has in hand, and the
+    HP pair comes from :func:`hp_pair_for_character`.
+
+    ``position`` overrides the row's own x/y/z and nothing else.  That is
+    call site (2): a movement report has a fresher position than the row
+    does, but it is the SAME character in the SAME scene, so overriding the
+    scene or the identity from a movement frame is not a thing this door
+    offers.
+
+    NEVER RAISES.  Every refusal comes back as a named
+    ``PlayerNoteOutcome`` -- the shape :func:`register_player_presence`
+    already answers with -- because a presence write sits on the login and
+    movement paths, where an exception would take the session down with it.
+    """
+    where = getattr(selected, "position", None)
+    scene_id = getattr(where, "scene_id", None)
+    if where is None or type(scene_id) is not int or type(scene_id) is bool:
+        return world_scene_registry.PlayerNoteOutcome(
+            "", None, PRESENCE_REFUSED_NO_POSITION,
+        )
+    if position is None:
+        xyz = (getattr(where, "x", None), getattr(where, "y", None),
+               getattr(where, "z", None))
+    else:
+        xyz = position
+    try:
+        pair = hp_pair_for_character(selected)
+    except RemotePlayerActorRefusal as refusal:
+        return world_scene_registry.PlayerNoteOutcome(
+            world_scene_folder.scene_folder_for_scene_id(scene_id) or "",
+            None,
+            str(refusal).split("refused: ", 1)[-1].split(" (", 1)[0],
+        )
+    return register_player_presence(
+        scene_id,
+        getattr(selected, "id", None),
+        getattr(selected, "name", None),
+        pair.current_hp,
+        pair.max_hp,
+        xyz,
+        registry=registry,
+    )
+
+
 #: The pasteable call site, kept next to the module it names -- the same
 #: device ``world_scene_registry.WORLD_REGISTRY_SEED_WIRING`` and
 #: ``mob_death_persistence.DEATH_SEED_WIRING`` already use.  ``runtime.py``
 #: is chief's file; LANE-A does not edit it.
 PLAYER_PRESENCE_WIRING = (
-    "THREE CALL SITES, all in runtime.py, all keyed by scene id (this\n"
-    "module's own convenience doors -- register_player_presence /\n"
-    "clear_player_presence -- already do the scene-id-to-folder lookup, so\n"
-    "none of these three pastes needs to import world_scene_folder itself):\n"
+    "THREE CALL SITES, all in runtime.py, all keyed by the selected\n"
+    "character row or by scene id (this module's own convenience doors --\n"
+    "register_presence_for_character / register_player_presence /\n"
+    "clear_player_presence -- do the scene-id-to-folder lookup and the HP\n"
+    "pair read themselves, so none of these pastes reads a field or imports\n"
+    "world_scene_folder itself):\n"
     "\n"
     "(1) ONCE PER SESSION, right after `lane_hooks.register_live_session(\n"
     "    self.foundation.selected.id, self)` in the START_GAME_REQ handler\n"
     "    (the same call site CORE-REQUEST-GM-054 already added), with the\n"
     "    just-selected character's own row and its BOOT position:\n"
     "\n"
-    "        world_remote_player_actor.register_player_presence(\n"
-    "            self.foundation.selected.position.scene_id,\n"
-    "            self.foundation.selected.id,\n"
-    "            self.foundation.selected.name,\n"
-    "            <current hp>, <max hp>,\n"
-    "            (self.foundation.selected.position.x,\n"
-    "             self.foundation.selected.position.y,\n"
-    "             self.foundation.selected.position.z))\n"
+    "        world_remote_player_actor.register_presence_for_character(\n"
+    "            self.foundation.selected)\n"
     "\n"
-    "    THE HP PAIR HAS NO SINGLE OBVIOUS READ in today's tree (this lane\n"
-    "    does not own character HP state) -- naming the exact read is the\n"
-    "    one open question in this ask, for chief or whichever lane owns\n"
-    "    that field to answer, not a guess this module will make.\n"
+    "    NOTHING IS LEFT FOR THE PASTE TO DECIDE.  Scene, identity, name and\n"
+    "    position are read off that row inside the door, and the HP pair --\n"
+    "    the one open question this ask used to carry -- is answered by\n"
+    "    hp_pair_for_character in this file: the row's own hp_current/hp_max\n"
+    "    when its login sent them, and player_wire's login constants when it\n"
+    "    did not, which is what that character's own client is displaying in\n"
+    "    either case (the ALL-OR-NONE rule of PANYA-DECISION 20260901_1059).\n"
+    "    A half-set pair and any pair containing a zero are refused by name,\n"
+    "    because HP 0 is the client's death predicate.\n"
     "\n"
     "(2) IN `_vital_walk_promote_target_pos` (or the frame this project ends\n"
     "    up promoting a position report through), right after\n"
     "    `self.last_target_pos = (x, y, z, heading)`:\n"
     "\n"
-    "        world_remote_player_actor.register_player_presence(\n"
-    "            self.foundation.selected.position.scene_id,\n"
-    "            self.foundation.selected.id, <name>, <hp>, <max_hp>,\n"
-    "            (x, y, z))\n"
+    "        world_remote_player_actor.register_presence_for_character(\n"
+    "            self.foundation.selected, position=(x, y, z))\n"
     "\n"
     "    Last-writer-wins, the same rule world_scene_registry.note_balance\n"
     "    already carries for monster health -- named there, not invented\n"
