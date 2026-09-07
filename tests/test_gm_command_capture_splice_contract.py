@@ -202,10 +202,25 @@ class TheTailDirectionIsAlsoPinnedTests(unittest.TestCase):
     cannot see.  A single stray `00` and a sixth field the RE-088 pin does
     not know both read as "multi-vital", byte for byte the same sentence.
 
-    A nested vital opens with tag 0x12 (its u16 class id), so that is the one
-    thing the sink CAN check without `vital_walk` and a `legacy` handle.
-    These tests pin the split: tag 0x12 at the tail is the multi-vital shape
-    and is not a failure; anything else keeps the greppable marker.
+    A nested vital opens with a FIVE-BYTE header -- `u16(tag 0x12)` class id
+    then `u8(tag 0x0B)` version (RE-292) -- and checking those five bytes
+    needs no body-length table, so it costs this sink neither a `vital_walk`
+    import nor a `legacy` handle.  That is the rule
+    `gm/chat_frame_tail.py:215` already ships, and the rule these tests pin.
+
+    SELF-CORRECTION, recorded rather than quietly fixed (pf-adversary round
+    `uk16x4`, H1/M2): the first version of this class checked byte 0 alone
+    and this docstring called it "the one thing the sink CAN check".  Both
+    were wrong.  v141's `parse_outer` (`:2902`) opens an OUTER packet with
+    `outer_id = c.u16(0x12)`, so a second whole packet appended at the tail
+    -- the likeliest splice bug there is -- passed the one-byte guard and was
+    reported as a multi-vital frame with the greppable FAILED marker
+    swallowed: D2's exact defect, re-entering through a different byte.  And
+    the "one thing the sink CAN check" sentence was written without grepping
+    this lane's own directory, where the stronger rule was already merged.
+
+    `TheOneByteGuardIsNotEnoughTests` below pins every case that separates
+    the two rules, so no future edit can quietly walk back to byte 0.
     """
 
     def test_a_single_stray_byte_at_the_tail_is_not_called_multi_vital(self):
@@ -282,6 +297,146 @@ class TheTailDirectionIsAlsoPinnedTests(unittest.TestCase):
                 text = _capture(raw)
                 self.assertEqual(_hex_bytes(text), raw)
                 self.assertIn(f"length={len(raw)}", text)
+
+
+class TheOneByteGuardIsNotEnoughTests(unittest.TestCase):
+    """Every input that separates `tail[0] == 0x12` from the five-byte rule.
+
+    Each row here died under the one-byte guard that shipped in round
+    `uk16x4` and lives under the header rule, or is the control that must
+    keep working.  They exist to kill the mutants pf-adversary measured as
+    SURVIVING the previous fixture set (M5): `0x12 in tail` at any position,
+    `tail[0] & 0x12 == 0x12`, a length bound of 3 instead of 5, and the
+    header rule itself weakened back to one byte.
+
+    NONCLAIM, and it is the honest ceiling of this sink: the header rule is
+    NECESSARY, NOT SUFFICIENT.  A second packet whose byte 3 happened to be
+    0x0B would still pass it.  That is why the line the sink prints says
+    "CONSISTENT WITH", and `test_the_passing_line_never_asserts_a_cause`
+    below goes red the day somebody upgrades that wording.
+    """
+
+    #: The head of a second whole v141 packet: `u16tag(0x12, 0x0BC2)` then
+    #: `u32tag(0x14, 0)` ... -- byte 0 is 0x12 and byte 3 is 0x14.  This is
+    #: the tail splice H1 was about, built the same way
+    #: `test_gm_run_command_envelope_version_boundary._outer_packet` builds
+    #: one, so it cannot drift away from the parser it imitates.
+    SECOND_PACKET_HEAD = bytes.fromhex("12c20b1400000000" "0800" "0b02" "1201")
+
+    #: A real nested vital header: id 0x0F01, version 0.
+    REAL_NESTED = bytes([0x12]) + struct.pack("<H", 0x0F01) + bytes([0x0B, 0x00])
+
+    def _refused(self, label, tail):
+        text = _capture(_payload() + tail)
+        self.assertIn(_FAILED_MARKER, text, label)
+        self.assertNotIn("multi-vital frame", text, label)
+        self.assertIn(f"TRAILING {len(tail)} byte(s)", text, label)
+        return text
+
+    def test_the_head_of_a_second_packet_is_not_called_multi_vital(self):
+        """H1 itself.  Under the one-byte guard this printed a multi-vital
+        claim and NO failure marker."""
+        self._refused("second-packet-head", self.SECOND_PACKET_HEAD)
+
+    def test_a_tail_too_short_to_be_a_header_is_not_called_multi_vital(self):
+        """A nested header is five bytes, so one, three and four cannot be
+        one.  Kills a length bound of 3 as well as no bound at all."""
+        for length in (1, 2, 3, 4):
+            with self.subTest(length=length):
+                self._refused(f"short-{length}", self.REAL_NESTED[:length])
+
+    def test_a_five_byte_header_is_the_smallest_accepted_tail(self):
+        text = _capture(_payload() + self.REAL_NESTED)
+        self.assertNotIn(_FAILED_MARKER, text)
+        self.assertIn("multi-vital frame", text)
+
+    def test_a_nested_vital_carrying_a_body_is_still_accepted(self):
+        """The fixture set used to be a monoculture of exactly-five-byte
+        tails (M5).  A real second vital carries a body after its header."""
+        tail = self.REAL_NESTED + bytes.fromhex("1407000000")
+        text = _capture(_payload() + tail)
+        self.assertNotIn(_FAILED_MARKER, text)
+        self.assertIn("multi-vital frame", text)
+        self.assertIn(f"TRAILING {len(tail)} byte(s)", text)
+
+    def test_the_id_tag_must_be_at_byte_zero_not_merely_present(self):
+        """Kills `0x12 in tail`."""
+        self._refused(
+            "tag-not-first", bytes([0x99, 0x12, 0x0F, 0x0B, 0x00])
+        )
+
+    def test_a_byte_that_merely_contains_the_tag_bits_is_refused(self):
+        """Kills `tail[0] & 0x12 == 0x12`.  0x13, 0x1A, 0x32 and 0x92 all
+        satisfy that mask; none of them is the tag."""
+        for first in (0x13, 0x1A, 0x32, 0x92):
+            with self.subTest(first=hex(first)):
+                tail = bytes([first]) + self.REAL_NESTED[1:]
+                text = self._refused(f"masked-{first:#04x}", tail)
+                self.assertIn(f"opening with tag 0x{first:02X}", text)
+
+    def test_the_version_tag_at_byte_three_is_load_bearing(self):
+        """Kills dropping the `tail[3] == 0x0B` half of the rule.  0x14 is
+        what a real second packet has there; the rest are neighbours."""
+        for third in (0x14, 0x08, 0x0A, 0x0C, 0x12):
+            with self.subTest(third=hex(third)):
+                tail = bytearray(self.REAL_NESTED)
+                tail[3] = third
+                self._refused(f"byte3-{third:#04x}", bytes(tail))
+
+    def test_the_passing_line_never_asserts_a_cause(self):
+        """The wording is the claim.  A header check cannot prove a cause,
+        so the line must hedge and must name its own limit."""
+        text = _capture(_payload() + self.REAL_NESTED)
+        self.assertIn("CONSISTENT WITH a multi-vital frame", text)
+        self.assertIn("Necessary, not sufficient", text)
+        self.assertNotIn("-- the shape of a", text)
+
+    def test_the_refusal_line_still_carries_the_decoder_message(self):
+        """Kills dropping `-- {exc}` from the FAILED line (M5): without it
+        the marker is present but says nothing a reader can act on."""
+        text = self._refused("second-packet-head", self.SECOND_PACKET_HEAD)
+        self.assertIn("FAILED against RE-088 pin -- ", text)
+        self.assertNotIn("FAILED against RE-088 pin\n", text)
+
+
+class APresenceZeroFirstVitalIsNotAnUnstrippedEnvelopeTests(unittest.TestCase):
+    """pf-adversary round `uk16x4`, M3.
+
+    A multi-vital frame whose FIRST vital is empty (presence=0) used to land
+    in the arm that accuses the caller of handing over an un-stripped
+    runtime-vital envelope -- the same "assert a cause the sink cannot see"
+    defect as D2 and H1, surviving on the other side of the branch.  The two
+    shapes are in fact distinguishable without any body-length table: an
+    un-stripped envelope's leftover opens `0x0B <version>`, which fails the
+    nested header rule, while a real second vital opens `0x12`.
+    """
+
+    REAL_NESTED = bytes([0x12]) + struct.pack("<H", 0x0F01) + bytes([0x0B, 0x00])
+
+    def test_an_empty_first_vital_with_a_second_vital_is_not_a_failure(self):
+        text = _capture(bytes([0x0B, 0x00]) + self.REAL_NESTED)
+        self.assertNotIn(_FAILED_MARKER, text)
+        self.assertIn("multi-vital frame", text)
+        self.assertIn("presence=0 for THIS vital", text)
+
+    def test_an_unstripped_envelope_still_names_that_cause(self):
+        """The control: the accusation is correct for the shape it was
+        written for, and must not have been thrown away with M3."""
+        text = _capture(
+            bytes.fromhex(
+                "0b00" "0b01" "1401000000" "1400000000" "0b01"
+                "4800000000" "4800000000"
+            )
+        )
+        self.assertIn(_FAILED_MARKER, text)
+        self.assertIn("un-stripped runtime-vital envelope", text)
+        self.assertNotIn("multi-vital frame", text)
+
+    def test_no_field_is_claimed_for_a_vital_that_had_none(self):
+        text = _capture(bytes([0x0B, 0x00]) + bytes([0x14, 0x01]))
+        self.assertIn(_FAILED_MARKER, text)
+        self.assertIn("No field decoded for this vital", text)
+        self.assertNotIn("The fields above", text)
 
 
 class FailedIsAmbiguousTests(unittest.TestCase):

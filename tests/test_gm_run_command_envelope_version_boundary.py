@@ -40,6 +40,7 @@ OTHER doors (R303, R313) -- not because this door has ever done it.
 """
 from __future__ import annotations
 
+import hashlib
 import struct
 import sys
 import unittest
@@ -62,40 +63,114 @@ from pirateforce_foundation.gm.command_wire import (
 # R322B, as the NESTED-VITAL REGION: everything after the u16 class id, i.e.
 # the envelope's `0B <version>` pair followed by the class serializer's bytes.
 #
-# !! SOURCE, CORRECTED.  RE-292 tabulates FRAME 1 ONLY; its sentences about
-# frames 2 and 3 are prose deltas, and frame 3's delta is stated against
-# FRAME 2, not frame 1.  Reading it as a delta from frame 1 is how the first
-# version of this file put `0b01` at byte 15 of frame 3 -- and because the
-# same misreading produced BOTH the input and the expected table below, they
-# agreed with each other and no length check could notice (the byte does not
-# change the 46 B total).  The authority for frames 2 and 3 is therefore the
-# attended letter that spells all three out in full, not RE-292:
+# !! SOURCE, AND WHY IT IS QUOTED RATHER THAN RETYPED.  RE-292 tabulates
+# FRAME 1 ONLY; its sentences about frames 2 and 3 are prose deltas, and
+# frame 3's delta is ambiguous about which frame it is stated against.  The
+# first version of this file read it as a delta from frame 1 and put `0b01`
+# at byte 15 of frame 3 -- and because the same misreading produced BOTH the
+# input and the expected table, they agreed with each other, no length check
+# could notice (the byte does not change the 46 B total), and NOTHING in the
+# repository could tell (pf-adversary round `uk16x4`, D1 then H2: restoring
+# the wrong byte together with its wrong expected tuple left the suite
+# green).
+#
+# The authority is the attended letter that spells all three frames out in
+# full, not RE-292:
 #
 #   pf_bridge/notes_to_chief/20260907_0123_KA1A-R322B-RESULTS-GT281-screen-
-#   PASS-GT279-execute-0x51E9-x3-bg0002-hostile-gap.md, line 23, which gives
-#   frame 3 as
-#       0B 00 0B 01 14 00100000 14 00000000 0B 00 48 02000000 3000 48 00000000
-#                                           ^^^^^ zero, not one
+#   PASS-GT279-execute-0x51E9-x3-bg0002-hostile-gap.md, lines 21/22/23.
+#
+# So the letter's own three hex lines are quoted here VERBATIM, spaces and
+# all, and everything else in this file is derived from them:
+#   * `_R322B_REGIONS` is the quoted text with the spaces removed;
+#   * `_R322B_EXPECTED` is checked against a tag walker written from the
+#     letter's own annotations, NOT from the shipped decoder, so a decoder
+#     change cannot re-bless itself and a hand-edited table cannot agree
+#     with itself either;
+#   * `_R322B_LETTER_SHA256` pins the quoted text.
+#
+# NONCLAIM, and it is the ceiling of what this repository can check: the
+# letter lives in `pf_bridge`, which is NOT beside this repository when the
+# gate runs, so the hash pins the QUOTATION, not the letter.  Changing a
+# fixture byte now takes three deliberate edits in three places that must be
+# made to agree (line, hash, expected table) instead of one misreading that
+# produced two agreeing halves.  It does not make a determined re-typing
+# impossible; it makes an accident impossible.
+_R322B_LETTER_LINES = (
+    "0B 00 0B 01 14 01000000 14 00000000 0B 01 48 00000000 48 00000000",
+    "0B 00 0B 01 14 01000000 14 00000000 0B 00 48 00000000 48 00000000",
+    "0B 00 0B 01 14 00100000 14 00000000 0B 00 48 02000000 3000 48 00000000",
+)
+
+#: sha256 of the three lines above joined with "\n".  Pinned as a literal:
+#: a test that recomputed the expected hash from the lines would pass for
+#: every value of them.
+_R322B_LETTER_SHA256 = (
+    "95e6b3881cc680b3cfebe0bec47038c5f700387be6c2690147366772c9240eae"
+)
+
 _R322B_REGIONS = {
-    1: bytes.fromhex(
-        "0b00" "0b01" "1401000000" "1400000000" "0b01" "4800000000" "4800000000"
-    ),
-    2: bytes.fromhex(
-        "0b00" "0b01" "1401000000" "1400000000" "0b00" "4800000000" "4800000000"
-    ),
-    3: bytes.fromhex(
-        "0b00" "0b01" "1400100000" "1400000000" "0b00" "48020000003000" "4800000000"
-    ),
+    n: bytes.fromhex(line.replace(" ", ""))
+    for n, line in enumerate(_R322B_LETTER_LINES, start=1)
 }
 
 # What the R322B letter's bytes say each frame's class body decodes to.
-# Written out as data, not derived from the decoder, so a decoder change
-# cannot quietly re-bless itself.
+# Written out as data, never derived from the shipped decoder, and
+# cross-checked by `_walk_region_the_letters_way` below.
 _R322B_EXPECTED = {
     1: (1, 1, 0, 1, "", ""),
     2: (1, 1, 0, 0, "", ""),
     3: (1, 0x1000, 0, 0, "0", ""),
 }
+
+# Tag bytes, spelled here rather than imported, because this walker's whole
+# job is to be a SECOND opinion about the letter's bytes.  Importing the
+# module under test would make it an echo.
+_LETTER_TAG_U8 = 0x0B
+_LETTER_TAG_U32 = 0x14
+_LETTER_TAG_STR = 0x48
+
+
+def _walk_region_the_letters_way(region: bytes) -> tuple:
+    """Decode one quoted region using only what the LETTER says it is.
+
+    The letter annotates frame 3 itself: `48 02000000 3000` is "a UTF-16
+    string \"0\", 2 bytes long".  That plus the tag bytes is the entire
+    grammar needed, so this function is written from the letter and not
+    from `command_wire`, and it is deliberately strict -- every tag is
+    asserted, so a fixture that drifted into a different shape raises here
+    instead of quietly decoding to something.
+    """
+
+    def take_u8(buf, at, tag):
+        if buf[at] != tag:
+            raise AssertionError(f"tag 0x{buf[at]:02X} at {at}, want 0x{tag:02X}")
+        return buf[at + 1], at + 2
+
+    def take_u32(buf, at):
+        if buf[at] != _LETTER_TAG_U32:
+            raise AssertionError(f"tag 0x{buf[at]:02X} at {at}, want 0x14")
+        return int.from_bytes(buf[at + 1 : at + 5], "little"), at + 5
+
+    def take_str(buf, at):
+        if buf[at] != _LETTER_TAG_STR:
+            raise AssertionError(f"tag 0x{buf[at]:02X} at {at}, want 0x48")
+        size = int.from_bytes(buf[at + 1 : at + 5], "little")
+        at += 5
+        return buf[at : at + size].decode("utf-16-le"), at + size
+
+    # The envelope's own `0B <version>` pair, which parse_outer strips.
+    _, at = take_u8(region, 0, _LETTER_TAG_U8)
+    presence, at = take_u8(region, at, _LETTER_TAG_U8)
+    field_0x10, at = take_u32(region, at)
+    field_0x14, at = take_u32(region, at)
+    field_0x18, at = take_u8(region, at, _LETTER_TAG_U8)
+    string_0x1c, at = take_str(region, at)
+    string_0x38, at = take_str(region, at)
+    if at != len(region):
+        raise AssertionError(f"{len(region) - at} byte(s) left over")
+    return (presence, field_0x10, field_0x14, field_0x18, string_0x1c, string_0x38)
+
 
 #: id header (tag 0x12 + u16) + version pair (tag 0x0B + u8).  This is the
 #: number the whole file is about: the class body starts here, not earlier.
@@ -114,6 +189,83 @@ def _outer_packet(legacy, region: bytes, vital_id: int = GM_RUN_GM_COMMAND_VITAL
         + legacy.u16tag(0x12, vital_id)
         + region
     )
+
+
+class TheFixtureCannotAgreeWithItsOwnMisreadingTests(unittest.TestCase):
+    """pf-adversary round `uk16x4`, H2 -- the finding this class answers.
+
+    D1 was a single wrong byte at frame 3 position 15.  What made it
+    survive a whole round was not the byte: it was that ONE misreading of
+    RE-292 produced BOTH the fixture input and the expected table, so the
+    two agreed with each other.  The reviewer measured that restoring the
+    wrong byte together with its wrong expected tuple left `28 passed, 47
+    subtests passed` -- the fix was pinned by nothing, and frame 1 survived
+    only by the accident of a second witness elsewhere in this file
+    hardcoding `(1, 1, 1)`.
+
+    Three checks make that accident unreachable, and each fails on its own:
+
+    1. `test_the_quoted_letter_lines_are_pinned` -- the quoted text is
+       hashed, so editing a fixture byte goes red before anything decodes.
+    2. `test_the_expected_table_matches_an_independent_walk` -- the table is
+       re-derived by `_walk_region_the_letters_way`, which is written from
+       the letter's annotations and imports nothing from `command_wire`, so
+       a hand-edited table cannot agree with itself and a decoder change
+       cannot re-bless itself.
+    3. `test_every_quoted_frame_is_covered` -- neither check can be dodged
+       by adding a frame nothing looks at.
+
+    NONCLAIM: this does not prove the letter says what is quoted.  The
+    letter is in `pf_bridge`, which the gate does not have beside it.  It
+    proves the quotation, the regions, and the expected table cannot drift
+    apart, which is exactly the failure that happened.
+    """
+
+    def test_the_quoted_letter_lines_are_pinned(self):
+        digest = hashlib.sha256(
+            "\n".join(_R322B_LETTER_LINES).encode("ascii")
+        ).hexdigest()
+        self.assertEqual(
+            digest,
+            _R322B_LETTER_SHA256,
+            "the quoted R322B lines changed.  If that was deliberate, go and"
+            " read lines 21/22/23 of the attended letter again, then update"
+            " the hash AND the expected table in the same commit.",
+        )
+
+    def test_the_expected_table_matches_an_independent_walk(self):
+        for n, region in _R322B_REGIONS.items():
+            with self.subTest(frame=n):
+                self.assertEqual(
+                    _walk_region_the_letters_way(region), _R322B_EXPECTED[n]
+                )
+
+    def test_the_walker_is_strict_about_every_tag_it_reads(self):
+        """A walker that shrugged at a wrong tag would agree with any
+        fixture, which is the defect it exists to prevent."""
+        # Every TAG byte of frame 1's region: envelope version, presence,
+        # the two u32 fields, the u8 field, and the two strings.
+        for position in (0, 2, 4, 9, 14, 16, 21):
+            with self.subTest(position=position):
+                broken = bytearray(_R322B_REGIONS[1])
+                broken[position] ^= 0xFF
+                with self.assertRaises(AssertionError):
+                    _walk_region_the_letters_way(bytes(broken))
+
+    def test_the_walker_refuses_a_region_with_bytes_left_over(self):
+        with self.assertRaises(AssertionError):
+            _walk_region_the_letters_way(_R322B_REGIONS[1] + b"\x00")
+
+    def test_frame_three_byte_fifteen_is_zero_and_that_is_the_whole_point(self):
+        """The byte D1 was about, named so a grep for it lands here."""
+        self.assertEqual(_R322B_REGIONS[3][15], 0x00)
+        self.assertEqual(_R322B_EXPECTED[3][3], 0)
+
+    def test_every_quoted_frame_is_covered(self):
+        self.assertEqual(
+            sorted(_R322B_REGIONS), sorted(_R322B_EXPECTED)
+        )
+        self.assertEqual(len(_R322B_REGIONS), len(_R322B_LETTER_LINES))
 
 
 class TheEnvelopeVersionIsStrippedBeforeThisLaneTests(unittest.TestCase):
@@ -150,18 +302,40 @@ class TheEnvelopeVersionIsStrippedBeforeThisLaneTests(unittest.TestCase):
                 self.assertEqual(region[0], VITAL_ENVELOPE_VERSION_TAG)
                 self.assertEqual(region[2], VITAL_ENVELOPE_VERSION_TAG)
 
+    #: The lengths ka1-A wrote down at the keyboard, one entry per frame.
+    #: A dict rather than a list so that adding a fourth frame to
+    #: `_R322B_LETTER_LINES` without recording its length is a KeyError, not
+    #: a silently unchecked frame (pf-adversary round `uk16x4`, M4: the old
+    #: `for n in (1, 2, 3)` loop made this file's headline nonclaim -- "the
+    #: day a real multi-vital 0x51E9 is captured this sentence goes red" --
+    #: impossible to redeem).
+    ATTENDED_FRAME_LENGTHS = {1: 44, 2: 44, 3: 46}
+
     def test_the_three_regions_reproduce_the_attended_frame_lengths(self):
         """44/44/46 B -- the lengths ka1-A wrote down at the keyboard.
 
-        Free to assert and it pins more than it looks.  The letter's numbers
-        are prefix (18 B) + region, so reproducing them is also the
-        statement that each of the three frames carried EXACTLY ONE vital:
-        `vital_count == 1`.  If a later round ever swaps in a region that
-        does not come off a real frame, this is the check that notices.
+        What this pins, stated at the altitude it actually reaches: the
+        letter's numbers are prefix (18 B) + region, so reproducing them is
+        an INFERENCE FROM LENGTH that each frame carried exactly one vital
+        (`vital_count == 1`).  Nobody counted a vital_count field on the
+        wire; 18 + region is simply the only reading consistent with the 26
+        bytes the letter itself spells out (the competing "framed size"
+        convention of GT103AB was checked against those 26 bytes and does
+        not fit).  [MEASURED lengths, INFERRED vital_count.]
+
+        [PROPOSED, NOT MEASURED -- and it was labelled the other way round
+        until pf-adversary M1] this is NOT "the check that notices" a region
+        that did not come off a real frame.  H2 proved the opposite: a
+        one-byte fixture error does not change any length, so no length
+        check can see it.  What notices that is `_R322B_LETTER_SHA256` and
+        `_walk_region_the_letters_way`, below.
         """
         self.assertEqual(
-            [len(_outer_packet(self.legacy, _R322B_REGIONS[n])) for n in (1, 2, 3)],
-            [44, 44, 46],
+            {
+                n: len(_outer_packet(self.legacy, region))
+                for n, region in _R322B_REGIONS.items()
+            },
+            self.ATTENDED_FRAME_LENGTHS,
         )
 
     def test_the_stripped_payload_decodes_to_re292_field_values(self):
