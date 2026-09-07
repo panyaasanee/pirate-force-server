@@ -50,7 +50,10 @@ production_allowed = True
 # more).  Exactly the shape LANE-UI's `lane_ui_tracepath_wire_log.py`
 # carried while its own CORE-REQUEST was pending, and removed the day chief
 # granted it.
-registered_but_not_fired = ("vital_inbound_activity_cheat_code",)
+# DECLARATION REMOVED by the commit that added the call site
+# (CORE-REQUEST, chief round R390): the point IS fired now, and a
+# stale `registered_but_not_fired` is its own audit finding
+# (gm/lane_gate_name_audit.py FINDING_STALE_NEVER_FIRED_DECLARATION).
 
 
 @hook("vital_inbound_activity_cheat_code")

@@ -113,7 +113,10 @@ production_allowed = True
 # CORE-REQUEST-GM-063, chief's one edit at the end of runtime.py's inbound
 # vital dispatch chain (after every existing branch, GM's own two
 # included): a frame whose nested_id matched nothing above it.
-registered_but_not_fired = ("vital_inbound_unknown_id",)
+# DECLARATION REMOVED by the commit that added the call site
+# (CORE-REQUEST, chief round R390): the point IS fired now, and a
+# stale `registered_but_not_fired` is its own audit finding
+# (gm/lane_gate_name_audit.py FINDING_STALE_NEVER_FIRED_DECLARATION).
 
 
 #: How many DISTINCT unknown ids one connection may record before this hook
