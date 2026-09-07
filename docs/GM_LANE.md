@@ -145,6 +145,42 @@ semantics (RE-091) or a real capture close that gap.
   through the same `unicode_escape` header-injection guard already used for
   `account_name`.
 
+### The `# decode:` contract a reader can grep (round `xex30b`)
+
+Every header line the sink writes starts `# decode: `, and exactly three
+outcomes exist.  This is the contract the docstring of `_decode_section`
+told readers to grep for while this document said nothing about it
+(pf-adversary round `uk16x4`, L3):
+
+| grep for | what it means |
+|---|---|
+| `# decode: presence=` | the pinned five fields decoded, or presence was 0 |
+| `# decode: FAILED against` | the bytes did not match the RE-088 pin.  **Exactly one such line per capture**, so a count is meaningful |
+| `# decode: TRAILING` | bytes remained after this vital's body |
+
+`TRAILING` comes in two flavours and the wording is the whole signal:
+
+- **`CONSISTENT WITH a multi-vital frame`** -- the leftover OPENS with a
+  well-formed nested vital header: at least five bytes, tag `0x12` at byte
+  0, tag `0x0B` at byte 3 (RE-292).  No `FAILED` line accompanies it,
+  because a multi-vital frame is a shape, not a defect.
+- **anything else** -- the leftover keeps its `FAILED` line and the header
+  says the cause is unknown here (a splice bug at the tail, a sixth field
+  the RE-088 pin does not know, or a shape nobody has measured).
+
+**NONCLAIM**, and it is deliberately printed in the capture itself: the
+header rule is NECESSARY, NOT SUFFICIENT.  v141's `parse_outer` opens an
+OUTER packet with `outer_id = c.u16(0x12)` as well, so a second whole packet
+appended at the tail also starts with that byte -- it is refused only
+because byte 3 of an outer packet is `0x14`.  Deciding more than "consistent
+with" needs `vital_walk`'s declared body lengths and a `legacy` handle,
+which this sink does not take.  An earlier version checked byte 0 alone and
+asserted a cause outright; do not walk it back.
+
+Pinned by `tests/test_gm_command_capture_splice_contract.py`
+(`TheOneByteGuardIsNotEnoughTests`,
+`APresenceZeroFirstVitalIsNotAnUnstrippedEnvelopeTests`).
+
 ## Modules delivered (npc-switch-catalog round)
 
 - `gm/npc_switch_catalog.py` (GM-003 support) -- mob_id -> the client's own
