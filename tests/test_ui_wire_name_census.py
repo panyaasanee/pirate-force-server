@@ -1866,8 +1866,44 @@ class TheArtifactHasNoEvidenceColumn(unittest.TestCase):
         # that pins that (WhereAgreesWithTheArtifactOnTheRealTreeTests)
         # compares `row["evidence"]` against `source_hit_location`.  Dropping
         # the COLUMN must not drop the in-memory field that check reads.
-        for row in _FAKE_ROWS:
+        #
+        # pf-adversary D2 of round `53yj9g`: the first version of this test
+        # asserted over `_FAKE_ROWS`, a hand-written literal -- it could not
+        # fail, and on a checkout with no `pf_bridge` sibling (the shape
+        # `gate-windows` builds) deleting the field from `build_rows` left
+        # the whole file green.  It drives the real derivation now, against
+        # a synthetic catalog and a synthetic `src/`, so it runs on the gate.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src" / "pirateforce_foundation"
+            src.mkdir(parents=True)
+            (src / "ui_probe_wire.py").write_text(
+                "SEEN = 1\nPARTY_INVITE_VITAL_ID = 0x37B1\n"
+                "def go():\n    return PartyInviteVital\n",
+                encoding="utf-8",
+            )
+            catalog = root / "VITAL_REGISTRY.tsv"
+            catalog.write_text(
+                "# master catalog\n"
+                "# id\tname\n"
+                "0x37B1\tPartyInviteVital\n"
+                "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(census, "ROOT", root), \
+                    mock.patch.object(census, "SRC_DIR", src):
+                census._CENSUS_INPUT_CACHE.clear()
+                try:
+                    rows = census.build_rows(catalog)
+                finally:
+                    census._CENSUS_INPUT_CACHE.clear()
+        self.assertTrue(rows)
+        for row in rows:
             self.assertIn("evidence", row)
+        source = [row for row in rows if row["tier"] == "SOURCE"]
+        self.assertEqual(len(source), 1, rows)
+        self.assertTrue(source[0]["evidence"].endswith("ui_probe_wire.py"),
+                        source[0]["evidence"])
 
 
 class EmitCanMigrateItsOwnArtifactHeader(unittest.TestCase):
@@ -1901,7 +1937,7 @@ class EmitCanMigrateItsOwnArtifactHeader(unittest.TestCase):
             artifact.write_text(
                 "id\tname\tfamily\tis_client_req\ttier\tevidence\n"
                 "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\t"
-                "Winemaking_\t0\tUNTOUCHED\t-\n",
+                "Winemaking_\t0\tNAME-ONLY\tdocs/PF_VITAL_NAMES.json\n",
                 encoding="utf-8",
             )
             out = io.StringIO()
@@ -1914,7 +1950,11 @@ class EmitCanMigrateItsOwnArtifactHeader(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(
             census.first_uncommented_line(written), census.ARTIFACT_HEADER)
-        self.assertIn("CENSUS EMIT: rows changed", out.getvalue())
+        # pf-adversary D4: the rows do not move in a header migration, and
+        # the line must not say they did.
+        self.assertIn(
+            "CENSUS EMIT: no rows changed (header or formatting only)",
+            out.getvalue())
 
     def test_the_previous_header_is_still_refused_as_a_catalog(self):
         # Same tuple, the other direction: `--tsv <an old artifact>` must

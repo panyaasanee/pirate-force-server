@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 import tempfile
+import types
 import sys
 import unittest
 from unittest import mock
@@ -220,24 +221,44 @@ class TokenNamesTheTreeItCameFromTests(unittest.TestCase):
         self.assertTrue(rest.startswith("code="), stamp)
         self.assertEqual(len(rest[len("code="):]), 12, stamp)
 
+    def test_the_fingerprint_covers_every_module_the_proof_imported(self):
+        # pf-adversary D1 of round `53yj9g`: the first version hashed a
+        # hand-written four-name tuple, so a rewrite of `store.close_session`
+        # that closed EVERY session of the account still printed PASS under a
+        # byte-identical `code=`.  The list is derived from sys.modules now,
+        # and these two names are the ones that measurement burned.
+        names = {path.name for path in H.fingerprinted_files()}
+        for required in ("store.py", "runtime.py", "logout_hypothesis.py",
+                         "ui_logout_exit_game.py"):
+            self.assertIn(required, names)
+        self.assertGreater(
+            len(names), 50,
+            "the proof imports hundreds of modules; a handful means the "
+            "derivation stopped working and code= went back to a list",
+        )
+
     def test_code_fingerprint_is_over_the_file_bytes_not_the_module(self):
-        # The digest has to move when the code under test moves.  Drive it
-        # against a fake tree so this is a measurement, not a re-statement.
+        # Drive it: a module of this package whose FILE changes must move the
+        # digest, with no import machinery involved.
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            package = root / "src" / "pirateforce_foundation"
-            package.mkdir(parents=True)
-            for name in H._FINGERPRINTED_FILES:
-                (package / name).write_text("first\n", encoding="utf-8")
-            with mock.patch.object(H, "ROOT", root):
+            fake_file = Path(tmp) / "zzz_fake_module_for_this_test.py"
+            fake_file.write_text("first\n", encoding="utf-8")
+            fake = types.ModuleType("pirateforce_foundation.zzz_fake")
+            fake.__file__ = str(fake_file)
+            with mock.patch.dict(
+                sys.modules,
+                {"pirateforce_foundation.zzz_fake": fake},
+            ):
+                self.assertIn(fake_file, H.fingerprinted_files())
                 before = H.code_fingerprint()
-                (package / "ui_logout_exit_game.py").write_text(
-                    "second\n", encoding="utf-8")
+                fake_file.write_text("second\n", encoding="utf-8")
                 after = H.code_fingerprint()
-                (package / "ui_logout_exit_game.py").unlink()
+                fake_file.unlink()
                 missing = H.code_fingerprint()
+            without = H.code_fingerprint()
         self.assertNotEqual(before, after)
         self.assertNotEqual(after, missing)
+        self.assertNotEqual(missing, without)
         self.assertEqual(len(before), 12)
 
     def test_head_commit_never_raises_and_says_unknown_without_git(self):
@@ -269,13 +290,37 @@ class TokenNamesTheTreeItCameFromTests(unittest.TestCase):
                     + sha + " refs/heads/main\n",
                     encoding="utf-8"),
             )),
+            # pf-adversary D7: a BRANCH worktree keeps HEAD beside a
+            # `commondir` file and its refs in the common dir named there.
+            # This shape printed `head=unknown` on a real `git worktree add
+            # -b`, and a worktree rehearsal is what HOWTO_OPEN_A_PR asks for
+            # before a push.
+            ("branch-worktree", lambda git: (
+                (git / "worktrees" / "wt").mkdir(parents=True),
+                (git / "refs" / "heads").mkdir(parents=True),
+                (git / "refs" / "heads" / "topic").write_text(
+                    sha + "\n", encoding="utf-8"),
+                (git / "worktrees" / "wt" / "HEAD").write_text(
+                    "ref: refs/heads/topic\n", encoding="utf-8"),
+                (git / "worktrees" / "wt" / "commondir").write_text(
+                    "../..\n", encoding="utf-8"),
+            )),
         ):
             with self.subTest(shape=label):
                 with tempfile.TemporaryDirectory() as tmp:
-                    git = Path(tmp) / ".git"
+                    root = Path(tmp)
+                    git = root / ".git"
                     git.mkdir()
                     build(git)
-                    with mock.patch.object(H, "ROOT", Path(tmp)):
+                    if label == "branch-worktree":
+                        # The checkout's `.git` is a FILE naming the
+                        # per-worktree directory, exactly as git writes it.
+                        root = root / "checkout"
+                        root.mkdir()
+                        (root / ".git").write_text(
+                            "gitdir: %s\n"
+                            % (git / "worktrees" / "wt"), encoding="utf-8")
+                    with mock.patch.object(H, "ROOT", root):
                         self.assertEqual(H.head_commit(), sha[:12])
 
 

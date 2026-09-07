@@ -135,12 +135,34 @@ _refuse_a_foreign_checkout()
 #          and indifferent to git: same `code=`, same mechanism under test;
 #          different `code=`, the ticket is quoting a different mechanism no
 #          matter what `head=` says.
-_FINGERPRINTED_FILES = (
-    "ui_logout_exit_game.py",
-    "ui_logout_exit_game_headless.py",
-    "logout_hypothesis.py",
-    "runtime.py",
-)
+_PACKAGE = "pirateforce_foundation"
+
+
+def fingerprinted_files() -> tuple[Path, ...]:
+    """Every module file of this package the proof has imported, sorted.
+
+    DERIVED, not hand-listed (pf-adversary D1/D9 of round `53yj9g`).  The
+    first version hashed a four-name tuple while the token claimed "same
+    code=, same mechanism under test".  Measured: the proof imports and
+    executes 234 modules of this package, and that list left out
+    ``store.py`` -- the file the ``lease_closed=`` half of the token is read
+    out of.  The adversary rewrote ``store.close_session`` to close EVERY
+    open session of the account (one player's Exit Game logging out their
+    other sessions) and the token printed ``RESULT=PASS`` with a
+    byte-identical ``code=``.  A fingerprint a behaviour change walks past
+    is worse than none, because PANYA ``20260907_0159``'s culling rule is
+    built on top of it.
+
+    Read at print time, when every import the run needed has happened.
+    """
+    files = []
+    for name, module in list(sys.modules.items()):
+        if name != _PACKAGE and not name.startswith(_PACKAGE + "."):
+            continue
+        origin = getattr(module, "__file__", None)
+        if origin:
+            files.append(Path(origin))
+    return tuple(sorted(set(files), key=str))
 
 
 def head_commit() -> str:
@@ -156,6 +178,19 @@ def head_commit() -> str:
             pointer = git_dir.read_text(encoding="utf-8").strip()
             git_dir = Path(pointer.split(":", 1)[1].strip())
         head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        # pf-adversary D7 of round `53yj9g`: in a BRANCH worktree, HEAD is
+        # `ref: refs/heads/<x>` and lives in `.git/worktrees/<name>/`, but
+        # `refs/` and `packed-refs` do NOT -- they live in the common dir
+        # the `commondir` file names.  Measured on a real `git worktree add
+        # -b`: this returned `unknown` before the lines below existed, and a
+        # worktree rehearsal is what `pf_bridge/HOWTO_OPEN_A_PR.md` asks for
+        # before a push, so the field degraded exactly where the process
+        # sends people.  A DETACHED worktree was fine (its HEAD holds the
+        # sha), which is why it went unnoticed.
+        if (git_dir / "commondir").exists():
+            common = (git_dir / "commondir").read_text(
+                encoding="utf-8").strip()
+            git_dir = (git_dir / common).resolve()
         if head.startswith("ref:"):
             ref = head.split(":", 1)[1].strip()
             ref_file = git_dir / ref
@@ -176,20 +211,26 @@ def head_commit() -> str:
 
 
 def code_fingerprint() -> str:
-    """sha256 over the bytes of the modules under test, first 12 hex.
+    """sha256 over the bytes of every module file imported, first 12 hex.
 
     Hashes the FILES, not the imported module objects: what an attended
-    re-run compares is the code on disk it is about to boot.  If a file is
-    unreadable its name is still folded in and its bytes are not, which
-    changes the digest -- the honest outcome, because that is a different
-    tree from the one the token was minted on.
+    re-run compares is the code on disk it is about to boot.  Each file
+    contributes its name and its bytes; a file that cannot be read
+    contributes its name alone, which still moves the digest -- the honest
+    outcome, because that is a different tree from the one the token was
+    minted on.
+
+    Deliberately OVER-sensitive: any module this proof loads can move the
+    value.  That is the safe direction -- a ``code=`` that moves when the
+    behaviour could not have costs one re-measurement; a ``code=`` that
+    holds still when the behaviour changed boots a ticket against the wrong
+    tree.
     """
     digest = hashlib.sha256()
-    for name in _FINGERPRINTED_FILES:
-        digest.update(name.encode("ascii"))
+    for path in fingerprinted_files():
+        digest.update(path.name.encode("ascii", "replace"))
         try:
-            digest.update(
-                (ROOT / "src" / "pirateforce_foundation" / name).read_bytes())
+            digest.update(path.read_bytes())
         except OSError:
             pass
     return digest.hexdigest()[:12]

@@ -170,7 +170,7 @@ def first_uncommented_line(text: str) -> str:
     columns and the catalog has no five- or six-column header row in any
     spelling, commented or not.
     """
-    for line in text.splitlines():
+    for line in text.lstrip("\ufeff").splitlines():
         if not line.strip() or line.startswith("#"):
             continue
         return line
@@ -198,9 +198,38 @@ ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED = (
 )
 
 
+# How far into a file to look for one of those headers.  pf-adversary D3 of
+# round `53yj9g` measured what the first-line-only test refuses: an artifact
+# carrying git merge-conflict markers (`<<<<<<< HEAD` is then the first
+# uncommented line), and an artifact truncated to zero bytes.  Both are
+# states this generated 328-line table really lands in -- several PRs re-emit
+# it -- and in both the correct repair is `--emit`, which used to answer
+# "that file is not this tool's artifact" and send the lane back to deleting
+# it by hand: the exact habit this guard exists to break.  An ABSENT file was
+# always allowed, so refusing an EMPTY one was never coherent either.
+# The master catalog is unreachable by this widening: its first 8 uncommented
+# lines are data rows, in every spelling, commented or not.
+_HEADER_SEARCH_LINES = 8
+
+
 def is_this_tools_artifact(text: str) -> bool:
-    """True when TEXT is a census artifact this tool emitted, any version."""
-    return first_uncommented_line(text) in ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED
+    """True when TEXT is a census artifact this tool emitted, any version.
+
+    Empty (or whitespace-only) counts: that file says nothing about whose it
+    is, and an absent file at the same path is already allowed.
+    """
+    if not text.strip():
+        return True
+    seen = 0
+    for line in text.lstrip("\ufeff").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        if line in ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED:
+            return True
+        seen += 1
+        if seen >= _HEADER_SEARCH_LINES:
+            return False
+    return False
 
 
 def _artifact_where_catalog_belongs(path) -> str:
@@ -758,7 +787,20 @@ def parse_tsv(text: str):
     for line in lines[1:]:
         if not line.strip():
             continue
-        wid, name, family, is_req, tier = line.split("\t", 4)
+        parts = line.split("\t")
+        if len(parts) != 5:
+            # pf-adversary D11 of round `53yj9g`: this used to be
+            # `split("\t", 4)`, so a row from the PREVIOUS six-column
+            # artifact parsed happily and folded the dropped column into
+            # `tier` ("NAME-ONLY\tdocs/PF_VITAL_NAMES.json+..."), which then
+            # died further downstream in `summarize` with a KeyError naming
+            # neither the file nor the cause.  Say it here instead.
+            raise CensusError(
+                "artifact row has %d columns, expected %d (%r) -- if this "
+                "file was written by an older version of this tool, rerun "
+                "with --emit" % (len(parts), 5, line[:120])
+            )
+        wid, name, family, is_req, tier = parts
         rows.append(
             {
                 "id": wid,
@@ -769,6 +811,49 @@ def parse_tsv(text: str):
             }
         )
     return rows
+
+
+def _rows_for_compare(text: str):
+    """The artifact's rows, from any header version, or ``None``.
+
+    ``None`` means "this text cannot be read as rows at all" (a truncated
+    file, conflict markers, a hand-edit that broke a line) -- a caller that
+    wants to describe a change must then say it cannot compare, not guess.
+    """
+    try:
+        lines = text.lstrip("\ufeff").splitlines()
+        if not lines:
+            return None
+        header = lines[0]
+        if header not in ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED:
+            return None
+        width = len(header.split("\t"))
+        rows = []
+        for line in lines[1:]:
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) != width:
+                return None
+            rows.append(tuple(parts[:5]))  # the five columns both versions share
+        return rows
+    except Exception:  # noqa: BLE001 - a description never raises
+        return None
+
+
+def _emit_verdict(existing: str, rendered: str) -> str:
+    """One line saying what --emit is about to change, before it changes it."""
+    if existing == rendered:
+        return "no change"
+    old_rows = _rows_for_compare(existing)
+    new_rows = _rows_for_compare(rendered)
+    if old_rows is None or new_rows is None:
+        return "rewriting a file this tool cannot read as rows"
+    if old_rows == new_rows:
+        return "no rows changed (header or formatting only)"
+    added = len([row for row in new_rows if row not in set(old_rows)])
+    removed = len([row for row in old_rows if row not in set(new_rows)])
+    return "rows changed (+%d -%d)" % (added, removed)
 
 
 def summarize(rows):
@@ -918,10 +1003,15 @@ def main(argv=None) -> int:
             # D4: --emit writes before the comparison below, so that
             # comparison is guaranteed to pass and says nothing.  Say the
             # useful thing instead, out loud, before the write.
-            print(
-                "CENSUS EMIT: %s"
-                % ("rows changed" if existing != rendered else "no change")
-            )
+            #
+            # pf-adversary D4 of round `53yj9g`: comparing the TEXT and
+            # calling the answer "rows changed" is a different claim from
+            # the one printed.  Measured on this round's own migration --
+            # every one of the 327 rows byte-identical in all five committed
+            # fields, headline 30/286/11 unchanged -- and it still printed
+            # `rows changed`, contradicting the page it exists to inform.
+            # Compare the ROWS, on the columns both versions share.
+            print("CENSUS EMIT: %s" % _emit_verdict(existing, rendered))
         # newline="" -- write exactly the "\n" this module already joins
         # with, not whatever this OS's default text-mode translation would
         # do (Windows would otherwise write "\r\n", which read_text's own

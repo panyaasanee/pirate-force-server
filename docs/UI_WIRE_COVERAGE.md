@@ -181,10 +181,13 @@ removed) as every lane's normal work lands.
    not" above.
 2. `NAME-ONLY` does not mean "known wire shape" for every row in that tier --
    a name can appear in `PF_PROTOCOL_REGISTRY.tsv` (a VA table for static RE)
-   without `PF_SERIALIZER_FIELDS.tsv` (proven layout) covering it. Ask
-   `--where <NAME>` (and read the function-map files themselves), not just
-   the tier, before opening or skipping an RE ticket for a specific name --
-   the artifact no longer carries which source named a row.
+   without `PF_SERIALIZER_FIELDS.tsv` (proven layout) covering it. The
+   artifact no longer carries which source named a row, and `--where` cannot
+   recover it either: `--where`/`--where-all` walk only
+   `src/pirateforce_foundation/`, so they exit 1 for EVERY `NAME-ONLY` row by
+   construction (pf-adversary D6, round `53yj9g` -- this line used to send
+   readers to a flag that refuses them). Grep the three function-map files
+   themselves before opening or skipping an RE ticket for a specific name.
 3. `UNTOUCHED` does not mean "unbuildable" -- it means nobody has referenced
    the identifier in code or in one of the four function-map files yet;
    some of the 11 may already be answerable from `PF_SERIALIZER_FIELDS.tsv`
@@ -209,9 +212,16 @@ removed) as every lane's normal work lands.
    sends them silently back to UNTOUCHED and turns the pinned test red with
    no code change to point at. This actually fired, in the small, in round
    `mg3nr4`: rewriting one sentence of `UI_LANE.md` removed the last mention
-   of `ShowMessageVital` and the artifact's tier for `0x36D2` changed in the
-   same commit (that round it was the evidence column, dropped in round
-   `53yj9g`; the tier itself moves for the same reason and is still committed). If you edit that file, re-run
+   of `ShowMessageVital` and the artifact's EVIDENCE COLUMN for `0x36D2`
+   changed in the same commit (`bb212a3`: `NAME-ONLY` before and after -- the
+   tier did not move, the source list did). That particular drift cannot
+   happen any more, because round `53yj9g` dropped that column: of the 286
+   NAME-ONLY rows, 103 cited `docs/UI_LANE.md` and only 6 have it as their
+   sole source, so a prose deletion now moves the artifact for those 6 (the
+   tier itself) and is invisible for the other 97. Re-run `--emit` before you
+   commit an edit to that page regardless. (pf-adversary D5, rounds `mg3nr4`
+   and `53yj9g` -- the second round re-read `bb212a3` and found the first
+   sentence of this note had been rewritten into a claim the commit refutes.) If you edit that file, re-run
    `--emit` before you commit. (pf-adversary D5.)
 6. This is not a substitute for the per-function status table in
    `docs/UI_LANE.md` ("layout known / needs RE / needs capture / done") --
