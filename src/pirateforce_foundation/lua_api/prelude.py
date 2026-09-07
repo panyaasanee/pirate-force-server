@@ -227,7 +227,7 @@ class Prelude:
     "the prelude" -- a server whose corpus root is misconfigured should be
     able to say WHICH utility.lua it ran.
 
-    🔴 ONE ``Prelude`` SEEDS EVERY HOST IT IS GIVEN TO IDENTICALLY, AND THAT
+    ONE ``Prelude`` SEEDS EVERY HOST IT IS GIVEN TO IDENTICALLY, AND THAT
     IS AN OPEN DESIGN QUESTION, NOT A SETTLED CHOICE (pf-adversary D5, this
     round, measured: five independent hosts built from one ``Prelude`` all
     answered 465252 to their first ``math.random(0, 1000000)``; and
@@ -280,7 +280,7 @@ def read_prelude(root, clock: Optional[Callable[[], float]] = None,
 
     ``clock`` is the seed source, injectable so a test gets a repeatable
     RNG.  Default is wall clock, which is what the original engine's
-    ``os.time()`` gives the shipped file.  🔴 A SINGLE ``Prelude`` HANDED TO
+    ``os.time()`` gives the shipped file.  A SINGLE ``Prelude`` HANDED TO
     A SWEEP SEEDS EVERY HOST IDENTICALLY -- see :class:`Prelude`.
 
     ``expect_digest=None`` disables the check.  It exists for a test that
