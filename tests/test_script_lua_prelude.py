@@ -7,8 +7,11 @@ the evidence for the other).
     Asserted against a runtime this file builds, with preludes this file
     writes, including hostile ones the shipped file is not.
   * CORPUS layer -- what the 17 shipped files that call ``rate(...)``
-    actually do.  Asserted by DIFFERENCE against the
-    real corpus: the same files, the same fixed clock, prelude off then on.
+    actually do.  Asserted by DIFFERENCE against the real corpus: the same
+    files, the same fixed clock, prelude off then on.  13 of the 17 are the
+    ones the prelude repairs; the other four never reach ``rate`` at all
+    (see ``lua_api/prelude.py`` for which and why), which is precisely why
+    the assertions below are SET RELATIONS rather than "all 17".
 
 WHY THE CORPUS LAYER PINS NO NEW ABSOLUTE NUMBER.  The container this was
 written in has no ``lupa`` and COO-DECISION ``20260907_1941`` forbids
@@ -18,6 +21,15 @@ with `global 'rate'` is non-empty without the prelude and EMPTY with it" is
 exact, and it goes red for a regression in either direction.  The absolute
 census pins in ``test_script_lua_corpus.py`` are untouched because the
 prelude seam is off by default -- see ``lua_api/prelude.py``'s docstring.
+
+THE NUMBERS NOW EXIST, AND ARE NOT PINNED HERE ON PURPOSE.  pf-adversary
+measured them this round on real lupa (2606 stub / 2865 real with the
+prelude on, against the same fixed clock, reproducing 2597/2852 with it
+off).  They are recorded in this round's file and its letter to COO, not
+turned into constants here: this lane could not reproduce them in this
+container, and a pin whose owner cannot re-measure it is the shape that
+sends the NEXT round hunting a red it has no instrument for.  Pinning them
+is the first task of the round that can run lupa itself.
 """
 import unittest
 from datetime import datetime
@@ -87,14 +99,22 @@ def _sink():
 class OsShimIsGoneBeforeAnyScriptRunsTests(unittest.TestCase):
     """The sandbox invariant, asserted from the script's side of the wall."""
 
-    def _host(self, source, log=None, seed=1757000000):
+    #: Appended to every hand-written prelude in this class that is not
+    #: itself about the helper check: `run_prelude` now answers False
+    #: unless the chunk installed `rate` (pf-adversary D6), so a probe
+    #: prelude has to install it too or every `prelude_ok` assertion below
+    #: would be measuring the helper check instead of what it says.
+    HELPER = "\nfunction rate(d) return d end\n"
+
+    def _host(self, source, log=None, seed=1757000000, with_helper=True):
         preloaded = lua_api_prelude.Prelude(
-            source=source, origin="<test>", seed=seed)
+            source=source + (self.HELPER if with_helper else ""),
+            origin="<test>", seed=seed)
         return script_host.ScriptHost(log=log or (lambda _m: None),
                                       prelude=preloaded)
 
     def test_the_shipped_prelude_shape_defines_rate_and_rate_is_callable(self):
-        host = self._host("function rate(d) return d end")
+        host = self._host("function rate(d) return d end", with_helper=False)
         self.assertTrue(host.prelude_ok)
         self.assertEqual(host.runtime.eval("rate(7)"), 7)
 
@@ -126,16 +146,27 @@ class OsShimIsGoneBeforeAnyScriptRunsTests(unittest.TestCase):
         self.assertIn("LUA_PRELUDE_OS_DISARMED time", lines)
 
     def test_the_shim_carries_time_and_nothing_else_of_the_os_library(self):
-        host = self._host(
-            "shim_keys = {} for k in pairs(os) do shim_keys[#shim_keys+1] = k end")
+        # BOTH probes run INSIDE the prelude chunk, which is the only place
+        # `os` exists at all.  The first draft of the second one ran
+        # `host.runtime.eval("os.execute")` AFTER construction, where the
+        # `finally` has already nilled `os` -- indexing nil is a Lua error,
+        # not None, so it raised (`attempt to index a nil value (global
+        # 'os')`) and the test was RED.  pf-adversary D1 caught it by
+        # running this file against real lupa; it would have gone red on
+        # the Windows gate, which does have lupa==2.8.  A probe that has
+        # never executed is not evidence.
+        names = ("execute", "remove", "rename", "exit", "getenv", "clock")
+        probe = "shim_keys = {} for k in pairs(os) do shim_keys[#shim_keys+1] = k end\n"
+        probe += "\n".join("saw_%s = (os.%s ~= nil)" % (n, n) for n in names)
+        host = self._host(probe)
+        self.assertTrue(host.prelude_ok)
         keys = host.runtime.eval("shim_keys")
         self.assertEqual(sorted(keys.values()), sorted(lua_api_prelude.OS_SHIM_KEYS))
-        # The names a real os library would carry, checked one by one rather
-        # than by counting keys: a count passes if the ONE key is the wrong
-        # one.
-        for absent in ("execute", "remove", "rename", "exit", "getenv", "clock"):
-            self.assertIsNone(host.runtime.eval("os.%s" % absent),
-                              "os.%s reached the prelude" % absent)
+        # Name by name, not by counting keys: a count passes if the ONE key
+        # present is the wrong one.
+        for name in names:
+            self.assertFalse(host.runtime.globals()["saw_%s" % name],
+                             "os.%s reached the prelude" % name)
 
     def test_every_other_blocked_global_is_still_nil_during_the_prelude(self):
         # Widening the sandbox for `os` must not have widened it for the
@@ -157,6 +188,23 @@ class OsShimIsGoneBeforeAnyScriptRunsTests(unittest.TestCase):
         self.assertIsNone(host.prelude_ok)
         self.assertIsNone(host.runtime.globals()["os"])
         self.assertIsNone(host.runtime.globals()["rate"])
+
+    def test_a_prelude_that_runs_clean_but_installs_nothing_is_not_OK(self):
+        # pf-adversary D6.  An empty, comment-only, truncated or renamed
+        # prelude used to log LUA_PRELUDE OK with `rate` still nil, after
+        # which 13 scripts died on a nil `rate` and were billed as broken
+        # quest files.  The token now stands on the target, not on "did
+        # not raise".
+        # No empty string in this list on purpose: an empty chunk is a
+        # question about lupa's parser, not about this check.
+        for source in ("-- nothing at all\n", "local unused = 1\n",
+                       "function rat(d) return d end"):
+            lines, log = _sink()
+            host = self._host(source, log=log, with_helper=False)
+            self.assertFalse(host.prelude_ok, source)
+            self.assertIsNone(host.runtime.globals()["rate"], source)
+            self.assertTrue(
+                [l for l in lines if "reason=no_helpers" in l], "\n".join(lines))
 
     def test_the_seed_clock_answers_the_injected_value_while_armed(self):
         clock = lua_api_prelude.SeedClock(4242, lambda _m: None)
@@ -184,8 +232,35 @@ class TheShippedPreludeItselfTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(raw).hexdigest(),
                          lua_api_prelude.EXTRACTED_PRELUDE_SHA256)
 
-    def test_read_prelude_returns_None_for_a_root_that_ships_none(self):
-        self.assertIsNone(lua_api_prelude.read_prelude(Path(__file__).parent))
+    def test_read_prelude_returns_None_for_a_root_that_ships_none_and_says_so(self):
+        # pf-adversary D7: a silent None is indistinguishable from "the
+        # caller asked for no prelude" and reverts a deployment to
+        # yesterday's behaviour with nothing in the log to find.
+        lines, log = _sink()
+        self.assertIsNone(
+            lua_api_prelude.read_prelude(Path(__file__).parent, log=log))
+        self.assertTrue([l for l in lines if l.startswith("LUA_PRELUDE ABSENT")],
+                        "\n".join(lines))
+
+    def test_read_prelude_refuses_bytes_it_does_not_recognise_and_says_so(self):
+        # pf-adversary D2: a prelude's global writes are restored from a
+        # Python `finally`, outside any protected Lua call, so an EDITED
+        # utility.lua can take the process down with a C-level PANIC no
+        # `except` can see.  The digest was in the module already; this is
+        # it being used rather than merely reported.
+        import tempfile
+        lines, log = _sink()
+        with tempfile.TemporaryDirectory() as tmp:
+            planted = Path(tmp) / lua_api_prelude.PRELUDE_FILENAME
+            planted.write_bytes(b"function rate(d) return true end\n")
+            self.assertIsNone(lua_api_prelude.read_prelude(tmp, log=log))
+            self.assertTrue(
+                [l for l in lines if l.startswith("LUA_PRELUDE REFUSED")],
+                "\n".join(lines))
+            # ...and the escape hatch is a real one, so the refusal above
+            # is the digest talking and not the file being unreadable.
+            allowed = lua_api_prelude.read_prelude(tmp, expect_digest=None)
+            self.assertIsNotNone(allowed)
 
     def test_the_shipped_prelude_defines_rate_inside_the_sandbox(self):
         found = lua_api_prelude.read_prelude(LUA_ROOT, clock=FIXED_SEED_CLOCK)
@@ -202,23 +277,37 @@ class TheShippedPreludeItselfTests(unittest.TestCase):
             self.assertTrue(host.runtime.eval("rate(100)"))
             self.assertFalse(host.runtime.eval("rate(-1)"))
 
-    def test_two_hosts_seeded_alike_roll_alike_and_differently_seeded_do_not(self):
-        # Determinism is the property a test needs; INDEPENDENCE is the
-        # property gameplay needs.  Both are asserted here because the same
-        # seam gives both, and a future round that seeds every host from a
-        # constant would break the second while keeping the first.
+    def _roll(self, prelude, draws=40):
+        host = script_host.ScriptHost(log=lambda _m: None, prelude=prelude)
+        return list(host.runtime.execute(
+            "local out = {} for i = 1, %d do out[i] = rate(50) end return out"
+            % draws).values())
+
+    def test_one_prelude_seeds_every_host_it_is_given_to_identically(self):
+        # THIS IS A DEFECT, PINNED AS THE FACT IT IS (pf-adversary D5).
+        # The previous version of this class asserted that two hand-built
+        # Preludes with hand-different seeds roll differently -- true, and
+        # beside the point: it never asked whether the SWEEP or
+        # `read_prelude` give different hosts different seeds.  They do
+        # not.  `load_corpus`/`run_corpus_entry_points` take ONE Prelude
+        # for all 616 hosts, so every player at every rate-gated trigger
+        # would get the same roll for the life of the process.  The
+        # replacement policy is a design decision with owners, asked of COO
+        # by letter this round, and until it is answered the seam stays off
+        # by default -- so this test exists to make the next round's fix
+        # go red here rather than to bless the behaviour.
         found = lua_api_prelude.read_prelude(LUA_ROOT, clock=FIXED_SEED_CLOCK)
-        draws = "local out = {} for i = 1, 40 do out[i] = rate(50) end return out"
+        self.assertEqual(self._roll(found), self._roll(found),
+                         "the shared-seed defect this pins has changed shape; "
+                         "read lua_api/prelude.py:Prelude before editing this")
 
-        def roll(prelude):
-            host = script_host.ScriptHost(log=lambda _m: None, prelude=prelude)
-            return list(host.runtime.execute(draws).values())
-
-        self.assertEqual(roll(found), roll(found))
+    def test_a_different_seed_really_does_change_the_stream(self):
+        # The control for the test above: identical rolls there are the
+        # SEED being identical, not `rate` ignoring its seed entirely.
+        found = lua_api_prelude.read_prelude(LUA_ROOT, clock=FIXED_SEED_CLOCK)
         other = lua_api_prelude.Prelude(
             source=found.source, origin=found.origin, seed=found.seed + 99991)
-        self.assertNotEqual(roll(found), roll(other),
-                            "two differently seeded hosts rolled identically")
+        self.assertNotEqual(self._roll(found), self._roll(other))
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()
@@ -283,10 +372,22 @@ class RateGatedCorpusFilesTests(unittest.TestCase):
         after = script_host.run_corpus_entry_points(
             LUA_ROOT, log=lambda _m: None, quest_clock=FIXED_QUEST_CLOCK,
             prelude=found)
+        # PATHS, NOT COUNTS (pf-adversary D9).  `assertLessEqual` on a
+        # count passes for a change that repairs 13 files and breaks 13
+        # different ones -- which is exactly the drift the exact pins in
+        # test_script_lua_corpus.py were written to catch.  A subset
+        # relation on the file names cannot.
+        before_failed = {run.path for run in before.call_failed}
+        after_failed = {run.path for run in after.call_failed}
+        self.assertTrue(after_failed <= before_failed,
+                        "new call failures with the prelude: %s"
+                        % sorted(after_failed - before_failed))
+        self.assertTrue(before_failed - after_failed,
+                        "the prelude repaired nothing")
         self.assertGreater(after.total_stub_calls + after.total_real_calls,
                            before.total_stub_calls + before.total_real_calls)
-        self.assertLessEqual(len(after.call_failed), len(before.call_failed))
         self.assertEqual(after.total, before.total)
+        self.assertEqual(after.load_failed, before.load_failed)
 
 
 if __name__ == "__main__":  # pragma: no cover

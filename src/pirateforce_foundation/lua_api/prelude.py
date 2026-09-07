@@ -4,30 +4,64 @@ WHAT THIS IS.  ``pf_bridge/gamedata/lua/utility.lua`` is not a quest and not
 a trigger.  Its own header says what it is, in the shipped file, above the
 one function it defines::
 
-    --  LuaAdapter <mojibake> Script
-    --  <mojibake> Lua <mojibake>
+    --  LuaAdapter <CJK> Script
+    --  <CJK> Lua <CJK>
     --  Roy20110112
 
--- i.e. the file the original engine's LuaAdapter loads at startup so that
-every quest/trigger script can call the shared helpers in it.  It defines
-exactly one global, ``rate(dicevalue)`` (a percent roll:
+Those two comment lines decode cleanly as Big5/cp950 and as nothing else
+this project uses -- they are not valid utf-8, and byte 0xFC at offset 70
+is undefined in cp874, the bridge console's own codepage.  Decoded they
+read "LuaAdapter loads this Script at initialisation" and "you can call
+these shared functions from inside Lua".
+
+WHAT LAYER THAT IS, SAID PLAINLY (pf-adversary D11, this round, correcting
+an earlier draft that wrote the paraphrase as "i.e." and dropped the
+hedge): a COMMENT IN A SHIPPED DATA FILE, written by one person in 2011.
+Nobody has disassembled a ``LuaAdapter`` in the client binary, and this
+lane has not measured how the original engine loads this file.
+``tests/test_script_lua_corpus.py``'s own long-standing nonclaim says the
+engine "PLAUSIBLY loads utility.lua once into a shared global
+environment".  That hedge is still the honest word and this module does
+not spend it.
+
+The file defines exactly one global, ``rate(dicevalue)`` (a percent roll:
 ``math.random(0, 1000000) / 10000 <= dicevalue``), and calls
 ``math.randomseed(os.time())`` at its own top level to seed the RNG.
 
-WHY IT MATTERS, MEASURED.  18 shipped corpus files across 34 call sites gate
-their ENTIRE body behind ``rate(...)``::
+WHY IT MATTERS, AND EXACTLY HOW MUCH.  Grepping the corpus for a call to
+`rate` returns 18 paths; one is this file (it DEFINES `rate`), so 17
+shipped scripts CALL it, over 34 call sites.  The exact grep is in
+`tests/test_script_lua_prelude.py` beside the pinned list.  Without the
+prelude `rate` is a nil global.
 
-    grep -rlE '(^|[^A-Za-z_])rate[[:space:]]*\\(' --include=*.lua gamedata/lua
-    -> 18 files
+**13**, not 17, is the number the prelude repairs, and the corrected
+figure is not a guess: ``tests/test_script_lua_corpus.py::
+KNOWN_ENTRY_POINT_CALL_FAILURES`` -- this lane's own instrument, readable
+without a Lua runtime -- has always pinned exactly those 13 (pf-adversary
+D3, this round, who then reproduced it on a real sweep: 17 call failures
+before, 4 after).  The other four callers never reach ``rate`` at all and
+could not: ``t_escaphk_sp.lua`` returns on an empty backpack,
+``t_getm&cat_himd_q1_rat.lua`` and ``t_getmorpopmo_q1.lua`` return on
+``0 >= 0``, and ``t_opnplc_rat_lv&buf.lua`` returns because
+``Player.CheckBuff`` stubs to 0 and **0 is truthy in Lua**.
 
-Without the prelude, ``rate`` is a nil global, so those 18 files do not run
-partially -- their entry point dies on the FIRST line that matters
-(``attempt to call a nil value (global 'rate')``, measured round ``yfeauz``,
-nonclaim 5) and the script accomplishes nothing at all.  Two of them
-(``t_getm_rat_exp&sp.lua``, ``t_inskyev_getm_rat_exp&sp.lua``) are the only
-corpus call sites of ``Player.AddExp``/``Player.AddSkillPoint``, which is
-why those two names show a real implementation and a zero call count in the
-same table.
+"Dies before doing anything" is also too strong for five of the 13
+(``t_ins_ratx3/4/5/6_lv.lua``, ``t_opnplc_rat_lv.lua``): they call
+``Player.GetLv()`` -- a real method -- first.  What IS true of all 13 is
+that their entry point stops at the ``rate`` line and their body never
+runs.
+
+AND THE ROLL STILL FAILS.  Measured by pf-adversary on the real corpus:
+turning the prelude on moves 22 API calls (5449 -> 5471), and **not one of
+the 34 ``rate(...)`` sites takes the true branch**, because
+``Trigger.VarN`` reads ``STUB_DEFAULT`` = 0, so every roll is ``rate(0)``.
+In particular ``Player.AddExp``/``Player.AddSkillPoint`` stay at ZERO
+reached call sites: theirs sit in the ``else`` of
+``if (not rate(Trigger.Var2))`` and the ``not`` sends every run down the
+first branch.  An earlier draft of this docstring said the opposite AND
+called those two names "real" when ``lua_api/player.py`` still lists them
+in ``STILL_STUBBED`` -- both wrong, both corrected here rather than left
+for a reader to trip over.
 
 THE ONE SANDBOX HOLE THIS OPENS, AND HOW NARROW IT IS.  ``script_host``
 nils ``os`` for every runtime it builds (``BLOCKED_GLOBALS``), so the
@@ -96,6 +130,7 @@ hands them the prelude the original engine hands them.
 """
 from __future__ import annotations
 
+import hashlib
 import time as _time
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,10 +146,23 @@ PRELUDE_FILENAME = "utility.lua"
 #: sha256 of the EXTRACTED prelude this lane read while writing this module
 #: (``gamedata/PF_GAMEDATA_LUA_INDEX.tsv``'s ``src_sha256`` column is the
 #: digest of the packed ``.lu_``, 297 bytes; this is the digest of the 450
-#: extracted bytes that actually reach Lua).  Recorded, NOT enforced: this
-#: module reads whatever prelude the caller's corpus root ships, and a
-#: mismatch is a fact for a test to report, not a reason to refuse to run
-#: a server.  See ``tests/test_script_lua_prelude.py``.
+#: extracted bytes that actually reach Lua).  ENFORCED by
+#: :func:`read_prelude`, and the reason is a measured one, not a taste
+#: (pf-adversary D2, this round).  A prelude is the ONE chunk this host
+#: runs whose global writes are restored from a Python ``finally``, i.e.
+#: OUTSIDE any protected Lua call.  Adversary fed an edited prelude
+#: (``setmetatable(_G, {__newindex = function() error('locked') end})``)
+#: and the restore loop took the whole process down -- ``PANIC:
+#: unprotected error in call to Lua API``, SIGABRT, exit 134, no log line
+#: at all.  The SAME Lua text as an ordinary SCRIPT is catchable at HEAD
+#: (the write happens inside the protected chunk, ``load_corpus`` logs one
+#: ``LUA_SCRIPT ... ERR locked`` and finishes the other 615), so this is a
+#: surface the prelude seam ADDS.  An earlier draft of this constant said
+#: "recorded, NOT enforced" -- which put the answer in the file and
+#: declined to use it, the exact shape this project's house rules call
+#: out.  So: bytes that do not match are not run.  Refusing is cheap
+#: (``read_prelude`` returns None, the host is the host of yesterday, one
+#: log line says which digest it saw) and running unknown bytes is not.
 EXTRACTED_PRELUDE_SHA256 = (
     "c97c8a08ae524c6fc7f8603e143b4293adaed9bd260e92aee74baea8c7042635")
 
@@ -127,6 +175,11 @@ EXTRACTED_PRELUDE_BYTES = 450
 #: comparison a script might do with it well-typed in Lua, where nil would
 #: raise the moment anything compared or added it.
 DISARMED_TIME = 0
+
+#: What a prelude must leave behind for :func:`run_prelude` to call it a
+#: success.  Exactly the shipped file's one global; a prelude that runs
+#: clean and installs nothing is a broken prelude, not an OK one.
+REQUIRED_GLOBALS: tuple = ("rate",)
 
 #: The only key the prelude-time ``os`` shim carries.  A tuple rather than a
 #: bare string so a reader greps one name and finds the whole surface.
@@ -173,6 +226,30 @@ class Prelude:
     ``origin`` is carried so a log line names the file rather than saying
     "the prelude" -- a server whose corpus root is misconfigured should be
     able to say WHICH utility.lua it ran.
+
+    🔴 ONE ``Prelude`` SEEDS EVERY HOST IT IS GIVEN TO IDENTICALLY, AND THAT
+    IS AN OPEN DESIGN QUESTION, NOT A SETTLED CHOICE (pf-adversary D5, this
+    round, measured: five independent hosts built from one ``Prelude`` all
+    answered 465252 to their first ``math.random(0, 1000000)``; and
+    ``_time.time`` has one-second resolution, so re-reading per host does
+    not fix it either).  ``load_corpus`` and ``run_corpus_entry_points``
+    take a single ``Prelude`` and hand it to all 616 hosts, which is the
+    only usage shape this API offers -- so a dispatcher that reads one at
+    boot would give every player at every rate-gated trigger the same roll
+    for the life of the process, and the same roll again after they walk
+    away and come back.
+
+    The original engine seeds ONCE, at LuaAdapter init, into one advancing
+    stream every script shares; seeding per host inverts that.  This lane
+    will NOT invent the replacement policy in the same round it found the
+    problem: whether ``rate``'s stream is per-scene world state, per
+    character, or genuinely per invocation -- and what seeds it so two
+    players touching two triggers in the same second differ -- is a
+    decision with owners (PANYA-DECISION 20260905_1057 puts world state in
+    the server process, per scene), and it is asked of COO by letter this
+    round.  Until it is answered the seam stays OFF by default, so no
+    player can be hit by this: it is a defect in a capability nothing in
+    production calls yet, written down rather than quietly shipped.
     """
 
     source: str
@@ -180,23 +257,53 @@ class Prelude:
     seed: int
 
 
-def read_prelude(root, clock: Optional[Callable[[], float]] = None) -> Optional[Prelude]:
-    """Read ``<root>/utility.lua``, or ``None`` when the root ships none.
+def read_prelude(root, clock: Optional[Callable[[], float]] = None,
+                 log: Optional[Callable[[str], None]] = None,
+                 expect_digest: Optional[str] = EXTRACTED_PRELUDE_SHA256) -> Optional[Prelude]:
+    """Read ``<root>/utility.lua``, or ``None`` when there is none to run.
 
     ``None`` rather than a raise: a deployment without the game's script
     tree beside it is a supported configuration (the server runs, the 616
     scripts simply are not there), and this function is called on that
     path.  A caller that REQUIRES a prelude checks for None itself.
 
+    THREE ``None``S, AND EACH ONE SAYS SO (pf-adversary D7, this round: the
+    first draft returned a silent ``None`` for a missing file, which is
+    indistinguishable from "the caller asked for no prelude" and reverts a
+    deployment to yesterday's behaviour with nothing in the log to find):
+    ``LUA_PRELUDE ABSENT`` when the root ships no such file,
+    ``LUA_PRELUDE REFUSED`` when its bytes are not the ones this lane
+    measured (see :data:`EXTRACTED_PRELUDE_SHA256` for why that is fatal
+    rather than interesting), and ``LUA_PRELUDE READ`` when one is
+    returned.  ``log`` defaults to a sink so an existing caller's behaviour
+    does not change; a caller that wants the line passes its own.
+
     ``clock`` is the seed source, injectable so a test gets a repeatable
     RNG.  Default is wall clock, which is what the original engine's
-    ``os.time()`` gives the shipped file.
+    ``os.time()`` gives the shipped file.  🔴 A SINGLE ``Prelude`` HANDED TO
+    A SWEEP SEEDS EVERY HOST IDENTICALLY -- see :class:`Prelude`.
+
+    ``expect_digest=None`` disables the check.  It exists for a test that
+    needs to read a deliberately different prelude off disk, and for the
+    round that decides a second shipped prelude is legitimate; it is not a
+    production escape hatch, and no caller in this package passes it.
     """
+    log = log or (lambda _message: None)
     path = Path(root) / PRELUDE_FILENAME
     if not path.is_file():
+        log('LUA_PRELUDE ABSENT origin="%s"' % (path.as_posix(),))
         return None
-    source = path.read_bytes().decode("latin-1")
+    raw = path.read_bytes()
+    if expect_digest is not None:
+        seen = hashlib.sha256(raw).hexdigest()
+        if seen != expect_digest:
+            log('LUA_PRELUDE REFUSED origin="%s" sha256=%s expected=%s'
+                % (path.as_posix(), seen, expect_digest))
+            return None
+    source = raw.decode("latin-1")
     seed = int((clock or _time.time)())
+    log('LUA_PRELUDE READ origin="%s" bytes=%d seed=%d'
+        % (path.as_posix(), len(raw), seed))
     return Prelude(source=source, origin=path.as_posix(), seed=seed)
 
 
@@ -204,10 +311,29 @@ def run_prelude(runtime, prelude: Prelude, log: Callable[[str], None],
                 blocked_globals) -> bool:
     """Run ``prelude`` in ``runtime`` with a one-key ``os``, then take it back.
 
-    Returns True when the chunk ran, False when it raised.  Never raises:
-    a prelude that fails must leave a host that still loads scripts (they
-    simply see a nil ``rate`` again, exactly as today), not a host that
-    refuses to exist.
+    Returns True when the chunk ran AND left the helper it exists to
+    install; False otherwise.
+
+    "AND LEFT THE HELPER" IS THE WHOLE POINT (pf-adversary D6, this round).
+    The first draft compared the token against "the chunk did not raise",
+    which is a delta from the previous state rather than the target -- and
+    adversary made it fire: a prelude that is empty, comment-only,
+    truncated by the extractor, or has ``rate`` renamed logged
+    ``LUA_PRELUDE OK`` with ``rate`` still nil, after which 13 scripts died
+    on a nil ``rate`` and were billed as broken quest files.  So the check
+    is against :data:`REQUIRED_GLOBALS` -- what a caller actually needs to
+    be true -- and a chunk that ran but installed nothing logs
+    ``LUA_PRELUDE ERR reason=no_helpers`` and answers False.
+
+    DOES NOT RAISE FOR A PRELUDE THAT RAISES.  It can still raise, and
+    worse, for a prelude that is not the shipped file: the ``finally``
+    below writes Lua globals OUTSIDE any protected call, so a prelude that
+    installs a raising ``__newindex`` on ``_G`` takes the process down with
+    a C-level PANIC that no ``except`` can see (measured, pf-adversary D2 --
+    see :data:`EXTRACTED_PRELUDE_SHA256`, which is why
+    :func:`read_prelude` now refuses bytes it does not recognise).  An
+    earlier draft of this docstring said "Never raises" flatly.  It is not
+    true, and the honest sentence is the one above.
 
     ``blocked_globals`` is passed in rather than imported from
     ``script_host`` -- this module is imported BY ``script_host``, and the
@@ -225,10 +351,22 @@ def run_prelude(runtime, prelude: Prelude, log: Callable[[str], None],
         log('LUA_PRELUDE ERR %s origin="%s"' % (ascii_safe(exc), prelude.origin))
         return False
     else:
+        missing = [name for name in REQUIRED_GLOBALS
+                   if globals_table[name] is None]
+        if missing:
+            log('LUA_PRELUDE ERR reason=no_helpers missing=%s origin="%s"'
+                % (",".join(missing), prelude.origin))
+            return False
         log('LUA_PRELUDE OK origin="%s" seed=%d' % (prelude.origin, prelude.seed))
         return True
     finally:
         seed_clock.disarm()
+        # `os` FIRST, not in `blocked_globals` order (pf-adversary D8):
+        # that tuple starts with "io", and the one name this function
+        # actually moved would have been restored LAST -- so a raise on any
+        # earlier write left the shim installed.  Now the shim is the first
+        # thing taken back, and the rest is the belt to that brace.
+        globals_table["os"] = None
         for name in blocked_globals:
             globals_table[name] = None
 
@@ -239,6 +377,7 @@ __all__ = [
     "EXTRACTED_PRELUDE_SHA256",
     "OS_SHIM_KEYS",
     "PRELUDE_FILENAME",
+    "REQUIRED_GLOBALS",
     "Prelude",
     "SeedClock",
     "read_prelude",

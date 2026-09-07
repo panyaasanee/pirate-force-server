@@ -692,9 +692,12 @@ neither visible from `load_corpus`'s load-only check (pinned in
   shape of the pattern was wrong: `grep -rlE '(^|[^A-Za-z_])rate[[:space:]]
   *\(' --include=*.lua gamedata/lua` returns 18 paths, of which one is
   `utility.lua` itself (it DEFINES `rate`), leaving 17 callers over 34 call
-  sites; four of them (`t_escaphk_sp.lua`, `t_getmorpopmo_q1.lua`,
-  `t_getm&cat_himd_q1_rat.lua`, `t_indani_l_cat_pt_rat.lua`) do not match
-  `*rat*.lua` at all.  The 17 are pinned by name in
+  sites; **two** of them (`t_escaphk_sp.lua`, `t_getmorpopmo_q1.lua`) do
+  not match `*rat*.lua` at all.  (A first draft of this correction said
+  "four", adding `t_getm&cat_himd_q1_rat.lua` and
+  `t_indani_l_cat_pt_rat.lua`, which both contain `rat` and both match --
+  pf-adversary D10, this round: a stale number replaced by a new wrong one
+  in the same commit.)  The 17 are pinned by name in
   `tests/test_script_lua_prelude.py::RATE_CALLERS`.
   This host gives every script its OWN Lua state (deliberate,
   `script_host.py`'s own module docstring: stops 616 files sharing one
@@ -703,9 +706,20 @@ neither visible from `load_corpus`'s load-only check (pinned in
   the answer is a PRELUDE run into each host's own state rather than one
   shared global environment.  Round `q6nytd` built that
   (`lua_api/prelude.py`), and it is off by default: a caller passes
-  `prelude=read_prelude(root)` and those 17 files stop dying on a nil
+  `prelude=read_prelude(root)` and **13** of those 17 stop dying on a nil
   `rate`; a caller that passes nothing gets the host of yesterday, byte for
   byte, which is what keeps the census pins below honest.
+  🔴 13, not 17, and the number was already in this repo before anyone ran
+  a sweep: `KNOWN_ENTRY_POINT_CALL_FAILURES` pins exactly those 13.  The
+  other four never reach `rate` -- `t_escaphk_sp.lua` returns on an empty
+  backpack, `t_getm&cat_himd_q1_rat.lua` and `t_getmorpopmo_q1.lua` return
+  on `0 >= 0`, and `t_opnplc_rat_lv&buf.lua` returns because
+  `Player.CheckBuff` stubs to 0 and **0 is truthy in Lua**.  And the 13 that
+  do run still fail every roll: `Trigger.VarN` is `STUB_DEFAULT` = 0, so
+  every one of the 34 sites evaluates `rate(0)` and takes the false branch
+  (measured by pf-adversary, round `q6nytd`: the whole prelude is worth
+  +22 API calls out of 5449, and `Player.AddExp`/`AddSkillPoint` stay at
+  ZERO reached call sites because theirs sit behind `not rate(...)`).
 
 ### Nonclaims
 
