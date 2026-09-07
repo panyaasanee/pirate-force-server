@@ -80,6 +80,31 @@ def make_chat_payload(message: str, speaker: str = "") -> bytes:
     return bytes(out)
 
 
+
+def assert_staged_warp_notice_only(case, action):
+    """The action a STAGED warp returns: its sentence, never a warp frame.
+
+    ~~`self.assertIsNone(action)`~~ -- struck LANE-GM round `0w9jhq` at every
+    staged-warp call site in this file.  It was the right pin while a staged
+    `/warp` put NOTHING on the wire, and it stopped being right when the
+    command started answering `STAGED RELOG` on the local-talk notice channel:
+    the owner read the old silence off her own screen as "nothing happened"
+    (`PANYA-DECISION 20260903_1800`, round R307).
+
+    WHAT THE PIN STILL HAS TO SAY IS UNCHANGED, and this helper says exactly
+    that and no more: no TELEPORT frame went out for this command.  The label
+    is asserted rather than the mere presence of an action, because a warp
+    FRAME returned here would also be "not None" -- and the label is the one
+    field `runtime.py`'s `_GM_WARP_LABELS` resync and the `TELEPORT`-substring
+    move-authority rule read.
+    """
+    case.assertIsNotNone(action)
+    case.assertEqual(
+        action[0], chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL
+    )
+    case.assertNotIn("TELEPORT", action[0])
+
+
 class FakePosition:
     def __init__(self, scene_id=2, x=10.0, y=20.0, z=30.0):
         self.scene_id = scene_id
@@ -421,7 +446,7 @@ class WarpActionTests(_Case):
             warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
         ):
             action = self.act(session, "/warp 278 100 200")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         self.assertIn(
             f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}278", session.events
         )
@@ -481,7 +506,7 @@ class WarpActionTests(_Case):
         # default-argument-call layer).
         session = FakeSession(position=FakePosition(scene_id=2))
         action = self.act(session, "/warp 278")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         self.assertIn(
             f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}278", session.events
         )
@@ -495,7 +520,7 @@ class WarpActionTests(_Case):
             warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
         ):
             action = self.act(session, "/warp 4")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         self.assertIn(
             f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}4", session.events
         )
@@ -785,7 +810,7 @@ class SameSceneBareWarpTests(_Case):
         # a mutant that drops the marker check entirely would cross.
         session = FakeSession(position=FakePosition(scene_id=278))
         action = self.act(session, "/warp 278")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         self.assertIn(
             f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}278", session.events
         )
@@ -801,7 +826,7 @@ class SameSceneBareWarpTests(_Case):
             warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
         ):
             action = self.act(session, "/warp 2")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         self.assertIn(
             f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}2", session.events
         )
@@ -1788,6 +1813,13 @@ class EventNameContractTests(_Case):
         "EVENT_LV_ROW_WRITTEN": "gm_chat_action_lv_row_written",
         "EVENT_LV_NOTICE_COMPOSED_PREFIX": "gm_chat_action_lv_notice_composed_",
         "EVENT_LV_NOTICE_FAILED_PREFIX": "gm_chat_action_lv_notice_failed_",
+        # The cross-scene `/warp`'s own sentence (LANE-GM round `0w9jhq`):
+        # the same composed/failed pair, under their own names so a reader
+        # grepping a warp's silence is never shown `/lv`'s events.
+        "EVENT_WARP_NOTICE_COMPOSED_PREFIX": (
+            "gm_chat_action_warp_notice_composed_"
+        ),
+        "EVENT_WARP_NOTICE_FAILED_PREFIX": "gm_chat_action_warp_notice_failed_",
         # `staged` (LANE-GM round `qpauwp`): the readback command's three
         # events -- which of `staged_readback.STATUSES` was read, and the
         # composed/failed pair every notice path in this module carries.
@@ -1874,6 +1906,13 @@ class EventNameContractTests(_Case):
         # for all three answers -- see the label's own comment in the module.
         "STAGED_READBACK_NOTICE_ACTION_LABEL": (
             "LANE_GM_CHAT_STAGED_READBACK_LOCAL_TALK_NOTICE"
+        ),
+        # The cross-scene `/warp`'s confirmation (LANE-GM round `0w9jhq`).
+        # A staged warp moves nobody, so this label is deliberately absent
+        # from `runtime.py`'s `_GM_WARP_LABELS` and carries no `TELEPORT`
+        # substring -- both pinned by `StagedWarpNoticeTests` below.
+        "WARP_STAGED_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_WARP_STAGED_LOCAL_TALK_NOTICE"
         ),
         # A REFUSAL's on-screen sentence, never the command's own frame --
         # see the label's comment in the module for the two call sites that
@@ -2191,7 +2230,7 @@ class ProductionCallShapeTests(_Case):
         action = chat_command_action.make_gm_chat_command_action(
             session, make_chat_payload("/warp 278"), self.legacy
         )
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         landed = self.tmp / "config" / "gm_login_scene.json"
         self.assertTrue(landed.is_file(), sorted(p.name for p in self.tmp.iterdir()))
         self.assertEqual(

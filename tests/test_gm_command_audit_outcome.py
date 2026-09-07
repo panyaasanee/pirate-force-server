@@ -604,7 +604,16 @@ class StagedLoginSceneRowTests(_Case):
         # Gate patched OPEN, to show the word does not come from a shut gate:
         # this command never reads the version gate at all.
         with self.open_the_warp_gate():
-            self.assertIsNone(self.act(session, "/warp 278"))
+            # The action is the SENTENCE, not a warp frame (LANE-GM round
+            # `0w9jhq`): a staged `/warp` now answers `STAGED RELOG` on the
+            # notice channel.  The LABEL is asserted rather than mere
+            # not-None, because a TELEPORT frame here would also be not-None
+            # -- and this row is exactly where the two must stay apart.
+            staged_action = self.act(session, "/warp 278")
+            self.assertEqual(
+                staged_action[0],
+                chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL,
+            )
         rows = self.outcome_rows()
         self.assertEqual(1, len(rows))
         # The literal, not the constant: round `nz0qt2` measured that every
@@ -624,7 +633,16 @@ class StagedLoginSceneRowTests(_Case):
         with mock.patch.object(
             warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
         ):
-            self.assertIsNone(self.act(session, "/warp 278 100 200"))
+            # The action is the SENTENCE, not a warp frame (LANE-GM round
+            # `0w9jhq`): a staged `/warp` now answers `STAGED RELOG` on the
+            # notice channel.  The LABEL is asserted rather than mere
+            # not-None, because a TELEPORT frame here would also be not-None
+            # -- and this row is exactly where the two must stay apart.
+            staged_action = self.act(session, "/warp 278 100 200")
+            self.assertEqual(
+                staged_action[0],
+                chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL,
+            )
         rows = self.outcome_rows()
         self.assertEqual(1, len(rows))
         self.assertEqual("staged_login_scene_coords_ignored", rows[0]["outcome"])
