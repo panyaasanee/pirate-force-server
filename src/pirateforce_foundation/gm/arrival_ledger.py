@@ -29,15 +29,26 @@ there the next morning: one fixed-shape ASCII line, appended to
 
 WHAT ABSENCE OF A LINE DOES *NOT* PROVE (read this before grading a
 ticket with this file).  A missing line is NOT proof the frame never
-arrived.  It is also produced by: the per-process budgets below being
-spent (look for the ``GM_VITAL_LEDGER_FULL`` line, which is written once
-per budget precisely so this case is visible); any OSError on the write
+arrived.  It is also produced by: this account's line budget below being
+spent (look for the ``GM_VITAL_LEDGER_FULL`` line, written once per
+budget precisely so this case is visible); any OSError on the write
 (swallowed on purpose -- see ``record_arrival``); a ledger root that is
-not writable; and a process that died between the arrival and the write.
-Absence is evidence for worlds 1-3 TOGETHER, never for any one of them
-alone, and never against world 4 on its own.  Presence is the strong
-direction: a line means the frame reached this lane, and its ``outcome=``
-field says what this lane then did with it.
+not writable; a server process whose working directory is not the one the
+reader is looking under (which is why the first line of every process is
+``GM_VITAL_LEDGER_OPENED``, carrying the ABSOLUTE path and the pid, and
+why that same line is printed to the console once); and a process that
+died between the arrival and the write.  Absence is evidence for worlds
+1-3 TOGETHER, never for any one of them alone, and never against world 4
+on its own.  Presence is the strong direction: a line means the frame
+reached this lane, and its ``outcome=`` field says what this lane then did
+with it.
+
+AND ``id=``/``name=`` ARE THIS SERVER'S ROUTING, NOT A WIRE MEASUREMENT
+(pf-adversary, round `5rxy86`, D9).  Each entry point hands this module
+the id it is the handler for, so a line says "the frame that reached the
+0x51E9 handler", never "the opcode on the wire was 0x51E9".  The wire
+question -- which opcode a given GMUI button emits -- is answered by the
+client-side hexdump in the attended ticket, not by this file.
 
 WHY THIS IS NOT WRITTEN INTO THE CAPTURE ROOT.  ``gm/dispatch.py`` exists
 to hold one property: "nothing captured or written for a non-GM
@@ -54,14 +65,19 @@ sink does not need:
     the account name goes through the same ASCII-alnum filter
     ``command_capture`` uses for filenames, the outcome token through a
     tighter one, and the vital id is rendered from an int, never echoed
-    as text.  A line has a hard maximum length (``MAX_LINE_LENGTH``),
-    which is what makes the line budgets below a byte bound too.
-  * TWO SEPARATE PER-PROCESS LINE BUDGETS, one for arrivals this lane
-    authorized and one for arrivals it did not.  A flood from
-    unauthenticated peers can spend only the unauthorized budget, so it
-    can never make a real GM's line be the one that does not fit --
-    denial of evidence by flooding is the exact attack this file would
-    otherwise invite, since its whole value is that a line is there.
+    as text.  A truncated field ends in ``~`` so a reader never mistakes a
+    cut token for a whole one.
+  * THE LINE BUDGET IS PER ACCOUNT, NOT PER PROCESS AND NOT PER
+    AUTHORIZATION STATE (pf-adversary, round `5rxy86`, D1 -- this file's
+    first shape got this wrong in the one way that mattered).  A budget
+    split by "authorized vs not" does NOT protect the attended tester,
+    because the tester's own frames are exactly the ones this file exists
+    for and they are refused, i.e. UNauthorized: one ordinary logged-in
+    player sending 64 frames could spend the whole unauthorized budget and
+    the tester's line would be the one that does not fit -- denial of
+    evidence by an unprivileged peer, reproducing the very failure this
+    module was written to end.  Keyed per account, a flooding peer can
+    only spend its own ``MAX_LINES_PER_ACCOUNT``.
 
 NOT A QUOTA CLIENT.  This does not touch ``gm/dispatch.py``'s per-account
 capture quota.  That quota is byte-based, refundable, and exists to bound
@@ -79,12 +95,14 @@ from pathlib import Path
 
 from .command_capture import DEFAULT_CAPTURE_ROOT
 
-# Grep anchor, same discipline as `command_capture._UNLINK_STUCK_CONSOLE_TOKEN`
-# and `allowlist_probe.GM_ALLOWLIST_CONSOLE_TOKEN`: one fixed ASCII token at
-# the start of the line so an attended tester can grep the file without
-# knowing this module's shape.
+# Grep anchors, same discipline as `command_capture._UNLINK_STUCK_CONSOLE_TOKEN`
+# and `allowlist_probe.GM_ALLOWLIST_CONSOLE_TOKEN`: fixed ASCII tokens at the
+# start of the line so an attended tester can grep the file without knowing
+# this module's shape.  All three are pinned by tests and named in
+# docs/GM_LANE.md.
 LEDGER_LINE_TOKEN = "GM_VITAL_ARRIVED"
 LEDGER_FULL_TOKEN = "GM_VITAL_LEDGER_FULL"
+LEDGER_OPENED_TOKEN = "GM_VITAL_LEDGER_OPENED"
 
 LEDGER_DIR_NAME = "gm_arrival_ledger"
 LEDGER_FILENAME = "arrival_ledger.txt"
@@ -99,38 +117,44 @@ KNOWN_VITAL_NAMES = {
 }
 UNLISTED_VITAL_NAME = "unlisted"
 
-# Budgets are per process, not per account and not per file: a restart is
-# what clears them, exactly like the rate limiter's history in
-# gm/dispatch.py.  Sized for the job -- an attended boot presses a handful
-# of buttons, so 192 authorized lines is far past "every command a tester
-# issues in one session", while 64 unauthorized lines is enough to show a
-# refusal pattern and small enough that a flood is cheap to survive.
-MAX_AUTHORIZED_LINES = 192
-MAX_UNAUTHORIZED_LINES = 64
+# Budgets, per process, keyed on the SANITIZED account name (see the
+# docstring's third bullet for why the key is the account and not the
+# authorization state).  A restart is what clears them, exactly like the
+# rate limiter's history in gm/dispatch.py.
+#
+# Sized for the job and for the worst case together: an attended boot
+# presses a handful of buttons, so 24 lines is far past "every command one
+# tester issues before reading the file"; 32 tracked accounts is far past
+# "how many accounts are connected to a test server"; and past that, every
+# further account shares ONE overflow bucket, which is what keeps a peer
+# that invents a new name per frame from turning this file into a disk
+# filler.  Worst case on disk for one process is therefore
+# (32*24 + 32 + 34) * (MAX_LINE_LENGTH + 1) -- about 220 KB, once, ever.
+MAX_LINES_PER_ACCOUNT = 24
+MAX_TRACKED_ACCOUNTS = 32
+MAX_OVERFLOW_LINES = 32
+OVERFLOW_BUCKET_KEY = "\x00overflow"  # not a value _sanitize_field can return
 
 # Field caps.  The per-field caps are the real bound; MAX_LINE_LENGTH is a
-# backstop truncation that no legitimate value reaches (the longest line
-# the caps below can produce is 227 characters: 16 token + 23 ts + 11 id +
-# 28 name + 48 account + 24 len + 14 authorized + 56 outcome + 7 spaces).
-# It exists so that a field cap someone widens later cannot silently turn
-# one arrival into a multi-kilobyte line, which is what makes the line
-# budgets a byte bound as well (see the module docstring).
+# backstop truncation that no legitimate value reaches.  It exists so that
+# a field cap someone widens later cannot silently turn one arrival into a
+# multi-kilobyte line, which is what makes the budgets a byte bound too.
 MAX_ACCOUNT_LENGTH = 40
 MAX_OUTCOME_LENGTH = 48
 MAX_LINE_LENGTH = 256
+TRUNCATION_MARK = "~"
 
 _UNNAMED_ACCOUNT = "unnamed"
 _UNNAMED_OUTCOME = "unstated"
 
 _lock = threading.Lock()
-_authorized_lines_written = 0
-_unauthorized_lines_written = 0
-_authorized_full_announced = False
-_unauthorized_full_announced = False
+_lines_by_account: dict[str, int] = {}
+_full_announced: set[str] = set()
+_opened_announced = False
 
 
 def reset_for_tests() -> None:
-    """Test-only: forget both budgets and both full-announcements.
+    """Test-only: forget every budget, announcement, and the opened header.
 
     Production never calls this; the budgets are meant to last the life of
     the process.  Exists for the same reason
@@ -138,13 +162,11 @@ def reset_for_tests() -> None:
     deliberately fills a budget must not depend on what ran before it in
     the same process.
     """
-    global _authorized_lines_written, _unauthorized_lines_written
-    global _authorized_full_announced, _unauthorized_full_announced
+    global _opened_announced
     with _lock:
-        _authorized_lines_written = 0
-        _unauthorized_lines_written = 0
-        _authorized_full_announced = False
-        _unauthorized_full_announced = False
+        _lines_by_account.clear()
+        _full_announced.clear()
+        _opened_announced = False
 
 
 def ledger_root_for_capture_root(capture_root: str | os.PathLike) -> Path:
@@ -162,7 +184,7 @@ def ledger_root_for_capture_root(capture_root: str | os.PathLike) -> Path:
 
 
 def _sanitize_field(value: object, limit: int, fallback: str) -> str:
-    """ASCII alnum/-/_ only, length-capped, never empty.
+    """ASCII alnum/-/_ only, length-capped, never empty, cut marked.
 
     Same drop-don't-replace rule as ``command_capture._sanitize_account``
     (a Thai account name must not become underscore soup), applied here to
@@ -172,6 +194,12 @@ def _sanitize_field(value: object, limit: int, fallback: str) -> str:
     tester greps.  A non-``str`` value is not coerced with ``str()`` --
     that would let ``__str__`` put anything at all in the file -- it falls
     back to the fixed label instead.
+
+    A value that had to be CUT ends in ``~`` (pf-adversary, round
+    `5rxy86`, D12): ``refused_capture_write_failed_CaptureFileNotVerified``
+    read as a whole token would send a reader grepping for an exception
+    name that is not there, and two exception types sharing a prefix would
+    become one token with no sign that anything was lost.
     """
     if type(value) is not str:
         return fallback
@@ -179,7 +207,9 @@ def _sanitize_field(value: object, limit: int, fallback: str) -> str:
         c for c in value
         if ("a" <= c <= "z" or "A" <= c <= "Z" or "0" <= c <= "9" or c in "-_")
     )
-    return safe[:limit] or fallback
+    if len(safe) > limit:
+        return safe[:limit - len(TRUNCATION_MARK)] + TRUNCATION_MARK
+    return safe or fallback
 
 
 def _format_timestamp(now_ts: float | None) -> str:
@@ -194,13 +224,29 @@ def _format_timestamp(now_ts: float | None) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", stamp)
 
 
+def _render_authorized(authorized: bool | None) -> str:
+    """yes / no / unknown.
+
+    ``unknown`` is not decoration (pf-adversary, round `5rxy86`, D4).  When
+    the gate chain RAISES, this module is told an arrival happened but not
+    whether the account is in the allowlist -- the exception may have come
+    from the allowlist read itself.  Printing ``no`` there would answer the
+    one question an operator uses this field for ("does the server know my
+    account yet?") with a confident wrong answer, and send them editing
+    ``gm_accounts.json`` for a problem that is not there.
+    """
+    if authorized is None:
+        return "unknown"
+    return "yes" if authorized else "no"
+
+
 def format_arrival_line(
     vital_id: object,
     account_name: object,
     payload_length: object,
     outcome: object,
     *,
-    authorized: bool,
+    authorized: bool | None,
     now_ts: float | None = None,
 ) -> str:
     """The exact line ``record_arrival`` would append, without writing it.
@@ -212,8 +258,7 @@ def format_arrival_line(
     # IS an int subclass) must not decide which name this line carries --
     # the same reason gm/dispatch.py checks `type(account_name) is not str`
     # before the allowlist test.
-    is_plain_int = type(vital_id) is int
-    if is_plain_int and 0 <= vital_id <= 0xFFFF:
+    if type(vital_id) is int and 0 <= vital_id <= 0xFFFF:
         rendered_id = f"0x{vital_id:04X}"
         name = KNOWN_VITAL_NAMES.get(vital_id, UNLISTED_VITAL_NAME)
     else:
@@ -232,37 +277,77 @@ def format_arrival_line(
         f"name={name} "
         f"account={_sanitize_field(account_name, MAX_ACCOUNT_LENGTH, _UNNAMED_ACCOUNT)} "
         f"len={rendered_length} "
-        f"authorized={'yes' if authorized else 'no'} "
+        f"authorized={_render_authorized(authorized)} "
         f"outcome={_sanitize_field(outcome, MAX_OUTCOME_LENGTH, _UNNAMED_OUTCOME)}"
     )
     return line[:MAX_LINE_LENGTH]
 
 
 def _append_line(ledger_root: Path, line: str) -> bool:
-    """Append one line.  True if it reached the file, False on any OSError.
+    """Append one line.  True if the WHOLE line reached the file.
 
-    ONE ``os.write`` OF ONE COMPLETE LINE, to a descriptor opened
-    ``O_APPEND``: that is what keeps two connection threads from
-    interleaving half-lines.  ``O_APPEND`` makes the seek-and-write one
-    operation in the kernel, and a write this short is not split in
-    practice -- but the module lock in ``record_arrival`` is what this file
-    actually relies on for ordering and for the budget counters; the flag
-    is the belt to that lock's braces, for the case where some other
-    process has the same file open.
+    ONE COMPLETE LINE PER CALL, to a descriptor opened ``O_APPEND``: that
+    is what keeps two connection threads from interleaving half-lines.
+    ``O_APPEND`` makes the seek-and-write one operation in the kernel, and
+    the module lock in ``record_arrival`` is what this file actually relies
+    on for ordering and for the budget counters; the flag is the belt to
+    that lock's braces, for the case where some other process has the same
+    file open.  NOT CLAIMED: that ``O_APPEND`` is atomic across processes
+    on Windows, where CPython maps it to the CRT's seek-then-write
+    (pf-adversary, round `5rxy86`, D10) -- within one process the lock is
+    the guarantee, and two processes writing one ledger is a shape this
+    module does not promise to survive.
+
+    ``os.write`` IS LOOPED, NOT CALLED ONCE (pf-adversary, D2).  A short
+    write is not an error and does not raise: on a volume with a few bytes
+    left, one call can put half a line on disk and report success, after
+    which the next line runs on from the middle of it and a grep sees one
+    corrupt line instead of two good ones.  This lane has fixed exactly
+    this bug three times before (``gm/commands._append_audit_record``,
+    ``gm/login_scene_stage.py``, ``gm/command_capture._capture_raw``); it
+    is not going to ship a fourth.  If the loop cannot finish, a bare
+    newline is attempted so the partial line at least ends, and the caller
+    is told False so the budget is not spent on it.
     """
     payload = (line + "\n").encode("ascii", "replace")
     try:
         os.makedirs(ledger_root, mode=0o700, exist_ok=True)
+        # `makedirs(..., exist_ok=True)` is a silent no-op on a directory
+        # that already exists -- it never chmods it (the same caveat
+        # `command_capture` writes out at its own capture root, and the
+        # reason it chmods every time).  An operator who created this
+        # folder by hand because a ticket told them to look in it would
+        # otherwise leave the evidence file world-writable.
+        os.chmod(ledger_root, 0o700)
+    except OSError:
+        return False
+    try:
         fd = os.open(
             os.path.join(ledger_root, LEDGER_FILENAME),
-            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0),
             0o600,
         )
     except OSError:
         return False
+    written = 0
     try:
-        os.write(fd, payload)
+        while written < len(payload):
+            count = os.write(fd, payload[written:])
+            if count <= 0:
+                break
+            written += count
+        if written < len(payload):
+            try:
+                os.write(fd, b"\n")
+            except OSError:
+                pass
+            return False
     except OSError:
+        if written:
+            try:
+                os.write(fd, b"\n")
+            except OSError:
+                pass
         return False
     finally:
         try:
@@ -272,76 +357,126 @@ def _append_line(ledger_root: Path, line: str) -> bool:
     return True
 
 
+def _opened_header(ledger_root: Path, now_ts: float | None) -> str:
+    """The first line of every process: where this file actually is.
+
+    R322B reported "no capture folder ever appeared under the boot tree",
+    and a working directory that is not the one the reader is looking under
+    explains that observation just as well as "the frame never arrived"
+    (pf-adversary, round `5rxy86`, D3/D7).  The capture roots in this
+    package are RELATIVE paths resolved against the server process's cwd,
+    so a reader holding a ticket at one in the morning cannot rule that
+    out -- unless the file, and the console, say the absolute path once.
+    The pid is here for the other half of the same problem: this file is
+    append-only across runs, so without a per-process header a reader
+    cannot tell this boot's lines from the previous boot's, or from a
+    ``pytest`` run that used the same relative root.
+    """
+    try:
+        resolved = str(Path(ledger_root).resolve())
+    except OSError:
+        resolved = str(ledger_root)
+    return (
+        f"{LEDGER_OPENED_TOKEN} "
+        f"ts={_format_timestamp(now_ts)} "
+        f"pid={os.getpid()} "
+        f"path={resolved}"
+    )
+
+
+def _budget_key(sanitized_account: str) -> str | None:
+    """Which bucket this account spends from, or None when all are spent."""
+    if sanitized_account in _lines_by_account:
+        return sanitized_account
+    if len(_lines_by_account) < MAX_TRACKED_ACCOUNTS:
+        return sanitized_account
+    return OVERFLOW_BUCKET_KEY
+
+
 def record_arrival(
     vital_id: object,
     account_name: object,
     payload_length: object,
     outcome: object,
     *,
-    authorized: bool,
+    authorized: bool | None,
     capture_root: str | os.PathLike = DEFAULT_CAPTURE_ROOT,
     now_ts: float | None = None,
 ) -> str | None:
     """Record one arrival.  Returns the line written, or None if none was.
 
-    NEVER RAISES FOR A DISK PROBLEM.  This function is called from
-    ``gm/dispatch.py``'s gate chain, which is called from a lane hook, which
-    is called from the game listener thread: a full disk, a read-only
-    volume, or a permissions change must cost the arrival's LINE, never the
-    player's connection.  Every OSError is swallowed and reported as
-    ``None``.
+    NEVER RAISES.  This function is called from ``gm/dispatch.py``'s gate
+    chain, which is called from a lane hook, which is called from the game
+    listener thread: a full disk, a read-only volume, a permissions
+    change -- or a ``capture_root`` this module cannot even turn into a
+    path (pf-adversary, round `5rxy86`, D5: the non-GM branch of the gate
+    chain never touched ``capture_root`` before this module existed, so a
+    caller that passed a bad one used to get a clean refusal and would
+    otherwise now get a ``TypeError`` out of the hook, losing the refusal
+    event AND the console line at once) -- must cost the arrival's LINE and
+    nothing else.  Every failure is reported as ``None``.
 
-    NOTHING ELSE IS SWALLOWED.  Argument types are not validated and not
-    coerced either -- every field goes through the sanitizers above, which
-    already refuse to put a non-``str`` (or an unrenderable int) in the
-    file.  A programmer error here shows up as ``account=unnamed`` in the
-    file, not as a crashed connection and not as a silent skip.
+    Argument types are otherwise not validated and not coerced: every field
+    goes through the sanitizers above, which already refuse to put a
+    non-``str`` (or an unrenderable int) in the file.  A programmer error
+    shows up as ``account=unnamed`` in the file, not as a crashed
+    connection and not as a silent skip.
     """
-    global _authorized_lines_written, _unauthorized_lines_written
-    global _authorized_full_announced, _unauthorized_full_announced
-    ledger_root = ledger_root_for_capture_root(capture_root)
-    with _lock:
-        if authorized:
-            spent, budget = _authorized_lines_written, MAX_AUTHORIZED_LINES
-        else:
-            spent, budget = _unauthorized_lines_written, MAX_UNAUTHORIZED_LINES
-        if spent >= budget:
-            # Announce exhaustion exactly once per budget, so a reader can
-            # tell "no line for this arrival because the budget is spent"
-            # from "no line because nothing arrived" -- the same
-            # distinction this whole module exists to make, one level up.
-            already = (
-                _authorized_full_announced if authorized
-                else _unauthorized_full_announced
+    global _opened_announced
+    try:
+        ledger_root = ledger_root_for_capture_root(capture_root)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    safe_account = _sanitize_field(
+        account_name, MAX_ACCOUNT_LENGTH, _UNNAMED_ACCOUNT,
+    )
+    try:
+        with _lock:
+            key = _budget_key(safe_account)
+            spent = _lines_by_account.get(key, 0)
+            budget = (
+                MAX_OVERFLOW_LINES if key == OVERFLOW_BUCKET_KEY
+                else MAX_LINES_PER_ACCOUNT
             )
-            if already:
+            if spent >= budget:
+                # Announce exhaustion exactly once per bucket, so a reader
+                # can tell "no line for this arrival because the budget is
+                # spent" from "no line because nothing arrived" -- the same
+                # distinction this whole module exists to make, one level
+                # up.
+                if key in _full_announced:
+                    return None
+                _full_announced.add(key)
+                full_line = (
+                    f"{LEDGER_FULL_TOKEN} "
+                    f"ts={_format_timestamp(now_ts)} "
+                    f"account={safe_account if key != OVERFLOW_BUCKET_KEY else 'overflow'} "
+                    f"budget={budget} "
+                    f"further_arrivals_of_this_account_are_not_recorded"
+                )
+                return full_line if _append_line(ledger_root, full_line) else None
+            if not _opened_announced:
+                header = _opened_header(ledger_root, now_ts)
+                if _append_line(ledger_root, header):
+                    _opened_announced = True
+                    # The console half of the same line: a tester at the
+                    # keyboard must not have to read this module's source
+                    # to learn which absolute path to open.  Once per
+                    # process, like `allowlist_probe`'s own line.
+                    print(header, flush=True)
+            line = format_arrival_line(
+                vital_id,
+                account_name,
+                payload_length,
+                outcome,
+                authorized=authorized,
+                now_ts=now_ts,
+            )
+            if not _append_line(ledger_root, line):
+                # A failed write spends no budget: the next arrival (after
+                # the disk recovers) still gets its line.
                 return None
-            if authorized:
-                _authorized_full_announced = True
-            else:
-                _unauthorized_full_announced = True
-            full_line = (
-                f"{LEDGER_FULL_TOKEN} "
-                f"ts={_format_timestamp(now_ts)} "
-                f"authorized={'yes' if authorized else 'no'} "
-                f"budget={budget} "
-                f"further_arrivals_of_this_kind_are_not_recorded"
-            )
-            return full_line if _append_line(ledger_root, full_line) else None
-        line = format_arrival_line(
-            vital_id,
-            account_name,
-            payload_length,
-            outcome,
-            authorized=authorized,
-            now_ts=now_ts,
-        )
-        if not _append_line(ledger_root, line):
-            # A failed write spends no budget: the next arrival (after the
-            # disk recovers) still gets its line.
-            return None
-        if authorized:
-            _authorized_lines_written += 1
-        else:
-            _unauthorized_lines_written += 1
-        return line
+            _lines_by_account[key] = spent + 1
+            return line
+    except OSError:
+        return None

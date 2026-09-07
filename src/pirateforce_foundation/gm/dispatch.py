@@ -536,7 +536,14 @@ def _authorize_and_capture(
             account_name,
             len(raw_payload) if isinstance(raw_payload, (bytes, bytearray)) else None,
             f"raised_{type(error).__name__}",
-            authorized=False,
+            # NOT False (pf-adversary, round `5rxy86`, D4): when the chain
+            # raises, this call site knows an arrival happened and does NOT
+            # know whether the account is in the allowlist -- the exception
+            # may have come from reading the allowlist itself.  `None`
+            # renders as `authorized=unknown`; `False` would answer the one
+            # question an operator uses that field for with a confident
+            # wrong answer.
+            authorized=None,
             capture_root=capture_root,
             now_ts=now_ts,
         )
