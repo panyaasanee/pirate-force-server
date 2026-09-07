@@ -411,7 +411,7 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "CanReportDailyQuest", "ReportDailyQuest",
         }))
 
-    def test_the_9_real_player_names_are_excluded_above_not_forgotten(self):
+    def test_the_11_real_player_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the guards above, for Player's own real
         # names (GetLv/GetClass from round gqjas5, CheckItemNum/GetItemNum/
         # CheckEquipItem from round qbr5h8's inventory read seam, MobAppear
@@ -438,6 +438,11 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             # q_boat_health.lua:21) and paying only the positive ones
             # would have handed the player a free ship.
             "AddCash",
+            # TeleportCheck joined in round `w4cp5c` (LANE-A, the M2 captain
+            # report): the name lives in this file because that is where the
+            # name is, but the closure and its frame composer belong to
+            # LANE-A.  It records a travel order and builds no frame.
+            "TeleportCheck",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):

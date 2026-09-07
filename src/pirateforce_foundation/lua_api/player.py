@@ -589,7 +589,7 @@ class PlayerContext:
 #: a production singleton, mirroring ``lua_api.trigger.DEFAULT_CONTEXT``.
 DEFAULT_CONTEXT = PlayerContext()
 
-#: The remaining 63 names, one of seven grouped, grep-grounded reasons each
+#: The remaining 62 names, one of seven grouped, grep-grounded reasons each
 #: -- no per-name guess, the same posture ``lua_api.quest.STILL_STUBBED``
 #: takes for its own DB-blocked names. Category text is shared verbatim
 #: across every name in that category (the same repetition
@@ -957,9 +957,10 @@ class RealPlayerNamespace:
                 except _teleport_check.TeleportCheckError as exc:
                     # Refused BY NAME and counted, never a silent no-op: an
                     # unpinned marker id is the expected recurring event here
-                    # (the committed crosswalk keeps 18 of the client's 390
-                    # rows), so a run has to be able to say how many orders it
-                    # dropped without grepping its own log.
+                    # (world_m2_teleport_check resolves the 13 marker rows a
+                    # SCENE_NAME row names plus the 3 the owner decreed, out
+                    # of the client's 390), so a run has to be able to say how
+                    # many orders it dropped without grepping its own log.
                     reason = str(exc).split(" ", 1)[0]
                     _log_bad_value(self._log, "TeleportCheck",
                                    marker_id=args[0])

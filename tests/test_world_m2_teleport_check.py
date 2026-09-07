@@ -395,10 +395,25 @@ class TheLuaNameIsRealNow(unittest.TestCase):
             self._namespace(Broken())
 
     def test_the_sink_default_is_fresh_and_private_per_namespace(self):
+        # THIS COMPARES THE CONTENTS OF THE TWO SINKS, not two return values.
+        # The old shape called TeleportCheck three times and asserted each
+        # returned 1, which is true whether the default is private or a
+        # process-wide singleton -- pf-adversary swapped in a module-level
+        # shared sink and the whole file stayed green (round `ebh143`, D3).
+        # A singleton is exactly what the sink's own docstring says it must
+        # never be: ORDER_CAP would become a 64-order ceiling for the entire
+        # process, after which every player's TeleportCheck returns 0 forever.
         first, second = self._namespace(), self._namespace()
-        first["TeleportCheck"](1)
-        self.assertEqual(first["TeleportCheck"](1), 1)
+        for _ in range(3):
+            self.assertEqual(first["TeleportCheck"](1), 1)
         self.assertEqual(second["TeleportCheck"](1), 1)
+        # The default sink has no accessor (D2 in the same report says so),
+        # so the private name is what a test has to read until one exists.
+        first_sink = first._teleport_check_sink
+        second_sink = second._teleport_check_sink
+        self.assertIsNot(first_sink, second_sink)
+        self.assertEqual(len(first_sink.orders), 3)
+        self.assertEqual(len(second_sink.orders), 1)
 
     def test_the_recorder_stops_at_its_cap_instead_of_growing_forever(self):
         sink = tc.InMemoryTeleportCheckSink()

@@ -201,7 +201,7 @@ def _by_marker_id() -> "dict[int, Any]":
     """Marker id -> ``world_scene_marker.MarkerArrival``, built from that
     module's PUBLIC accessors only.
 
-    WHY NOT ``world_marker_copy``, WHICH HAS 18 ROWS INSTEAD OF 13.  That
+    WHY NOT ``world_marker_copy``, WHICH KEEPS 20 ROWS VERBATIM.  That
     module reads a JSON file the release archive deliberately does not ship,
     and ``tests/test_world_marker_copy.py`` pins that NO module in this
     package may import it: a release-side caller would get ``MarkerCopyError``
@@ -354,6 +354,17 @@ def open_check(marker_id: Any) -> PendingCheck:
 def accept_echo(pending: PendingCheck | None, echoed_marker_id: Any) -> str | None:
     """``None`` when the echo answers ``pending``; the refusal name otherwise.
 
+    THIS IS THE ANSWERING RULE, NOT THE CONSUMING ONE, AND A CALLER THAT USES
+    ONLY THIS DOOR HAS BUILT A REPLAY.  ``accept_echo`` says whether an echo
+    answers ONE pending order; it removes nothing, so calling it five times
+    with the same id returns ``None`` five times and ``encode_transport``
+    re-emits the same journey each time -- an unlimited free teleport to the
+    player's last confirmed marker (pf-adversary, round `ebh143`, D8).  The
+    door a dispatch branch wants is :meth:`InMemoryTeleportCheckSink.take`
+    (or :func:`resolve_echo` plus a removal of its own): it checks the
+    character, pops the order, and names the refusal on a replay.  Use this
+    one only when the order in hand was already taken.
+
     THE ONE FACT THIS READS IS THE MARKER ID.  It does not read
     ``window_expected``, does not ask whether a window was shown, and has no
     other state -- because the client can answer without a window at all
@@ -389,6 +400,13 @@ def resolve_echo(orders: "Any", character_id: Any,
     3. the NEWEST such order, when a player has been prompted for the same
        marker more than once -- the older prompts are the abandoned ones, and
        Cancel is silent so nothing else can tell them apart.
+
+    THE INDEX IS VALID ONLY UNTIL THE LIST CHANGES.  Resolve, then remove,
+    then resolve again -- never resolve twice and pop twice, because the
+    second index was computed against the longer list and now names a
+    different row (pf-adversary, round `ebh143`, D10).
+    :meth:`InMemoryTeleportCheckSink.take` does resolve-and-pop inside one
+    call for exactly this reason, and is what a caller should reach for.
 
     CONSUMED ONCE.  This returns an INDEX rather than the order itself
     precisely so the caller must remove it (``sink.take`` does), which is what
@@ -485,7 +503,7 @@ class TeleportCheckOrder(NamedTuple):
     pending: PendingCheck
 
 
-#: A recorder that has to forget: a script loop that calls
+#: A recorder that refuses rather than grows: a script loop that calls
 #: ``Player.TeleportCheck`` in a tight cycle must not grow this list without
 #: bound in a long-lived session.  The number is this module's own choice and
 #: is stated as such -- no letter measured a cap -- and the refusal is
