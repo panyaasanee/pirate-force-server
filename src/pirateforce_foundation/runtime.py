@@ -33,6 +33,7 @@ from . import world_face_frame
 from . import world_logout_button_notice
 from . import world_m2_crossing_handoff
 from . import world_m2_provisioning_trial
+from . import world_m2_teleport_check
 from . import world_population
 from . import world_population_bg0002
 from . import world_population_handoff
@@ -530,6 +531,50 @@ COMPOSABLE_SCENARIO_LANE_SETS = frozenset({
         "item_operate_res_hypothesis_scenario",
     }),
 })
+
+
+class _SessionTeleportCheckSink(
+        world_m2_teleport_check.InMemoryTeleportCheckSink):
+    """The connection's travel-order recorder, plus the queue of orders that
+    have not been put on the wire yet.
+
+    WHY A SUBCLASS RATHER THAN A SECOND LIST ON THE SESSION.  LANE-A's module
+    draws the line at "recorded, not sent": a quest closure records an order
+    and the half that owns the socket sends it (`TeleportCheckOrder`'s own
+    docstring).  That handover needs somewhere to hold "recorded but not yet
+    sent", and it must be the SAME object the recording side writes into --
+    a separate list on the session would only be filled by call sites this
+    file can see, so an order recorded through any other door (the
+    `ScriptHost` sink parameter LANE-A is adding, a test, a later lane) would
+    be stored and never prompted, and the log would say `stored=1` with no
+    window on any screen.  Overriding `record()` puts the queue behind the
+    one method every door has to call.
+
+    `orders` is NOT this queue.  An order stays in `orders` after its prompt
+    goes out, because the echo that answers it is what consumes it
+    (`sink.take`); `unsent` is drained by the send and holds each order
+    exactly once, so a client that never echoes leaves one row in `orders`
+    until the cap refuses new ones out loud, and no repeated prompt.
+
+    NOT CLAIMED: that the cap is ever reached in a real session.  This class
+    adds no cap of its own -- a refused record stores nothing and therefore
+    queues nothing, which is the one behaviour a caller could get wrong by
+    queueing first and asking later.
+    """
+
+    __slots__ = ("unsent",)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.unsent: list = []
+
+    def record(self, character_id, pending):
+        stored = super().record(character_id, pending)
+        if stored:
+            self.unsent.append(world_m2_teleport_check.TeleportCheckOrder(
+                character_id, pending,
+            ))
+        return stored
 
 
 class _EventEchoList(list):
@@ -6841,7 +6886,158 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self._move_authority_note_server_moves(actions)
             self._gm_warp_close_confirm_window(warp_frame)
             self._gm_warp_note_position_pending(actions)
+            # LANE-A #1101 call site (1).  Last, so a prompt recorded by
+            # anything this frame ran rides out on this same frame rather
+            # than waiting for the next one.
+            self._teleport_check_drain_prompts(actions)
             return actions
+
+        def teleport_check_sink(self):
+            """This connection's travel-order recorder, built on first use.
+
+            THE DOOR, NAMED SO SOMETHING CAN BE HANDED IT.  LANE-A's #1101
+            body and its pf-adversary finding D2 both end on the same
+            sentence: the orders a quest script records land in a private
+            attribute nothing outside the namespace can reach, because
+            `ScriptHost` has no sink parameter yet.  That parameter is
+            LANE-A's edit in LANE-Q's file; THIS is the object it is meant to
+            be given, one per connection, so that two players in one scene
+            cannot consume each other's travel orders even before that edit
+            exists.  Public (no leading underscore) for the same reason.
+
+            Built lazily rather than in the session constructor because this
+            class is `legacy.GameSessionState`'s subclass and every attribute
+            added to its construction path is a line the v141 snapshot
+            comparison has to carry; a getattr default costs nothing on the
+            sessions that never travel.
+            """
+            sink = getattr(self, "_teleport_check_sink", None)
+            if sink is None:
+                sink = _SessionTeleportCheckSink()
+                self._teleport_check_sink = sink
+            return sink
+
+        def _teleport_check_drain_prompts(self, actions) -> None:
+            """Put a `TeleportCheckVital` on the wire for each order recorded
+            since the last frame -- LANE-A #1101's call site (1).
+
+            WHEN A SESSION SHOULD BE ASKED is the recorder's decision, not
+            this file's: whoever records an order has already decided the
+            player should be asked, and this drains that decision onto the
+            socket at the first opportunity the connection gives us.  There
+            is no other opportunity -- this server writes to a client only
+            while answering one of its frames -- so the prompt rides out on
+            the next frame the client sends, which for a moving player is the
+            TargetPos it is already sending continuously.
+
+            EACH ORDER IS PROMPTED ONCE.  The queue is drained, never read:
+            an order the client ignores is not re-sent, because a second
+            prompt for the same marker would let ONE echo consume the newest
+            of two identical orders (`resolve_echo`'s rule 3) and leave the
+            other one stuck in `orders` for good.
+
+            NEVER COSTS THE FRAME IT RIDES ON.  `encode_prompt` resolves the
+            marker row and can raise `TeleportCheckError` for an id no
+            committed row pins; that is the recorder's mistake, and it is
+            counted by name and dropped here rather than allowed out of
+            `dispatch()`, where it would cost the session that merely walked
+            past.
+            """
+            sink = self.teleport_check_sink()
+            if not sink.unsent:
+                return
+            queued, sink.unsent = sink.unsent, []
+            for order in queued:
+                try:
+                    prompt_pc, prompt_frame = (
+                        world_m2_teleport_check.encode_prompt(
+                            legacy, order.pending.marker_id,
+                        )
+                    )
+                except world_m2_teleport_check.TeleportCheckError:
+                    sink.record_refusal(
+                        world_m2_teleport_check.CHECK_REFUSED_MARKER_ROW_NOT_PINNED
+                    )
+                    continue
+                actions.append((
+                    "LANE_A_M2_TELEPORT_CHECK_PROMPT", prompt_pc,
+                    prompt_frame, 0.0,
+                ))
+                print(world_m2_teleport_check.prompt_console_line(order.pending))
+
+        def _dispatch_teleport_check_echo(self, parsed):
+            """The player pressed OK on the captain report -- LANE-A #1101's
+            call site (2).
+
+            v141 counts this inbound id (`teleport_check_echo_capture_count`)
+            and answers it with nothing, which is why R307 saw a window that
+            led nowhere.  The answer is the transport frame for the marker
+            row the echo names, and every step of picking it belongs to the
+            module that measured it: `decode_echo` for the one u16 the frame
+            carries, `sink.take` for WHICH recorded order this echo consumes
+            (this character's, this marker id, newest first, removed as it is
+            returned), `accept_echo` for whether the pair may proceed at all,
+            and `encode_transport` for the bytes.  This file decides nothing
+            about travel; it owns the socket.
+
+            CONSUMED ONCE, WHICH IS WHY `take` COMES BEFORE `accept_echo`.
+            A client that echoes twice -- or a replayed frame -- finds no
+            order the second time and is refused by name, instead of being
+            given a second free journey.  Ordering it the other way would
+            leave the accept path reading a pending record it has not
+            removed.
+
+            REFUSALS ARE PRINTED, NOT RAISED.  An undecodable frame, an echo
+            for an order nobody recorded, and an id mismatch are all one
+            console line and an empty action list: this is a dispatch branch,
+            where a raise costs the session (`decode_echo`'s own docstring).
+            """
+            self.rx_frames += 1
+            echoed = world_m2_teleport_check.decode_echo(legacy, parsed)
+            if echoed is None:
+                print(world_m2_teleport_check.echo_console_line(
+                    None, None,
+                    world_m2_teleport_check.ECHO_REFUSED_UNDECODABLE,
+                ))
+                return []
+            character_id = current_character_id(self)
+            if type(character_id) is not int:
+                # No character selected, or an id this connection cannot
+                # read: either way there is no player this order could
+                # belong to, and guessing one would move somebody's ship.
+                print(world_m2_teleport_check.echo_console_line(
+                    None, echoed,
+                    world_m2_teleport_check.ECHO_REFUSED_NOTHING_PENDING,
+                ))
+                return []
+            sink = self.teleport_check_sink()
+            order = sink.take(character_id, echoed)
+            if order is None:
+                print(world_m2_teleport_check.echo_console_line(
+                    None, echoed,
+                    world_m2_teleport_check.ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER,
+                ))
+                return []
+            refusal = world_m2_teleport_check.accept_echo(order.pending, echoed)
+            if refusal is not None:
+                sink.record_refusal(refusal)
+                print(world_m2_teleport_check.echo_console_line(
+                    order.pending, echoed, refusal,
+                ))
+                return []
+            print(world_m2_teleport_check.echo_console_line(
+                order.pending, echoed, None,
+            ))
+            transport_pc, transport_frame = (
+                world_m2_teleport_check.encode_transport(legacy, order.pending)
+            )
+            print(world_m2_teleport_check.transport_console_line(
+                order.pending, len(transport_frame),
+            ))
+            return [(
+                "LANE_A_M2_TELEPORT_CHECK_TRANSPORT", transport_pc,
+                transport_frame, 0.0,
+            )]
 
         def _gm_warp_open_confirm_window(self, parsed) -> bool:
             """CORE-REQUEST-GM-030: this frame is the warp's TargetPos or none is.
@@ -8803,6 +8999,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     payload=bytes(parsed.nested_payload),
                 )
                 return []
+            if nested_id == legacy.TELEPORT_CHECK_VITAL:
+                # LANE-A pirate-force-server#1101's second call site, asked
+                # for word for word in that PR's body and granted by
+                # COO-DECISION 20260908_0242 item 2 once
+                # world_m2_teleport_check.py was on main (it is:
+                # dd1a169, merged 2026-09-07T19:51Z).
+                #
+                # UNLIKE THE THREE BRANCHES ABOVE, THIS ONE ANSWERS.  They
+                # count a frame and fire a report-only hook because nobody
+                # has measured what a reply would mean; here RE-303 measured
+                # the whole handshake -- the id, the single u16 field, that
+                # the value is MARKER.n_ID, and that OK echoes it back
+                # unmodified -- so the reply is a read of that letter, not a
+                # guessed opcode.
+                return self._dispatch_teleport_check_echo(parsed)
             if nested_id in _FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS:
                 # CORE-REQUEST of pf_bridge/notes_to_chief/20260904_1120
                 # (LANE-UI).  Same shape as TRIGGER_VITAL and
