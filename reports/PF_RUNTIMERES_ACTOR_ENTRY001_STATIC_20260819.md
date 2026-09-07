@@ -318,7 +318,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 27,
+  "src_vital_stream_call_sites": 29,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -1027,3 +1027,20 @@ byte in this round: identical prefix, 58 bytes vs 60.
 
 No other census key moves: the function composes no actor entry and no
 remote-actor stream, and the change is one call, not a new path.
+
+## Round `ebh143` (LANE-A), 2026-09-08
+
+`src_vital_stream_call_sites` moves **27 -> 29**. Both new sites are in the
+same new module, `world_m2_teleport_check`, which owns the two halves of the
+M2 captain-report handshake: `encode_prompt` composes the outbound
+`TeleportCheckVital` that asks the player, and `encode_transport` composes the
+`TeleportVital` that moves the ship once the client echoes back an OK.
+
+Neither is a new sender today. `runtime.py` has no branch for either id, so
+nothing here reaches a socket; the module's own PR carries the one-line
+request for the two call sites. What the number records is that this
+repository now composes two more plural-envelope frames than it did, and the
+count moved in the same change that added them, as this block's rule requires.
+
+No other census key moves: the module composes no actor entry and no
+remote-actor stream, and it passes no zero HP.

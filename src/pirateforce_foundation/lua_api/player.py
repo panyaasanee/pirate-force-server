@@ -765,6 +765,19 @@ class RealPlayerNamespace:
         # travel order that reaches no wire shows the player nothing and
         # promises nothing, whereas an in-memory reward balance would look
         # paid.  Nothing here can be mistaken for a completed journey.
+        # SHAPE-CHECKED AT BUILD TIME, not at the first script call.  Every
+        # other injected collaborator here is either a default this class
+        # constructs or one whose absence refuses out loud; this one was the
+        # only sink with no check at all, so a recorder missing ``record``
+        # raised ``AttributeError`` out of the middle of a Lua closure, where
+        # the traceback names the script and not the caller who passed the
+        # wrong object (pf-adversary, round `w4cp5c`).  Raising here names it.
+        if teleport_check_sink is not None:
+            for required in ("record", "record_refusal"):
+                if not callable(getattr(teleport_check_sink, required, None)):
+                    raise TypeError(
+                        "teleport_check_sink must have a callable %s(); %r "
+                        "does not" % (required, type(teleport_check_sink)))
         self._teleport_check_sink = (
             teleport_check_sink if teleport_check_sink is not None
             else _teleport_check.InMemoryTeleportCheckSink())

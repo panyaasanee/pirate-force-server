@@ -220,14 +220,48 @@ def _pinned_marker_ids():
 
 
 class TheWordingThePlayerWillSee(unittest.TestCase):
+    """Every number here is compared with a LITERAL, not with itself.
+
+    pf-adversary, round `w4cp5c`: `CONFIRM_ID_DOCKING` and
+    `CONFIRM_ID_MOVING_AHEAD` were only ever compared against the constants
+    they name, so RE-303's two measured `UI_CONFIRM` rows were pinned nowhere
+    and `SEA_SCENE_IDS = ()` left the sea test green by iterating an empty
+    tuple.  A literal on the right-hand side is what makes those mutants die.
+    """
+
+    def test_the_two_confirm_rows_are_the_numbers_re303_measured(self):
+        self.assertEqual(tc.CONFIRM_ID_MOVING_AHEAD, 21)
+        self.assertEqual(tc.CONFIRM_ID_DOCKING, 22)
+
+    def test_the_sea_is_exactly_the_five_type_8_scenes_re303_counted(self):
+        self.assertEqual(tc.SEA_SCENE_IDS, (126, 127, 128, 304, 305))
+
     def test_a_sea_destination_predicts_the_moving_ahead_confirm(self):
-        for scene_id in tc.SEA_SCENE_IDS:
-            self.assertEqual(tc.predicted_confirm_id(scene_id),
-                             tc.CONFIRM_ID_MOVING_AHEAD)
+        for scene_id in (126, 127, 128, 304, 305):
+            with self.subTest(scene=scene_id):
+                self.assertEqual(tc.predicted_confirm_id(scene_id), 21)
 
     def test_every_other_destination_predicts_the_docking_confirm(self):
-        self.assertEqual(tc.predicted_confirm_id(1), tc.CONFIRM_ID_DOCKING)
-        self.assertEqual(tc.predicted_confirm_id(17), tc.CONFIRM_ID_DOCKING)
+        self.assertEqual(tc.predicted_confirm_id(1), 22)
+        self.assertEqual(tc.predicted_confirm_id(17), 22)
+
+    def test_the_moving_ahead_half_is_reachable_from_a_real_marker_row(self):
+        # The half RE-303 exists for, and until this round it was unreachable
+        # code: no marker id this server could build a prompt for landed in a
+        # sea scene, so `predicted_confirm_id` could never answer 21 for a
+        # real destination and no test noticed (pf-adversary, round `w4cp5c`).
+        reached = {}
+        for marker_id in sorted(tc._by_marker_id()):
+            destination = tc.marker_destination(marker_id)
+            if tc.predicted_confirm_id(destination.scene_id) == 21:
+                reached[marker_id] = destination.scene_id
+        self.assertEqual(reached, {17: 126, 343: 304, 345: 305})
+
+    def test_a_marker_id_that_is_also_a_scene_id_resolves_as_a_marker(self):
+        # 17 is both a marker id (scene 126's decreed arrival row) and a real
+        # scene id.  `world_scene_marker.decreed_arrival_row` takes both ids
+        # so this can never be confused; pin the answer this module gives.
+        self.assertEqual(tc.marker_destination(17).scene_id, 126)
 
 
 class TheConsoleLines(unittest.TestCase):
@@ -238,7 +272,13 @@ class TheConsoleLines(unittest.TestCase):
                      tc.echo_console_line(None, "x", tc.ECHO_REFUSED_NOTHING_PENDING),
                      tc.transport_console_line(pending, 23)):
             line.encode("ascii")
-            self.assertTrue(line.startswith(tc.TOKEN))
+            self.assertTrue(line.startswith("LANE_A_M2_TELEPORT_CHECK"))
+
+    def test_the_console_token_is_the_string_the_bridge_greps_for(self):
+        # Compared with the literal, not with itself: the token is what an
+        # attended ticket's HEADLESS_PROOF line will be grepped for, so it is
+        # an interface, not an implementation detail (pf-adversary, `w4cp5c`).
+        self.assertEqual(tc.TOKEN, "LANE_A_M2_TELEPORT_CHECK")
 
 
 class TheLuaNameIsRealNow(unittest.TestCase):
@@ -274,8 +314,60 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         self.assertEqual(namespace["TeleportCheck"]("boat"), lua_player.STUB_DEFAULT)
         self.assertEqual(namespace["TeleportCheck"](0), lua_player.STUB_DEFAULT)
         self.assertEqual(sink.orders, [])
-        self.assertTrue(all(reason.startswith("CHECK_REFUSED_")
-                            for reason in sink.refusals))
+        # The reasons BY NAME, in order.  The previous shape was
+        # `all(... for reason in sink.refusals)`, which is True over an empty
+        # list -- a test that passes when nothing is counted at all is not a
+        # test that the refusals are counted (pf-adversary, round `w4cp5c`).
+        self.assertEqual(sink.refusals, [
+            tc.CHECK_REFUSED_MARKER_ID_NOT_AN_INT,
+            tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD,
+        ])
+
+    def test_marker_id_zero_is_the_tables_no_marker_sentinel_not_a_row(self):
+        # The u16 field carries 0; the client's own SCENE_NAME rows spell
+        # "this scene names no marker" with it.  Refusing it by that name is
+        # what makes the mistake visible instead of resolving row 0.
+        with self.assertRaises(tc.TeleportCheckError) as raised:
+            tc.marker_destination(0)
+        self.assertTrue(str(raised.exception).startswith(
+            tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD))
+
+    def test_an_echo_consumes_one_order_and_only_the_right_one(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        sink.record(7, tc.open_check(1))
+        sink.record(9, tc.open_check(2))
+        sink.record(7, tc.open_check(2))
+        taken = sink.take(7, 2)
+        self.assertIsNotNone(taken)
+        self.assertEqual(taken.character_id, 7)
+        self.assertEqual(taken.pending.marker_id, 2)
+        # The replay: the same echo a second time takes nothing, and says so.
+        self.assertIsNone(sink.take(7, 2))
+        self.assertIn(tc.ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER, sink.refusals)
+        # The other player's order is untouched by either call.
+        self.assertEqual([(o.character_id, o.pending.marker_id)
+                          for o in sink.orders], [(7, 1), (9, 2)])
+
+    def test_an_echo_never_consumes_another_players_order(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        sink.record(9, tc.open_check(2))
+        self.assertIsNone(sink.take(7, 2))
+        self.assertEqual(len(sink.orders), 1)
+
+    def test_the_newest_order_for_a_repeated_marker_is_the_one_consumed(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        first, second = tc.open_check(3), tc.open_check(3)
+        sink.record(7, first)
+        sink.record(7, second)
+        self.assertIs(sink.take(7, 3).pending, second)
+
+    def test_a_sink_without_the_recorder_methods_is_refused_at_build_time(self):
+        class Broken:
+            def record_refusal(self, reason):
+                pass
+
+        with self.assertRaises(TypeError):
+            self._namespace(Broken())
 
     def test_the_sink_default_is_fresh_and_private_per_namespace(self):
         first, second = self._namespace(), self._namespace()

@@ -38,11 +38,19 @@ fact set both ways and pins the two results identical.
 
 WHY THERE IS NO TIMEOUT HERE, AND WHAT CANCEL COSTS.  Cancel sends nothing, so
 "the player refused" and "the player walked away" are the same silence on the
-wire (RE-303 BUILD_IMPACT 5).  This module keeps ONE pending marker per
-session and lets a later :func:`open_check` overwrite it -- that is the whole
-cancel story: the next prompt replaces the abandoned one.  It deliberately
-does NOT invent an expiry clock, because a clock here would be a number no
-letter measured.
+wire (RE-303 BUILD_IMPACT 5).  This module holds NO session state of its own:
+:func:`open_check` returns a :class:`PendingCheck` and keeps nothing, and a
+recorder (the sink) is what holds up to :data:`ORDER_CAP` live orders at once,
+replacing none of them.  An earlier draft of this paragraph said the module
+"keeps ONE pending marker per session and lets a later open_check overwrite
+it", and that was the stated reason there is no expiry clock -- a reason
+resting on a mechanism this file never had (pf-adversary, round `w4cp5c`).
+
+The real answer to an abandoned prompt is :func:`resolve_echo`, which says in
+code which recorded order an inbound echo consumes and pins that it is
+consumed ONCE.  An order nobody echoes is simply never taken; it costs one
+list slot until the cap refuses new ones out loud.  There is still deliberately
+no expiry clock, because a clock here would be a number no letter measured.
 
 WHAT THIS MODULE DOES NOT DO
 It builds and reads bytes and decides what the answer should be.  It does not
@@ -98,6 +106,16 @@ TELEPORT_CHECK_FIELD_TAG = 0x0F
 #: "the table knows this id or it does not".  An earlier draft of this file
 #: range-checked 1..390 and would have refused a row the repository already
 #: carries.
+#:
+#: THE LOWER BOUND IS NOT THE FIELD'S, IT IS THE TABLE'S SENTINEL.  A u16
+#: carries 0 perfectly well, so ``0`` is inside the wire's range and outside
+#: this door on purpose: ``0`` is how the client's own ``SCENE_NAME`` rows
+#: spell "this scene names no marker" -- it is the value ``world_scene_marker``
+#: counts to get its ``MARKER_LESS_SCENES`` -- so a caller that reaches here
+#: holding 0 is holding an absent lookup, not a destination.  Refusing it by
+#: name is the only way that mistake is ever visible (pf-adversary, round
+#: `w4cp5c`: the bound was left over from the refuted 1..390 claim and
+#: relabelled as a field bound it is not).
 MARKER_ID_MIN = 1
 MARKER_ID_MAX = 0xFFFF
 
@@ -117,6 +135,7 @@ CHECK_REFUSED_MARKER_ID_NOT_AN_INT = "CHECK_REFUSED_MARKER_ID_NOT_AN_INT"
 CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD = "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD"
 CHECK_REFUSED_MARKER_ROW_NOT_PINNED = "CHECK_REFUSED_MARKER_ROW_NOT_PINNED"
 ECHO_REFUSED_NOTHING_PENDING = "ECHO_REFUSED_NOTHING_PENDING"
+ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER = "ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER"
 ECHO_REFUSED_MARKER_ID_MISMATCH = "ECHO_REFUSED_MARKER_ID_MISMATCH"
 ECHO_REFUSED_UNDECODABLE = "ECHO_REFUSED_UNDECODABLE"
 
@@ -191,12 +210,42 @@ def _by_marker_id() -> "dict[int, Any]":
     reads the transcribed table that does ship.  (Measured, not reasoned: the
     first draft of this module imported the copy reader and turned that pin
     red.)
+
+    THE DECREED ROWS ARE PART OF THE INDEX, AND WITHOUT THEM M2 HAS NO SEA.
+    ``scenes_with_an_arrival_point()`` answers only for scenes whose
+    ``SCENE_NAME`` row names its own marker; scenes 126, 304 and 305 -- the
+    open-sea scenes this milestone exists to reach -- carry ``n_MARKER == 0``,
+    so their arrival points live in ``world_scene_marker.
+    DECREED_ARRIVAL_ROWS`` instead (COO-DECISION 20260905_1748).  Leaving them
+    out is what made :func:`predicted_confirm_id` unable to return
+    ``CONFIRM_ID_MOVING_AHEAD`` for anything this server can build a prompt
+    for -- the sea half of RE-303's rule was unreachable code, and no test
+    noticed (pf-adversary, round ``w4cp5c``).  They come from the same
+    always-shipped module through its own public accessor, which takes BOTH
+    ids precisely so no caller can turn a marker id into a scene id by
+    accident.
     """
     rows = {}
     for scene_n_id in world_scene_marker.scenes_with_an_arrival_point():
         arrival = world_scene_marker.arrival_point(scene_n_id)
         if arrival is not None:
             rows[arrival.marker_n_id] = arrival
+    for marker_n_id, scene_n_id, _x, _y, _z, _dir in (
+            world_scene_marker.DECREED_ARRIVAL_ROWS):
+        point = world_scene_marker.decreed_arrival_row(scene_n_id, marker_n_id)
+        if point is None:                       # pragma: no cover - see test
+            raise TeleportCheckError(
+                "%s marker_id=%d scene=%d (DECREED_ARRIVAL_ROWS and "
+                "decreed_arrival_row disagree in world_scene_marker)"
+                % (CHECK_REFUSED_MARKER_ROW_NOT_PINNED, marker_n_id,
+                   scene_n_id))
+        x, y, z, direction = point
+        if marker_n_id in rows:                 # pragma: no cover - see test
+            raise TeleportCheckError(
+                "%s marker_id=%d is both a named and a decreed arrival row"
+                % (CHECK_REFUSED_MARKER_ROW_NOT_PINNED, marker_n_id))
+        rows[marker_n_id] = world_scene_marker.MarkerArrival(
+            scene_n_id, marker_n_id, scene_n_id, x, y, z, direction)
     return rows
 
 
@@ -247,9 +296,11 @@ def predicted_confirm_id(scene_id: int) -> int:
 def encode_prompt(legacy: Any, marker_id: Any) -> tuple[bytes, bytes]:
     """``(pc, frame)`` for the outbound ``TeleportCheckVital(marker_id)``.
 
-    ``legacy`` is the v141 module, injected the same way
-    ``world_m2_provisioning_trial.encode_trial_records`` takes it: this
-    package does not import ``current/`` and does not own the envelope.
+    ``legacy`` is the v141 module, injected the same way this package's other
+    M2 provisioning encoder takes it (the module whose own guard forbids the
+    rest of the tree from even naming it -- which is why this docstring does
+    not): this package does not import ``current/`` and does not own the
+    envelope.
 
     The bytes are the exact shape ``make_teleport_check_scene1_challenge``
     already puts on the wire -- ``make_runtime_vitals`` with one vital, version
@@ -321,6 +372,44 @@ def accept_echo(pending: PendingCheck | None, echoed_marker_id: Any) -> str | No
     return None
 
 
+def resolve_echo(orders: "Any", character_id: Any,
+                 echoed_marker_id: Any) -> int | None:
+    """Index of the recorded order this echo consumes, or ``None``.
+
+    THE RULE, WRITTEN DOWN BECAUSE THE DISPATCH BRANCH CANNOT INVENT IT.  A
+    recorder holds several live orders at once (up to :data:`ORDER_CAP`), the
+    client echoes back a marker id and nothing else, and every frame arrives on
+    one player's socket.  So the order an echo may consume is:
+
+    1. recorded for THIS character -- the socket already proved which one, and
+       an echo must never move somebody else's ship;
+    2. carrying THIS marker id -- the only fact the echo carries
+       (:func:`accept_echo` reads that and nothing else, for the reason its own
+       docstring gives);
+    3. the NEWEST such order, when a player has been prompted for the same
+       marker more than once -- the older prompts are the abandoned ones, and
+       Cancel is silent so nothing else can tell them apart.
+
+    CONSUMED ONCE.  This returns an INDEX rather than the order itself
+    precisely so the caller must remove it (``sink.take`` does), which is what
+    keeps one echo from driving two transports: a client that echoes twice --
+    or an attacker who replays the frame -- gets
+    ``ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER`` the second time instead of a
+    second free journey.  A pure function over a list, so any recorder shape
+    can use it and a test can drive it without a namespace.
+    """
+    if type(character_id) is not int or isinstance(character_id, bool):
+        return None
+    if type(echoed_marker_id) is not int or isinstance(echoed_marker_id, bool):
+        return None
+    for index in range(len(orders) - 1, -1, -1):
+        order = orders[index]
+        if (order.character_id == character_id
+                and order.pending.marker_id == echoed_marker_id):
+            return index
+    return None
+
+
 def encode_transport(legacy: Any, pending: PendingCheck) -> tuple[bytes, bytes]:
     """``(pc, frame)`` for the outbound transport that answers a good echo.
 
@@ -385,9 +474,10 @@ class TeleportCheckOrder(NamedTuple):
     """One recorded "ask this player to confirm travel to marker N".
 
     Recorded, not sent: ``lua_api`` builds no frames (``lua_api/message.py``'s
-    own docstring states the same rule for ``ShowMessage``), so the closure
-    that a quest script calls records here and the dispatch branch that owns
-    the socket reads it.  Keeping the two apart is what lets the Lua half be
+    own docstring states the same rule for the legacy system-message name,
+    which the seam guard forbids any top-level module here from spelling), so
+    the closure that a quest script calls records here and the dispatch branch
+    that owns the socket reads it.  Keeping the two apart is what lets the Lua half be
     always-on today while the wire half is still one chief edit away.
     """
 
@@ -429,3 +519,16 @@ class InMemoryTeleportCheckSink:
 
     def record_refusal(self, reason: str) -> None:
         self.refusals.append(reason)
+
+    def take(self, character_id: int, echoed_marker_id: int):
+        """Remove and return the order this echo consumes, or ``None``.
+
+        The removal is the point -- see :func:`resolve_echo`.  A refusal is
+        counted by name so a run can say how many echoes answered nothing
+        without grepping its own log.
+        """
+        index = resolve_echo(self.orders, character_id, echoed_marker_id)
+        if index is None:
+            self.refusals.append(ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER)
+            return None
+        return self.orders.pop(index)
