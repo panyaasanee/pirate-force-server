@@ -120,11 +120,16 @@ class _SeamCase(unittest.TestCase):
 
         The first frame a session sends down this path composes v141's
         `make_runtime_res_empty_exact()` ack (`runtime_ack_sent`,
-        current/pf_login_game_server_v141.py:3768).  It is an action, so the
-        GM-063 detector below correctly reads that frame as claimed.  In a
-        real session that costs exactly one frame per connection; in a test
-        it would otherwise mask every probe, so it is spent deliberately
-        here and asserted, not assumed.
+        current/pf_login_game_server_v141.py:3768) whatever nested id it
+        happens to carry.  Measured on this file's own fixture: send the
+        probe frame to a freshly started session and it comes back with
+        three actions and `runtime_ack_sent` True; send the identical
+        frame again and it comes back with none.  So a test that asserted
+        "this seam composes no reply" on a cold session would be reading
+        the ack rather than the seam.  This spends the ack on one
+        throwaway frame and asserts it was spent, so the assertions below
+        measure what they name.  In a real session it costs exactly one
+        frame per connection.
         """
         self._send(state, 0xFFF0, b"")
         self.assertTrue(state.runtime_ack_sent)
@@ -230,8 +235,12 @@ class UnclaimedVitalSeamWithdrawnTests(_SeamCase):
         # The exact frame R390's own pin drove: an id with no branch
         # anywhere in the chain.  It still produces no actions -- the
         # withdrawal changed no dispatch behaviour -- but it no longer
-        # reports itself, because the detector could not tell this frame
-        # apart from the ten ids that DO have a branch and answer nothing.
+        # reports itself.  The withdrawn detector inferred "no branch read
+        # this id" from "the frame came back with no actions", and that
+        # also describes an id a branch DOES read and answers nothing to.
+        # R391 measured the size of that overlap in more than one session
+        # configuration and got a different figure in each; which figure
+        # you take does not change the conclusion.
         state = self._login_and_start("unknownid")
         self._warm_runtime_ack(state)
         seen = self._capture(self.POINT)

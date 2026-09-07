@@ -365,6 +365,22 @@ class ScriptHost:
     each had their OWN independent default store; this only makes the two
     defaults the SAME instance instead of two different ones).
 
+    ``reward_store`` is a PURE PASS-THROUGH, handed on untouched to
+    ``lua_api.quest.build_namespace``'s own ``reward_store`` and never read,
+    normalized or defaulted here: this module does not know what a reward
+    is, and every decision about one (which column, which amount, whether
+    an atomic add exists at all) lives in ``lua_api/reward.py``, one
+    directory down.  Leaving it ``None`` -- every caller before this round,
+    and every test that does not care -- is byte-identical to the behaviour
+    before the parameter existed: ``lua_api.reward.pay`` gets no store and
+    logs its own refusal, exactly as it did when ``ScriptHost`` had no way
+    to be handed one.  Without it, no script the corpus actually dispatches
+    could ever reach a store, because ``lua_api.dispatch.load_quest_script``
+    is the one path a real script walks and it goes through
+    :func:`load_script_file` (CORE-REQUEST ``pf_bridge/notes_to_chief/
+    20260907_1113_LANE-Q-CORE-REQUEST-scripthost-reward-store-symbol-
+    exemption.md``, granted by chief (LANE-E)).
+
     ``Player`` is likewise no longer a plain stub table: 6 of
     its 73 names (``GetLv``, ``GetClass``, ``CheckItemNum``, ``GetItemNum``,
     ``CheckEquipItem``, ``MobAppear``) are real, backed by an injectable
@@ -416,6 +432,7 @@ class ScriptHost:
                  quest_clock: "Optional[lua_api_quest.Clock]" = None,
                  quest_context: "Optional[lua_api_quest.QuestContext]" = None,
                  quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
+                 reward_store: Any = None,
                  player_context: "Optional[lua_api_player.PlayerContext]" = None,
                  player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
                  message_sink: "Optional[lua_api_message.MessageSink]" = None,
@@ -495,7 +512,8 @@ class ScriptHost:
                 elif namespace == "Quest":
                     stub = lua_api_quest.build_namespace(
                         methods, self.log, clock=quest_clock,
-                        context=quest_context, store=quest_store)
+                        context=quest_context, store=quest_store,
+                        reward_store=reward_store)
                 elif namespace == "Player":
                     stub = lua_api_player.build_namespace(
                         methods, self.log, context=player_context, store=player_store,
@@ -570,6 +588,7 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       quest_clock: "Optional[lua_api_quest.Clock]" = None,
                       quest_context: "Optional[lua_api_quest.QuestContext]" = None,
                       quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
+                      reward_store: Any = None,
                       player_context: "Optional[lua_api_player.PlayerContext]" = None,
                       player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
                       message_sink: "Optional[lua_api_message.MessageSink]" = None) -> ScriptHost:
@@ -601,6 +620,7 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       quest_clock=quest_clock,
                       quest_context=quest_context,
                       quest_store=quest_store,
+                      reward_store=reward_store,
                       player_context=player_context,
                       player_store=player_store,
                       message_sink=message_sink)

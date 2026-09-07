@@ -1,13 +1,20 @@
 """lane_hooks/lane_gm_unknown_vital_counter.py -- CORE-REQUEST-GM-063.
 
-Not wired into runtime.py yet (see the module's own
-``registered_but_not_fired``); this proves the hook function's own
-contract in isolation, the same posture
-``test_gm_activity_cheat_code_dispatch.py`` takes for ``gm/dispatch.py``
-before its own call site existed.
+At HEAD nothing in ``runtime.py`` fires this module's point, and that is
+the measured state, not a "yet": round R390 landed a call site in
+``dispatch()`` and round R391 withdrew it again, because a detector
+standing there cannot answer the question the point asks (which branch,
+if any, read this id).  The module therefore declares the point in its
+own ``registered_but_not_fired``, and
+``test_declares_never_fired_exactly_while_nothing_fires_it`` below pins
+that declaration against ``runtime.py``'s real ``fire()`` call sites.
+Everything else here proves the hook function's own contract in
+isolation, the posture ``test_gm_activity_cheat_code_dispatch.py`` took
+for ``gm/dispatch.py`` while that seam had no call site either.
 """
 from __future__ import annotations
 
+import ast
 import sys
 import types
 import unittest
@@ -20,6 +27,109 @@ from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_gm_unknown_vital_counter as counter,
 )
+
+
+#: The module a call site must reach ``fire`` through, and the name of the
+#: function itself, as ``src/pirateforce_foundation/`` spells both.
+LANE_HOOKS_MODULE_NAME = "lane_hooks"
+FIRE_FUNCTION_NAME = "fire"
+#: ``fire()`` takes the point positionally in every call site in the tree,
+#: but it is an ordinary keyword too, so both are read here.
+POINT_KEYWORD = "point"
+
+
+def _dotted(node: ast.expr) -> str | None:
+    """``a.b.c`` for an attribute chain rooted in a plain name, else None."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+def _fire_point(node: ast.Call) -> str | None:
+    """The point name this call passes, only when it is a string literal."""
+    candidate: ast.expr | None = node.args[0] if node.args else None
+    if candidate is None:
+        for entry in node.keywords:
+            if entry.arg == POINT_KEYWORD:
+                candidate = entry.value
+                break
+    if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
+        return candidate.value
+    return None
+
+
+def _fired_hook_names(source: str) -> set[str]:
+    """Hook points ``source`` actually fires, read from its AST.
+
+    Only real ``lane_hooks.fire("<point>")`` CALL SITES count.  This
+    replaces the string-grep the relation pin below used to do
+    (``"<point>" in runtime_source``), which a COMMENT satisfied: chief
+    measured both halves of that defect in round R391 (mutants M10/M11,
+    ``pf_bridge/rounds/R391_ammtv3_withdraw_the_gm063_detector_from_main``).
+    Writing the point name into a comment reddened the pin with no code
+    change at all, and writing it into a comment WHILE deleting the real
+    call site turned the pin green -- the exact state the pin exists to
+    catch.  ``ast.parse`` drops comments, and this walks calls only, so
+    prose about a point is invisible here by construction.
+
+    The dotted name before ``.fire`` must match a binding this same source
+    created for the lane_hooks module, WHOLE -- not by its last segment,
+    which is what keeps ``cannon.lane_hooks.fire(...)`` and
+    ``self.config.lane_hooks.fire(...)`` out (the trap
+    ``gm/lane_gate_name_audit.py`` documents at ``_resolves_to``, found by
+    pf-adversary).  ``lane_hooks.announce_direct_fire(...)`` is a
+    different function and is deliberately not counted.
+    """
+    tree = ast.parse(source)
+    module_bindings: set[str] = set()
+    fire_bindings: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            # `import x.y.lane_hooks` is usable as the whole dotted path.
+            for alias in node.names:
+                if alias.name.split(".")[-1] == LANE_HOOKS_MODULE_NAME:
+                    module_bindings.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            tail = (node.module or "").split(".")[-1]
+            for alias in node.names:
+                if alias.name == LANE_HOOKS_MODULE_NAME:
+                    module_bindings.add(alias.asname or alias.name)
+                elif (
+                    tail == LANE_HOOKS_MODULE_NAME
+                    and alias.name == FIRE_FUNCTION_NAME
+                ):
+                    fire_bindings.add(alias.asname or alias.name)
+
+    fired: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute):
+            if func.attr != FIRE_FUNCTION_NAME:
+                continue
+            if _dotted(func.value) not in module_bindings:
+                continue
+        elif isinstance(func, ast.Name):
+            if func.id not in fire_bindings:
+                continue
+        else:
+            continue
+        point = _fire_point(node)
+        if point is not None:
+            fired.add(point)
+    return fired
+
+
+def _runtime_source() -> str:
+    return (
+        ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+    ).read_text(encoding="utf-8")
 
 
 def _session() -> types.SimpleNamespace:
@@ -42,10 +152,22 @@ class LaneGmUnknownVitalCounterTests(unittest.TestCase):
         # handover: the module declares the point never-fired if and only
         # if nothing fires it.  Both end states are green, both illegal
         # in-between states are red.
-        runtime_source = (
-            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
-        ).read_text(encoding="utf-8")
-        fired_by_runtime = "vital_inbound_unknown_id" in runtime_source
+        #
+        # "Fires it" is read from runtime.py's AST, not from its text.  The
+        # first form of this pin asked `"vital_inbound_unknown_id" in
+        # runtime_source`, so a COMMENT naming the point answered for the
+        # code -- R391's mutants M10 and M11 measured it going red on prose
+        # alone and, worse, going GREEN on prose that stood in for the
+        # deleted call site.  _fired_hook_names() carries the reasoning.
+        fired = _fired_hook_names(_runtime_source())
+        self.assertTrue(
+            fired,
+            "read no lane_hooks.fire() call site at all in runtime.py: the "
+            "reader above is broken, and a broken reader would answer "
+            "'nothing fires it' for every point and pass this pin by "
+            "default",
+        )
+        fired_by_runtime = "vital_inbound_unknown_id" in fired
         declared = "vital_inbound_unknown_id" in getattr(
             counter, "registered_but_not_fired", ()
         )
@@ -53,7 +175,7 @@ class LaneGmUnknownVitalCounterTests(unittest.TestCase):
             declared,
             not fired_by_runtime,
             "declare the point never-fired exactly while nothing fires it: "
-            f"runtime.py names it = {fired_by_runtime}, "
+            f"runtime.py fires it = {fired_by_runtime}, "
             f"declared = {declared}",
         )
 
@@ -127,12 +249,16 @@ class LaneGmUnknownVitalCounterTests(unittest.TestCase):
                 )
 
     def test_one_session_cannot_record_the_whole_id_space(self):
-        # pf-adversary (round `vq07el`) walked 0x0000..0xFFFF once each
-        # against the real event list and measured 65,536 events, 15.05 MiB
-        # of heap and 65,536 flushed console lines -- from a peer that has
-        # not logged in, because this hook's call site is in dispatch() and
-        # dispatch() runs from the first frame. Dedup bounded REPEATS and
-        # nothing bounded DISTINCT ids.
+        # pf-adversary (round `vq07el`) walked the whole 16-bit id space
+        # once each against the real event list and measured one event,
+        # 15.05 MiB of heap and one flushed console line PER ID -- and at
+        # the time it measured that, the call site was in dispatch(),
+        # which runs from the first frame of a peer that has not logged
+        # in.  R391 withdrew that call site, so today nothing reaches this
+        # hook from the wire; the cap stays because it is the hook's own
+        # contract and the next call site to land must not have to
+        # rediscover it.  Dedup bounded REPEATS and nothing bounded
+        # DISTINCT ids.
         session = _session()
         for vital_id in range(0x0000, 0x0100):
             counter._on_unknown_vital(session, vital_id)

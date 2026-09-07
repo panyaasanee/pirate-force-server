@@ -2992,6 +2992,42 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "skill_attr_hypothesis_identity_not_pinned_no_reply"
                 )
                 return []
+            # CORE-REQUEST 20260907_0907 (LANE-CS), answered by chief's
+            # letter 20260907_1109 and written here now that the field it
+            # asked LANE-CS for is on main.  The gate above pins WHO the
+            # frame may answer; this one pins WHAT CLASS the pinned step
+            # bytes were built for, because three of the four ids such a
+            # sweep can carry are shared by every class and only one tells
+            # classes apart -- so a watcher who cannot rule out "ran as the
+            # wrong class" cannot read a negative result at all.
+            #
+            # The number is READ, never typed: `character_class_id` lives on
+            # the scenario object this closure already holds (the one
+            # require_skill_attr_hypothesis_scenario validated at load), so
+            # the gate compares against the same declaration that composed
+            # the bytes.  `None` there means THIS SWEEP DECLARES NO CLASS
+            # (skill_attr_hypothesis.py states that meaning), and then the
+            # identity gate above is left alone to decide -- today's sweep
+            # declares None, so this gate changes no boot until the sweep
+            # that carries a class's real skill ids names that class in the
+            # same commit.
+            #
+            # A live character whose class_id is None is the OPPOSITE case
+            # and is REFUSED, never read as class 1: unresolved is not a
+            # default (LANE-CS condition 1).  getattr with a None default is
+            # deliberate -- an object that carries no class_id at all lands
+            # in the same refusal instead of raising on a live socket.
+            declared_class_id = (
+                skill_attr_hypothesis_scenario.character_class_id
+            )
+            if declared_class_id is not None:
+                selected_class_id = getattr(selected, "class_id", None)
+                if (type(selected_class_id) is not int
+                        or selected_class_id != declared_class_id):
+                    self.events.append(
+                        "skill_attr_hypothesis_class_not_pinned_no_reply"
+                    )
+                    return []
             actions = []
             for index, label in enumerate(
                 skill_attr_hypothesis_scenario.step_order
@@ -6744,15 +6780,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # "the call returned no actions" and "which events it left",
             # and neither answers the question the hook point asks, which
             # is whether any branch in the ~5,000-line chain read this id.
-            # Measured on the merged head: the detector called 65,483 of
-            # 65,536 ids unclaimed, named ten ids that DO have a branch,
-            # and on a batch frame recorded an id other than the one the
-            # branch had read.  A report-only point that prints a wrong id
+            # Measured on the merged head, in MORE THAN ONE session
+            # configuration and with a different figure in each (so no
+            # single pair of numbers belongs here): in every one of them
+            # the detector called the overwhelming majority of the 16-bit
+            # id space unclaimed, named ids that DO have a branch, and on
+            # a batch frame recorded an id other than the one the branch
+            # had read.  A report-only point that prints a wrong id
             # into the console an attended round reads is not report-only,
             # so it comes out of `main` rather than waiting for a rule.
             # The hook module keeps its `registered_but_not_fired`
             # declaration until a call site exists that can answer the
-            # question; who owns that record -- the ten branches or the
+            # question; who owns that record -- the branches or the
             # detector -- is the open letter
             # pf_bridge/notes_to_chief/20260907_1816_LANE-E-ASK-COO-*.
             actions = self._dispatch_with_lanes(parsed)

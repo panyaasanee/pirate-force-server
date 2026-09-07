@@ -47,6 +47,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +66,9 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 from pirateforce_foundation import class_catalog  # noqa: E402
+from pirateforce_foundation import (  # noqa: E402
+    skill_attr_hypothesis as skill_attr_module,
+)
 from pirateforce_foundation import (  # noqa: E402
     skill_attr_hypothesis as skill_attr_module,
 )
@@ -121,6 +125,7 @@ SCENARIO_PATH = ROOT / "scenarios" / "skill_attr_hypothesis_attr_sweep.json"
 SRC_ROOT = ROOT / "src" / "pirateforce_foundation"
 SWEEP_EVENT = "skill_attr_hypothesis_attr_sweep_sent"
 IDENTITY_EVENT = "skill_attr_hypothesis_identity_not_pinned_no_reply"
+CLASS_EVENT = "skill_attr_hypothesis_class_not_pinned_no_reply"
 
 # GOLDEN byte-exact pins for the two sweep variants, computed by running the
 # encoder over the pinned probe identity and frozen here as full hex.  Every
@@ -1495,6 +1500,160 @@ class DispatchTests(unittest.TestCase):
                 make_state_class(
                     self.legacy, self.lifecycle, self.projector,
                     skill_attr_hypothesis_scenario=bad,
+                )
+
+    # ------------------------------------------------ the class gate
+    # CORE-REQUEST 20260907_0907 (LANE-CS), answered by chief's letter
+    # 20260907_1109.  Three of the four skill ids such a sweep can carry are
+    # shared by every class, so a watcher who cannot rule out "ran as the
+    # wrong class" cannot read a negative result at all.  The number the gate
+    # compares against is READ off the scenario object that composed the
+    # bytes, never typed into runtime.py -- these tests drive it by replacing
+    # that field, which is the only way a typed constant could not satisfy.
+
+    def _state_declaring_class(self, login, declared, **kwargs):
+        """A state whose sweep scenario declares `declared` as the class its
+        pinned step bytes were built for.
+
+        The committed sweep declares None (see the module), and
+        ``require_skill_attr_hypothesis_scenario`` is a hard allowlist that
+        accepts ONE object -- that containment is deliberate and is not
+        loosened here.  So the allowlist's own reference is patched for the
+        duration of the load instead, which is the only way to drive a
+        declared class before LANE-CS's #1002 sets one.  Production code is
+        untouched: the dispatcher still reads whatever object the allowlist
+        returned.
+        """
+        variant = dataclasses.replace(
+            self.scenario, character_class_id=declared,
+        )
+        original = self.scenario
+        self.scenario = variant
+        try:
+            with unittest.mock.patch.object(
+                skill_attr_module, "_PROFILE_ATTR_SWEEP", variant,
+            ):
+                state = self._state(login, **kwargs)
+        finally:
+            self.scenario = original
+        return state
+
+    def _restamp_class(self, state, class_id):
+        selected = state.foundation.selected
+        self.assertIsNotNone(selected)
+        state.foundation.selected = dataclasses.replace(
+            selected, class_id=class_id,
+        )
+        return selected
+
+    def test_a_sweep_that_declares_no_class_is_gated_by_identity_alone(self):
+        """Today's committed sweep declares None, and None means THIS SWEEP
+        DECLARES NO CLASS -- not class 1, not any class.  So the gate must
+        change no boot at all until a sweep names a class."""
+        self.assertIsNone(self.scenario.character_class_id)
+        state = self._state("skillattr-class-none")
+        self._restamp_class(state, None)
+        actions = state.dispatch(self._trigger())
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(state.events.count(SWEEP_EVENT), 1)
+        self.assertNotIn(CLASS_EVENT, state.events)
+
+    def test_the_declared_class_matching_the_character_sends_the_sweep(self):
+        state = self._state_declaring_class("skillattr-class-ok", 1)
+        self._restamp_class(state, 1)
+        actions = state.dispatch(self._trigger())
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(state.events.count(SWEEP_EVENT), 1)
+        self.assertNotIn(CLASS_EVENT, state.events)
+
+    def test_a_character_of_another_class_is_refused(self):
+        """The defect the letter measured: a Paladin with the same identity
+        received class 1's ids.  Nothing is sent now."""
+        state = self._state_declaring_class("skillattr-class-wrong", 1)
+        self._restamp_class(state, 2)
+        self._assert_silent(state, self._trigger(), CLASS_EVENT)
+
+    def test_an_unresolved_class_is_refused_and_never_read_as_class_1(self):
+        """LANE-CS condition 1: class_id None on a LIVE character is not a
+        default.  Unreadable is not 'class 1'."""
+        state = self._state_declaring_class("skillattr-class-unres", 1)
+        self._restamp_class(state, None)
+        self._assert_silent(state, self._trigger(), CLASS_EVENT)
+
+    def test_a_selected_row_carrying_no_class_id_at_all_is_refused(self):
+        """Fail closed rather than raise on a live socket: the dispatcher
+        reads the field with a None default, so a row without one lands in
+        the same refusal instead of unwinding the listener thread."""
+        class _NoClassId:
+            """The real selected row with the one field hidden -- every
+            other attribute the dispatcher reads still resolves."""
+
+            def __init__(self, row):
+                object.__setattr__(self, "_row", row)
+
+            def __getattr__(self, name):
+                if name == "class_id":
+                    raise AttributeError(name)
+                return getattr(self._row, name)
+
+        state = self._state_declaring_class("skillattr-class-missing", 1)
+        state.foundation.selected = _NoClassId(state.foundation.selected)
+        self._assert_silent(state, self._trigger(), CLASS_EVENT)
+
+    def test_a_boolean_class_id_does_not_satisfy_class_1(self):
+        """`True == 1` in Python.  A bool is not a class row, so it is
+        refused rather than compared equal to class 1."""
+        state = self._state_declaring_class("skillattr-class-bool", 1)
+        self._restamp_class(state, True)
+        self._assert_silent(state, self._trigger(), CLASS_EVENT)
+
+    def test_the_identity_gate_still_answers_first(self):
+        """Ordering pin: a wrong identity is refused as an identity problem
+        even when the class is also wrong, so the two refusals stay
+        readable apart on the console."""
+        state = self._state_declaring_class("skillattr-class-order", 1)
+        self._unpin_identity(state, lo=SKILL_ATTR_PROBE_IDENTITY_LO + 1)
+        self._restamp_class(state, 2)
+        self._assert_silent(state, self._trigger(), IDENTITY_EVENT)
+        self.assertNotIn(CLASS_EVENT, state.events)
+
+    def test_the_class_refusal_does_not_stop_a_later_matching_sweep(self):
+        state = self._state_declaring_class("skillattr-class-repin", 1)
+        original = self._restamp_class(state, 2)
+        self.assertEqual(state.dispatch(self._trigger()), [])
+        self.assertEqual(state.events.count(CLASS_EVENT), 1)
+        self.assertEqual(state.skill_attr_sweep_count, 0)
+        state.foundation.selected = dataclasses.replace(original, class_id=1)
+        actions = state.dispatch(self._trigger())
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(state.skill_attr_sweep_count, 1)
+        self.assertEqual(state.events.count(SWEEP_EVENT), 1)
+
+    def test_the_gate_reads_the_scenario_and_not_a_number_in_runtime(self):
+        """The same character is accepted or refused purely by moving the
+        declaration, which a constant typed into runtime.py could not do."""
+        for declared, expected_sent in ((7, False), (3, True)):
+            with self.subTest(declared=declared):
+                # The V25 create wire commits ONE canonical smoke character
+                # per store and only that first row carries the pinned probe
+                # identity, so each leg needs its own fixture -- otherwise
+                # the second leg is refused by the identity gate and proves
+                # nothing about this one.
+                self.tearDown()
+                self.setUp()
+                state = self._state_declaring_class(
+                    f"skillattr-class-decl-{declared}", declared,
+                )
+                self._restamp_class(state, 3)
+                actions = state.dispatch(self._trigger())
+                self.assertEqual(bool(actions), expected_sent)
+                self.assertEqual(
+                    state.events.count(SWEEP_EVENT),
+                    1 if expected_sent else 0,
+                )
+                self.assertEqual(
+                    state.events.count(CLASS_EVENT),
+                    0 if expected_sent else 1,
                 )
 
 

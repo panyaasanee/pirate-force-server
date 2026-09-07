@@ -705,6 +705,23 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             "quest_context",
             "quest_store",
             "_in_memory_quest_state_store",
+            # `reward_store` is a pass-through PARAMETER NAME only: the
+            # reward logic (which column, which amount, whether an atomic
+            # add exists) lives in lua_api/reward.py, one directory down,
+            # which this guard's glob("*.py") does not scan.  GRANTED by
+            # chief (LANE-E) on CORE-REQUEST `pf_bridge/notes_to_chief/
+            # 20260907_1113_LANE-Q-CORE-REQUEST-scripthost-reward-store-
+            # symbol-exemption.md`, after reading the change: script_host.py
+            # imports nothing from lua_api/reward.py, names neither
+            # KIND_COLUMN nor CriteriaAmount, and never calls pay() -- it
+            # holds the reference for the length of one constructor and
+            # hands it to lua_api.quest.build_namespace.  It is here
+            # because ScriptHost's own SIGNATURE is what had to change, so
+            # unlike round `wn088m` the code could not be moved out of the
+            # scanned directory instead.  Landed in the same PR as that
+            # wiring (test_every_symbol_exemption_is_still_earned refuses
+            # an exemption for code that does not exist yet).
+            "reward_store",
         },
         # The quest module itself.  It is the one place quest dispatch lives,
         # by the design the npc_interaction rows describe: a one-shot wire

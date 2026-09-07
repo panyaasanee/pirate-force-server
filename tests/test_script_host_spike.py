@@ -9,8 +9,12 @@ named files from ../pf_bridge/gamedata/lua/ (verified with ``cmp`` when
 vendored - see docs/SCRIPT_LANE.md) so this module needs no sibling
 checkout: it is guarded only by LUPA_PACKAGE, not BRIDGE_LUA_SCRIPTS.
 """
+import inspect
+import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from pf_preconditions import LUPA_PACKAGE
 
@@ -463,6 +467,101 @@ class FailClosedLoadingTests(unittest.TestCase):
                 any(line.startswith("LUA_SCRIPT broken_one.lua ERR ") for line in log_lines),
                 log_lines,
             )
+
+
+class _RecordingLuaRuntime:
+    """The two lupa entry points a ScriptHost construction actually uses.
+
+    ``ScriptHost.__init__`` calls ``lupa.LuaRuntime(...)`` and then only
+    ``globals()`` on the result; ``load`` adds ``execute``.  Nothing about
+    the parameter plumbing below is Lua's business, so the class right
+    under this one can run on EVERY machine instead of joining the
+    lupa_package skip pile -- which matters here, because the pass-through
+    it guards has no other always-on witness in this suite.
+    """
+
+    def __init__(self, **kwargs):
+        self.constructor_kwargs = kwargs
+        self.executed = []
+        self._globals = {}
+
+    def globals(self):
+        return self._globals
+
+    def execute(self, source):
+        self.executed.append(source)
+
+
+class RewardStoreIsHandedOnUntouchedTests(unittest.TestCase):
+    """CORE-REQUEST 20260907_1113: the seam a real script can reach.
+
+    Before this, ``lua_api.quest.build_namespace`` took ``reward_store``
+    but ``ScriptHost``/``load_script_file`` did not, so the ONE path a
+    shipped script walks -- ``lua_api.dispatch.load_quest_script``, which
+    forwards **kwargs into ``load_script_file`` -- raised TypeError on
+    ``reward_store=``, and every criteria call in the corpus could only
+    ever log ``refused=no_reward_store``.  The four tests that did pass a
+    store called ``build_namespace`` directly, bypassing the host entirely.
+
+    These tests assert the reference that ARRIVES, by identity, at the
+    Quest namespace -- not that a call merely succeeded.  Deleting the
+    forwarding argument in either place turns them red; the real
+    ``lua_api.quest.build_namespace`` runs unmocked, so the attribute read
+    is the shipped storage, not a spy's record.  Only ``lupa`` itself is
+    replaced (see the class above), because a LuaRuntime has no opinion
+    about a keyword argument.
+    """
+
+    def _host(self, **kwargs):
+        with mock.patch.object(
+            script_host, "lupa", types.SimpleNamespace(
+                LuaRuntime=_RecordingLuaRuntime)
+        ):
+            return script_host.ScriptHost(log=lambda _m: None, **kwargs)
+
+    def test_the_store_a_caller_hands_scripthost_is_the_one_quest_holds(self):
+        store = object()
+        host = self._host(reward_store=store)
+        # __slots__ on RealQuestNamespace names the attribute; `is`, not
+        # equality, because a pass-through that quietly substituted an
+        # equal-looking object would be exactly the defect this guards.
+        self.assertIs(host.namespaces["Quest"]._reward_store, store)
+
+    def test_no_store_given_is_byte_identical_to_before_the_parameter(self):
+        # None, not a private default built here: this module does not know
+        # what a reward is and must not invent a place to put one.  The
+        # refusal then belongs to lua_api.reward.pay, where it is measured.
+        self.assertIsNone(self._host().namespaces["Quest"]._reward_store)
+
+    def test_load_script_file_forwards_it_through_to_the_namespace(self):
+        store = object()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "q_probe.lua"
+            path.write_text("function Report_Run() return 1 end")
+            with mock.patch.object(
+                script_host, "lupa", types.SimpleNamespace(
+                    LuaRuntime=_RecordingLuaRuntime)
+            ):
+                host = script_host.load_script_file(
+                    path, log=lambda _m: None, reward_store=store)
+        self.assertIs(host.namespaces["Quest"]._reward_store, store)
+        self.assertEqual(len(host.runtime.executed), 1)
+
+    def test_the_dispatch_seam_the_core_request_named_no_longer_refuses_it(self):
+        """The letter's exact reproduction, minus the 616-file corpus.
+
+        ``dispatch.load_quest_script`` passes **kwargs straight into
+        ``load_script_file``, so the TypeError the CORE-REQUEST measured was
+        raised by THIS signature, and a signature is testable without the
+        untracked corpus the real call needs for its path lookup.
+        """
+        signature = inspect.signature(script_host.load_script_file)
+        self.assertIn("reward_store", signature.parameters)
+        self.assertIs(signature.parameters["reward_store"].default, None)
+        self.assertIs(
+            signature.parameters["reward_store"].kind,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover
