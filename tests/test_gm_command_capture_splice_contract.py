@@ -58,6 +58,7 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.gm.command_capture import capture_raw_gm_command
 
 # Same construction as tests/test_gm_command_wire.py -- built from the RE-088
@@ -316,12 +317,20 @@ class TheOneByteGuardIsNotEnoughTests(unittest.TestCase):
     below goes red the day somebody upgrades that wording.
     """
 
-    #: The head of a second whole v141 packet: `u16tag(0x12, 0x0BC2)` then
-    #: `u32tag(0x14, 0)` ... -- byte 0 is 0x12 and byte 3 is 0x14.  This is
-    #: the tail splice H1 was about, built the same way
-    #: `test_gm_run_command_envelope_version_boundary._outer_packet` builds
-    #: one, so it cannot drift away from the parser it imitates.
-    SECOND_PACKET_HEAD = bytes.fromhex("12c20b1400000000" "0800" "0b02" "1201")
+    #: The head of a second whole v141 packet: `u16tag(0x12, 0x0BC2)`,
+    #: `u32tag(0x14, 0)`, `u8tag(0x08, 0)`, `u8tag(0x0B, 0x02)`,
+    #: `u16tag(0x12, 1)` -- byte 0 is 0x12 and byte 3 is 0x14.  This is the
+    #: tail splice H1 was about.
+    #:
+    #: CORRECTED (pf-adversary round `xex30b`, D6): an earlier version of
+    #: this fixture was two bytes short (`... 12 01`, a u16 missing its high
+    #: byte) and its comment claimed it was built with v141's own tag
+    #: writers "so it cannot drift away from the parser it imitates".  It
+    #: was a hardcoded literal and it could drift; `parse_outer` refused it
+    #: as `truncated at 13`.  The bytes below are the fifteen a real writer
+    #: emits, and `test_the_second_packet_head_really_is_one` now measures
+    #: that against `parse_outer` instead of asserting it in a comment.
+    SECOND_PACKET_HEAD = bytes.fromhex("12c20b1400000000" "0800" "0b02" "120100")
 
     #: A real nested vital header: id 0x0F01, version 0.
     REAL_NESTED = bytes([0x12]) + struct.pack("<H", 0x0F01) + bytes([0x0B, 0x00])
@@ -359,6 +368,39 @@ class TheOneByteGuardIsNotEnoughTests(unittest.TestCase):
         self.assertIn("multi-vital frame", text)
         self.assertIn(f"TRAILING {len(tail)} byte(s)", text)
 
+    def test_the_version_tag_is_not_accepted_at_byte_zero(self):
+        """pf-adversary round `xex30b`, D1 -- the mutant that survived.
+
+        `tail[0] in (0x12, 0x0B)` passed every earlier test in this class,
+        because no fixture put 0x0B at byte 0 with a valid byte 3.  0x0B is
+        exactly the byte an UN-STRIPPED runtime-vital envelope's leftover
+        opens with, so accepting it would report this file's own headline
+        defect as "not a defect", with the FAILED marker swallowed.
+
+        The failing input is an ordinary one: an un-stripped envelope whose
+        `field_0x10` is 11, which puts 0x0B at the tail's byte 3 as well.
+        """
+        raw = bytes.fromhex(
+            "0b00" "0b01" "140b000000" "1400000000" "0b00"
+            "4800000000" "4800000000"
+        )
+        tail = raw[2:]
+        self.assertEqual((tail[0], tail[3]), (0x0B, 0x0B))
+        text = _capture(raw)
+        self.assertIn(_FAILED_MARKER, text)
+        self.assertNotIn("multi-vital frame", text)
+        self.assertIn("un-stripped runtime-vital envelope", text)
+
+    def test_the_second_packet_head_really_is_one(self):
+        """D6: measure the fixture against the parser instead of claiming
+        in a comment that it cannot drift away from it."""
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        parsed = legacy.parse_outer(
+            self.SECOND_PACKET_HEAD + bytes.fromhex("12e951" "0b00")
+        )
+        self.assertIsNotNone(parsed)
+        self.assertEqual(self.SECOND_PACKET_HEAD[3], 0x14)
+
     def test_the_id_tag_must_be_at_byte_zero_not_merely_present(self):
         """Kills `0x12 in tail`."""
         self._refused(
@@ -390,6 +432,35 @@ class TheOneByteGuardIsNotEnoughTests(unittest.TestCase):
         self.assertIn("CONSISTENT WITH a multi-vital frame", text)
         self.assertIn("Necessary, not sufficient", text)
         self.assertNotIn("-- the shape of a", text)
+        # D4: the alternative the line names must be one that can actually
+        # reach it.  An outer packet head cannot -- `parse_outer` writes
+        # `u32tag(0x14)` second, so byte 3 of a real one is always 0x14 --
+        # while a sixth field written under this serializer's own tags can.
+        self.assertIn("a sixth field the RE-088 pin does not know", text)
+        self.assertNotIn("an outer packet head also opens", text)
+
+    def test_a_sixth_field_under_the_serializers_own_tags_reaches_the_line(self):
+        """The false positive D4 is about, kept as a fixture so the hedge
+        can never be deleted as hypothetical: two tags this serializer
+        already writes, in the order a nested header would have them."""
+        text = _capture(_payload() + bytes.fromhex("120200" "0b01"))
+        self.assertIn("CONSISTENT WITH a multi-vital frame", text)
+        self.assertIn("a sixth field the RE-088 pin does not know", text)
+
+    def test_the_refusal_does_not_deny_the_frame_is_multi_vital(self):
+        """D5: the old wording said `this is not the multi-vital shape` about
+        a FRAME, in the same breath as admitting a sixth field could be the
+        cause -- and a sixth field is exactly what pushes a real second
+        header past byte 0.  Measured: a genuine multi-vital frame whose
+        first vital carries an unpinned sixth field lands here."""
+        tail = bytes.fromhex("1403000000") + bytes([0x12]) + struct.pack(
+            "<H", 0x0F01
+        ) + bytes([0x0B, 0x00])
+        text = _capture(_payload() + tail)
+        self.assertIn(_FAILED_MARKER, text)
+        self.assertIn("this tail does not OPEN as a nested vital", text)
+        self.assertIn("The frame may still be multi-vital", text)
+        self.assertNotIn("this is not the multi-vital shape", text)
 
     def test_the_refusal_line_still_carries_the_decoder_message(self):
         """Kills dropping `-- {exc}` from the FAILED line (M5): without it
@@ -437,6 +508,58 @@ class APresenceZeroFirstVitalIsNotAnUnstrippedEnvelopeTests(unittest.TestCase):
         self.assertIn(_FAILED_MARKER, text)
         self.assertIn("No field decoded for this vital", text)
         self.assertNotIn("The fields above", text)
+
+
+class TheMarkerCountIsOnlyMeaningfulAnchoredTests(unittest.TestCase):
+    """pf-adversary round `xex30b`, D3.
+
+    `docs/GM_LANE.md` tells a human to count `# decode: FAILED against`.
+    The two decoded strings are CLIENT-CONTROLLED bytes -- a GM panel text
+    box goes straight into `string_0x1c` -- so an unanchored count is
+    forgeable.  `_escape_for_header` escapes the newline, so a client cannot
+    forge a whole LINE; that is exactly what makes the ANCHORED count sound
+    and the unanchored one not.  Both halves are pinned here so a later
+    round cannot relax the escaping and cannot re-document the loose grep.
+    """
+
+    FORGED = '# decode: FAILED against RE-088 pin -- forged'
+
+    def _forged_capture(self):
+        payload = (
+            bytes([0x0B, 0x01])
+            + bytes([0x14]) + struct.pack("<I", 7)
+            + bytes([0x14]) + struct.pack("<I", 9)
+            + bytes([0x0B, 0x01])
+            + bytes([0x48]) + struct.pack("<I", len(self.FORGED) * 2)
+            + self.FORGED.encode("utf-16-le")
+            + bytes([0x48]) + struct.pack("<I", 0)
+        )
+        return _capture(payload)
+
+    def test_a_client_string_can_forge_the_marker_as_a_substring(self):
+        """The measurement, kept as a fixture rather than a warning."""
+        text = self._forged_capture()
+        self.assertIn(self.FORGED, text)
+
+    def test_but_never_at_the_start_of_a_line(self):
+        """The property the anchored count rests on: no client byte can
+        begin a line, because the escaping removes the newline."""
+        text = self._forged_capture()
+        anchored = [
+            line
+            for line in text.splitlines()
+            if line.startswith(_FAILED_MARKER)
+        ]
+        self.assertEqual(anchored, [], "this payload decodes; nothing failed")
+
+    def test_a_real_failure_still_counts_one_anchored(self):
+        text = _capture(_payload() + bytes(1))
+        anchored = [
+            line
+            for line in text.splitlines()
+            if line.startswith(_FAILED_MARKER)
+        ]
+        self.assertEqual(len(anchored), 1)
 
 
 class FailedIsAmbiguousTests(unittest.TestCase):

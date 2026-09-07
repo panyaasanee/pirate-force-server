@@ -152,11 +152,20 @@ outcomes exist.  This is the contract the docstring of `_decode_section`
 told readers to grep for while this document said nothing about it
 (pf-adversary round `uk16x4`, L3):
 
-| grep for | what it means |
+**Grep these ANCHORED (`grep -c '^# decode: ...'`), never as a substring.**
+The decoded strings are CLIENT-CONTROLLED and they are printed on their own
+`# decode: string_0x1c="..."` line, so a GM panel text box can contain the
+text `# decode: FAILED against RE-088 pin` and an unanchored count will read
+it.  `_escape_for_header` stops a client from forging a whole LINE (it
+escapes the newline), which is what makes the anchored form safe; it does
+not stop a client from forging text INSIDE one (pf-adversary round
+`xex30b`, D3).
+
+| grep for (anchored) | what it means |
 |---|---|
-| `# decode: presence=` | the pinned five fields decoded, or presence was 0 |
-| `# decode: FAILED against` | the bytes did not match the RE-088 pin.  **Exactly one such line per capture**, so a count is meaningful |
-| `# decode: TRAILING` | bytes remained after this vital's body |
+| `^# decode: presence=` | the pinned five fields decoded, or presence was 0 |
+| `^# decode: FAILED against` | the bytes did not match the RE-088 pin.  **Exactly one such line per capture**, so a count is meaningful -- anchored, and only anchored |
+| `^# decode: TRAILING` | bytes remained after this vital's body |
 
 `TRAILING` comes in two flavours and the wording is the whole signal:
 

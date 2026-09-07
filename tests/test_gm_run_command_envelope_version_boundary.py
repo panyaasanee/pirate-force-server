@@ -89,13 +89,22 @@ from pirateforce_foundation.gm.command_wire import (
 #     with itself either;
 #   * `_R322B_LETTER_SHA256` pins the quoted text.
 #
-# NONCLAIM, and it is the ceiling of what this repository can check: the
-# letter lives in `pf_bridge`, which is NOT beside this repository when the
-# gate runs, so the hash pins the QUOTATION, not the letter.  Changing a
-# fixture byte now takes three deliberate edits in three places that must be
-# made to agree (line, hash, expected table) instead of one misreading that
-# produced two agreeing halves.  It does not make a determined re-typing
-# impossible; it makes an accident impossible.
+# NONCLAIM, MEASURED, and narrower than the first draft of this comment said
+# (pf-adversary round `xex30b`, D2).  What is closed: EDITING AN EXISTING
+# quoted frame.  Reverting frame 3's byte together with its expected tuple is
+# red; adding the recomputed hash is still red at the named byte-15 guard.
+# What is NOT closed: a frame quoted WRONG THE FIRST TIME.  Measured -- a new
+# frame 4 mistyped at the outset, with its hash and its expected row computed
+# from the mistyped line, is green, because every wall in this file is built
+# out of the quotation itself and a first-time misreading poisons all of them
+# at once.  That is the original D1 accident exactly, and only a human
+# re-reading the letter catches it.  The letter also lives in `pf_bridge`,
+# which is NOT beside this repository when the gate runs, so the hash pins
+# the QUOTATION, not the letter.
+#
+# So: this file makes a REGRESSION on a checked frame unreachable.  It does
+# not make a first transcription trustworthy, and it must not be cited as if
+# it did.
 _R322B_LETTER_LINES = (
     "0B 00 0B 01 14 01000000 14 00000000 0B 01 48 00000000 48 00000000",
     "0B 00 0B 01 14 01000000 14 00000000 0B 00 48 00000000 48 00000000",
@@ -260,6 +269,21 @@ class TheFixtureCannotAgreeWithItsOwnMisreadingTests(unittest.TestCase):
         """The byte D1 was about, named so a grep for it lands here."""
         self.assertEqual(_R322B_REGIONS[3][15], 0x00)
         self.assertEqual(_R322B_EXPECTED[3][3], 0)
+
+    def test_the_three_frames_are_the_three_the_letter_describes(self):
+        """The letter says frame 2 differs from frame 1 by ONE byte and
+        frame 3 is a different command entirely.  Nothing asserted that,
+        so a mistyped frame 2 could become a duplicate of frame 1 and the
+        file would not notice (pf-adversary round `xex30b`, D2)."""
+        one, two, three = (_R322B_REGIONS[n] for n in (1, 2, 3))
+        self.assertEqual(len(one), len(two))
+        self.assertEqual(
+            [a != b for a, b in zip(one, two)].count(True),
+            1,
+            "the letter's line 22 says frame 2 differs from frame 1 by a"
+            " single byte",
+        )
+        self.assertEqual(len({one, two, three}), 3)
 
     def test_every_quoted_frame_is_covered(self):
         self.assertEqual(

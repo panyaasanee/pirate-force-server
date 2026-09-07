@@ -75,13 +75,21 @@ NESTED_VITAL_ID_TAG = 0x12
 #: version).
 NESTED_VITAL_VERSION_TAG = 0x0B
 
-#: A nested vital header is exactly these five bytes.  The same rule
-#: `gm/chat_frame_tail.py:215` already ships (`_NESTED_HEADER_LENGTH = 5`),
-#: and -- this is why it is available here -- checking it needs NO body-length
-#: table, so it costs this sink neither a `vital_walk` import nor a `legacy`
-#: handle.  The earlier claim that one byte was "the ONLY signal this sink
-#: has" was written without grepping this lane's own directory; it was false
-#: when written (pf-adversary round uk16x4, H1/M2).
+#: A nested vital header is exactly these five bytes.  `gm/chat_frame_tail.py`
+#: reads the same header at `:325-326` (`cursor.u16(0x12)`, `cursor.u8(0x0B)`)
+#: with `_NESTED_HEADER_LENGTH = 5` at `:215`, and -- this is why the check is
+#: available here -- reading THOSE FIVE BYTES needs no body-length table, so it
+#: costs this sink neither a `vital_walk` import nor a `legacy` handle.
+#:
+#: It is a SUBSET of what `chat_frame_tail` does, not "the same rule"
+#: (pf-adversary round `xex30b`, D7): that module walks on with
+#: `body_length_table(legacy)` and returns a NAMED reason (`TAIL_WALKED`,
+#: `TAIL_UNDECLARED_BODY`, `TAIL_TRUNCATED`).  This sink copies the header
+#: half and stops there, which is why its own sentence has to hedge.
+#:
+#: The earlier claim that one byte was "the ONLY signal this sink has" was
+#: written without grepping this lane's own directory; it was false when
+#: written (pf-adversary round `uk16x4`, H1/M2).
 NESTED_VITAL_HEADER_LENGTH = 5
 
 
@@ -95,6 +103,11 @@ def looks_like_nested_vital_header(tail: bytes) -> bool:
     argued: a lone `0x12`, a short tail, and the actual head of a second
     v141 packet (`12 c2 0b 14 ...`, whose byte 3 is `0x14`) all fail it.
     """
+    # Both halves are load-bearing and neither is a range: byte 0 must be
+    # the ID tag exactly (0x0B, the version tag, is the byte an un-stripped
+    # envelope's leftover opens with, and accepting it here would report
+    # that very defect as "not a defect" -- pf-adversary round `xex30b`,
+    # D1), and byte 3 must be the version tag exactly.
     return (
         len(tail) >= NESTED_VITAL_HEADER_LENGTH
         and tail[0] == NESTED_VITAL_ID_TAG
@@ -576,11 +589,15 @@ def _decode_section(raw: bytes) -> str:
                     f" {NESTED_VITAL_HEADER_LENGTH} bytes) --\n"
                     "# decode: CONSISTENT WITH a multi-vital frame (v141"
                     " nested_payload runs to the end of the packet).\n"
-                    "# decode: Necessary, not sufficient -- an outer packet"
-                    f" head also opens with 0x{NESTED_VITAL_ID_TAG:02X}, and"
-                    " deciding\n"
-                    "# decode: more than this needs a body-length table this"
-                    " sink does not take.  Not decoded here; the hex\n"
+                    "# decode: Necessary, not sufficient -- a sixth field the"
+                    f" RE-088 pin does not know, written under tag"
+                    f" 0x{NESTED_VITAL_ID_TAG:02X}\n"
+                    "# decode: then tag"
+                    f" 0x{NESTED_VITAL_VERSION_TAG:02X} (both tags this very"
+                    " serializer already uses), reaches this line too.\n"
+                    "# decode: Deciding more than this needs a body-length"
+                    " table this sink does not take.  Not decoded here; the"
+                    " hex\n"
                     "# decode: dump below still carries every byte.\n"
                 )
             return (
@@ -592,8 +609,10 @@ def _decode_section(raw: bytes) -> str:
                 f" (0x{NESTED_VITAL_ID_TAG:02X} id tag then"
                 f" 0x{NESTED_VITAL_VERSION_TAG:02X} version tag at byte 3, five"
                 " bytes minimum), so\n"
-                "# decode: this is not the multi-vital shape.  Cause unknown"
-                " here:\n"
+                "# decode: this tail does not OPEN as a nested vital.  The"
+                " frame may still be multi-vital -- a sixth field on\n"
+                "# decode: this vital would push the next header past byte 0."
+                "  Cause unknown here:\n"
                 "# decode: a splice bug at the tail, a sixth field the RE-088"
                 " pin does not know, or a frame shape nobody has measured.\n"
                 + (
