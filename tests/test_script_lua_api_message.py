@@ -1073,6 +1073,42 @@ class RegenerateScriptSeparatesDriftFromInconclusiveTests(unittest.TestCase):
             tool.SOURCE = saved
 
 
+
+import pytest as _pytest_for_mirror_health_isolation
+from pirateforce_foundation.lua_api import vendored as _vendored_for_isolation
+from pirateforce_foundation import script_host as _script_host_for_isolation
+
+
+@_pytest_for_mirror_health_isolation.fixture(autouse=True)
+def _keep_the_published_mirror_health_clean():
+    """Every test in this module gets its own counter, not the real one.
+
+    pf-adversary D5, round `h20x7g`. Round `h20x7g` wrapped the lazy
+    mirror loaders so a broken copy is COUNTED -- which means every test
+    in this module that points `_CURVE_PATH`/`_ROWS_PATH`/`_CATALOG_PATH`
+    at a temp fixture now writes a failure into the process-wide
+    `MIRROR_HEALTH`, naming a path that no longer exists. Measured before
+    this fixture: a finished run left `mirror_failures=12` and, depending
+    on test order, `broken_now=true broken="criteria_curve"` -- the one
+    object the counter exists to publish, asserting that a perfectly
+    healthy shipped mirror is broken right now.
+
+    BOTH NAMES are swapped: `script_host` imported `MIRROR_HEALTH` by
+    value, so `script_host.MIRROR_HEALTH` and `vendored.MIRROR_HEALTH` are
+    two names for one object, and the two halves that record read
+    different names.
+    """
+    fresh = _vendored_for_isolation.MirrorHealth()
+    vendored_original = _vendored_for_isolation.MIRROR_HEALTH
+    host_original = _script_host_for_isolation.MIRROR_HEALTH
+    _vendored_for_isolation.MIRROR_HEALTH = fresh
+    _script_host_for_isolation.MIRROR_HEALTH = fresh
+    try:
+        yield
+    finally:
+        _vendored_for_isolation.MIRROR_HEALTH = vendored_original
+        _script_host_for_isolation.MIRROR_HEALTH = host_original
+
 if __name__ == "__main__":
     # Round 02mkqc: this block used to sit two thirds of the way UP the
     # file, so `python3 tests/test_script_lua_api_message.py` ran the

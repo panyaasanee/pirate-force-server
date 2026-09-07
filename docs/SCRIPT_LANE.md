@@ -3615,3 +3615,315 @@ here rather than carried:
   commits were squashed before push; no red commit reaches the branch.
 
 Not fixed, and named instead: nothing. All eight are closed above.
+
+
+## Round `95aw54` (2026-09-07) -- the bucket nobody read now has a counter, and a broken mirror no longer takes the host with it
+
+COO-DECISION `pf_bridge/notes_to_chief/20260907_1441_COO-DECISION-q1344-fail-soft-with-a-counter-LANE-Q.md`
+answered the question the round before last put to COO ("a corrupt
+`api_spec.tsv`: refuse to boot, or boot with no quests?"):
+
+1. **fail-soft stands** -- the server must come up even when quests are
+   dead, because "nobody can log in" is worse damage than "no quests";
+2. **but a log nobody reads is not an answer** -- the host must keep the
+   count, the last error and a stamp in state a reader can get at without
+   opening a log, with one pinning test;
+3. **and this lane must not invent a health-check endpoint** to display it.
+
+### What was built
+
+* `script_host.MirrorHealth` -- a lock-guarded tally; `record(exc)` counts
+  one failed read of one of OUR vendored mirrors and stores an ASCII-safe
+  `<Type>: <message>` plus an ISO-8601 UTC stamp; `tally()` hands back an
+  immutable `MirrorFailureTally` (`failures`, `last_error`,
+  `last_failed_at`, and a `log_fields()` that a console line can carry).
+* `script_host.MIRROR_HEALTH` -- the process-wide instance every
+  `ScriptHost` records into unless its caller injects one. Process-wide
+  because the thing counted is: one broken checkout breaks every host in
+  the process, not one of them.
+* `script_host.guard_mirrors(build, log, health)` -- runs a callable and,
+  on a `VendoredDataError` (the base class `_host_side_error_types()`
+  already classifies as ours), counts it, writes one line, and returns
+  `None`.
+  🔴 **CORRECTED IN ROUND `h20x7g` (pf-adversary D3), because this
+  paragraph shipped two things that were already false when it was
+  written.** The line's prefix is **`LUA_MIRROR_DEGRADED`**, never
+  `LUA_HOST_DEGRADED` -- a second prefix starting `LUA_HOST` is exactly
+  what broke the sweep contract at 1848 lines where 616 are pinned, and
+  `grep -rn LUA_HOST_DEGRADED src/` finds nothing. And **the message
+  catalog is NOT read during a construction**: measured, deleting
+  `message_catalog.tsv` and calling `player.build_namespace()` or
+  `trigger.build_namespace()` builds fine and records nothing. A callable
+  rather than a value is still right, but for the plainer reason that a
+  construction does more than one read-shaped thing.
+* `ScriptHost` builds all eight namespaces into a LOCAL dict and installs
+  them only if every one succeeded (all or none: a half-built host reads
+  to a script, and to a log reader, as a working host with half the API
+  missing). On failure it still EXISTS, with `degraded = True` and no
+  namespaces.
+* `script_host.MirrorUnavailable(VendoredDataError)` -- what a degraded
+  host raises from `load()`/`call()`, carrying the tally in its message.
+  It is a `VendoredDataError` subclass on purpose: every sweep here
+  already files that as ours, so the failure is logged `LUA_HOST` instead
+  of `LUA_SCRIPT <quest file> ERR`, which is D11's defect arriving through
+  a new door.
+* `BLOCKED_GLOBALS` are now set LAST and unconditionally: a degraded host
+  is still a sandbox. A mirror failure is not an excuse to leave
+  `io`/`os`/`require`/`load`/`python` reachable.
+
+### What is pinned (`tests/test_script_host_mirror_health.py`)
+
+Ten tests run WITHOUT `lupa` (so the cloud runner, which has no wheel,
+proves the counter): a healthy build counts nothing and logs nothing; a
+broken census returns `None`, moves the counter to 1, names the file in
+`last_error` and stamps it from an injected clock; a second failure moves
+it to 2 (a counter that latched at 1 would hide "and it is still
+broken"); both log lines are written and the second carries the tally;
+every line is ASCII; a non-ASCII error message is still recorded ASCII; a
+`ZeroDivisionError` is NOT swallowed and NOT counted; 16 threads recording
+lose no count; `MIRROR_HEALTH` is published as one readable object; and
+`MirrorUnavailable` is a member of `_host_side_error_types()`.
+
+Five more need `lupa` and run on the bridge gate: the host is built
+degraded with zero namespaces, every sandbox door is still nil on it, it
+refuses `load`/`call` naming the tally, a healthy host is not degraded and
+has all 8 namespaces, and -- the end-to-end one -- a sweep over a corpus
+with a broken mirror puts the innocent script in `host_failed`, writes no
+`LUA_SCRIPT` line at all, and writes `LUA_HOST`.
+
+### The mutant that SURVIVED, named rather than left out
+
+Six mutants were run against the new tests (command in the round file).
+Five die: catching bare `Exception` in `guard_mirrors` instead of
+`_host_side_error_types()` (1 failed), latching the counter at 1 (2
+failed), dropping `_ascii_safe` from `record` (1 failed), returning `{}`
+instead of `None` from a degraded build (1 failed), and dropping the
+`LUA_HOST_DEGRADED` line (1 failed).
+
+**Deleting `MirrorHealth`'s lock entirely leaves all ten green.** The
+16-thread test does not produce enough contention for CPython to lose a
+count in this body. The lock stays, and the docstring now says what it is:
+[PROPOSED] protection against a caller with more contention than any test
+here writes, plus a guarantee that the three fields are never read
+half-updated -- not a guard a test proves load-bearing. Same posture
+`lua_api/spec.py` already takes about its own `_LOCK`.
+
+### Item 4 of the decision: there is nowhere to plug this in
+
+Measured this round: `grep -rn "def .*health\|/health" --include=*.py src/`
+finds no health-check endpoint in the server at all. Per the decision this
+lane did NOT create one. The state stops at `script_host.MIRROR_HEALTH`,
+which is a one-line read for whoever builds that endpoint.
+
+### The stale sentences LANE-DB's letter caught (their round `ueaey7`)
+
+`SQLiteStore.add_typed_attribute` reached `main` (verified this round:
+`git grep -c add_typed_attribute origin/main -- src/pirateforce_foundation/store.py`
+= 2), so two sentences of ours had gone false and are corrected:
+
+* `QuestRewardStore` no longer says `store.py` "does not implement it yet,
+  which is why `pay` refuses on a real store today". `pay` pays a real row
+  now; what still refuses is a store without the method.
+* The retry question this lane wrote down as **NOT YET ANSWERED** is
+  answered, and the answer is carried here rather than cited: the read,
+  the `UPDATE` and the read-back run inside one `BEGIN IMMEDIATE` and
+  `store.connect()` rolls back on any exception before re-raising, so a
+  raise means nothing was committed and a retry pays exactly once. Still
+  NOT promised, and said so: a process killed between `COMMIT` and return
+  needs an idempotency key nobody has written, so `pay` still retries
+  nothing.
+* The reward test module's header no longer claims "today it REFUSES on
+  the real store". It names where the payout is proven instead
+  (`tests/test_store_add_typed_attribute.py::QuestRewardReachesARealRowTests`,
+  LANE-DB's file, run green this round) and says what is pinned here: the
+  refusals.
+
+### Still open after this round
+
+* Nothing in `src/` or `tools/` calls `load_corpus`/`run_corpus_entry_points`
+  yet, so a degraded host is still only reachable from tests. The counter
+  is the readable half; the boot-path call site is a CORE-REQUEST the COO
+  decision explicitly deferred until `load_quest_script` has a real call
+  site.
+* The `ScriptHost.call` time/instruction budget (the hang) and the Lua
+  panic below it (D5, round `oghyca`).
+* `reward_store` / `player_context` are still not wired into `ScriptHost`.
+* Quest state per character still needs the LANE-DB column door (`#954`).
+
+### pf-adversary on this round, paid in this round
+
+Ordered at the start of the round, returned before push, twelve findings.
+The two blocking ones are why this section exists rather than a `Still
+open` bullet: **the first draft of this round would have turned the
+Windows gate red**, and the cloud clone could not see it (the two tests it
+broke are lupa-guarded, so they skip here and run there).
+
+* **D1 [MEASURED, blocking]** `tests/test_script_lua_corpus.py::Broken
+  ApiSpecIsOursNotTheScriptsTests` pins that one broken mirror of ours
+  produces exactly ONE `LUA_HOST` line per script it stopped, ending in
+  that script's name. The draft wrote two more per host construction,
+  both starting with that prefix (`LUA_HOST ...` and
+  `LUA_HOST_DEGRADED ...`): 3 where 1 is pinned, and 1848 lines over the
+  real 616-file corpus where main writes 616. FIXED: the machine-readable
+  line is `LUA_MIRROR_DEGRADED`, a prefix of its own; the `LUA_HOST` line
+  stays the sweep's, written once, against the file the failure stopped.
+  Verified by execution against both trees with a 9-line stub `lupa`:
+  branch-only failures 0, base-only failures 0, on the same file set.
+* **D2 [MEASURED, blocking]** the new module was the only lupa-guarded
+  module in the repository with no entry in `docs/PYTEST_SKIP_PINS.json`;
+  `tools/pf_pytest_precondition_census.py` said `UNPINNED ... add it in the
+  same commit`. FIXED: pinned at 6, with the six test ids and the measured
+  command.
+* **D3/D4 [MEASURED]** the counter covers ONE of the four mirrors under
+  `lua_api/` (`api_spec.tsv`), because that is the only one a construction
+  reads: `message_catalog.tsv` and the two `quest_criteria_*.tsv` are read
+  inside the namespaces' call closures, so a broken copy of any of them
+  builds a host fine and raises at CALL time, where this counter never
+  sees it. The draft claimed in three places that the catalog is read
+  while `Player`/`Trigger` build, which is false. FIXED: all three
+  corrected, and the gap is now stated in the code, here, and in the round
+  file rather than implied away. **Next round's first job: cover the other
+  three, which needs a call-time hook, not a construction-time guard.**
+* **D5 [MEASURED, mutation]** `MIRROR_HEALTH` -- the one object this round
+  exists to publish -- had no pin: replacing the constructor default with
+  a fresh `MirrorHealth()` left every test green. FIXED: a test drives
+  `load_corpus` (which injects nothing) and asserts the published object
+  moved 0 -> 1.
+* **D7 [MEASURED]** `MirrorUnavailable`'s message read the SHARED tally
+  live, so a host degraded by a missing census could describe itself with
+  another host's unrelated error, and that sentence is what a sweep logs
+  against an innocent script. FIXED: each host snapshots its own failure
+  (`ScriptHost.mirror_failure`) and quotes that.
+* **D8 [MEASURED]** the new module's own sweep test dirtied the published
+  object with a failure naming a file that never existed. FIXED: the test
+  swaps `MIRROR_HEALTH` for a fresh instance and restores it.
+* **D9 [code read]** `has_function` was not guarded, so the live dispatch
+  that is coming would have read our broken mirror as "this script defines
+  no entry point". FIXED: guarded like `load`/`call`.
+* **D10 [MEASURED]** only the message half of `record()`'s interpolation
+  was escaped; a `VendoredDataError` subclass whose CLASS NAME carried a
+  non-cp874 character would reach `print` and kill a sweep. FIXED, with a
+  test that encodes the result as cp874.
+* **D11 [MEASURED]** a grep quoted in three places as "finds none" actually
+  prints two lines (`def remembers_health`, a scene predicate in
+  `world_scene_registry.py`). The conclusion holds -- there is no
+  health-check endpoint -- but the citation described output nobody read.
+  FIXED in all three.
+* **D6 [MEASURED], NOT FIXED, named instead.** `mirror_failures` counts
+  host CONSTRUCTIONS, is monotone, and has no success signal: one broken
+  `api_spec.tsv` over the real corpus reads `mirror_failures=616`, and
+  after the file is repaired the state still says 616 with the old error.
+  A reader cannot answer "which mirror" or "is it broken now". Fixing it
+  properly means a per-mirror key plus a `record_ok`, which is the same
+  work D3 needs; both are the next round's first job, in one shape.
+* **D12 [PROPOSED], NOT FIXED.** `guard_mirrors` uses `None` as its failure
+  sentinel (no live caller can return `None` from a build -- `_load`
+  refuses an empty census), and a naive `clock` is stamped `Z` without
+  conversion (only tests pass a clock).
+
+## Round h20x7g (2026-09-07) -- the counter gets a key, a way down, and the other three mirrors
+
+Round `95aw54` shipped two of pf-adversary's findings NAMED BUT NOT FIXED
+and said the next round would pay both with one change. This is that
+round, and this is that change.
+
+### What was wrong, restated from the two findings
+
+* **D6** the count had no key and no way down. `MirrorHealth` incremented
+  one integer. Over the real 616-file corpus a broken `api_spec.tsv` read
+  `mirror_failures=616`; repairing the file left it at 616 with the old
+  error still quoted. A reader could answer neither WHICH mirror was
+  broken nor WHETHER IT STILL WAS -- only "something broke at some point".
+* **D3** `script_host.guard_mirrors` runs at `ScriptHost` construction,
+  and a construction reads exactly ONE of this package's four vendored
+  mirrors. `message_catalog.tsv` (via `message.catalog()`) and
+  `quest_criteria_curve.tsv` / `quest_criteria_rows.tsv` (via
+  `quest_criteria.load_curve()` / `load_reward_rows()`) are read LAZILY
+  inside namespace closures, so a broken copy of any of the three built a
+  host fine and raised at call time, where a construction-time guard is
+  blind.
+
+Both are one defect -- state that cannot be asked a question -- so both
+are paid by one change.
+
+### Where the state lives now, and why it moved
+
+`MirrorFailureTally`, `MirrorHealth` and the process-wide `MIRROR_HEALTH`
+moved from `script_host.py` to `lua_api/vendored.py`. `script_host`
+imports `lua_api`, so a loader in `lua_api` cannot import the counter back
+out of `script_host` without an import cycle; `vendored.py` has no imports
+beyond the standard library and is already the module that DEFINES what "a
+mirror of ours is broken" means. `script_host` re-exports every name it
+used to define, so no caller and no existing test changes.
+
+| new | what it is |
+|---|---|
+| `MIRROR_API_SPEC` / `MIRROR_MESSAGE_CATALOG` / `MIRROR_CRITERIA_CURVE` / `MIRROR_CRITERIA_ROWS` | one short ASCII key per shipped mirror. A key, not a path: it is what a reader greps and what a future health check keys by, and it must not change when a file moves. `KNOWN_MIRRORS` is the tuple, pinned against the `*.tsv` files the package actually ships. |
+| `record(exc, mirror)` | counts under that key and returns THAT mirror's tally, so a caller quoting a cause quotes its own (D7, `95aw54`). |
+| `record_ok(mirror)` | the half D6 was missing. `broken_now` goes false, `last_ok_at` is stamped. `failures` is deliberately NOT reset: it is the history, `broken_now` is the state. |
+| `tally_for(mirror)` | one mirror. Reading never creates a key -- see the defect this round's own tests caught, below. |
+| `tally()` | unchanged signature, unchanged return type, now a ROLL-UP: `failures` summed, `broken` naming every mirror whose last event was a failure, sorted. |
+| `read_mirror(mirror, read, health=None)` | the call-time half of D3. Records the outcome and RE-RAISES. Deliberately not the same function as `guard_mirrors`, which SWALLOWS so a host can be built degraded: two jobs, two functions, rather than one with a flag a reader has to trace. |
+
+`log_fields()` keeps the three field names and the order round `95aw54`
+published (`mirror_failures=`, `last_failed_at=`, `last_error=`), because
+a reader's grep and `tests/test_script_host_mirror_health.py` both already
+know them; `mirror=`, `broken_now=`, `last_ok_at=` and `broken=` are
+appended, not mixed in.
+
+### Evidence
+
+**Layer 1, behaviour: twelve mutants, all killed.** Command:
+`PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests python3 -B -m pytest
+tests/test_lua_api_mirror_health_keys.py
+tests/test_script_host_mirror_health.py -q` (baseline `32 passed, 6
+skipped`).
+
+| mutant | result [measured] |
+|---|---|
+| `record_ok` does not clear `broken_now` | 3 failed |
+| `record` ignores the key (one bucket again) | 14 failed |
+| roll-up orders failures by stamp, not by sequence | 1 failed |
+| `read_mirror` swallows the failure instead of re-raising | 4 failed |
+| `read_mirror` records ok even when the read failed | 2 failed |
+| `read_mirror` catches everything, not only ours | 1 failed |
+| `tally_for` creates the key it is only asked about | 1 failed |
+| `guard_mirrors` records ok on the failing path too | 2 failed |
+| `guard_mirrors` never records a success | 1 failed |
+| the criteria row table is not wrapped at all | 2 failed |
+| the message catalog is not wrapped at all | 2 failed |
+| both criteria mirrors share one key | 2 failed |
+
+**Layer 2, not this lane's own tests.** The four keys in `KNOWN_MIRRORS`
+are pinned against `Path(vendored.__file__).parent.glob("*.tsv")` -- the
+files the package ships, counted from disk -- so a fifth mirror added
+without a key goes red on a count nobody typed.
+
+### The defect this round's own tests caught before pf-adversary did
+
+`tally_for` went through the same helper `record` uses, so merely ASKING
+about a mirror created its key and put it in `mirrors()`, which reports
+what has been READ. A reader polling all four keys would have seen all
+four listed and concluded every mirror had been touched. Reading no longer
+creates a key.
+
+### Still not fixed, named rather than hidden
+
+* **The two-name seam this move creates.** `script_host.MIRROR_HEALTH` and
+  `vendored.MIRROR_HEALTH` are one object by import, but they are two
+  NAMES: `guard_mirrors` reads the `script_host` global and the lazy
+  loaders read the `vendored` one, so a test that monkeypatches only one
+  isolates only half. Pinned (`test_script_host_re_exports_the_very_object
+  _vendored_publishes`) and this round's own helper swaps both -- but the
+  pin proves they START equal, it cannot stop a future test from rebinding
+  one.
+* **D12 from `95aw54`, still open.** `guard_mirrors` uses `None` as its
+  failure sentinel, and a naive `clock` is stamped `Z` without conversion
+  (only tests pass a clock).
+* **Nobody in the boot path reads any of this yet.** `load_corpus` and
+  `run_corpus_entry_points` still have no call site outside `tests/`, and
+  there is still no health-check endpoint in `src/` for the state to reach
+  -- COO-DECISION `20260907_1441` item 4 forbids this lane from inventing
+  one. What is closed is this lane's own half: the state exists, is
+  readable in one attribute, and can now be asked which mirror and whether
+  it still fails.
