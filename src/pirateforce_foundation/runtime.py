@@ -533,6 +533,15 @@ COMPOSABLE_SCENARIO_LANE_SETS = frozenset({
 })
 
 
+#: Refusal names this seam owns.  They are spelled HERE and not in
+#: `world_m2_teleport_check` because that module is LANE-A's: these two name
+#: a failure of the SOCKET half (an encoder that raised inside dispatch),
+#: which is chief's half of the seam.  Both are recorded through the sink's
+#: own `record_refusal`, so a run counts them next to the lane's own names.
+PROMPT_REFUSED_ENCODER_RAISED = "CHECK_REFUSED_PROMPT_ENCODER_RAISED"
+TRANSPORT_REFUSED_ENCODER_RAISED = "ECHO_REFUSED_TRANSPORT_ENCODER_RAISED"
+
+
 def _teleport_check_say(build, *args) -> None:
     """Build one console line and print it, and NEVER raise into dispatch().
 
@@ -592,15 +601,27 @@ class _SessionTeleportCheckSink(
     queueing first and asking later.
     """
 
-    __slots__ = ("unsent", "transports_sent")
+    __slots__ = ("unsent", "answered", "post_ack_noted")
 
     def __init__(self) -> None:
         super().__init__()
         self.unsent: list = []
-        #: How many times THIS SEAM has answered an echo with a transport
-        #: frame on this connection.  Not a statistic: it is the whole of
-        #: pf-adversary D1's fix -- see `_dispatch_teleport_check_echo`.
-        self.transports_sent: int = 0
+        #: Every ``(character_id, marker_id)`` THIS SEAM has already answered
+        #: with a transport frame on this connection.  Not a statistic: it is
+        #: the whole of pf-adversary D1's fix -- see
+        #: `_dispatch_teleport_check_echo`, which refuses a SECOND echo of a
+        #: pair in here rather than handing it to the frozen route.
+        #:
+        #: BOUNDED, and stated rather than hoped: an entry is added only when
+        #: a recorded order was consumed, and the marker id is the single u16
+        #: field of the frame, so the set holds at most one entry per marker
+        #: id per character this connection has selected.  NOT CLAIMED: that
+        #: it is small under a script that records and echoes tens of
+        #: thousands of distinct markers on one connection -- it is bounded,
+        #: not tiny, and no letter has measured a real session's shape.
+        self.answered: set = set()
+        #: One event per closed session, not one per late frame.
+        self.post_ack_noted: bool = False
 
     def record(self, character_id, pending):
         stored = super().record(character_id, pending)
@@ -6994,8 +7015,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # UIA notice's own FAIL-CLOSED block): an unauthenticated
             # connection must not make this server compose bytes.
             if getattr(self, "logout_acknowledged", False):
-                self.events.append(
-                    "lane_a_m2_teleport_check_post_ack_no_prompt")
+                # ONE event, not one per late frame: pf-adversary F7 measured
+                # 20 post-ack frames leaving 20 rows in `state.events` of a
+                # session whose guards exist to stop lanes writing through a
+                # closed connection.  The queue is left alone rather than
+                # emptied for the same reason -- emptying it is a write on
+                # that closed session, and nothing outside this seam ever
+                # reads the queue anyway (F7's second half: there is no
+                # exporter, so calling the leftover rows "evidence" would be
+                # a claim about a reader that does not exist).
+                if not sink.post_ack_noted:
+                    sink.post_ack_noted = True
+                    self.events.append(
+                        "lane_a_m2_teleport_check_post_ack_no_prompt")
                 return
             if self.foundation.selected is None:
                 self.events.append(
@@ -7020,6 +7052,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     sink.record_refusal(
                         world_m2_teleport_check.CHECK_REFUSED_MARKER_ROW_NOT_PINNED
                     )
+                    continue
+                except Exception:  # noqa: BLE001 - pf-adversary F3
+                    # NAMED ERRORS ARE NOT THE WHOLE PATH.  The first draft
+                    # caught `TeleportCheckError` only, and a round of its own
+                    # tests then PINNED an unnamed error escaping `dispatch()`
+                    # as intended -- in the file written to answer a finding
+                    # whose whole point is that nothing here may raise into a
+                    # listener with no `except`.  A recorder is a door other
+                    # lanes will open; a door that can kill every session on
+                    # the process over one bad row is not a door.
+                    sink.record_refusal(PROMPT_REFUSED_ENCODER_RAISED)
                     continue
                 actions.append((
                     "LANE_A_M2_TELEPORT_CHECK_PROMPT", prompt_pc,
@@ -7071,10 +7114,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             sink = self.teleport_check_sink()
             if world_m2_teleport_check.resolve_echo(
                     sink.orders, character_id, echoed) is None:
-                # Nothing this connection recorded answers this echo.  WHO
-                # OWNS THE FRAME NOW DEPENDS ON WHETHER THIS SEAM HAS ALREADY
-                # MOVED THIS PLAYER -- pf-adversary D1 of #1109, the finding
-                # that kept this pull request in draft.
+                # Nothing this connection recorded answers this echo.  THE
+                # ONE FRAME THIS SEAM STILL OWNS HERE IS A REPLAY OF ITS OWN
+                # ANSWER -- pf-adversary D1 of #1109, the finding that kept
+                # this pull request in draft.
                 #
                 # MEASURED on the real dispatcher: one recorded order for
                 # marker 1, the exact V136 confirm bytes sent TWICE, and the
@@ -7086,14 +7129,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # which could not happen before this branch existed.  Trading
                 # one defect for another is not a fix.
                 #
-                # So: from the FIRST transport this seam puts on the wire,
-                # travel on this connection is this seam's business, and an
-                # echo it cannot consume is refused by name here instead of
-                # being handed to the frozen route.  Before that first
-                # transport nothing changes -- an echo nobody ordered still
-                # reaches v141 untouched, which is what the layer-2
-                # comparison (tests/test_teleport_transport_wire.py's three
-                # emission tests) is there to keep true.
+                # So: an echo naming a pair THIS SEAM HAS ALREADY ANSWERED
+                # is refused by name here instead of being handed to the
+                # frozen route.  Nothing else changes -- every other echo,
+                # including one for a marker this connection never recorded
+                # and including v141's own marker 1 after this seam has moved
+                # the player somewhere else, still reaches v141 untouched.
+                #
+                # A BROADER RULE WAS TRIED AND MEASURED WRONG.  Keying this on
+                # "has this seam ever transported" (a counter, not a memo)
+                # made the seam swallow EVERY later frame of this class on the
+                # connection: pf-adversary F1 measured v141's V137 probe and
+                # both of its unconditional capture events going dark for the
+                # rest of the session on a connection whose seam order was for
+                # marker 17, which has nothing to do with marker 1.  That is
+                # exactly what the call site's own capitalised rule below
+                # forbids -- it swallowed the id, just later.  The layer-2
+                # comparison (tests/test_teleport_transport_wire.py) stayed
+                # green through it because no test there ever lets the seam
+                # send a transport at all.
                 #
                 # WHY A COUNTER ON THIS CONNECTION AND NOT v141's OWN LATCH.
                 # Setting `v137_marker1_transport_sent` from here would have
@@ -7103,7 +7157,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # connection is at marker 1".  Writing it would hand a
                 # population snapshot to a connection v141 never transported.
                 # One flag, two meanings, so this seam keeps its own.
-                if sink.transports_sent:
+                if (character_id, echoed) in sink.answered:
                     self.rx_frames += 1
                     sink.record_refusal(
                         world_m2_teleport_check
@@ -7147,14 +7201,31 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 world_m2_teleport_check.echo_console_line,
                 order.pending, echoed, None,
             )
-            transport_pc, transport_frame = (
-                world_m2_teleport_check.encode_transport(legacy, order.pending)
-            )
-            # Counted BEFORE the action is returned, and before the console
-            # line: an `encode_transport` that raised would leave a counter
-            # saying this player travelled when nothing reached the socket,
-            # so the count goes after the bytes exist and before they leave.
-            sink.transports_sent += 1
+            try:
+                transport_pc, transport_frame = (
+                    world_m2_teleport_check.encode_transport(
+                        legacy, order.pending)
+                )
+            except Exception:  # noqa: BLE001 - pf-adversary F3
+                # `encode_transport` reads `pending.destination` raw -- it
+                # does NOT re-resolve through `marker_destination` the way
+                # `encode_prompt` does, so unlike the prompt path it has no
+                # guarantee the row is well formed.  MEASURED: three shapes
+                # of a hand-built destination raise OverflowError / TypeError
+                # out of here, AFTER the player has already been asked.  The
+                # order is gone by now (`take` popped it) and nothing reached
+                # the socket, so nothing is recorded as answered.
+                sink.record_refusal(TRANSPORT_REFUSED_ENCODER_RAISED)
+                _teleport_check_say(
+                    world_m2_teleport_check.echo_console_line,
+                    order.pending, echoed, TRANSPORT_REFUSED_ENCODER_RAISED,
+                )
+                return []
+            # Recorded AFTER the bytes exist and before they leave: a memo
+            # entry written earlier would say this player travelled on a
+            # frame that never reached the socket, and would then refuse the
+            # honest retry.
+            sink.answered.add((character_id, echoed))
             _teleport_check_say(
                 world_m2_teleport_check.transport_console_line,
                 order.pending, len(transport_frame),
