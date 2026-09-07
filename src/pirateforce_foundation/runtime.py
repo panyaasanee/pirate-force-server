@@ -541,6 +541,17 @@ COMPOSABLE_SCENARIO_LANE_SETS = frozenset({
 PROMPT_REFUSED_ENCODER_RAISED = "CHECK_REFUSED_PROMPT_ENCODER_RAISED"
 TRANSPORT_REFUSED_ENCODER_RAISED = "ECHO_REFUSED_TRANSPORT_ENCODER_RAISED"
 
+#: Two refusals of the RECORDING door, kept apart because their fixes are
+#: different -- the same posture `marker_destination` takes for its own pair.
+#: A row whose `pending` is the wrong TYPE is a caller that handed this seam
+#: something it never built; a row whose character id is not an int is a
+#: caller that knows the shape and got the owner wrong.  Neither may be
+#: stored: see `_SessionTeleportCheckSink.record`.
+ORDER_REFUSED_PENDING_NOT_A_PENDING_CHECK = (
+    "CHECK_REFUSED_ORDER_PENDING_NOT_A_PENDING_CHECK")
+ORDER_REFUSED_CHARACTER_ID_NOT_AN_INT = (
+    "CHECK_REFUSED_ORDER_CHARACTER_ID_NOT_AN_INT")
+
 
 def _teleport_check_say(build, *args) -> None:
     """Build one console line and print it, and NEVER raise into dispatch().
@@ -601,7 +612,7 @@ class _SessionTeleportCheckSink(
     queueing first and asking later.
     """
 
-    __slots__ = ("unsent", "answered", "post_ack_noted")
+    __slots__ = ("unsent", "answered", "post_ack_noted", "no_selected_noted")
 
     def __init__(self) -> None:
         super().__init__()
@@ -622,8 +633,65 @@ class _SessionTeleportCheckSink(
         self.answered: set = set()
         #: One event per closed session, not one per late frame.
         self.post_ack_noted: bool = False
+        #: The same bound, for a connection that never selected a character.
+        self.no_selected_noted: bool = False
 
     def record(self, character_id, pending):
+        """Store one travel order, or refuse it BY NAME and store nothing.
+
+        pf-adversary G2 of pirate-force-server#1109, MEASURED, and the reason
+        this override does more than hold a queue.  This class advertises
+        itself as THE door other lanes hand travel orders to -- that is what
+        `teleport_check_sink` is public for -- and the door validated
+        nothing.  A row whose `pending` was not a `PendingCheck` was stored,
+        counted as stored, and then killed the process on an UNRELATED LATER
+        FRAME: `resolve_echo` walks every row in `orders` reading
+        `order.pending.marker_id`, so the next inbound TeleportCheckVital of
+        ANY marker id raised `AttributeError` out of `resolve_echo`, out of
+        `_dispatch_teleport_check_echo`, out of `dispatch()`, into
+        `game_listener`'s `try:` that has no `except`
+        (current/pf_login_game_server_v141.py:7440) -- and the accept loop
+        died for every session on the process.
+
+        REFUSED AT THE DOOR, NOT SURVIVED FURTHER IN, and D3's own guard is
+        why that distinction is not cosmetic.  A check inside the drain would
+        leave the bad row sitting in `orders` where the echo path still walks
+        it, while the drain's log said the row had been handled -- exactly
+        the shape that made the process die on a frame with nothing to do
+        with the bad row.  Nothing is stored here, so nothing can be reached.
+
+        `type(...) is not` RATHER THAN `isinstance`.  A subclass of
+        `PendingCheck` is a tuple this file did not build, and
+        `encode_transport` reads `pending.destination` raw without
+        re-resolving it through `marker_destination` the way `encode_prompt`
+        does -- F3 measured three hand-built destination shapes raising out
+        of it.  The narrow test is the one that matches what this door
+        promises: the type LANE-A's `open_check` returns.
+
+        THE CHARACTER ID IS CHECKED FOR A DIFFERENT REASON and is not a
+        crash: `resolve_echo` already refuses a non-int owner, so such a row
+        is merely unconsumable -- it occupies one of the `ORDER_CAP` 64 slots
+        for the life of the connection and no echo can ever clear it.  A
+        recorder that accepts an order nobody can redeem, and answers `1` for
+        it, is lying to its caller.  `bool` falls on the refusing side with
+        the non-ints for the reason `_coerce_marker_id` gives: `True` is a
+        valid Python int and a catastrophic id.
+
+        NOT CLAIMED: that either shape has ever been recorded by a real
+        caller.  There is no production caller of this door yet -- that is
+        the `ScriptHost` sink parameter LANE-A still owes -- so both refusals
+        are written before the first caller exists, which is the only time
+        they are cheap.
+
+        Returns the recorder's own contract, `1` stored / `0` refused, so a
+        caller that already handles the `ORDER_CAP` refusal handles these.
+        """
+        if type(pending) is not world_m2_teleport_check.PendingCheck:
+            self.record_refusal(ORDER_REFUSED_PENDING_NOT_A_PENDING_CHECK)
+            return 0
+        if type(character_id) is not int:
+            self.record_refusal(ORDER_REFUSED_CHARACTER_ID_NOT_AN_INT)
+            return 0
         stored = super().record(character_id, pending)
         if stored:
             self.unsent.append(world_m2_teleport_check.TeleportCheckOrder(
@@ -7030,8 +7098,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         "lane_a_m2_teleport_check_post_ack_no_prompt")
                 return
             if self.foundation.selected is None:
-                self.events.append(
-                    "lane_a_m2_teleport_check_no_selected_no_prompt")
+                # ONE event per connection, not one per frame -- the same
+                # bound F7 put on the post-ack notice just above, and for the
+                # same measured reason.  An unauthenticated connection may
+                # send frames indefinitely, so a row appended per frame is a
+                # list this server grows on behalf of a caller that has
+                # proved nothing.  The queue is left alone (the orders are
+                # still owed if a character is ever selected); only the
+                # notice is capped.
+                if not sink.no_selected_noted:
+                    sink.no_selected_noted = True
+                    self.events.append(
+                        "lane_a_m2_teleport_check_no_selected_no_prompt")
                 return
             # ONE ORDER AT A TIME, popped as it is handled -- pf-adversary D2,
             # second half.  The first draft moved the whole queue into a local
@@ -7226,6 +7304,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # frame that never reached the socket, and would then refuse the
             # honest retry.
             sink.answered.add((character_id, echoed))
+            self._teleport_check_resync_selected_scene(
+                order.pending.destination)
             _teleport_check_say(
                 world_m2_teleport_check.transport_console_line,
                 order.pending, len(transport_frame),
@@ -7234,6 +7314,84 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 "LANE_A_M2_TELEPORT_CHECK_TRANSPORT", transport_pc,
                 transport_frame, 0.0,
             )]
+
+        def _teleport_check_resync_selected_scene(self, destination) -> None:
+            """Name the scene this seam just sent the player to.
+
+            pf-adversary G1 of pirate-force-server#1109, HIGH, and the reason
+            that pull request stayed in draft a second round: THIS SEAM MOVES
+            A PLAYER ACROSS SCENES AND NOTHING TOLD THE ROW.  MEASURED on the
+            real dispatcher with a real store -- echo -> transport to scene
+            126 -> ONE ordinary TargetPos -> `_checkpoint_exact_target` wrote
+            scene 126's coordinates under `scene_id=1`, and the next login
+            read `WORLD_SCENE_LIVENESS decision=honour reason=home_row` and
+            put the character back in Port Royal at (3055, 232, 90).  A
+            successful M2 journey corrupted the durable row every time.
+
+            THE SAME TRAP THIS FILE ALREADY ANSWERS FOR THE OTHER CROSS-SCENE
+            MOVER, and deliberately the same answer:
+            `_gm_warp_resync_selected_scene` (CORE-REQUEST-GM-045) relabels
+            scene_id in memory, writes nothing durable, and flags the label
+            as a guess.  Read that docstring for why SCENE_ID ONLY and
+            x/y/z/heading untouched -- WORLD-CENSUS-001 anchors on
+            `last_target_pos`, never on `selected.position`'s coordinates,
+            and resyncing x/y/z here would let the first real report look
+            like no movement at all and silently skip the durable write.
+            Only the scene label was ever wrong, on both paths.
+
+            THE GUESS FLAG IS WHAT MAKES THIS SAFE UNDER EITHER HALF OF THE
+            FORK THE ROUND FILE PUT TO COO AND LANE-A.  Nobody has watched a
+            screen through this handshake, so "the client relocates on this
+            transport" is a reading of RE-303 and of V137's own probe body,
+            not an observation (G8: [proposed], not [measured]).  Setting
+            `scene_label_is_server_guess = True` says exactly that in the
+            machinery's own vocabulary: from here until a client report is
+            trusted again, `_checkpoint_exact_target` refuses to launder this
+            label into `client_confirmed_scene` -- so if the client did NOT
+            relocate, this server has recorded a guess as a guess and no
+            client-confirmed fact is wrong.  The durable checkpoint itself is
+            NOT gated on that flag and still writes, which is the half G1
+            needed: the coordinates the client reports next are stored under
+            the scene they were reported from.
+
+            WHAT THIS DOES NOT DO, STATED RATHER THAN LEFT TO BE FOUND: it
+            never clears the flag.  The GM path clears it when the client
+            reports coordinates matching the warp target
+            (`_gm_warp_note_position_target`); this seam has no equivalent
+            arrival evidence yet, so `client_confirmed_scene` stops advancing
+            on a connection that has travelled through this window, and stays
+            at the last scene a report was trusted for.  That is a real cost
+            and it is the honest one -- the alternative is advancing a field
+            whose whole documented purpose is to be weaker than a guess.
+            Whoever adds the arrival check (LANE-A owns the arrival half)
+            clears it there, and the letter for this round says so.
+
+            NEVER RAISES, and never on a same-scene destination: the four
+            guards below all mean "no relabel happened", which is why the
+            flag is set last, after the only line that changes the row.
+            """
+            selected = self.foundation.selected
+            if selected is None:
+                return
+            position = getattr(selected, "position", None)
+            if position is None:
+                return
+            scene_id = getattr(destination, "scene_id", None)
+            if type(scene_id) is not int:
+                return
+            if scene_id == position.scene_id:
+                # A marker whose row lands in the scene the player is already
+                # in (marker 1 from the login scene is exactly that shape).
+                # Nothing to relabel, and no guess to declare.
+                return
+            self.foundation.selected = replace(
+                selected, position=replace(position, scene_id=scene_id),
+            )
+            self.events.append(
+                "lane_a_m2_teleport_check_selected_scene_resynced_%d"
+                % scene_id
+            )
+            self.scene_label_is_server_guess = True
 
         def _gm_warp_open_confirm_window(self, parsed) -> bool:
             """CORE-REQUEST-GM-030: this frame is the warp's TargetPos or none is.

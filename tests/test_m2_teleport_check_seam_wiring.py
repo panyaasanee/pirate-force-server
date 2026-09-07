@@ -655,3 +655,298 @@ class TwoSessionsTests(_SeamCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class RecordingDoorTests(_SeamCase):
+    """pf-adversary G2 of #1109: the advertised door validated nothing.
+
+    The damage was never on the frame that recorded the bad row.  It was on
+    an UNRELATED LATER frame: `resolve_echo` walks every row in `orders`
+    reading `order.pending.marker_id`, so the next inbound echo of ANY marker
+    id raised out of `dispatch()` into a listener with no `except`, and the
+    accept loop died for every session on the process.
+    """
+
+    def test_a_row_that_is_not_a_pending_check_is_refused_at_the_door(self):
+        state = self._login_and_start("m2doorshape")
+        stored = state.teleport_check_sink().record(
+            self._character_id(state), "not a PendingCheck",
+        )
+        self.assertEqual(stored, 0)
+        self.assertEqual(state.teleport_check_sink().orders, [])
+        self.assertEqual(state.teleport_check_sink().unsent, [])
+        self.assertIn("CHECK_REFUSED_ORDER_PENDING_NOT_A_PENDING_CHECK",
+                      state.teleport_check_sink().refusals)
+
+    def test_a_refused_row_cannot_kill_a_later_echo(self):
+        # THE MEASURED DAMAGE, driven end to end: record the bad row through
+        # the real door, then send an ordinary echo of a marker that has
+        # nothing to do with it.  Before the door check this raised
+        # AttributeError out of dispatch(); the accept loop dies there.
+        state = self._login_and_start("m2doorlaterecho")
+        state.teleport_check_sink().record(self._character_id(state), object())
+        actions = self._echo(state, marker_id=MARKER)
+        self.assertIsInstance(actions, list)
+
+    def test_a_refused_row_costs_no_slot_of_the_cap(self):
+        state = self._login_and_start("m2doorcap")
+        for _ in range(5):
+            state.teleport_check_sink().record(
+                self._character_id(state), None)
+        self.assertEqual(len(state.teleport_check_sink().orders), 0)
+
+    def test_an_order_nobody_could_redeem_is_refused_not_stored(self):
+        # Not a crash -- resolve_echo already refuses a non-int owner -- but
+        # a row no echo can ever consume, holding one of the 64 slots for the
+        # life of the connection while the recorder answered "stored".
+        state = self._login_and_start("m2doorowner")
+        stored = state.teleport_check_sink().record("7", tc.open_check(MARKER))
+        self.assertEqual(stored, 0)
+        self.assertIn("CHECK_REFUSED_ORDER_CHARACTER_ID_NOT_AN_INT",
+                      state.teleport_check_sink().refusals)
+
+    def test_a_bool_owner_is_refused_with_the_non_ints(self):
+        # `True` is a valid Python int and a catastrophic character id --
+        # `_coerce_marker_id`'s own reason, applied to the other field.
+        state = self._login_and_start("m2doorbool")
+        self.assertEqual(
+            state.teleport_check_sink().record(True, tc.open_check(MARKER)), 0)
+        self.assertEqual(state.teleport_check_sink().orders, [])
+
+    def test_the_door_still_takes_the_order_it_was_built_for(self):
+        state = self._login_and_start("m2doorgood")
+        self.assertEqual(
+            state.teleport_check_sink().record(
+                self._character_id(state), tc.open_check(MARKER)), 1)
+        self.assertEqual(len(state.teleport_check_sink().unsent), 1)
+
+
+class SelectedSceneResyncTests(_SeamCase):
+    """pf-adversary G1 of #1109, HIGH, durable player data.
+
+    The seam moved a player to another scene and nothing updated
+    `selected.position.scene_id`, so the first ordinary TargetPos after a
+    journey wrote the DESTINATION's coordinates under the DEPARTURE's scene
+    id -- and the next login read that row and sent the character home.
+    """
+
+    def _target_pos_pc(self, x, y, z, heading=0.0, moving=1):
+        """The exact singleton shape parse_v141_refresh_target_pos accepts.
+
+        Copied from tests/test_gm_warp_position_confirmed.py for the reason
+        that file gives: the server never composes a client->server TargetPos,
+        so the envelope lives in the tests.
+        """
+        return (
+            self.legacy.u16tag(0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + self.legacy.u32tag(0x14, 0)
+            + self.legacy.u8tag(0x08, 0)
+            + self.legacy.u8tag(0x0B, 2)
+            + self.legacy.u16tag(0x12, 1)
+            + self.legacy.u16tag(0x12, self.legacy.TARGET_POS_VITAL)
+            + self.legacy.u8tag(0x0B, 0)
+            + self.legacy.f32tag(x) + self.legacy.f32tag(y)
+            + self.legacy.f32tag(z) + self.legacy.f32tag(heading)
+            + self.legacy.u8tag(0x0B, moving)
+            + self.legacy.u8tag(0x0B, 0)
+        )
+
+    def _report(self, state, x, y, z):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()):
+                return state.dispatch(self.legacy.parse_outer(
+                    self._target_pos_pc(x, y, z)
+                ))
+
+    def _journey(self, token, marker_id=MARKER):
+        state = self._login_and_start(token)
+        self._record(state, marker_id=marker_id)
+        self._tick(state)
+        actions = self._echo(state, marker_id=marker_id)
+        return state, actions
+
+    def test_a_completed_journey_names_the_destination_scene(self):
+        state, actions = self._journey("m2resync")
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertEqual(state.foundation.selected.position.scene_id, 126)
+        self.assertIn(
+            "lane_a_m2_teleport_check_selected_scene_resynced_126",
+            state.events)
+
+    def test_the_durable_row_after_a_journey_carries_the_new_scene(self):
+        # LAYER 2 (wire/DB), the damage G1 actually named: one ordinary
+        # TargetPos at the destination's own coordinates, then read the row
+        # back out of the store.  Before this fix it read scene_id=1.
+        state, _ = self._journey("m2resyncdurable")
+        destination = tc.marker_destination(MARKER)
+        self._report(state, float(destination.x) + 40.0,
+                     float(destination.y) + 40.0, float(destination.z))
+        row = self.store.list_characters(state.foundation.account_id)[-1]
+        self.assertEqual(row.position.scene_id, 126)
+
+    def test_the_relabelled_scene_is_declared_a_server_guess(self):
+        # Nobody has watched a screen through this handshake, so the label is
+        # a reading of RE-303, not an observation.  The flag is how this file
+        # says so, and it is what stops `_checkpoint_exact_target` laundering
+        # the guess into `client_confirmed_scene`.
+        state, _ = self._journey("m2resyncguess")
+        self.assertIs(state.scene_label_is_server_guess, True)
+
+    def test_a_journey_does_not_advance_the_client_confirmed_scene(self):
+        state, _ = self._journey("m2resyncnolaunder")
+        before = getattr(state, "client_confirmed_scene", None)
+        destination = tc.marker_destination(MARKER)
+        self._report(state, float(destination.x) + 40.0,
+                     float(destination.y) + 40.0, float(destination.z))
+        self.assertEqual(getattr(state, "client_confirmed_scene", None), before)
+
+    def test_a_same_scene_destination_relabels_nothing(self):
+        # Marker 1's row lands in scene 1, which is where a fresh session
+        # already is: the guard must not declare a guess for a journey that
+        # moved nobody.
+        state, actions = self._journey("m2resyncsamescene", marker_id=1)
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertFalse(
+            [e for e in state.events
+             if e.startswith("lane_a_m2_teleport_check_selected_scene")])
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+
+    def test_an_echo_nobody_ordered_relabels_nothing(self):
+        state = self._login_and_start("m2resyncnoorder")
+        self._echo(state, marker_id=MARKER)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+
+    def test_a_transport_that_never_reached_the_socket_relabels_nothing(self):
+        # The relabel is the claim "this player is somewhere else now".  A
+        # journey whose bytes never existed may not make it.
+        state = self._login_and_start("m2resyncraise")
+        self._record(state)
+        self._tick(state)
+        original = tc.encode_transport
+
+        def boom(_legacy, _pending):
+            raise OverflowError("float too large to pack with f format")
+
+        tc.encode_transport = boom
+        try:
+            self._echo(state)
+        finally:
+            tc.encode_transport = original
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+
+
+class SurvivingMutantTests(_SeamCase):
+    """The five mutants R398 measured surviving the suite at 41 passed."""
+
+    def _v141_saw_this_frame(self, state, before):
+        """v141's own unconditional capture events since `before`.
+
+        Same read `ReplayDebtTests` uses, and for the same reason its
+        docstring gives: v141 appends these for EVERY decodable frame of this
+        class that reaches it, so they are the only direct answer to "did the
+        frame fall through".  An assertion on transport actions cannot see
+        it -- these synthetic bytes are not v141's exact V136 confirm PC, so
+        they buy no probe even when they do fall through.
+        """
+        return len([
+            e for e in state.events[before:]
+            if str(e).startswith("v131_teleport_check_")
+            or str(e).startswith("v136_marker1_positive_confirm_capture")
+        ])
+
+    def test_a_failed_transport_encoder_still_owns_the_frame(self):
+        # MUTANT (a): `return []` -> `return None` after the encoder raised.
+        # Every assertion in the file survived it, INCLUDING a first attempt
+        # of this test that read v141's `teleport_check_echo_capture_count`
+        # -- that counter only moves for v141's own exact scene-1 challenge
+        # echo, which these bytes are not, so it read 0 either way and
+        # measured nothing.
+        #
+        # WHAT THE MUTANT COSTS: `None` is the fall-through signal, so a
+        # journey this seam REFUSED (the bytes never existed, the order is
+        # already popped, `answered` was never written) is handed to the
+        # frozen v141 route as if this seam had no opinion.  On the one echo
+        # v141 does recognise -- the exact V136 marker-1 confirm -- that
+        # route pays a V137 transport built from scene-1 constants, so the
+        # player travels on a frame this seam's console line says was never
+        # sent.  The kill is ownership, measured directly.
+        state = self._login_and_start("m2mutantreturn")
+        self._record(state)
+        self._tick(state)
+        original = tc.encode_transport
+
+        def boom(_legacy, _pending):
+            raise OverflowError("float too large to pack with f format")
+
+        tc.encode_transport = boom
+        before = len(state.events)
+        try:
+            actions = self._echo(state)
+        finally:
+            tc.encode_transport = original
+        self.assertEqual(actions, [])
+        self.assertEqual(self._v141_saw_this_frame(state, before), 0)
+
+    def test_two_orders_for_one_marker_buy_two_journeys(self):
+        # MUTANT (b): the memo gate moved ABOVE `resolve_echo` refuses the
+        # second echo of a pair this seam has answered -- even when a second
+        # legitimate order for the same marker is sitting recorded.  A player
+        # asked twice to sail to the same island could then never accept the
+        # second invitation.  The memo may only speak when nothing is
+        # recorded.
+        state = self._login_and_start("m2mutantmemo")
+        self._record(state)
+        self._tick(state)
+        first = self._of(self._echo(state), TRANSPORT_ACTION)
+        self._record(state)
+        self._tick(state)
+        second = self._of(self._echo(state), TRANSPORT_ACTION)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(second), 1)
+
+    def test_the_failed_transport_says_so_on_the_console(self):
+        # MUTANT (c): F3's own console line was captured by nothing, so
+        # deleting the `_teleport_check_say` call cost no test -- and the
+        # attended round reads this seam off the bridge console.
+        state = self._login_and_start("m2mutantconsole")
+        self._record(state)
+        self._tick(state)
+        original = tc.encode_transport
+
+        def boom(_legacy, _pending):
+            raise OverflowError("float too large to pack with f format")
+
+        tc.encode_transport = boom
+        captured = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(captured):
+                self._echo(state)
+        finally:
+            tc.encode_transport = original
+        self.assertIn("ECHO_REFUSED_TRANSPORT_ENCODER_RAISED",
+                      captured.getvalue())
+
+    def test_an_unauthenticated_connection_is_noted_once(self):
+        # MUTANT (d): the no-selected event grew one row per frame on a
+        # connection that has proved nothing -- the same shape F7 measured
+        # and capped on the post-ack path.
+        state = self._login_only("m2mutantnoselonce")
+        state.teleport_check_sink().record(1, tc.open_check(MARKER))
+        for _ in range(5):
+            self._tick(state)
+        self.assertEqual(
+            len([e for e in state.events
+                 if e == "lane_a_m2_teleport_check_no_selected_no_prompt"]), 1)
+
+    def test_an_empty_queue_notes_nothing_at_all(self):
+        # MUTANT (e): `if not sink.unsent: return` could be deleted free.
+        # It is observable exactly here -- a connection with nothing queued
+        # must not be described by this seam at all.
+        state = self._login_only("m2mutantemptyqueue")
+        for _ in range(3):
+            self._tick(state)
+        self.assertFalse([e for e in state.events
+                          if e.startswith("lane_a_m2_teleport_check")])
