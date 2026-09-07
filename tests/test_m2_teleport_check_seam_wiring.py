@@ -44,6 +44,7 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
+from pirateforce_foundation.gm import warp_scene_persist  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
@@ -604,7 +605,16 @@ class ConsoleLinesTests(_SeamCase):
         self._record(state)
         prompt_lines = self._lines(self._tick, state)
         self.assertEqual(len(prompt_lines), 1)
-        self.assertIn("PROMPT", prompt_lines[0])
+        # The verb is read out of the module, not spelled here.  LANE-A
+        # renamed this line on main (their 0422 letter: "line 1 is not proof
+        # of a send", so it says ORDER_RECORDED ... sent=0 and the TRANSPORT
+        # line below is the only one that claims bytes left).  It is their
+        # module and their wording; this file must follow it, not pin a word
+        # it does not own -- and an assertion spelling "PROMPT" is exactly
+        # what went red on the merge that brought the rename in.
+        self.assertIn(
+            tc.prompt_console_line(tc.open_check(MARKER)).split()[1],
+            prompt_lines[0])
         self.assertIn(f"marker={MARKER}", prompt_lines[0])
         echo_lines = self._lines(self._echo, state)
         self.assertEqual(len(echo_lines), 2)
@@ -713,6 +723,23 @@ class RecordingDoorTests(_SeamCase):
             state.teleport_check_sink().record(True, tc.open_check(MARKER)), 0)
         self.assertEqual(state.teleport_check_sink().orders, [])
 
+    def test_a_subclass_of_pending_check_is_refused_too(self):
+        # pf-adversary R399: the `type(...) is not` / `isinstance` choice was
+        # argued in the docstring and pinned by nothing -- swapping it for
+        # `isinstance` left the whole file green.  A subclass is a tuple this
+        # file did not build, and `encode_transport` reads its `destination`
+        # raw without re-resolving it, so the narrow test is the one this
+        # door promises: exactly what `open_check` returns.
+        class _LooksLikeOne(tc.PendingCheck):
+            pass
+
+        state = self._login_and_start("m2doorsubclass")
+        real = tc.open_check(MARKER)
+        stored = state.teleport_check_sink().record(
+            self._character_id(state), _LooksLikeOne(*real))
+        self.assertEqual(stored, 0)
+        self.assertEqual(state.teleport_check_sink().orders, [])
+
     def test_the_door_still_takes_the_order_it_was_built_for(self):
         state = self._login_and_start("m2doorgood")
         self.assertEqual(
@@ -721,13 +748,21 @@ class RecordingDoorTests(_SeamCase):
         self.assertEqual(len(state.teleport_check_sink().unsent), 1)
 
 
-class SelectedSceneResyncTests(_SeamCase):
-    """pf-adversary G1 of #1109, HIGH, durable player data.
+class SelectedSceneIsNotRelabelledTests(_SeamCase):
+    """The relabel this seam must NOT carry, and the reason, pinned.
 
-    The seam moved a player to another scene and nothing updated
-    `selected.position.scene_id`, so the first ordinary TargetPos after a
-    journey wrote the DESTINATION's coordinates under the DEPARTURE's scene
-    id -- and the next login read that row and sent the character home.
+    pf-adversary G1 of #1109 is real: a completed journey leaves
+    `selected.position.scene_id` naming the DEPARTURE, so the first ordinary
+    TargetPos writes the destination's coordinates under the wrong scene.
+    A relabel modelled on `_gm_warp_resync_selected_scene` was written and
+    measured in round R399 and TAKEN BACK OUT, because all three decreed M2
+    arrival scenes are pinned `login_entry_allowed: false` -- so the
+    "corrected" durable row is one the next login REFUSES, and only a login
+    can rewrite that row.  Recoverable bug traded for a permanently
+    unplayable character.
+
+    These tests exist so the next reader who notices G1 -- correctly -- and
+    reaches for the obvious one-line fix goes red instead of shipping it.
     """
 
     def _target_pos_pc(self, x, y, z, heading=0.0, moving=1):
@@ -765,77 +800,64 @@ class SelectedSceneResyncTests(_SeamCase):
         actions = self._echo(state, marker_id=marker_id)
         return state, actions
 
-    def test_a_completed_journey_names_the_destination_scene(self):
-        state, actions = self._journey("m2resync")
-        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
-        self.assertEqual(state.foundation.selected.position.scene_id, 126)
-        self.assertIn(
-            "lane_a_m2_teleport_check_selected_scene_resynced_126",
-            state.events)
+    def test_every_marker_this_seam_can_prompt_for_a_sea_scene_is_login_barred(self):
+        # THE FACT THE WHOLE CLASS RESTS ON, re-derived here rather than
+        # quoted, so it fails loudly the day the registry changes and this
+        # refusal stops being necessary.  Markers 17, 343 and 345 are the
+        # three decreed arrival rows M2 exists to reach.
+        for marker_id in (17, 343, 345):
+            destination = tc.marker_destination(marker_id)
+            self.assertFalse(
+                warp_scene_persist.login_would_accept(destination.scene_id),
+                "marker %d -> scene %d is no longer login-barred; the "
+                "refusal this class pins may be re-examined"
+                % (marker_id, destination.scene_id),
+            )
+        # The control: a scene the login DOES accept, so the assertion above
+        # is not vacuously true for every input.
+        self.assertTrue(warp_scene_persist.login_would_accept(
+            tc.marker_destination(1).scene_id))
 
-    def test_the_durable_row_after_a_journey_carries_the_new_scene(self):
-        # LAYER 2 (wire/DB), the damage G1 actually named: one ordinary
-        # TargetPos at the destination's own coordinates, then read the row
-        # back out of the store.  Before this fix it read scene_id=1.
-        state, _ = self._journey("m2resyncdurable")
+    def test_a_journey_does_not_relabel_the_selected_scene(self):
+        state, actions = self._journey("m2norelabel")
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+
+    def test_the_durable_row_never_names_a_scene_the_login_refuses(self):
+        # LAYER 2 (wire/DB).  This is the assertion a naive G1 fix breaks:
+        # with the relabel in place the row read back here was
+        # Position(scene_id=126, ...), and the next login answered StartGame
+        # with an empty action list and world_scene_entry_refused_no_reply.
+        state, _ = self._journey("m2durablelogin")
         destination = tc.marker_destination(MARKER)
         self._report(state, float(destination.x) + 40.0,
                      float(destination.y) + 40.0, float(destination.z))
         row = self.store.list_characters(state.foundation.account_id)[-1]
-        self.assertEqual(row.position.scene_id, 126)
+        self.assertTrue(
+            warp_scene_persist.login_would_accept(row.position.scene_id),
+            "this seam persisted scene %r, which the next login refuses -- "
+            "the character can no longer log in at all"
+            % (row.position.scene_id,),
+        )
 
-    def test_the_relabelled_scene_is_declared_a_server_guess(self):
-        # Nobody has watched a screen through this handshake, so the label is
-        # a reading of RE-303, not an observation.  The flag is how this file
-        # says so, and it is what stops `_checkpoint_exact_target` laundering
-        # the guess into `client_confirmed_scene`.
-        state, _ = self._journey("m2resyncguess")
-        self.assertIs(state.scene_label_is_server_guess, True)
-
-    def test_a_journey_does_not_advance_the_client_confirmed_scene(self):
-        state, _ = self._journey("m2resyncnolaunder")
-        before = getattr(state, "client_confirmed_scene", None)
+    def test_the_character_can_still_log_in_after_a_journey(self):
+        # The same fact read from the other end, because the row is only the
+        # mechanism: what matters is that StartGame still answers.
+        state, _ = self._journey("m2reloginafter")
         destination = tc.marker_destination(MARKER)
         self._report(state, float(destination.x) + 40.0,
                      float(destination.y) + 40.0, float(destination.z))
-        self.assertEqual(getattr(state, "client_confirmed_scene", None), before)
-
-    def test_a_same_scene_destination_relabels_nothing(self):
-        # Marker 1's row lands in scene 1, which is where a fresh session
-        # already is: the guard must not declare a guess for a journey that
-        # moved nobody.
-        state, actions = self._journey("m2resyncsamescene", marker_id=1)
-        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
-        self.assertEqual(state.foundation.selected.position.scene_id, 1)
-        self.assertFalse(
-            [e for e in state.events
-             if e.startswith("lane_a_m2_teleport_check_selected_scene")])
-        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
-
-    def test_an_echo_nobody_ordered_relabels_nothing(self):
-        state = self._login_and_start("m2resyncnoorder")
-        self._echo(state, marker_id=MARKER)
-        self.assertEqual(state.foundation.selected.position.scene_id, 1)
-        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
-
-    def test_a_transport_that_never_reached_the_socket_relabels_nothing(self):
-        # The relabel is the claim "this player is somewhere else now".  A
-        # journey whose bytes never existed may not make it.
-        state = self._login_and_start("m2resyncraise")
-        self._record(state)
-        self._tick(state)
-        original = tc.encode_transport
-
-        def boom(_legacy, _pending):
-            raise OverflowError("float too large to pack with f format")
-
-        tc.encode_transport = boom
-        try:
-            self._echo(state)
-        finally:
-            tc.encode_transport = original
-        self.assertEqual(state.foundation.selected.position.scene_id, 1)
-        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+        character = self.store.list_characters(
+            state.foundation.account_id)[-1]
+        again = self._login_and_start("m2reloginafter2")
+        with contextlib.redirect_stderr(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()):
+                actions = again.dispatch(self.legacy.parse_outer(
+                    self.legacy._synthetic_start_game_pc(character.selector)
+                ))
+        self.assertNotIn("world_scene_entry_refused_no_reply", again.events)
+        self.assertIsNotNone(actions)
 
 
 class SurvivingMutantTests(_SeamCase):

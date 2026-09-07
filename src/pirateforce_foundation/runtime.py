@@ -7305,8 +7305,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # frame that never reached the socket, and would then refuse the
             # honest retry.
             sink.answered.add((character_id, echoed))
-            self._teleport_check_resync_selected_scene(
-                order.pending.destination)
+            # NO SCENE RELABEL HERE, AND THAT IS A DECISION, NOT AN
+            # OVERSIGHT -- see `_teleport_check_scene_relabel_is_refused`
+            # below for the measurement that removed the one this branch
+            # carried for part of round R399.
             _teleport_check_say(
                 world_m2_teleport_check.transport_console_line,
                 order.pending, len(transport_frame),
@@ -7316,83 +7318,58 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 transport_frame, 0.0,
             )]
 
-        def _teleport_check_resync_selected_scene(self, destination) -> None:
-            """Name the scene this seam just sent the player to.
-
-            pf-adversary G1 of pirate-force-server#1109, HIGH, and the reason
-            that pull request stayed in draft a second round: THIS SEAM MOVES
-            A PLAYER ACROSS SCENES AND NOTHING TOLD THE ROW.  MEASURED on the
-            real dispatcher with a real store -- echo -> transport to scene
-            126 -> ONE ordinary TargetPos -> `_checkpoint_exact_target` wrote
-            scene 126's coordinates under `scene_id=1`, and the next login
-            read `WORLD_SCENE_LIVENESS decision=honour reason=home_row` and
-            put the character back in Port Royal at (3055, 232, 90).  A
-            successful M2 journey corrupted the durable row every time.
-
-            THE SAME TRAP THIS FILE ALREADY ANSWERS FOR THE OTHER CROSS-SCENE
-            MOVER, and deliberately the same answer:
-            `_gm_warp_resync_selected_scene` (CORE-REQUEST-GM-045) relabels
-            scene_id in memory, writes nothing durable, and flags the label
-            as a guess.  Read that docstring for why SCENE_ID ONLY and
-            x/y/z/heading untouched -- WORLD-CENSUS-001 anchors on
-            `last_target_pos`, never on `selected.position`'s coordinates,
-            and resyncing x/y/z here would let the first real report look
-            like no movement at all and silently skip the durable write.
-            Only the scene label was ever wrong, on both paths.
-
-            THE GUESS FLAG IS WHAT MAKES THIS SAFE UNDER EITHER HALF OF THE
-            FORK THE ROUND FILE PUT TO COO AND LANE-A.  Nobody has watched a
-            screen through this handshake, so "the client relocates on this
-            transport" is a reading of RE-303 and of V137's own probe body,
-            not an observation (G8: [proposed], not [measured]).  Setting
-            `scene_label_is_server_guess = True` says exactly that in the
-            machinery's own vocabulary: from here until a client report is
-            trusted again, `_checkpoint_exact_target` refuses to launder this
-            label into `client_confirmed_scene` -- so if the client did NOT
-            relocate, this server has recorded a guess as a guess and no
-            client-confirmed fact is wrong.  The durable checkpoint itself is
-            NOT gated on that flag and still writes, which is the half G1
-            needed: the coordinates the client reports next are stored under
-            the scene they were reported from.
-
-            WHAT THIS DOES NOT DO, STATED RATHER THAN LEFT TO BE FOUND: it
-            never clears the flag.  The GM path clears it when the client
-            reports coordinates matching the warp target
-            (`_gm_warp_note_position_target`); this seam has no equivalent
-            arrival evidence yet, so `client_confirmed_scene` stops advancing
-            on a connection that has travelled through this window, and stays
-            at the last scene a report was trusted for.  That is a real cost
-            and it is the honest one -- the alternative is advancing a field
-            whose whole documented purpose is to be weaker than a guess.
-            Whoever adds the arrival check (LANE-A owns the arrival half)
-            clears it there, and the letter for this round says so.
-
-            NEVER RAISES, and never on a same-scene destination: the four
-            guards below all mean "no relabel happened", which is why the
-            flag is set last, after the only line that changes the row.
-            """
-            selected = self.foundation.selected
-            if selected is None:
-                return
-            position = getattr(selected, "position", None)
-            if position is None:
-                return
-            scene_id = getattr(destination, "scene_id", None)
-            if type(scene_id) is not int:
-                return
-            if scene_id == position.scene_id:
-                # A marker whose row lands in the scene the player is already
-                # in (marker 1 from the login scene is exactly that shape).
-                # Nothing to relabel, and no guess to declare.
-                return
-            self.foundation.selected = replace(
-                selected, position=replace(position, scene_id=scene_id),
-            )
-            self.events.append(
-                "lane_a_m2_teleport_check_selected_scene_resynced_%d"
-                % scene_id
-            )
-            self.scene_label_is_server_guess = True
+        #: WHY THIS SEAM DOES NOT NAME THE SCENE IT SENT THE PLAYER TO.
+        #:
+        #: pf-adversary G1 of pirate-force-server#1109 is real and is NOT
+        #: paid here: this seam moves a player across scenes and
+        #: `selected.position.scene_id` keeps naming the departure, so the
+        #: first ordinary TargetPos after a journey writes the destination's
+        #: coordinates under the departure's scene id.  A relabel modelled on
+        #: `_gm_warp_resync_selected_scene` was written, measured, and TAKEN
+        #: BACK OUT in round R399, because pf-adversary measured that it
+        #: turns a recoverable bug into an unrecoverable one:
+        #:
+        #: ALL THREE DECREED M2 ARRIVAL SCENES ARE BARRED AT LOGIN.  Markers
+        #: 17, 343 and 345 resolve to scenes 126, 304 and 305, and
+        #: `scenarios/world_scene_registry_001.json` pins
+        #: `login_entry_allowed: false` on every one of them (re-derived
+        #: independently this round through
+        #: `gm.warp_scene_persist.login_would_accept`, which answers False
+        #: for all three and True for scene 1).  With the relabel in place,
+        #: MEASURED end to end: the durable row becomes
+        #: `Position(scene_id=126, ...)`, and the next login answers
+        #: StartGame with NOTHING -- `WORLD_SCENE_ENTRY_REFUSED
+        #: [scene_not_allowed_at_login]`, `world_scene_entry_refused_no_reply`,
+        #: an empty action list.  Only a login can rewrite
+        #: `character_positions`, and that login can no longer happen: the
+        #: character is permanently unplayable.  `gm/warp_scene_persist.py`
+        #: already states the rule this seam broke -- "refusing to write is
+        #: strictly better than bricking the character".
+        #:
+        #: TWO MORE MEASURED COSTS OF THAT RELABEL, either of which would
+        #: block it on its own: a well-formed `PendingCheck` carrying a
+        #: destination nobody resolved put an arbitrary scene id straight
+        #: into `Position` (and an out-of-range one raised out of
+        #: `is_position_persist_allowed` on the next ordinary walk frame --
+        #: G2's own damage, arriving through the door G2 closed); and the
+        #: relabel copied `_gm_warp_resync_selected_scene`'s first paragraph
+        #: without the KA1A-ROOTCAUSE block sixty lines below it that clears
+        #: `world_census_sent`, `last_target_pos` and the announced combat
+        #: membership -- so the destination's census never fired, its roster
+        #: never announced, and every field-mob ActionVital in the arrival
+        #: scene was refused for the rest of the session.
+        #:
+        #: WHAT ACTUALLY DECIDES THIS, and it is not chief's to decide alone:
+        #: WHERE DOES A PLAYER STAND WHEN THEY LOG BACK IN FROM THE SEA?
+        #: Every option this seam has is wrong in some direction until that
+        #: is owned -- leave the label (silent position corruption), write it
+        #: (the brick above), or relabel in memory while withholding the
+        #: durable write like the login-scene-override VISIT branch does
+        #: (safe, and the likely answer, but then a player who logs out at
+        #: sea reappears in port and M2 still cannot prove an arrival).
+        #: Put to COO and LANE-A in the R399 letters.  The pin that stops the
+        #: next reader re-adding the naive relabel is
+        #: `SelectedSceneIsNotRelabelledTests` in the seam's test file.
 
         def _gm_warp_open_confirm_window(self, parsed) -> bool:
             """CORE-REQUEST-GM-030: this frame is the warp's TargetPos or none is.
