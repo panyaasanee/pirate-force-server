@@ -1490,6 +1490,33 @@
         "OsShimIsGoneBeforeAnyScriptRunsTests::test_the_shipped_prelude_shape_defines_rate_and_rate_is_callable"
       ],
       "note": "LANE-Q round q6nytd: the game's own utility.lua prelude, run inside the sandbox with a one-key os shim.  Guarded via tests/pf_preconditions.py so a clone without lupa (or without pf_bridge beside it) skips instead of failing; assertions unchanged where both are present."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_script_lua_quest_vars.py",
+      "count": 7,
+      "tests": [
+        "MirrorsMatchTheGameTests::test_a_sign_the_script_already_flips_stops_the_tool",
+        "MirrorsMatchTheGameTests::test_an_id_beside_three_coordinates_stops_the_tool",
+        "MirrorsMatchTheGameTests::test_every_call_site_line_really_reads_that_var",
+        "MirrorsMatchTheGameTests::test_every_mirrored_cell_came_from_the_column_it_names",
+        "MirrorsMatchTheGameTests::test_regenerating_produces_byte_identical_mirrors",
+        "MirrorsMatchTheGameTests::test_the_derivation_reruns_to_the_same_five_columns",
+        "MirrorsMatchTheGameTests::test_the_scan_finds_a_new_signed_column_when_the_data_shows_one"
+      ],
+      "note": "round joa0u6 (LANE-Q), COO-DECISION 20260908_0042 item 5 (option kho): Quest.Var1..Var20 now read the quest's own row through the two new vendored mirrors lua_api/quest_var_rows.tsv and lua_api/quest_var_signedness.tsv. These four tests in MirrorsMatchTheGameTests are the tie between the mirrors and the game, which no digest can make: one compares all 30,880 cells against ../pf_bridge/gamedata/tables/QUESTDATA_TH__QUEST.tsv BY COLUMN NAME (the twenty n_VARI_* columns are interchangeable in shape, so a digest proves only that the mirror is the file the tool wrote -- pf-adversary F2 of round 5qtaqy, the mirror checked only against itself); one runs tools/pf_regen_lua_quest_vars.py --check; one re-derives the five signed columns from scratch; one opens each pinned corpus line AS BYTES and requires it to read that VarN and call that API. bridge_gamedata is the outer of two class decorators (bridge_lua_scripts is the inner), so unittest records this key for all four -- the same one-key-one-count rule the quest_criteria entries above explain at length; the second guard is real (the last two read gamedata/lua/) and stays declared in the source. NOT lua_corpus_runnable: none of the four executes any Lua, so demanding lupa would silently stop them on exactly the bridge machines that can run them. Every other test in this module parses the vendored mirrors alone and stays unguarded -- deliberately, they are the half the Windows gate can run. Three of the seven are pf-adversary D3/D4/D8 of this round, pinned as MUTANTS rather than as prose: feed n_VARI_9 a wrapped value and the tool must STOP (a skill id sitting on the same line as three coordinates), feed Q_BOAT_HEALTH n_VARI_2 one and it must STOP (the script already writes `* -1`, so decoding the cell as signed too would flip the sign twice and PAY the player for repairing their own boat), and give Q_CLASS2 its twin's cell and the derivation must FIND it unaided -- the last one is what says the five-row table is a fact about the shipped data rather than about the scanner's reach. They live in this class because they read both the corpus and the source table. MEASURED 2026-09-08 in this round's own rehearsal (this repository with pf_bridge renamed away, transcript fed to tools/pf_pytest_precondition_census.py --report): 7 under this key and 4 under lua_corpus_runnable in this module; 0 of either in this lane's cloud clone, where the bridge is present and lupa is installed, so all eleven ran and passed."
+    },
+    {
+      "key": "lua_corpus_runnable",
+      "module": "tests/test_script_lua_quest_vars.py",
+      "count": 4,
+      "tests": [
+        "TheShippedScriptChargesARealRowTests::test_a_quest_whose_var4_is_not_wrapped_charges_nothing_either",
+        "TheShippedScriptChargesARealRowTests::test_the_class_change_now_costs_the_player_fifteen_thousand",
+        "TheShippedScriptChargesARealRowTests::test_the_console_says_which_row_the_number_came_from",
+        "TheShippedScriptChargesARealRowTests::test_the_same_script_under_an_unbound_quest_still_charges_nothing"
+      ],
+      "note": "round joa0u6 (LANE-Q): the four tests that run the SHIPPED Quest/q_class.lua through real Lua with quest 3200 bound and a real SQLiteStore on disk, and read the money back off the characters row -- the evidence that Player.AddCash(Quest.Var4) charges the 15,000 the designer typed instead of the 0 every VarN used to return. ONE key rather than two stacked guards: lua_corpus_runnable already IS bridge_lua_scripts AND lupa_package, and stacking BRIDGE_LUA_SCRIPTS outside it would make unittest record the outer reason and hide that these four need a Lua runtime -- the mistake pf_preconditions.py documents beside that key and the reason the first draft of this module was corrected mid-round (pf-adversary D2). MEASURED 2026-09-08 in this round's own rehearsal (this repository with pf_bridge renamed away): 4 skips under this key in this module; 0 in this lane's cloud clone, where the bridge is present and lupa is installed, so all four ran and passed."
     }
   ],
   "windows_gate_excluded_modules": {
