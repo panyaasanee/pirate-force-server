@@ -4066,13 +4066,21 @@ class SQLiteStore:
             ).fetchone()
         return read_back[column]
 
-    def grant_experience(self, character_id: int, amount: int):
+    def grant_experience(
+        self, character_id: int, amount: int
+    ) -> "persistence_experience.ExperienceGain":
         """Pay `amount` experience to a character and raise its LEVEL.
 
-        Returns the `persistence_experience.ExperienceGain` that was
-        written, read back from the row: `level_after` and
-        `experience_after` are what the database holds when this returns,
-        not what the plan hoped for.
+        Returns a `persistence_experience.ExperienceGain` built from the
+        row as it reads back after the write.  STATED AS DISCIPLINE, NOT AS
+        A MEASURABLE FEATURE (pf-adversary round `6n7pam`, `D6`): on every
+        success path the read-back and the plan are provably equal --
+        `persistence_typed_attrs.validate` raises instead of clamping,
+        `migrations/` defines no trigger, and `BEGIN IMMEDIATE` excludes
+        another writer -- so no input can make them differ and no test can
+        tell the two apart.  It is written this way for the same reason
+        `add_typed_attribute` reads back: the day one of those three
+        premises stops holding, the value returned is still the row's.
 
         WHY THIS IS A SECOND DOOR ON `experience` AND NOT A WIDENING OF THE
         FIRST.  `add_typed_attribute(character_id, "experience", n)` adds
@@ -4103,12 +4111,29 @@ class SQLiteStore:
         treating the missing value as `0`
         (`COO-DECISION 20260901_1059`).
 
-        Raises `TypeError` for non-int arguments, `ValueError`/
-        `persistence_experience.ExperienceError` for a negative or
-        unrepresentable amount and for a level the client's committed table
-        cannot describe, `KeyError` for a character that does not exist or
-        has been soft-deleted, and `WriteLockTimeout` instead of a raw
-        `sqlite3.OperationalError` when the write lock cannot be taken.
+        REFUSES A PAIR ANOTHER DOOR ALREADY MOVED.  If the stored
+        experience is at or past the threshold for the stored level,
+        `persistence_experience.InconsistentLevelExperienceError` is raised
+        and nothing is written: harvesting experience that some other door
+        banked would award a level on a payout of zero, which pf-adversary
+        measured on this method before it shipped (`6n7pam`, `D5`).
+
+        Raises, and the list is NOT closed by accident -- the two names the
+        first draft omitted are here because it omitted them (`D8`, the
+        same finding round `dcz2sv` closed one round earlier for the
+        subtracting door):
+        `TypeError` for non-int arguments; `ValueError`/
+        `persistence_experience.ExperienceError` (including
+        `InconsistentLevelExperienceError`) for a negative or
+        unrepresentable amount, for a level the client's committed table
+        cannot describe, and for the already-past-the-line pair;
+        `persistence_typed_attrs.TypedAttrError` when the resulting
+        experience or level leaves its wire kind's range;
+        `persistence_vitals.SchemaDriftError` from the `verify_schema` call
+        this method makes inside its transaction; `KeyError` for a
+        character that does not exist or has been soft-deleted; and
+        `WriteLockTimeout` instead of a raw `sqlite3.OperationalError` when
+        the write lock cannot be taken.
         """
         if isinstance(character_id, bool) or not isinstance(character_id, int):
             raise TypeError("character_id must be an int")
@@ -4161,6 +4186,12 @@ class SQLiteStore:
                 raise KeyError(character_id)
             level_before = row[level_column]
             experience_before = row[experience_column]
+            # One message per column, and neither message contains the
+            # OTHER column's name: pf-adversary (`6n7pam`, `D7`) measured
+            # that a shared sentence saying "refusing to level an
+            # unmeasured character" carries the substring `level`, so a
+            # door that named the wrong column every time passed both
+            # "refused by name" tests.
             for name, value in (
                 (level_column, level_before),
                 (experience_column, experience_before),
@@ -4168,8 +4199,7 @@ class SQLiteStore:
                 if value is None:
                     raise UnmeasuredTypedAttributeError(
                         f"character {character_id} has no {name} value yet "
-                        "(NULL) -- refusing to level an unmeasured "
-                        "character rather than treating it as 0 "
+                        f"(NULL) -- refusing to read {name} as 0 "
                         "(COO-DECISION 20260901_1059)"
                     )
             plan = experience_rule.plan_experience_gain(

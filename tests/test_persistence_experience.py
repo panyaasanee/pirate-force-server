@@ -30,6 +30,7 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.persistence_experience import (  # noqa: E402
     EXPERIENCE_COLUMN,
     ExperienceError,
+    InconsistentLevelExperienceError,
     LEVEL_COLUMN,
     plan_experience_gain,
     threshold_for_next_level,
@@ -110,6 +111,29 @@ class PlanTests(unittest.TestCase):
             plan.experience_after,
             standard_status_row(plan.level_after + 1).exp_currentlv,
         )
+
+    def test_dropping_the_remainder_is_a_different_rule_and_the_tests_see_it(self):
+        """The discriminating test for the derived half (pf-adversary
+        `D3`): `test_the_numerator_stays_inside_the_bar...` is the loop's
+        own exit condition restated and passes under EITHER carry rule, so
+        it cannot be the pin.  This one names the number the rejected rule
+        would produce (0, the remainder thrown away) and the number this
+        rule produces, and asserts they are different and which one is
+        ours."""
+        need = threshold_for_next_level(1)
+        plan = plan_experience_gain(1, 0, need + 41)
+        dropped_remainder = 0
+        self.assertNotEqual(plan.experience_after, dropped_remainder)
+        self.assertEqual(plan.experience_after, 41)
+
+    def test_a_pair_already_past_the_line_is_refused_not_harvested(self):
+        """Somebody else's write does not become a level here (`D5`)."""
+        need = threshold_for_next_level(1)
+        with self.assertRaises(InconsistentLevelExperienceError) as caught:
+            plan_experience_gain(1, need, 0)
+        self.assertIn(str(need), str(caught.exception))
+        with self.assertRaises(InconsistentLevelExperienceError):
+            plan_experience_gain(1, need * 3, 10)
 
     def test_one_grant_can_cross_several_levels(self):
         need_2 = threshold_for_next_level(1)
@@ -222,12 +246,16 @@ class GrantDoorTests(_StoreFixture):
         with self.assertRaises(UnmeasuredTypedAttributeError) as caught:
             self.store.grant_experience(character.id, 100)
         self.assertIn(LEVEL_COLUMN, str(caught.exception))
+        # pf-adversary `D7`: a door that named the wrong column every time
+        # passed this test while the two messages shared a sentence.
+        self.assertNotIn(EXPERIENCE_COLUMN, str(caught.exception))
 
     def test_a_null_experience_is_refused_by_name(self):
         character = self._character_at(level=1)
         with self.assertRaises(UnmeasuredTypedAttributeError) as caught:
             self.store.grant_experience(character.id, 100)
         self.assertIn(EXPERIENCE_COLUMN, str(caught.exception))
+        self.assertNotIn(LEVEL_COLUMN, str(caught.exception))
 
     def test_a_level_outside_the_committed_table_is_refused_before_any_write(self):
         character = self._character_at(level=0, experience=0)
@@ -267,6 +295,64 @@ class GrantDoorTests(_StoreFixture):
         with self.assertRaises(KeyError):
             self.store.grant_experience(character.id, 10)
 
+    def test_a_level_forty_character_levels_from_where_it_actually_stands(self):
+        """pf-adversary `D1`: every store test in the first draft granted
+        at level 1, so a door that planned from `min(level, 1)` and wrote
+        level 1 back over a level-40 character passed all of them.  The
+        oracle here is computed from the table BEFORE the call, never read
+        back out of the row the method just wrote."""
+        need_41 = threshold_for_next_level(40)
+        character = self._character_at(level=40, experience=need_41 - 3)
+        result = self.store.grant_experience(character.id, 3)
+        self.assertEqual(result.level_before, 40)
+        self.assertEqual(result.level_after, 41)
+        self.assertEqual(result.levels_gained, 1)
+        stored = self.store.read_typed_attributes(character.id)
+        self.assertEqual(stored[LEVEL_COLUMN], 41)
+        self.assertEqual(stored[EXPERIENCE_COLUMN], 0)
+
+    def test_a_high_level_character_short_of_the_line_keeps_its_level(self):
+        """The same guard from the other side: no demotion, and the level
+        is checked against 40, a number no other door in this test wrote."""
+        character = self._character_at(level=40, experience=0)
+        result = self.store.grant_experience(character.id, 5)
+        self.assertEqual(result.level_after, 40)
+        self.assertEqual(
+            self.store.read_typed_attributes(character.id)[LEVEL_COLUMN], 40)
+
+    def test_experience_banked_by_the_other_door_is_refused_not_harvested(self):
+        """`D5` end to end: the plain add door banks three levels' worth,
+        and a ZERO grant through this door refuses instead of awarding
+        them.  Nothing is written by the refusal."""
+        character = self._character_at(level=1, experience=0)
+        self.store.add_typed_attribute(
+            character.id, EXPERIENCE_COLUMN, threshold_for_next_level(1) * 3)
+        with self.assertRaises(InconsistentLevelExperienceError):
+            self.store.grant_experience(character.id, 0)
+        stored = self.store.read_typed_attributes(character.id)
+        self.assertEqual(stored[LEVEL_COLUMN], 1)
+        self.assertEqual(
+            stored[EXPERIENCE_COLUMN], threshold_for_next_level(1) * 3)
+
+    def test_a_gm_set_level_is_not_re_derived_by_the_next_payout(self):
+        """The same hole through the GM door (`/lv` writes `level` alone):
+        a level set by hand with banked experience under it is refused, not
+        recomputed into a level nobody granted."""
+        character = self._character_at(level=50, experience=10 ** 9)
+        with self.assertRaises(InconsistentLevelExperienceError):
+            self.store.grant_experience(character.id, 1)
+        self.assertEqual(
+            self.store.read_typed_attributes(character.id)[LEVEL_COLUMN], 50)
+
+    def test_at_the_table_ceiling_the_flag_comes_back_true_from_the_door(self):
+        """The store layer's own ceiling test: a hardcoded `False` on this
+        field passed every test in the first draft (`D9`)."""
+        character = self._character_at(level=255, experience=7)
+        result = self.store.grant_experience(character.id, 11)
+        self.assertTrue(result.at_table_ceiling)
+        self.assertEqual(result.level_after, 255)
+        self.assertEqual(result.experience_after, 18)
+
     def test_two_payouts_in_a_row_are_both_counted(self):
         """The pair is read inside the transaction, so the second payout
         sees the first one's remainder rather than a stale balance."""
@@ -281,8 +367,17 @@ class GrantDoorTests(_StoreFixture):
 class TheOtherDoorIsUnchangedTests(_StoreFixture):
     """`add_typed_attribute` keeps the contract it shipped with: it adds
     the number and does NOT move the level.  Stated as a test because the
-    two doors now sit on the same column and a future round must not
-    'fix' one into the other by accident."""
+    doors on this column are now three (`add_typed_attribute`,
+    `spend_typed_attribute`, this one) and a future round must not 'fix'
+    one into another by accident.
+
+    WHAT THIS CLASS NO LONGER SAYS.  Its first draft asserted the resulting
+    state -- level 1 with three levels' worth of experience banked, a bar
+    the client would draw at 300% -- and stopped there, which pinned as
+    correct the exact state this module's own derivation calls impossible
+    (pf-adversary `D5`).  The state is still what the old door produces;
+    what changed is that this file now also measures what the NEW door does
+    about it, which is refuse."""
 
     def test_the_plain_add_door_still_leaves_the_level_where_it_was(self):
         character = self._character_at(level=1, experience=0)
@@ -291,6 +386,14 @@ class TheOtherDoorIsUnchangedTests(_StoreFixture):
         stored = self.store.read_typed_attributes(character.id)
         self.assertEqual(stored[EXPERIENCE_COLUMN], after)
         self.assertEqual(stored[LEVEL_COLUMN], 1)
+
+    def test_and_the_state_it_leaves_is_one_the_grant_door_refuses(self):
+        """The other half, so the class cannot be read as blessing it."""
+        character = self._character_at(level=1, experience=0)
+        self.store.add_typed_attribute(
+            character.id, EXPERIENCE_COLUMN, threshold_for_next_level(1) * 3)
+        with self.assertRaises(InconsistentLevelExperienceError):
+            self.store.grant_experience(character.id, 1)
 
 
 if __name__ == "__main__":  # pragma: no cover

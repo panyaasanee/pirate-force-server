@@ -22,17 +22,40 @@ looking at would be full.  No constant is invented here, no curve is
 fitted, and no column outside the two named ones is touched
 (``COO-DECISION 20260901_1059``: a field with no source is never guessed).
 
-WHAT IS DERIVED RATHER THAN MEASURED, SAID PLAINLY.  The proven fact is the
-DIVISION.  That the remainder carries forward -- that a character crossing
-the line keeps ``experience - threshold`` instead of dropping to zero -- is
-this module's reading of the same division, not a separate measurement:
-with a level-relative numerator, a bar that reads ``experience / row(level
-+ 1)`` is only in range if the numerator is reduced when the level moves.
-The alternative (a cumulative numerator) makes the same division exceed
-1.0 for every level above the first, which the bar cannot draw.  Both
-halves of that reasoning are in :func:`plan_experience_gain`'s test file so
-a future measurement that contradicts it fails a test instead of quietly
-disagreeing with the screen.
+WHAT LAYER THE PROVEN FACT LIVES ON.  It is a STATIC DISASSEMBLY reading
+(``STATS-PROG-001`` in ``docs/FUNCTIONAL_COVERAGE.json``: the divide at
+``0x519299``, and the same record's scaling by 100 to a percentage).  That
+record also says, in as many words, that nothing in this project has ever
+observed a progression field on a wire in either direction, and queues the
+runtime check as ``GT-017``.  So "the bar the player is looking at" is
+shorthand for an instruction read out of the client image, not for
+something anybody has watched happen -- pf-adversary (round ``6n7pam``,
+``D10``) was right that the first draft of this docstring wrote the
+present tense without saying which layer it came from.
+
+WHAT IS DERIVED RATHER THAN MEASURED, AND WHY THE FIRST ARGUMENT FOR IT WAS
+WRONG.  The proven fact is the DIVISION.  That the remainder carries
+forward -- a character crossing the line keeps ``experience - threshold``
+rather than dropping to zero or keeping a running total -- is this module's
+reading, not a measurement.  The reason first written here ("a cumulative
+numerator makes the division exceed 1.0") is FALSE and is struck: under a
+self-consistent cumulative reading a character at level L holds ``row(L) <=
+experience < row(L + 1)``, so that quotient stays below 1.0 at every level
+(pf-adversary ``D3`` measured the error).  The argument that does hold is
+about where the bar STARTS: under the cumulative reading a fresh level
+begins at ``row(L) / row(L + 1)``, which is 99.4% at level 254 -- a bar
+that is nearly full the moment you level and crawls to full over the whole
+level.  Under the per-level reading it starts empty and fills once.  Only
+the second is a bar anybody would ship.
+``standard_status_row(1).exp_currentlv == 0`` is NOT evidence either way
+(it is what both readings look like at the first level) and this module
+does not use it as any; :func:`threshold_for_next_level` refuses a
+non-positive threshold outright.
+The carry rule is pinned by :func:`plan_experience_gain`'s tests, and
+``test_dropping_the_remainder_is_a_different_rule_and_the_tests_see_it``
+is the one that actually separates it from the alternative -- the
+"numerator stays inside the bar" test does not, because that is the loop's
+own exit condition restated (``D3`` again).
 
 NONCLAIMS.
 * Nothing here sends a frame.  A client that is already logged in does not
@@ -71,6 +94,31 @@ class ExperienceError(ValueError):
     """A grant that cannot be planned: a bad amount, or a character whose
     level/experience pair is outside what the committed table can answer.
     Never a plan with a guessed value substituted for the bad one."""
+
+
+class InconsistentLevelExperienceError(ExperienceError):
+    """The character's stored pair is ALREADY past the line before the
+    grant: ``experience >= threshold_for_next_level(level)``.
+
+    THE HOLE THIS CLOSES, MEASURED BY pf-adversary (round ``6n7pam``,
+    ``D5``) BEFORE IT COULD SHIP.  ``characters.experience`` has other
+    doors -- ``store.add_typed_attribute`` adds to it without consulting
+    the level, ``store.spend_typed_attribute`` subtracts from it, and the
+    GM's ``/lv`` writes ``characters.level`` on its own.  Without this
+    refusal, experience banked through one of those doors is harvested by
+    the NEXT grant through this one, whatever its size: a payout of ZERO
+    awarded two levels in the adversary's run, and a character whose level
+    a GM had set to 50 was re-derived to 123.  A level nobody granted, on a
+    payout nobody made, is worse than a refusal.
+
+    So the pair is not adjudicated here.  This door raises, names both
+    values, and leaves the row untouched: deciding what a level should be
+    when another door moved the column underneath it is a rule this project
+    has not made, and inventing one inside a grant would be exactly the
+    guess ``COO-DECISION 20260901_1059`` forbids this lane.  The way out is
+    for a payout to use ONE door -- this one -- which is what the letter to
+    LANE-Q asks for.
+    """
 
 
 @dataclass(frozen=True)
@@ -169,6 +217,14 @@ def plan_experience_gain(
     # `threshold_for_next_level` is the level validator too: it refuses a
     # level the committed table cannot describe, before anything is added.
     threshold = threshold_for_next_level(level)
+    if threshold is not None and experience >= threshold:
+        raise InconsistentLevelExperienceError(
+            "character is stored at level %d with %d experience, which is "
+            "already at or past the %d this table wants for the next level "
+            "-- another door moved a column under this one; refusing to "
+            "turn somebody else's write into levels" % (
+                level, experience, threshold)
+        )
 
     new_level = level
     total = experience + amount
