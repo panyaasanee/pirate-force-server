@@ -66,7 +66,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SIBLING = ROOT.parent
 
 
-def a_test_instance(case, key: str):
+def a_test_instance(case, precondition):
     """Refuse ``require(cls)`` on EVERY machine, not only a bridgeless one.
 
     WHY THIS EXISTS, MEASURED (chief round 1w9f0q / R384, COO order 0641).
@@ -83,31 +83,64 @@ def a_test_instance(case, key: str):
     always has the bridge checked out beside it, so ``present`` is true, so
     ``require(cls)`` looks healthy on the author's machine and detonates hours
     later on the Windows gate, in a pull request whose author never touched it.
-    The family has closed three already: #966, #990, and the ``bg0008`` /
-    ``bg0010`` rows that ``docs/PYTEST_SKIP_PINS.json`` recorded against
-    itself.  No lane could have caught it from inside its own round.
+    No lane could have caught it from inside its own round.
+
+    PROVENANCE, COUNTED - do not inflate it again.  Exactly ONE pull request
+    has died of ``require(cls)``: ``#990``.  ``#966`` was closed for an
+    UNPINNED SKIP COUNT produced by the ``@X.skip_unless_present()`` DECORATOR,
+    and the ``bg0008`` / ``bg0010`` rows in ``docs/PYTEST_SKIP_PINS.json`` are
+    shipped modules that carried no pin; neither of those contains a
+    ``require`` call at all.  What all four share is the ASYMMETRIC
+    ENVIRONMENT - the sandbox that writes the test always has the bridge
+    beside it - which is what this guard is aimed at.  (The "three pull
+    requests" reading was chief's own error in R384, refuted by pf-adversary
+    and corrected in round lafdux / R385.)
 
     Hence: validate the ARGUMENT first, before ``present`` is ever consulted,
     so the same source line fails the same way on every machine on earth.
-    Returns the case so callers can write ``a_test_instance(case, key)`` as a
-    guard clause and keep using ``case``.
+
+    ``precondition`` is the precondition OBJECT and not its key, because the
+    advice printed below has to be advice that WORKS on that object:
+    ``HistoricalGitObject`` deliberately has no ``skip_unless_present()`` (its
+    class docstring says why), so telling its callers to decorate the class
+    hands them an ``AttributeError`` at import - worse than the symptom this
+    guard replaces.  A bare string is accepted for direct callers and gets
+    only the advice that is true everywhere.
+
+    Returns the case so a caller may use the call as a guard-clause
+    expression; the four ``require`` implementations below discard the value.
     """
+    key = getattr(precondition, "key", precondition)
     if isinstance(case, type):
+        advice = (
+            "Move the require(self) call down into setUp or into the test "
+            "method, where a live case exists."
+        )
+        if hasattr(precondition, "skip_unless_present"):
+            advice += (
+                " Or decorate the class instead: "
+                "@<PRECONDITION>.skip_unless_present() above 'class %s'."
+                % case.__name__
+            )
+        else:
+            advice += (
+                " This precondition offers no skip_unless_present() decorator "
+                "on purpose - its class docstring says why - so the imperative "
+                "form is the only form it has."
+            )
         raise TypeError(
             "%s.require() needs a unittest.TestCase INSTANCE and was handed the "
             "class %s itself. setUpClass has no instance to raise a skip "
             "through, so this call can only ever end as a TypeError - and only "
             "on a machine that lacks the precondition, which is why it reads as "
-            "healthy where it was written. Decorate the class instead: "
-            "@<PRECONDITION>.skip_unless_present() above 'class %s', or move the "
-            "require(self) call down into setUp or into the test method."
-            % (key, case.__name__, case.__name__)
+            "healthy where it was written. %s"
+            % (key, case.__name__, advice)
         )
     if not isinstance(case, unittest.TestCase):
         raise TypeError(
-            "%s.require() needs a unittest.TestCase instance, got %r. Only a "
+            "%s.require() needs a unittest.TestCase instance, got %s. Only a "
             "live test case can carry a skip; a module-level setUpModule has "
-            "none, so use the decorator form on each class instead."
+            "none, so put the call inside setUp or inside a test method."
             % (key, type(case).__name__)
         )
     return case
@@ -169,7 +202,7 @@ class Precondition:
 
     def require(self, case: unittest.TestCase) -> None:
         """Imperative form, for a precondition only known inside the test."""
-        a_test_instance(case, self.key)
+        a_test_instance(case, self)
         if not self.present:
             case.skipTest(self.reason)
 
@@ -360,7 +393,7 @@ class HistoricalGitObject:
 
     def require(self, case: unittest.TestCase) -> None:
         """Skip only for a cause that was measured; otherwise fail loudly."""
-        a_test_instance(case, self.key)
+        a_test_instance(case, self)
         state, detail = self.state()
         if state == self.PRESENT:
             return
@@ -433,7 +466,7 @@ class OptionalPackage:
         return unittest.skipUnless(self.present, self.reason)
 
     def require(self, case: unittest.TestCase) -> None:
-        a_test_instance(case, self.key)
+        a_test_instance(case, self)
         if not self.present:
             case.skipTest(self.reason)
 
@@ -491,7 +524,7 @@ class AllOfThese:
         return unittest.skipUnless(self.present, self.reason)
 
     def require(self, case: unittest.TestCase) -> None:
-        a_test_instance(case, self.key)
+        a_test_instance(case, self)
         if not self.present:
             case.skipTest(self.reason)
 

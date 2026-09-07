@@ -17,18 +17,27 @@ raised THROUGH the case.  ``setUpClass(cls)`` has no instance, so
     ``self`` - and raises ``TypeError`` inside ``setUpClass``, erroring
     every test in the class.
 
-Three pull requests have been closed by that shape already: #966, #990, and
-the ``bg0008`` / ``bg0010`` rows ``docs/PYTEST_SKIP_PINS.json`` recorded
-against itself.  No lane can catch it from inside its own round.
+Exactly ONE pull request has died of this shape: #990.  #966 was closed for an
+unpinned skip COUNT produced by the ``@X.skip_unless_present()`` decorator, and
+the ``bg0008`` / ``bg0010`` rows in ``docs/PYTEST_SKIP_PINS.json`` are shipped
+modules that carried no pin - neither contains a ``require`` call at all.  What
+the four share is the asymmetric environment, not this defect.  (The "three
+pull requests" reading was R384's own error, refuted by pf-adversary and
+corrected in round lafdux / R385.)  No lane can catch it from inside its own
+round.
 
 Two fences, and they are deliberately different in kind:
 
   1. ``a_test_instance`` checks the ARGUMENT before ``present`` is consulted,
      so the mistake fails identically on every machine (the tests below).
-  2. an AST sweep of the repository refuses ``.require(<arg>)`` anywhere
-     inside a ``setUpClass`` or ``setUpModule`` body, so the mistake does not
-     get written at all - including through a helper this file cannot type
-     check, and including on a machine where fence 1 would stay quiet.
+  2. an AST sweep of the repository refuses ``.require(<arg>)`` written
+     LITERALLY inside a ``setUpClass`` or ``setUpModule`` body, so the line
+     does not get committed at all, and it reads the file even on modules the
+     gate ``--ignore``s, where fence 1 never runs.  MEASURED LIMIT
+     (pf-adversary, round 1w9f0q): it does NOT follow a helper called from
+     ``setUpClass``, an alias or ``getattr(X, "require")(cls)``, or pytest's
+     ``setup_class`` / ``setup_module``.  Fence 1 is what catches those,
+     because it judges the argument at the moment of the call.
 
 Neither fence needs a precondition of its own: both read only files that are
 in the repository, so they run on every machine, which is the entire point.
@@ -37,6 +46,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -45,9 +55,12 @@ from pf_preconditions import a_test_instance
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Directories swept for the forbidden call.  ``tools`` is included because a
-# test helper that lives there is imported by tests and would be swept by
-# nothing else.
+# Directories swept for the forbidden call.  MEASURED (pf-adversary, round
+# 1w9f0q): no file under ``tools`` defines a TestCase today, so sweeping it
+# buys no catch right now - the earlier "a test helper lives there" reason was
+# wrong.  It stays as a forward guard, because a helper that lands there later
+# would be imported by tests and swept by nothing else, and the cost is
+# reading files that already have to parse.
 SWEPT_DIRS = ("tests", "tools")
 
 FORBIDDEN_SCOPES = ("setUpClass", "setUpModule")
@@ -87,17 +100,23 @@ def class_scoped_require_calls(source: str, label: str):
     return found
 
 
-def swept_files():
-    for name in SWEPT_DIRS:
-        directory = ROOT / name
+def swept_files(root: Path = ROOT, dirs=SWEPT_DIRS):
+    for name in dirs:
+        directory = root / name
         if not directory.is_dir():
             continue
         for path in sorted(directory.rglob("*.py")):
             yield path
 
 
-def sweep_repository():
+def sweep_repository(root: Path = ROOT, dirs=SWEPT_DIRS):
     """Return ``(offenders, unparseable)`` over every swept file.
+
+    ``root`` / ``dirs`` default to this repository and exist so a test can
+    walk the WHOLE function over a tree it built itself.  Without that, the
+    only caller sweeps a repository where every file parses, and both
+    ``except`` branches below are dead code (pf-adversary, round 1w9f0q:
+    swapping them for ``ZeroDivisionError`` left the suite green).
 
     A file that does not parse is reported by NAME rather than raised as a
     bare ``SyntaxError`` from inside a sweep: ``tests/fixtures/`` exists and a
@@ -107,8 +126,8 @@ def sweep_repository():
     """
     offenders = []
     unparseable = []
-    for path in swept_files():
-        label = path.relative_to(ROOT).as_posix()
+    for path in swept_files(root, dirs):
+        label = path.relative_to(root).as_posix()
         try:
             source = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError) as exc:
@@ -140,8 +159,20 @@ class ArgumentGuardTests(unittest.TestCase):
                     instance.require(FakeCase)
                 message = str(caught.exception)
                 self.assertIn("INSTANCE", message)
-                self.assertIn("skip_unless_present", message)
                 self.assertIn("FakeCase", message)
+                self.assertIn("setUp", message)
+                # D2 (pf-adversary, round 1w9f0q): the guard used to tell
+                # every caller to decorate the class - including the two
+                # preconditions that deliberately have no decorator, where
+                # following the advice raises AttributeError at import, which
+                # is worse than the symptom the guard replaced.  Grade the
+                # RECOMMENDATION against the object, so a fifth precondition
+                # class is graded the day it lands.
+                offers = hasattr(instance, "skip_unless_present")
+                if offers:
+                    self.assertIn("skip_unless_present() above", message)
+                else:
+                    self.assertNotIn("skip_unless_present() above", message)
 
     def test_a_present_precondition_still_rejects_a_class(self):
         # The whole defect is that the absent branch is the only one that
@@ -246,6 +277,38 @@ class SweepTests(unittest.TestCase):
         self.assertIn(Path(__file__).resolve(),
                       [p.resolve() for p in swept_files()])
 
+    def test_the_sweep_function_reports_files_it_cannot_read_or_parse(self):
+        # Drives sweep_repository() itself over a tree with one file that does
+        # not parse and one that is not UTF-8, so both except branches are
+        # walked by a test instead of being asserted about in pieces.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests" / "broken.py").write_text("def (:\n",
+                                                      encoding="utf-8")
+            (root / "tests" / "not_utf8.py").write_bytes(b"# \xff\xfe\n")
+            offenders, unparseable = sweep_repository(root, ("tests",))
+        self.assertEqual(offenders, [])
+        self.assertEqual(sorted(label for label, _ in unparseable),
+                         ["tests/broken.py", "tests/not_utf8.py"])
+
+    def test_the_sweep_function_finds_an_offender_written_to_disk(self):
+        # The repository sweep asserts an EMPTY list, so it cannot show that
+        # the walk-and-collect half works.  This one can.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests" / "bad.py").write_text(
+                "import unittest\n"
+                "class T(unittest.TestCase):\n"
+                "    @classmethod\n"
+                "    def setUpClass(cls):\n"
+                "        SOMETHING.require(cls)\n", encoding="utf-8")
+            offenders, unparseable = sweep_repository(root, ("tests",))
+        self.assertEqual(unparseable, [])
+        self.assertEqual([(label, scope) for label, _, scope in offenders],
+                         [("tests/bad.py", "setUpClass")])
+
     def test_a_file_that_does_not_parse_is_named_not_raised(self):
         # Proves the report path exists; the sweep over the real repository
         # asserts the list is empty, which cannot exercise this branch.
@@ -266,20 +329,29 @@ class SweepTests(unittest.TestCase):
     def _explain(self, offenders):
         lines = ["%s:%d inside %s" % row for row in offenders]
         return (
-            "require(<arg>) inside %s is the #966 / #990 / bg0008 shape: it is "
-            "silent on a machine that has the precondition and raises TypeError "
-            "on one that does not. Decorate the class with "
-            "@<PRECONDITION>.skip_unless_present() instead, or move the call "
-            "into setUp / the test method where a real case exists.\n  %s"
+            "require(<arg>) inside %s is the #990 shape: it is silent on a "
+            "machine that has the precondition and raises TypeError on one "
+            "that does not. Move the call into setUp / the test method where a "
+            "real case exists, or - if this precondition has one - decorate "
+            "the class with @<PRECONDITION>.skip_unless_present().\n  %s"
             % (" or ".join(FORBIDDEN_SCOPES), "\n  ".join(lines))
         )
 
 
 class FakeCase(unittest.TestCase):
-    """A real TestCase subclass, used both as a class and as an instance."""
+    """A real TestCase subclass, used both as a class and as an instance.
 
-    def runTest(self):  # pragma: no cover - never executed as a test
-        pass
+    ``__test__ = False`` because without it the collector falls back to
+    ``runTest`` and banks a permanently-green test that asserts nothing:
+    ``--collect-only`` counted it (pf-adversary, round 1w9f0q), which is how
+    "13 tests" in R384 was really 12 tests and one ghost.
+    """
+
+    __test__ = False
+
+    def runTest(self):
+        raise AssertionError(
+            "FakeCase is a fixture for the guard tests, not a test itself")
 
 
 if __name__ == "__main__":
