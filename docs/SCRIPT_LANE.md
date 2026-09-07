@@ -268,7 +268,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (126/160 stub, 34/160 real, as of round `wn088m`)
+### API status table (124/160 stub, 36/160 real, as of round `yfeauz`)
 
 **Round `wn088m` changed no status.**  It changed a NUMBER: the six
 criteria rows were flooring the wrong float.  `f_EXP` is a float32 column,
@@ -480,9 +480,9 @@ in `STILL_STUBBED`.
 | Player | CheckSoulmate | 4 | stub |
 | Player | LeaveInstance | 4 | stub |
 | Player | LoadStore | 3 | stub |
-| Player | AddExp | 2 | real (round `yfeauz`: pays a `characters` row through `lua_api/reward.grant`; no frame out yet) |
+| Player | AddExp | 2 | real closure (round `yfeauz`), UNREACHED: pays a `characters` row through `lua_api/reward.grant`, but both corpus call sites die on a nil global `rate` before the line, `Trigger.Var5` is 0, and no dispatcher supplies a `player_context` |
 | Player | AddPpClass | 2 | stub |
-| Player | AddSkillPoint | 2 | real (round `yfeauz`: pays a `characters` row through `lua_api/reward.grant`; no frame out yet) |
+| Player | AddSkillPoint | 2 | real closure (round `yfeauz`), UNREACHED: pays a `characters` row through `lua_api/reward.grant`, but both corpus call sites die on a nil global `rate` before the line, `Trigger.Var5` is 0, and no dispatcher supplies a `player_context` |
 | Player | CastSkillXYZ | 2 | stub |
 | Player | CheckParty | 2 | stub |
 | Player | CheckThrowAnyPenpalLetter | 2 | stub |

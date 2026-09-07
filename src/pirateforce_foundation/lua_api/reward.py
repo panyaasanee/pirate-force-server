@@ -91,11 +91,22 @@ REFUSE_STORE_ERROR = "store_error"
 #: bug in this package, refused by name rather than KeyError'd into a
 #: script's traceback.
 REFUSE_UNKNOWN_KIND = "unknown_reward_kind"
-#: :func:`grant` only.  Its ``amount`` comes off a Lua stack through a
-#: namespace closure's coercion; something that is not an ``int`` at all
-#: (a string, a table, ``True``) is a DIFFERENT fact from a negative
-#: number, and a reader counting refusals needs to tell "the script asked
-#: to charge the player" from "the script handed us a table".
+#: :func:`grant` only.  Something that is not an ``int`` at all (a string,
+#: a table, ``True``) is a DIFFERENT fact from a negative number, so it
+#: refuses under its own name rather than being folded into
+#: :data:`REFUSE_NEGATIVE`.
+#:
+#: NEITHER OF THE TWO IS REACHABLE THROUGH A LUA SCRIPT TODAY, said plainly
+#: (pf-adversary D5, round yfeauz).  ``lua_api.player``'s grant closure
+#: coerces with ``_coerce_int``, whose floor is 0, so a negative and a
+#: string come out of it identically -- as ``None`` -- and are logged as
+#: ``LUA_PLAYER_BAD_VALUE`` with NO ``refused=`` token before this module
+#: is called at all.  So a census counting ``refused=`` lines sees neither
+#: case, and the distinction these two constants draw is available only to
+#: a caller that hands :func:`grant` an already-typed value (this lane's
+#: tests today; a future closure that wants to tell a CHARGE from a
+#: GARBAGE ARGUMENT must coerce with a signed door and pass the number
+#: through rather than filtering it first).
 REFUSE_BAD_AMOUNT = "amount_is_not_an_integer"
 
 #: Every reason this module itself can produce.  A test asserts

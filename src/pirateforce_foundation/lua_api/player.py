@@ -1,6 +1,7 @@
-"""LANE-Q's ``Player`` namespace: 6 of 73 names real
+"""LANE-Q's ``Player`` namespace: 9 of 73 names real
 (``GetLv``/``GetClass``, ``CheckItemNum``/``GetItemNum``/``CheckEquipItem``,
-plus this round's ``MobAppear``).
+``MobAppear``, ``ShowMessage``, plus round `yfeauz`'s ``AddExp``/
+``AddSkillPoint`` -- the first two that WRITE).
 
 WHY THESE TWO, WHY TOGETHER.  ``docs/SCRIPT_LANE.md`` (round `bxly5p`) found
 both of LANE-Q's own charter blockers still closed at this round's own
@@ -272,8 +273,8 @@ _EMPTY_BACKPACK = inventory.BackpackState(
     inventory.BACKPACK_RANGE_MASK, (),
 )
 
-#: The seven names real so far. See the module docstring for why these
-#: seven, and why every other Player.* name is not real yet.
+#: The nine names real so far. See the module docstring for why these
+#: nine, and why every other Player.* name is not real yet.
 REAL_METHODS = frozenset({
     "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
     "MobAppear", "ShowMessage",
@@ -290,12 +291,17 @@ REAL_METHODS = frozenset({
 #: KIND_COLUMN`` owns that mapping and a test pins it against
 #: ``persistence_typed_attrs.TYPED_COLUMNS``).
 #:
-#: WHY ONLY TWO, when eight names sit under ``_STAT_GRANT``.  Both of
-#: these are called with a non-negative amount everywhere in the corpus
-#: (``Player.AddExp(Player.GetLv()*Trigger.Var5)`` /
-#: ``Player.AddSkillPoint(...)`` in ``t_getm_rat_exp&sp.lua`` and
-#: ``t_inskyev_getm_rat_exp&sp.lua`` -- the only call sites of either,
-#: grepped across all 616 files), and both land in a column
+#: WHY ONLY TWO, when eight names sit under ``_STAT_GRANT``.  Neither is
+#: called with a negative LITERAL anywhere in the corpus: all four call
+#: sites are ``Player.GetLv()*Trigger.Var5`` in ``t_getm_rat_exp&sp.lua``
+#: and ``t_inskyev_getm_rat_exp&sp.lua`` (grepped across all 616 files,
+#: the only call sites of either).  SAID EXACTLY (pf-adversary D6, round
+#: yfeauz, correcting an earlier wording here that claimed more): that is
+#: a fact about the argument's SHAPE, not about its VALUE -- ``Var5`` is
+#: trigger placement data that does not live in this repository, so its
+#: sign is UNMEASURED, and the closure below is what actually holds the
+#: floor by refusing anything negative before the store is touched.  Both
+#: names land in a column
 #: ``store.add_typed_attribute`` already accepts.  ``AddCash`` does NOT
 #: qualify on the first count: ``q_ship.lua:50`` calls
 #: ``Player.AddCash(-Quest.Var3)`` and ``q_boat_health.lua:21``
@@ -314,11 +320,17 @@ GRANT_KINDS: dict[str, str] = {
 
 #: Sanity ceiling on a grant amount decoded off the Lua stack, the same
 #: role ``_MAX_TEMPLATE_ID``/``_MAX_MOB_ID`` play for ids: not a game rule,
-#: a door against a garbage float.  ``u32``, because
-#: ``persistence_typed_attrs`` is what actually decides whether the value
-#: AFTER the addition is storable and refuses past its own wire kind --
-#: this bound only keeps an absurd number out of the store call and out of
-#: the log line.
+#: a door against a garbage float.  ``u32``, and THIS LANE'S OWN CHOICE
+#: rather than the column's (pf-adversary D10, round yfeauz, correcting an
+#: earlier comment here that presented it as deference):
+#: ``persistence_typed_attrs`` calls ``experience`` a ``u64``
+#: (max 9223372036854775807) and ``skill_points`` a ``u32``, so this bound
+#: is 2**32 tighter than the wider of the two columns.  Deliberate: no
+#: script in the corpus asks for a number anywhere near it, and a single
+#: grant past ``u32`` is far likelier to be a decode fault than a reward.
+#: The cost is named rather than hidden -- such an amount is refused as a
+#: BAD VALUE with no ``refused=`` token, in the same bucket as ``nan``;
+#: widening it is a one-constant change the day a real script needs it.
 _MAX_GRANT_AMOUNT = 0xFFFFFFFF
 
 

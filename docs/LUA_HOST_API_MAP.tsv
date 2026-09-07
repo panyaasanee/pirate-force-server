@@ -21,9 +21,9 @@ Player.GetLv	Player	91	89	AUTH	arity 0	exp-level	REAL	YES		M5
 Player.GetClass	Player	60	14	AUTH	arity 0	exp-level	REAL	YES		M5
 Quest.AddLvCriteriaExp	Quest	59	59	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character EXP grant seam (Player.* queue, not built)	M5
 Quest.AddLvCriteriaSkillPoint	Quest	59	59	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character skill-point grant seam (Player.* queue, not built)	M5
-Player.AddExp	Player	2	2	AUTH	arity 1 (call)	exp-level	REAL	YES	real round yfeauz: pays through store.add_typed_attribute via lua_api/reward.grant; no frame goes out yet	M5
+Player.AddExp	Player	2	2	AUTH	arity 1 (call)	exp-level	REAL	PARTIAL	closure real round yfeauz (pays a characters row through store.add_typed_attribute via lua_api/reward.grant), but NO SCRIPT PATH REACHES IT YET: both corpus call sites die earlier on a nil global 'rate', Trigger.Var5 reads STUB_DEFAULT=0 so the amount would refuse as zero, and lua_api/dispatch.py supplies no player_context so character_id is 0	M5
 Player.AddPpClass	Player	2	2	AUTH	arity 1 (var)	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
-Player.AddSkillPoint	Player	2	2	AUTH	arity 1 (call)	exp-level	REAL	YES	real round yfeauz: pays through store.add_typed_attribute via lua_api/reward.grant; no frame goes out yet	M5
+Player.AddSkillPoint	Player	2	2	AUTH	arity 1 (call)	exp-level	REAL	PARTIAL	closure real round yfeauz (pays a characters row through store.add_typed_attribute via lua_api/reward.grant), but NO SCRIPT PATH REACHES IT YET: both corpus call sites die earlier on a nil global 'rate', Trigger.Var5 reads STUB_DEFAULT=0 so the amount would refuse as zero, and lua_api/dispatch.py supplies no player_context so character_id is 0	M5
 Player.GetPpClass	Player	1	1	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M5
 Player.GiveLvCriteriaPercentageEXP	Player	1	1	AUTH	arity 0	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
 Quest.GetQuestFlag	Quest	508	366	AUTH	arity 1 (var)	flag-quest-state	STUB	NO	needs per-character Quest flag state (LANE-DB column, COO-DECISION 20260905_2058)	M5

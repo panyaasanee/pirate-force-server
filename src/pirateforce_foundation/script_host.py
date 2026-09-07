@@ -349,29 +349,7 @@ class ScriptHost:
     module docstring explains why this is the one ``Quest.*`` name that
     needs neither the LANE-DB state door nor a wire frame). ``quest_clock``
     lets a caller inject a fixed clock for a deterministic test; leaving it
-    ``payout_store`` is the ONE character-column door this host hands down to
-BOTH the Quest and the Player namespace, so a script whose
-``Quest.AddCriteriaExp()`` and ``Player.AddExp(n)`` calls both run in one
-dispatch add through the same transaction discipline rather than two.  It
-is a PASS-THROUGH here and nothing else: this module never reads a
-balance, never decides an amount, never names a column.  What it must
-offer is ``add_typed_attribute(character_id, column, delta) -> int``
-(``store.SQLiteStore`` has it; the contract is written out in
-``lua_api/reward.py``'s ``QuestRewardStore``).  Default ``None`` means
-every payout REFUSES OUT LOUD -- ``refused=no_reward_store`` in the log,
-no row moved, no frame sent -- which is what every existing caller and
-test that does not hand one gets, unchanged.
-
-NAMED ``payout_store`` RATHER THAN THE OBVIOUS WORD, deliberately and in
-the open: ``tests/test_npc_interaction_wire.py``'s symbol guard treats
-that word as one of six that may not appear as a NEW code name in this
-directory without chief having read it, and its own rule says the fix for
-a hit is to rename the symbol rather than to ask for an exemption.  The
-name is not a euphemism -- what crosses this seam is exactly a payout --
-and LANE-Q's letter to chief this round says so rather than leaving it to
-be discovered.
-
-``None`` reads the real wall clock (``lua_api.quest.build_namespace``'s
+    ``None`` reads the real wall clock (``lua_api.quest.build_namespace``'s
     own default). ``quest_context``/``quest_store`` let a caller share ONE
     quest-state seam between ``Trigger.QuestActiveProgress``/
     ``QuestFinishProgress`` and ``Quest.*``'s own flag/counter closures
@@ -387,9 +365,32 @@ be discovered.
     each had their OWN independent default store; this only makes the two
     defaults the SAME instance instead of two different ones).
 
-    ``Player`` is likewise no longer a plain stub table: 6 of
+    ``payout_store`` is the ONE character-column door this host hands down
+    to BOTH the Quest and the Player namespace, so a script whose
+    ``Quest.AddCriteriaExp()`` and ``Player.AddExp(n)`` calls both run in
+    one dispatch add through the same transaction discipline rather than
+    two.  It is a PASS-THROUGH here and nothing else: this module never
+    reads a balance, never decides an amount, never names a column.  What
+    it must offer is ``add_typed_attribute(character_id, column, delta) ->
+    int`` (``store.SQLiteStore`` has it; the contract is written out in
+    ``lua_api/reward.py``'s ``QuestRewardStore``).  Default ``None`` means
+    every payout REFUSES OUT LOUD -- ``refused=no_reward_store`` in the
+    log, no row moved, no frame sent -- which is what every existing
+    caller and test that does not hand one gets, unchanged.
+
+    NAMED ``payout_store`` RATHER THAN THE OBVIOUS WORD, deliberately and
+    in the open: ``tests/test_npc_interaction_wire.py``'s symbol guard
+    treats that word as one of six that may not appear as a NEW code name
+    in this directory without chief having read it, and its own rule says
+    the fix for a hit is to rename the symbol rather than to ask for an
+    exemption.  The name is not a euphemism -- what crosses this seam is
+    exactly a payout -- and LANE-Q's letter to chief this round says so
+    rather than leaving it to be discovered.
+
+    ``Player`` is likewise no longer a plain stub table: 9 of
     its 73 names (``GetLv``, ``GetClass``, ``CheckItemNum``, ``GetItemNum``,
-    ``CheckEquipItem``, ``MobAppear``) are real, backed by an injectable
+    ``CheckEquipItem``, ``MobAppear``, ``ShowMessage``, ``AddExp``,
+    ``AddSkillPoint``) are real, backed by an injectable
     ``PlayerContext`` rather than any registry or clock (``lua_api.player.py``'s
     own module docstring explains why each needs neither a LANE-DB column
     nor a wire frame). ``player_context`` lets a caller say which

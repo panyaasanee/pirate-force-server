@@ -435,6 +435,21 @@ class StatGrantTests(unittest.TestCase):
         self.assertIn("LUA_API_STUB Player.AddCash", calls)
         self.assertIn("NEGATIVE", player.STILL_STUBBED["AddCash"])
 
+    def test_the_grant_map_is_exactly_these_two_names(self):
+        """GRANT_KINDS pinned BY VALUE, not merely iterated.
+
+        pf-adversary D11 (round yfeauz): the loop below passes on an empty
+        map and on a third entry, so it could not catch a name being added
+        to the paying set without anyone reading the corpus for its sign --
+        which is the whole reason AddCash is not in it.
+        """
+        from pirateforce_foundation.lua_api import quest_criteria
+
+        self.assertEqual(player.GRANT_KINDS, {
+            "AddExp": quest_criteria.KIND_EXP,
+            "AddSkillPoint": quest_criteria.KIND_SKILL_POINT,
+        })
+
     def test_every_grant_kind_maps_to_a_column_this_lane_can_pay(self):
         from pirateforce_foundation.lua_api import reward
         for name, kind in player.GRANT_KINDS.items():
