@@ -72,16 +72,40 @@ documented hypothesis, not a claim that ids 2/3 mean ISLAND unconditionally.
 """
 from __future__ import annotations
 
+import struct
 import sys
 
 from . import hook
 from .. import world_island_dock_table as islands
+
+# `world_m2_trigger_vital_response` IS IMPORTED LAZILY, INSIDE
+# `guard_verdict_line`, AND THAT IS NOT A STYLE CHOICE.  That module already
+# imports `M2_OBSERVED_ISLAND_TRIGGER_IDS` FROM THIS ONE, so a module-level
+# import here closes a cycle: measured, this exact spelling produced
+# `LANE_HOOK_DISCOVERY ... IMPORT_FAILED ImportError(... partially
+# initialized module ...)` for BOTH this hook and
+# `lane_q_trigger_vital_dispatch`, i.e. the frame log this round is building
+# on would have stopped printing at all.  A round that moves this import to
+# the top of the file breaks two lanes' hooks at boot and the console says so
+# on the discovery lines, not in a traceback.
 
 
 production_allowed = True
 
 POINT = "vital_inbound_trigger_vital"
 TOKEN = "LANE_A_TRIGGER_VITAL"
+# A SECOND token, deliberately not the same string: the first line reports
+# WHAT ARRIVED and has done so since round `zsctq7`; this one reports WHAT
+# THE GUARD DECIDED about it and is new.  A grader grepping for either one
+# must not accidentally match the other, and a GT ticket citing
+# `HEADLESS_PROOF:` cites this one.
+GUARD_TOKEN = "LANE_A_M2_GUARD"
+# The `source` this hook stamps on the reading it builds.  Named for the
+# HOOK, not for a capture: the module's own tests use `RE-298` for readings
+# quoted out of that letter, and a reading assembled here came off the live
+# wire in this process, which is a different provenance and must be legible
+# as one in any log.
+GUARD_READING_SOURCE = "lane_a_island_trigger_log"
 
 # The trigger id rides in a tag 0x0F (u16 LE) field.  PROVEN STATICALLY, not
 # inferred from the capture: pf_bridge/external/PF_SERIALIZER_FIELDS.tsv gives
@@ -198,6 +222,130 @@ def first_tag_value(payload: bytes, tag: int) -> int | None:
     return None
 
 
+# The three coordinates ride in tag 0x2A (f32 LE) fields, orders 4/5/6 of
+# the SAME serializer row block the trigger id comes from -- so reading them
+# needs NO new tag width and no walk past a 0x12.  The previous round's plan
+# said `_TAG_WIDTHS[0x12] = 2` would be needed here; it is not, and adding it
+# would undo the reason that tag is deliberately absent (walking into the
+# NEXT vital and reporting its 0x0F as a trigger id).  Measured on this
+# module's own R307 fixture: the nested payload is
+# `0F <u16 id> 0B 04 2A <f32 x> 2A <f32 y> 2A <f32 z>` and any `12 ...`
+# comes after all three.
+POSITION_TAG = 0x2A
+POSITION_FIELDS = 3
+
+
+def position_after_trigger_id(payload: bytes) -> "tuple[float, float, float] | None":
+    """The ship position carried by a TriggerVital payload, or ``None``.
+
+    ``None`` -- never an exception, never a guess -- when the payload does
+    not walk cleanly, when the trigger id is not reached first, or when
+    fewer than three 0x2A fields follow it.  A partial position is not a
+    position: two coordinates and a missing third would put the ship at
+    whatever the caller's default third axis is, and pf-adversary's D2
+    against the previous round is precisely what a missing axis costs.
+    """
+    i = 0
+    end = len(payload)
+    seen_trigger_id = False
+    found: list[float] = []
+    while i < end:
+        code = payload[i]
+        i += 1
+        width = _TAG_WIDTHS.get(code)
+        if width is None:
+            if code in _TAG_LENGTH_PREFIXED:
+                if i + 4 > end:
+                    return None
+                size = int.from_bytes(payload[i:i + 4], "little")
+                i += 4
+                if size > end - i:
+                    return None
+                i += size
+                continue
+            return None
+        if i + width > end:
+            return None
+        field = payload[i:i + width]
+        i += width
+        if code == TRIGGER_ID_TAG and not seen_trigger_id:
+            seen_trigger_id = True
+            continue
+        if seen_trigger_id and code == POSITION_TAG:
+            found.append(struct.unpack("<f", field)[0])
+            if len(found) == POSITION_FIELDS:
+                return (found[0], found[1], found[2])
+    return None
+
+
+def _scene_id_of(session: object) -> "int | None":
+    """The scene the session is standing in, or ``None``, never a raise.
+
+    Walks ``session.foundation.selected.position.scene_id``, the path
+    ``runtime.py`` itself uses to compare a session's scene.  EVERY step is
+    optional on purpose: this hook runs on an inbound frame, and a hook that
+    raises on a half-built session turns a printed verdict into one swallowed
+    ``LANE_HOOK ... ERR`` line with nothing in it.  A missing scene is
+    printed as ``scene=?`` and the guard is asked with ``None``, which tier 1
+    refuses BY NAME -- which is the honest answer, not a skipped line.
+    """
+    node: object = session
+    for attribute in ("foundation", "selected", "position", "scene_id"):
+        node = getattr(node, attribute, None)
+        if node is None:
+            return None
+    return node if type(node) is int else None
+
+
+def guard_verdict_line(
+    scene_id: object, trigger_id: object, position: "tuple[float, float, float] | None"
+) -> str:
+    """The console line that says what the M2 island guard decided.
+
+    THIS IS THE LINE M2 HAS BEEN MISSING.  Until now
+    ``world_m2_trigger_vital_response`` decided nothing anybody could see:
+    nothing in ``src/`` imported it, so every round of this lane could only
+    argue about the module's tests.  This line runs the REAL guard against
+    the REAL bytes of a REAL inbound frame and prints the verdict, so a
+    headless boot in the target scene produces a token, and the token is
+    what a GT ticket cites under ``HEADLESS_PROOF:``.
+
+    IT STILL SENDS NOTHING.  The verdict is printed and dropped; no frame is
+    composed, no session state is touched, and ``bytes_out=0`` stays true of
+    this hook.  `PANYA 1910` forbids sending a guessed frame, and the frame
+    that opens the captain-report window is exactly what the RE ticket this
+    round wrote (`notes_to_chief/20260907_1932_LANE-A-TO-K-re-body-*`) is
+    asking for.  A verdict on the console is not a frame on the wire.
+
+    ``verdict=PASS`` means all three tiers passed: the session is in a scene
+    the guard admits, the id is a candidate, and the ship position falls
+    inside THE COMMITTED BOX OF THAT ID.  Anything else is the NAMED reason
+    of the first tier that refused, verbatim -- the module never returns an
+    unnamed refusal and never raises.
+    """
+    from .. import world_m2_trigger_vital_response as m2guard
+
+    if position is None:
+        shown = "?"
+        reading: object = None
+    else:
+        shown = ",".join(f"{axis:.2f}" for axis in position)
+        reading = m2guard.IslandContactEvidence(
+            discriminator=m2guard.ISLAND_CONTACT_DISCRIMINATOR,
+            x=position[0],
+            y=position[1],
+            z=position[2],
+            source=GUARD_READING_SOURCE,
+        )
+    reason = m2guard.answer_guard_reason(scene_id, trigger_id, reading)
+    verdict = "PASS" if reason is None else reason
+    scene_shown = scene_id if type(scene_id) is int else "?"
+    return (
+        f"{GUARD_TOKEN} scene={scene_shown} id={trigger_id} pos={shown}"
+        f" verdict={verdict} bytes_out=0"
+    )
+
+
 def console_line(payload: bytes) -> str:
     """The exact ASCII line this hook prints for ``payload``.  Never raises.
 
@@ -236,6 +384,22 @@ def _on_trigger_vital(session: object = None, payload: object = b"", **_ignored)
     # the one outcome this hook exists to prevent.
     if isinstance(payload, (bytes, bytearray, memoryview)):
         raw = bytes(payload)
+        print(console_line(raw), file=sys.stderr)
+        # The verdict line is SECOND and separate. If the guard ever grows a
+        # way to raise -- it promises not to, on any of its three arguments,
+        # and its own tests pin that -- the "what arrived" line has already
+        # been printed and the frame is still visible on the console. The
+        # order is the evidence rule in code: what was observed, then what
+        # was decided about it, never one standing in for the other.
+        print(
+            guard_verdict_line(
+                _scene_id_of(session),
+                first_tag_value(raw, TRIGGER_ID_TAG),
+                position_after_trigger_id(raw),
+            ),
+            file=sys.stderr,
+        )
+        return
     else:
         # Untrusted-input coercion, same posture as the census call site:
         # a non-bytes payload is a call-site bug, and the line that says so
@@ -247,4 +411,3 @@ def _on_trigger_vital(session: object = None, payload: object = b"", **_ignored)
             file=sys.stderr,
         )
         return
-    print(console_line(raw), file=sys.stderr)

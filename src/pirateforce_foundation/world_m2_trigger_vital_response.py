@@ -398,9 +398,21 @@ extent table BY THE WIRE ID, which is what
 `M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` records.  What stays true is the
 paragraph above it: the DESTINATION a wire id names is still unmeasured,
 and this module still does not answer that.  Reverting remains one line --
-put ``ISLAND_CONTACT_DISCRIMINATOR`` back to ``None`` -- and still costs no
-caller, because item 4(b) leaves both candidate slots empty and nothing in
-`src/` imports this module.
+put ``ISLAND_CONTACT_DISCRIMINATOR`` back to ``None`` -- and costs no
+caller a frame, because item 4(b) leaves both candidate slots empty.
+
+THIS MODULE HAS A PRODUCTION IMPORTER SINCE ROUND `p7rob4`, AND THE
+SENTENCE THAT SAID IT DOES NOT IS GONE FROM BOTH PLACES IT APPEARED.
+``lane_hooks/lane_a_island_trigger_log.py`` imports ``answer_guard_reason``
+and ``IslandContactEvidence`` (lazily, inside ``guard_verdict_line`` --
+that module imports ``M2_OBSERVED_ISLAND_TRIGGER_IDS`` back out of the
+hook, and a top-level import here closes the cycle and kills both lanes'
+hooks at boot) and PRINTS the verdict for every inbound ``0x1FB2`` frame.
+Reverting the discriminator would therefore change what that console line
+says -- from a possible ``verdict=PASS`` back to
+``CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED`` on every frame -- and
+nothing else.  NO FRAME IS COMPOSED OR SENT by that importer: the hook is
+report-only by construction and its own tests assert ``actions == []``.
 """
 from __future__ import annotations
 
@@ -1857,11 +1869,21 @@ def candidate_for_trigger_id(
     function and from ``_registered_count`` -- see those two for the
     posture and for which of them validates unconditionally.
 
-    No production call site passes anything to any of this: repo-wide grep
-    for this module's name finds importers only in its own test file.  That
-    claim rests on "nothing in `src/` imports this module", not on a keyword
-    spelling -- and since this round it no longer has to, because there is
-    no keyword left to spell.
+    ONE PRODUCTION CALL SITE PASSES TO THIS, SINCE ROUND `p7rob4`, AND THE
+    SENTENCE HERE USED TO SAY THERE WERE NONE.  Repo-wide grep for this
+    module's name now finds its own test file AND
+    ``lane_hooks/lane_a_island_trigger_log.py``, which calls
+    ``answer_guard_reason`` on every inbound ``0x1FB2`` frame and prints
+    the verdict on stderr as ``LANE_A_M2_GUARD ... verdict=...``.  What
+    that importer does NOT do is send: it composes no frame, queues no
+    bytes and touches no session state, and its tests assert
+    ``actions == []`` through the real dispatcher.  So the OLD claim
+    ("nothing in `src/` imports this module") is retired, and what stands
+    in its place is narrower and still true: NOTHING IN `src/` TURNS THIS
+    MODULE'S ANSWER INTO A FRAME.  That is the line `PANYA 1910` draws,
+    and the RE ticket asking which inbound vital opens the captain-report
+    window (`pf_bridge/notes_to_chief/20260907_1932_LANE-A-TO-K-re-body-*`)
+    is what has to land before it can move.
     """
     return _candidate_for_trigger_id(
         current_scene_id, wire_trigger_id, island_contact
