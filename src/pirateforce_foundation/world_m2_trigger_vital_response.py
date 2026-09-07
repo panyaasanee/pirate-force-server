@@ -235,7 +235,11 @@ WHAT THIS MODULE DOES NOT CLAIM
 
 THE SEAM, NAMED HONESTLY (for chief, one round out)
 -----------------------------------------------------
-``runtime.py:8692``'s TRIGGER_VITAL branch always does:
+``runtime.py``'s TRIGGER_VITAL branch -- the one whose body spells
+``lane_hooks.fire("vital_inbound_trigger_vital", ...)``, which is how to
+find it, because every LINE NUMBER this docstring used to carry had rotted
+by the time anyone came back to check (all four were re-measured and all
+four pointed at unrelated statements) -- always does:
 
     self.rx_frames += 1
     lane_hooks.fire("vital_inbound_trigger_vital", session=self,
@@ -260,7 +264,8 @@ the contrast case.  The real contrast is the ``legacy.CREATE_ACTOR_VITAL``
 branch a little further up, which builds its return list from a DIRECT call
 (``self.foundation.create(...)``) and returns
 ``[("FOUNDATION_CREATE_COMMITTED", pc, frame, 0.10)]`` at
-``runtime.py:8676`` -- ``FOUNDATION_CREATE`` is not an identifier in that
+the single ``return [("FOUNDATION_CREATE_COMMITTED", pc, frame, 0.10)]``
+in ``runtime.py`` -- ``FOUNDATION_CREATE`` is not an identifier in that
 file, it is the head of that action-label string, and an earlier draft of
 this paragraph named it as if it were the branch.  This package
 already has a house shape for "a lane needs to hand a value back to
@@ -284,7 +289,9 @@ wiring is one paragraph chief can act on the day it does, not a rediscovery.
 WHAT A CANDIDATE LETTER MUST CITE -- AND WHY VA + VITAL ID + BYTES IS NOT ENOUGH
 ----------------------------------------------------------------------------------
 That branch returns 4-tuples, ``(label, pc, frame, delay)``
-(``runtime.py:8634``, ``8641``, ``8676``).  ``CandidateFrame`` carries three
+(the ``return [("<LABEL>", pc, frame, <delay>)]`` shape in ``runtime.py``;
+``FOUNDATION_CREATE_COMMITTED`` is the one this paragraph is about).
+``CandidateFrame`` carries three
 things and NONE of them is ``pc``: ``va`` is a disassembly symbol in the
 CLIENT binary, not a server-side program counter, and there is no label and
 no delay in it either.  Whoever wires this seam would have to invent those
@@ -557,10 +564,11 @@ def _is_a_wire_int(value: object) -> bool:
     guards cite and whose scene constant it imports, refuses int subclasses
     (`type(x) is not int or isinstance(x, bool)`), and the isinstance
     spelling made the STRICTER of this file's two guards LOOSER.
-    (`runtime.py:4419` was cited here as a second witness in this round's
-    first draft; pf-adversary measured it and it is NOT one -- it is
-    `_gm_warp_target_unknown_reason`, whose own docstring says it never
-    gates anything and only names things after the fact.  A diagnostic label
+    (`runtime.py`'s `_gm_warp_target_unknown_reason` was cited here as a
+    second witness in the previous round's
+    first draft; pf-adversary measured it and it is NOT one -- that
+    function's own docstring says it never gates anything and only names
+    things after the fact.  A diagnostic label
     is not a guard, and stacking the two was mixing evidence layers.
     Withdrawn rather than quietly dropped.)
     The house has both spellings in it -- roughly 283 `type(...) is int` and
@@ -623,9 +631,27 @@ def _is_a_wire_int(value: object) -> bool:
     return type(value) is int
 
 
-def trigger_id_guard_reason(wire_trigger_id: object) -> str | None:
+def _trigger_id_guard_reason(wire_trigger_id: object) -> str | None:
     """``None`` when ``wire_trigger_id`` is one of ``CANDIDATE_TRIGGER_IDS``;
     otherwise the NAMED reason it is not.
+
+    PRIVATE, AND THE LAST NAME IN THIS FILE TO BECOME SO.  It shipped
+    public, answering candidacy from the wire id ALONE, which is exactly
+    what `COO-DECISION 20260907_0405` item 1 forbids.  The test that exists
+    to catch that shape --
+    ``test_no_public_name_answers_candidacy_from_the_wire_id_alone`` --
+    did catch it, and the round that wrote the test spent the finding on an
+    ``allowed_id_only`` allowlist naming this function.  An allowlist entry
+    is not a closed hole: it makes the ONE offender legal by name while
+    leaving the door it came through open, and the next offender only has
+    to be added to the same set.  The leading underscore is the fix, the
+    allowlist is deleted, and the rule now has no exceptions at all.
+
+    Nothing outside this module called it (measured across both
+    repositories at rename time: this file and its test file, no ``src/``,
+    no ``gm/``, no ``lane_hooks/``, no ``tools/``), so the rename cost no
+    caller.  ``answer_guard_reason`` -- which takes the scene id first --
+    remains the public way to get this refusal by name.
 
     Same strict-on-type posture as ``world_m2_survey_plan.scene_guard_
     reason`` (bool rejected explicitly, since it subclasses ``int`` in
@@ -657,7 +683,7 @@ def scene_guard_reason(current_scene_id: object) -> str | None:
     Type test is ``_is_a_wire_int`` -- see there for why the file now has
     one spelling of that question instead of four, and for what changed
     (an ``int`` subclass such as an ``IntEnum`` valued 126 is now accepted
-    here, as it already was in ``trigger_id_guard_reason``).  Never raises.
+    here, as it already was in ``_trigger_id_guard_reason``).  Never raises.
     """
     if not _is_a_wire_int(current_scene_id):
         return SCENE_REFUSED_NOT_AN_INT
@@ -783,7 +809,7 @@ def answer_guard_reason(
     scene_reason = scene_guard_reason(current_scene_id)
     if scene_reason is not None:
         return scene_reason
-    trigger_reason = trigger_id_guard_reason(wire_trigger_id)
+    trigger_reason = _trigger_id_guard_reason(wire_trigger_id)
     if trigger_reason is not None:
         return trigger_reason
     return _tier3_contact_reason(island_contact)
@@ -805,7 +831,7 @@ def _tier2_id_is_a_candidate(wire_trigger_id: object) -> bool:
     alone is private.  `COO-DECISION 20260907_0405` item 1 says the same
     thing as a rule: no overload that takes the id by itself.
     """
-    return trigger_id_guard_reason(wire_trigger_id) is None
+    return _trigger_id_guard_reason(wire_trigger_id) is None
 
 
 def _table_for(
@@ -851,7 +877,7 @@ def candidate_for_trigger_id(
     warned about.  There is no id-only overload on purpose: this is the
     ONLY public function in this file that answers with a frame, and the
     only public one that takes the wire id at all takes the scene id
-    first.  ``_tier2_id_is_a_candidate`` and ``trigger_id_guard_reason``
+    first.  ``_tier2_id_is_a_candidate`` and ``_trigger_id_guard_reason``
     are tier-2 views, and the first of them is private for that reason.
 
     ``None`` covers every refusal without distinguishing them for the caller
