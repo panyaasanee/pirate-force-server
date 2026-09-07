@@ -38,6 +38,7 @@ queued and not run.
 """
 from __future__ import annotations
 
+import ast
 import dataclasses
 from dataclasses import replace
 import hashlib
@@ -770,14 +771,13 @@ class ScenarioGateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 require_skill_attr_hypothesis_scenario(bad)
 
-    def test_the_declared_class_is_none_and_says_so_everywhere(self):
+    def test_the_declared_class_is_none_and_the_bytes_agree(self):
         # chief letter pf_bridge/notes_to_chief/20260907_1109_FROM_CHIEF-to-
         # LANE-CS-class-gate-needs-one-field.md asked for ONE field so the
-        # dispatcher's class gate can read a number this module declares.
-        # Today the sweep declares nothing, and that is a statement about
-        # the bytes: neither pinned variant is built from a class's skill
-        # rows.  This test is what turns red the day someone sets the
-        # declaration without changing the step records with it.
+        # class gate he writes next can read a number this module declares.
+        # Today the sweep declares nothing.  The literal assertions below are
+        # not the point -- test_the_declaration_cannot_disagree_with_the_step
+        # _records is -- but the pin's own value has to be stated somewhere.
         scenario = load_skill_attr_hypothesis_scenario(SCENARIO_PATH)
         self.assertIsNone(SKILL_ATTR_PROBE_CHARACTER_CLASS_ID)
         self.assertIsNone(scenario.character_class_id)
@@ -785,14 +785,12 @@ class ScenarioGateTests(unittest.TestCase):
             require_skill_attr_hypothesis_scenario(scenario)
             .character_class_id
         )
-        # And the module still imports nothing from its own package: the
-        # declaration is a value it carries, not a lookup it performs, so
-        # the containment shape this lane was built with is unchanged.
-        source = (SRC_ROOT / "skill_attr_hypothesis.py").read_text(
-            encoding="utf-8",
-        )
-        self.assertNotIn("from .", source)
-        self.assertNotIn("from pirateforce_foundation", source)
+        # The opt-in file authorises the declaration like every other
+        # dispatch property, so changing it by hand without changing the
+        # committed token is refused by the loader, not accepted silently.
+        body = json.loads(SCENARIO_PATH.read_text(encoding="utf-8"))
+        self.assertIn("character_class_id", body["dispatch"])
+        self.assertIsNone(body["dispatch"]["character_class_id"])
         # ... and the field really is on the dataclass, defaulted, so
         # setting it later is a one-line change and not a signature break.
         fields = {
@@ -802,12 +800,94 @@ class ScenarioGateTests(unittest.TestCase):
         self.assertIn("character_class_id", fields)
         self.assertIsNone(fields["character_class_id"].default)
 
+    def test_the_module_still_imports_nothing_from_its_own_package(self):
+        # The declaration is a value this module CARRIES, not a lookup it
+        # performs; that is why the class-table checks live in this file.
+        # Walk the AST rather than grepping for "from ." -- a string search
+        # both misses `import pirateforce_foundation.x` / importlib and
+        # trips over ordinary prose like "read from .json" in a file that is
+        # mostly prose (pf-adversary, round s425vn).
+        source = (SRC_ROOT / "skill_attr_hypothesis.py").read_text(
+            encoding="utf-8",
+        )
+        imported = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    imported.add("." * node.level + (node.module or ""))
+                else:
+                    imported.add(node.module or "")
+        self.assertEqual(
+            sorted(
+                name for name in imported
+                if name.startswith(".")
+                or name.split(".")[0] == "pirateforce_foundation"
+            ),
+            [],
+        )
+        self.assertNotIn("importlib", source)
+
+    def test_the_declaration_cannot_disagree_with_the_step_records(self):
+        """The check that makes the declaration a fact and not a label.
+
+        A sweep whose step records carry a class's REAL starting skill ids
+        while the declaration stays None is the failure the whole
+        CORE-REQUEST chain exists to prevent: chief's gate would read None,
+        stay silent, and one class's skill ids would go to a character of any
+        class.  Nothing in the module can see that -- it never reads the
+        class table -- so it is caught here, on every value of the pin.
+
+        Two rules, because the committed table has two kinds of id.  Measured
+        from CHARCREATE_CLASS: all five classes share ids 111, 99 and 110,
+        and each has exactly ONE id of its own (40000 Gladiator, 43000
+        Paladin, 41000 Sniper, 42000 Necromancer, 44000 Sorcerer).  So a
+        shared id names no class and an exclusive id names exactly one.
+        """
+        declared = SKILL_ATTR_PROBE_CHARACTER_CLASS_ID
+        carried = set()
+        for label in SKILL_ATTR_STEP_ORDER:
+            for record in SKILL_ATTR_STEP_RECORDS[label]:
+                carried.update(
+                    (record.key, record.opaque_u16, record.opaque_u32)
+                )
+        self.assertTrue(class_catalog.CLASS_IDS)
+        kits = {
+            class_id: set(class_catalog.starting_skill_ids(class_id))
+            for class_id in class_catalog.CLASS_IDS
+        }
+        shared = set.intersection(*kits.values())
+        self.assertTrue(shared)
+        # rule 1 -- an id no other class has names its class, so the
+        # declaration must be that class and not anything else
+        for class_id, kit in kits.items():
+            exclusive = kit - shared
+            self.assertTrue(exclusive, class_id)
+            with self.subTest(class_id=class_id):
+                overlap = carried & exclusive
+                if overlap and declared != class_id:
+                    self.fail(
+                        "the step records carry %s, which belong to class "
+                        "%d alone, while the sweep declares %r"
+                        % (sorted(overlap), class_id, declared)
+                    )
+        # rule 2 -- records carrying the whole shared trio are carrying a
+        # real starting kit even when no exclusive id is among them, and a
+        # real kit may not travel undeclared
+        if shared <= carried and declared is None:
+            self.fail(
+                "the step records carry every shared starting skill id %s "
+                "-- a real starting kit -- while the sweep declares nothing"
+                % sorted(shared)
+            )
+
     def test_a_declared_class_must_be_a_real_positive_class_id(self):
-        # The guard runs against the PINNED profile, so drive it by moving
-        # the pin -- the caller can never get a different object past the
-        # equality check above.  Every value here would make the
-        # dispatcher's class gate compare against nonsense; 0 is the nasty
-        # one, because it reads as "declared" while matching no real class.
+        # Every value here would make a class gate compare against nonsense;
+        # 0 is the nasty one, because it reads as "declared" while matching
+        # no real class.  The guard reads the object the CALLER hands in, so
+        # move the pin to keep the allowlist's equality check satisfied and
+        # hand in that same object.
         original = skill_attr_module._PROFILE_ATTR_SWEEP
         for bad in (0, -1, True, 1.0, "1"):
             with self.subTest(bad=bad):
@@ -815,15 +895,14 @@ class ScenarioGateTests(unittest.TestCase):
                     original, character_class_id=bad,
                 )
                 try:
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises(ValueError):
                         require_skill_attr_hypothesis_scenario(
                             skill_attr_module._PROFILE_ATTR_SWEEP,
                         )
                 finally:
                     skill_attr_module._PROFILE_ATTR_SWEEP = original
         # Every real class id of the committed CHARCREATE_CLASS table, and
-        # None, passes the module guard -- the guard rejects shapes, not
-        # classes.
+        # None, passes the guard -- it rejects shapes, not classes.
         for good in (None,) + class_catalog.CLASS_IDS:
             with self.subTest(good=good):
                 skill_attr_module._PROFILE_ATTR_SWEEP = replace(
@@ -839,16 +918,43 @@ class ScenarioGateTests(unittest.TestCase):
                 finally:
                     skill_attr_module._PROFILE_ATTR_SWEEP = original
         self.assertIs(skill_attr_module._PROFILE_ATTR_SWEEP, original)
-        # The table check the module deliberately does NOT do (it imports
-        # nothing from the package, see the guard docstring): the pin, if it
-        # declares anything, must name a row of that table.  It is DORMANT
-        # today and this assert says so out loud -- the pin is None, so
-        # nothing below the branch runs, and it goes live in the same commit
-        # that first sets a class.
+        # The pin itself must name a row of the committed table whenever it
+        # names anything.  This runs on every value of the pin -- it is not
+        # guarded behind an assertion that the pin is None.
         declared = original.character_class_id
-        self.assertIsNone(declared)
-        if declared is not None:  # pragma: no cover - dormant until pinned
-            self.assertTrue(class_catalog.is_known_class_id(declared))
+        self.assertTrue(
+            declared is None or class_catalog.is_known_class_id(declared),
+            declared,
+        )
+
+    def test_a_field_that_lies_about_equality_cannot_ride_the_allowlist(self):
+        """pf-adversary's round-s425vn route, closed and kept closed.
+
+        The allowlist is ``==`` on a frozen dataclass -- field-wise value
+        equality -- and ``require_`` returns the CALLER's object, which is
+        what runtime.py binds into the dispatch closure.  So a field whose
+        __eq__ answers True to anything used to compare equal to the pin and
+        ride through as the declared class.
+        """
+        class AlwaysEqual:
+            def __eq__(self, other):
+                return True
+
+            def __ne__(self, other):
+                return False
+
+            def __hash__(self):
+                return 0
+
+        evil = replace(
+            load_skill_attr_hypothesis_scenario(SCENARIO_PATH),
+            character_class_id=AlwaysEqual(),
+        )
+        # the allowlist's own equality check does NOT catch it -- said out
+        # loud, so nobody removes the guard believing this line covers it
+        self.assertTrue(evil == skill_attr_module._PROFILE_ATTR_SWEEP)
+        with self.assertRaises(ValueError):
+            require_skill_attr_hypothesis_scenario(evil)
 
     def test_this_lane_is_reachable_only_through_the_opt_in_scenario(self):
         # The two importers are named and the list is exact, so a third one
