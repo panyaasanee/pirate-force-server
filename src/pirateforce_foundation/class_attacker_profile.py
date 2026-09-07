@@ -239,6 +239,14 @@ def _headless_summary() -> tuple[str, ...]:
     ARMED rather than WIRED on purpose -- nothing in ``src/`` calls this
     module yet, and a token that said otherwise would be the exact kind of
     "named, not observed" claim ``prompts/COMMON_LANE_ROUND.md`` forbids.
+
+    ``callers_in_src=0`` IS A WRITTEN CLAIM, NOT A RUNTIME MEASUREMENT, and
+    saying so here is the point: a src module has no business scanning its
+    own package at import time.  The measurement lives in
+    ``tests/test_class_attacker_profile.py``
+    (``CallersInSrcTokenIsMeasuredTests``), which greps every sibling module
+    and fails the day this number stops matching the tree -- which is the day
+    the CORE-REQUEST filed with this round lands.
     """
     lines: list[str] = []
     for class_id in class_catalog.CLASS_IDS:
