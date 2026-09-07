@@ -15,19 +15,31 @@ Four levels, in the order a reader should doubt them:
     error as OURS (``LUA_HOST``), not as a script's (pf-adversary D11).
   * ``ResolveTests`` -- the arithmetic, the refusals, and the one thing
     this module must never do: guess a level.
+  * ``Float32RoundingTests`` -- the floor is taken of the RIGHT number.
+    ``f_EXP`` is a float32 column, so ``1.4`` reaches the mirror as
+    ``1.399999976158142`` and ``int(base * that)`` pays one short on the
+    sixteen 1.4 cells.  These tests pin the recovered decimal, name the 14
+    shipped resolutions that changed, and go red if anyone floors a binary
+    float again (COO-DECISION ``20260907_0845``: floor, but the raw
+    product stays and the rounding lives at one place).
   * ``NamespaceWiringTests`` / ``VendoredMirrorMatchesTheRealTableTests``
     -- what a script actually sees, and (under BRIDGE_GAMEDATA) that the
     copy still equals the game's own tables.
 """
+import struct
 import subprocess
 import sys
 import unittest
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 
-from pf_preconditions import BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS, SIBLING
+from pf_preconditions import (BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS,
+                             LUA_CORPUS_RUNNABLE, SIBLING)
 
 from pirateforce_foundation import script_host
-from pirateforce_foundation.lua_api import quest, quest_criteria as qc
+from pirateforce_foundation.lua_api import (dispatch, quest,
+                                            quest_criteria as qc,
+                                            spec as api_spec)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -223,10 +235,12 @@ class ResolveTests(unittest.TestCase):
 
     def test_a_fractional_product_keeps_both_the_exact_and_the_floored_value(self):
         # Which one the client uses is UNVERIFIED (module docstring), so
-        # the module hands both up instead of choosing for its callers.
+        # the module hands every view up instead of choosing for callers.
         amount = qc.resolve(qc.KIND_EXP, 1, 0.25)
         self.assertEqual(amount.base, 90)
         self.assertEqual(amount.raw, 22.5)
+        self.assertEqual(amount.exact, Decimal("22.5"))
+        self.assertIsInstance(amount.exact, Decimal)
         self.assertEqual(amount.amount, 22)
 
     def test_a_zero_multiplier_pays_zero_and_is_not_a_refusal(self):
@@ -288,7 +302,7 @@ class ResolveTests(unittest.TestCase):
         rows = dict(qc.load_reward_rows())
         broken = qc.QuestRewardRow(quest_id=999999, criteria_level=100000,
                                    cash_multiplier=1.0, exp_multiplier=1.0,
-                                   sp_multiplier=1.0)
+                                   sp_multiplier=1.0, script="Q_NOWHERE")
         rows[broken.quest_id] = broken
         original = qc._ROWS_CACHE
         qc._ROWS_CACHE = rows
@@ -369,6 +383,298 @@ class ResolveTests(unittest.TestCase):
             by_source[source].add(qc.API_KIND[name])
         self.assertEqual(by_source[qc.LEVEL_SOURCE_QUEST], set(qc.KINDS))
         self.assertEqual(by_source[qc.LEVEL_SOURCE_PLAYER], set(qc.KINDS))
+
+
+class Float32RoundingTests(unittest.TestCase):
+    """Floor is fine; flooring the wrong float is not.
+
+    Every number here is measured off the shipped mirrors by the test
+    itself -- nothing is a literal copied out of a round file.
+    """
+
+    #: The one thing in this class that IS a literal: what a human reading
+    #: ``QUESTDATA_TH__QUEST.tsv`` would say the multiplier column holds.
+    #: If the mirror ever carries a value not in this list, the recovery
+    #: is being asked to read a column nobody has looked at.
+    AUTHORED = ("0", "0.1", "0.25", "0.3", "0.5", "0.85",
+                "1", "1.4", "1.5", "2", "3", "5")
+
+    @classmethod
+    def _multipliers(cls):
+        rows = qc.load_reward_rows().values()
+        return sorted({m for row in rows for m in (row.cash_multiplier,
+                                                   row.exp_multiplier,
+                                                   row.sp_multiplier)})
+
+    def test_every_shipped_multiplier_is_exactly_a_float32(self):
+        """The evidence the recovery reads a float32 and invents nothing.
+
+        A False here means the source column is NOT float32, and
+        ``multiplier_decimal`` would be shortening a float64 on a guess.
+        """
+        for value in self._multipliers():
+            with self.subTest(value=value):
+                self.assertTrue(qc.is_exact_float32(value))
+                self.assertEqual(
+                    struct.unpack("<f", struct.pack("<f", value))[0], value)
+
+    def test_the_recovered_decimals_are_exactly_the_authored_ones(self):
+        recovered = [str(qc.multiplier_decimal(v)) for v in self._multipliers()]
+        self.assertEqual(recovered, list(self.AUTHORED))
+
+    def test_a_recovered_decimal_round_trips_back_to_the_stored_bits(self):
+        """Recovery is lossless in the direction that matters."""
+        for value in self._multipliers():
+            with self.subTest(value=value):
+                back = float(qc.multiplier_decimal(value))
+                self.assertEqual(struct.pack("<f", back),
+                                 struct.pack("<f", value))
+
+    def test_a_non_finite_multiplier_cell_is_refused_at_the_cell(self):
+        """An inf would otherwise die as OverflowError in int(Infinity),
+        which script_host prints against innocent scripts (adversary D4)."""
+        for cell in ("inf", "-inf", "nan", "1e400"):
+            with self.subTest(cell=cell):
+                with self.assertRaises(qc.QuestCriteriaError) as caught:
+                    qc._parse_float(Path("mirror.tsv"), "exp_multiplier", cell)
+                self.assertIn("not finite", str(caught.exception))
+
+    def test_a_multiplier_that_is_not_a_number_at_all_names_this_module(self):
+        """struct.error is neither OverflowError nor ValueError, and a raw
+        struct.error out of here would not be classified as ours."""
+        with self.assertRaises(qc.QuestCriteriaError):
+            qc.is_exact_float32("1.4")
+
+    def test_the_multiplier_memo_cannot_grow_without_bound(self):
+        """resolve() is public and takes an arbitrary float (adversary D8)."""
+        qc.load_reward_rows()
+        for step in range(qc._MULTIPLIER_CACHE_MAX + 50):
+            qc.multiplier_decimal(1.0 + step * 1e-6)
+        self.assertLessEqual(len(qc._MULTIPLIER_DECIMALS),
+                             qc._MULTIPLIER_CACHE_MAX)
+        # ...and it still answers correctly once full.
+        self.assertEqual(qc.multiplier_decimal(1.399999976158142),
+                         Decimal("1.4"))
+        qc.reset_caches()
+        self.assertEqual(len(qc._MULTIPLIER_DECIMALS), 0)
+
+    def test_a_float64_that_is_not_a_float32_is_returned_digit_for_digit(self):
+        """Nothing to recover -> do not shorten it on a guess."""
+        value = 0.1  # float64 0.1 is NOT the float32 in the mirror
+        self.assertFalse(qc.is_exact_float32(value))
+        self.assertEqual(qc.multiplier_decimal(value), Decimal(repr(value)))
+
+    def test_only_one_point_four_cells_moved_and_exactly_fourteen_did(self):
+        """The blast radius of this round's change, measured not asserted.
+
+        Recomputes every plain-triple resolution both ways and requires
+        that the naive float floor and the decimal floor differ ONLY on
+        cells whose multiplier recovers to 1.4 -- 0.1/0.3/0.85 widen
+        upward and never lost a unit, which is why this survived a round.
+        """
+        curve = qc.load_curve()
+        moved = []
+        for row in qc.load_reward_rows().values():
+            base_row = curve.get(row.criteria_level)
+            if base_row is None:
+                continue
+            for api, base, mult in (
+                    ("AddCriteriaCash", base_row.cash, row.cash_multiplier),
+                    ("AddCriteriaExp", base_row.exp, row.exp_multiplier),
+                    ("AddCriteriaSkillPoint", base_row.skill_point,
+                     row.sp_multiplier)):
+                amount, reason = qc.resolve_for_api(api, row.quest_id)
+                self.assertIsNone(reason)
+                naive = int(base * mult)
+                if naive != amount.amount:
+                    moved.append((row.quest_id, api, naive, amount.amount))
+                    self.assertEqual(amount.amount, naive + 1)
+                    self.assertEqual(qc.multiplier_decimal(mult),
+                                     Decimal("1.4"))
+        # 16 cells in the mirror carry 1.4; 14 of them had an integer
+        # true product and so lost a unit to the binary floor.  The other
+        # two were fractional either way, which is why the count is 14
+        # and not 16 -- measured, not rounded off in prose.
+        self.assertEqual(len(moved), 14)
+        self.assertEqual({q for q, _, _, _ in moved},
+                         {2170, 2171, 2172, 2173, 2174, 2175, 2176, 2177})
+        self.assertEqual({api for _, api, _, _ in moved},
+                         {"AddCriteriaExp", "AddCriteriaSkillPoint"})
+
+    def test_the_naive_float_floor_would_underpay_a_real_quest(self):
+        """The concrete failure this round closed, spelled out.
+
+        Quest 2170 at level 40 pays 15800 * 1.4 = 22120 experience.  The
+        mirror's float32 1.4 makes that product 22119.9996..., so
+        ``int(...)`` -- what this module did until round ``wn088m`` -- paid
+        22119.  One unit, silently, on every 1.4 quest.
+        """
+        amount, reason = qc.resolve_for_api("AddCriteriaExp", 2170)
+        self.assertIsNone(reason)
+        self.assertEqual(amount.base, 15800)
+        self.assertEqual(amount.amount, 22120)
+        self.assertEqual(int(amount.raw), 22119)  # the bug, kept as evidence
+        self.assertLess(amount.raw, 22120)
+
+    def test_rounding_lives_at_one_place_and_that_place_is_floor(self):
+        """COO-DECISION 20260907_0845, checkable rather than remembered.
+
+        The first draft of this test counted the string
+        ``to_integral_value`` and nothing else.  pf-adversary (D3, round
+        ``wn088m``) mutation-proved that useless: replacing
+        ``round_amount(exact)`` in ``resolve`` with ``int(exact)`` left the
+        whole module green, because the token still appeared once and the
+        two functions agree on every non-negative input.  So the pin is now
+        BEHAVIOURAL -- move the constant and every resolution must move
+        with it -- and the token count is kept only as a cheap second
+        signal beside it.
+        """
+        self.assertIs(qc.ROUNDING_MODE, ROUND_FLOOR)
+        self.assertEqual(qc.round_amount(Decimal("22.9")), 22)
+        self.assertEqual(qc.round_amount(Decimal("22.0")), 22)
+        self.assertEqual(qc.resolve(qc.KIND_EXP, 1, 0.25).amount, 22)
+        original = qc.ROUNDING_MODE
+        try:
+            qc.ROUNDING_MODE = ROUND_CEILING
+            self.assertEqual(qc.round_amount(Decimal("22.1")), 23)
+            self.assertEqual(qc.resolve(qc.KIND_EXP, 1, 0.25).amount, 23)
+        finally:
+            qc.ROUNDING_MODE = original
+        self.assertEqual(qc.resolve(qc.KIND_EXP, 1, 0.25).amount, 22)
+        source = (REPO_ROOT / "src" / "pirateforce_foundation" / "lua_api"
+                  / "quest_criteria.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("to_integral_value"), 1)
+
+    def test_every_resolution_is_its_own_exact_value_through_round_amount(self):
+        """No second rounding path can creep in beside the first."""
+        curve = qc.load_curve()
+        for row in list(qc.load_reward_rows().values())[:200]:
+            base_row = curve.get(row.criteria_level)
+            if base_row is None:
+                continue
+            amount, reason = qc.resolve_for_api("AddCriteriaExp", row.quest_id)
+            self.assertIsNone(reason)
+            with self.subTest(quest_id=row.quest_id):
+                self.assertEqual(
+                    amount.exact,
+                    Decimal(base_row.exp)
+                    * qc.multiplier_decimal(row.exp_multiplier))
+                self.assertEqual(amount.amount, qc.round_amount(amount.exact))
+
+    def test_the_log_line_shows_the_authored_multiplier_not_the_widened_one(self):
+        amount, _ = qc.resolve_for_api("AddCriteriaExp", 2170)
+        line = amount.log_fields()
+        self.assertIn("mult=1.4", line)
+        self.assertIn("amount=22120", line)
+        # A whole-number product does not shout an exact= nobody needs...
+        self.assertNotIn("exact=", line)
+        # ...but the float32 product the recovery acted on IS printed,
+        # because it is the only operator-visible sign that a recovery
+        # happened (pf-adversary D9, round wn088m).
+        self.assertIn("raw=22119.999623298645", line)
+        line.encode("ascii")
+
+    def test_a_fractional_reward_cannot_hide_behind_a_clean_integer(self):
+        fractional = qc.resolve(qc.KIND_EXP, 1, 0.25)
+        self.assertIn("exact=22.5", fractional.log_fields())
+        self.assertIn("amount=22", fractional.log_fields())
+
+
+
+class QuestDispatchTests(unittest.TestCase):
+    """The missing argument, supplied: a script loaded AS a quest.
+
+    Every criteria call site in the corpus has been logging
+    ``refused=no_quest_row`` for one reason -- nothing said which quest was
+    running.  ``s_LUASCRIPT`` is now mirrored, so quest id -> script is a
+    function this server can evaluate.  These tests do NOT need lupa: they
+    exercise the resolution and the context, which is where the refusal
+    came from.  The one test that actually runs Lua is guarded and lives
+    at the bottom.
+    """
+
+    def test_a_quest_id_names_exactly_one_script(self):
+        self.assertEqual(qc.script_for_quest(2170), "Q_ARCH1")
+        self.assertIsNone(qc.script_for_quest(0))
+        for row in qc.load_reward_rows().values():
+            with self.subTest(quest_id=row.quest_id):
+                self.assertTrue(row.script)
+                row.script.encode("ascii")
+
+    def test_the_reverse_direction_is_not_a_function_and_says_so(self):
+        """Why a running script can never be asked which quest it is."""
+        self.assertEqual(len(qc.quests_for_script("Q_CON1")), 160)
+        self.assertEqual(qc.quests_for_script("q_con1"),
+                         qc.quests_for_script("Q_CON1"))
+        self.assertEqual(qc.quests_for_script("no such script"), ())
+        rows = qc.load_reward_rows()
+        self.assertEqual(len({r.script for r in rows.values()}), 209)
+        self.assertEqual(len(rows), 1544)
+
+    def test_an_empty_script_cell_is_refused_not_defaulted(self):
+        """An empty name would resolve to the corpus root itself."""
+        with self.assertRaises(qc.QuestCriteriaError) as caught:
+            qc._parse_script(Path("mirror.tsv"), "   ")
+        self.assertIn("empty script name", str(caught.exception))
+
+    def test_a_dispatched_context_stops_the_refusal_the_lane_measured(self):
+        """The whole point, on a real quest id and a real amount."""
+        context = quest.QuestContext(character_id=7, quest_id=2170)
+        calls = []
+        ns = quest.build_namespace(
+            api_spec.NAMESPACE_METHODS["Quest"], calls.append, context=context)
+        ns["AddCriteriaExp"]()
+        self.assertIn("LUA_QUEST_CRITERIA Quest.AddCriteriaExp quest=2170",
+                      calls[0])
+        self.assertIn("amount=22120", calls[0])
+        self.assertNotIn("refused", calls[0])
+        # The default context still refuses, for the same honest reason.
+        default_calls = []
+        default_ns = quest.build_namespace(
+            api_spec.NAMESPACE_METHODS["Quest"], default_calls.append)
+        default_ns["AddCriteriaExp"]()
+        self.assertIn("refused=%s" % qc.REFUSE_NO_QUEST_ROW, default_calls[0])
+
+    def test_an_lv_name_still_refuses_even_with_a_quest_id(self):
+        """A quest id is not a player level, and one may not stand in for
+        the other (COO-DECISION 20260907_0845 item 2)."""
+        amount, reason = qc.resolve_for_api("AddLvCriteriaExp", 2170)
+        self.assertIsNone(amount)
+        self.assertEqual(reason, qc.REFUSE_NO_PLAYER_LEVEL)
+
+    @LUA_CORPUS_RUNNABLE.skip_unless_present()
+    def test_a_real_shipped_script_loads_as_its_quest_and_names_the_number(self):
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        calls = []
+        host = dispatch.load_quest_script(root, 2170, character_id=7,
+                                             log=calls.append)
+        self.assertIn("LUA_QUEST_DISPATCH quest=2170 character=7 "
+                      "script=q_arch1", calls[0])
+        # The entry points are the ones q_arch1.lua actually defines --
+        # Accept_Run / Report_Run, NOT "Accept"/"Report" (pf-adversary D1,
+        # round wn088m: the first draft called two names that do not exist
+        # and one that has no criteria call, so the assertion below could
+        # never have fired, and lupa's absence here hid that).  The three
+        # criteria calls of this script live in Report_Run.
+        self.assertTrue(host.has_function("Report_Run"))
+        for entry in ("Accept_Check", "Accept_Run", "Report_Check",
+                      "Report_Run"):
+            if host.has_function(entry):
+                host.call(entry)
+        criteria = [line for line in calls if "LUA_QUEST_CRITERIA" in line]
+        self.assertEqual(len(criteria), 3)
+        self.assertFalse([line for line in criteria
+                          if "refused=%s" % qc.REFUSE_NO_QUEST_ROW in line])
+
+    def test_an_unknown_quest_id_and_a_missing_corpus_each_say_which(self):
+        with self.assertRaises(dispatch.QuestDispatchError) as no_row:
+            dispatch.script_path_for_quest(REPO_ROOT, 999999)
+        self.assertIn("no row in the vendored quest mirror",
+                      str(no_row.exception))
+        with self.assertRaises(dispatch.QuestDispatchError) as no_corpus:
+            dispatch.script_path_for_quest(
+                REPO_ROOT / "no_such_corpus_dir", 2170)
+        self.assertIn("no lua corpus at", str(no_corpus.exception))
 
 
 class NamespaceWiringTests(unittest.TestCase):
@@ -473,6 +779,48 @@ class VendoredMirrorMatchesTheRealTableTests(unittest.TestCase):
                 self.assertEqual(entry.exp, int(raw["n_QUEST_EXP"]))
                 self.assertEqual(entry.cash, int(raw["n_QUEST_CASH"]))
                 self.assertEqual(entry.skill_point, int(raw["n_QUEST_SP"]))
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_the_path_is_resolved_by_stem_not_by_gluing_a_table_cell_on(self):
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        path = dispatch.script_path_for_quest(root, 2170)
+        self.assertEqual(path.name, "q_arch1.lua")
+        self.assertEqual(path.parent.name, "Quest")
+        self.assertTrue(path.is_file())
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_every_script_a_quest_names_exists_on_disk_exactly_once(self):
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        for name in sorted({r.script for r in qc.load_reward_rows().values()}):
+            with self.subTest(script=name):
+                matches = [p for p in root.rglob("*.lua")
+                           if p.stem.lower() == name.lower()]
+                self.assertEqual(len(matches), 1)
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_how_much_of_the_corpus_the_dispatcher_actually_unblocks(self):
+        """The measurement this round is allowed to claim, computed here.
+
+        1213 of the 1544 quest rows dispatch a script that calls at least
+        one criteria name; 1039 of those now resolve a real amount.  The
+        remaining 174 are the ``Lv`` triple, which refuses for want of a
+        player level and is NOT counted as unblocked.
+        """
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        text = {p.stem.lower(): p.read_text(encoding="latin-1")
+                for p in root.rglob("*.lua")}
+        with_calls = resolving = 0
+        for row in qc.load_reward_rows().values():
+            body = text.get(row.script.lower(), "")
+            used = [n for n in qc.LEVEL_SOURCE if ("Quest." + n) in body]
+            if not used:
+                continue
+            with_calls += 1
+            if any(qc.resolve_for_api(n, row.quest_id)[1] is None
+                   for n in used):
+                resolving += 1
+        self.assertEqual(with_calls, 1213)
+        self.assertEqual(resolving, 1039)
 
     @BRIDGE_LUA_SCRIPTS.skip_unless_present()
     def test_the_two_triples_of_call_sites_are_disjoint_in_the_corpus(self):

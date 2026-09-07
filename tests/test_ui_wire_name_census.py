@@ -762,24 +762,55 @@ class EvidenceIsInsensitiveToUnrelatedEditsTests(unittest.TestCase):
 
     NAME = "Community_ProbeOnlyVital"
 
-    def _hits(self, source):
+    # NOT a `ui_*` filename, and the padded shapes below are >100 lines
+    # (pf-adversary D1 on `#1005`, round `jx6r5p`). The first version of this
+    # class built every synthetic file as `ui_probe_wire.py` at <=52 lines --
+    # but ZERO of the 30 real SOURCE rows live in a `ui_*` file, and the two
+    # rows this whole change was built on sit past line 800 of an 857-line
+    # file. So four measured mutants of `_build_source_hits` that re-introduce
+    # the line number CONDITIONALLY (only for `ui_`-prefixed filenames, only
+    # for files under ~100 lines, only below line 60, only outside
+    # `src/.../ui_`) passed this class 34/34 in the `gate-windows` shape,
+    # where the two tests that DO catch them are both skipped for want of a
+    # `pf_bridge` sibling. The fixture, not the assertion, was the hole.
+    DEFAULT_MODULE = "runtime.py"
+    PAD = "X = 1\n" * 150
+
+    def _hits(self, source, module_name=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             pkg = root / "src" / "pirateforce_foundation"
             pkg.mkdir(parents=True)
-            module = pkg / "ui_probe_wire.py"
+            module = pkg / (module_name or self.DEFAULT_MODULE)
             module.write_text(source, encoding="utf-8")
             with mock.patch.object(census, "ROOT", root):
                 return census._build_source_hits({self.NAME}, [module])
+
+    def test_no_file_shape_re_introduces_a_line_number(self):
+        # One assertion over the cross product the old fixture could not see:
+        # `ui_`-prefixed and not, short and long, hit at line 1 and hit past
+        # line 150. Each of the four conditional mutants above is red here on
+        # `gate-windows`, with no sibling checkout.
+        for module_name in ("runtime.py", "ui_probe_wire.py", "delete_actor.py"):
+            for label, source in (
+                ("short", f'WIRE = "{self.NAME}"\n'),
+                ("long", self.PAD + f'WIRE = "{self.NAME}"\n'),
+            ):
+                with self.subTest(module=module_name, shape=label):
+                    evidence = self._hits(source, module_name)[self.NAME]
+                    self.assertEqual(
+                        evidence, f"src/pirateforce_foundation/{module_name}"
+                    )
+                    self.assertNotIn(":", evidence)
 
     def test_padding_above_the_hit_does_not_change_the_evidence(self):
         # The exact shape of the main-red: unrelated code grows above the
         # cited name. Evidence must be byte-identical, or the artifact drifts
         # for a reason that has nothing to do with the census.
         near = self._hits(f'WIRE = "{self.NAME}"\n')
-        far = self._hits("X = 1\n" * 50 + f'WIRE = "{self.NAME}"\n')
+        far = self._hits(self.PAD + f'WIRE = "{self.NAME}"\n')
         self.assertEqual(near, far)
-        self.assertEqual(near[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py")
+        self.assertEqual(near[self.NAME], "src/pirateforce_foundation/runtime.py")
 
     def test_padding_above_the_hit_does_not_change_a_rendered_row(self):
         # Same property one layer up, at the artifact text the drift test
@@ -802,7 +833,7 @@ class EvidenceIsInsensitiveToUnrelatedEditsTests(unittest.TestCase):
 
         self.assertEqual(
             render(f'WIRE = "{self.NAME}"\n'),
-            render('"""Docstring that grew."""\n\n' + "X = 1\n" * 30 + f'WIRE = "{self.NAME}"\n'),
+            render('"""Docstring that grew."""\n\n' + self.PAD + f'WIRE = "{self.NAME}"\n'),
         )
 
     def test_a_move_to_a_DIFFERENT_file_still_changes_the_evidence(self):
@@ -813,13 +844,169 @@ class EvidenceIsInsensitiveToUnrelatedEditsTests(unittest.TestCase):
             root = Path(tmp)
             pkg = root / "src" / "pirateforce_foundation"
             pkg.mkdir(parents=True)
-            first = pkg / "ui_probe_wire.py"
-            second = pkg / "ui_other_wire.py"
-            first.write_text("X = 1\n", encoding="utf-8")
-            second.write_text(f'WIRE = "{self.NAME}"\n', encoding="utf-8")
+            first = pkg / "delete_actor.py"
+            second = pkg / "runtime.py"
+            first.write_text(self.PAD, encoding="utf-8")
+            second.write_text(self.PAD + f'WIRE = "{self.NAME}"\n', encoding="utf-8")
             with mock.patch.object(census, "ROOT", root):
                 hits = census._build_source_hits({self.NAME}, [first, second])
-        self.assertEqual(hits[self.NAME], "src/pirateforce_foundation/ui_other_wire.py")
+        self.assertEqual(hits[self.NAME], "src/pirateforce_foundation/runtime.py")
+
+
+class SourceHitLocationTests(unittest.TestCase):
+    """``--where`` / ``source_hit_location()`` -- the supported way to recover
+    the line number the artifact stopped carrying in round `o50gly`.
+
+    Round `o50gly` deleted the line number from `evidence` and offered
+    ``grep -n "<name>" <file>`` in exchange, in three places (the commit
+    message, this tool's own comment, and `docs/UI_WIRE_COVERAGE.md`).
+    pf-adversary D2 on `#1005` measured that trade as wrong, and this lane
+    re-measured it on `82a3b54` before accepting: grep reports docstring
+    bodies and full-line comments, which the census does not count, so grep's
+    FIRST hit is a different line from the counted one on 18 of the 30 SOURCE
+    rows -- including both rows whose drift motivated the change, because
+    `gm/command_capture.py` spells `GM_RunGMCommandVital` and
+    `Activity_CheatCodeVital` in its module docstring at lines 3 and 4. The
+    documented recovery handed back exactly the prose hit rounds `9dezrf` and
+    `mg3nr4` were spent excluding.
+
+    Unguarded on purpose, like the two classes above: a synthetic tree in a
+    temp directory, no `pf_bridge` sibling, so this runs on `gate-windows`."""
+
+    NAME = "Community_ProbeOnlyVital"
+
+    # The real shape, not a toy: a module docstring frame table naming the
+    # vital near the top, and the code that actually references it far below.
+    DOCSTRING_LINE = 3
+    PROSE_HEAD = f'"""Frames handled here:\n\n    {NAME}  0x0001  5 fields\n"""\n'
+    PAD = "X = 1\n" * 150
+
+    def _tree(self, source, module_name="gm_command_capture.py"):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        pkg = root / "src" / "pirateforce_foundation"
+        pkg.mkdir(parents=True)
+        module = pkg / module_name
+        module.write_text(source, encoding="utf-8")
+        return root, module
+
+    @staticmethod
+    def _first_textual_line(module, name):
+        """What ``grep -n`` would answer: the first line containing the name,
+        counted by nobody's rule but the reader's."""
+        for lineno, line in enumerate(
+            module.read_text(encoding="utf-8").split("\n"), start=1
+        ):
+            if name in line:
+                return lineno
+        return None
+
+    def test_where_returns_the_counted_line_not_the_first_textual_line(self):
+        source = self.PROSE_HEAD + self.PAD + f'WIRE = "{self.NAME}"\n'
+        root, module = self._tree(source)
+        with mock.patch.object(census, "ROOT", root):
+            location = census.source_hit_location(self.NAME, [module])
+        self.assertIsNotNone(location)
+        relpath, lineno = location
+        self.assertEqual(relpath, "src/pirateforce_foundation/gm_command_capture.py")
+        # The line the census counted: the assignment under the padding.
+        self.assertEqual(lineno, len(self.PROSE_HEAD.split("\n")) - 1 + 150 + 1)
+        # ... and it is NOT what grep would have said. If these two ever
+        # agree on this fixture the test has stopped testing anything.
+        grep_line = self._first_textual_line(module, self.NAME)
+        self.assertEqual(grep_line, self.DOCSTRING_LINE)
+        self.assertNotEqual(grep_line, lineno)
+
+    def test_where_names_the_same_file_the_artifact_names(self):
+        # The recovery command must not be able to point at a different file
+        # from the one the evidence column carries; they share
+        # `code_token_lines` and the file order for exactly this reason.
+        source = self.PROSE_HEAD + self.PAD + f'WIRE = "{self.NAME}"\n'
+        root, module = self._tree(source)
+        with mock.patch.object(census, "ROOT", root):
+            hits = census._build_source_hits({self.NAME}, [module])
+            location = census.source_hit_location(self.NAME, [module])
+        self.assertEqual(hits[self.NAME], location[0])
+
+    def test_where_skips_a_docstring_only_name_entirely(self):
+        root, module = self._tree(self.PROSE_HEAD + "X = 1\n")
+        with mock.patch.object(census, "ROOT", root):
+            self.assertIsNone(census.source_hit_location(self.NAME, [module]))
+
+    def test_where_skips_a_full_line_comment_only_name_entirely(self):
+        root, module = self._tree(f"# see {self.NAME} for the layout\nX = 1\n")
+        with mock.patch.object(census, "ROOT", root):
+            self.assertIsNone(census.source_hit_location(self.NAME, [module]))
+
+    def test_where_takes_the_first_file_in_census_order(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        pkg = root / "src" / "pirateforce_foundation"
+        pkg.mkdir(parents=True)
+        first = pkg / "a_wire.py"
+        second = pkg / "z_wire.py"
+        first.write_text(self.PAD + f'WIRE = "{self.NAME}"\n', encoding="utf-8")
+        second.write_text(f'WIRE = "{self.NAME}"\n', encoding="utf-8")
+        with mock.patch.object(census, "ROOT", root):
+            location = census.source_hit_location(self.NAME, [first, second])
+        self.assertEqual(location, ("src/pirateforce_foundation/a_wire.py", 151))
+
+
+class MainWhereFlagTests(unittest.TestCase):
+    """``main(["--where", NAME])``'s contract: exit 0 and one `path:line` line
+    on stdout, or exit 1 and a named reason on stderr -- and neither path may
+    touch the master catalog, so a reader with no `pf_bridge` sibling can run
+    it. Unguarded, runs on `gate-windows`."""
+
+    NAME = "Community_ProbeOnlyVital"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.pkg = self.root / "src" / "pirateforce_foundation"
+        self.pkg.mkdir(parents=True)
+        # build_rows would need the sibling catalog; if --where ever starts
+        # calling it, this raises and the test says so.
+        patcher = mock.patch.object(
+            census, "build_rows", side_effect=AssertionError("--where must not build rows")
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _run(self, name):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(census, "ROOT", self.root), mock.patch.object(
+            census, "SRC_DIR", self.pkg
+        ), mock.patch("sys.stdout", out), mock.patch("sys.stderr", err):
+            code = census.main(["--where", name])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_counted_name_exits_0_and_prints_path_and_line(self):
+        (self.pkg / "runtime.py").write_text(
+            "X = 1\n" * 40 + f'WIRE = "{self.NAME}"\n', encoding="utf-8"
+        )
+        code, out, _ = self._run(self.NAME)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "src/pirateforce_foundation/runtime.py:41")
+
+    def test_a_prose_only_name_exits_1_and_says_why(self):
+        (self.pkg / "runtime.py").write_text(
+            f'"""Handles {self.NAME}."""\n\nX = 1\n', encoding="utf-8"
+        )
+        code, out, err = self._run(self.NAME)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("NOT A SOURCE ROW", err)
+        self.assertIn(self.NAME, err)
+
+    def test_an_unknown_name_exits_1_rather_than_pretending(self):
+        (self.pkg / "runtime.py").write_text("X = 1\n", encoding="utf-8")
+        code, _, err = self._run("Community_NoSuchVital")
+        self.assertEqual(code, 1)
+        self.assertIn("NOT A SOURCE ROW", err)
 
 
 if __name__ == "__main__":

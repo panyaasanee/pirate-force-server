@@ -296,7 +296,7 @@ class OneSpellingOfIsThisAnIntTests(M2RegistryIsolation):
             trigger_response.SCENE_REFUSED_NOT_AN_INT,
         )
         self.assertEqual(
-            trigger_response.trigger_id_guard_reason(self.Trigger.SPICE_PARADISE),
+            trigger_response._trigger_id_guard_reason(self.Trigger.SPICE_PARADISE),
             trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
         )
         self.assertEqual(
@@ -304,13 +304,13 @@ class OneSpellingOfIsThisAnIntTests(M2RegistryIsolation):
             trigger_response.SCENE_REFUSED_NOT_AN_INT,
         )
         self.assertEqual(
-            trigger_response.trigger_id_guard_reason(self.Counted(3)),
+            trigger_response._trigger_id_guard_reason(self.Counted(3)),
             trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
         )
         # And the plain int still passes, so the pin is on SUBCLASSES, not
         # on having broken the guard for everybody.
         self.assertIsNone(trigger_response.scene_guard_reason(126))
-        self.assertIsNone(trigger_response.trigger_id_guard_reason(3))
+        self.assertIsNone(trigger_response._trigger_id_guard_reason(3))
 
     def test_an_int_subclass_whose_eq_raises_is_answered_not_raised(self):
         # D1(a): the CONSEQUENCE, not the spelling. `type(x) is not int`
@@ -357,7 +357,7 @@ class OneSpellingOfIsThisAnIntTests(M2RegistryIsolation):
                 scene_reason = trigger_response.scene_guard_reason(value)
                 self.assertEqual(
                     scene_reason == trigger_response.SCENE_REFUSED_NOT_AN_INT,
-                    trigger_response.trigger_id_guard_reason(value)
+                    trigger_response._trigger_id_guard_reason(value)
                     == trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
                 )
 
@@ -372,7 +372,7 @@ class OneSpellingOfIsThisAnIntTests(M2RegistryIsolation):
 
     def test_bool_is_refused_by_both_even_though_it_subclasses_int(self):
         self.assertEqual(
-            trigger_response.trigger_id_guard_reason(True),
+            trigger_response._trigger_id_guard_reason(True),
             trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
         )
         self.assertEqual(
@@ -701,6 +701,107 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
         )
 
 
+class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
+    """The three survivors round `rsskp1` recorded and did not kill, plus
+    the one it created.  Each test here is red on exactly one mutant.
+
+    Recorded because a surviving mutant carried forward across rounds
+    stops being a measurement and becomes a habit.
+    """
+
+    def test_the_reading_has_no_optional_field(self):
+        """Mutant: ``source: str`` -> ``source: str = ""``.
+
+        A default turns "the reading says where it came from" into "the
+        reading MAY say where it came from", and every existing test still
+        passes because they all fill it.  What breaks is the contract:
+        an evidence object with no provenance would satisfy tier 3.
+        """
+        self.assertEqual(
+            trigger_response.IslandContactEvidence._field_defaults, {}
+        )
+        with self.assertRaises(TypeError):
+            trigger_response.IslandContactEvidence("d", 1.0, 1.0, 1.0)
+
+    def test_registered_count_counts_not_none_not_truthiness(self):
+        """Mutant: ``if table.get(i) is not None`` -> ``if table.get(i)``.
+
+        No ``CandidateFrame`` this module composes is ever falsy, so only a
+        hostile registry separates the two spellings -- which is exactly
+        why the mutant survived.  The docstring promises "not None", so
+        that is what is pinned.
+        """
+        self.assertEqual(
+            trigger_response.registered_count(registry={2: 0, 3: None}), 1
+        )
+
+    def test_a_malformed_extent_row_is_skipped_not_unpacked(self):
+        """pf-adversary: a five-field typo in ``ISLAND_EXTENT_BOXES`` raised
+        ``ValueError: not enough values to unpack`` out of
+        ``candidate_for_trigger_id``, whose caller is promised a named
+        refusal and never an exception.  `RE-289`'s answer arrives as
+        hand-transcribed floats, so this is the likely typo, not an exotic
+        one.  A good row alongside a bad one must still work.
+        """
+        reading = trigger_response.IslandContactEvidence(
+            "bg3001_extent", 5.0, 5.0, 5.0, "attended"
+        )
+        trigger_response.ISLAND_CONTACT_DISCRIMINATOR = "bg3001_extent"
+        trigger_response.ISLAND_EXTENT_BOXES[1] = (0.0, 0.0, 0.0, 10.0, 10.0)
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, reading),
+            trigger_response.CONTACT_REFUSED_OPEN_WATER,
+        )
+        trigger_response.ISLAND_EXTENT_BOXES[2] = (
+            0.0, 0.0, 0.0, 10.0, 10.0, 10.0,
+        )
+        self.assertIsNone(
+            trigger_response.answer_guard_reason(SEA, 3, reading)
+        )
+
+    def test_the_module_side_discriminator_refuses_a_str_subclass(self):
+        """pf-adversary, THIRD sighting of the same bug, this time against
+        this round's own committed head.
+
+        The first two sightings were on the READING's side and were fixed
+        with ``type(...) is``.  Step 1 -- the MODULE CONSTANT's side -- was
+        still ``isinstance``, so a ``str`` subclass assigned to
+        ``ISLAND_CONTACT_DISCRIMINATOR`` reached the ``!=`` at step 3; and
+        because Python tries the RIGHT operand's ``__ne__`` first when its
+        type subclasses the left's, that subclass's ``__ne__`` ran.  A
+        subclass that raises there falsified this function's "never raises"
+        promise from the one side both earlier fixes had not looked at.
+
+        Not wire-reachable today (the constant is ``None``).  Armed for the
+        round that answers `RE-289`, where a named measurement is exactly
+        the shape a ``str`` subclass would arrive in.
+        """
+
+        class Boom(str):
+            def __ne__(self, other):
+                raise ValueError("the module side must never reach here")
+
+            def __eq__(self, other):
+                raise ValueError("the module side must never reach here")
+
+            def __hash__(self):
+                return 0
+
+        trigger_response.ISLAND_CONTACT_DISCRIMINATOR = Boom("bg3001_extent")
+        reading = trigger_response.IslandContactEvidence(
+            "bg3001_extent", 1.0, 1.0, 1.0, "attended"
+        )
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, reading),
+            trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
+        )
+        self.assertIsNone(
+            trigger_response.candidate_for_trigger_id(
+                SEA, 3, island_contact=reading
+            )
+        )
+
+
 class FieldOrderIsTheContractTests(M2RegistryIsolation):
     """pf-adversary D3: `CandidateFrame`'s field ORDER was unpinned --
     swapping `va` and `vital_id` in the NamedTuple left 42 tests passing,
@@ -866,7 +967,7 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
 
     def test_a_non_m2_trigger_id_is_named_refused(self):
         self.assertEqual(
-            trigger_response.trigger_id_guard_reason(7),
+            trigger_response._trigger_id_guard_reason(7),
             trigger_response.TRIGGER_ID_REFUSED_NOT_M2,
         )
 
@@ -884,7 +985,7 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
 
     def test_a_non_int_trigger_id_is_named_refused(self):
         self.assertEqual(
-            trigger_response.trigger_id_guard_reason("2"),
+            trigger_response._trigger_id_guard_reason("2"),
             trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
         )
 
@@ -893,7 +994,7 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
         # id 1 (which is not one of CANDIDATE_TRIGGER_IDS anyway, but the
         # refusal must be the TYPE reason, not the membership reason).
         self.assertEqual(
-            trigger_response.trigger_id_guard_reason(True),
+            trigger_response._trigger_id_guard_reason(True),
             trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
         )
 
@@ -905,39 +1006,310 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
 
     def test_no_public_name_answers_candidacy_from_the_wire_id_alone(self):
         """`COO-DECISION 20260907_0405` item 1: no overload that takes the
-        trigger id by itself.
+        trigger id by itself.  THE ALLOWLIST IS GONE; the rule now has no
+        exceptions.
 
         pf-adversary, run against the round that shipped the three tiers,
         found the file breaking that rule while claiming to keep it: a public
         ``is_candidate_trigger_id(wire_trigger_id)`` sat one import line away
         from the guard, its own docstring offering itself to "a caller that
-        only ever needed yes/no", and a test pinned its ``True``.  Renaming it
-        fixes today; this test is what stops it coming back under a new name.
+        only ever needed yes/no".  That name was made private -- and the
+        round that did it left ``trigger_id_guard_reason``, a SECOND public
+        id-only name, standing, and passed this test by writing that name
+        into an ``allowed_id_only`` set.  An allowlist entry does not close a
+        door; it makes one offender legal and leaves the door open, and the
+        next offender only has to be added to the set.  Both names are
+        private now and the set is deleted.
 
-        The rule pinned here is narrow and mechanical, so it cannot rot into
-        a slogan: a PUBLIC callable defined in this module whose parameters
-        mention the wire trigger id must also take ``current_scene_id``.
-        ``trigger_id_guard_reason`` is the deliberate exception and is named
-        here, once, so that adding a second exception is an edit to this list
-        rather than a silent pass.
+        TWO PRONGS, both mechanical, neither one a name:
+
+        1. SHAPE.  A public callable defined in this module that takes ANY
+           caller-supplied value must be TIER-ORDERED: ``current_scene_id``
+           first.  "Any caller-supplied value" is every parameter except
+           ``registry``, which is this module's one test-only seam and is
+           refused loudly by name (see
+           ``TheTwoArgumentsGetOppositePosturesTests``).  This prong does not
+           read the parameter's NAME for the id, so re-introducing the
+           offender as ``f(trig)`` or ``f(n)`` does not slip past it -- the
+           previous spelling only looked for the literal ``wire_trigger_id``
+           and would have.
+        2. REACH.  A public callable that is not tier-ordered must not be
+           able to consult the deciding predicates at all.  Measured from the
+           code object (recursively, so a nested function or comprehension
+           cannot hide the call), not from the source text.
+
+        ``registered_count(registry=None)`` is the one public callable that
+        is not tier-ordered, and it passes both prongs on its shape rather
+        than on its name: its only parameter is the registry, so no caller
+        can hand it an id, and it reaches none of the three predicates.
         """
+        import functools
         import inspect
+        import types as _types
 
-        allowed_id_only = {"trigger_id_guard_reason"}
-        offenders = []
+        DECIDERS = {
+            "_trigger_id_guard_reason",
+            "_tier2_id_is_a_candidate",
+            "answer_guard_reason",
+            "CANDIDATE_TRIGGER_IDS",
+        }
+        TIER_1 = "scene_guard_reason"
+
+        def reachable_names(code):
+            found = set(code.co_names)
+            for const in code.co_consts:
+                if isinstance(const, _types.CodeType):
+                    found |= reachable_names(const)
+            return found
+
+        def bodies(obj, depth=0):
+            """Every code object a caller reaches by CALLING ``obj``.
+
+            Not ``inspect.isfunction`` and not ``__module__``: pf-adversary
+            walked four shapes straight past both of those -- a public
+            INSTANCE with ``__call__`` (``vars(instance)`` is empty), a
+            ``functools.partial`` (no ``__module__`` at all), a module-level
+            ``staticmethod``, and a re-export from a sibling module (whose
+            ``__module__`` is the sibling's).  Each one handed a caller
+            ``module.name(3)`` -- one import line, one argument -- which is
+            the exact shape RE-234 item (3) exists to forbid.
+            """
+            if depth > 4:
+                return []
+            if isinstance(obj, (staticmethod, classmethod)):
+                return bodies(obj.__func__, depth + 1)
+            if isinstance(obj, functools.partial):
+                return bodies(obj.func, depth + 1)
+            wrapped = getattr(obj, "__wrapped__", None)
+            if wrapped is not None:
+                return bodies(wrapped, depth + 1)
+            if inspect.isfunction(obj) or inspect.ismethod(obj):
+                return [obj.__code__]
+            if inspect.isclass(obj):
+                out = []
+                for member in vars(obj).values():
+                    out += bodies(member, depth + 1)
+                return out
+            call = getattr(type(obj), "__call__", None)
+            if inspect.isfunction(call):
+                return bodies(call, depth + 1)
+            return []
+
+        def parameters_of(obj):
+            try:
+                return list(inspect.signature(obj).parameters)
+            except (TypeError, ValueError):
+                return []
+
+        CANDIDATES = (2, 3)
+        # All ints, and 126 -- the sea scene id -- is deliberately among
+        # them: an oracle for CANDIDACY must lump the sea scene in with the
+        # other non-candidates, while `scene_guard_reason`, which answers
+        # tier 1 honestly, singles 126 out.  That is what separates a
+        # forbidden id-only classifier from the guard the module is allowed
+        # to expose, and it is measured rather than assumed.
+        NON_CANDIDATES = (7, 126, 1, 0)
+
+        def answers_from_one_argument(obj):
+            """Does calling ``obj`` with ONE argument separate the two
+            candidate wire ids from everything else?
+
+            This is the property itself rather than a proxy for it, so no
+            signature trick evades it: a ``functools.partial``, an instance
+            with ``__call__``, a re-export from a sibling module, a
+            differently-named parameter, or a keyword-only parameter with a
+            default all get called here the same way.  A callable that
+            raises, or that answers the same thing for both groups, is not
+            an oracle.
+            """
+            def answer(value):
+                try:
+                    return ("ok", obj(value))
+                except Exception as exc:  # noqa: BLE001 - raising is a pass
+                    return ("raised", type(exc).__name__)
+
+            yes = [answer(value) for value in CANDIDATES]
+            no = [answer(value) for value in NON_CANDIDATES]
+            if any(one[0] != "ok" for one in yes):
+                return False
+            return (
+                len(set(yes)) == 1
+                and len(set(no)) == 1
+                and yes[0] != no[0]
+            )
+
+        not_tier_ordered = []
+        tier_ordered_in_name_only = []
+        can_reach_a_decider = []
+        answers_the_id_alone = []
         for name, obj in vars(trigger_response).items():
-            if name.startswith("_") or not inspect.isfunction(obj):
+            if name.startswith("_") or not callable(obj):
                 continue
-            if obj.__module__ != trigger_response.__name__:
+            if answers_from_one_argument(obj):
+                answers_the_id_alone.append(name)
+            if inspect.isclass(obj):
+                # Constructing a reading is not answering candidacy; the
+                # behaviour prong above already covers being CALLED.
                 continue
-            params = list(inspect.signature(obj).parameters)
-            if "wire_trigger_id" not in params:
+            if getattr(obj, "__module__", None) != trigger_response.__name__:
+                # An imported name (``NamedTuple`` itself, say).  The SHAPE
+                # and REACH prongs are claims about what THIS module wrote;
+                # a re-export is covered by the behaviour prong above,
+                # which does not filter on ``__module__`` at all -- that
+                # filter is precisely how pf-adversary walked a sibling's
+                # function out of this namespace under a new name.
                 continue
-            if name in allowed_id_only:
+            code_objects = bodies(obj)
+            if not code_objects:
                 continue
-            if "current_scene_id" not in params:
-                offenders.append(name)
-        self.assertEqual(offenders, [])
+            params = parameters_of(obj)
+            takes_a_value = [p for p in params if p != "registry"]
+            tier_ordered = params[:1] == ["current_scene_id"]
+            reaches = set()
+            for code in code_objects:
+                reaches |= reachable_names(code)
+            # TRANSITIVE, over this module's own names.  One level is not
+            # enough: `candidate_for_trigger_id` reaches tier 1 THROUGH
+            # `answer_guard_reason`, and a future offender would reach a
+            # decider through one hop just as easily.
+            frontier, seen = set(reaches), set()
+            while frontier:
+                hop = frontier.pop()
+                if hop in seen:
+                    continue
+                seen.add(hop)
+                target = getattr(trigger_response, hop, None)
+                if inspect.isfunction(target) and (
+                    target.__module__ == trigger_response.__name__
+                ):
+                    found = reachable_names(target.__code__)
+                    reaches |= found
+                    frontier |= found - seen
+            if takes_a_value and not tier_ordered:
+                not_tier_ordered.append(name)
+            if tier_ordered and TIER_1 not in reaches and name != TIER_1:
+                # D1, and it was THIS round's own regression: the first
+                # version of this test said ``if tier_ordered: continue``,
+                # so a function had only to SPELL ``current_scene_id``
+                # first and could then ignore it and answer from the id
+                # alone.  Being tier-ordered is a claim about the BODY, so
+                # the body is what gets checked.
+                tier_ordered_in_name_only.append(name)
+            if not tier_ordered and takes_a_value and reaches & DECIDERS:
+                # ``registered_count`` is the one public callable that is
+                # not tier-ordered.  It is exempt HERE by its SHAPE, not by
+                # its name: its only parameter is the registry, so no
+                # caller can hand it a wire id -- and the behaviour prong
+                # above, which does not read signatures at all, calls it
+                # with an id anyway and measures that it is not an oracle.
+                can_reach_a_decider.append(name)
+
+        self.assertEqual(answers_the_id_alone, [])
+        self.assertEqual(not_tier_ordered, [])
+        self.assertEqual(tier_ordered_in_name_only, [])
+        self.assertEqual(can_reach_a_decider, [])
+
+    def test_the_private_guards_are_still_private(self):
+        """The rename is the fix, so it gets its own pin: both id-only
+        deciders answer under a leading underscore and under no other name.
+
+        Without this, a future round could satisfy the test above by
+        DELETING ``_trigger_id_guard_reason`` and inlining its two refusals
+        into ``answer_guard_reason`` -- green, and the named-refusal contract
+        the rest of this file rests on would be gone.  So the pin is on the
+        private names existing and answering, not merely on the public
+        surface being clean.
+        """
+        self.assertFalse(hasattr(trigger_response, "trigger_id_guard_reason"))
+        self.assertFalse(hasattr(trigger_response, "is_candidate_trigger_id"))
+        self.assertIsNone(trigger_response._trigger_id_guard_reason(2))
+        self.assertEqual(
+            trigger_response._trigger_id_guard_reason(7),
+            trigger_response.TRIGGER_ID_REFUSED_NOT_M2,
+        )
+        self.assertEqual(
+            trigger_response._trigger_id_guard_reason("2"),
+            trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
+        )
+
+    def test_the_seam_paragraph_cites_anchors_that_still_exist(self):
+        """The module's SEAM paragraph describes a place in ``runtime.py``.
+        It used to describe it by LINE NUMBER, four times, and all four had
+        rotted: ``8692`` had become a bare ``)``, ``8676`` an assignment,
+        ``8634``/``8641`` two unrelated ``if`` statements, and ``4419`` a
+        scene comparison in the GM warp code.  A citation that silently stops
+        pointing at its subject is worse than none, because the next reader
+        follows it and believes what they find.
+
+        So the citations are STRINGS now, and this test is what keeps them
+        honest: each anchor must still appear in ``runtime.py``, and this
+        module must carry no ``runtime.py:<number>`` pin at all, so the
+        rotting form cannot come back.  ``runtime.py`` is chief's file and is
+        only READ here -- it lives in this same repository, so there is no
+        bridge sibling to guard on and this runs everywhere the suite runs.
+        """
+        import re
+
+        runtime_text = (ROOT / "src" / "pirateforce_foundation" / "runtime.py").read_text(
+            encoding="utf-8"
+        )
+        module_text = (
+            ROOT
+            / "src"
+            / "pirateforce_foundation"
+            / "world_m2_trigger_vital_response.py"
+        ).read_text(encoding="utf-8")
+
+        # (what runtime.py must still contain, how this module spells it)
+        for in_runtime, in_module in (
+            (
+                '"vital_inbound_trigger_vital"',
+                'lane_hooks.fire("vital_inbound_trigger_vital", ...)',
+            ),
+            (
+                'return [("FOUNDATION_CREATE_COMMITTED", pc, frame, 0.10)]',
+                'return [("FOUNDATION_CREATE_COMMITTED", pc, frame, 0.10)]',
+            ),
+            (
+                "def _gm_warp_target_unknown_reason",
+                "_gm_warp_target_unknown_reason",
+            ),
+        ):
+            with self.subTest(anchor=in_runtime):
+                self.assertIn(in_runtime, runtime_text)
+                self.assertIn(in_module, module_text)
+
+        self.assertEqual(re.findall(r"runtime\.py:\d+", module_text), [])
+        self.assertEqual(re.findall(r"runtime\.py.{0,4}?line \d+", module_text), [])
+
+        # ADJACENCY, not mere presence.  pf-adversary walked three mutants
+        # past the presence check above, all three green: (A1) the branch
+        # body replaced with a return of a GUESSED frame while the hook
+        # call stayed put -- which is item 4(b)'s exact prohibition, live
+        # in runtime.py, with this test silent; (A2) the whole branch body
+        # deleted and both anchor strings left behind as comments; (A3) the
+        # GM branch's own hook point renamed to this one's, so the hook
+        # fires from the wrong branch.  A string existing in a file is not
+        # the claim the seam paragraph makes.  The claim is about this
+        # branch's BODY, so the body is what is read.
+        body = module_text  # placeholder rebound below; keeps the name local
+        head = "if nested_id == legacy.TRIGGER_VITAL:"
+        self.assertIn(head, runtime_text)
+        after = runtime_text.split(head, 1)[1]
+        # Up to the next branch at the same indentation.
+        body = after.split("\n            if ", 1)[0]
+        self.assertIn("self.rx_frames += 1", body)
+        self.assertIn('lane_hooks.fire(', body)
+        self.assertIn('"vital_inbound_trigger_vital"', body)
+        self.assertIn("return []", body)
+        self.assertEqual(
+            re.findall(r"^\s+return .*$", body, re.M),
+            ["                return []"],
+            "the TRIGGER_VITAL branch has grown a second return: this "
+            "module's seam paragraph, and COO-DECISION 20260906_1955 item "
+            "4(b), both say it answers nothing",
+        )
+        self.assertEqual(runtime_text.count('"vital_inbound_trigger_vital"'), 1)
 
     def test_the_guard_takes_the_scene_id_first(self):
         """Argument ORDER, not just presence -- a caller that gets it
