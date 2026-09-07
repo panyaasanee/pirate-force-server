@@ -19,6 +19,8 @@ from unittest import mock
 from pf_preconditions import LUPA_PACKAGE
 
 from pirateforce_foundation import script_host
+from pirateforce_foundation.lua_api import dispatch  # noqa: E402
+from pirateforce_foundation.lua_api import quest_criteria  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures" / "lua_spike"
 
@@ -547,14 +549,41 @@ class RewardStoreIsHandedOnUntouchedTests(unittest.TestCase):
         self.assertIs(host.namespaces["Quest"]._reward_store, store)
         self.assertEqual(len(host.runtime.executed), 1)
 
-    def test_the_dispatch_seam_the_core_request_named_no_longer_refuses_it(self):
-        """The letter's exact reproduction, minus the 616-file corpus.
+    def test_the_dispatch_seam_really_carries_the_store_through(self):
+        """The seam is CALLED here, not described.
 
-        ``dispatch.load_quest_script`` passes **kwargs straight into
-        ``load_script_file``, so the TypeError the CORE-REQUEST measured was
-        raised by THIS signature, and a signature is testable without the
-        untracked corpus the real call needs for its path lookup.
+        pf-adversary killed the signature-only version of this test: with
+        ``kwargs.pop("reward_store", None)`` added to the top of
+        ``load_quest_script`` -- the seam the CORE-REQUEST was filed
+        against -- 136 tests across four files stayed green while the store
+        was silently dropped.  A test named for a seam that never calls it
+        cannot see that.
+
+        The corpus is not needed to call it: ``script_for_quest`` is the
+        only thing that reads the vendored mirror, so a two-file root and
+        that one stub exercise the REAL resolution, the REAL context build
+        and the REAL kwargs forwarding.  No skip is added, so the skip
+        census does not move.
         """
+        store = object()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Quest").mkdir()
+            (root / "Quest" / "q_probe.lua").write_text(
+                "function Report_Run() return 1 end", encoding="utf-8")
+            with mock.patch.object(
+                quest_criteria, "script_for_quest", lambda _q: "Q_PROBE"
+            ), mock.patch.object(
+                script_host, "lupa", types.SimpleNamespace(
+                    LuaRuntime=_RecordingLuaRuntime)
+            ):
+                host = dispatch.load_quest_script(
+                    root, 2170, 7, log=lambda _m: None, reward_store=store)
+        self.assertIs(host.namespaces["Quest"]._reward_store, store)
+
+    def test_the_dispatch_seam_signature_still_accepts_the_keyword(self):
+        """The narrow half of the same claim, kept because it names WHERE
+        the TypeError the letter measured was raised."""
         signature = inspect.signature(script_host.load_script_file)
         self.assertIn("reward_store", signature.parameters)
         self.assertIs(signature.parameters["reward_store"].default, None)

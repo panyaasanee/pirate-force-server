@@ -3003,9 +3003,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             #
             # The number is READ, never typed: `character_class_id` lives on
             # the scenario object this closure already holds (the one
-            # require_skill_attr_hypothesis_scenario validated at load), so
-            # the gate compares against the same declaration that composed
-            # the bytes.  `None` there means THIS SWEEP DECLARES NO CLASS
+            # require_skill_attr_hypothesis_scenario validated at load).
+            # NONCLAIM, measured by pf-adversary this round: that object
+            # does NOT compose the frames -- the step composer builds from
+            # the module's own globals, and two states declaring different
+            # classes produce byte-identical frames.  What the
+            # field carries is the class the pinned bytes were BUILT FOR,
+            # declared next to them; the module's own class-catalog test is
+            # what keeps the declaration honest about the records.
+            # `None` there means THIS SWEEP DECLARES NO CLASS
             # (skill_attr_hypothesis.py states that meaning), and then the
             # identity gate above is left alone to decide -- today's sweep
             # declares None, so this gate changes no boot until the sweep

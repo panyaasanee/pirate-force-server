@@ -69,9 +69,6 @@ from pirateforce_foundation import class_catalog  # noqa: E402
 from pirateforce_foundation import (  # noqa: E402
     skill_attr_hypothesis as skill_attr_module,
 )
-from pirateforce_foundation import (  # noqa: E402
-    skill_attr_hypothesis as skill_attr_module,
-)
 from pirateforce_foundation.skill_attr_hypothesis import (  # noqa: E402
     SKILL_ATTR_ACTION_LABEL_PREFIX,
     SKILL_ATTR_BODY_BASE_SIZE,
@@ -1630,32 +1627,80 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(state.events.count(SWEEP_EVENT), 1)
 
     def test_the_gate_reads_the_scenario_and_not_a_number_in_runtime(self):
-        """The same character is accepted or refused purely by moving the
-        declaration, which a constant typed into runtime.py could not do."""
-        for declared, expected_sent in ((7, False), (3, True)):
-            with self.subTest(declared=declared):
-                # The V25 create wire commits ONE canonical smoke character
-                # per store and only that first row carries the pinned probe
-                # identity, so each leg needs its own fixture -- otherwise
-                # the second leg is refused by the identity gate and proves
-                # nothing about this one.
-                self.tearDown()
-                self.setUp()
-                state = self._state_declaring_class(
-                    f"skillattr-class-decl-{declared}", declared,
-                )
-                self._restamp_class(state, 3)
-                actions = state.dispatch(self._trigger())
-                self.assertEqual(bool(actions), expected_sent)
-                self.assertEqual(
-                    state.events.count(SWEEP_EVENT),
-                    1 if expected_sent else 0,
-                )
-                self.assertEqual(
-                    state.events.count(CLASS_EVENT),
-                    0 if expected_sent else 1,
-                )
+        """Every class of the committed CHARCREATE_CLASS table is driven, in
+        BOTH directions.
 
+        pf-adversary killed the two-value version of this test: with only
+        {7 refused, 3 accepted} driven, ``declared not in (None, 2, 4, 5)``
+        -- five numbers typed straight into runtime.py -- stayed fully
+        green, and the class it left inert was Paladin, the exact class
+        LANE-CS's letter names as the victim.  Driving the whole table in
+        both directions is what a typed constant cannot survive: it would
+        have to accept every class against itself and refuse every class
+        against another, which IS reading the declaration.
+        """
+        class_ids = sorted(class_catalog.CLASS_IDS)
+        self.assertGreaterEqual(len(class_ids), 2)
+        for declared in class_ids:
+            other = next(c for c in class_ids if c != declared)
+            for selected_class, expected_sent in (
+                (declared, True), (other, False),
+            ):
+                with self.subTest(declared=declared, selected=selected_class):
+                    # The V25 create wire commits ONE canonical smoke
+                    # character per store and only that first row carries
+                    # the pinned probe identity, so each leg needs its own
+                    # fixture -- otherwise the identity gate refuses the
+                    # second leg and it proves nothing about this one.
+                    self.tearDown()
+                    self.setUp()
+                    state = self._state_declaring_class(
+                        f"skillattr-cls-{declared}-{selected_class}", declared,
+                    )
+                    self._restamp_class(state, selected_class)
+                    actions = state.dispatch(self._trigger())
+                    self.assertEqual(bool(actions), expected_sent)
+                    self.assertEqual(
+                        state.events.count(SWEEP_EVENT),
+                        1 if expected_sent else 0,
+                    )
+                    self.assertEqual(
+                        state.events.count(CLASS_EVENT),
+                        0 if expected_sent else 1,
+                    )
+
+    def test_a_sweep_already_sent_does_not_switch_the_gate_off(self):
+        """The accept-then-refuse direction, which nothing covered.
+
+        A gate latched by ``self.skill_attr_sweep_count == 0`` stayed green
+        across the whole file (pf-adversary).  One connection can select a
+        second character, so a latch would hand character B the frames
+        composed for character A's class.
+        """
+        state = self._state_declaring_class("skillattr-class-latch", 1)
+        self._restamp_class(state, 1)
+        self.assertEqual(len(state.dispatch(self._trigger())), 2)
+        self.assertEqual(state.skill_attr_sweep_count, 1)
+        self.assertEqual(state.events.count(SWEEP_EVENT), 1)
+        self._restamp_class(state, 2)
+        self.assertEqual(state.dispatch(self._trigger()), [])
+        self.assertEqual(state.events.count(CLASS_EVENT), 1)
+        self.assertEqual(state.skill_attr_sweep_count, 1)
+        self.assertEqual(state.events.count(SWEEP_EVENT), 1)
+
+    def test_the_created_character_really_carries_an_int_class_id(self):
+        """Every other test here RESTAMPS the class, so none of them would
+        notice the login seam handing back no class at all -- and on the day
+        the sweep declares one, that would refuse the sweep on every real
+        boot while this file stayed green.  Measured on the unrestamped row
+        the real create/login path wrote.
+        """
+        state = self._state("skillattr-class-real-row")
+        selected = state.foundation.selected
+        self.assertIsNotNone(selected)
+        self.assertEqual(type(selected.class_id), int)
+        self.assertIn(selected.class_id, class_catalog.CLASS_IDS)
+        self.assertEqual(selected.class_id, 1)
 
 if __name__ == "__main__":
     unittest.main()
