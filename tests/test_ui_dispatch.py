@@ -705,11 +705,17 @@ class DeferredRegistrationTests(RoundThreeFindingsTests):
         return flusher, closed
 
     def test_a_deferred_flush_does_not_launder_a_closed_lane(self):
-        """The measured D-A attack: no closed frame is ever on the stack.
+        """The D-A SHAPE.  This test does NOT prove the D-A fix.
 
         The closed lane appended and RETURNED; the allowed flusher makes
-        the call.  The stack walk therefore sees only the flusher, and
-        before this fix the gate held only allowed names.
+        the call, so the stack walk sees only the flusher.  An earlier
+        version of this docstring added "and before this fix the gate
+        held only allowed names", which pf-adversary round 5 (D-delta)
+        measured false: this test PASSES against the pre-fix file,
+        because nothing here forges ``__module__`` and the plain
+        attribute already named the closed lane.  What proves the fix is
+        ``test_a_forged_dunder_module_does_not_survive_a_deferred_flush``
+        and the wrapper subtests; this one records the shape.
         """
         flusher, closed = self._deferred("plain", forge_dunder_module=False)
         module_name, _fn = ui_dispatch.registered_answerer(
@@ -805,9 +811,11 @@ class DeferredRegistrationTests(RoundThreeFindingsTests):
         Each is registered by the ALLOWED flusher, so no closed frame is
         on the stack, and each has its ``__module__`` forged to name the
         flusher -- so the ONLY witness left is identity.  ``partial``
-        carries ``functools`` there and cannot be forged; the gate
-        ignores that name because it is not a lane module, which leaves
-        identity as its only witness too.
+        carries ``functools`` there; not because a partial's
+        ``__module__`` is unforgeable (pf-adversary round 5: it has a
+        ``__dict__``, and the assignment succeeds) but because the gate
+        ignores a name that is not a lane module -- which leaves identity
+        as its only witness too.
         """
         import functools
 
@@ -940,10 +948,23 @@ class DeferredRegistrationTests(RoundThreeFindingsTests):
         self.assertEqual(missed, [], "the identity walk lost a name")
 
     def test_an_attribute_that_raises_cannot_break_registration(self):
-        """The unwrap chain runs answerer-controlled descriptors.
+        """Registration survives a raising descriptor -- AND NOTHING MORE.
 
-        ``_defining_module_names`` must not turn a hostile ``func``
-        property into an exception out of ``register_answerer()``.
+        WHAT THIS DOES NOT ASSERT, named because pf-adversary round 5
+        (D-beta) caught it asserting less than its old docstring implied:
+        it does NOT check that the author was still found.  It cannot,
+        because TODAY THE AUTHOR IS LOST.  ``_defining_module_names``
+        wraps the whole loop body in one ``try`` and probes ``__func__``
+        FIRST, so an ordinary dict-backed ``__getattr__`` raising
+        ``KeyError`` abandons the object before ``func``, ``__wrapped__``
+        or ``type(fn).__call__`` are reached, and the gate falls back to
+        the forgeable ``__module__``.  Measured:
+        ``_defining_module_names(Hostile())`` returns ``()`` while the
+        same class without ``__getattr__`` returns this module's name.
+        This test passes with ``_defining_module_names`` stubbed to
+        ``return ()``, and that is the honest description of what it
+        covers.  The fix (a ``try`` per ``getattr``) and the test that
+        pins the author are this lane's next round.
         """
         class Hostile:
             @property

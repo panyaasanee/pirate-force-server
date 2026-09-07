@@ -188,13 +188,21 @@ def _module_name_of_namespace(namespace):
     return found[0]
 
 
-# EVERY ATTRIBUTE THAT NAMES A MODULE IS WRITABLE; ``__globals__`` IS NOT.
-# ``function.__globals__`` is a read-only attribute of the function
-# object, and the dict it returns IS the defining module's namespace, so
+# ``__globals__`` IS READ-ONLY ON A ``types.FunctionType``, AND ONLY
+# THERE (pf-adversary round 5, D-gamma).  On a real function object the
+# dict it returns IS the defining module's namespace, so
 # ``_module_name_of_namespace`` turns it into the ``sys.modules`` key the
 # import machinery set -- the same identity route this file already uses
-# for a stack frame.  A file cannot point it at another module the way it
-# can assign ``fn.__module__``.
+# for a stack frame.  An earlier draft of this comment said flatly that
+# ``__globals__`` cannot be pointed at another module the way
+# ``fn.__module__`` can.  THAT IS FALSE AS WRITTEN, because the getattr
+# below runs on an arbitrary callable: a callable INSTANCE can assign
+# ``self.__globals__ = <an allowed module>.__dict__`` and the walk
+# believes it.  Measured, two assignments, allowed name in the gate,
+# unreviewed bytes returned by ``answer()``.  The narrowing this needs --
+# trust ``__globals__`` only when ``isinstance(target, FunctionType)`` --
+# is NOT in this file yet; see the block comment on
+# ``_defining_module_names``.
 _UNWRAP_ATTRS = ("__func__", "func", "__wrapped__")
 _UNWRAP_BUDGET = 12
 
@@ -218,27 +226,76 @@ def _defining_module_names(fn):
     bytes left ``state.dispatch()`` under a green token.
 
     So the author is resolved by identity instead: ``__globals__`` for a
-    function, and the ordinary wrappers unwrapped first -- a
-    ``functools.partial`` (``func``), a ``functools.wraps`` chain
-    (``__wrapped__``), and a callable INSTANCE, whose code lives on
-    ``type(fn).__call__``.  ``__func__`` is in that list for shapes that
-    do not delegate; a BOUND METHOD is not one of them -- it forwards
-    ``__globals__`` to its function on its own, measured by a mutant that
-    dropped ``__func__`` and left the whole suite green.  It is kept
-    because dropping it is a claim about every method-like object, not
-    just the one that was tested.  Names found this way are
+    function, with ``functools.partial`` (``func``) and a callable
+    INSTANCE (code on ``type(fn).__call__``) unwrapped first.
+    ``__func__`` is in that list for shapes that do not delegate; a BOUND
+    METHOD is not one of them -- it forwards ``__globals__`` to its
+    function on its own, measured by a mutant that dropped ``__func__``
+    and left the whole suite green.  It is kept because dropping it is a
+    claim about every method-like object, not just the one tested.
+
+    HOW FAR THIS ACTUALLY GETS, AFTER pf-adversary ROUND 5 SAID SO.  The
+    sentence this docstring carried -- "a deferred registration names its
+    real author even when no frame of that author is on the stack" -- is
+    NOT TRUE IN GENERAL, and the counterexamples are ordinary, not
+    hostile.  Five measured holes, none of them fixed in this file yet;
+    each is this lane's next round, with the reproduction in
+    ``pf_bridge/rounds/UI_20260908_0617_lkswyp_*``:
+
+    * D-ALPHA, the one that defeats the headline.  This walk stops at the
+      FIRST object carrying a ``__globals__`` dict.  When the answerer was
+      BUILT by code in an allowed helper -- a closure factory, or a plain
+      decorator without ``functools.wraps`` -- that first object is the
+      HELPER's function, so the walk names the helper and never looks
+      further.  Measured: ``helpers.const_replier(b'...')`` put four
+      literal bytes typed in a ``production_allowed = False`` file onto
+      ``answer()``'s return, and ``helpers.trace(closed.answerer)`` ran
+      the closed file's own body, both under a green
+      ``UI_DISPATCH_ACCEPTED`` naming only the helper.  Note the perverse
+      part: writing ``@functools.wraps`` CLOSES the gate, because it
+      copies ``__module__`` -- so today the safe outcome is delivered by
+      the very attribute this function exists because it cannot be
+      trusted.
+    * D-BETA.  The ``try`` wraps the whole loop body and ``__func__`` is
+      probed first, so an ordinary dict-backed ``__getattr__`` raising
+      ``KeyError`` abandons the object entirely -- ``func``,
+      ``__wrapped__`` and the ``type(fn).__call__`` route are never
+      reached, and the gate falls back to ``__module__``.  The fix is one
+      line: a ``try`` around each ``getattr``, not around the iteration.
+    * D-GAMMA.  ``__globals__`` is writable on a callable instance; see
+      the block comment above.
+    * D-EPSILON.  ``__wrapped__`` is in ``_UNWRAP_ATTRS`` and is
+      UNREACHABLE for the shape it names: a ``functools.wraps`` wrapper is
+      itself a function, so the ``__globals__`` branch fires and returns
+      before the unwrap loop runs.  Both this docstring and
+      ``docs/UI_LANE.md`` claimed that chain as covered.  It is not.
+    * D-ZETA, a regression this walk introduces.  An allowed lane using a
+      helper that lives in a ``lane_*.py`` file WITHOUT the flag is now
+      gated forever, which is D-E's symptom through a new door; and for a
+      SUBCLASS, ``type(fn).__call__`` resolves through the MRO, so the
+      gate names the BASE class's module -- an author who did not write
+      the answerer.  Inert today (the registry ships empty), a trap for
+      the first real answerer.
+
+    AND THE QUESTION UNDER ALL OF THEM, which no unwrap chain answers:
+    when an ALLOWED lane's code runs on a CLOSED lane's DATA, whose bytes
+    are on the wire?  ``const_replier(b'...')`` has an allowed author and
+    an unreviewed payload.  This gate is a property of CODE IDENTITY; the
+    review boundary it stands in for is a property of WHAT GOES OUT.
+    Until the design says whether a closed lane may hand an allowed lane
+    a value at all, every fix here is a deeper unwrap chasing a shape one
+    indirection further out.  Names found this way are
     ADDED to the gate, never substituted for it, so the direction of a
     lie is unchanged from the rest of this file: a forged name can only
     ever close the gate on its own registration.
 
-    NONCLAIM, STATED HERE BECAUSE IT IS THE HONEST EDGE.  A callable
-    built with a globals dict that is no module's namespace --
-    ``types.FunctionType(code, {})`` -- resolves to nothing here, and the
-    gate then holds only the registrar and whatever ``__module__`` says.
-    That shape is not "the most ordinary factoring there is"; it is a
-    file already running arbitrary code inside ``lane_hooks`` and
-    deliberately hiding.  ``production_allowed`` is a REVIEW boundary,
-    not a sandbox, and this file does not claim to be one.
+    NONCLAIM.  A callable built with a globals dict that is no module's
+    namespace (``types.FunctionType(code, {})``) resolves to nothing
+    here, and the gate then holds only the registrar and whatever
+    ``__module__`` says.  ``production_allowed`` is a REVIEW boundary,
+    not a sandbox, and this file does not claim to be one -- but after
+    D-ALPHA that sentence can no longer be used to wave the gaps away,
+    because D-ALPHA needs no hostility at all.
     """
     names = []
     seen = set()
