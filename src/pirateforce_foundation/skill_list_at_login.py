@@ -130,13 +130,32 @@ REFUSE_TOO_MANY_UNMEASURED = "record_count_is_above_any_observed_acceptance"
 #: refusal string beside it says this command never creates one.  A separate
 #: reason, so an operator whose --db is a stub reads which of the two it was.
 REFUSE_NOT_A_DATABASE = "path_is_not_an_sqlite_database"
-#: R323C measured this one, on a real client, on 2026-09-07: the frame this
-#: module composes locks the player's movement for the WHOLE session when its
-#: trailing u8 is 1, and does not when it is 0 (`KA1A-R323C-RESULTS-GT276-PASS
-#: -trailing-u8-1-locks-walking-not-record-count`).  Sent at LOGIN a locking
-#: frame has no in-game escape at all -- the only measured way out of the lock
-#: is a relogin, and a relogin composes the same frame again.
+#: WHAT R323C MEASURED, kept apart from what follows from it (pf-adversary
+#: D4 caught the first draft of this comment stating the second as the
+#: first).  MEASURED, on a real client, 2026-09-07
+#: (`KA1A-R323C-RESULTS-GT276-PASS-trailing-u8-1-locks-walking-not-record-
+#: count`): two frames of this vital differing in one byte, trailing u8 = 1
+#: stops the client emitting movement frames and trailing u8 = 0 does not;
+#: record count and contents make no difference.  That letter's OWN
+#: nonclaims say it did not measure whether the lock ever releases (the
+#: owner closed the game), and did not boot its step 6 -- real ids with
+#: trailing 0 -- which is the frame this module composes.
+#: NOT MEASURED, inferred here and labelled as inference: GT-249 recorded
+#: that its own lock lasted until a fresh login, so a frame sent AT login
+#: would be re-sent by the one escape anybody has written down.  Nobody has
+#: run that, and this module is not the place to find out.
 REFUSE_TRAILING_BYTE_LOCKS_WALKING = "composed_frame_does_not_end_in_the_walkable_zero"
+#: pf-adversary D5: the first draft of the guard below reported an
+#: undecodable payload under the reason above, so an operator grepping
+#: "walk lock" would read "the locking byte is set" when the byte was 0 and
+#: only the slice arithmetic had drifted.  This module already refused that
+#: pattern once by name (see REFUSE_NOT_A_DATABASE): two facts, two reasons.
+REFUSE_PAYLOAD_UNREADABLE = "composed_payload_could_not_be_decoded_back"
+#: pf-adversary D2/M5: `make_learn_skill_result_response` self-checks that it
+#: is decoder-inverse and raises a BARE RuntimeError when it is not.  That
+#: escaped this module's "one exception class" promise and would have unwound
+#: the listener thread at v141:7440, which has no except.  Translated here.
+REFUSE_ENCODER_NOT_INVERSE = "the_proven_encoder_did_not_round_trip"
 
 
 class SkillListAtLoginError(RuntimeError):
@@ -272,6 +291,55 @@ def skill_list_records(
     )
 
 
+def measured_trailing_byte(pc: bytes, record_count: int) -> int:
+    """The trailing u8 CARRIED BY ``pc``, decoded, never the constant.
+
+    pf-adversary (round `3f12wv`, D3) named the reason this is a function
+    and not an expression inside one caller: ``headless_token`` printed
+    ``trailing_u8=`` straight out of ``SKILL_LIST_TRAILING_BYTE``, so the
+    line an operator pastes as ``HEADLESS_PROOF:`` said ``trailing_u8=0``
+    about a frame whose trailing byte was ``0x01`` -- the walk-locking one.
+    A token that reports a constant instead of the bytes is the exact defect
+    ``seam_carrier`` was written to kill one field to its left.  Both the
+    refusal in ``make_skill_list_response`` and the token now come through
+    here, so they cannot disagree about the same frame.
+
+    ``record_count`` is needed because the decoder refuses a payload with a
+    byte left over after the trailing u8, so it has to be handed exactly the
+    slice; the three geometry names come from ``learn_skill_result_frame``,
+    the plain frame module COO-DECISION `20260907_2241` created so that this
+    lane never imports the HYP-PF-033 sweep lane's own module.  That lane's
+    containment test pins its importer list exactly, and it pins it by
+    SUBSTRING over every file in this package -- the first draft of this
+    guard imported from there and turned it red, the second turned it red
+    again just by naming that module in this sentence, and the third by
+    naming the test class.  Neither name is written here; this note is what
+    replaces them, and the shape is worth remembering: in this package,
+    prose about a gated name is treated as a use of it.
+
+    Raises ``SkillListAtLoginError`` and never a bare decoder exception --
+    the same one-exception-class promise the rest of this module makes.
+    """
+    payload_start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
+    payload_size = (
+        LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE
+        + LEARN_SKILL_RESULT_RECORD_WIRE_SIZE * record_count
+    )
+    try:
+        _records, trailing = decode_learn_skill_result_payload(
+            pc[payload_start:payload_start + payload_size]
+        )
+    except Exception as error:      # noqa: BLE001 - a payload this module
+        # just composed and cannot read back is not a frame to send, and it
+        # is not a walk-lock either: separate reason, see its constant.
+        raise SkillListAtLoginError(
+            REFUSE_PAYLOAD_UNREADABLE,
+            "the composed payload could not be decoded back, so the "
+            "trailing byte could not be checked at all: %s" % (error,),
+        ) from error
+    return trailing
+
+
 def make_skill_list_response(
     legacy: Any, skill_ids: "tuple[int, ...] | list[int]",
 ) -> tuple[bytes, bytes]:
@@ -297,6 +365,17 @@ def make_skill_list_response(
             REFUSE_SKILL_ID_OUTSIDE_U32,
             "the proven encoder refused these skill ids: %s" % (error,),
         ) from error
+    except RuntimeError as error:
+        # pf-adversary D2/M5: the composer's own inverse check raises a bare
+        # RuntimeError, which this module's docstring promises callers will
+        # never see -- and a seam written to that promise ("one except with
+        # one named reason") would have let it through into a listener
+        # thread with no except of its own.
+        raise SkillListAtLoginError(
+            REFUSE_ENCODER_NOT_INVERSE,
+            "the proven encoder did not round-trip its own payload: %s"
+            % (error,),
+        ) from error
     # MEASURED BY DECODING THE COMPOSED PAYLOAD, not by reading
     # SKILL_LIST_TRAILING_BYTE back, and that difference is the whole point.
     # Every pin this module had on the walk-lock byte compared the constant
@@ -304,10 +383,11 @@ def make_skill_list_response(
     # both sides move together, so editing the constant to 1 left all of them
     # green while this route composed the frame R323C measured as locking the
     # player's movement for the rest of the session.  Sent at LOGIN that lock
-    # has no in-game exit -- the only measured escape is a relogin, and a
-    # relogin arrives back at this function -- so the check belongs in the
-    # route, where a caller cannot get past it by editing one integer, and
-    # not only in a test.
+    # would plausibly be re-sent by the one escape GT-249 wrote down (a fresh
+    # login), which nobody has run -- see SKILL_LIST_TRAILING_BYTE's comment
+    # for which half of that is measured.  Either way the check belongs in
+    # the route, where a caller cannot get past it by editing one integer,
+    # and not only in a test.
     #
     # It decodes rather than indexing a byte position: the trailing u8 is NOT
     # the last byte of the frame (the composed frame ends in an outer
@@ -317,30 +397,13 @@ def make_skill_list_response(
     # SKILL_LIST_TRAILING_BYTE is -- the decoder refuses a payload with a byte
     # left over after the trailing u8, so it has to be handed exactly the
     # slice, and these are the only numbers that say where it ends.
-    payload_size = (
-        LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE
-        + LEARN_SKILL_RESULT_RECORD_WIRE_SIZE * len(records)
-    )
-    payload_start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
-    try:
-        _records, trailing = decode_learn_skill_result_payload(
-            pc[payload_start:payload_start + payload_size]
-        )
-    except Exception as error:      # noqa: BLE001 - a payload this module
-        # just composed and cannot read back is not a frame to send.
-        raise SkillListAtLoginError(
-            REFUSE_TRAILING_BYTE_LOCKS_WALKING,
-            "the composed payload could not be decoded back, so the byte "
-            "R323C measured as the walk lock could not be checked: %s"
-            % (error,),
-        ) from error
+    trailing = measured_trailing_byte(pc, len(records))
     if trailing != 0:
         raise SkillListAtLoginError(
             REFUSE_TRAILING_BYTE_LOCKS_WALKING,
             "the composed payload carries trailing 0x%02X, and R323C "
-            "measured that a non-zero trailing byte locks the player's "
-            "movement for the whole session with no in-game way out of it"
-            % (trailing,),
+            "measured that a non-zero trailing byte stops the client "
+            "emitting movement frames" % (trailing,),
         )
     return pc, frame
 
@@ -518,15 +581,19 @@ def seam_carrier(runtime_path: "Any" = None, hooks_dir: "Any" = None) -> str:
 
 def headless_token(
     character_id: int, skill_ids: "tuple[int, ...]", frame: bytes,
-    sent_by: str,
+    sent_by: str, trailing: int,
 ) -> str:
     """The one ASCII line GT-307 names as its ``HEADLESS_PROOF:``.
 
     Every number in it is a measurement of the arguments it was handed: the
     row count is the length of what the store returned, the byte count is
-    the length of the frame the proven encoder composed, and ``sent_by``
-    comes from ``seam_carrier()``.  Nothing here re-derives an id from the
-    class table -- that is the substitution GT-307 exists to rule out.
+    the length of the frame the proven encoder composed, ``sent_by`` comes
+    from ``seam_carrier()``, and ``trailing`` comes from
+    ``measured_trailing_byte`` -- it used to be ``SKILL_LIST_TRAILING_BYTE``
+    interpolated straight into the format string, which pf-adversary (D3)
+    turned into a token reading ``trailing_u8=0`` about a frame carrying
+    ``0x01``.  Nothing here re-derives an id from the class table -- that is
+    the substitution GT-307 exists to rule out.
     """
     return (
         "SKILL_LIST_AT_LOGIN cid=%d rows=%d ids=(%s) trailing_u8=%d "
@@ -535,7 +602,7 @@ def headless_token(
             character_id,
             len(skill_ids),
             ",".join(str(skill_id) for skill_id in skill_ids),
-            SKILL_LIST_TRAILING_BYTE,
+            trailing,
             len(frame),
             sent_by,
         )
@@ -546,6 +613,23 @@ def compose_from_database(
     database_path: "Any", character_id: int,
 ) -> "tuple[tuple[int, ...], bytes]":
     """``(skill ids, frame)`` for one character, read out of a real database.
+
+    A thin drop of the ``pc`` from ``compose_from_database_with_pc``; every
+    word below describes that function too.  The console entry point takes
+    the three-value form because the token has to MEASURE the trailing byte
+    off the composed payload rather than print a constant (pf-adversary D3),
+    and ``pc`` is what carries it.
+    """
+    skill_ids, _pc, frame = compose_from_database_with_pc(
+        database_path, character_id,
+    )
+    return skill_ids, frame
+
+
+def compose_from_database_with_pc(
+    database_path: "Any", character_id: int,
+) -> "tuple[tuple[int, ...], bytes, bytes]":
+    """``(skill ids, pc, frame)`` for one character, read out of a real database.
 
     Opens the file that is already there and refuses a missing one by name.
     It does NOT call ``store.migrate()``, writes no row and commits no
@@ -609,8 +693,8 @@ def compose_from_database(
             "%s did not answer as this project's database: %s" % (path, error),
         ) from error
     legacy = load_legacy(root / "current" / "pf_login_game_server_v141.py")
-    _pc, frame = make_skill_list_response(legacy, skill_ids)
-    return skill_ids, frame
+    pc, frame = make_skill_list_response(legacy, skill_ids)
+    return skill_ids, pc, frame
 
 
 def _print_console_line(line: str) -> None:
@@ -665,7 +749,9 @@ def main(argv: "list[str] | None" = None) -> int:
     if database is None:
         database = repository_root() / DEFAULT_DB_RELATIVE_PATH
     try:
-        skill_ids, frame = compose_from_database(database, args.character)
+        skill_ids, pc, frame = compose_from_database_with_pc(
+            database, args.character,
+        )
     except SkillListAtLoginError as error:
         _print_console_line(
             "SKILL_LIST_AT_LOGIN_REFUSED cid=%s reason=%s detail=%s"
@@ -675,6 +761,7 @@ def main(argv: "list[str] | None" = None) -> int:
     _print_console_line(
         headless_token(
             args.character, skill_ids, frame, seam_carrier(args.runtime),
+            measured_trailing_byte(pc, len(skill_ids)),
         )
     )
     return 0

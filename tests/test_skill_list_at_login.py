@@ -55,6 +55,9 @@ from pirateforce_foundation.learn_skill_result_hypothesis import (  # noqa: E402
     LearnSkillResultRecord,
     decode_learn_skill_result_payload,
 )
+from pirateforce_foundation.learn_skill_result_frame import (  # noqa: E402
+    make_learn_skill_result_response,
+)
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.skill_list_at_login import (  # noqa: E402
@@ -752,7 +755,7 @@ class SentByIsReadOffTheTreeTests(unittest.TestCase):
 
     def test_the_token_line_survives_the_bridge_console(self):
         line = skill_list_at_login.headless_token(1, (111, 40000), b"x" * 50,
-                                                  "module_only")
+                                                  "module_only", 0)
         line.encode("ascii")
         line.encode("cp874")
 
@@ -990,6 +993,54 @@ class AHookCanWireThisWithoutRuntimeChangingTests(unittest.TestCase):
         out loud instead of shipping a token that reads `module_only`.
         """
         self.assertEqual("module_only", skill_list_at_login.seam_carrier())
+
+
+class TheTokenReportsTheByteTheFrameCarriesTests(_Fixture):
+    """pf-adversary D3: the `HEADLESS_PROOF:` line used to print
+    `SKILL_LIST_TRAILING_BYTE` straight out of the format string, so it read
+    `trailing_u8=0` about a frame whose trailing byte was 0x01 -- an operator
+    pasting it into a ticket would have certified the walk-locking frame as
+    walkable.  These drive the byte and the constant APART and require the
+    line to follow the bytes."""
+
+    def test_the_token_follows_the_payload_not_the_constant(self):
+        # Composed by the owner module directly, so the constant is 0 while
+        # the frame carries 1 -- the state the old format string could not
+        # tell apart from a walkable frame.
+        records = skill_list_at_login.skill_list_records((99,))
+        pc, frame = make_learn_skill_result_response(self.legacy, records, 1)
+        self.assertEqual(0, skill_list_at_login.SKILL_LIST_TRAILING_BYTE)
+        line = skill_list_at_login.headless_token(
+            1, (99,), frame, "module_only",
+            skill_list_at_login.measured_trailing_byte(pc, 1),
+        )
+        self.assertIn("trailing_u8=1", line)
+
+    def test_the_measurement_answers_zero_for_the_frame_this_module_composes(
+        self,
+    ):
+        pc, _frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, (111, 40000, 99, 110),
+        )
+        self.assertEqual(
+            0, skill_list_at_login.measured_trailing_byte(pc, 4)
+        )
+
+    def test_an_unreadable_payload_is_its_own_reason_not_the_walk_lock_one(
+        self,
+    ):
+        # pf-adversary D5: two facts, two reasons.  A slice that cannot be
+        # decoded says so; it does not claim the walk-lock byte was set.
+        with self.assertRaises(SkillListAtLoginError) as caught:
+            skill_list_at_login.measured_trailing_byte(b"\x00" * 8, 1)
+        self.assertEqual(
+            skill_list_at_login.REFUSE_PAYLOAD_UNREADABLE,
+            caught.exception.reason,
+        )
+        self.assertNotEqual(
+            skill_list_at_login.REFUSE_TRAILING_BYTE_LOCKS_WALKING,
+            caught.exception.reason,
+        )
 
 
 class TheRouteRefusesAFrameThatWouldLockWalkingTests(_Fixture):
