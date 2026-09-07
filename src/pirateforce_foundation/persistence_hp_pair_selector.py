@@ -71,7 +71,7 @@ So what is this module for, honestly stated:
 * `live_hp_pair_report` / `format_report` are a read-only measurement of what
   each branch of the client's selector would display for one real character.
   That is what `GT-291` needs a token from, and it needs no caller in `gm/`.
-* `guard_armed_block` is a predicate WITHOUT A REACHABLE CALLER TODAY.  It
+* `guard_block` is a predicate WITHOUT A REACHABLE CALLER TODAY.  It
   becomes live the day a login shape carries x=52/x=53 -- i.e. the day the
   (b'') set in `gm/login_mask` grows to include them -- and not before.  Its
   branches are tested against hand-built blocks, and only
@@ -88,7 +88,7 @@ So what is this module for, honestly stated:
   which computes reachability from `gm/login_mask.admitted_field_x_sets` and
   from this lane's own `SERVER_OWNED_FIELDS` -- both of them the source of
   truth rather than a copy -- and goes RED the first time either one admits
-  x=52/x=53 while `guard_armed_block` still has no caller in the tree.  The
+  x=52/x=53 while `guard_block` still has no caller in the tree.  The
   obligation lands on whoever makes that change, in the commit that makes
   it, because that is the commit whose suite turns red.
 
@@ -213,7 +213,7 @@ REASON_ABSENT_READS_ZERO = "frame_layer_row_absent_unset_mask_bit_reads_zero"
 #: SCOPE, because the flat sentence would be false (pf-adversary `cgnzsd`,
 #: D8): `gm/attr_wire.py:211-213` says that for a character OUTSIDE a
 #: category-8 context the honest `alt_hp_current/alt_hp_max` is plausibly
-#: `0/0`.  This is a gap only where `guard_armed_block` looks at it -- in
+#: `0/0`.  This is a gap only where `guard_block` looks at it -- in
 #: a block whose selector is armed, which is exactly the context where 0/0 is
 #: `GT-218`'s symptom rather than an honest pair.  Callers of
 #: `alternate_pair_gaps` on an unarmed block are reading a predicate outside
@@ -409,11 +409,16 @@ def pair_gaps(
     real HP -- this function is handed values, it does not know where they
     came from.
 
-    SCOPE.  This predicate is written for a block whose selector is ARMED,
-    which is the only context `guard_armed_block` calls it in.  Outside that
-    context `0/0` can be an honest alternate pair
-    (`gm/attr_wire.py:211-213`), so a caller applying this to an unarmed
-    block is using it outside the range it is true in.
+    SCOPE, REWRITTEN IN ROUND `coqzj0` BECAUSE THE DOOR MOVED.  Which
+    context this predicate is true in depends on the PAIR, not on the
+    caller: for the ALTERNATE pair it is written for an ARMED block only --
+    outside that context `0/0` can be an honest alternate pair
+    (`gm/attr_wire.py:211-213`) -- while for the PRIMARY pair it is true
+    whenever the block mentions that pair at all, because the client reads
+    x=3/x=4 unless `0x430E10` returns `SELECTOR_ARMED_VALUE`.  `blocking_gaps`
+    is the one place that difference is applied; a caller that reaches past
+    it and hands an unarmed block to `alternate_pair_gaps` is using this
+    predicate outside the range it is true in.
 
     ZERO IS A GAP for an unowned pair, and that is the correction of round
     `cgnzsd` kept intact by the merge.  The first draft refused the
@@ -424,22 +429,33 @@ def pair_gaps(
     frame flipping the selector hands the HUD `0/0` -- `GT-218`'s symptom.
 
     WHAT THE MERGE CHANGED, MEASURED RATHER THAN ASSERTED.  The VERDICT --
-    gaps or no gaps, which is all `guard_armed_block` reads -- is identical
+    gaps or no gaps, which is all `guard_block` reads -- is identical
     to the two old functions on every one of the 50,625 four-row blocks of
     the sweep corpus.  The REASONS reported for an already-refused block can
-    differ in two ways, both of them the old code being less complete:
+    differ in three ways -- pf-adversary `35b941` D5b measured the third,
+    which the sentence that stood here missed -- all three of them the old
+    code being less complete:
 
     * The cross-row `current > max` check now runs whenever both rows are
       READABLE, not only when the pair is otherwise clean.  The old
       alternate rule skipped it the moment any row was a gap, so a block
-      like `{52: 87, 53: 0xFFFFFFFF}` was reported as a construction default
-      and never as `87 > -1`.  The old gate was a cheap way of guaranteeing
+      like `{52: 87, 53: 1}` was reported as a construction default and
+      never as `87 > 1`.  MEASURED, round `coqzj0`: the sentence that stood
+      here used `{52: 87, 53: 0xFFFFFFFF}`, which is the CONSTRUCTOR value
+      of x=52, not of x=53 -- the very layer swap the seven-line warning at
+      `ALTERNATE_CONSTRUCTION_DEFAULTS` exists to stop, made twice in two
+      rounds in this one module (pf-adversary `35b941` D5a).  The old gate was a cheap way of guaranteeing
       both rows parse; `shown` returned alongside the gap does that job
       honestly.
     * Reasons now come out in ROW ORDER.  The old primary rule emitted
       `REASON_MAX_IS_ZERO` before it looked at negatives, so
       `{3: 0xFFFFFFFB, 4: 0}` read `max_row_is_zero, negative` and now reads
       `negative, max_row_is_zero`.  Same reasons, same refusal.
+    * The PRIMARY per-row rules now report a sibling row that the old code
+      returned before ever reaching.  MEASURED: `{9: 8, 4: 0}` read
+      `(ABSENT@3,)` and now reads `(ABSENT@3, MAX_IS_ZERO@4)`;
+      `{9: 8, 4: 0xFFFFFFFF}` read `(ABSENT@3,)` and now reads
+      `(ABSENT@3, NEGATIVE@4)`.  Same verdict, one more true sentence.
     """
     gaps: list[PairGap] = []
     numbers: dict[int, int] = {}
@@ -470,10 +486,16 @@ def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
     character whose real `alt_hp_max` were 1 is reported as a gap it is not.
     Refusing a real 1 costs a refusal; accepting the default puts a lie on a
     HUD.  This module takes the refusal -- and unlike round `m1dmhd`, the
-    day a `characters.alt_hp_max` column ships this stops being something
+    day `characters` ships columns for BOTH rows this stops being something
     anyone has to remember: `_pair_owned_by_this_server(ALTERNATE_PAIR)`
-    turns True in the same commit as the column, the construction-default
-    rule stops applying to this pair, and a legitimate `1` is accepted.
+    turns True in the same commit as the second column, the
+    construction-default rule stops applying to this pair, and a legitimate
+    `1` is accepted.  BOTH, not either -- MEASURED, round `coqzj0`
+    (pf-adversary `35b941` D4): with only x=52 owned, and with only x=53
+    owned, `1/1` is still reported as a construction default, because the
+    predicate is `set(pair) <= SERVER_OWNED_FIELDS` and one column does not
+    make a pair.  The sentence that stood here named one column and was
+    wider than what the code does.
     """
     return pair_gaps(ALTERNATE_PAIR, values)
 
@@ -485,9 +507,10 @@ def pair_reasons(pair: tuple[int, int]) -> frozenset[str]:
     the difference is read out of the schema in one place instead of being
     typed into two frozensets that had to be kept in step with the rule by
     hand.  `REASON_ZERO` and `REASON_CONSTRUCTION_DEFAULT` belong to an
-    UNOWNED pair; `REASON_MAX_IS_ZERO` to an owned one.  The day a
-    `characters.alt_hp_max` column ships, this set changes with the schema
-    in the same commit, exactly like the rule it describes.
+    UNOWNED pair; `REASON_MAX_IS_ZERO` to an owned one.  The day `characters`
+    ships columns for BOTH alternate rows, this set changes with the schema
+    in the same commit, exactly like the rule it describes -- both, not
+    either, for the reason measured in `alternate_pair_gaps` above.
     """
     reasons = {
         REASON_ABSENT_READS_ZERO,
@@ -560,44 +583,117 @@ def selector_is_armed(values: dict[int, object]) -> bool:
     return values.get(SELECTOR_FIELD) == SELECTOR_ARMED_VALUE
 
 
-def refusal_message(gaps: tuple[PairGap, ...]) -> str:
-    """The console line for a refusal.  ASCII only (the bridge is cp874)."""
+def _pair_is_represented(pair: tuple[int, int], values: dict[int, object]) -> bool:
+    """True when the block says anything at all about `pair`.
+
+    ONE row is enough, and that is the point rather than a looseness: a block
+    carrying x=3 and not x=4 has already said something about the pair, and
+    what it said is that max reads zero (`RE-222` Q0 -- an unset mask bit is
+    a ZERO on this client, not "unchanged").  A block carrying NEITHER row
+    has said nothing about HP and is not this module's business; refusing it
+    would be a claim about mask coverage, which is the wall's job at
+    `gm/attr_wire.py:955`, not this predicate's.
+    """
+    return bool(set(pair) & set(values))
+
+
+def blocking_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
+    """Every gap that must stop this block, whatever x=9 carries.
+
+    WHEN THIS FIRES, AND WHY IT IS NO LONGER ONLY THE ARMED CASE --
+    `COO-DECISION 20260907_1141` item 1, answering this lane's own note
+    `20260907_1034`.  The owner's reported symptom is `-1/1` on the panel,
+    which is the PRIMARY pair, the branch the client reads whenever
+    `0x430E10(x9)` does not return `SELECTOR_ARMED_VALUE`.
+    `primary_pair_gaps` caught that block already; the door simply never
+    called it, because the door returned early on x=9 != 8.  A
+    hole a predicate in this module can already see is not a hole this
+    module gets to leave open.
+
+    So the two pairs are reached under different conditions, and the
+    difference is the client's own selector rather than a preference:
+
+    * PRIMARY (x=3/x=4) -- checked whenever the block is REPRESENTED there
+      (`_pair_is_represented`), armed or not, because this is the branch the
+      client takes by default.
+    * ALTERNATE (x=52/x=53) -- checked only when the selector is ARMED,
+      unchanged.  Checking it unconditionally would refuse every login this
+      server composes: MEASURED, `login_mask.admitted_field_x_sets(legacy)`
+      is two shapes and NEITHER carries x=52 or x=53, so the pair reads as
+      absent in 2 of the 2 key sets the wall admits.  `0/0` on an unarmed
+      alternate pair is honest (`gm/attr_wire.py:211-213`); refusing it
+      would be this module refusing the server's own production login.
+
+    The armed path is byte-for-byte what it was: `armed_block_gaps`, both
+    pairs, in the order the client could take them.  Widening WHEN did not
+    narrow anything -- MEASURED in the round's sweep, every flip is
+    pass -> refuse and there is not one refuse -> pass.
+    """
+    if selector_is_armed(values):
+        return armed_block_gaps(values)
+    if _pair_is_represented(PRIMARY_PAIR, values):
+        return primary_pair_gaps(values)
+    return ()
+
+
+def refusal_message(values: dict[int, object], gaps: tuple[PairGap, ...]) -> str:
+    """The console line for a refusal.  ASCII only (the bridge is cp874).
+
+    TAKES `values` AS OF ROUND `coqzj0`, because the message has to say which
+    branch the refusal is about.  The old text opened with "selector x=9
+    carries 8 but ..." unconditionally; the day the door started firing on
+    unarmed blocks that sentence became a false statement printed into the
+    owner's console on every unarmed refusal -- the exact class of debt
+    `COO-DECISION 20260907_1141` and this lane's last three rounds are about.
+    """
     listed = ", ".join(f"x={g.x}({g.field_name}):{g.reason}" for g in gaps)
+    if selector_is_armed(values):
+        branch = (
+            f"selector x={SELECTOR_FIELD} ({_field_name(SELECTOR_FIELD)}) carries "
+            f"{SELECTOR_ARMED_VALUE}, so if 0x430E10 returns "
+            f"{SELECTOR_ARMED_VALUE} for this character the client reads the "
+            f"alternate pair x={ALTERNATE_PAIR[0]}/x={ALTERNATE_PAIR[1]}"
+        )
+    else:
+        branch = (
+            f"selector x={SELECTOR_FIELD} ({_field_name(SELECTOR_FIELD)}) does not "
+            f"carry {SELECTOR_ARMED_VALUE}, so the client reads the primary pair "
+            f"x={PRIMARY_PAIR[0]}/x={PRIMARY_PAIR[1]}"
+        )
     return (
         f"{HP_PAIR_REFUSED_CONSOLE_TOKEN} "
-        f"selector x={SELECTOR_FIELD} ({_field_name(SELECTOR_FIELD)}) carries "
-        f"{SELECTOR_ARMED_VALUE} but {len(gaps)} HP-pair row(s) are "
-        f"not honest -- {listed}; if 0x430E10 returns {SELECTOR_ARMED_VALUE} "
-        "for this character the client reads that pair, and an unset or zero "
-        "row reads as HP 0/0 on the frame layer (RE-222 Q0, quoted at "
-        "gm/attr_wire.py:105), while the client's own construction default "
-        "for these rows is 0xFFFFFFFF/1 on the constructor layer"
+        f"{branch} and {len(gaps)} HP-pair row(s) are "
+        f"not honest -- {listed}; an unset or zero row reads as HP 0/0 on the "
+        "frame layer (RE-222 Q0, quoted at gm/attr_wire.py:105), while the "
+        "client's own construction default for the alternate rows is "
+        "0xFFFFFFFF/1 on the constructor layer"
     )
 
 
-def guard_armed_block(values: dict[int, object]) -> None:
-    """Refuse a block that arms the selector while EITHER HP pair is a lie.
+def guard_block(values: dict[int, object]) -> None:
+    """Refuse a block that would put a dishonest HP pair on the client's HUD.
 
-    RENAMED from `guard_armed_block` in round `2v18x3`, in the same commit
-    that widened it (D11), because the old name was about to become a lie of
-    its own: a narrow name left over a widened door is how the next reader
-    wires the weaker half by accident.  Nothing outside this module and its
-    own tests referenced the old name -- measured, 0 hits across both
-    repositories -- so no compatibility alias is left behind to rot.
+    RENAMED from `guard_armed_block` in round `coqzj0`, in the same commit
+    that widened WHEN it fires (`COO-DECISION 20260907_1141` item 1) -- a
+    narrow name left over a widened door is how the next reader wires the
+    weaker half by accident.  That is the same reason round `2v18x3` renamed
+    `guard_alternate_pair` to `guard_armed_block` when it widened WHAT is
+    checked; the sentence that stood here got its own history wrong and said
+    it had been renamed from its own name, which round `coqzj0` corrected in
+    the same commit that made the name wrong again.  Nothing outside this
+    module and its own tests references either old name -- MEASURED, 0 hits
+    across both repositories -- so no compatibility alias is left to rot.
 
-    A block whose x=9 does not carry `SELECTOR_ARMED_VALUE` -- which is every
-    login shape this server composes today -- is none of this function's
-    business and passes.  Widening WHAT is checked did not widen WHEN it
-    fires.  This module does not decide whether a send is
-    allowed; it decides that a send which the incumbent fence would let
-    through must still not carry a pair the server never honestly set.
+    WHAT THIS DOOR DOES NOT DO, so the name is not read as more than it is:
+    it decides that a send which the incumbent fence would let through must
+    not carry a pair the server never honestly set.  It does not decide
+    whether a send is allowed at all, and it does not cover a block that
+    never mentions HP -- see `_pair_is_represented`.
     """
-    if not selector_is_armed(values):
-        return
-    gaps = armed_block_gaps(values)
+    gaps = blocking_gaps(values)
     if not gaps:
         return
-    raise HpPairError(refusal_message(gaps))
+    raise HpPairError(refusal_message(values, gaps))
 
 
 @dataclass(frozen=True)
