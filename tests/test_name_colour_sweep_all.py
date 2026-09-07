@@ -262,6 +262,190 @@ class AllSetRowsTests(unittest.TestCase):
                 continue
             self.assertLess(actor.actor_identity, lowest_real)
 
+    def test_no_two_boards_share_an_actor_identity(self) -> None:
+        """pf-adversary round ixdda8 finding D3, pinned by execution.
+
+        Six rows shared two identities.  The client keys an actor by its
+        identity, so two boards carrying the same one overwrite each other:
+        the board that survives names one question while the body drawn may
+        answer another, and that result cannot be told from a wrong one.
+        """
+        for env in (ALL_ENV, NOID_ENV):
+            for viewer in (None, VIEWER):
+                rows = name_colour_sweep.sweep_actors(
+                    self.legacy, env, viewer_identity=viewer)
+                identities = [actor.actor_identity for actor in rows]
+                with self.subTest(env=env["PF_NAME_COLOUR_SWEEP"], viewer=viewer):
+                    self.assertEqual(len(identities), len(set(identities)))
+
+    def test_a_labels_identity_does_not_move_when_other_rows_come_and_go(self) -> None:
+        """The slot table is what makes an identity a property of the LABEL.
+
+        Without it the negative rows are numbered by composition order, so
+        supplying a viewer identity silently renumbers every later board and
+        the attended sheet from one boot does not describe the next.
+        """
+        seen: dict[str, int] = {}
+        for env in (ALL_ENV, NOID_ENV):
+            for viewer in (None, VIEWER):
+                for actor in name_colour_sweep.sweep_actors(
+                        self.legacy, env, viewer_identity=viewer):
+                    if actor.label in seen:
+                        self.assertEqual(
+                            seen[actor.label], actor.actor_identity,
+                            f"{actor.label} changed identity between boots")
+                    seen[actor.label] = actor.actor_identity
+        # And the ones that carry a declared negative slot carry THAT value.
+        for label in name_colour_sweep.NEGATIVE_IDENTITY_SLOTS:
+            if label in seen:
+                self.assertEqual(
+                    seen[label], name_colour_sweep.negative_identity_for(label))
+
+    def test_every_negative_identity_is_its_own_slot_and_stays_negative(self) -> None:
+        """The pool is distinct AND on one side of the RE-222 split."""
+        values = [
+            name_colour_sweep.negative_identity_for(label)
+            for label in name_colour_sweep.NEGATIVE_IDENTITY_SLOTS
+        ]
+        self.assertEqual(len(values), len(set(values)))
+        for label, value in zip(name_colour_sweep.NEGATIVE_IDENTITY_SLOTS, values):
+            with self.subTest(label=label):
+                self.assertLess(value, 0)
+                # sign-extended high word is -1 for every slot, so every slot
+                # is the same side of "the 64-bit identity is not positive"
+                self.assertEqual((value >> 32) & 0xFFFFFFFF, 0xFFFFFFFF)
+        with self.assertRaises(name_colour_sweep.NameColourSweepError):
+            name_colour_sweep.negative_identity_for("N-NOT-A-ROW")
+
+    def test_a_monster_rows_placement_index_really_carries_its_identity(self) -> None:
+        """``placement_index_for_identity`` is the only way a mob row gets one."""
+        for label in ("M-IDNEG", "M-IDNEG-T31"):
+            wanted = name_colour_sweep.negative_identity_for(label)
+            index = name_colour_sweep.placement_index_for_identity(wanted)
+            with self.subTest(label=label):
+                self.assertEqual(0x2000 + index + 1, wanted)
+        rows = {
+            actor.label: actor
+            for actor in name_colour_sweep.sweep_actors(self.legacy, ALL_ENV)
+        }
+        for label in ("M-IDNEG", "M-IDNEG-T31"):
+            self.assertEqual(
+                rows[label].actor_identity,
+                name_colour_sweep.negative_identity_for(label))
+
+    def test_exactly_one_board_carries_the_zero_identity(self) -> None:
+        """The zero class holds one value, so it gets one board, not two."""
+        for viewer in (None, VIEWER):
+            rows = name_colour_sweep.sweep_actors(
+                self.legacy, ALL_ENV, viewer_identity=viewer)
+            zeros = [a.label for a in rows if a.actor_identity == 0]
+            with self.subTest(viewer=viewer):
+                self.assertEqual(zeros, [name_colour_sweep.ALL_ZERO_IDENTITY_LABEL])
+        self.assertIn(
+            "N-ID0-LNKP",
+            [label for label, _ in name_colour_sweep.ALL_SET_UNCOMPOSABLE])
+        self.assertNotIn(
+            "N-ID0-LNKP", name_colour_sweep.ALL_SET_NEEDS_VIEWER_IDENTITY)
+
+    def test_the_identity_times_template_rows_are_read_from_the_shipped_tables(self) -> None:
+        """ka1-A addendum 2: the colour comes from the TEMPLATE once a body is
+        on the NPC branch, so identity has to be crossed with template.
+
+        Both templates are read out of a shipped roster.  Nothing here writes
+        to bg0002; it is loaded and looked at.
+        """
+        eagle = name_colour_sweep._identity_template_mob_prototype()
+        self.assertEqual(
+            eagle.template_id,
+            name_colour_sweep.IDENTITY_TEMPLATE_MOB_TEMPLATE_ID)
+        self.assertIn(
+            eagle,
+            field_mobs.load_roster(
+                scene=name_colour_sweep.IDENTITY_TEMPLATE_MOB_SCENE))
+        rows = {
+            actor.label: actor
+            for actor in name_colour_sweep.sweep_actors(self.legacy, ALL_ENV)
+        }
+        self.assertIn("M-IDNEG-T31", rows)
+        self.assertIn("N-IDNEG-T916", rows)
+        # N-IDNEG-T916 is the NPC control body with the monster's template and
+        # preset, and its own identity -- nothing else moved.
+        control = rows["N-IDNEG-T916"]
+        mob = name_colour_sweep._mob_prototype()
+        expected = name_colour_sweep._npc_plain_body(
+            self.legacy, control.actor_identity, "N-IDNEG-T916",
+            template_id=mob.template_id, visual_preset=mob.visual_preset)
+        self.assertEqual(control.npc_attr, expected)
+
+    def test_the_identity_times_template_rows_are_absent_from_all_noid(self) -> None:
+        """They are identity rows, so the identity-free boot leaves them out."""
+        labels = self._labels(NOID_ENV, VIEWER)
+        self.assertNotIn("M-IDNEG-T31", labels)
+        self.assertNotIn("N-IDNEG-T916", labels)
+
+    def test_the_declared_row_order_names_every_row_and_no_others(self) -> None:
+        """The slot table is the identity oracle, so it has to be complete."""
+        drawn: set[str] = set()
+        for env in (ALL_ENV, NOID_ENV):
+            for viewer in (None, VIEWER):
+                drawn.update(self._labels(env, viewer))
+        nameable = drawn | {
+            label for label, _ in name_colour_sweep.ALL_SET_UNCOMPOSABLE
+        } | set(name_colour_sweep.ALL_SET_NEEDS_VIEWER_IDENTITY)
+        self.assertEqual(set(name_colour_sweep.ALL_ROW_ORDER), nameable)
+        self.assertEqual(
+            len(name_colour_sweep.ALL_ROW_ORDER),
+            len(set(name_colour_sweep.ALL_ROW_ORDER)))
+        with self.assertRaises(name_colour_sweep.NameColourSweepError):
+            name_colour_sweep.all_row_placement_index("N-NOT-A-ROW")
+
+    def test_every_board_drawn_carries_a_prediction(self) -> None:
+        """ka1-A addendum 2: a board with no prediction records a colour; it
+        does not grade a hypothesis.  No test here asserts a prediction is
+        RIGHT -- nothing in this repository can read a screen."""
+        drawn: set[str] = set()
+        for env in (ALL_ENV, NOID_ENV):
+            for viewer in (None, VIEWER):
+                for actor in name_colour_sweep.sweep_actors(
+                        self.legacy, env, viewer_identity=viewer):
+                    drawn.add(actor.label)
+                    with self.subTest(label=actor.label):
+                        self.assertTrue(
+                            name_colour_sweep.prediction_for(actor.label).strip())
+        # No orphan predictions: every declared prediction names a row that is
+        # either drawn, or refused with a written reason.
+        named = drawn | {label for label, _ in name_colour_sweep.ALL_SET_UNCOMPOSABLE}
+        self.assertEqual(
+            set(name_colour_sweep.ALL_ROW_PREDICTIONS) - named, set())
+        with self.assertRaises(name_colour_sweep.NameColourSweepError):
+            name_colour_sweep.prediction_for("N-NOT-A-ROW")
+
+    def test_the_headless_token_tool_reports_what_the_module_composes(self) -> None:
+        """The token an attended ticket cites has to be re-runnable.
+
+        Rule 0159 wants a console token measured on the commit the ticket is
+        written against.  The boot-time NAME_COLOUR_SWEEP_ARMED line needs a
+        real client; this tool prints the half that does not, so LANE-K and
+        ka1-A can re-run one command and compare instead of trusting prose.
+        """
+        import subprocess
+
+        tool = ROOT / "tools" / "pf_name_colour_sweep_headless.py"
+        self.assertTrue(tool.is_file())
+        done = subprocess.run(
+            [sys.executable, str(tool)],
+            capture_output=True, text=True, cwd=str(ROOT),
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        drawn = len(name_colour_sweep.sweep_actors(self.legacy, ALL_ENV))
+        self.assertIn(
+            f"NAME_COLOUR_SWEEP_COMPOSED set={name_colour_sweep.SET_ALL} "
+            f"actors={drawn} ",
+            done.stdout,
+        )
+        self.assertIn("NAME_COLOUR_SWEEP_UNARMED actors=0", done.stdout)
+        self.assertIn("NAME_COLOUR_SWEEP_HEADLESS PASS", done.stdout)
+
     def test_every_positive_identity_row_stays_in_the_reserved_band(self) -> None:
         """The half of the band pin that still applies to this set."""
         for env in (ALL_ENV, NOID_ENV):

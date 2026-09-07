@@ -352,6 +352,24 @@ def _mob_prototype() -> field_mobs.FieldMob:
     )
 
 
+def _identity_template_mob_prototype() -> field_mobs.FieldMob:
+    """The real field monster the identity x template row is built from.
+
+    Read out of the shipped Bg0002 roster (Tornado Eagle, template 31,
+    ``M011_000_000_SP3``) rather than typed, so this row moves with the table
+    instead of drifting away from it.  This READS bg0002; it does not touch
+    it.
+    """
+    for mob in field_mobs.load_roster(scene=IDENTITY_TEMPLATE_MOB_SCENE):
+        if mob.template_id == IDENTITY_TEMPLATE_MOB_TEMPLATE_ID:
+            return mob
+    raise NameColourSweepError(
+        f"template {IDENTITY_TEMPLATE_MOB_TEMPLATE_ID} is not in "
+        f"field_mobs.load_roster(scene={IDENTITY_TEMPLATE_MOB_SCENE!r}) any "
+        "more -- the identity x template row needs re-deriving"
+    )
+
+
 def _npc_plain_body(
     legacy: Any,
     actor_identity: int,
@@ -716,6 +734,14 @@ ALL_SET_UNCOMPOSABLE = (
         "same refusal as M-DEAD -- the death half of the mix cannot be "
         "composed, so the mix cannot either",
     ),
+    (
+        "N-ID0-LNKP",
+        "the zero identity class holds exactly one value (hi == lo == 0), and "
+        "N-ID0 carries it in this boot.  A second zero row would have to share "
+        "that identity, and two rows sharing an identity overwrite each other "
+        "on the client (pf-adversary round ixdda8 finding D3), so this mix is "
+        "a separate boot rather than a second nameboard here",
+    ),
 )
 
 #: Labels that need the WATCHING SESSION's identity, which this module cannot
@@ -724,7 +750,7 @@ ALL_SET_UNCOMPOSABLE = (
 #: it None -- every caller on main today -- and they are left out rather than
 #: filled with a made-up number.  CORE-REQUEST to chief (round ixdda8) asks
 #: for the one keyword at the call site.
-ALL_SET_NEEDS_VIEWER_IDENTITY = ("N-LNKP", "N-IDNEG-LNKP", "N-ID0-LNKP")
+ALL_SET_NEEDS_VIEWER_IDENTITY = ("N-LNKP", "N-IDNEG-LNKP")
 
 #: The identity families (COO-ORDER 2342 item 2 groups B and F) that
 #: ``ALL-NOID`` leaves out.
@@ -751,10 +777,212 @@ SWEEP_HP_ZERO = 0
 
 IDENTITY_ZERO = 0
 IDENTITY_NEGATIVE = -1
-#: ``FieldMob.actor_identity`` is ``0x2000 + placement_index + 1``, so the
-#: monster row reaches identity -1 through its placement index, not by
-#: overwriting the derived value.
-MOB_NEGATIVE_PLACEMENT_INDEX = IDENTITY_NEGATIVE - 0x2000 - 1
+
+#: EVERY NAMEBOARD NEEDS ITS OWN ACTOR IDENTITY.  pf-adversary round ixdda8
+#: finding D3 measured six rows sharing two identities (-1 across N-IDNEG,
+#: M-IDNEG and N-IDNEG-ENM1, 0 across the two zero rows): the client keys an
+#: actor by its identity, so two rows carrying the same one overwrite each
+#: other and the board that survives names one question while the body drawn
+#: may answer another -- a result that cannot be told from a wrong one.
+#:
+#: The gate this family exists to cross does not care WHICH non-positive
+#: value it is.  RE 0x0045C160 / RE-222 (relayed in ka1-A's addendum 2,
+#: pf_bridge notes_to_chief/20260908_0057_KA1A-TO-COO-B-sweep-all-addendum2-
+#: *.md) puts the exit from the player formula at "the 64-bit identity is not
+#: strictly positive", i.e. ``hi < 0`` OR ``hi == lo == 0``.  Every value in
+#: this pool sign-extends to ``hi == -1``, so they are all the same side of
+#: that split and stay distinct on the wire.
+NEGATIVE_IDENTITY_STRIDE = -1
+
+
+def negative_identity(slot: int) -> int:
+    """The ``slot``-th distinct negative identity: -1, -2, -3, ...
+
+    Same side of the RE-222 split for every slot (``hi == -1`` after sign
+    extension), distinct so two boards cannot overwrite each other.
+    """
+    if slot < 0:
+        raise NameColourSweepError(
+            f"negative identity slot {slot} is not a slot number"
+        )
+    return IDENTITY_NEGATIVE + slot * NEGATIVE_IDENTITY_STRIDE
+
+
+def placement_index_for_identity(identity: int) -> int:
+    """The placement index a ``FieldMob`` needs to CARRY ``identity``.
+
+    ``FieldMob.actor_identity`` is ``0x2000 + placement_index + 1``, so a
+    monster row reaches a non-positive identity through its placement index,
+    never by overwriting the derived value.
+    """
+    return identity - 0x2000 - 1
+
+
+#: Kept as the slot-0 monster placement index this module has always used.
+MOB_NEGATIVE_PLACEMENT_INDEX = placement_index_for_identity(IDENTITY_NEGATIVE)
+
+#: THE ZERO CLASS HAS EXACTLY ONE VALUE.  ``hi == lo == 0`` is one identity,
+#: not a family, so exactly one board in a boot can ask the zero question.
+#: This is the label that carries it; any other zero row is refused with that
+#: reason rather than quietly handed a second copy of 0 (finding D3).
+ALL_ZERO_IDENTITY_LABEL = "N-ID0"
+
+#: One declared slot per negative row, so a label's identity does not move
+#: when another row joins or leaves the boot (ALL vs ALL-NOID, viewer
+#: identity known or not).  Order is the slot number, nothing else.
+NEGATIVE_IDENTITY_SLOTS = (
+    "N-IDNEG",
+    "M-IDNEG",
+    "N-IDNEG-LNKP",
+    "N-IDNEG-ENM1",
+    "M-IDNEG-T31",
+    "N-IDNEG-T916",
+)
+
+
+def negative_identity_for(label: str) -> int:
+    """The one negative identity declared for ``label``."""
+    try:
+        slot = NEGATIVE_IDENTITY_SLOTS.index(label)
+    except ValueError:
+        raise NameColourSweepError(
+            f"{label!r} has no declared negative identity slot -- add it to "
+            "NEGATIVE_IDENTITY_SLOTS rather than reusing another row's"
+        ) from None
+    return negative_identity(slot)
+
+
+#: EVERY label this set can name, in declaration order.  The slot a label has
+#: here is what its POSITIVE identity and placement index are derived from, so
+#: an identity belongs to a LABEL and not to the order the boot happened to
+#: draw in.  Without it the rows are numbered by composition ordinal, and
+#: supplying a viewer identity (or dropping the identity families for
+#: ALL-NOID) silently renumbers every later board -- so the attended sheet
+#: written for one boot describes a different actor in the next.  Measured:
+#: N-ENM0 moved from 28313 to 28323 between the two boots before this existed.
+#: Screen POSITION is still packed by drawn ordinal, so an absent row leaves
+#: no hole in the line; only the identity is pinned to the label.
+ALL_ROW_ORDER = (
+    "N-BASE", "M-BASE",
+    "N-LVL", "N-HP", "N-SPD", "N-TPL", "N-PRE",
+    "N-ID0", "N-IDNEG", "M-IDNEG", "M-IDNEG-T31", "N-IDNEG-T916",
+    "N-LNKP", "N-LNKS",
+    "N-ENM0", "N-ENM1", "N-ENM2", "N-ENM6", "N-ENM12", "N-ENMFF", "M-ENM1",
+    "N-HP0", "M-DEAD",
+    "N-IDNEG-LNKP", "N-IDNEG-ENM1", "N-ID0-LNKP", "M-IDNEG-DEAD",
+    "M-T001",
+)
+
+
+def all_row_placement_index(label: str) -> int:
+    """The reserved-band placement index declared for ``label``."""
+    try:
+        slot = ALL_ROW_ORDER.index(label)
+    except ValueError:
+        raise NameColourSweepError(
+            f"{label!r} is not in ALL_ROW_ORDER -- a row with no declared slot "
+            "would be numbered by draw order and move between boots"
+        ) from None
+    return SWEEP_PLACEMENT_BASE + slot * SWEEP_PLACEMENT_STRIDE
+
+
+#: The identity x template rows ka1-A's addendum 2 (2026-09-08T00:57+07:00)
+#: added after the Codex runner answered ``0x0045C160``: ``IsOffensive()``
+#: reads no wire field at all, it reads ``AI_WANDER[key].n_OFFESIVE`` out of
+#: the client's own CONSTDATA through the template.  So once a body is on the
+#: NPC branch, the colour comes from the TEMPLATE, and identity alone cannot
+#: answer the question -- the two have to be crossed.
+#:
+#: ``M-IDNEG-T31`` is the row that answers P-2 most directly: a real field
+#: monster (Tornado Eagle, ``n_AI_WANDER`` 16 -> ``n_OFFESIVE`` 0), faction 6,
+#: at a non-positive identity.  ``N-IDNEG-T916`` is the same crossing on the
+#: NPC prototype with the Training Iron Man template (wander 21 ->
+#: ``n_OFFESIVE`` 1).  Both templates are READ from the shipped rosters, never
+#: typed here.
+IDENTITY_TEMPLATE_MOB_SCENE = "Bg0002"
+IDENTITY_TEMPLATE_MOB_TEMPLATE_ID = 31
+
+
+#: WHAT EACH BOARD IS EXPECTED TO SAY IF THE RE IS RIGHT.  ka1-A's addendum 2
+#: (2026-09-08T00:57+07:00) asks for a prediction per row, so the attended boot
+#: GRADES a hypothesis instead of only recording colours: a board that matches
+#: is a confirmation, a board that does not is a gate the RE cannot see, and
+#: both are results.  The predictions are ka1-A's, drafted from two findings:
+#:
+#:   * ``0x0045C160`` (``IsOffensive``) reads no wire field.  It reads
+#:     ``AI_WANDER[key].n_OFFESIVE`` out of the client's own CONSTDATA via the
+#:     template -- 1 for 47 of the 73 rows, 0 for 26.  Measured against our
+#:     tables: template 1/156 (town NPC) wander 2 -> 0; template 916 (Training
+#:     Iron Man) wander 21 -> 1; field monsters 27-35 wander 16 -> 0.
+#:   * ``0x0043C380`` cuts in FIRST and reads the faction relationship
+#:     (``+0x98``, ``+0x1A0``, ``+0x68``, ``+0x248 -> +0xA8``), so "non-positive
+#:     identity AND hostile" and "non-positive identity AND not hostile" are
+#:     two different questions and get two different boards.
+#:
+#: A prediction is a sentence, not a pass mark: nothing in this repository can
+#: check a colour on a screen, and no test here asserts one is right.
+ALL_ROW_PREDICTIONS = {
+    "N-BASE": "green -- positive identity, no faction: the player formula, "
+              "friendly side.  Already graded green by the owner",
+    "M-BASE": "pink -- positive identity, faction 6: the player formula, "
+              "hostile side.  Already graded pink by the owner",
+    "N-LVL": "green -- positive identity keeps the player formula; a board "
+             "that is not green means level reaches the selector",
+    "N-HP": "green -- as N-LVL, for current/max HP",
+    "N-SPD": "green -- as N-LVL, for movement speed",
+    "N-TPL": "green -- as N-LVL, for template_id.  Read together with M-T001, "
+             "which asks the same field from the other direction",
+    "N-PRE": "green -- as N-LVL, for the visual preset",
+    "N-ID0": "yellow -- identity 0/0 leaves the player formula, and template 1 "
+             "has n_AI_WANDER 2 -> n_OFFESIVE 0, the NPC formula's quiet side",
+    "N-IDNEG": "yellow -- same as N-ID0 through the hi<0 half of the split",
+    "M-IDNEG": "orange or red IF the faction gate 0x0043C380 answers first "
+               "(template 916, faction 6, hostile on the NPC branch); the "
+               "0x3D style if it does not.  This row is the gate-order probe",
+    "M-IDNEG-T31": "orange -- a real field monster (Tornado Eagle, template "
+                   "31, wander 16 -> n_OFFESIVE 0) that is hostile and not yet "
+                   "aggroed, which is the owner's colour table for a field mob. "
+                   "The row that answers P-2 most directly",
+    "N-IDNEG-T916": "the 0x3D style -- template 916 is wander 21 -> "
+                    "n_OFFESIVE 1, the loud side of the NPC formula.  Record "
+                    "whatever colour that is; it is not predicted here",
+    "N-ENM0": "green -- positive identity, so n_ENEMY should not be reached",
+    "N-ENM1": "green -- as N-ENM0; a board that is not green puts n_ENEMY on "
+              "the selector path even under the player formula",
+    "N-ENM2": "green -- as N-ENM0",
+    "N-ENM6": "green -- as N-ENM0",
+    "N-ENM12": "green -- as N-ENM0",
+    "N-ENMFF": "green -- as N-ENM0",
+    "M-ENM1": "pink -- the monster control plus n_ENEMY 1 and nothing else, so "
+              "a difference from M-BASE is n_ENEMY and only n_ENEMY",
+    "N-HP0": "green -- positive identity; zero current HP asks whether the "
+             "death predicate is read before the colour is chosen",
+    "N-IDNEG-ENM1": "yellow -- the same board as N-IDNEG unless n_ENEMY is on "
+                    "the NPC branch's path.  Read as a diff against N-IDNEG, "
+                    "not on its own",
+    "N-LNKP": "green -- positive identity.  Gate 4 (linked = the viewer) is "
+              "what this row probes; a non-green board is the finding",
+    "N-IDNEG-LNKP": "not predicted -- gate 4 crossed with the non-positive "
+                    "identity split.  Record the colour",
+    "M-T001": "pink -- the monster carrying the NPC template_id.  Read with "
+              "N-TPL: the two live hypotheses predict opposite results here",
+}
+
+
+def all_row_predictions() -> dict[str, str]:
+    """What each board is expected to say if the RE is right (a copy)."""
+    return dict(ALL_ROW_PREDICTIONS)
+
+
+def prediction_for(label: str) -> str:
+    """The prediction declared for ``label``."""
+    try:
+        return ALL_ROW_PREDICTIONS[label]
+    except KeyError:
+        raise NameColourSweepError(
+            f"{label!r} has no prediction -- a board with no prediction is a "
+            "colour written down, not a hypothesis graded (ka1-A addendum 2)"
+        ) from None
 
 
 def all_set_uncomposable_rows() -> tuple[tuple[str, str], ...]:
@@ -902,7 +1130,7 @@ def _all_set(
             not include_identity_rows and group in ALL_IDENTITY_GROUPS
         ):
             return
-        placement_index = SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+        placement_index = all_row_placement_index(label)
         identity = 0x2000 + placement_index + 1
         rows.append(_entry(
             legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
@@ -931,6 +1159,7 @@ def _all_set(
         *,
         placement_index: int | None = None,
         body_for=None,
+        prototype: field_mobs.FieldMob | None = None,
         **overrides: Any,
     ) -> None:
         nonlocal ordinal
@@ -939,11 +1168,12 @@ def _all_set(
         ):
             return
         index = (
-            SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+            all_row_placement_index(label)
             if placement_index is None else placement_index
         )
         variant = replace(
-            mob, placement_index=index, display_name=label, **overrides
+            mob if prototype is None else prototype,
+            placement_index=index, display_name=label, **overrides
         )
         body = (
             field_mobs.hostile_npc_attr(
@@ -978,9 +1208,25 @@ def _all_set(
     # question, so the only split worth a nameboard is <= 0.
     npc_fixed_identity("N-ID0", "identity", IDENTITY_ZERO,
                        lambda i, l: _npc_plain_body(legacy, i, l))
-    npc_fixed_identity("N-IDNEG", "identity", IDENTITY_NEGATIVE,
+    npc_fixed_identity("N-IDNEG", "identity", negative_identity_for("N-IDNEG"),
                        lambda i, l: _npc_plain_body(legacy, i, l))
-    mob_row("M-IDNEG", "identity", placement_index=MOB_NEGATIVE_PLACEMENT_INDEX)
+    mob_row("M-IDNEG", "identity", placement_index=placement_index_for_identity(
+        negative_identity_for("M-IDNEG")))
+
+    # B2 -- identity x template (ka1-A addendum 2, 2026-09-08T00:57+07:00).
+    # IsOffensive() reads the template's AI_WANDER row out of client CONSTDATA,
+    # so identity alone cannot answer the question once a body is on the NPC
+    # branch: the crossing has to be drawn.
+    mob_row("M-IDNEG-T31", "identity",
+            placement_index=placement_index_for_identity(
+                negative_identity_for("M-IDNEG-T31")),
+            prototype=_identity_template_mob_prototype())
+    npc_fixed_identity(
+        "N-IDNEG-T916", "identity", negative_identity_for("N-IDNEG-T916"),
+        lambda i, l: _npc_plain_body(
+            legacy, i, l, template_id=mob.template_id,
+            visual_preset=mob.visual_preset),
+    )
 
     # C -- linked identity (NPCAttr+0x98, mob_viewer_link's own field).
     if viewer_identity is not None:
@@ -1008,15 +1254,13 @@ def _all_set(
 
     # F -- the mixes the owner asked for.
     if viewer_identity is not None:
-        npc_fixed_identity("N-IDNEG-LNKP", "mixed", IDENTITY_NEGATIVE,
+        npc_fixed_identity("N-IDNEG-LNKP", "mixed",
+                           negative_identity_for("N-IDNEG-LNKP"),
                            lambda i, l: _npc_linked_body(
                                legacy, i, l, viewer_identity))
-    npc_fixed_identity("N-IDNEG-ENM1", "mixed", IDENTITY_NEGATIVE,
+    npc_fixed_identity("N-IDNEG-ENM1", "mixed",
+                       negative_identity_for("N-IDNEG-ENM1"),
                        lambda i, l: _npc_enemy_body(legacy, i, l, 1))
-    if viewer_identity is not None:
-        npc_fixed_identity("N-ID0-LNKP", "mixed", IDENTITY_ZERO,
-                           lambda i, l: _npc_linked_body(
-                               legacy, i, l, viewer_identity))
 
     # The twenty-sixth row (COO-DECISION 2026-09-07T23:42, answering this
     # lane's letter 2245): the monster prototype carrying the NPC's

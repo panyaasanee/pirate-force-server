@@ -654,3 +654,7 @@
 
 # LANE-DB round dcz2sv: RE-305 precondition probe (COO-DECISION 20260907_2148)
 !/tools/pf_backpack_attr_headless_replay.py
+
+# LANE-B round ubmvj1: the re-runnable console token an attended ticket cites
+# (rule 0159) for the name-colour sweep - the half that needs no client
+!/tools/pf_name_colour_sweep_headless.py
