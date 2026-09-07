@@ -1,7 +1,16 @@
-"""The one exception type that means A VENDORED FILE OF OURS IS BROKEN.
+"""What a broken vendored file of OURS means, and where it is counted.
 
-WHY A BASE CLASS AND NOT A LIST.  ``script_host._host_side_error_types()``
-used to be a hand-maintained tuple naming each vendored file's own error
+Two things live here, and the second is here BECAUSE of the first: the
+exception type that says a mirror in this repository is broken, and the
+per-mirror counter that records when one is.  Everything in ``lua_api``
+that reads a shipped ``.tsv`` already imports this module for the
+exception, and ``script_host`` imports ``lua_api`` -- so this leaf is
+the only place the counter can live without an import cycle.  See the
+comment block above ``MIRROR_API_SPEC`` for the two pf-adversary
+findings (D3, D6) that moved it out of ``script_host.py``.
+
+THE EXCEPTION TYPE: A BASE CLASS AND NOT A LIST.
+``script_host._host_side_error_types()`` used to be a hand-maintained tuple naming each vendored file's own error
 class, with nothing anywhere asserting the tuple was COMPLETE: a third
 mirror added next year would raise an error nobody had listed, fall through
 to the generic ``except Exception``, and be logged ``LUA_SCRIPT <file> ERR``
