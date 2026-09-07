@@ -1,11 +1,19 @@
 """LANE-CS: the level-half projection for CORE-REQUEST row 032.
 
 Read `src/pirateforce_foundation/damage_level_projection.py`'s docstring
-first.  Every number this file asserts is DERIVED here from the same shipped
-sources the module reads -- the formula constants in `mob_combat`, the pinned
-attacker, and the practice-dummy row out of the shipped roster.  Nothing is
-transcribed, so moving any of those three makes this file go red instead of
-letting a stale projection ship to chief as if it were still true.
+first.  Almost every number this file asserts is DERIVED here from the same
+shipped sources the module reads -- the formula constants in `mob_combat`, the
+pinned attacker, and the practice-dummy row out of the shipped roster.
+
+THE EXCEPTIONS, NAMED, BECAUSE AN EARLIER VERSION OF THIS PARAGRAPH SAID
+"every" AND WAS WRONG.  `TheDummyItselfIsPinnedHere` transcribes the dummy's
+`max_hp`, `level` and `template_id`, and `TheColumnThatWentToChiefIsPinned`
+transcribes the eleven numbers that were actually sent.  Both are transcribed
+ON PURPOSE, and the first one is a fix, not an oversight: the hit-count
+assertions have `mob.max_hp` on BOTH sides, so before this pin existed,
+moving `max_hp` from 198125 to 99999 left this file reporting green with every
+hit count in it silently wrong.  A derivation cannot anchor itself; one end of
+it has to be nailed to something that does not move when the source does.
 """
 
 import math
@@ -20,6 +28,49 @@ from pirateforce_foundation import damage_level_projection as projection
 from pirateforce_foundation import damage_town_target
 from pirateforce_foundation import field_mobs
 from pirateforce_foundation import mob_combat
+
+
+# The one number in this file that is TRANSCRIBED rather than derived, and
+# the reason the rest of the file means anything.  See the module docstring:
+# the hit-count assertions read `mob.max_hp` on both sides, so without an
+# anchor that does not move with the roster, every one of them is a tautology.
+# Provenance: the shipped roster row for template 916, the same value
+# `tests/test_mob_combat.py` pins at `assertEqual(mob.max_hp, 198125)`.
+PINNED_DUMMY_MAX_HP = 198125
+PINNED_DUMMY_LEVEL = 100
+PINNED_DUMMY_TEMPLATE_ID = 916
+
+
+def _combatant_max_level():
+    """The highest level the shipped `Combatant` accepts, MEASURED.
+
+    Probed rather than typed, so the sweeps below follow the record instead
+    of a constant in this file drifting away from it.  Doubling probe, then a
+    binary search on the boundary: no bound of `Combatant` is copied here.
+    """
+    def accepted(level):
+        try:
+            mob_combat.Combatant(level=level, ability_str=0, ability_con=0)
+        except Exception:
+            return False
+        return True
+
+    assert accepted(1), "the shipped Combatant refuses level 1"
+    high = 1
+    while accepted(high * 2):
+        high *= 2
+        assert high < 1 << 30, "Combatant appears to accept any level at all"
+    low, high = high, high * 2          # low accepted, high refused
+    while high - low > 1:
+        mid = (low + high) // 2
+        if accepted(mid):
+            low = mid
+        else:
+            high = mid
+    return low
+
+
+COMBATANT_MAX_LEVEL = _combatant_max_level()
 
 
 def town_target_mob():
@@ -105,9 +156,16 @@ class TheNumbersAreTheFormulaAndNotATable(unittest.TestCase):
                    + mob_combat.K_DEF_LV * mob.level)
         return max(mob_combat.MIN_HIT, attack - defence)
 
-    def test_damage_matches_the_formula_across_the_useful_band(self):
+    def test_damage_matches_the_formula_across_every_level_it_answers_for(self):
+        """The band swept is the band the module ANSWERS for, not a band
+        chosen for looking useful.
+
+        The earlier version stopped at 120 while `attacker_at_level` happily
+        answered up to `COMBATANT_MAX_LEVEL`, so levels 121..1000 carried no
+        assertion at all and a special case parked in there was invisible.
+        """
         mob = town_target_mob()
-        for level in range(1, 121):
+        for level in range(1, COMBATANT_MAX_LEVEL + 1):
             self.assertEqual(
                 projection.damage_at_level(level, mob),
                 self.expected_damage(level, mob),
@@ -115,14 +173,25 @@ class TheNumbersAreTheFormulaAndNotATable(unittest.TestCase):
             )
 
     def test_hits_match_the_ceiling_of_the_room_over_the_damage(self):
+        """Swept over the same full band, for the same reason: the hit count
+        used to be checked at five levels out of a thousand."""
         mob = town_target_mob()
-        room = int(mob.max_hp) - mob_combat.HP_FLOOR
-        for level in (1, mob_combat.PIN_ATTACKER_LEVEL, 25, 60, 100):
+        room = PINNED_DUMMY_MAX_HP - mob_combat.HP_FLOOR
+        for level in range(1, COMBATANT_MAX_LEVEL + 1):
             self.assertEqual(
                 projection.hits_to_fell_at_level(level, mob),
                 math.ceil(room / self.expected_damage(level, mob)),
                 "level %d" % level,
             )
+
+    def test_the_projection_answers_for_the_whole_band_and_refuses_outside_it(self):
+        """The sweeps above are only worth their runtime if the band they
+        sweep really is the band the module accepts."""
+        mob = town_target_mob()
+        self.assertIsInstance(
+            projection.damage_at_level(COMBATANT_MAX_LEVEL, mob), int)
+        with self.assertRaises(projection.LevelOutOfRangeError):
+            projection.attacker_at_level(COMBATANT_MAX_LEVEL + 1)
 
     def test_the_hit_count_agrees_with_walking_the_ladder_one_hit_at_a_time(self):
         """The ceiling is arithmetic; this is the same answer measured.
@@ -320,6 +389,131 @@ class TheTableKeepsTheOrderItWasAsked(unittest.TestCase):
         wanted = (100, 1, 7)
         rows = projection.project_levels(mob, wanted)
         self.assertEqual(tuple(row.level for row in rows), wanted)
+
+
+class TheDummyItselfIsPinnedHere(unittest.TestCase):
+    """The anchor.  Without this class the hit-count column is a tautology.
+
+    `hits_to_fell_at_level` divides by a damage the file derives, but the
+    numerator is `mob.max_hp` -- read from the roster on BOTH sides of every
+    hit assertion.  Moving 198125 to 99999 in the roster left this file at 23
+    passed with every hit count in it wrong.  These three assertions are the
+    end of the derivation that is nailed down.
+    """
+
+    def test_the_dummys_ceiling_is_the_number_the_hit_column_divides(self):
+        self.assertEqual(int(town_target_mob().max_hp), PINNED_DUMMY_MAX_HP)
+
+    def test_the_dummy_is_the_level_the_defence_half_reads(self):
+        self.assertEqual(town_target_mob().level, PINNED_DUMMY_LEVEL)
+
+    def test_the_row_under_test_is_the_training_iron_man(self):
+        self.assertEqual(
+            town_target_mob().template_id, PINNED_DUMMY_TEMPLATE_ID)
+        self.assertEqual(field_mobs.TOWN_TARGET_N_ID, PINNED_DUMMY_TEMPLATE_ID)
+
+
+class TheColumnThatWentToChiefIsPinned(unittest.TestCase):
+    """The eleven numbers that left this lane in a letter.
+
+    Deliberately transcribed: derived numbers cannot catch a letter that
+    reported something the code never said.  If the shipped sources move,
+    these go red and the letter has to be corrected -- which is the point.
+    Rows are (level, damage per hit, hits to fell).
+    """
+
+    REPORTED = (
+        (1, 873, 227),
+        (7, 891, 223),
+        (25, 945, 210),
+        (40, 990, 201),
+        (60, 1050, 189),
+        (100, 1170, 170),
+    )
+
+    def test_every_row_reported_to_chief_is_what_the_module_answers(self):
+        mob = town_target_mob()
+        for level, damage, hits in self.REPORTED:
+            with self.subTest(level=level):
+                row = projection.project_levels(mob, (level,))[0]
+                self.assertEqual(row.damage_per_hit, damage)
+                self.assertEqual(row.hits_to_fell, hits)
+
+
+class TheTwoRefusalsHaveDifferentNames(unittest.TestCase):
+    """A level `Combatant` refuses is not the same event as a pin that will
+    not rebuild, and reporting both with one sentence hid the second one
+    behind a true-sounding statement about the first."""
+
+    def test_a_level_outside_the_record_is_a_level_error(self):
+        with self.assertRaises(projection.LevelOutOfRangeError):
+            projection.attacker_at_level(COMBATANT_MAX_LEVEL + 1)
+
+    def test_a_pin_that_will_not_rebuild_does_not_blame_the_level(self):
+        original = mob_combat.pin_attacker
+        try:
+            mob_combat.pin_attacker = lambda: object()
+            with self.assertRaises(projection.PinWillNotAssembleError) as caught:
+                projection.attacker_at_level(7)
+        finally:
+            mob_combat.pin_attacker = original
+        self.assertNotIsInstance(
+            caught.exception, projection.LevelOutOfRangeError)
+        self.assertIn("is not what failed", str(caught.exception))
+
+    def test_both_are_still_catchable_as_the_base_refusal(self):
+        for raiser in (
+            lambda: projection.attacker_at_level(COMBATANT_MAX_LEVEL + 1),
+            lambda: projection.attacker_at_level("7"),
+        ):
+            with self.assertRaises(projection.LevelProjectionError):
+                raiser()
+
+
+class TheGuardsBlindSpotIsReportedAndEmpty(unittest.TestCase):
+    """`require_only_level_differs` cannot vouch for a value derived from
+    `level`.  It says so instead of either lying or dying."""
+
+    def test_the_shipped_record_has_nothing_the_guard_cannot_check(self):
+        self.assertEqual(projection.unchecked_attributes(), ())
+
+    def test_a_derived_column_is_reported_by_name_not_silently_skipped(self):
+        import dataclasses as _dc
+
+        @_dc.dataclass(frozen=True)
+        class WithDerived:
+            level: int
+            ability_str: int
+            ability_con: int
+            twice_level: int = _dc.field(init=False, default=0)
+
+        sample = WithDerived(level=7, ability_str=132, ability_con=0)
+        self.assertEqual(
+            projection.unchecked_attributes(sample), ("twice_level",))
+
+    def test_post_init_state_the_fields_api_cannot_see_is_reported_too(self):
+        import dataclasses as _dc
+
+        @_dc.dataclass
+        class WithHiddenState:
+            level: int
+
+            def __post_init__(self):
+                self.cached_attack = self.level * 3
+
+        sample = WithHiddenState(level=7)
+        self.assertEqual(
+            projection.unchecked_attributes(sample), ("cached_attack",))
+
+    def test_the_guard_still_refuses_a_field_it_can_check(self):
+        pin = mob_combat.pin_attacker()
+        cheat = mob_combat.Combatant(
+            level=pin.level,
+            ability_str=pin.ability_str,
+            ability_con=pin.ability_con + 1,
+        )
+        with self.assertRaises(projection.LevelProjectionError):
+            projection.require_only_level_differs(cheat)
 
 
 if __name__ == "__main__":

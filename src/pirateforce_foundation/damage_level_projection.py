@@ -17,16 +17,36 @@ WHAT IT DOES NOT DO.  It does not read a character row, it does not touch
 `runtime.py`, and it does not change how any hit is resolved: every number
 below comes back out of `mob_combat.resolve_damage` unchanged, reached
 through `damage_town_target.unclamped_hit_damage`, which is the same function
-`tests/test_damage_town_target.py` already pins against the four numbers an
-owner photographed in R322C.  Nothing here is a production caller and nothing
-here is reachable from a frame.
+`tests/test_damage_town_target.py` already pins against R322C.  Those four
+R322C numbers are NOT one layer of evidence: the per-hit 891 is what an owner
+photographed on the client, while the 192779 -> 189215 hp pair came off the
+SERVER console (`damage_town_target.py:128` names both origins).  This module
+inherits that split; it does not merge the two layers, and no claim here rests
+on the console pair standing in for something seen on screen.  Nothing here is
+a production caller and nothing here is reachable from a frame.
 
-ONE VARIABLE, AND THE MODULE PROVES IT IS ONE.  The projected attacker is
-built with `dataclasses.replace` on `mob_combat.pin_attacker()` -- not
-assembled here from typed numbers -- so the day the pin grows a field, or its
-`ability_str` moves, this module follows it instead of silently pinning an
-attacker nobody ships.  `require_only_level_differs` re-checks that claim
-field by field at call time rather than leaving it to the docstring.
+ONE VARIABLE, AND THE MODULE PROVES IT IS ONE -- WITH ITS BLIND SPOT NAMED.
+The projected attacker is built with `dataclasses.replace` on
+`mob_combat.pin_attacker()` -- not assembled here from typed numbers -- so the
+day the pin grows a field, or its `ability_str` moves, this module follows it
+instead of silently pinning an attacker nobody ships.
+`require_only_level_differs` re-checks that claim at call time rather than
+leaving it to the docstring, and it checks exactly the attributes it is able
+to reason about: the declared `init=True` fields of `Combatant`.  Two kinds of
+attribute it CANNOT reason about, because a value derived from `level` is
+supposed to move when `level` moves:
+
+  * a declared field with `init=False`, which `dataclasses.replace`
+    recomputes, and
+  * instance state assigned in `__post_init__`, which `dataclasses.fields`
+    never sees at all.
+
+Rather than pretend, the guard skips both and :func:`unchecked_attributes`
+reports them by name.  On the `Combatant` shipped today that report is EMPTY,
+so the "only level moves" claim is complete -- and
+`tests/test_damage_level_projection.py` asserts the report is empty, so the
+day someone adds a derived column the TEST goes red naming it instead of this
+module refusing every level with a message blaming the caller.
 
 WHY THE HITS COLUMN IS A CEILING AND NOT A DIVISION.  The last hit of a kill
 is clamped to the room left (`mob_combat.apply_hit`), so a player watching the
@@ -53,8 +73,11 @@ from .mob_combat import Combatant
 
 __all__ = [
     "LevelProjectionError",
+    "LevelOutOfRangeError",
+    "PinWillNotAssembleError",
     "ProjectedRow",
     "attacker_at_level",
+    "unchecked_attributes",
     "require_only_level_differs",
     "damage_at_level",
     "hits_to_fell_at_level",
@@ -64,7 +87,24 @@ __all__ = [
 
 
 class LevelProjectionError(RuntimeError):
-    """Raised for a level this projection will not answer for."""
+    """Base for every refusal this projection makes."""
+
+
+class LevelOutOfRangeError(LevelProjectionError):
+    """The CALLER's level is one the shipped `Combatant` will not accept."""
+
+
+class PinWillNotAssembleError(LevelProjectionError):
+    """The PIN itself will not rebuild -- nothing to do with the level asked.
+
+    Kept apart from :class:`LevelOutOfRangeError` on purpose.  A single
+    `except Exception` around `dataclasses.replace` blamed the caller's level
+    for both, so the day `PIN_ATTACKER_ABILITY_STR` drifts outside the range
+    `Combatant.__post_init__` enforces, `attacker_at_level(7)` would report
+    "7 is not a level the shipped Combatant accepts" -- a true-sounding
+    sentence about the wrong number, for every level, with the test class that
+    asserts refusals still reporting green.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
@@ -79,19 +119,65 @@ class ProjectedRow:
 def attacker_at_level(level: int) -> Combatant:
     """The production-pinned attacker with `level` replaced and nothing else.
 
-    Raises :class:`LevelProjectionError` for a level `Combatant` itself would
+    Raises :class:`LevelOutOfRangeError` for a level `Combatant` itself would
     refuse, by asking `Combatant` rather than re-typing its bounds here: the
     range that matters is the one the shipped record enforces, and a second
     copy of it is how two range checks drift apart.
+
+    Raises :class:`PinWillNotAssembleError` -- a DIFFERENT name -- when it is
+    the pin, not the level, that will not go back together.  The pin is
+    rebuilt at its own level first precisely so the two failures can never be
+    reported with the same sentence.
     """
     if type(level) is not int or type(level) is bool:
         raise LevelProjectionError("level must be an int")
+    pin = mob_combat.pin_attacker()
     try:
-        return dataclasses.replace(mob_combat.pin_attacker(), level=level)
+        rebuilt_at_its_own_level = dataclasses.replace(pin, level=pin.level)
     except Exception as exc:                      # noqa: BLE001 - re-raised
-        raise LevelProjectionError(
+        raise PinWillNotAssembleError(
+            "the shipped pin will not rebuild even at its own level %r; the "
+            "level %r that was asked for is not what failed"
+            % (getattr(pin, "level", None), level)
+        ) from exc
+    if level == pin.level:
+        return rebuilt_at_its_own_level
+    try:
+        return dataclasses.replace(pin, level=level)
+    except Exception as exc:                      # noqa: BLE001 - re-raised
+        raise LevelOutOfRangeError(
             "level %r is not one the shipped Combatant accepts" % (level,)
         ) from exc
+
+
+def unchecked_attributes(sample: Any = None) -> tuple[str, ...]:
+    """The attribute names :func:`require_only_level_differs` does NOT vouch
+    for, sorted, so the blind spot is a value a test can assert on.
+
+    Two kinds qualify, and both for the same reason: a value derived from
+    `level` is SUPPOSED to move when `level` moves, so comparing it would
+    refuse every honest projection.
+
+      * a declared field with `init=False`, which `dataclasses.replace`
+        recomputes for the new level, and
+      * an instance attribute that `dataclasses.fields` does not declare at
+        all, i.e. state assigned in `__post_init__`.
+
+    `sample` defaults to the shipped pin.  On the `Combatant` shipped today
+    this returns `()` -- which is the whole point: the emptiness is asserted
+    in `tests/test_damage_level_projection.py`, so a derived column added
+    tomorrow turns that test red BY NAME instead of turning this module into
+    something that refuses every level.
+    """
+    record = mob_combat.pin_attacker() if sample is None else sample
+    declared = {field.name for field in dataclasses.fields(record)}
+    derived = {field.name for field in dataclasses.fields(record)
+               if not field.init}
+    try:
+        undeclared = set(vars(record)) - declared
+    except TypeError:                             # no instance __dict__
+        undeclared = set()
+    return tuple(sorted(derived | undeclared))
 
 
 def require_only_level_differs(projected: Combatant) -> None:
@@ -101,12 +187,18 @@ def require_only_level_differs(projected: Combatant) -> None:
     `dataclasses.fields`, so a field added to `Combatant` tomorrow is compared
     too without an edit here.  This is the check that makes the module's
     "one variable" claim mechanical instead of editorial.
+
+    Scope, stated because an unscoped version of this sentence was the defect:
+    the comparison covers the declared `init=True` fields only.  Anything in
+    :func:`unchecked_attributes` is skipped and the refusal message never
+    pretends otherwise.
     """
     pin = mob_combat.pin_attacker()
     if type(projected) is not Combatant:
         raise LevelProjectionError("projected must be the typed Combatant")
+    skipped = set(unchecked_attributes(pin))
     for field in dataclasses.fields(pin):
-        if field.name == "level":
+        if field.name == "level" or field.name in skipped:
             continue
         if getattr(projected, field.name) != getattr(pin, field.name):
             raise LevelProjectionError(
