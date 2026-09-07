@@ -752,9 +752,27 @@ class TheColumnThatWentToChiefIsPinned(unittest.TestCase):
     LEVELS_IN_THE_LETTER = (1, 3, 7, 10, 30, 40, 50, 100)
 
     def test_the_pinned_levels_are_the_levels_the_letter_carried(self):
+        """AN EDIT GUARD, NOT A VERIFICATION, AND IT SAYS SO ITSELF.
+
+        Both sides of this comparison are transcribed in this file, so it is
+        the shape adversary killed once already (D1: two literals compared to
+        each other).  It is kept anyway, for the one thing it does do -- a
+        row appended to `REPORTED` without a matching edit above goes red --
+        and it is named as an edit guard so nobody quotes it as proof that
+        the eight levels are the letter's.  Nothing here can open the letter:
+        `pf_gate_preflight` runs this suite with no `pf_bridge` beside it.
+        The claim that these are the letter's levels is checked by a reader,
+        and S7 is what happens when nobody does that for a while.
+        """
         self.assertEqual(
             tuple(row[0] for row in self.REPORTED),
             self.LEVELS_IN_THE_LETTER)
+        self.assertEqual(
+            len(set(self.LEVELS_IN_THE_LETTER)),
+            len(self.LEVELS_IN_THE_LETTER), "a level is pinned twice")
+        self.assertEqual(
+            list(self.LEVELS_IN_THE_LETTER),
+            sorted(self.LEVELS_IN_THE_LETTER), "the letter's table is sorted")
 
     def test_every_row_reported_to_chief_is_what_the_module_answers(self):
         mob = town_target_mob()
