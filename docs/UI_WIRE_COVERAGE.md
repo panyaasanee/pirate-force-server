@@ -107,8 +107,17 @@ To get the line back, ask the census, not `grep`:
 
 ```
 python3 tools/pf_ui_wire_name_census.py --where GM_RunGMCommandVital
-src/pirateforce_foundation/gm/command_capture.py:800
+src/pirateforce_foundation/gm/<file>.py:<line>
 ```
+
+The output above is deliberately NOT a real line number. This page is the one
+that explains that these numbers drift on other lanes' schedule; printing one
+here as an example makes the page contradict itself the next time LANE-GM adds
+fifty lines, and nothing re-derives it -- `CoverageDocMatchesCommittedArtifactTests`
+pins the headline numbers, the scoreboard line, the non-claims and `UI_LANE.md`,
+but it did not pin this block (round `8btjto`, pf-adversary D-C on `#1013`; the
+example used to read `...command_capture.py:800`, measured on `6b5b6b8` and
+already stale by the round after). Run the command; do not copy its answer.
 
 🔴 **`grep -n "<name>" <file>` is the wrong answer and this page used to give
 it** (round `jx6r5p`, pf-adversary D2 on `#1005`). `grep` reports docstring
@@ -117,9 +126,10 @@ is a different line from the counted one on **18 of the 30 `SOURCE` rows** --
 measured on `82a3b54`, a dated measurement of the tree, not a pinned
 invariant. The two rows that motivated dropping the line number are both in
 that 18: `gm/command_capture.py` spells `GM_RunGMCommandVital` and
-`Activity_CheatCodeVital` in its module docstring at lines 3 and 4, so grep
-hands back exactly the prose hit rounds `9dezrf` and `mg3nr4` were spent
-excluding. `--where` shares this repo's `code_token_lines()` and file order
+`Activity_CheatCodeVital` in its module docstring near the top of the file
+(lines 3 and 4 as measured on `82a3b54` -- another dated reading of another
+lane's file, not an invariant), so grep hands back exactly the prose hit rounds
+`9dezrf` and `mg3nr4` were spent excluding. `--where` shares this repo's `code_token_lines()` and file order
 with the census loop itself, so it agrees by construction; it reads only this
 repo, so it works with no `pf_bridge` sibling; and it exits 1 with a named
 reason when the name has no counted occurrence at all.
