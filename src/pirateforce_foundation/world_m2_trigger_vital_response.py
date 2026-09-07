@@ -408,8 +408,10 @@ CANDIDATE_TRIGGER_IDS: tuple[int, ...] = tuple(
 TRIGGER_ID_REFUSED_NOT_AN_INT = "TRIGGER_ID_REFUSED_NOT_AN_INT"
 TRIGGER_ID_REFUSED_NOT_M2 = "TRIGGER_ID_REFUSED_NOT_M2"
 
-# Named refusal for the TEST-ONLY `registry=` parameter of the two lookups
-# below.  It is deliberately LOUD (a raise), not fail-closed like the wire
+# Named refusal for the TEST-ONLY `registry=` parameter, which since this
+# round lives only on the two PRIVATE twins below (`_candidate_for_trigger_id`
+# and `_registered_count`) and on `_table_for` itself; the public pair take
+# no such argument.  It is deliberately LOUD (a raise), not fail-closed like the wire
 # input above, and the two postures are not in tension: `wire_trigger_id`
 # arrives from the network, so an unexpected value there is a fact about the
 # world and must never crash a session; `registry` can only ever be handed in
@@ -474,10 +476,17 @@ SCENE_REFUSED_NOT_THE_SEA_SCENE = "SCENE_REFUSED_NOT_THE_SEA_SCENE"
 #
 # So the round that consumed `RE-289` committed the TABLE and left the NAME
 # alone.  Filling it is one line, the day the crosswalk ticket answers.
-# pf-adversary measured what that one line does on this tree: with it set,
-# `answer_guard_reason(126, 3, reading_at_ordinal_3)` returns `None` and a
-# forged `registry=` reaches the caller.  That is the state this constant
-# exists to withhold until somebody has measured the right to grant it.
+# pf-adversary measured what that one line did on the tree of that round:
+# with it set, `answer_guard_reason(126, 3, reading_at_ordinal_3)` returns
+# `None` AND a forged `registry=` reached the caller.  HALF OF THAT SENTENCE
+# IS NO LONGER TRUE, and deliberately so: the second half was C6, and this
+# round shut that door (the seam is private now, see
+# `_candidate_for_trigger_id`), on the argument that a door held shut only
+# by an unmeasured discriminator is a door the NEXT round opens by doing
+# nothing.  The first half stands unchanged: filling this name still opens
+# all three tiers for any reading inside a committed box, which is the
+# decision this constant exists to withhold until somebody has measured the
+# right to grant it.
 ISLAND_CONTACT_DISCRIMINATOR: str | None = None
 
 # The letter this module copied its numbers out of, and its sha256 as
@@ -1157,11 +1166,46 @@ def _table_for(
     return registry
 
 
+def _candidate_for_trigger_id(
+    current_scene_id: object,
+    wire_trigger_id: object,
+    island_contact: object = None,
+    *,
+    registry: "Mapping[int, CandidateFrame | None] | None" = None,
+) -> "CandidateFrame | None":
+    """``candidate_for_trigger_id`` WITH the test-only ``registry`` seam, and
+    PRIVATE for exactly the reason ``_tier3_contact_reason``'s
+    ``discriminator=``/``boxes=`` are private: a caller able to supply the
+    table it is answered from is answering itself.
+
+    pf-adversary's finding C6 against `pirate-force-server#1015` is what
+    closed this: ``registry`` was a PUBLIC keyword on the function below,
+    "unreachable today" only because tier 3 refused every input on an
+    unmeasured discriminator.  That is a door held shut by a fact that the
+    next round is expected to change -- the round that fills in
+    ``ISLAND_CONTACT_DISCRIMINATOR`` would have opened it by doing nothing
+    at all.  So it is shut here, BEFORE the discriminator is measured, which
+    is the order the previous round wrote down as its first job.
+
+    The public function forwards NOTHING to this parameter, and two separate
+    tests measure that: the signature pin (no ``registry`` on any public
+    callable, alongside ``discriminator`` and ``boxes``) and the public
+    surface test, whose ``registry`` allowlist entry was DELETED in the same
+    commit -- an allowlist entry does not close a door, which is the lesson
+    that test's own docstring already taught about ``allowed_id_only``.
+    """
+    if (
+        answer_guard_reason(current_scene_id, wire_trigger_id, island_contact)
+        is not None
+    ):
+        return None
+    table = _table_for(registry)
+    return table.get(wire_trigger_id)
+
+
 def candidate_for_trigger_id(
     current_scene_id: object,
     wire_trigger_id: object,
-    *,
-    registry: "Mapping[int, CandidateFrame | None] | None" = None,
     island_contact: object = None,
 ) -> "CandidateFrame | None":
     """The candidate registered for ``wire_trigger_id`` when ALL THREE tiers
@@ -1185,67 +1229,68 @@ def candidate_for_trigger_id(
     CALL IS REFUSED AT TIER 3, so this function answers ``None`` for every
     input, registered slot or not -- see ``ISLAND_CONTACT_DISCRIMINATOR``.
 
-    ``registry`` defaults to this module's own ``_CANDIDATES`` and exists
-    only so a test can pass a synthetic mapping without mutating production
-    state -- never set from calling code outside a test.
+    THERE IS NO ``registry`` PARAMETER ON THIS FUNCTION, and there was one
+    until this round.  It defaulted to this module's own ``_CANDIDATES`` and
+    existed only so a test could pass a synthetic mapping without mutating
+    production state -- but it was PUBLIC, so it also let any caller supply
+    the whole table this function answers from, which is the one thing the
+    three tiers exist to decide.  pf-adversary named it C6 against
+    `pirate-force-server#1015`; the previous round agreed and wrote it down
+    as this round's first job, precisely because the door was standing open
+    behind a tier-3 refusal that the next round is meant to remove.  The
+    seam now lives on ``_candidate_for_trigger_id``, private, the same way
+    ``discriminator=`` and ``boxes=`` live on ``_tier3_contact_reason``.
 
     ``island_contact`` is TIER 3's reading and is passed straight through to
-    ``answer_guard_reason``; ``None`` is a refusal, not a pass.  It sits
-    FOURTH, after the test-only ``registry``, purely so that the third
-    POSITIONAL argument keeps meaning what it meant before this round --
-    a real caller supplies it by keyword and never supplies ``registry`` at
-    all.  If COO accepts the shape (see ``IslandContactEvidence``), the
-    round that receives a discriminator should consider moving it to third
-    and making ``registry`` keyword-only, which is a change to test call
-    sites and to nothing else.
+    ``answer_guard_reason``; ``None`` is a refusal, not a pass.  It is now
+    the THIRD POSITIONAL argument, which it could not be while the test-only
+    keyword sat in front of it.  Callers that already spell it
+    ``island_contact=`` keep working unchanged; the previous round's
+    docstring predicted this move and named it as the change to make "the
+    day a discriminator is measured", and closing C6 is what made it free.
 
-    Never raises on ``current_scene_id`` or ``wire_trigger_id``: EVERY value
-    of either, of every type, is answered with ``None`` rather than an
-    exception, because both arguments come from a live session.  A
-    ``registry`` that is not a mapping raises
-    ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)`` on purpose -- see that
-    constant for why the arguments get opposite postures.
+    NEVER RAISES, FULL STOP, ON ANY ARGUMENT -- and that sentence became
+    sayable this round.  Every value of ``current_scene_id``,
+    ``wire_trigger_id`` and ``island_contact``, of every type, is answered
+    with ``None`` rather than an exception, because all three come from a
+    live session.  Until this round the promise had to carry a long
+    exception for ``registry``: a non-mapping raised
+    ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)``, conditionally, only once
+    tier 3 could pass, so the docstring spent a screen explaining when the
+    "never raises" claim was and was not true.  With the seam moved to
+    ``_candidate_for_trigger_id`` there is no argument left on this function
+    that can raise, and the paragraph explaining the exception is deleted
+    rather than rewritten.  ``REGISTRY_REFUSED_NOT_A_MAPPING`` still exists
+    and is still raised, by ``_table_for``, reached from the private
+    function and from ``_registered_count`` -- see those two for the
+    posture and for which of them validates unconditionally.
 
-    THAT RAISE IS CONDITIONAL, AND ON THE SHIPPED MODULE IT CANNOT HAPPEN
-    HERE AT ALL.  The three tiers are checked BEFORE the registry is
-    touched, deliberately -- a malformed test registry must not be able to
-    turn a refusal into a traceback -- and until `RE-289` answered, tier 3
-    refused every input.  IT NO LONGER DOES, so the raise IS reachable
-    through this function now: a caller that hands in a reading inside a
-    committed box together with a non-mapping ``registry`` gets the
-    ``TypeError``.  No production call site passes a registry at all.  Note
-    that reaching the registry now takes TWO things, not one: a measured
-    discriminator AND a matching reading whose position falls inside a
-    committed extent; before this round the discriminator alone did it, and
-    the sentence here said so.  So today
-    ``candidate_for_trigger_id(126, 2, registry=[])`` answers ``None``, not
-    ``TypeError``, and pf-adversary was right that the flat promise above
-    read as though it did otherwise.  The raise becomes reachable through
-    this function only once a discriminator is measured (the tests reach it
-    by overriding the discriminator locally, which is why they see it);
-    ``registered_count`` validates its registry unconditionally and is the
-    place to look for the unconditional version of the same posture.  Three
-    tests pin this ordering in each direction, so making the raise
-    unconditional here would be an edit to them, not a bug fix.  No production
-    call site passes a registry at all: repo-wide grep for this module's
-    name finds importers only in its own test file, and the parameter is
-    third and keyword-named in every call there (a POSITIONAL third argument
-    would also reach it, which a grep for ``registry=`` alone would miss --
-    so the claim rests on "nothing in `src/` imports this module", not on
-    the keyword spelling).
+    No production call site passes anything to any of this: repo-wide grep
+    for this module's name finds importers only in its own test file.  That
+    claim rests on "nothing in `src/` imports this module", not on a keyword
+    spelling -- and since this round it no longer has to, because there is
+    no keyword left to spell.
     """
-    if (
-        answer_guard_reason(current_scene_id, wire_trigger_id, island_contact)
-        is not None
-    ):
-        return None
-    table = _table_for(registry)
-    return table.get(wire_trigger_id)
+    return _candidate_for_trigger_id(
+        current_scene_id, wire_trigger_id, island_contact
+    )
 
 
-def registered_count(
+def _registered_count(
     registry: "Mapping[int, CandidateFrame | None] | None" = None,
 ) -> int:
+    """``registered_count`` WITH the test-only ``registry`` seam, private for
+    the same reason ``_candidate_for_trigger_id`` is.
+
+    This one validates its registry UNCONDITIONALLY -- there are no tiers in
+    front of it -- so it is the place to look for the unconditional form of
+    the ``REGISTRY_REFUSED_NOT_A_MAPPING`` posture, and a test says so.
+    """
+    table = _table_for(registry)
+    return sum(1 for trigger_id in CANDIDATE_TRIGGER_IDS if table.get(trigger_id) is not None)
+
+
+def registered_count() -> int:
     """How many of ``CANDIDATE_TRIGGER_IDS`` currently have a real candidate.
     0 on the shipped tree, for both ids: COO-DECISION `20260906_1955` item
     4(b) bans a frame this lane invented, and no LANE-UI letter has cited
@@ -1260,10 +1305,14 @@ def registered_count(
     This is a COUNT OF SLOTS, and says nothing about whether any of them
     could be answered -- tier 3 refuses every lookup today regardless.
 
-    ``registry`` is the same test-only parameter, with the same named raise
-    on a non-mapping, as ``candidate_for_trigger_id``."""
-    table = _table_for(registry)
-    return sum(1 for trigger_id in CANDIDATE_TRIGGER_IDS if table.get(trigger_id) is not None)
+    IT TAKES NO ARGUMENTS AT ALL SINCE THIS ROUND.  It used to take the
+    test-only ``registry``, which made it the one public callable in this
+    file that a caller could hand a table to; the seam is
+    ``_registered_count`` now.  Taking nothing is also what makes it exempt
+    from the public-surface test's tier-ordering prong by SHAPE rather than
+    by an allowlist entry -- the entry that used to spell ``registry`` there
+    is deleted in the same commit."""
+    return _registered_count()
 
 
 # ---------------------------------------------------------------------------
@@ -1294,13 +1343,19 @@ class _FrozenTier3Module(ModuleType):
     for); and so does re-executing the module body through
     ``importlib.reload``.  Nothing in a Python process can prevent those.
 
-    WHAT IT ALSO DOES NOT STOP, and this one is a real gap rather than a
-    Python limit: ``candidate_for_trigger_id(..., registry=...)`` is a
-    PUBLIC keyword that supplies the whole registry, so freezing
-    ``_CANDIDATES`` protects the copy a caller need not use.  It is
-    unreachable today because tier 3 refuses on an unmeasured
-    discriminator, and it is the first thing to close in the round that
-    fills one in.  The freeze converts an ACCIDENT (an ordinary assignment, which
+    WHAT IT USED TO ALSO NOT STOP, CLOSED THIS ROUND:
+    ``candidate_for_trigger_id(..., registry=...)`` was a PUBLIC keyword
+    that supplied the whole registry, so freezing ``_CANDIDATES`` protected
+    a copy the caller need not use.  pf-adversary filed it as C6 against
+    `pirate-force-server#1015` and the previous round wrote it down as this
+    round's first job, for a reason worth keeping in view: it was
+    "unreachable" only because tier 3 refuses on an unmeasured
+    discriminator, i.e. it was held shut by the very fact the next round is
+    sent to change.  Both lookups now keep the seam on a private twin
+    (``_candidate_for_trigger_id``, ``_registered_count``); the public pair
+    take no registry at all, which is checked by the signature pin and by
+    the public-surface test, whose ``registry`` allowlist entry is deleted
+    in the same commit.  The freeze converts an ACCIDENT (an ordinary assignment, which
     is what the repro used and what a hurried round would write) into a
     named error, and leaves the deliberate act visible in a diff as a line
     no honest caller has a reason to contain.  That distinction is the whole
