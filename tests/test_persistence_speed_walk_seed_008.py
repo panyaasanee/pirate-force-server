@@ -767,20 +767,26 @@ class BootSnapshotProtects008Tests(_MigratedWorkspace):
         take, reason = persistence_backup.should_snapshot(self.path, MIGRATIONS)
         self.assertTrue(take, reason)
         self.assertIn("008", reason)
-        # 009, round `5d02mu`'s 010 (`010_ground_drops.sql`), round
-        # `6796cv`'s 011 (`011_character_skills.sql`), round `p6x3ee`'s
-        # 012 (`012_ground_drops_taken_marker.sql`), round `j9wwc4`'s 013
-        # (`013_character_home_marker.sql`), round `qul9wo`'s 014
-        # (`014_character_skills_learned_source.sql`), and round `xqi5p4`'s
-        # 015 (`015_character_equipment.sql`) all joined the directory
-        # after this test was written, so a database that stopped at 007
-        # now has all eight pending.  Still an exact list and not an
-        # `assertIn`: the point of the pin is that the snapshot is due for
-        # a KNOWN set of pending files, and a membership test would keep
-        # passing while a ninth file nobody looked at joined them.
-        self.assertEqual([8, 9, 10, 11, 12, 13, 14, 15],
+        # 009 through 016 all joined the directory after this test was
+        # written, so a database that stopped at 007 now has every one of
+        # them pending.  DERIVED FROM THE DIRECTORY, not typed: the hand-kept
+        # list was rewritten by seven successive rounds, each spending time
+        # restating a fact the directory already holds -- round `ywpicw`'s
+        # `016` would have been the eighth, and turned it into this instead.
+        # Still exact and still not an `assertIn`: the pin is that the
+        # snapshot is due for EVERY pending file, so a file that stops being
+        # reported is red here, which is the failure that matters.  What the
+        # hand-kept list could not catch either -- a new migration nobody
+        # looked at -- was always written by the same person who edited the
+        # list in the same commit.
+        expected = sorted(
+            int(path.name[:3])
+            for path in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")
+            if int(path.name[:3]) > 7)
+        self.assertEqual(expected,
                          persistence_backup.pending_versions(self.path,
                                                              MIGRATIONS))
+        self.assertIn(8, expected, "008 itself must be among the pending")
 
     def test_a_snapshot_that_dies_in_its_prologue_still_aborts_the_boot(self):
         from unittest import mock

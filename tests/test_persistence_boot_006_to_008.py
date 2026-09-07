@@ -103,9 +103,17 @@ def _typed_columns_seeded_by_lane_migrations() -> set[str]:
     """Typed columns any lane migration ASSIGNS a value to.
 
     `006` only adds columns (no assignment), so it contributes nothing; `007`
-    assigns the three vitals and `008` assigns `speed_walk`.  Derived so that
-    a future migration seeding a FIFTH column fails `_expected` with an
-    instruction rather than failing three tests with a puzzle.
+    assigns the three vitals, `008` assigns `speed_walk`, and `016` assigns
+    `experience` and `skill_points`.  Derived so that a future migration
+    seeding one more column fails `_expected` with an instruction rather than
+    failing three tests with a puzzle.
+
+    NOW WIRED, WHICH IT WAS NOT.  This helper was written for exactly this
+    day and then never called: `_expected` returned four hard-named values,
+    so when `016` began assigning two more columns the three tests below
+    failed with the puzzle this docstring promised to prevent.  `_expected`
+    now asks this function, so the expectation follows `migrations/` instead
+    of a sentence somebody wrote in 2026-09.
     """
     seeded = set()
     for path in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql"):
@@ -118,6 +126,34 @@ def _typed_columns_seeded_by_lane_migrations() -> set[str]:
             if re.search(r"\b%s\s*=" % re.escape(column), body):
                 seeded.add(column)
     return seeded
+
+
+def _literal_assigned_by_lane_migrations(column: str):
+    """The one numeric literal a lane migration assigns to `column`.
+
+    Read out of the migration text, never written here, for the reason
+    `_speed_walk_seeded_by_008` gives about its own number: a second copy of
+    a value cannot fail when the two disagree.  Every occurrence must agree
+    -- `016` writes `experience = 0` in its `UPDATE` and compares against the
+    same 0 inside a guard, and a file where those two differed would be a
+    file whose guard does not grade its own write.
+    """
+    found = set()
+    for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+        if int(path.name[:3]) <= LAST_PRE_LANE_VERSION:
+            continue
+        body = "\n".join(
+            line for line in path.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("--"))
+        found.update(
+            re.findall(r"\b%s\s*=\s*(-?[0-9]+(?:\.[0-9]+)?)" % re.escape(column), body))
+    if len(found) != 1:
+        raise AssertionError(
+            "expected exactly one distinct literal assigned to %r across the "
+            "lane migrations, found %r -- the migration that broke the tie, "
+            "not this helper, is what needs rereading" % (column, sorted(found)))
+    text = found.pop()
+    return float(text) if "." in text else int(text)
 
 
 def _speed_walk_seeded_by_008() -> float:
@@ -329,6 +365,18 @@ class EveryPreLaneRowComesOutSeededTests(_PreLaneWorkspace):
         """
         expected = dict(birth_state.seeded_birth())
         expected["speed_walk"] = _speed_walk_seeded_by_008()
+        # Anything a LATER lane migration assigns, derived from the files
+        # themselves.  `016` is the first: it backfills `experience` and
+        # `skill_points` from NULL to 0 on rows that already exist, so a
+        # pre-lane row that goes through the whole boot comes out holding
+        # six values, not four.  That is a change to what an EXISTING row
+        # holds and not to what a NEWBORN holds -- `pf_birth_state`, which
+        # owns the birth answer, is untouched by it and still names three
+        # states.  Deriving here rather than adding two names keeps this
+        # file honest about the seventh column too.
+        for column in sorted(_typed_columns_seeded_by_lane_migrations()):
+            if column not in expected:
+                expected[column] = _literal_assigned_by_lane_migrations(column)
         return expected
 
     def test_every_character_holds_exactly_the_four_seeded_values(self):
@@ -363,11 +411,13 @@ class EveryPreLaneRowComesOutSeededTests(_PreLaneWorkspace):
                 dict(store.read_typed_attributes(character_id)),
                 "character %d" % character_id)
 
-    def test_no_typed_column_outside_those_four_is_written(self):
+    def test_no_typed_column_outside_the_seeded_set_is_written(self):
         ids = self._make_pre_lane_rows()
         self._boot()
         untouched = set(typed.TYPED_COLUMNS) - set(self._expected())
-        self.assertTrue(untouched, "006 built no column beyond the seeded four")
+        self.assertTrue(
+            untouched,
+            "006 built columns beyond the ones lane migrations seed; if it ever stops doing so this assertion is measuring nothing")
         for row in self._rows():
             for column in untouched:
                 self.assertIsNone(row[column],

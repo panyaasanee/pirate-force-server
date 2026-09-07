@@ -112,11 +112,35 @@ from . import persistence_vitals as vitals
 #: names` grades the two against each other, so a change to either goes red.
 SPEED_WALK_X = 7
 
-#: The four columns somebody has adjudicated a birth value for, in the order
-#: `009` writes them.  READ-ONLY, REPORTING ONLY -- see the module header for
-#: why this is not `persistence_vitals.VITAL_COLUMNS` with a name appended.
+#: `x` of `skill_points` and `experience` -- the two columns
+#: `migrations/016_character_experience_skill_points_backfill.sql` writes a 0
+#: into on every row that already existed.  Named by index for the same reason
+#: `SPEED_WALK_X` is, and graded against the migration itself by
+#: `tests/test_persistence_null_audit.py`, whose existing assertion says it
+#: plainly: "a migration assigns a typed column that NULL_AUDIT_COLUMNS does
+#: not audit ... rows that predate that migration can hold NULL in it and this
+#: count would not see them."
+SKILL_POINTS_X = 16
+EXPERIENCE_X = 23
+
+#: The six columns somebody has adjudicated a value for: the four `009` gives
+#: a birth default, then the two `016` backfills.  READ-ONLY, REPORTING ONLY
+#: -- see the module header for why this is not
+#: `persistence_vitals.VITAL_COLUMNS` with names appended.
+#:
+#: WHY 016'S TWO BELONG HERE EVEN THOUGH 016 GIVES THEM NO DEFAULT, which is
+#: the reason this constant moved at all.  `016` backfills existing rows and
+#: deliberately does NOT attach a column default -- that half is a birth rule
+#: and `tests/pf_birth_state.py` holds it for its owner to move.  So from the
+#: boot that applies `016` onward, every character CREATED afterwards holds
+#: NULL in exactly these two columns while every character that predates it
+#: holds 0.  That is a population this database will accumulate silently, and
+#: a NULL census that cannot see it is a census that reports the problem
+#: solved.  Measured by `pf-adversary` on round `ywpicw` as finding D7.
 NULL_AUDIT_COLUMNS: tuple[str, ...] = tuple(vitals.VITAL_COLUMNS) + (
     typed_attrs.column_for(SPEED_WALK_X),
+    typed_attrs.column_for(SKILL_POINTS_X),
+    typed_attrs.column_for(EXPERIENCE_X),
 )
 
 

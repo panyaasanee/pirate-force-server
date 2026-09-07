@@ -73,11 +73,38 @@ class TheAuditedListIsDerivedNotTypedTests(unittest.TestCase):
     """The list cannot rot into a stale set of strings, and it cannot
     silently miss a column somebody adjudicates next month."""
 
-    def test_it_is_the_three_vitals_plus_the_column_x7_serves(self):
+    def test_it_is_the_three_vitals_plus_the_columns_x7_x16_and_x23_serve(self):
+        """Three vitals, `speed_walk`, and the two `016` backfills.
+
+        Still spelled through `typed.column_for` rather than as strings, and
+        still an exact tuple: this list is the census's whole subject, so a
+        name that joins or leaves it without anybody looking is the failure
+        this assertion exists for.  The two that joined on round `ywpicw` are
+        the columns `016` writes a 0 into on existing rows -- audited even
+        though `016` gives them no DEFAULT, because from that boot onward the
+        rows that hold NULL in them are the ones created AFTERWARDS, and a
+        census that cannot see those reports the problem solved."""
         self.assertEqual(
             audit_module.NULL_AUDIT_COLUMNS,
-            tuple(vitals.VITAL_COLUMNS) + (typed.column_for(7),),
+            tuple(vitals.VITAL_COLUMNS)
+            + (typed.column_for(7), typed.column_for(16), typed.column_for(23)),
         )
+
+    def test_x16_and_x23_are_the_two_columns_016_assigns(self):
+        """The list is graded against the migration, not against this file.
+        A renumbering of either index, or a 016 that changed which columns it
+        writes, goes red here rather than quietly auditing the wrong pair."""
+        text = "\n".join(
+            line.split("--")[0]
+            for line in (
+                MIGRATIONS
+                / "016_character_experience_skill_points_backfill.sql"
+            ).read_text(encoding="utf-8").splitlines()
+        )
+        for x in (audit_module.SKILL_POINTS_X, audit_module.EXPERIENCE_X):
+            column = typed.column_for(x)
+            self.assertIn("UPDATE characters SET %s = 0" % column, text)
+            self.assertIn(column, audit_module.NULL_AUDIT_COLUMNS)
 
     def test_x7_is_the_speed_column_according_to_another_module(self):
         """Graded against `persistence_attr_compose`'s own field table rather
@@ -219,7 +246,20 @@ class TheListMatchesTheSchemaAtHeadTests(unittest.TestCase):
                 }
             finally:
                 db.close()
-        self.assertEqual(defaulted, set(audit_module.NULL_AUDIT_COLUMNS))
+        # A DEFAULT is one way a column gets adjudicated and an `UPDATE` in a
+        # migration is the other, which the sibling assertion above already
+        # says.  `016` uses the second and deliberately not the first -- the
+        # DEFAULT half is a birth rule that `tests/pf_birth_state.py` holds
+        # for its owner to move -- so the audited set is the defaulted
+        # columns UNION the assigned ones, not the defaulted ones alone.
+        self.assertEqual(
+            defaulted | self._columns_a_migration_assigns(),
+            set(audit_module.NULL_AUDIT_COLUMNS))
+        self.assertTrue(
+            set(audit_module.NULL_AUDIT_COLUMNS) - defaulted,
+            "no audited column comes from an UPDATE any more; if that is "
+            "really true this assertion is measuring nothing and the union "
+            "above should go back to being an equality")
 
 
 class _UpgradeWorkspace(unittest.TestCase):
