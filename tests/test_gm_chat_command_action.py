@@ -52,6 +52,9 @@ from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
+from pirateforce_foundation.gm import say_wire  # noqa: E402
+from pirateforce_foundation.gm import scene_catalog  # noqa: E402
+from pirateforce_foundation.gm import staged_readback  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.gm import warp_target_record  # noqa: E402
@@ -1783,6 +1786,18 @@ class EventNameContractTests(_Case):
         "EVENT_LV_ROW_WRITTEN": "gm_chat_action_lv_row_written",
         "EVENT_LV_NOTICE_COMPOSED_PREFIX": "gm_chat_action_lv_notice_composed_",
         "EVENT_LV_NOTICE_FAILED_PREFIX": "gm_chat_action_lv_notice_failed_",
+        # `staged` (LANE-GM round `qpauwp`): the readback command's three
+        # events -- which of `staged_readback.STATUSES` was read, and the
+        # composed/failed pair every notice path in this module carries.
+        "EVENT_STAGED_READBACK_NOTICE_COMPOSED": (
+            "gm_chat_action_staged_readback_composed"
+        ),
+        "EVENT_STAGED_READBACK_NOTICE_FAILED_PREFIX": (
+            "gm_chat_action_staged_readback_notice_failed_"
+        ),
+        "EVENT_STAGED_READBACK_STATUS_PREFIX": (
+            "gm_chat_action_staged_readback_status_"
+        ),
         "EVENT_SPEED_PERSIST_REFUSED_PREFIX": (
             "gm_chat_action_speed_persist_refused_"
         ),
@@ -1853,6 +1868,11 @@ class EventNameContractTests(_Case):
         "SAY_ACTION_LABEL": "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE",
         "GMPROBE_ACTION_LABEL": "LANE_GM_CHAT_GMPROBE_STATE_VITAL",
         "SPEED_ACTION_LABEL": "LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL",
+        # `staged`'s readback sentence (LANE-GM round `qpauwp`).  ONE label
+        # for all three answers -- see the label's own comment in the module.
+        "STAGED_READBACK_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_STAGED_READBACK_LOCAL_TALK_NOTICE"
+        ),
         # A REFUSAL's on-screen sentence, never the command's own frame --
         # see the label's comment in the module for the two call sites that
         # must keep telling the two apart.
@@ -2326,6 +2346,370 @@ class ContractTests(_Case):
         self.assertIsInstance(action[1], (bytes, bytearray))
         self.assertIsInstance(action[2], (bytes, bytearray))
         self.assertIsInstance(action[3], float)
+
+
+class StagedReadbackModuleTests(unittest.TestCase):
+    """`gm/staged_readback.py` alone: the three bodies and the four statuses.
+
+    Appended to this file rather than shipped as a new test module, so the
+    gate's skip census does not move for a round that adds no skip.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = Path(self._tmp.name) / "config" / "gm_login_scene.json"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def write_map(self, mapping):
+        self.path.write_text(
+            json.dumps({"gm_login_scene": mapping}), encoding="utf-8"
+        )
+
+    def test_every_body_is_exactly_what_the_notice_wire_accepts(self):
+        """The property that makes this command safe to ship at all: the wire
+        refuses any body that is not exactly `NOTICE_TEXT_EXACT_LENGTH`
+        printable ASCII characters, and a body decided at run time from a
+        config file could otherwise be refused AFTER the command worked."""
+        bodies = [
+            staged_readback.NOTICE_NOTHING_STAGED,
+            staged_readback.NOTICE_UNREADABLE,
+        ]
+        # Every id the six-digit form can render, at both ends and in the
+        # middle -- not one sample.
+        for scene_id in (0, 1, 9, 10, 123, 99999, staged_readback.MAX_NOTICE_SCENE_ID):
+            bodies.append(
+                f"{staged_readback.NOTICE_SCENE_PREFIX}"
+                f"{scene_id:0{staged_readback.NOTICE_SCENE_ID_DIGITS}d}"
+            )
+        for body in bodies:
+            with self.subTest(body=body):
+                self.assertEqual(say_wire.NOTICE_TEXT_EXACT_LENGTH, len(body))
+                self.assertTrue(body.isascii())
+                self.assertTrue(body.isprintable())
+
+    def test_a_staged_scene_is_read_back_with_its_id_and_its_name(self):
+        self.write_map({"GM_ONE": 2})
+        result = staged_readback.read_staged_scene(
+            "GM_ONE", config_path=str(self.path)
+        )
+        self.assertEqual(staged_readback.STATUS_STAGED, result.status)
+        self.assertEqual(2, result.scene_id)
+        self.assertEqual("SCENE 000002", result.notice_text)
+        # The name is the catalog's own row, on the console half only.
+        self.assertIn(scene_catalog.gm_scene_name(2), result.console_detail)
+
+    def test_reading_it_does_not_spend_it(self):
+        """The difference from `login_scene_stage.claim_login_scene`, and it
+        is a race rather than a style preference: an operator asking what is
+        staged must not consume the staging they are about to use."""
+        self.write_map({"GM_ONE": 2})
+        before = self.path.read_bytes()
+        for _ in range(3):
+            self.assertEqual(
+                staged_readback.STATUS_STAGED,
+                staged_readback.read_staged_scene(
+                    "GM_ONE", config_path=str(self.path)
+                ).status,
+            )
+        self.assertEqual(before, self.path.read_bytes())
+
+    def test_another_accounts_staging_is_never_this_accounts_answer(self):
+        self.write_map({"GM_TWO": 2})
+        result = staged_readback.read_staged_scene(
+            "GM_ONE", config_path=str(self.path)
+        )
+        self.assertEqual(staged_readback.STATUS_NOTHING_STAGED, result.status)
+        self.assertIsNone(result.scene_id)
+        self.assertEqual("NO STAGE SET", result.notice_text)
+        # And no digit of the other account's scene leaks into either half.
+        self.assertNotIn("2", result.notice_text)
+        self.assertNotIn("GM_TWO", result.console_detail)
+
+    def test_a_missing_file_is_nothing_staged_not_a_failure(self):
+        result = staged_readback.read_staged_scene(
+            "GM_ONE", config_path=str(self.path)
+        )
+        self.assertEqual(staged_readback.STATUS_NOTHING_STAGED, result.status)
+
+    def test_a_malformed_config_is_an_answer_not_an_exception(self):
+        """The loader fails loud on purpose (a login must never be sent to an
+        unreviewed scene); a readback that let that reach the listener thread
+        would turn a courtesy into `gm_chat_action_unexpected_*`."""
+        self.path.write_text("{not json", encoding="utf-8")
+        result = staged_readback.read_staged_scene(
+            "GM_ONE", config_path=str(self.path)
+        )
+        self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
+        self.assertEqual("STAGE NOREAD", result.notice_text)
+
+    def test_the_console_detail_names_the_failure_type_and_never_its_message(self):
+        """An arbitrary exception message can carry bytes the cp874 console
+        cannot print -- the same rule `_typo_refused_notice` holds."""
+        message = "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35 secret path /etc/passwd"
+
+        class Boom(RuntimeError):
+            pass
+
+        with mock.patch.object(
+            staged_readback,
+            "load_login_scene_overrides",
+            side_effect=Boom(message),
+        ):
+            result = staged_readback.read_staged_scene(
+                "GM_ONE", config_path=str(self.path)
+            )
+        self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
+        self.assertIn("Boom", result.console_detail)
+        self.assertNotIn("secret path", result.console_detail)
+        self.assertTrue(result.console_detail.isascii())
+
+    def test_a_non_str_account_is_refused_rather_than_looked_up(self):
+        for account in (b"GM_ONE", None, 17, ["GM_ONE"]):
+            with self.subTest(account=account):
+                result = staged_readback.read_staged_scene(
+                    account, config_path=str(self.path)
+                )
+                self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
+                self.assertEqual("STAGE NOREAD", result.notice_text)
+
+    def test_a_str_subclass_account_is_refused_for_the_reason_the_lane_pins(self):
+        class Sneaky(str):
+            def __eq__(self, other):  # pragma: no cover - never reached
+                return True
+
+            __hash__ = str.__hash__
+
+        self.write_map({"GM_TWO": 2})
+        result = staged_readback.read_staged_scene(
+            Sneaky("GM_ONE"), config_path=str(self.path)
+        )
+        self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
+
+    def test_an_id_too_wide_for_the_body_is_named_not_rendered(self):
+        """Unreachable through the loader today (its ids are catalog rows);
+        still an answer rather than a body of the wrong width."""
+        with mock.patch.object(
+            staged_readback,
+            "load_login_scene_overrides",
+            return_value={"GM_ONE": staged_readback.MAX_NOTICE_SCENE_ID + 1},
+        ):
+            result = staged_readback.read_staged_scene(
+                "GM_ONE", config_path=str(self.path)
+            )
+        self.assertEqual(staged_readback.STATUS_ID_OUT_OF_RANGE, result.status)
+        self.assertEqual("STAGE NOREAD", result.notice_text)
+        self.assertEqual(
+            say_wire.NOTICE_TEXT_EXACT_LENGTH, len(result.notice_text)
+        )
+
+    def test_a_non_int_staged_value_never_reaches_the_formatter(self):
+        for value in ("2", 2.0, True, None, [2]):
+            with self.subTest(value=value):
+                with mock.patch.object(
+                    staged_readback,
+                    "load_login_scene_overrides",
+                    return_value={"GM_ONE": value},
+                ):
+                    result = staged_readback.read_staged_scene(
+                        "GM_ONE", config_path=str(self.path)
+                    )
+                if value is None:
+                    # `None` is indistinguishable from "no entry" by a dict
+                    # lookup, and both mean the same thing on screen.
+                    self.assertEqual(
+                        staged_readback.STATUS_NOTHING_STAGED, result.status
+                    )
+                else:
+                    self.assertEqual(
+                        staged_readback.STATUS_UNREADABLE, result.status
+                    )
+                self.assertEqual(
+                    say_wire.NOTICE_TEXT_EXACT_LENGTH, len(result.notice_text)
+                )
+
+    def test_an_id_with_no_catalog_row_is_named_on_the_console(self):
+        with mock.patch.object(
+            staged_readback,
+            "load_login_scene_overrides",
+            return_value={"GM_ONE": 999999},
+        ):
+            result = staged_readback.read_staged_scene(
+                "GM_ONE", config_path=str(self.path)
+            )
+        self.assertEqual(staged_readback.STATUS_STAGED, result.status)
+        self.assertIn(staged_readback.CONSOLE_UNNAMED_SCENE, result.console_detail)
+
+    def test_every_status_it_can_return_is_in_its_own_vocabulary(self):
+        self.assertEqual(
+            {
+                staged_readback.STATUS_STAGED,
+                staged_readback.STATUS_NOTHING_STAGED,
+                staged_readback.STATUS_UNREADABLE,
+                staged_readback.STATUS_ID_OUT_OF_RANGE,
+            },
+            set(staged_readback.STATUSES),
+        )
+
+
+class StagedReadbackCommandTests(_Case):
+    """`staged` end to end: the same door every other GM command goes through.
+
+    What a player gains that they did not have yesterday: after a cross-scene
+    `/warp`, typing `staged` answers ON SCREEN with the scene id their next
+    login will open in. Before this, that fact existed only in
+    `config/gm_login_scene.json` and on the server console.
+    """
+
+    def test_a_gm_reads_back_the_scene_a_warp_staged(self):
+        # `/warp 278` from scene 2 is the shape that STAGES (scene 278 has
+        # no confirmed live spawn), which is exactly the case this readback
+        # exists for -- the pinned setup `test_a_bare_cross_scene_warp_
+        # stages_the_next_login_scene` already uses.
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/warp 278")
+        staged = self.staged_login_scenes()
+        self.assertEqual({self.GM_ACCOUNT: 278}, staged)
+        action = self.act(FakeSession(position=FakePosition(scene_id=2)),
+                          "/staged")
+        self.assertIsNotNone(action)
+        self.assertEqual(
+            chat_command_action.STAGED_READBACK_NOTICE_ACTION_LABEL, action[0]
+        )
+        self.assertIsInstance(action[1], (bytes, bytearray))
+        self.assertIsInstance(action[2], (bytes, bytearray))
+        self.assertEqual(0.0, action[3])
+        # And it did not spend what it read: the warp still happens at login.
+        self.assertEqual(staged, self.staged_login_scenes())
+
+    def test_the_frame_carries_the_scene_id_the_config_holds(self):
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/warp 278")
+        action = self.act(FakeSession(position=FakePosition(scene_id=2)),
+                          "/staged")
+        # UTF-16LE is what the local-talk codec writes; the body is the
+        # readback's own sentence, so the digits of scene 278 are in the frame.
+        self.assertIn("SCENE 000278".encode("utf-16-le"), bytes(action[2]))
+
+    def test_with_nothing_staged_the_screen_still_gets_a_sentence(self):
+        action = self.act(FakeSession(position=FakePosition(scene_id=2, z=30.0)),
+                          "/staged")
+        self.assertIsNotNone(action)
+        self.assertIn("NO STAGE SET".encode("utf-16-le"), bytes(action[2]))
+
+    def test_a_player_who_is_not_a_gm_gets_nothing_at_all(self):
+        session = FakeSession(token=self.PLAYER_ACCOUNT,
+                              position=FakePosition(scene_id=2, z=30.0))
+        self.assertIsNone(self.act(session, "/staged"))
+
+    def test_it_reads_the_config_path_the_caller_named(self):
+        """A listener booted with a non-default config must not stage into one
+        file and read back from another."""
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/warp 278")
+        other = self.tmp / "config" / "somewhere_else.json"
+        other.write_text(
+            json.dumps({"gm_login_scene": {self.GM_ACCOUNT: 2}}), encoding="utf-8"
+        )
+        action = self.act(
+            FakeSession(position=FakePosition(scene_id=2, z=30.0)),
+            "/staged",
+            login_scene_config_path=str(other),
+        )
+        self.assertIn("SCENE 000002".encode("utf-16-le"), bytes(action[2]))
+
+    def test_the_audit_pair_says_composed_and_never_queued(self):
+        """`staged` is a notice: `is_notice` keeps CORE-REQUEST-GM-040's
+        `queued` row off it, because that row means this command's own frame
+        reached runtime."""
+        self.act(FakeSession(position=FakePosition(scene_id=2, z=30.0)), "/staged")
+        records = [r for r in self.log_records() if r.get("command") == "staged"]
+        self.assertTrue(records)
+        outcomes = [r.get("outcome") for r in records if r.get("record") == "outcome"]
+        self.assertEqual([commands.OUTCOME_COMPOSED], outcomes)
+        self.assertNotIn(
+            commands.OUTCOME_QUEUED,
+            [r.get("outcome") for r in records],
+        )
+
+    def test_the_console_line_carries_the_body_and_the_island_name(self):
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/warp 278")
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            self.act(FakeSession(position=FakePosition(scene_id=2)), "/staged")
+        printed = stream.getvalue()
+        self.assertIn(chat_command_action.STAGED_READBACK_CONSOLE_TOKEN, printed)
+        self.assertIn("SCENE 000278", printed)
+        self.assertIn(scene_catalog.gm_scene_name(278), printed)
+
+    def test_a_notice_that_cannot_be_composed_is_refused_not_claimed(self):
+        with mock.patch.object(
+            chat_command_action.say_wire,
+            "make_local_talk_notice_frame",
+            side_effect=say_wire.NoticeWireError("no"),
+        ):
+            action = self.act(
+                FakeSession(position=FakePosition(scene_id=2, z=30.0)), "/staged"
+            )
+        self.assertIsNone(action)
+        outcomes = [
+            r.get("outcome")
+            for r in self.log_records()
+            if r.get("record") == "outcome" and r.get("command") == "staged"
+        ]
+        self.assertEqual(1, len(outcomes))
+        self.assertTrue(outcomes[0].startswith(commands.OUTCOME_REFUSED_PREFIX))
+        self.assertIn("NoticeWireError", outcomes[0])
+
+    def test_a_broken_console_costs_the_line_and_not_the_command(self):
+        """A DIAGNOSTIC MAY NEVER ALTER DISPATCH -- this module's standing
+        rule, asked of the new printer."""
+
+        class Exploding(io.StringIO):
+            def write(self, text):  # pragma: no cover - trivial
+                raise OSError("console gone")
+
+        with contextlib.redirect_stderr(Exploding()):
+            action = self.act(
+                FakeSession(position=FakePosition(scene_id=2, z=30.0)), "/staged"
+            )
+        self.assertIsNotNone(action)
+        self.assertEqual(
+            chat_command_action.STAGED_READBACK_NOTICE_ACTION_LABEL, action[0]
+        )
+
+    def test_the_generic_notice_line_does_not_invent_a_sentence_for_this_label(self):
+        """`NOTICE_TEXT_FOR_LABEL` holds CONSTANT sentences; this command's
+        body is decided per call, so the label is deliberately absent and the
+        generic line says so instead of printing a template. The exact body
+        is on the `GM_CHAT_STAGED_READBACK` line one line earlier -- which is
+        what an attended tester greps."""
+        self.assertNotIn(
+            chat_command_action.STAGED_READBACK_NOTICE_ACTION_LABEL,
+            chat_command_action.NOTICE_TEXT_FOR_LABEL,
+        )
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            self.act(FakeSession(position=FakePosition(scene_id=2)), "/staged")
+        printed = stream.getvalue()
+        self.assertIn(
+            f"{chat_command_action.STAGED_READBACK_CONSOLE_TOKEN} ", printed
+        )
+        self.assertIn("NO STAGE SET", printed)
+        self.assertIn(chat_command_action.UNNAMED_NOTICE_TEXT, printed)
+        # And never another command's sentence.
+        for other in chat_command_action.NOTICE_TEXT_FOR_LABEL.values():
+            self.assertNotIn(other, printed)
+
+    def test_the_status_event_names_which_answer_was_read(self):
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        self.act(session, "/staged")
+        self.assertIn(
+            chat_command_action.EVENT_STAGED_READBACK_STATUS_PREFIX
+            + staged_readback.STATUS_NOTHING_STAGED,
+            session.events,
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

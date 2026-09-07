@@ -303,6 +303,7 @@ from . import (
     npc_switch_catalog,
     say_wire,
     speed_wire,
+    staged_readback,
     teleport_wire,
     warp_executor,
 )
@@ -542,6 +543,15 @@ TYPO_REFUSED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_TYPO_REFUSED_LOCAL_TALK_NOTICE"
 # nobody.
 LV_SET_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_LV_SET_LOCAL_TALK_NOTICE"
 LV_REFUSED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_LV_REFUSED_LOCAL_TALK_NOTICE"
+
+# `staged`, the readback command (`gm/staged_readback.py`).  ONE label for all
+# three of its answers, unlike `/lv`'s pair: the two `/lv` labels exist because
+# a reader has to tell "the row was written" from "nothing was written" without
+# reading the body, and every answer THIS command can give is the same kind of
+# event -- a report of what the config file says, with nothing written either
+# way.  Which of the three sentences went out is on the
+# `STAGED_READBACK_CONSOLE_TOKEN` line, in full.
+STAGED_READBACK_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_STAGED_READBACK_LOCAL_TALK_NOTICE"
 
 # The `characters` column LANE-DB's persistence entry point is keyed by for
 # this one field, resolved THROUGH their own table rather than spelled here
@@ -1108,6 +1118,18 @@ SPEED_DEFERRED_CONSOLE_TOKEN = "SPEED DEFERRED"
 # back, which is the number the next login will send -- not the number the GM
 # typed.  ASCII by construction: the bridge console is cp874.
 LV_CONSOLE_TOKEN = "GM_LV"
+
+# The console half of `staged`.  It carries the EXACT body that went to the
+# screen plus the scene NAME, which is the half that does not fit in twelve
+# characters -- so an attended tester greps one line and knows both what the
+# operator saw and which island it names.
+STAGED_READBACK_CONSOLE_TOKEN = "GM_CHAT_STAGED_READBACK"
+
+EVENT_STAGED_READBACK_NOTICE_COMPOSED = "gm_chat_action_staged_readback_composed"
+EVENT_STAGED_READBACK_NOTICE_FAILED_PREFIX = (
+    "gm_chat_action_staged_readback_notice_failed_"
+)
+EVENT_STAGED_READBACK_STATUS_PREFIX = "gm_chat_action_staged_readback_status_"
 
 # The trial gate's own console token -- COO `0646` item 2, fourth bullet: the
 # person watching the screen must be able to read WHICH value the door was
@@ -2705,6 +2727,18 @@ def _make_action(
         verdict = _gmprobe_action(session, command, legacy)
     elif command.name == "speed":
         verdict = _speed_action(session, command, legacy)
+    elif command.name == "staged":
+        # A READ, not a command with an effect -- see `_staged_action`.  It
+        # sits above `lv` in this chain for no reason but that the chain is
+        # ordered by nothing; the branch order here has never been a pinned
+        # property (unlike `COMMAND_USAGE`'s, which a human reads).
+        verdict = _staged_action(
+            session,
+            command,
+            legacy,
+            token=token,
+            login_scene_config_path=login_scene_config_path,
+        )
     elif command.name == "lv":
         # PANYA-ORDER 2026-09-06 01:55.  `lv` left the `else` branch below on
         # this round: it is no longer "parsed and audited with no proven
@@ -4807,6 +4841,16 @@ NOTICE_TEXT_FOR_LABEL = MappingProxyType({
     TYPO_REFUSED_NOTICE_ACTION_LABEL: say_wire.TYPO_REFUSED_NOTICE_TEXT,
     LV_SET_NOTICE_ACTION_LABEL: say_wire.LV_SET_NOTICE_TEXT,
     LV_REFUSED_NOTICE_ACTION_LABEL: say_wire.LV_REFUSED_NOTICE_TEXT,
+    # `STAGED_READBACK_NOTICE_ACTION_LABEL` IS DELIBERATELY ABSENT.  Every
+    # value here is a CONSTANT sentence, and `staged`'s body is decided per
+    # call (`SCENE 000278` names an id read from a config file), so any entry
+    # would be a template rather than the sentence a player saw -- which is
+    # the one thing this map exists to report truthfully.  A label this map
+    # does not know prints `UNNAMED_NOTICE_TEXT` rather than another
+    # command's words, and `staged`'s own `STAGED_READBACK_CONSOLE_TOKEN`
+    # line carries the exact body one line earlier.  Pinned by
+    # `StagedReadbackCommandTests.test_the_generic_notice_line_does_not_
+    # invent_a_sentence_for_this_label`.
 })
 
 #: What the line says for a notice label this module does not know.  Not a
@@ -6167,6 +6211,104 @@ def _print_lv_line(session: object, token: str, line: str) -> None:
         print(f"{LV_CONSOLE_TOKEN} account={token!r} {line}", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _print_staged_readback_line(
+    session: object, token: str, detail: str, notice_text: str
+) -> None:
+    """One `GM_CHAT_STAGED_READBACK` line on STDERR.  Never alters dispatch.
+
+    STDERR and wrapped, for the reasons every printer in this module gives:
+    a `None` stream or a stream that raises costs this line and nothing else
+    (`EVENT_CONSOLE_WRITE_FAILED_PREFIX`), never the command.
+
+    NOTHING THE GM TYPED IS EVER PRINTED, and here that is free rather than
+    guarded: `staged` takes no arguments, `detail` is built by
+    `staged_readback.read_staged_scene` out of an int and this lane's own
+    catalog, and `notice_text` is one of the three bodies that module spells.
+    `console_safe` is still applied to the catalog name half, because the
+    names are Thai-capable rows of a shipped table and the bridge console is
+    cp874 -- the same fold `_stage_action`'s own way-out line uses.
+    """
+    if sys.stderr is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    stream = sys.stderr
+    try:
+        print(
+            f"{STAGED_READBACK_CONSOLE_TOKEN} account={token!r} "
+            f"notice={notice_text!r} {console_safe(detail, stream)}",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _staged_action(
+    session: object,
+    command: object,
+    legacy: object,
+    *,
+    token: str,
+    login_scene_config_path: str | None,
+) -> _Verdict:
+    """One authorized `staged` -> an on-screen readback of the staged scene.
+
+    THE COMMAND THAT CHANGES NOTHING.  It writes no file, sends no gameplay
+    frame, parks no warp target and offers no undo, because there is nothing
+    to undo: it reads `config/gm_login_scene.json` for THIS account and says
+    what it found.  `gm/staged_readback.py`'s module docstring carries the
+    why (a cross-scene `/warp` is the one durable effect this lane produces
+    that had no on-screen sentence of its own) and the three sentences.
+
+    `login_scene_config_path` is `_make_action`'s own argument -- the SAME
+    path `_stage_action` writes to.  Passing the default here instead would
+    let a listener booted with a non-default config stage into one file and
+    read back from another, which would read on screen as a warp that
+    silently did not take.
+
+    THE ACCOUNT IS `token`, the authenticated `.token` this module already
+    used to authorize the command, never a field of the payload -- `staged`
+    has no arguments at all, so there is nothing else it COULD read.
+
+    `is_notice=True`, for the reason `_lv_notice_verdict` gives at greater
+    length: the two downstream readers ask "did this command's own frame go
+    out?", and the honest answer for a report about a config file is no.
+
+    THE VERDICT IS THE PRODUCT, THE SENTENCE IS THE COURTESY.  A notice that
+    cannot be composed is named on `.events` and dropped -- but unlike
+    `/lv`, whose row is already written by then, this command's whole product
+    IS the sentence, so a compose failure leaves nothing at all: the outcome
+    is `refused_staged_<ExcType>` rather than a success word with no bytes.
+    """
+    readback = staged_readback.read_staged_scene(
+        token, config_path=login_scene_config_path
+    )
+    _note(session, f"{EVENT_STAGED_READBACK_STATUS_PREFIX}{readback.status}")
+    _print_staged_readback_line(
+        session, token, readback.console_detail, readback.notice_text
+    )
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(
+            legacy, readback.notice_text
+        )
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(
+            session,
+            f"{EVENT_STAGED_READBACK_NOTICE_FAILED_PREFIX}{type(error).__name__}",
+        )
+        return _Verdict(
+            None,
+            f"{OUTCOME_REFUSED_PREFIX}staged_{type(error).__name__}",
+            line_printed=True,
+        )
+    _note(session, EVENT_STAGED_READBACK_NOTICE_COMPOSED)
+    return _Verdict(
+        (STAGED_READBACK_NOTICE_ACTION_LABEL, pc, frame, 0.0),
+        OUTCOME_COMPOSED,
+        line_printed=True,
+        is_notice=True,
+    )
 
 
 def _lv_action(
