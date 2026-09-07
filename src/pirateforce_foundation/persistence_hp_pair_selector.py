@@ -243,8 +243,11 @@ REASON_MAX_IS_ZERO = "frame_layer_max_row_is_zero"
 
 #: Every reason string, so a caller can assert it handled all of them and a
 #: new reason added later cannot slip past an exhaustive match unnoticed.
-#: The reasons `alternate_pair_gaps` can return.
-ALTERNATE_REASONS: frozenset[str] = frozenset(
+#: Every reason string this module can produce, for a caller that wants to
+#: assert it handled all of them.  Written out once, here, because it is the
+#: catalogue of strings; WHICH of them a given pair can produce is derived,
+#: not listed -- see `pair_reasons` below.
+ALL_REASONS: frozenset[str] = frozenset(
     {
         REASON_ABSENT_READS_ZERO,
         REASON_ZERO,
@@ -252,23 +255,9 @@ ALTERNATE_REASONS: frozenset[str] = frozenset(
         REASON_NEGATIVE,
         REASON_NOT_A_U32,
         REASON_CURRENT_ABOVE_MAX,
-    }
-)
-#: The reasons `primary_pair_gaps` can return.  NOT the same set, and the
-#: difference is the whole point of round `2v18x3`: `REASON_ZERO` is absent
-#: because a zero `hp_current` is a DEAD CHARACTER, and
-#: `REASON_CONSTRUCTION_DEFAULT` is absent because the client constructs no
-#: default for a pair this server owns columns for.
-PRIMARY_REASONS: frozenset[str] = frozenset(
-    {
-        REASON_ABSENT_READS_ZERO,
         REASON_MAX_IS_ZERO,
-        REASON_NEGATIVE,
-        REASON_NOT_A_U32,
-        REASON_CURRENT_ABOVE_MAX,
     }
 )
-ALL_REASONS: frozenset[str] = ALTERNATE_REASONS | PRIMARY_REASONS
 
 #: Console token for the refusal, in the shape the bridge console greps for.
 #: Distinct from LANE-GM's `GM_ATTR_SELECTOR_STANDDOWN` on purpose: two doors
@@ -317,90 +306,6 @@ def _field_name(x: int) -> str:
     raise HpPairError(f"x={x} is not a row of gm/attr_wire.FIELDS")
 
 
-def _row_gap(x: int, index: int, values: dict[int, object]) -> PairGap | None:
-    """The single reason row `x` is dishonest, or None.
-
-    Order matters and is deliberate: absence first (there is no value to
-    look at), then type, then the construction default, then zero, then
-    negative.  The construction default is checked before zero and negative
-    so a row carrying 0xFFFFFFFF is reported at the CONSTRUCTOR layer that
-    explains it rather than merely as "negative".
-    """
-    if x not in values:
-        return PairGap(x, _field_name(x), REASON_ABSENT_READS_ZERO)
-    value = values[x]
-    try:
-        shown = as_signed_row_value(x, value)
-    except HpPairError:
-        return PairGap(x, _field_name(x), REASON_NOT_A_U32)
-    if value == ALTERNATE_CONSTRUCTION_DEFAULTS[index]:
-        return PairGap(x, _field_name(x), REASON_CONSTRUCTION_DEFAULT)
-    if shown == 0:
-        return PairGap(x, _field_name(x), REASON_ZERO)
-    if shown < 0:
-        return PairGap(x, _field_name(x), REASON_NEGATIVE)
-    return None
-
-
-def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
-    """Every reason `values` would show a dishonest alternate HP pair.
-
-    Empty means: both alternate rows are present, are u32, are not zero, are
-    not the client's own construction default, do not print negative, and
-    current does not exceed max.  It does NOT mean the numbers are the
-    character's real HP -- this function is handed values, it does not know
-    where they came from.
-
-    SCOPE.  This predicate is written for a block whose selector is ARMED,
-    which is the only context `guard_armed_block` calls it in.  Outside
-    that context `0/0` can be an honest alternate pair
-    (`gm/attr_wire.py:211-213`), so a caller applying this to an unarmed
-    block is using it outside the range it is true in.
-
-    ZERO IS A GAP, and that is the whole correction of round `cgnzsd`.  The
-    first draft refused the construction default and negatives and had no
-    opinion about zero, which inverted the guard with respect to this
-    repository's strongest evidence: `gm/attr_wire.py:105` (`RE-222` Q0) and
-    `_refuse_selector_change`'s own docstring both say an unset mask bit is
-    a ZERO on this client and that a frame flipping the selector hands the
-    HUD `0/0` -- `GT-218`'s symptom.  A guard against that symptom that
-    passes `0/0` is not a weak guard, it is the wrong one.
-
-    KNOWN CONSERVATISM, written down rather than smoothed over: x=53's
-    construction default IS the number 1, so a character whose real
-    `alt_hp_max` were 1 is reported as a gap it is not.  Refusing a real 1
-    costs a refusal; accepting the default puts a lie on a HUD.  This module
-    takes the refusal, and the day a server column feeds x=53 the check
-    should move to "did a column supply it" instead of comparing values.
-    """
-    gaps = [
-        gap
-        for index, x in enumerate(ALTERNATE_PAIR)
-        for gap in (_row_gap(x, index, values),)
-        if gap is not None
-    ]
-    if not gaps:
-        current = as_signed_row_value(
-            ALTERNATE_PAIR[0], values[ALTERNATE_PAIR[0]]
-        )
-        maximum = as_signed_row_value(
-            ALTERNATE_PAIR[1], values[ALTERNATE_PAIR[1]]
-        )
-        # `>` not `>=`: current EQUAL to max is a character at full HP,
-        # the commonest honest state there is.  pf-adversary `cgnzsd` D6
-        # mutated this to `>=` and no test went red; the test named
-        # `test_full_hp_is_honest` is that mutant's headstone.
-        if current > maximum:
-            gaps.append(
-                PairGap(
-                    ALTERNATE_PAIR[0],
-                    _field_name(ALTERNATE_PAIR[0]),
-                    REASON_CURRENT_ABOVE_MAX,
-                )
-            )
-    return tuple(gaps)
-
-
 def _pair_owned_by_this_server(pair: tuple[int, int]) -> bool:
     """True when every row of `pair` has a column of `characters` behind it.
 
@@ -411,82 +316,224 @@ def _pair_owned_by_this_server(pair: tuple[int, int]) -> bool:
     return set(pair) <= _server_owned_field_indices()
 
 
-def primary_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
-    """Every reason `values` would show a dishonest PRIMARY HP pair.
+#: The client's own constructor values for a pair, keyed BY PAIR, because a
+#: construction default is a property of the rows, not of who owns them: it
+#: is what the client holds when no frame ever wrote those rows.  A pair with
+#: no entry here has none recorded, and the construction-default rule simply
+#: does not apply to it -- which is the honest statement, not a silent False.
+_CONSTRUCTION_DEFAULTS: dict[tuple[int, int], tuple[object, ...]] = {
+    ALTERNATE_PAIR: ALTERNATE_CONSTRUCTION_DEFAULTS,
+}
 
-    WHY THIS EXISTS -- pf-adversary round `cgnzsd` D11, and the answer round
-    `2v18x3` owes it.  The finding: `{9: 8, 3: 0, 4: 0, 52: 87, 53: 100}`
-    walked through the guard, even though the client reads the PRIMARY pair
-    whenever `0x430E10(x9)` does NOT return 8 -- and that pair is `0/0` here.
-    The module checked one branch of a two-branch selector while stating in
-    its own docstring that it cannot evaluate which branch is taken.
-    Refusing only the branch you happened to look at is not a conservative
-    guard, it is a bet.  So an ARMED block now has to be honest on BOTH
-    pairs, and the reason is the module's own admitted blindness rather than
-    caution for its own sake.
 
-    THE TWO PAIRS DO NOT GET THE SAME RULE, AND THE DIFFERENCE IS MEASURED.
-    For the alternate pair a zero can only be an unset mask bit or a lie:
-    `persistence_attr_compose.SERVER_OWNED_FIELDS` has no column for
-    x=52/x=53, so no zero there was ever read from anything.  For the primary
-    pair BOTH rows are server-owned, so `hp_current == 0` with a positive
-    `hp_max` is the commonest honest state a server has to be able to state
-    at all: a DEAD CHARACTER.  A guard that refused that would refuse the one
-    HP value M4 exists to put on a screen.
+def _construction_defaults_for(pair: tuple[int, int]) -> tuple[object, ...]:
+    """The client's constructor values for `pair`, or `()` when none are known."""
+    return _CONSTRUCTION_DEFAULTS.get(pair, ())
 
-    WHAT THIS DOCSTRING CLAIMED UNTIL ROUND `m1dmhd`, AND WHY IT WAS FALSE
-    (pf-adversary F3).  It said "`_pair_owned_by_this_server` derives the
-    split from the schema; nothing here types it in."  Measured: that helper
-    has ZERO call nodes in this module -- the split is two hand-written
-    functions, and the helper is read only by a test that asserts it agrees
-    with them.  Two facts agreeing is consistency, not derivation.  Typing the
-    split INTO the helper (`return pair == PRIMARY_PAIR`) -- the very thing
-    the sentence forbade -- survived the whole suite.
 
-    So, stated honestly: the split is HAND-WRITTEN, and it is correct only for
-    as long as the schema stays where it is.  The consequence is a real
-    refusal of an honest block, not a tidiness complaint: the day a
-    `characters.alt_hp_max` column ships and a live character's `alt_hp_max`
-    is legitimately `1`, `alternate_pair_gaps` refuses it as
-    `REASON_CONSTRUCTION_DEFAULT`, because that reason exists only for a pair
-    no column stands behind.
+def _row_gap(
+    pair: tuple[int, int], index: int, values: dict[int, object]
+) -> tuple[PairGap | None, int | None]:
+    """The single reason row `pair[index]` is dishonest, and the number it shows.
 
-    That day is the day the two functions must merge into one rule chosen by
-    `_pair_owned_by_this_server`, and it is guarded rather than remembered:
-    `TheGateBecomesObligatoryTheDayItIsReachableTests` goes red the moment
-    `SERVER_OWNED_FIELDS` gains x=52/x=53, which is exactly that day.  The
-    restructure is this lane's next round's first work.
+    Returns `(gap_or_None, shown_or_None)`.  `shown` is `None` exactly when
+    no number could be read out of the row -- absent, or not a value of this
+    row's width -- and is the printed number otherwise, EVEN WHEN THE ROW IS
+    A GAP, so the cross-row check below can still run on a pair whose rows
+    are readable but dishonest.
 
-    So the primary pair is dishonest when, and only when: a row is absent
-    (unset mask bit reads zero, `RE-222` Q0), a row is not a u32, `hp_max` is
-    zero (a bar with no length), a row prints negative, or current exceeds
-    max.
+    Order matters and is deliberate: absence first (there is no value to
+    look at), then type, then the construction default, then zero, then
+    negative.  The construction default is checked before zero and negative
+    so a row carrying 0xFFFFFFFF is reported at the CONSTRUCTOR layer that
+    explains it rather than merely as "negative".
+
+    WHICH RULES APPLY IS DERIVED FROM OWNERSHIP, not from which pair this is.
+    `owned` means every row of the pair has a `characters` column behind it
+    (`_pair_owned_by_this_server`), and that single fact decides the two
+    places the pairs differ:
+
+    * A CONSTRUCTION DEFAULT is a gap only for an UNOWNED pair.  The reason
+      exists because no column stands behind the row, so the value can only
+      be the client's own constructor artefact.  The day a column ships, the
+      same number is something a column produced and the rule retires
+      itself -- which is the refusal of an honest `alt_hp_max == 1` that
+      round `m1dmhd` wrote down as a known conservatism and could not fix
+      while the split was hand-written.
+    * A ZERO in the CURRENT row is a gap only for an UNOWNED pair.  For an
+      owned pair `hp_current == 0` is a DEAD CHARACTER, the commonest honest
+      state a server has to be able to state at all, and refusing it would
+      refuse the one HP value M4 exists to put on a screen.  A zero in the
+      MAX row is a bar with no length either way, reported as
+      `REASON_MAX_IS_ZERO` when a column stands behind it and as the plainer
+      `REASON_ZERO` when none does.
     """
-    current_x, max_x = PRIMARY_PAIR
+    x = pair[index]
+    owned = _pair_owned_by_this_server(pair)
+    if x not in values:
+        return PairGap(x, _field_name(x), REASON_ABSENT_READS_ZERO), None
+    value = values[x]
+    try:
+        shown = as_signed_row_value(x, value)
+    except HpPairError:
+        return PairGap(x, _field_name(x), REASON_NOT_A_U32), None
+    defaults = _construction_defaults_for(pair)
+    if not owned and index < len(defaults) and value == defaults[index]:
+        return PairGap(x, _field_name(x), REASON_CONSTRUCTION_DEFAULT), shown
+    if shown == 0:
+        if not owned:
+            return PairGap(x, _field_name(x), REASON_ZERO), shown
+        if x == pair[1]:
+            return PairGap(x, _field_name(x), REASON_MAX_IS_ZERO), shown
+    if shown < 0:
+        return PairGap(x, _field_name(x), REASON_NEGATIVE), shown
+    return None, shown
+
+
+def pair_gaps(
+    pair: tuple[int, int], values: dict[int, object]
+) -> tuple[PairGap, ...]:
+    """Every reason `values` would show a dishonest HP pair `pair`.
+
+    ONE RULE FOR BOTH PAIRS, chosen by `_pair_owned_by_this_server` --
+    pf-adversary round `m1dmhd` F3, and the restructure that round named as
+    this one's first work.  Until now the split lived in two hand-written
+    functions while a docstring claimed it was derived from the schema; the
+    helper that was supposed to derive it had ZERO call nodes in the module.
+    It now has exactly one caller that decides anything, in `_row_gap` above,
+    and the two public names below are thin views of this function.
+
+    Empty means: every row of the pair is present, is a value of its own
+    width, is not a lie under the rules its ownership admits, and current
+    does not exceed max.  It does NOT mean the numbers are the character's
+    real HP -- this function is handed values, it does not know where they
+    came from.
+
+    SCOPE.  This predicate is written for a block whose selector is ARMED,
+    which is the only context `guard_armed_block` calls it in.  Outside that
+    context `0/0` can be an honest alternate pair
+    (`gm/attr_wire.py:211-213`), so a caller applying this to an unarmed
+    block is using it outside the range it is true in.
+
+    ZERO IS A GAP for an unowned pair, and that is the correction of round
+    `cgnzsd` kept intact by the merge.  The first draft refused the
+    construction default and negatives and had no opinion about zero, which
+    inverted the guard with respect to this repository's strongest evidence:
+    `gm/attr_wire.py:105` (`RE-222` Q0) and `_refuse_selector_change`'s own
+    docstring both say an unset mask bit is a ZERO on this client and that a
+    frame flipping the selector hands the HUD `0/0` -- `GT-218`'s symptom.
+
+    WHAT THE MERGE CHANGED, MEASURED RATHER THAN ASSERTED.  The VERDICT --
+    gaps or no gaps, which is all `guard_armed_block` reads -- is identical
+    to the two old functions on every one of the 50,625 four-row blocks of
+    the sweep corpus.  The REASONS reported for an already-refused block can
+    differ in two ways, both of them the old code being less complete:
+
+    * The cross-row `current > max` check now runs whenever both rows are
+      READABLE, not only when the pair is otherwise clean.  The old
+      alternate rule skipped it the moment any row was a gap, so a block
+      like `{52: 87, 53: 0xFFFFFFFF}` was reported as a construction default
+      and never as `87 > -1`.  The old gate was a cheap way of guaranteeing
+      both rows parse; `shown` returned alongside the gap does that job
+      honestly.
+    * Reasons now come out in ROW ORDER.  The old primary rule emitted
+      `REASON_MAX_IS_ZERO` before it looked at negatives, so
+      `{3: 0xFFFFFFFB, 4: 0}` read `max_row_is_zero, negative` and now reads
+      `negative, max_row_is_zero`.  Same reasons, same refusal.
+    """
     gaps: list[PairGap] = []
     numbers: dict[int, int] = {}
-    for x in PRIMARY_PAIR:
-        if x not in values:
-            gaps.append(PairGap(x, _field_name(x), REASON_ABSENT_READS_ZERO))
-            continue
-        try:
-            numbers[x] = as_signed_row_value(x, values[x])
-        except HpPairError:
-            gaps.append(PairGap(x, _field_name(x), REASON_NOT_A_U32))
-    if len(numbers) != len(PRIMARY_PAIR):
-        return tuple(gaps)
-    if numbers[max_x] == 0:
-        gaps.append(PairGap(max_x, _field_name(max_x), REASON_MAX_IS_ZERO))
-    for x in PRIMARY_PAIR:
-        if numbers[x] < 0:
-            gaps.append(PairGap(x, _field_name(x), REASON_NEGATIVE))
-    # `>` not `>=`: current EQUAL to max is a character at full HP, the same
-    # honest state `alternate_pair_gaps` had to learn in round `cgnzsd`.
-    if numbers[current_x] > numbers[max_x]:
-        gaps.append(
-            PairGap(current_x, _field_name(current_x), REASON_CURRENT_ABOVE_MAX)
-        )
+    for index in range(len(pair)):
+        gap, shown = _row_gap(pair, index, values)
+        if gap is not None:
+            gaps.append(gap)
+        if shown is not None:
+            numbers[pair[index]] = shown
+    if len(numbers) == len(pair):
+        current_x, max_x = pair
+        # `>` not `>=`: current EQUAL to max is a character at full HP, the
+        # commonest honest state there is.  pf-adversary `cgnzsd` D6 mutated
+        # this to `>=` and no test went red; the test named
+        # `test_full_hp_is_honest` is that mutant's headstone.
+        if numbers[current_x] > numbers[max_x]:
+            gaps.append(
+                PairGap(current_x, _field_name(current_x), REASON_CURRENT_ABOVE_MAX)
+            )
     return tuple(gaps)
+
+
+def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
+    """`pair_gaps` for the alternate pair x=52/x=53.  A view, not a rule.
+
+    KNOWN CONSERVATISM WHILE THE PAIR IS UNOWNED, written down rather than
+    smoothed over: x=53's construction default IS the number 1, so a
+    character whose real `alt_hp_max` were 1 is reported as a gap it is not.
+    Refusing a real 1 costs a refusal; accepting the default puts a lie on a
+    HUD.  This module takes the refusal -- and unlike round `m1dmhd`, the
+    day a `characters.alt_hp_max` column ships this stops being something
+    anyone has to remember: `_pair_owned_by_this_server(ALTERNATE_PAIR)`
+    turns True in the same commit as the column, the construction-default
+    rule stops applying to this pair, and a legitimate `1` is accepted.
+    """
+    return pair_gaps(ALTERNATE_PAIR, values)
+
+
+def pair_reasons(pair: tuple[int, int]) -> frozenset[str]:
+    """The reasons `pair_gaps(pair, ...)` can return, derived from `pair`.
+
+    The two pairs do NOT admit the same reasons, and after round `35b941`
+    the difference is read out of the schema in one place instead of being
+    typed into two frozensets that had to be kept in step with the rule by
+    hand.  `REASON_ZERO` and `REASON_CONSTRUCTION_DEFAULT` belong to an
+    UNOWNED pair; `REASON_MAX_IS_ZERO` to an owned one.  The day a
+    `characters.alt_hp_max` column ships, this set changes with the schema
+    in the same commit, exactly like the rule it describes.
+    """
+    reasons = {
+        REASON_ABSENT_READS_ZERO,
+        REASON_NOT_A_U32,
+        REASON_NEGATIVE,
+        REASON_CURRENT_ABOVE_MAX,
+    }
+    if _pair_owned_by_this_server(pair):
+        reasons.add(REASON_MAX_IS_ZERO)
+    else:
+        reasons.add(REASON_ZERO)
+        if _construction_defaults_for(pair):
+            reasons.add(REASON_CONSTRUCTION_DEFAULT)
+    return frozenset(reasons)
+
+
+def alternate_reasons() -> frozenset[str]:
+    """`pair_reasons` for the alternate pair.  A view, not a list."""
+    return pair_reasons(ALTERNATE_PAIR)
+
+
+def primary_reasons() -> frozenset[str]:
+    """`pair_reasons` for the primary pair.  A view, not a list."""
+    return pair_reasons(PRIMARY_PAIR)
+
+
+def primary_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
+    """`pair_gaps` for the primary pair x=3/x=4.  A view, not a rule.
+
+    WHY BOTH PAIRS ARE CHECKED AT ALL -- pf-adversary round `cgnzsd` D11.
+    The finding: `{9: 8, 3: 0, 4: 0, 52: 87, 53: 100}` walked through the
+    guard, even though the client reads the PRIMARY pair whenever
+    `0x430E10(x9)` does NOT return 8 -- and that pair is `0/0` here.  The
+    module checked one branch of a two-branch selector while stating in its
+    own docstring that it cannot evaluate which branch is taken.  Refusing
+    only the branch you happened to look at is not a conservative guard, it
+    is a bet.  So an ARMED block has to be honest on BOTH pairs, and the
+    reason is the module's own admitted blindness rather than caution for
+    its own sake.
+
+    Both rows of this pair are server-owned today, which is what makes
+    `hp_current == 0` (a dead character) honest here and a lie on the
+    alternate pair.  That difference is now read out of the schema by
+    `pair_gaps` rather than written into this function.
+    """
+    return pair_gaps(PRIMARY_PAIR, values)
 
 
 def armed_block_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
