@@ -267,14 +267,14 @@ class ThreeTierGuardTests(M2RegistryIsolation):
         for wire_trigger_id in (2, 3):
             with self.subTest(wire_trigger_id=wire_trigger_id):
                 self.assertIsNone(
-                    trigger_response.candidate_for_trigger_id(
+                    trigger_response._candidate_for_trigger_id(
                         SEA, wire_trigger_id, registry=synthetic_registry
                     )
                 )
         # ...and the count still reports the slots as filled, because that is
         # a different question from whether they may be answered.
         self.assertEqual(
-            trigger_response.registered_count(registry=synthetic_registry), 2
+            trigger_response._registered_count(registry=synthetic_registry), 2
         )
 
     def test_all_three_tiers_pass_only_together(self):
@@ -394,7 +394,7 @@ class OneSpellingOfIsThisAnIntTests(M2RegistryIsolation):
             trigger_response.SCENE_REFUSED_NOT_AN_INT,
         )
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(
+            trigger_response._candidate_for_trigger_id(
                 sneaky,
                 sneaky,
                 registry={3: _fake(va="sub_X", vital_id=1, frame=b"\xff")},
@@ -568,7 +568,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
             trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
         )
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(SEA, 3, registry={3: _fake()})
+            trigger_response._candidate_for_trigger_id(SEA, 3, registry={3: _fake()})
         )
 
     def test_a_bare_truthy_value_is_not_evidence(self):
@@ -606,7 +606,7 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
             trigger_response.CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
         )
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(
+            trigger_response._candidate_for_trigger_id(
                 SEA, 3, registry={3: _fake()}, island_contact=open_water
             )
         )
@@ -831,7 +831,7 @@ class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
         that is what is pinned.
         """
         self.assertEqual(
-            trigger_response.registered_count(registry={2: 0, 3: None}), 1
+            trigger_response._registered_count(registry={2: 0, 3: None}), 1
         )
 
     def test_a_malformed_extent_row_is_skipped_not_unpacked(self):
@@ -911,6 +911,149 @@ class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
         self.assertIsNone(trigger_response.ISLAND_CONTACT_DISCRIMINATOR)
 
 
+class TheCrosswalkIsMeasuredNotAssertedTests(M2RegistryIsolation):
+    """The SECOND measurement the module has been demanding for three rounds:
+    the boxes came out of `Bg3001.tgr`, the points came off the wire and the
+    screen in `GT-228`/R308, neither derived from the other, and they agree.
+
+    This class does not let the module grade its own homework. Every number
+    is re-derived here from the two committed tables, and the containment is
+    recomputed rather than read out of a stored answer."""
+
+    def bridge(self):
+        """The bridge checkout, AFTER the caller has run the precondition.
+
+        Duplicated from `TheTableCitesItsLetterTests` rather than shared,
+        for the reason that class already states: `tests/test_pytest_
+        precondition_census.py` counts guards by reading each test method's
+        SOURCE, so a `require()` one call deeper counts as zero and the pin
+        file then disagrees with the census.
+        """
+        import os
+
+        env = os.environ.get("PF_BRIDGE_DIR")
+        if env and Path(env).is_dir():
+            return Path(env)
+        return BRIDGE_SIBLING.paths[0]
+
+    def _inside(self, box, x, y, z):
+        x0, y0, z0, x1, y1, z1 = box
+        return x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1
+
+    def test_every_observation_lands_in_the_box_of_its_own_wire_id(self):
+        boxes = trigger_response.ISLAND_EXTENT_BOXES
+        observations = trigger_response.M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS
+        # The claim is BOTH halves: in its own ordinal's box, and in no
+        # other. Only the second half rules out boxes so large they contain
+        # everything, which is the failure mode `RE-289` was written to
+        # detect in the first place.
+        for label, wire_id, x, y, z in observations:
+            containing = sorted(
+                ordinal
+                for ordinal, box in boxes.items()
+                if self._inside(box, x, y, z)
+            )
+            with self.subTest(observation=label):
+                self.assertEqual(containing, [wire_id])
+
+    def test_the_crosswalk_covers_both_ids_and_all_thirteen_points(self):
+        # A mutant that empties the table, or keeps only the rows of one
+        # island, passes the containment test above vacuously.
+        observations = trigger_response.M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS
+        self.assertEqual(len(observations), 13)
+        self.assertEqual(
+            sorted({wire_id for _, wire_id, _, _, _ in observations}), [2, 3]
+        )
+        # Three independent SOURCES, not thirteen readings of one thing: the
+        # frame's own trigger position, the ship position in the same frame,
+        # and what the HUD showed the observer. If a later round trims this
+        # to one source the crosswalk stops being a crosswalk.
+        labels = [label for label, _, _, _, _ in observations]
+        self.assertTrue(any(name.endswith("trigger") for name in labels))
+        self.assertTrue(any(name.endswith("ship") for name in labels))
+        self.assertTrue(any(name.startswith("HUD") for name in labels))
+
+    def test_the_crosswalk_would_notice_if_the_two_islands_were_swapped(self):
+        # THE KILLER FOR "the boxes are so big they contain everything".
+        # Relabel each observation with the OTHER island's id and the whole
+        # table must fail, every row of it. Measured, not asserted: this
+        # test failed to be worth writing until it was run, because a table
+        # of scene-wide boxes passes the test above just as happily.
+        boxes = trigger_response.ISLAND_EXTENT_BOXES
+        swap = {2: 3, 3: 2}
+        for label, wire_id, x, y, z in (
+            trigger_response.M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS
+        ):
+            with self.subTest(observation=label):
+                self.assertFalse(self._inside(boxes[swap[wire_id]], x, y, z))
+
+    def test_the_letter_behind_the_crosswalk_is_on_the_bridge(self):
+        # COO-DECISION `20260907_0945` item 3, applied to this table the
+        # same way it is applied to the extent table: a table with no letter
+        # behind it is a tier-3 refusal, not a pass with a warning. Skipped
+        # rather than failed where the bridge is not a sibling, which is the
+        # shape every other bridge-reading test in this repo uses.
+        BRIDGE_SIBLING.require(self)
+        letter = (
+            self.bridge()
+            / "notes_to_chief"
+            / trigger_response.M2_WIRE_ORDINAL_CROSSWALK_LETTER
+        )
+        self.assertTrue(letter.is_file(), letter)
+        text = letter.read_text(encoding="utf-8", errors="replace")
+        # Not merely that the file exists -- that it carries the numbers
+        # this module copied out of it. Two spot values, one per island,
+        # spelled as the letter spells them.
+        self.assertIn("-4451.6", text)
+        self.assertIn("-1720.4", text)
+        self.assertIn("OBSERVER_CONFIRMED", text)
+
+    def test_the_name_resolution_rows_cannot_separate_contact_from_open_water(
+        self,
+    ):
+        # COO-DECISION `20260907_1245` item 2 handed this lane one row --
+        # `id=35 name=Thorn Flower PROP no_responder bytes_out=0`, the
+        # open-water frame -- as supporting evidence, with "do NOT use it to
+        # fill the name" attached. This test is what makes that instruction
+        # mechanical instead of a sentence somebody has to remember.
+        #
+        # The letter's next two lines say the CONTACT frames resolved the
+        # same way. So the columns are constant across all three ids and the
+        # table separates nothing. If a later round edits a row so that the
+        # open-water id looks different from the contact ids, this test goes
+        # red and sends it back to the letter rather than letting a table
+        # quietly grow into a classifier.
+        rows = trigger_response.M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(sorted(row[0] for row in rows), [2, 3, 35])
+        # Column 1 (the client's own name for the id) is the only one that
+        # differs; every other column is identical for the open-water frame
+        # and for both contact frames.
+        self.assertEqual({row[2] for row in rows}, {"PROP"})
+        self.assertEqual({row[3] for row in rows}, {"no_responder"})
+        self.assertEqual({row[4] for row in rows}, {0})
+        self.assertEqual(len({row[1] for row in rows}), 3)
+
+        open_water = [row for row in rows if row[0] == 35]
+        self.assertEqual(len(open_water), 1)
+        contact = [row for row in rows if row[0] in (2, 3)]
+        self.assertEqual(len(contact), 2)
+        # Stated as the property, not as three separate equalities: no
+        # column after the name tells the two populations apart.
+        for row in contact:
+            with self.subTest(contact_id=row[0]):
+                self.assertEqual(row[2:], open_water[0][2:])
+
+    def test_the_discriminator_is_still_unnamed_after_all_of_this(self):
+        # THE POINT OF THE WHOLE ROUND, PINNED. Delivering the second
+        # measurement is not the same act as deciding to act on it. Three
+        # documents route that decision through a crosswalk ticket and this
+        # lane does not get to shortcut them because the evidence came in
+        # early. If a later round fills the name, this test is the line it
+        # has to walk up to and delete on purpose.
+        self.assertIsNone(trigger_response.ISLAND_CONTACT_DISCRIMINATOR)
+
+
 class FieldOrderIsTheContractTests(M2RegistryIsolation):
     """pf-adversary D3: `CandidateFrame`'s field ORDER was unpinned --
     swapping `va` and `vital_id` in the NamedTuple left 42 tests passing,
@@ -918,21 +1061,197 @@ class FieldOrderIsTheContractTests(M2RegistryIsolation):
     job is to carry three values from a LANE-UI letter UNCHANGED, and the
     obvious way a letter gets typed in is POSITIONALLY."""
 
-    def test_the_two_optional_arguments_are_keyword_only(self):
-        # pf-adversary, measured against this round's draft: with `registry`
-        # third and positional, a caller MEANING to pass evidence
-        # (`candidate_for_trigger_id(126, 3, evidence)`) had it land in
-        # `registry`, and got a silent `None` with no error, no warning and
-        # no way to notice. A `*` turns that into a TypeError at the call.
-        # Nothing in the repo imports this module, so this costs no caller.
+    def test_the_third_positional_argument_is_the_evidence_and_reaches_tier3(self):
+        # THIS TEST CHANGED SHAPE THIS ROUND, AND WHY IS THE POINT OF IT.
+        # It used to assert that `candidate_for_trigger_id(126, 3, evidence)`
+        # RAISES: with the test-only `registry` sitting third and positional,
+        # a caller MEANING to pass evidence had it land in `registry` and got
+        # a silent `None` -- no error, no warning, no way to notice -- so a
+        # `*` was put in front of both optional arguments to turn that into a
+        # TypeError at the call.
+        #
+        # Closing pf-adversary's C6 deleted the hazard rather than guarding
+        # it. `registry` is not on this function any more, so the third
+        # positional argument IS `island_contact` and there is no longer a
+        # wrong slot for it to land in. Asserting the old TypeError now would
+        # be pinning a guard against a parameter that does not exist.
+        #
+        # What replaces it is the property the `*` was buying: a reading
+        # passed POSITIONALLY reaches tier 3 and is judged, rather than being
+        # swallowed. Both spellings must agree, and both must agree with
+        # `answer_guard_reason`, which is where the reading is actually
+        # ruled on. The mutant this kills is a body that accepts
+        # `island_contact` and forwards `None`.
         evidence = self.contact_reading()
-        with self.assertRaises(TypeError):
-            trigger_response.candidate_for_trigger_id(SEA, 3, evidence)
-        # The keyword spelling is the one that works.
-        self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(
-                SEA, 3, island_contact=evidence
-            )
+        positional = trigger_response.candidate_for_trigger_id(SEA, 3, evidence)
+        keyword = trigger_response.candidate_for_trigger_id(
+            SEA, 3, island_contact=evidence
+        )
+        self.assertIsNone(positional)
+        self.assertIsNone(keyword)
+        # ...and the reading really did travel: the tier-3 refusal the
+        # module gives for THIS reading is the unmeasured-discriminator one,
+        # not the "no evidence supplied" one a dropped argument would earn.
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, evidence),
+            trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
+        )
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3),
+            trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
+        )
+
+    def test_the_public_lookup_forwards_all_three_arguments_it_is_given(self):
+        # THIS LANE FOUND THIS ONE AGAINST ITS OWN DRAFT, BEFORE PUSHING.
+        # Closing C6 turned `candidate_for_trigger_id` into a one-line
+        # delegation to `_candidate_for_trigger_id`, and a delegation can
+        # drop an argument. Mutating the body to
+        # `return _candidate_for_trigger_id(current_scene_id, wire_trigger_id)`
+        # -- island_contact silently discarded -- left the WHOLE FILE GREEN:
+        # 83 passed. Nothing behavioural can see it, and that is not an
+        # oversight in the suite, it is structural: tier 3 refuses at step 1
+        # on the unmeasured `ISLAND_CONTACT_DISCRIMINATOR` BEFORE it ever
+        # looks at the reading, so on the shipped tree a dropped reading and
+        # a delivered one produce the identical `None`. The day a
+        # discriminator is measured, that mutant becomes a lookup that
+        # answers the world while ignoring the evidence -- which is tier 3
+        # deleted, silently, with the tests still green.
+        #
+        # So the forwarding is pinned from the COMPILED CODE, not from
+        # behaviour and not from the source text: each parameter must
+        # actually be LOADED in the body. A docstring or comment naming it
+        # produces no instruction; a dropped forward produces no load.
+        # pf-adversary D3 AGAINST THE FIRST VERSION OF THIS TEST: checking
+        # that each name is LOADED proves PRESENCE, not POSITION. Swapping
+        # `current_scene_id` and `wire_trigger_id` in the delegation left
+        # the whole file green -- and on a simulated next round (a named
+        # discriminator, a cited frame in a slot, a real in-box reading) the
+        # swapped module answers `None` for every input forever, i.e. M2
+        # silently never ships, with 84 tests passing. So the ORDER of the
+        # loads is checked too, not just the set.
+        #
+        # pf-adversary D5, same review: the loop was two hand-typed names
+        # with no non-vacuity assertion, so narrowing it to `()` dropped
+        # seven subtests and stayed green. The functions are DISCOVERED now
+        # and the discovery is pinned, the way the seam pin already does it.
+        #
+        # AND THE VERSION ABOVE READ THE BYTECODE, WHICH CLOSED THE WINDOWS
+        # GATE ON THIS LANE FOR A WHOLE ROUND.  It collected the operands of
+        # `LOAD_FAST` and `LOAD_FAST_BORROW`.  CPython 3.14 -- which is what
+        # `gate-windows.yml` pins (`python-version: '3.14'`), while a cloud
+        # clone runs 3.11 -- compiles two adjacent local reads into ONE
+        # superinstruction, `LOAD_FAST_BORROW_LOAD_FAST_BORROW`, whose
+        # `argval` is the TUPLE `('current_scene_id', 'wire_trigger_id')`.
+        # Neither name is then in `loads` at all, so this test failed four
+        # ways on 3.14 while passing on 3.11:
+        #
+        #     AssertionError: 'current_scene_id' not found in ['island_contact']
+        #
+        # That is what turned `pirate-force-server#1026` red and got it
+        # closed by the automerge workflow (run 34086718298, step
+        # `pytest_subset` exit=1), with no FAILED line anywhere in the job
+        # log because `-q -rs` prints the skip report and the closer's grep
+        # only looks for `^FAILED `.
+        #
+        # THE LESSON IS NOT "ADD THE THIRD OPNAME".  The set of
+        # superinstructions is a CPython implementation detail that changes
+        # every release; a pin written against it is a pin that reddens the
+        # gate on the next upgrade, on a runner this lane does not control.
+        # The property this test actually wants -- "the delegation puts each
+        # argument in the slot it declares" -- is a property of the SOURCE
+        # STRUCTURE, so it is read from the `ast` instead.  The `ast` is
+        # stable across releases, and it keeps the reason the bytecode was
+        # chosen over `in source` in the first place: a comment or a
+        # docstring naming a parameter produces no `ast.Name` node, exactly
+        # as it produced no instruction.
+        #
+        # Measured sweep before choosing: `grep -rn LOAD_FAST tests/ tools/
+        # src/` returns exactly ONE line, the one deleted here.  No other
+        # lane carries this trap today.
+        import ast
+        import inspect
+        import textwrap
+
+        delegations = {
+            "candidate_for_trigger_id": trigger_response.candidate_for_trigger_id,
+            "_candidate_for_trigger_id": trigger_response._candidate_for_trigger_id,
+            # D4: `registered_count` lost ALL behavioural coverage in the
+            # split -- six tests moved to the private twin and none replaced
+            # them, so `def registered_count(): return 0` passed the file.
+            # It cannot be caught behaviourally (the production count really
+            # is 0), so it is caught here: the public one must load its twin.
+            "registered_count": trigger_response.registered_count,
+            "_registered_count": trigger_response._registered_count,
+        }
+        self.assertEqual(len(delegations), 4)
+
+        for name, function in delegations.items():
+            tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+            self.assertIsInstance(tree.body[0], ast.FunctionDef)
+            # The BODY only. Parameter names in the `def` line are
+            # `ast.arg`, not `ast.Name`, so they cannot satisfy this on
+            # their own -- declaring a parameter is not forwarding it.
+            reads = [
+                node
+                for statement in tree.body[0].body
+                for node in ast.walk(statement)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            ]
+            # `ast.walk` is breadth-first, so it is NOT source order. Sort by
+            # position to get the order a reader sees, which is the order a
+            # transposition reverses.
+            reads.sort(key=lambda node: (node.lineno, node.col_offset))
+            loads = [node.id for node in reads]
+            parameters = list(inspect.signature(function).parameters)
+            for parameter in parameters:
+                with self.subTest(function=name, parameter=parameter):
+                    self.assertIn(parameter, loads)
+            # ORDER, not just membership: the parameters this function
+            # forwards must appear in the body in the order it declares
+            # them. A transposition reverses two of these.
+            # FIRST occurrence of each, because a parameter may legitimately
+            # be read more than once (`wire_trigger_id` is used again for
+            # the table lookup); it is the order they are first reached in
+            # that a transposition reverses.
+            first_use = []
+            for one in loads:
+                if one in parameters and one not in first_use:
+                    first_use.append(one)
+            with self.subTest(function=name, check="order"):
+                self.assertEqual(
+                    [one for one in parameters if one in first_use], first_use
+                )
+
+        # The two public functions must be delegating, not reimplementing:
+        # each names its own private twin in its body.
+        self.assertIn(
+            "_candidate_for_trigger_id",
+            trigger_response.candidate_for_trigger_id.__code__.co_names,
+        )
+        self.assertIn(
+            "_registered_count",
+            trigger_response.registered_count.__code__.co_names,
+        )
+
+    def test_the_public_lookup_has_exactly_three_parameters(self):
+        # The other half of what the deleted `*` was holding: nothing may be
+        # appended to this signature and reached positionally. Three, in this
+        # order, and the test-only seam is not among them.
+        import inspect
+
+        self.assertEqual(
+            list(
+                inspect.signature(
+                    trigger_response.candidate_for_trigger_id
+                ).parameters
+            ),
+            ["current_scene_id", "wire_trigger_id", "island_contact"],
+        )
+        self.assertEqual(
+            list(
+                inspect.signature(trigger_response.registered_count).parameters
+            ),
+            [],
         )
 
     def test_candidate_frame_field_order_is_pinned(self):
@@ -985,7 +1304,7 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
             trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
         )
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(
+            trigger_response._candidate_for_trigger_id(
                 SEA, 2, registry=synthetic_registry, island_contact=evidence
             )
         )
@@ -1002,7 +1321,7 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
         synthetic_registry = {2: _fake(), 3: None}
 
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(
+            trigger_response._candidate_for_trigger_id(
                 SEA, 3, registry=synthetic_registry, island_contact=evidence
             )
         )
@@ -1011,7 +1330,7 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
         synthetic_registry = {2: _fake(), 3: None}
 
         self.assertEqual(
-            trigger_response.registered_count(registry=synthetic_registry), 1
+            trigger_response._registered_count(registry=synthetic_registry), 1
         )
 
     def test_registered_count_reads_an_empty_registry_as_empty(self):
@@ -1020,9 +1339,9 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
         # ever handed in a FALSY mapping. An empty dict is a legitimate
         # registry that says "nothing registered" -- it must not silently
         # fall back to the module's own table.
-        self.assertEqual(trigger_response.registered_count(registry={}), 0)
+        self.assertEqual(trigger_response._registered_count(registry={}), 0)
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(SEA, 2, registry={})
+            trigger_response._candidate_for_trigger_id(SEA, 2, registry={})
         )
         # HOW THE MUTANT IS KILLED NOW. It used to be killed by writing a
         # candidate into the production table so the fallback would give a
@@ -1040,10 +1359,10 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
         # and is wrong -- an entry for an id this slot is not for must count
         # for nothing, the same way the lookup refuses it.
         off_slot_only = {7: _fake(va="sub_NOT_M2")}
-        self.assertEqual(trigger_response.registered_count(registry=off_slot_only), 0)
+        self.assertEqual(trigger_response._registered_count(registry=off_slot_only), 0)
 
         mixed = {7: _fake(va="sub_NOT_M2"), 3: _fake()}
-        self.assertEqual(trigger_response.registered_count(registry=mixed), 1)
+        self.assertEqual(trigger_response._registered_count(registry=mixed), 1)
 
 
 class RegistryTypeDisagreementTests(M2RegistryIsolation):
@@ -1060,7 +1379,7 @@ class RegistryTypeDisagreementTests(M2RegistryIsolation):
         # is the entry point that can still separate the three predicates
         # while tier 3 refuses every lookup.
         self.assertIs(trigger_response._table_for(proxy), proxy)
-        self.assertEqual(trigger_response.registered_count(registry=proxy), 1)
+        self.assertEqual(trigger_response._registered_count(registry=proxy), 1)
 
     def test_an_object_that_merely_owns_a_get_is_refused_by_name(self):
         evidence = self.contact_reading()
@@ -1078,7 +1397,7 @@ class RegistryTypeDisagreementTests(M2RegistryIsolation):
         # validates unconditionally, so both spellings stay pinned.
         for callable_under_test in (
             trigger_response._table_for,
-            lambda r: trigger_response.registered_count(registry=r),
+            lambda r: trigger_response._registered_count(registry=r),
         ):
             with self.subTest(callable_under_test=callable_under_test):
                 with self.assertRaises(TypeError) as raised:
@@ -1107,7 +1426,7 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
         evidence = self.contact_reading()
         poisoned_registry = {7: _fake(va="sub_NOT_M2", vital_id=1, frame=b"\x00")}
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(
+            trigger_response._candidate_for_trigger_id(
                 SEA, 7, registry=poisoned_registry, island_contact=evidence
             )
         )
@@ -1154,23 +1473,31 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
 
         1. SHAPE.  A public callable defined in this module that takes ANY
            caller-supplied value must be TIER-ORDERED: ``current_scene_id``
-           first.  "Any caller-supplied value" is every parameter except
-           ``registry``, which is this module's one test-only seam and is
-           refused loudly by name (see
-           ``TheTwoArgumentsGetOppositePosturesTests``).  This prong does not
-           read the parameter's NAME for the id, so re-introducing the
-           offender as ``f(trig)`` or ``f(n)`` does not slip past it -- the
-           previous spelling only looked for the literal ``wire_trigger_id``
-           and would have.
+           first.  "Any caller-supplied value" now means EVERY parameter,
+           with no exceptions at all.  It used to carry one -- ``registry``,
+           "this module's one test-only seam" -- and pf-adversary's C6
+           against `pirate-force-server#1015` was that the seam it excused
+           was a PUBLIC keyword handing in the whole candidate table, which
+           is the one input the three tiers exist to withhold.  The seam
+           moved to ``_candidate_for_trigger_id`` and ``_registered_count``
+           and the exemption is deleted, which is the same move this
+           docstring already describes two paragraphs up for
+           ``allowed_id_only``: the door, not the offender.  This prong does
+           not read the parameter's NAME for the id either, so
+           re-introducing the offender as ``f(trig)`` or ``f(n)`` does not
+           slip past it -- the previous spelling only looked for the literal
+           ``wire_trigger_id`` and would have.
         2. REACH.  A public callable that is not tier-ordered must not be
            able to consult the deciding predicates at all.  Measured from the
            code object (recursively, so a nested function or comprehension
            cannot hide the call), not from the source text.
 
-        ``registered_count(registry=None)`` is the one public callable that
-        is not tier-ordered, and it passes both prongs on its shape rather
-        than on its name: its only parameter is the registry, so no caller
-        can hand it an id, and it reaches none of the three predicates.
+        ``registered_count()`` is the one public callable that is not
+        tier-ordered, and since C6 was closed it passes both prongs on the
+        strongest shape there is: it takes NO parameters, so there is
+        nothing a caller can hand it at all, and it reaches none of the
+        three predicates.  Before this round its one parameter was the
+        registry, which is why the exemption above existed.
         """
         import functools
         import inspect
@@ -1292,7 +1619,16 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
             if not code_objects:
                 continue
             params = parameters_of(obj)
-            takes_a_value = [p for p in params if p != "registry"]
+            # NO EXEMPTIONS. This line read
+            # `[p for p in params if p != "registry"]` until this round --
+            # an allowlist entry, in the test whose own docstring six
+            # screens up explains that an allowlist entry does not close a
+            # door, it makes one offender legal. pf-adversary's C6 was that
+            # the offender it legalised was a public keyword handing in the
+            # whole candidate table. `registry` is off the public functions
+            # now, so the exemption has nothing left to exempt and is gone
+            # rather than left standing for the next parameter to reuse.
+            takes_a_value = list(params)
             tier_ordered = params[:1] == ["current_scene_id"]
             reaches = set()
             for code in code_objects:
@@ -1327,7 +1663,8 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
             if not tier_ordered and takes_a_value and reaches & DECIDERS:
                 # ``registered_count`` is the one public callable that is
                 # not tier-ordered.  It is exempt HERE by its SHAPE, not by
-                # its name: its only parameter is the registry, so no
+                # its name and not by an allowlist: it takes no parameters
+                # since C6 was closed, so `takes_a_value` is empty and no
                 # caller can hand it a wire id -- and the behaviour prong
                 # above, which does not read signatures at all, calls it
                 # with an id anyway and measures that it is not an oracle.
@@ -1500,7 +1837,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         for hostile in self.HOSTILE:
             with self.subTest(wire_trigger_id=hostile):
                 self.assertIsNone(
-                    trigger_response.candidate_for_trigger_id(
+                    trigger_response._candidate_for_trigger_id(
                         SEA, hostile, registry=poisoned, island_contact=evidence
                     )
                 )
@@ -1528,7 +1865,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         for hostile in self.HOSTILE:
             with self.subTest(current_scene_id=hostile):
                 # No value of any type raises -- that is this test's name.
-                answered = trigger_response.candidate_for_trigger_id(
+                answered = trigger_response._candidate_for_trigger_id(
                     hostile, 3, registry=poisoned, island_contact=evidence
                 )
                 # EVERY row answers None on the shipped tree, including the
@@ -1578,7 +1915,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
                 # is the ordering the module promises so that a malformed
                 # test registry cannot turn a refusal into a traceback.
                 self.assertIsNone(
-                    trigger_response.candidate_for_trigger_id(
+                    trigger_response._candidate_for_trigger_id(
                         SEA, 2, registry=not_a_mapping, island_contact=evidence
                     )
                 )
@@ -1591,7 +1928,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
 
     def test_registered_count_refuses_the_same_way(self):
         with self.assertRaises(TypeError) as raised:
-            trigger_response.registered_count(registry=[])
+            trigger_response._registered_count(registry=[])
         self.assertEqual(
             str(raised.exception),
             trigger_response.REGISTRY_REFUSED_NOT_A_MAPPING,
@@ -1603,7 +1940,7 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         # a malformed test registry sitting behind it.
         evidence = self.contact_reading()
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(
+            trigger_response._candidate_for_trigger_id(
                 SEA, 7, registry=[], island_contact=evidence
             )
         )
@@ -1611,14 +1948,14 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
     def test_a_refused_scene_is_answered_before_a_bad_registry_is_seen(self):
         self.contact_reading()
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(1, 3, registry=[])
+            trigger_response._candidate_for_trigger_id(1, 3, registry=[])
         )
 
     def test_tier3_refuses_before_a_bad_registry_is_seen(self):
         # On the SHIPPED module (no measured discriminator) nothing reaches
         # the registry at all, so even a garbage registry cannot raise.
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(SEA, 2, registry=[])
+            trigger_response._candidate_for_trigger_id(SEA, 2, registry=[])
         )
 
 
@@ -1675,21 +2012,113 @@ class Tier3StateIsReadOnlyToImportersTests(M2RegistryIsolation):
         finally:
             trigger_response.CANDIDATE_TRIGGER_IDS = original
 
-    def test_the_public_guard_has_no_seam_for_either_table(self):
-        # The seams live on the PRIVATE tier-3 function. If they ever appear
-        # on the public entry points, a wire caller can supply the boxes it
-        # is judged against and the freeze above has bought nothing.
+    def test_no_public_callable_carries_any_of_the_three_seams(self):
+        """The seams live on PRIVATE functions. If any of them ever appears
+        on a PUBLIC one, a wire caller supplies the very table it is judged
+        against and the freeze above has bought nothing.
+
+        `registry` joined `discriminator` and `boxes` this round --
+        pf-adversary's C6 against `pirate-force-server#1015`. It is the same
+        defect as `boxes` one layer out: a caller who hands in the candidate
+        table is answering itself, and every tier in front of it is
+        decoration. It was public until this round and survived only because
+        tier 3 refuses every input on an unmeasured discriminator -- which is
+        the fact the NEXT round exists to change, so the door had to be shut
+        before that round, not by it.
+
+        THE LIST OF FUNCTIONS IS DISCOVERED, NOT TYPED. This test named
+        three functions by hand until this lane mutated its own draft:
+        appending `lookup_with_registry = _candidate_for_trigger_id` to the
+        module -- one line, a public name, the full seam behind it -- left
+        the entire file green, 84 passed. A hand-typed list of entry points
+        is an allowlist wearing a different hat, which is the lesson
+        `allowed_id_only` already cost this file once. Every public callable
+        in the module namespace is checked now, so a re-export is a red
+        test rather than a new door.
+
+        CLASSES ARE EXCLUDED, and by shape rather than by name: constructing
+        an `IslandContactEvidence` is not answering the world with one, and
+        its first FIELD is legitimately called `discriminator`. The public
+        surface test one class down makes the same carve-out for the same
+        reason, and the behaviour prong there is what covers a class being
+        CALLED."""
         import inspect
 
-        for function in (
-            trigger_response.answer_guard_reason,
-            trigger_response.candidate_for_trigger_id,
-            trigger_response.registered_count,
-        ):
-            parameters = inspect.signature(function).parameters
-            with self.subTest(function=function.__name__):
+        checked = []
+        for name, obj in vars(trigger_response).items():
+            if name.startswith("_") or not callable(obj):
+                continue
+            if inspect.isclass(obj):
+                continue
+            try:
+                parameters = inspect.signature(obj).parameters
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                continue
+            checked.append(name)
+            with self.subTest(callable=name):
                 self.assertNotIn("discriminator", parameters)
                 self.assertNotIn("boxes", parameters)
+                self.assertNotIn("registry", parameters)
+
+        # The discovery itself is pinned: a mutant that narrows the loop to
+        # nothing would pass every subTest above vacuously.
+        self.assertIn("candidate_for_trigger_id", checked)
+        self.assertIn("registered_count", checked)
+        self.assertIn("answer_guard_reason", checked)
+        self.assertIn("scene_guard_reason", checked)
+
+    def test_the_freeze_covers_every_function_this_module_defines(self):
+        """pf-adversary D1, CRITICAL, against this round's own fix, and D6,
+        which is why D1 could be written at all.
+
+        Closing C6 minted `_candidate_for_trigger_id` and `_registered_count`
+        and left both OUT of `__FROZEN`, while the frozen public pair do
+        nothing but delegate to them. One assignment --
+        `module._candidate_for_trigger_id = lambda *a, **k: forged` -- then
+        made the frozen public function hand a forged frame to a caller with
+        no scene, no reading and no measured discriminator. Strictly worse
+        than the C6 this round was sent to close.
+
+        It was invisible because `__FROZEN` was pinned by three hand-typed
+        names and nothing else: removing `_table_for` from the set, removing
+        `candidate_for_trigger_id`, and ADDING the two twins (that is, the
+        fix itself) were all green. A hand-typed pin cannot notice a name
+        that was never typed.
+
+        So the set is DERIVED here. Every function this module defines must
+        be frozen. The next twin is covered before anyone remembers to
+        think about it."""
+        import types
+
+        defined = {
+            name
+            for name, value in vars(trigger_response).items()
+            if isinstance(value, types.FunctionType)
+            and value.__module__ == trigger_response.__name__
+        }
+        # Non-vacuity: the derivation itself is pinned, or a mutant that
+        # narrows it to nothing passes.
+        self.assertIn("answer_guard_reason", defined)
+        self.assertIn("_candidate_for_trigger_id", defined)
+        self.assertIn("_registered_count", defined)
+        self.assertGreaterEqual(len(defined), 10)
+
+        frozen = set(type(trigger_response)._FrozenTier3Module__FROZEN)
+        self.assertEqual(sorted(defined - frozen), [])
+
+    def test_the_new_crosswalk_table_is_frozen_like_every_other_tier3_table(self):
+        # Same round, same lesson one layer over: the crosswalk table is
+        # data a discriminator would be judged against tomorrow, which is
+        # the argument that froze `_ISLAND_EXTENT_BOXES`.
+        for name in (
+            "M2_WIRE_ORDINAL_CROSSWALK_LETTER",
+            "M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS",
+            "M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES",
+            "M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(AttributeError):
+                    setattr(trigger_response, name, "anything at all")
 
     def test_the_reload_hole_is_named_and_not_pretended_away(self):
         # `importlib.reload` re-executes the module body, which writes the

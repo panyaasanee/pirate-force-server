@@ -408,8 +408,10 @@ CANDIDATE_TRIGGER_IDS: tuple[int, ...] = tuple(
 TRIGGER_ID_REFUSED_NOT_AN_INT = "TRIGGER_ID_REFUSED_NOT_AN_INT"
 TRIGGER_ID_REFUSED_NOT_M2 = "TRIGGER_ID_REFUSED_NOT_M2"
 
-# Named refusal for the TEST-ONLY `registry=` parameter of the two lookups
-# below.  It is deliberately LOUD (a raise), not fail-closed like the wire
+# Named refusal for the TEST-ONLY `registry=` parameter, which since this
+# round lives only on the two PRIVATE twins below (`_candidate_for_trigger_id`
+# and `_registered_count`) and on `_table_for` itself; the public pair take
+# no such argument.  It is deliberately LOUD (a raise), not fail-closed like the wire
 # input above, and the two postures are not in tension: `wire_trigger_id`
 # arrives from the network, so an unexpected value there is a fact about the
 # world and must never crash a session; `registry` can only ever be handed in
@@ -474,10 +476,17 @@ SCENE_REFUSED_NOT_THE_SEA_SCENE = "SCENE_REFUSED_NOT_THE_SEA_SCENE"
 #
 # So the round that consumed `RE-289` committed the TABLE and left the NAME
 # alone.  Filling it is one line, the day the crosswalk ticket answers.
-# pf-adversary measured what that one line does on this tree: with it set,
-# `answer_guard_reason(126, 3, reading_at_ordinal_3)` returns `None` and a
-# forged `registry=` reaches the caller.  That is the state this constant
-# exists to withhold until somebody has measured the right to grant it.
+# pf-adversary measured what that one line did on the tree of that round:
+# with it set, `answer_guard_reason(126, 3, reading_at_ordinal_3)` returns
+# `None` AND a forged `registry=` reached the caller.  HALF OF THAT SENTENCE
+# IS NO LONGER TRUE, and deliberately so: the second half was C6, and this
+# round shut that door (the seam is private now, see
+# `_candidate_for_trigger_id`), on the argument that a door held shut only
+# by an unmeasured discriminator is a door the NEXT round opens by doing
+# nothing.  The first half stands unchanged: filling this name still opens
+# all three tiers for any reading inside a committed box, which is the
+# decision this constant exists to withhold until somebody has measured the
+# right to grant it.
 ISLAND_CONTACT_DISCRIMINATOR: str | None = None
 
 # The letter this module copied its numbers out of, and its sha256 as
@@ -628,6 +637,138 @@ ISLAND_EXTENT_BOX_CITATIONS: dict[int, str] = {
        "extent 1800x1800x500" % RE289_RESULT_LETTER_SHA256,
 }
 
+# ---------------------------------------------------------------------------
+# THE SECOND MEASUREMENT.  THE SLOT ABOVE HAS BEEN WAITING FOR THIS ONE, AND
+# IT WAS ALREADY IN THE REPOSITORY.
+# ---------------------------------------------------------------------------
+# This file has said, in the same words, for three rounds: "a SECOND,
+# separate measurement has to tie that box to the wire before
+# `ISLAND_CONTACT_DISCRIMINATOR` may name it.  A round that fills this slot
+# from the `.tgr` table alone has skipped that step."  `RE-289` supplied the
+# boxes and said so itself in its nonclaim (1).  The round that consumed it
+# wrote a crosswalk TICKET as the way to get the other half.
+#
+# The other half is `GT-228` / R308, `OBSERVER_CONFIRMED 2026-09-04T13:22`,
+# and it has been sitting in the bridge repository since 4 September with
+# every number this needs.  This round went looking for a coordinate it
+# expected to be missing, and found the letter's section (kho) decoding four
+# of the six `0x1FB2` frames of the sea session into `trigger_xyz` and the
+# ship's `TargetPos`, plus five HUD contact positions in its section (kor)
+# table.  Thirteen points in total, each with the wire id the client sent at
+# that moment.
+#
+# WHAT IS MEASURED BELOW, AND IT IS A CROSSWALK, NOT A RESTATEMENT:  every
+# one of those thirteen points falls inside the box of the ordinal whose
+# NUMBER EQUALS THE WIRE ID, and inside NO OTHER BOX.  The two tables were
+# produced three days apart by different parties from different artifacts --
+# the boxes from `Bg3001.tgr` by the RE runner, the points from the wire and
+# the screen by ka1-A with Panya at the client -- and neither was derived
+# from the other.  That is the independence the slot was asking for.
+#
+# WHAT IS STILL NOT DONE, DELIBERATELY:  `ISLAND_CONTACT_DISCRIMINATOR` IS
+# STILL `None` twenty lines up.  Naming it is a DECISION, not a
+# measurement, and three documents (this file, `tickets/RE-289.md`, and
+# `RE-289`'s own nonclaim) route that decision through a crosswalk ticket.
+# This round delivers the evidence that ticket was going to ask for and
+# leaves the naming to COO and to the round that answers, which is the same
+# posture the previous round took when it committed the table and left the
+# name alone.  The letter to COO is
+# `notes_to_chief/20260907_1152_LANE-A-ASK-COO-*`.
+#
+# AND ONE PREMISE THIS PROJECT HAS BEEN REPEATING IS REFUTED BY ITS OWN
+# PRIMARY SOURCE.  `RE-234` item (3), quoted in `CLIENT_RE_QUEUE.md`, in
+# `tickets/RE-289.md`, and beside `ISLAND_CONTACT_DISCRIMINATOR` in this
+# file, says `GT-228` saw wire id 3 BOTH on island contact AND while sailing
+# open water -- which is the whole reason the id alone was called an unsafe
+# classifier.  `GT-228`'s results letter enumerates every `0x1FB2` frame of
+# that session, three independent ways that agree (raw capture, EVENTS, and
+# the lane hook's own console, six lines, no `UNPARSED`):
+#
+#     rx112 id=35   <- the open-water frame, sailing toward island 2
+#     rx130 id=2  rx152 id=2  rx248 id=2
+#     rx433 id=3  rx491 id=3
+#
+# The open-water frame carried id 35, not id 3.  There is no id-3 open-water
+# sighting in `GT-228` at all.  This lane is NOT rewriting the shared
+# documents on its own reading -- the ASK-COO letter carries it -- and the
+# refutation changes nothing here today, because tier 3 refuses on the
+# unmeasured discriminator either way.  It is recorded because a premise
+# repeated in three places while its source says otherwise is a fact this
+# project should stop paying for.
+M2_WIRE_ORDINAL_CROSSWALK_LETTER = (
+    "20260904_1331_KA1A-R308-RESULTS-gt228-pass-box-B-island-contact-fires-"
+    "triggervital-id-2-at-prison-exile-and-id-3-at-spice-paradise-not-153-"
+    "154.md"
+)
+
+# (label, wire trigger id the client sent, x, y, z).  Transcribed from the
+# letter's sections (kho) and (kor), NOT recomputed from anything in this
+# file.  `trigger` rows are the frame's own `trigger_xyz`; `ship` rows are
+# the `TargetPos` carried in the same frame; `HUD` rows are the on-screen
+# contact positions from the letter's table, which are the ones Panya
+# watched happen.
+M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS: tuple[
+    tuple[str, int, float, float, float], ...
+] = (
+    ("rx130 trigger", 2, -4451.6, 4531.1, 186.0),
+    ("rx130 ship", 2, -4800.0, 4632.2, 86.0),
+    ("rx152 trigger", 2, -5613.8, 4162.5, 186.0),
+    ("rx152 ship", 2, -5613.8, 4162.5, 86.0),
+    ("rx433 trigger", 3, -1563.5, -5275.1, 186.0),
+    ("rx433 ship", 3, -1560.1, -5331.6, 86.0),
+    ("rx491 trigger", 3, -1720.4, -5251.6, 186.0),
+    ("rx491 ship", 3, -1877.2, -5370.0, 86.0),
+    ("HUD ISL2-CONTACT-1", 2, -5064.0, 4492.0, 86.0),
+    ("HUD ISL2-CONTACT-2", 2, -5406.0, 4397.0, 86.0),
+    ("HUD ISL2-CONTACT-3", 2, -6167.0, 5130.0, 86.0),
+    ("HUD ISL3-CONTACT-1", 3, -1560.0, -5331.0, 86.0),
+    ("HUD ISL3-CONTACT-2", 3, -1877.0, -5370.0, 86.0),
+)
+
+# NOT DECODED IN THE LETTER, so not here either, and named rather than left
+# for a later round to notice as an absence: `rx248` (id 2) and `rx112`
+# (id 35, the open-water frame) have timestamps and ids but no coordinates
+# in section (kho).  The id-35 one is the row this lane most wants -- an
+# open-water position to check against the boxes would turn "the boxes
+# separate the two islands" into "the boxes separate contact from open
+# water".  It is the one question the crosswalk ticket still has to ask.
+M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES = ("rx112 id=35", "rx248 id=2")
+
+# COO-DECISION `20260907_1245` item 2 pointed at line 35 of the same letter
+# as "a clue you have not used", and said in the same breath that it is
+# supporting evidence and NOT a permit to name the discriminator.  It is
+# transcribed here because transcribing numbers is copying, not deciding:
+#
+#     LANE_A_TRIGGER_VITAL id=35 name=Thorn Flower  PROP no_responder bytes_out=0
+#     LANE_A_TRIGGER_VITAL id=2  name=Edmund Hidden Treasure PROP no_responder bytes_out=0  (x3)
+#     LANE_A_TRIGGER_VITAL id=3  name=Seafood Cargo  PROP no_responder bytes_out=0          (x2)
+#
+# AND THE ROWS AROUND IT KILL THE CLUE, WHICH IS WHY ALL THREE ARE HERE AND
+# NOT ONLY THE ONE THE LETTER OFFERED.  The open-water frame's id resolves
+# to a `PROP` with `no_responder` and `bytes_out=0` -- and so does every
+# CONTACT frame in the same session, on lines 36 and 37 of the same letter.
+# Contact and open water are INDISTINGUISHABLE on this field: all six
+# frames of `GT-228` got the identical `PROP no_responder bytes_out=0`.  So
+# "the id resolves to a prop with no responder" cannot answer "is this
+# frame an island contact", which is the one question
+# `ISLAND_CONTACT_DISCRIMINATOR` exists to answer.
+#
+# NONCLAIM, stated so no later round can quote the id-35 row on its own:
+# this table is NOT a discriminator and MUST NOT be read as one.  What it
+# does support is the narrower, already-committed claim that the open-water
+# frame carried id 35 rather than id 3 -- `name=Thorn Flower` is a third
+# independent spelling of that, after the raw capture and the EVENTS log.
+# `ISLAND_CONTACT_DISCRIMINATOR` is still `None`, and the test that pins it
+# `None` is still in the file.
+M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION: tuple[
+    tuple[int, str, str, str, int], ...
+] = (
+    (35, "Thorn Flower", "PROP", "no_responder", 0),
+    (2, "Edmund Hidden Treasure", "PROP", "no_responder", 0),
+    (3, "Seafood Cargo", "PROP", "no_responder", 0),
+)
+
+
 # READ-ONLY TO EVERY IMPORTER -- COO-DECISION `20260907_0945` item 1.
 # pf-adversary's repro for the tier-3 hole had three legs and this table was
 # one of them: a caller that can write a box can decide that open water is
@@ -760,8 +901,23 @@ __CANDIDATES: dict[int, CandidateFrame | None] = {
 # THAT SENTENCE WAS WRONG AND pf-adversary RAN IT: a module-level
 # `__NAME` is NOT mangled -- mangling happens only inside a class body -- so
 # `vars(module)` holds the plain `__CANDIDATES` and `getattr(module,
-# "__CANDIDATES")[2] = forged` worked.  The writable dict is in `__FROZEN`
-# now, which is a real refusal rather than a speed bump that was not there.
+# "__CANDIDATES")[2] = forged` worked.  The name `__CANDIDATES` is in
+# `__FROZEN` now, so REBINDING it is refused.
+#
+# AND THAT IS STILL NOT THE SAME THING, WHICH THE SENTENCE HERE USED TO
+# CLAIM IT WAS.  pf-adversary re-ran the original repro against this round
+# and it STILL SUCCEEDS: freezing a name stops `module.__CANDIDATES = {}`,
+# it does nothing about `getattr(module, "__CANDIDATES")[2] = forged`, which
+# writes THROUGH the name into the dict the proxy is a view of.  The same
+# holds for `_ISLAND_EXTENT_BOXES[99] = a box the size of the world`, which
+# the freeze docstring lists among the bypasses it closed.  With a
+# discriminator measured, that second one hands a session sitting in open
+# water a frame nobody cited.  `test_the_two_tables_cannot_be_mutated_in_
+# place` checks the PROXIES; nothing checks the dicts behind them.  This is
+# not fixed in this round -- it is a different door from C6 and the round
+# is out of budget -- and it is written down here, unhedged, as the first
+# job of the next one rather than left as a sentence that reads as though
+# it were already handled.
 _CANDIDATES: "Mapping[int, CandidateFrame | None]" = MappingProxyType(__CANDIDATES)
 
 
@@ -1157,11 +1313,55 @@ def _table_for(
     return registry
 
 
+def _candidate_for_trigger_id(
+    current_scene_id: object,
+    wire_trigger_id: object,
+    island_contact: object = None,
+    *,
+    registry: "Mapping[int, CandidateFrame | None] | None" = None,
+) -> "CandidateFrame | None":
+    """``candidate_for_trigger_id`` WITH the test-only ``registry`` seam, and
+    PRIVATE for exactly the reason ``_tier3_contact_reason``'s
+    ``discriminator=``/``boxes=`` are private: a caller able to supply the
+    table it is answered from is answering itself.
+
+    pf-adversary's finding C6 against `pirate-force-server#1015` is what
+    closed this: ``registry`` was a PUBLIC keyword on the function below,
+    "unreachable today" only because tier 3 refused every input on an
+    unmeasured discriminator.  That is a door held shut by a fact that the
+    next round is expected to change -- the round that fills in
+    ``ISLAND_CONTACT_DISCRIMINATOR`` would have opened it by doing nothing
+    at all.  So it is shut here, BEFORE the discriminator is measured, which
+    is the order the previous round wrote down as its first job.
+
+    The public function forwards NOTHING to this parameter, and two tests
+    measure that: ``test_the_public_lookup_has_exactly_three_parameters``,
+    which pins the parameter LIST rather than the absence of one name, and
+    ``test_no_public_callable_carries_any_of_the_three_seams``, which is the
+    sole killer for a seam re-appearing on ``answer_guard_reason`` or under
+    a new public re-export.
+
+    NOT the public-surface test, and this sentence used to say it was.
+    pf-adversary measured it blind here: that test's SHAPE prong is only
+    consulted for a callable that is NOT tier-ordered, and this function is
+    tier-ordered, so re-adding ``registry=`` to it leaves that test green.
+    Deleting its ``registry`` allowlist entry was still right -- an
+    allowlist entry does not close a door -- but its power is over
+    ``registered_count``, not over this function, and claiming otherwise was
+    an assertion dressed as a measurement.
+    """
+    if (
+        answer_guard_reason(current_scene_id, wire_trigger_id, island_contact)
+        is not None
+    ):
+        return None
+    table = _table_for(registry)
+    return table.get(wire_trigger_id)
+
+
 def candidate_for_trigger_id(
     current_scene_id: object,
     wire_trigger_id: object,
-    *,
-    registry: "Mapping[int, CandidateFrame | None] | None" = None,
     island_contact: object = None,
 ) -> "CandidateFrame | None":
     """The candidate registered for ``wire_trigger_id`` when ALL THREE tiers
@@ -1185,67 +1385,68 @@ def candidate_for_trigger_id(
     CALL IS REFUSED AT TIER 3, so this function answers ``None`` for every
     input, registered slot or not -- see ``ISLAND_CONTACT_DISCRIMINATOR``.
 
-    ``registry`` defaults to this module's own ``_CANDIDATES`` and exists
-    only so a test can pass a synthetic mapping without mutating production
-    state -- never set from calling code outside a test.
+    THERE IS NO ``registry`` PARAMETER ON THIS FUNCTION, and there was one
+    until this round.  It defaulted to this module's own ``_CANDIDATES`` and
+    existed only so a test could pass a synthetic mapping without mutating
+    production state -- but it was PUBLIC, so it also let any caller supply
+    the whole table this function answers from, which is the one thing the
+    three tiers exist to decide.  pf-adversary named it C6 against
+    `pirate-force-server#1015`; the previous round agreed and wrote it down
+    as this round's first job, precisely because the door was standing open
+    behind a tier-3 refusal that the next round is meant to remove.  The
+    seam now lives on ``_candidate_for_trigger_id``, private, the same way
+    ``discriminator=`` and ``boxes=`` live on ``_tier3_contact_reason``.
 
     ``island_contact`` is TIER 3's reading and is passed straight through to
-    ``answer_guard_reason``; ``None`` is a refusal, not a pass.  It sits
-    FOURTH, after the test-only ``registry``, purely so that the third
-    POSITIONAL argument keeps meaning what it meant before this round --
-    a real caller supplies it by keyword and never supplies ``registry`` at
-    all.  If COO accepts the shape (see ``IslandContactEvidence``), the
-    round that receives a discriminator should consider moving it to third
-    and making ``registry`` keyword-only, which is a change to test call
-    sites and to nothing else.
+    ``answer_guard_reason``; ``None`` is a refusal, not a pass.  It is now
+    the THIRD POSITIONAL argument, which it could not be while the test-only
+    keyword sat in front of it.  Callers that already spell it
+    ``island_contact=`` keep working unchanged; the previous round's
+    docstring predicted this move and named it as the change to make "the
+    day a discriminator is measured", and closing C6 is what made it free.
 
-    Never raises on ``current_scene_id`` or ``wire_trigger_id``: EVERY value
-    of either, of every type, is answered with ``None`` rather than an
-    exception, because both arguments come from a live session.  A
-    ``registry`` that is not a mapping raises
-    ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)`` on purpose -- see that
-    constant for why the arguments get opposite postures.
+    NEVER RAISES, FULL STOP, ON ANY ARGUMENT -- and that sentence became
+    sayable this round.  Every value of ``current_scene_id``,
+    ``wire_trigger_id`` and ``island_contact``, of every type, is answered
+    with ``None`` rather than an exception, because all three come from a
+    live session.  Until this round the promise had to carry a long
+    exception for ``registry``: a non-mapping raised
+    ``TypeError(REGISTRY_REFUSED_NOT_A_MAPPING)``, conditionally, only once
+    tier 3 could pass, so the docstring spent a screen explaining when the
+    "never raises" claim was and was not true.  With the seam moved to
+    ``_candidate_for_trigger_id`` there is no argument left on this function
+    that can raise, and the paragraph explaining the exception is deleted
+    rather than rewritten.  ``REGISTRY_REFUSED_NOT_A_MAPPING`` still exists
+    and is still raised, by ``_table_for``, reached from the private
+    function and from ``_registered_count`` -- see those two for the
+    posture and for which of them validates unconditionally.
 
-    THAT RAISE IS CONDITIONAL, AND ON THE SHIPPED MODULE IT CANNOT HAPPEN
-    HERE AT ALL.  The three tiers are checked BEFORE the registry is
-    touched, deliberately -- a malformed test registry must not be able to
-    turn a refusal into a traceback -- and until `RE-289` answered, tier 3
-    refused every input.  IT NO LONGER DOES, so the raise IS reachable
-    through this function now: a caller that hands in a reading inside a
-    committed box together with a non-mapping ``registry`` gets the
-    ``TypeError``.  No production call site passes a registry at all.  Note
-    that reaching the registry now takes TWO things, not one: a measured
-    discriminator AND a matching reading whose position falls inside a
-    committed extent; before this round the discriminator alone did it, and
-    the sentence here said so.  So today
-    ``candidate_for_trigger_id(126, 2, registry=[])`` answers ``None``, not
-    ``TypeError``, and pf-adversary was right that the flat promise above
-    read as though it did otherwise.  The raise becomes reachable through
-    this function only once a discriminator is measured (the tests reach it
-    by overriding the discriminator locally, which is why they see it);
-    ``registered_count`` validates its registry unconditionally and is the
-    place to look for the unconditional version of the same posture.  Three
-    tests pin this ordering in each direction, so making the raise
-    unconditional here would be an edit to them, not a bug fix.  No production
-    call site passes a registry at all: repo-wide grep for this module's
-    name finds importers only in its own test file, and the parameter is
-    third and keyword-named in every call there (a POSITIONAL third argument
-    would also reach it, which a grep for ``registry=`` alone would miss --
-    so the claim rests on "nothing in `src/` imports this module", not on
-    the keyword spelling).
+    No production call site passes anything to any of this: repo-wide grep
+    for this module's name finds importers only in its own test file.  That
+    claim rests on "nothing in `src/` imports this module", not on a keyword
+    spelling -- and since this round it no longer has to, because there is
+    no keyword left to spell.
     """
-    if (
-        answer_guard_reason(current_scene_id, wire_trigger_id, island_contact)
-        is not None
-    ):
-        return None
-    table = _table_for(registry)
-    return table.get(wire_trigger_id)
+    return _candidate_for_trigger_id(
+        current_scene_id, wire_trigger_id, island_contact
+    )
 
 
-def registered_count(
+def _registered_count(
     registry: "Mapping[int, CandidateFrame | None] | None" = None,
 ) -> int:
+    """``registered_count`` WITH the test-only ``registry`` seam, private for
+    the same reason ``_candidate_for_trigger_id`` is.
+
+    This one validates its registry UNCONDITIONALLY -- there are no tiers in
+    front of it -- so it is the place to look for the unconditional form of
+    the ``REGISTRY_REFUSED_NOT_A_MAPPING`` posture, and a test says so.
+    """
+    table = _table_for(registry)
+    return sum(1 for trigger_id in CANDIDATE_TRIGGER_IDS if table.get(trigger_id) is not None)
+
+
+def registered_count() -> int:
     """How many of ``CANDIDATE_TRIGGER_IDS`` currently have a real candidate.
     0 on the shipped tree, for both ids: COO-DECISION `20260906_1955` item
     4(b) bans a frame this lane invented, and no LANE-UI letter has cited
@@ -1260,10 +1461,14 @@ def registered_count(
     This is a COUNT OF SLOTS, and says nothing about whether any of them
     could be answered -- tier 3 refuses every lookup today regardless.
 
-    ``registry`` is the same test-only parameter, with the same named raise
-    on a non-mapping, as ``candidate_for_trigger_id``."""
-    table = _table_for(registry)
-    return sum(1 for trigger_id in CANDIDATE_TRIGGER_IDS if table.get(trigger_id) is not None)
+    IT TAKES NO ARGUMENTS AT ALL SINCE THIS ROUND.  It used to take the
+    test-only ``registry``, which made it the one public callable in this
+    file that a caller could hand a table to; the seam is
+    ``_registered_count`` now.  Taking nothing is also what makes it exempt
+    from the public-surface test's tier-ordering prong by SHAPE rather than
+    by an allowlist entry -- the entry that used to spell ``registry`` there
+    is deleted in the same commit."""
+    return _registered_count()
 
 
 # ---------------------------------------------------------------------------
@@ -1294,13 +1499,21 @@ class _FrozenTier3Module(ModuleType):
     for); and so does re-executing the module body through
     ``importlib.reload``.  Nothing in a Python process can prevent those.
 
-    WHAT IT ALSO DOES NOT STOP, and this one is a real gap rather than a
-    Python limit: ``candidate_for_trigger_id(..., registry=...)`` is a
-    PUBLIC keyword that supplies the whole registry, so freezing
-    ``_CANDIDATES`` protects the copy a caller need not use.  It is
-    unreachable today because tier 3 refuses on an unmeasured
-    discriminator, and it is the first thing to close in the round that
-    fills one in.  The freeze converts an ACCIDENT (an ordinary assignment, which
+    WHAT IT USED TO ALSO NOT STOP, CLOSED THIS ROUND:
+    ``candidate_for_trigger_id(..., registry=...)`` was a PUBLIC keyword
+    that supplied the whole registry, so freezing ``_CANDIDATES`` protected
+    a copy the caller need not use.  pf-adversary filed it as C6 against
+    `pirate-force-server#1015` and the previous round wrote it down as this
+    round's first job, for a reason worth keeping in view: it was
+    "unreachable" only because tier 3 refuses on an unmeasured
+    discriminator, i.e. it was held shut by the very fact the next round is
+    sent to change.  Both lookups now keep the seam on a private twin
+    (``_candidate_for_trigger_id``, ``_registered_count``); the public pair
+    take no registry at all, which is checked by the exact-parameter-list
+    pin and by the discovery-based seam pin.  NOT by the public-surface
+    test: pf-adversary measured that one blind to a TIER-ORDERED function
+    re-growing the keyword, so its deleted allowlist entry has power over
+    ``registered_count`` alone.  The freeze converts an ACCIDENT (an ordinary assignment, which
     is what the repro used and what a hurried round would write) into a
     named error, and leaves the deliberate act visible in a diff as a line
     no honest caller has a reason to contain.  That distinction is the whole
@@ -1345,6 +1558,32 @@ class _FrozenTier3Module(ModuleType):
             "_table_for",
             "candidate_for_trigger_id",
             "registered_count",
+            # pf-adversary D1 AGAINST THIS ROUND'S OWN FIX, and it was
+            # CRITICAL: closing C6 minted two new module-level functions and
+            # left them out of this set, while the public pair -- which ARE
+            # in it -- do nothing but delegate to them.  One assignment,
+            # `module._candidate_for_trigger_id = lambda *a, **k: forged`,
+            # then made the FROZEN public function hand a forged frame to a
+            # caller standing in no scene, with no reading and no measured
+            # discriminator.  That is strictly worse than C6, which needed
+            # both a discriminator and an in-box reading.  The comment three
+            # screens up says exactly why -- "the module's functions call
+            # each other through module globals, so rebinding ANY of them
+            # defeats the guard without touching the data" -- and this round
+            # walked past its own sentence.  The set is no longer typed by
+            # hand alone: a test DERIVES this module's function names and
+            # requires this set to contain every one of them, so the next
+            # twin cannot be forgotten the same way.
+            "_candidate_for_trigger_id",
+            "_registered_count",
+            # The crosswalk table landed this round too.  It decides nothing
+            # today, and it is the table a discriminator would be judged
+            # against tomorrow -- the same argument that put
+            # `_ISLAND_EXTENT_BOXES` here.
+            "M2_WIRE_ORDINAL_CROSSWALK_LETTER",
+            "M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS",
+            "M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES",
+            "M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION",
         }
     )
 
