@@ -152,6 +152,37 @@ def load_names(tsv_path: Path = DEFAULT_TSV):
         wid, name = parts[0].strip(), parts[1].strip()
         if wid and name:
             rows.append((wid, name))
+    if rows and rows[0] == ("id", "name"):
+        # THE ARTIFACT WAS PASSED WHERE THE CATALOG BELONGS.  Measured
+        # 2026-09-07 (round `8y18nc`): this tool's own emitted artifact
+        # starts with the header row `id<TAB>name<TAB>family...`, and every
+        # line after it also has a hex id in column 1 and a Vital name in
+        # column 2 -- so the loop above happily read the ARTIFACT as if it
+        # were the master catalog, returned 328 rows (327 real ones plus
+        # the literal header pair), and main() then compared a census
+        # derived from that against the committed artifact and printed
+        # `CENSUS DRIFT`.  That false alarm is not hypothetical: it cost
+        # LANE-GM a round to report (pf_bridge letter `20260907_1929`) and
+        # COO a round to adjudicate (`20260907_2050`), and both quoted the
+        # DRIFT line as proof the committed artifact was stale on main --
+        # it was not, and still is not (this round re-emitted with the real
+        # defaults and git reported no diff at all).
+        #
+        # The catalog has no header row (its two leading lines are `#`
+        # comments, skipped above) and no catalog row can be the literal
+        # pair ("id", "name"), so this test cannot fire on a real catalog;
+        # and it is a refusal rather than a silent skip of the header,
+        # because reading the artifact as the catalog gives an answer that
+        # LOOKS like a census and is not one.
+        raise CensusError(
+            f"{tsv_path} looks like this tool's own emitted artifact "
+            "(first row is the header `id<TAB>name`), not the master "
+            "catalog. --tsv takes the catalog "
+            "(pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv); "
+            "the artifact path is --artifact, and plain "
+            "`python3 tools/pf_ui_wire_name_census.py` already uses the "
+            "right default for both"
+        )
     return rows
 
 
