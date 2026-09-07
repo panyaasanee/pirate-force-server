@@ -55,12 +55,24 @@ pf-adversary round iazmrv before this module existed):
   - Ability/base stats (STR/CON/AGI/INT/PER, HP/MP).  ``s_SCORE`` on this same
     table and ``CONSTDATA_TH__STANDARD_STATUS.tsv`` are LANE-DB's territory
     under COO-ORDER 20260904_0329 item 2 (deadline the same round this module
-    was written) -- s_SCORE's semantics have never been RE'd in this project
-    (grep ``reports/PF_JOB001_CHARCREATE_CLASS_STATIC_BOUNDARY_20260816.md``:
-    it counts s_SCORE among "37 other columns" and decodes none of them).
+    was written).  Two RE results now bound what s_SCORE can be, and they do
+    not contradict each other: RE-122 (2026-08-28) read the DATA and found a
+    six-axis character-create display score with no proven crosswalk to the
+    five ActorAttr stat fields; RE-293 (2026-09-07) swept the client IMAGE and
+    found the literal ``s_SCORE`` zero times in .rdata as UTF-16 and as ASCII,
+    while every static-data lookup in this system goes through
+    ``0x00891EE0(<column name UTF-16>)`` and so needs that literal to exist.
+    Read together: the column is in the shipped tables, and the client never
+    looks it up by name.  Neither result says what the ORIGINAL server did.
     ``CONSTDATA_TH__POTENTIAL.tsv``, the one table
     ``docs/FUNCTIONAL_COVERAGE.json`` names as the real ability-stat
-    candidate, ships header-only with zero data rows in this snapshot.
+    candidate, ships header-only with zero data rows in this snapshot -- and
+    RE-293 adds the matching code-side fact: the loader at 0x004A4371 keys a
+    row by ``n_ID`` alone (NOT class x level), carries ``n_LEVEL`` as a stored
+    column, and jumps the whole per-row loop with no log and no error when the
+    table has zero rows.  So on this build nothing on screen can have come
+    from POTENTIAL, and a server-side POTENTIAL must not be invented with a
+    class x level key.
   - Main/sub-profession structure.  No column on this table encodes it.  The
     Thai phrase inside ``TEXTDATA_TH__SKILL_TEXT`` row 40000
     ("secondary profession cannot use this skill") confirms the *design
