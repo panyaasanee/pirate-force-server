@@ -752,10 +752,33 @@ class ScenarioGateTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, frame_names)
             self.assertNotIn(forbidden, frame_source)
-        # The exclusion above must not become a hole: a docstring is the only
-        # thing it drops, so a step-plan name smuggled into a NON-docstring
-        # string is still caught.  Proven by construction, not by trust.
+        # The exclusion above must not become a hole.  "The docstring set is
+        # non-empty" does not prove that, because it stays true when the
+        # collector drops EVERY string (pf-adversary D4 killed the first
+        # version of this line with exactly that mutant).  So the
+        # non-docstring path is exercised on a real string this module
+        # carries: a refusal reason that is not in any docstring.
         self.assertNotEqual([], sorted(docstrings))
+        self.assertIn("unknown_step_label", frame_names)
+        for text in docstrings:
+            self.assertNotIn("unknown_step_label", text)
+        # And who may import the FRAME module, which is the question the move
+        # created and the sweep-lane list above cannot answer (pf-adversary
+        # D6): the same exact-list shape, on the new module's own name.  A
+        # third importer -- runtime.py's login path above all -- shows up
+        # here as a failure instead of arriving silently green.
+        frame_importers = sorted(
+            path.name for path in SRC_ROOT.glob("*.py")
+            if frame_lane in path.read_text(encoding="utf-8")
+            and path.name != f"{frame_lane}.py"
+        )
+        self.assertEqual(
+            frame_importers,
+            [
+                f"{module}.py",
+                "skill_list_at_login.py",
+            ],
+        )
         # ... and both sides really import it, so "one shape, two callers" is
         # measured rather than asserted in prose.
         for name in (f"{module}.py", "skill_list_at_login.py"):
