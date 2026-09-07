@@ -8,16 +8,20 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+# The starting set is read through the MODULE, never bound by value at
+# import.  `from .inventory import STARTING_BACKPACKS` is a snapshot taken
+# when store.py is first imported, and pf-adversary measured what that costs:
+# with the set widened in `inventory` alone, this file still refused four of
+# the five classes, so every five-bag measurement in this round covered the
+# other two gates and silently never reached this one.
+from . import inventory
 from .inventory import (
     BackpackState,
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
     INITIAL_BACKPACK,
     MERGED_V111_BACKPACK,
-    MERGED_V111_BACKPACKS,
-    STARTING_BACKPACKS,
     ItemAttrState,
     merge_known_item_into_occupied_slot,
-    merged_v111_state,
     move_known_item_to_free_slot,
     require_backpack_shape,
     swap_known_item_with_occupied_slot,
@@ -1075,10 +1079,12 @@ class SQLiteStore:
             db.execute("BEGIN IMMEDIATE")
             self._require_selected_session(db, sid, character_id)
             before = self._load_backpack(db, character_id)
-            if before in MERGED_V111_BACKPACKS:
+            if before in inventory.merged_v111_states():
                 return None
-            if before not in STARTING_BACKPACKS:
+            if before not in inventory.STARTING_BACKPACKS:
                 raise ValueError("Backpack is outside the exact V111 pre-state")
+            rows = {item.identity: item for item in before.items}
+            target, source = rows[1], rows[3]
             # DERIVED from the row that is actually there, not the one
             # constant this method used to compare against.  The merge folds
             # identity 3 into identity 1 and never touches the weapon row, so
@@ -1088,22 +1094,41 @@ class SQLiteStore:
             # and DELETE below had already run -- inside the transaction, so
             # nothing is written, but the caller is told the row changed under
             # it when in fact the merge was correct and the expectation wrong.
-            expected_after = merged_v111_state(before)
+            expected_after = inventory.merged_v111_state(before)
+            # Every literal below used to be one bag's values (template
+            # 2600001, quantity 1, slot 0/2).  They are now bound from the
+            # row this transaction just read, because a starting bag built on
+            # a different consumable or a bigger stack made the UPDATE match
+            # nothing and the method answered "the row changed during the
+            # transaction" -- telling an operator a concurrent writer moved
+            # the row when the truth was that the SQL was written for one bag.
+            # It still fails closed either way; this is about which sentence
+            # the operator gets.  The identity/quantity/slot pinning is not
+            # weakened: it is now pinned to what was read a few lines above,
+            # inside the same BEGIN IMMEDIATE.
             updated = db.execute(
-                "UPDATE character_backpack_items SET quantity=2 "
-                "WHERE character_id=? AND item_identity=1 AND template_id=2600001 "
-                "AND quantity=1 AND slot=0 AND raw_u8_38=0 "
-                "AND raw_u8_39=255 AND detail_present=0",
-                (character_id,),
+                "UPDATE character_backpack_items SET quantity=? "
+                "WHERE character_id=? AND item_identity=1 AND template_id=? "
+                "AND quantity=? AND slot=? AND raw_u8_38=? "
+                "AND raw_u8_39=? AND detail_present=?",
+                (
+                    target.quantity + source.quantity, character_id,
+                    target.template_id, target.quantity, target.slot,
+                    target.raw_u8_38, target.raw_u8_39, target.detail_present,
+                ),
             )
             if updated.rowcount != 1:
                 raise RuntimeError("exact V111 target row changed during transaction")
             removed = db.execute(
                 "DELETE FROM character_backpack_items "
-                "WHERE character_id=? AND item_identity=3 AND template_id=2600001 "
-                "AND quantity=1 AND slot=2 AND raw_u8_38=0 "
-                "AND raw_u8_39=255 AND detail_present=0",
-                (character_id,),
+                "WHERE character_id=? AND item_identity=3 AND template_id=? "
+                "AND quantity=? AND slot=? AND raw_u8_38=? "
+                "AND raw_u8_39=? AND detail_present=?",
+                (
+                    character_id, source.template_id, source.quantity,
+                    source.slot, source.raw_u8_38, source.raw_u8_39,
+                    source.detail_present,
+                ),
             )
             if removed.rowcount != 1:
                 raise RuntimeError("exact V111 source row changed during transaction")

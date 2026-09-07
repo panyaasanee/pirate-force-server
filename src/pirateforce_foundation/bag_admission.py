@@ -312,7 +312,7 @@ from .inventory import (
 #:
 #: It is not a copy any more.  ``is_unmoved_baseline`` and this tuple are now
 #: both built from ``inventory.STARTING_BACKPACKS`` and
-#: ``inventory.MERGED_V111_BACKPACKS``, so there is no second list to drift:
+#: ``inventory.merged_v111_states()``, so there is no second list to drift:
 #: adding a baseline there adds it in both places or in neither.  What
 #: replaces the source-reading guard is a MECHANISM test
 #: (``test_the_two_gates_move_together_when_the_starting_set_moves``) that
@@ -334,7 +334,7 @@ def golden_backpacks() -> tuple[BackpackState, ...]:
     ``inventory.STARTING_BACKPACKS`` becomes LANE-CS's call.
     """
     return (
-        *inventory.STARTING_BACKPACKS, *inventory.MERGED_V111_BACKPACKS,
+        *inventory.STARTING_BACKPACKS, *inventory.merged_v111_states(),
     )
 
 #: See NONCLAIM 4: duplicated from ``mob_pickup`` rather than imported, and
@@ -744,10 +744,18 @@ def golden_names() -> tuple[str, ...]:
     letter 20260908_0022 pins to ``class_catalog.CLASS_IDS`` order -- a
     position, not a guessed class name.
     """
+    # Both halves are sized from their OWN tuple.  Deriving the merged half's
+    # length from the starting half's was wrong twice over: a starting bag
+    # with no merged counterpart is omitted by merged_v111_states(), so the
+    # halves need not be the same length, and pf-adversary measured the
+    # mismatch handing back names off the end of the goldens.
     return tuple(
         stem if index == 0 else f"{stem}_{index}"
-        for stem in ("initial", "merged_v111")
-        for index in range(len(inventory.STARTING_BACKPACKS))
+        for stem, count in (
+            ("initial", len(inventory.STARTING_BACKPACKS)),
+            ("merged_v111", len(inventory.merged_v111_states())),
+        )
+        for index in range(count)
     )
 
 

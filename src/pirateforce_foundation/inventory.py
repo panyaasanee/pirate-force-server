@@ -92,8 +92,16 @@ def _item_content_signature(item: ItemAttrState) -> tuple[int, ...]:
 
 #: Every bag a character can be BORN holding.  One tuple, read by all three
 #: content gates below and -- through them -- by the gate-2 admission module
-#: and by ``store.apply_v111_stack_merge``, so widening the set is one edit
-#: and no gate can be left behind.  COO-DECISION 20260907_2342 made this lane the
+#: and by ``store.apply_v111_stack_merge``.
+#:
+#: 🔴 IT IS NOT YET EVERY GATE, and the first draft of this comment claimed it
+#: was.  pf-adversary found three more comparisons against the singular
+#: ``MERGED_V111_BACKPACK`` in ``runtime.py`` (the committed-merge check, the
+#: item-move capture, the HYP-PF-008 move), one of which RAISES AFTER the
+#: merge is committed.  ``runtime.py`` is chief's file, outside this lane's
+#: write zone, so those three are a CORE-REQUEST, not an edit -- see
+#: ``notes_to_chief/20260908_0206_LANE-DB-CORE-REQUEST-*``.  Until that lands,
+#: widening the set below is NOT safe on its own.  COO-DECISION 20260907_2342 made this lane the
 #: owner of that widening.
 #:
 #: Today it holds ONE bag, which is the same bag it held when the gates
@@ -102,10 +110,14 @@ def _item_content_signature(item: ItemAttrState) -> tuple[int, ...]:
 #: set, so no character's answer moves.  LANE-CS owns the contents:
 #: ``class_starting_gear.starting_backpack_states()`` (their PR #1091, NOT on
 #: main at the time of writing) returns five, one per class in
-#: ``class_catalog.CLASS_IDS`` order, and their letter 20260908_0022 pins that
-#: its FIRST entry is this very object rather than an equal copy -- which is
-#: what keeps every character alive today admitted by identity.  Swapping this
-#: literal for that call is the whole of the remaining change.
+#: ``class_catalog.CLASS_IDS`` order.
+#:
+#: ~~"their letter pins that its FIRST entry is this very object rather than
+#: an equal copy -- which is what keeps every character alive today admitted
+#: by identity"~~ IS STRUCK AS FALSE OF THIS CODE (pf-adversary): every gate
+#: here compares with ``==``, and a deep-equal but distinct first entry passes
+#: the whole suite.  Their identity pin is a good thing for them to hold; this
+#: lane must not make it load-bearing for something it does not use.
 STARTING_BACKPACKS: tuple[BackpackState, ...] = (INITIAL_BACKPACK,)
 
 
@@ -122,9 +134,11 @@ def merged_v111_state(before: BackpackState) -> BackpackState:
     ``test_inventory_starting_set``.
 
     Raises ``ValueError`` if the rows the merge needs are not both present,
-    rather than silently returning ``before``: a caller asking for the
-    post-state of a bag that cannot merge has a bug, and a quiet answer here
-    becomes a post-state check that passes on an unchanged row.
+    or if the summed stack leaves the u16 range ``require_backpack_shape``
+    enforces, rather than silently returning a state no loadable bag can ever
+    equal.  A caller asking for the post-state of a bag that cannot merge has
+    a bug, and a quiet answer here becomes a post-state check that passes on
+    an unchanged row.  ``can_merge_v111`` is the question to ask first.
     """
     by_identity = {item.identity: item for item in before.items}
     target = by_identity.get(1)
@@ -133,33 +147,73 @@ def merged_v111_state(before: BackpackState) -> BackpackState:
         raise ValueError("the V111 merge needs identities 1 and 3")
     if target.template_id != source.template_id:
         raise ValueError("the V111 merge needs one template on both rows")
+    total = target.quantity + source.quantity
+    if not 0 <= total <= 0xFFFF:
+        # The sibling mutator (merge_known_item_into_occupied_slot) refuses
+        # here too.  Without this the derived state is one no bag can ever
+        # equal, because require_backpack_shape rejects the quantity -- a
+        # silently dead entry in the golden set rather than a loud refusal.
+        raise ValueError("merged stack leaves the u16 quantity range")
     merged_rows = tuple(
-        replace(item, quantity=target.quantity + source.quantity)
-        if item.identity == 1 else item
+        replace(item, quantity=total) if item.identity == 1 else item
         for item in before.items
         if item.identity != 3
     )
     return replace(before, items=merged_rows)
 
 
-#: The post-merge counterpart of every entry of ``STARTING_BACKPACKS``, index
-#: aligned with it.  Derived, not typed: see ``merged_v111_state``.
-MERGED_V111_BACKPACKS: tuple[BackpackState, ...] = tuple(
-    merged_v111_state(state) for state in STARTING_BACKPACKS
-)
+def can_merge_v111(before: BackpackState) -> bool:
+    """Whether ``merged_v111_state`` can answer for this bag.
+
+    A starting bag with no identity 3 has no V111 merged counterpart, and
+    that is a FACT about the bag, not an error: it can never reach one, so
+    there is nothing for a gate to admit.  Asking this first is what keeps
+    one such bag in LANE-CS's table from being a package-wide import failure
+    -- which is what the first draft of this module shipped, because it
+    derived the merged tuple at import time and let the ValueError escape.
+    pf-adversary measured it: one three-item bag and `import
+    pirateforce_foundation.session` dies, so nobody logs in at all, instead
+    of one gate refusing one bag.
+    """
+    try:
+        merged_v111_state(before)
+    except ValueError:
+        return False
+    return True
+
+
+def merged_v111_states() -> tuple[BackpackState, ...]:
+    """The post-merge counterpart of every starting bag that has one.
+
+    A FUNCTION, and computed per call, for two measured reasons.  It reads
+    ``STARTING_BACKPACKS`` live, so a reader cannot hold a stale copy of a
+    set that is about to become LANE-CS's call; and it cannot fail at import
+    time, which is what an import-time derivation did the moment a starting
+    bag had no identity 3 (see ``can_merge_v111``).
+
+    Bags that cannot merge are OMITTED rather than raising: they have no
+    merged state to admit, so omitting one narrows nothing.  It is therefore
+    NOT always index-aligned with ``STARTING_BACKPACKS`` -- ``golden_names``
+    in the admission module derives its two halves from the two real lengths
+    for exactly this reason.
+    """
+    return tuple(
+        merged_v111_state(state)
+        for state in STARTING_BACKPACKS
+        if can_merge_v111(state)
+    )
 
 
 def _content_allowlist() -> tuple[tuple[tuple[int, ...], ...], ...]:
     """The content signatures ``require_known_backpack`` admits.
 
-    Computed per call rather than frozen at import.  ``STARTING_BACKPACKS``
-    becomes a call into LANE-CS's module in the commit after this one, and a
-    module-level snapshot of it would keep answering with the set that existed
-    at import time -- a gate that is stale in exactly the way nothing tests.
+    Computed per call rather than frozen at import, for the same reason
+    ``merged_v111_states`` is a function: a module-level snapshot keeps
+    answering with the set that existed at import time.
     """
     return tuple(
         tuple(_item_content_signature(item) for item in state.items)
-        for state in STARTING_BACKPACKS + MERGED_V111_BACKPACKS
+        for state in STARTING_BACKPACKS + merged_v111_states()
     )
 
 
@@ -237,7 +291,7 @@ def is_unmoved_baseline(value: Any) -> bool:
     rather than keeping a second copy, so the two gates cannot drift apart
     the way the ``ast`` guard over this function's source used to watch for.
     """
-    return value in STARTING_BACKPACKS or value in MERGED_V111_BACKPACKS
+    return value in STARTING_BACKPACKS or value in merged_v111_states()
 
 
 # PF-HYPOTHESIS-LEDGER: HYP-PF-010 active

@@ -63,14 +63,30 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
-#: The weapon row every character is born holding today, and the five
-#: template ids LANE-CS lifted from the real ``CHARCREATE_CLASS`` rows
-#: (letter 20260908_0022).  They are written here as the SHAPE of the
-#: five-member case, never as a second source of truth: nothing in
-#: ``src/`` reads this file, and the day ``starting_backpack_states()``
-#: lands, the first test below stops needing it.
 WEAPON_IDENTITY = 4
-CS_WEAPON_TEMPLATES = (2200002, 2200003, 2200006, 2200005, 2200008)
+
+
+def _weapon_templates_from_the_committed_table():
+    """The five ids READ from the table, never typed from a letter.
+
+    The first draft hardcoded them and cited LANE-CS's letter 20260908_0022.
+    They were right -- pf-adversary re-derived them and they match -- but a
+    fourth copy of a mapping that is committed right here goes stale silently
+    the day the table moves, and this repository already has other readers of
+    the same file.  ``n_SLOT_RHAND`` is the right-hand weapon column, and the
+    row order is ``class_catalog.CLASS_IDS``.
+    """
+    table = (
+        ROOT / "src" / "pirateforce_foundation" / "data"
+        / "creation_gear_by_class.tsv"
+    )
+    lines = table.read_text(encoding="utf-8").splitlines()
+    header = lines[0].split("\t")
+    weapon = header.index("n_SLOT_RHAND")
+    return tuple(int(line.split("\t")[weapon]) for line in lines[1:] if line)
+
+
+CS_WEAPON_TEMPLATES = _weapon_templates_from_the_committed_table()
 
 
 def bag_holding_weapon(template_id: int):
@@ -164,10 +180,13 @@ class StartingBagEntersTheWorldTests(unittest.TestCase):
         )
         self.assertEqual(bags[0], INITIAL_BACKPACK)
         self.assertEqual(len(set(bags)), len(CS_WEAPON_TEMPLATES))
-        merged = tuple(inventory.merged_v111_state(bag) for bag in bags)
-
-        with mock.patch.object(inventory, "STARTING_BACKPACKS", bags), \
-                mock.patch.object(inventory, "MERGED_V111_BACKPACKS", merged):
+        # ONE patch, not two.  The merged half is derived live now, and
+        # patching it separately was hiding a real defect: with the set
+        # widened in `inventory` alone, `store` still refused four of the
+        # five classes because it had bound the tuple by value at import
+        # (pf-adversary).  A single patch that every gate must follow is the
+        # measurement; two patches were a way of not measuring one of them.
+        with mock.patch.object(inventory, "STARTING_BACKPACKS", bags):
             for index, (template, bag) in enumerate(
                     zip(CS_WEAPON_TEMPLATES, bags)):
                 with self.subTest(weapon=template):
@@ -179,6 +198,49 @@ class StartingBagEntersTheWorldTests(unittest.TestCase):
                         character.selector)
                     self.assertEqual(relog.backpack, bag)
                     self.assertTrue(start_pc)
+
+    def test_the_stack_merge_follows_the_set_from_inventory_alone(self):
+        """Gate 3, the one no five-bag measurement in this round reached.
+
+        pf-adversary's D2: ``store`` had bound the starting tuples BY VALUE at
+        import, so widening the set in ``inventory`` moved gates 1 and 2 and
+        left this one refusing four of five classes -- while the module
+        comment claimed no gate could be left behind.  The patch here is on
+        ``inventory`` ONLY, which is the whole point: if ``store`` ever binds
+        by value again, this test is the one that goes red.
+
+        It also pins the derived post-state end to end: the merged bag keeps
+        the class's own weapon row, which a constant post-state check would
+        have called a failed merge after the rows were written.
+        """
+        bags = tuple(
+            bag_holding_weapon(template) for template in CS_WEAPON_TEMPLATES
+        )
+        with mock.patch.object(inventory, "STARTING_BACKPACKS", bags):
+            for index, (template, bag) in enumerate(
+                    zip(CS_WEAPON_TEMPLATES, bags)):
+                with self.subTest(weapon=template):
+                    session, character = self._create(f"merge-{index}")
+                    self._move_the_weapon_row(character.id, template)
+                    relog = FoundationSession(
+                        self.lifecycle, self.projector, f"merge-{index}")
+                    selected, _started = relog.select_and_start(
+                        character.selector)
+
+                    after = self.lifecycle.store.apply_v111_stack_merge(
+                        relog.session_id, selected.id)
+
+                    self.assertEqual(after, inventory.merged_v111_state(bag))
+                    self.assertEqual(
+                        [row.template_id for row in after.items
+                         if row.identity == WEAPON_IDENTITY],
+                        [template],
+                    )
+                    # Idempotent, and the merged bag is itself admitted.
+                    self.assertIsNone(
+                        self.lifecycle.store.apply_v111_stack_merge(
+                            relog.session_id, selected.id),
+                    )
 
     def test_the_control_a_bag_outside_the_set_is_still_refused(self):
         """Without this the file would pass against a gate that admits all.
@@ -208,9 +270,7 @@ class StartingBagEntersTheWorldTests(unittest.TestCase):
         bags = tuple(
             bag_holding_weapon(template) for template in CS_WEAPON_TEMPLATES
         )
-        merged = tuple(inventory.merged_v111_state(bag) for bag in bags)
-        with mock.patch.object(inventory, "STARTING_BACKPACKS", bags), \
-                mock.patch.object(inventory, "MERGED_V111_BACKPACKS", merged):
+        with mock.patch.object(inventory, "STARTING_BACKPACKS", bags):
             session, character = self._create("stranger")
             self._move_the_weapon_row(character.id, stranger)
             relog = FoundationSession(
