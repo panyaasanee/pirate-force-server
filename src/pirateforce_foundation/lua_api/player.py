@@ -1,7 +1,8 @@
-"""LANE-Q's ``Player`` namespace: 9 of 73 names real
+"""LANE-Q's ``Player`` namespace: 10 of 73 names real
 (``GetLv``/``GetClass``, ``CheckItemNum``/``GetItemNum``/``CheckEquipItem``,
-``MobAppear``, ``ShowMessage``, plus round `yfeauz`'s ``AddExp``/
-``AddSkillPoint`` -- the first two that WRITE).
+``MobAppear``, ``ShowMessage``, round `yfeauz`'s ``AddExp``/
+``AddSkillPoint`` -- the first two that WRITE -- and round `2euu94`'s
+``AddCash``, the first that can write in EITHER direction).
 
 WHY THESE TWO, WHY TOGETHER.  ``docs/SCRIPT_LANE.md`` (round `bxly5p`) found
 both of LANE-Q's own charter blockers still closed at this round's own
@@ -80,7 +81,7 @@ lands, calls `store.get_backpack(sid, character_id)` and
 straight through to these two fields, no new store-side reads needed.
 
 WHY EVERY OTHER PLAYER.* NAME STAYS A STUB THIS ROUND, GROUPED, NOT
-GUESSED.  See `STILL_STUBBED` below -- 67 names, one of seven named
+GUESSED.  See `STILL_STUBBED` below -- 63 names, one of seven named
 category reasons each (item/equipment state, a stat-grant write seam,
 other per-character stat reads this lane's context does not carry yet,
 skill/buff state cross-lane with combat, a teleport/vehicle/camera wire
@@ -221,6 +222,53 @@ def _coerce_int(value, ceiling: int):
     return value
 
 
+def _coerce_signed_int(value, magnitude_ceiling: int):
+    """:func:`_coerce_int` with the floor removed -- and NOTHING else.
+
+    ``_coerce_int`` refuses everything below 0 because every name that
+    uses it wants an id or an amount that only ever adds.  ``AddCash``
+    does not: ``q_ship.lua:50`` writes ``Player.AddCash(-Quest.Var3)``,
+    and a coercion whose floor is 0 turns that charge into ``None`` --
+    logged as a bad value, and the ship handed over for free.  So this
+    door accepts ``[-magnitude_ceiling, +magnitude_ceiling]`` and hands
+    the SIGN on to the caller to resolve.
+
+    WHY A SECOND FUNCTION AND NOT A ``floor=`` PARAMETER ON THE FIRST
+    (this is the asymmetry a reader should ask about).  ``AddExp`` and
+    ``AddSkillPoint`` MUST keep the floor: their columns have no
+    subtracting door this lane routes to, so a negative arriving at one of
+    them is a decode fault, and it must stay a refused BAD VALUE rather
+    than become a charge nobody asked for.  A shared function with a
+    default would put both behaviours one keyword apart, and the day
+    someone adds a ninth name the safe choice would be the one you get by
+    forgetting to type something.  Two functions with two names cannot be
+    got wrong by omission.
+
+    EVERY OTHER REFUSAL OF ``_coerce_int`` IS KEPT, deliberately and not
+    by accident of copying: ``bool`` (``True`` would become 1 currency),
+    ``nan``/``inf`` (they compare false against every bound, so an
+    unguarded range check lets them through), a float with a fractional
+    part (Lua has one number type; ``2.5`` coins is a decode fault, not a
+    rounding question), and a magnitude past the ceiling.  ``-0.0``
+    becomes ``0``, which both callers then refuse as "nothing to pay" --
+    the same answer ``0`` gets, which is the right one.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        as_int = int(value)
+        if float(as_int) != value:
+            return None
+        value = as_int
+    if not isinstance(value, int):
+        return None
+    if value < -magnitude_ceiling or value > magnitude_ceiling:
+        return None
+    return value
+
+
 def _item_count(backpack: "inventory.BackpackState", template_id: int) -> int:
     """Total quantity of ``template_id`` across every backpack row, or 0.
 
@@ -281,6 +329,10 @@ REAL_METHODS = frozenset({
     # The two ADD-a-stat names whose column exists and whose sign is
     # always positive in the corpus (see :data:`GRANT_KINDS`).
     "AddExp", "AddSkillPoint",
+    # The one stat name the corpus calls in BOTH directions, real from
+    # round `2euu94` now that a spend door with a floor answer exists
+    # (see :data:`SIGNED_STAT_KINDS`).
+    "AddCash",
 })
 
 #: The API name -> reward kind map for the grant closures: which
@@ -302,20 +354,43 @@ REAL_METHODS = frozenset({
 #: sign is UNMEASURED, and the closure below is what actually holds the
 #: floor by refusing anything negative before the store is touched.  Both
 #: names land in a column
-#: ``store.add_typed_attribute`` already accepts.  ``AddCash`` does NOT
-#: qualify on the first count: ``q_ship.lua:50`` calls
-#: ``Player.AddCash(-Quest.Var3)`` and ``q_boat_health.lua:21``
-#: ``Player.AddCash(Quest.Var2 * -1)`` -- a quest CHARGING the player,
-#: which needs a spend door with a floor answer that
-#: ``add_typed_attribute`` deliberately does not have (its own docstring:
-#: ``delta >= 0`` only).  Paying the positive calls and silently dropping
-#: the charges would let a player buy a ship for free, so ``AddCash``
-#: stays stubbed until that door exists.  The other five need columns
-#: (HP/ST/pp-class/morale) or a percentage-of-level rule that no table in
-#: the committed artifacts pins.
+#: ``store.add_typed_attribute`` already accepts.  ``AddCash`` is NOT
+#: here and never will be: it is the one name the corpus calls in both
+#: directions, so it goes through :data:`SIGNED_STAT_KINDS` instead.  The
+#: other five need columns (HP/ST/pp-class/morale) or a
+#: percentage-of-level rule that no table in the committed artifacts pins.
 GRANT_KINDS: dict[str, str] = {
     "AddExp": _quest_criteria.KIND_EXP,
     "AddSkillPoint": _quest_criteria.KIND_SKILL_POINT,
+}
+
+#: The API name -> reward kind map for the SIGNED closure: names the
+#: corpus calls with amounts that go BOTH WAYS.  One entry, and the entry
+#: is the reason this map is separate from :data:`GRANT_KINDS` rather than
+#: a flag on it.
+#:
+#: ALL SIX CALL SITES, GREPPED (``grep -rn AddCash gamedata/lua/`` across
+#: all 616 files, no other name in this map): four ADD --
+#: ``q_guildgather1.lua:60`` and ``q_guild_boss2.lua:59``
+#: (``Player.AddCash(Quest.Var8)``), ``q_class.lua:60`` and
+#: ``q_class2.lua:58`` (``Player.AddCash(Quest.Var4)``) -- and two
+#: SUBTRACT: ``q_ship.lua:50`` (``Player.AddCash(-Quest.Var3)``, buying a
+#: ship) and ``q_boat_health.lua:21`` (``Player.AddCash(Quest.Var2 * -1)``,
+#: repairing one).
+#:
+#: SAID EXACTLY, because the same over-claim was corrected here once
+#: already (pf-adversary D6, round yfeauz): that is a fact about the
+#: literal SHAPE of each call, not about the VALUE that arrives.  The
+#: ``QuestVarN`` behind every one of the six lives in trigger/quest
+#: placement data that is not in this repository, so a "positive" call
+#: site can still deliver a negative at runtime and vice versa.  Nothing
+#: here depends on that: the closure reads the SIGN OF THE VALUE, not the
+#: sign of the source text, and picks the adding door or the subtracting
+#: door from it.  The grep is provenance for why the name needed both
+#: halves before it could open at all -- not a promise about what will
+#: arrive.
+SIGNED_STAT_KINDS: dict[str, str] = {
+    "AddCash": _quest_criteria.KIND_CASH,
 }
 
 #: Sanity ceiling on a grant amount decoded off the Lua stack, the same
@@ -447,7 +522,7 @@ class PlayerContext:
 #: a production singleton, mirroring ``lua_api.trigger.DEFAULT_CONTEXT``.
 DEFAULT_CONTEXT = PlayerContext()
 
-#: The remaining 67 names, one of eight grouped, grep-grounded reasons each
+#: The remaining 63 names, one of seven grouped, grep-grounded reasons each
 #: -- no per-name guess, the same posture ``lua_api.quest.STILL_STUBBED``
 #: takes for its own DB-blocked names. Category text is shared verbatim
 #: across every name in that category (the same repetition
@@ -460,15 +535,6 @@ _ITEM_STATE = (
 _STAT_GRANT = (
     "needs a per-character stat WRITE/grant seam this lane does not own "
     "yet (Player.* item/exp/money queue item, not built yet)"
-)
-_STAT_SPEND = (
-    "the column and the atomic add exist, but the corpus calls this name "
-    "with a NEGATIVE amount (gamedata/lua/Quest/q_ship.lua:50, "
-    "q_boat_health.lua:21 -- a quest charging the player) and "
-    "store.add_typed_attribute takes delta >= 0 only, deliberately; "
-    "paying the positive calls while dropping the charges would let a "
-    "player buy a ship for free, so this name waits for a spend door with "
-    "a floor answer (asked of LANE-DB by letter this round)"
 )
 _STAT_READ = (
     "needs per-character state this lane's PlayerContext does not carry "
@@ -510,11 +576,11 @@ STILL_STUBBED: dict[str, str] = {
     "CheckAllCollectItemSynthesisBuff": _ITEM_STATE,
     "DropProcess": _ITEM_STATE,
     # stat-grant writes (8)
-    # AddExp/AddSkillPoint moved to REAL_METHODS this round (see
-    # GRANT_KINDS): their column exists and their corpus call sites are
-    # all non-negative.  The six below do not qualify, each for a reason
-    # named rather than "not done yet".
-    "AddCash": _STAT_SPEND,
+    # AddExp/AddSkillPoint moved to REAL_METHODS in round `yfeauz` (see
+    # GRANT_KINDS); AddCash moved in round `2euu94`, once LANE-DB's
+    # store.spend_typed_attribute gave its negative call sites a floor
+    # answer (see SIGNED_STAT_KINDS).  The five below do not qualify,
+    # each for a reason named rather than "not done yet".
     "AddHP": _STAT_GRANT,
     "AddST": _STAT_GRANT,
     "AddPpClass": _STAT_GRANT,
@@ -813,6 +879,58 @@ class RealPlayerNamespace:
                 return STUB_DEFAULT
 
             return add_stat
+
+        if name in SIGNED_STAT_KINDS:
+            kind = SIGNED_STAT_KINDS[name]
+
+            def add_or_charge_stat(*args, _name=name, _kind=kind):
+                self.calls.append("Player.%s" % _name)
+                if len(args) != 1:
+                    _log_bad_arity(self._log, _name, len(args), "1")
+                    return STUB_DEFAULT
+                amount = _coerce_signed_int(args[0], _MAX_GRANT_AMOUNT)
+                if amount is None:
+                    # nan/inf, a fractional float, a bool, a string, or a
+                    # magnitude past the ceiling.  NOT a negative -- the
+                    # whole reason this closure exists is that a negative
+                    # here is a real instruction from a shipped quest.
+                    _log_bad_value(self._log, _name, amount=args[0])
+                    return STUB_DEFAULT
+                if amount < 0:
+                    # THE SIGN IS RESOLVED HERE, on the side of the seam
+                    # that can cite the call site (q_ship.lua:50), and the
+                    # MAGNITUDE is what crosses it.  reward.charge refuses
+                    # a negative of its own accord, so a future caller that
+                    # forgets this line gets a refusal, not a double
+                    # negative that silently pays.
+                    _reward.charge(
+                        "Player.%s" % _name, _kind,
+                        self._context.character_id, -amount,
+                        store=self._payout_store, log=self._log)
+                else:
+                    # Zero goes down the granting door on purpose: it is
+                    # refused as `amount_is_zero` there, one token for
+                    # "nothing to move" instead of two that a census would
+                    # have to add together.
+                    _reward.grant(
+                        "Player.%s" % _name, _kind,
+                        self._context.character_id, amount,
+                        store=self._payout_store, log=self._log)
+                # STUB_DEFAULT EITHER WAY, INCLUDING WHEN THE PLAYER COULD
+                # NOT AFFORD IT.  Same rule as the grant closure above:
+                # nobody has measured what the game's own engine returns
+                # from this name, and all six corpus call sites use it as a
+                # statement, so no script observes the difference today.
+                # This is a REAL LIMIT, not a formality: q_ship.lua charges
+                # and then hands over the ship on the next lines with no
+                # check, so a player who cannot afford it gets the ship
+                # anyway -- the refusal is honest in the log and invisible
+                # to the script.  Closing that needs Player.GetCash (still
+                # stubbed, _STAT_READ) so the script's own guard works, the
+                # way q_boat_health.lua:19 already guards with it.
+                return STUB_DEFAULT
+
+            return add_or_charge_stat
 
         if name in self._stub_methods:
             qualified = "Player.%s" % name

@@ -7,10 +7,13 @@ through float32 so the product stops coming out one unit short).  Round
 ``xlk7hl`` gave the number a level, round ``wn088m`` gave it a quest id.
 The number has been correct and STRANDED ever since: nothing pays it.
 
-WHAT THIS MODULE IS.  The one seam between that number and a character
-row -- and, today, an HONEST REFUSAL rather than a payment, for a reason
-that is measured rather than asserted: ``store.py`` has no atomic
-``add_typed_attribute``.  See :func:`pay`.
+WHAT THIS MODULE IS.  The one seam between a reward number and a
+character row, in three doors: :func:`pay` (the amount comes out of the
+game's own criteria tables), :func:`grant` (the amount is an argument the
+script wrote) and, from round ``2euu94``, :func:`charge` (the amount goes
+the OTHER WAY -- two shipped quests take the player's money).  All three
+share one closed refusal set and one rule: nothing is written when
+anything is refused, and no refusal ever raises into a running script.
 
 THE SHAPE THIS LANE IS NOT ALLOWED TO TAKE (pf-adversary D14, round
 ``wn088m``).  The obvious implementation is read the balance, add, write it
@@ -60,6 +63,37 @@ from typing import Any, Callable, Optional, Protocol, Tuple
 
 from . import quest_criteria
 from .quest_criteria import CriteriaAmount
+from ..store import (
+    InsufficientSkillPointsError,
+    InsufficientTypedAttributeError,
+    UnmeasuredSkillPointsError,
+    UnmeasuredTypedAttributeError,
+)
+
+#: The four store exception types :func:`charge` must tell apart, grouped
+#: by WHAT THEY MEAN TO A PLAYER rather than by which door raised them.
+#:
+#: WHY THIS MODULE IMPORTS ``store`` AT ALL, when every other seam here is
+#: a structural :class:`Protocol` and nothing else in ``lua_api`` imports
+#: it.  The adding door could stay ignorant: ``add_typed_attribute``
+#: either wrote or raised, and every raise means the same thing to a
+#: caller ("nothing happened"), so :func:`_store_delta` folds them all
+#: into one ``store_error``.  The SUBTRACTING door cannot: "the player
+#: cannot afford the ship" is a NORMAL OUTCOME of ``q_ship.lua`` that the
+#: quest should keep running past, and "the store is broken" is not, and
+#: the ONLY thing that separates them on the wire is the exception's
+#: TYPE.  LANE-DB built two distinct types for exactly this reason and
+#: warned by letter (``pf_bridge/notes_to_chief/20260907_2226_LANE-DB-TO-
+#: Q-the-spend-door-exists-and-what-it-refuses.md``) that catching the
+#: wrong one is how an UNPAID charge gets read as PAID.  Matching on
+#: class names instead of the classes would be the same bug wearing a
+#: disguise, so the types are imported and the coupling is stated here.
+#: Measured, not assumed: ``store`` imports nothing from ``lua_api``, so
+#: this direction has no cycle.
+_INSUFFICIENT_ERRORS = (
+    InsufficientTypedAttributeError, InsufficientSkillPointsError)
+_UNMEASURED_ERRORS = (
+    UnmeasuredTypedAttributeError, UnmeasuredSkillPointsError)
 
 #: Reward kind (this lane's own constants, never a table cell) -> the
 #: ``characters`` column that kind is paid into.  FROZEN AND CLOSED: three
@@ -72,6 +106,28 @@ KIND_COLUMN: dict[str, str] = {
     quest_criteria.KIND_EXP: "experience",
     quest_criteria.KIND_CASH: "cash",
     quest_criteria.KIND_SKILL_POINT: "skill_points",
+}
+
+#: Reward kind -> the name of the store method that SUBTRACTS from that
+#: kind's column.  Not derivable from :data:`KIND_COLUMN`: two of the
+#: three columns are served by the generic door and the third has a door
+#: of its own, and that split is LANE-DB's, not this lane's.
+#:
+#: ``skill_points`` IS THE WHOLE REASON THIS MAP EXISTS.  ``store.
+#: COLUMNS_WITH_THEIR_OWN_SPEND_DOOR`` makes
+#: ``spend_typed_attribute(cid, "skill_points", n)`` raise ``ValueError``
+#: BEFORE it reads the row -- deliberately, because a column with two
+#: subtracting doors has two refusal shapes and a caller that catches the
+#: wrong one reads "not paid" as "paid".  So this lane routes that kind to
+#: ``spend_skill_points`` instead of discovering the refusal at runtime.
+#: A test pins this map against ``store.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR``
+#: in BOTH directions, so the day LANE-DB gives another column its own
+#: door, this map fails loudly rather than sending a charge into a
+#: ``ValueError`` that :func:`charge` would report as ``store_error``.
+SPEND_DOOR: dict[str, str] = {
+    quest_criteria.KIND_EXP: "spend_typed_attribute",
+    quest_criteria.KIND_CASH: "spend_typed_attribute",
+    quest_criteria.KIND_SKILL_POINT: "spend_skill_points",
 }
 
 #: The closed set of reasons :func:`pay` declines, same discipline
@@ -108,6 +164,31 @@ REFUSE_UNKNOWN_KIND = "unknown_reward_kind"
 #: GARBAGE ARGUMENT must coerce with a signed door and pass the number
 #: through rather than filtering it first).
 REFUSE_BAD_AMOUNT = "amount_is_not_an_integer"
+#: :func:`charge` only.  The store has no subtracting door of the shape
+#: :data:`SPEND_DOOR` names for this kind -- the mirror of
+#: :data:`REFUSE_STORE_NOT_ATOMIC` on the adding side, and a SEPARATE
+#: token because a store can perfectly well have one and not the other
+#: (every store in this repository did, between round ``yfeauz`` and
+#: LANE-DB's round ``dcz2sv``), and a census that could not tell those two
+#: apart would have read "the spend door is missing" as "the store is
+#: missing".
+REFUSE_STORE_CANNOT_SPEND = "store_has_no_atomic_spend"
+#: :func:`charge` only.  The row exists, the balance is measured, and it
+#: does not cover the charge -- the player cannot afford it.  A NORMAL
+#: GAME OUTCOME, not an error: ``q_ship.lua`` charges for a ship the
+#: player may not be able to buy, and the quest script keeps running.
+#: Nothing was written: the store raises inside the same transaction it
+#: read in, before any ``UPDATE`` (``store.spend_typed_attribute``
+#: contract 3).
+REFUSE_INSUFFICIENT = "balance_does_not_cover_it"
+#: :func:`charge` only.  The column is NULL: nobody has ever measured this
+#: player's balance, so there is nothing to subtract FROM.  Distinct from
+#: :data:`REFUSE_INSUFFICIENT` on purpose and for the reason
+#: ``COO-DECISION 20260901_1059`` gives -- reporting an unmeasured balance
+#: as "cannot afford it" would be this lane guessing the zero the store
+#: refuses to guess, and the two need different fixes (grant the player a
+#: starting balance vs. tell them they are short).
+REFUSE_UNMEASURED = "balance_was_never_measured"
 
 #: Every reason this module itself can produce.  A test asserts
 #: :func:`pay` never returns a reason outside this set union
@@ -116,6 +197,7 @@ REFUSALS: frozenset = frozenset({
     REFUSE_NO_STORE, REFUSE_STORE_NOT_ATOMIC, REFUSE_NO_CHARACTER,
     REFUSE_NOTHING_TO_PAY, REFUSE_NEGATIVE, REFUSE_STORE_ERROR,
     REFUSE_UNKNOWN_KIND, REFUSE_BAD_AMOUNT,
+    REFUSE_STORE_CANNOT_SPEND, REFUSE_INSUFFICIENT, REFUSE_UNMEASURED,
 })
 
 
@@ -332,15 +414,23 @@ def grant(api_name: str, kind: str, character_id: int, amount: int, *,
     negative is REFUSED rather than trusted, because this door is also
     reachable from a future closure whose coercion is not yet written.
 
-    NEGATIVE AMOUNTS ARE REFUSED, AND THAT IS A REAL GAP, NOT AN OVERSIGHT.
+    NEGATIVE AMOUNTS ARE REFUSED, AND THE GAP THAT USED TO BE IS CLOSED.
     ``Player.AddCash(-Quest.Var3)`` exists in the corpus
     (``gamedata/lua/Quest/q_ship.lua:50``, ``q_boat_health.lua:21``): a
     quest that CHARGES the player. ``store.add_typed_attribute`` takes
     ``delta >= 0`` only, deliberately (its own docstring: a subtracting door
     has to answer "what happens at the floor", and this repository already
-    has that answer in ``spend_skill_points``). So the spend half is a
-    letter to LANE-DB, not a sign flip here, and ``Player.AddCash`` stays
-    stubbed until it exists -- see ``lua_api.player.STILL_STUBBED``.
+    has that answer in ``spend_skill_points``). So the spend half was a
+    letter to LANE-DB rather than a sign flip here -- and LANE-DB answered
+    it: ``store.spend_typed_attribute`` is on ``origin/main``, :func:`charge`
+    is the door onto it, and ``Player.AddCash`` opened this round.
+
+    THIS FUNCTION STILL REFUSES NEGATIVES, and that is not left over: the
+    sign is resolved by the CALLER now (``lua_api.player``'s signed
+    coercion picks :func:`grant` or :func:`charge`), so a negative reaching
+    HERE is a caller that did not, and turning it into a charge would make
+    one door with two directions -- exactly the shape LANE-DB refused to
+    build on their side, for the same reason.
     """
     log = log or (lambda _line: None)
 
@@ -374,6 +464,272 @@ def grant(api_name: str, kind: str, character_id: int, amount: int, *,
                     balance_after=balance_after)
     log("LUA_PLAYER_GRANT %s %s" % (api_name, granted.log_fields()))
     return granted, None
+
+
+class QuestChargeStore(Protocol):
+    """The two methods this lane needs to SUBTRACT, and why they are two.
+
+    Asked of LANE-DB as a letter on 2026-09-07
+    (``pf_bridge/notes_to_chief/20260907_1942_LANE-Q-TO-DB-add-typed-
+    attribute-needs-a-spend-door.md``) and ANSWERED the same day
+    (``20260907_2226_LANE-DB-TO-Q-the-spend-door-exists-and-what-it-
+    refuses.md``): ``store.SQLiteStore.spend_typed_attribute`` is on
+    ``origin/main``.  So the reason ``Player.AddCash`` was stubbed --
+    written out at length in ``lua_api.player.STILL_STUBBED``'s
+    ``_STAT_SPEND`` text and in :func:`grant`'s docstring -- is gone, and
+    this round is where the name opens.
+
+    ``spend_typed_attribute(character_id, column, amount) -> int``
+    ``spend_skill_points(character_id, cost) -> int``
+
+    * BOTH take a MAGNITUDE, never a sign.  A negative ``amount`` is a
+      ``ValueError``, not a silent addition.  The corpus's minus sign
+      (``Player.AddCash(-Quest.Var3)``) is therefore resolved on THIS side
+      of the seam, where the script that wrote it can be cited, which is
+      the split LANE-DB asked for by name.
+    * ONE ``BEGIN IMMEDIATE`` each, the read and the ``UPDATE`` inside it.
+    * NEVER GUESS ZERO: a NULL column raises rather than being treated as
+      an empty purse.
+    * A balance that does not cover the amount raises, and the row keeps
+      the value it had -- not clamped to the floor, never negative.
+    * Both return the balance AFTER the subtraction, read back inside the
+      same transaction.
+
+    WHY TWO METHODS AND NOT ONE.  ``skill_points`` already had a
+    subtracting door before the generic one existed, and
+    ``store.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR`` makes the generic door
+    REFUSE that column rather than become a second door onto it.  That is
+    a deliberate guard, not an omission: two doors on one column raise two
+    different "insufficient" types, and ``skill_grant_wiring.py`` /
+    ``skill_learn_wiring.py`` already document
+    ``InsufficientSkillPointsError`` as THE refusal of the skill-point
+    spend path, so a charge arriving through the generic door would raise
+    a type their ``except`` clauses do not catch -- an unpaid charge read
+    as paid.  :data:`SPEND_DOOR` is this lane's half of that agreement.
+
+    WHAT THIS SIDE STILL CANNOT CHECK, said as plainly as the adding door
+    says it: atomicity is not observable from a caller, and neither is
+    "the row really moved".  See :func:`_store_spend` for the ONE
+    post-condition this door can check and why it is weaker than the
+    adding door's.
+    """
+
+    def spend_typed_attribute(self, character_id: int, column: str,
+                              amount: int) -> int:
+        ...  # pragma: no cover - protocol declaration
+
+    def spend_skill_points(self, character_id: int, cost: int) -> int:
+        ...  # pragma: no cover - protocol declaration
+
+
+@dataclass(frozen=True)
+class Charge:
+    """One amount actually taken OFF a row, and what the row became.
+
+    The mirror of :class:`Grant`.  ``amount`` is the MAGNITUDE that was
+    subtracted (always positive), never the negative number the script
+    wrote: the sign is a fact about the call site, and the log line says
+    ``charged=`` rather than ``paid=`` so a reader of the log never has to
+    work out which direction a bare number went.
+    """
+
+    api_name: str
+    character_id: int
+    column: str
+    amount: int
+    balance_after: int
+
+    def log_fields(self) -> str:
+        return ("character=%d column=%s charged=%d balance_after=%d"
+                % (self.character_id, self.column, self.amount,
+                   self.balance_after))
+
+
+def _spend_door(store: Any, kind: str) -> Optional[Callable[..., Any]]:
+    """The bound subtracting method for ``kind``, or ``None``.
+
+    A capability check of the same shape :func:`_has_atomic_add` uses, for
+    the same reason: ``Protocol`` is structural, and what matters is that
+    the attribute is CALLABLE, not that some class claims a base.
+
+    THE ``try`` IS NOT DEFENSIVE PADDING; it was measured.  ``getattr(x,
+    n, default)`` only swallows ``AttributeError``, so an object whose
+    ``__getattr__`` raises anything else takes the exception straight out
+    through :func:`charge`, which promises never to raise.  That object is
+    not hypothetical -- ``tests/test_script_lua_api_reward.py``'s
+    ``RmwTripwireStore`` raises ``AssertionError`` from ``__getattr__`` on
+    purpose, and it is the store a caller hands over between the day the
+    adding door landed and the day the spend door did.  ``_has_atomic_add``
+    has the same hole on the adding side and is left alone this round:
+    fixing it is a one-line change in code round ``yfeauz`` shipped and
+    tested, and doing it here would put an untested edit in a diff whose
+    subject is the other door.
+    """
+    try:
+        door = getattr(store, SPEND_DOOR[kind], None)
+    except Exception:                                    # noqa: BLE001
+        return None
+    return door if callable(door) else None
+
+
+def _store_spend(store: Any, kind: str, character_id: int, column: str,
+                 amount: int) -> Tuple[Optional[int], Optional[str],
+                                       Optional[str]]:
+    """Hand one POSITIVE magnitude to the right subtracting door.
+
+    Returns ``(balance_after, None, None)`` when the store honoured the
+    :class:`QuestChargeStore` contract, and ``(None, reason, extra)``
+    otherwise, where ``reason`` is one of :data:`REFUSE_INSUFFICIENT`,
+    :data:`REFUSE_UNMEASURED` or :data:`REFUSE_STORE_ERROR`.
+
+    THE CLASSIFICATION IS THE POINT, and it is why this is not just
+    :func:`_store_delta` with a different method name.  On the adding side
+    every raise means one thing and one token is enough.  Here three
+    outcomes that are indistinguishable as "an exception happened" have to
+    stay apart, because only one of them is a bug:
+
+    * ``Insufficient*`` -- the player cannot afford it.  Expected.  The
+      row is untouched (the store raises inside the read transaction,
+      before any ``UPDATE``), and the quest script keeps running.
+    * ``Unmeasured*`` -- the column is NULL, so there is no balance to
+      subtract from.  Also not a bug, and NOT the same as being short:
+      ``COO-DECISION 20260901_1059`` forbids collapsing the two.
+    * anything else -- schema drift, a write-lock timeout, a missing
+      character, a ``ValueError`` from a door that refuses this column.
+      Those are ``store_error``.
+
+    ``KeyError`` (character does not exist / soft-deleted) is deliberately
+    left in the last bucket rather than given a token of its own: this
+    lane already refuses ``character_id <= 0`` before the store is
+    reached, so a ``KeyError`` from here means the caller passed an id it
+    believed in and the store disagreed, which is exactly the "something
+    is wrong" the generic token is for.
+
+    THE POST-CONDITION HERE IS WEAKER THAN THE ADDING DOOR'S, AND THAT IS
+    NOT HIDDEN.  :func:`_store_delta` can assert ``balance_after >=
+    delta``, which kills a ``return 0`` store outright.  Subtracting has
+    no such lever: this lane never reads a balance (by design -- see the
+    module docstring), so every non-negative answer is arithmetically
+    possible for SOME starting balance, and ``return 0`` is in fact the
+    correct answer whenever a player spends their last coin.  What is
+    checked is what can be: the answer is an ``int``, not a ``bool``, and
+    not negative -- the last one because every column in
+    :data:`KIND_COLUMN` carries ``CHECK(... BETWEEN 0 AND ...)`` in
+    migration 006, so a negative answer is a store reporting a row state
+    its own schema forbids.  A store that answers ``0`` to everything
+    would be believed here.  Naming that is better than a check that
+    looks stronger than it is.
+    """
+    door = _spend_door(store, kind)
+    if door is None:            # pragma: no cover - caller checks first
+        return None, REFUSE_STORE_CANNOT_SPEND, None
+    try:
+        if SPEND_DOOR[kind] == "spend_skill_points":
+            balance_after = door(character_id, amount)
+        else:
+            balance_after = door(character_id, column, amount)
+    except _INSUFFICIENT_ERRORS as exc:
+        return None, REFUSE_INSUFFICIENT, " err=%s: %s" % (
+            type(exc).__name__, exc)
+    except _UNMEASURED_ERRORS as exc:
+        return None, REFUSE_UNMEASURED, " err=%s: %s" % (
+            type(exc).__name__, exc)
+    except Exception as exc:  # noqa: BLE001 - deliberate, see charge()
+        return None, REFUSE_STORE_ERROR, " err=%s: %s" % (
+            type(exc).__name__, exc)
+    if isinstance(balance_after, bool) or not isinstance(balance_after, int):
+        return None, REFUSE_STORE_ERROR, " err=balance_after=%r" % (
+            balance_after,)
+    if balance_after < 0:
+        return None, REFUSE_STORE_ERROR, (
+            " err=balance_after=%d is negative: the store reported a row "
+            "state its own CHECK constraint forbids" % (balance_after,))
+    return balance_after, None, None
+
+
+def charge(api_name: str, kind: str, character_id: int, amount: int, *,
+           store: Optional[Any] = None,
+           log: Optional[Callable[[str], None]] = None,
+           ) -> Tuple[Optional[Charge], Optional[str]]:
+    """Take an amount OFF a row, or say exactly why not.
+
+    The third door onto this seam, and the one the corpus has been waiting
+    for: ``gamedata/lua/Quest/q_ship.lua:50`` calls
+    ``Player.AddCash(-Quest.Var3)`` and ``q_boat_health.lua:21`` calls
+    ``Player.AddCash(Quest.Var2 * -1)`` -- the "buy the ship" and "repair
+    the ship" quests, which take the player's money.  Until this existed,
+    opening ``Player.AddCash`` would have paid the four positive call
+    sites and silently dropped the two negative ones, which is a free
+    ship; so the name stayed stubbed and the missing half was a letter to
+    LANE-DB rather than a sign flip on the adding door.
+
+    ``amount`` IS A MAGNITUDE AND MUST BE POSITIVE.  The minus sign in the
+    script is resolved by the CALLER (``lua_api.player``'s signed
+    coercion), on the side of the seam where the call site can be cited.
+    A negative reaching here is a caller that has not done that, and it is
+    refused rather than turned into a payment by a double negative --
+    which would be this door quietly becoming :func:`grant`.
+
+    ``kind`` comes from the CALLING CLOSURE, never from a script, and
+    selects both the column (:data:`KIND_COLUMN`) and the store door
+    (:data:`SPEND_DOOR`).  No Lua value and no shipped table cell is ever
+    concatenated into a column name -- the discipline the module docstring
+    describes, unchanged.
+
+    NEVER RAISES FOR A REFUSAL, including the one that is a normal game
+    outcome.  A player who cannot afford the ship gets
+    ``refused=balance_does_not_cover_it`` and the script keeps running to
+    its next line, because a host that dies on an unaffordable purchase
+    turns one declined transaction into a whole quest file logged as
+    broken.
+
+    ALL-OR-NOTHING, AND WITH ONE FEWER HOLE THAN THE ADDING DOOR.  Every
+    refusal :func:`grant` can produce after a COMMIT (a non-int answer, an
+    impossible balance) exists here too, so a caller that retries on
+    ``store_error`` can still charge twice and no idempotency key has been
+    written -- this door does not retry either.  What is NOT ambiguous
+    here is the affordability refusal: ``InsufficientTypedAttributeError``
+    and ``InsufficientSkillPointsError`` are raised BEFORE any ``UPDATE``,
+    inside the transaction the read ran in, so
+    ``refused=balance_does_not_cover_it`` means the row is untouched and a
+    retry is safe.  That distinction is the entire value of LANE-DB's
+    separate exception types, and it only survives because this module
+    matches on the TYPES rather than on a message or a class name.
+    """
+    log = log or (lambda _line: None)
+
+    def _refuse(why: str, extra: str = "") -> Tuple[None, str]:
+        log("LUA_PLAYER_CHARGE %s character=%s kind=%s refused=%s "
+            "uncharged=%r%s"
+            % (api_name, character_id, kind, why, amount, extra))
+        return None, why
+
+    if kind not in KIND_COLUMN or kind not in SPEND_DOOR:
+        return _refuse(REFUSE_UNKNOWN_KIND)
+    if isinstance(character_id, bool) or not isinstance(character_id, int) \
+            or character_id <= 0:
+        return _refuse(REFUSE_NO_CHARACTER)
+    if isinstance(amount, bool) or not isinstance(amount, int):
+        return _refuse(REFUSE_BAD_AMOUNT)
+    if amount < 0:
+        return _refuse(REFUSE_NEGATIVE)
+    if amount == 0:
+        return _refuse(REFUSE_NOTHING_TO_PAY)
+    if store is None:
+        return _refuse(REFUSE_NO_STORE)
+    if _spend_door(store, kind) is None:
+        return _refuse(REFUSE_STORE_CANNOT_SPEND)
+
+    column = KIND_COLUMN[kind]
+    balance_after, reason, extra = _store_spend(
+        store, kind, character_id, column, amount)
+    if reason is not None:
+        return _refuse(reason, extra or "")
+    charged = Charge(api_name=api_name, character_id=character_id,
+                     column=column, amount=amount,
+                     balance_after=balance_after)
+    log("LUA_PLAYER_CHARGE %s %s" % (api_name, charged.log_fields()))
+    return charged, None
 
 
 def pay(api_name: str, character_id: int, quest_id: int, *,

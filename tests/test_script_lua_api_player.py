@@ -21,15 +21,48 @@ from pirateforce_foundation.lua_api import player
 #: would be invented by a mock and explode here instead, the same posture
 #: ``tests/test_script_lua_api_reward.py``'s own tripwire store takes.
 class _RecordingPayoutStore:
-    def __init__(self, start: int = 0):
+    """Both directions, and it records the SIGN it was asked for.
+
+    ``calls`` holds a positive delta for an add and a NEGATIVE one for a
+    spend, so a test can assert which door the namespace picked without
+    reading the log: a closure that sent a charge down the adding path
+    would record ``+n`` where the test wants ``-n``, and no amount of
+    correct-looking arithmetic hides that.
+    """
+
+    def __init__(self, start: int = 0, balances=None):
         self.calls: list = []
-        self._balances: dict = {}
+        self._balances: dict = dict(balances or {})
         self._start = start
 
     def add_typed_attribute(self, character_id: int, column: str, delta: int):
         self.calls.append((character_id, column, delta))
         key = (character_id, column)
         self._balances[key] = self._balances.get(key, self._start) + delta
+        return self._balances[key]
+
+    def spend_typed_attribute(self, character_id: int, column: str,
+                              amount: int):
+        from pirateforce_foundation import store as store_module
+
+        if column in store_module.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR:
+            raise ValueError("%s has its own spend door" % (column,))
+        return self._spend(character_id, column, amount)
+
+    def spend_skill_points(self, character_id: int, cost: int):
+        return self._spend(character_id, "skill_points", cost)
+
+    def _spend(self, character_id: int, column: str, amount: int):
+        from pirateforce_foundation import store as store_module
+
+        self.calls.append((character_id, column, -amount))
+        key = (character_id, column)
+        current = self._balances.get(key, self._start)
+        if current < amount:
+            raise store_module.InsufficientTypedAttributeError(
+                "character %d has %s=%d, which does not cover %d"
+                % (character_id, column, current, amount))
+        self._balances[key] = current - amount
         return self._balances[key]
 
 
@@ -420,20 +453,23 @@ class StatGrantTests(unittest.TestCase):
         self.assertTrue(any("refused=no_character" in line for line in calls),
                         calls)
 
-    def test_add_cash_is_still_a_stub_and_says_why(self):
-        """The corpus CHARGES with this name (``q_ship.lua:50``).
+    def test_add_cash_is_no_longer_a_stub(self):
+        """It was stubbed for one reason, and that reason is gone.
 
-        Paying its positive call sites while dropping its negative ones
-        would let a player buy a ship for free, so it stays stubbed until a
-        spend door with a floor answer exists.
+        The corpus CHARGES with this name (``q_ship.lua:50``), so paying
+        its positive call sites while dropping its negative ones would let
+        a player buy a ship for free.  LANE-DB's
+        ``store.spend_typed_attribute`` (round ``dcz2sv``) is the floor
+        answer that was missing; both halves exist now, so the name opens.
         """
+        self.assertNotIn("AddCash", player.STILL_STUBBED)
+        self.assertIn("AddCash", player.REAL_METHODS)
         store = _RecordingPayoutStore()
         ns, calls = self._namespace(
             context=player.PlayerContext(character_id=9), payout_store=store)
         self.assertEqual(ns["AddCash"](500), player.STUB_DEFAULT)
-        self.assertEqual(store.calls, [])
-        self.assertIn("LUA_API_STUB Player.AddCash", calls)
-        self.assertIn("NEGATIVE", player.STILL_STUBBED["AddCash"])
+        self.assertNotIn("LUA_API_STUB Player.AddCash", calls)
+        self.assertEqual(store.calls, [(9, "cash", 500)])
 
     def test_the_grant_map_is_exactly_these_two_names(self):
         """GRANT_KINDS pinned BY VALUE, not merely iterated.
@@ -449,6 +485,28 @@ class StatGrantTests(unittest.TestCase):
             "AddExp": quest_criteria.KIND_EXP,
             "AddSkillPoint": quest_criteria.KIND_SKILL_POINT,
         })
+
+    def test_the_signed_map_is_exactly_add_cash(self):
+        """Pinned BY VALUE for the same reason ``GRANT_KINDS`` is.
+
+        A name in here gets a door that can take a player's money on a
+        NEGATIVE argument.  Adding one without reading the corpus for what
+        that name's negative call sites mean is precisely the mistake this
+        assertion exists to make loud.
+        """
+        from pirateforce_foundation.lua_api import quest_criteria, reward
+
+        self.assertEqual(player.SIGNED_STAT_KINDS, {
+            "AddCash": quest_criteria.KIND_CASH,
+        })
+        self.assertEqual(
+            set(player.SIGNED_STAT_KINDS) & set(player.GRANT_KINDS), set())
+        for name, kind in player.SIGNED_STAT_KINDS.items():
+            with self.subTest(name=name):
+                self.assertIn(name, player.REAL_METHODS)
+                self.assertNotIn(name, player.STILL_STUBBED)
+                self.assertIn(kind, reward.KIND_COLUMN)
+                self.assertIn(kind, reward.SPEND_DOOR)
 
     def test_every_grant_kind_maps_to_a_column_this_lane_can_pay(self):
         from pirateforce_foundation.lua_api import reward
@@ -652,3 +710,229 @@ class RealPlayerLuaIntegrationTests(unittest.TestCase):
         self.assertEqual(store.get_mob_appear_flag(7, 0), True)
         self.assertTrue(any(
             c.startswith("LUA_PLAYER_REAL Player.MobAppear ") for c in calls))
+
+
+class SignedStatClosureTests(unittest.TestCase):
+    """``Player.AddCash`` -- the first name that can move a row EITHER way.
+
+    Every assertion here is about which DOOR the closure picked, because
+    that is the only thing the closure decides: the arithmetic belongs to
+    ``lua_api.reward`` and the row belongs to ``store``.  A charge sent
+    down the adding door is a free ship, and a payment sent down the
+    subtracting door takes money from a player who was owed it, so both
+    directions are pinned, not just the new one.
+    """
+
+    def _namespace(self, character_id=9, payout_store=None):
+        from pirateforce_foundation.lua_api import spec as api_spec
+
+        calls: list = []
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=character_id),
+            payout_store=payout_store)
+        return ns, calls
+
+    def test_a_positive_amount_goes_down_the_adding_door(self):
+        """``q_guildgather1.lua:60`` -- ``Player.AddCash(Quest.Var8)``."""
+        store = _RecordingPayoutStore(start=100)
+        ns, calls = self._namespace(payout_store=store)
+        self.assertEqual(ns["AddCash"](500), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [(9, "cash", 500)])
+        self.assertTrue(any("LUA_PLAYER_GRANT Player.AddCash" in line
+                            and "paid=500" in line for line in calls), calls)
+
+    def test_a_negative_amount_goes_down_the_subtracting_door(self):
+        """``q_ship.lua:50`` -- ``Player.AddCash(-Quest.Var3)``.
+
+        THE ROUND'S POINT, in one assertion: before this change the
+        argument was refused by ``_coerce_int``'s floor and the player kept
+        the money AND got the ship.
+        """
+        store = _RecordingPayoutStore(balances={(9, "cash"): 1000})
+        ns, calls = self._namespace(payout_store=store)
+        self.assertEqual(ns["AddCash"](-250), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [(9, "cash", -250)])
+        self.assertTrue(any("LUA_PLAYER_CHARGE Player.AddCash" in line
+                            and "charged=250 balance_after=750" in line
+                            for line in calls), calls)
+
+    def test_a_lua_float_charge_is_the_same_charge(self):
+        """Lua has ONE number type: ``-250`` arrives as ``-250.0``."""
+        store = _RecordingPayoutStore(balances={(9, "cash"): 1000})
+        ns, _calls = self._namespace(payout_store=store)
+        ns["AddCash"](-250.0)
+        self.assertEqual(store.calls, [(9, "cash", -250)])
+
+    def test_a_charge_the_player_cannot_afford_moves_nothing(self):
+        store = _RecordingPayoutStore(balances={(9, "cash"): 100})
+        ns, calls = self._namespace(payout_store=store)
+        self.assertEqual(ns["AddCash"](-250), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=balance_does_not_cover_it" in line
+                            for line in calls), calls)
+
+    def test_the_script_cannot_tell_a_refused_charge_from_a_paid_one(self):
+        """Said out loud rather than left for someone to discover.
+
+        Both return ``STUB_DEFAULT``, because nobody has measured what the
+        game's engine returns from this name and all six corpus call sites
+        use it as a statement.  ``q_ship.lua`` therefore hands over the ship
+        whether or not the charge landed; closing that needs
+        ``Player.GetCash`` (still stubbed) so the script's own guard works,
+        the way ``q_boat_health.lua:19`` already guards with it.
+        """
+        rich = _RecordingPayoutStore(balances={(9, "cash"): 1000})
+        poor = _RecordingPayoutStore(balances={(9, "cash"): 1})
+        for store in (rich, poor):
+            ns, _calls = self._namespace(payout_store=store)
+            self.assertEqual(ns["AddCash"](-250), player.STUB_DEFAULT)
+        self.assertEqual(rich.calls, [(9, "cash", -250)])
+        self.assertEqual(poor.calls, [(9, "cash", -250)])
+        self.assertEqual(poor._balances[(9, "cash")], 1)
+
+    def test_zero_moves_nothing_and_uses_one_token_not_two(self):
+        store = _RecordingPayoutStore(start=100)
+        ns, calls = self._namespace(payout_store=store)
+        for zero in (0, 0.0, -0.0):
+            with self.subTest(zero=zero):
+                ns["AddCash"](zero)
+        self.assertEqual(store.calls, [])
+        self.assertEqual(
+            sum("refused=amount_is_zero" in line for line in calls), 3, calls)
+
+    def test_garbage_is_a_bad_value_and_never_a_charge(self):
+        store = _RecordingPayoutStore(balances={(9, "cash"): 1000})
+        ns, calls = self._namespace(payout_store=store)
+        for bad in (float("nan"), float("inf"), float("-inf"), -2.5, "500",
+                    True, False, None, -(0x1_0000_0000)):
+            with self.subTest(bad=bad):
+                self.assertEqual(ns["AddCash"](bad), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+        self.assertEqual(store._balances[(9, "cash")], 1000)
+        self.assertTrue(any("LUA_PLAYER_BAD_VALUE" in line for line in calls),
+                        calls)
+
+    def test_wrong_arity_is_refused_before_any_door(self):
+        store = _RecordingPayoutStore(balances={(9, "cash"): 1000})
+        ns, _calls = self._namespace(payout_store=store)
+        self.assertEqual(ns["AddCash"](), player.STUB_DEFAULT)
+        self.assertEqual(ns["AddCash"](-1, -2), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+
+    def test_without_a_payout_store_it_refuses_rather_than_pretending(self):
+        ns, calls = self._namespace(payout_store=None)
+        self.assertEqual(ns["AddCash"](-250), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=no_reward_store" in line
+                            for line in calls), calls)
+
+    def test_character_zero_is_the_inert_bucket_not_a_purse(self):
+        store = _RecordingPayoutStore(balances={(0, "cash"): 1000})
+        ns, calls = self._namespace(character_id=0, payout_store=store)
+        ns["AddCash"](-250)
+        self.assertEqual(store.calls, [])
+        self.assertTrue(any("refused=no_character" in line for line in calls),
+                        calls)
+
+    def test_the_adding_names_keep_their_floor(self):
+        """The asymmetry, pinned so it cannot be "tidied up" into symmetry.
+
+        ``AddExp``/``AddSkillPoint`` have no subtracting route in
+        ``SIGNED_STAT_KINDS``, so a negative reaching one of them is a
+        decode fault and must stay a BAD VALUE -- never a charge nobody
+        asked for.
+        """
+        store = _RecordingPayoutStore(balances={(9, "experience"): 1000,
+                                                (9, "skill_points"): 10})
+        ns, calls = self._namespace(payout_store=store)
+        for name in ("AddExp", "AddSkillPoint"):
+            with self.subTest(name=name):
+                self.assertEqual(ns[name](-5), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+        self.assertEqual(
+            sum("LUA_PLAYER_BAD_VALUE" in line for line in calls), 2, calls)
+
+
+class SignedStatReachesARealRowTests(unittest.TestCase):
+    """``AddCash`` against a real ``SQLiteStore`` on disk, both directions.
+
+    The layer above pins which door the closure picked with a double; this
+    one pins that the money actually leaves the ``characters`` row -- read
+    back off the store, never from what the namespace returned.
+    """
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        from pirateforce_foundation.store import SQLiteStore
+
+        migrations = Path(__file__).resolve().parents[1] / "migrations"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.store = SQLiteStore(Path(tmp.name) / "state.sqlite3", migrations)
+        self.store.migrate()
+        account_id = self.store.ensure_account("acct-charge")
+        self.store.open_session(account_id)
+        self.character = self.store.create_character(
+            account_id, "Charge01", "charge01", "fp-charge",
+            lambda selector: (b"wire", b"avatar", 4242, 0),
+            _grant_home(),
+        )
+        self.store.write_typed_attributes(self.character.id, {"cash": 1000})
+
+    def _namespace(self):
+        from pirateforce_foundation.lua_api import spec as api_spec
+
+        calls: list = []
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=self.character.id),
+            payout_store=self.store)
+        return ns, calls
+
+    def test_the_ship_is_paid_for_out_of_the_row(self):
+        ns, calls = self._namespace()
+        ns["AddCash"](-250)
+        stored = self.store.read_typed_attributes(self.character.id)
+        self.assertEqual(stored["cash"], 750)
+        self.assertTrue(any("charged=250 balance_after=750" in line
+                            for line in calls), calls)
+
+    def test_the_reward_still_adds_to_the_same_row(self):
+        ns, _calls = self._namespace()
+        ns["AddCash"](500)
+        stored = self.store.read_typed_attributes(self.character.id)
+        self.assertEqual(stored["cash"], 1500)
+
+    def test_a_player_who_cannot_afford_it_keeps_every_coin(self):
+        ns, calls = self._namespace()
+        ns["AddCash"](-4000)
+        stored = self.store.read_typed_attributes(self.character.id)
+        self.assertEqual(stored["cash"], 1000)
+        self.assertTrue(any("refused=balance_does_not_cover_it" in line
+                            for line in calls), calls)
+
+    def test_an_unmeasured_purse_refuses_rather_than_starting_at_zero(self):
+        """COO-DECISION 20260901_1059, on the subtracting side.
+
+        A character whose ``cash`` was never written has a NULL column, and
+        NULL is "nobody measured this", not "no money" -- so the charge is
+        refused under its own token rather than reported as being short.
+        """
+        account_id = self.store.ensure_account("acct-charge-null")
+        self.store.open_session(account_id)
+        fresh = self.store.create_character(
+            account_id, "Charge02", "charge02", "fp-charge2",
+            lambda selector: (b"wire", b"avatar", 4243, 0),
+            _grant_home(),
+        )
+        from pirateforce_foundation.lua_api import spec as api_spec
+
+        calls: list = []
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=fresh.id),
+            payout_store=self.store)
+        ns["AddCash"](-250)
+        self.assertTrue(any("refused=balance_was_never_measured" in line
+                            for line in calls), calls)

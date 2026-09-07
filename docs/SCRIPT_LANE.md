@@ -274,7 +274,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (124/160 stub, 36/160 real, as of round `yfeauz`)
+### API status table (123/160 stub, 37/160 real, as of round `2euu94`)
 
 **Round `wn088m` changed no status.**  It changed a NUMBER: the six
 criteria rows were flooring the wrong float.  `f_EXP` is a float32 column,
@@ -475,7 +475,7 @@ in `STILL_STUBBED`.
 | Player | GetCash | 7 | stub |
 | Player | PlayMovie | 7 | stub |
 | Player | ResetMarker | 7 | stub |
-| Player | AddCash | 6 | stub (blocked on a SPEND door: the corpus calls it with a negative amount, `store.add_typed_attribute` takes `delta >= 0` only) |
+| Player | AddCash | 6 | real (round `2euu94`; the only name so far that writes in BOTH directions -- `reward.grant` on a positive argument, `reward.charge` -> `store.spend_typed_attribute` on a negative one, which is what `q_ship.lua:50` and `q_boat_health.lua:21` do) |
 | Player | CheckSkill | 6 | stub |
 | Player | EnterInstanceThenPlayMovie | 6 | stub |
 | Player | ItemAddon | 6 | stub |
