@@ -820,8 +820,10 @@ class HostSideFailureDoesNotWearTheScriptsNameTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].startswith("LUA_HOST "), lines[0])
         self.assertNotIn("LUA_SCRIPT", lines[0])
-        # The file is still named -- as where it was FOUND, not as the cause.
-        self.assertIn("discovered_at=%s" % rel, lines[0])
+        # The file is still named -- as where it was FOUND, not as the
+        # cause -- and quoted, so a path with a space in it (the corpus has
+        # exactly one) still has a recoverable boundary.
+        self.assertIn('discovered_at="%s"' % rel, lines[0])
         self.assertIn("MessageCatalogError", lines[0])
 
     def test_the_line_is_ascii_even_when_the_exception_is_not(self):

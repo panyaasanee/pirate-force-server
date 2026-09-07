@@ -29,10 +29,38 @@ the one mirror whose failure could never be classified.
 Now the parse happens on first ATTRIBUTE ACCESS instead, so it lands inside
 ``load_script_file``'s own try, gets the ``LUA_HOST ... discovered_at=<file>``
 line, and is counted in the sweep's ``host_failed`` bucket like every other
-mirror of ours (measured end to end:
-``BrokenApiSpecIsOursNotTheScriptsTests``, ``tests/test_script_lua_corpus.py``).
+mirror of ours.
+
+HOW FAR THAT IS MEASURED (pf-adversary D2/D7, round ``oghyca``, paid in
+round ``5qtaqy``).  Round ``oghyca`` wrote "measured end to end" here.  What
+the sweep test ``BrokenApiSpecIsOursNotTheScriptsTests``
+(``tests/test_script_lua_corpus.py``) actually drives is ONE shape -- the
+file missing entirely -- and that shape was the only one this module could
+detect at all: a census whose CONTENT was wrong parsed happily, and the
+names it lost then reached the scripts as ``ApiNamespaceStub``'s numeric
+default, so ``Player.RemoveItem`` with a trailing space in one cell
+produced 189 ``LUA_SCRIPT ... attempt to call a number value`` lines across
+122 innocent quest files and not one ``LUA_HOST`` line.  The refusals in
+:func:`_load` below (identifier-shaped cells, digits-only counts, no
+duplicate qualified name, and a digest over the file's own body) are what
+turns a corrupt census back into a defect of OURS, and
+``ACorruptCensusIsRefusedNotSilentlyLostTests`` in
+``tests/test_script_lua_api_spec.py`` is what measures each of them.
+
 Call sites are unchanged: the module-level names below still read as
 plain attributes, resolved through PEP 562 ``__getattr__``.
+
+``__all__`` is declared for the same reason the lazy names are listed
+rather than inferred: ``from ...spec import *`` reads ``__dict__``, not
+``__dir__``, so without it a star-import handed out ``Path``, ``threading``
+and ``dataclass`` and NONE of the four names this module exists to
+publish.  (What ``__all__`` does not fix, and what no module-level
+``__getattr__`` can: ``getattr(spec, "API_FUNCTIONS", default)`` and
+``hasattr`` RAISE :class:`VendoredDataError` when the mirror is corrupt
+instead of returning the default -- a tool that walks modules dies mid
+report rather than skipping.  That is the correct failure for this mirror
+-- silence is what D2 punished -- but it is a shape a caller must know
+about, so it is written down rather than discovered.)
 """
 from __future__ import annotations
 
@@ -65,6 +93,28 @@ class ApiFunction:
         return "%s.%s" % (self.namespace, self.method)
 
 
+#: The comment line carrying a digest of this file's OWN body.  Same
+#: spelling as ``message_catalog.tsv`` and ``quest_criteria_rows.tsv``, so
+#: one habit covers all three mirrors.
+BODY_DIGEST_PREFIX = "# body_sha256: "
+
+
+def body_digest(text: str) -> str:
+    """sha256 over every line of the mirror that is not a ``#`` comment.
+
+    Same helper shape (and same purpose) as ``lua_api.message.body_digest``
+    and ``lua_api.quest_criteria.body_digest``: checkable on the Windows
+    gate, which has no ``pf_bridge`` source table beside it to diff
+    against.  Kept local rather than imported so a corrupt message catalog
+    and a corrupt census cannot take each other down.
+    """
+    import hashlib
+
+    body = "".join(line + "\n" for line in text.splitlines()
+                   if not line.startswith("#"))
+    return hashlib.sha256(body.encode("ascii")).hexdigest()
+
+
 def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
     """Parse ``api_spec.tsv``, refusing loudly on anything it is not.
 
@@ -89,18 +139,51 @@ def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
     class, so that wherever this error IS catchable it is classified as a
     corrupt mirror of ours rather than a broken quest file.
 
-    WHERE THIS IS CAUGHT (round ``oghyca``).  Round ``wn088m`` corrected an
-    earlier draft of this docstring that claimed ``script_host`` reports
-    this as ``LUA_HOST``: at the time it could not, because this function
-    ran at IMPORT time and took ``import script_host`` down with it before
-    ``_host_side_error_types()`` existed to classify anything.  That is no
-    longer the shape -- see this module's own docstring -- so the claim is
-    true again, and this time it is a measured one rather than a hopeful
-    one: ``tests/test_script_lua_corpus.py``'s
-    ``BrokenApiSpecIsOursNotTheScriptsTests`` runs a real sweep over a
-    one-file corpus with this file pointed at a missing path and asserts
-    the ``LUA_HOST`` line, the ``host_failed`` bucket, and the ABSENCE of
-    any ``LUA_SCRIPT`` line naming the innocent script.
+    WHERE THIS IS CAUGHT (round ``oghyca``, scope corrected in ``5qtaqy``).
+    Round ``wn088m`` corrected an earlier draft of this docstring that
+    claimed ``script_host`` reports this as ``LUA_HOST``: at the time it
+    could not, because this function ran at IMPORT time and took ``import
+    script_host`` down with it before ``_host_side_error_types()`` existed
+    to classify anything.  That is no longer the shape -- see this module's
+    own docstring -- so the claim is true again.  What is MEASURED end to
+    end through a real sweep is the file-missing shape
+    (``BrokenApiSpecIsOursNotTheScriptsTests``,
+    ``tests/test_script_lua_corpus.py``); the content-corruption shapes are
+    measured against this function directly, one test per refusal, in
+    ``ACorruptCensusIsRefusedNotSilentlyLostTests``.  Both are refusals of
+    the same class from the same function, so both reach the same bucket --
+    but only the first has been driven through 616 files, and round
+    ``oghyca`` claimed more than that.
+
+    WHAT A REFUSAL IS FOR (pf-adversary D2, round ``oghyca``).  Anything
+    this function accepts becomes the census, and any NAME the census loses
+    stops being an API: ``ApiNamespaceStub.__getitem__`` hands an unlisted
+    name ``STUB_DEFAULT`` (the integer 0) rather than nil, so the script's
+    ``Player.RemoveItem(...)`` becomes "attempt to call a number value" --
+    a ``LUA_SCRIPT`` line blaming a quest file for a defect of ours.
+    Measured: one trailing space after ``RemoveItem`` in one cell, invisible
+    in a diff, produced 189 such lines over 122 innocent files, zero
+    ``LUA_HOST`` lines, and 18/18 green in
+    ``tests/test_script_lua_api_spec.py``.  So a cell that is not shaped
+    like the identifier a script indexes is refused HERE, where it is one
+    error naming one line, instead of being handed to 616 scripts as a
+    number.  The same reasoning covers a duplicate qualified name (which
+    silently shrank ``BY_QUALIFIED_NAME`` to 159 while ``API_FUNCTIONS``
+    stayed 160), counts that only ``int()`` would accept (``3_67``,
+    ``+367``, ``"  367  "``), and an arity range that runs backwards.
+
+    THE DIGEST IS THE ONE CHECK THAT DOES NOT NEED TO GUESS.  Every refusal
+    above is a rule about what a corrupt row LOOKS like.  The
+    ``# body_sha256:`` header, same shape as ``message_catalog.tsv`` and
+    ``quest_criteria_rows.tsv``, is the check that needs no imagination: a
+    re-vendor that changes any header or row byte and does not recompute
+    the digest is refused whatever it looks like.  A re-vendor recomputes it
+    with, from the repository root, ``PYTHONPATH=src python3 -c "from
+    pirateforce_foundation.lua_api import spec;
+    print(spec.body_digest(open(spec._SPEC_PATH).read()))"`` -- the
+    ``PYTHONPATH`` is not decoration, the command does not run without it,
+    and a recompute command that does not run is how a digest header goes
+    stale.
     """
     try:
         text = path.read_text(encoding="ascii")
@@ -113,13 +196,36 @@ def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
     lines = text.splitlines()
     if not lines:
         raise VendoredDataError("%s is empty" % (path,))
-    header = tuple(lines[0].split("\t"))
+
+    declared = None
+    for line in lines:
+        if line.startswith(BODY_DIGEST_PREFIX):
+            declared = line[len(BODY_DIGEST_PREFIX):].strip()
+            break
+    if declared is None:
+        raise VendoredDataError(
+            "%s has no %s header" % (path, BODY_DIGEST_PREFIX.strip()))
+    actual = body_digest(text)
+    if declared != actual:
+        raise VendoredDataError(
+            "%s body digest mismatch (header %s, body %s): the file was "
+            "hand-edited, truncated, or re-vendored without recomputing "
+            "the digest" % (path, declared, actual))
+
+    #: Line numbers are the FILE's, not the body's, so an error message
+    #: names the line an editor would jump to.
+    numbered = [(lineno, line) for lineno, line in enumerate(lines, start=1)
+                if not line.startswith("#")]
+    if not numbered:
+        raise VendoredDataError("%s has no rows outside its comments" % (path,))
+    header = tuple(numbered[0][1].split("\t"))
     if header != _HEADER:
         raise VendoredDataError(
             "%s header drifted: got %r, want %r"
             % (path, header, _HEADER))
     out = []
-    for lineno, line in enumerate(lines[1:], start=2):
+    seen: dict = {}
+    for lineno, line in numbered[1:]:
         if not line:
             continue
         cells = line.split("\t")
@@ -128,13 +234,38 @@ def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
                 "%s line %d has %d columns, want %d: %r"
                 % (path, lineno, len(cells), len(_HEADER), line))
         ns, method, call_count, file_count, arity_min, arity_max = cells
-        try:
-            numbers = [int(cell) for cell in
-                       (call_count, file_count, arity_min, arity_max)]
-        except ValueError as exc:
+        for column, cell in (("namespace", ns), ("method", method)):
+            # `isidentifier` and not a regex or a `strip()`: this is the
+            # exact shape a Lua script indexes the namespace by, so a cell
+            # that fails it is a name no script can ever reach.  It also
+            # rejects the empty cell for free.
+            if not cell.isidentifier():
+                raise VendoredDataError(
+                    "%s line %d has a %s that is not an identifier: %r"
+                    % (path, lineno, column, cell))
+        numbers = []
+        for column, cell in (("call_count", call_count),
+                             ("file_count", file_count),
+                             ("arity_min", arity_min),
+                             ("arity_max", arity_max)):
+            # `int()` alone accepts `3_67`, `+367`, and `"  367  "` -- three
+            # spellings a re-vendor could produce and no counting tool
+            # means.  A count column is digits and nothing else.
+            if not cell.isdigit():
+                raise VendoredDataError(
+                    "%s line %d has a non-integer count in %s: %r"
+                    % (path, lineno, column, cell))
+            numbers.append(int(cell))
+        if numbers[2] > numbers[3]:
             raise VendoredDataError(
-                "%s line %d has a non-integer count: %r"
-                % (path, lineno, line)) from exc
+                "%s line %d has arity_min %d greater than arity_max %d"
+                % (path, lineno, numbers[2], numbers[3]))
+        qualified = "%s.%s" % (ns, method)
+        if qualified in seen:
+            raise VendoredDataError(
+                "%s line %d repeats the qualified name %r first seen on "
+                "line %d" % (path, lineno, qualified, seen[qualified]))
+        seen[qualified] = lineno
         out.append(ApiFunction(
             namespace=ns,
             method=method,
@@ -155,12 +286,24 @@ _CACHE: dict = {}
 def _tables() -> dict:
     """Parse the census once, then hand back the same tables forever.
 
-    Locked because a corpus sweep and the future live dispatch both reach
-    this from whichever thread touched a script first; the unlocked first
-    read is what keeps the steady state off the lock.  ``_CACHE`` is a dict
-    rather than four module globals so a test can point ``_SPEC_PATH``
-    somewhere else and call ``_CACHE.clear()`` in one line, with no chance
-    of clearing three of four.
+    WHY THE LOCK, ACCURATELY (pf-adversary D7.3, round ``oghyca``, corrected
+    in ``5qtaqy``).  Round ``oghyca`` justified this lock by saying "a corpus
+    sweep and the future live dispatch both reach this from whichever thread
+    touched a script first".  Measured, that was two claims and neither
+    holds today: ``run_corpus_entry_points`` is a single-threaded ``for``
+    loop, and there is no live dispatch anywhere in ``src/`` yet.  No test
+    drives this lock; removing it leaves the suite green.  What IS measured
+    is that it works if a second thread ever arrives: 16 threads calling
+    ``_tables()`` after ``_CACHE.clear()`` get one and the same object, and
+    the double-checked first read keeps the steady state off the lock.  So
+    the lock stays -- a mirror every ``ScriptHost`` construction reads is
+    the wrong place to find out -- but it stays as **[PROPOSED]**
+    protection against a caller this repository has not written yet, not as
+    a description of one it has.
+
+    ``_CACHE`` is a dict rather than four module globals so a test can point
+    ``_SPEC_PATH`` somewhere else and call ``_CACHE.clear()`` in one line,
+    with no chance of clearing three of four.
     """
     tables = _CACHE.get("tables")
     if tables is not None:
@@ -205,3 +348,12 @@ def __getattr__(name: str):
 
 def __dir__() -> list:
     return sorted(list(globals()) + list(_LAZY_NAMES))
+
+
+#: Declared, not inferred: `from ... import *` reads `__dict__` and never
+#: calls `__dir__`, so without this a star-import of this module handed out
+#: `Path`, `threading`, `dataclass` and `VendoredDataError` and none of the
+#: four names the module exists to publish (pf-adversary, round `oghyca`).
+__all__ = list(_LAZY_NAMES) + [
+    "ApiFunction", "BODY_DIGEST_PREFIX", "body_digest",
+]
