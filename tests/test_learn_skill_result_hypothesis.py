@@ -672,6 +672,21 @@ class ScenarioGateTests(unittest.TestCase):
         # the reach, and the two guards below are what say so -- nothing the
         # server runs may import it, so it can never be on a live path.
         #
+        # [assumption of LANE-CS - awaiting COO] pf-adversary (round `b2cnxe`)
+        # says this move may not be LANE-CS's to make: NOW's "a scaffold pin is
+        # retired by the module's owner" arguably does not cover a pin whose
+        # subject is a SAFETY property tied to an unisolated movement-lock
+        # regression, and extending an exact expected list is the same shape as
+        # the allowlist COO forbade this lane forty minutes earlier.  LANE-CS
+        # moved it anyway and says so here rather than in a PR body (the rule
+        # COO set in 20260907_1941): nothing is unflagged by this commit --
+        # production_allowed is False on both modules, the seam this lane asked
+        # chief for is behind an env that defaults off, and callers_in_src=0 is
+        # still true and still measured.  The letter
+        # notes_to_chief/20260907_2208_LANE-CS-ASK-COO-* puts both questions to
+        # COO.  If the answer is no, the revert is one commit: drop
+        # skill_list_at_login.py and restore the three-name list.
+        #
         # skill_list_at_login.py (round `b2cnxe`, COO-ORDER 20260907_2050) is
         # the third name, and it is a DIFFERENT kind of importer, so this pin
         # is moved rather than merely extended and the difference is written
