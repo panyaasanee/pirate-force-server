@@ -1536,6 +1536,23 @@
         "MirrorsMatchTheGameTests::test_the_call_site_of_every_member_reads_that_column"
       ],
       "note": "round l0rbyx (LANE-Q), COO-DECISION 20260908_0242 item 4 (the half-transaction rule): Quest.RewardItem1..RewardChooseNum6 now read the quest's own row through the new vendored mirror lua_api/quest_reward_rows.tsv, and lua_api/quest_column_groups.tsv records which columns of one row are the take and give sides of ONE transaction so an incomplete group can refuse whole. These three tests in MirrorsMatchTheGameTests are the tie between the two mirrors and the game, which no digest can make: one compares all 37,056 reward cells against ../pf_bridge/gamedata/tables/QUESTDATA_TH__QUEST.tsv BY COLUMN NAME (the 24 reward columns are interchangeable in shape, so a digest proves only that the mirror is the file the tool wrote -- pf-adversary F2 of round 5qtaqy); one runs tools/pf_regen_lua_quest_rewards.py --check; one opens each pinned corpus line AS BYTES and requires it to call the API that member names. bridge_gamedata is the outer of two class decorators (bridge_lua_scripts is the inner), so unittest records this key for all three -- the same one-key-one-count rule the quest_criteria and quest_vars entries explain at length; the second guard is real (the last two read gamedata/lua/) and stays declared in the source. NOT lua_corpus_runnable for any of the three: none executes any Lua -- the third reads corpus BYTES -- so demanding lupa would silently stop them on exactly the bridge machines that can run them (pf-adversary D2 of round joa0u6, applied here before it could be repeated). Every other test in this module parses the vendored mirrors alone and stays unguarded -- deliberately, they are the half the Windows gate can run, and they include the gate's behaviour, its two mutants (Player.AddItem becoming real opens the group; RewardItemSelect alone does not) and the 'no shipped row opens half a group' check COO's decision asked for. MEASURED 2026-09-08 in this round's own rehearsal (a copy of this repository with no pf_bridge beside it): 3 under this key in this module and 0 under any other; 0 in this lane's cloud clone, where the bridge is present, so all three ran and passed."
+    },
+    {
+      "key": "lupa_package",
+      "module": "tests/test_world_m2_teleport_check_host_door.py",
+      "count": 9,
+      "tests": [
+        "TheHostHandsTheTravelOrderOutTests::test_a_host_with_no_character_bound_refuses_instead_of_recording",
+        "TheHostHandsTheTravelOrderOutTests::test_a_load_script_file_host_carries_the_sink_through_too",
+        "TheHostHandsTheTravelOrderOutTests::test_a_script_calling_teleport_check_lands_in_the_hosts_own_sink",
+        "TheHostHandsTheTravelOrderOutTests::test_a_script_passing_a_bad_id_is_refused_by_name_not_by_a_raise",
+        "TheHostHandsTheTravelOrderOutTests::test_the_console_token_reaches_a_real_hosts_log",
+        "TheHostHandsTheTravelOrderOutTests::test_the_door_is_the_same_object_the_namespace_records_into",
+        "TheHostHandsTheTravelOrderOutTests::test_the_hosts_door_cannot_be_swapped_out_from_under_the_namespace",
+        "TheHostHandsTheTravelOrderOutTests::test_the_sink_the_caller_supplied_is_the_one_that_is_written_to",
+        "TheHostHandsTheTravelOrderOutTests::test_two_hosts_never_share_one_sink"
+      ],
+      "note": "round ew9416 (LANE-A). New module: the M2 travel order's door out of the Lua namespace (pf-adversary D2 of round ebh143). Every test here drives a live ScriptHost, so the whole class carries ONE key and each of the 7 methods carries the class decorator -- no stacked second precondition, which is the drift shape COO-DECISION 20260906_0550 traced to a red gate. The module reads no sibling checkout (no fixture, no gamedata): the namespace-level behaviour that needs no Lua is pinned in tests/test_world_m2_teleport_check.py instead, which stays unguarded. MEASURED, not predicted: the module was collected with lupa absent and reported exactly these 9 skips, and 9 only. Round nilasm added the eighth and ninth (the round ew9416 adversary result was paid there, not here) (a host with no player_context refuses to file an order at all, chief letter 20260908_0432 D6) and made the module collectable on its own, which is the command this note tells a reader to rehearse with."
     }
   ],
   "windows_gate_excluded_modules": {

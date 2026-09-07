@@ -72,6 +72,98 @@ class TheVitalIdAgreesWithTheServerWeShipWith(unittest.TestCase):
             legacy.parse_outer(_client_echo_pc(legacy, 1)))
 
 
+class TheInboundDecoderRefusesEverythingButAnEcho(unittest.TestCase):
+    """What `decode_echo` refuses, MEASURED -- it was prose before.
+
+    `decode_echo`'s docstring named checks it does not make itself: the vital
+    class and the nested version are v141's parser's, and the RuntimeRes v4
+    carrier with its trailing derived mask is `parse_outer`'s, upstream of the
+    object this is handed.  Inheriting them is correct (RE-292 forbids this
+    lane from putting a decoder of its own in that path) but nothing pinned
+    that the inheritance actually holds (pf-adversary, `ebh143`, D7).
+    """
+
+    def test_a_real_client_echo_decodes_to_its_marker_id(self):
+        legacy = _legacy()
+        for marker_id in (1, 17):
+            self.assertEqual(
+                tc.decode_echo(legacy,
+                               legacy.parse_outer(_client_echo_pc(legacy, marker_id))),
+                marker_id)
+
+    def test_this_servers_own_outbound_prompt_is_not_an_echo(self):
+        # The frame this server SENDS differs in carrier (Res, not Req) and in
+        # carrying the derived change mask.  If it decoded, a reflected or
+        # replayed outbound frame would consume the order it announced.
+        legacy = _legacy()
+        pc, _frame = tc.encode_prompt(legacy, 1)
+        self.assertIsNone(tc.decode_echo(legacy, legacy.parse_outer(pc)))
+
+    def test_another_vital_class_in_the_same_carrier_is_not_an_echo(self):
+        legacy = _legacy()
+        other = (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0) + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2) + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TELEPORT_CHECK_VITAL + 1)
+            + legacy.u8tag(0x0B, 0)
+            + legacy.u16tag(0x0F, 17)
+        )
+        self.assertIsNone(tc.decode_echo(legacy, legacy.parse_outer(other)))
+
+    def test_a_wrong_nested_version_is_not_an_echo(self):
+        legacy = _legacy()
+        wrong_version = (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0) + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2) + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TELEPORT_CHECK_VITAL)
+            + legacy.u8tag(0x0B, tc.TELEPORT_CHECK_VITAL_VERSION + 1)
+            + legacy.u16tag(0x0F, 17)
+        )
+        self.assertIsNone(tc.decode_echo(legacy, legacy.parse_outer(wrong_version)))
+
+
+class TheWireArgumentIsCoercedWithoutThisDoorsBound(unittest.TestCase):
+    """`coerce_wire_marker_id` answers "is this a number", nothing else."""
+
+    def test_a_number_is_returned_unclamped_in_every_shape_lua_hands_over(self):
+        for value, expected in ((1, 1), (1.0, 1), (0, 0), (-1, -1),
+                                (70000, 70000), (10 ** 30, 10 ** 30)):
+            self.assertEqual(tc.coerce_wire_marker_id(value), expected)
+            self.assertIs(type(tc.coerce_wire_marker_id(value)), int)
+
+    def test_everything_that_is_not_a_number_is_none(self):
+        for value in (True, False, "17", None, 1.5, float("nan"),
+                      float("inf"), float("-inf"), b"17", [17], object()):
+            self.assertIsNone(tc.coerce_wire_marker_id(value), repr(value))
+
+    def test_an_int_subclass_arrives_as_a_plain_int(self):
+        # `_coerce_marker_id` downstream is a `type(x) is int` check, so an
+        # IntEnum or a bool-like subclass that reached it unnormalised would
+        # be refused as "not an int" while being one.
+        class MarkerLike(int):
+            pass
+
+        self.assertEqual(tc.coerce_wire_marker_id(MarkerLike(17)), 17)
+        self.assertIs(type(tc.coerce_wire_marker_id(MarkerLike(17))), int)
+
+    def test_it_never_raises_for_anything_the_door_can_be_handed(self):
+        class Hostile:
+            def __int__(self):
+                raise RuntimeError("no")
+
+            def __index__(self):
+                raise RuntimeError("no")
+
+            def __eq__(self, other):
+                raise RuntimeError("no")
+
+        # A raise here would leave the Lua closure, where the traceback names
+        # the script rather than the caller that passed the wrong object.
+        self.assertIsNone(tc.coerce_wire_marker_id(Hostile()))
+
+
 class TheOutboundFrameCarriesTheMarkerIdAndNothingElse(unittest.TestCase):
     """The pin the COO order names: u16 == MARKER.n_ID."""
 
@@ -183,11 +275,69 @@ class TheRefusals(unittest.TestCase):
         self.assertIn(tc.CHECK_REFUSED_MARKER_ID_NOT_AN_INT, str(caught.exception))
 
     def test_ids_the_u16_field_cannot_carry_are_named_apart(self):
-        for bad in (0, -1, tc.MARKER_ID_MAX + 1, 70000):
+        # 0 IS NOT ONE OF THEM.  A u16 carries 0, so the field refusal was the
+        # wrong name for the table's own "no marker" sentinel -- the same two
+        # mistakes under one name that D6 fixed for arity (pf-adversary, round
+        # `ew9416`, D-A2).  Its own name is pinned in the next test.
+        for bad in (-1, tc.MARKER_ID_MAX + 1, 70000, 0x10000, 10 ** 30):
             with self.assertRaises(tc.TeleportCheckError) as caught:
                 tc.marker_destination(bad)
             self.assertIn(tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD,
                           str(caught.exception))
+
+    def test_the_absent_marker_sentinel_is_refused_under_its_own_name(self):
+        with self.assertRaises(tc.TeleportCheckError) as caught:
+            tc.marker_destination(tc.MARKER_ID_ABSENT_SENTINEL)
+        self.assertTrue(str(caught.exception).startswith(
+            tc.CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL))
+        self.assertNotIn(tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD,
+                         str(caught.exception))
+        self.assertEqual(tc.MARKER_ID_ABSENT_SENTINEL, 0)
+
+    def test_the_refusal_names_are_pinned_against_their_literals(self):
+        # The VALUE of a refusal name, not just its presence: rewriting
+        # CHECK_REFUSED_BAD_ARITY back to the marker-id spelling reverted D6
+        # with the whole suite green, in a file that pins TOKEN against a
+        # literal for exactly this reason (pf-adversary, round `ew9416`, D-A4).
+        self.assertEqual(tc.CHECK_REFUSED_BAD_ARITY,
+                         "CHECK_REFUSED_BAD_ARITY")
+        self.assertEqual(tc.CHECK_REFUSED_MARKER_ID_NOT_AN_INT,
+                         "CHECK_REFUSED_MARKER_ID_NOT_AN_INT")
+        self.assertEqual(tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD,
+                         "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD")
+        self.assertEqual(tc.CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL,
+                         "CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL")
+        self.assertEqual(tc.CHECK_REFUSED_NO_CHARACTER_BOUND,
+                         "CHECK_REFUSED_NO_CHARACTER_BOUND")
+        # EVERY refusal name this module ships, against its literal, and all
+        # of them distinct: pinning five of eleven left three mutants alive
+        # that collapse two refusals into one name -- the "two fixes under
+        # one name" defect D6 and D-A2 exist to prevent (pf-adversary, round
+        # `nilasm`, M2).  A name added without a line here fails the count.
+        names = {n: getattr(tc, n) for n in dir(tc)
+                 if n.startswith(("CHECK_REFUSED_", "ECHO_REFUSED_",
+                                  "ORDER_REFUSED_"))}
+        self.assertEqual(names, {
+            "CHECK_REFUSED_BAD_ARITY": "CHECK_REFUSED_BAD_ARITY",
+            "CHECK_REFUSED_MARKER_ID_NOT_AN_INT":
+                "CHECK_REFUSED_MARKER_ID_NOT_AN_INT",
+            "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD":
+                "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD",
+            "CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL":
+                "CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL",
+            "CHECK_REFUSED_MARKER_ROW_NOT_PINNED":
+                "CHECK_REFUSED_MARKER_ROW_NOT_PINNED",
+            "CHECK_REFUSED_NO_CHARACTER_BOUND":
+                "CHECK_REFUSED_NO_CHARACTER_BOUND",
+            "ECHO_REFUSED_NOTHING_PENDING": "ECHO_REFUSED_NOTHING_PENDING",
+            "ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER":
+                "ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER",
+            "ECHO_REFUSED_MARKER_ID_MISMATCH":
+                "ECHO_REFUSED_MARKER_ID_MISMATCH",
+            "ECHO_REFUSED_UNDECODABLE": "ECHO_REFUSED_UNDECODABLE",
+            "ORDER_REFUSED_AT_CAP": "ORDER_REFUSED_AT_CAP",
+        })
+        self.assertEqual(len(set(names.values())), len(names))
 
     def test_an_id_the_field_can_carry_but_the_table_does_not_know_says_so(self):
         known = set(_pinned_marker_ids())
@@ -211,6 +361,39 @@ class TheRefusals(unittest.TestCase):
                     alias.name for alias in node.names]
                 self.assertFalse(
                     any(name.endswith("world_marker_copy") for name in names))
+
+
+def _LUA_API_MODULE_NAMES() -> list:
+    root = (Path(__file__).resolve().parents[1] / "src"
+            / "pirateforce_foundation" / "lua_api")
+    return sorted(path.name for path in root.rglob("*.py"))
+
+
+def _modules_calling(symbol: str) -> list:
+    """Which modules under ``src/`` CALL ``symbol``, by file name.
+
+    By AST rather than by grep: a comment or a docstring that names the
+    function is not a caller, and this is the check that says whether a
+    console line has reached a live path.
+    """
+    root = (Path(__file__).resolve().parents[1] / "src"
+            / "pirateforce_foundation")
+    found = []
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (func.attr if isinstance(func, ast.Attribute)
+                    else func.id if isinstance(func, ast.Name) else None)
+            if name == symbol:
+                found.append(path.name)
+                break
+    return sorted(found)
+
+
+_LUA_API_MODULES = _LUA_API_MODULE_NAMES()
 
 
 def _pinned_marker_ids():
@@ -311,11 +494,19 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         self.assertIn("TeleportCheck", lua_player.REAL_METHODS)
         self.assertNotIn("TeleportCheck", lua_player.STILL_STUBBED)
 
-    def _namespace(self, sink=None):
+    #: The id chief measured on a live connection (`foundation.selected.id`
+    #: == 2, letter `20260908_0432`).  BOUND ON PURPOSE in every test below:
+    #: an order filed under the context DEFAULT of 0 can never be consumed by
+    #: an echo, so the door refuses it by name and the tests that drive the
+    #: door have to look like production does.
+    PROVEN_CHARACTER_ID = 2
+
+    def _namespace(self, sink=None, character_id=PROVEN_CHARACTER_ID):
         self.logged = []
+        context = lua_player.PlayerContext(character_id=character_id)
         return lua_player.build_namespace(
             frozenset(lua_player.REAL_METHODS) | set(lua_player.STILL_STUBBED),
-            self.logged.append, teleport_check_sink=sink)
+            self.logged.append, context=context, teleport_check_sink=sink)
 
     def test_a_good_call_records_one_order_for_this_character(self):
         sink = tc.InMemoryTeleportCheckSink()
@@ -325,19 +516,28 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         self.assertEqual(sink.orders[0].pending.marker_id, 1)
         self.assertTrue(any("Player.TeleportCheck" in line for line in self.logged))
 
-    def test_the_wrong_arity_is_refused_and_counted(self):
+    def test_the_wrong_arity_is_refused_under_its_own_name(self):
         sink = tc.InMemoryTeleportCheckSink()
         namespace = self._namespace(sink)
         self.assertEqual(namespace["TeleportCheck"](), lua_player.STUB_DEFAULT)
         self.assertEqual(namespace["TeleportCheck"](1, 2), lua_player.STUB_DEFAULT)
         self.assertEqual(sink.orders, [])
-        self.assertEqual(len(sink.refusals), 2)
+        # BY NAME, not by count.  Counting two refusals passed while both of
+        # them were spelled CHECK_REFUSED_MARKER_ID_NOT_AN_INT, which sends
+        # the reader of a run's tally to look for a bad marker id in a script
+        # that passed the wrong NUMBER of arguments (pf-adversary, `ebh143`,
+        # D6).
+        self.assertEqual(sink.refusals, [
+            tc.CHECK_REFUSED_BAD_ARITY,
+            tc.CHECK_REFUSED_BAD_ARITY,
+        ])
 
     def test_an_unusable_marker_id_is_refused_by_name_and_counted(self):
         sink = tc.InMemoryTeleportCheckSink()
         namespace = self._namespace(sink)
         self.assertEqual(namespace["TeleportCheck"]("boat"), lua_player.STUB_DEFAULT)
         self.assertEqual(namespace["TeleportCheck"](0), lua_player.STUB_DEFAULT)
+        self.assertEqual(namespace["TeleportCheck"](70000), lua_player.STUB_DEFAULT)
         self.assertEqual(sink.orders, [])
         # The reasons BY NAME, in order.  The previous shape was
         # `all(... for reason in sink.refusals)`, which is True over an empty
@@ -345,6 +545,12 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         # test that the refusals are counted (pf-adversary, round `w4cp5c`).
         self.assertEqual(sink.refusals, [
             tc.CHECK_REFUSED_MARKER_ID_NOT_AN_INT,
+            # 0 IS NOT THE FIELD'S FAULT.  It reached a named refusal before
+            # this round too -- the field one, which sent a reader looking for
+            # a number the wire could not carry (pf-adversary, round `ew9416`,
+            # D-A2).  The only corpus script that calls this name passes an
+            # unbound Trigger.Var1, which lands exactly here.
+            tc.CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL,
             tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD,
         ])
 
@@ -355,7 +561,7 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         with self.assertRaises(tc.TeleportCheckError) as raised:
             tc.marker_destination(0)
         self.assertTrue(str(raised.exception).startswith(
-            tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD))
+            tc.CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL))
 
     def test_an_echo_consumes_one_order_and_only_the_right_one(self):
         sink = tc.InMemoryTeleportCheckSink()
@@ -414,6 +620,299 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         self.assertIsNot(first_sink, second_sink)
         self.assertEqual(len(first_sink.orders), 3)
         self.assertEqual(len(second_sink.orders), 1)
+
+    def test_an_out_of_field_marker_id_is_refused_under_its_own_name(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        # 70000 does not fit the u16 the wire carries and -1 is not a marker
+        # id at all; both are CALLER bugs in a script, and the fix for them is
+        # not the fix for a row this repository has not transcribed.  Before
+        # this round the door range-checked first and handed `open_check` a
+        # None, so every one of these arrived as "not an int" and
+        # CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD -- a name this module ships and
+        # documents -- could not be produced by any live call at all
+        # (pf-adversary, `ebh143`, D6).
+        for value in (70000, -1, 0x1_0000, 10 ** 30):
+            self.assertEqual(
+                namespace["TeleportCheck"](value), lua_player.STUB_DEFAULT)
+        self.assertEqual(sink.orders, [])
+        self.assertEqual(sink.refusals,
+                         [tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD] * 4)
+
+    def test_a_lua_float_still_reaches_the_row_it_names(self):
+        # lupa hands every Lua number across as a float, so the door has to
+        # accept an exact-integer float -- and only an exact-integer float.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        self.assertEqual(namespace["TeleportCheck"](1.0), 1)
+        self.assertEqual(sink.orders[0].pending.marker_id, 1)
+        self.assertEqual(
+            namespace["TeleportCheck"](1.5), lua_player.STUB_DEFAULT)
+        self.assertEqual(sink.refusals, [tc.CHECK_REFUSED_MARKER_ID_NOT_AN_INT])
+
+    def test_the_console_prompt_line_is_printed_by_the_live_door(self):
+        # The token exists to be grepped out of a real boot's console
+        # (HEADLESS_PROOF).  Until this round nothing outside tests/ called
+        # the composer, so the token could not be fired at all and the proof
+        # could not be measured (pf-adversary, `ebh143`, D9).
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        self.assertEqual(namespace["TeleportCheck"](1), 1)
+        prompts = [line for line in self.logged
+                   if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(prompts[0],
+                         tc.prompt_console_line(sink.orders[0].pending))
+        # NOT "PROMPT", and not a send.  The old verb was byte-for-byte the
+        # line GT-309 named as proof that the server SENT 0x4477, while this
+        # path never calls encode_prompt and hands no byte to a socket
+        # (pf-adversary, round `ew9416`, D-A1).
+        self.assertNotIn(tc.TOKEN + " PROMPT ", prompts[0])
+        self.assertIn(" sent=0", prompts[0])
+        # The bridge console is cp874: a non-ASCII byte here kills the tool
+        # that reads the proof, not just the line.
+        prompts[0].encode("ascii")
+
+    def test_every_field_of_the_recorded_line_is_pinned_against_a_literal(self):
+        # Comparing the line against the function that built it proves only
+        # that the function is itself: mutants that printed scene_id as
+        # marker=, hardcoded confirm_predicted and zeroed xyz= all survived
+        # together (pf-adversary, round `ew9416`, D-A3).  Marker 17 is chosen
+        # because its scene (126) is NOT its own id, so a marker/scene swap is
+        # visible here -- with marker 1, whose scene is also 1, it is not.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        self.assertEqual(namespace["TeleportCheck"](17), 1)
+        recorded = [line for line in self.logged
+                    if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
+        self.assertEqual(recorded, [
+            "LANE_A_M2_TELEPORT_CHECK ORDER_RECORDED marker=17 scene=126"
+            " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
+            " sent=0"
+        ])
+
+    def test_the_sent_line_is_a_different_line_only_a_sender_may_print(self):
+        # The honest server-side half of GT-309's first proof line: it is
+        # printed by the code path that HANDED THE BYTES to a send path, and
+        # it says how many, which the recorded line cannot (D-A1).
+        pending = tc.open_check(17)
+        line = tc.prompt_sent_console_line(pending, 44)
+        self.assertEqual(
+            line,
+            "LANE_A_M2_TELEPORT_CHECK PROMPT_SENT marker=17 scene=126"
+            " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
+            " bytes_out=44")
+        line.encode("ascii")
+        # WHO MAY CALL IT, not "nobody may".  Asserting an empty list turns
+        # red the moment chief adds the drain call this lane's own PR body
+        # asks for -- the instruction and the pin would be the same line with
+        # opposite signs, in a file chief does not own (pf-adversary, round
+        # `nilasm`, H5).  What must stay true is that the Lua layer never
+        # prints a send: lua_api/ records, it does not send.
+        senders = _modules_calling("prompt_sent_console_line")
+        self.assertNotIn("player.py", senders)
+        self.assertEqual([m for m in senders if m in _LUA_API_MODULES], [])
+        # Measured at this commit: nothing calls it yet at all.
+        self.assertEqual(senders, [])
+        # ...while the recorded line DOES have a caller, and it is the door.
+        self.assertEqual(_modules_calling("prompt_console_line"), ["player.py"])
+
+    def test_no_prompt_line_is_printed_for_an_order_the_sink_refused(self):
+        # stored=0 is a refusal at the cap.  A PROMPT line for it would name a
+        # window no player is ever asked about, in the exact console a reader
+        # is told to trust as evidence that the mechanism is armed.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        for _ in range(tc.ORDER_CAP):
+            namespace["TeleportCheck"](1)
+        printed_before = len([line for line in self.logged
+                              if line.startswith(tc.TOKEN + " ORDER_RECORDED")])
+        self.assertEqual(namespace["TeleportCheck"](1), 0)
+        printed_after = len([line for line in self.logged
+                             if line.startswith(tc.TOKEN + " ORDER_RECORDED")])
+        self.assertEqual(printed_before, tc.ORDER_CAP)
+        self.assertEqual(printed_after, printed_before)
+
+    def test_an_order_is_refused_when_no_character_is_bound(self):
+        # The id this door RECORDS and the id the dispatch branch CONSUMES
+        # have to be the same domain.  The consumer takes with the id the
+        # socket proved (`foundation.selected.id`); the context default is 0,
+        # so an order filed under it opens a window whose own echo can never
+        # find it -- R307's "window that goes nowhere", produced by this chain
+        # itself (chief letter `20260908_0432`, D6).  Refused by name here, so
+        # a boot that forgot the player_context says so in its tally instead
+        # of filling a sink with orders nobody can consume.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink, character_id=0)
+        self.assertEqual(namespace["TeleportCheck"](1), lua_player.STUB_DEFAULT)
+        self.assertEqual(sink.orders, [])
+        self.assertEqual(sink.refusals, [tc.CHECK_REFUSED_NO_CHARACTER_BOUND])
+        self.assertEqual([line for line in self.logged
+                          if line.startswith(tc.TOKEN + " ORDER_RECORDED")], [])
+        # The call is still COUNTED: a script that called the name did call it.
+        self.assertEqual(namespace.calls, ["Player.TeleportCheck"])
+        # And the same script against a proven character records normally.
+        bound_sink = tc.InMemoryTeleportCheckSink()
+        bound = self._namespace(bound_sink)
+        self.assertEqual(bound["TeleportCheck"](1), 1)
+        self.assertEqual(bound_sink.orders[0].character_id,
+                         self.PROVEN_CHARACTER_ID)
+
+    def test_a_recorder_that_answers_nothing_does_not_kill_the_door(self):
+        # The plain recorder anyone would write -- a `record` with no `return`
+        # -- came back None and killed this door with "TypeError: %d format: a
+        # real number is required" AFTER the order was already in the list: an
+        # exception out of a Lua closure, for a window that HAD been opened
+        # (pf-adversary, round `ew9416`, D-A5).
+        class SilentRecorder:
+            def __init__(self):
+                self.orders = []
+                self.refusals = []
+
+            def record(self, character_id, pending):
+                self.orders.append(tc.TeleportCheckOrder(character_id, pending))
+
+            def record_refusal(self, reason):
+                self.refusals.append(reason)
+
+        sink = SilentRecorder()
+        namespace = self._namespace(sink)
+        self.assertIsNone(namespace["TeleportCheck"](1))
+        self.assertEqual(len(sink.orders), 1)
+        # stored=unknown, not stored=0 and NOT A CRASH.  And no proof token:
+        # a door that cannot say whether the window was opened must not print
+        # the line a reader is told to trust as evidence that it was
+        # (pf-adversary, round `nilasm`, H1).
+        self.assertTrue(any("stored=unknown" in line for line in self.logged))
+        self.assertEqual([line for line in self.logged
+                          if line.startswith(tc.TOKEN + " ORDER_RECORDED")], [])
+
+    def test_a_recorder_that_spells_refusal_its_own_way_prints_no_token(self):
+        # `if stored != 0` was not the rule it was written to be: a recorder
+        # that answers False, or an error code like -1, had its REFUSED order
+        # announced with the proof token -- D9/D-A1 re-opened one line below
+        # where it was paid (pf-adversary, round `nilasm`, H1).
+        class FlagRecorder:
+            def __init__(self, cap):
+                self.cap, self.orders, self.refusals = cap, [], []
+
+            def record(self, character_id, pending):
+                if len(self.orders) >= self.cap:
+                    self.refusals.append(tc.ORDER_REFUSED_AT_CAP)
+                    return False
+                self.orders.append(tc.TeleportCheckOrder(character_id, pending))
+                return True
+
+            def record_refusal(self, reason):
+                self.refusals.append(reason)
+
+        sink = FlagRecorder(cap=1)
+        namespace = self._namespace(sink)
+        self.assertIs(namespace["TeleportCheck"](1), True)
+        self.assertIs(namespace["TeleportCheck"](1), False)
+        self.assertEqual(len(sink.orders), 1)
+        self.assertEqual(sink.refusals, [tc.ORDER_REFUSED_AT_CAP])
+        # NEITHER call may print the token: the first because the recorder
+        # never answered a count, the second because it refused outright.
+        self.assertEqual([line for line in self.logged
+                          if line.startswith(tc.TOKEN + " ORDER_RECORDED")], [])
+
+        class ErrorCodeRecorder(FlagRecorder):
+            def record(self, character_id, pending):
+                return -1
+
+        sink = ErrorCodeRecorder(cap=1)
+        namespace = self._namespace(sink)
+        self.assertEqual(namespace["TeleportCheck"](1), -1)
+        self.assertEqual([line for line in self.logged
+                          if line.startswith(tc.TOKEN + " ORDER_RECORDED")], [])
+
+    def test_the_real_line_names_the_character_and_the_marker_it_recorded(self):
+        # The line that carries character= and stored= -- the two fields this
+        # round exists to establish -- was pinned nowhere, so mutants that
+        # hardcode character=2 or marker_id=1 in it both survived
+        # (pf-adversary, round `nilasm`, M3).  Marker 17 and a character that
+        # is not the default make each field visible on its own.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink, character_id=41)
+        self.assertEqual(namespace["TeleportCheck"](17), 1)
+        real = [line for line in self.logged
+                if line.startswith("LUA_PLAYER_REAL Player.TeleportCheck")]
+        self.assertEqual(len(real), 1)
+        self.assertIn("character=41 marker_id=17 scene=126"
+                      " confirm_predicted=21 stored=1", real[0])
+
+    def test_the_refusal_name_reaches_the_console_not_only_the_tally(self):
+        # Nothing in src/ reads sink.refusals, so a refusal that is only
+        # counted is not evidence any reader reaches (pf-adversary, round
+        # `nilasm`, M2/M5 -- deleting the console call survived).
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink, character_id=0)
+        namespace["TeleportCheck"](1)
+        bad = [line for line in self.logged
+               if line.startswith("LUA_PLAYER_BAD_VALUE Player.TeleportCheck")]
+        self.assertEqual(len(bad), 1)
+        self.assertIn(tc.CHECK_REFUSED_NO_CHARACTER_BOUND, bad[0])
+        self.assertIn("character_id=0", bad[0])
+
+    def test_a_bad_value_line_survives_a_character_the_console_cannot_encode(self):
+        # The bridge console is cp874: a script argument outside that page
+        # killed the very line reporting the script's own mistake, and the
+        # ascii() that fixed it shipped with nothing pinning it
+        # (pf-adversary, round `nilasm`, M4).
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        namespace["TeleportCheck"]("\u3042\u2603")
+        bad = [line for line in self.logged
+               if line.startswith("LUA_PLAYER_BAD_VALUE Player.TeleportCheck")]
+        self.assertEqual(len(bad), 1)
+        bad[0].encode("cp874")
+        bad[0].encode("ascii")
+
+    def test_the_quest_loader_hands_the_same_character_to_both_namespaces(self):
+        # load_quest_script had the id the caller proved and gave it to the
+        # quest namespace only, so Player.* read the context default of 0 --
+        # harmless until this door started refusing an unbound character, and
+        # a silent stop after (pf-adversary, round `nilasm`, H3).  Static,
+        # because driving the loader needs a Lua runtime and this module is
+        # the unguarded half.
+        source = (Path(__file__).resolve().parents[1] / "src"
+                  / "pirateforce_foundation" / "lua_api" / "dispatch.py")
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        loader = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.FunctionDef)
+                      and node.name == "load_quest_script")
+        call = next(node for node in ast.walk(loader)
+                    if isinstance(node, ast.Call)
+                    and getattr(node.func, "attr", None) == "load_script_file")
+        keywords = {kw.arg for kw in call.keywords}
+        self.assertIn("player_context", keywords)
+        self.assertIn("quest_context", keywords)
+
+    def test_what_a_sink_answered_is_read_the_same_way_everywhere(self):
+        self.assertEqual(tc.sink_stored_count(1), 1)
+        self.assertEqual(tc.sink_stored_count(0), 0)
+        self.assertIsNone(tc.sink_stored_count(None))
+        # A flag is not a count: True would print as stored=1 and hide a
+        # recorder that never counted anything.
+        self.assertIsNone(tc.sink_stored_count(True))
+        self.assertIsNone(tc.sink_stored_count(False))
+        self.assertIsNone(tc.sink_stored_count("1"))
+        self.assertIsNone(tc.sink_stored_count(1.0))
+
+    def test_the_sink_is_readable_by_name_from_outside_the_namespace(self):
+        # D2: while the recorder lived only in a private attribute, every
+        # order Player.TeleportCheck accepted was unreachable from the code
+        # that would have to turn it into a frame -- the module's own claim
+        # that "one plug point remains" was false while that was true.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        self.assertIs(namespace.teleport_check_sink, sink)
+        default_namespace = self._namespace()
+        self.assertIs(default_namespace.teleport_check_sink,
+                      default_namespace._teleport_check_sink)
+        self.assertIsNot(default_namespace.teleport_check_sink,
+                         self._namespace().teleport_check_sink)
 
     def test_the_recorder_stops_at_its_cap_instead_of_growing_forever(self):
         sink = tc.InMemoryTeleportCheckSink()
