@@ -27,6 +27,7 @@ from . import mob_scene_recompose
 from . import name_colour_sweep
 from . import scene_admission_gate
 from . import trace_path
+from . import ui_dispatch
 from . import vital_walk
 from . import world_density
 from . import world_face_frame
@@ -9445,7 +9446,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         "vital_inbound_trade_invite_vital",
                         session=self, payload=bytes(parsed.nested_payload),
                     )
-                return []
+                return ui_dispatch.answer(
+                    self, nested_id, bytes(parsed.nested_payload))
             if nested_id == legacy.START_GAME_REQ:
                 self.rx_frames += 1
                 self.start_game_seen = True

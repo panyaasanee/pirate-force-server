@@ -62,13 +62,25 @@ UNGATED_CHARGE_SIGNED = -10000
 FREE_REWARD_QUEST_ID = 26
 FREE_REWARD_ITEMS = (2608007, 2401006)
 
-#: The two groups the derivation finds, spelled out so a change to the
+#: The three groups the derivation finds, spelled out so a change to the
 #: mirror has to be a change to this list too.  Re-derive with:
 #:     python3 tools/pf_regen_lua_quest_rewards.py --explain
+#:
+#: `q_boat_health` JOINED THIS ROUND (pf-adversary D3, round `l0rbyx`:
+#: "the take side must stop coming from the signedness table alone").  Its
+#: charge is `Player.AddCash(Quest.Var2 * -1)` -- the shipped cell is
+#: POSITIVE and the SCRIPT carries the minus sign, so the signedness table
+#: classified `n_VARI_2` as an ordinary number and the take was invisible
+#: to a scan that only read that table.  The give it is charged for,
+#: `Player.BoatHealth(Quest.Var3)` on the line above, is a stub, so the
+#: group is unpayable and the charge is refused: boat repair can no longer
+#: take the money without repairing the boat.
 EXPECTED_GROUPS = {
     ("q_class", "Report_Run"): ("n_VARI_4", "Quest/q_class.lua:60"),
     ("q_guild_boss2", "Report_Run"): ("n_VARI_8",
                                       "Quest/q_guild_boss2.lua:59"),
+    ("q_boat_health", "Accept_Run"): ("n_VARI_2",
+                                      "Quest/q_boat_health.lua:21"),
 }
 
 
@@ -213,7 +225,7 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
         qr.reset_caches()
         self.addCleanup(qr.reset_caches)
 
-    def test_exactly_the_two_coupled_scripts_are_in_the_table(self):
+    def test_exactly_the_three_coupled_scripts_are_in_the_table(self):
         groups = qr.load_groups()
         found = {(script, group.group)
                  for script, entries in groups.items() for group in entries}
@@ -244,16 +256,27 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
         them out costs (a 15,000-per-run gift), and they are addressed by
         API name instead of by column.
         """
-        for entries in qr.load_groups().values():
+        for script, entries in qr.load_groups().items():
             for group in entries:
                 give = group.side(qr.GIVE)
                 columns = sorted(member.column for member in give
                                  if member.column != qr.NO_COLUMN)
-                self.assertEqual(sorted(qr.GIVE_ID_COLUMNS), columns)
-                curve = sorted(member.api_name for member in give
+                names = sorted(member.api_name for member in give
                                if member.column == qr.NO_COLUMN)
-                self.assertEqual(len(curve), 3, curve)
-                for name in curve:
+                if script == "q_boat_health":
+                    # THE ONE PURCHASE GROUP.  It pays no reward cell and
+                    # runs no criteria payout: the whole give side is the
+                    # single `Player.BoatHealth(Quest.Var3)` the charge on
+                    # the next line is FOR.  Spelled as its own branch
+                    # rather than loosened out of the assertion above, so
+                    # a reward group that quietly lost its twelve columns
+                    # still fails.
+                    self.assertEqual(columns, [])
+                    self.assertEqual(names, ["Player.BoatHealth"])
+                    continue
+                self.assertEqual(sorted(qr.GIVE_ID_COLUMNS), columns)
+                self.assertEqual(len(names), 3, names)
+                for name in names:
                     self.assertTrue(name.startswith("Quest.Add"), name)
                     self.assertIn("Criteria", name)
 
@@ -270,7 +293,22 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
             for group in entries:
                 for member in group.side(qr.TAKE):
                     index = int(member.column.rsplit("_", 1)[1])
-                    column = signed[(script, index)]
+                    column = signed.get((script, index))
+                    if column is None:
+                        # A SCRIPT-NEGATED TAKE (pf-adversary D3, round
+                        # `l0rbyx`).  `Player.AddCash(Quest.Var2 * -1)`
+                        # spends a cell the shipped table stores as a
+                        # POSITIVE number, so `quest_var_signedness.tsv`
+                        # has nothing to say about it and this cross-check
+                        # cannot be the one that holds it.  Its provenance
+                        # is held instead by the assertion below: the call
+                        # site must be a real line of the real corpus file,
+                        # and `EXPECTED_GROUPS` pins which line.
+                        self.assertIn(member.api_name, ("Player.AddCash",))
+                        self.assertTrue(member.call_site.endswith(
+                            EXPECTED_GROUPS[(script, group.group)][1]
+                            .rsplit("/", 1)[-1]), member.call_site)
+                        continue
                     self.assertEqual(column.kind, qv.KIND_MONEY)
                     self.assertEqual(column.api_name.split("@")[0],
                                      member.api_name)
@@ -462,8 +500,10 @@ class TheGateBehavesTests(unittest.TestCase):
                         len(answered), 1,
                         "quest %d opened half of %s.%s"
                         % (quest_id, script, group.group))
-        self.assertEqual(checked, 160,
-                         "10 rows x 16 members; if this number "
+        self.assertEqual(checked, 164,
+                         "9 reward rows x 16 members + 4 rows x 1 member "
+                         "for the q_boat_health purchase group; if this "
+                         "number "
                          "moves, a group or a row appeared and the "
                          "assertion above has to be read again")
 

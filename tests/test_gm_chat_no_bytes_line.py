@@ -58,6 +58,7 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import commands as gm_commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
+from pirateforce_foundation.gm import say_wire  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
@@ -81,6 +82,31 @@ def make_chat_payload(message: str, speaker: str = "") -> bytes:
         out += struct.pack("<I", len(encoded))
         out += encoded
     return bytes(out)
+
+
+
+def assert_staged_warp_notice_only(case, action):
+    """The action a STAGED warp returns: its sentence, never a warp frame.
+
+    ~~`self.assertIsNone(action)`~~ -- struck LANE-GM round `0w9jhq` at every
+    staged-warp call site in this file.  It was the right pin while a staged
+    `/warp` put NOTHING on the wire, and it stopped being right when the
+    command started answering `STAGED RELOG` on the local-talk notice channel:
+    the owner read the old silence off her own screen as "nothing happened"
+    (`PANYA-DECISION 20260903_1800`, round R307).
+
+    WHAT THE PIN STILL HAS TO SAY IS UNCHANGED, and this helper says exactly
+    that and no more: no TELEPORT frame went out for this command.  The label
+    is asserted rather than the mere presence of an action, because a warp
+    FRAME returned here would also be "not None" -- and the label is the one
+    field `runtime.py`'s `_GM_WARP_LABELS` resync and the `TELEPORT`-substring
+    move-authority rule read.
+    """
+    case.assertIsNotNone(action)
+    case.assertEqual(
+        action[0], chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL
+    )
+    case.assertNotIn("TELEPORT", action[0])
 
 
 class FakePosition:
@@ -356,7 +382,7 @@ class TheIdentityFieldsOnEveryCommandTests(_Case):
         # `TheStagedWarpTests` already proves reaches the staged printer, so
         # this assertion cannot go vacuous if that behaviour changes.
         action, err = self.act("/warp 278")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         staged = self.lines(err, chat_command_action.STAGED_CONSOLE_TOKEN)
         self.assertEqual(len(staged), 1, err)
         self.assertNotIn("identity=", staged[0])
@@ -602,10 +628,90 @@ class NoSecondLineTests(_Case):
         self.assertNotIn("disk", err)
 
 
+class StagedWarpNoticeTests(_Case):
+    """The cross-scene `/warp` now answers ON SCREEN (LANE-GM round `0w9jhq`).
+
+    THE FAILURE THESE TESTS EXIST FOR IS A MEASURED ONE, not a style wish.
+    A cross-scene `/warp` sends no frame -- it writes the account's next-login
+    scene and the scene arrives after a relog -- and its only report was the
+    SERVER console line these other classes pin.  The owner read that silence
+    off her own screen during R307 and reported the command as "nothing
+    happened" (`PANYA-DECISION 20260903_1800`).  `/lv` answers `LV SET RELOG`
+    for exactly the same shape of durable-but-invisible change; this is that
+    answer for the staged warp.
+
+    NOTHING HERE CLAIMS THE GM ARRIVED ANYWHERE.  `STAGED RELOG` says the
+    stage was written and the scene comes on the next login -- see the module
+    docstring of `gm/say_wire.py` for why those two facts, and not the scene
+    id, are what fits in the pinned twelve characters.
+    """
+
+    STAGED = chat_command_action.STAGED_CONSOLE_TOKEN
+
+    def test_a_staged_warp_now_says_so_on_the_screen(self):
+        action, err = self.act("/warp 278")
+        assert_staged_warp_notice_only(self, action)
+        # THE BODY IS THE LANE'S OWN CONSTANT, read out of the frame rather
+        # than spelled again here: a test that retypes the sentence pins its
+        # own copy and passes while the shipped one drifts.
+        self.assertIn(
+            say_wire.WARP_STAGED_NOTICE_TEXT.encode("utf-16-le"), action[2]
+        )
+        # ...and it is a body the wire accepts, measured against the pinned
+        # length itself (GT-006/GT-009) rather than counted by hand.
+        self.assertEqual(
+            len(say_wire.WARP_STAGED_NOTICE_TEXT),
+            say_wire.NOTICE_TEXT_EXACT_LENGTH,
+        )
+
+    def test_the_screen_gains_a_line_and_the_console_loses_none(self):
+        # The whole point of `is_notice=True`: `_announce_console_outcome`
+        # returns early on `sent`, so a notice counted as the command's own
+        # frame would DELETE the staged console line an attended run greps.
+        action, err = self.act("/warp 278")
+        assert_staged_warp_notice_only(self, action)
+        self.assertEqual(len(self.lines(err, self.STAGED)), 1, err)
+        self.assertEqual(len(self.lines(err, "GM_CHAT_NOTICE_SENT")), 1, err)
+        # And the no-bytes line still must NOT appear: a staged warp did
+        # something, and `GM_CHAT_NO_BYTES_SENT` means "nothing happened".
+        self.assertEqual(self.lines(err, TOKEN), [], err)
+
+    def test_the_stage_is_still_written_when_the_sentence_cannot_be_composed(self):
+        # A COURTESY MAY NEVER COST THE COMMAND.  The stage is on disk before
+        # the sentence is composed, so a wire that refuses the notice leaves
+        # the warp exactly as it was before this round: staged, and silent.
+        with mock.patch.object(
+            say_wire, "make_local_talk_notice_frame", side_effect=OSError("no wire")
+        ):
+            action, err = self.act("/warp 278")
+        self.assertIsNone(action)
+        staged = json.loads(
+            self.login_scene_config_path.read_text(encoding="utf-8")
+        )
+        self.assertEqual(staged["gm_login_scene"][self.GM_ACCOUNT], 278)
+        # The failure is NAMED rather than raised -- a diagnostic may never
+        # turn a decided outcome into `gm_chat_action_unexpected_<Type>`.
+        self.assertEqual(len(self.lines(err, self.STAGED)), 1, err)
+
+    def test_the_notice_label_is_not_one_runtime_treats_as_a_warp(self):
+        # `runtime.py`'s `_GM_WARP_LABELS` resync rewrites the session's scene
+        # to a warp's DESTINATION, and `_move_authority_note_server_moves`
+        # reopens the move-authority grace window on the `TELEPORT` substring.
+        # A staged warp moves nobody, so this label must be invisible to both.
+        label = chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL
+        self.assertNotIn("TELEPORT", label)
+        for warp_label in (
+            chat_command_action.WARP_ACTION_LABEL,
+            chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        ):
+            self.assertNotEqual(label, warp_label)
+
+
 class ThingsThatMustStaySilentTests(_Case):
     def test_a_staged_cross_scene_warp_is_not_called_no_bytes(self):
         action, err = self.act("/warp 278")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         self.assertEqual(self.lines(err, TOKEN), [], err)
         staged = json.loads(
             self.login_scene_config_path.read_text(encoding="utf-8")
@@ -622,7 +728,7 @@ class ThingsThatMustStaySilentTests(_Case):
             warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
         ):
             action, err = self.act("/warp 278 100 200")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         self.assertEqual(self.lines(err, TOKEN), [], err)
 
     def test_a_mistyped_command_keeps_its_usage_line_and_gains_nothing(self):
@@ -673,7 +779,7 @@ class TheStagedWarpTests(_Case):
 
     def test_it_names_the_scene_and_the_next_step(self):
         action, err = self.act("/warp 278")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         said = self.lines(err, self.STAGED)
         self.assertEqual(len(said), 1, err)
         self.assertIn("scene_id=278 ", said[0])
@@ -850,7 +956,7 @@ class TheStagedWarpTests(_Case):
             side_effect=OSError("registry unreadable"),
         ):
             action, err = self.act("/warp 278")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         said = self.lines(err, self.STAGED)
         self.assertEqual(len(said), 1, err)
         # ...and it says the one thing that is actually known, rather than
@@ -917,7 +1023,7 @@ class TheStagedWarpTests(_Case):
             warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
         ):
             action, err = self.act("/warp 278 100 200")
-        self.assertIsNone(action)
+        assert_staged_warp_notice_only(self, action)
         said = self.lines(err, self.STAGED)
         self.assertEqual(len(said), 1, err)
         self.assertIn("coordinates=ignored ", said[0])

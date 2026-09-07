@@ -217,6 +217,23 @@ LV_SET_NOTICE_TEXT = "LV SET RELOG"
 # exception type can be read without being squeezed into 12 characters.
 LV_REFUSED_NOTICE_TEXT = "LV NO CHANGE"
 
+# THE FIFTH SENTENCE, the cross-scene `/warp`'s, and it exists because the
+# owner read a staged warp off her screen as "nothing happened"
+# (`PANYA-DECISION 20260903_1800`, round R307).  She was right about the
+# screen: a cross-scene `/warp` sends no frame at all -- it writes the
+# account's next-login scene and the scene appears after a relog -- so the
+# only report it had was a SERVER CONSOLE line, which is not where the person
+# typing the command is looking.
+#
+# `STAGED RELOG` is found inside the same pinned 12 characters as the four
+# above, and it carries the two facts a tester acts on: the command WAS
+# accepted and wrote something durable (`STAGED`, never "warped"), and the
+# scene arrives on the next login rather than now (`RELOG`).  The scene ID is
+# deliberately NOT in it -- twelve characters cannot hold both, `staged`
+# answers "which id" on demand (`gm/staged_readback.py`), and a GM who is not
+# told to relog is the failure this sentence exists to end.
+WARP_STAGED_NOTICE_TEXT = "STAGED RELOG"
+
 NOTICE_TEXT_EXACT_LENGTH = 12
 
 # Every captured GT-006 frame on this shared serializer has carried an empty

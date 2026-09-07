@@ -453,6 +453,7 @@ class ScriptHost:
                  player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
                  message_sink: "Optional[lua_api_message.MessageSink]" = None,
                  payout_store: Optional[Any] = None,
+                 teleport_check_sink: Optional[Any] = None,
                  prelude: "Optional[lua_api_prelude.Prelude]" = None,
                  mirror_health: Optional[MirrorHealth] = None):
         _require_lupa()
@@ -535,7 +536,8 @@ class ScriptHost:
                 elif namespace == "Player":
                     stub = lua_api_player.build_namespace(
                         methods, self.log, context=player_context, store=player_store,
-                        sink=message_sink, payout_store=payout_store)
+                        sink=message_sink, payout_store=payout_store,
+                        teleport_check_sink=teleport_check_sink)
                 else:
                     stub = ApiNamespaceStub(namespace, methods, self.log)
                 built[namespace] = stub
@@ -595,6 +597,22 @@ class ScriptHost:
                 "%s refused: this host was built with a broken vendored "
                 "mirror and carries no API namespaces (%s)" % (what, cause))
 
+    @property
+    def teleport_check_sink(self):
+        """The travel orders `Player.TeleportCheck` records; None if degraded.
+
+        READ-THROUGH, and a property rather than an attribute set in
+        ``__init__`` because an assignable one re-opened at the host layer the
+        exact hole the namespace's own read-only property was added to close
+        (LANE-Q review, letter `20260908_0552`): ``host.teleport_check_sink =
+        other`` succeeded silently, the namespace kept recording into the old
+        sink, and whoever dispatched frames read a new one that stayed empty
+        forever -- every travel order in the session lost without one log line.
+        With no stored state there is nothing that can disagree.
+        """
+        return getattr(self.namespaces.get("Player"),
+                       "teleport_check_sink", None)
+
     def load(self, source: str) -> None:
         """Compile and run a script's top-level chunk (its function defs)."""
         self._refuse_if_degraded("load")
@@ -628,6 +646,7 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
                       message_sink: "Optional[lua_api_message.MessageSink]" = None,
                       payout_store: Optional[Any] = None,
+                      teleport_check_sink: Optional[Any] = None,
                       prelude: "Optional[lua_api_prelude.Prelude]" = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
@@ -661,6 +680,7 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       player_store=player_store,
                       message_sink=message_sink,
                       payout_store=payout_store,
+                      teleport_check_sink=teleport_check_sink,
                       prelude=prelude)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
