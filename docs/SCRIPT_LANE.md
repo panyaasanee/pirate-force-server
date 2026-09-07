@@ -397,7 +397,7 @@ encoders this lane does not own), then the rest of `Quest.*` (15 names:
 `CountDownTime`/reward-and-grant names still need a LANE-DB column or a
 `Player.*` grant seam this lane does not own yet, `GetWeekDay`/
 `CheckWishQuest` on undocumented enums/cross-lane guild state -- see
-"Round 7v7yn2" below), then the rest of `Player.*` (67 names, grouped by
+"Round 7v7yn2" below), then the rest of `Player.*` (63 names, grouped by
 blocker in `lua_api/player.py`'s own `STILL_STUBBED` -- item/equipment
 WRITE state (the inventory seam's write side, blocked on `RE-280`), a
 stat-grant write seam, other per-character stat reads, skill/buff state,
@@ -475,7 +475,7 @@ in `STILL_STUBBED`.
 | Player | GetCash | 7 | stub |
 | Player | PlayMovie | 7 | stub |
 | Player | ResetMarker | 7 | stub |
-| Player | AddCash | 6 | real (round `2euu94`; the only name so far that writes in BOTH directions -- `reward.grant` on a positive argument, `reward.charge` -> `store.spend_typed_attribute` on a negative one, which is what `q_ship.lua:50` and `q_boat_health.lua:21` do) |
+| Player | AddCash | 6 | real (round `2euu94`; the only name so far that writes in BOTH directions -- `reward.grant` on a positive argument, `reward.charge` -> `store.spend_typed_attribute` on a negative one). NOT REACHED BY ANY SHIPPED SCRIPT YET: `Quest.VarN` still answers `STUB_DEFAULT`, and the table cells behind all six call sites are either `0` or u32-wrapped negatives this door refuses on purpose until the signedness rule is decided (`_MAX_SIGNED_STAT_MAGNITUDE`, letter to COO round `2euu94`) |
 | Player | CheckSkill | 6 | stub |
 | Player | EnterInstanceThenPlayMovie | 6 | stub |
 | Player | ItemAddon | 6 | stub |

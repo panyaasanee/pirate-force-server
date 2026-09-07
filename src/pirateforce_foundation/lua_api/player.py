@@ -378,17 +378,34 @@ GRANT_KINDS: dict[str, str] = {
 #: ship) and ``q_boat_health.lua:21`` (``Player.AddCash(Quest.Var2 * -1)``,
 #: repairing one).
 #:
-#: SAID EXACTLY, because the same over-claim was corrected here once
-#: already (pf-adversary D6, round yfeauz): that is a fact about the
-#: literal SHAPE of each call, not about the VALUE that arrives.  The
-#: ``QuestVarN`` behind every one of the six lives in trigger/quest
-#: placement data that is not in this repository, so a "positive" call
-#: site can still deliver a negative at runtime and vice versa.  Nothing
-#: here depends on that: the closure reads the SIGN OF THE VALUE, not the
-#: sign of the source text, and picks the adding door or the subtracting
-#: door from it.  The grep is provenance for why the name needed both
-#: halves before it could open at all -- not a promise about what will
-#: arrive.
+#: THAT SPLIT IS A FACT ABOUT SCRIPT TEXT, AND THE DATA DISAGREES WITH IT
+#: (pf-adversary `D2`/`D3`, round `2euu94`, correcting this round's own
+#: first draft, which said the ``VarN`` values "are not in this
+#: repository" -- they are: ``pf_bridge/gamedata/tables/
+#: QUESTDATA_TH__QUEST.tsv``, the same file
+#: ``lua_api/quest_criteria_rows.tsv`` names in its own ``# source:``
+#: header, and the file this lane's regen tool reads every time it runs).
+#: Read against that table, the six call sites are:
+#:
+#: * ``q_class.lua:60`` and ``q_guild_boss2.lua:59`` -- written as ADDS,
+#:   but their cells are u32-wrapped NEGATIVES
+#:   (see :data:`_MAX_SIGNED_STAT_MAGNITUDE`).  Two charges the text
+#:   census counted as payments.
+#: * ``q_guildgather1.lua:60`` (rows 8041-8042) and ``q_class2.lua:58``
+#:   (rows 3195-3199) -- their cells are ``0``, so they move nothing.
+#: * ``q_boat_health.lua:21`` -- ``n_VARI_2 = 100``, negated in the
+#:   script.  The one charge that is a charge in both text and data.
+#: * ``q_ship.lua:50`` -- NO ROW AT ALL.  No ``s_LUASCRIPT`` in the
+#:   table's 1544 rows dispatches that file (the only SHIP name is
+#:   ``Q_SHIP_DYING``, a different script), which makes it a poor
+#:   flagship citation however vivid the line is.
+#:
+#: So: ZERO of the six deliver a positive amount in today's data, and the
+#: adding half of this door has no shipped caller yet.  Nothing in the
+#: closure depends on the census either way -- it reads the SIGN OF THE
+#: VALUE, never the sign of the source text.  The grep is provenance for
+#: why the name needed both halves before it could open at all, not a
+#: promise about what will arrive.
 SIGNED_STAT_KINDS: dict[str, str] = {
     "AddCash": _quest_criteria.KIND_CASH,
 }
@@ -407,6 +424,43 @@ SIGNED_STAT_KINDS: dict[str, str] = {
 #: BAD VALUE with no ``refused=`` token, in the same bucket as ``nan``;
 #: widening it is a one-constant change the day a real script needs it.
 _MAX_GRANT_AMOUNT = 0xFFFFFFFF
+
+#: The magnitude ceiling for the SIGNED door, and it is DELIBERATELY HALF
+#: of :data:`_MAX_GRANT_AMOUNT` rather than the same number.
+#:
+#: THE DEFECT THIS CLOSES, MEASURED IN THE SHIPPED TABLE (pf-adversary
+#: `D1`, round `2euu94`, against this round's own first draft).
+#: ``gamedata/tables/QUESTDATA_TH__QUEST.tsv`` stores a negative ``n_VARI``
+#: as UNSIGNED 32-BIT TWO'S COMPLEMENT, and each script's own gate proves
+#: the sign rather than suggesting it:
+#:
+#: * ``Q_CLASS`` rows 3200-3204: ``n_VARI_3 = 15000`` is what
+#:   ``q_class.lua:47`` checks the purse against
+#:   (``Player.GetCash() >= Quest.Var3``), and ``n_VARI_4 = 4294952296``
+#:   is what ``q_class.lua:60`` hands to ``AddCash`` -- and
+#:   ``4294952296 == 2**32 - 15000`` exactly.
+#: * ``Q_GUILD_BOSS2`` rows 8061-8065: the gate is ``n_VARI_5``
+#:   (10000/40000/50000/50000/50000) and ``n_VARI_8`` is
+#:   ``2**32 - n_VARI_5`` on every one of the five rows.
+#:
+#: With a ``u32`` ceiling those cells arrive as huge POSITIVE ints, the
+#: closure below reads their sign as positive, and the class-change quest
+#: CREDITS 4,294,952,296 instead of debiting 15,000 -- into a ``u64``
+#: column that accepts it without a murmur.  A ceiling of ``i32`` max
+#: turns every one of them into a REFUSED BAD VALUE with nothing written
+#: and a log line naming the number, which is the correct answer for a
+#: door that cannot yet tell a wrapped negative from a real payout.
+#:
+#: WHAT THIS IS NOT: it is not a decode rule.  Deciding that
+#: ``n_VARI_4`` in ``Q_CLASS`` is signed currency while ``n_VARI_13``
+#: elsewhere is an unsigned mob id is a per-column signedness rule that
+#: belongs to whatever wires ``Quest.VarN`` to that table (which nothing
+#: does yet -- ``Quest.VarN`` still answers ``STUB_DEFAULT``), and this
+#: lane will not invent it inside a coercion.  Asked of COO by letter this
+#: round.  Until it is answered, REFUSING is the only honest answer, and
+#: no shipped reward comes anywhere near this bound: the largest cash
+#: magnitude in the whole table is 50,000.
+_MAX_SIGNED_STAT_MAGNITUDE = 0x7FFFFFFF
 
 
 class PlayerMobAppearStore(Protocol):
@@ -888,13 +942,35 @@ class RealPlayerNamespace:
                 if len(args) != 1:
                     _log_bad_arity(self._log, _name, len(args), "1")
                     return STUB_DEFAULT
-                amount = _coerce_signed_int(args[0], _MAX_GRANT_AMOUNT)
+                amount = _coerce_signed_int(
+                    args[0], _MAX_SIGNED_STAT_MAGNITUDE)
                 if amount is None:
                     # nan/inf, a fractional float, a bool, a string, or a
-                    # magnitude past the ceiling.  NOT a negative -- the
-                    # whole reason this closure exists is that a negative
-                    # here is a real instruction from a shipped quest.
+                    # magnitude past the ceiling -- which for THIS door
+                    # includes every u32-wrapped negative in the shipped
+                    # quest table (see _MAX_SIGNED_STAT_MAGNITUDE).  NOT a
+                    # negative that arrives AS a negative: the whole reason
+                    # this closure exists is that such a value is a real
+                    # instruction from a shipped quest.
                     _log_bad_value(self._log, _name, amount=args[0])
+                    return STUB_DEFAULT
+                if amount > 0 and not _reward.can_charge(
+                        self._payout_store, _kind):
+                    # A NAME THAT CAN CHARGE MUST NOT PAY THROUGH A STORE
+                    # THAT CANNOT CHARGE (pf-adversary D5, this round).
+                    # Otherwise an add-only store pays this name's rewards
+                    # and refuses its charges -- the free ship, arriving
+                    # through the store's SHAPE instead of through the
+                    # sign, which is the one outcome this whole round
+                    # exists to prevent.  Refused under the spend door's
+                    # own token so a census sees the cause, not a mystery.
+                    self._log(
+                        "LUA_PLAYER_GRANT Player.%s character=%s kind=%s "
+                        "refused=%s unpaid=%r (this name can also CHARGE, "
+                        "and a store that cannot charge must not be "
+                        "allowed to pay only the rewards)"
+                        % (_name, self._context.character_id, _kind,
+                           _reward.REFUSE_STORE_CANNOT_SPEND, amount))
                     return STUB_DEFAULT
                 if amount < 0:
                     # THE SIGN IS RESOLVED HERE, on the side of the seam

@@ -572,6 +572,19 @@ def _spend_door(store: Any, kind: str) -> Optional[Callable[..., Any]]:
     return door if callable(door) else None
 
 
+def can_charge(store: Any, kind: str) -> bool:
+    """Whether ``store`` can SUBTRACT for ``kind`` -- the public half.
+
+    Exists for one caller and one rule (pf-adversary `D5`, round
+    ``2euu94``): a namespace name that can charge must not PAY through a
+    store that cannot charge.  ``lua_api.player``'s signed closure asks
+    this before it grants, because an add-only store would otherwise pay
+    that name's rewards and refuse its charges -- the free ship, reached
+    through the store's shape instead of through the sign.
+    """
+    return kind in SPEND_DOOR and _spend_door(store, kind) is not None
+
+
 def _store_spend(store: Any, kind: str, character_id: int, column: str,
                  amount: int) -> Tuple[Optional[int], Optional[str],
                                        Optional[str]]:

@@ -936,3 +936,132 @@ class SignedStatReachesARealRowTests(unittest.TestCase):
         ns["AddCash"](-250)
         self.assertTrue(any("refused=balance_was_never_measured" in line
                             for line in calls), calls)
+
+
+class SignedStatWrappedNegativeTests(unittest.TestCase):
+    """pf-adversary `D1`, round `2euu94`: the sign is not always in the sign.
+
+    ``gamedata/tables/QUESTDATA_TH__QUEST.tsv`` stores a negative ``n_VARI``
+    as unsigned 32-bit two's complement.  A ``u32`` magnitude ceiling let
+    those cells through as huge POSITIVE ints, so the door that exists to
+    charge the player would have CREDITED 4,294,952,296 to the class-change
+    quest instead of debiting 15,000.
+
+    The cells are written out here rather than read from the bridge repo,
+    because these tests must pass with no ``pf_bridge`` beside the
+    checkout.  What is asserted is the RELATIONSHIP, not the constant: each
+    cell is checked to be exactly ``2**32`` minus its own script's gate
+    value, which is what makes it a wrapped negative rather than a number
+    someone copied down.
+    """
+
+    #: (quest rows, script gate cell, the AddCash cell) from the shipped
+    #: table.  Q_CLASS 3200-3204 gate on n_VARI_3 (q_class.lua:47) and pay
+    #: n_VARI_4 (q_class.lua:60); Q_GUILD_BOSS2 8061-8065 gate on n_VARI_5
+    #: (q_guild_boss2.lua:41) and pay n_VARI_8 (q_guild_boss2.lua:59).
+    WRAPPED = [
+        ("Q_CLASS 3200-3204", 15000, 4294952296),
+        ("Q_GUILD_BOSS2 8061", 10000, 4294957296),
+        ("Q_GUILD_BOSS2 8062", 40000, 4294927296),
+        ("Q_GUILD_BOSS2 8063-8065", 50000, 4294917296),
+    ]
+
+    def test_each_cell_really_is_its_gate_wrapped(self):
+        """The provenance, not just the number: 2**32 - gate == cell."""
+        for label, gate, cell in self.WRAPPED:
+            with self.subTest(row=label):
+                self.assertEqual(cell, 2 ** 32 - gate)
+
+    def test_a_wrapped_negative_is_refused_and_pays_nobody(self):
+        store = _RecordingPayoutStore(balances={(9, "cash"): 20000})
+        from pirateforce_foundation.lua_api import spec as api_spec
+
+        for label, _gate, cell in self.WRAPPED:
+            calls: list = []
+            ns = player.build_namespace(
+                api_spec.NAMESPACE_METHODS["Player"], calls.append,
+                context=player.PlayerContext(character_id=9),
+                payout_store=store)
+            for value in (cell, float(cell)):
+                with self.subTest(row=label, value=value):
+                    self.assertEqual(ns["AddCash"](value),
+                                     player.STUB_DEFAULT)
+            self.assertTrue(any("LUA_PLAYER_BAD_VALUE" in line
+                                for line in calls), calls)
+        self.assertEqual(store.calls, [])
+        self.assertEqual(store._balances[(9, "cash")], 20000)
+
+    def test_the_ceiling_is_i32_not_u32_and_that_is_the_whole_fix(self):
+        """Pinned so a later "tidy up" cannot restore the shared constant.
+
+        ``AddExp``/``AddSkillPoint`` keep ``_MAX_GRANT_AMOUNT``: they have
+        no subtracting route, so a wrapped cell reaching one of them is
+        already refused by ``_coerce_int``'s floor... only if it decodes
+        NEGATIVE, which it does not.  That is a real remaining gap and it
+        is named in the round file, not papered over here.
+        """
+        self.assertEqual(player._MAX_SIGNED_STAT_MAGNITUDE, 0x7FFFFFFF)
+        self.assertLess(player._MAX_SIGNED_STAT_MAGNITUDE,
+                        player._MAX_GRANT_AMOUNT)
+        for _label, _gate, cell in self.WRAPPED:
+            self.assertGreater(cell, player._MAX_SIGNED_STAT_MAGNITUDE)
+
+    def test_every_real_reward_magnitude_in_the_table_still_fits(self):
+        """The largest cash magnitude anywhere in the table is 50,000."""
+        for _label, gate, _cell in self.WRAPPED:
+            self.assertLess(gate, player._MAX_SIGNED_STAT_MAGNITUDE)
+
+
+class SignedStatNeedsBothDoorsTests(unittest.TestCase):
+    """pf-adversary `D5`: the free ship, reached through the store's shape.
+
+    A store with ``add_typed_attribute`` and no spend door pays this name's
+    rewards and refuses its charges -- the exact outcome the round exists
+    to prevent, arriving through an injected object instead of through a
+    sign.  So a name that can charge refuses to pay through such a store.
+    """
+
+    class _AddOnlyStore:
+        def __init__(self):
+            self.calls: list = []
+
+        def add_typed_attribute(self, character_id, column, delta):
+            self.calls.append((character_id, column, delta))
+            return 20000 + delta
+
+    def _namespace(self, store):
+        from pirateforce_foundation.lua_api import spec as api_spec
+
+        calls: list = []
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=9), payout_store=store)
+        return ns, calls
+
+    def test_an_add_only_store_pays_nothing_for_a_name_that_can_charge(self):
+        store = self._AddOnlyStore()
+        ns, calls = self._namespace(store)
+        self.assertEqual(ns["AddCash"](5000), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+        self.assertTrue(any("refused=store_has_no_atomic_spend" in line
+                            for line in calls), calls)
+
+    def test_the_charge_direction_refuses_under_the_same_token(self):
+        store = self._AddOnlyStore()
+        ns, calls = self._namespace(store)
+        self.assertEqual(ns["AddCash"](-5000), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+        self.assertTrue(any("refused=store_has_no_atomic_spend" in line
+                            for line in calls), calls)
+
+    def test_the_add_only_names_still_pay_through_it(self):
+        """The rule is per NAME, not a blanket ban on add-only stores.
+
+        ``AddExp`` has no charging half, so an add-only store is a
+        perfectly good store for it -- narrowing that too would break a
+        seam round ``yfeauz`` shipped for no gain.
+        """
+        store = self._AddOnlyStore()
+        ns, _calls = self._namespace(store)
+        ns["AddExp"](250)
+        self.assertEqual(store.calls, [(9, "experience", 250)])
