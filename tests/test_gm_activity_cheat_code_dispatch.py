@@ -21,6 +21,7 @@ tests build theirs.
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import io
 import json
@@ -36,6 +37,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation.gm import command_capture as gm_command_capture  # noqa: E402
+from pirateforce_foundation.gm import arrival_ledger  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_gm_activity_cheat_code,
@@ -479,6 +481,22 @@ class ActivityCheatCodeLaneHookTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         gm_dispatch.reset_rate_limit_state_for_tests()
         gm_dispatch.reset_capture_quota_state_for_tests()
+        # KEEP THE ARRIVAL LEDGER OUT OF THE REPOSITORY (pf-adversary, round
+        # `6b1o1r`, finding 1): this class fires the lane hook, which reaches
+        # dispatch with the RELATIVE `DEFAULT_CAPTURE_ROOT`, so a plain
+        # `pytest` run used to append a real refusal line to
+        # `capture/gm_arrival_ledger/arrival_ledger.txt` under the pytest cwd
+        # -- the exact file, and the exact line shape, GT-279's attended
+        # tester greps.  `.gitignore` hides it, so nobody would have seen it.
+        ledger_root = Path(self.tmp.name) / "ledger"
+        patcher = mock.patch.object(
+            arrival_ledger, "ledger_root_for_capture_root",
+            lambda capture_root: ledger_root,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        arrival_ledger.reset_for_tests()
+        self.addCleanup(arrival_ledger.reset_for_tests)
 
     def _session(self, token):
         class _Session:
@@ -511,6 +529,98 @@ class ActivityCheatCodeLaneHookTests(unittest.TestCase):
         self.assertEqual(
             session.events,
             [f"activity_cheat_code_refused_{gm_dispatch.REFUSAL_NOT_GM}"],
+        )
+
+
+class OpcodeWiringSentencesTests(unittest.TestCase):
+    """The prose about 0x6CEC and the call site must move together.
+
+    Chief's round R390 added the `runtime.py` call site for 0x6CEC and
+    three sentences in this lane's own files went on saying it did not
+    exist -- one of them (`handle_activity_cheat_code_vital`'s docstring)
+    ending "a round file or ticket that says otherwise is wrong".  Chief
+    found them a round later by measurement, not by reading
+    (`20260907_1918_FROM_CHIEF_R391b`).  A lane grepping "is 0x6CEC wired
+    yet" would have been told the wrong answer with confidence and could
+    have landed a second sink for the same id.
+
+    This test is the thing that notices next time, and it notices in BOTH
+    directions: it reads whether the call site exists and requires the
+    prose to match, so removing the call site without restoring the "not
+    wired" wording fails here too.
+    """
+
+    HOOK_POINT = "vital_inbound_activity_cheat_code"
+    #: Sentences that are only true while nothing fires the hook point.
+    UNWIRED_CLAIMS = (
+        "0x6CEC), NOT wired",
+        "Nothing calls it: there is no `runtime.py` call site for 0x6CEC",
+        "COSTS A NON-GM PLAYER: nothing.",
+    )
+    #: ...and the sentence that is only true while something does.
+    WIRED_CLAIM = "BOTH ARE WIRED"
+
+    def _read(self, *parts):
+        return (ROOT.joinpath(*parts)).read_text(encoding="utf-8")
+
+    def _lane_prose(self):
+        return (
+            self._read("src", "pirateforce_foundation", "gm", "dispatch.py")
+            + self._read(
+                "src", "pirateforce_foundation", "lane_hooks",
+                "lane_gm_activity_cheat_code.py",
+            )
+        )
+
+    def test_the_runtime_call_site_and_the_lane_prose_agree(self):
+        runtime_src = self._read(
+            "src", "pirateforce_foundation", "runtime.py",
+        )
+        # THE CALL, NOT THE STRING (pf-adversary, round `6b1o1r`, finding
+        # 9).  A substring search says "wired" for a commented-out call or
+        # a docstring listing hook points, and this test would then DEMAND
+        # the "wired" prose while nothing fires -- telling every lane that
+        # greps "is 0x6CEC wired" the wrong thing with confidence, which
+        # is the failure it exists to prevent.  Measured: commenting the
+        # `lane_hooks.fire(` line out leaves the name on the NEXT line, so
+        # dropping comment LINES was not enough either.  Parsing is what
+        # actually answers it: a Call node whose first argument is this
+        # literal.
+        fired = any(
+            isinstance(node, ast.Call)
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == self.HOOK_POINT
+            for node in ast.walk(ast.parse(runtime_src))
+        )
+        prose = self._lane_prose()
+        if fired:
+            for claim in self.UNWIRED_CLAIMS:
+                self.assertNotIn(
+                    claim, prose,
+                    "runtime.py fires %s, so this sentence is false: %r"
+                    % (self.HOOK_POINT, claim),
+                )
+            self.assertIn(
+                self.WIRED_CLAIM, prose,
+                "runtime.py fires %s and no lane file says so" % self.HOOK_POINT,
+            )
+        else:
+            self.assertNotIn(
+                self.WIRED_CLAIM, prose,
+                "nothing fires %s any more, so the lane must stop saying "
+                "the opcode is wired" % self.HOOK_POINT,
+            )
+
+    def test_the_hook_module_still_registers_the_point_this_test_reads(self):
+        # Without this, renaming the hook point turns the test above into a
+        # green loop over a name nobody uses.
+        self.assertIn(
+            self.HOOK_POINT,
+            self._read(
+                "src", "pirateforce_foundation", "lane_hooks",
+                "lane_gm_activity_cheat_code.py",
+            ),
         )
 
 

@@ -10791,6 +10791,64 @@ allowlist refused all look the same: a silent server and an empty disk.  The
 reason existed only in `GmDispatchOutcome.refusal_reason` and in
 `session.events`, neither of which anyone reads at a keyboard at 01:17.
 
+### The ledger the console line cannot replace (round `5rxy86`)
+
+The console line below is read at the keyboard, once, while the boot is
+running.  `gm/arrival_ledger.py` is the half that is still there the next
+morning: one fixed-shape ASCII line per inbound GM-surface vital that
+reached `gm/dispatch.py`, whatever the outcome, written to
+`capture/gm_arrival_ledger/arrival_ledger.txt` -- a SIBLING of the capture
+root, never inside it, so the capture root keeps its literal property
+("nothing written there for a non-GM connection").
+
+Three tokens to grep, all pinned by `tests/test_gm_arrival_ledger.py`:
+
+```
+GM_VITAL_LEDGER_OPENED ts=... pid=... path=<absolute path of the ledger dir>
+GM_VITAL_ARRIVED ts=... pid=... id=0x51E9 name=GM_RunGMCommandVital account=... len=3 authorized=no outcome=refused_not_gm_account
+GM_VITAL_LEDGER_FULL ts=... pid=... account=... budget=24 further_arrivals_of_this_account_are_not_recorded
+```
+
+EVERY LINE CARRIES ITS OWN pid, not just the header (round `6b1o1r`,
+pf-adversary).  The header alone would make attribution POSITIONAL --
+"lines after a header belong to that header's process" -- and this file is
+append-only and shared by every process that resolves to the same ledger
+root.  Boot the server, run `pytest` in a second terminal, then press the
+GM button: the real arrival is appended AFTER pytest's header, and the
+positional rule blames pytest for the tester's own frame.  Measured, not
+imagined: a full suite run wrote real `GM_VITAL_ARRIVED` lines into this
+repository's own working copy from three test files, invisible to
+`git status` because `.gitignore` hides `**/capture*/`.  **When you grade
+an attended boot, filter by the pid of the server you booted.**
+
+`GM_VITAL_LEDGER_OPENED` is written once per process AND printed to the
+console once, and it carries the absolute path: a server whose working
+directory is not the one the reader is looking under produces exactly the
+"no folder ever appeared" that R322B reported, and nothing else in this
+package rules that out.  The header's own pid names the process that
+opened this root; the per-line pids are what actually separate this boot's
+lines from the previous boot's and from a `pytest` run that used the same
+relative root -- the file is append-only across runs.  One header is
+written PER LEDGER ROOT per process, not one per process: a process that
+touches two roots used to leave the second one headerless while the
+console line named the first, which is the "directory the reader is not
+looking under" failure wearing a different coat.
+
+`outcome=` is `captured`, `refused_<reason>`, or `raised_<ExcName>`.
+`authorized=` is `yes`, `no`, or `unknown` (the chain raised, so whether
+the account is on the allowlist is the one thing that call site does not
+know -- do not read `unknown` as `no` and go editing `gm_accounts.json`).
+A field that ends in `~` was cut at its cap; grep for the prefix, not the
+whole token.
+
+READING RULE, the same one this whole page gives for the capture folder:
+**a line means the frame reached this lane.  A MISSING line does not mean
+it did not.**  A missing line is also produced by a spent budget (grep
+`GM_VITAL_LEDGER_FULL`), a failed write, an unwritable directory, a
+different working directory, or a process that died first.  The budget is
+per account (24 lines each, 32 accounts, then one shared overflow bucket),
+so a flooding peer spends its own budget and not the tester's.
+
 `gm/allowlist_probe.py` closes that.  On the first `REFUSAL_NOT_GM` in a
 process, one line goes to the operator's console:
 

@@ -57,13 +57,21 @@ TIERS
              row itself.
 
 Usage:
-    python3 tools/pf_ui_wire_name_census.py [--emit] [--tsv PATH]
+    python3 tools/pf_ui_wire_name_census.py [--emit] [--tsv IN] [--artifact OUT]
+
+    --tsv is the INPUT catalog (pf_bridge's 327-name registry, read only).
+    --artifact is the OUTPUT artifact (this tool's own census file, which
+    --emit OVERWRITES).  They are not interchangeable, and passing either
+    file to the other flag is refused by name rather than half-obeyed --
+    two lanes lost a round each to that swap on 2026-09-07.
+
       (no flag)   re-derive the census and compare it against the committed
                   artifact (reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv);
                   nonzero exit + a diff-shaped message on any drift.
-      --emit      (re)write the artifact, then run the same comparison
-                  (always equal right after --emit; kept for symmetry with
-                  the project's other census tools).
+      --emit      (re)write the artifact, printing `CENSUS EMIT: rows
+                  changed` or `CENSUS EMIT: no change` FIRST -- the
+                  comparison that follows a write is trivially equal and
+                  is not evidence of anything.
       --summary   print the family/tier counts table to stdout and exit 0
                   (does not touch the artifact).
       --where N   print `relpath:line` of the exact occurrence this census
@@ -130,6 +138,48 @@ DEFAULT_ARTIFACT = ROOT / "reports" / "PF_UI_WIRE_NAME_CENSUS_20260906.tsv"
 ARTIFACT_HEADER = "id\tname\tfamily\tis_client_req\ttier\tevidence"
 
 
+def first_uncommented_line(text: str) -> str:
+    """First line of TEXT that is neither blank nor a `#` comment.
+
+    This is the ONE test that tells this tool's own emitted artifact apart
+    from the master catalog, and it has to be exact.  Measured 2026-09-07
+    (round `uw3bxb`, pf-adversary D3/D5 of round `8y18nc`): the catalog has
+    FOUR leading `#` lines, not two, and the fourth of them reads
+    `# id<TAB>name` -- so a check that looks at the first PARSED row pair
+    ("id", "name") accuses the real catalog the moment those two comment
+    characters are gone, and a check that looks at any two-column header
+    accuses it as well.  `ARTIFACT_HEADER` has SIX columns and the catalog
+    has no six-column header row in any spelling, commented or not.
+    """
+    for line in text.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        return line
+    return ""
+
+
+def _artifact_where_catalog_belongs(path) -> str:
+    return (
+        f"{path} looks like this tool's own emitted artifact (its first "
+        f"uncommented line is the artifact header `{ARTIFACT_HEADER}`), not "
+        "the master catalog. --tsv READS the catalog "
+        "(pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv); "
+        "--artifact READS AND, with --emit, OVERWRITES the census artifact "
+        "(reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv); plain "
+        "`python3 tools/pf_ui_wire_name_census.py` already uses the right "
+        "default for both"
+    )
+
+
+def _catalog_where_artifact_belongs(path) -> str:
+    return (
+        f"CENSUS ERROR: refusing to write the census over {path}: that file "
+        "is not this tool's artifact (its first uncommented line is not "
+        f"`{ARTIFACT_HEADER}`). --artifact is the OUTPUT path and --emit "
+        "overwrites it; the catalog goes to --tsv, which is read only"
+    )
+
+
 class CensusError(Exception):
     """Raised when an input file is missing or malformed."""
 
@@ -142,8 +192,11 @@ def load_names(tsv_path: Path = DEFAULT_TSV):
             "checkout next to the server repo (see tools/pf_vital_names.py "
             "DEFAULT_TSV for the same layout assumption)"
         )
+    text = tsv_path.read_text(encoding="utf-8")
+    if first_uncommented_line(text) == ARTIFACT_HEADER:
+        raise CensusError(_artifact_where_catalog_belongs(tsv_path))
     rows = []
-    for line in tsv_path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         if not line.strip() or line.startswith("#"):
             continue
         parts = line.split("\t")
@@ -152,37 +205,6 @@ def load_names(tsv_path: Path = DEFAULT_TSV):
         wid, name = parts[0].strip(), parts[1].strip()
         if wid and name:
             rows.append((wid, name))
-    if rows and rows[0] == ("id", "name"):
-        # THE ARTIFACT WAS PASSED WHERE THE CATALOG BELONGS.  Measured
-        # 2026-09-07 (round `8y18nc`): this tool's own emitted artifact
-        # starts with the header row `id<TAB>name<TAB>family...`, and every
-        # line after it also has a hex id in column 1 and a Vital name in
-        # column 2 -- so the loop above happily read the ARTIFACT as if it
-        # were the master catalog, returned 328 rows (327 real ones plus
-        # the literal header pair), and main() then compared a census
-        # derived from that against the committed artifact and printed
-        # `CENSUS DRIFT`.  That false alarm is not hypothetical: it cost
-        # LANE-GM a round to report (pf_bridge letter `20260907_1929`) and
-        # COO a round to adjudicate (`20260907_2050`), and both quoted the
-        # DRIFT line as proof the committed artifact was stale on main --
-        # it was not, and still is not (this round re-emitted with the real
-        # defaults and git reported no diff at all).
-        #
-        # The catalog has no header row (its two leading lines are `#`
-        # comments, skipped above) and no catalog row can be the literal
-        # pair ("id", "name"), so this test cannot fire on a real catalog;
-        # and it is a refusal rather than a silent skip of the header,
-        # because reading the artifact as the catalog gives an answer that
-        # LOOKS like a census and is not one.
-        raise CensusError(
-            f"{tsv_path} looks like this tool's own emitted artifact "
-            "(first row is the header `id<TAB>name`), not the master "
-            "catalog. --tsv takes the catalog "
-            "(pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv); "
-            "the artifact path is --artifact, and plain "
-            "`python3 tools/pf_ui_wire_name_census.py` already uses the "
-            "right default for both"
-        )
     return rows
 
 
@@ -731,12 +753,33 @@ def _print_summary(rows) -> None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--tsv", type=Path, default=DEFAULT_TSV)
-    parser.add_argument("--artifact", type=Path, default=DEFAULT_ARTIFACT)
-    parser.add_argument("--emit", action="store_true")
-    parser.add_argument("--summary", action="store_true")
-    parser.add_argument("--where", metavar="NAME", default=None)
-    parser.add_argument("--where-all", metavar="NAME", default=None)
+    parser.add_argument(
+        "--tsv", type=Path, default=DEFAULT_TSV,
+        help="INPUT: the master catalog of vital names in pf_bridge "
+             "(read only; never written). Default: %(default)s",
+    )
+    parser.add_argument(
+        "--artifact", type=Path, default=DEFAULT_ARTIFACT,
+        help="OUTPUT: the committed census artifact this tool emits and "
+             "compares against (OVERWRITTEN by --emit). Default: %(default)s",
+    )
+    parser.add_argument(
+        "--emit", action="store_true",
+        help="rewrite the --artifact file from a fresh re-derive instead of "
+             "comparing against it",
+    )
+    parser.add_argument(
+        "--summary", action="store_true",
+        help="print the per-family tier counts only; do not compare or write",
+    )
+    parser.add_argument(
+        "--where", metavar="NAME", default=None,
+        help="print the first source file that mentions NAME, then exit",
+    )
+    parser.add_argument(
+        "--where-all", metavar="NAME", default=None,
+        help="print every source file that mentions NAME, then exit",
+    )
     args = parser.parse_args(argv)
 
     if args.where is not None and args.where_all is not None:
@@ -813,6 +856,27 @@ def main(argv=None) -> int:
 
     rendered = render_tsv(rows)
     if args.emit:
+        # D2 (pf-adversary, round `8y18nc`): `--emit --artifact <catalog>`
+        # used to overwrite the 327-name master catalog with a 328-line
+        # census and then print `PASS`, because nothing here looked at what
+        # was about to be destroyed.  Measured on a copy: md5 173f662e ->
+        # 9f211939, exit 0.  An absent file is still fine (that is a first
+        # emit); a file that exists and is not this tool's artifact is not.
+        if args.artifact.exists():
+            existing = args.artifact.read_text(encoding="utf-8")
+            if first_uncommented_line(existing) != ARTIFACT_HEADER:
+                print(
+                    _catalog_where_artifact_belongs(args.artifact),
+                    file=sys.stderr,
+                )
+                return 2
+            # D4: --emit writes before the comparison below, so that
+            # comparison is guaranteed to pass and says nothing.  Say the
+            # useful thing instead, out loud, before the write.
+            print(
+                "CENSUS EMIT: %s"
+                % ("rows changed" if existing != rendered else "no change")
+            )
         # newline="" -- write exactly the "\n" this module already joins
         # with, not whatever this OS's default text-mode translation would
         # do (Windows would otherwise write "\r\n", which read_text's own

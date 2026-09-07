@@ -29,6 +29,7 @@ from unittest import mock
 from pf_preconditions import LUPA_PACKAGE
 
 from pirateforce_foundation import persistence_typed_attrs
+from pirateforce_foundation import store as store_module
 from pirateforce_foundation.lua_api import quest as lua_api_quest
 from pirateforce_foundation.lua_api import quest_criteria, reward
 
@@ -623,3 +624,336 @@ class HostWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class SpendDoorStore:
+    """Answers BOTH subtracting doors; explodes on anything that reads.
+
+    The subtracting sibling of :class:`RmwTripwireStore`, and the same
+    tripwire for the same reason: `lua_api.reward` is not allowed to read a
+    balance, on the spend side either.  Two doors rather than one because
+    `store.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR` makes the generic door refuse
+    `skill_points`; a double that offered only one of them could not tell a
+    correct routing from a broken one.
+    """
+
+    #: Sentinel so `answer=None` can be tested as a store that RETURNS
+    #: `None` -- a plain `if answer is not None` made that case silently
+    #: fall through to the working path and the subtest passed on nothing.
+    _NO_ANSWER = object()
+
+    def __init__(self, balances=None, answer=_NO_ANSWER, raises=None):
+        self.balances: dict = dict(balances or {})
+        self.calls: list = []
+        self._answer = answer
+        self._raises = raises
+
+    def _spend(self, character_id, column, amount):
+        self.calls.append((character_id, column, amount))
+        if self._raises is not None:
+            raise self._raises
+        if self._answer is not SpendDoorStore._NO_ANSWER:
+            return self._answer
+        key = (character_id, column)
+        if key not in self.balances:
+            raise store_module.UnmeasuredTypedAttributeError(
+                "character %d has no %s value yet (NULL)"
+                % (character_id, column))
+        if self.balances[key] < amount:
+            raise store_module.InsufficientTypedAttributeError(
+                "character %d has %s=%d, which does not cover a spend of %d"
+                % (character_id, column, self.balances[key], amount))
+        self.balances[key] -= amount
+        return self.balances[key]
+
+    def spend_typed_attribute(self, character_id, column, amount):
+        if column in store_module.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR:
+            raise ValueError(
+                "%s has its own spend door (%s)"
+                % (column, store_module.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR[
+                    column]))
+        return self._spend(character_id, column, amount)
+
+    def spend_skill_points(self, character_id, cost):
+        return self._spend(character_id, "skill_points", cost)
+
+    def __getattr__(self, name):  # pragma: no cover - only fires on a defect
+        raise AssertionError(
+            "lua_api.reward touched %r on the store: the charge seam may "
+            "only call the two doors in reward.SPEND_DOOR" % (name,))
+
+
+class SpendDoorRoutingTests(unittest.TestCase):
+    """The map, pinned against LANE-DB's own declaration of the split.
+
+    Derived from `store.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR` in BOTH
+    directions rather than restated: the day another column gains a door of
+    its own, this fails instead of routing that column's charge into a
+    `ValueError` that `charge` would report as a generic `store_error`.
+    """
+
+    def test_every_reward_kind_has_a_spend_door(self):
+        self.assertEqual(set(reward.SPEND_DOOR), set(quest_criteria.KINDS))
+        self.assertEqual(set(reward.SPEND_DOOR), set(reward.KIND_COLUMN))
+
+    def test_a_column_with_its_own_door_is_routed_to_that_door(self):
+        for kind, column in sorted(reward.KIND_COLUMN.items()):
+            own = store_module.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR.get(column)
+            with self.subTest(kind=kind, column=column):
+                if own is None:
+                    self.assertEqual(reward.SPEND_DOOR[kind],
+                                     "spend_typed_attribute")
+                else:
+                    self.assertEqual(reward.SPEND_DOOR[kind], own)
+
+    def test_every_door_named_here_exists_on_the_real_store(self):
+        for kind, door in sorted(reward.SPEND_DOOR.items()):
+            with self.subTest(kind=kind):
+                self.assertTrue(
+                    callable(getattr(store_module.SQLiteStore, door, None)),
+                    "%s names %r, which SQLiteStore does not have" % (kind,
+                                                                     door))
+
+    def test_the_generic_door_really_does_refuse_the_special_column(self):
+        """The map is load-bearing, not decorative.
+
+        If `spend_typed_attribute` quietly started accepting `skill_points`,
+        the routing above would become a matter of taste.  It does not:
+        pinned here so the reason for the map cannot decay silently.
+        """
+        self.assertIn("skill_points",
+                      store_module.COLUMNS_WITH_THEIR_OWN_SPEND_DOOR)
+
+
+class ChargeTests(unittest.TestCase):
+    """`charge` -- what reaches the row, and what every refusal looks like."""
+
+    def _charge(self, kind, character_id, amount, store=None):
+        lines: list = []
+        charged, reason = reward.charge(
+            "Player.AddCash", kind, character_id, amount,
+            store=store, log=lines.append)
+        return charged, reason, lines
+
+    def test_takes_the_magnitude_off_the_mapped_column(self):
+        store = SpendDoorStore({(7, "cash"): 1000})
+        charged, reason, lines = self._charge(
+            quest_criteria.KIND_CASH, 7, 250, store)
+        self.assertIsNone(reason)
+        self.assertEqual(store.balances[(7, "cash")], 750)
+        self.assertEqual(charged.column, "cash")
+        self.assertEqual(charged.amount, 250)
+        self.assertEqual(charged.balance_after, 750)
+        self.assertEqual(store.calls, [(7, "cash", 250)])
+        self.assertTrue(any("charged=250 balance_after=750" in line
+                            for line in lines), lines)
+
+    def test_a_skill_point_charge_goes_through_the_other_door(self):
+        """Routed by kind, and the generic door is never even asked.
+
+        `SpendDoorStore.spend_typed_attribute` raises `ValueError` for
+        `skill_points` exactly as the real store does, so a routing mistake
+        surfaces as a `store_error` refusal rather than a passing test.
+        """
+        store = SpendDoorStore({(7, "skill_points"): 5})
+        charged, reason, _lines = self._charge(
+            quest_criteria.KIND_SKILL_POINT, 7, 2, store)
+        self.assertIsNone(reason)
+        self.assertEqual(store.balances[(7, "skill_points")], 3)
+        self.assertEqual(charged.balance_after, 3)
+
+    def test_spending_the_last_coin_is_allowed_and_lands_on_zero(self):
+        store = SpendDoorStore({(7, "cash"): 250})
+        charged, reason, _lines = self._charge(
+            quest_criteria.KIND_CASH, 7, 250, store)
+        self.assertIsNone(reason)
+        self.assertEqual(charged.balance_after, 0)
+
+    def test_a_balance_that_does_not_cover_it_refuses_and_moves_nothing(self):
+        """The free-ship case, and it is a NORMAL outcome, not an error."""
+        store = SpendDoorStore({(7, "cash"): 100})
+        charged, reason, lines = self._charge(
+            quest_criteria.KIND_CASH, 7, 250, store)
+        self.assertIsNone(charged)
+        self.assertEqual(reason, reward.REFUSE_INSUFFICIENT)
+        self.assertEqual(store.balances[(7, "cash")], 100)
+        self.assertTrue(any("refused=balance_does_not_cover_it" in line
+                            and "uncharged=250" in line for line in lines),
+                        lines)
+
+    def test_an_unmeasured_balance_is_not_reported_as_being_short(self):
+        """COO-DECISION 20260901_1059: NULL is not zero, and not `broke`.
+
+        The two need different fixes, so they get different tokens.  A
+        single `cannot afford it` bucket would have a player whose balance
+        nobody ever wrote look identical to a player who spent it.
+        """
+        store = SpendDoorStore()
+        charged, reason, lines = self._charge(
+            quest_criteria.KIND_CASH, 7, 250, store)
+        self.assertIsNone(charged)
+        self.assertEqual(reason, reward.REFUSE_UNMEASURED)
+        self.assertNotEqual(reward.REFUSE_UNMEASURED,
+                            reward.REFUSE_INSUFFICIENT)
+        self.assertTrue(any("refused=balance_was_never_measured" in line
+                            for line in lines), lines)
+
+    def test_the_two_refusals_are_told_apart_by_type_not_by_message(self):
+        """The defect LANE-DB warned about, reproduced from the other side.
+
+        `InsufficientSkillPointsError` is not a subclass of
+        `InsufficientTypedAttributeError` (nor the reverse), so a door that
+        matched on one type only would report the other as `store_error`
+        and a caller counting affordability refusals would undercount.  Both
+        families are pinned here, both directions.
+        """
+        pairs = [
+            (store_module.InsufficientTypedAttributeError,
+             reward.REFUSE_INSUFFICIENT),
+            (store_module.InsufficientSkillPointsError,
+             reward.REFUSE_INSUFFICIENT),
+            (store_module.UnmeasuredTypedAttributeError,
+             reward.REFUSE_UNMEASURED),
+            (store_module.UnmeasuredSkillPointsError,
+             reward.REFUSE_UNMEASURED),
+        ]
+        for exc_type, expected in pairs:
+            with self.subTest(exc=exc_type.__name__):
+                store = SpendDoorStore(raises=exc_type("nope"))
+                _charged, reason, _lines = self._charge(
+                    quest_criteria.KIND_CASH, 7, 250, store)
+                self.assertEqual(reason, expected)
+        self.assertFalse(issubclass(store_module.InsufficientSkillPointsError,
+                                    store_module.
+                                    InsufficientTypedAttributeError))
+        self.assertFalse(issubclass(store_module.
+                                    InsufficientTypedAttributeError,
+                                    store_module.
+                                    InsufficientSkillPointsError))
+
+    def test_any_other_store_failure_is_a_store_error_not_an_affordability(
+            self):
+        for exc in (RuntimeError("database is locked"),
+                    KeyError(7),
+                    ValueError("cash has its own spend door")):
+            with self.subTest(exc=type(exc).__name__):
+                store = SpendDoorStore(raises=exc)
+                _charged, reason, _lines = self._charge(
+                    quest_criteria.KIND_CASH, 7, 250, store)
+                self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+
+    def test_a_negative_amount_is_refused_not_turned_into_a_payment(self):
+        """A double negative here would make `charge` silently become `grant`."""
+        store = SpendDoorStore({(7, "cash"): 1000})
+        _charged, reason, _lines = self._charge(
+            quest_criteria.KIND_CASH, 7, -250, store)
+        self.assertEqual(reason, reward.REFUSE_NEGATIVE)
+        self.assertEqual(store.calls, [])
+        self.assertEqual(store.balances[(7, "cash")], 1000)
+
+    def test_zero_bools_bad_types_and_missing_pieces_all_refuse_by_name(self):
+        store = SpendDoorStore({(7, "cash"): 1000})
+        cases = [
+            (quest_criteria.KIND_CASH, 7, 0, store,
+             reward.REFUSE_NOTHING_TO_PAY),
+            (quest_criteria.KIND_CASH, 7, True, store,
+             reward.REFUSE_BAD_AMOUNT),
+            (quest_criteria.KIND_CASH, 7, "250", store,
+             reward.REFUSE_BAD_AMOUNT),
+            (quest_criteria.KIND_CASH, 0, 250, store,
+             reward.REFUSE_NO_CHARACTER),
+            (quest_criteria.KIND_CASH, True, 250, store,
+             reward.REFUSE_NO_CHARACTER),
+            ("Doubloons", 7, 250, store, reward.REFUSE_UNKNOWN_KIND),
+            (quest_criteria.KIND_CASH, 7, 250, None,
+             reward.REFUSE_NO_STORE),
+        ]
+        for kind, cid, amount, st, expected in cases:
+            with self.subTest(kind=kind, cid=cid, amount=amount):
+                _charged, reason, _lines = self._charge(kind, cid, amount, st)
+                self.assertEqual(reason, expected)
+        self.assertEqual(store.calls, [])
+        self.assertEqual(store.balances[(7, "cash")], 1000)
+
+    def test_a_store_without_the_spend_door_refuses_under_its_own_token(self):
+        """Not folded into `no_reward_store`: a store can have one half.
+
+        Every store in this repository had `add_typed_attribute` and no
+        spend door between round `yfeauz` and LANE-DB's round `dcz2sv`.
+        """
+        _charged, reason, lines = self._charge(
+            quest_criteria.KIND_CASH, 7, 250, RmwTripwireStore(start=1000))
+        self.assertEqual(reason, reward.REFUSE_STORE_CANNOT_SPEND)
+        self.assertNotEqual(reward.REFUSE_STORE_CANNOT_SPEND,
+                            reward.REFUSE_NO_STORE)
+        self.assertTrue(any("refused=store_has_no_atomic_spend" in line
+                            for line in lines), lines)
+
+    def test_an_impossible_balance_is_disbelieved(self):
+        """A row cannot hold a negative: migration 006 CHECKs it.
+
+        Weaker than the adding door's `balance_after >= delta` and said so
+        in `_store_spend`'s docstring -- a store answering 0 to everything
+        IS believed here, because 0 is the right answer for a player who
+        just spent their last coin.
+        """
+        for bogus in (-1, None, "750", True, 1.0):
+            with self.subTest(answer=bogus):
+                store = SpendDoorStore({(7, "cash"): 1000}, answer=bogus)
+                _charged, reason, _lines = self._charge(
+                    quest_criteria.KIND_CASH, 7, 250, store)
+                self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+
+    def test_every_reason_charge_can_return_is_in_the_closed_set(self):
+        seen = set()
+        store = SpendDoorStore({(7, "cash"): 100})
+        probes = [
+            (quest_criteria.KIND_CASH, 7, 250, store),
+            (quest_criteria.KIND_CASH, 7, 0, store),
+            (quest_criteria.KIND_CASH, 7, -1, store),
+            (quest_criteria.KIND_CASH, 7, "x", store),
+            (quest_criteria.KIND_CASH, 0, 5, store),
+            ("Doubloons", 7, 5, store),
+            (quest_criteria.KIND_CASH, 7, 5, None),
+            (quest_criteria.KIND_CASH, 7, 5, RmwTripwireStore()),
+            (quest_criteria.KIND_CASH, 9, 5, store),
+            (quest_criteria.KIND_CASH, 7, 5,
+             SpendDoorStore(raises=RuntimeError("locked"))),
+        ]
+        for kind, cid, amount, st in probes:
+            _charged, reason, _lines = self._charge(kind, cid, amount, st)
+            if reason is not None:
+                seen.add(reason)
+        self.assertTrue(seen <= reward.REFUSALS, sorted(seen - reward.REFUSALS))
+        self.assertIn(reward.REFUSE_INSUFFICIENT, seen)
+        self.assertIn(reward.REFUSE_UNMEASURED, seen)
+
+    def test_charge_never_raises_whatever_the_store_does(self):
+        """A declined purchase must not kill the quest file that asked."""
+
+        class HostileStore:
+            """Raises from the door AND from attribute lookup itself.
+
+            The second half is the one `getattr(x, n, None)` does not
+            cover: it swallows `AttributeError` only, so `__getattr__`
+            raising anything else escapes a capability check that looks
+            total.
+            """
+
+            def spend_typed_attribute(self, *_a, **_k):
+                raise MemoryError("boom")
+
+            def spend_skill_points(self, *_a, **_k):
+                raise MemoryError("boom")
+
+        _charged, reason, _lines = self._charge(
+            quest_criteria.KIND_CASH, 7, 250, HostileStore())
+        self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+
+        class LookupExplodes:
+            def __getattr__(self, name):
+                raise AssertionError("no attribute lookups on me: %r" % name)
+
+        _charged, reason, _lines = self._charge(
+            quest_criteria.KIND_CASH, 7, 250, LookupExplodes())
+        self.assertEqual(reason, reward.REFUSE_STORE_CANNOT_SPEND)

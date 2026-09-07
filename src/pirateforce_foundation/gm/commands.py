@@ -500,6 +500,81 @@ def _is_int_literal(value: str) -> bool:
     return True
 
 
+#: The name form's query is the ONE string in this grammar whose accepted set
+#: is not the shipped table but the casefold-and-whitespace pre-image of it,
+#: which is infinite and entirely client-chosen.  pf-adversary (round
+#: `nqgmam`, D2) measured what that widening bought: `warp pri<U+017F>on
+#: exile i<U+017F>land` resolved to scene 2, and `warp Port<U+3000>Royal` to
+#: scene 1, because `casefold()` is many-to-one and `str.split()` splits on
+#: every `str.isspace()` character -- eleven of the first group and eight of
+#: the second have NO cp874 mapping, and none of them is Unicode category
+#: `Cf`, so the chat layer's format-character filter does not see them.
+#: Before the name form existed every one of those lines was a parse error,
+#: and a refused command never reaches the audit writer; after it, they were
+#: reaching `raw` on disk.
+#:
+#: So the query is held to the same bar the shipped names already meet: a
+#: character the bridge console can encode, and not a control or separator
+#: pretending to be one.  This excludes NO shipped name -- all 330 encode to
+#: cp874 and none carries a control character, both pinned in
+#: `test_gm_scene_catalog.py` -- and it does not touch the numeric form,
+#: which never reaches this branch.
+QUERY_CONSOLE_CODEC = "cp874"
+
+
+def _query_is_console_safe(rest: str) -> bool:
+    """True when every character of `rest` could survive the console codec.
+
+    ASCII space and tab are allowed through even though neither is
+    `printable`: they are what `str.split()` was already folding, they encode
+    in `QUERY_CONSOLE_CODEC`, and rejecting them would narrow a form that
+    works today.  Everything else must be `isprintable()` AND encodable --
+    the second check is the one that catches the homoglyphs, which are
+    printable and still have no byte in this codec.
+    """
+    if any(not character.isprintable() and character not in " \t" for character in rest):
+        return False
+    try:
+        rest.encode(QUERY_CONSOLE_CODEC)
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _did_you_mean(rest: str) -> str:
+    """`; did you mean ...` for a near miss, or `""` when there is none.
+
+    THE ONLY REASON THIS CAN BE PRINTED AT ALL is that every character of it
+    comes out of the pinned client table and none of it comes out of `rest`.
+    `test_gm_scene_catalog.py` pins that all 330 shipped GM names encode to
+    cp874, which is the bridge console's codec, so no suggestion can be the
+    unlucky byte that kills the console the way echoing the operator's own
+    text could.  `_parse_warp_named` below says its branch echoes nothing
+    typed; this helper is held to the same rule and a test asserts it
+    directly, with a marker that appears in none of the 330 shipped names.
+
+    Why it exists: exact-or-nothing was right for deciding where to send a
+    GM and wrong as the LAST thing an operator reads.  One dropped letter
+    out of a 330-row table used to end at "no GM scene carries that name",
+    with no way to search from the client.
+
+    An ambiguous suggestion is reported as a name and a COUNT (`Hidden
+    Island` is on twenty scenes) -- a way-out line that prints twenty
+    numbers is a way-out line nobody reads.
+    """
+    suggestions = scene_catalog.suggest_gm_scene_names(rest)
+    if not suggestions:
+        return ""
+    parts = []
+    for name, id_count in suggestions:
+        if id_count == 1:
+            scene_id = scene_catalog.resolve_gm_scene_name(name)[0]
+            parts.append(f"{name!r} (scene {scene_id})")
+        else:
+            parts.append(f"{name!r} (on {id_count} scenes)")
+    return "; did you mean " + " or ".join(parts)
+
+
 def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     """`warp <scene name>` -> the same GmCommand `warp <scene_id>` produces.
 
@@ -523,12 +598,19 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     strictly less echoing than the `_require_int` path this branch replaced,
     which put the raw token in its message.)
     """
+    if not _query_is_console_safe(rest):
+        # Echoes nothing typed, for the reason this whole branch exists.
+        raise GmCommandParseError(
+            "a scene name may only use characters the console can print "
+            f"({QUERY_CONSOLE_CODEC}); "
+            f'use {COMMAND_USAGE["warp"]!r}'
+        )
     matches = scene_catalog.resolve_gm_scene_name(rest)
     if not matches:
         raise GmCommandParseError(
             "no GM scene carries that name in the catalog "
             f"({scene_catalog.GM_NAME_COUNT} names over "
-            f"{scene_catalog.SCENE_COUNT} scenes); "
+            f"{scene_catalog.SCENE_COUNT} scenes){_did_you_mean(rest)}; "
             f'use {COMMAND_USAGE["warp"]!r}'
         )
     if len(matches) > 1:

@@ -7,7 +7,7 @@ Player.RemoveBuff	Player	2	2	AUTH	arity 1 (var)	buff	STUB	NO	needs skill/buff st
 Quest.AddCriteriaCash	Quest	165	165	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character cash grant seam (Player.* queue, not built)	M5
 Quest.AddLvCriteriaCash	Quest	58	58	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character cash grant seam (Player.* queue, not built)	M5
 Player.GetCash	Player	7	7	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M5
-Player.AddCash	Player	6	6	AUTH	arity 1 (var)	cash	STUB	PARTIAL	the column and the atomic add exist, but the corpus calls this name with a NEGATIVE amount (q_ship.lua:50, q_boat_health.lua:21) and add_typed_attribute takes delta >= 0 only: needs a spend door with a floor answer from LANE-DB	M5
+Player.AddCash	Player	6	6	AUTH	arity 1 (var)	cash	REAL	YES	round 2euu94: both halves exist -- reward.grant -> store.add_typed_attribute on a positive argument, reward.charge -> store.spend_typed_attribute on a negative one. NOT YET REACHED BY A SHIPPED SCRIPT: Quest.VarN still answers STUB_DEFAULT, and the QUESTDATA_TH__QUEST cells behind all six call sites are 0 or u32-wrapped negatives the signed door refuses until the per-column signedness rule is decided	M5
 Player.CastSkillAt	Player	69	46	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	needs skill/buff state + cast wire frame, cross-lane w/ LANE-B/CS combat	M4
 Trigger.CastSkillXYZ	Trigger	11	6	AUTH	arity 4 (var|var|var|var)	combat-skill	STUB	PARTIAL	needs skill-cast wire frame (LANE-CS territory)	M4
 Trigger.CastSkill	Trigger	9	9	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	needs skill-cast wire frame (LANE-CS territory)	M4

@@ -429,6 +429,15 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             # AddCash is deliberately NOT here -- the corpus calls it with a
             # negative amount and no spend door exists yet.
             "AddExp", "AddSkillPoint",
+            # AddCash joined in round `2euu94`: the first name that can
+            # move a row in EITHER direction, adding through
+            # store.add_typed_attribute and subtracting through
+            # store.spend_typed_attribute (lua_api/reward.py's grant and
+            # charge doors).  It waited for the subtracting door because
+            # two corpus call sites are charges (q_ship.lua:50,
+            # q_boat_health.lua:21) and paying only the positive ones
+            # would have handed the player a free ship.
+            "AddCash",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):
