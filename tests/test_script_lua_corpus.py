@@ -70,6 +70,21 @@ class FullCorpusLoadsHeadlessTests(unittest.TestCase):
         self.assertEqual(set(report.failed_paths), KNOWN_LOAD_FAILURES)
         self.assertEqual(report.ok, report.total - len(KNOWN_LOAD_FAILURES))
 
+    def test_no_file_in_the_real_corpus_fails_because_of_a_defect_of_OURS(self):
+        # pf-adversary D1 (round `oghyca`): the bucket that separates our
+        # broken checkout from a broken quest file had no assertion of its
+        # own on the REAL corpus, and every corpus test threw the log away.
+        # Deleting lua_api/message_catalog.tsv -- the shape a .gitignore
+        # accident produces -- put 23 of 616 files in host_failed and this
+        # module stayed green.  Both halves are asserted here: the bucket,
+        # and the LUA_HOST line that is the only thing a human running the
+        # sweep by hand would see.
+        logged = []
+        report = script_host.load_corpus(LUA_ROOT, log=logged.append)
+        host_lines = [line for line in logged if line.startswith("LUA_HOST")]
+        self.assertEqual(report.host_failed, [], "\n".join(host_lines))
+        self.assertEqual(host_lines, [])
+
     def test_load_corpus_never_raises_out_of_the_full_616_file_run(self):
         # The fail-closed contract itself: calling load_corpus over the
         # real, full corpus must complete and return, never propagate.
@@ -294,6 +309,32 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: pin makes visible rather than a count to celebrate.
 BASELINE_TOTAL_STUB_CALLS = 2597
 
+#: The other half of the split, pinned for the same reason (pf-adversary
+#: D1, round `oghyca`).  Only the stub total was pinned before, so a round
+#: that changed the real corpus's behaviour saw 2852 -> 2849 and nothing
+#: went red: the stub total happened to stay put.  An exact pin, not a
+#: ceiling -- a round that makes another API real raises this in the same
+#: commit; a round that breaks one gets caught here.  Measured 2026-09-07,
+#: round `5qtaqy`, with FIXED_QUEST_CLOCK.
+BASELINE_TOTAL_REAL_CALLS = 2852
+
+
+def bucket_conservation(report):
+    """``(total, the buckets' own accounting)`` for a corpus report.
+
+    pf-adversary D3 (round `oghyca`): the file-level buckets are NOT a
+    partition -- a file whose run failed both ways is in ``call_failed``
+    and in ``host_failed`` at once -- so summing them overcounts.  This is
+    the equation that does hold, written once and asserted against both the
+    real corpus and a fixture built to have that overlap.
+    """
+    accounted = (len(report.load_failed)
+                 + len(report.no_entry_point)
+                 + len(report.ran)
+                 + len({run.path for run in report.call_failed}
+                       | set(report.host_failed)))
+    return report.total, accounted
+
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()
 class FullCorpusEntryPointCallsTests(unittest.TestCase):
@@ -348,6 +389,48 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
             script_host.run_corpus_entry_points(LUA_ROOT, log=lambda _msg: None)
         except Exception as exc:  # noqa: BLE001 - this IS the assertion
             self.fail("run_corpus_entry_points raised instead of failing closed: %r" % exc)
+
+    def test_no_entry_point_failure_in_the_real_corpus_is_OURS(self):
+        # pf-adversary D1 (round `oghyca`), call-side half.  host_failed and
+        # host_failed_runs were both introduced with no assertion against
+        # the real corpus at all -- a bucket "reported and never read",
+        # which is the exact shape this project's house rule forbids.
+        logged = []
+        report = script_host.run_corpus_entry_points(
+            LUA_ROOT, log=logged.append, quest_clock=FIXED_QUEST_CLOCK)
+        host_lines = [line for line in logged if line.startswith("LUA_HOST")]
+        self.assertEqual(report.host_failed, [], "\n".join(host_lines))
+        self.assertEqual([run.path for run in report.host_failed_runs], [])
+        self.assertEqual(host_lines, [])
+
+    def test_the_LUA_SCRIPT_lines_are_exactly_the_pinned_failures(self):
+        # The log is evidence, not decoration: every line the sweep prints
+        # against a script must be one of the failures this module already
+        # pins by name, and there must be no line it does not pin.  Without
+        # this the log could gain a whole new failure class and only the
+        # counts would move.
+        logged = []
+        script_host.run_corpus_entry_points(
+            LUA_ROOT, log=logged.append, quest_clock=FIXED_QUEST_CLOCK)
+        blamed = [line for line in logged if line.startswith("LUA_SCRIPT")]
+        self.assertEqual(
+            len(blamed),
+            len(KNOWN_LOAD_FAILURES) + len(KNOWN_ENTRY_POINT_CALL_FAILURES),
+            "\n".join(blamed))
+
+    def test_every_file_lands_in_exactly_one_bucket_or_a_named_overlap(self):
+        # pf-adversary D3 (round `oghyca`): the buckets were documented as
+        # if they partitioned the corpus and do not.  See
+        # bucket_conservation above for the equation that does hold.
+        report = script_host.run_corpus_entry_points(
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
+        total, accounted = bucket_conservation(report)
+        self.assertEqual(total, accounted)
+
+    def test_exactly_the_pinned_real_call_count_no_more_no_fewer(self):
+        report = script_host.run_corpus_entry_points(
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
+        self.assertEqual(report.total_real_calls, BASELINE_TOTAL_REAL_CALLS)
 
     def test_exactly_the_pinned_stub_call_count_no_more_no_fewer(self):
         # Same shape as test_exactly_the_known_failures_fail_no_more_no_fewer
@@ -442,16 +525,94 @@ class HostSideCallFailureBucketingTests(unittest.TestCase):
         self.assertEqual(sorted(by_path["both.lua"].errors), ["Accept_Run"])
         self.assertFalse(by_path["both.lua"].ok)
 
+    def test_a_run_that_only_WE_broke_still_reports_ok_False(self):
+        # pf-adversary D4 (round `oghyca`): deleting `run.ok = False` from
+        # the host-side branch of run_corpus_entry_points left 137 tests
+        # green.  ours.lua is the only file here with host errors and NO
+        # errors of its own, so it is the only one that can say so.
+        report = self._report()
+        by_path = {run.path: run for run in report.host_failed_runs}
+        self.assertEqual(by_path["ours.lua"].errors, {})
+        self.assertFalse(by_path["ours.lua"].ok,
+                         "a run broken only by OUR defect reported ok")
+        # And the control, so this cannot pass by everything being False.
+        self.assertTrue(report.ran[0].ok)
+
+    def test_every_file_lands_in_exactly_one_bucket_or_a_named_overlap(self):
+        # pf-adversary D3 (round `oghyca`), on the fixture that HAS the
+        # overlap: both.lua is in call_failed and host_failed at once, so
+        # the file-level buckets sum to 4 against a total of 3.
+        report = self._report()
+        self.assertEqual(bucket_conservation(report), (3, 3))
+        naive = (len(report.load_failed) + len(report.no_entry_point)
+                 + len(report.ran) + len(report.call_failed)
+                 + len(report.host_failed))
+        self.assertEqual(naive, 4, "the overlap this equation exists for")
+
     def test_the_log_line_names_the_defect_not_the_script(self):
         self._report()
         blamed = [line for line in self.logged
                   if line.startswith("LUA_SCRIPT ours.lua")]
         self.assertEqual(blamed, [], "our own defect was logged against a script")
         ours = [line for line in self.logged
-                if line.startswith("LUA_HOST") and "discovered_at=ours.lua" in line]
+                if line.startswith("LUA_HOST")
+                and 'discovered_at="ours.lua"' in line]
         self.assertEqual(len(ours), 3)
         for line in ours:
             self.assertIn("MessageCatalogError", line)
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class AHostLineNamesAPathWithASpaceUnambiguouslyTests(unittest.TestCase):
+    """pf-adversary D6 (round `oghyca`): the corpus has exactly one file
+    whose name contains a space (`t_test auto.lua`), and the LUA_HOST line
+    used to end `discovered_at=t_test auto.lua entry=ScriptStart` -- a
+    reader splitting on whitespace got `discovered_at=t_test` and no way to
+    tell where the path ended.  The name here is the real one, so this test
+    keeps naming the file that motivated it.
+    """
+
+    SPACED = "t_test auto.lua"
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="pf_lua_spaced_"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+        (self.root / self.SPACED).write_text(
+            "function ScriptStart() Player.ShowMessage(1) end\n",
+            encoding="ascii")
+        catalog_path = lua_api_message._CATALOG_PATH
+        catalog_cache = lua_api_message._CATALOG_CACHE
+        lua_api_message._CATALOG_PATH = self.root / "no_such_catalog.tsv"
+        lua_api_message._CATALOG_CACHE = None
+
+        def restore():
+            lua_api_message._CATALOG_PATH = catalog_path
+            lua_api_message._CATALOG_CACHE = catalog_cache
+
+        self.addCleanup(restore)
+
+    def test_the_path_is_quoted_and_the_entry_point_is_its_own_field(self):
+        logged = []
+        script_host.run_corpus_entry_points(
+            self.root, log=logged.append, quest_clock=FIXED_QUEST_CLOCK)
+        host_lines = [line for line in logged if line.startswith("LUA_HOST")]
+        self.assertEqual(len(host_lines), 1)
+        self.assertIn('discovered_at="%s" entry=ScriptStart' % self.SPACED,
+                      host_lines[0])
+        # The recovery a reader actually performs, done here rather than
+        # asserted about: the quoted field round-trips the whole name.
+        after = host_lines[0].split('discovered_at="', 1)[1]
+        self.assertEqual(after.split('"', 1)[0], self.SPACED)
+
+    def test_the_corpus_still_has_exactly_one_such_file(self):
+        # If this ever goes red the fixture above is no longer the shape of
+        # the real problem -- either the file was renamed (fix the name
+        # here) or the corpus grew more of them (nothing to fix, but say so).
+        if not LUA_ROOT.is_dir():
+            self.skipTest("no sibling pf_bridge corpus on this machine")
+        spaced = sorted(path.name for path in LUA_ROOT.rglob("*.lua")
+                        if " " in path.name)
+        self.assertEqual(spaced, [self.SPACED])
 
 
 @LUPA_PACKAGE.skip_unless_present()
@@ -464,8 +625,11 @@ class BrokenApiSpecIsOursNotTheScriptsTests(unittest.TestCase):
     try/except could classify it, and as a type
     script_host._host_side_error_types() would not have recognised anyway
     (pf-adversary finding 13, round 8ou0zg).  Now it is a lazily-raised
-    ApiSpecError, which is a VendoredDataError, which is host-side: these
-    two tests are what says so out loud.
+    VendoredDataError, which is host-side: these tests are what says so out
+    loud.  (An earlier draft of this docstring named an `ApiSpecError`
+    class.  There has never been one in `src/` -- the name was left over
+    from a draft that was replaced by reusing `VendoredDataError` before
+    the round pushed.  pf-adversary D7.4, round `oghyca`.)
     """
 
     def setUp(self):
@@ -496,8 +660,47 @@ class BrokenApiSpecIsOursNotTheScriptsTests(unittest.TestCase):
         self.assertEqual(len(host_lines), 1)
         self.assertIn("VendoredDataError", host_lines[0])
         self.assertIn(str(self.root / "no_such_api_spec.tsv"), host_lines[0])
-        self.assertTrue(host_lines[0].endswith("discovered_at=innocent.lua"),
+        self.assertTrue(host_lines[0].endswith('discovered_at="innocent.lua"'),
                         host_lines[0])
+
+    def test_a_census_that_PARSES_but_lost_a_name_is_ours_too(self):
+        # pf-adversary D2 (round `oghyca`): the end-to-end claim used to
+        # cover one shape only, the file being absent.  A census whose
+        # CONTENT was wrong parsed happily, and every name it lost reached
+        # the scripts as ApiNamespaceStub's numeric default -- measured, one
+        # trailing space produced 189 `attempt to call a number value` lines
+        # over 122 innocent quest files and not one LUA_HOST line.  This is
+        # that shape, with the digest recomputed so it is the ROW rule being
+        # measured and not the digest.
+        good = [line for line in
+                (Path(__file__).resolve().parents[1] / "src"
+                 / "pirateforce_foundation" / "lua_api" / "api_spec.tsv"
+                 ).read_text(encoding="ascii").splitlines()
+                if not line.startswith("#")]
+        rows = []
+        for line in good:
+            cells = line.split("\t")
+            if cells[:2] == ["Player", "RemoveItem"]:
+                cells[1] = "RemoveItem "  # invisible in a diff
+                line = "\t".join(cells)
+            rows.append(line)
+        body = "\n".join(rows) + "\n"
+        corrupt = self.root / "corrupt_api_spec.tsv"
+        corrupt.write_text(
+            lua_api_spec.BODY_DIGEST_PREFIX + lua_api_spec.body_digest(body)
+            + "\n" + body, encoding="ascii")
+        lua_api_spec._SPEC_PATH = corrupt
+        lua_api_spec._CACHE.clear()
+
+        logged = []
+        report = script_host.run_corpus_entry_points(
+            self.root, log=logged.append, quest_clock=FIXED_QUEST_CLOCK)
+        self.assertEqual(report.host_failed, ["innocent.lua"])
+        self.assertEqual([line for line in logged
+                          if line.startswith("LUA_SCRIPT")], [])
+        host_lines = [line for line in logged if line.startswith("LUA_HOST")]
+        self.assertEqual(len(host_lines), 1)
+        self.assertIn("method that is not an identifier", host_lines[0])
 
     def test_the_same_holds_for_the_load_only_sweep(self):
         logged = []
