@@ -1,8 +1,17 @@
-"""LANE-Q's ``Player`` namespace: 10 of 73 names real
+"""LANE-Q's ``Player`` namespace: 11 of 73 names real
 (``GetLv``/``GetClass``, ``CheckItemNum``/``GetItemNum``/``CheckEquipItem``,
 ``MobAppear``, ``ShowMessage``, round `yfeauz`'s ``AddExp``/
-``AddSkillPoint`` -- the first two that WRITE -- and round `2euu94`'s
-``AddCash``, the first that can write in EITHER direction).
+``AddSkillPoint`` -- the first two that WRITE -- round `2euu94`'s
+``AddCash``, the first that can write in EITHER direction, and, added by
+LANE-A on the COO's M2 order of round `2241`, ``TeleportCheck``).
+
+WHY ``TeleportCheck`` STOPPED BEING A STUB, AND WHO OWNS IT.  Its stub reason
+(``_TELEPORT_VEHICLE``) was "needs a world-movement/vehicle wire frame this
+lane does not own, cross-lane with LANE-A's world registry", and that is
+exactly what has now arrived: ``RE-303`` (PASS) measured the whole exchange
+byte by byte, and ``world_m2_teleport_check`` -- a LANE-A module -- owns the
+frame.  The closure below is therefore LANE-A's, living in LANE-Q's file
+because that is where the name is, not because the lane boundary moved.
 
 WHY THESE TWO, WHY TOGETHER.  ``docs/SCRIPT_LANE.md`` (round `bxly5p`) found
 both of LANE-Q's own charter blockers still closed at this round's own
@@ -168,6 +177,7 @@ except ImportError:  # pragma: no cover - stdlib since Python 3.8, this project'
     Protocol = object  # type: ignore[assignment,misc]
 
 from .. import inventory, player_wire
+from .. import world_m2_teleport_check as _teleport_check
 from . import message as _message
 from . import quest_criteria as _quest_criteria
 from . import reward as _reward
@@ -321,11 +331,14 @@ _EMPTY_BACKPACK = inventory.BackpackState(
     inventory.BACKPACK_RANGE_MASK, (),
 )
 
-#: The nine names real so far. See the module docstring for why these
-#: nine, and why every other Player.* name is not real yet.
+#: The eleven names real so far. See the module docstring for why these
+#: eleven, and why every other Player.* name is not real yet.
 REAL_METHODS = frozenset({
     "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
     "MobAppear", "ShowMessage",
+    # The captain-report half of M2: RE-303 (PASS) measured the whole
+    # handshake, so this name no longer needs a frame nobody owns.
+    "TeleportCheck",
     # The two ADD-a-stat names whose column exists and whose sign is
     # always positive in the corpus (see :data:`GRANT_KINDS`).
     "AddExp", "AddSkillPoint",
@@ -663,7 +676,9 @@ STILL_STUBBED: dict[str, str] = {
     "RemoveBuff": _SKILL_BUFF,
     "CheckSkill": _SKILL_BUFF,
     "CheckBuff": _SKILL_BUFF,
-    # teleport/vehicle/camera (14)
+    # teleport/vehicle/camera (13) -- TeleportCheck moved to REAL_METHODS
+    # this round (RE-303 PASS, COO order round `2241`); the other thirteen
+    # still need an outbound frame no letter has measured.
     "BoatHealth": _TELEPORT_VEHICLE,
     "GetBoatHealth": _TELEPORT_VEHICLE,
     "ChangeShip": _TELEPORT_VEHICLE,
@@ -673,7 +688,6 @@ STILL_STUBBED: dict[str, str] = {
     "CameraFocus": _TELEPORT_VEHICLE,
     "ResetMarker": _TELEPORT_VEHICLE,
     "Teleport": _TELEPORT_VEHICLE,
-    "TeleportCheck": _TELEPORT_VEHICLE,
     "TeleportThenPlayMovie": _TELEPORT_VEHICLE,
     "TeleportWithVehicle": _TELEPORT_VEHICLE,
     "Warp": _TELEPORT_VEHICLE,
@@ -726,13 +740,15 @@ class RealPlayerNamespace:
     """
 
     __slots__ = ("_context", "_store", "_sink", "_payout_store", "_log",
-                 "_stub_methods", "namespace", "calls")
+                 "_stub_methods", "namespace", "calls",
+                 "_teleport_check_sink")
 
     def __init__(self, methods: frozenset, context: PlayerContext,
                  log: Callable[[str], None],
                  store: "PlayerMobAppearStore",
                  sink: "_message.MessageSink",
-                 payout_store=None):
+                 payout_store=None,
+                 teleport_check_sink=None):
         self.namespace = "Player"
         self._context = context
         self._store = store
@@ -743,6 +759,15 @@ class RealPlayerNamespace:
         # without one must never tell a script -- or a client -- that a
         # reward was paid when no row moved.
         self._payout_store = payout_store
+        # Defaults to a FRESH PRIVATE recorder, same posture as ``store`` and
+        # ``sink`` above -- never a process singleton.  Unlike ``payout_store``
+        # this one DOES get a default, and the difference is real: a recorded
+        # travel order that reaches no wire shows the player nothing and
+        # promises nothing, whereas an in-memory reward balance would look
+        # paid.  Nothing here can be mistaken for a completed journey.
+        self._teleport_check_sink = (
+            teleport_check_sink if teleport_check_sink is not None
+            else _teleport_check.InMemoryTeleportCheckSink())
         self._log = log
         self._stub_methods = methods - REAL_METHODS
         self.calls: list = []
@@ -894,6 +919,53 @@ class RealPlayerNamespace:
 
             return show_message
 
+        if name == "TeleportCheck":
+            def teleport_check(*args):
+                # Player.TeleportCheck(marker_id) -- ask this player to
+                # confirm travel to one MARKER row.  RE-303 (PASS) measured
+                # every byte of the exchange this records an order for: the
+                # client draws the window from the marker id alone, echoes
+                # the same id back on OK, and sends NOTHING on Cancel.
+                #
+                # RECORDS the order.  Does NOT build or send the frame --
+                # no module in this package does (lua_api/message.py's own
+                # rule, kept rather than broken for this one name).  The
+                # composer that turns this into bytes is
+                # world_m2_teleport_check.encode_prompt.
+                self.calls.append("Player.TeleportCheck")
+                if len(args) != 1:
+                    _log_bad_arity(self._log, "TeleportCheck", len(args), "1")
+                    self._teleport_check_sink.record_refusal(
+                        _teleport_check.CHECK_REFUSED_MARKER_ID_NOT_AN_INT)
+                    return STUB_DEFAULT
+                try:
+                    pending = _teleport_check.open_check(
+                        _coerce_int(args[0], _teleport_check.MARKER_ID_MAX))
+                except _teleport_check.TeleportCheckError as exc:
+                    # Refused BY NAME and counted, never a silent no-op: an
+                    # unpinned marker id is the expected recurring event here
+                    # (the committed crosswalk keeps 18 of the client's 390
+                    # rows), so a run has to be able to say how many orders it
+                    # dropped without grepping its own log.
+                    reason = str(exc).split(" ", 1)[0]
+                    _log_bad_value(self._log, "TeleportCheck",
+                                   marker_id=args[0])
+                    self._teleport_check_sink.record_refusal(reason)
+                    return STUB_DEFAULT
+                stored = self._teleport_check_sink.record(
+                    self._context.character_id, pending)
+                self._log(
+                    "LUA_PLAYER_REAL Player.TeleportCheck character=%d "
+                    "marker_id=%d scene=%d confirm_predicted=%d stored=%d "
+                    "(recorded only, no frame sent; stored=0 means the sink "
+                    "refused it at a cap)"
+                    % (self._context.character_id, pending.marker_id,
+                       pending.destination.scene_id, pending.confirm_id,
+                       stored))
+                return stored
+
+            return teleport_check
+
         if name in GRANT_KINDS:
             kind = GRANT_KINDS[name]
 
@@ -1031,7 +1103,8 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
                      context: Optional[PlayerContext] = None,
                      store: Optional["PlayerMobAppearStore"] = None,
                      sink: "Optional[_message.MessageSink]" = None,
-                     payout_store=None) -> RealPlayerNamespace:
+                     payout_store=None,
+                     teleport_check_sink=None) -> RealPlayerNamespace:
     """The ``Player`` global ``ScriptHost`` installs, real half included.
 
     ``context`` defaults to :data:`DEFAULT_CONTEXT` -- not a production
@@ -1067,4 +1140,4 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
         store if store is not None else InMemoryPlayerMobAppearStore(),
         _message.check_sink(sink) if sink is not None
         else _message.InMemoryMessageSink(),
-        payout_store)
+        payout_store, teleport_check_sink)
