@@ -121,6 +121,47 @@ def _schema_date_match(key):
     return _TRAILING_DATE_RE.search(key)
 
 
+#: A directory segment that means "a lane put a COPY of somebody else's
+#: letter here".  ``notes_to_chief/consumed/`` is written BY THE CONSUMING
+#: LANE (house convention: copy the letter's full ``.md`` there when you
+#: consume it), LANE-K's sweeps carry that folder into the archive whole
+#: (``archive/notes_to_chief_2026-08/consumed/`` exists), and one whole
+#: archive folder is nothing but consumed copies
+#: (``archive/notes_to_chief_consumed_to_2026-08-26/``).  Matched as a WORD
+#: inside the segment, split on ``- _ .``, never as a substring: the real
+#: tree also has ``archive/notes_to_chief_2026-08-28_29_unconsumed_stale/``,
+#: which is NOT a consumed folder and must keep counting.
+_LANE_COPY_SEGMENT_WORD = "consumed"
+_SEGMENT_WORD_RE = re.compile(r"[-_.]")
+
+
+def _is_a_lane_copy(root, entry):
+    """True when ``entry`` sits under a folder lanes copy letters into.
+
+    pf-adversary, round ot2cru (D1), RAN this: widening the walk to
+    ``rglob`` also reached ``notes_to_chief/consumed/``, so the gate would
+    accept a "letter" the asking lane wrote itself, and the whole point of
+    this gate -- "only a second, independently-timestamped artifact in the
+    OTHER repository can authorise a kill permit" -- was gone.  Measured
+    two ways: ``git log --diff-filter=A`` shows the ``consumed/`` copy of
+    COO's 0405 bg0001 letter was added by ``832824f "[LANE-B] round
+    b08g3z"`` while the original came from ``74c606e "COO: round 0405"``;
+    and driving the shipped function against a temp tree with an invented
+    key returned ``True`` off one lane-authored file under ``consumed/``.
+
+    Excluding these folders costs the gate nothing today, measured against
+    the real bridge checkout in round 3u1dfh: of the 22 distinct
+    ``COO-DECISION ... widen ....md`` letters in the two roots, **22 have a
+    copy outside every consumed folder**, and every live schema-conforming
+    key in ``WIDENING_RULINGS`` still finds its letter.  LANE-K's sweep
+    preserves the original beside the copy rather than replacing it.
+    """
+    for part in entry.relative_to(root).parts[:-1]:
+        if _LANE_COPY_SEGMENT_WORD in _SEGMENT_WORD_RE.split(part.lower()):
+            return True
+    return False
+
+
 def _letter_exists_for(pf_bridge_dir, date_match):
     """A ``notes_to_chief/`` file stamped with this key's own date, naming
     ``COO-DECISION`` and ``widen`` in its filename (COO-DECISION b1712 item
@@ -157,10 +198,12 @@ def _letter_exists_for(pf_bridge_dir, date_match):
     roots = [pf_bridge_dir / "notes_to_chief", pf_bridge_dir / "archive"]
     entries = []
     for root in roots:
-        if root.is_dir():
-            entries.extend(root.rglob("*"))
-    if not entries:
-        return False
+        if not root.is_dir():
+            continue
+        entries.extend(
+            entry for entry in root.rglob("*")
+            if not _is_a_lane_copy(root, entry)
+        )
     for entry in entries:
         name = entry.name
         # pf-adversary, round b08g3z, RAN this: the first draft accepted ANY
@@ -312,8 +355,16 @@ class LetterFinderReachesTheWholeMailboxTests(unittest.TestCase):
         self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
 
     def test_a_letter_filed_deeper_still_is_found(self) -> None:
+        """Depth alone must not stop the walk.  This test USED to file the
+        letter under ``archive/notes_to_chief_2026-08/consumed/`` -- which
+        pinned pf-adversary's D1 hole rather than the capability, because
+        ``consumed/`` is the one folder a LANE writes into.  The nesting is
+        what this test is about, so it keeps the nesting and drops the
+        lane-writable segment; the consumed folders get tests of their own
+        below, asserting the opposite.
+        """
         self._write(
-            "archive/notes_to_chief_2026-08/consumed/" + self.LETTER)
+            "archive/notes_to_chief_2026-08/bg0001/" + self.LETTER)
         self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
 
     def test_no_letter_anywhere_is_red(self) -> None:
@@ -339,6 +390,112 @@ class LetterFinderReachesTheWholeMailboxTests(unittest.TestCase):
         self._write("notes_to_chief/" + self.LETTER + ".CONSUMED.txt")
         self._write(
             "archive/notes_to_chief_2026-09/" + self.LETTER + ".CONSUMED.txt")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    # -- pf-adversary D1, round ot2cru: the recursion admitted the lane's own
+    # copy.  These four tests are the property that was lost, asserted at each
+    # of the three real shapes a consumed folder takes in the bridge checkout,
+    # plus the near-miss that must NOT be excluded.
+
+    def test_the_lanes_own_consumed_copy_cannot_stand_in_for_the_letter(self):
+        """The whole of D1 in one assertion.  ``notes_to_chief/consumed/``
+        is written by the consuming lane, so a lane that wants a kill
+        permit could write this file itself and the gate would green.
+        """
+        self._write("notes_to_chief/consumed/" + self.LETTER)
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_consumed_copy_swept_into_the_archive_still_cannot(self):
+        """LANE-K's sweep carries ``consumed/`` into the archive whole --
+        ``archive/notes_to_chief_2026-08/consumed/`` exists in the real
+        checkout -- so the exclusion has to survive the sweep too, or the
+        hole reopens on a delay of weeks.
+        """
+        self._write("archive/notes_to_chief_2026-08/consumed/" + self.LETTER)
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_an_archive_folder_of_consumed_copies_cannot_either(self):
+        """The third real shape: one archive folder is nothing BUT consumed
+        copies and says so in its own name,
+        ``archive/notes_to_chief_consumed_to_2026-08-26/``.  This is why
+        the segment is matched as a word rather than as a whole segment
+        name.
+        """
+        self._write(
+            "archive/notes_to_chief_consumed_to_2026-08-26/" + self.LETTER)
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_an_unconsumed_folder_is_not_a_consumed_folder(self) -> None:
+        """The near-miss that makes substring matching wrong:
+        ``archive/notes_to_chief_2026-08-28_29_unconsumed_stale/`` is a real
+        folder of letters nobody consumed.  ``"consumed" in part`` is true
+        of it; ``"consumed" in part.split("-_.")`` is not.  Mutate the
+        splitter back to a substring test and this test goes red.
+        """
+        self._write(
+            "archive/notes_to_chief_2026-08-28_29_unconsumed_stale/"
+            + self.LETTER)
+        self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_the_original_answers_even_with_the_lane_copy_beside_it(self):
+        """The live shape, measured in round 3u1dfh: of the 22 permit-shaped
+        letters in the bridge checkout, all 22 have a copy outside every
+        consumed folder, and most have the ``consumed/`` copy as well.  The
+        exclusion must not turn "a copy exists" into a reason to refuse the
+        original.
+        """
+        self._write("notes_to_chief/" + self.LETTER)
+        self._write("notes_to_chief/consumed/" + self.LETTER)
+        self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
+
+    # -- pf-adversary D2, round ot2cru: five of nine mutants survived because
+    # every existing negative test tripped two filters at once, so each
+    # filter had an alibi.  One test per filter, each tripping only its own.
+
+    def test_a_non_md_letter_is_not_a_letter(self) -> None:
+        """Trips the ``.md`` rule ONLY: no ``.CONSUMED.`` in the name, right
+        stamp, right words.  The pre-existing stub test tripped ``.md`` and
+        ``.CONSUMED.`` together, so deleting either one alone survived it.
+        """
+        self._write("notes_to_chief/" + self.LETTER[:-3] + ".txt")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_consumed_marker_that_ends_in_md_is_not_a_letter(self) -> None:
+        """Trips the ``.CONSUMED.`` rule ONLY: a real ``.md`` suffix, right
+        stamp, right words.  The other half of the alibi above.
+        """
+        self._write(
+            "notes_to_chief/" + self.LETTER[:-3] + ".CONSUMED.md")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_coo_decision_that_is_not_about_widening_does_not_count(self):
+        """Trips ``"widen" in name`` ONLY.  COO writes several decisions a
+        day; the gate asks for the one that grants THIS scope, not for any
+        letter COO happened to send that minute.
+        """
+        self._write(
+            "notes_to_chief/20260907_0405_COO-DECISION-"
+            "require-cls-trap-LANE-B.md")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_lane_letter_about_widening_does_not_count(self) -> None:
+        """Trips ``"COO-DECISION" in name`` ONLY -- and it is the shape a
+        lane produces every round: this lane's own ``*-TO-COO-*`` letters
+        argue for widening and carry the same stamp as COO's reply.
+        """
+        self._write(
+            "notes_to_chief/20260907_0405_LANE-B-TO-COO-"
+            "widen-death-scope-bg0001-please.md")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_the_stamp_must_open_the_filename_not_merely_appear_in_it(self):
+        """Trips ``startswith(stamp)`` ONLY.  ``stamp in name`` survived
+        every earlier test; a lane that cites the ruling's timestamp in the
+        BODY of its own filename would mint the permit under that mutant.
+        """
+        self._write(
+            "notes_to_chief/20260907_0732_LANE-B-note-on-20260907_0405-"
+            "COO-DECISION-widen-death-scope-bg0001.md")
         self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
 
     def test_a_directory_named_like_a_letter_is_not_a_letter(self) -> None:
