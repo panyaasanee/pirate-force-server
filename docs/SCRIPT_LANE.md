@@ -268,7 +268,34 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (126/160 stub, 34/160 real, as of round `xlk7hl`)
+### API status table (126/160 stub, 34/160 real, as of round `wn088m`)
+
+**Round `wn088m` changed no status.**  It changed a NUMBER: the six
+criteria rows were flooring the wrong float.  `f_EXP` is a float32 column,
+so `1.4` reaches the mirror as `1.399999976158142`; `int(base * that)`
+floors to one LESS than the intended reward whenever the true product is
+whole.  Measured on the shipped mirrors: **14 of the 4632 plain-triple
+resolutions** (quests 2170-2177, `Exp` and `SkillPoint`) and **3632 of the
+1181160** `(row, level)` products a player-level triple can reach.
+`0.1`/`0.3`/`0.85` widen UPWARD and never lost a unit, which is why only
+`1.4` shows and why this survived a round.  The mirror was NOT hand-edited
+(a mirror that differs from its source is not a mirror):
+`quest_criteria.multiplier_decimal()` recovers, at parse time, the
+shortest decimal that round-trips through float32 to the same bits, and
+the product is taken in `Decimal`.  All 12 distinct multipliers in the
+mirror are exactly float32 (tested), which is the evidence the recovery
+reads a float32 column rather than inventing precision.
+
+Rounding itself is now **floor at exactly one place** --
+`quest_criteria.ROUNDING_MODE` / `round_amount()`, with a test asserting
+the module contains exactly one `to_integral_value` -- per COO-DECISION
+`20260907_0845`.  That letter chose floor as an INTERIM and forbids
+writing "the client floors" anywhere as a fact; the RE ticket body sent to
+LANE-K this round (`notes_to_chief/20260907_0905_LANE-Q-TO-K-re-body-how-
+the-client-rounds-and-where-Lv-reads-level.md`) is what would make it
+measured.  The same letter re-labelled the level-source mapping from a
+lane assumption to `[COO-ASSUMPTION 0845 - NOT A PROOF]`; the refusal when
+a player level is unknown stays, and may not be softened into a fallback.
 
 Six of the 126 stub rows now read `stub (+reward line)`: the three
 `Quest.AddCriteria*` and three `Quest.AddLvCriteria*` names.  That is a

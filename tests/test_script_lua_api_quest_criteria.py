@@ -15,13 +15,22 @@ Four levels, in the order a reader should doubt them:
     error as OURS (``LUA_HOST``), not as a script's (pf-adversary D11).
   * ``ResolveTests`` -- the arithmetic, the refusals, and the one thing
     this module must never do: guess a level.
+  * ``Float32RoundingTests`` -- the floor is taken of the RIGHT number.
+    ``f_EXP`` is a float32 column, so ``1.4`` reaches the mirror as
+    ``1.399999976158142`` and ``int(base * that)`` pays one short on the
+    sixteen 1.4 cells.  These tests pin the recovered decimal, name the 14
+    shipped resolutions that changed, and go red if anyone floors a binary
+    float again (COO-DECISION ``20260907_0845``: floor, but the raw
+    product stays and the rounding lives at one place).
   * ``NamespaceWiringTests`` / ``VendoredMirrorMatchesTheRealTableTests``
     -- what a script actually sees, and (under BRIDGE_GAMEDATA) that the
     copy still equals the game's own tables.
 """
+import struct
 import subprocess
 import sys
 import unittest
+from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 
 from pf_preconditions import BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS, SIBLING
@@ -223,10 +232,12 @@ class ResolveTests(unittest.TestCase):
 
     def test_a_fractional_product_keeps_both_the_exact_and_the_floored_value(self):
         # Which one the client uses is UNVERIFIED (module docstring), so
-        # the module hands both up instead of choosing for its callers.
+        # the module hands every view up instead of choosing for callers.
         amount = qc.resolve(qc.KIND_EXP, 1, 0.25)
         self.assertEqual(amount.base, 90)
         self.assertEqual(amount.raw, 22.5)
+        self.assertEqual(amount.exact, Decimal("22.5"))
+        self.assertIsInstance(amount.exact, Decimal)
         self.assertEqual(amount.amount, 22)
 
     def test_a_zero_multiplier_pays_zero_and_is_not_a_refusal(self):
@@ -369,6 +380,150 @@ class ResolveTests(unittest.TestCase):
             by_source[source].add(qc.API_KIND[name])
         self.assertEqual(by_source[qc.LEVEL_SOURCE_QUEST], set(qc.KINDS))
         self.assertEqual(by_source[qc.LEVEL_SOURCE_PLAYER], set(qc.KINDS))
+
+
+class Float32RoundingTests(unittest.TestCase):
+    """Floor is fine; flooring the wrong float is not.
+
+    Every number here is measured off the shipped mirrors by the test
+    itself -- nothing is a literal copied out of a round file.
+    """
+
+    #: The one thing in this class that IS a literal: what a human reading
+    #: ``QUESTDATA_TH__QUEST.tsv`` would say the multiplier column holds.
+    #: If the mirror ever carries a value not in this list, the recovery
+    #: is being asked to read a column nobody has looked at.
+    AUTHORED = ("0", "0.1", "0.25", "0.3", "0.5", "0.85",
+                "1", "1.4", "1.5", "2", "3", "5")
+
+    @classmethod
+    def _multipliers(cls):
+        rows = qc.load_reward_rows().values()
+        return sorted({m for row in rows for m in (row.cash_multiplier,
+                                                   row.exp_multiplier,
+                                                   row.sp_multiplier)})
+
+    def test_every_shipped_multiplier_is_exactly_a_float32(self):
+        """The evidence the recovery reads a float32 and invents nothing.
+
+        A False here means the source column is NOT float32, and
+        ``multiplier_decimal`` would be shortening a float64 on a guess.
+        """
+        for value in self._multipliers():
+            with self.subTest(value=value):
+                self.assertTrue(qc.is_exact_float32(value))
+                self.assertEqual(
+                    struct.unpack("<f", struct.pack("<f", value))[0], value)
+
+    def test_the_recovered_decimals_are_exactly_the_authored_ones(self):
+        recovered = [str(qc.multiplier_decimal(v)) for v in self._multipliers()]
+        self.assertEqual(recovered, list(self.AUTHORED))
+
+    def test_a_recovered_decimal_round_trips_back_to_the_stored_bits(self):
+        """Recovery is lossless in the direction that matters."""
+        for value in self._multipliers():
+            with self.subTest(value=value):
+                back = float(qc.multiplier_decimal(value))
+                self.assertEqual(struct.pack("<f", back),
+                                 struct.pack("<f", value))
+
+    def test_a_float64_that_is_not_a_float32_is_returned_digit_for_digit(self):
+        """Nothing to recover -> do not shorten it on a guess."""
+        value = 0.1  # float64 0.1 is NOT the float32 in the mirror
+        self.assertFalse(qc.is_exact_float32(value))
+        self.assertEqual(qc.multiplier_decimal(value), Decimal(repr(value)))
+
+    def test_only_one_point_four_cells_moved_and_exactly_fourteen_did(self):
+        """The blast radius of this round's change, measured not asserted.
+
+        Recomputes every plain-triple resolution both ways and requires
+        that the naive float floor and the decimal floor differ ONLY on
+        cells whose multiplier recovers to 1.4 -- 0.1/0.3/0.85 widen
+        upward and never lost a unit, which is why this survived a round.
+        """
+        curve = qc.load_curve()
+        moved = []
+        for row in qc.load_reward_rows().values():
+            base_row = curve.get(row.criteria_level)
+            if base_row is None:
+                continue
+            for api, base, mult in (
+                    ("AddCriteriaCash", base_row.cash, row.cash_multiplier),
+                    ("AddCriteriaExp", base_row.exp, row.exp_multiplier),
+                    ("AddCriteriaSkillPoint", base_row.skill_point,
+                     row.sp_multiplier)):
+                amount, reason = qc.resolve_for_api(api, row.quest_id)
+                self.assertIsNone(reason)
+                naive = int(base * mult)
+                if naive != amount.amount:
+                    moved.append((row.quest_id, api, naive, amount.amount))
+                    self.assertEqual(amount.amount, naive + 1)
+                    self.assertEqual(qc.multiplier_decimal(mult),
+                                     Decimal("1.4"))
+        # 16 cells in the mirror carry 1.4; 14 of them had an integer
+        # true product and so lost a unit to the binary floor.  The other
+        # two were fractional either way, which is why the count is 14
+        # and not 16 -- measured, not rounded off in prose.
+        self.assertEqual(len(moved), 14)
+        self.assertEqual({q for q, _, _, _ in moved},
+                         {2170, 2171, 2172, 2173, 2174, 2175, 2176, 2177})
+        self.assertEqual({api for _, api, _, _ in moved},
+                         {"AddCriteriaExp", "AddCriteriaSkillPoint"})
+
+    def test_the_naive_float_floor_would_underpay_a_real_quest(self):
+        """The concrete failure this round closed, spelled out.
+
+        Quest 2170 at level 40 pays 15800 * 1.4 = 22120 experience.  The
+        mirror's float32 1.4 makes that product 22119.9996..., so
+        ``int(...)`` -- what this module did until round ``wn088m`` -- paid
+        22119.  One unit, silently, on every 1.4 quest.
+        """
+        amount, reason = qc.resolve_for_api("AddCriteriaExp", 2170)
+        self.assertIsNone(reason)
+        self.assertEqual(amount.base, 15800)
+        self.assertEqual(amount.amount, 22120)
+        self.assertEqual(int(amount.raw), 22119)  # the bug, kept as evidence
+        self.assertLess(amount.raw, 22120)
+
+    def test_rounding_lives_at_one_place_and_that_place_is_floor(self):
+        """COO-DECISION 20260907_0845, checkable rather than remembered."""
+        self.assertIs(qc.ROUNDING_MODE, ROUND_FLOOR)
+        self.assertEqual(qc.round_amount(Decimal("22.9")), 22)
+        self.assertEqual(qc.round_amount(Decimal("22.0")), 22)
+        source = (REPO_ROOT / "src" / "pirateforce_foundation" / "lua_api"
+                  / "quest_criteria.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("to_integral_value"), 1)
+
+    def test_every_resolution_is_its_own_exact_value_through_round_amount(self):
+        """No second rounding path can creep in beside the first."""
+        curve = qc.load_curve()
+        for row in list(qc.load_reward_rows().values())[:200]:
+            base_row = curve.get(row.criteria_level)
+            if base_row is None:
+                continue
+            amount, reason = qc.resolve_for_api("AddCriteriaExp", row.quest_id)
+            self.assertIsNone(reason)
+            with self.subTest(quest_id=row.quest_id):
+                self.assertEqual(
+                    amount.exact,
+                    Decimal(base_row.exp)
+                    * qc.multiplier_decimal(row.exp_multiplier))
+                self.assertEqual(amount.amount, qc.round_amount(amount.exact))
+
+    def test_the_log_line_shows_the_authored_multiplier_not_the_widened_one(self):
+        amount, _ = qc.resolve_for_api("AddCriteriaExp", 2170)
+        line = amount.log_fields()
+        self.assertIn("mult=1.4", line)
+        self.assertNotIn("1.399999976158142", line)
+        self.assertIn("amount=22120", line)
+        # A whole-number product does not shout an exact= nobody needs.
+        self.assertNotIn("exact=", line)
+        line.encode("ascii")
+
+    def test_a_fractional_reward_cannot_hide_behind_a_clean_integer(self):
+        fractional = qc.resolve(qc.KIND_EXP, 1, 0.25)
+        self.assertIn("exact=22.5", fractional.log_fields())
+        self.assertIn("amount=22", fractional.log_fields())
 
 
 class NamespaceWiringTests(unittest.TestCase):
