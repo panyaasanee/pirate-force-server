@@ -45,8 +45,18 @@ class ApiFunction:
         return "%s.%s" % (self.namespace, self.method)
 
 
-def _load() -> tuple[ApiFunction, ...]:
+def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
     """Parse ``api_spec.tsv``, refusing loudly on anything it is not.
+
+    ``path`` defaults to the vendored file beside this module and exists so
+    the refusals below can be exercised against a corrupt COPY without
+    touching the real one -- in particular from a child interpreter running
+    under ``-O``, which is the only way to prove the guard survives
+    optimisation.  The first attempt at those tests copied the whole 21 MB
+    ``src/`` tree per test instead; on the Windows gate that is 126 MB of
+    file copying plus an ``rmtree`` over a tree a child interpreter has just
+    written ``__pycache__`` into, and the gate went RED at ``pytest_subset``
+    with no FAILED line.  A parameter is cheaper and says more.
 
     RAISES, NEVER ASSERTS (pf-adversary D13, round ``wn088m``).  The header
     check used to be a bare ``assert``, which ``python -O`` DELETES: under
@@ -71,21 +81,21 @@ def _load() -> tuple[ApiFunction, ...]:
     lines.
     """
     try:
-        text = _SPEC_PATH.read_text(encoding="ascii")
+        text = path.read_text(encoding="ascii")
     except OSError as exc:
         raise VendoredDataError(
-            "cannot read %s: %s" % (_SPEC_PATH, exc)) from exc
+            "cannot read %s: %s" % (path, exc)) from exc
     except UnicodeDecodeError as exc:
         raise VendoredDataError(
-            "%s is not ASCII: %s" % (_SPEC_PATH, exc)) from exc
+            "%s is not ASCII: %s" % (path, exc)) from exc
     lines = text.splitlines()
     if not lines:
-        raise VendoredDataError("%s is empty" % (_SPEC_PATH,))
+        raise VendoredDataError("%s is empty" % (path,))
     header = tuple(lines[0].split("\t"))
     if header != _HEADER:
         raise VendoredDataError(
             "%s header drifted: got %r, want %r"
-            % (_SPEC_PATH, header, _HEADER))
+            % (path, header, _HEADER))
     out = []
     for lineno, line in enumerate(lines[1:], start=2):
         if not line:
@@ -94,7 +104,7 @@ def _load() -> tuple[ApiFunction, ...]:
         if len(cells) != len(_HEADER):
             raise VendoredDataError(
                 "%s line %d has %d columns, want %d: %r"
-                % (_SPEC_PATH, lineno, len(cells), len(_HEADER), line))
+                % (path, lineno, len(cells), len(_HEADER), line))
         ns, method, call_count, file_count, arity_min, arity_max = cells
         try:
             numbers = [int(cell) for cell in
@@ -102,7 +112,7 @@ def _load() -> tuple[ApiFunction, ...]:
         except ValueError as exc:
             raise VendoredDataError(
                 "%s line %d has a non-integer count: %r"
-                % (_SPEC_PATH, lineno, line)) from exc
+                % (path, lineno, line)) from exc
         out.append(ApiFunction(
             namespace=ns,
             method=method,
@@ -112,7 +122,7 @@ def _load() -> tuple[ApiFunction, ...]:
             arity_max=numbers[3],
         ))
     if not out:
-        raise VendoredDataError("%s has a header and no rows" % (_SPEC_PATH,))
+        raise VendoredDataError("%s has a header and no rows" % (path,))
     return tuple(out)
 
 

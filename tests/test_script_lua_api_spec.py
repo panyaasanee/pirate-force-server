@@ -91,15 +91,22 @@ class LoaderRefusesInsteadOfAssertingTests(unittest.TestCase):
     `file_count` swapped across all 160 rows, no error anywhere. The guard did
     not merely weaken under `-O`, it ceased to exist.
 
-    These tests run the loader against corrupt copies through a SUBPROCESS
-    under `-O`, because that is the only way to prove the statement survives
+    These run the loader against corrupt copies in a CHILD interpreter under
+    `-O`, because that is the only way to prove the statement survives
     optimisation: asserting it in-process proves nothing about a flag this
     process was not started with.
+
+    THE CHILD COPIES NOTHING. The first version of these tests staged the
+    whole `src/` tree per test so the child would import a package with a
+    corrupt TSV in it. That is 21 MB copied six times -- 126 MB on the
+    Windows gate, followed by an `rmtree` over a tree the child had just
+    written `__pycache__` into -- and the gate went RED at `pytest_subset`
+    with no FAILED line. `_load` takes a path now, so the child imports the
+    real, valid package and calls `_load(corrupt_file)`.
     """
 
     def _load_under(self, contents: str, optimised: bool):
-        """Run `spec._load()` against `contents` in a child interpreter."""
-        import shutil
+        """Run `spec._load(<a corrupt copy>)` in a child interpreter."""
         import subprocess
         import sys
         import tempfile
@@ -107,27 +114,23 @@ class LoaderRefusesInsteadOfAssertingTests(unittest.TestCase):
 
         from pirateforce_foundation.lua_api import spec
 
-        package_dir = Path(spec.__file__).resolve().parent
-        src_root = package_dir.parent.parent
+        src_root = Path(spec.__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as tmp:
-            staged = Path(tmp) / "src"
-            shutil.copytree(src_root, staged)
-            target = (staged / "pirateforce_foundation" / "lua_api"
-                      / "api_spec.tsv")
+            target = Path(tmp) / "api_spec.tsv"
             target.write_text(contents, encoding="ascii")
             argv = [sys.executable]
             if optimised:
                 argv.append("-O")
-            # The exception is caught by TYPE NAME rather than by importing
-            # `vendored` first, because importing anything from `lua_api`
-            # runs its `__init__`, which imports `spec` -- so the very import
-            # that would name the class is the one that raises. The name and
-            # the `RuntimeError` base are both asserted, so this still fails
-            # if something else entirely goes wrong.
+            # The exception is caught by TYPE NAME as well as by its
+            # `RuntimeError` base: importing `lua_api.vendored` to name the
+            # class would run `lua_api/__init__`, and this test has no
+            # interest in what that does.
             argv += ["-c", (
-                "import sys; sys.path.insert(0, sys.argv[1])\n"
+                "import sys, pathlib\n"
+                "sys.path.insert(0, sys.argv[1])\n"
+                "from pirateforce_foundation.lua_api import spec\n"
                 "try:\n"
-                "    from pirateforce_foundation.lua_api import spec\n"
+                "    rows = spec._load(pathlib.Path(sys.argv[2]))\n"
                 "except Exception as exc:\n"
                 "    if type(exc).__name__ != 'VendoredDataError':\n"
                 "        raise\n"
@@ -135,8 +138,8 @@ class LoaderRefusesInsteadOfAssertingTests(unittest.TestCase):
                 "        raise\n"
                 "    print('REFUSED', exc)\n"
                 "else:\n"
-                "    print('ACCEPTED', len(spec.API_FUNCTIONS))\n"
-            ), str(staged)]
+                "    print('ACCEPTED', len(rows))\n"
+            ), str(src_root), str(target)]
             done = subprocess.run(argv, capture_output=True, text=True,
                                   timeout=120)
         return done
@@ -205,8 +208,8 @@ class LoaderRefusesInsteadOfAssertingTests(unittest.TestCase):
 
         Kept because it is the one that names the DEFECT rather than a
         symptom, and pf-adversary D3 (round `wn088m`) taught this lane that a
-        string count alone is not a pin: it is here underneath four
-        subprocess tests, not instead of them.
+        string count alone is not a pin: it is here underneath the subprocess
+        tests, not instead of them.
         """
         import ast
         import inspect
