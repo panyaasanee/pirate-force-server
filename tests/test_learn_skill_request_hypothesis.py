@@ -1,8 +1,15 @@
 """LEARN-SKILL-REQUEST-001 (HYP-PF-034) -- the CLearnSkillVital 0x36AA
 inbound strict-decoder lane and its dispatch hookup.
 
-Pure offline pytest: no network, no GameClient, no UI; the dispatch half runs
-the REAL ``make_state_class`` path against a throwaway temp database.
+Pure offline pytest: no network, no UI, no game process; the dispatch
+half runs the REAL ``make_state_class`` path against a throwaway temp
+database.  The words "Game" + "Client" never appear joined anywhere in
+this file, on purpose: the Windows gate builds its pytest exclusion list
+by grepping test files for that token (``gate-windows.yml``, exclusion
+step), and it does not care that this file's use of the word was a
+sentence saying it needs no such thing -- the whole module was ignored
+for it, so its tests collected as 0 on the only machine whose Python is
+3.14.  Same reason as ``tests/test_external_registry.py`` says it there.
 
 What these tests are actually proving
 -------------------------------------

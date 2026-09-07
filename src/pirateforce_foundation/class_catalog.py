@@ -142,6 +142,12 @@ CLASS_ID_TO_STARTING_DRESS_SETS: dict[
     int, tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]
 ] = {}
 
+# (n_SLOT_RHAND, n_SLOT_LHAND) exactly as the table carries them.  The table
+# has no _2/_3 column for either hand slot, so unlike the dress triple these
+# do not vary with the on-screen look choice.  A 0 means the table leaves
+# that hand empty for the class (Sniper and Necromancer both do).
+CLASS_ID_TO_STARTING_HAND_SLOTS: dict[int, tuple[int, int]] = {}
+
 for _row in _ROWS:
     _class_id = int(_row["n_ID"])
     _icon = _row["s_ICON"]
@@ -152,6 +158,10 @@ for _row in _ROWS:
         _skill_ids(_row["s_SKILL_2"]),
         _skill_ids(_row["s_SKILL_3"]),
         _skill_ids(_row["s_SKILL_4"]),
+    )
+    CLASS_ID_TO_STARTING_HAND_SLOTS[_class_id] = (
+        int(_row["n_SLOT_RHAND"]),
+        int(_row["n_SLOT_LHAND"]),
     )
     _hat = int(_row["n_DRESS_HAT"])
     CLASS_ID_TO_STARTING_DRESS_SETS[_class_id] = (
@@ -176,6 +186,21 @@ def starting_skill_ids(class_id: int) -> tuple[int, int, int, int]:
     """The 4 skill ids (s_SKILL_1..4 order) class_id starts with."""
     try:
         return CLASS_ID_TO_STARTING_SKILL_IDS[class_id]
+    except KeyError as exc:
+        raise KeyError("class_id %r is not in the class catalog" % (class_id,)) from exc
+
+
+def starting_hand_slots(class_id: int) -> tuple[int, int]:
+    """The (right hand, left hand) item ids CHARCREATE_CLASS gives class_id.
+
+    Table-level fact only, read verbatim off the committed row: this says
+    what the character-creation table hands the class, not what any live
+    character is holding, and not what the starting backpack contains --
+    `class_starting_gear.py` is the module that turns the right-hand value
+    into a bag, and it deliberately does not touch the left-hand one.
+    """
+    try:
+        return CLASS_ID_TO_STARTING_HAND_SLOTS[class_id]
     except KeyError as exc:
         raise KeyError("class_id %r is not in the class catalog" % (class_id,)) from exc
 

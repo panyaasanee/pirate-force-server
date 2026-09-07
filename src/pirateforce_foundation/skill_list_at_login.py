@@ -11,7 +11,7 @@ boot print
 while BOTH skill tabs on screen stayed empty, "show all" included.  The rows
 are in the database.  Nothing reads them back out onto the wire.  Every skill
 a client has ever displayed in this project's history came out of
-``learn_skill_result_hypothesis``'s pinned sweep, under an opt-in flag, with
+the HYP-PF-033 sweep lane's pinned steps, under an opt-in flag, with
 values that lane calls opaque on purpose -- so on a normal login the window is
 empty and there is no code path that could fill it.  This module is the read
 half: character row in, ``(pc, frame)`` out, no flag, no fixed table.
@@ -37,7 +37,7 @@ order, and this module honours it in the only way that is honest about today:
 
 THE REASON THIS IS NOT WIRED IN THIS ROUND (read this before using the module)
 ----------------------------------------------
-``learn_skill_result_hypothesis``'s own docstring records, from GT-249 run on
+The HYP-PF-033 sweep lane's own docstring records, from GT-249 run on
 a real client on 2026-09-05: after its six-frame sweep landed, the client
 stopped emitting any outbound movement frame for the rest of the session --
 the player could open windows and drag items but COULD NOT WALK until a fresh
@@ -62,12 +62,12 @@ game where nobody can move.  So:
 
 NONCLAIMS -- inherited and new
 -------------------------------
-  * Every nonclaim in ``learn_skill_result_hypothesis`` still stands and is
+  * Every nonclaim in the HYP-PF-033 sweep lane still stands and is
     not repeated here.  In particular the three record members' SEMANTICS are
     unknown; this module puts the skill id in all three wire positions for the
     same reason GT-249's step 6 did -- the position that means "skill id", if
-    any, is unproven -- and that convention is imported from that module's own
-    helper rather than restated, so the two cannot drift apart.
+    any, is unproven -- and the composer it uses is the SAME frame module the
+    sweep lane composes with, so the two cannot drift apart.
   * GT-249 measured that 3 of 4 sent ids appeared and id ``40000`` did not,
     and that the class-named tab stayed empty throughout.  Reading the ids
     from the database instead of the class table changes NONE of that: the
@@ -84,7 +84,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .learn_skill_result_hypothesis import (
+from .learn_skill_result_frame import (
     LearnSkillResultRecord,
     make_learn_skill_result_response,
 )
@@ -121,6 +121,11 @@ REFUSE_SKILL_ID_OUTSIDE_U32 = "skill_id_is_outside_the_u32_wire_field"
 REFUSE_DUPLICATE_SKILL_ID = "skill_ids_are_not_distinct"
 REFUSE_TOO_MANY_FOR_THE_WIRE = "record_count_is_outside_the_u16_wire_field"
 REFUSE_TOO_MANY_UNMEASURED = "record_count_is_above_any_observed_acceptance"
+#: pf-adversary D5 (round `jqeid1`): `path.is_file()` waves a zero-byte file
+#: through, and `sqlite3.connect` then CREATES a database in it -- while the
+#: refusal string beside it says this command never creates one.  A separate
+#: reason, so an operator whose --db is a stub reads which of the two it was.
+REFUSE_NOT_A_DATABASE = "path_is_not_an_sqlite_database"
 
 
 class SkillListAtLoginError(RuntimeError):
@@ -330,8 +335,293 @@ def describe_skill_list(skill_ids: "tuple[int, ...] | list[int]") -> tuple[str, 
     return tuple(lines)
 
 
-if __name__ == "__main__":  # pragma: no cover - console entry point
-    from .class_catalog import starting_skill_ids
+#: The name a login-path caller has to spell in ``runtime.py`` for this
+#: module to reach a player.  ``seam_carrier()`` looks for exactly this and
+#: reports what it finds, so the console token below turns on the day the
+#: seam lands and not one round earlier.
+LOGIN_SEAM_SYMBOL = "login_skill_list_response"
 
-    for line in describe_skill_list(starting_skill_ids(1)):
-        print(line)
+#: The database ``app.py`` boots on when nobody passes ``--db``.  Spelled
+#: once here so the headless token GT-307 asks for reads what a normal boot
+#: reads, rather than a copy somebody remembered to point at.
+DEFAULT_DB_RELATIVE_PATH = "state/pirateforce.sqlite3"
+
+
+def repository_root() -> "Any":
+    """The checkout this module is running out of."""
+    from pathlib import Path
+
+    return Path(__file__).resolve().parents[2]
+
+
+def _calls_the_seam(tree: "Any") -> bool:
+    """True when this parsed module CALLS ``LOGIN_SEAM_SYMBOL`` somewhere.
+
+    Split out of ``seam_carrier`` when the search widened from one file to
+    the auto-imported hook package: two copies of an AST walk is how the two
+    halves of one answer drift apart.
+    """
+    import ast
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = getattr(func, "attr", getattr(func, "id", ""))
+            if name == LOGIN_SEAM_SYMBOL:
+                return True
+    return False
+
+
+def seam_carrier(runtime_path: "Any" = None, hooks_dir: "Any" = None) -> str:
+    """Who would send this frame today, MEASURED off ``runtime.py``.
+
+    ``runtime`` when the login path actually CALLS
+    ``login_skill_list_response``, ``module_only`` when it does not,
+    ``unknown`` when there is no runtime to read or it does not parse.
+    GT-307's token line ends in ``sent_by=``, and a hard-coded
+    ``sent_by=runtime`` would be the same species of lie as the
+    ``callers_in_src=0`` that pf-adversary killed in round ``e8pss9``: a
+    claim about the tree, printed by a format string that cannot see it.
+
+    THIS IS AN AST CHECK BECAUSE A SUBSTRING CHECK WAS ALREADY WRONG.  The
+    first version of this function asked ``LOGIN_SEAM_SYMBOL in text``, and
+    pf-adversary (round ``jqeid1``, D4) turned it on with a single line:
+
+        # TODO(next round): call login_skill_list_response from the login path
+
+    One comment and the token an operator pastes as ``HEADLESS_PROOF:``
+    reads ``sent_by=runtime`` on a server that sends nothing.  A call node is
+    the smallest thing that cannot be written by accident or by a plan.
+
+    IT NO LONGER READS ONE FILE (pf-adversary D2, paid).  ``runtime.py`` does
+    ``from . import lane_hooks``, and that package's ``_discover()`` imports
+    EVERY ``lane_*.py`` module beside it at process start, so a lane can put
+    this frame on a live boot path without ``runtime.py`` changing by a byte.
+    The old answer for that tree was ``module_only``: the token would have
+    told an operator nothing sends this frame while a hook was sending it.
+    Every auto-imported hook module is now read too, in the same
+    filename-sort order the package documents, and a call in one of them
+    answers ``hook:<module>``.
+
+    ``runtime`` beats a hook when both call it, because a direct call on the
+    login path is the seam GT-307 is about and a hook is the way around it.
+
+    WHAT IT STILL CANNOT SEE, said rather than implied.  ``hook:<module>`` is
+    an UPPER bound on "this frame is live", not a proof of it: ``_discover()``
+    additionally refuses a hook module whose own ``production_allowed`` is
+    false (``LANE_HOOK_DISCOVERY ... SKIPPED_NOT_PRODUCTION_ALLOWED``), and
+    that flag is not read here.  And neither half sees a call made through a
+    variable, a ``getattr`` or an alias -- an AST call node is still the
+    smallest thing that cannot be written by accident, which is the property
+    this function trades reach for.
+    """
+    import ast
+    from pathlib import Path
+
+    path = (
+        Path(runtime_path)
+        if runtime_path is not None
+        else Path(__file__).resolve().parent / "runtime.py"
+    )
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "unknown"
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return "unknown"
+    if _calls_the_seam(tree):
+        return "runtime"
+
+    folder = (
+        Path(hooks_dir)
+        if hooks_dir is not None
+        else path.resolve().parent / "lane_hooks"
+    )
+    try:
+        # sorted(): lane_hooks/__init__.py documents filename-sort order as
+        # the ONLY ordering guarantee `_discover()` gives, and this answer
+        # names one module, so it has to break ties the same way.
+        candidates = sorted(folder.glob("lane_*.py"))
+    except OSError:
+        candidates = []
+    for candidate in candidates:
+        try:
+            hook_tree = ast.parse(candidate.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            # A hook file this function cannot read is one `_discover()`
+            # cannot import either -- it prints IMPORT_FAILED and moves on,
+            # and so does this.
+            continue
+        if _calls_the_seam(hook_tree):
+            return "hook:%s" % (candidate.stem,)
+    return "module_only"
+
+
+def headless_token(
+    character_id: int, skill_ids: "tuple[int, ...]", frame: bytes,
+    sent_by: str,
+) -> str:
+    """The one ASCII line GT-307 names as its ``HEADLESS_PROOF:``.
+
+    Every number in it is a measurement of the arguments it was handed: the
+    row count is the length of what the store returned, the byte count is
+    the length of the frame the proven encoder composed, and ``sent_by``
+    comes from ``seam_carrier()``.  Nothing here re-derives an id from the
+    class table -- that is the substitution GT-307 exists to rule out.
+    """
+    return (
+        "SKILL_LIST_AT_LOGIN cid=%d rows=%d ids=(%s) trailing_u8=%d "
+        "frame_bytes=%d sent_by=%s"
+        % (
+            character_id,
+            len(skill_ids),
+            ",".join(str(skill_id) for skill_id in skill_ids),
+            SKILL_LIST_TRAILING_BYTE,
+            len(frame),
+            sent_by,
+        )
+    )
+
+
+def compose_from_database(
+    database_path: "Any", character_id: int,
+) -> "tuple[tuple[int, ...], bytes]":
+    """``(skill ids, frame)`` for one character, read out of a real database.
+
+    Opens the file that is already there and refuses a missing one by name.
+    It does NOT call ``store.migrate()``, writes no row and commits no
+    change of its own.  The rows come back through
+    ``read_character_skill_ids``, which is the same call the seam makes, so
+    the token measures the production route rather than a second one built
+    for the console.
+
+    THE ONE SIDE EFFECT, STATED RATHER THAN DENIED.  ``list_character_skills``
+    reads through ``SQLiteStore.connect()``, and that context manager runs
+    ``PRAGMA journal_mode=WAL`` on every open.  Against a database the
+    server has already booted -- every canonical one -- the mode is already
+    WAL and the file does not change by a byte (a test sha256s it).  Against
+    a database still in ``delete`` journal mode, opening it FLIPS it to WAL,
+    which rewrites the header: that is a real write and this docstring is
+    not going to call it "read-only" (another test measures the flip, so the
+    claim cannot rot).  ``store.py`` has a ``connect_read_only()`` that would
+    avoid it, but no skills reader goes through it, and adding a second
+    query against LANE-DB's table is the thing this module refuses to do.
+    Filed for the seam's owner rather than worked around here.
+    """
+    from pathlib import Path
+
+    from .legacy_bridge import load_legacy
+    from .store import SQLiteStore
+
+    import sqlite3
+
+    path = Path(database_path)
+    if not path.is_file():
+        raise SkillListAtLoginError(
+            REFUSE_CHARACTER_ROW_MISSING,
+            "no database at %s; this command reads an existing database and "
+            "never creates one" % (path,),
+        )
+    # pf-adversary D5: is_file() is True of a zero-byte file, and
+    # sqlite3.connect turns one into a fresh database on disk -- the exact
+    # thing the refusal above promises not to do.  The header is the only
+    # answer that is not a guess: every sqlite file starts with these 16
+    # bytes, and no truncated copy or text stub does.
+    with path.open("rb") as handle:
+        header = handle.read(16)
+    if header != b"SQLite format 3\x00":
+        raise SkillListAtLoginError(
+            REFUSE_NOT_A_DATABASE,
+            "%s is not an sqlite database (header %r); refusing rather than "
+            "creating one in it" % (path, header),
+        )
+    root = repository_root()
+    store = SQLiteStore(path, root / "migrations")
+    try:
+        skill_ids = read_character_skill_ids(store, character_id)
+    except OverflowError as error:
+        raise SkillListAtLoginError(
+            REFUSE_CHARACTER_ID_NOT_AN_INT,
+            "character id %r does not fit an sqlite INTEGER" % (character_id,),
+        ) from error
+    except sqlite3.DatabaseError as error:
+        raise SkillListAtLoginError(
+            REFUSE_NOT_A_DATABASE,
+            "%s did not answer as this project's database: %s" % (path, error),
+        ) from error
+    legacy = load_legacy(root / "current" / "pf_login_game_server_v141.py")
+    _pc, frame = make_skill_list_response(legacy, skill_ids)
+    return skill_ids, frame
+
+
+def _print_console_line(line: str) -> None:
+    """Print one line the cp874 bridge console can carry, always.
+
+    ``headless_token`` builds its line out of integers and cannot carry a
+    surprise, but the refusal line interpolates the operator's own ``--db``
+    path.  pf-adversary (D6) pointed one at a directory with an "o-umlaut" in
+    it and ``print`` raised ``UnicodeEncodeError`` INSIDE the error report --
+    the tool dying while explaining why it could not run, which is the
+    round-142 failure the ASCII house rule exists to prevent.  Escaping is
+    lossy on purpose: an operator reading ``sch\\xf6n`` still recognises the
+    path, and a dead console recognises nothing.
+    """
+    print(line.encode("ascii", "backslashreplace").decode("ascii"))
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    """``python -m pirateforce_foundation.skill_list_at_login --character N``.
+
+    Prints GT-307's token on success, or a single ``SKILL_LIST_AT_LOGIN_REFUSED``
+    line with the named reason and exits 1.  A refusal is not a crash: the
+    attended operator reads one line either way, and the reason string is the
+    same one the seam would append to ``self.events``.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python -m pirateforce_foundation.skill_list_at_login",
+        description=(
+            "Read one character's persisted skill rows and compose the login "
+            "skill-list frame from them."
+        ),
+    )
+    parser.add_argument(
+        "--character", type=int, required=True, metavar="CID",
+        help="character id (the cid the console prints at creation)",
+    )
+    parser.add_argument(
+        "--db", default=None, metavar="PATH",
+        help="database file; default is the one a flagless boot opens (%s)"
+             % DEFAULT_DB_RELATIVE_PATH,
+    )
+    parser.add_argument(
+        "--runtime", default=None, metavar="PATH",
+        help="runtime module to measure sent_by against (default: the "
+             "runtime.py next to this module)",
+    )
+    args = parser.parse_args(argv)
+
+    database = args.db
+    if database is None:
+        database = repository_root() / DEFAULT_DB_RELATIVE_PATH
+    try:
+        skill_ids, frame = compose_from_database(database, args.character)
+    except SkillListAtLoginError as error:
+        _print_console_line(
+            "SKILL_LIST_AT_LOGIN_REFUSED cid=%s reason=%s detail=%s"
+            % (args.character, error.reason, error)
+        )
+        return 1
+    _print_console_line(
+        headless_token(
+            args.character, skill_ids, frame, seam_carrier(args.runtime),
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - console entry point
+    raise SystemExit(main())
