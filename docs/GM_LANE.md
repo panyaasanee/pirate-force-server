@@ -10551,14 +10551,42 @@ grep ตามย่อหน้านี้จะไม่เจอบรรท
 ทั้งสองข้อพิสูจน์ด้วยมิวแทนต์ (retry=True ที่เส้นทาง shutdown / แคบ guard กลับเป็น `except Exception`)
 ใน `tests/test_gm_command_capture.py`
 🔴 **ครึ่งหลังของประโยคนี้จริงตอนเขียน และเท็จตั้งแต่รอบ `nfbat1` (วัดซ้ำเองรอบ `i3evov`)**: มิวแทนต์
-`except BaseException:` → `except Exception:` ที่ guard ของบรรทัด log **รอด** — `100 passed` บน
-`tests/test_gm_command_capture.py` + `tests/test_gm_command_dispatch.py` ที่คอมมิต `f80f231`
+`except BaseException:` → `except Exception:` ที่ guard ของบรรทัด log **รอด** บน
+`tests/test_gm_command_capture.py` + `tests/test_gm_command_dispatch.py`
+🔴 **แก้ป้ายคอมมิตที่รอบ `i3evov` ติดผิด (D2 ของ pf-adversary รอบเดียวกัน)**: เลข `100 passed`
+ไม่ใช่ของ `f80f231` · ที่ `f80f231` คือ **96 passed** · `100 passed` คือของ `f372712`
+(ส่วนต่าง 4 = เทสใหม่สี่ใบของรอบ `i3evov` เอง) · วัดใหม่รอบ `s03veu` ที่คอมมิต `f550205`:
+มิวแทนต์เดิม **ยังรอด** ที่ **100 passed** ⇒ ข้อสรุป "มิวแทนต์รอด" ถูกมาตลอด ป้ายคอมมิตเท่านั้นที่ผิด
 เหตุผลเชิงกลไก ไม่ใช่เทสหาย: `nfbat1` เพิ่ม clause `except (KeyboardInterrupt, SystemExit)` ไว้
 **ก่อน** clause นี้ ⇒ KI/SE ถูกจับที่ clause บนเสมอ · สิ่งที่เหลือให้ `BaseException` จับคือชนิดที่
 เส้นทางนี้ไปไม่ถึงจริง ⇒ **การกว้างนั้นกลายเป็นของเหลือ** ไม่ใช่การป้องกันที่ทดสอบได้
 🔴 **รอบ `i3evov` จงใจไม่แก้โค้ดตรงนี้ และจงใจไม่เขียนเทสปลอมมาปิดปาก**: นโยบายการกลืน
 `BaseException` ทั้งบ้านเป็นของ chief ตาม `COO-DECISION 0641` ข้อ 4 (รูปที่สาม: ครอบ `BaseException`
 บันทึก แล้ว re-raise `KeyboardInterrupt`/`SystemExit`) — สายนี้รอ chief ลงแล้วค่อยเลิกกลืนตาม
+
+## descriptor ของ `login_scene_stage.py` ถูกตรึงครบสี่จุดแล้ว (รอบ `s03veu` · แก้คำอ้างของรอบ `i3evov`)
+
+🔴 **แก้คำอ้างของรอบ `i3evov` ก่อน**: ไฟล์รอบนั้นเขียนว่าบรรทัด 736 ของ
+`src/pirateforce_foundation/gm/login_scene_stage.py` **รั่ว 1 fd ทุกครั้งที่ GM stage สำเร็จ**
+— **เท็จ** · โค้ดที่ ship ปิด descriptor ครบทั้งสี่เส้นทาง · สิ่งที่ขาดคือ **ฟัน** ไม่ใช่การปิด
+(รอบนี้จึงไม่แก้ `src/` แม้แต่บรรทัดเดียว — แก้ "ของที่ไม่ได้พัง" คือการเพิ่มความเสี่ยงฟรี)
+
+สิ่งที่ pf-adversary วัดถูก (D6): `sed '736s/os.close(fd)/pass/'` แล้ว
+`pytest -k "login_scene or stage"` = **391 passed** ⇒ ทั้งสี่จุด (733 · 736 · 770 · 773) **ไม่มีเทสใบไหนตรึง**
+
+`tests/test_gm_login_scene_stage_descriptors.py` (รอบ `s03veu`) ปิดช่องนี้ · มิวแทนต์ 4/4 ตาย
+โดย**เทสใบที่ตั้งชื่อตามจุดนั้นเอง** ไม่ใช่ตายด้วยใบข้างเคียง (วัดทีละจุดที่คอมมิต `f550205`)
+
+ทำไมคุ้มค่าไฟล์หนึ่งใบทั้งที่รอบคลาวด์เดินบนลินุกซ์: บน Windows handle ที่ค้างทำให้
+`os.replace(temp_path, path)` **บรรทัดถัดไป** โยน `PermissionError` ⇒ ถ้าบรรทัด 736 หายไป
+**GM stage บนเครื่องเจ้าของจะกลายเป็นการปฏิเสธทุกครั้ง** ขณะที่ทุกรอบบนคลาวด์ยังเขียว
+— ความไม่สมมาตรตัวเดียวกับที่ปิด `#962`/`#970`
+
+🔴 กฎของสายนี้เพิ่มอีกข้อ: **stand-in ต้องแพตช์ที่ binding ของโมดูล** (`login_scene_stage.os`,
+`login_scene_stage.tempfile`) ไม่ใช่แพตช์ `os` เอง · `descriptors_opened_by` ใน
+`tests/pf_gm_capture_mocks.py` ใช้ `mock.patch.object(module.os, "open", ...)` และเพราะ
+`module.os is os` ทุกโมดูลในรีโปนี้ ⇒ พารามิเตอร์ `module` **ไม่มีผล** และมันแพตช์ทั้งโปรเซส
+(D10 ของรอบ `i3evov` · รอบนี้ยังไม่แก้ helper ตัวเก่า เพราะมีสามไฟล์ใช้ร่วมกัน — งานรอบหน้า)
 
 ## เทสของสาย GM ห้ามตรึง "โฮสต์เป็น POSIX" (รอบ `nfbat1` · สาเหตุที่เกตปิด `#962`)
 
