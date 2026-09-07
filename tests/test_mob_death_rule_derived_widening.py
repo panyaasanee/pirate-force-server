@@ -34,12 +34,14 @@ matters for a kill:
 from __future__ import annotations
 
 import sys
+import textwrap
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mob_tables_bg0002  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 
@@ -63,6 +65,38 @@ def _hand_typed_rulings() -> dict[str, frozenset[int]]:
         for name, templates in mob_death.WIDENING_RULINGS.items()
         if name not in derived
     }
+
+
+def _hand_typed_permit_for(scene: str) -> frozenset[int]:
+    """What the hand-typed letters authorise killing IN ONE SCENE.
+
+    COO-DECISION 2026-09-07T16:41+07:00 item c.  The predecessor of this
+    helper was a single union over every hand-typed letter, taken once and
+    reused for all twelve ratified scenes -- so a template a letter permits
+    in ONE scene read as "already permitted" in ELEVEN others it was never
+    named in.  Bg0002 is the live case: ``field_mob_tables_bg0002.
+    UNRESOLVED_PLACEMENTS`` ships template 27 four times, and the only
+    hand-typed permit for 27 anywhere is ``PANYA-DECISION 2026-08-27T20:10
+    ... diag-mountain-deer-template-27``, tied to **bg0001**.  Under the
+    union those four placements are invisible to assertion 2; scene by
+    scene they are not.
+
+    The scene tie is read the same way :func:`mob_death.rulings_covering`
+    reads it, and for the same reason -- a permit whose name is absent from
+    ``WIDENING_RULING_SCENES`` has NO scene tie, and the production path
+    lets such a permit cover a row in any scene.  Mirroring that here keeps
+    this test measuring the gate rather than a stricter gate of its own; a
+    hand-typed permit that loses its tie should show up as a widening in
+    ``test_no_hand_typed_permit_is_killable_in_every_scene``, not as a
+    silently narrower baseline in assertion 2.
+    """
+    permitted: set[int] = set()
+    for name, templates in _hand_typed_rulings().items():
+        required_scene = mob_death.WIDENING_RULING_SCENES.get(name)
+        if required_scene is not None and required_scene != scene:
+            continue
+        permitted |= set(templates)
+    return frozenset(permitted)
 
 
 class RuleDerivedWideningTests(unittest.TestCase):
@@ -102,12 +136,16 @@ class RuleDerivedWideningTests(unittest.TestCase):
             self.assertIn(name, mob_death.WIDENING_RULINGS)
 
     def test_ratified_scenes_gain_nothing_from_the_switch(self):
-        """Assertion 2: COO-DECISION 1648 item 2's "equals the old table"."""
-        already_permitted: set[int] = set()
-        for templates in _hand_typed_rulings().values():
-            already_permitted |= set(templates)
+        """Assertion 2: COO-DECISION 1648 item 2's "equals the old table".
 
-        derived_for_ratified: set[int] = set()
+        Measured SCENE BY SCENE (COO-DECISION 2026-09-07T16:41+07:00 item
+        c).  "Equals the old table" is a statement about each scene's own
+        letter: the old table was twelve per-scene permits, not one pooled
+        set, and a kill is refused or allowed in a scene, never in the
+        union of all of them.  See :func:`_hand_typed_permit_for` for the
+        template the pooled reading loses.
+        """
+        gained: list[tuple[str, int]] = []
         for scene in RATIFIED_SCENES_AT_SWITCH:
             self.assertIn(
                 scene, field_mobs.live_scenes(),
@@ -115,15 +153,150 @@ class RuleDerivedWideningTests(unittest.TestCase):
                 "this pin describes a tree that no longer exists and the "
                 "round that removed the scene owes it an update",
             )
+            already_permitted = _hand_typed_permit_for(scene)
             for mob in field_mobs.load_roster(scene=scene):
-                derived_for_ratified.add(mob.template_id)
+                if mob.template_id not in already_permitted:
+                    gained.append((scene, mob.template_id))
 
         self.assertEqual(
-            sorted(derived_for_ratified - already_permitted), [],
+            sorted(set(gained)), [],
             "the rule-derived permit authorises killing template(s) in an "
-            "ALREADY-RATIFIED scene that no hand-typed COO letter covers -- "
-            "that is a widening of a scene COO already ruled on, not the "
-            "automatic admission of a new one",
+            "ALREADY-RATIFIED scene that no hand-typed COO letter covers "
+            "FOR THAT SCENE -- that is a widening of a scene COO already "
+            "ruled on, not the automatic admission of a new one",
+        )
+
+    def test_a_permit_tied_to_one_scene_does_not_excuse_another(self):
+        """The pin for COO-DECISION 2026-09-07T16:41+07:00 item c.
+
+        Assertion 2 is only worth its message if its baseline is per-scene,
+        and today assertion 2 is green under BOTH readings -- every shipped
+        row happens to be covered in its own scene -- so nothing above
+        would notice the union coming back.  This holds the difference
+        directly, on shipped data rather than a fixture:
+
+        * template 27 IS in the pooled union of every hand-typed letter,
+        * template 27 is NOT in Bg0002's own hand-typed permit,
+        * and ``field_mob_tables_bg0002.UNRESOLVED_PLACEMENTS`` carries
+          four placements of it, waiting on the owner's tick.
+
+        So on the day that roster flips 12 -> 52 (``NOW.md``, pending the
+        owner), assertion 2 under the union would report template 27 as
+        already permitted in Bg0002 on the strength of a bg0001 letter,
+        and would name one widened template fewer than there are.  This
+        test goes red the moment ``_hand_typed_permit_for`` stops reading
+        ``WIDENING_RULING_SCENES``.
+
+        This asserts nothing about whether 27 SHOULD be killable in Bg0002
+        -- that is the owner's tick, and this lane does not flip it.
+        """
+        pooled: set[int] = set()
+        for templates in _hand_typed_rulings().values():
+            pooled |= set(templates)
+        self.assertIn(
+            27, pooled,
+            "template 27 no longer has a hand-typed permit anywhere, so "
+            "this test's whole premise is gone and the round that removed "
+            "the permit owes it a replacement witness",
+        )
+        self.assertNotIn(
+            27, _hand_typed_permit_for("Bg0002"),
+            "template 27 counts as already-permitted in Bg0002 although "
+            "its only hand-typed letter names bg0001 -- the scene-blind "
+            "union is back and assertion 2's baseline is pooled again",
+        )
+        self.assertIn(
+            27, _hand_typed_permit_for("bg0001"),
+            "template 27 is no longer permitted in bg0001, the one scene "
+            "its letter does name -- the scene tie is being read as a "
+            "refusal instead of a scope",
+        )
+        unresolved = [
+            row for row in field_mob_tables_bg0002.UNRESOLVED_PLACEMENTS
+            if row[1] == 27
+        ]
+        self.assertEqual(
+            len(unresolved), 4,
+            "Bg0002 no longer holds exactly the four unresolved template-27 "
+            "placements COO-DECISION 1641 item c counted; the number this "
+            "test was written against has moved",
+        )
+
+    def test_assertion_2_asks_the_permit_question_one_scene_at_a_time(self):
+        """The other half of item c's pin, on assertion 2 itself.
+
+        ``test_a_permit_tied_to_one_scene_does_not_excuse_another`` holds
+        :func:`_hand_typed_permit_for`, but assertion 2 could stop calling
+        it and rebuild the pooled union inline -- the two would then alibi
+        each other and item c would be un-fixed with both tests green.
+        Read structurally, because there is no shipped row that separates
+        the two readings today (that is exactly why the bug survived).
+
+        Checks the call's ARGUMENT, not just its name: a
+        ``_hand_typed_permit_for(RATIFIED_SCENES_AT_SWITCH[0])`` hoisted
+        out of the loop is the pooled reading wearing the right name.
+        """
+        import ast
+        import inspect
+
+        src = inspect.getsource(
+            RuleDerivedWideningTests
+            .test_ratified_scenes_gain_nothing_from_the_switch)
+        tree = ast.parse(textwrap.dedent(src))
+
+        loops = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.For)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "scene"
+        ]
+        self.assertEqual(
+            len(loops), 1,
+            "assertion 2 no longer walks the ratified scenes in exactly "
+            "one `for scene in ...` loop; the structure this pin reads is "
+            "gone and the pin owes itself a rewrite",
+        )
+
+        per_scene_calls = [
+            node for node in ast.walk(loops[0])
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_hand_typed_permit_for"
+            and [a for a in node.args
+                 if isinstance(a, ast.Name) and a.id == "scene"]
+        ]
+        self.assertEqual(
+            len(per_scene_calls), 1,
+            "assertion 2 does not ask _hand_typed_permit_for(scene) once "
+            "inside its own scene loop -- either the baseline was hoisted "
+            "out of the loop (one scene's permit reused for all twelve) or "
+            "the pooled union is back inline",
+        )
+
+        self.assertNotIn(
+            "_hand_typed_rulings", src,
+            "assertion 2 reads the hand-typed letters directly again; the "
+            "only pooled reading item c forbids is exactly this one",
+        )
+
+    def test_no_hand_typed_permit_is_killable_in_every_scene(self):
+        """A hand-typed permit with no scene tie is a permit everywhere.
+
+        :func:`mob_death.rulings_covering` treats a missing
+        ``WIDENING_RULING_SCENES`` entry as "covers any scene", so an
+        untied hand-typed permit would widen all twelve ratified scenes at
+        once and would do it while assertion 2 stayed green (the baseline
+        mirrors production, so it would widen with it).  There are none
+        today; this says so out loud rather than leaving it to be noticed.
+        """
+        untied = sorted(
+            name for name in _hand_typed_rulings()
+            if mob_death.WIDENING_RULING_SCENES.get(name) is None
+        )
+        self.assertEqual(
+            untied, [],
+            "hand-typed permit(s) carry no scene tie, so kill() accepts "
+            "them in EVERY scene: %r" % (untied,),
         )
 
     def test_a_signed_letter_outranks_a_derived_permit_on_every_shipped_row(
