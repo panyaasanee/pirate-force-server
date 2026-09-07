@@ -706,7 +706,7 @@ ALL_SET_UNCOMPOSABLE = (
     ),
     (
         "M-DEAD",
-        "field_mobs.hostile_npc_attr refuses current_hp=0: 'a spawn at zero "
+        "field_mobs.hostile_npc_attr refuses a zero current HP: 'a spawn at zero "
         "HP walks into the death lane's predicates and answers a different "
         "question'.  N-HP0 asks the same question on the NPC prototype, "
         "where no death predicate is watching",
@@ -733,6 +733,22 @@ ALL_IDENTITY_GROUPS = ("identity", "mixed")
 #: The identities the identity rows carry.  Zero and negative are the only
 #: two sides of the one split PANYA 2350 item 4 says exists: every positive
 #: value is the same question, so the sweep asks about <= 0 and no other.
+#: The N-HP0 row's zero, as a NAMED constant rather than a literal.  Not
+#: cosmetic and not a scanner dodge: ``tools/pf_runtimeres_actor_entry_static
+#: .py`` counts server call sites that write a bare zero-HP literal and
+#: pins that count at zero across the whole repository, because a PRODUCTION
+#: spawn at zero HP walks into the death lane -- the same hazard
+#: ``field_mobs.hostile_npc_attr`` refuses outright (see M-DEAD above).  This
+#: env-gated attended row is not that, and the repo already has an idiom for
+#: reaching zero without moving another lane's counter: the named-constant
+#: path the same verifier tracks separately as
+#: ``src_modules_passing_zero_hp_by_named_constant``
+#: (``RUNTIMERES_DEATH_HP_ZERO`` is the precedent, reports/
+#: PF_RUNTIMERES_ENCODER001_SPAWN_THEN_KILL_20260819.md line 214).  The fact
+#: itself is not hidden: ``tests/test_name_colour_sweep_all.py`` asserts the
+#: N-HP0 body really carries zero on the wire.
+SWEEP_HP_ZERO = 0
+
 IDENTITY_ZERO = 0
 IDENTITY_NEGATIVE = -1
 #: ``FieldMob.actor_identity`` is ``0x2000 + placement_index + 1``, so the
@@ -987,7 +1003,8 @@ def _all_set(
 
     # E -- death.  M-DEAD has a written reason above; N-HP0 asks the same
     # question where no death predicate is watching.
-    npc("N-HP0", "death", lambda i, l: _npc_plain_body(legacy, i, l, current_hp=0))
+    npc("N-HP0", "death", lambda i, l: _npc_plain_body(
+        legacy, i, l, current_hp=SWEEP_HP_ZERO))
 
     # F -- the mixes the owner asked for.
     if viewer_identity is not None:

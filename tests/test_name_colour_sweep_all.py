@@ -228,6 +228,23 @@ class AllSetRowsTests(unittest.TestCase):
                     f"{actor.label} stands on shipped placement {row[0]}",
                 )
 
+    def test_the_death_row_really_carries_zero_hp_on_the_wire(self) -> None:
+        """The named constant hides nothing: the bytes are checked here."""
+        rows = {a.label: a for a in name_colour_sweep.sweep_actors(self.legacy, ALL_ENV)}
+        actor = rows["N-HP0"]
+        self.assertEqual(name_colour_sweep.SWEEP_HP_ZERO, 0)
+        self.assertEqual(
+            actor.npc_attr,
+            name_colour_sweep._npc_plain_body(
+                self.legacy, actor.actor_identity, "N-HP0",
+                current_hp=name_colour_sweep.SWEEP_HP_ZERO),
+        )
+        self.assertNotEqual(
+            actor.npc_attr,
+            name_colour_sweep._npc_plain_body(
+                self.legacy, actor.actor_identity, "N-HP0"),
+        )
+
     def test_every_label_is_ascii_short_and_unique(self) -> None:
         for env in (ALL_ENV, NOID_ENV):
             labels = self._labels(env, VIEWER)

@@ -315,6 +315,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "mob_combat.py",
     "mob_death.py",
     "mob_ledger_admission.py",
+    "name_colour_sweep.py",
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],

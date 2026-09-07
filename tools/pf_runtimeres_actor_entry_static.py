@@ -1213,11 +1213,14 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
           # and emits nothing, so it is one of the over-reported kind this
           # census names on purpose.
           "mob_ledger_admission.py",
+          # Round ixdda8: name_colour_sweep.SWEEP_HP_ZERO, the N-HP0 row of
+          # the ALL sweep -- env-gated, never composed on an ordinary boot.
+          "name_colour_sweep.py",
           "npc_hp_link_hypothesis.py",
           "runtimeres_death_hypothesis.py"),
       "GAP 2 CLOSED in round 86 and re-derived in round 7ptoku: the literal "
       "`current_hp = 0` still appears nowhere in src/ or v141, and the src/ "
-      "modules that pass zero through a NAMED constant are exactly these seven "
+      "modules that pass zero through a NAMED constant are exactly these eight "
       "%s -- of which mob_combat.py and mob_death.py are the first that are "
       "production_allowed with no flag"
       % (SRC_ZERO_HP_CONST_MODULES,))

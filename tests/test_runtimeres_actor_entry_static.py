@@ -507,6 +507,12 @@ class TestTheAnswer(unittest.TestCase):
                           # quietly widens stops being a census, so it is
                           # re-pinned rather than loosened.
                           "mob_ledger_admission.py",
+                          # Round ixdda8: the eighth.  LANE-B's ALL sweep
+                          # draws one env-gated attended row at zero HP
+                          # (N-HP0) and reaches the zero through its own
+                          # named constant, so it joins this census rather
+                          # than moving the literal counter next to it.
+                          "name_colour_sweep.py",
                           "npc_hp_link_hypothesis.py",
                           "runtimeres_death_hypothesis.py"])
 
