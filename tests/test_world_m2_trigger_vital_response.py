@@ -55,7 +55,7 @@ MEASURED = "TEST_ONLY_MEASURED_PENDING_CROSSWALK"
 # The centre of `RE-289` ordinal 2's box, i.e. the position the letter
 # reports as the trigger's own `pos`. Named once, here, so a test that wants
 # "inside" does not carry six transcribed numbers of its own.
-ORD1_CENTRE = (3098.2, 2207.5, 86.0)
+ORD1_CENTRE = (3098.22, 2207.49, 86.01)
 ORD2_CENTRE = (-5426.19, 5129.33, 86.01)
 ORD3_CENTRE = (-1916.55, -6137.92, 86.02)
 
@@ -2287,29 +2287,46 @@ class EveryBoxCitesTheLetterItCameFromTests(M2RegistryIsolation):
         # the mailbox would have needed a `skipTest` for the swept case,
         # which is an UNPINNED SKIP and is what closed PR #503 -- caught by
         # pf_gate_preflight before this branch was pushed.
-        blob = None
+        # BOTH `RE-289` ARTIFACTS COUNT, and the second one arrived this
+        # round. The prose letter rounded ordinal 1 to (3098.2, 2207.5,
+        # 86.0) while printing ordinals 2 and 3 exact; the verbatim dump
+        # prints all three at full precision, and the table now carries the
+        # dump's digits. Requiring the prose letter alone would force the
+        # table to stay rounded in one row and exact in the other two --
+        # which is the state that made the table uncheckable in the first
+        # place. A number must appear in ONE of the two, and both are named
+        # constants with pinned shas, so this is not a widened net.
+        blobs = {}
+        wanted = {
+            trigger_response.RE289_RESULT_LETTER,
+            trigger_response.RE289_TGR_DUMP_LETTER,
+        }
         for root in (bridge / "notes_to_chief", bridge / "archive"):
             if not root.is_dir():
                 continue
             for entry in root.rglob("*.md"):
-                if entry.name == trigger_response.RE289_RESULT_LETTER:
-                    if entry.is_file():
-                        blob = entry.read_bytes()
-                        break
-            if blob is not None:
-                break
-        self.assertIsNotNone(
-            blob,
+                if entry.name in wanted and entry.is_file():
+                    blobs.setdefault(entry.name, entry.read_bytes())
+        self.assertIn(
+            trigger_response.RE289_RESULT_LETTER, blobs,
             "the cited letter %s is not under notes_to_chief/ or archive/ "
             "on the bridge" % (trigger_response.RE289_RESULT_LETTER,),
+        )
+        self.assertIn(
+            trigger_response.RE289_TGR_DUMP_LETTER, blobs,
+            "the cited dump %s is not under notes_to_chief/ or archive/ "
+            "on the bridge" % (trigger_response.RE289_TGR_DUMP_LETTER,),
         )
         for ordinal, citation in trigger_response.ISLAND_EXTENT_BOX_CITATIONS.items():
             with self.subTest(ordinal=ordinal):
                 for number in re.findall(r"-?\d+\.\d+", citation.split("pos ")[1]):
-                    self.assertIn(
-                        number.encode("ascii"), blob,
-                        "the citation for ordinal %s quotes %s and the "
-                        "letter does not contain it" % (ordinal, number),
+                    self.assertTrue(
+                        any(
+                            number.encode("ascii") in blob
+                            for blob in blobs.values()
+                        ),
+                        "the citation for ordinal %s quotes %s and neither "
+                        "RE-289 artifact contains it" % (ordinal, number),
                     )
 
     def test_the_keys_of_the_extent_table_are_never_used_as_wire_ids(self):
@@ -2353,6 +2370,381 @@ class EveryBoxCitesTheLetterItCameFromTests(M2RegistryIsolation):
                 SEA, 3, island_contact=self.contact_reading(*ORD3_CENTRE)
             )
         )
+
+
+class ThePassPathHasActuallyBeenRunTests(M2RegistryIsolation):
+    """pf-adversary F5 against `pirate-force-server#1033`, and it was the
+    bluntest finding this module has had: the lane's one function that hands
+    a frame to a caller had NEVER been executed past its guard.
+
+    The measurement was a surviving mutant. Change the last line of
+    `_candidate_for_trigger_id` from ``table.get(wire_trigger_id)`` to
+    ``table.get(current_scene_id)`` and the whole file stays green, because
+    `ISLAND_CONTACT_DISCRIMINATOR` is `None` on the shipped tree, so every
+    call in every test is refused at tier 3 and the lookup underneath is
+    dead code under test. `_tier3_contact_reason` had seams for exactly this
+    reason; nothing carried them the two frames up to the lookup. Since this
+    round `_answer_guard_reason` does, and these tests are what that is for.
+
+    THE PUBLIC FUNCTION STILL FORWARDS NOTHING -- pinned by
+    `test_no_public_callable_carries_any_of_the_three_seams` and by the last
+    test here, which walks the same input through the public door and gets
+    the shipped refusal.
+    """
+
+    MEASURED = "a discriminator this test measured, not the module"
+
+    def reading(self, centre):
+        return trigger_response.IslandContactEvidence(
+            discriminator=self.MEASURED,
+            x=centre[0],
+            y=centre[1],
+            z=centre[2],
+            source="ThePassPathHasActuallyBeenRunTests",
+        )
+
+    def passing(self, wire_trigger_id, registry, centre=ORD2_CENTRE):
+        return trigger_response._candidate_for_trigger_id(
+            SEA,
+            wire_trigger_id,
+            self.reading(centre),
+            discriminator=self.MEASURED,
+            boxes=trigger_response.ISLAND_EXTENT_BOXES,
+            registry=registry,
+        )
+
+    def test_a_passing_call_returns_the_frame_registered_for_the_WIRE_ID(self):
+        # The registry deliberately holds an entry under the SCENE id too,
+        # and a different one. `table.get(current_scene_id)` would return
+        # `scene_frame` here, and `table.get(2)` returns `wire_frame`; a
+        # lookup keyed on the wrong argument now fails loudly instead of
+        # being invisible. This is the mutant F5 named.
+        wire_frame = _fake(vital_id=2)
+        scene_frame = _fake(vital_id=SEA)
+        got = self.passing(2, {2: wire_frame, SEA: scene_frame})
+        self.assertIs(got, wire_frame)
+        self.assertIsNot(got, scene_frame)
+
+    def test_the_frame_comes_back_UNCHANGED(self):
+        # The module's oldest promise, and until this round no test could
+        # reach the line that keeps it: what is registered is what is
+        # returned, not a copy and not a re-encoding.
+        registered = _fake(vital_id=3)
+        got = self.passing(3, {3: registered})
+        self.assertIs(got, registered)
+
+    def test_a_passing_call_with_an_EMPTY_slot_is_still_None(self):
+        # All three tiers pass and nothing is registered: `None`, and NOT
+        # because a tier refused. The distinction is the reason
+        # `answer_guard_reason` exists next to this function.
+        self.assertIsNone(self.passing(2, {2: None, 3: None}))
+        self.assertIsNone(
+            trigger_response._answer_guard_reason(
+                SEA,
+                2,
+                self.reading(ORD2_CENTRE),
+                discriminator=self.MEASURED,
+                boxes=trigger_response.ISLAND_EXTENT_BOXES,
+            )
+        )
+
+    def test_each_tier_still_refuses_with_the_seams_supplied(self):
+        # A seam that opened the tiers instead of only the third one would
+        # be worse than the dead code it replaced.
+        registry = {2: _fake(vital_id=2), 3: _fake(vital_id=3)}
+        for scene, wire, centre, why in (
+            (SEA + 1, 2, ORD2_CENTRE, "wrong scene"),
+            (SEA, 4, ORD2_CENTRE, "wrong wire id"),
+            (SEA, 2, (0.0, 0.0, 86.0), "open water"),
+        ):
+            with self.subTest(why=why):
+                self.assertIsNone(
+                    trigger_response._candidate_for_trigger_id(
+                        scene,
+                        wire,
+                        self.reading(centre),
+                        discriminator=self.MEASURED,
+                        boxes=trigger_response.ISLAND_EXTENT_BOXES,
+                        registry=registry,
+                    )
+                )
+
+    def test_a_reading_naming_ANOTHER_discriminator_is_still_refused(self):
+        # The seam supplies what the module has not measured; it does not
+        # switch off the comparison against it.
+        other = trigger_response.IslandContactEvidence(
+            discriminator=self.MEASURED + " (a different one)",
+            x=ORD2_CENTRE[0],
+            y=ORD2_CENTRE[1],
+            z=ORD2_CENTRE[2],
+            source="ThePassPathHasActuallyBeenRunTests",
+        )
+        self.assertIsNone(
+            trigger_response._candidate_for_trigger_id(
+                SEA,
+                2,
+                other,
+                discriminator=self.MEASURED,
+                boxes=trigger_response.ISLAND_EXTENT_BOXES,
+                registry={2: _fake(vital_id=2)},
+            )
+        )
+
+    def test_the_SHIPPED_public_door_refuses_the_very_same_input(self):
+        # The control. Everything above runs through a private twin with
+        # seams; the public function has none, reads the module's own
+        # unmeasured `ISLAND_CONTACT_DISCRIMINATOR`, and answers `None` for
+        # the identical reading -- which is what a live session gets today.
+        self.assertIsNone(trigger_response.ISLAND_CONTACT_DISCRIMINATOR)
+        self.assertIsNone(
+            trigger_response.candidate_for_trigger_id(
+                SEA, 2, self.reading(ORD2_CENTRE)
+            )
+        )
+        self.assertEqual(
+            trigger_response.answer_guard_reason(
+                SEA, 2, self.reading(ORD2_CENTRE)
+            ),
+            trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
+        )
+
+
+class TheFreezeIsCensusedNotJustDerivedTests(M2RegistryIsolation):
+    """pf-adversary F4, CRITICAL: `__FROZEN` could be SHRUNK.
+
+    The previous round bought a derived test that requires every module-level
+    FUNCTION to be in the set, so a new private twin cannot be forgotten.
+    The other half of the set -- the data -- was still typed by hand and
+    checked by nothing, so deleting a line from it left the file green.
+    Eight of the thirteen non-function entries survived deletion; the worst
+    was `"__class__"`, whose removal restores `module.__class__ =
+    types.ModuleType` -- the un-freeze that is the FIRST bypass the class's
+    own comment lists.
+
+    A test that iterates `__FROZEN` cannot catch that: shrink the set and
+    the loop just runs fewer times. So this class carries an INDEPENDENT
+    census of the data half and requires the set to equal
+    (module functions) | (this census) exactly. Adding a frozen name without
+    naming it here is red; removing one from the set is red.
+    """
+
+    #: The non-function names `__FROZEN` must hold, and WHY each is tier-3
+    #: state. Sourced from pf-adversary's F4 census plus this round's
+    #: additions -- deliberately NOT read out of `__FROZEN`.
+    DATA_NAMES = {
+        "__class__": "un-freeze the module, then write anything",
+        "ISLAND_CONTACT_DISCRIMINATOR": "the name tier 3 compares against",
+        "ISLAND_EXTENT_BOXES": "the boxes tier 3 decides in",
+        "_ISLAND_EXTENT_BOXES": "the dict behind that proxy",
+        "ISLAND_EXTENT_BOX_CITATIONS": "what the citation gate reads",
+        "ISLAND_EXTENT_BOX_ORDINALS": "which rows claim to be islands",
+        "ISLAND_EXTENT_BOX_INTERPRETATION": "how the two vectors are read",
+        "ISLAND_EXTENT_BOX_INTERPRETATIONS_REFUTED": "what RE-297 ruled out",
+        "ISLAND_EXTENT_BOX_EDGE_WALL_ORDINALS": "rows that must stay out",
+        "ISLAND_EXTENT_EDGE_WALL_RECORDS": "the evidence for the reading",
+        "ISLAND_EXTENT_EDGE_WALL_SPACINGS": "the second entry for it",
+        "RE289_RESULT_LETTER": "the letter the boxes came from",
+        "RE289_RESULT_LETTER_SHA256": "that letter's identity",
+        "RE297_RESULT_LETTER": "the letter the reading came from",
+        "RE297_RESULT_LETTER_SHA256": "that letter's identity",
+        "RE289_TGR_DUMP_LETTER": "the dump that makes both re-checkable",
+        "RE289_TGR_DUMP_LETTER_SHA256": "that dump's identity",
+        "_CANDIDATES": "the frames this module would answer with",
+        "__CANDIDATES": "the dict behind that proxy",
+        "TIER3_STATE_IS_READ_ONLY": "the refusal message itself",
+        "M2_WIRE_ORDINAL_CROSSWALK_LETTER": "the crosswalk's source",
+        "M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS": "the crosswalk itself",
+        "M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES": "its negative half",
+        "M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION": "the rows GT-228 read",
+    }
+
+    def frozen(self):
+        return getattr(
+            trigger_response._FrozenTier3Module, "_FrozenTier3Module__FROZEN"
+        )
+
+    def module_function_names(self):
+        return {
+            name
+            for name, value in vars(trigger_response).items()
+            if isinstance(value, types.FunctionType)
+            and getattr(value, "__module__", None) == trigger_response.__name__
+        }
+
+    def test_the_frozen_set_is_exactly_the_functions_plus_this_census(self):
+        expected = self.module_function_names() | set(self.DATA_NAMES)
+        self.assertEqual(self.frozen(), expected)
+
+    def test_every_name_in_the_census_refuses_both_write_and_delete(self):
+        # Membership in a set is not a guard; this runs the guard. The
+        # sentinel is deliberately NOT a freeze class, so `__class__` takes
+        # the same path as every other name.
+        sentinel = object()
+        for name, why in sorted(self.DATA_NAMES.items()):
+            with self.subTest(name=name, why=why):
+                with self.assertRaises(AttributeError) as raised:
+                    setattr(trigger_response, name, sentinel)
+                self.assertIn("read-only to importers", str(raised.exception))
+                with self.assertRaises(AttributeError):
+                    delattr(trigger_response, name)
+
+    def test_the_un_freeze_door_is_shut_by_name(self):
+        # F4's headline, as a behaviour rather than a list membership: this
+        # is the assignment that made every other entry in the set moot.
+        with self.assertRaises(AttributeError):
+            trigger_response.__class__ = types.ModuleType
+        # And the module is still the frozen class afterwards.
+        self.assertIsNotNone(
+            getattr(
+                type(trigger_response), "_FrozenTier3Module__FROZEN", None
+            )
+        )
+
+    def test_a_reload_may_still_reinstall_its_own_freeze(self):
+        # The control for the test above: `importlib.reload` re-executes the
+        # module body, which ends by assigning `__class__` with a NEW class
+        # carrying the same freeze. Refusing that would make the module
+        # unreloadable, so the exemption is deliberate and pinned here.
+        reloaded = importlib.reload(trigger_response)
+        self.assertIsNotNone(
+            getattr(type(reloaded), "_FrozenTier3Module__FROZEN", None)
+        )
+
+
+class TheEdgeWallsAreEvidenceNotIslandsTests(M2RegistryIsolation):
+    """`RE-297`, consumed. Two things follow from it and both are pinned.
+
+    ONE: ordinals 6/7/8 and 68/69/70 are the MAP-EDGE WALLS. They are the
+    records that decided how to read `pos` and `extent`, and they are the
+    rows that would turn "touching an island" into "sailing near the edge of
+    the map" -- `RE-234` item (3)'s confusion, rebuilt -- if a later round
+    widened the selection rule and swept them in.
+
+    TWO: the reading itself. `pos` is the box CENTRE and `extent` its FULL
+    WIDTH, and the arithmetic below is `RE-297`'s discriminator re-derived
+    from the six records this file pins, not a restatement of its verdict.
+    """
+
+    def test_no_edge_wall_ordinal_is_in_the_island_table(self):
+        walls = set(trigger_response.ISLAND_EXTENT_BOX_EDGE_WALL_ORDINALS)
+        self.assertEqual(walls, set(trigger_response.ISLAND_EXTENT_EDGE_WALL_RECORDS))
+        self.assertFalse(
+            walls & set(trigger_response.ISLAND_EXTENT_BOX_ORDINALS)
+        )
+        self.assertFalse(walls & set(trigger_response.ISLAND_EXTENT_BOXES))
+        self.assertFalse(walls & set(trigger_response.ISLAND_EXTENT_BOX_CITATIONS))
+
+    def test_the_edge_walls_tile_only_under_centre_plus_full_width(self):
+        # Each wall is three records laid along one axis. Under the reading
+        # this module uses, consecutive boxes OVERLAP (spacing < extent), so
+        # the wall has no gap. Under MIN CORNER the same three leave a gap
+        # the size of a box at one end; under HALF WIDTH they overlap by
+        # more than half, so laying three of them is pointless.
+        records = trigger_response.ISLAND_EXTENT_EDGE_WALL_RECORDS
+        walls = {
+            # (ordinals, index of the axis they are laid along)
+            "west": ((6, 7, 8), 1),
+            "south": ((68, 69, 70), 0),
+        }
+        for side, (ordinals, axis) in walls.items():
+            positions = sorted(records[one][axis] for one in ordinals)
+            extents = {records[one][2 + axis] for one in ordinals}
+            with self.subTest(side=side):
+                self.assertEqual(extents, {7000.0})
+                extent = extents.pop()
+                gaps = [
+                    round(high - low, 2)
+                    for low, high in zip(positions, positions[1:])
+                ]
+                self.assertEqual(len(gaps), 2)
+                # SECOND ENTRY. Without this a transposed digit in a
+                # record survives the whole file: the bounds below are
+                # loose by hundreds of units, and a wall coordinate is
+                # hand-transcribed. Measured: ordinal 7 moved from
+                # -325.84 to -352.84 passed 106 tests before this line.
+                measured = trigger_response.ISLAND_EXTENT_EDGE_WALL_SPACINGS
+                for gap in gaps:
+                    self.assertIn(gap, measured)
+                for gap in gaps:
+                    # CENTRE + FULL WIDTH: they overlap, so no gap.
+                    self.assertLess(gap, extent)
+                    # ... and by only a little, which is what makes three
+                    # records a wall and not three stacked boxes. HALF WIDTH
+                    # would put the true extent at 14000, i.e. gap < half.
+                    self.assertGreater(gap, extent / 2.0)
+                # MIN CORNER: the low box starts at its own `pos`, so the
+                # wall stops short of the scene edge by a whole box that the
+                # centre reading covers. Named as a number so the refuted
+                # reading is auditable and not merely asserted.
+                shortfall = round(extent / 2.0, 2)
+                self.assertGreater(shortfall, 0.0)
+        self.assertEqual(
+            trigger_response.ISLAND_EXTENT_BOX_INTERPRETATION,
+            "CENTRE_PLUS_FULL_WIDTH",
+        )
+        self.assertNotIn(
+            trigger_response.ISLAND_EXTENT_BOX_INTERPRETATION,
+            trigger_response.ISLAND_EXTENT_BOX_INTERPRETATIONS_REFUTED,
+        )
+
+    def test_the_four_measured_spacings_are_exactly_what_the_records_give(self):
+        # The other direction: the spacing table may not carry a number no
+        # pair of records produces, or the "second entry" is decoration.
+        records = trigger_response.ISLAND_EXTENT_EDGE_WALL_RECORDS
+        produced = set()
+        for ordinals, axis in (((6, 7, 8), 1), ((68, 69, 70), 0)):
+            positions = sorted(records[one][axis] for one in ordinals)
+            produced.update(
+                round(high - low, 2)
+                for low, high in zip(positions, positions[1:])
+            )
+        self.assertEqual(
+            produced, set(trigger_response.ISLAND_EXTENT_EDGE_WALL_SPACINGS)
+        )
+        self.assertEqual(len(trigger_response.ISLAND_EXTENT_EDGE_WALL_SPACINGS), 4)
+
+    def test_every_island_box_matches_the_named_interpretation(self):
+        # The interpretation constant is not decoration: each committed row
+        # must be `pos +/- extent/2` of the numbers in its own citation, so
+        # changing the constant without changing the table -- or the other
+        # way round -- is red.
+        self.assertEqual(
+            trigger_response.ISLAND_EXTENT_BOX_INTERPRETATION,
+            "CENTRE_PLUS_FULL_WIDTH",
+        )
+        pattern = re.compile(
+            r"pos (-?[\d.]+),(-?[\d.]+),(-?[\d.]+) "
+            r"extent ([\d.]+)x([\d.]+)x([\d.]+)"
+        )
+        for ordinal, citation in trigger_response.ISLAND_EXTENT_BOX_CITATIONS.items():
+            with self.subTest(ordinal=ordinal):
+                found = pattern.search(citation)
+                self.assertIsNotNone(found, citation)
+                numbers = [float(one) for one in found.groups()]
+                centre, extent = numbers[:3], numbers[3:]
+                expected = tuple(
+                    round(one, 6)
+                    for one in (
+                        [c - e / 2.0 for c, e in zip(centre, extent)]
+                        + [c + e / 2.0 for c, e in zip(centre, extent)]
+                    )
+                )
+                got = tuple(
+                    round(one, 6)
+                    for one in trigger_response._ISLAND_EXTENT_BOXES[ordinal]
+                )
+                self.assertEqual(got, expected)
+
+    def test_z_is_an_ordinary_coordinate_and_the_floor_anchor_is_refuted(self):
+        # `RE-297` item 3: 32 of the 52 records sit above the scene floor,
+        # so `pos.z` is not an anchor. The consequence this module lives
+        # with is that its bands dip under the water surface, which is what
+        # the committed rows do -- and a round that "fixed" that by moving
+        # the band up would be re-adopting the refuted reading.
+        for ordinal, box in trigger_response._ISLAND_EXTENT_BOXES.items():
+            with self.subTest(ordinal=ordinal):
+                self.assertLess(box[2], 86.0)
+                self.assertGreater(box[5], 86.0)
 
 
 if __name__ == "__main__":

@@ -508,6 +508,76 @@ RE289_BG3001_TGR_SHA256 = (
     "e0022e94e6b780cd0d364ec83e328c5f76b7e1215daf57cc24b51e93153a525f"
 )
 
+# `RE-297` answered the question `RE-289` left open: how to READ the two
+# vectors above.  Same runner, same read-only `.tgr`, same sha as the row
+# just above, so the two letters are about one artifact and not two.
+RE297_RESULT_LETTER = (
+    "20260907_1505_RE-297-RESULT-pos-is-the-centre-and-extent-is-full-"
+    "width.md"
+)
+RE297_RESULT_LETTER_SHA256 = (
+    "38ac2661bc93b634bbc4542ae3a1bd0b05ff304acf0254224b5f19cad162c451"
+)
+# AND THE EVIDENCE STOPPED BEING SOMEBODY ELSE'S MACHINE.  This lane asked
+# twice that `RE-289` be re-checkable from a clone; the answer is this
+# letter, which carries the full 52-record dump verbatim.  Every number the
+# comments above reason with -- the wall ordinals, their spacing, the 52
+# `pos.z` values -- is in it, so the argument for the reading is auditable
+# without a bridge machine.  It is a letter, not a data file, because
+# `notes_to_chief/` is the only way new artifacts leave the bridge.
+RE289_TGR_DUMP_LETTER = (
+    "20260907_1510_RE-289-ARTIFACT-Bg3001-tgr-full-dump-verbatim.md"
+)
+RE289_TGR_DUMP_LETTER_SHA256 = (
+    "7e7ad9b108868523b6729cb93ef79c7227b00ec5c22e1fa5b0a3bd6b89b6641a"
+)
+
+# HOW THE SIX NUMBERS OF A ROW COME OUT OF THE TWO VECTORS `RE-289` GIVES.
+# A NAME, so that changing the reading is an edit to a constant a test reads
+# rather than a silent re-transcription of three rows -- and so that the
+# refuted readings are written down next to the surviving one instead of
+# being remembered.  `RE-297` measured `CENTRE_PLUS_FULL_WIDTH`; the other
+# two are what it ruled out, and they are kept because a table of boxes with
+# no record of what they are NOT is a table nobody can check.
+ISLAND_EXTENT_BOX_INTERPRETATION = "CENTRE_PLUS_FULL_WIDTH"
+ISLAND_EXTENT_BOX_INTERPRETATIONS_REFUTED = ("MIN_CORNER_PLUS_FULL_WIDTH", "CENTRE_PLUS_HALF_WIDTH")
+
+# THE ROWS THAT MUST NEVER BE IN THE TABLE, named rather than merely absent.
+# `RE-289` read ordinals 6/7/8 and 68/69/70 as MAP-EDGE WALLS and `RE-297`
+# proved it, by using them as the discriminator above: they are the records
+# that tile the frame boundary.  A round that widened the selection rule and
+# swept them in would turn "touching an island" into "sailing near the edge
+# of the map" -- `RE-234` item (3)'s confusion, rebuilt.  A test keeps them
+# out of both `ISLAND_EXTENT_BOX_ORDINALS` and the table itself.
+ISLAND_EXTENT_BOX_EDGE_WALL_ORDINALS = (6, 7, 8, 68, 69, 70)
+
+# The six edge-wall records, exactly as `RE289_TGR_DUMP_LETTER` prints them:
+# ordinal -> (pos_x, pos_y, extent_x, extent_y).  They are HERE and not in
+# `_ISLAND_EXTENT_BOXES` on purpose -- they are the evidence for how to read
+# that table, not rows of it.  z is dropped: all six sit at 86.01 and the
+# wall argument is a two-axis one.
+ISLAND_EXTENT_EDGE_WALL_RECORDS: dict[int, tuple[float, float, float, float]] = {
+    6: (-9084.53, 6462.22, 2000.0, 7000.0),
+    7: (-9084.53, -325.84, 2000.0, 7000.0),
+    8: (-9084.53, -7024.29, 2000.0, 7000.0),
+    68: (-6027.36, -9416.95, 7000.0, 2000.0),
+    69: (760.60, -9381.61, 7000.0, 2000.0),
+    70: (7458.96, -9346.74, 7000.0, 2000.0),
+}
+
+# THE SECOND ENTRY FOR THE SIX ROWS ABOVE, and it is not a copy of them.
+# A transposed digit is the likely typo in a hand-transcribed table -- this
+# file says so about the box rows and then left these six unchecked: a
+# mutant moving ordinal 7 from -325.84 to -352.84 passed the whole file.
+# What catches it is the QUANTITY THE ARGUMENT ACTUALLY USES: the spacing
+# between consecutive boxes along each wall.  `RE-297` published three of
+# these four numbers independently (6698.45 / 6788.06 on the west wall,
+# 6698.36 on the south), so this is a real second source and not the same
+# entry written twice.  The fourth, 6787.96, is the one `RE-297` printed as
+# 6787.97; this file quotes what it re-derived from the dump's own two
+# coordinates.
+ISLAND_EXTENT_EDGE_WALL_SPACINGS = (6698.36, 6698.45, 6787.96, 6788.06)
+
 CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED = (
     "CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED"
 )
@@ -545,46 +615,64 @@ ISLAND_EXTENT_BOX_ORDINALS = (1, 2, 3)
 #     x0 = pos_x - extent_x / 2      x1 = pos_x + extent_x / 2
 #
 # i.e. `pos` is read as the box's CENTRE and `extent` as its FULL WIDTH.
-# THE LETTER SAYS NEITHER, and both halves are guesses this table has to
-# name rather than bury:
+# `RE-289` SAID NEITHER, so for three rounds both halves stood here labelled
+# as guesses.  `RE-297` MEASURED THEM, out of the same file, and the reading
+# above is the one it returned -- see `ISLAND_EXTENT_BOX_INTERPRETATION` for
+# the constant and `RE297_RESULT_LETTER` for the letter.  The three
+# paragraphs that used to argue the guess are gone, not rewritten; what
+# replaces them is the discriminating record, because a reader who does not
+# trust this file has to be able to redo the step, and now can:
 #
-#   * FULL vs HALF WIDTH.  Full width is the smaller box, so on this axis
-#     the guess is fail-closed: if the truth is half width the table refuses
-#     sessions that really were in contact (a miss), where the other guess
-#     would accept sessions in open water (a false island).  The strongest
-#     argument for full width is the letter's own arithmetic: under half
-#     width, ordinal 2's footprint is 21.3% of the frame and ordinal 1's is
-#     32%, so the letter's "< 20% on both axes, PASS both" verdict would
-#     contradict itself.
-#   * CENTRE vs MIN CORNER.  pf-adversary found this one and it is NOT
-#     fail-closed: if `pos` is the min corner, ordinal 2's true box is
-#     x[-5426.19, -3426.19] and the box below is not a subset of it -- a
-#     session at (-6000, 5500, 86) would be inside a committed box and
-#     outside the real trigger volume, which is the false island the other
-#     paragraph promises never to produce.
-#   * Z IS THE WEAKEST OF THE THREE.  The band below is [-163.99, 336.01],
-#     which spans 250 units of water no ship is under; the scene's own z
-#     range is [86.0, 393.7] and the `.tgr`'s is [86.0, 224.5].  If
-#     `extent_z` is measured UPWARD from a floor anchor (consistent with
-#     every record's `pos.z` being the scene minimum, 86.0), the true band
-#     is [86.01, 586.01] and a session at the water surface is refused by
-#     one hundredth of a unit.
+#   THE DISCRIMINATOR IS THE MAP-EDGE WALLS, six records over two axes.
+#   Ordinals 6/7/8 all sit at `x = -9084.53` with extent `(2000, 7000, 500)`
+#   and are spaced 6788.06 and 6698.45 apart in y; ordinals 68/69/70 lie
+#   along the south edge (y from -9416.95 to -9346.74) with extent
+#   `(7000, 2000, 500)` and are spaced 6787.96 and 6698.36 apart in x --
+#   THE SAME TWO NUMBERS, transposed with the axes.  (`RE-297` prints the
+#   first as 6787.97; the value re-derived here from the dump's own two
+#   coordinates is 6787.96, and one hundredth of a unit changes nothing in
+#   the argument -- but this file quotes what it re-derived, not what it
+#   was told.)
+#   Both spacings are slightly UNDER 7000, so under CENTRE + FULL WIDTH the
+#   three boxes tile the scene edge with a small overlap, which is how a
+#   wall is laid.  Under MIN CORNER the same three leave 2392.6 units of the
+#   south edge (and 3057 of the west edge) with no wall at all while
+#   throwing a box of the same size away outside the frame -- the identical
+#   mistake, at the same corner, on both axes, by coincidence.  Under HALF
+#   WIDTH the boxes are 14000 wide and overlap by more than half, so laying
+#   three of them means nothing.
 #
-# NONE OF THE THREE DECIDES ANYTHING TODAY, because
-# `ISLAND_CONTACT_DISCRIMINATOR` is `None` and tier 3 refuses before it ever
-# reaches this table.  They are the reason the ticket body sent to LANE-K
-# asks about anchor and units, and the reason that ticket has to answer
-# before the name above is filled in.
-# A SECOND SOURCE THIS LANE ALREADY OWNS, and did not open before
-# choosing: `world_m2_sea_destination.py` records scene 126's berths from
-# `CONSTDATA_TH__MARKER.tsv`, and MARKER[17] (3050, 232, 90) and MARKER[18]
-# (-5072, 4000, 90) both sit at their square's x, both fall OUTSIDE the
-# full-width box in -y, and both fall inside the half-width one.  Two points
-# is not proof -- an arrival berth need not sit inside a departure volume --
-# but it leans against the reading below and belongs in the ticket.
-# [assumption of LANE-A - pending COO confirmation] -- the question is in
-# `notes_to_chief/20260907_1022_LANE-A-TO-K-re-ticket-body-tgr-extent-is-
-# full-or-half-width.md`; reverting is doubling the six numbers below.
+#   RE-DERIVE IT FROM THE REPOSITORY, no bridge machine needed: the whole
+#   52-record dump is `RE289_TGR_DUMP_LETTER` in the bridge repo, and
+#   `test_the_edge_walls_tile_only_under_centre_plus_full_width` below
+#   redoes this arithmetic from the numbers pinned in this file.
+#
+# WHAT `RE-297` DID NOT ANSWER, kept because a later round will want the
+# distinction: it measured `Bg3001.tgr` and nothing else, so "centre + full
+# width" is this scene's reading and not a claim about the `.tgr` format
+# (its nonclaim 2).  And it could not tie a box to the real island collision
+# outline -- scene 126 has no NavMesh or collision file in the repository at
+# all (its answer to item 2) -- so a box remains the trigger volume the
+# scene file draws, not the coastline.
+#
+# THE ONE PIECE OF EVIDENCE THAT LEANED THE OTHER WAY, kept so the next
+# round does not rediscover it and re-open a settled question.  This lane
+# noticed that scene 126's berths in `world_m2_sea_destination.py` --
+# MARKER[17] (3050, 232, 90) and MARKER[18] (-5072, 4000, 90) -- fall
+# OUTSIDE the full-width boxes in -y and inside the half-width ones.
+# `RE-297` got the same two distances (625.5 and 129.33) and read them as
+# evidence of nothing, for the reason this file had already written down
+# next to them: AN ARRIVAL BERTH NEED NOT SIT INSIDE A DEPARTURE VOLUME.
+# Six records agreeing across two axes outweighs two points that may not be
+# about the same thing.
+
+# THE THIRD GUESS, Z, IS ALSO ANSWERED AND IT FELL THE OTHER WAY.  This file
+# used to reason that `extent_z` might be measured UPWARD from a floor
+# anchor, "consistent with every record's `pos.z` being the scene minimum,
+# 86.0".  THE PREMISE WAS FALSE, and the same dump refutes it: 32 of the 52
+# records have `pos.z` ABOVE 86.0 (29 at 192.33, three at ~224.5).  `pos.z`
+# is an ordinary coordinate like x and y, so the band below -- which does
+# dip 250 units under the water no ship is beneath -- is the right one.
 ISLAND_EXTENT_BOX_SOURCE = "RE-289 Bg3001.tgr block[0x34] +0x0E pos, +0x1A extent"
 
 # WHICH ROWS EARN A PLACE, AND ON WHAT MEASUREMENT.  The rule is the
@@ -609,9 +697,17 @@ ISLAND_EXTENT_BOX_SOURCE = "RE-289 Bg3001.tgr block[0x34] +0x0E pos, +0x1A exten
 # are the rows that would turn "touching an island" into "sailing near the
 # edge of the map", which is the exact confusion `RE-234` item (3) reported.
 _ISLAND_EXTENT_BOXES: dict[int, tuple[float, float, float, float, float, float]] = {
-    # ordinal 1: TELCHK_LV [01], pos (3098.2, 2207.5, 86.0),
+    # ordinal 1: TELCHK_LV [01], pos (3098.22, 2207.49, 86.01),
     # extent (3000, 2700, 500) -- 16.0% / 14.4% of the scene frame.
-    1: (1598.2, 857.5, -164.0, 4598.2, 3557.5, 336.0),
+    # THESE THREE DIGITS CHANGED WHEN `RE289_TGR_DUMP_LETTER` ARRIVED.  The
+    # row was transcribed as (3098.2, 2207.5, 86.0) from the prose of
+    # `RE-289`; the verbatim dump prints (3098.22, 2207.49, 86.01), and
+    # ordinals 2 and 3 were already exact.  It moves a bound by two
+    # hundredths of a unit and decides nothing differently -- it is here
+    # because a table whose rows are rounded in different amounts is a table
+    # nobody can check against its source, and now there is a source in the
+    # repository to check against.
+    1: (1598.22, 857.49, -163.99, 4598.22, 3557.49, 336.01),
     # ordinal 2: TELCHK_LV [02], pos (-5426.19, 5129.33, 86.01),
     # extent (2000, 2000, 500) -- 10.6% / 10.6% of the scene frame.
     2: (-6426.19, 4129.33, -163.99, -4426.19, 6129.33, 336.01),
@@ -629,7 +725,7 @@ _ISLAND_EXTENT_BOXES: dict[int, tuple[float, float, float, float, float, float]]
 # single entry, so the numbers below are the ones the test re-derives from
 # and the box is what it checks against.
 ISLAND_EXTENT_BOX_CITATIONS: dict[int, str] = {
-    1: "RE-289 (%s) ordinal 1 TELCHK_LV[01] pos 3098.2,2207.5,86.0 "
+    1: "RE-289 (%s) ordinal 1 TELCHK_LV[01] pos 3098.22,2207.49,86.01 "
        "extent 3000x2700x500" % RE289_RESULT_LETTER_SHA256,
     2: "RE-289 (%s) ordinal 2 TELCHK_LV[02] pos -5426.19,5129.33,86.01 "
        "extent 2000x2000x500" % RE289_RESULT_LETTER_SHA256,
@@ -1260,13 +1356,53 @@ def answer_guard_reason(
     for.  No PRODUCTION call changed, because there are no production
     callers.
     """
+    return _answer_guard_reason(current_scene_id, wire_trigger_id, island_contact)
+
+
+def _answer_guard_reason(
+    current_scene_id: object,
+    wire_trigger_id: object,
+    island_contact: object = None,
+    *,
+    discriminator: object = _UNSET,
+    boxes: "Mapping[int, object] | None" = None,
+) -> str | None:
+    """``answer_guard_reason`` WITH ``_tier3_contact_reason``'s two test
+    seams carried through, and PRIVATE for the same reason they are: a
+    caller able to supply the discriminator it is judged against is
+    answering itself.
+
+    IT EXISTS BECAUSE THE PASS PATH HAD NEVER BEEN RUN.  pf-adversary's F5
+    against the previous round measured it as a surviving mutant: change
+    ``_candidate_for_trigger_id``'s last line from
+    ``table.get(wire_trigger_id)`` to ``table.get(current_scene_id)`` and
+    THE WHOLE FILE STAYS GREEN, because ``ISLAND_CONTACT_DISCRIMINATOR`` is
+    ``None`` on the shipped tree, so every call in every test is refused at
+    tier 3 and the lookup below it is dead code under test.  The lane's
+    central function -- the only one in this file that hands a frame to a
+    caller -- was reached by no test at all.  ``_tier3_contact_reason``
+    already had the seams; nothing carried them the two frames up to where
+    the lookup happens, so this function does.
+
+    WHY NOT JUST GIVE THE SEAMS TO ``answer_guard_reason``: because that one
+    is public and takes its arguments from a live session.  The rule this
+    file has followed since C6 is that a seam lives on a private twin and
+    the public function forwards nothing to it, and the same tests that pin
+    the absence of ``registry=`` from the public surface pin these two.
+
+    THE ORDER OF THE THREE TIERS IS HERE, not in the public function, so
+    there is one copy of it.  ``answer_guard_reason`` is now a forwarding
+    line, exactly as ``candidate_for_trigger_id`` is.
+    """
     scene_reason = scene_guard_reason(current_scene_id)
     if scene_reason is not None:
         return scene_reason
     trigger_reason = _trigger_id_guard_reason(wire_trigger_id)
     if trigger_reason is not None:
         return trigger_reason
-    return _tier3_contact_reason(island_contact)
+    return _tier3_contact_reason(
+        island_contact, discriminator=discriminator, boxes=boxes
+    )
 
 
 def _tier2_id_is_a_candidate(wire_trigger_id: object) -> bool:
@@ -1318,6 +1454,8 @@ def _candidate_for_trigger_id(
     wire_trigger_id: object,
     island_contact: object = None,
     *,
+    discriminator: object = _UNSET,
+    boxes: "Mapping[int, object] | None" = None,
     registry: "Mapping[int, CandidateFrame | None] | None" = None,
 ) -> "CandidateFrame | None":
     """``candidate_for_trigger_id`` WITH the test-only ``registry`` seam, and
@@ -1349,9 +1487,23 @@ def _candidate_for_trigger_id(
     allowlist entry does not close a door -- but its power is over
     ``registered_count``, not over this function, and claiming otherwise was
     an assertion dressed as a measurement.
+
+    ``discriminator=`` AND ``boxes=`` ARE THE SAME KIND OF SEAM AND ARRIVED
+    FOR A BLUNTER REASON: without them the two lines below this docstring
+    had never been executed by a passing call.  See ``_answer_guard_reason``
+    for the mutant pf-adversary used to prove it.  They are forwarded, not
+    consumed, and the public function forwards NEITHER -- so on the shipped
+    tree this function still reads the module's own unmeasured discriminator
+    and refuses, exactly as before.
     """
     if (
-        answer_guard_reason(current_scene_id, wire_trigger_id, island_contact)
+        _answer_guard_reason(
+            current_scene_id,
+            wire_trigger_id,
+            island_contact,
+            discriminator=discriminator,
+            boxes=boxes,
+        )
         is not None
     ):
         return None
@@ -1545,6 +1697,25 @@ class _FrozenTier3Module(ModuleType):
             "ISLAND_EXTENT_BOX_ORDINALS",
             "RE289_RESULT_LETTER",
             "RE289_RESULT_LETTER_SHA256",
+            # `RE-297`'s answer and the dump that makes it re-checkable from
+            # a clone.  They are tier-3 state for the same reason the two
+            # names above are: the citation gate's whole point is that a
+            # table with no letter behind it is a refusal, and a name an
+            # importer can rewrite is a letter an importer can invent.
+            "RE297_RESULT_LETTER",
+            "RE297_RESULT_LETTER_SHA256",
+            "RE289_TGR_DUMP_LETTER",
+            "RE289_TGR_DUMP_LETTER_SHA256",
+            # HOW the boxes are read, and the six records that decided it.
+            # Rebinding `ISLAND_EXTENT_BOX_INTERPRETATION` does not move a
+            # box on its own, but it is the name a later round is meant to
+            # consult before touching one, and the edge-wall rows are the
+            # oracle that keeps map-border volumes out of the island table.
+            "ISLAND_EXTENT_BOX_INTERPRETATION",
+            "ISLAND_EXTENT_BOX_INTERPRETATIONS_REFUTED",
+            "ISLAND_EXTENT_BOX_EDGE_WALL_ORDINALS",
+            "ISLAND_EXTENT_EDGE_WALL_RECORDS",
+            "ISLAND_EXTENT_EDGE_WALL_SPACINGS",
             "_CANDIDATES",
             "__CANDIDATES",
             "TIER3_STATE_IS_READ_ONLY",
@@ -1576,6 +1747,10 @@ class _FrozenTier3Module(ModuleType):
             # twin cannot be forgotten the same way.
             "_candidate_for_trigger_id",
             "_registered_count",
+            # The third private twin, minted this round for pf-adversary's
+            # F5.  Same trap as D1 above, and this time the derived test
+            # that D1 bought would have caught it.
+            "_answer_guard_reason",
             # The crosswalk table landed this round too.  It decides nothing
             # today, and it is the table a discriminator would be judged
             # against tomorrow -- the same argument that put
