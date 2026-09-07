@@ -570,6 +570,23 @@ class CoverageDocMatchesCommittedArtifactTests(unittest.TestCase):
         self.artifact = census.DEFAULT_ARTIFACT
         self.doc = ROOT / "docs" / "UI_WIRE_COVERAGE.md"
 
+    def _assert_page_has(self, needle, text, page):
+        """``assertIn``, minus unittest's habit of pasting the WHOLE container
+        into the failure message.
+
+        pf-adversary D-I on `#1013`: the day one of these pages drifts -- the
+        day this class exists for -- the failure message would carry every
+        byte of a Markdown file that contains U+1F534, and the bridge console
+        is cp874. The test would then die with `UnicodeEncodeError` INSTEAD of
+        showing the drift, on exactly the run that matters. The page names and
+        the needle are ASCII, so this message always prints."""
+
+        self.assertTrue(
+            needle in text,
+            "docs/%s does not contain %r -- regenerate the page from the "
+            "committed artifact (do not hand-edit the numbers)" % (page, needle),
+        )
+
     def _counts(self):
         rows = census.parse_tsv(self.artifact.read_text(encoding="utf-8"))
         total, by_tier, _ = census.summarize(rows)
@@ -578,19 +595,24 @@ class CoverageDocMatchesCommittedArtifactTests(unittest.TestCase):
     def test_headline_numbers_match_the_artifact(self):
         total, by_tier = self._counts()
         text = self.doc.read_text(encoding="utf-8")
-        self.assertIn(
-            f"n/327 known (SOURCE) = {by_tier['SOURCE']}/{total}", text
+        self._assert_page_has(
+            f"n/327 known (SOURCE) = {by_tier['SOURCE']}/{total}",
+            text,
+            "UI_WIRE_COVERAGE.md",
         )
-        self.assertIn(
+        self._assert_page_has(
             f"NAME-ONLY = {by_tier['NAME-ONLY']}  UNTOUCHED = {by_tier['UNTOUCHED']}",
             text,
+            "UI_WIRE_COVERAGE.md",
         )
 
     def test_scoreboard_line_matches_the_artifact(self):
         total, by_tier = self._counts()
         text = self.doc.read_text(encoding="utf-8")
-        self.assertIn(
-            f"wire-names known n/327: {by_tier['SOURCE']}/{total}", text
+        self._assert_page_has(
+            f"wire-names known n/327: {by_tier['SOURCE']}/{total}",
+            text,
+            "UI_WIRE_COVERAGE.md",
         )
 
     def test_the_prose_numbers_in_the_non_claims_match_the_artifact(self):
@@ -602,8 +624,16 @@ class CoverageDocMatchesCommittedArtifactTests(unittest.TestCase):
         # non-claim 3 reading "some of the 9" for a whole round.
         total, by_tier = self._counts()
         text = self.doc.read_text(encoding="utf-8")
-        self.assertIn(f"any of the {by_tier['SOURCE']} `SOURCE` names", text)
-        self.assertIn(f"some of the {by_tier['UNTOUCHED']} may already", text)
+        self._assert_page_has(
+            f"any of the {by_tier['SOURCE']} `SOURCE` names",
+            text,
+            "UI_WIRE_COVERAGE.md",
+        )
+        self._assert_page_has(
+            f"some of the {by_tier['UNTOUCHED']} may already",
+            text,
+            "UI_WIRE_COVERAGE.md",
+        )
 
     def test_the_plan_page_quotes_the_same_number(self):
         # `docs/UI_LANE.md` repeats the headline for readers who never open
@@ -615,7 +645,9 @@ class CoverageDocMatchesCommittedArtifactTests(unittest.TestCase):
         # not vital names, so this assertion cannot feed itself.
         total, by_tier = self._counts()
         text = (ROOT / "docs" / "UI_LANE.md").read_text(encoding="utf-8")
-        self.assertIn(f"Current: **{by_tier['SOURCE']}/{total}**", text)
+        self._assert_page_has(
+            f"Current: **{by_tier['SOURCE']}/{total}**", text, "UI_LANE.md"
+        )
 
     def test_artifact_row_count_is_the_whole_catalog(self):
         total, _ = self._counts()
