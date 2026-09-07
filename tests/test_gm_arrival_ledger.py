@@ -10,9 +10,11 @@ other three by writing one bounded line per arrival, whatever the outcome.
 These tests pin the two halves that make that line trustworthy:
 
 * the SHAPE (one line, ASCII, no payload bytes, every field capped), and
-* the BOUNDS (a flood from unauthenticated peers cannot spend the budget a
-  real GM's line needs -- denial of evidence by flooding is the obvious
-  attack on a file whose whole value is that a line is present).
+* the BOUNDS (the budget is per ACCOUNT, so a flooding peer cannot spend
+  the budget the attended tester's own line needs -- denial of evidence by
+  flooding is the obvious attack on a file whose whole value is that a line
+  is present, and pf-adversary D1 measured that an authorized-vs-not split
+  does NOT stop it: the tester's own frames are refused ones).
 
 and the wiring in ``gm/dispatch.py``: every exit of the gate chain records
 exactly one line, including the exits that raise, and the capture root
@@ -21,6 +23,7 @@ itself stays untouched for a non-GM connection.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -80,6 +83,25 @@ class ArrivalLineShapeTests(unittest.TestCase):
         self.assertLessEqual(len(line), arrival_ledger.MAX_LINE_LENGTH)
         self.assertTrue(line.isascii())
 
+    def test_a_cut_field_says_it_was_cut(self):
+        # pf-adversary D12: `refused_capture_write_failed_
+        # CaptureFileNotVerifiedRemoved` is 58 characters.  Cut silently at
+        # 48 it reads as a whole exception name that does not exist, and
+        # two exception types sharing a prefix collapse into one token.
+        line = arrival_ledger.format_arrival_line(
+            0x51E9, "gm1", 1,
+            "refused_capture_write_failed_CaptureFileNotVerifiedRemoved",
+            authorized=True, now_ts=0,
+        )
+        outcome = line.split("outcome=")[1]
+        self.assertTrue(outcome.endswith(arrival_ledger.TRUNCATION_MARK))
+        self.assertEqual(len(outcome), arrival_ledger.MAX_OUTCOME_LENGTH)
+        # ...and a field that fit is NOT marked.
+        fits = arrival_ledger.format_arrival_line(
+            0x51E9, "gm1", 1, "captured", authorized=True, now_ts=0,
+        )
+        self.assertTrue(fits.endswith("outcome=captured"))
+
     def test_non_str_fields_fall_back_and_are_never_str_coerced(self):
         class Hostile:
             def __str__(self):  # pragma: no cover - must never be called
@@ -126,15 +148,40 @@ class ArrivalLedgerFileTests(unittest.TestCase):
             / arrival_ledger.LEDGER_FILENAME
         )
 
-    def _lines(self):
+    def _all_lines(self):
         if not self.ledger_path.exists():
             return []
         return self.ledger_path.read_text("ascii").splitlines()
+
+    def _lines(self):
+        return [
+            line for line in self._all_lines()
+            if line.startswith(arrival_ledger.LEDGER_LINE_TOKEN + " ")
+        ]
 
     def _record(self, account="gm1", authorized=True, outcome="captured"):
         return arrival_ledger.record_arrival(
             0x51E9, account, 3, outcome,
             authorized=authorized, capture_root=self.capture_root, now_ts=0,
+        )
+
+    def test_the_first_line_of_a_process_names_the_absolute_path_and_pid(self):
+        # pf-adversary D3/D7: a relative capture root resolved against a
+        # server cwd the reader is not looking under produces the same
+        # "nothing is there" as a frame that never arrived, and an
+        # append-only file with no per-process marker cannot separate this
+        # boot's lines from a pytest run's.
+        self._record()
+        header = self._all_lines()[0]
+        self.assertTrue(header.startswith(arrival_ledger.LEDGER_OPENED_TOKEN + " "))
+        self.assertIn(f"pid={os.getpid()}", header)
+        self.assertIn(f"path={self.ledger_path.parent.resolve()}", header)
+        # ...once per process, not once per arrival.
+        self._record()
+        self.assertEqual(
+            sum(1 for line in self._all_lines()
+                if line.startswith(arrival_ledger.LEDGER_OPENED_TOKEN)),
+            1,
         )
 
     def test_ledger_lands_beside_the_capture_root_not_inside_it(self):
@@ -161,49 +208,133 @@ class ArrivalLedgerFileTests(unittest.TestCase):
         self.assertEqual(self.ledger_path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.ledger_path.parent.stat().st_mode & 0o777, 0o700)
 
-    def test_unauthorized_flood_cannot_spend_the_authorized_budget(self):
-        # The attack this budget split exists for: a peer that is not a GM
-        # sends thousands of frames before the tester presses EXECUTE.  If
-        # both kinds shared one budget, the ONE line the attended sheet
-        # needs would be the line that does not fit.
-        for _ in range(arrival_ledger.MAX_UNAUTHORIZED_LINES * 4):
-            self._record(account="attacker", authorized=False,
+    def test_a_flood_cannot_spend_the_testers_budget(self):
+        # The attack this budget shape exists for, in the form pf-adversary
+        # D1 measured: an ORDINARY logged-in player -- not a GM, so its
+        # arrivals are `authorized=False`, exactly like the attended
+        # tester's own -- floods the ledger before the tester presses
+        # EXECUTE.  Split by authorization state, the tester's line is the
+        # one that does not fit.  Keyed per account, the flood spends only
+        # its own budget.
+        for _ in range(arrival_ledger.MAX_LINES_PER_ACCOUNT * 4):
+            self._record(account="other_player", authorized=False,
                          outcome="refused_not_gm_account")
         before = len(self._lines())
-        self.assertIsNotNone(self._record(account="gm1", authorized=True))
+        for _ in range(3):  # R322B pressed EXECUTE three times
+            self.assertIsNotNone(
+                self._record(account="panya", authorized=False,
+                             outcome="refused_not_gm_account")
+            )
         after = self._lines()
-        self.assertEqual(len(after), before + 1)
-        self.assertIn("account=gm1", after[-1])
-        self.assertIn("authorized=yes", after[-1])
+        self.assertEqual(len(after), before + 3)
+        for line in after[-3:]:
+            self.assertIn("account=panya", line)
+            self.assertIn("outcome=refused_not_gm_account", line)
+
+    def test_a_peer_inventing_a_new_name_per_frame_shares_one_bucket(self):
+        # The other half of a per-account budget: unbounded distinct names
+        # would be unbounded disk.  Past MAX_TRACKED_ACCOUNTS, every new
+        # name spends from one shared overflow bucket.
+        for i in range(arrival_ledger.MAX_TRACKED_ACCOUNTS * 4):
+            self._record(account=f"throwaway{i}", authorized=False)
+        ceiling = (
+            arrival_ledger.MAX_TRACKED_ACCOUNTS * arrival_ledger.MAX_LINES_PER_ACCOUNT
+            + arrival_ledger.MAX_OVERFLOW_LINES
+        )
+        self.assertLessEqual(len(self._lines()), ceiling)
 
     def test_a_spent_budget_says_so_once_and_then_goes_quiet(self):
-        for _ in range(arrival_ledger.MAX_UNAUTHORIZED_LINES):
+        for _ in range(arrival_ledger.MAX_LINES_PER_ACCOUNT):
             self._record(account="attacker", authorized=False)
         full = self._record(account="attacker", authorized=False)
         self.assertIsNotNone(full)
         self.assertTrue(full.startswith(arrival_ledger.LEDGER_FULL_TOKEN))
-        self.assertIn("authorized=no", full)
+        self.assertIn("account=attacker", full)
         # ...and exactly once, so the flood cannot turn the announcement
         # itself into the flood.
         self.assertIsNone(self._record(account="attacker", authorized=False))
         self.assertIsNone(self._record(account="attacker", authorized=False))
         self.assertEqual(
-            sum(1 for line in self._lines()
+            sum(1 for line in self._all_lines()
                 if line.startswith(arrival_ledger.LEDGER_FULL_TOKEN)),
             1,
         )
 
     def test_total_bytes_on_disk_are_bounded_by_the_budgets(self):
-        for _ in range(arrival_ledger.MAX_UNAUTHORIZED_LINES * 2):
-            self._record(account="a" * 200, authorized=False, outcome="x" * 200)
-        for _ in range(arrival_ledger.MAX_AUTHORIZED_LINES * 2):
-            self._record(account="b" * 200, authorized=True, outcome="y" * 200)
+        for i in range(arrival_ledger.MAX_TRACKED_ACCOUNTS * 3):
+            for _ in range(arrival_ledger.MAX_LINES_PER_ACCOUNT + 2):
+                self._record(account=f"{i}" + "a" * 200, authorized=False,
+                             outcome="x" * 200)
+        buckets = arrival_ledger.MAX_TRACKED_ACCOUNTS + 1
         ceiling = (
-            arrival_ledger.MAX_AUTHORIZED_LINES
-            + arrival_ledger.MAX_UNAUTHORIZED_LINES
-            + 2  # the two "budget spent" announcements
+            arrival_ledger.MAX_TRACKED_ACCOUNTS * arrival_ledger.MAX_LINES_PER_ACCOUNT
+            + arrival_ledger.MAX_OVERFLOW_LINES
+            + buckets  # one "budget spent" announcement per bucket
+            + 1        # the opened header
         ) * (arrival_ledger.MAX_LINE_LENGTH + 1)
         self.assertLessEqual(self.ledger_path.stat().st_size, ceiling)
+
+    def test_a_short_write_is_finished_not_reported_as_a_whole_line(self):
+        # pf-adversary D2: `os.write` returning fewer bytes than asked is
+        # not an error and does not raise.  Called once and trusted, it
+        # puts half a line on disk, spends budget, and lets the NEXT line
+        # run on from the middle of it -- one corrupt line where there
+        # should be two good ones.  This lane has fixed this bug three
+        # times before in this same package; here the write is looped, so
+        # the line still lands whole.
+        self._record(account="gm1")  # spend the once-per-process header
+        real_write = arrival_ledger.os.write
+        calls = []
+
+        def short_first(fd, data):
+            calls.append(data)
+            if len(calls) == 1:
+                return real_write(fd, data[:10])
+            return real_write(fd, data)
+
+        with mock.patch.object(arrival_ledger.os, "write", short_first):
+            self.assertIsNotNone(self._record(account="gm1"))
+        self.assertGreater(len(calls), 1)  # it really was a short write
+        whole = [line for line in self._lines()
+                 if line.endswith("outcome=captured")]
+        self.assertEqual(len(whole), 2)
+        for line in whole:
+            self.assertTrue(line.startswith(arrival_ledger.LEDGER_LINE_TOKEN + " "))
+
+    def test_a_write_that_stops_making_progress_spends_no_budget(self):
+        # The half of D2 the loop cannot finish: a descriptor that accepts
+        # nothing.  The caller must be told False (no budget spent) rather
+        # than handed a line it can quote as written.
+        self._record(account="gm1")
+        with mock.patch.object(arrival_ledger.os, "write", return_value=0):
+            self.assertIsNone(self._record(account="gm1"))
+        self.assertEqual(len(self._lines()), 1)
+        self.assertIsNotNone(self._record(account="gm1"))
+        self.assertEqual(len(self._lines()), 2)
+
+    def test_an_unusable_capture_root_costs_the_line_not_the_caller(self):
+        # pf-adversary D5: before this module existed, the non-GM branch of
+        # the gate chain never touched `capture_root` at all, so a caller
+        # that passed a bad one still got a clean refusal.  Turning that
+        # into a TypeError out of the lane hook would lose the refusal
+        # event and the console line together.
+        self.assertIsNone(
+            arrival_ledger.record_arrival(
+                0x51E9, "gm1", 1, "captured",
+                authorized=False, capture_root=None, now_ts=0,
+            )
+        )
+
+    def test_an_existing_world_writable_ledger_dir_is_locked_down(self):
+        # pf-adversary D6: `makedirs(..., exist_ok=True)` never chmods a
+        # directory that already exists, and an operator following a ticket
+        # ("look in capture/gm_arrival_ledger") is exactly who creates it
+        # by hand first.
+        root = arrival_ledger.ledger_root_for_capture_root(self.capture_root)
+        root.mkdir(parents=True)
+        root.chmod(0o777)
+        self._record()
+        self.assertEqual(root.stat().st_mode & 0o777, 0o700)
 
     def test_a_write_failure_costs_the_line_not_the_caller(self):
         with mock.patch.object(
@@ -218,15 +349,15 @@ class ArrivalLedgerFileTests(unittest.TestCase):
 
     def test_concurrent_arrivals_produce_whole_lines_and_an_exact_count(self):
         threads = [
-            threading.Thread(target=self._record, kwargs={"account": f"gm{i}"})
-            for i in range(arrival_ledger.MAX_AUTHORIZED_LINES)
+            threading.Thread(target=self._record, kwargs={"account": "gm1"})
+            for _ in range(arrival_ledger.MAX_LINES_PER_ACCOUNT)
         ]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
         lines = self._lines()
-        self.assertEqual(len(lines), arrival_ledger.MAX_AUTHORIZED_LINES)
+        self.assertEqual(len(lines), arrival_ledger.MAX_LINES_PER_ACCOUNT)
         for line in lines:
             self.assertTrue(line.startswith(arrival_ledger.LEDGER_LINE_TOKEN + " "))
             self.assertIn("outcome=captured", line)
@@ -253,7 +384,10 @@ class DispatchRecordsEveryArrivalTests(unittest.TestCase):
         )
         if not path.exists():
             return []
-        return path.read_text("ascii").splitlines()
+        return [
+            line for line in path.read_text("ascii").splitlines()
+            if line.startswith(arrival_ledger.LEDGER_LINE_TOKEN + " ")
+        ]
 
     def _capture_files(self):
         if not self.capture_root.exists():
@@ -308,6 +442,9 @@ class DispatchRecordsEveryArrivalTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertIn("outcome=raised_ValueError", lines[0])
         self.assertIn("account=unnamed", lines[0])
+        # pf-adversary D4: the chain raised, so whether this account is in
+        # the allowlist is exactly what this call site does NOT know.
+        self.assertIn("authorized=unknown", lines[0])
 
     def test_a_non_bytes_payload_records_a_length_it_cannot_measure(self):
         with self.assertRaises(TypeError):
