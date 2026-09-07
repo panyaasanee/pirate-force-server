@@ -1,1 +1,1 @@
-{"sha":"6fb900a42bac2a861a5f5e6c40f0bfb8ca405766","conclusion":"failure","event":"push","ref":"refs/heads/claude/hopeful-albattani-86hcde","run_id":"34107303645","utc":"2026-09-07T10:06:54Z"}
+{"sha":"6fb900a42bac2a861a5f5e6c40f0bfb8ca405766","conclusion":"failure","event":"pull_request","ref":"refs/pull/1048/merge","run_id":"34107308288","utc":"2026-09-07T10:08:17Z"}
