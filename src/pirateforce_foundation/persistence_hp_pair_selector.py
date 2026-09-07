@@ -71,12 +71,37 @@ So what is this module for, honestly stated:
 * `live_hp_pair_report` / `format_report` are a read-only measurement of what
   each branch of the client's selector would display for one real character.
   That is what `GT-291` needs a token from, and it needs no caller in `gm/`.
-* `guard_block` is a predicate WITHOUT A REACHABLE CALLER TODAY.  It
-  becomes live the day a login shape carries x=52/x=53 -- i.e. the day the
-  (b'') set in `gm/login_mask` grows to include them -- and not before.  Its
-  branches are tested against hand-built blocks, and only
-  `REASON_ABSENT_READS_ZERO` is reachable from a block this server can
-  actually compose.  That is written here so nobody reads the test names as
+* `guard_block` is a predicate WITH NO CALL SITE TODAY, and what it is a
+  door FOR is narrower than the name of the symptom it was built after --
+  `COO-DECISION 20260907_1141` item 2, and the correction that decision
+  ordered in the round that measured it.
+
+  IT REFUSES VALUES.  IT DOES NOT PREVENT A ROW FROM GOING MISSING.  Round
+  `coqzj0` swept the wall the owner's frames actually pass through,
+  `make_update_attr_frame` (`gm/attr_wire.py:955`), for a key set it ADMITS
+  while an HP row is absent.  MEASURED: of the 1024 subsets of the union of
+  admitted login rows, that wall's key-set clause admits exactly 2 -- the
+  two shapes of `login_mask.admitted_field_x_sets(legacy)` -- and BOTH carry
+  x=3 and x=4.  The set of admitted key sets missing a PRIMARY row is
+  EMPTY.  Both are missing x=52/x=53 entirely, and that one case is already
+  refused 37 lines later by the incumbent fence whose condition is at
+  `gm/attr_wire.py:992`.  So there is no hole in that wall for this
+  module to plug, and no `CORE-REQUEST` is owed to its owner.  What this
+  module can still do is refuse a block whose HP rows are PRESENT and
+  DISHONEST -- `-1/1`, `0/0`, a current above its max -- which is the
+  owner's reported panel reading and is a different failure from a row that
+  never arrived.
+
+  Since round `coqzj0` its PRIMARY half is reachable in principle from a
+  block this server composes -- every admitted login shape carries x=3 and
+  x=4 -- so `REASON_ABSENT_READS_ZERO` is no longer the only reason a real
+  block could trip.  MEASURED all the same: across both admitted shapes and
+  all 256 selector bytes, an HONEST login block is refused by this door 0
+  times, and the 2 blocks it does refuse (selector byte 8, alternate pair
+  absent) were already refused by the old door and by the incumbent fence.
+  Its ALTERNATE half still becomes live only the day a login shape carries
+  x=52/x=53 -- i.e. the day the (b'') set in `gm/login_mask` grows to
+  include them.  That is written here so nobody reads the test names as
   production coverage.
 
   WHO IS OBLIGED THE DAY IT BECOMES REACHABLE, AND WHICH CHECK GOES RED.
