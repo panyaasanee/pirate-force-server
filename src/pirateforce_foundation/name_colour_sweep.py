@@ -119,7 +119,9 @@ from dataclasses import dataclass, replace
 import os
 from typing import Any
 
+from . import field_mob_tables
 from . import field_mobs
+from . import mob_viewer_link
 from .gm import name_color_gate
 from .population import (
     FULL_MOVEMENT_MASK,
@@ -144,7 +146,17 @@ SET_ACTOR_TYPE_AND_SKIN = "2"
 #: ``tests/test_name_colour_sweep_set3.py`` re-derives it from the two bodies
 #: rather than trusting this comment.
 SET_DIFF_FIELDS = "3"
-KNOWN_SETS = (SET_FACTION, SET_ACTOR_TYPE_AND_SKIN, SET_DIFF_FIELDS)
+#: ALL (PANYA-ORDER 2026-09-07T23:25+07:00, relayed by COO-ORDER 23:42): every
+#: candidate in one boot on the Iron Man square instead of one question per
+#: attended trip.  ALL-NOID is the same row with the identity families left
+#: out, for a client that refuses to draw an actor whose identity is 0 or
+#: negative -- so a boot that dies on ALL still returns an answer.
+SET_ALL = "ALL"
+SET_ALL_NOID = "ALL-NOID"
+KNOWN_SETS = (
+    SET_FACTION, SET_ACTOR_TYPE_AND_SKIN, SET_DIFF_FIELDS, SET_ALL,
+    SET_ALL_NOID,
+)
 
 # Reserved placement-index band for this experiment ONLY.  Never a real
 # placement index (see module docstring "SYNTHETIC IDENTITIES").
@@ -630,7 +642,397 @@ def _diff_field_set(legacy: Any) -> tuple[SweepActor, ...]:
     return tuple(rows)
 
 
-def sweep_actors(legacy: Any, env: dict | None = None) -> tuple[SweepActor, ...]:
+# ---------------------------------------------------------------------------
+# ALL / ALL-NOID -- one boot, every candidate this lane can compose.
+# PANYA-ORDER 2026-09-07T23:25+07:00 + addendum 23:50, relayed word for word by
+# COO-ORDER 2026-09-07T23:42+07:00 (pf_bridge notes_to_chief/20260907_2342_
+# COO-ORDER-panya2325-sweep-all-26-rows-iron-man-square-first-job-LANE-B.md).
+# The owner asked for every possibility in ONE attended boot instead of one
+# question per bus trip: twenty-six labelled nameboards on the Training Iron
+# Man square, ALL-NOID being the same row with the identity families left out
+# for a client that refuses the identity shapes.
+# ---------------------------------------------------------------------------
+
+#: The Iron Man practice square in bg0001 (PANYA 2350 item 1).  X starts here
+#: and steps one row at a time; Y is the owner's number; Z is READ from the
+#: shipped dummy row (:data:`ALL_ROW_Z_SOURCE_PLACEMENT_INDEX`) rather than
+#: typed here, so an edit to that table moves the sweep with it instead of
+#: leaving the row floating over or under the ground the dummies stand on.
+ALL_ROW_X0 = 11800.0
+ALL_ROW_DX = 150.0
+ALL_ROW_Y = 9340.0
+#: Two lines, 300 units apart -- the owner allowed the split so twenty-six
+#: boards do not run off one screen (PANYA 2350 item 1).
+ALL_ROW_Y_SPLIT = 300.0
+ALL_ROWS_PER_LINE = 13
+ALL_ROW_Z_SOURCE_PLACEMENT_INDEX = 103
+
+#: ``n_ENEMY``: BasicAttr mask bit 0x0800, offset +0x6C, tag 0x14, four bytes,
+#: uint32, direction W, PROVEN_EXACT -- pf_bridge notes_to_chief/
+#: reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv, semantic_name
+#: ``CNetNPC.template.n_ENEMY``.  The tag byte is the same 0x14 the faction
+#: field uses because the tag names the WIRE TYPE (u32), not the field: fields
+#: are told apart by their mask bit, in ascending bit order, which is the rule
+#: this module's bodies are already composed and walked under.  0x0800 is the
+#: next bit after faction's 0x0400 and the last BasicAttr bit before the
+#: NPCAttr block, so the splice lands at the same boundary the faction splice
+#: uses -- after faction when faction is present, which ascending order
+#: requires.
+BASIC_BIT_ENEMY = 0x0800
+ENEMY_TAG = 0x14
+ENEMY_WIDTH = 4
+ENEMY_SPLICE_BYTES = 1 + ENEMY_WIDTH
+
+#: The owner's seven ``n_ENEMY`` rows (COO-ORDER 2342 item 2 group D): six on
+#: the NPC prototype plus one on the monster.  No table in either repository
+#: states this field's real domain -- grepped: ``n_ENEMY`` appears in the codex
+#: TSV above (the wire layout) and nowhere in ``gamedata/tables``' MOBS
+#: columns this lane mines -- so these are the owner's own values, and the
+#: order asked for real ones only "if a table naming the domain turns up".
+ENEMY_CANDIDATES = (0, 1, 2, 6, 12, 0xFF)
+
+#: Labels whose row this lane can NOT compose, and the refusal that stops it.
+#: Named here rather than dropped silently, because the order says a row that
+#: cannot be built must come back with its reason (COO-ORDER 2342 item 2).
+#: Neither refusal is this module's own: both belong to the module that owns
+#: the shape, and weakening either to fill a nameboard would be trading a
+#: standing guard for one attended row.
+ALL_SET_UNCOMPOSABLE = (
+    (
+        "N-LNKS",
+        "mob_viewer_link.REFUSE_VIEWER_IS_THE_MONSTER -- linking a body to "
+        "its own identity is the one shape RE-195 row 61(a) calls certainly "
+        "wrong, and mob_viewer_link refuses it at the door",
+    ),
+    (
+        "M-DEAD",
+        "field_mobs.hostile_npc_attr refuses current_hp=0: 'a spawn at zero "
+        "HP walks into the death lane's predicates and answers a different "
+        "question'.  N-HP0 asks the same question on the NPC prototype, "
+        "where no death predicate is watching",
+    ),
+    (
+        "M-IDNEG-DEAD",
+        "same refusal as M-DEAD -- the death half of the mix cannot be "
+        "composed, so the mix cannot either",
+    ),
+)
+
+#: Labels that need the WATCHING SESSION's identity, which this module cannot
+#: know: ``sweep_entries`` is called from the arrival census with the legacy
+#: module and nothing else.  Pass ``viewer_identity=`` and they compose; leave
+#: it None -- every caller on main today -- and they are left out rather than
+#: filled with a made-up number.  CORE-REQUEST to chief (round ixdda8) asks
+#: for the one keyword at the call site.
+ALL_SET_NEEDS_VIEWER_IDENTITY = ("N-LNKP", "N-IDNEG-LNKP", "N-ID0-LNKP")
+
+#: The identity families (COO-ORDER 2342 item 2 groups B and F) that
+#: ``ALL-NOID`` leaves out.
+ALL_IDENTITY_GROUPS = ("identity", "mixed")
+
+#: The identities the identity rows carry.  Zero and negative are the only
+#: two sides of the one split PANYA 2350 item 4 says exists: every positive
+#: value is the same question, so the sweep asks about <= 0 and no other.
+IDENTITY_ZERO = 0
+IDENTITY_NEGATIVE = -1
+#: ``FieldMob.actor_identity`` is ``0x2000 + placement_index + 1``, so the
+#: monster row reaches identity -1 through its placement index, not by
+#: overwriting the derived value.
+MOB_NEGATIVE_PLACEMENT_INDEX = IDENTITY_NEGATIVE - 0x2000 - 1
+
+
+def all_set_uncomposable_rows() -> tuple[tuple[str, str], ...]:
+    """(label, reason) for every ALL row this lane cannot build."""
+    return ALL_SET_UNCOMPOSABLE
+
+
+def all_set_rows_needing_viewer_identity() -> tuple[str, ...]:
+    """Labels that appear only when a viewer identity is supplied."""
+    return ALL_SET_NEEDS_VIEWER_IDENTITY
+
+
+def _all_row_z() -> float:
+    """The ground the shipped Iron Man dummies stand on, read not typed."""
+    for row in field_mob_tables.TOWN_TARGET_PLACEMENTS:
+        if row[0] == ALL_ROW_Z_SOURCE_PLACEMENT_INDEX:
+            return float(row[4])
+    raise NameColourSweepError(
+        "placement "
+        f"{ALL_ROW_Z_SOURCE_PLACEMENT_INDEX} is not in "
+        "field_mob_tables.TOWN_TARGET_PLACEMENTS any more -- the ALL sweep's "
+        "ground height has no source"
+    )
+
+
+def _all_row_xyz(ordinal: int, z: float) -> tuple[float, float, float]:
+    line, column = divmod(ordinal, ALL_ROWS_PER_LINE)
+    return (
+        ALL_ROW_X0 + ALL_ROW_DX * column,
+        ALL_ROW_Y + ALL_ROW_Y_SPLIT * line,
+        z,
+    )
+
+
+def _splice_enemy(
+    legacy: Any,
+    body: bytes,
+    *,
+    actor_identity: int,
+    template_id: int,
+    visual_preset: str,
+    enemy: int,
+) -> bytes:
+    """``body`` plus EXACTLY the ``n_ENEMY`` field, nothing else.
+
+    Built out of the same two frozen helpers the faction and level splices
+    use, at the same BasicAttr/NPCAttr boundary, so a body whose layout moved
+    comes back as a named refusal instead of bytes that would reach a client.
+    """
+    field_mobs._require_int(enemy, "enemy", 0, 0xFFFFFFFF)
+    mask_at = field_mobs._basic_mask_offset(legacy, body, actor_identity)
+    mask = int.from_bytes(body[mask_at:mask_at + 2], "little")
+    if mask & BASIC_BIT_ENEMY:
+        raise NameColourSweepError(
+            "body already sets the n_ENEMY bit; the splice below would "
+            "double the field"
+        )
+    offset = field_mobs._faction_splice_offset(
+        legacy, body, template_id, visual_preset,
+    )
+    composed = (
+        body[:mask_at]
+        + int(mask | BASIC_BIT_ENEMY).to_bytes(2, "little")
+        + body[mask_at + 2:offset]
+        + bytes(legacy.u32tag(ENEMY_TAG, enemy))
+        + body[offset:]
+    )
+    if len(composed) != len(body) + ENEMY_SPLICE_BYTES:
+        raise NameColourSweepError("n_ENEMY splice length drift")
+    return composed
+
+
+def _npc_enemy_body(
+    legacy: Any,
+    actor_identity: int,
+    label: str,
+    enemy: int,
+    *,
+    body: bytes | None = None,
+) -> bytes:
+    baseline = (
+        _npc_plain_body(legacy, actor_identity, label) if body is None else body
+    )
+    return _splice_enemy(
+        legacy, baseline,
+        actor_identity=actor_identity,
+        template_id=NPC_BASE_TEMPLATE_ID,
+        visual_preset=NPC_BASE_VISUAL_PRESET,
+        enemy=enemy,
+    )
+
+
+def _npc_linked_body(
+    legacy: Any,
+    actor_identity: int,
+    label: str,
+    viewer_identity: int,
+    *,
+    body: bytes | None = None,
+) -> bytes:
+    baseline = (
+        _npc_plain_body(legacy, actor_identity, label) if body is None else body
+    )
+    return mob_viewer_link.link_viewer_to_npc_attr(
+        legacy, baseline,
+        viewer_identity=viewer_identity,
+        monster_identity=actor_identity,
+        template_id=NPC_BASE_TEMPLATE_ID,
+        visual_preset=NPC_BASE_VISUAL_PRESET,
+    )
+
+
+def _all_set(
+    legacy: Any,
+    *,
+    include_identity_rows: bool,
+    viewer_identity: int | None,
+) -> tuple[SweepActor, ...]:
+    """Every candidate the owner listed, minus the ones with a written reason.
+
+    WHAT THE TESTER READS OFF THE SCREEN.  Two lines of nameboards on the
+    Iron Man square, each carrying its own question in its own label.  The two
+    controls are the ends of the diff this lane already measured -- N-BASE
+    green and M-BASE pink, both already graded by the owner -- and every other
+    board is the NPC prototype carrying exactly one monster-shaped value, or
+    the monster prototype carrying exactly one NPC-shaped one.  A board that
+    is not green names a field the client's name-colour selector reads; every
+    board green means the answer is in none of them, which is a result too.
+
+    ALL-NOID is the same row with the identity families (B and F) left out,
+    so a client that will not draw an actor whose identity is 0 or negative
+    still returns an answer for the other fields instead of a failed boot.
+    """
+    mob = _mob_prototype()
+    z = _all_row_z()
+    rows: list[SweepActor] = []
+    ordinal = 0
+    skipped = {label for label, _ in ALL_SET_UNCOMPOSABLE}
+    if viewer_identity is None:
+        skipped.update(ALL_SET_NEEDS_VIEWER_IDENTITY)
+
+    def npc(label: str, group: str, body_for) -> None:
+        nonlocal ordinal
+        if label in skipped or (
+            not include_identity_rows and group in ALL_IDENTITY_GROUPS
+        ):
+            return
+        placement_index = SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+        identity = 0x2000 + placement_index + 1
+        rows.append(_entry(
+            legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
+            actor_identity=identity, npc_attr=body_for(identity, label),
+            **dict(zip(("x", "y", "z"), _all_row_xyz(ordinal, z))),
+        ))
+        ordinal += 1
+
+    def npc_fixed_identity(label: str, group: str, identity: int, body_for) -> None:
+        """A row whose whole question IS its identity, so it keeps that one."""
+        nonlocal ordinal
+        if label in skipped or (
+            not include_identity_rows and group in ALL_IDENTITY_GROUPS
+        ):
+            return
+        rows.append(_entry(
+            legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
+            actor_identity=identity, npc_attr=body_for(identity, label),
+            **dict(zip(("x", "y", "z"), _all_row_xyz(ordinal, z))),
+        ))
+        ordinal += 1
+
+    def mob_row(
+        label: str,
+        group: str,
+        *,
+        placement_index: int | None = None,
+        body_for=None,
+        **overrides: Any,
+    ) -> None:
+        nonlocal ordinal
+        if label in skipped or (
+            not include_identity_rows and group in ALL_IDENTITY_GROUPS
+        ):
+            return
+        index = (
+            SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+            if placement_index is None else placement_index
+        )
+        variant = replace(
+            mob, placement_index=index, display_name=label, **overrides
+        )
+        body = (
+            field_mobs.hostile_npc_attr(
+                legacy, variant, faction=field_mobs.FIELD_MOB_FACTION,
+            )
+            if body_for is None else body_for(variant)
+        )
+        rows.append(_entry(
+            legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
+            actor_identity=variant.actor_identity, npc_attr=body,
+            **dict(zip(("x", "y", "z"), _all_row_xyz(ordinal, z))),
+        ))
+        ordinal += 1
+
+    # Controls (COO-ORDER 2342 item 2).
+    npc("N-BASE", "control", lambda i, l: _npc_plain_body(legacy, i, l))
+    mob_row("M-BASE", "control")
+
+    # A -- the five body fields the two prototypes actually differ in
+    # (npc_attr_body_diff, set 3, already on this branch).
+    npc("N-LVL", "body", lambda i, l: _npc_level_body(legacy, i, l, mob.level))
+    npc("N-HP", "body", lambda i, l: _npc_plain_body(
+        legacy, i, l, current_hp=mob.max_hp, max_hp=mob.max_hp))
+    npc("N-SPD", "body", lambda i, l: _npc_plain_body(
+        legacy, i, l, movement_speed=float(mob.speed_walk)))
+    npc("N-TPL", "body", lambda i, l: _npc_plain_body(
+        legacy, i, l, template_id=mob.template_id))
+    npc("N-PRE", "body", lambda i, l: _npc_plain_body(
+        legacy, i, l, visual_preset=mob.visual_preset))
+
+    # B -- identity.  PANYA 2350 item 4: every positive identity is the same
+    # question, so the only split worth a nameboard is <= 0.
+    npc_fixed_identity("N-ID0", "identity", IDENTITY_ZERO,
+                       lambda i, l: _npc_plain_body(legacy, i, l))
+    npc_fixed_identity("N-IDNEG", "identity", IDENTITY_NEGATIVE,
+                       lambda i, l: _npc_plain_body(legacy, i, l))
+    mob_row("M-IDNEG", "identity", placement_index=MOB_NEGATIVE_PLACEMENT_INDEX)
+
+    # C -- linked identity (NPCAttr+0x98, mob_viewer_link's own field).
+    if viewer_identity is not None:
+        npc("N-LNKP", "linked", lambda i, l: _npc_linked_body(
+            legacy, i, l, viewer_identity))
+
+    # D -- n_ENEMY.
+    for value in ENEMY_CANDIDATES:
+        label = "N-ENM%s" % ("FF" if value == 0xFF else value)
+        npc(label, "enemy", lambda i, l, v=value: _npc_enemy_body(legacy, i, l, v))
+    mob_row("M-ENM1", "enemy", body_for=lambda variant: _splice_enemy(
+        legacy,
+        field_mobs.hostile_npc_attr(
+            legacy, variant, faction=field_mobs.FIELD_MOB_FACTION),
+        actor_identity=variant.actor_identity,
+        template_id=variant.template_id,
+        visual_preset=variant.visual_preset,
+        enemy=1,
+    ))
+
+    # E -- death.  M-DEAD has a written reason above; N-HP0 asks the same
+    # question where no death predicate is watching.
+    npc("N-HP0", "death", lambda i, l: _npc_plain_body(legacy, i, l, current_hp=0))
+
+    # F -- the mixes the owner asked for.
+    if viewer_identity is not None:
+        npc_fixed_identity("N-IDNEG-LNKP", "mixed", IDENTITY_NEGATIVE,
+                           lambda i, l: _npc_linked_body(
+                               legacy, i, l, viewer_identity))
+    npc_fixed_identity("N-IDNEG-ENM1", "mixed", IDENTITY_NEGATIVE,
+                       lambda i, l: _npc_enemy_body(legacy, i, l, 1))
+    if viewer_identity is not None:
+        npc_fixed_identity("N-ID0-LNKP", "mixed", IDENTITY_ZERO,
+                           lambda i, l: _npc_linked_body(
+                               legacy, i, l, viewer_identity))
+
+    # The twenty-sixth row (COO-DECISION 2026-09-07T23:42, answering this
+    # lane's letter 2245): the monster prototype carrying the NPC's
+    # template_id and nothing else.  template_id is the ONE field in the diff
+    # where the two live hypotheses predict opposite results, so this row and
+    # N-TPL are read together.
+    mob_row("M-T001", "reverse", template_id=NPC_BASE_TEMPLATE_ID)
+
+    return tuple(rows)
+
+
+def all_set_labels(
+    legacy: Any,
+    *,
+    include_identity_rows: bool = True,
+    viewer_identity: int | None = None,
+) -> tuple[str, ...]:
+    """The labels the armed ALL/ALL-NOID boot would draw, in order."""
+    return tuple(
+        actor.label for actor in _all_set(
+            legacy,
+            include_identity_rows=include_identity_rows,
+            viewer_identity=viewer_identity,
+        )
+    )
+
+
+def sweep_actors(
+    legacy: Any,
+    env: dict | None = None,
+    *,
+    viewer_identity: int | None = None,
+) -> tuple[SweepActor, ...]:
     """The labelled dummy row for the armed set, or ``()`` if unarmed.
 
     Nothing is sent, scheduled or persisted -- the caller owns dispatch, the
@@ -643,6 +1045,12 @@ def sweep_actors(legacy: Any, env: dict | None = None) -> tuple[SweepActor, ...]
         return _actor_type_and_skin_set(legacy)
     if value == SET_DIFF_FIELDS:
         return _diff_field_set(legacy)
+    if value in (SET_ALL, SET_ALL_NOID):
+        return _all_set(
+            legacy,
+            include_identity_rows=value == SET_ALL,
+            viewer_identity=viewer_identity,
+        )
     return ()
 
 
@@ -667,7 +1075,12 @@ def unrecognised_env_value(env: dict | None = None) -> str | None:
     return value
 
 
-def sweep_entries(legacy: Any, env: dict | None = None) -> tuple[bytes, ...]:
+def sweep_entries(
+    legacy: Any,
+    env: dict | None = None,
+    *,
+    viewer_identity: int | None = None,
+) -> tuple[bytes, ...]:
     """Per-actor entry bytes for the armed set, or ``()`` if unarmed.
 
     CHIEF EXTRACTION (round ``ky8m6j``), NOT A NEW SELECTOR: this is the loop
@@ -687,7 +1100,7 @@ def sweep_entries(legacy: Any, env: dict | None = None) -> tuple[bytes, ...]:
     caller that genuinely wants a standalone collection; it is not the way to
     put this row on a live screen.
     """
-    actors = sweep_actors(legacy, env)
+    actors = sweep_actors(legacy, env, viewer_identity=viewer_identity)
     entries: list[bytes] = []
     for actor in actors:
         movement = legacy.make_remote_movement_attr(

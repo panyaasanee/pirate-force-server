@@ -104,6 +104,15 @@ class NameColourSweepGateTests(unittest.TestCase):
         self.assertEqual(name_colour_sweep.sweep_actors(None, env={}), ())
 
 
+#: The sets whose rows are laid out relative to the player's own spawn anchor.
+#: Not a hand-typed list: it is every known set except the ALL family, which
+#: the owner placed by absolute coordinate on the Iron Man square instead.
+_ANCHOR_SETS = tuple(
+    value for value in name_colour_sweep.KNOWN_SETS
+    if value not in (name_colour_sweep.SET_ALL, name_colour_sweep.SET_ALL_NOID)
+)
+
+
 @BRIDGE_GAMEDATA.skip_unless_present()
 class NameColourSweepPlacementBandTests(unittest.TestCase):
     """The reserved synthetic band must not collide with any shipped row."""
@@ -128,7 +137,12 @@ class NameColourSweepPlacementBandTests(unittest.TestCase):
         )
 
     def test_sweep_rows_stay_inside_their_own_reserved_band(self) -> None:
-        for value in name_colour_sweep.KNOWN_SETS:
+        # The ALL family carries two rows whose whole question IS a
+        # non-positive identity (N-ID0, N-IDNEG and the mixes on them), so it
+        # is held by its own file: every POSITIVE identity there is in this
+        # band, and a non-positive one cannot collide with a real actor
+        # because the lowest real identity is 0x2001.
+        for value in _ANCHOR_SETS:
             actors = name_colour_sweep.sweep_actors(self.legacy, env={"PF_NAME_COLOUR_SWEEP": value})
             self.assertTrue(actors, f"set {value} produced no rows")
             for actor in actors:
@@ -659,7 +673,13 @@ class CandidateIsAnExperimentThatCanBeReadTests(unittest.TestCase):
         ]
         self.assertTrue(real)
         floor = name_colour_sweep.ROW_CLEARANCE_FROM_REAL_NPCS
-        for value in name_colour_sweep.KNOWN_SETS:
+        # The ALL family does NOT stand on the spawn anchor: PANYA 2350 item 1
+        # puts it on the Iron Man practice square by absolute coordinate, in an
+        # empty world, and tests/test_name_colour_sweep_all.py holds the same
+        # three readability properties there (on the square, one plane, clear
+        # of every shipped row).  Derived rather than listed, so a NEW anchored
+        # set is still covered here the day it is added.
+        for value in _ANCHOR_SETS:
             rows = name_colour_sweep.sweep_actors(
                 self.legacy, env={"PF_NAME_COLOUR_SWEEP": value},
             )
