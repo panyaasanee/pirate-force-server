@@ -1,1 +1,1 @@
-{"sha":"3a5c4dafed36c028bc27d44c0c20c0b1aa2021dd","conclusion":"failure","event":"push","ref":"refs/heads/claude/busy-lovelace-nxcwdn","run_id":"34100817588","utc":"2026-09-07T08:53:15Z"}
+{"sha":"3a5c4dafed36c028bc27d44c0c20c0b1aa2021dd","conclusion":"failure","event":"pull_request","ref":"refs/pull/1043/merge","run_id":"34100889939","utc":"2026-09-07T09:09:10Z"}
