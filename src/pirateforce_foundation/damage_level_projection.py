@@ -8,8 +8,10 @@ every class at every level prints exactly the same number on the practice
 dummy.  CORE-REQUEST row 032 asks for one variable to move: the attacker's `level`,
 read from the character row instead of the pin.  D10: THE ROW IS NOT IN THIS
 REPOSITORY AND THAT IS WHY IT IS ADDRESSED BY PATH.  `grep -rn "CORE-REQUEST
-row 032"` over this tree finds only this module and its test file citing each
-other; the row itself lives in the bridge repository, at
+row 032"` over this tree finds three files, all of them this lane's own
+(this module, its test file, and the importer-census comment this lane wrote
+in `tests/test_field_mobs.py`) -- a claim of two was itself wrong, which is
+the shape of the problem; the row itself lives in the bridge repository, at
 `pf_bridge/CHIEF_CONTINUATION.md` under the heading line that begins "032
 CORE-REQUEST", registered by chief 2026-09-07T08:08+07:00, and the letter it
 was opened from is
@@ -151,10 +153,27 @@ source.  This module does not guess it, and every projection below is
 explicitly "this character's level, the pinned STR", not "this character".
 
 WHAT THIS MODULE DOES NOT IMPLEMENT, SAID HERE BECAUSE SILENCE READ AS
-COVERAGE (T1-H).  CORE-REQUEST row 032 has a THIRD condition beside the two
-above, quoted here rather than pointed at (D10 -- see the addressing note at
-the top): "a level that cannot be read must fall back to the pin together
-with a NAMED event, never a silent 0".  Nothing in this
+COVERAGE (T1-H).  CORE-REQUEST row 032 carries THREE conditions from
+`COO-DECISION 20260907_0445` item 4, and this module implements none of them
+-- it is the table the request asks for alongside the wiring, not the wiring.
+They are listed because a reader who found three in the request and two here
+would be entitled to assume the third was handled, which is the defect T1-H
+was raised about and which a first version of this paragraph committed again
+by naming only one of them:
+
+  1. the 891 pin moves in the SAME commit as the wiring, with the expected
+     new numbers and the reason;
+  2. mob-to-player damage is NOT touched (that is LANE-B's, M4's);
+  3. a level that cannot be read falls back to the pin together with a NAMED
+     event, never a silent 0.
+
+The wording above is a TRANSLATION, not a quotation: row 032 is written in
+Thai and no English sentence in either repository matches it word for word.
+pf-adversary was right that putting a translation in quotation marks is a
+citation that cannot be checked, and right that the test which "verifies" it
+only greps the module that wrote it -- there is no oracle for this one,
+because `pf_gate_preflight` runs this suite with no `pf_bridge` beside it.
+Said plainly here rather than left to look verified.  Nothing in this
 module does that, and nothing in this module can: the read happens in
 `runtime.py`, which is a CORE-REQUEST seam and not this lane's to write.  This
 module is the projection table the request asks for alongside that change, so
@@ -296,8 +315,16 @@ def _shipped_pin() -> Combatant:
     branch was a sentence, not a path: it was the same defect (a branch no
     caller can walk, added in the commit that fixed a different one) that
     T1-C had just been raised about, reintroduced two functions away.
-    Deleting it changes no behaviour -- measured: the file's suite is
-    unchanged at `50 passed` with the two lines gone -- which is the point.
+    Deleting it changes no behaviour REACHABLE FROM SHIPPED CODE, and that
+    qualifier is the whole claim.  A first version of this paragraph said
+    "changes no behaviour" and offered the suite staying at `50 passed` as
+    the proof; pf-adversary pointed out the suite is green with the branch
+    present too, so it was never evidence in either direction, and then
+    showed the branch IS observable through the monkeypatch idiom five tests
+    in this file already use (patch `mob_combat.pin_attacker` to raise
+    `LevelOutOfRangeError`; with the branch that name survives, without it
+    the caller gets `PinWillNotAssembleError`).  Nothing shipped can set that
+    up, which is the point.
     A guard that cannot fire is not a cheap guard, it is a false statement
     about what the code does.
 

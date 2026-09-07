@@ -170,12 +170,32 @@ def _combatant_max_level():
          run time -- the exact shape adversary used.  `5 * hi` catches the
          `[5000, 6000]` island on today's bounds.
 
-    NONCLAIM: step 3 is a sample, not a proof.  An island that clears every
-    sampled point AND leaves the source shape in step 1 untouched would still
-    pass, and there is no way to rule that out from a test.  What the three
-    steps together buy is that such an island can no longer be built by
-    monkeypatching `__post_init__` (step 1 or 3 fires) or by editing the
-    range check in place (step 1 fires).
+    NONCLAIM, CORRECTED BY MEASUREMENT AND NOT BY REASONING.  A first version
+    of this paragraph claimed the three steps together meant an island "can
+    no longer be built by monkeypatching `__post_init__` or by editing the
+    range check in place".  pf-adversary refuted that on this very commit
+    with three working islands, all leaving the whole file green:
+
+      * `[1500, 1600]` monkeypatched into `__post_init__` -- it clears all
+        seven sampled points, and step 1 reads the SOURCE, which a
+        monkeypatch does not touch;
+      * five lines added to `mob_combat._require_int` itself -- step 1 checks
+        that `__post_init__` CALLS `_require_int`, never what that function
+        does;
+      * a decoy `class Combatant` inside an uncalled function -- `ast.walk`
+        is breadth-first and this reader keeps the LAST match, so the decoy
+        wins.
+
+    So the honest statement of what the three steps buy is narrower: they
+    catch an island that a sampled decade lands in (`5 * hi` catches
+    `[5000, 6000]`), a hole inside the declared band, and a second range
+    check written into `__post_init__` itself.  They do NOT close the general
+    case, and the two oracles are not joined: nothing here checks that the
+    class the AST reads is the class the sampler instantiates.  Comparing
+    `Combatant.__post_init__.__code__.co_firstlineno` against the
+    `ast.FunctionDef` this reader picked would join them and would kill the
+    first and third islands; it is written up as next round's first work
+    rather than added at the end of a round that is already over budget.
     """
     def accepted(level):
         try:
@@ -1181,13 +1201,31 @@ class TheRequestThisModuleAnswersIsAddressedAndNotJustNamed(
             "pf_bridge/notes_to_chief/20260907_0618_LANE-CS-CORE-REQUEST"
             "-attacker-level-from-the-real-character.md", text)
 
-    def test_the_third_condition_is_quoted_and_not_pointed_at(self):
+    def test_all_three_conditions_of_the_row_are_listed_not_just_one(self):
+        """S5(c): naming one of three is the T1-H defect committed again.
+
+        The paragraph exists so that a reader who finds three conditions in
+        the request and fewer here does not read the silence as coverage.
+        A first version named only the fall-back condition, so condition 2
+        -- do not touch mob-to-player damage -- appeared nowhere in the
+        module at all.
+
+        This is a completeness check on the module's own text, and that is
+        ALL it is: there is no oracle for the wording, because the row lives
+        in the bridge repository and this suite runs with no `pf_bridge`
+        beside it.  The module says so in its own paragraph rather than
+        letting a passing test here look like verification.
+        """
         text = ((ROOT / "src" / "pirateforce_foundation"
                  / "damage_level_projection.py")
                 .read_text(encoding="utf-8"))
-        self.assertIn(
-            "fall back to the pin together\nwith a NAMED event, never a "
-            "silent 0", text)
+        self.assertIn("THREE conditions", text)
+        for condition in ("the 891 pin moves in the SAME commit",
+                          "mob-to-player damage is NOT touched",
+                          "never a silent 0"):
+            with self.subTest(condition=condition):
+                self.assertIn(condition, text)
+        self.assertIn("is a TRANSLATION, not a quotation", text)
 
 
 
