@@ -51,6 +51,7 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -275,7 +276,7 @@ class TheGuardHasTeethTests(unittest.TestCase):
                 sel.ALTERNATE_PAIR[1]: 100,
             },
         }
-        self.assertEqual(set(cases), set(sel.ALTERNATE_REASONS))
+        self.assertEqual(set(cases), set(sel.alternate_reasons()))
         for reason, values in cases.items():
             with self.subTest(reason=reason):
                 reasons = [g.reason for g in sel.alternate_pair_gaps(values)]
@@ -301,8 +302,15 @@ class TheGuardHasTeethTests(unittest.TestCase):
         existing case exercised index 0's `0xFFFFFFFF` and nothing pinned
         index 1's `1`.  That is exactly the KNOWN CONSERVATISM the module
         docstring spends seven lines defending, left unpinned."""
+        # `1/1`, not `87/1`: after round `35b941` merged the two rules the
+        # cross-row `current > max` check runs whenever both rows are
+        # readable, so `87/1` would also carry `REASON_CURRENT_ABOVE_MAX` and
+        # the list below would stay two elements long under the mutant.  `1/1`
+        # is current EQUAL to max, which carries no cross-row reason at all,
+        # so the ONLY thing holding that list to one element is index 1's
+        # construction default of `1`.
         gaps = sel.alternate_pair_gaps(
-            {sel.ALTERNATE_PAIR[0]: 87, sel.ALTERNATE_PAIR[1]: 1}
+            {sel.ALTERNATE_PAIR[0]: 1, sel.ALTERNATE_PAIR[1]: 1}
         )
         self.assertEqual(
             [(g.x, g.reason) for g in gaps],
@@ -1011,7 +1019,7 @@ class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
             sel.REASON_NEGATIVE: {3: 0xFFFFFFFF, 4: 100},
             sel.REASON_CURRENT_ABOVE_MAX: {3: 200, 4: 100},
         }
-        self.assertEqual(set(cases), set(sel.PRIMARY_REASONS))
+        self.assertEqual(set(cases), set(sel.primary_reasons()))
         for reason, values in cases.items():
             with self.subTest(reason=reason):
                 reasons = [g.reason for g in sel.primary_pair_gaps(values)]
@@ -1198,7 +1206,15 @@ class TheDebtRound2v18x3LeftUnpaidTests(unittest.TestCase):
         when what is wrong is that x=53 is displaying -1; an operator handed
         the first reason looks at the wrong row.  `0xFFFFFF00` (the value the
         reachability test uses) prints as -256 and stays caught by `< -1`, so
-        the boundary itself had no coverage before this."""
+        the boundary itself had no coverage before this.
+
+        UPDATED IN ROUND `35b941`.  Now that one rule serves both pairs, the
+        cross-row check runs whenever both rows are READABLE rather than only
+        when the pair is otherwise clean, so this block reports BOTH facts --
+        x=53 shows -1, AND x=52 exceeds it -- in row order.  The mutant is
+        still killed on the reason an operator reads first: under `< -1` the
+        list loses its x=53 entry entirely and the refusal blames the wrong
+        row."""
         block = {
             sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
             sel.PRIMARY_PAIR[0]: 50,
@@ -1215,7 +1231,10 @@ class TheDebtRound2v18x3LeftUnpaidTests(unittest.TestCase):
         )
         self.assertEqual(
             [(g.x, g.reason) for g in sel.alternate_pair_gaps(block)],
-            [(sel.ALTERNATE_PAIR[1], sel.REASON_NEGATIVE)],
+            [
+                (sel.ALTERNATE_PAIR[1], sel.REASON_NEGATIVE),
+                (sel.ALTERNATE_PAIR[0], sel.REASON_CURRENT_ABOVE_MAX),
+            ],
         )
         with self.assertRaises(sel.HpPairError):
             sel.guard_armed_block(block)
@@ -1357,17 +1376,21 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
                 with self.subTest(source=source.strip()[-30:]):
                     self.assertTrue(_calls(source))
 
-    def test_the_schema_helper_is_not_wired_and_the_docstring_says_so(self):
-        """pf-adversary round `m1dmhd`, F3.  `primary_pair_gaps`' docstring
-        claimed `_pair_owned_by_this_server` "derives the split from the
-        schema".  Measured: zero call nodes -- the split is two hand-written
-        functions and the helper is read only by tests.
+    def test_the_schema_helper_decides_the_split_at_runtime(self):
+        """pf-adversary round `m1dmhd`, F3, PAID in round `35b941`.
 
-        This pins the true state, in the direction that matters both ways: if
-        someone wires the helper up, the docstring's correction becomes stale
-        and this goes red asking for it to be rewritten; if someone
-        re-introduces the old claim while the helper is still dead, the second
-        half goes red."""
+        F3 measured that `_pair_owned_by_this_server` had ZERO call nodes
+        while `primary_pair_gaps`' docstring claimed it "derives the split
+        from the schema".  The answer that round could give was to correct
+        the docstring; the answer this one gives is to make the sentence
+        true.  `pair_gaps` is now the only rule, and this helper is the only
+        thing that decides which reasons it applies.
+
+        AST, not grep, and it counts CALL NODES rather than the spelling of
+        the name -- the lesson F1 taught about `_callers()` one round
+        earlier: a comment mentioning the helper is not a caller.  A
+        re-introduced hand-written split takes the call count to zero and
+        goes red here."""
         tree = ast.parse(MODULE_FILE.read_text(encoding="utf-8"))
         call_nodes = [
             node
@@ -1375,15 +1398,14 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
             if isinstance(node, ast.Call)
             and getattr(node.func, "id", None) == "_pair_owned_by_this_server"
         ]
-        self.assertEqual(
+        self.assertGreaterEqual(
             len(call_nodes),
-            0,
-            "the schema helper now HAS a call site, so the split really is "
-            "derived: rewrite `primary_pair_gaps`' docstring, which currently "
-            "says in as many words that it is hand-written",
+            1,
+            "the split is hand-written again: no code path asks the schema "
+            "which rules a pair admits",
         )
         text = MODULE_FILE.read_text(encoding="utf-8")
-        self.assertIn("the split is HAND-WRITTEN", text)
+        self.assertNotIn("the split is HAND-WRITTEN", text)
         self.assertNotIn(
             "derives the split from the schema; nothing here types it in",
             text,
@@ -1454,18 +1476,18 @@ class TheTwoPinsPfAdversaryBrokeAtHeadTests(unittest.TestCase):
         REMOVING a whole set was not, because `ALL_REASONS` was only ever
         asserted to be a superset of whatever a hand-built block produced."""
         self.assertEqual(
-            sel.ALL_REASONS, sel.ALTERNATE_REASONS | sel.PRIMARY_REASONS
+            sel.ALL_REASONS, sel.alternate_reasons() | sel.primary_reasons()
         )
         for reason in (sel.REASON_ZERO, sel.REASON_CONSTRUCTION_DEFAULT):
             with self.subTest(reason=reason):
-                self.assertIn(reason, sel.ALTERNATE_REASONS)
+                self.assertIn(reason, sel.alternate_reasons())
                 self.assertIn(reason, sel.ALL_REASONS)
-                self.assertNotIn(reason, sel.PRIMARY_REASONS)
-        self.assertIn(sel.REASON_MAX_IS_ZERO, sel.PRIMARY_REASONS)
-        self.assertNotIn(sel.REASON_MAX_IS_ZERO, sel.ALTERNATE_REASONS)
+                self.assertNotIn(reason, sel.primary_reasons())
+        self.assertIn(sel.REASON_MAX_IS_ZERO, sel.primary_reasons())
+        self.assertNotIn(sel.REASON_MAX_IS_ZERO, sel.alternate_reasons())
         # Neither set may be absorbed into the other, in either direction.
-        self.assertNotEqual(sel.ALL_REASONS, sel.PRIMARY_REASONS)
-        self.assertNotEqual(sel.ALL_REASONS, sel.ALTERNATE_REASONS)
+        self.assertNotEqual(sel.ALL_REASONS, sel.primary_reasons())
+        self.assertNotEqual(sel.ALL_REASONS, sel.alternate_reasons())
 
     def test_the_width_is_read_from_the_table_not_asserted_to_be_32(self):
         """F5.  `kind = row[5]` -> `kind = "u32"` inside `_row_width_bits`
@@ -1711,6 +1733,144 @@ class TheTwoSignedConvertersAgreeTests(unittest.TestCase):
                         theirs = "reject"
                     self.assertEqual(ours, theirs)
         self.assertEqual(checked, 60)
+
+
+class OneRuleChosenBySchemaTests(unittest.TestCase):
+    """Round `35b941`.  pf-adversary `m1dmhd` F3 was paid by MERGING
+    `alternate_pair_gaps` and `primary_pair_gaps` into `pair_gaps`, whose
+    only ownership question is `_pair_owned_by_this_server`.
+
+    These pin the three things the merge is worth anything for.  The
+    VERDICT-invariance evidence is not here -- it is a 50,625-block sweep of
+    the two implementations recorded in `pf_bridge/rounds/DB_20260907_1132_*`
+    (0 blocks where the refusal flipped, 0 blocks where a reason was lost);
+    a test cannot re-run it because the old implementation is gone, and
+    re-typing its results into an assertion would pin nothing."""
+
+    def _owning(self, *rows):
+        """Patch the schema so `rows` count as server-owned columns."""
+        owned = frozenset(sel._server_owned_field_indices()) | frozenset(rows)
+        return unittest.mock.patch.object(
+            sel, "_server_owned_field_indices", lambda: owned
+        )
+
+    def test_the_two_public_names_are_views_and_hold_no_rule_of_their_own(self):
+        """AST, not prose: each view's body is one `return pair_gaps(...)`.
+
+        A second rule growing back inside a view is the exact regression this
+        round exists to prevent, and it would be invisible to every
+        behavioural test on the day it agreed with `pair_gaps`."""
+        tree = ast.parse(MODULE_FILE.read_text(encoding="utf-8"))
+        bodies = {
+            node.name: [n for n in node.body if not isinstance(n, ast.Expr)]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name in ("alternate_pair_gaps", "primary_pair_gaps")
+        }
+        self.assertEqual(set(bodies), {"alternate_pair_gaps", "primary_pair_gaps"})
+        for name, body in bodies.items():
+            with self.subTest(view=name):
+                self.assertEqual(len(body), 1, "a view grew a rule of its own")
+                self.assertIsInstance(body[0], ast.Return)
+                call = body[0].value
+                self.assertIsInstance(call, ast.Call)
+                self.assertEqual(getattr(call.func, "id", None), "pair_gaps")
+
+    def test_the_day_a_column_ships_the_rules_move_with_the_schema(self):
+        """The known conservatism retires ITSELF.
+
+        While no column stands behind x=52/x=53, an `alt_hp_max` of exactly
+        `1` is refused as the client's construction default, and an
+        `alt_hp_current` of `0` is refused as an unset mask bit.  Both are
+        correct precisely because no column could have produced them.  Give
+        the pair columns and both refusals must stop, with no edit to this
+        module -- that is what F3 asked for and what the old hand-written
+        split could not do."""
+        honest_one = {sel.ALTERNATE_PAIR[0]: 1, sel.ALTERNATE_PAIR[1]: 1}
+        dead_character = {sel.ALTERNATE_PAIR[0]: 0, sel.ALTERNATE_PAIR[1]: 100}
+        self.assertTrue(sel.alternate_pair_gaps(honest_one))
+        self.assertTrue(sel.alternate_pair_gaps(dead_character))
+        self.assertNotIn(sel.REASON_MAX_IS_ZERO, sel.alternate_reasons())
+        with self._owning(*sel.ALTERNATE_PAIR):
+            self.assertEqual(sel.alternate_pair_gaps(honest_one), ())
+            self.assertEqual(sel.alternate_pair_gaps(dead_character), ())
+            self.assertEqual(sel.alternate_reasons(), sel.primary_reasons())
+            self.assertIn(sel.REASON_MAX_IS_ZERO, sel.alternate_reasons())
+            self.assertNotIn(sel.REASON_ZERO, sel.alternate_reasons())
+            self.assertNotIn(
+                sel.REASON_CONSTRUCTION_DEFAULT, sel.alternate_reasons()
+            )
+        self.assertTrue(sel.alternate_pair_gaps(honest_one))
+
+    def test_a_zero_max_row_is_blamed_on_the_max_row_of_whichever_pair(self):
+        """`x == pair[1]` is the whole of "which row is the maximum".
+
+        Mutating it to `pair[0]` blames the CURRENT row for a zero maximum
+        and simultaneously lets a genuinely zero maximum through on the row
+        that carries it -- an operator sent to the wrong row of a two-row
+        pair, on the reason the pair exists to state."""
+        gaps = sel.primary_pair_gaps({sel.PRIMARY_PAIR[0]: 0, sel.PRIMARY_PAIR[1]: 0})
+        self.assertEqual(
+            [(g.x, g.reason) for g in gaps],
+            [(sel.PRIMARY_PAIR[1], sel.REASON_MAX_IS_ZERO)],
+        )
+        with self._owning(*sel.ALTERNATE_PAIR):
+            gaps = sel.alternate_pair_gaps(
+                {sel.ALTERNATE_PAIR[0]: 0, sel.ALTERNATE_PAIR[1]: 0}
+            )
+            self.assertEqual(
+                [(g.x, g.reason) for g in gaps],
+                [(sel.ALTERNATE_PAIR[1], sel.REASON_MAX_IS_ZERO)],
+            )
+
+    def test_a_row_that_is_a_gap_still_feeds_the_cross_row_check(self):
+        """`_row_gap` returns the number ALONGSIDE the gap, and that is load
+        bearing.  The old alternate rule skipped `current > max` the moment
+        any row was a gap, so `{52: 87, 53: 0xFFFFFFFF}` was reported as a
+        construction default and never as `87 > -1`.  Dropping `shown` on a
+        gap row restores that blindness while every refusal stays a refusal,
+        so only a test that reads the REASONS can see it."""
+        gap, shown = sel._row_gap(sel.ALTERNATE_PAIR, 1, {sel.ALTERNATE_PAIR[1]: 0})
+        self.assertEqual(gap.reason, sel.REASON_ZERO)
+        self.assertEqual(shown, 0)
+        gap, shown = sel._row_gap(sel.ALTERNATE_PAIR, 1, {})
+        self.assertEqual(gap.reason, sel.REASON_ABSENT_READS_ZERO)
+        self.assertIsNone(shown, "an absent row has no number to compare")
+        gap, shown = sel._row_gap(sel.ALTERNATE_PAIR, 1, {sel.ALTERNATE_PAIR[1]: "1"})
+        self.assertEqual(gap.reason, sel.REASON_NOT_A_U32)
+        self.assertIsNone(shown, "an unreadable row has no number to compare")
+        reasons = [
+            g.reason
+            for g in sel.alternate_pair_gaps(
+                {
+                    sel.ALTERNATE_PAIR[0]: 87,
+                    sel.ALTERNATE_PAIR[1]: sel.ALTERNATE_CONSTRUCTION_DEFAULTS[1],
+                }
+            )
+        ]
+        self.assertIn(sel.REASON_CONSTRUCTION_DEFAULT, reasons)
+        self.assertIn(sel.REASON_CURRENT_ABOVE_MAX, reasons)
+
+    def test_a_pair_with_no_recorded_constructor_values_admits_no_such_reason(self):
+        """`_construction_defaults_for` returns `()` rather than guessing.
+
+        The primary pair has no constructor values recorded for it, so even
+        if it lost its columns tomorrow no value of x=3/x=4 could be blamed
+        on a client constructor this repository never measured."""
+        self.assertEqual(sel._construction_defaults_for(sel.PRIMARY_PAIR), ())
+        self.assertEqual(
+            sel._construction_defaults_for(sel.ALTERNATE_PAIR),
+            sel.ALTERNATE_CONSTRUCTION_DEFAULTS,
+        )
+        with unittest.mock.patch.object(
+            sel, "_server_owned_field_indices", frozenset
+        ):
+            self.assertFalse(sel._pair_owned_by_this_server(sel.PRIMARY_PAIR))
+            self.assertNotIn(
+                sel.REASON_CONSTRUCTION_DEFAULT, sel.primary_reasons()
+            )
+            self.assertIn(sel.REASON_ZERO, sel.primary_reasons())
+
 
 
 if __name__ == "__main__":
