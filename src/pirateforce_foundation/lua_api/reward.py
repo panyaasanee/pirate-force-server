@@ -113,6 +113,25 @@ class QuestRewardStore(Protocol):
       read back and never has to assume the write landed.
     * ``column`` is a ``persistence_typed_attrs.TYPED_COLUMNS`` name; this
       caller only ever passes a value out of :data:`KIND_COLUMN`.
+
+    WHAT THIS SIDE CANNOT CHECK, SAID OUT LOUD (pf-adversary finding 7,
+    this round).  :func:`_has_atomic_add` tests for a callable of that
+    NAME.  A method named ``add_typed_attribute`` that is internally a
+    read-modify-write across two connections -- precisely what D14
+    forbids -- would be used here without a murmur.  Atomicity is not a
+    property a caller can observe; it is a promise the implementer keeps.
+    The tripwire in this lane's tests constrains THIS module, never the
+    store it is handed.  That is why the contract above is written down
+    here and repeated in the CORE-REQUEST rather than left implied.
+
+    NOT YET ANSWERED, AND NAMED SO IT IS NOT MISTAKEN FOR ANSWERED
+    (pf-adversary, this round): what happens when the add half-succeeds --
+    the ``UPDATE`` commits and then the read-back or the return raises.
+    :func:`pay` logs ``refused=store_error unpaid=N`` for that, which is a
+    lie about experience that is on disk, and a caller that retried on
+    ``store_error`` would pay twice.  Nothing in this lane retries today,
+    so the hazard is written down rather than guarded against; the retry
+    contract has to be settled with LANE-DB before anything does.
     """
 
     def add_typed_attribute(self, character_id: int, column: str,
@@ -231,6 +250,27 @@ def pay(api_name: str, character_id: int, quest_id: int, *,
         # non-number into a log line that reads like a measurement.
         return _refuse(REFUSE_STORE_ERROR,
                        " err=balance_after=%r" % (balance_after,))
+    if balance_after < amount.amount:
+        # THE TOKEN IS COMPARED AGAINST SOMETHING (pf-adversary finding 1,
+        # this round).  Until now `pay` checked only that the answer was an
+        # int, so a store whose `add_typed_attribute` was `return 0` -- the
+        # `mov al,1; ret` of stores, writing nothing -- produced a line
+        # reading `paid=1050 balance_after=0` with `reason=None`.  That line
+        # is the ONLY artifact the next round is told to size this seam
+        # from, and it was asserting nothing.
+        #
+        # Why this particular invariant and not a stronger one: all three
+        # columns in KIND_COLUMN carry `CHECK(... BETWEEN 0 AND ...)` in
+        # migration 006, and `delta` here is always positive (a zero or
+        # negative amount is refused above), so `balance_after >= delta`
+        # holds for ANY correct atomic add regardless of what the balance
+        # was before -- which this lane deliberately does not know.  It is
+        # the strongest statement available to a caller that never reads.
+        return _refuse(REFUSE_STORE_ERROR,
+                       " err=balance_after=%d is below the delta it was "
+                       "asked to add (%d): the store reported a write that "
+                       "cannot have happened"
+                       % (balance_after, amount.amount))
     payout = Payout(api_name=api_name, quest_id=quest_id,
                     character_id=character_id, column=column,
                     amount=amount, balance_after=balance_after)

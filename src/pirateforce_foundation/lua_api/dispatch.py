@@ -34,19 +34,6 @@ from typing import Callable, Dict, Optional, Tuple
 from . import quest as lua_api_quest
 from . import quest_criteria
 
-#: How many distinct corpus roots :func:`_stem_index` will remember at once.
-#: Bounded for the same reason ``quest_criteria``'s multiplier memo is
-#: (pf-adversary D8, round ``wn088m``): an unbounded cache keyed by
-#: something a caller chooses is a key per input.  A server has ONE corpus
-#: root; a test suite has a handful of tmpdirs.  Past the cap the index is
-#: simply rebuilt, so exceeding it costs time and never correctness.
-ROOTS_CACHED_CAP = 8
-
-#: resolved root -> {case-folded stem: (paths, ...)}. Built once per root
-#: instead of walking 616 files on every dispatch (pf-adversary D11, round
-#: ``wn088m``).
-_STEM_INDEX: Dict[Path, Dict[str, Tuple[Path, ...]]] = {}
-
 
 class QuestDispatchError(Exception):
     """A quest id could not be dispatched, and WHY is in the message.
@@ -99,55 +86,60 @@ def script_path_for_quest(root, quest_id: int) -> Path:
 
 
 def _stem_index(root: Path) -> Dict[str, Tuple[Path, ...]]:
-    """``{case-folded stem: (paths, ...)}`` for one corpus root, built once.
+    """``{case-folded stem: (paths, ...)}`` for one corpus root, walked LIVE.
 
-    WHY A CACHE AT ALL (pf-adversary D11, round ``wn088m``): the previous
-    implementation ran ``root.rglob("*.lua")`` and sorted all 616 shipped
-    files on EVERY dispatch, to pick one.  A quest script that dispatches
-    another quest walks the tree again; a scene full of NPCs walks it once
-    per interaction.
+    NOT CACHED, AND THAT IS THE FINDING (pf-adversary finding 3, round
+    ``8ou0zg``).  This round first answered D11 -- "``script_path_for_quest``
+    rglobs 616 files on every dispatch" -- with a per-root index built once.
+    The adversary then MEASURED what D11 was worth: **0.06 ms per dispatch**
+    on the warm corpus, 0.1 s to dispatch all 1,213 quest rows once.  And it
+    measured what the index cost: the corpus is not static (``pf_bridge``
+    takes ``sync: N file(s) from the Windows bridge`` commits), so an index
+    built before a sync is a STALE SNAPSHOT --
 
-    WHY IT IS SAFE TO SHARE BETWEEN SESSIONS (``NOW.md`` "shared world"):
-    the value is derived read-only from the filesystem and is never handed
-    out mutable -- callers get a tuple, and :func:`script_path_for_quest`
-    copies it into a list before it reports on it.  Two sessions in one
-    scene resolving the same quest get the same paths, which is the same
-    answer the uncached version gave, only once.
+      * a second file with the same stem landing after the first dispatch
+        was not seen, so the duplicate-stem refusal silently returned one
+        of them; and
+      * a file deleted after indexing turned into a bare
+        ``FileNotFoundError`` from ``load_script_file``'s own
+        ``read_bytes`` -- which is neither :class:`QuestDispatchError` (what
+        callers are told to catch) nor a ``VendoredDataError`` (what
+        ``script_host`` classifies as ours), so it landed in the generic
+        ``except Exception`` and printed ``LUA_SCRIPT <file> ERR`` against
+        an innocent script.  That is D11's ORIGINAL mis-attribution shape,
+        re-opened by D11's own fix, and logged AFTER a
+        ``LUA_QUEST_DISPATCH`` line claiming the dispatch had happened.
 
-    THE STEM IS THE ONLY THING MATCHED, still.  Directory names are never
-    compared and the table's cell is never concatenated into a path, so a
-    ``s_LUASCRIPT`` cell cannot escape ``root`` or select by prefix -- the
-    cache preserves that because it is keyed on ``path.stem.lower()`` of
-    files that were FOUND under ``root``, never on anything the table said.
+    Trading a measured 0.06 ms for two silent wrong answers is a bad trade,
+    so it is not made.  D11 stands answered by measurement rather than by
+    code: the walk is not a hot path.  If it ever becomes one, the cache
+    that replaces this needs an invalidation story, which is the part the
+    first attempt did not have.
 
-    The index is keyed on the RESOLVED root, so two spellings of one
-    directory (a relative path and its absolute form, or a path with a
-    ``..`` in it) share one entry instead of building two that can drift.
+    It also removes the module-level mutable state the index introduced --
+    ``lua_api.dispatch`` is back to holding none, which is what lets this
+    lane keep answering ``TWO_SESSIONS_SAME_SCENE`` with "nothing shared".
+
+    THE STEM IS THE ONLY THING MATCHED.  Directory names are never compared
+    and the table's cell is never concatenated into a path, so an
+    ``s_LUASCRIPT`` cell can neither escape ``root`` nor select by prefix.
     """
-    key = root.resolve()
-    cached = _STEM_INDEX.get(key)
-    if cached is not None:
-        return cached
     index: Dict[str, list] = {}
-    for path in sorted(key.rglob("*.lua")):
+    for path in sorted(root.resolve().rglob("*.lua")):
         index.setdefault(path.stem.lower(), []).append(path)
-    built = {stem: tuple(paths) for stem, paths in index.items()}
-    if len(_STEM_INDEX) >= ROOTS_CACHED_CAP:
-        _STEM_INDEX.clear()
-    _STEM_INDEX[key] = built
-    return built
+    return {stem: tuple(paths) for stem, paths in index.items()}
 
 
 def reset_caches() -> None:
-    """Drop the per-root stem index.
+    """No-op: this module holds no cache to drop (see :func:`_stem_index`).
 
-    For tests that write a corpus, dispatch, then write MORE files into the
-    same directory: the index is a snapshot, and without this such a test
-    would see the first snapshot and pass or fail for the wrong reason.
-    Mirrors ``quest_criteria.reset_caches()``, which exists for exactly the
-    same hazard one layer down.
+    Kept as a named no-op rather than deleted because
+    ``quest_criteria.reset_caches()`` exists one layer down and callers
+    reasonably reach for the pair; a missing name would be an
+    ``AttributeError`` in a test cleanup, which reads as a broken test
+    rather than as "there is nothing to reset".
     """
-    _STEM_INDEX.clear()
+    return None
 
 
 def load_quest_script(root, quest_id: int, character_id: int,

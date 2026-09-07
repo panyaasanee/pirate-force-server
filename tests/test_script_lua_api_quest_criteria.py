@@ -897,19 +897,22 @@ _A_DISPATCHABLE_QUEST = next(
 
 
 class DispatchStemIndexTests(unittest.TestCase):
-    """pf-adversary D11 (round `wn088m`): 616 files re-walked on every dispatch.
+    """Dispatch resolves against the corpus AS IT IS NOW, not a snapshot.
 
-    `script_path_for_quest` globbed and sorted the whole corpus to pick one
-    file, every single time. These tests pin the fix BEHAVIOURALLY -- the
-    walk happens once per root, and every refusal the uncached version made
-    is still made -- rather than by asserting a cache exists.
+    Round `8ou0zg` first answered pf-adversary D11 ("616 files re-walked on
+    every dispatch") with a per-root index built once. The adversary then
+    measured D11's actual cost -- 0.06 ms per dispatch -- and measured what
+    the index cost: a corpus that changes under a live index (pf_bridge
+    takes `sync: N file(s) from the Windows bridge` commits) gives two
+    silent wrong answers. The index was removed in the same round it was
+    added. These tests are what hold that decision: they pass only if the
+    walk is live.
     """
 
     def setUp(self):
         from pirateforce_foundation.lua_api import dispatch
 
         dispatch.reset_caches()
-        self.addCleanup(dispatch.reset_caches)
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root, True)
         self.script = qc.script_for_quest(_A_DISPATCHABLE_QUEST)
@@ -921,52 +924,60 @@ class DispatchStemIndexTests(unittest.TestCase):
         path.write_text("-- test corpus\n", encoding="ascii")
         return path
 
-    def test_the_corpus_is_walked_once_per_root_not_once_per_dispatch(self):
+    def test_a_file_that_lands_after_the_first_dispatch_is_seen(self):
+        """pf-adversary finding 3: the index stopped seeing new files.
+
+        With the index in place this returned `Quest/<script>.lua` happily
+        on the second call -- the duplicate-stem guard, the whole point of
+        which is to refuse an ambiguous corpus, had gone blind.
+        """
         from pirateforce_foundation.lua_api import dispatch
 
         self._write("Quest/%s.lua" % self.script.lower())
-        walks = []
-        real_rglob = Path.rglob
-
-        def counting_rglob(self_path, pattern):
-            walks.append(pattern)
-            return real_rglob(self_path, pattern)
-
-        with mock.patch.object(Path, "rglob", counting_rglob):
-            for _ in range(5):
-                dispatch.script_path_for_quest(self.root,
+        first = dispatch.script_path_for_quest(self.root,
                                                _A_DISPATCHABLE_QUEST)
-        self.assertEqual(len(walks), 1,
-                         "five dispatches walked the corpus %d times"
-                         % len(walks))
+        self.assertEqual(first.name, "%s.lua" % self.script.lower())
+        self._write("%s.lua" % self.script.lower())
+        with self.assertRaises(dispatch.QuestDispatchError) as caught:
+            dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
+        self.assertIn("2 files", str(caught.exception))
 
-    def test_two_spellings_of_one_root_share_one_index(self):
+    def test_a_file_deleted_after_a_dispatch_refuses_by_name(self):
+        """pf-adversary finding 3, second half.
+
+        With the index in place the stale path survived and
+        `load_script_file` raised a bare `FileNotFoundError` -- neither a
+        `QuestDispatchError` nor a `VendoredDataError`, so `load_corpus`
+        filed it as `LUA_SCRIPT <file> ERR` against an innocent script:
+        D11's original mis-attribution, re-opened by D11's own fix.
+        """
         from pirateforce_foundation.lua_api import dispatch
 
-        self._write("Quest/%s.lua" % self.script.lower())
+        path = self._write("Quest/%s.lua" % self.script.lower())
         dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
-        walks = []
-        real_rglob = Path.rglob
+        path.unlink()
+        with self.assertRaises(dispatch.QuestDispatchError):
+            dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
 
-        def counting_rglob(self_path, pattern):
-            walks.append(pattern)
-            return real_rglob(self_path, pattern)
+    def test_the_module_holds_no_shared_state(self):
+        """TWO_SESSIONS_SAME_SCENE, held as a test rather than a sentence."""
+        from pirateforce_foundation.lua_api import dispatch
 
-        spelled_with_dotdot = self.root / ".." / self.root.name
-        with mock.patch.object(Path, "rglob", counting_rglob):
-            again = dispatch.script_path_for_quest(spelled_with_dotdot,
-                                                   _A_DISPATCHABLE_QUEST)
-        self.assertEqual(walks, [])
-        self.assertEqual(again.name, "%s.lua" % self.script.lower())
+        shared = [name for name, value in vars(dispatch).items()
+                  if isinstance(value, (dict, list, set))
+                  and not name.startswith("__")]
+        self.assertEqual(shared, [],
+                         "lua_api.dispatch grew module-level mutable state; "
+                         "two sessions in one scene share this process")
 
-    def test_a_duplicate_stem_still_refuses_and_names_both_files(self):
+    def test_a_duplicate_stem_refuses_and_names_both_files(self):
         """The refusal, through a root spelled with `..`.
 
-        Before this round the message built its paths with
-        `relative_to(root)` against the CALLER's spelling while the paths
-        themselves came from the resolved root, so this exact case raised a
-        bare `ValueError` out of the error path instead of the refusal that
-        names the duplicates.
+        This bug predates the round and survived on the pre-round base: the
+        message built its paths with `relative_to(root)` against the
+        CALLER's spelling while the paths came from the resolved root, so a
+        root containing `..` raised a bare `ValueError` out of the error
+        path instead of the refusal that names the duplicates.
         """
         from pirateforce_foundation.lua_api import dispatch
 
@@ -987,36 +998,3 @@ class DispatchStemIndexTests(unittest.TestCase):
         with self.assertRaises(dispatch.QuestDispatchError) as caught:
             dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
         self.assertIn(self.script.lower(), str(caught.exception))
-
-    def test_reset_caches_lets_a_test_grow_its_own_corpus(self):
-        from pirateforce_foundation.lua_api import dispatch
-
-        self._write("Quest/not_the_one.lua")
-        with self.assertRaises(dispatch.QuestDispatchError):
-            dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
-        self._write("Quest/%s.lua" % self.script.lower())
-        dispatch.reset_caches()
-        self.assertEqual(
-            dispatch.script_path_for_quest(self.root,
-                                            _A_DISPATCHABLE_QUEST).name,
-            "%s.lua" % self.script.lower())
-
-    def test_the_cache_is_bounded(self):
-        from pirateforce_foundation.lua_api import dispatch
-
-        roots = []
-        for index in range(dispatch.ROOTS_CACHED_CAP + 3):
-            root = Path(tempfile.mkdtemp())
-            self.addCleanup(shutil.rmtree, root, True)
-            (root / "Quest").mkdir()
-            (root / "Quest" / ("%s.lua" % self.script.lower())).write_text(
-                "-- %d\n" % index, encoding="ascii")
-            roots.append(root)
-            dispatch.script_path_for_quest(root, _A_DISPATCHABLE_QUEST)
-        self.assertLessEqual(len(dispatch._STEM_INDEX),
-                             dispatch.ROOTS_CACHED_CAP)
-        # Still correct after the cap evicted: the answer is rebuilt, not lost.
-        self.assertEqual(
-            dispatch.script_path_for_quest(roots[0],
-                                            _A_DISPATCHABLE_QUEST).parent.parent,
-            roots[0])

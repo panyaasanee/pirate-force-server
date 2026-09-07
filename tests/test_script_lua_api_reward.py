@@ -18,6 +18,7 @@ does not fail a string count, it fails a call.
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from pirateforce_foundation import persistence_typed_attrs
 from pirateforce_foundation.lua_api import quest as lua_api_quest
@@ -241,6 +242,102 @@ class PayoutTests(unittest.TestCase):
         payout, reason = reward.pay("AddCriteriaExp", 7, self.quest_id,
                                     store=store)
         self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+
+    def test_a_store_that_writes_nothing_is_not_reported_as_paying(self):
+        """pf-adversary finding 1: the token was compared against nothing.
+
+        `pay` used to check only that the answer was an int, so this store
+        -- the `mov al,1; ret` of stores -- produced a line reading
+        `paid=1050 balance_after=0` with `reason=None`, on the ONE artifact
+        the next round is told to size this seam from.
+        """
+        class WritesNothingStore:
+            def add_typed_attribute(self, character_id, column, delta):
+                return 0
+
+        lines: list = []
+        payout, reason = reward.pay("AddCriteriaExp", 7, self.quest_id,
+                                    store=WritesNothingStore(),
+                                    log=lines.append)
+        self.assertIsNone(payout)
+        self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+        self.assertIn("cannot have happened", lines[0])
+
+    def test_a_balance_below_the_delta_is_refused(self):
+        """The invariant, stated as such: all three columns are non-negative
+        (migration 006 `CHECK`) and the delta is always positive here, so a
+        correct atomic add cannot answer with less than it was asked to add
+        -- whatever the balance was before, which this lane never reads."""
+        for answer in (-999999, 0, self.expected.amount - 1):
+            with self.subTest(answer=answer):
+                store = RmwTripwireStore(answer=answer)
+                payout, reason = reward.pay("AddCriteriaExp", 7,
+                                            self.quest_id, store=store)
+                self.assertIsNone(payout)
+                self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+
+    def test_a_balance_exactly_equal_to_the_delta_is_accepted(self):
+        """A character granted experience for the very first time: the
+        balance after equals the delta. Refusing this would refuse every
+        first payout, so the boundary is pinned in both directions."""
+        store = RmwTripwireStore(answer=self.expected.amount)
+        payout, reason = reward.pay("AddCriteriaExp", 7, self.quest_id,
+                                    store=store)
+        self.assertIsNone(reason)
+        self.assertEqual(payout.balance_after, self.expected.amount)
+
+    def test_a_non_finite_player_level_refuses_instead_of_raising(self):
+        """pf-adversary finding 5: `int(inf)`/`int(nan)` raised THROUGH
+        `pay`, whose docstring promises it never raises for a refusal.
+
+        Not theoretical: `lupa` hands every Lua number across as a float and
+        Lua's `1/0` is `inf`. This round is what opened the path, by making
+        `player_level` a public keyword.
+        """
+        for level in (float("inf"), float("-inf"), float("nan")):
+            with self.subTest(level=level):
+                payout, reason = reward.pay("AddLvCriteriaExp", 7,
+                                            self.quest_id,
+                                            store=RmwTripwireStore(),
+                                            player_level=level)
+                self.assertIsNone(payout)
+                self.assertEqual(reason,
+                                 quest_criteria.REFUSE_BAD_PLAYER_LEVEL)
+
+    def test_a_non_finite_multiplier_refuses_at_the_public_resolver(self):
+        """Same defect one layer down, and it used to be MEMOISED on the
+        way out of `multiplier_decimal`."""
+        for multiplier in (float("inf"), float("-inf"), float("nan")):
+            with self.subTest(multiplier=multiplier):
+                with self.assertRaises(quest_criteria.QuestCriteriaError):
+                    quest_criteria.resolve(quest_criteria.KIND_EXP, 1,
+                                           multiplier)
+
+    def test_a_negative_amount_is_refused(self):
+        """pf-adversary finding 8: `REFUSE_NEGATIVE` was a branch no input
+        in the repository could reach, so a mutant deleting it survived.
+
+        The shipped mirror carries no negative multiplier, so this drives
+        the branch directly rather than pretending the corpus can. It
+        matters because `resolve` DOES return a negative amount for a
+        negative multiplier, and `ROUND_FLOOR` on a negative product floors
+        away from zero while the C++ cast this lane claims equivalence with
+        truncates toward it -- so if a re-vendor ever ships one, the write
+        half's only defence is this branch.
+        """
+        from decimal import Decimal
+
+        amount = quest_criteria.CriteriaAmount(
+            kind=quest_criteria.KIND_EXP, level=1, base=100,
+            multiplier=-1.0, raw=-100.0, exact=Decimal(-100), amount=-100)
+        store = RmwTripwireStore()
+        with mock.patch.object(quest_criteria, "resolve_for_api",
+                               return_value=(amount, None)):
+            payout, reason = reward.pay("AddCriteriaExp", 7, self.quest_id,
+                                        store=store)
+        self.assertIsNone(payout)
+        self.assertEqual(reason, reward.REFUSE_NEGATIVE)
+        self.assertEqual(store.calls, [])
 
     def test_every_reason_comes_from_a_closed_set(self):
         allowed = reward.REFUSALS | {
