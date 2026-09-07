@@ -207,18 +207,40 @@ class ArrivalLedgerFileTests(unittest.TestCase):
     def _mode_bits_are_enforced(self):
         """Does THIS filesystem keep the bits `chmod` was given?
 
-        ASK THE FILESYSTEM, DO NOT ASK `os.name` (the rule round `vxr32s`
-        wrote into `tests/test_gm_command_capture.py` after a
-        `if os.name != "posix"` guard turned out to be a guess about the
-        host standing in for the property that actually decides).  The
-        probe below is that property, measured once per test on the very
-        directory the ledger will be written into.
+        WHAT THE NEIGHBOURING FILE ACTUALLY DOES, stated correctly here
+        after pf-adversary (round `6b1o1r`, finding 5) read the citation
+        this docstring used to make: `tests/test_gm_command_capture.py`
+        applies its "ASK THE FILESYSTEM, DO NOT ASK `os.name`" rule
+        (`:1097-1105`, round `vxr32s`) to whether a NEWLINE IS A LEGAL
+        FILENAME CHARACTER, and for the MODE-BIT property it deliberately
+        keeps `if os.name == "posix"` (`:401`, `:425`, `:453`, `:461`)
+        with a measured explanation above it.  So this probe is a
+        DIFFERENT CHOICE from its neighbour, not the neighbour's rule
+        being followed: it answers the same question by measurement
+        instead of by host name, and it must be defended on its own.
+
+        Why it is still the better one here: `os.name` cannot see a POSIX
+        host whose TMPDIR is on a mount that drops mode bits (DrvFs, 9p,
+        vfat), where the neighbour goes red for the filesystem rather than
+        for the module.  The cost is that the weakening is computed, so
+        the verdict is PRINTED (below) rather than left silent.
+
+        Measured in the test's own temporary directory, which is the same
+        filesystem as -- not the same directory as -- the ledger root two
+        levels under it.
         """
         probe = Path(self.tmp.name) / "mode_probe"
         probe.write_bytes(b"")
         probe.chmod(0o600)
         enforced = stat.S_IMODE(probe.stat().st_mode) == 0o600
         probe.unlink()
+        # Say it out loud.  A silently weakened assertion is the failure
+        # mode this lane keeps paying for; `-s` or a red run shows which
+        # half of the test the host actually ran.
+        print(
+            "GM_LEDGER_MODE_PROBE enforced=%s platform=%s"
+            % ("yes" if enforced else "no", sys.platform)
+        )
         return enforced
 
     def test_file_and_directory_are_owner_only(self):
@@ -247,6 +269,14 @@ class ArrivalLedgerFileTests(unittest.TestCase):
         # again, so this pins EVERY call rather than a call count: no write
         # may ask for anything but 0o700 / 0o600, and at least one must
         # have happened (an empty list would otherwise pass vacuously).
+        ledger_root = arrival_ledger.ledger_root_for_capture_root(
+            self.capture_root,
+        )
+        self.assertEqual(
+            {str(call.args[0]) for call in chmod_spy.call_args_list},
+            {str(ledger_root)},
+            "the chmod must be aimed at the ledger directory itself",
+        )
         chmod_modes = [call.args[1] for call in chmod_spy.call_args_list]
         open_modes = [call.args[2] for call in open_spy.call_args_list]
         self.assertTrue(chmod_modes and open_modes)
@@ -419,6 +449,100 @@ class ArrivalLedgerFileTests(unittest.TestCase):
             self.assertEqual(root.stat().st_mode & 0o777, 0o700)
         else:
             self.assertTrue(self.ledger_path.is_file())
+
+    def test_each_ledger_root_this_process_touches_gets_its_own_header(self):
+        # pf-adversary (round `6b1o1r`, finding 1): the announcement flag
+        # was ONE process-global boolean while the header is per
+        # DIRECTORY.  A process that wrote to a second root gave it no
+        # header at all -- no pid, no absolute path -- and the single
+        # console line named the FIRST root, pointing the reader at a
+        # directory that does not hold the arrival.  That is D3/D7 (a
+        # working directory the reader is not looking under) arriving
+        # through the other door.
+        second_capture = Path(self.tmp.name) / "second" / "gm_command_capture"
+        arrival_ledger.record_arrival(
+            0x51E9, "gm1", 1, "captured",
+            authorized=True, capture_root=self.capture_root, now_ts=0,
+        )
+        arrival_ledger.record_arrival(
+            0x51E9, "gm2", 1, "captured",
+            authorized=True, capture_root=second_capture, now_ts=0,
+        )
+        second_path = (
+            arrival_ledger.ledger_root_for_capture_root(second_capture)
+            / arrival_ledger.LEDGER_FILENAME
+        )
+        second_lines = second_path.read_text("ascii").splitlines()
+        self.assertTrue(
+            second_lines[0].startswith(arrival_ledger.LEDGER_OPENED_TOKEN),
+            second_lines,
+        )
+        self.assertIn(
+            f"path={second_path.parent.resolve()}", second_lines[0],
+        )
+        # ...and still exactly one header per root, not one per arrival.
+        arrival_ledger.record_arrival(
+            0x51E9, "gm2", 1, "captured",
+            authorized=True, capture_root=second_capture, now_ts=0,
+        )
+        self.assertEqual(
+            sum(1 for line in second_path.read_text("ascii").splitlines()
+                if line.startswith(arrival_ledger.LEDGER_OPENED_TOKEN)),
+            1,
+        )
+
+    def test_a_console_that_raises_costs_the_console_line_not_the_arrival(self):
+        # pf-adversary (round `6b1o1r`, finding 2): the `print` of the
+        # header sits inside a `try/except OSError`, and neither way out
+        # of a broken console is an OSError -- a closed stdout raises
+        # ValueError, a cp874 console handed a path it cannot encode
+        # raises UnicodeEncodeError.  Either one escaped into
+        # `gm/dispatch.py`, losing the arrival line that had not been
+        # written yet, and on the `except BaseException` arm REPLACING the
+        # original exception with this one.
+        for boom in (ValueError("I/O operation on closed file."),
+                     UnicodeEncodeError("charmap", "x", 0, 1, "no mapping")):
+            with self.subTest(boom=type(boom).__name__):
+                arrival_ledger.reset_for_tests()
+                with mock.patch("builtins.print", side_effect=boom):
+                    line = self._record()
+                self.assertIsNotNone(line)
+                self.assertEqual(len(self._lines()), 1)
+                self.ledger_path.unlink()
+
+    def test_a_write_that_dies_after_partial_progress_spends_no_budget(self):
+        # pf-adversary (round `6b1o1r`, finding 4): the repair arm for an
+        # `os.write` that RAISES after partial progress had never
+        # executed under this suite, and a mutant turning its `return
+        # False` into `return True` -- i.e. reporting a half-written line
+        # as landed, spending the budget for it -- survived every test.
+        # The covered route was only the `count <= 0` one.
+        real_write = arrival_ledger.os.write
+        calls = []
+
+        def _dies_after_one_chunk(fd, data):
+            # The repair write of the bare newline is allowed through: it
+            # is the module's documented way of ending the partial line so
+            # the NEXT line does not get glued onto it.  (Measured while
+            # writing this test: refusing it too produces exactly that
+            # glued line, `GMGM_VITAL_ARRIVED ...`, which is the failure
+            # the repair arm exists to avoid.)
+            if data == b"\n":
+                return real_write(fd, data)
+            calls.append(data)
+            if len(calls) == 1:
+                return real_write(fd, data[:2])
+            raise OSError("volume went away mid-line")
+
+        self._record(account="gm1")
+        with mock.patch.object(
+            arrival_ledger.os, "write", side_effect=_dies_after_one_chunk,
+        ):
+            self.assertIsNone(self._record(account="gm1"))
+        # The budget was not spent on the half-written line: the arrival
+        # after the disk recovers still gets a full one.
+        self.assertIsNotNone(self._record(account="gm1"))
+        self.assertEqual(len(self._lines()), 2)
 
     def test_a_write_failure_costs_the_line_not_the_caller(self):
         with mock.patch.object(

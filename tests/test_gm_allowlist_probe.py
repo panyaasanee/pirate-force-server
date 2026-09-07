@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.gm import accounts, allowlist_probe
+from pirateforce_foundation.gm import arrival_ledger  # noqa: E402
 from pirateforce_foundation.gm.allowlist_probe import (
     GM_ALLOWLIST_CONSOLE_TOKEN,
     announce_not_gm_once,
@@ -301,8 +302,23 @@ class GmRunCommandHookAnnouncesTests(unittest.TestCase):
 
         session = self._Session(token)
         stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            returned = lane_gm_run_command._on_gm_run_command(session, payload)
+        # KEEP THE ARRIVAL LEDGER OUT OF THE REPOSITORY (pf-adversary, round
+        # `6b1o1r`, finding 1).  This hook reaches `gm/dispatch.py` with the
+        # RELATIVE `DEFAULT_CAPTURE_ROOT` bound at def time, so before this
+        # redirect a plain `pytest` run appended real
+        # `GM_VITAL_ARRIVED ... account=admin ... outcome=refused_not_gm_account`
+        # lines to `capture/gm_arrival_ledger/arrival_ledger.txt` under the
+        # pytest cwd -- invisible to `git status` (`.gitignore:179` is
+        # `**/capture*/`) and byte-identical in shape to the line the
+        # attended tester of GT-279 greps for.  A test must not be able to
+        # manufacture the evidence a ticket is graded on.
+        ledger_root = Path(self._tmp.name) / "ledger"
+        with mock.patch.object(
+            arrival_ledger, "ledger_root_for_capture_root",
+            lambda capture_root: ledger_root,
+        ):
+            with contextlib.redirect_stderr(stderr):
+                returned = lane_gm_run_command._on_gm_run_command(session, payload)
         return session, stderr.getvalue(), returned
 
     def test_a_refused_command_prints_the_line_and_still_sends_no_frame(self):

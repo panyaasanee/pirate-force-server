@@ -150,7 +150,15 @@ _UNNAMED_OUTCOME = "unstated"
 _lock = threading.Lock()
 _lines_by_account: dict[str, int] = {}
 _full_announced: set[str] = set()
-_opened_announced = False
+#: Ledger roots this process has already written a header line into.
+#: pf-adversary (round `6b1o1r`) measured the shape this replaces: ONE
+#: process-global boolean, while the header is per DIRECTORY.  A process
+#: that touched two roots gave the second one no header at all -- no pid,
+#: no absolute path -- and the single console line named the FIRST root,
+#: pointing the reader at a directory that does not hold the arrival.
+#: That is D3/D7 coming back in through the other door, so the flag is
+#: now keyed by the root it is actually about.
+_opened_announced: set[str] = set()
 
 
 def reset_for_tests() -> None:
@@ -162,11 +170,10 @@ def reset_for_tests() -> None:
     deliberately fills a budget must not depend on what ran before it in
     the same process.
     """
-    global _opened_announced
     with _lock:
         _lines_by_account.clear()
         _full_announced.clear()
-        _opened_announced = False
+        _opened_announced.clear()
 
 
 def ledger_root_for_capture_root(capture_root: str | os.PathLike) -> Path:
@@ -384,6 +391,18 @@ def _opened_header(ledger_root: Path, now_ts: float | None) -> str:
     )
 
 
+def _root_key(ledger_root: Path) -> str:
+    """The identity a header line is about: the resolved directory.
+
+    Same fallback as ``_opened_header``, so a root that cannot be resolved
+    still gets exactly one header rather than one per arrival.
+    """
+    try:
+        return str(Path(ledger_root).resolve())
+    except OSError:
+        return str(ledger_root)
+
+
 def _budget_key(sanitized_account: str) -> str | None:
     """Which bucket this account spends from, or None when all are spent."""
     if sanitized_account in _lines_by_account:
@@ -422,7 +441,6 @@ def record_arrival(
     shows up as ``account=unnamed`` in the file, not as a crashed
     connection and not as a silent skip.
     """
-    global _opened_announced
     try:
         ledger_root = ledger_root_for_capture_root(capture_root)
     except (TypeError, ValueError, AttributeError):
@@ -455,15 +473,31 @@ def record_arrival(
                     f"further_arrivals_of_this_account_are_not_recorded"
                 )
                 return full_line if _append_line(ledger_root, full_line) else None
-            if not _opened_announced:
+            root_key = _root_key(ledger_root)
+            if root_key not in _opened_announced:
                 header = _opened_header(ledger_root, now_ts)
                 if _append_line(ledger_root, header):
-                    _opened_announced = True
+                    _opened_announced.add(root_key)
                     # The console half of the same line: a tester at the
                     # keyboard must not have to read this module's source
                     # to learn which absolute path to open.  Once per
-                    # process, like `allowlist_probe`'s own line.
-                    print(header, flush=True)
+                    # ROOT per process, like `allowlist_probe`'s own line.
+                    #
+                    # `print` IS NOT COVERED BY THE `except OSError` THIS
+                    # SITS IN, and pf-adversary (round `6b1o1r`) measured
+                    # both ways out: a closed stdout raises ValueError, a
+                    # cp874 console handed a path it cannot encode raises
+                    # UnicodeEncodeError.  Either one escaped into
+                    # `gm/dispatch.py`, losing the arrival line that had
+                    # not been written yet and -- on the `except
+                    # BaseException` arm -- REPLACING the original
+                    # exception with this one.  The console line is the
+                    # least important thing this function does; it never
+                    # gets to be the thing that breaks dispatch.
+                    try:
+                        print(header, flush=True)
+                    except Exception:
+                        pass
             line = format_arrival_line(
                 vital_id,
                 account_name,
