@@ -131,7 +131,7 @@ class ConsoleMirrorFactoryTests(unittest.TestCase):
     through.  None of them build a stand-in stream.
     """
 
-    def test_factory_writes_both_ends_and_declares_the_module_encoding(self):
+    def test_factory_writes_both_ends_and_reports_the_console_encoding(self):
         console, retained = io.StringIO(), io.StringIO()
         previous_out, previous_err = sys.stdout, sys.stderr
         with tempfile.TemporaryDirectory() as tmp:
@@ -144,17 +144,23 @@ class ConsoleMirrorFactoryTests(unittest.TestCase):
         self.assertEqual(mirror.write("summary\n"), len("summary\n"))
         self.assertEqual(console.getvalue(), "summary\n")
         self.assertEqual(retained.getvalue(), "summary\n")
+        # COO ruling `20260907_1346` flipped this pin: the mirror does
+        # not declare utf-8/strict, it REPORTS what the console it wraps
+        # declares.  io.StringIO declares neither, so both answers here
+        # are the documented fallbacks -- and `errors` is "replace", not
+        # "strict", so a diagnostic can never raise out of dispatch.
         self.assertEqual(mirror.encoding, "utf-8")
-        self.assertEqual(mirror.errors, "strict")
+        self.assertEqual(mirror.errors, "replace")
         self.assertTrue(mirror.writable())
 
     def test_a_line_breaking_control_stays_on_one_line_through_the_mirror(self):
         # This is the property LANE-GM's own test depends on, and the reason
         # a cp874 stand-in cannot stand in: cp874 cannot encode U+0085 at
         # all, so a stand-in folds it for free and stays green even with the
-        # producer's own folding deleted.  The real mirror declares utf-8
-        # and carries the character through untouched -- so a test built on
-        # this factory sees the second line a deleted fold would create.
+        # producer's own folding deleted.  A mirror over a stream that
+        # takes utf-8 reports utf-8 and carries the character through
+        # untouched -- so a test built on this factory sees the second
+        # line a deleted fold would create.
         console, retained = io.StringIO(), io.StringIO()
         mirror = build_console_mirror(console, retained)
         mirror.write("TOKEN a=1\u0085b=2\n")
@@ -272,28 +278,145 @@ class RuntimeConsoleLifetimeTest(unittest.TestCase):
                     self.assertIs(restored_out, previous_out)
                     self.assertIs(restored_err, previous_err)
 
-    def test_a_mirror_that_outlived_its_files_drops_text_instead_of_raising(
+    def test_a_mirror_that_outlived_its_files_forwards_instead_of_raising(
         self,
     ):
         # The same failure seen from the object's side: whatever still
         # holds a closed console's mirror must not turn print() into an
-        # exception at interpreter shutdown.
+        # exception at interpreter shutdown.  COO ruling `20260907_1441`
+        # then chose FORWARD over drop -- the operator's window is a
+        # person, the retained file is not -- so the line has to land on
+        # the fallback and NOT in the closed retained file.
         with tempfile.TemporaryDirectory() as tmp:
+            fallback = io.StringIO()
             previous_out, previous_err = sys.stdout, sys.stderr
-            runtime = RuntimeConsole(
-                Path(tmp), io.StringIO(), io.StringIO(),
-                close_console_streams=False,
-            )
-            leaked = sys.stdout
+            sys.stdout = fallback
             try:
+                runtime = RuntimeConsole(
+                    Path(tmp), io.StringIO(), io.StringIO(),
+                    close_console_streams=False,
+                )
+                leaked = sys.stdout
                 runtime.close()
             finally:
                 sys.stdout, sys.stderr = previous_out, previous_err
             self.assertEqual(leaked.write("after close\n"), len("after close\n"))
             leaked.flush()
+            self.assertIn("after close\n", fallback.getvalue())
+            # The evidence really does split in two, which is why
+            # `_Mirror.__doc__` says so: the retained file stops at close.
             self.assertEqual(
                 (Path(tmp) / "server_console_live.out.txt").read_bytes(), b"",
             )
+
+    def test_the_teardown_warning_is_emitted_once_not_once_per_line(self):
+        # COO ruling `20260907_1441` item 3: one bool per mirror, not a
+        # counter per line.  Ten lines after teardown must still leave
+        # exactly one warning on the fallback, or a torn-down console
+        # turns into ten lines of noise for every real line.
+        fallback = io.StringIO()
+        mirror = build_console_mirror(io.StringIO(), io.StringIO())
+        mirror.stop_mirroring(fallback)
+        for index in range(10):
+            mirror.write(f"line {index}\n")
+        text = fallback.getvalue()
+        self.assertEqual(text.count("runtime console torn down"), 1)
+        for index in range(10):
+            self.assertIn(f"line {index}\n", text)
+
+    def test_forwarding_never_raises_and_never_recurses_through_a_cycle(self):
+        # Two dead mirrors pointing at each other: `_live_stream` alone
+        # only bounds ITS walk, so without the per-thread re-entry guard
+        # a.write() -> b.write() -> a.write() recurses until the stack
+        # ends.  A raising fallback must be swallowed too: after teardown
+        # a diagnostic may never change dispatch.
+        first = build_console_mirror(io.StringIO(), io.StringIO())
+        second = build_console_mirror(io.StringIO(), io.StringIO())
+        first.stop_mirroring(second)
+        second.stop_mirroring(first)
+        # Counting the hops, not just "it returned": a RecursionError is
+        # an Exception and the swallow above catches it, so a version
+        # with the guard deleted still returns normally after burning a
+        # thousand frames.  This is the assertion that goes red for it.
+        hops = []
+        original = runtime_console._live_stream
+
+        def counting(stream):
+            hops.append(stream)
+            return original(stream)
+
+        runtime_console._live_stream = counting
+        try:
+            self.assertEqual(first.write("cycle\n"), len("cycle\n"))
+            first.flush()
+        finally:
+            runtime_console._live_stream = original
+        # Measured 5 with the guard in place (write: resolve, warn, value;
+        # flush: resolve, forward) -- bounded.  Without it, unbounded.
+        self.assertLessEqual(len(hops), 8)
+
+        class _Hostile(io.StringIO):
+            def write(self, value: str) -> int:
+                raise OSError("the operator's window is gone too")
+
+            def flush(self) -> None:
+                raise OSError("and so is its flush")
+
+        hostile = build_console_mirror(io.StringIO(), io.StringIO())
+        hostile.stop_mirroring(_Hostile())
+        self.assertEqual(hostile.write("swallowed\n"), len("swallowed\n"))
+        hostile.flush()
+
+    def test_a_mirror_reports_the_encoding_of_the_console_it_wraps(self):
+        # COO ruling `20260907_1346`: `console_safe()` asks one question
+        # -- what can the stream being written to actually take -- and a
+        # constant cannot answer it.  A cp874 console must report cp874,
+        # or the fold is computed for a screen that does not exist.
+        class _Cp874Stream(io.StringIO):
+            encoding = "cp874"
+            errors = "backslashreplace"
+
+        mirror = build_console_mirror(_Cp874Stream(), io.StringIO())
+        self.assertEqual(mirror.encoding, "cp874")
+        self.assertEqual(mirror.errors, "backslashreplace")
+
+        class _Raising(io.StringIO):
+            @property
+            def encoding(self):
+                raise ValueError("closed")
+
+        # A property that raises would change dispatch on every print().
+        falling_back = build_console_mirror(_Raising(), io.StringIO())
+        self.assertEqual(falling_back.encoding, "utf-8")
+
+    def test_nested_consoles_leave_the_process_exiting_zero(self):
+        # The whole point, measured the only way that counts: a real
+        # interpreter that opened two consoles, closed them out of order
+        # and printed afterwards must exit 0.  Before `#1039` this exact
+        # script exited 120 while flushing at shutdown.
+        script = (
+            "import io, sys\n"
+            "sys.path.insert(0, {src!r})\n"
+            "from pathlib import Path\n"
+            "from pirateforce_foundation.runtime_console import RuntimeConsole\n"
+            "outer = RuntimeConsole(Path({tmp!r}) / 'outer', io.StringIO(),"
+            " io.StringIO(), close_console_streams=False)\n"
+            "inner = RuntimeConsole(Path({tmp!r}) / 'inner', io.StringIO(),"
+            " io.StringIO(), close_console_streams=False)\n"
+            "outer.close()\n"
+            "inner.close()\n"
+            "print('after both closes')\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [
+                    sys.executable, "-c",
+                    script.format(src=str(ROOT / "src"), tmp=tmp),
+                ],
+                cwd=ROOT, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("after both closes", result.stdout)
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,21 +15,71 @@ from pathlib import Path
 from typing import TextIO
 
 
+_forwarding = threading.local()
+
+
+def _active_forwards() -> set[int]:
+    """Mirrors this thread is already forwarding through, by id().
+
+    Thread-local on purpose: two threads writing through the same dead
+    mirror are not a cycle, and must not silence each other.
+    """
+    ids = getattr(_forwarding, "ids", None)
+    if ids is None:
+        ids = set()
+        _forwarding.ids = ids
+    return ids
+
+
+def _reported_text_attr(stream: object, name: str, default: str) -> str:
+    """Report a wrapped stream's ``encoding``/``errors``, never raise.
+
+    COO ruling `20260907_1346`: a mirror has no right to declare an
+    encoding of its own -- it reports the encoding of the console stream
+    it is writing through, because that is the single question
+    ``console_safe()`` exists to answer ("what can the stream that is
+    being written to actually take?").  A property that raises would
+    change dispatch, so every failure lands on the default instead.
+    """
+    try:
+        value = getattr(stream, name, None)
+    except Exception:
+        return default
+    return value if isinstance(value, str) else default
+
+
 class _Mirror(TextIO):
+    """One process-wide stdout/stderr writing to a console and a file.
+
+    After ``stop_mirroring`` the retained file is gone but the operator's
+    window is not, so a torn-down mirror FORWARDS to its fallback rather
+    than dropping (COO ruling `20260907_1441`).
+
+    NOTE: Evidence therefore splits across two places, and whoever reads
+    the retained file must know it: lines written AFTER the owning
+    ``RuntimeConsole.close()`` reach the console/fallback and are NOT in
+    that run's ``server_console_live.*.txt``.  The retained file is not
+    the whole of what the operator saw.
+    """
+
     def __init__(self, console: TextIO, retained: TextIO) -> None:
         self._console = console
         self._retained = retained
         self._detached = False
         self._fallback: TextIO | None = None
+        self._warned = False
         self._lock = threading.RLock()
 
     @property
     def encoding(self) -> str:
-        return "utf-8"
+        return _reported_text_attr(self._console, "encoding", "utf-8")
 
     @property
     def errors(self) -> str:
-        return "strict"
+        # "replace", not "strict": a diagnostic that makes console_safe()
+        # fold wider than the real console needs is the mirror-image of
+        # the damage this property exists to prevent.
+        return _reported_text_attr(self._console, "errors", "replace")
 
     def writable(self) -> bool:
         return True
@@ -40,25 +90,78 @@ class _Mirror(TextIO):
     def fileno(self) -> int:
         return self._console.fileno()
 
+    def _detached_target(self) -> tuple[TextIO | None, bool]:
+        """Pick the live stream to forward to, and whether to warn first.
+
+        Snapshotting under the lock and doing the I/O outside it is
+        load-bearing: forwarding writes into ANOTHER mirror's lock, and
+        stdout's and stderr's fallbacks can cross.  Holding our own lock
+        across that hop is a lock-order inversion between two threads.
+        """
+        with self._lock:
+            if self._fallback is None:
+                return None, False
+            target = _live_stream(self._fallback)
+            warn = not self._warned
+            self._warned = True
+            return target, warn
+
+    def _warn_once(self, target: TextIO) -> None:
+        # Written straight to the fallback: `warnings` and `logging` are
+        # both unreliable at interpreter shutdown and `logging` can route
+        # straight back into this sink (COO ruling `20260907_1441`).
+        try:
+            target.write(
+                "[FOUNDATION] runtime console torn down; later lines go to"
+                " the console only and are NOT in this run's retained log\n"
+            )
+        except Exception:
+            pass
+
+    def _forward(self, value: str | None) -> None:
+        active = _active_forwards()
+        if id(self) in active:
+            # A fallback chain looped back to us.  Dropping here is the
+            # only way out that does not recurse until the stack ends.
+            return
+        active.add(id(self))
+        try:
+            target, warn = self._detached_target()
+            if target is None:
+                return
+            if warn:
+                self._warn_once(target)
+            try:
+                if value is None:
+                    target.flush()
+                else:
+                    target.write(value)
+            except Exception:
+                pass
+        finally:
+            active.discard(id(self))
+
     def write(self, value: str) -> int:
         if not isinstance(value, str):
             raise TypeError("runtime console accepts text only")
         with self._lock:
-            if self._detached:
+            if not self._detached:
+                self._console.write(value)
+                self._retained.write(value)
                 return len(value)
-            self._console.write(value)
-            self._retained.write(value)
+        self._forward(value)
         return len(value)
 
     def flush(self) -> None:
         with self._lock:
-            if self._detached:
+            if not self._detached:
+                self._console.flush()
+                self._retained.flush()
                 return
-            self._console.flush()
-            self._retained.flush()
+        self._forward(None)
 
     def stop_mirroring(self, fallback: TextIO) -> None:
-        """Stop writing to both sinks, without raising, forever.
+        """Detach from both sinks and forward everything later, forever.
 
         Called by ``RuntimeConsole.close()`` immediately BEFORE the
         retained file (and possibly the console) is closed.  A mirror can
@@ -66,8 +169,14 @@ class _Mirror(TextIO):
         of order leaves ``sys.stdout`` pointing at the older mirror, and a
         mirror over a closed file turns every later ``print()`` into a
         ValueError -- at interpreter shutdown that is exit code 120, with
-        no traceback naming this module.  Dropping the text is the lesser
-        of the two harms: the process is already tearing its console down.
+        no traceback naming this module.
+
+        Dropping the text was the first fix and it was the wrong one
+        (COO ruling `20260907_1441`): a dead mirror holds a stream that
+        is still writable and chooses not to use it, so the operator's
+        window goes silent with nobody able to say why.  Forwarding keeps
+        the line on the screen; the one-shot warning above says out loud
+        that the retained file stops here.
         """
         with self._lock:
             self._detached = True
@@ -103,13 +212,16 @@ def build_console_mirror(console: TextIO, retained: TextIO) -> TextIO:
     of its own making.  CORE-REQUEST-GM-064 (LANE-GM round `fx4p76`,
     chief queue item (4)) asked for exactly this door, because a test
     stream that encodes cp874 folds line-breaking controls for free and
-    so stays green with `_fold_line_breaking_controls` deleted, while
-    this mirror declares utf-8 and does not.
+    so stays green with `_fold_line_breaking_controls` deleted, while a
+    mirror over a utf-8 console does not.
 
-    The declared ``encoding`` is deliberately NOT a parameter here: it is
-    `_Mirror`'s own decision, so the day it changes, every test built on
-    this factory moves with it instead of pinning a copy of the old
-    answer.
+    NOTE: ``encoding`` is NOT a parameter here and is NOT the mirror's own
+    answer either: a mirror has no right to declare an encoding of its
+    own, it REPORTS the encoding of the console stream it wraps (COO
+    ruling `20260907_1346`, correcting the contract this docstring
+    published at `#1022`).  So a caller that wants a cp874 answer passes
+    a cp874 ``console``; over a stream that declares nothing the mirror
+    falls back to utf-8/replace.
 
     ``RuntimeConsole.__init__`` is required to build its two mirrors
     through this function; `test_runtime_console.py` fails if it stops.
