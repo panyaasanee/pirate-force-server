@@ -1516,14 +1516,26 @@
     {
       "key": "lua_corpus_runnable",
       "module": "tests/test_script_lua_quest_vars.py",
-      "count": 4,
+      "count": 5,
       "tests": [
         "TheShippedScriptChargesARealRowTests::test_a_quest_whose_var4_is_not_wrapped_charges_nothing_either",
-        "TheShippedScriptChargesARealRowTests::test_the_class_change_now_costs_the_player_fifteen_thousand",
-        "TheShippedScriptChargesARealRowTests::test_the_console_says_which_row_the_number_came_from",
+        "TheShippedScriptChargesARealRowTests::test_the_class_change_takes_nothing_while_it_can_give_nothing",
+        "TheShippedScriptChargesARealRowTests::test_the_console_names_the_api_the_whole_group_is_waiting_on",
+        "TheShippedScriptChargesARealRowTests::test_the_reward_names_the_script_tests_are_refused_not_zeroed",
         "TheShippedScriptChargesARealRowTests::test_the_same_script_under_an_unbound_quest_still_charges_nothing"
       ],
-      "note": "round joa0u6 (LANE-Q): the four tests that run the SHIPPED Quest/q_class.lua through real Lua with quest 3200 bound and a real SQLiteStore on disk, and read the money back off the characters row -- the evidence that Player.AddCash(Quest.Var4) charges the 15,000 the designer typed instead of the 0 every VarN used to return. ONE key rather than two stacked guards: lua_corpus_runnable already IS bridge_lua_scripts AND lupa_package, and stacking BRIDGE_LUA_SCRIPTS outside it would make unittest record the outer reason and hide that these four need a Lua runtime -- the mistake pf_preconditions.py documents beside that key and the reason the first draft of this module was corrected mid-round (pf-adversary D2). MEASURED 2026-09-08 in this round's own rehearsal (this repository with pf_bridge renamed away): 4 skips under this key in this module; 0 in this lane's cloud clone, where the bridge is present and lupa is installed, so all four ran and passed."
+      "note": "round l0rbyx (LANE-Q) rewrote what these prove; the guard and the reason are unchanged from round joa0u6. They run the SHIPPED Quest/q_class.lua through real Lua with quest 3200 bound and a real SQLiteStore on disk, and read the money back off the characters row. Round joa0u6 pinned the 15,000 charge; COO-DECISION 20260908_0242 item 4 (the half-transaction rule) then decided that a charge whose give side is a stub must be refused WHOLE, so the same four tests now pin the refusal -- the cash row ends at 20070 (the criteria reward, which is not in the group) and not 5070 -- and a fifth was added for the reward names themselves, which must refuse rather than let `if (Quest.RewardItem1 > 0)` fire into a stubbed Player.AddItem. ONE key rather than two stacked guards: lua_corpus_runnable already IS bridge_lua_scripts AND lupa_package, and stacking BRIDGE_LUA_SCRIPTS outside it would make unittest record the outer reason and hide that these need a Lua runtime (pf-adversary D2 of round joa0u6). MEASURED 2026-09-08 in this round's own rehearsal (a copy of this repository with no pf_bridge beside it): 5 skips under this key in this module; 0 in this lane's cloud clone, where the bridge is present and lupa is installed, so all five ran and passed."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_script_lua_quest_rewards.py",
+      "count": 3,
+      "tests": [
+        "MirrorsMatchTheGameTests::test_every_reward_cell_matches_the_source_by_column_name",
+        "MirrorsMatchTheGameTests::test_regenerating_produces_byte_identical_mirrors",
+        "MirrorsMatchTheGameTests::test_the_call_site_of_every_member_reads_that_column"
+      ],
+      "note": "round l0rbyx (LANE-Q), COO-DECISION 20260908_0242 item 4 (the half-transaction rule): Quest.RewardItem1..RewardChooseNum6 now read the quest's own row through the new vendored mirror lua_api/quest_reward_rows.tsv, and lua_api/quest_column_groups.tsv records which columns of one row are the take and give sides of ONE transaction so an incomplete group can refuse whole. These three tests in MirrorsMatchTheGameTests are the tie between the two mirrors and the game, which no digest can make: one compares all 37,056 reward cells against ../pf_bridge/gamedata/tables/QUESTDATA_TH__QUEST.tsv BY COLUMN NAME (the 24 reward columns are interchangeable in shape, so a digest proves only that the mirror is the file the tool wrote -- pf-adversary F2 of round 5qtaqy); one runs tools/pf_regen_lua_quest_rewards.py --check; one opens each pinned corpus line AS BYTES and requires it to call the API that member names. bridge_gamedata is the outer of two class decorators (bridge_lua_scripts is the inner), so unittest records this key for all three -- the same one-key-one-count rule the quest_criteria and quest_vars entries explain at length; the second guard is real (the last two read gamedata/lua/) and stays declared in the source. NOT lua_corpus_runnable for any of the three: none executes any Lua -- the third reads corpus BYTES -- so demanding lupa would silently stop them on exactly the bridge machines that can run them (pf-adversary D2 of round joa0u6, applied here before it could be repeated). Every other test in this module parses the vendored mirrors alone and stays unguarded -- deliberately, they are the half the Windows gate can run, and they include the gate's behaviour, its two mutants (Player.AddItem becoming real opens the group; RewardItemSelect alone does not) and the 'no shipped row opens half a group' check COO's decision asked for. MEASURED 2026-09-08 in this round's own rehearsal (a copy of this repository with no pf_bridge beside it): 3 under this key in this module and 0 under any other; 0 in this lane's cloud clone, where the bridge is present, so all three ran and passed."
     }
   ],
   "windows_gate_excluded_modules": {
