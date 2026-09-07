@@ -321,7 +321,7 @@ class NotWiredYetTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             if MODULE_NAME not in text:
                 continue
-            mentions.append(str(path.relative_to(ROOT)))
+            mentions.append(path.relative_to(ROOT).as_posix())
             try:
                 tree = ast.parse(text)
             except SyntaxError:  # pragma: no cover - a broken tree is not ours
@@ -329,17 +329,17 @@ class NotWiredYetTests(unittest.TestCase):
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     if any(a.name.split(".")[-1] == MODULE_NAME for a in node.names):
-                        importers.append(str(path.relative_to(ROOT)))
+                        importers.append(path.relative_to(ROOT).as_posix())
                 elif isinstance(node, ast.ImportFrom):
                     if (node.module or "").split(".")[-1] == MODULE_NAME or any(
                         a.name == MODULE_NAME for a in node.names
                     ):
-                        importers.append(str(path.relative_to(ROOT)))
+                        importers.append(path.relative_to(ROOT).as_posix())
                 elif isinstance(node, ast.Call):
                     func = node.func
                     name = getattr(func, "attr", getattr(func, "id", ""))
                     if name in ("import_module", "__import__"):
-                        importers.append(str(path.relative_to(ROOT)))
+                        importers.append(path.relative_to(ROOT).as_posix())
         self.assertEqual(importers, [])
         # Recorded, not enforced: today the only mention is class_catalog's
         # docstring pointing readers at this module.
