@@ -3280,8 +3280,13 @@ in this round is a Python-layer claim, not a Lua-layer one.  Findings 2 and
   `load_quest_script` still has none.  Nothing decides which quest a player
   is on, and NO FRAME GOES OUT -- a client watching its EXP bar will not
   see it move because of anything in this round.
-* **D12** -- `run_corpus_entry_points` still files innocent scripts under
-  `call_failed`.
+* ~~**D12** -- `run_corpus_entry_points` still files innocent scripts under
+  `call_failed`.~~  **WITHDRAWN, false since round `oghyca`** (struck
+  through rather than deleted, per the house rule that a corrected sentence
+  stays visible).  Round `oghyca` moved those scripts into `host_failed`;
+  this line kept saying "still" for two rounds afterwards, which is what
+  pf-adversary D7.5 caught.  The same applies to the census-at-import item
+  ("finding 13"): also paid in `oghyca`, see that round's section below.
 * Zero-amount rewards are refused as `amount_is_zero` before the store is
   consulted (quest 12 carries multiplier `0.0` and is a real example).
   That is a true statement about those quests, not a defect, but it means
@@ -3379,3 +3384,158 @@ on chief's symbol-guard answer, the atomic store method waiting on
 LANE-DB, and the `Lv` RE ticket.  Nothing here moves M2, M3 or M4; the
 corpus-wide stub-call pin (`BASELINE_TOTAL_STUB_CALLS = 2597`) is
 unchanged, because no API became real.
+
+## Round `5qtaqy` (2026-09-07) -- the alarms this lane removed, put back with teeth
+
+No API name changed status this round (still 34 real of 160) and nothing
+here moves M2, M3 or M4.  This round pays the seven findings pf-adversary
+returned against round `oghyca` AFTER that round had unlocked
+(`rounds/Q_20260907_1157_oghyca_addendum_adversary-not-clean.md` in
+`pf_bridge`), in the order that file set.  Two of them were round
+`oghyca`'s own regressions, not old debts.
+
+### D1 -- the corpus watchdog had nothing to bark at
+
+Round `oghyca` moved our-fault failures out of `call_failed` into a new
+`host_failed` bucket and then asserted nothing about that bucket on the
+real corpus, while every corpus test passed `log=lambda _msg: None`.
+Measured by the reviewer: deleting `lua_api/message_catalog.tsv` -- the
+shape a `.gitignore` accident produces -- put **23 of 616 files** in
+`host_failed` and `tests/test_script_lua_corpus.py` reported **15 passed**.
+On `origin/main`, before that round, the same deletion was **1 failed**.
+
+Paid with four tests, all inside the existing `LUA_CORPUS_RUNNABLE` class
+guard (so they run wherever the real corpus and `lupa` are both present,
+and skip with the pinned reason where they are not):
+
+* `test_no_file_in_the_real_corpus_fails_because_of_a_defect_of_OURS`
+  (load sweep) and `test_no_entry_point_failure_in_the_real_corpus_is_OURS`
+  (call sweep): `host_failed == []`, `host_failed_runs == []`, and **the
+  log is captured** -- no `LUA_HOST` line may be printed at all.
+* `test_the_LUA_SCRIPT_lines_are_exactly_the_pinned_failures`: the number
+  of lines blaming a script equals the two pinned sets and nothing more, so
+  a new failure class cannot arrive as a count.
+* `BASELINE_TOTAL_REAL_CALLS = 2852`, the exact pin `total_stub_calls`
+  already had.  `2852 -> 2849` moved unseen last round because only the
+  stub half was pinned.
+
+Re-measured with the mirror deleted at this round's head: **2 failed**
+(`test_no_entry_point_failure_in_the_real_corpus_is_OURS` and the real-call
+pin), with the `LUA_HOST` lines printed in the failure message.
+
+### D2 -- a census that parsed happily and lost a name anyway
+
+`_load` refused a bad SHAPE (columns, header, non-integers) and had no
+opinion about bad CONTENT.  The reviewer changed one cell from
+`Player<TAB>RemoveItem` to `Player<TAB>RemoveItem ` -- one trailing space,
+invisible in a diff -- and got **18/18 green** in
+`tests/test_script_lua_api_spec.py` while the real sweep produced **189
+`LUA_SCRIPT ... attempt to call a number value (field 'RemoveItem')` lines
+across 122 innocent quest files** and **zero** `LUA_HOST` lines.  The
+mechanism is `ApiNamespaceStub.__getitem__`: a name the census lost is not
+a missing function, it is the integer `0`, and calling it is the script's
+fault as far as any log can tell.
+
+Two layers now, because either alone is not enough:
+
+* **Row rules** -- `namespace` and `method` must be `isidentifier()` (this
+  is the exact shape a script indexes by, and it rejects the empty cell for
+  free); counts must be `isdigit()`, since `int()` accepts `3_67`, `+367`
+  and `"  367  "`; `arity_min <= arity_max`; and a repeated qualified name
+  is refused naming both lines -- that one had made `API_FUNCTIONS` 160
+  while `BY_QUALIFIED_NAME` was 159.
+* **A `# body_sha256:` header** on `api_spec.tsv`, the same shape
+  `message_catalog.tsv` and `quest_criteria_rows.tsv` already carry, with
+  the recompute command written in the file's own header.  This is the
+  check that needs no imagination about what corruption looks like.
+
+The digest is checked FIRST, on purpose, so the row rules only ever see a
+file whose digest was recomputed -- which is the realistic bad re-vendor,
+because tooling that regenerates the file regenerates the digest with it.
+`ACorruptCensusIsRefusedNotSilentlyLostTests` (9 tests) drives each refusal
+against a corrupt copy with a matching digest, plus one test that skips the
+recompute to prove the digest guard fires first, plus the control that the
+real file still loads with 160 rows.  End to end,
+`test_a_census_that_PARSES_but_lost_a_name_is_ours_too` runs the trailing-
+space census through a real one-file sweep: `host_failed == [that file]`,
+zero `LUA_SCRIPT` lines, one `LUA_HOST` line naming the column.
+
+### D3, D4, D6 -- three pins for three surviving mutants
+
+* **D3** the file-level buckets were documented as if they partitioned the
+  corpus.  They do not: a file that failed both ways is in `call_failed`
+  and `host_failed` at once, and on round `oghyca`'s own fixture the
+  buckets summed to 4 against a total of 3.  `bucket_conservation()` states
+  the equation that does hold and is asserted on the real corpus AND on the
+  overlapping fixture (where the naive sum is asserted to be 4, so the test
+  fails if the overlap ever disappears silently).
+* **D4** deleting `run.ok = False` from the host-side branch left **137
+  tests green**.  `ours.lua` -- host errors, no errors of its own -- is the
+  only file that can catch it, and now does, with `report.ran[0].ok` as the
+  control.  Re-measured at this head: the mutant now dies (1 failed).
+* **D6** the corpus contains exactly one file whose name has a space in it
+  (`t_test auto.lua`, re-measured), and the log line ended
+  `discovered_at=t_test auto.lua entry=ScriptStart`.  The path is quoted
+  now and `entry=` is a parameter of `_log_host_side` rather than a string
+  the caller pre-joined into the path, so the two fields cannot trade
+  places.  The test recovers the name from the line rather than asserting a
+  substring, and a second test fails if the corpus ever stops having
+  exactly one such file.
+
+### D5 -- written down, not fixed
+
+A script whose top level installs a raising `__index` metamethod on `_G`
+loads fine and then kills the process from inside `has_function` --
+`PANIC: unprotected error in call to Lua API`, SIGABRT, exit 134.  Neither
+`except Exception` nor `except BaseException` sees it; the sweep never
+returns and the other 615 files are never touched.  `grep -rli setmetatable
+gamedata/lua` is **0 files** (re-checked this round), so there is no live
+trigger in the shipped corpus.  Recorded in `run_corpus_entry_points`'
+docstring beside the hang gap, with the reason a fix has to live below this
+layer (a subprocess per file, or a panic hook `lupa` does not expose).
+
+### D7 -- five sentences narrowed to what was measured
+
+1. `spec.py`'s "measured end to end" covered ONE shape (the file missing);
+   the content shapes were not measured at all until this round, and the
+   docstring now says which is which.
+2. Same correction in `_load`'s "WHERE THIS IS CAUGHT".
+3. `_tables`' lock was justified by "a corpus sweep and the future live
+   dispatch both reach this from whichever thread touched a script first".
+   Measured: the sweep is a single-threaded `for` loop and there is no live
+   dispatch in `src/` at all; removing the lock leaves the suite green.
+   The lock stays and is now labelled **[PROPOSED]** protection against a
+   caller this repository has not written yet.
+4. `tests/test_script_lua_corpus.py`'s docstring named an `ApiSpecError`
+   class that has never existed in `src/`.
+5. This file's own "Still open" list kept calling D12 open two rounds after
+   it was closed -- struck through above rather than deleted.
+
+Plus `__all__` in `spec.py`: `from ...spec import *` reads `__dict__` and
+never calls `__dir__`, so a star-import used to publish `Path`,
+`threading`, `dataclass` and none of the four census names.  What `__all__`
+does NOT fix is written down in the module docstring: `getattr(spec, name,
+default)` and `hasattr` RAISE when the mirror is corrupt instead of
+returning the default.  For this mirror that is the correct failure --
+silence is what D2 punished -- but it is a shape a caller must be told
+about rather than discover.
+
+### Still open after this round
+
+* The `ScriptHost.call` time/instruction budget (the hang), and now the
+  panic below it (D5).  Both are structural, neither has a live trigger in
+  today's corpus.
+* `reward_store` / `player_context` into `ScriptHost` -- waiting on chief's
+  answer to the symbol-guard exception letter.
+* The atomic store method -- waiting on LANE-DB's `add_typed_attribute`
+  CORE-REQUEST.
+* The `Lv` RE ticket.
+* **The design question this round did not answer** (raised by pf-adversary
+  and put to COO this round): nothing in `src/` or `tools/` calls
+  `load_corpus`/`run_corpus_entry_points` at all, so `host_failed` is a
+  bucket only tests read.  Making the census lazy turned "a corrupt
+  `api_spec.tsv` refuses to boot" into "it boots, serves with no quest
+  logic at all, and writes a log line nobody reads".  Which of those two is
+  the failure mode this project wants, and what reads the bucket at boot if
+  it is the second, is a ruling this lane cannot make for itself.
+
