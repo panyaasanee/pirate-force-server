@@ -33,10 +33,12 @@ import unittest
 from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 
-from pf_preconditions import BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS, SIBLING
+from pf_preconditions import (BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS,
+                             LUA_CORPUS_RUNNABLE, SIBLING)
 
 from pirateforce_foundation import script_host
-from pirateforce_foundation.lua_api import quest, quest_criteria as qc
+from pirateforce_foundation.lua_api import (quest, quest_criteria as qc,
+                                            spec as api_spec)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -299,7 +301,7 @@ class ResolveTests(unittest.TestCase):
         rows = dict(qc.load_reward_rows())
         broken = qc.QuestRewardRow(quest_id=999999, criteria_level=100000,
                                    cash_multiplier=1.0, exp_multiplier=1.0,
-                                   sp_multiplier=1.0)
+                                   sp_multiplier=1.0, script="Q_NOWHERE")
         rows[broken.quest_id] = broken
         original = qc._ROWS_CACHE
         qc._ROWS_CACHE = rows
@@ -524,6 +526,137 @@ class Float32RoundingTests(unittest.TestCase):
         fractional = qc.resolve(qc.KIND_EXP, 1, 0.25)
         self.assertIn("exact=22.5", fractional.log_fields())
         self.assertIn("amount=22", fractional.log_fields())
+
+
+
+class QuestDispatchTests(unittest.TestCase):
+    """The missing argument, supplied: a script loaded AS a quest.
+
+    Every criteria call site in the corpus has been logging
+    ``refused=no_quest_row`` for one reason -- nothing said which quest was
+    running.  ``s_LUASCRIPT`` is now mirrored, so quest id -> script is a
+    function this server can evaluate.  These tests do NOT need lupa: they
+    exercise the resolution and the context, which is where the refusal
+    came from.  The one test that actually runs Lua is guarded and lives
+    at the bottom.
+    """
+
+    def test_a_quest_id_names_exactly_one_script(self):
+        self.assertEqual(qc.script_for_quest(2170), "Q_ARCH1")
+        self.assertIsNone(qc.script_for_quest(0))
+        for row in qc.load_reward_rows().values():
+            with self.subTest(quest_id=row.quest_id):
+                self.assertTrue(row.script)
+                row.script.encode("ascii")
+
+    def test_the_reverse_direction_is_not_a_function_and_says_so(self):
+        """Why a running script can never be asked which quest it is."""
+        self.assertEqual(len(qc.quests_for_script("Q_CON1")), 160)
+        self.assertEqual(qc.quests_for_script("q_con1"),
+                         qc.quests_for_script("Q_CON1"))
+        self.assertEqual(qc.quests_for_script("no such script"), ())
+        rows = qc.load_reward_rows()
+        self.assertEqual(len({r.script for r in rows.values()}), 209)
+        self.assertEqual(len(rows), 1544)
+
+    def test_an_empty_script_cell_is_refused_not_defaulted(self):
+        """An empty name would resolve to the corpus root itself."""
+        with self.assertRaises(qc.QuestCriteriaError) as caught:
+            qc._parse_script(Path("mirror.tsv"), "   ")
+        self.assertIn("empty script name", str(caught.exception))
+
+    def test_a_dispatched_context_stops_the_refusal_the_lane_measured(self):
+        """The whole point, on a real quest id and a real amount."""
+        context = quest.QuestContext(character_id=7, quest_id=2170)
+        calls = []
+        ns = quest.build_namespace(
+            api_spec.NAMESPACE_METHODS["Quest"], calls.append, context=context)
+        ns["AddCriteriaExp"]()
+        self.assertIn("LUA_QUEST_CRITERIA Quest.AddCriteriaExp quest=2170",
+                      calls[0])
+        self.assertIn("amount=22120", calls[0])
+        self.assertNotIn("refused", calls[0])
+        # The default context still refuses, for the same honest reason.
+        default_calls = []
+        default_ns = quest.build_namespace(
+            api_spec.NAMESPACE_METHODS["Quest"], default_calls.append)
+        default_ns["AddCriteriaExp"]()
+        self.assertIn("refused=%s" % qc.REFUSE_NO_QUEST_ROW, default_calls[0])
+
+    def test_an_lv_name_still_refuses_even_with_a_quest_id(self):
+        """A quest id is not a player level, and one may not stand in for
+        the other (COO-DECISION 20260907_0845 item 2)."""
+        amount, reason = qc.resolve_for_api("AddLvCriteriaExp", 2170)
+        self.assertIsNone(amount)
+        self.assertEqual(reason, qc.REFUSE_NO_PLAYER_LEVEL)
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_the_path_is_resolved_by_stem_not_by_gluing_a_table_cell_on(self):
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        path = script_host.script_path_for_quest(root, 2170)
+        self.assertEqual(path.name, "q_arch1.lua")
+        self.assertEqual(path.parent.name, "Quest")
+        self.assertTrue(path.is_file())
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_every_script_a_quest_names_exists_on_disk_exactly_once(self):
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        for name in sorted({r.script for r in qc.load_reward_rows().values()}):
+            with self.subTest(script=name):
+                matches = [p for p in root.rglob("*.lua")
+                           if p.stem.lower() == name.lower()]
+                self.assertEqual(len(matches), 1)
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_how_much_of_the_corpus_the_dispatcher_actually_unblocks(self):
+        """The measurement this round is allowed to claim, computed here.
+
+        1213 of the 1544 quest rows dispatch a script that calls at least
+        one criteria name; 1039 of those now resolve a real amount.  The
+        remaining 174 are the ``Lv`` triple, which refuses for want of a
+        player level and is NOT counted as unblocked.
+        """
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        text = {p.stem.lower(): p.read_text(encoding="latin-1")
+                for p in root.rglob("*.lua")}
+        with_calls = resolving = 0
+        for row in qc.load_reward_rows().values():
+            body = text.get(row.script.lower(), "")
+            used = [n for n in qc.LEVEL_SOURCE if ("Quest." + n) in body]
+            if not used:
+                continue
+            with_calls += 1
+            if any(qc.resolve_for_api(n, row.quest_id)[1] is None
+                   for n in used):
+                resolving += 1
+        self.assertEqual(with_calls, 1213)
+        self.assertEqual(resolving, 1039)
+
+    @LUA_CORPUS_RUNNABLE.skip_unless_present()
+    def test_a_real_shipped_script_loads_as_its_quest_and_names_the_number(self):
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        calls = []
+        host = script_host.load_quest_script(root, 2170, character_id=7,
+                                             log=calls.append)
+        self.assertIn("LUA_QUEST_DISPATCH quest=2170 character=7 "
+                      "script=q_arch1", calls[0])
+        for entry in ("Accept_Check", "Accept", "Report_Check", "Report"):
+            if host.has_function(entry):
+                host.call(entry)
+        criteria = [line for line in calls if "LUA_QUEST_CRITERIA" in line]
+        self.assertTrue(criteria)
+        self.assertFalse([line for line in criteria
+                          if "refused=%s" % qc.REFUSE_NO_QUEST_ROW in line])
+
+    def test_an_unknown_quest_id_and_a_missing_corpus_each_say_which(self):
+        with self.assertRaises(script_host.QuestDispatchError) as no_row:
+            script_host.script_path_for_quest(REPO_ROOT, 999999)
+        self.assertIn("no row in the vendored quest mirror",
+                      str(no_row.exception))
+        with self.assertRaises(script_host.QuestDispatchError) as no_corpus:
+            script_host.script_path_for_quest(
+                REPO_ROOT / "no_such_corpus_dir", 2170)
+        self.assertIn("no lua corpus at", str(no_corpus.exception))
 
 
 class NamespaceWiringTests(unittest.TestCase):

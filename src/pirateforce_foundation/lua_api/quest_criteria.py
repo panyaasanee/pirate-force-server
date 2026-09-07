@@ -141,7 +141,8 @@ CURVE_COLUMNS = ("level", "cash", "exp", "skill_point")
 
 #: Column headers of the vendored per-quest mirror, in order.
 ROW_COLUMNS = ("quest_id", "criteria_level",
-               "cash_multiplier", "exp_multiplier", "sp_multiplier")
+               "cash_multiplier", "exp_multiplier", "sp_multiplier",
+               "script")
 
 #: The three reward kinds, spelled the way the API names spell them.
 KIND_EXP = "Exp"
@@ -319,6 +320,7 @@ class QuestRewardRow:
     cash_multiplier: float
     exp_multiplier: float
     sp_multiplier: float
+    script: str
 
 
 @dataclass(frozen=True)
@@ -434,6 +436,44 @@ def _parse_float(path: Path, name: str, raw: str) -> float:
                                  % (path, name, raw)) from exc
 
 
+def _parse_script(path: Path, raw: str) -> str:
+    """The ``s_LUASCRIPT`` cell, refused rather than defaulted when empty.
+
+    A quest row with no script is a row this server could never dispatch,
+    and an empty cell reaching :func:`script_for_quest` would resolve to
+    the corpus root itself.  Measured on the shipped table: 0 of 1544 rows
+    are empty, so an empty one means the mirror was truncated.
+    """
+    name = raw.strip()
+    if not name:
+        raise QuestCriteriaError("%s: a quest row has an empty script name"
+                                 % path)
+    return name
+
+
+def script_for_quest(quest_id: int) -> Optional[str]:
+    """The one script name a quest dispatches, or ``None`` for no such row.
+
+    The only direction of this relation that is a function: 1544 quest rows
+    name 209 distinct scripts, and ``Q_CON1`` alone is named by 160 rows.
+    That is why a running script cannot be asked which quest it is, and why
+    :func:`resolve_for_api` refuses instead of guessing.
+    """
+    row = load_reward_rows().get(quest_id)
+    return None if row is None else row.script
+
+
+def quests_for_script(script: str) -> tuple:
+    """Every quest id that dispatches ``script``, ascending.  Case-folded.
+
+    Returned so a caller can SEE the ambiguity rather than trip over it:
+    a corpus file alone is never enough to resolve a reward.
+    """
+    key = script.strip().lower()
+    return tuple(sorted(qid for qid, row in load_reward_rows().items()
+                        if row.script.lower() == key))
+
+
 def load_curve() -> Dict[int, CriteriaCurveRow]:
     """``{level: CriteriaCurveRow}``, parsed once and cached."""
     global _CURVE_CACHE
@@ -474,6 +514,7 @@ def load_reward_rows() -> Dict[int, QuestRewardRow]:
                     _ROWS_PATH, "exp_multiplier", fields[3]),
                 sp_multiplier=_parse_float(
                     _ROWS_PATH, "sp_multiplier", fields[4]),
+                script=_parse_script(_ROWS_PATH, fields[5]),
             )
         _ROWS_CACHE = table
     return _ROWS_CACHE
