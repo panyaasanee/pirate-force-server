@@ -1539,7 +1539,7 @@
     }
   ],
   "windows_gate_excluded_modules": {
-    "count": 47,
+    "count": 45,
     "workflow": ".github/workflows/gate-windows.yml",
     "always_included": [
       "tests/test_foundation_legacy_seam.py"
@@ -1570,7 +1570,6 @@
       "tests/test_item_move_consumer_static.py",
       "tests/test_item_order_static.py",
       "tests/test_knockdown_consumer_probe.py",
-      "tests/test_learn_skill_request_hypothesis.py",
       "tests/test_login_vital_req_static.py",
       "tests/test_move_authority_targetpos_static.py",
       "tests/test_names_fold003_thunk_census.py",
@@ -1580,7 +1579,6 @@
       "tests/test_remote_player_hypothesis.py",
       "tests/test_runtimeres_actor_entry_static.py",
       "tests/test_runtimeres_death_hypothesis.py",
-      "tests/test_skill_attr_hypothesis.py",
       "tests/test_skill_trigger_probe.py",
       "tests/test_split_operate_family_static.py",
       "tests/test_split_operate_static.py",
