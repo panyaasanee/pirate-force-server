@@ -66,17 +66,20 @@ never a number) when the caller cannot supply a player level, rather than
 falling back to the quest row's level and quietly paying the wrong amount.
 
 WHAT THIS DOES NOT YET REACH, stated before anything else it claims.
-Against the shipped corpus today EVERY one of the 225 criteria call sites
-resolves ``refused=no_quest_row``, measured on real files, because nothing
-supplies a quest id: these functions take no arguments precisely because
-the ENGINE knows which quest instance dispatched the script, and this
-server has no such dispatch, so ``quest.DEFAULT_CONTEXT`` is ``quest_id=0``
-and the lowest id in the mirror is 12.  The read half is complete, tested
-and inert until a dispatcher exists.  Relatedly, ``s_LUASCRIPT`` is
-one-to-many (``q_con1`` is the script of 160 quest rows carrying 86
-distinct ``(level, multiplier)`` pairs), so the amount can never be
-resolved from the ``.lua`` file alone -- another way of saying the same
-missing piece.
+A criteria call resolves only when the CALLER says which quest is running.
+Round ``wn088m`` mirrored ``s_LUASCRIPT`` and added
+``script_host.load_quest_script``, which supplies that: measured, 1213 of
+the 1544 quest rows dispatch a script calling at least one criteria name
+and 1039 of those now resolve a real amount.  ``quest.DEFAULT_CONTEXT``
+still carries ``quest_id=0`` and still refuses, correctly -- and NOTHING
+IN THE SERVER CALLS THE DISPATCHER YET (pf-adversary D10, round
+``wn088m``: ``load_quest_script`` has two call sites and both are tests).
+So the read half is complete and tested and still reaches no player: what
+is missing is no longer the argument, it is a quest system to pass it and
+a grant to spend the answer on.  The relation stays one-to-many in the
+OTHER direction (``Q_CON1`` is the script of 160 quest rows), which is why
+a running script can never be asked which quest it is, and why nothing
+here infers a quest from a file.
 
 ONE MORE THING THE ASSUMPTION ABOVE SHOULD BE READ AGAINST:
 ``gamedata/PF_GAMEDATA_LUA_API.tsv`` records ``AddLvCriteriaExp`` as
@@ -112,6 +115,24 @@ that round-trips through float32 to the same bits, and the product is
 taken in :class:`decimal.Decimal`.  All 12 distinct values in the mirror
 are exactly representable as float32 (measured), which is the evidence
 this recovery is reading a float32 column and not inventing precision.
+
+[LANE-Q ASSUMPTION wn088m - NOT A PROOF, and the BIGGER of the two here]
+Recovering the decimal is a bet on the WIDTH OF THE MULTIPLY, not on the
+rounding mode, and it is the bet that moved all 14 numbers (pf-adversary
+D7, round ``wn088m``).  ``15800 * float32(1.4)`` is exactly
+``22119.999623298645`` in float64 -- no rounding happens in the product at
+all.  A client that keeps the product in single precision, or stores it
+back to a ``float`` before the cast, floors to 22120; one evaluating on
+x87 in extended precision floors to 22119.  Nothing in any committed
+artifact distinguishes them, and both are ``(int)(base * f_EXP)`` in C++.
+This module takes the first reading because it reproduces the number a
+designer typing 1.4 into a table meant, and the RE ticket sent to LANE-K
+this round asks about BOTH -- the mode and the width -- because if the
+answer is x87 then ``ROUNDING_MODE`` is not the line that moves.
+Measured while choosing: over all 1181160 reachable ``(row, level, kind)``
+products, ``Decimal(base) * multiplier_decimal(m)`` and
+``float32(float32(base) * float32(m))`` agree on every one, so the
+single-precision reading and this implementation are the same answer.
 
 THE TWO VENDORED MIRRORS.  ``quest_criteria_curve.tsv`` and
 ``quest_criteria_rows.tsv`` are complete, ASCII, machine-regenerated copies
@@ -234,7 +255,7 @@ def _float32_bits(value: float) -> bytes:
     that has no float32 (an out-of-range multiplier is corrupt data)."""
     try:
         return struct.pack("<f", value)
-    except (OverflowError, ValueError) as exc:
+    except (OverflowError, ValueError, struct.error) as exc:
         raise QuestCriteriaError(
             "multiplier %r does not fit a float32 column" % (value,)) from exc
 
@@ -250,6 +271,13 @@ def is_exact_float32(value: float) -> bool:
     return struct.unpack("<f", _float32_bits(value))[0] == value
 
 
+#: Memo for :func:`multiplier_decimal`.  BOUNDED on purpose: ``resolve``
+#: is public and takes an arbitrary float, so a future grant path applying
+#: a per-player scale would leak one entry per distinct float forever --
+#: the same unbounded-key defect the ``REFUSE_*`` set exists to avoid
+#: (pf-adversary D8, round ``wn088m``).  The mirror holds 12 distinct
+#: multipliers; the cap is far above that and finite, which is the point.
+_MULTIPLIER_CACHE_MAX = 256
 _MULTIPLIER_DECIMALS: Dict[float, Decimal] = {}
 
 
@@ -275,7 +303,8 @@ def multiplier_decimal(value: float) -> Decimal:
             if _float32_bits(float(candidate)) == target:
                 result = Decimal(candidate)
                 break
-    _MULTIPLIER_DECIMALS[value] = result
+    if len(_MULTIPLIER_DECIMALS) < _MULTIPLIER_CACHE_MAX:
+        _MULTIPLIER_DECIMALS[value] = result
     return result
 
 
@@ -362,6 +391,12 @@ class CriteriaAmount:
                      multiplier_decimal(self.multiplier)))
         if self.exact != self.amount:
             fields += " exact=%s" % self.exact
+        if self.raw != self.exact:
+            # The float32-contaminated product the recovery acted on: the
+            # only operator-visible sign that a recovery happened at all,
+            # and the number a future RE result argues with (pf-adversary
+            # D9, round wn088m).
+            fields += " raw=%r" % self.raw
         return fields + " amount=%d" % self.amount
 
 
@@ -429,11 +464,25 @@ def _parse_int(path: Path, name: str, raw: str) -> int:
 
 
 def _parse_float(path: Path, name: str, raw: str) -> float:
+    """A finite multiplier, or :class:`QuestCriteriaError` naming the cell.
+
+    ``float("inf")`` and ``float("1e400")`` both succeed and
+    ``struct.pack("<f", inf)`` does NOT raise, so an infinity would sail
+    through the float32 check and die later as a bare ``OverflowError``
+    out of ``int(Infinity)`` -- which ``script_host`` would print as
+    ``LUA_SCRIPT <file> ERR`` against up to 616 innocent quest scripts,
+    the exact D11 shape this module claims to have closed (pf-adversary
+    D4, round ``wn088m``).  It is refused HERE, at the cell, instead.
+    """
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError as exc:
         raise QuestCriteriaError("%s: %s is not a number: %r"
                                  % (path, name, raw)) from exc
+    if value != value or value in (float("inf"), float("-inf")):
+        raise QuestCriteriaError("%s: %s is not finite: %r"
+                                 % (path, name, raw))
+    return value
 
 
 def _parse_script(path: Path, raw: str) -> str:
@@ -526,6 +575,7 @@ def reset_caches() -> None:
     global _CURVE_CACHE, _ROWS_CACHE
     _CURVE_CACHE = None
     _ROWS_CACHE = None
+    _MULTIPLIER_DECIMALS.clear()
 
 
 def _coerce_player_level(value: Any) -> Optional[int]:

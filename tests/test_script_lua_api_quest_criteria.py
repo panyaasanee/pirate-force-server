@@ -30,7 +30,7 @@ import struct
 import subprocess
 import sys
 import unittest
-from decimal import Decimal, ROUND_FLOOR
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 
 from pf_preconditions import (BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS,
@@ -429,6 +429,34 @@ class Float32RoundingTests(unittest.TestCase):
                 self.assertEqual(struct.pack("<f", back),
                                  struct.pack("<f", value))
 
+    def test_a_non_finite_multiplier_cell_is_refused_at_the_cell(self):
+        """An inf would otherwise die as OverflowError in int(Infinity),
+        which script_host prints against innocent scripts (adversary D4)."""
+        for cell in ("inf", "-inf", "nan", "1e400"):
+            with self.subTest(cell=cell):
+                with self.assertRaises(qc.QuestCriteriaError) as caught:
+                    qc._parse_float(Path("mirror.tsv"), "exp_multiplier", cell)
+                self.assertIn("not finite", str(caught.exception))
+
+    def test_a_multiplier_that_is_not_a_number_at_all_names_this_module(self):
+        """struct.error is neither OverflowError nor ValueError, and a raw
+        struct.error out of here would not be classified as ours."""
+        with self.assertRaises(qc.QuestCriteriaError):
+            qc.is_exact_float32("1.4")
+
+    def test_the_multiplier_memo_cannot_grow_without_bound(self):
+        """resolve() is public and takes an arbitrary float (adversary D8)."""
+        qc.load_reward_rows()
+        for step in range(qc._MULTIPLIER_CACHE_MAX + 50):
+            qc.multiplier_decimal(1.0 + step * 1e-6)
+        self.assertLessEqual(len(qc._MULTIPLIER_DECIMALS),
+                             qc._MULTIPLIER_CACHE_MAX)
+        # ...and it still answers correctly once full.
+        self.assertEqual(qc.multiplier_decimal(1.399999976158142),
+                         Decimal("1.4"))
+        qc.reset_caches()
+        self.assertEqual(len(qc._MULTIPLIER_DECIMALS), 0)
+
     def test_a_float64_that_is_not_a_float32_is_returned_digit_for_digit(self):
         """Nothing to recover -> do not shorten it on a guess."""
         value = 0.1  # float64 0.1 is NOT the float32 in the mirror
@@ -488,10 +516,30 @@ class Float32RoundingTests(unittest.TestCase):
         self.assertLess(amount.raw, 22120)
 
     def test_rounding_lives_at_one_place_and_that_place_is_floor(self):
-        """COO-DECISION 20260907_0845, checkable rather than remembered."""
+        """COO-DECISION 20260907_0845, checkable rather than remembered.
+
+        The first draft of this test counted the string
+        ``to_integral_value`` and nothing else.  pf-adversary (D3, round
+        ``wn088m``) mutation-proved that useless: replacing
+        ``round_amount(exact)`` in ``resolve`` with ``int(exact)`` left the
+        whole module green, because the token still appeared once and the
+        two functions agree on every non-negative input.  So the pin is now
+        BEHAVIOURAL -- move the constant and every resolution must move
+        with it -- and the token count is kept only as a cheap second
+        signal beside it.
+        """
         self.assertIs(qc.ROUNDING_MODE, ROUND_FLOOR)
         self.assertEqual(qc.round_amount(Decimal("22.9")), 22)
         self.assertEqual(qc.round_amount(Decimal("22.0")), 22)
+        self.assertEqual(qc.resolve(qc.KIND_EXP, 1, 0.25).amount, 22)
+        original = qc.ROUNDING_MODE
+        try:
+            qc.ROUNDING_MODE = ROUND_CEILING
+            self.assertEqual(qc.round_amount(Decimal("22.1")), 23)
+            self.assertEqual(qc.resolve(qc.KIND_EXP, 1, 0.25).amount, 23)
+        finally:
+            qc.ROUNDING_MODE = original
+        self.assertEqual(qc.resolve(qc.KIND_EXP, 1, 0.25).amount, 22)
         source = (REPO_ROOT / "src" / "pirateforce_foundation" / "lua_api"
                   / "quest_criteria.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("to_integral_value"), 1)
@@ -516,10 +564,13 @@ class Float32RoundingTests(unittest.TestCase):
         amount, _ = qc.resolve_for_api("AddCriteriaExp", 2170)
         line = amount.log_fields()
         self.assertIn("mult=1.4", line)
-        self.assertNotIn("1.399999976158142", line)
         self.assertIn("amount=22120", line)
-        # A whole-number product does not shout an exact= nobody needs.
+        # A whole-number product does not shout an exact= nobody needs...
         self.assertNotIn("exact=", line)
+        # ...but the float32 product the recovery acted on IS printed,
+        # because it is the only operator-visible sign that a recovery
+        # happened (pf-adversary D9, round wn088m).
+        self.assertIn("raw=22119.999623298645", line)
         line.encode("ascii")
 
     def test_a_fractional_reward_cannot_hide_behind_a_clean_integer(self):
@@ -640,11 +691,19 @@ class QuestDispatchTests(unittest.TestCase):
                                              log=calls.append)
         self.assertIn("LUA_QUEST_DISPATCH quest=2170 character=7 "
                       "script=q_arch1", calls[0])
-        for entry in ("Accept_Check", "Accept", "Report_Check", "Report"):
+        # The entry points are the ones q_arch1.lua actually defines --
+        # Accept_Run / Report_Run, NOT "Accept"/"Report" (pf-adversary D1,
+        # round wn088m: the first draft called two names that do not exist
+        # and one that has no criteria call, so the assertion below could
+        # never have fired, and lupa's absence here hid that).  The three
+        # criteria calls of this script live in Report_Run.
+        self.assertTrue(host.has_function("Report_Run"))
+        for entry in ("Accept_Check", "Accept_Run", "Report_Check",
+                      "Report_Run"):
             if host.has_function(entry):
                 host.call(entry)
         criteria = [line for line in calls if "LUA_QUEST_CRITERIA" in line]
-        self.assertTrue(criteria)
+        self.assertEqual(len(criteria), 3)
         self.assertFalse([line for line in criteria
                           if "refused=%s" % qc.REFUSE_NO_QUEST_ROW in line])
 

@@ -3110,7 +3110,7 @@ Carried to the next round, named rather than hidden:
 * The D10 guard's `ast.Attribute` branch is dead code, and an aliased
   import (`from .message import message_text as mt`) or `catalog()[id][2]`
   evades it entirely.  `refusals()` is still never called outside tests.
-* `int(raw)` is one short on 11 (quest, kind) pairs, all of them the
+* `int(raw)` is one short on 14 (quest, kind) pairs -- round `xlk7hl` wrote 11 here, re-derived as 14 in round `wn088m` by two independent measurements, all of them the
   float32-widened `1.4` multiplier.  Neither value the module offers is
   `round()`, which is the only one that recovers the designer's integer.
 * `s_LUASCRIPT` is one-to-many: `q_con1` is the script of 160 quest rows
