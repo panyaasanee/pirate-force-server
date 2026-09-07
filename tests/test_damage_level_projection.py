@@ -468,11 +468,21 @@ class TheColumnThatWentToChiefIsPinned(unittest.TestCase):
         """The defect T1-D named, asserted rather than described: on every row
         that went to chief the final swing is SMALLER than the column beside
         it, so a reader who quotes "N hits of D" is quoting a number the
-        screen never shows on the last one."""
+        screen never shows on the last one.
+
+        ADVERSARY D1: the first version of this test compared two literals
+        out of `REPORTED` to each other and never said `projection.` at all.
+        Measured: with `final_hit_damage_at_level` returning -12345 it still
+        reported `1 passed, 6 subtests`.  It described the defect it was
+        named for.  It now asks the module."""
+        mob = town_target_mob()
         for level, damage, hits, final in self.REPORTED:
             with self.subTest(level=level):
-                self.assertLess(final, damage)
-                self.assertGreater(final, 0)
+                answered = projection.final_hit_damage_at_level(level, mob)
+                self.assertEqual(answered, final)
+                self.assertLess(
+                    answered, projection.damage_at_level(level, mob))
+                self.assertGreater(answered, 0)
 
 
 class TheTwoRefusalsHaveDifferentNames(unittest.TestCase):
@@ -702,6 +712,43 @@ class TheClampedSwingAndTheStartingHpAreTheirOwnNumbers(unittest.TestCase):
         self.assertEqual(
             from_watched,
             -(-(watched - mob_combat.HP_FLOOR) // per_hit))
+
+    def test_the_last_swing_is_what_the_clamp_owner_says_it_is(self):
+        """ADVERSARY D2(b): nothing tied `final_hit_damage` to the clamp.
+
+        The ladder is walked hit by hit through `damage_town_target`'s own
+        `hp_after_hits`/`applied_damage` -- the pair `tests/
+        test_damage_town_target.py` pins against R322C -- so this asserts the
+        column against the client-observable path rather than against the
+        module's own arithmetic identity."""
+        mob = town_target_mob()
+        for level in (1, 7, 100):
+            with self.subTest(level=level):
+                attacker = projection.attacker_at_level(level)
+                hits = projection.hits_to_fell_at_level(level, mob)
+                before_last = damage_town_target.hp_after_hits(
+                    attacker, mob, int(mob.max_hp), hits - 1)
+                self.assertEqual(
+                    projection.final_hit_damage_at_level(level, mob),
+                    damage_town_target.applied_damage(
+                        attacker, mob, before_last))
+                # and the swing after it really is the one that lands it.
+                self.assertEqual(
+                    damage_town_target.hp_after_hits(
+                        attacker, mob, int(mob.max_hp), hits),
+                    mob_combat.HP_FLOOR)
+
+    def test_a_dummy_already_at_the_floor_has_no_last_swing(self):
+        """ADVERSARY D2(a): `HP_FLOOR` is a legal `current_hp`, and the
+        arithmetic version answered 891 there -- the unclamped number, the
+        exact claim T1-D withdrew -- beside a hit count of 0."""
+        mob = town_target_mob()
+        self.assertEqual(
+            projection.hits_to_fell_from_hp(7, mob, mob_combat.HP_FLOOR), 0)
+        self.assertEqual(
+            projection.final_hit_damage_at_level(
+                7, mob, mob_combat.HP_FLOOR),
+            0)
 
     def test_a_starting_hp_the_mob_cannot_be_at_is_refused(self):
         mob = town_target_mob()

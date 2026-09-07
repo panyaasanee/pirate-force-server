@@ -367,20 +367,36 @@ def final_hit_damage_at_level(
 ) -> int:
     """What the LAST swing prints -- the clamped one (T1-D).
 
-    `mob_combat.apply_hit` clamps a swing to the room left, so the number an
-    owner photographs on the killing blow is not
-    :func:`damage_at_level`.  Computed here as the room left after every
-    earlier swing, so it cannot drift away from the hit count beside it.
+    The number is not computed here.  It is asked of
+    `damage_town_target.applied_damage`, which owns the mirror of
+    `mob_combat.apply_hit`'s clamp, at the hp the dummy is standing on when
+    the last swing lands.  Adversary D2 is why: an arithmetic version of this
+    (`room % per_hit or per_hit`) was not connected to the clamp it claimed
+    to model -- nothing went red when the clamp was removed -- and it
+    CONTRADICTED it at a legal argument, answering 891 for a dummy already at
+    the floor, where the hit count beside it answers 0 swings.  A column that
+    says "what the screen prints" has to go through the function that decides
+    what the screen prints.
+
+    `current_hp` defaults to FULL.  At the floor there is no last swing, and
+    `applied_damage` is still the one that says so (it answers 0 for a hit on
+    something already down) rather than a zero typed here.
     """
+    attacker = attacker_at_level(level)
+    require_only_level_differs(attacker)
     per_hit = damage_at_level(level, mob)
     room = _room(mob, current_hp)
-    # The room left after every earlier swing.  Written as a remainder rather
-    # than `room - (hits - 1) * per_hit` because `K_DEF_LV` is 1, so a typed
-    # `1` here is a formula constant this module is forbidden to carry --
-    # `test_the_module_types_none_of_the_numbers_it_reports` catches it, and
-    # it caught exactly this line.  A room that divides evenly ends on a FULL
-    # swing, which is the `or` branch.
-    return room % per_hit or per_hit
+    if not room:
+        return damage_town_target.applied_damage(
+            attacker, mob, mob_combat.HP_FLOOR)
+    # The hp the dummy is standing on before the last swing.  Written as a
+    # remainder rather than `room - (hits - 1) * per_hit` because `K_DEF_LV`
+    # is 1, so a typed `1` here is a formula constant this module is
+    # forbidden to carry -- `test_the_module_types_none_of_the_numbers_it_
+    # reports` caught exactly this line.  A room that divides evenly means
+    # the last swing starts at a FULL swing of room, which is the `or` branch.
+    hp_before_last = mob_combat.HP_FLOOR + (room % per_hit or per_hit)
+    return damage_town_target.applied_damage(attacker, mob, hp_before_last)
 
 
 def project_levels(mob: Any, levels: Any) -> tuple[ProjectedRow, ...]:
