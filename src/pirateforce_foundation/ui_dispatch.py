@@ -362,9 +362,19 @@ def clear_answerers():
 # reference that walks straight past it.  Measured end to end through the
 # real ``state.dispatch()`` on a logged-in session: an answerer that
 # returns ``[]`` flipped ``gm_warp_position_pending`` False -> True and
-# set ``move_authority_grace_remaining`` to 99, while this module printed
+# reopened that lane's grace window (the counter beside the flag,
+# named in prose only -- see the note below), while this module printed
 # a green token and returned an empty list.  "Fail-closed in every
 # direction" was true of the RETURN VALUE only.
+#
+# THE COUNTER IS NAMED IN PROSE HERE ON PURPOSE, exactly as the
+# label note below names its consumer in prose: that lane's own
+# containment test pins which foundation modules may spell its
+# underscored identifier (``app.py`` and ``runtime.py``, and no
+# others), and this module must not join that set.  Writing the
+# identifier here turned the whole suite red on the tree that
+# first carried this paragraph -- the fix for a containment defect
+# breaking a containment pin.
 #
 # So the answerer no longer gets the session.  It gets this, and this
 # exposes an EXPLICIT ALLOWLIST of attribute names -- today the empty
