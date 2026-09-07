@@ -1853,11 +1853,27 @@ class EveryBoxCitesTheLetterItCameFromTests(M2RegistryIsolation):
                 and Path(os.environ["PF_BRIDGE_DIR"]).is_dir()):
             BRIDGE_SIBLING.require(self)
         bridge = self.bridge()
-        letter = bridge / "notes_to_chief" / trigger_response.RE289_RESULT_LETTER
-        if not letter.is_file():
-            self.skipTest("the cited letter is not in the live mailbox "
-                          "(swept to archive/); the sha test above covers it")
-        blob = letter.read_bytes()
+        # BOTH roots, like the test above and for the same reason: a letter
+        # LANE-K has swept into `archive/` is still a letter. Reading only
+        # the mailbox would have needed a `skipTest` for the swept case,
+        # which is an UNPINNED SKIP and is what closed PR #503 -- caught by
+        # pf_gate_preflight before this branch was pushed.
+        blob = None
+        for root in (bridge / "notes_to_chief", bridge / "archive"):
+            if not root.is_dir():
+                continue
+            for entry in root.rglob("*.md"):
+                if entry.name == trigger_response.RE289_RESULT_LETTER:
+                    if entry.is_file():
+                        blob = entry.read_bytes()
+                        break
+            if blob is not None:
+                break
+        self.assertIsNotNone(
+            blob,
+            "the cited letter %s is not under notes_to_chief/ or archive/ "
+            "on the bridge" % (trigger_response.RE289_RESULT_LETTER,),
+        )
         for ordinal, citation in trigger_response.ISLAND_EXTENT_BOX_CITATIONS.items():
             with self.subTest(ordinal=ordinal):
                 for number in re.findall(r"-?\d+\.\d+", citation.split("pos ")[1]):
