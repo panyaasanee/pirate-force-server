@@ -31,9 +31,10 @@ docstring; the other two pin the MECHANISM this module happens to use today:
 * PROPERTY -- the fd table of this process is unchanged across the call
   (`/proc/self/fd`, whole-table delta).  This is the only assertion here that
   is about descriptors at all rather than about statements: it survives a
-  refactor to `contextlib`, `os.fdopen`, `os.closerange` or a `finally`, and it
-  is the one that sees a descriptor opened by any call other than the module's
-  own `mkstemp`.  The earlier version had no such assertion, so an inserted
+  refactor of HOW the module closes -- measured on the `with os.fdopen(fd,
+  "wb") as handle:` rewrite, where it stays GREEN while the two mechanism pins
+  below go red -- and it is the one that sees a descriptor opened by any call
+  other than the module's own `mkstemp`.  The earlier version had no such assertion, so an inserted
   `os.dup(fd)` -- a live handle carried into `os.replace` on the next line,
   verbatim the disaster the paragraph above describes -- kept the file at
   `5 passed`.
@@ -57,9 +58,9 @@ Nothing in these tests opens a descriptor between the close and the assert in a
 single-threaded run, and the fd-table snapshot is taken around the module call
 alone, so the failure mode is a false RED, never a false green.  Both rest on
 CPython refcounting closing the descriptors the test body itself opens
-(`read_text`, `read_bytes`, `iterdir`) at the end of their expression --
-measured, 25/25 green, but named here because it is an assumption and not a
-guarantee (pf-adversary, round `s03veu`, D6).  A THREADED runner would need
+(`read_text`, `read_bytes`, `iterdir`) at the end of their expression.  Named
+here because it is an assumption and not a guarantee (pf-adversary, round
+`s03veu`, D6); this file as it stands was run 25 times and was green 25/25.  A THREADED runner would need
 real bookkeeping; process parallelism (`pytest-xdist`) is safe, because each
 worker is a separate PROCESS with its own fd table.
 
