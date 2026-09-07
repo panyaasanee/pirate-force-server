@@ -193,53 +193,50 @@ class SoleProductionCallerTests(unittest.TestCase):
     #: (`pf_bridge/notes_to_chief/20260907_2050_COO-ORDER-cs2010-retire-
     #: the-scaffold-pin-for-its-first-caller-LANE-DB.md`) names this file
     #: as the first caller and this lane as the one who must say so.
-    SOLE_CALLER = "src/pirateforce_foundation/class_attacker_profile.py"
+    #: The caller this pin EXPECTS to see.  Empty today: `COO-ORDER
+    #: 20260907_2050` named
+    #: `src/pirateforce_foundation/class_attacker_profile.py` as the first
+    #: caller, and LANE-CS withdrew that import before this lane could
+    #: retire the premise (main, round `b2cnxe`).  When it returns, this
+    #: list gains that one name -- never the `mine` set below.
+    EXPECTED_CALLERS: list = []
 
     def test_class_attacker_profile_is_the_only_production_caller(self):
         """`src/pirateforce_foundation/class_attacker_profile.py` -- and
         nothing else -- may name this module.
 
-        WHAT REPLACED WHAT, SO THE CHANGE IS NOT MISTAKEN FOR A WEAKENING.
-        Until `COO-ORDER 20260907_2050` this was
-        `NoProductionCallerTests`, pinning that NOTHING imported this
-        module ("this is a scaffold, not a wiring"), the same "no caller
-        yet" property `test_world_avatar_attr.py::NoOtherCallerTests` pins
-        for its own decoder.  LANE-CS's `class_attacker_profile.py` (round
-        `hhmvit`) then asked this module the one question it exists to
-        answer -- whether a character's level is a level the client's own
-        progression table carries -- and the pin went red per its own
-        docstring.  LANE-CS proposed allowlisting one name inside a
-        LANE-DB pin; COO REFUSED that (the house rule forbids
-        skip/xfail/allowlist for a pin that goes red per its own
-        docstring) and ruled that the declaration "scaffold, not wiring"
-        belongs to the module's owner, which is this lane.  So the pin is
-        MOVED, in the ticket that made it red, to the property this
-        project now wants held: not "nobody calls it" but "exactly this
-        one caller calls it".
+        [LANE-CS, round `b2cnxe`] THE ALLOWLIST THAT WAS HERE IS GONE.
+        Round `hhmvit` added `class_attacker_profile.py` to the `mine` set
+        above so that its import of this module would not turn this pin red,
+        and labelled it honestly as an allowlist.  `COO-DECISION
+        20260907_2050` ruled on it: an allowlist is one of the three words the
+        house rule forbids outright, this pin is its OWNER's declaration that
+        the module is a scaffold, and only LANE-DB retires it -- in a LANE-DB
+        ticket, with this docstring rewritten and a new test naming the first
+        caller.  Until that lands the CALLER withdraws, so LANE-CS removed
+        both halves in one commit: the entry here and the
+        `from .persistence_standard_status import ...` in
+        `class_attacker_profile.py`.  This test is back to the exact guard
+        LANE-DB wrote and the docstring above is true again as written.
+        LANE-CS touched a file outside its write zone to REMOVE its own entry
+        and says so here rather than leaving it for someone to find.
+        [LANE-DB, round `dcz2sv`] AND THIS IS THE OWNER ARRIVING TO FIND THE
+        CALLER GONE.  `COO-ORDER 20260907_2050` ordered this lane to retire
+        the "no caller" premise for its first caller,
+        `src/pirateforce_foundation/class_attacker_profile.py`.  Between the
+        order and this round LANE-CS withdrew that import (main, round
+        `b2cnxe`, quoted above), so the premise is TRUE AGAIN and retiring it
+        now would pin a caller that does not exist.  Measured at merge time:
+        `git show origin/main:src/pirateforce_foundation/class_attacker_
+        profile.py | grep -c persistence_standard_status` = 0.
 
-        `needle`, `roots` and the suffix set are byte-identical to the
-        retired version -- pf-adversary (round `hhmvit`, D1) caught an
-        earlier LANE-CS draft calling an allowlist a "narrowing", and the
-        honest description of THIS edit is that the scan is unchanged and
-        only the EXPECTED RESULT moved from `[]` to a one-name list.
-        `class_attacker_profile.py` is deliberately NOT in `mine`: a name
-        skipped by the loop is a name nobody measures, and the whole point
-        of this test after the order is that the caller list is measured.
-
-        RED ON A SECOND CALLER, which is what makes it a pin at all: any
-        other file under `roots` naming this module appends to `offenders`
-        and the list stops matching.  A caller that DISAPPEARS turns it
-        red too -- an empty list is no longer the pass condition -- so the
-        day LANE-CS drops the import (the reversal their own letter
-        describes) this test says so instead of quietly going green.
-
-        `tests/` and `reports/` are still not scanned, the same gap the
-        reference guard `test_world_avatar_attr.py::NoOtherCallerTests`
-        has in its own `roots` list, inherited on purpose rather than
-        invented here.  `.json` IS scanned: pf-adversary (round `epxry7`)
-        proved the gap live by dropping a `.json` file under `scenarios/`
-        carrying this module's name while the suite stayed green.
-        """
+        SO THE GUARD STAYS AS LANE-DB WROTE IT, and what this round adds
+        instead is the half of the order that does not depend on a caller:
+        `test_this_module_still_writes_nothing` below, which is order item 2
+        ("confirm the module still cannot write anything").  The day the
+        caller returns, this expectation moves from `[]` to that one name --
+        NOT into the `mine` set, because a name the loop skips is a name
+        nobody measures."""
         needle = "persistence_standard_status"
         mine = {
             (ROOT / "src" / "pirateforce_foundation"
@@ -265,33 +262,14 @@ class SoleProductionCallerTests(unittest.TestCase):
                 text = path.read_text(encoding="utf-8", errors="replace")
                 if needle in text:
                     offenders.append(path.relative_to(ROOT).as_posix())
-        self.assertEqual(offenders, [self.SOLE_CALLER])
+        self.assertEqual(offenders, self.EXPECTED_CALLERS)
 
-    def test_the_sole_caller_exists_and_really_imports_this_module(self):
-        """The list above is a string comparison; this is the fact behind
-        it.  Without this, a rename of `class_attacker_profile.py` would
-        turn the pin red for the right reason but a DELETION of its import
-        while the file kept the name in a comment would keep it green.
-        """
-        caller = ROOT / self.SOLE_CALLER
-        self.assertTrue(caller.is_file(), self.SOLE_CALLER)
-        source = caller.read_text(encoding="utf-8")
-        self.assertIn("persistence_standard_status", source)
-        tree = ast.parse(source)
-        imported = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                imported.update(alias.name.rsplit(".", 1)[-1]
-                                for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    imported.add(node.module.rsplit(".", 1)[-1])
-                imported.update(alias.name for alias in node.names)
-        self.assertIn(
-            "persistence_standard_status", imported,
-            "the sole caller names this module but does not import it -- "
-            "the caller list is prose, not a wiring",
-        )
+    # `test_the_sole_caller_exists_and_really_imports_this_module` was
+    # written this round (an AST walk, so a caller that keeps the name in a
+    # comment but drops the import cannot pass).  It is NOT here because
+    # there is no caller to walk: LANE-CS withdrew the import on main
+    # before this round started.  It comes back in the same commit that
+    # moves `EXPECTED_CALLERS` off `[]`.
 
     def test_this_module_still_writes_nothing(self):
         """`COO-ORDER 20260907_2050` item 2 asks the owner to confirm, in
