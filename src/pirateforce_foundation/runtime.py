@@ -533,6 +533,36 @@ COMPOSABLE_SCENARIO_LANE_SETS = frozenset({
 })
 
 
+def _teleport_check_say(build, *args) -> None:
+    """Build one console line and print it, and NEVER raise into dispatch().
+
+    pf-adversary D2 of pirate-force-server#1109, MEASURED against the frozen
+    listener: `game_listener` wraps `state.dispatch()` in a `try:` with no
+    `except` (only a `finally`), so ANY exception on this path kills the
+    accept loop for every session on the process -- over a log line.  `print`
+    to a closed stdout raises `ValueError` and to a broken pipe
+    `BrokenPipeError`; `ground_empty_trial._say` and `action_ack._say` wrap
+    theirs for exactly this reason and this is the same wrapper.
+
+    THE BUILDER IS INSIDE THE TRY, not only the print.  The lines this seam
+    prints are built by `world_m2_teleport_check`'s own formatters from a
+    `PendingCheck` a caller supplied -- `echo_console_line` is even called
+    with `pending=None` on one path -- so the string can fail to exist before
+    there is anything to hand `print`.  A wrapper that guarded only the
+    `print` would leave that half of D2 unpaid.
+    """
+    try:
+        line = build(*args)
+    except Exception:  # noqa: BLE001 - a log line never kills the listener
+        return
+    if line is None:
+        return
+    try:
+        print(line)
+    except Exception:  # noqa: BLE001 - see above
+        pass
+
+
 class _SessionTeleportCheckSink(
         world_m2_teleport_check.InMemoryTeleportCheckSink):
     """The connection's travel-order recorder, plus the queue of orders that
@@ -562,11 +592,15 @@ class _SessionTeleportCheckSink(
     queueing first and asking later.
     """
 
-    __slots__ = ("unsent",)
+    __slots__ = ("unsent", "transports_sent")
 
     def __init__(self) -> None:
         super().__init__()
         self.unsent: list = []
+        #: How many times THIS SEAM has answered an echo with a transport
+        #: frame on this connection.  Not a statistic: it is the whole of
+        #: pf-adversary D1's fix -- see `_dispatch_teleport_check_echo`.
+        self.transports_sent: int = 0
 
     def record(self, character_id, pending):
         stored = super().record(character_id, pending)
@@ -6946,8 +6980,36 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             sink = self.teleport_check_sink()
             if not sink.unsent:
                 return
-            queued, sink.unsent = sink.unsent, []
-            for order in queued:
+            # pf-adversary D3 of #1109, MEASURED: this drain runs at the tail
+            # of dispatch(), AFTER `_dispatch_with_lanes` has returned, so
+            # the two `logout_acknowledged` guards inside it -- which count a
+            # late frame and answer nothing so "no other lane can write
+            # through a closed session" -- could not see it.  A prompt went
+            # out on a frame the event trail says got no reply.  The lease is
+            # closed here, so the orders are LEFT QUEUED rather than dropped:
+            # nothing on a dead connection is owed a window, and a drain that
+            # emptied the queue would also erase the evidence of what was
+            # owed.  The same guard covers a connection with no character
+            # selected, which is this file's standing house rule (see the
+            # UIA notice's own FAIL-CLOSED block): an unauthenticated
+            # connection must not make this server compose bytes.
+            if getattr(self, "logout_acknowledged", False):
+                self.events.append(
+                    "lane_a_m2_teleport_check_post_ack_no_prompt")
+                return
+            if self.foundation.selected is None:
+                self.events.append(
+                    "lane_a_m2_teleport_check_no_selected_no_prompt")
+                return
+            # ONE ORDER AT A TIME, popped as it is handled -- pf-adversary D2,
+            # second half.  The first draft moved the whole queue into a local
+            # and emptied `unsent` before the loop, so anything raising on the
+            # first order silently stranded the rest: never prompted, never
+            # counted, still redeemable by an echo, with no line anywhere
+            # saying so.  Popping as we go means a raise leaves every
+            # unhandled order exactly where the next frame will find it.
+            while sink.unsent:
+                order = sink.unsent.pop(0)
                 try:
                     prompt_pc, prompt_frame = (
                         world_m2_teleport_check.encode_prompt(
@@ -6963,7 +7025,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "LANE_A_M2_TELEPORT_CHECK_PROMPT", prompt_pc,
                     prompt_frame, 0.0,
                 ))
-                print(world_m2_teleport_check.prompt_console_line(order.pending))
+                _teleport_check_say(
+                    world_m2_teleport_check.prompt_console_line, order.pending,
+                )
 
         def _dispatch_teleport_check_echo(self, parsed):
             """The player pressed OK on the captain report -- LANE-A #1101's
@@ -7007,13 +7071,56 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             sink = self.teleport_check_sink()
             if world_m2_teleport_check.resolve_echo(
                     sink.orders, character_id, echoed) is None:
-                # Nothing this connection recorded answers this echo, so the
-                # frame is not this seam's to answer.  Asked WITHOUT
-                # consuming (resolve_echo, not take) precisely because the
-                # frame goes on to the inherited route: a refusal counted
-                # here would be a refusal of a frame this seam never owned,
-                # and take()'s own bookkeeping would say this player replayed
-                # something they never had.
+                # Nothing this connection recorded answers this echo.  WHO
+                # OWNS THE FRAME NOW DEPENDS ON WHETHER THIS SEAM HAS ALREADY
+                # MOVED THIS PLAYER -- pf-adversary D1 of #1109, the finding
+                # that kept this pull request in draft.
+                #
+                # MEASURED on the real dispatcher: one recorded order for
+                # marker 1, the exact V136 confirm bytes sent TWICE, and the
+                # first draft paid out TWO travel frames.  The seam consumed
+                # the order on echo #1; echo #2 found nothing, fell through,
+                # and v141's route -- whose one-shot latch was still unfired
+                # because the seam had answered instead of it -- paid the
+                # V137 transport probe.  A replay bought a second journey,
+                # which could not happen before this branch existed.  Trading
+                # one defect for another is not a fix.
+                #
+                # So: from the FIRST transport this seam puts on the wire,
+                # travel on this connection is this seam's business, and an
+                # echo it cannot consume is refused by name here instead of
+                # being handed to the frozen route.  Before that first
+                # transport nothing changes -- an echo nobody ordered still
+                # reaches v141 untouched, which is what the layer-2
+                # comparison (tests/test_teleport_transport_wire.py's three
+                # emission tests) is there to keep true.
+                #
+                # WHY A COUNTER ON THIS CONNECTION AND NOT v141's OWN LATCH.
+                # Setting `v137_marker1_transport_sent` from here would have
+                # been one line and is WRONG: that attribute is read a second
+                # time, at the V138 ready -> V140 population branch
+                # (current/pf_login_game_server_v141.py:3734), as "this
+                # connection is at marker 1".  Writing it would hand a
+                # population snapshot to a connection v141 never transported.
+                # One flag, two meanings, so this seam keeps its own.
+                if sink.transports_sent:
+                    self.rx_frames += 1
+                    sink.record_refusal(
+                        world_m2_teleport_check
+                        .ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER
+                    )
+                    _teleport_check_say(
+                        world_m2_teleport_check.echo_console_line,
+                        None, echoed,
+                        world_m2_teleport_check
+                        .ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER,
+                    )
+                    return []
+                # Asked WITHOUT consuming (resolve_echo, not take) precisely
+                # because the frame goes on to the inherited route: a refusal
+                # counted here would be a refusal of a frame this seam never
+                # owned, and take()'s own bookkeeping would say this player
+                # replayed something they never had.
                 return None
             self.rx_frames += 1
             order = sink.take(character_id, echoed)
@@ -7022,27 +7129,36 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # there is one, on the same list, with no yield in between),
                 # and still not an exception: a dispatch branch that raises
                 # costs the session.
-                print(world_m2_teleport_check.echo_console_line(
+                _teleport_check_say(
+                    world_m2_teleport_check.echo_console_line,
                     None, echoed,
                     world_m2_teleport_check.ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER,
-                ))
+                )
                 return []
             refusal = world_m2_teleport_check.accept_echo(order.pending, echoed)
             if refusal is not None:
                 sink.record_refusal(refusal)
-                print(world_m2_teleport_check.echo_console_line(
+                _teleport_check_say(
+                    world_m2_teleport_check.echo_console_line,
                     order.pending, echoed, refusal,
-                ))
+                )
                 return []
-            print(world_m2_teleport_check.echo_console_line(
+            _teleport_check_say(
+                world_m2_teleport_check.echo_console_line,
                 order.pending, echoed, None,
-            ))
+            )
             transport_pc, transport_frame = (
                 world_m2_teleport_check.encode_transport(legacy, order.pending)
             )
-            print(world_m2_teleport_check.transport_console_line(
+            # Counted BEFORE the action is returned, and before the console
+            # line: an `encode_transport` that raised would leave a counter
+            # saying this player travelled when nothing reached the socket,
+            # so the count goes after the bytes exist and before they leave.
+            sink.transports_sent += 1
+            _teleport_check_say(
+                world_m2_teleport_check.transport_console_line,
                 order.pending, len(transport_frame),
-            ))
+            )
             return [(
                 "LANE_A_M2_TELEPORT_CHECK_TRANSPORT", transport_pc,
                 transport_frame, 0.0,

@@ -28,6 +28,7 @@ player saw it.
 """
 from __future__ import annotations
 
+import contextlib
 import sys
 import tempfile
 import unittest
@@ -116,6 +117,17 @@ class _SeamCase(unittest.TestCase):
         )[-1]
         state.dispatch(self.legacy.parse_outer(
             self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        return state
+
+    def _login_only(self, token):
+        """Logged in, no character selected -- the unauthenticated shape."""
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
         ))
         return state
 
@@ -284,6 +296,182 @@ class EchoCallSiteTests(_SeamCase):
         # refusal counted against the player who never sent a bad echo.
         self.assertEqual(state.teleport_check_sink().refusals, [])
         self.assertEqual(len(self._of(self._echo(state), TRANSPORT_ACTION)), 1)
+
+
+class ReplayDebtTests(_SeamCase):
+    """pf-adversary D1 of #1109: the replay this branch built, and its fix.
+
+    The finding, measured on the real dispatcher: one recorded order, the
+    same echo bytes twice, TWO travel frames -- the seam's on echo #1 and
+    v141's own V137 transport probe on echo #2, because the fall-through
+    handed the frame to a route whose one-shot latch the seam had left
+    unfired.  What is pinned here is the ownership rule that closes it: from
+    the first transport this seam sends, an echo it cannot consume is
+    REFUSED here, not passed on; before that first transport nothing changes.
+    """
+
+    def _v141_saw_this_frame(self, state, before):
+        """How many v131/v136 capture events v141 appended since `before`.
+
+        v141's own branch appends two events for EVERY decodable frame of
+        this class that reaches it, whether or not it recognises the bytes
+        (current/pf_login_game_server_v141.py:4109-4126).  Counting them is
+        the only direct read of "the frame fell through", which is the thing
+        the mutant must break -- an assertion on transport actions alone
+        cannot see it, because these synthetic bytes are not v141's exact
+        V136 confirm PC and so buy no probe even when they do fall through.
+        """
+        return len([
+            e for e in state.events[before:]
+            if str(e).startswith("v131_teleport_check_")
+            or str(e).startswith("v136_marker1_positive_confirm_capture")
+        ])
+
+    def test_before_the_first_transport_an_unmatched_echo_reaches_v141(self):
+        # The control for the test below, and the behaviour #1101's own
+        # fall-through exists to protect.  Without this pair, "the seam
+        # refuses" and "the seam never falls through" are indistinguishable.
+        state = self._login_and_start("m2ctl")
+        before = len(state.events)
+        self._echo(state, 343)
+        self.assertGreater(self._v141_saw_this_frame(state, before), 0)
+        self.assertEqual(state.teleport_check_sink().refusals, [])
+
+    def test_after_the_first_transport_a_replay_never_reaches_v141(self):
+        state = self._login_and_start("m2replayv141")
+        self._record(state)
+        self._tick(state)
+        self.assertEqual(len(self._of(self._echo(state), TRANSPORT_ACTION)), 1)
+        self.assertEqual(state.teleport_check_sink().transports_sent, 1)
+        before = len(state.events)
+        self.assertEqual(self._of(self._echo(state), TRANSPORT_ACTION), [])
+        self.assertEqual(
+            self._v141_saw_this_frame(state, before), 0,
+            "the replay must not be handed to the frozen route, whose "
+            "one-shot latch is still unfired and would pay a second journey",
+        )
+        self.assertEqual(
+            state.teleport_check_sink().refusals,
+            [tc.ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER],
+        )
+
+    def test_the_replay_is_still_counted_exactly_once(self):
+        state = self._login_and_start("m2replaycount")
+        self._record(state)
+        self._tick(state)
+        self._echo(state)
+        before = state.rx_frames
+        self._echo(state)
+        self.assertEqual(state.rx_frames, before + 1)
+
+    def test_v141s_own_marker1_latch_is_never_written_by_this_seam(self):
+        # The one-line fix that was NOT taken, pinned so it cannot be taken
+        # later: `v137_marker1_transport_sent` is also read as "this
+        # connection is at marker 1" by the V138 ready -> V140 population
+        # branch, so writing it here would hand a population snapshot to a
+        # connection v141 never transported.
+        state = self._login_and_start("m2latch")
+        self._record(state)
+        self._tick(state)
+        self.assertEqual(len(self._of(self._echo(state), TRANSPORT_ACTION)), 1)
+        self.assertFalse(state.v137_marker1_transport_sent)
+        self.assertFalse(state.v136_marker1_prompt_sent)
+
+
+class ClosedSessionTests(_SeamCase):
+    """pf-adversary D3 of #1109: the drain ran outside the logout guards."""
+
+    def test_no_prompt_goes_out_after_the_logout_is_acknowledged(self):
+        state = self._login_and_start("m2logout")
+        self._record(state)
+        state.logout_acknowledged = True
+        self.assertEqual(self._of(self._tick(state), PROMPT_ACTION), [])
+
+    def test_the_order_is_left_queued_on_a_closed_session(self):
+        # Left queued, not dropped: a drain that emptied the queue would
+        # erase the evidence of what the closed session was owed.
+        state = self._login_and_start("m2logoutqueue")
+        self._record(state)
+        state.logout_acknowledged = True
+        self._tick(state)
+        self.assertEqual(len(state.teleport_check_sink().unsent), 1)
+        self.assertIn("lane_a_m2_teleport_check_post_ack_no_prompt",
+                      state.events)
+
+    def test_a_connection_with_no_character_selected_composes_nothing(self):
+        state = self._login_only("m2nosel")
+        self.assertIsNone(state.foundation.selected)
+        state.teleport_check_sink().record(1, tc.open_check(MARKER))
+        self.assertEqual(self._of(self._tick(state), PROMPT_ACTION), [])
+        self.assertEqual(len(state.teleport_check_sink().unsent), 1)
+
+
+class ConsoleNeverKillsTheListenerTests(_SeamCase):
+    """pf-adversary D2 of #1109: five bare print() calls on the dispatch path.
+
+    v141's `game_listener` wraps `state.dispatch()` in a `try:` with no
+    `except`, so anything raising here kills the accept loop for every
+    session on the process.
+    """
+
+    def test_a_console_line_that_cannot_be_built_costs_the_frame_nothing(self):
+        state = self._login_and_start("m2sayraise")
+        self._record(state)
+        original = tc.prompt_console_line
+
+        def boom(_pending):
+            raise RuntimeError("console line builder exploded")
+
+        tc.prompt_console_line = boom
+        try:
+            actions = self._tick(state)
+        finally:
+            tc.prompt_console_line = original
+        self.assertEqual(len(self._of(actions, PROMPT_ACTION)), 1)
+
+    def test_a_dead_stdout_costs_the_frame_nothing(self):
+        state = self._login_and_start("m2deadout")
+        self._record(state)
+
+        class _DeadOut:
+            def write(self, _text):
+                raise ValueError("I/O operation on closed file")
+
+            def flush(self):
+                raise ValueError("I/O operation on closed file")
+
+        with contextlib.redirect_stdout(_DeadOut()):
+            actions = self._tick(state)
+        self.assertEqual(len(self._of(actions, PROMPT_ACTION)), 1)
+
+    def test_an_order_that_raises_does_not_strand_the_ones_behind_it(self):
+        # The second half of D2: the first draft moved the whole queue into
+        # a local and emptied `unsent` before the loop, so anything raising
+        # on one order silently stranded every order behind it -- never
+        # prompted, never counted, still redeemable.
+        state = self._login_and_start("m2strand")
+        self._record(state)
+        self._record(state, marker_id=343)
+        original = tc.encode_prompt
+        calls = []
+
+        def boom(legacy, marker_id):
+            calls.append(marker_id)
+            if len(calls) == 1:
+                raise MemoryError("not a TeleportCheckError")
+            return original(legacy, marker_id)
+
+        tc.encode_prompt = boom
+        try:
+            with self.assertRaises(MemoryError):
+                self._tick(state)
+        finally:
+            tc.encode_prompt = original
+        self.assertEqual(len(state.teleport_check_sink().unsent), 1)
+        self.assertEqual(
+            len(self._of(self._tick(state), PROMPT_ACTION)), 1,
+            "the order behind the failure is still prompted on the next frame",
+        )
 
 
 class TwoSessionsTests(_SeamCase):
