@@ -30,12 +30,31 @@ class LaneGmUnknownVitalCounterTests(unittest.TestCase):
     def test_production_allowed(self):
         self.assertIs(counter.production_allowed, True)
 
-    def test_declares_registered_but_not_fired(self):
-        # The call site is chief's (CORE-REQUEST-GM-063) -- until it lands,
-        # gm/lane_gate_name_audit.py's dead-hook-point scan must see this
-        # declaration or it reds on a registered point nothing fires.
+    def test_declares_never_fired_exactly_while_nothing_fires_it(self):
+        # PIN MOVED, NOT DELETED, by the commit that landed the call site
+        # (CORE-REQUEST-GM-063, chief round R390).  The old form asserted
+        # the declaration is present, so landing the fire() the letter asks
+        # for turned this file red however chief did it, including when he
+        # followed the module's own deletion instruction exactly.
+        #
+        # This asserts the RELATION instead, the shape
+        # tests/test_lane_a_island_trigger_log.py already uses for the same
+        # handover: the module declares the point never-fired if and only
+        # if nothing fires it.  Both end states are green, both illegal
+        # in-between states are red.
+        runtime_source = (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+        fired_by_runtime = "vital_inbound_unknown_id" in runtime_source
+        declared = "vital_inbound_unknown_id" in getattr(
+            counter, "registered_but_not_fired", ()
+        )
         self.assertEqual(
-            counter.registered_but_not_fired, ("vital_inbound_unknown_id",)
+            declared,
+            not fired_by_runtime,
+            "declare the point never-fired exactly while nothing fires it: "
+            f"runtime.py names it = {fired_by_runtime}, "
+            f"declared = {declared}",
         )
 
     def test_discovered_and_registered_under_its_own_point(self):
