@@ -1019,8 +1019,14 @@ class RealPlayerNamespace:
                     # CONNECTION proved; until it does, this refuses BY NAME
                     # and the tally says so, instead of filling a sink with
                     # orders nobody can consume.
+                    # The NAME on the console too: nothing in src/ reads
+                    # `sink.refusals` today (chief's R397 D7 measured the same
+                    # thing), so a tally nobody prints is not evidence a
+                    # reader can reach (pf-adversary, round `nilasm`, M2/M5).
                     _log_bad_value(self._log, "TeleportCheck",
-                                   character_id=character_id)
+                                   character_id=character_id,
+                                   refusal=(_teleport_check
+                                            .CHECK_REFUSED_NO_CHARACTER_BOUND))
                     self._teleport_check_sink.record_refusal(
                         _teleport_check.CHECK_REFUSED_NO_CHARACTER_BOUND)
                     return STUB_DEFAULT
@@ -1040,7 +1046,7 @@ class RealPlayerNamespace:
                     % (character_id, pending.marker_id,
                        pending.destination.scene_id, pending.confirm_id,
                        "unknown" if stored is None else stored))
-                if stored != 0:
+                if stored is not None and stored > 0:
                     # The one console line this lane's token is FOR, printed
                     # from the live door rather than from a test (pf-adversary,
                     # round `ebh143`, D9: nothing outside tests/ called it, so
@@ -1048,10 +1054,16 @@ class RealPlayerNamespace:
                     # ORDER_RECORDED and sent=0 because that is all that
                     # happened here -- the send half is chief's drain, and it
                     # prints prompt_sent_console_line (D-A1).  Not printed for
-                    # stored=0, which is a refusal at a cap and would name a
-                    # window no player will be asked about; PRINTED for an
-                    # unknown count, because the order is in the sink either
-                    # way and a silent live order is the worse failure.
+                    # anything but a POSITIVE count.  "Not zero" was not the
+                    # same rule: a recorder that spells refusal `False` or
+                    # `-1` -- the two shapes sink_stored_count's own docstring
+                    # calls plausible -- printed the token for an order it had
+                    # just refused, which is D9/D-A1 re-opened one line below
+                    # where it was paid (pf-adversary, round `nilasm`, H1).
+                    # An unknown count is not a licence either: the door
+                    # cannot say a window was opened, so the LUA_PLAYER_REAL
+                    # line above says stored=unknown and no proof token is
+                    # printed.
                     self._log(_teleport_check.prompt_console_line(pending))
                 return returned
 

@@ -309,11 +309,35 @@ class TheRefusals(unittest.TestCase):
                          "CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL")
         self.assertEqual(tc.CHECK_REFUSED_NO_CHARACTER_BOUND,
                          "CHECK_REFUSED_NO_CHARACTER_BOUND")
-        self.assertEqual(len({tc.CHECK_REFUSED_BAD_ARITY,
-                              tc.CHECK_REFUSED_MARKER_ID_NOT_AN_INT,
-                              tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD,
-                              tc.CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL,
-                              tc.CHECK_REFUSED_NO_CHARACTER_BOUND}), 5)
+        # EVERY refusal name this module ships, against its literal, and all
+        # of them distinct: pinning five of eleven left three mutants alive
+        # that collapse two refusals into one name -- the "two fixes under
+        # one name" defect D6 and D-A2 exist to prevent (pf-adversary, round
+        # `nilasm`, M2).  A name added without a line here fails the count.
+        names = {n: getattr(tc, n) for n in dir(tc)
+                 if n.startswith(("CHECK_REFUSED_", "ECHO_REFUSED_",
+                                  "ORDER_REFUSED_"))}
+        self.assertEqual(names, {
+            "CHECK_REFUSED_BAD_ARITY": "CHECK_REFUSED_BAD_ARITY",
+            "CHECK_REFUSED_MARKER_ID_NOT_AN_INT":
+                "CHECK_REFUSED_MARKER_ID_NOT_AN_INT",
+            "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD":
+                "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD",
+            "CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL":
+                "CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL",
+            "CHECK_REFUSED_MARKER_ROW_NOT_PINNED":
+                "CHECK_REFUSED_MARKER_ROW_NOT_PINNED",
+            "CHECK_REFUSED_NO_CHARACTER_BOUND":
+                "CHECK_REFUSED_NO_CHARACTER_BOUND",
+            "ECHO_REFUSED_NOTHING_PENDING": "ECHO_REFUSED_NOTHING_PENDING",
+            "ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER":
+                "ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER",
+            "ECHO_REFUSED_MARKER_ID_MISMATCH":
+                "ECHO_REFUSED_MARKER_ID_MISMATCH",
+            "ECHO_REFUSED_UNDECODABLE": "ECHO_REFUSED_UNDECODABLE",
+            "ORDER_REFUSED_AT_CAP": "ORDER_REFUSED_AT_CAP",
+        })
+        self.assertEqual(len(set(names.values())), len(names))
 
     def test_an_id_the_field_can_carry_but_the_table_does_not_know_says_so(self):
         known = set(_pinned_marker_ids())
@@ -339,6 +363,12 @@ class TheRefusals(unittest.TestCase):
                     any(name.endswith("world_marker_copy") for name in names))
 
 
+def _LUA_API_MODULE_NAMES() -> list:
+    root = (Path(__file__).resolve().parents[1] / "src"
+            / "pirateforce_foundation" / "lua_api")
+    return sorted(path.name for path in root.rglob("*.py"))
+
+
 def _modules_calling(symbol: str) -> list:
     """Which modules under ``src/`` CALL ``symbol``, by file name.
 
@@ -361,6 +391,9 @@ def _modules_calling(symbol: str) -> list:
                 found.append(path.name)
                 break
     return sorted(found)
+
+
+_LUA_API_MODULES = _LUA_API_MODULE_NAMES()
 
 
 def _pinned_marker_ids():
@@ -670,10 +703,18 @@ class TheLuaNameIsRealNow(unittest.TestCase):
             " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
             " bytes_out=44")
         line.encode("ascii")
-        # No live caller in src/ yet: the drain at the end of dispatch() is
-        # chief's, and this PR does not touch runtime.py.
-        self.assertEqual(_modules_calling("prompt_sent_console_line"), [])
-        # ...while the recorded line DOES have one, and it is the Lua door.
+        # WHO MAY CALL IT, not "nobody may".  Asserting an empty list turns
+        # red the moment chief adds the drain call this lane's own PR body
+        # asks for -- the instruction and the pin would be the same line with
+        # opposite signs, in a file chief does not own (pf-adversary, round
+        # `nilasm`, H5).  What must stay true is that the Lua layer never
+        # prints a send: lua_api/ records, it does not send.
+        senders = _modules_calling("prompt_sent_console_line")
+        self.assertNotIn("player.py", senders)
+        self.assertEqual([m for m in senders if m in _LUA_API_MODULES], [])
+        # Measured at this commit: nothing calls it yet at all.
+        self.assertEqual(senders, [])
+        # ...while the recorded line DOES have a caller, and it is the door.
         self.assertEqual(_modules_calling("prompt_console_line"), ["player.py"])
 
     def test_no_prompt_line_is_printed_for_an_order_the_sink_refused(self):
@@ -738,11 +779,115 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         namespace = self._namespace(sink)
         self.assertIsNone(namespace["TeleportCheck"](1))
         self.assertEqual(len(sink.orders), 1)
-        # stored=unknown, not stored=0 and not a crash: the order IS in the
-        # sink, so the line that names the window is printed.
+        # stored=unknown, not stored=0 and NOT A CRASH.  And no proof token:
+        # a door that cannot say whether the window was opened must not print
+        # the line a reader is told to trust as evidence that it was
+        # (pf-adversary, round `nilasm`, H1).
         self.assertTrue(any("stored=unknown" in line for line in self.logged))
-        self.assertEqual(len([line for line in self.logged
-                              if line.startswith(tc.TOKEN + " ORDER_RECORDED")]), 1)
+        self.assertEqual([line for line in self.logged
+                          if line.startswith(tc.TOKEN + " ORDER_RECORDED")], [])
+
+    def test_a_recorder_that_spells_refusal_its_own_way_prints_no_token(self):
+        # `if stored != 0` was not the rule it was written to be: a recorder
+        # that answers False, or an error code like -1, had its REFUSED order
+        # announced with the proof token -- D9/D-A1 re-opened one line below
+        # where it was paid (pf-adversary, round `nilasm`, H1).
+        class FlagRecorder:
+            def __init__(self, cap):
+                self.cap, self.orders, self.refusals = cap, [], []
+
+            def record(self, character_id, pending):
+                if len(self.orders) >= self.cap:
+                    self.refusals.append(tc.ORDER_REFUSED_AT_CAP)
+                    return False
+                self.orders.append(tc.TeleportCheckOrder(character_id, pending))
+                return True
+
+            def record_refusal(self, reason):
+                self.refusals.append(reason)
+
+        sink = FlagRecorder(cap=1)
+        namespace = self._namespace(sink)
+        self.assertIs(namespace["TeleportCheck"](1), True)
+        self.assertIs(namespace["TeleportCheck"](1), False)
+        self.assertEqual(len(sink.orders), 1)
+        self.assertEqual(sink.refusals, [tc.ORDER_REFUSED_AT_CAP])
+        # NEITHER call may print the token: the first because the recorder
+        # never answered a count, the second because it refused outright.
+        self.assertEqual([line for line in self.logged
+                          if line.startswith(tc.TOKEN + " ORDER_RECORDED")], [])
+
+        class ErrorCodeRecorder(FlagRecorder):
+            def record(self, character_id, pending):
+                return -1
+
+        sink = ErrorCodeRecorder(cap=1)
+        namespace = self._namespace(sink)
+        self.assertEqual(namespace["TeleportCheck"](1), -1)
+        self.assertEqual([line for line in self.logged
+                          if line.startswith(tc.TOKEN + " ORDER_RECORDED")], [])
+
+    def test_the_real_line_names_the_character_and_the_marker_it_recorded(self):
+        # The line that carries character= and stored= -- the two fields this
+        # round exists to establish -- was pinned nowhere, so mutants that
+        # hardcode character=2 or marker_id=1 in it both survived
+        # (pf-adversary, round `nilasm`, M3).  Marker 17 and a character that
+        # is not the default make each field visible on its own.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink, character_id=41)
+        self.assertEqual(namespace["TeleportCheck"](17), 1)
+        real = [line for line in self.logged
+                if line.startswith("LUA_PLAYER_REAL Player.TeleportCheck")]
+        self.assertEqual(len(real), 1)
+        self.assertIn("character=41 marker_id=17 scene=126"
+                      " confirm_predicted=21 stored=1", real[0])
+
+    def test_the_refusal_name_reaches_the_console_not_only_the_tally(self):
+        # Nothing in src/ reads sink.refusals, so a refusal that is only
+        # counted is not evidence any reader reaches (pf-adversary, round
+        # `nilasm`, M2/M5 -- deleting the console call survived).
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink, character_id=0)
+        namespace["TeleportCheck"](1)
+        bad = [line for line in self.logged
+               if line.startswith("LUA_PLAYER_BAD_VALUE Player.TeleportCheck")]
+        self.assertEqual(len(bad), 1)
+        self.assertIn(tc.CHECK_REFUSED_NO_CHARACTER_BOUND, bad[0])
+        self.assertIn("character_id=0", bad[0])
+
+    def test_a_bad_value_line_survives_a_character_the_console_cannot_encode(self):
+        # The bridge console is cp874: a script argument outside that page
+        # killed the very line reporting the script's own mistake, and the
+        # ascii() that fixed it shipped with nothing pinning it
+        # (pf-adversary, round `nilasm`, M4).
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        namespace["TeleportCheck"]("\u3042\u2603")
+        bad = [line for line in self.logged
+               if line.startswith("LUA_PLAYER_BAD_VALUE Player.TeleportCheck")]
+        self.assertEqual(len(bad), 1)
+        bad[0].encode("cp874")
+        bad[0].encode("ascii")
+
+    def test_the_quest_loader_hands_the_same_character_to_both_namespaces(self):
+        # load_quest_script had the id the caller proved and gave it to the
+        # quest namespace only, so Player.* read the context default of 0 --
+        # harmless until this door started refusing an unbound character, and
+        # a silent stop after (pf-adversary, round `nilasm`, H3).  Static,
+        # because driving the loader needs a Lua runtime and this module is
+        # the unguarded half.
+        source = (Path(__file__).resolve().parents[1] / "src"
+                  / "pirateforce_foundation" / "lua_api" / "dispatch.py")
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        loader = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.FunctionDef)
+                      and node.name == "load_quest_script")
+        call = next(node for node in ast.walk(loader)
+                    if isinstance(node, ast.Call)
+                    and getattr(node.func, "attr", None) == "load_script_file")
+        keywords = {kw.arg for kw in call.keywords}
+        self.assertIn("player_context", keywords)
+        self.assertIn("quest_context", keywords)
 
     def test_what_a_sink_answered_is_read_the_same_way_everywhere(self):
         self.assertEqual(tc.sink_stored_count(1), 1)

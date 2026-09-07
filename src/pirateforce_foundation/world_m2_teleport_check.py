@@ -572,8 +572,14 @@ def prompt_sent_console_line(pending: PendingCheck, frame_bytes: int) -> str:
     printing it from anywhere else re-creates exactly the confusion D-A1 found.
     It still is not proof that a window was DRAWN -- nothing comes back from a
     client on this path, and only a screen can say that -- but it is the honest
-    server-side half of ``GT-309``'s first proof line, and the drain at the end
-    of ``dispatch()`` (chief, letter `20260908_0432`) is the one caller.
+    server-side half of ``GT-309``'s first proof line.  IT HAS NO CALLER AT
+    ALL TODAY, and that is written in the present tense on purpose: the drain
+    at the end of ``dispatch()`` (chief, letter `20260908_0432`) is the caller
+    it is FOR, on a branch this repository does not carry.  Saying "is the one
+    caller" of something that does not exist is the mistake D-A1 punished
+    (pf-adversary, round `nilasm`, M2).  ``frame_bytes`` is counted by the
+    caller and verified by nothing here: a drain that builds the bytes and
+    then dies before the socket can still print this line.
     """
     d = pending.destination
     return (

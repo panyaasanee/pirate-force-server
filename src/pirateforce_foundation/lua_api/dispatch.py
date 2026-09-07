@@ -31,6 +31,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
+from . import player as lua_api_player
 from . import quest as lua_api_quest
 from . import quest_criteria
 
@@ -166,7 +167,18 @@ def load_quest_script(root, quest_id: int, character_id: int,
     path = script_path_for_quest(root, quest_id)
     context = lua_api_quest.QuestContext(character_id=character_id,
                                          quest_id=quest_id)
+    # THE PLAYER HALF OF THE SAME ID.  This loader had the character the
+    # caller proved and handed it to the quest namespace only, so `Player.*`
+    # read the context default of 0 -- harmless while every Player name that
+    # used it degraded quietly, and a hard refusal since
+    # `Player.TeleportCheck` began requiring a bound character (a travel
+    # order filed under 0 can never be consumed by its own echo).  Same id,
+    # both namespaces, one call site (pf-adversary, round `nilasm`, H3).
+    player_context = kwargs.pop(
+        "player_context",
+        lua_api_player.PlayerContext(character_id=character_id))
     log("LUA_QUEST_DISPATCH quest=%d character=%d script=%s"
         % (quest_id, character_id, path.stem))
     return script_host.load_script_file(path, log, quest_context=context,
-                                       **kwargs)
+                                        player_context=player_context,
+                                        **kwargs)
