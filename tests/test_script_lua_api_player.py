@@ -626,6 +626,37 @@ class RealPlayerLuaIntegrationTests(unittest.TestCase):
         self.assertTrue(any("LUA_PLAYER_GRANT Player.AddExp" in line
                             for line in calls), calls)
 
+    def test_the_affordability_guard_can_finally_be_true(self):
+        """`q_class.lua:47` in miniature, both ways.
+
+        With `Player.GetCash` stubbed this branch was false for every
+        player forever; the two halves here are the same script text
+        against the same store with two different balances.
+        """
+        Reading = GetCashReadsTheColumnAddCashWritesTests._ReadingStore
+        text = ("function Probe()\n"
+                "  if( Player.GetCash() >= 15000 ) then\n"
+                "    return 1\n"
+                "  else\n"
+                "    return 0\n"
+                "  end\n"
+                "end")
+        for balance, expected in ((15000, 1), (14999, 0)):
+            host, _calls = self._host(
+                player.PlayerContext(character_id=9),
+                payout_store=Reading(balances={(9, "cash"): balance}))
+            host.load(text)
+            self.assertEqual(host.call("Probe"), expected, balance)
+
+    def test_an_unmeasured_purse_leaves_the_guard_false_from_lua(self):
+        Reading = GetCashReadsTheColumnAddCashWritesTests._ReadingStore
+        host, calls = self._host(player.PlayerContext(character_id=9),
+                                 payout_store=Reading())
+        host.load("function Probe() return Player.GetCash() end")
+        self.assertEqual(host.call("Probe"), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=balance_was_never_measured" in line
+                            for line in calls), calls)
+
     def test_a_host_with_no_payout_store_refuses_out_loud(self):
         host, calls = self._host(
             context=player.PlayerContext(level=7, character_id=9))
@@ -1245,56 +1276,3 @@ class GetCashReachesARealRowTests(unittest.TestCase):
         self.assertEqual(ns["GetCash"](), 5000)
         self.assertEqual(
             self.store.read_typed_attributes(self.character.id)["cash"], 5000)
-
-
-@LUPA_PACKAGE.skip_unless_present()
-class GetCashFromRealLuaTests(unittest.TestCase):
-    """The guard shape the corpus actually writes, run as Lua."""
-
-    def _host(self, payout_store):
-        from pirateforce_foundation import script_host
-        calls: list = []
-        host = script_host.ScriptHost(
-            log=calls.append,
-            player_context=player.PlayerContext(character_id=9),
-            payout_store=payout_store)
-        return host, calls
-
-    def test_the_affordability_guard_can_finally_be_true(self):
-        """``q_class.lua:47`` in miniature, both ways.
-
-        With the name stubbed this branch was false for every player
-        forever; the two halves of this test are the same script text
-        against the same store with two different balances.
-        """
-        store = GetCashReadsTheColumnAddCashWritesTests._ReadingStore(
-            balances={(9, "cash"): 15000})
-        host, _calls = self._host(store)
-        host.load("function Probe()\n"
-                  "  if( Player.GetCash() >= 15000 ) then\n"
-                  "    return 1\n"
-                  "  else\n"
-                  "    return 0\n"
-                  "  end\n"
-                  "end")
-        self.assertEqual(host.call("Probe"), 1)
-
-        poor = GetCashReadsTheColumnAddCashWritesTests._ReadingStore(
-            balances={(9, "cash"): 14999})
-        host, _calls = self._host(poor)
-        host.load("function Probe()\n"
-                  "  if( Player.GetCash() >= 15000 ) then\n"
-                  "    return 1\n"
-                  "  else\n"
-                  "    return 0\n"
-                  "  end\n"
-                  "end")
-        self.assertEqual(host.call("Probe"), 0)
-
-    def test_an_unmeasured_purse_leaves_the_guard_false_from_lua(self):
-        store = GetCashReadsTheColumnAddCashWritesTests._ReadingStore()
-        host, calls = self._host(store)
-        host.load("function Probe() return Player.GetCash() end")
-        self.assertEqual(host.call("Probe"), player.STUB_DEFAULT)
-        self.assertTrue(any("refused=balance_was_never_measured" in line
-                            for line in calls), calls)
