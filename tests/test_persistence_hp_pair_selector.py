@@ -46,6 +46,7 @@ owner hit; it claims only that IF that branch is taken and the server has
 set nothing, the HUD shows -1/1.  It has not run against the canonical
 database.
 """
+import ast
 import re
 import sys
 import tempfile
@@ -109,14 +110,11 @@ class TheIndicesComeFromTheWireTableTests(unittest.TestCase):
 
 
 class TheMinusOneIsTheCorpusValueTests(unittest.TestCase):
-    def test_defaults_are_the_compose_corpus_copy(self):
-        self.assertEqual(
-            sel.ALTERNATE_CONSTRUCTION_DEFAULTS,
-            (
-                compose.CLIENT_CONSTRUCTION_DEFAULTS[sel.ALTERNATE_PAIR[0]].value,
-                compose.CLIENT_CONSTRUCTION_DEFAULTS[sel.ALTERNATE_PAIR[1]].value,
-            ),
-        )
+    # `test_defaults_are_the_compose_corpus_copy` stood here until round
+    # `m1dmhd`.  It compared `ALTERNATE_CONSTRUCTION_DEFAULTS` against the
+    # expression the module defines it with, so it could not fail.  Replaced
+    # by `TheThreeTautologiesTests.
+    # test_the_construction_defaults_are_the_corpus_numbers_themselves`.
 
     def test_the_current_default_prints_as_minus_one(self):
         self.assertEqual(
@@ -181,10 +179,12 @@ class TheGapsNameEveryDishonestRowTests(unittest.TestCase):
         values = {sel.ALTERNATE_PAIR[0]: 87, sel.ALTERNATE_PAIR[1]: 100}
         self.assertEqual(sel.alternate_pair_gaps(values), ())
 
-    def test_every_gap_carries_the_wire_table_name(self):
-        for gap in sel.alternate_pair_gaps({}):
-            with self.subTest(x=gap.x):
-                self.assertEqual(gap.field_name, sel._field_name(gap.x))
+    # `test_every_gap_carries_the_wire_table_name` stood here until round
+    # `m1dmhd`.  It compared `gap.field_name` against `sel._field_name(gap.x)`
+    # -- the function that had just produced it -- so no mutation of
+    # `_field_name` could be seen.  Replaced by `TheThreeTautologiesTests.
+    # test_every_gap_from_either_predicate_carries_the_wire_tables_name`,
+    # which reads `attr_wire.FIELDS` and covers the primary pair too.
 
 
 class TheGuardHasTeethTests(unittest.TestCase):
@@ -538,10 +538,13 @@ class TheTriggerIsTheArmedValueNotThePresenceTests(unittest.TestCase):
 
     def test_the_armed_value_is_imported_from_the_wire_module(self):
         """pf-adversary D7: the first draft hardcoded 8 and no test read it.
-        Two doors with two copies of one comparand drift apart silently."""
-        self.assertEqual(
-            sel.SELECTOR_ARMED_VALUE, attr_wire.SELECTOR_COMPARED_VALUE
-        )
+        Two doors with two copies of one comparand drift apart silently.
+
+        The equality assertion that opened this test was deleted in round
+        `m1dmhd`: it compared the two one line after the module assigned the
+        first from the second, so it could not fail.  What it was trying to
+        say is now counted, not asserted, in `TheThreeTautologiesTests.
+        test_the_armed_value_is_bound_once_and_only_from_the_wire_module`."""
         module_text = MODULE_FILE.read_text(encoding="utf-8")
         self.assertIn(
             "SELECTOR_ARMED_VALUE: int = attr_wire.SELECTOR_COMPARED_VALUE",
@@ -962,10 +965,6 @@ class TheLiveReportReadsARealStoreTests(unittest.TestCase):
             self.assertIn("0x430E10 is not evaluated here", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
     """pf-adversary round `cgnzsd` D11, and round `2v18x3`'s answer to it.
 
@@ -1052,3 +1051,667 @@ class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
         """A narrow name left over a widened door is how the next reader
         wires the weaker half by accident."""
         self.assertFalse(hasattr(sel, "guard_alternate_pair"))
+
+
+class TheDebtRound2v18x3LeftUnpaidTests(unittest.TestCase):
+    """Round `m1dmhd`.  Round `2v18x3` accepted nine pf-adversary findings as
+    real and shipped without paying them; its own round file listed them as
+    the next round's first work.  Each test below was written only after the
+    mutant it describes was MEASURED surviving on `origin/main` `c570522`,
+    and each names the mutant so the next reader can re-run it.
+
+    One of the nine did not survive re-measurement and one was worse than
+    recorded; both are written down in the round file rather than quietly
+    dropped."""
+
+    def test_a_half_supplied_alternate_pair_is_not_a_supplied_pair(self):
+        """MEASURED MUTANT (M27): `bool(server_owned_alternate)` ->
+        `len(...) == 2` left `81 passed`.  The two spellings differ only when
+        exactly ONE of x=52/x=53 has a column, and there they disagree about
+        whether the client is being told the truth.
+
+        The client reads both rows.  With one column shipped and one not, the
+        row without a column arrives as an unset mask bit and the HUD shows
+        `87/0` -- the same lie `alternate_pair_gaps` refuses by name.  So the
+        honest answer is "not supplied", and `bool(...)` gave the opposite."""
+        class _Store:
+            def read_typed_attributes(self, character_id):
+                return {"hp_current": 10, "hp_max": 20}
+
+        original = compose.SERVER_OWNED_FIELDS
+        try:
+            for owned, expected in (
+                (set(), False),
+                ({sel.ALTERNATE_PAIR[0]}, False),
+                ({sel.ALTERNATE_PAIR[1]}, False),
+                (set(sel.ALTERNATE_PAIR), True),
+            ):
+                with self.subTest(owned=sorted(owned)):
+                    compose.SERVER_OWNED_FIELDS = frozenset(
+                        set(original) | owned
+                    )
+                    report = sel.live_hp_pair_report(_Store(), 1)
+                    self.assertIs(report.alternate_pair_supplied, expected)
+                    # The flag and the predicate must never disagree.
+                    self.assertIs(report.branch_would_lie(), not expected)
+        finally:
+            compose.SERVER_OWNED_FIELDS = original
+
+    def test_a_supplied_alternate_branch_would_not_lie(self):
+        """MEASURED MUTANT (M20): `return not self.alternate_pair_supplied`
+        -> `return True` left `81 passed`.  Every existing caller built a
+        report whose flag was False, so only one side of the predicate was
+        ever read and a mutant that answered "lies" about everything was
+        indistinguishable from the real thing."""
+        def _report(supplied):
+            return sel.HpPairReport(
+                character_id=1,
+                primary_current=10,
+                primary_max=20,
+                alternate_if_unset_current=-1,
+                alternate_if_unset_max=1,
+                alternate_pair_supplied=supplied,
+            )
+
+        self.assertTrue(_report(False).branch_would_lie())
+        self.assertFalse(_report(True).branch_would_lie())
+
+    def test_a_half_unseeded_primary_pair_prints_unseeded_not_a_half_number(
+        self,
+    ):
+        """MEASURED MUTANT (M22): `is None or ... is None` -> `... and ...`
+        in `format_report` left `81 passed`.
+
+        Under the mutant a character with `hp_current` seeded and `hp_max`
+        NULL prints `100/None` into the operator's console block -- a
+        number-shaped string for a pair the store never had.  Every existing
+        case had both columns set or both NULL, so the `or` was never the
+        reason anything passed."""
+        for current, maximum in ((100, None), (None, 100), (None, None)):
+            with self.subTest(primary=(current, maximum)):
+                text = sel.format_report(
+                    sel.HpPairReport(
+                        character_id=7,
+                        primary_current=current,
+                        primary_max=maximum,
+                        alternate_if_unset_current=-1,
+                        alternate_if_unset_max=1,
+                        alternate_pair_supplied=False,
+                    )
+                )
+                self.assertIn(
+                    f"primary x={sel.PRIMARY_PAIR[0]}/{sel.PRIMARY_PAIR[1]} "
+                    "shows unseeded",
+                    text,
+                )
+                self.assertNotIn("None", text)
+
+    def test_a_duplicated_row_name_raises_rather_than_picking_the_first(self):
+        """MEASURED MUTANT (M16b): `len(matches) != 1` -> `len(matches) < 1`
+        left `81 passed`.  Only the ZERO-match branch was ever exercised
+        (`test_a_missing_name_raises_rather_than_defaulting`); the branch this
+        module's docstring actually leans on -- "exactly one row" -- was not.
+
+        It matters in the direction the module cannot survive: if LANE-GM ever
+        ships two rows named `hp_current`, taking the first silently binds
+        this gate to whichever row happens to sort first in their table."""
+        original = attr_wire.FIELDS
+        duplicate = [
+            row for row in original if row[6] == "hp_current"
+        ]
+        self.assertEqual(len(duplicate), 1, "fixture assumes one row today")
+        try:
+            attr_wire.FIELDS = list(original) + [tuple(duplicate[0])]
+            with self.assertRaises(sel.HpPairError) as caught:
+                sel._x_named("hp_current")
+            self.assertIn("exactly one row", str(caught.exception))
+            self.assertIn("found 2", str(caught.exception))
+        finally:
+            attr_wire.FIELDS = original
+        # ... and the real table still resolves, so the fixture put it back.
+        self.assertEqual(sel._x_named("hp_current"), sel.PRIMARY_PAIR[0])
+
+    def test_minus_one_on_the_alternate_max_row_is_still_refused(self):
+        """MEASURED MUTANT (M01): `if shown < 0:` -> `if shown < -1:` in
+        `_row_gap` left `81 passed`.
+
+        WHAT THIS ROUND GOT WRONG ABOUT IT, CORRECTED IN THE SAME ROUND BY
+        pf-adversary (F7).  This docstring first said round `2v18x3`'s reading
+        -- "does not flip a verdict, only the reason an operator reads" -- was
+        wrong, and that under the mutant the block below PASSES the gate
+        showing `87/-1`.  MEASURED, THAT CLAIM IS FALSE:
+
+            shown < -1 applied, block {9:8, 3:50, 4:100, 52:87, 53:0xFFFFFFFF}
+            alternate_pair_gaps -> [(52, 'frame_layer_current_above_max')]
+            guard_armed_block   -> REFUSED
+
+        `current > max` is 87 > -1, so the pair is still caught fifteen lines
+        further down INSIDE THE VERY FUNCTION being reasoned about.  Round
+        `2v18x3` had it right; this round overturned it by reading `_row_gap`
+        and stopping at the branch it was looking at -- the same mistake, in
+        the same module, that D11 was raised about.  The correction is left in
+        full rather than tidied away.
+
+        WHY THE TEST IS KEPT ANYWAY.  It still kills the mutant, and it kills
+        it on the thing that actually changes: the REASON an operator reads.
+        Under the mutant the refusal blames x=52 for exceeding a maximum,
+        when what is wrong is that x=53 is displaying -1; an operator handed
+        the first reason looks at the wrong row.  `0xFFFFFF00` (the value the
+        reachability test uses) prints as -256 and stays caught by `< -1`, so
+        the boundary itself had no coverage before this."""
+        block = {
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+            sel.PRIMARY_PAIR[0]: 50,
+            sel.PRIMARY_PAIR[1]: 100,
+            sel.ALTERNATE_PAIR[0]: 87,
+            sel.ALTERNATE_PAIR[1]: 0xFFFFFFFF,
+        }
+        self.assertEqual(sel.as_signed_row_value(sel.ALTERNATE_PAIR[1], 0xFFFFFFFF), -1)
+        self.assertNotEqual(
+            sel.ALTERNATE_CONSTRUCTION_DEFAULTS[1],
+            0xFFFFFFFF,
+            "if x=53's default ever becomes 0xFFFFFFFF this case is caught "
+            "one branch earlier and this test stops testing what it names",
+        )
+        self.assertEqual(
+            [(g.x, g.reason) for g in sel.alternate_pair_gaps(block)],
+            [(sel.ALTERNATE_PAIR[1], sel.REASON_NEGATIVE)],
+        )
+        with self.assertRaises(sel.HpPairError):
+            sel.guard_armed_block(block)
+
+    def test_the_error_this_gate_raises_is_catchable_as_a_value_error(self):
+        """`HpPairError` had no test of its own.  Its BASE is the contract:
+        `guard_armed_block` is meant to be catchable by a caller that only
+        knows it is validating values, and a future edit making this inherit
+        from `Exception` would slip past every existing test while silently
+        escaping every `except ValueError` in the tree."""
+        self.assertTrue(issubclass(sel.HpPairError, ValueError))
+        with self.assertRaises(ValueError):
+            sel.guard_armed_block({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
+
+
+class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
+    """Round `m1dmhd`.  The question pf-adversary left on the table in round
+    `2v18x3`, which that round wrote down and handed forward without an
+    answer:
+
+        the day `admitted_field_x_sets` grows to include x=52/x=53, WHO holds
+        the obligation that this gate gets a call site in the same commit,
+        and WHICH CHECK GOES RED?
+
+    Round `2v18x3`'s honest answer was "a sentence in the docstring, verified
+    by grepping for that sentence".  That is not a check -- a sentence cannot
+    fail to be true of itself.  This class is the answer instead.
+
+    Reachability is computed from the two sources of truth, never copied:
+    `gm/login_mask.admitted_field_x_sets` (LANE-GM's wall -- what the server
+    is allowed to compose) and `persistence_attr_compose.SERVER_OWNED_FIELDS`
+    (this lane's own schema -- what the server could put in it).  The
+    obligation therefore lands on whoever moves either one, in the commit that
+    moves it, because that is the commit whose suite turns red."""
+
+    def _reachable(self):
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        shapes = login_mask.admitted_field_x_sets(legacy)
+        alternate = set(sel.ALTERNATE_PAIR)
+        return {
+            "admitted_by_a_login_shape": sorted(
+                x for shape in shapes for x in shape if x in alternate
+            ),
+            "backed_by_a_server_column": sorted(
+                alternate & set(compose.SERVER_OWNED_FIELDS)
+            ),
+            "shapes_examined": len(shapes),
+        }
+
+    #: The gate itself.  A file "calls" this module when it invokes this.
+    GATE = "guard_armed_block"
+
+    def _callers(self):
+        """Files containing a real CALL to the gate.
+
+        pf-adversary round `m1dmhd`, F1.  The first version of this asked
+        whether the string `persistence_hp_pair_selector` appeared anywhere in
+        the file, and was therefore discharged by a COMMENT: adversary opened
+        the reachability route, added the one line
+        `# see persistence_hp_pair_selector for the HP-pair refusal gate` to
+        an unrelated module, and the obligation below went green with the gate
+        at zero call sites.  A name in a comment is not a caller -- that is
+        `AGENTS.md` section 7's own WIRED rule (b): pin the thing that acts, never
+        the name.
+
+        So this walks the AST and counts CALL NODES whose callee is
+        `guard_armed_block`, by either spelling (`sel.guard_armed_block(...)`
+        after an import of the module, or a bare `guard_armed_block(...)`
+        after a from-import).  A mention, an `__all__` entry, a docstring and
+        an import with no call all correctly count as NOT a caller."""
+        found = []
+        for path in sorted((ROOT / "src").rglob("*.py")) + sorted(
+            (ROOT / "tests").rglob("*.py")
+        ):
+            if path == MODULE_FILE or path == Path(__file__).resolve():
+                continue
+            try:
+                tree = ast.parse(
+                    path.read_text(encoding="utf-8", errors="replace")
+                )
+            except SyntaxError:  # pragma: no cover - not our file to fix
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = (
+                    func.attr
+                    if isinstance(func, ast.Attribute)
+                    else func.id if isinstance(func, ast.Name) else None
+                )
+                if name == self.GATE:
+                    found.append(str(path.relative_to(ROOT)))
+                    break
+        return found
+
+    def test_a_mere_mention_of_this_module_is_not_a_caller(self):
+        """The escape hatch F1 walked through, closed and held closed.
+
+        Both halves matter: a comment must NOT count, and a real call MUST.
+        Written against parsed source rather than this repository's files so
+        it keeps testing the detector after the tree moves."""
+        with tempfile.TemporaryDirectory() as directory:
+            probe = Path(directory) / "probe.py"
+
+            def _calls(source):
+                probe.write_text(source, encoding="utf-8")
+                tree = ast.parse(probe.read_text(encoding="utf-8"))
+                return any(
+                    isinstance(n, ast.Call)
+                    and (
+                        getattr(n.func, "attr", None) == self.GATE
+                        or getattr(n.func, "id", None) == self.GATE
+                    )
+                    for n in ast.walk(tree)
+                )
+
+            not_callers = (
+                "# see persistence_hp_pair_selector for the refusal gate\n",
+                '"""persistence_hp_pair_selector.guard_armed_block"""\n',
+                "from pirateforce_foundation import "
+                "persistence_hp_pair_selector\n",
+                "GATE_NAME = 'guard_armed_block'\n",
+                "__all__ = ['guard_armed_block']\n",
+            )
+            for source in not_callers:
+                with self.subTest(source=source.strip()[:40]):
+                    self.assertFalse(_calls(source))
+
+            callers = (
+                "from pirateforce_foundation import "
+                "persistence_hp_pair_selector as sel\n"
+                "sel.guard_armed_block({})\n",
+                "from pirateforce_foundation.persistence_hp_pair_selector "
+                "import guard_armed_block\n"
+                "guard_armed_block({})\n",
+            )
+            for source in callers:
+                with self.subTest(source=source.strip()[-30:]):
+                    self.assertTrue(_calls(source))
+
+    def test_the_schema_helper_is_not_wired_and_the_docstring_says_so(self):
+        """pf-adversary round `m1dmhd`, F3.  `primary_pair_gaps`' docstring
+        claimed `_pair_owned_by_this_server` "derives the split from the
+        schema".  Measured: zero call nodes -- the split is two hand-written
+        functions and the helper is read only by tests.
+
+        This pins the true state, in the direction that matters both ways: if
+        someone wires the helper up, the docstring's correction becomes stale
+        and this goes red asking for it to be rewritten; if someone
+        re-introduces the old claim while the helper is still dead, the second
+        half goes red."""
+        tree = ast.parse(MODULE_FILE.read_text(encoding="utf-8"))
+        call_nodes = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "_pair_owned_by_this_server"
+        ]
+        self.assertEqual(
+            len(call_nodes),
+            0,
+            "the schema helper now HAS a call site, so the split really is "
+            "derived: rewrite `primary_pair_gaps`' docstring, which currently "
+            "says in as many words that it is hand-written",
+        )
+        text = MODULE_FILE.read_text(encoding="utf-8")
+        self.assertIn("the split is HAND-WRITTEN", text)
+        self.assertNotIn(
+            "derives the split from the schema; nothing here types it in",
+            text,
+        )
+
+    def test_the_reachability_inputs_are_actually_read(self):
+        """Guards this class against becoming vacuous: a reachability probe
+        that silently examined zero login shapes would make the obligation
+        below unfalsifiable while looking green."""
+        facts = self._reachable()
+        self.assertGreaterEqual(facts["shapes_examined"], 1)
+        self.assertTrue(set(compose.SERVER_OWNED_FIELDS))
+        self.assertEqual(len(sel.ALTERNATE_PAIR), 2)
+
+    def test_an_unreachable_gate_may_have_no_caller_but_a_reachable_one_may_not(
+        self,
+    ):
+        """THE OBLIGATION ITSELF.  Passes today because the alternate pair is
+        reachable by neither route; goes red the first time either route
+        opens while the gate is still unwired.
+
+        This is deliberately not written as "assert nothing is reachable":
+        the point is not to freeze the schema, it is that opening the route
+        and wiring the gate must land together."""
+        facts = self._reachable()
+        reachable = (
+            facts["admitted_by_a_login_shape"]
+            or facts["backed_by_a_server_column"]
+        )
+        callers = self._callers()
+        if reachable and not callers:
+            self.fail(
+                "x=52/x=53 became reachable "
+                f"(admitted by a login shape: {facts['admitted_by_a_login_shape']}; "
+                f"backed by a server column: {facts['backed_by_a_server_column']}) "
+                "while `guard_armed_block` still has no caller in this tree. "
+                "The commit that opened the route owes the call site: a block "
+                "arming the selector can now carry an alternate pair the "
+                "server never honestly set, which is GT-218's symptom on the "
+                "HUD. Wire `guard_armed_block` at the composer, or close the "
+                "route again."
+            )
+
+    def test_todays_answer_to_that_question_is_recorded_as_measured(self):
+        """The state this round measured, so a future reader can tell whether
+        the obligation above has already fired or has simply never been
+        tested by events."""
+        facts = self._reachable()
+        self.assertEqual(facts["admitted_by_a_login_shape"], [])
+        self.assertEqual(facts["backed_by_a_server_column"], [])
+        self.assertEqual(self._callers(), [])
+
+
+class TheTwoPinsPfAdversaryBrokeAtHeadTests(unittest.TestCase):
+    """Round `m1dmhd`, pf-adversary F4 and F5: two mutants that survived
+    everything this file had, INCLUDING what this round added, found by
+    running the tool against the round's own head rather than its parent."""
+
+    def test_all_reasons_cannot_quietly_lose_a_set(self):
+        """F4.  `ALL_REASONS = PRIMARY_REASONS` SURVIVED (`94 passed`).  The
+        constant's own comment promises "a caller can assert it handled all of
+        them"; under that mutant a caller doing an exhaustive match silently
+        stops handling `REASON_ZERO` -- `GT-218`'s `0/0`, the symptom this
+        whole module exists for -- and `REASON_CONSTRUCTION_DEFAULT`, the
+        `-1/1`.
+
+        Adding an undeclared reason was already killed in both directions;
+        REMOVING a whole set was not, because `ALL_REASONS` was only ever
+        asserted to be a superset of whatever a hand-built block produced."""
+        self.assertEqual(
+            sel.ALL_REASONS, sel.ALTERNATE_REASONS | sel.PRIMARY_REASONS
+        )
+        for reason in (sel.REASON_ZERO, sel.REASON_CONSTRUCTION_DEFAULT):
+            with self.subTest(reason=reason):
+                self.assertIn(reason, sel.ALTERNATE_REASONS)
+                self.assertIn(reason, sel.ALL_REASONS)
+                self.assertNotIn(reason, sel.PRIMARY_REASONS)
+        self.assertIn(sel.REASON_MAX_IS_ZERO, sel.PRIMARY_REASONS)
+        self.assertNotIn(sel.REASON_MAX_IS_ZERO, sel.ALTERNATE_REASONS)
+        # Neither set may be absorbed into the other, in either direction.
+        self.assertNotEqual(sel.ALL_REASONS, sel.PRIMARY_REASONS)
+        self.assertNotEqual(sel.ALL_REASONS, sel.ALTERNATE_REASONS)
+
+    def test_the_width_is_read_from_the_table_not_asserted_to_be_32(self):
+        """F5.  `kind = row[5]` -> `kind = "u32"` inside `_row_width_bits`
+        SURVIVED: the D-D derivation -- this round's predecessor's whole
+        point -- could be reverted to a hardcode with the suite green,
+        because the only test looking at it asserts `_row_width_bits(x) == 32`,
+        which a hardcoded "u32" satisfies perfectly.
+
+        The check that cannot be satisfied by a hardcode is a row whose width
+        is NOT 32: `_row_width_bits` must report what the table says for any
+        row, and must refuse a row that is not unsigned at all.  Both are
+        derived from `attr_wire.FIELDS` -- if LANE-GM ships no non-u32
+        unsigned row one day, the first half is skipped, not faked."""
+        widths = {}
+        non_unsigned = None
+        for row in attr_wire.FIELDS:
+            kind = row[5]
+            if isinstance(kind, str) and kind.startswith("u"):
+                widths.setdefault(int(kind[1:]), row[0])
+            elif non_unsigned is None:
+                non_unsigned = row[0]
+
+        for bits, x in widths.items():
+            with self.subTest(x=x, bits=bits):
+                self.assertEqual(sel._row_width_bits(x), bits)
+        # NOT A SKIP, DELIBERATELY.  The first draft of this test guarded the
+        # single-width case with a unittest skip call, and the gate was right
+        # to refuse it: a skip here would be exactly the "close an adversary
+        # finding with a skip pin" that `NOW.md` `0945` bans, and this test
+        # exists to answer an adversary finding.  Measured instead --
+        # `gm/attr_wire.FIELDS` carries FOUR distinct unsigned widths today
+        # (u8 x8, u16 x18, u32 x12, u64 x6) -- so the branch was unreachable
+        # and the honest form is an assertion: the day LANE-GM collapses the
+        # table to one width, this goes red and someone re-reads the test
+        # rather than a skip quietly appearing in the census.
+        self.assertGreaterEqual(
+            len(widths),
+            2,
+            "every unsigned row in FIELDS now has the same width, so this "
+            "test can no longer tell a table read from a hardcoded 'u32'",
+        )
+
+        # F5's second half: an i32/f32 row must raise, not be coerced.  These
+        # were the only two statements in the module the suite never executed.
+        if non_unsigned is not None:
+            with self.assertRaises(sel.HpPairError):
+                sel._row_width_bits(non_unsigned)
+        with self.assertRaises(sel.HpPairError):
+            sel._row_width_bits(max(row[0] for row in attr_wire.FIELDS) + 1)
+
+
+class TheThreeTautologiesTests(unittest.TestCase):
+    """Round `m1dmhd`.  Three assertions in this file could not fail, because
+    each compared a value against the very expression that produced it.  They
+    are replaced here by checks against the SOURCE the module claims to
+    derive from; the originals are deleted rather than left beside these, so
+    a reader cannot mistake the green for coverage twice."""
+
+    def test_the_construction_defaults_are_the_corpus_numbers_themselves(self):
+        """WAS: `test_defaults_are_the_compose_corpus_copy`, which asserted
+        `ALTERNATE_CONSTRUCTION_DEFAULTS == (corpus[52].value, corpus[53].value)`
+        -- the module's own defining expression, so it could not fail.
+
+        What the module actually rests on is the VALUES: the whole
+        `0xFFFFFFFF <-> -1` narrative, `GT-291`'s ticket and the KNOWN
+        CONSERVATISM paragraph all assume these two numbers.  Pin those, so
+        the day the corpus is re-measured this goes red instead of following
+        the change in silence."""
+        self.assertEqual(
+            compose.CLIENT_CONSTRUCTION_DEFAULTS[sel.ALTERNATE_PAIR[0]].value,
+            0xFFFFFFFF,
+        )
+        self.assertEqual(
+            compose.CLIENT_CONSTRUCTION_DEFAULTS[sel.ALTERNATE_PAIR[1]].value,
+            1,
+        )
+        self.assertEqual(
+            sel.ALTERNATE_CONSTRUCTION_DEFAULTS, (0xFFFFFFFF, 1)
+        )
+
+    def test_the_armed_value_is_bound_once_and_only_from_the_wire_module(self):
+        """WAS: the first assertion of
+        `test_the_armed_value_is_imported_from_the_wire_module`, which
+        asserted `sel.SELECTOR_ARMED_VALUE == attr_wire.SELECTOR_COMPARED_VALUE`
+        one line after the module assigned the first from the second.
+
+        What can actually fail is the claim the docstring makes: that there is
+        exactly ONE binding and it is the import.  A later edit adding a
+        second assignment -- a fallback, an override, a test hook -- is what
+        would make the imported value stop being the value in force, and that
+        is what this counts."""
+        module_text = MODULE_FILE.read_text(encoding="utf-8")
+        bindings = re.findall(
+            r"^SELECTOR_ARMED_VALUE.*=.*$", module_text, re.MULTILINE
+        )
+        self.assertEqual(
+            bindings,
+            ["SELECTOR_ARMED_VALUE: int = attr_wire.SELECTOR_COMPARED_VALUE"],
+        )
+
+    def test_every_gap_from_either_predicate_carries_the_wire_tables_name(
+        self,
+    ):
+        """WAS: `test_every_gap_carries_the_wire_table_name`, which compared
+        `gap.field_name` against `sel._field_name(gap.x)` -- the function that
+        had just produced it, so no mutation of `_field_name` could be seen.
+
+        Compares against `attr_wire.FIELDS` directly instead, and covers BOTH
+        predicates: the surviving non-tautological version
+        (`test_the_field_names_match_the_wire_table_not_this_module`) only
+        ever looked at the alternate pair, so `primary_pair_gaps` had no name
+        check at all after round `2v18x3` widened the gate onto it."""
+        by_x = {row[0]: row[6] for row in attr_wire.FIELDS}
+        blocks = (
+            {},
+            {sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE},
+            {sel.PRIMARY_PAIR[0]: 0, sel.PRIMARY_PAIR[1]: 0},
+            {sel.PRIMARY_PAIR[0]: 200, sel.PRIMARY_PAIR[1]: 100},
+        )
+        seen = 0
+        for values in blocks:
+            gaps = sel.alternate_pair_gaps(values) + sel.primary_pair_gaps(
+                values
+            )
+            for gap in gaps:
+                seen += 1
+                with self.subTest(values=values, x=gap.x):
+                    self.assertEqual(gap.field_name, by_x[gap.x])
+        # A loop that never ran would be the fourth tautology.
+        self.assertGreaterEqual(seen, 8)
+
+
+class TheCrossLaneLineNumbersAreCheckedTests(unittest.TestCase):
+    """Round `m1dmhd`, pf-adversary `2v18x3` D-F.  This module cites
+    `gm/attr_wire.py` by LINE NUMBER.  Every citation was correct on the day
+    it was written and nothing re-checked any of them, so the first time
+    LANE-GM inserts a paragraph they all quietly become citations of the
+    wrong lines -- in a module whose entire authority is that its claims are
+    traceable.
+
+    The set of citations is DERIVED from the module text, so a new citation
+    cannot be added without an anchor for it; the anchors are what each
+    citation is relied upon to say.  (The count is deliberately not written
+    down here: a number in this docstring would be one more unchecked claim
+    of exactly the kind this class exists to catch.)
+
+    TWO SPELLINGS, BECAUSE THE FIRST VERSION ONLY CAUGHT ONE (pf-adversary
+    round `m1dmhd`, F6).  It matched `gm/attr_wire.py:NNN` and missed the
+    BARE form -- a backticked `` `:1568` `` leaning on a filename named in an
+    earlier clause.  That was not hypothetical: the one citation in the module
+    that was actually WRONG was written that way, and this class could not
+    see it.  It cited line 1568 as `_refuse_selector_change`'s docstring; 1568
+    is code, belonging to a different fence entirely.  The module no longer
+    carries a bare citation, and the pattern below now refuses to let one back
+    in unanchored."""
+
+    #: `gm/attr_wire.py:NNN[-NNN]`, or a bare backticked `` `:NNN[-NNN]` ``.
+    CITATION_RE = re.compile(
+        r"gm/attr_wire\.py:\d+(?:-\d+)?|(?<=`):\d+(?:-\d+)?(?=`)"
+    )
+
+    #: citation -> a substring that must still be inside the cited span.
+    ANCHORS = {
+        "gm/attr_wire.py:105": "RE-222",
+        "gm/attr_wire.py:211-213": "alt_hp_current/alt_hp_max",
+        "gm/attr_wire.py:955": "admitted_sets",
+        "gm/attr_wire.py:980-991": "NAMED FALSE POSITIVE",
+        "gm/attr_wire.py:989-990": "the second clause is dead",
+        "gm/attr_wire.py:992": "SELECTOR_ROW_X) == SELECTOR_COMPARED_VALUE",
+    }
+
+    def _citations(self):
+        text = MODULE_FILE.read_text(encoding="utf-8")
+        return sorted(set(self.CITATION_RE.findall(text)))
+
+    def test_every_citation_in_the_module_has_an_anchor(self):
+        """The derived half: adding a line-number citation -- in EITHER
+        spelling -- without saying what it is relied upon to say fails here,
+        so this pin cannot rot by omission."""
+        self.assertEqual(self._citations(), sorted(self.ANCHORS))
+
+    def test_a_bare_citation_cannot_slip_in_unanchored(self):
+        """F6's escape hatch, held closed.  Proves the pattern sees the bare
+        form, without waiting for someone to write one into the module."""
+        self.assertEqual(
+            sorted(
+                self.CITATION_RE.findall(
+                    "the fence at `gm/attr_wire.py:992`, and its docstring "
+                    "(`:1568`) says so"
+                )
+            ),
+            [":1568", "gm/attr_wire.py:992"],
+        )
+        self.assertNotIn(":1568", self.ANCHORS)
+
+    def test_every_cited_span_still_contains_what_it_is_cited_for(self):
+        lines = (
+            (SRC / "gm" / "attr_wire.py").read_text(encoding="utf-8").splitlines()
+        )
+        for citation in self._citations():
+            span = citation.rsplit(":", 1)[1]
+            first = int(span.split("-")[0])
+            last = int(span.split("-")[-1])
+            with self.subTest(citation=citation):
+                self.assertLessEqual(last, len(lines), citation)
+                cited = "\n".join(lines[first - 1:last])
+                self.assertIn(self.ANCHORS[citation], cited, citation)
+
+
+class TheTwoSignedConvertersAgreeTests(unittest.TestCase):
+    """Round `m1dmhd`, pf-adversary `2v18x3` D-K.  `as_signed_row_value` and
+    `gm/attr_wire.validate_field_value` both decide whether a value fits the
+    row it is going onto, from the same table, in two places.
+
+    PROBED, NOT REASONED ABOUT: 60 (row, value) pairs across x=3/4/52/53 --
+    including both width boundaries, the construction defaults, a bool, a
+    float, a string and None -- and the two AGREE on every one.  So this
+    round does not collapse them (a refusal gate is the wrong place to
+    refactor on a hunch); it pins the agreement, so the day one of the two
+    moves, the duplication announces itself instead of becoming a
+    divergence between what LANE-GM validates and what this gate prints."""
+
+    def test_the_two_deciders_accept_and_reject_the_same_values(self):
+        by_x = {row[0]: row for row in attr_wire.FIELDS}
+        values = (
+            0, 1, 2, 100, 0xFFFF, 0x10000, 0x7FFFFFFF, 0x80000000,
+            0xFFFFFFFF, 0x100000000, -1, "x", 1.5, True, None,
+        )
+        checked = 0
+        for x in sel.PRIMARY_PAIR + sel.ALTERNATE_PAIR:
+            for value in values:
+                checked += 1
+                with self.subTest(x=x, value=value):
+                    try:
+                        sel.as_signed_row_value(x, value)
+                        ours = "accept"
+                    except sel.HpPairError:
+                        ours = "reject"
+                    try:
+                        attr_wire.validate_field_value(by_x[x], value)
+                        theirs = "accept"
+                    except Exception:
+                        theirs = "reject"
+                    self.assertEqual(ours, theirs)
+        self.assertEqual(checked, 60)
+
+
+if __name__ == "__main__":
+    unittest.main()
