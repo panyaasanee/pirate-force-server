@@ -19,6 +19,8 @@ class _Mirror(TextIO):
     def __init__(self, console: TextIO, retained: TextIO) -> None:
         self._console = console
         self._retained = retained
+        self._detached = False
+        self._fallback: TextIO | None = None
         self._lock = threading.RLock()
 
     @property
@@ -42,14 +44,54 @@ class _Mirror(TextIO):
         if not isinstance(value, str):
             raise TypeError("runtime console accepts text only")
         with self._lock:
+            if self._detached:
+                return len(value)
             self._console.write(value)
             self._retained.write(value)
         return len(value)
 
     def flush(self) -> None:
         with self._lock:
+            if self._detached:
+                return
             self._console.flush()
             self._retained.flush()
+
+    def stop_mirroring(self, fallback: TextIO) -> None:
+        """Stop writing to both sinks, without raising, forever.
+
+        Called by ``RuntimeConsole.close()`` immediately BEFORE the
+        retained file (and possibly the console) is closed.  A mirror can
+        outlive its owner: when two consoles are nested, closing them out
+        of order leaves ``sys.stdout`` pointing at the older mirror, and a
+        mirror over a closed file turns every later ``print()`` into a
+        ValueError -- at interpreter shutdown that is exit code 120, with
+        no traceback naming this module.  Dropping the text is the lesser
+        of the two harms: the process is already tearing its console down.
+        """
+        with self._lock:
+            self._detached = True
+            self._fallback = fallback
+
+
+def _live_stream(stream: TextIO) -> TextIO:
+    """Skip past mirrors that a nested owner already tore down.
+
+    Restoring is a chain, not a single hop: with two consoles alive at
+    once the inner one remembers the outer one's mirror as "previous".
+    Closing them in either order must land on a stream that is still
+    writable, so follow the fallback each dead mirror left behind.
+    """
+    seen: set[int] = set()
+    while (
+        isinstance(stream, _Mirror)
+        and stream._detached
+        and stream._fallback is not None
+        and id(stream) not in seen
+    ):
+        seen.add(id(stream))
+        stream = stream._fallback
+    return stream
 
 
 def build_console_mirror(console: TextIO, retained: TextIO) -> TextIO:
@@ -104,23 +146,47 @@ class RuntimeConsole:
         self._previous_err = sys.stderr
         self._closed = False
         self._lock = threading.RLock()
-        sys.stdout = build_console_mirror(console_out, self._retained_out)
-        sys.stderr = build_console_mirror(console_err, self._retained_err)
+        self._installed_out = build_console_mirror(
+            console_out, self._retained_out,
+        )
+        self._installed_err = build_console_mirror(
+            console_err, self._retained_err,
+        )
+        sys.stdout = self._installed_out
+        sys.stderr = self._installed_err
 
     def close(self) -> None:
         with self._lock:
             if self._closed:
                 return
             self._closed = True
-            current_out, current_err = sys.stdout, sys.stderr
             try:
-                current_out.flush()
-                current_err.flush()
+                self._installed_out.flush()
+                self._installed_err.flush()
             finally:
-                sys.stdout = self._previous_out
-                sys.stderr = self._previous_err
-                self._retained_out.close()
-                self._retained_err.close()
+                # Restore per stream, and only when the stream this
+                # instance installed is still the one in place.  Handing
+                # `_previous_out` back unconditionally hands a LATER
+                # owner's stdout to an EARLIER owner's dead mirror.
+                if sys.stdout is self._installed_out:
+                    sys.stdout = _live_stream(self._previous_out)
+                if sys.stderr is self._installed_err:
+                    sys.stderr = _live_stream(self._previous_err)
+                try:
+                    # A substituted factory may return a plain stream:
+                    # tearing the mirror down must never be the reason
+                    # the retained files stay open forever, because
+                    # `_closed` is already True and no retry can help.
+                    for installed, previous in (
+                        (self._installed_out, self._previous_out),
+                        (self._installed_err, self._previous_err),
+                    ):
+                        stop = getattr(installed, "stop_mirroring", None)
+                        if stop is not None:
+                            stop(previous)
+                finally:
+                    self._retained_out.close()
+                    self._retained_err.close()
                 if self._close_console_streams:
                     self._console_out.close()
                     self._console_err.close()

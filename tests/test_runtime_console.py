@@ -169,8 +169,12 @@ class ConsoleMirrorFactoryTests(unittest.TestCase):
         # goes back to constructing _Mirror directly, because then GM's
         # test holds one object and the operator reads another.
         class Sentinel(io.StringIO):
-            pass
+            # RuntimeConsole tears down what it installed, so a stand-in
+            # for the factory's product has to be tear-downable too.
+            def stop_mirroring(self, fallback):
+                torn_down.append((self, fallback))
 
+        torn_down = []
         built = []
 
         def factory(console, retained):
@@ -195,6 +199,101 @@ class ConsoleMirrorFactoryTests(unittest.TestCase):
         self.assertIs(installed[1], built[1][2])
         self.assertIs(built[0][0], out)
         self.assertIs(built[1][0], err)
+        self.assertEqual([pair[0] for pair in torn_down], list(installed))
+
+
+
+class RuntimeConsoleLifetimeTest(unittest.TestCase):
+    """Two consoles alive at once, and the argument order of the factory.
+
+    Both cases come from the adversary pass on `#1022` (findings D1 and
+    the second half of D5).  Neither had a test that could go red.
+    """
+
+    def test_factory_writes_the_console_before_the_retained_file(self):
+        # D1: the previous test wrote the same text to two look-alike
+        # sinks, so `_Mirror(retained, console)` stayed green.  Order is
+        # load-bearing, and DISPUTED: `test_gm_login_scene_admission.py`
+        # reads the same console-first order as the hazard (a cp874
+        # console raised and the refusal was then recorded nowhere).
+        # This pins the order the code ships with TODAY so it cannot
+        # drift silently; which order is right is open, and turns on
+        # `write()` not being atomic across its two sinks.
+        # Nothing here pins encoding/errors (D2 is undecided).
+        order: list[str] = []
+
+        class _Recorder(io.StringIO):
+            def __init__(self, name: str) -> None:
+                super().__init__()
+                self._name = name
+
+            def write(self, value: str) -> int:
+                order.append(self._name)
+                return super().write(value)
+
+        console, retained = _Recorder("console"), _Recorder("retained")
+        build_console_mirror(console, retained).write("summary\n")
+        self.assertEqual(order, ["console", "retained"])
+
+    def test_a_dying_console_never_hands_stdout_a_dead_mirror(self):
+        # D5: `close()` used to restore `_previous_out` unconditionally.
+        # With two consoles alive, that hands the LATER owner's stdout to
+        # the EARLIER owner's mirror, whose retained file is closed --
+        # every later print() raises ValueError, and the interpreter
+        # exits 120 while flushing at shutdown.  Both close orders.
+        for order in ("outer-first", "inner-first"):
+            with self.subTest(order=order):
+                with tempfile.TemporaryDirectory() as tmp:
+                    previous_out, previous_err = sys.stdout, sys.stderr
+                    outer = RuntimeConsole(
+                        Path(tmp) / "outer", io.StringIO(), io.StringIO(),
+                        close_console_streams=False,
+                    )
+                    inner = RuntimeConsole(
+                        Path(tmp) / "inner", io.StringIO(), io.StringIO(),
+                        close_console_streams=False,
+                    )
+                    try:
+                        first, second = (
+                            (outer, inner) if order == "outer-first"
+                            else (inner, outer)
+                        )
+                        first.close()
+                        # The guard itself: closing one console must not
+                        # take stdout away from the one still running.
+                        self.assertIs(sys.stdout, second._installed_out)
+                        self.assertIs(sys.stderr, second._installed_err)
+                        second.close()
+                    finally:
+                        outer.close()
+                        inner.close()
+                        restored_out, restored_err = sys.stdout, sys.stderr
+                        sys.stdout, sys.stderr = previous_out, previous_err
+                    self.assertIs(restored_out, previous_out)
+                    self.assertIs(restored_err, previous_err)
+
+    def test_a_mirror_that_outlived_its_files_drops_text_instead_of_raising(
+        self,
+    ):
+        # The same failure seen from the object's side: whatever still
+        # holds a closed console's mirror must not turn print() into an
+        # exception at interpreter shutdown.
+        with tempfile.TemporaryDirectory() as tmp:
+            previous_out, previous_err = sys.stdout, sys.stderr
+            runtime = RuntimeConsole(
+                Path(tmp), io.StringIO(), io.StringIO(),
+                close_console_streams=False,
+            )
+            leaked = sys.stdout
+            try:
+                runtime.close()
+            finally:
+                sys.stdout, sys.stderr = previous_out, previous_err
+            self.assertEqual(leaked.write("after close\n"), len("after close\n"))
+            leaked.flush()
+            self.assertEqual(
+                (Path(tmp) / "server_console_live.out.txt").read_bytes(), b"",
+            )
 
 if __name__ == "__main__":
     unittest.main()
