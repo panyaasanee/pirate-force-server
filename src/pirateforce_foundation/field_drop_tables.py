@@ -12,7 +12,7 @@ a real row because of it.
 DROPS_QUEST IS ABSENT ON PURPOSE.  Only 311 of the 2478 DROPS_QUEST
 sets the mobs reference exist client-side, so ~87 pct of that model is
 missing and any DROPS_QUEST row written here would be invention.
-58 roster row(s) name one; they are carried without it.
+93 roster row(s) name one; they are carried without it.
 
 ``drop_model_type`` is copied for information and is NOT a claim.  In
 particular a nonzero value is NOT SUFFICIENT to make an item model
@@ -216,6 +216,9 @@ DROPS_EQUIPMENT = {
 }
 
 DROPS_SPECIALLY = {
+    2802202: (0.0, 1, 1, (
+        (1, 2414002, 100),
+    )),
     2802205: (0.0, 1, 1, (
         (1, 2414005, 100),
     )),
@@ -233,6 +236,12 @@ DROPS_SPECIALLY = {
     )),
     2802219: (0.0, 1, 1, (
         (1, 2414019, 100),
+    )),
+    2802222: (0.0, 1, 1, (
+        (1, 2414022, 100),
+    )),
+    2802228: (0.0, 1, 1, (
+        (1, 2414028, 100),
     )),
     2802234: (0.0, 1, 1, (
         (1, 2414034, 100),
@@ -323,12 +332,15 @@ ITEMS = {
     2406957: (24, 6957, 'Light Color Red Crystal', 0),
     2406958: (24, 6958, 'Light Color Blue Crystal', 0),
     2406959: (24, 6959, 'Light Color Green Crystal', 0),
+    2414002: (24, 14002, 'Sediment Wolf', 0),
     2414005: (24, 14005, 'Red Flame Demon Wolf', 0),
     2414008: (24, 14008, 'Jungle Tiger', 0),
     2414011: (24, 14011, 'Ned King Kong', 0),
     2414014: (24, 14014, 'Hell King Kong', 0),
     2414015: (24, 14015, 'Ward Kingkong', 0),
     2414019: (24, 14019, 'Toxic Vine', 0),
+    2414022: (24, 14022, 'Mountain Deer', 0),
+    2414028: (24, 14028, 'Rock turtle', 0),
     2414034: (24, 14034, 'Desert Eagle', 0),
     2414035: (24, 14035, 'Blood red eagle', 0),
     2414036: (24, 14036, 'Forest Green Eagle', 0),
@@ -345,25 +357,28 @@ ITEMS = {
 
 # set id -> the MOBS template ids that reference it, in roster order
 REFERENCED_BY = {
-    2701001: (31, 34, 35),
+    2701001: (28, 27, 29, 30, 33, 31, 32, 34, 35),
     2701002: (61, 62, 65, 60, 194, 515, 907),
-    2701003: (103, 94, 97, 519, 246),
+    2701003: (94, 97, 103, 519, 246),
     2701004: (148, 150, 144, 146, 523, 525),
     2701010: (343, 345, 348, 350, 353, 355),
+    2802202: (33,),
     2802205: (348,),
     2802208: (60,),
     2802211: (150,),
     2802214: (353,),
     2802215: (65,),
     2802219: (61,),
-    2802234: (31,),
+    2802222: (27,),
+    2802228: (32,),
+    2802234: (30, 31),
     2802235: (144,),
     2802236: (97,),
     2802250: (343,),
     2802253: (94,),
     2802264: (34, 35),
-    5400001: (31, 34, 35),
+    5400001: (28, 27, 29, 30, 33, 31, 32, 34, 35),
     5400002: (61, 62, 65, 60, 194, 515, 907, 94),
-    5400003: (103, 97, 519, 246, 148, 150, 144, 146, 523, 525),
+    5400003: (97, 103, 519, 246, 148, 150, 144, 146, 523, 525),
     5400004: (343, 345, 348, 350, 353, 355),
 }

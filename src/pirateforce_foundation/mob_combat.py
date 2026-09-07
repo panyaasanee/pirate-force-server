@@ -383,6 +383,15 @@ MOB_ABILITY_CON = 22
 # derives every cell below from the fixture rows, none of them is typed twice:
 #
 #   scene 2 (Bg0002, the roster P-1's attended round fights)
+#   ROUND najn72: the scene was re-mined through the crosswalk with the
+#   owner's outfit rule (NOW.md `1313`, tick 20260908_0025), so this table
+#   grew from two levels to six.  ~~two rows~~ -> six, and the finding is
+#   unchanged and now rests on three times as much data: the hits-to-kill
+#   column is IDENTICAL on both sides for every level the scene ships.
+#     level 16, 1054 HP: defence  53 -> 975 dmg ->  2 hits |  74 -> 956 ->  2
+#     level 17, 1201 HP: defence  56 -> 974 dmg ->  2 hits |  80 -> 949 ->  2
+#     level 19, 1569 HP: defence  64 -> 972 dmg ->  2 hits |  94 -> 934 ->  2
+#     level 23, 2525 HP: defence  86 -> 968 dmg ->  3 hits | 126 -> 896 ->  3
 #     level 25, 3138 HP: defence  79 -> 966 dmg ->  4 hits | 172 -> 873 ->  4
 #     level 27, 3857 HP: defence  81 -> 964 dmg ->  5 hits | 196 -> 849 ->  5
 #   scene 1 (Port Royal, the four Training Iron Man dummies)

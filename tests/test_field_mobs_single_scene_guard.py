@@ -85,7 +85,13 @@ class SingleSceneGuardTests(unittest.TestCase):
         field_mobs.assert_single_scene_tables((field_mob_tables_bg0002,))
         bg0002_roster = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
         # ROUND wmomy7: ~~17~~ -> 12 (owner-refused placements 92-96).
-        self.assertEqual(len(bg0002_roster), 12)
+        # ROUND najn72: ~~12~~ -> 52.  The scene was re-mined through the
+        # crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+        # 20260908_0025); the refusal above is untouched and removes nothing
+        # now, because the crosswalk resolves no body for 92-96.  What this
+        # card is about -- a one-module tuple being accepted by the guard
+        # that refuses a cross-scene one -- is unchanged.
+        self.assertEqual(len(bg0002_roster), 52)
         for mob in bg0002_roster:
             self.assertEqual(mob.scene, "Bg0002")
 

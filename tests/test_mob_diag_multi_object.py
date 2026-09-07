@@ -89,17 +89,33 @@ class DiagObjectsTests(unittest.TestCase):
 
     def test_the_body_is_the_hand_mined_mountain_deer_row_not_a_roster_search(
             self):
-        # Template 27 is NOT a member of either generated roster -- this is
-        # the replacement for the old "search field_mobs.load_roster()"
-        # assertion, which no longer applies (that search would now find
-        # nothing at all, in either scene).
+        # ~~Template 27 is NOT a member of either generated roster~~ --
+        # ROUND najn72: it is a member of Bg0002's now (the scene was
+        # re-mined through the crosswalk with the owner's outfit rule,
+        # NOW.md `1313`, tick 20260908_0025, and template 27 "Mountain
+        # Deer" ships at placements 36-39).  The claim this card makes is
+        # about PROVENANCE, not scarcity: DIAG-001's body is the HAND-MINED
+        # row in mob_diag_multi_object, and it must stay hand-mined even
+        # now that a roster search would find a row with the same template.
+        # So the assertion is strengthened rather than dropped: the control
+        # is not merely template 27, it is not any Bg0002 row -- different
+        # scene, different position, different identity -- which is exactly
+        # what a roster search would have returned if somebody replaced the
+        # hand-mined row with one.
         control = self.by_label[diag.DIAG_LABEL_CONTROL].mob
         self.assertEqual(control.template_id, diag.DIAG_MOUNTAIN_DEER_TEMPLATE_ID)
         self.assertEqual(control.template_id, 27)
         for mob in field_mobs.load_roster():
             self.assertNotEqual(mob.template_id, 27)
-        for mob in field_mobs.load_roster(scene=field_mobs.BG0002_SCENE):
-            self.assertNotEqual(mob.template_id, 27)
+        scene2 = field_mobs.load_roster(scene=field_mobs.BG0002_SCENE)
+        scene2_deer = [mob for mob in scene2 if mob.template_id == 27]
+        self.assertEqual(
+            [mob.placement_index for mob in scene2_deer], [36, 37, 38, 39])
+        self.assertNotEqual(control.scene, field_mobs.BG0002_SCENE)
+        for mob in scene2_deer:
+            self.assertNotEqual(control.actor_identity, mob.actor_identity)
+            self.assertNotEqual(
+                (control.x, control.y, control.z), (mob.x, mob.y, mob.z))
         self.assertEqual(control.visual_preset, diag.DIAG_MOUNTAIN_DEER_VISUAL_PRESET)
         self.assertEqual(control.display_name, "Mountain Deer")
         self.assertEqual(control.max_hp, diag.DIAG_MOUNTAIN_DEER_MAX_HP)

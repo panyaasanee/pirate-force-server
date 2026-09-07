@@ -303,15 +303,27 @@ MOB_AGGRO_DAMAGE_FOLD_REACHABLE = True
 # WHAT THIS DOES NOT SAY.  Reachable is not observable and is not even
 # "the AI did something": ~~every shipped roster is non-offensive, so on a
 # walk past an undamaged mob the tick returns a register equal to the one
-# it was given~~ STRUCK, round `nfrrqa`, MEASURED AND FALSE.  Driven on the
-# real Bg0002 roster -- the scene the owner actually plays in, not bg0001 --
-# through mob_ai_scheduler.tick_session: 17 rows, FIVE acquire the player by
-# proximity (ai_wander 11: n_OFFESIVE = 1, n_AGGRO = 1200), and placement 92
-# ("Orc Chief", template 103, the one of those five with a combat script)
-# returns INTENT_ATTACK_UNDELIVERABLE on EVERY tick inside
-# mob_ai_control.MELEE_ATTACK_RANGE, because ATTACK_CADENCE_TICKS is 1.  The
-# struck sentence is true of bg0001's four dummies only, and it was carried
-# from there to "every roster" without being re-driven.  A card in
+# it was given~~ STRUCK, round `nfrrqa`, MEASURED AND FALSE.  Driven on a real
+# shipped roster through mob_ai_scheduler.tick_session, not on bg0001's four
+# dummies.
+# ROUND najn72: the MEASUREMENT that stood here is re-measured, and the scene
+# it named has changed sides.  ~~Bg0002: 17 rows, FIVE acquire the player by
+# proximity, and placement 92 ("Orc Chief", template 103) returns
+# INTENT_ATTACK_UNDELIVERABLE on every tick inside
+# mob_ai_control.MELEE_ATTACK_RANGE~~ -- scene 2 was re-mined under the
+# crosswalk identity rule (NOW.md `1313`, owner tick 20260908_0025) and now
+# ships 52 rows of which ZERO are offensive: every one is ai_wander 16
+# (n_OFFESIVE = 0), and placements 92-96 are not in its table at all.  So on
+# the scene the owner actually plays in, the struck sentence is true again --
+# and it is STILL STRUCK, because it was written as a claim about EVERY
+# shipped roster and that is what is false.  Re-driven this round on Bg0003,
+# a live scene: 12 rows, TWO offensive (ai_wander 11: n_OFFESIVE = 1,
+# n_AGGRO = 1200), and with a player standing on placement 33 ("Ward Apes",
+# template 65) ONE row acquires and returns INTENT_ATTACK_UNDELIVERABLE on
+# every tick inside mob_ai_control.MELEE_ATTACK_RANGE, because
+# ATTACK_CADENCE_TICKS is 1.  The card in tests/test_mob_aggro.py derives
+# both halves -- the scene that decides and the scene that does not -- so
+# neither sentence is prose again.  A card in
 # tests/test_mob_aggro.py now derives the count instead of the prose
 # asserting it.  WHAT IS STILL TRUE, and is the part that matters here:
 # ATTACK_INTENT_DELIVERABLE below is still False and Door B is still shut --
