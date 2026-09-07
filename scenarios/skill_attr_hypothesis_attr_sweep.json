@@ -30,6 +30,7 @@
     "identity_policy": "refuse_unless_selected_is_the_pinned_probe",
     "probe_identity_lo": 268500993,
     "probe_identity_hi": 0,
+    "character_class_id": null,
     "spacing_seconds": 3.0,
     "first_frame_delay_seconds": 0.0,
     "delay_semantics": "gap_before_each_send_on_a_cumulative_deadline",
