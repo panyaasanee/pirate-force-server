@@ -158,22 +158,36 @@ class PayoutTests(unittest.TestCase):
         self.assertIsNone(payout)
         self.assertEqual(reason, reward.REFUSE_STORE_NOT_ATOMIC)
 
-    def test_the_real_store_class_is_refused_today(self):
-        """The measured fact this round reports, not an opinion about it.
+    def test_the_real_store_class_now_answers_the_atomic_add(self):
+        """LANE-DB landed `add_typed_attribute`; this is the same tripwire,
+        turned round to hold the new fact shut.
 
-        If LANE-DB lands `add_typed_attribute` on `store.Store`, THIS test
-        goes red -- which is the point: the round that gets the method is
-        the round that must delete this test and prove a payout instead.
+        The test that stood here asserted the method was ABSENT and said in
+        its own docstring that the round which lands it must delete it and
+        prove a payout instead.  That proof exists and is named rather than
+        described: `tests/test_store_add_typed_attribute.py`'s
+        `QuestRewardReachesARealRowTests` resolves a criteria reward from
+        this repository's own mirror, pays it through `reward.pay` into a
+        real `SQLiteStore`, and reads the number back off disk through a
+        second connection.
+
+        What is left here is the half THIS lane depends on and can check
+        from its own side: the capability `_has_atomic_add` looks for is
+        really on the class, so `pay` no longer refuses a real store.  The
+        contract behind the name -- one transaction, no guessed zero -- is
+        still not checkable from here, which is what `QuestRewardStore`
+        says at length and what the LANE-DB file measures.
         """
         from pirateforce_foundation import store as store_module
 
         self.assertTrue(hasattr(store_module, "SQLiteStore"),
                         "store.py's character store was renamed: this test "
                         "is asking about the wrong class")
-        self.assertFalse(
-            hasattr(store_module.SQLiteStore, "add_typed_attribute"),
-            "store.SQLiteStore grew add_typed_attribute: wire lua_api.reward "
-            "to it and replace this test with one that pays a real row")
+        self.assertTrue(
+            reward._has_atomic_add(store_module.SQLiteStore),
+            "store.SQLiteStore lost add_typed_attribute: reward.pay refuses "
+            "every payout on a real store without it, silently, and 1,039 "
+            "quest reward rows go unpaid")
 
     def test_the_real_store_would_be_refused_by_pay_not_worked_around(self):
         """Not just "the method is absent" -- what `pay` DOES about it.

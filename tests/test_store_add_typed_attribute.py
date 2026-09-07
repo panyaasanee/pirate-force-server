@@ -8,10 +8,20 @@ the store has no such method; 1,039 of 1,213 quest reward rows have real
 numbers waiting behind it.  This file measures `SQLiteStore.
 add_typed_attribute`, the method that answers it.
 
-WHAT THIS FILE DOES NOT PROVE.  Nothing here is client-observable.  This
-lane owns the store method; whether a player sees experience move is
-LANE-Q's `pay()` reaching a real quest completion on a real connection, and
-their own suite is what goes red the day this method lands.
+WHAT THIS FILE DOES AND DOES NOT PROVE.  `QuestRewardReachesARealRowTests`
+at the bottom pays one resolved criteria reward through LANE-Q's `pay()`
+into a real `SQLiteStore` and reads it back off disk, which is as far as
+this side of the seam reaches.  What is still NOT proven here is
+client-observable: whether a player sees experience move needs `pay()`
+reached from a real quest completion on a real connection, which is
+LANE-Q's half.
+
+Round `coqzj0` wrote here that "their own suite is what goes red the day
+this method lands" and then shipped without acting on it:
+`tests/test_script_lua_api_reward.py::PayoutTests::test_the_real_store_
+class_is_refused_today` did exactly that, the Windows gate closed
+`pirate-force-server#1032` for it, and the whole round had to be recovered
+in round `ueaey7`.  Seeing a tripwire is not the same as paying it.
 
 THE ONE CONTRACT A CALLER CANNOT SEE is atomicity: LANE-Q wrote in as many
 words that a method of this NAME whose body was a read-modify-write would
@@ -31,6 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation.lua_api import quest_criteria, reward  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.persistence_typed_attrs import (  # noqa: E402
     TYPED_COLUMNS,
@@ -275,6 +286,76 @@ class AtomicityTests(_StoreFixture):
             f"got {total} from {expected} adds, which means this control is "
             "not measuring what it claims to",
         )
+
+
+class QuestRewardReachesARealRowTests(_StoreFixture):
+    """The payout LANE-Q's tripwire asked the landing round to prove.
+
+    `tests/test_script_lua_api_reward.py` carried a test asserting this
+    method was ABSENT, whose docstring said that the round which lands it
+    must delete it and prove a payout instead.  This is that proof: a
+    criteria reward resolved from this repository's own quest mirror, paid
+    through `lua_api.reward.pay` into a real `SQLiteStore`, and then read
+    back OFF DISK through a second connection rather than believed from the
+    return value of the call that claimed to have written it.
+
+    THE TWO LAYERS ARE KEPT APART.  `payout.balance_after` is what the
+    method SAID; `reread.read_typed_attributes` is what the file HOLDS.  A
+    method that returned the right number and wrote nothing passes the
+    first and fails the second.
+    """
+
+    def _a_resolvable_quest(self):
+        """A quest id whose Exp criteria resolves to a positive number.
+
+        Derived from the mirror, never typed in: the id that resolves today
+        is a property of `gamedata`, and a hardcoded one would go red for
+        the wrong reason the day a row moves.
+        """
+        for quest_id in sorted(quest_criteria.load_reward_rows()):
+            amount, reason = quest_criteria.resolve_for_api(
+                "AddCriteriaExp", quest_id)
+            if amount is not None and amount.amount > 0:
+                return quest_id, amount
+        self.fail("no quest in the mirror resolves a positive Exp criteria: "
+                  "the mirror or the resolver is broken, not this door")
+
+    def test_a_resolved_quest_reward_lands_on_the_row_and_survives_a_reread(self):
+        quest_id, expected = self._a_resolvable_quest()
+        character = self._with("experience", 1000)
+
+        payout, reason = reward.pay(
+            "AddCriteriaExp", character.id, quest_id, store=self.store)
+
+        self.assertIsNone(reason)
+        self.assertIsNotNone(payout)
+        self.assertEqual(payout.column, "experience")
+        self.assertEqual(payout.balance_after, 1000 + expected.amount)
+
+        reread = SQLiteStore(self.path, MIGRATIONS)
+        self.assertEqual(
+            reread.read_typed_attributes(character.id)["experience"],
+            1000 + expected.amount,
+            "reward.pay reported a balance the file does not hold")
+
+    def test_an_unmeasured_balance_is_refused_by_pay_not_paid_from_a_zero(self):
+        """The contract's second half, seen from LANE-Q's side of the door.
+
+        A character whose `experience` was never measured is NULL, not 0.
+        The door refuses by name; `pay` turns that into `store_error` and
+        leaves the column NULL, so nobody invents a starting point on the
+        way to paying a reward.
+        """
+        quest_id, _expected = self._a_resolvable_quest()
+        character = self._make_character()
+
+        payout, reason = reward.pay(
+            "AddCriteriaExp", character.id, quest_id, store=self.store)
+
+        self.assertIsNone(payout)
+        self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+        self.assertNotIn("experience",
+                         self.store.read_typed_attributes(character.id))
 
 
 if __name__ == "__main__":
