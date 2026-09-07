@@ -119,10 +119,27 @@ the descriptor: `test_a_rename_that_fails_removes_the_temp_file_and_raises`,
 `PermissionError` that an open handle causes there and assert the module
 refuses cleanly, removes its temp file and leaves the operator's file alone.
 That is a real property and it runs on every platform; it is NOT the same as
-counting descriptors, and nobody should read it as such.  The open question --
-what measures the descriptor property itself on Windows -- is asked of COO in
+counting descriptors, and nobody should read it as such.  That sentence is
+permanent: it is not to be deleted in a later round on the grounds that
+everything here is green (COO `20260907_1245` section 4).
+
+The question it used to leave open -- what measures the descriptor property
+itself on Windows -- was put to COO in
 `notes_to_chief/20260907_1211_LANE-GM-ASK-COO-what-measures-descriptors-on-windows.md`
-and is not answered here.
+and RULED ON in `notes_to_chief/20260907_1245_COO-DECISION-gm1211-windows-`
+`measures-the-effect-LANE-GM.md`: NOTHING measures it there, and that is
+accepted, because counting handles through the Windows API is a new tool built
+for one test file.  What is measured there is the CONSEQUENCE, above.  The one
+condition attached to accepting it is `UNMEASURED_ASSERTIONS`: on a host where
+the table cannot be read, `assert_no_descriptor_leaked` appends the calling
+case's id and returns, so "nobody looked" is an event in the run and not an
+absence -- a no-op and a pass are otherwise the same colour in a test report,
+which is how a tree with a real leak injected reached `27 passed`.
+`TheUnmeasuredArmIsRecordedTests` pins all three directions of that: the row
+appears when the reader returns None off Linux, it does NOT appear for a case
+that merely forgot to open the window, and it does not appear on a window that
+really was measured.  The ledger says nothing about descriptors; it says only
+whether anyone looked.
 
 The stand-ins here patch the MODULE ATTRIBUTE (`login_scene_stage.os`), not the
 `os` module itself.  That is the difference from `descriptors_opened_by`, which
@@ -149,6 +166,19 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 
 FD_TABLE = "/proc/self/fd"
+
+# Every time `assert_no_descriptor_leaked` returns WITHOUT having measured
+# anything, it appends the id of the case that called it here.  The list exists
+# so that "the fd table could not be read" is a recorded event and not an
+# absence: on a host where the table is unreadable the assertion is a no-op,
+# and a no-op and a pass are the same colour in a test report.  Read by
+# `TheUnmeasuredArmIsRecordedTests`, which is the only thing in this file that
+# can tell those two apart (COO ruling `20260907_1245`, answering LANE-GM's
+# letter `20260907_1211`; raised by pf-adversary, round `da16dj`, D-2).
+#
+# NOT a substitute for the property.  Nothing in this list says a descriptor
+# was or was not leaked; it says only that nobody looked.
+UNMEASURED_ASSERTIONS: list[str] = []
 
 # Attribute spellings that hand back a descriptor.  `mkdtemp` is deliberately
 # absent: it makes a directory and returns a name, never an fd.
@@ -398,6 +428,12 @@ class _DescriptorCase(unittest.TestCase):
                 "here that can see a leaked descriptor just went silent. Fix "
                 "the reader; do not weaken the fence.",
             )
+            # Off Linux this method has just decided nothing.  Say so out loud
+            # instead of returning into a green: the entry below is the only
+            # difference between "measured, clean" and "did not look".  The
+            # sentinel arm above returns by RAISING, so a case that forgot the
+            # window can never land here and be filed as a platform limit.
+            UNMEASURED_ASSERTIONS.append(self.id())
             return
         self.assertEqual(
             self.leaked,
@@ -816,6 +852,125 @@ class TheLeakDetectorItselfWorksTests(_DescriptorCase):
         with self.assertRaises(AssertionError) as raised:
             self.assert_no_descriptor_leaked()
         self.assertIn("outside `watching_the_fd_table()`", str(raised.exception))
+
+
+class TheUnmeasuredArmIsRecordedTests(_DescriptorCase):
+    """A host that could not look must not report the same colour as a host that did.
+
+    COO ruling `20260907_1245`, answering this lane's letter `20260907_1211`,
+    which pf-adversary forced in round `da16dj` (D-2).  The ruling accepts that
+    nothing on Windows can count this process's descriptors and sets one price
+    for accepting it: the RUN has to say so, not just the docstring.  The
+    finding being paid was `27 passed` on a tree with a real descriptor leak
+    injected -- green, on the one platform where that leak is fatal.
+
+    These three cases are about the LEDGER, not about descriptors.  Nothing
+    here can tell you whether anything leaked.
+    """
+
+    @contextlib.contextmanager
+    def a_host_that_cannot_read_its_fd_table(self):
+        """`read_fd_table()` returning None the way a non-POSIX host makes it.
+
+        The table path is moved to a name that does not exist, so the None
+        comes back out of the reader's own `except OSError` arm -- the line a
+        Windows host takes -- instead of being assigned to `self.leaked` by
+        hand.  `sys.platform` moves with it because the two are not
+        independent here: a LINUX host that cannot read the table is a broken
+        reader and has to stay red, which is what
+        `test_a_table_that_could_not_be_read_fails_the_assertion_on_linux`
+        pins.  Both are restored on the way out, including on a failure.
+
+        HALF OF THIS IS REASONING, NOT MEASUREMENT, and that half is named on
+        purpose.  What is measured: when the reader returns None and the host
+        is not Linux, the early return is reached and recorded.  What is NOT
+        measured: what a real Windows host does.  No Windows host has run this
+        -- there is none in this project's reach -- and there the None comes
+        from `/proc/self/fd` not existing rather than from a path this test
+        invented.  Do not upgrade this sentence later because the case is
+        green; green here is not a Windows measurement (COO `1245` section 4).
+        """
+        global FD_TABLE
+        real_table, real_platform = FD_TABLE, sys.platform
+        FD_TABLE = str(self.tmp / "there-is-no-fd-table-on-this-host")
+        sys.platform = "win32"
+        try:
+            yield
+        finally:
+            FD_TABLE = real_table
+            sys.platform = real_platform
+
+    def test_a_host_that_cannot_read_the_table_records_that_nothing_was_measured(self):
+        """The case COO asked for: a real leak, a green assertion, a ledger row.
+
+        The descriptor opened inside the window is deliberately still open when
+        the assertion runs.  On this host the assertion would catch it; with
+        the table unreadable it does not, and passes.  That pass is exactly the
+        `27 passed` pf-adversary reported, reproduced on purpose -- so the row
+        this leaves behind is the whole point of the case.
+        """
+        before = len(UNMEASURED_ASSERTIONS)
+        with self.a_host_that_cannot_read_its_fd_table():
+            with self.watching_the_fd_table():
+                handle, name = tempfile.mkstemp(dir=str(self.tmp), prefix=".probe.")
+            self.addCleanup(os.unlink, name)
+            self.addCleanup(os.close, handle)
+            self.assertIsNone(
+                self.leaked,
+                "the reader read a table it was told does not exist, so this "
+                "case is no longer simulating the platform it claims to",
+            )
+            # Passes, with a descriptor left open. That is the defect, staged.
+            self.assert_no_descriptor_leaked()
+        self.assertEqual(
+            UNMEASURED_ASSERTIONS[before:],
+            [self.id()],
+            "the assertion decided nothing and left no trace of deciding "
+            "nothing, so a reader of this run cannot tell it from a pass",
+        )
+
+    def test_a_case_that_forgot_the_window_is_not_filed_as_a_platform_limit(self):
+        """The two ways of not measuring must not be laundered into each other.
+
+        A case that never opened the window is a BUG IN THE CASE and stays a
+        failure; only the platform arm is allowed to record and return.  If the
+        ledger row were appended before the sentinel check, this file would
+        start excusing its own broken cases on every non-Linux runner.
+        """
+        before = len(UNMEASURED_ASSERTIONS)
+        with self.a_host_that_cannot_read_its_fd_table():
+            self.assertIs(self.leaked, _NeverWatched, "setUp stopped arming the sentinel")
+            with self.assertRaises(AssertionError) as raised:
+                self.assert_no_descriptor_leaked()
+        self.assertIn("outside `watching_the_fd_table()`", str(raised.exception))
+        self.assertEqual(
+            UNMEASURED_ASSERTIONS[before:],
+            [],
+            "a case that forgot the window was filed as a platform limit",
+        )
+
+    def test_the_ledger_grows_exactly_when_the_table_could_not_be_read(self):
+        """Both directions, on whatever host is running, with no early return.
+
+        Deliberately not guarded by platform: on a POSIX host this is the case
+        that kills an unconditional append (a ledger that grows on every call
+        records nothing), and on a host without the table it is the case that
+        kills a missing one.  Whichever host runs it, one of the two mutants
+        dies here.
+        """
+        before = len(UNMEASURED_ASSERTIONS)
+        with self.watching_the_fd_table():
+            handle, name = tempfile.mkstemp(dir=str(self.tmp), prefix=".probe.")
+            os.close(handle)
+            os.unlink(name)
+        expected = [self.id()] if self.leaked is None else []
+        self.assert_no_descriptor_leaked()
+        self.assertEqual(
+            UNMEASURED_ASSERTIONS[before:],
+            expected,
+            "the ledger and the reader disagree about whether this window was "
+            "measured at all",
+        )
 
 
 class TheReaderItselfTests(unittest.TestCase):
