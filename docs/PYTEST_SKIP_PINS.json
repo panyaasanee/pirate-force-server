@@ -544,38 +544,6 @@
       "note": "round 5kex52 (LANE-B), recovering round dipufa's PR #966 which the Windows gate closed for this exact miss - skip_census printed UNPINNED: tests/test_name_colour_sweep.py skipped 10 test(s) on precondition 'bridge_gamedata', and that was the ONLY red check in the whole table. Same defect shape as the bg0008 and bg0010 entries above and the same cause: the sandbox that wrote these tests always has pf_bridge checked out beside it, so the skip never fires locally and the first push goes out unpinned. The ten guarded tests are the three BRIDGE_GAMEDATA-decorated classes of the RE-155 name-colour sweep (GT-288): the placement-band census reads every shipped field_mob_tables_bg* module and the 115-row population table to prove the synthetic 20000+ band cannot collide with a real placement index, the one-field-per-candidate tests build real NPCAttr/hostile bodies through legacy.make_npc_attr and field_mobs.load_roster to prove each candidate differs from its base by exactly the spliced field, and the label/frame tests round-trip the built population frame. All three need the bridge clone's gamedata; the five NameColourSweepGateTests that prove the env gate is shut when PF_NAME_COLOUR_SWEEP is unset/empty/garbage are deliberately NOT guarded, so the gate-closed property is asserted at full strength on a fresh clone too.  Round mhr9y6 (LANE-B) adds a FOURTH guarded class, NameColourSweepEntryByteReadbackTests, six tests, taking this module's bridge_gamedata skip count from 10 to 16: pf-adversary round occzj8 finding D1 measured that pinning sweep_entries' actor_type argument to a constant left the whole suite green and the armed console line byte-identical, because every set-2 assertion read the SweepActor declaration and none read the entry bytes. The six read actor_type, label, body, movement mask, the preset matrix and the faction field back out of sweep_entries' output. Guarded for the same reason as the three classes above and no other: they call sweep_actors/_mob_prototype, which need field_mobs.load_roster and so the bridge clone's gamedata.  Round phv2u0 (LANE-B) adds a FIFTH guarded class, NameColourSweepSet3DiffFieldTests, seven tests, taking this module's bridge_gamedata skip count from 16 to 23: COO-ORDER 2026-09-07T20:50 ordered set 3, one row per field in which the NPC and monster prototype bodies actually differ, after GT-288 set 2 eliminated actor_type and the skin.  Guarded for the same reason as the four classes above and no other: the class calls sweep_actors/_mob_prototype, which need field_mobs.load_roster and so the bridge clone's gamedata.  The walk and diff the class asserts THROUGH are tested unguarded in tests/test_npc_attr_body_diff.py, which needs no gamedata and adds no skip."
     },
     {
-      "key": "bridge_gamedata",
-      "module": "tests/test_name_colour_sweep_all.py",
-      "count": 24,
-      "tests": [
-        "AllSetRowsTests::test_all_noid_is_all_minus_the_identity_families_and_nothing_else",
-        "AllSetRowsTests::test_the_rows_that_are_not_drawn_are_refused_by_a_real_guard",
-        "AllSetRowsTests::test_the_viewer_rows_appear_only_when_a_viewer_identity_is_known",
-        "AllSetRowsTests::test_every_linked_row_carries_that_viewer_and_nothing_else_moved",
-        "AllSetRowsTests::test_every_enemy_row_is_its_control_plus_exactly_the_enemy_field",
-        "AllSetRowsTests::test_the_monster_enemy_row_is_the_monster_body_plus_the_same_field",
-        "AllSetRowsTests::test_m_t001_is_the_monster_carrying_the_npc_template_and_nothing_else",
-        "AllSetRowsTests::test_the_row_stands_on_the_iron_man_square_the_owner_named",
-        "AllSetRowsTests::test_the_death_row_really_carries_zero_hp_on_the_wire",
-        "AllSetRowsTests::test_every_label_is_ascii_short_and_unique",
-        "AllSetRowsTests::test_a_non_positive_identity_cannot_collide_with_a_real_actor",
-        "AllSetRowsTests::test_no_two_boards_share_an_actor_identity",
-        "AllSetRowsTests::test_a_labels_identity_does_not_move_when_other_rows_come_and_go",
-        "AllSetRowsTests::test_every_negative_identity_is_its_own_slot_and_stays_negative",
-        "AllSetRowsTests::test_a_monster_rows_placement_index_really_carries_its_identity",
-        "AllSetRowsTests::test_exactly_one_board_carries_the_zero_identity",
-        "AllSetRowsTests::test_the_identity_times_template_rows_are_read_from_the_shipped_tables",
-        "AllSetRowsTests::test_the_identity_times_template_rows_are_absent_from_all_noid",
-        "AllSetRowsTests::test_the_declared_row_order_names_every_row_and_no_others",
-        "AllSetRowsTests::test_every_board_drawn_carries_a_prediction",
-        "AllSetRowsTests::test_the_headless_token_tool_reports_what_the_module_composes",
-        "AllSetRowsTests::test_every_positive_identity_row_stays_in_the_reserved_band",
-        "AllSetRowsTests::test_the_owner_row_overlaps_the_live_town_so_all_needs_an_empty_world",
-        "AllSetRowsTests::test_unarmed_and_unknown_values_draw_no_all_rows"
-      ],
-      "note": "Round ubmvj1 (LANE-B) pins this module, which round ixdda8 pushed UNPINNED: pf-adversary finding D1 measured that skip_census printed 'UNPINNED: tests/test_name_colour_sweep_all.py' and gate-windows.yml's skip_census step returned 1, the only census failure in the suite. Same defect shape and same cause as this file's own note on tests/test_name_colour_sweep.py, which describes it in as many words: the sandbox that writes these tests always has pf_bridge checked out beside it, so the skip never fires locally and the first push goes out unpinned. Read, and repeated. Rehearsed this time in a sibling-free git worktree before pushing: 24 skipped. The single guarded class AllSetRowsTests is the ALL / ALL-NOID sweep of GT-288 (PANYA-ORDER 2026-09-07T23:25+07:00, addendum 23:50, COO-ORDER 23:42, ka1-A addendum 2 at 2026-09-08T00:57+07:00). Guarded for one reason and no other: every test calls sweep_actors/_mob_prototype/_identity_template_mob_prototype, which go through field_mobs.load_roster and so need the bridge clone's gamedata tables. The env gate itself is asserted at full strength on a fresh clone by the five unguarded NameColourSweepGateTests in tests/test_name_colour_sweep.py. Round ubmvj1 raised the class from 14 tests to 24: nine pin pf-adversary finding D3 (six boards shared two actor identities, so two rows overwrite each other on the client) the identity x template rows and per-row predictions ka1-A's addendum 2 ordered, and the re-runnable console token tools/pf_name_colour_sweep_headless.py prints. tools_bridge/pf_gate_preflight.py returned PREFLIGHT PASS on the ixdda8 branch and did NOT catch the missing pin, which is a gap in the preflight rather than a defect of the gate - reported to chief and COO in this round's letter."
-    },
-    {
       "key": "original_schema_history",
       "module": "tests/test_foundation.py",
       "count": 1,

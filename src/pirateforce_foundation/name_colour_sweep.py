@@ -982,6 +982,42 @@ def prediction_for(label: str) -> str:
         ) from None
 
 
+def rows_inside_the_readability_floor(
+    legacy: Any, *, viewer_identity: int | None = None,
+) -> tuple[tuple[str, float, str], ...]:
+    """``(label, distance, real NPC)`` for every ALL board a live town hides.
+
+    pf-adversary round ubmvj1, D3.  The overlap was known -- the owner placed
+    the row by absolute coordinate on a square inside Port Royal -- but it was
+    stated as one number for one row, and the attended ticket then told the
+    tester to drop "the first four rows".  Measured, the rows inside the floor
+    are NOT the first four: two of them are ``M-IDNEG`` and ``M-IDNEG-T31``,
+    the gate-order probe and the row that answers P-2 most directly, and the
+    real actor next to them is a hostile field mob whose nameboard is the same
+    colour ``M-IDNEG-T31`` is predicted to be.  A tester grading that cluster
+    can read the real mob's colour as a confirmation.
+
+    So the ticket takes this list rather than a sentence: which boards a
+    populated town makes unreadable is a measurement, and it moves whenever a
+    row moves.
+    """
+    real = [
+        (float(row[2]), float(row[3]), row[6])
+        for row in legacy.PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS
+    ]
+    hidden: list[tuple[str, float, str]] = []
+    for actor in _all_set(
+        legacy, include_identity_rows=True, viewer_identity=viewer_identity,
+    ):
+        distance, name = min(
+            ((((actor.x - x) ** 2 + (actor.y - y) ** 2) ** 0.5), name)
+            for x, y, name in real
+        )
+        if distance < ROW_CLEARANCE_FROM_REAL_NPCS:
+            hidden.append((actor.label, distance, name))
+    return tuple(hidden)
+
+
 def all_set_uncomposable_rows() -> tuple[tuple[str, str], ...]:
     """(label, reason) for every ALL row this lane cannot build."""
     return ALL_SET_UNCOMPOSABLE
@@ -1156,7 +1192,7 @@ def _all_set(
         *,
         placement_index: int | None = None,
         body_for=None,
-        prototype: field_mobs.FieldMob | None = None,
+        prototype=None,
         **overrides: Any,
     ) -> None:
         nonlocal ordinal
@@ -1168,8 +1204,14 @@ def _all_set(
             all_row_placement_index(label)
             if placement_index is None else placement_index
         )
+        # pf-adversary round ubmvj1, D6: the prototype is a CALLABLE, resolved
+        # only after the group check above.  Passing the FieldMob itself
+        # evaluated _identity_template_mob_prototype() as an argument, so a
+        # Bg0002 roster regeneration that renumbers template 31 killed
+        # ALL-NOID -- the identity-free fallback boot, which draws no Bg0002
+        # row at all.
         variant = replace(
-            mob if prototype is None else prototype,
+            mob if prototype is None else prototype(),
             placement_index=index, display_name=label, **overrides
         )
         body = (
@@ -1217,7 +1259,7 @@ def _all_set(
     mob_row("M-IDNEG-T31", "identity",
             placement_index=placement_index_for_identity(
                 negative_identity_for("M-IDNEG-T31")),
-            prototype=_identity_template_mob_prototype())
+            prototype=_identity_template_mob_prototype)
     npc_fixed_identity(
         "N-IDNEG-T916", "identity", negative_identity_for("N-IDNEG-T916"),
         lambda i, l: _npc_plain_body(

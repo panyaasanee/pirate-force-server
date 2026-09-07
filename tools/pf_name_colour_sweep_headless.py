@@ -37,13 +37,28 @@ LEGACY = ROOT / "current" / "pf_login_game_server_v141.py"
 
 
 def _commit() -> str:
+    """``HEAD``, with ``-dirty`` appended when the tree is not clean.
+
+    pf-adversary round ubmvj1, D2: without the suffix this stamped HEAD's hash
+    onto output produced by uncommitted code, and an attended ticket that
+    cites the token tells ka1-A to check that commit out and cut the ticket if
+    the numbers disagree.  They disagreed for exactly this reason.
+    """
     try:
-        return subprocess.run(
+        head = subprocess.run(
             ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, check=True,
         ).stdout.strip()
     except Exception:  # noqa: BLE001
         return "unknown"
+    try:
+        dirty = subprocess.run(
+            ["git", "-C", str(ROOT), "status", "--porcelain"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001
+        return head + "-unknown"
+    return head + "-dirty" if dirty else head
 
 
 def main() -> int:

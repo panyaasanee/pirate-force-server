@@ -29,7 +29,15 @@ NOID_ENV = {"PF_NAME_COLOUR_SWEEP": name_colour_sweep.SET_ALL_NOID}
 VIEWER = 0x0000000123456789
 
 
-@BRIDGE_GAMEDATA.skip_unless_present()
+# NOT guarded, and that is the point.  pf-adversary round ubmvj1 finding D1
+# measured that the BRIDGE_GAMEDATA guard this class shipped with was not a
+# real precondition: field_mobs.load_roster types and validates the COMMITTED
+# generated modules, so every test here passes in a worktree with no pf_bridge
+# sibling (24 passed, measured).  A guard that never has to fire is worse than
+# none: on gate-windows the module reported 24 skipped and a regression in the
+# slot table, the identity x template rows or the prediction column would have
+# been invisible to the only machine that decides a PR.  Pin 2050 says the same
+# thing in one line -- skip, xfail and allowlist are all forbidden.
 class AllSetRowsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -399,6 +407,30 @@ class AllSetRowsTests(unittest.TestCase):
         with self.assertRaises(name_colour_sweep.NameColourSweepError):
             name_colour_sweep.all_row_placement_index("N-NOT-A-ROW")
 
+    def test_the_town_hides_these_exact_boards_and_they_are_not_the_first_four(self) -> None:
+        """pf-adversary round ubmvj1, D3, pinned by name rather than by count.
+
+        The old pin asserted only that SOME row was inside the floor, so the
+        gt-body could say "drop the first four rows" and stay green while the
+        rows actually hidden were 1, 2, 10 and 11 -- including the two the
+        ticket calls its most important. Naming them is what makes the ticket
+        wrong out loud when a row moves.
+        """
+        hidden = name_colour_sweep.rows_inside_the_readability_floor(self.legacy)
+        self.assertEqual(
+            [label for label, _, _ in hidden],
+            ["N-BASE", "M-BASE", "M-IDNEG", "M-IDNEG-T31"],
+        )
+        for label, distance, _ in hidden:
+            with self.subTest(label=label):
+                self.assertLess(
+                    distance, name_colour_sweep.ROW_CLEARANCE_FROM_REAL_NPCS)
+        # The nearest real actor to the row predicted orange is a hostile
+        # field mob, which is why this is a readability problem and not a
+        # cosmetic one: its own nameboard can be read as the confirmation.
+        by_label = {label: name for label, _, name in hidden}
+        self.assertEqual(by_label["M-IDNEG-T31"], by_label["N-BASE"])
+
     def test_every_board_drawn_carries_a_prediction(self) -> None:
         """ka1-A addendum 2: a board with no prediction records a colour; it
         does not grade a hypothesis.  No test here asserts a prediction is
@@ -445,6 +477,20 @@ class AllSetRowsTests(unittest.TestCase):
         )
         self.assertIn("NAME_COLOUR_SWEEP_UNARMED actors=0", done.stdout)
         self.assertIn("NAME_COLOUR_SWEEP_HEADLESS PASS", done.stdout)
+        # D2: the commit field is the half a ticket acts on, so read it back.
+        # A dirty tree must say so rather than stamping HEAD's hash on
+        # uncommitted code.
+        import re as _re
+        stamped = _re.search(r"commit=(\S+)", done.stdout)
+        self.assertIsNotNone(stamped)
+        dirty = subprocess.run(
+            ["git", "-C", str(ROOT), "status", "--porcelain"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if dirty:
+            self.assertTrue(stamped.group(1).endswith("-dirty"), stamped.group(1))
+        else:
+            self.assertFalse(stamped.group(1).endswith("-dirty"), stamped.group(1))
 
     def test_every_positive_identity_row_stays_in_the_reserved_band(self) -> None:
         """The half of the band pin that still applies to this set."""
