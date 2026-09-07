@@ -24,20 +24,27 @@ import csv
 import unittest
 from pathlib import Path
 
-from pirateforce_foundation import damage_formula, mob_combat
+from pirateforce_foundation import (
+    damage_formula,
+    mob_combat,
+    persistence_standard_status,
+)
 from pirateforce_foundation.damage_formula import (
+    AbilityPointTable,
     AbilityStrVerdict,
     DamageFormulaError,
     REFUSE_ABILITY_STR_ABOVE_CEILING,
     REFUSE_LEVEL_NOT_AN_INT,
     REFUSE_LEVEL_OFF_TABLE,
     REFUSE_STARTING_ABILITY_STR_INVALID,
+    REFUSE_TABLE_UNUSABLE,
     ability_points_granted_through_level,
     ability_str_ceiling_at_level,
     attack_of,
     damage_of,
     defence_of,
     describe_pinned_attacker,
+    headless_summary,
     refuse_ability_str_above_ceiling,
     verdict_for_ability_str,
 )
@@ -64,6 +71,25 @@ FORMULA_NAMES = (
     "K_DEF_LV",
     "MIN_HIT",
 )
+
+
+def _points_by_level_from_the_tsv() -> dict[int, int]:
+    """The n_POINT_ABILITY column, read out of the committed file itself.
+
+    Deliberately NOT read through the module that owns the file: this test
+    should still be able to say what the rows are if that module changes shape.
+    ``TableIsTheOwnersTableTests`` below then ties this reading to the owner's
+    own accessor, which is the check that keeps the two honest.
+    """
+    with TABLE_PATH.open(encoding="utf-8", newline="") as handle:
+        return {
+            int(row["n_ID"]): int(row["n_POINT_ABILITY"])
+            for row in csv.DictReader(handle, delimiter="\t")
+        }
+
+
+def _table() -> AbilityPointTable:
+    return AbilityPointTable(_points_by_level_from_the_tsv())
 
 
 def _module_level_int_assignments(path: Path) -> dict[str, int]:
@@ -151,11 +177,8 @@ class AbilityPointTableTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with TABLE_PATH.open(encoding="utf-8", newline="") as handle:
-            rows = list(csv.DictReader(handle, delimiter="\t"))
-        cls.point_ability = {
-            int(row["n_ID"]): int(row["n_POINT_ABILITY"]) for row in rows
-        }
+        cls.point_ability = _points_by_level_from_the_tsv()
+        cls.table = _table()
 
     def _expected_through(self, level: int) -> int:
         return sum(
@@ -168,18 +191,20 @@ class AbilityPointTableTests(unittest.TestCase):
         for level in sorted(self.point_ability):
             with self.subTest(level=level):
                 self.assertEqual(
-                    ability_points_granted_through_level(level),
+                    ability_points_granted_through_level(self.table, level),
                     self._expected_through(level),
                 )
 
     def test_level_one_is_granted_nothing(self):
         self.assertEqual(self.point_ability[1], 0)
-        self.assertEqual(ability_points_granted_through_level(1), 0)
+        self.assertEqual(
+            ability_points_granted_through_level(self.table, 1), 0
+        )
 
     def test_the_sum_never_goes_down(self):
         previous = 0
         for level in sorted(self.point_ability):
-            current = ability_points_granted_through_level(level)
+            current = ability_points_granted_through_level(self.table, level)
             self.assertGreaterEqual(current, previous, level)
             previous = current
 
@@ -192,19 +217,111 @@ class AbilityPointTableTests(unittest.TestCase):
         )
 
 
+class TableIsTheOwnersTableTests(unittest.TestCase):
+    """The tie this module cannot make from ``src/``.
+
+    ``damage_formula`` takes the ability-point table from its caller instead of
+    importing the module that parses it: that module's OWNER pins its caller
+    list over ``src/``, ``tools/``, ``current/``, ``migrations/`` and
+    ``scenarios/``, and ``COO-ORDER 20260907_2050`` says a caller withdraws
+    until the owner retires the pin rather than allowlisting itself into it.
+    ``tests/`` is outside that scan on purpose, so the check that the numbers
+    really are the committed rows lives here -- and it is a REAL row read
+    against the owner's own accessor, not a range comparison.
+    """
+
+    def test_every_row_this_test_reads_is_the_row_the_owner_serves(self):
+        rows = _points_by_level_from_the_tsv()
+        self.assertEqual(
+            sorted(rows),
+            list(
+                range(
+                    persistence_standard_status.STANDARD_STATUS_MIN_LEVEL,
+                    persistence_standard_status.STANDARD_STATUS_MAX_LEVEL + 1,
+                )
+            ),
+        )
+        for level, points in sorted(rows.items()):
+            with self.subTest(level=level):
+                self.assertEqual(
+                    points,
+                    persistence_standard_status.standard_status_row(
+                        level
+                    ).point_ability,
+                )
+
+    def test_a_table_built_from_the_owners_accessor_sums_the_same(self):
+        owned = AbilityPointTable(
+            {
+                level: persistence_standard_status.standard_status_row(
+                    level
+                ).point_ability
+                for level in range(
+                    persistence_standard_status.STANDARD_STATUS_MIN_LEVEL,
+                    persistence_standard_status.STANDARD_STATUS_MAX_LEVEL + 1,
+                )
+            }
+        )
+        mine = _table()
+        self.assertEqual(owned.last_level, mine.last_level)
+        for level in range(1, owned.last_level + 1):
+            with self.subTest(level=level):
+                self.assertEqual(
+                    owned.granted_through(level), mine.granted_through(level)
+                )
+
+
+class UnusableTableTests(unittest.TestCase):
+    """A table that cannot be summed is refused at construction.
+
+    The hole case is the one that matters: a missing row silently UNDER-counts
+    every ceiling above it, and an under-count refuses a character that was
+    fine.  That is the expensive direction, so it fails loudly instead.
+    """
+
+    def test_a_hole_is_refused_and_named(self):
+        rows = _points_by_level_from_the_tsv()
+        del rows[9]
+        with self.assertRaises(DamageFormulaError) as raised:
+            AbilityPointTable(rows)
+        self.assertEqual(raised.exception.args[0], REFUSE_TABLE_UNUSABLE)
+        self.assertIn("9", raised.exception.args[1])
+
+    def test_an_empty_table_and_a_table_that_does_not_start_at_one(self):
+        for bad in ({}, {2: 0, 3: 1}):
+            with self.subTest(table=bad):
+                with self.assertRaises(DamageFormulaError) as raised:
+                    AbilityPointTable(bad)
+                self.assertEqual(
+                    raised.exception.args[0], REFUSE_TABLE_UNUSABLE
+                )
+
+    def test_a_grant_that_is_not_a_count_is_refused(self):
+        for bad in (-1, 1.5, "2", None, True):
+            with self.subTest(points=bad):
+                with self.assertRaises(DamageFormulaError) as raised:
+                    AbilityPointTable({1: 0, 2: bad})
+                self.assertEqual(
+                    raised.exception.args[0], REFUSE_TABLE_UNUSABLE
+                )
+
+
 class LevelRefusalTests(unittest.TestCase):
+    def setUp(self):
+        self.table = _table()
+
     def test_off_table_levels_refuse_by_name(self):
         for bad in (0, -1, 256, 10**6):
             with self.subTest(level=bad):
                 with self.assertRaises(DamageFormulaError) as raised:
-                    ability_points_granted_through_level(bad)
+                    ability_points_granted_through_level(self.table, bad)
                 self.assertEqual(raised.exception.args[0], REFUSE_LEVEL_OFF_TABLE)
 
     def test_a_level_that_is_not_an_int_refuses_by_name(self):
         for bad in (1.0, "7", None, True):
             with self.subTest(level=bad):
                 with self.assertRaises(DamageFormulaError) as raised:
-                    ability_points_granted_through_level(bad)
+                    ability_points_granted_through_level(self.table, bad)
                 self.assertEqual(
                     raised.exception.args[0], REFUSE_LEVEL_NOT_AN_INT
                 )
@@ -213,7 +330,9 @@ class LevelRefusalTests(unittest.TestCase):
         for bad in (-1, 2.5, "8", None, False):
             with self.subTest(starting=bad):
                 with self.assertRaises(DamageFormulaError) as raised:
-                    ability_str_ceiling_at_level(7, starting_ability_str=bad)
+                    ability_str_ceiling_at_level(
+                        self.table, 7, starting_ability_str=bad
+                    )
                 self.assertEqual(
                     raised.exception.args[0],
                     REFUSE_STARTING_ABILITY_STR_INVALID,
@@ -221,29 +340,35 @@ class LevelRefusalTests(unittest.TestCase):
 
 
 class CeilingTests(unittest.TestCase):
+    def setUp(self):
+        self.table = _table()
+
     def test_the_ceiling_is_the_start_plus_what_the_table_granted(self):
         for level, start in ((1, 0), (7, 20), (25, 0), (100, 5), (255, 99)):
             with self.subTest(level=level, start=start):
                 self.assertEqual(
                     ability_str_ceiling_at_level(
-                        level, starting_ability_str=start
+                        self.table, level, starting_ability_str=start
                     ),
-                    start + ability_points_granted_through_level(level),
+                    start
+                    + ability_points_granted_through_level(self.table, level),
                 )
 
     def test_a_value_inside_the_ceiling_is_accepted_and_reports_no_gap(self):
         verdict = refuse_ability_str_above_ceiling(
-            7, 20, starting_ability_str=20
+            self.table, 7, 20, starting_ability_str=20
         )
         self.assertIsInstance(verdict, AbilityStrVerdict)
         self.assertTrue(verdict.within_the_table)
         self.assertEqual(verdict.unaccounted_for, 0)
 
     def test_a_value_past_the_ceiling_refuses_and_names_the_gap(self):
-        ceiling = ability_str_ceiling_at_level(7, starting_ability_str=0)
+        ceiling = ability_str_ceiling_at_level(
+            self.table, 7, starting_ability_str=0
+        )
         with self.assertRaises(DamageFormulaError) as raised:
             refuse_ability_str_above_ceiling(
-                7, ceiling + 1, starting_ability_str=0
+                self.table, 7, ceiling + 1, starting_ability_str=0
             )
         self.assertEqual(
             raised.exception.args[0], REFUSE_ABILITY_STR_ABOVE_CEILING
@@ -251,19 +376,27 @@ class CeilingTests(unittest.TestCase):
         self.assertIn("1 above the ceiling", raised.exception.args[1])
 
     def test_the_verdict_form_does_not_raise_on_a_value_past_the_ceiling(self):
-        verdict = verdict_for_ability_str(7, 10_000, starting_ability_str=0)
+        verdict = verdict_for_ability_str(
+            self.table, 7, 10_000, starting_ability_str=0
+        )
         self.assertFalse(verdict.within_the_table)
         self.assertEqual(
             verdict.unaccounted_for,
-            10_000 - ability_str_ceiling_at_level(7, starting_ability_str=0),
+            10_000
+            - ability_str_ceiling_at_level(
+                self.table, 7, starting_ability_str=0
+            ),
         )
 
 
 class PinnedAttackerTests(unittest.TestCase):
     """What the table says about the profile every player swings as today."""
 
+    def setUp(self):
+        self.table = _table()
+
     def test_the_gap_is_measured_from_the_table_and_from_the_pin(self):
-        verdict = describe_pinned_attacker()
+        verdict = describe_pinned_attacker(self.table)
         self.assertEqual(verdict.level, mob_combat.PIN_ATTACKER_LEVEL)
         self.assertEqual(
             verdict.ability_str, mob_combat.PIN_ATTACKER_ABILITY_STR
@@ -271,7 +404,7 @@ class PinnedAttackerTests(unittest.TestCase):
         self.assertEqual(
             verdict.granted_points,
             ability_points_granted_through_level(
-                mob_combat.PIN_ATTACKER_LEVEL
+                self.table, mob_combat.PIN_ATTACKER_LEVEL
             ),
         )
         # The pin is one of this project's own numbers, so it is NOT a sum of
@@ -282,7 +415,7 @@ class PinnedAttackerTests(unittest.TestCase):
             verdict.unaccounted_for,
             mob_combat.PIN_ATTACKER_ABILITY_STR
             - ability_points_granted_through_level(
-                mob_combat.PIN_ATTACKER_LEVEL
+                self.table, mob_combat.PIN_ATTACKER_LEVEL
             ),
         )
 
@@ -327,16 +460,19 @@ class OneFormulaManyCallersTests(unittest.TestCase):
 
 
 class HeadlessTokenTests(unittest.TestCase):
+    def setUp(self):
+        self.table = _table()
+
     def test_the_token_survives_the_bridge_console(self):
-        line = damage_formula._headless_summary()
+        line = headless_summary(self.table)
         self.assertEqual(len(line.splitlines()), 1)
         line.encode("ascii")
         line.encode("cp874")
         self.assertTrue(line.startswith("DAMAGE_FORMULA "))
 
     def test_the_token_carries_the_measured_numbers_not_typed_ones(self):
-        verdict = describe_pinned_attacker()
-        line = damage_formula._headless_summary()
+        verdict = describe_pinned_attacker(self.table)
+        line = headless_summary(self.table)
         self.assertIn("granted_points=%d" % verdict.granted_points, line)
         self.assertIn("unaccounted=%d" % verdict.unaccounted_for, line)
 
