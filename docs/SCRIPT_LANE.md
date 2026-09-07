@@ -3193,16 +3193,86 @@ layer that never got a number.
   (asserting it in-process proves nothing about a flag this process was not
   started with).  Short rows, non-integer counts, an empty file and a
   header with no rows each refuse by name and line number.
-* **D11** -- `script_path_for_quest` ran `rglob("*.lua")` over all 616
-  corpus files and sorted them, on EVERY dispatch, to pick one.  Now
-  indexed once per RESOLVED root, bounded at `ROOTS_CACHED_CAP`, with
-  `reset_caches()`.  Pinned by counting actual `rglob` calls, not by
-  asserting a cache exists.
+* **D11** -- ANSWERED BY MEASUREMENT, NOT BY CODE.  This round first
+  indexed the corpus once per root.  `pf-adversary` then measured what D11
+  was actually worth -- **0.06 ms per dispatch**, 0.1 s to dispatch all
+  1,213 quest rows -- and what the index cost: the corpus is not static
+  (`pf_bridge` takes `sync: N file(s) from the Windows bridge` commits), so
+  an index built before a sync stopped seeing a duplicate stem, and a file
+  deleted after indexing became a bare `FileNotFoundError` out of
+  `read_bytes` -- neither `QuestDispatchError` nor `VendoredDataError`, so
+  it printed `LUA_SCRIPT <file> ERR` against an innocent script.  That is
+  D11's OWN mis-attribution shape, re-opened by D11's fix, and logged after
+  a `LUA_QUEST_DISPATCH` line claiming the dispatch had happened.  Trading
+  a measured 0.06 ms for two silent wrong answers is a bad trade, so the
+  index was removed in the round that added it.  The walk is not a hot
+  path; if it ever becomes one, its replacement needs an invalidation
+  story, which the first attempt did not have.
 * Fixing D11 surfaced a live crash that was already there: the
   duplicate-stem refusal built its message with `relative_to(root)` against
   the CALLER's spelling while holding paths from the resolved root, so a
   root containing `..` raised a bare `ValueError` from inside the error
   path instead of the refusal naming the duplicate files.  There is a test.
+
+### What the adversary found in this same round, and what was done
+
+The adversary returned BEFORE the round unlocked, so its findings were
+acted on here rather than deferred.  This section is NOT a clean bill.
+
+* **Finding 1 (most severe), fixed.**  `pay` checked only that the store's
+  answer was an `int`, never against the number it asked to be added, so a
+  store whose `add_typed_attribute` was `return 0` -- writing nothing --
+  produced `paid=1050 balance_after=0` with `reason=None`, on the one
+  artifact the next round is told to size this seam from.  All three
+  `KIND_COLUMN` columns carry `CHECK(>= 0)` and the delta is always
+  positive, so `balance_after >= delta` holds for any correct atomic add
+  regardless of the prior balance -- the strongest statement available to
+  a caller that never reads.  Both sides of the boundary are pinned
+  (equal-to-delta is a character's first payout and must pass).
+* **Finding 5, fixed.**  `int(inf)` raises `OverflowError` and `int(nan)`
+  raises `ValueError`, so `_coerce_player_level` raised THROUGH
+  `reward.pay`, whose docstring promises it never raises for a refusal.
+  This round opened that path by making `player_level` public.  Not
+  theoretical: `lupa` hands every Lua number across as a float and Lua's
+  `1/0` is `inf`.  `resolve()` had the same hole and was memoising its way
+  out of it.
+* **Finding 8, fixed.**  `REFUSE_NEGATIVE` was a branch no input in the
+  repository could reach; a mutant deleting it survived the suite.
+* **Finding 2, NOT fixed, and it narrows what D10 means.**  `ScriptHost`
+  has no `reward_store` parameter and does not pass one, so
+  `load_quest_script(..., reward_store=X)` is a `TypeError` and every
+  criteria call made through the only path a shipped script can take logs
+  `refused=no_reward_store` with no caller-side way to change it.  D10 is
+  paid in the harness, not in the server.  The fix belongs in
+  `script_host.py`, where the name `reward_store` collides with the
+  quest/shop symbol guard -- whose own rule is that an exemption is never
+  granted to turn a red run green.  A `CORE-REQUEST` went to chief rather
+  than this lane exempting itself.
+* **Finding 4, NOT fixed, same seam.**  `load_quest_script` builds a
+  `QuestContext` for the real character but leaves `player_context` at
+  `DEFAULT_CONTEXT` (`character_id=0`), so one host tells `Quest.*` the
+  character is 7 and `Player.*` that it is 0, and two hosts sharing one
+  `player_store` read and write bucket 0 together.
+* **Finding 9, acknowledged.**  1,126 of 4,632 plain-triple resolutions
+  (24.3%) are a genuine reward of zero, filed in the same `refused=`
+  bucket as "there is no atomic add".  Read the reason, do not count the
+  bucket.
+* **Finding 7 and the half-success question, documented not guarded.**
+  `_has_atomic_add` tests for a NAME; atomicity is not observable from
+  here.  And if the add commits and then the return raises, `pay` logs
+  `unpaid=N` for money that is on disk, and a caller that retried would
+  pay twice.  Nothing retries today; the retry contract is a question in
+  the CORE-REQUEST.
+
+### Environment facts that must not be read past
+
+`lupa` is absent from the cloud clone, and the Windows gate has `lupa` but
+no `pf_bridge` sibling, so `lua_corpus_runnable` is unsatisfiable in BOTH.
+`test_a_real_shipped_script_loads_as_its_quest_and_names_the_number` -- the
+only test that runs a real shipped Lua script through `load_quest_script`
+end to end -- has no configured environment that executes it.  Every claim
+in this round is a Python-layer claim, not a Lua-layer one.  Findings 2 and
+4 are precisely what that unexecuted test would have caught.
 
 ### Still open
 

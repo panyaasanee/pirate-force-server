@@ -56,9 +56,19 @@ def _load() -> tuple[ApiFunction, ...]:
     Every refusal here names the file and, where there is one, the line.
 
     :class:`~lua_api.vendored.VendoredDataError` rather than a bespoke
-    class, so ``script_host`` classifies a corrupt mirror of OURS as
-    ``LUA_HOST`` against this checkout instead of ``LUA_SCRIPT`` against
-    whichever quest file was loading when the import happened.
+    class, so that wherever this error IS catchable it is classified as a
+    corrupt mirror of ours rather than a broken quest file.
+
+    [CORRECTED - pf-adversary, this round] An earlier draft of this
+    docstring claimed ``script_host`` would report it as ``LUA_HOST``.  It
+    would not, and cannot: ``_load()`` runs at IMPORT time, so a corrupt
+    ``api_spec.tsv`` makes ``import script_host`` itself raise, before
+    ``_host_side_error_types()`` exists to classify anything.  The base
+    class still earns its place -- it is the right type, and it is
+    catchable by anything that imports this module lazily -- but the
+    boot-time case is a hard failure at import, which for a file vendored
+    into this repository is the correct outcome and not a claim about log
+    lines.
     """
     try:
         text = _SPEC_PATH.read_text(encoding="ascii")
