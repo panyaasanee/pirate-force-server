@@ -396,17 +396,17 @@ ACTOR_ATTR_EXTRA_GROUP_VALUE = 1
 #     RE-129-pinned by the SAME static method (ForcePos's own prototype
 #     constructor: `xor ecx,ecx` / `mov byte ptr [eax+0x10],cl`) against the
 #     SAME generic reader.
-# Two vitals, two independent RE tickets, one shared generic-reader
-# mechanism, one answer both times: 0. Nothing here claims that pattern
-# proves 0x309A's own byte -- it has never been measured, and RE-105/RE-129
-# also measured a THIRD vital (TeleportVital) landing on 4, not 0, so "the
-# generic reader always sees 0" is not a rule this line invokes. What
-# justifies accepting the risk for this one narrow door is COO-DECISION
-# 1847's own reasoning: the failure mode a wrong version byte produces
-# (client rejects the frame, reconnect, re-login -- GT-101) is bounded and
-# reversible, not silent data corruption, and a real measurement of THIS
-# byte is tracked separately and in parallel (a new RE ticket, per the same
-# COO-DECISION item 3) rather than being blocked on it.
+# Two vitals, two RE tickets, one generic-reader mechanism, 0 both times --
+# but RE-105/RE-129 also measured a THIRD vital (TeleportVital) landing on
+# 4, so "the generic reader always sees 0" was never a rule this line
+# invoked.  RE-302 (consumed round `5rxy86`; pf_bridge letter `notes_to_
+# chief/20260907_1808_RE-302-RESULT-UPDATEATTR-VERSION-IS-ZERO-*`) has now
+# MEASURED this byte: 0x309A's ctor (VA 0x005E5D30) writes 0 into +0x10 --
+# measured, not borrowed, and no frame already sent needs revisiting.  It
+# also FORBIDS reusing that convergence for a THIRD opcode: a per-class
+# ctor literal, no table, 38 of 519 classes write something else.  Before
+# it, COO-DECISION 1847 carried the door: a wrong version byte costs a
+# rejected frame and a re-login (GT-101), bounded, not silent corruption.
 UPDATE_ATTR_VITAL_VERSION_CONFIRMED: int | None = 0
 
 # x, block, mask_bit, offset, tag, kind, name, known, note

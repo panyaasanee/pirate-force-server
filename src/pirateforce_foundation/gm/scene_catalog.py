@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import csv
+import difflib
 import hashlib
 
 _DATA_PATH = Path(__file__).parent / "data" / "gm_scene_name_tip.tsv"
@@ -80,9 +81,14 @@ def is_known_scene_id(scene_id: int) -> bool:
 # direction, and `gm/commands.py`'s `warp` grammar is its only caller today.
 #
 # THE TABLE IS NOT A FUNCTION.  Measured on the pinned file: 330 rows,
-# 294 distinct GM names.  Seven names repeat -- `Hidden Island` alone is on
+# 293 distinct GM names.  SIX names repeat -- `Hidden Island` alone is on
 # 20 scene ids and `Poseidon Island` on 10 -- and FOUR rows carry an empty
-# name (ids 13, 137, 138, 141).  So this returns ALL matching ids and lets
+# name (ids 13, 137, 138, 141).  (Corrected by pf-adversary round `nqgmam`
+# D5: this paragraph said 294 and seven, which is 293 and six plus the
+# empty name counted as a name -- the same mistake twice, in the very
+# paragraph whose point is that the empty name is excluded.  `GM_NAME_COUNT`
+# is 293 and is what the operator-facing refusal prints.)  So this returns
+# ALL matching ids and lets
 # the caller decide; a "first match wins" resolver would have silently sent
 # a GM to one of twenty Hidden Islands, and an empty query would have
 # matched four scenes at once.  An empty (or whitespace-only) query matches
@@ -131,3 +137,65 @@ def resolve_gm_scene_name(query: str) -> tuple[int, ...]:
     if not key:
         return ()
     return _GM_NAME_TO_SCENE_IDS.get(key, ())
+
+
+# --- a near miss is not a dead end ----------------------------------------
+#
+# `resolve_gm_scene_name` is exact-or-nothing, which is right for deciding
+# WHERE to send a GM but wrong as the last thing an operator reads.  The
+# round that added it left this hole: mistype one letter of a 330-row table
+# at 1 a.m. and the only answer is "no GM scene carries that name", with no
+# way to search from the client.  `suggest_gm_scene_names` is that search.
+#
+# EVERY CHARACTER IT RETURNS COMES OUT OF THE PINNED TABLE, NEVER OUT OF THE
+# QUERY.  That is the whole reason this can be printed at all: these lines
+# reach a cp874 console, and `test_gm_scene_catalog.py` pins that all 330
+# shipped names encode to cp874, so a suggestion cannot be the unlucky byte
+# that kills the console.  Echoing the operator's own text back would carry
+# no such guarantee -- see `gm/commands.py::_parse_warp_named`.
+#
+# It returns NAMES with their id count, not a flat list of ids: `Hidden
+# Island` is on twenty scenes, and a suggestion that prints twenty numbers
+# is a suggestion nobody reads.  The caller decides how many to show.
+
+#: Below this ratio a "suggestion" is noise that sends the operator to the
+#: wrong island.  Measured on the pinned table rather than chosen: at 0.7,
+#: `Prison Exile Iland` (one letter dropped) still finds `Prison Exile
+#: Island`, and `qqqqqqqq` finds nothing at all.  Both are pinned.
+SUGGESTION_MINIMUM_RATIO = 0.7
+
+#: A way-out line is read or it is not; three is the most that stays read.
+MAX_SUGGESTIONS = 3
+
+
+def suggest_gm_scene_names(
+    query: str, limit: int = MAX_SUGGESTIONS
+) -> tuple[tuple[str, int], ...]:
+    """Table names close to `query`, as (shipped name, how many scene ids).
+
+    Empty tuple for an empty/whitespace-only query, for a query that folds
+    to a key already in the table (an exact hit is not a suggestion -- the
+    caller had a match and did not need this), and for anything with no
+    close match at all.  Best match first.
+
+    The second element of each pair is the number of scene ids that name is
+    on, so a caller can say "on 20 scenes" instead of printing 20 numbers.
+    """
+    if not isinstance(query, str):
+        raise TypeError("query must be a str")
+    if limit <= 0:
+        return ()
+    key = _fold_gm_scene_name(query)
+    if not key or key in _GM_NAME_TO_SCENE_IDS:
+        return ()
+    close = difflib.get_close_matches(
+        key,
+        list(_GM_NAME_TO_SCENE_IDS),
+        n=limit,
+        cutoff=SUGGESTION_MINIMUM_RATIO,
+    )
+    return tuple(
+        (SCENE_ID_TO_GM_NAME[_GM_NAME_TO_SCENE_IDS[folded][0]],
+         len(_GM_NAME_TO_SCENE_IDS[folded]))
+        for folded in close
+    )

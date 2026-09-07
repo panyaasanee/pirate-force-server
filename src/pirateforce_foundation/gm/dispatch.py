@@ -1,8 +1,16 @@
 """Inbound dispatch entry points for the GM-surface vitals (client->server).
 
-TWO OPCODES SINCE ROUND `eu2g1d`: GM_RunGMCommandVital (0x51E9), wired,
-and Activity_CheatCodeVital (0x6CEC), NOT wired -- see
-`handle_activity_cheat_code_vital`.  Both run the same gate chain
+TWO OPCODES SINCE ROUND `eu2g1d`: GM_RunGMCommandVital (0x51E9) and
+Activity_CheatCodeVital (0x6CEC).  BOTH ARE WIRED as of chief's round R390,
+which granted CORE-REQUEST-GM-062: `runtime.py` fires
+`vital_inbound_activity_cheat_code`, and
+`lane_hooks/lane_gm_activity_cheat_code.py` turns that into a call of
+`handle_activity_cheat_code_vital` below.  This paragraph said "NOT wired"
+for one round after that landed; chief measured the stale sentence and
+wrote it up (pf_bridge `notes_to_chief/20260907_1918_FROM_CHIEF_R391b`),
+and `tests/test_gm_activity_cheat_code_dispatch.py` now fails if either
+half of the pair -- the call site or this sentence -- moves without the
+other.  Both run the same gate chain
 (`_authorize_and_capture`) and share one per-account rate limit and one
 per-account capture quota.  The original text, written when there was one:
 
@@ -59,6 +67,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import accounts as gm_accounts
+from . import arrival_ledger
 from .activity_cheat_code_wire import ACTIVITY_CHEAT_CODE_VITAL_ID
 from .command_capture import (
     DEFAULT_CAPTURE_ROOT,
@@ -488,6 +497,85 @@ def _authorize_and_capture(
     capture_root: str | Path,
     now_ts: float | None,
     capture_fn,
+    vital_id: int,
+) -> GmDispatchOutcome:
+    """Run the gate chain, and record the arrival either way.
+
+    EVERY EXIT OF THE CHAIN WRITES EXACTLY ONE LEDGER LINE, including the
+    exits that raise.  That is the whole point: GT-279 / P-3 cannot tell
+    "the client never sent 0x51E9" from "it did and this lane refused it"
+    when both look like an empty capture folder, and the branch that
+    produces the empty folder in the field is the ordinary one --
+    ``REFUSAL_NOT_GM`` for an attended account that is not in
+    ``gm_accounts.json`` (see ``gm/arrival_ledger.py`` for the four worlds
+    an empty folder collapses together, and for what a MISSING line does
+    and does not prove).
+
+    THE LEDGER IS NOT INSIDE THE GATE CHAIN, IT WRAPS IT.  Putting the
+    record after the chain, in one place, is what keeps the security
+    property the chain exists for readable: the order
+    authorize -> rate limit -> payload size -> quota -> write is still one
+    unbroken block below, with no logging statement between two checks for
+    someone to accidentally reorder around.
+
+    A LEDGER PROBLEM NEVER BECOMES A DISPATCH PROBLEM.
+    ``record_arrival`` swallows OSError itself and returns None; nothing
+    here inspects its result, so a full disk costs the line and not the
+    connection.
+    """
+    try:
+        outcome = _run_gate_chain(
+            account_name,
+            raw_payload,
+            config_path=config_path,
+            capture_root=capture_root,
+            now_ts=now_ts,
+            capture_fn=capture_fn,
+        )
+    except BaseException as error:
+        # The two argument-validation raises at the top of the chain land
+        # here (a non-str account_name, a non-bytes payload), and so would
+        # any exception a future check adds.  An arrival that blew up is
+        # still an arrival, and it is the single hardest case to diagnose
+        # from an empty folder, so it gets a line naming the exception type
+        # -- and then the exception continues on its way unchanged.
+        arrival_ledger.record_arrival(
+            vital_id,
+            account_name,
+            len(raw_payload) if isinstance(raw_payload, (bytes, bytearray)) else None,
+            f"raised_{type(error).__name__}",
+            # NOT False (pf-adversary, round `5rxy86`, D4): when the chain
+            # raises, this call site knows an arrival happened and does NOT
+            # know whether the account is in the allowlist -- the exception
+            # may have come from reading the allowlist itself.  `None`
+            # renders as `authorized=unknown`; `False` would answer the one
+            # question an operator uses that field for with a confident
+            # wrong answer.
+            authorized=None,
+            capture_root=capture_root,
+            now_ts=now_ts,
+        )
+        raise
+    arrival_ledger.record_arrival(
+        vital_id,
+        account_name,
+        len(raw_payload),
+        "captured" if outcome.captured_path is not None else f"refused_{outcome.refusal_reason}",
+        authorized=outcome.authorized,
+        capture_root=capture_root,
+        now_ts=now_ts,
+    )
+    return outcome
+
+
+def _run_gate_chain(
+    account_name: str,
+    raw_payload: bytes,
+    *,
+    config_path: str | None,
+    capture_root: str | Path,
+    now_ts: float | None,
+    capture_fn,
 ) -> GmDispatchOutcome:
     """The gate chain both inbound entry points below run, in one place.
 
@@ -611,12 +699,29 @@ def handle_activity_cheat_code_vital(
     something this server threw away" -- a false negative that costs an
     attended booking and is unrecoverable after the fact.
 
-    THIS FUNCTION ALONE DOES NOT CLOSE THAT (pf-adversary, round `eu2g1d`,
-    D3).  Nothing calls it: there is no `runtime.py` call site for 0x6CEC
-    and no lane_hooks point, so it is reachable from tests only.  It makes
-    the two outcomes distinguishable ONLY ONCE chief wires the call site
-    CORE-REQUEST-GM-062 asks for.  Until then the folder is as empty as it
-    was, and a round file or ticket that says otherwise is wrong.
+    THIS FUNCTION IS REACHED FROM THE WIRE SINCE CHIEF'S ROUND R390.
+    The paragraph here used to read "Nothing calls it: there is no
+    `runtime.py` call site for 0x6CEC and no lane_hooks point, so it is
+    reachable from tests only" -- true when it was written (pf-adversary,
+    round `eu2g1d`, D3), false the moment CORE-REQUEST-GM-062 was granted,
+    and left standing for a round.  It ended "a round file or ticket that
+    says otherwise is wrong", so a lane grepping for whether 0x6CEC is
+    wired would have been told the wrong answer with confidence, and could
+    have added a second sink for the same id.  The call site is
+    `runtime.py`'s `lane_hooks.fire("vital_inbound_activity_cheat_code")`.
+
+    WHAT AN UNAUTHENTICATED PEER STILL COSTS THROUGH THAT DOOR is measured,
+    not assumed, and it is not zero: chief's round R391 fired 2000 frames
+    from a session that never logged in and got 2000 `session.events`
+    entries back (`lane_gm_activity_cheat_code.py` has neither the dedup
+    nor the per-session ceiling `lane_gm_unknown_vital_counter.py` has),
+    about 101.8 bytes retained per frame under `tracemalloc`, and one
+    `Path.is_file()` on `config/gm_accounts.json` per frame because
+    `is_gm_account` runs before `_rate_limit_allows`.  THE CEILING IS NOT
+    THIS LANE'S TO ADD: `NOW.md` (COO round `1941`) assigns it to chief's
+    own `fire()` ticket, letter `20260907_1918`.  What this function does
+    guarantee for such a peer is unchanged and still true: no file is
+    written, no reply frame is sent, and nothing decodes a meaning.
 
     AND IT CLOSES THE AMBIGUITY FOR ONE OPCODE, NOT FOR THE FOLDER
     (pf-adversary, D10).  `CheatVital` (0x162E) is also client->server,
@@ -649,6 +754,7 @@ def handle_activity_cheat_code_vital(
         capture_root=capture_root,
         now_ts=now_ts,
         capture_fn=capture_raw_activity_cheat_code,
+        vital_id=ACTIVITY_CHEAT_CODE_VITAL_ID,
     )
 
 
@@ -682,4 +788,5 @@ def handle_gm_run_command_vital(
         capture_root=capture_root,
         now_ts=now_ts,
         capture_fn=capture_raw_gm_command,
+        vital_id=GM_RUN_GM_COMMAND_VITAL_ID,
     )
