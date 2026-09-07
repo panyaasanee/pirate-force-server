@@ -130,30 +130,64 @@ class RowsThatCannotAnswerAreRefusedByNameTests(unittest.TestCase):
                     self._refusal(1, level).reason,
                 )
 
-    def test_a_level_the_client_table_does_not_carry_is_ACCEPTED_today(self):
-        """The hole the withdrawn import leaves, pinned rather than described.
+    def test_the_literal_table_ends_still_match_the_real_table(self):
+        """The `gm/level_command.py` recipe: a literal with a test on it.
 
-        Round `hhmvit` asserted the opposite here: a real row read refused a
-        level the client's own progression table does not carry even when the
-        numeric span still covered it.  `COO-DECISION 20260907_2050` withdrew
-        that import (the caller retreats; only LANE-DB retires its own pin),
-        so this server will now happily build an attacker at a level no
-        client progression row exists for.  That is a REGRESSION in the
-        module's answer, and it is pinned here in the direction it actually
-        runs so that nobody reads the old test name and believes the check is
-        still there.
+        `class_attacker_profile` may not import the table's typed reader --
+        LANE-DB's pin scans `src/` for that module's name and only LANE-DB
+        retires it (`COO-DECISION 20260907_2050`).  So the ends live there as
+        literals and the tie to the real table lives HERE, in a tree that scan
+        does not read.  A table that grows past 255 turns this red instead of
+        leaving a stale ceiling in a module that decides how hard a character
+        swings.
 
-        DELETE THIS TEST in the same commit that restores the import
-        (COO-DECISION 20260907_2050 item 4) -- it is written to go red the
-        moment the real check comes back, which is exactly when it should.
+        pf-adversary round `b2cnxe` D5 found the first draft of the withdrawal
+        had simply dropped to `Combatant`'s 1..1000 range and labelled the loss,
+        while this house already had this recipe in the tree.
         """
-        top = persistence_standard_status.STANDARD_STATUS_MAX_LEVEL
-        off_the_table = top + 1
-        self.assertLessEqual(off_the_table, class_attacker_profile.LEVEL_MAX)
-        profile = class_attacker_profile.profile_for_character(
-            _row(1, off_the_table)
+        self.assertEqual(
+            class_attacker_profile.TABLE_LAST_LEVEL,
+            persistence_standard_status.STANDARD_STATUS_MAX_LEVEL,
         )
-        self.assertEqual(off_the_table, profile.level)
+        self.assertEqual(
+            class_attacker_profile.TABLE_FIRST_LEVEL,
+            persistence_standard_status.STANDARD_STATUS_MIN_LEVEL,
+        )
+
+    def test_the_table_is_contiguous_so_a_range_check_loses_nothing_today(self):
+        """What makes the ceiling as strong as the withdrawn row read -- today.
+
+        The withdrawn check was a real row read, so a level inside the span but
+        MISSING from the table refused.  A range check cannot do that.  The two
+        are equivalent only while the table has no holes, so that is pinned
+        here rather than assumed: the day a hole appears this goes red and the
+        module's own docstring paragraph about it stops being theoretical.
+        """
+        rows = persistence_standard_status.STANDARD_STATUS_ROWS
+        first = persistence_standard_status.STANDARD_STATUS_MIN_LEVEL
+        last = persistence_standard_status.STANDARD_STATUS_MAX_LEVEL
+        self.assertEqual(
+            sorted(rows), list(range(first, last + 1)),
+        )
+
+    def test_a_level_above_the_client_table_is_refused_again(self):
+        """The check pf-adversary D5 said had been thrown away, back.
+
+        `characters.level` is a u16 column (`migrations/006:130`) while the
+        client's table stops at 255, so a level 900 row is storable and, in the
+        first draft of this round, was accepted -- it would have swung with
+        `K_ATK_LV * 900` off a progression row that does not exist.
+        """
+        for level in (
+            class_attacker_profile.TABLE_LAST_LEVEL + 1,
+            900,
+            class_attacker_profile.COMBATANT_LEVEL_MAX,
+        ):
+            with self.subTest(level=level):
+                self.assertEqual(
+                    class_attacker_profile.REFUSE_LEVEL_OFF_TABLE,
+                    self._refusal(1, level).reason,
+                )
 
     def test_the_withdrawn_import_is_actually_absent_from_the_source(self):
         """`grep`, not prose: the module must not import the DB scaffold.
@@ -306,6 +340,43 @@ class TheRefusalContractDoesNotLeakTests(unittest.TestCase):
                 ability_str=class_attacker_profile.ABILITY_STR_MAX + 1,
                 ability_con=0,
             )
+        # pf-adversary round `b2cnxe` D6: round `b2cnxe`'s first draft added a
+        # SECOND restated pair (the level bounds) without extending this walk,
+        # so lowering `Combatant`'s own ceiling left this file green while
+        # `profile_for_character` leaked `MobCombatContractError` instead of
+        # `ClassAttackerProfileError` -- pf-adversary D4 of round `hhmvit`,
+        # reopened by the fix for D5 of the same round.  Measured with the
+        # ceiling mutated to 500: 32 passed, and level 700 leaked.
+        mob_combat.Combatant(
+            level=class_attacker_profile.COMBATANT_LEVEL_MAX,
+            ability_str=0,
+            ability_con=0,
+        )
+        mob_combat.Combatant(
+            level=class_attacker_profile.COMBATANT_LEVEL_MIN,
+            ability_str=0,
+            ability_con=0,
+        )
+        for bad in (
+            class_attacker_profile.COMBATANT_LEVEL_MAX + 1,
+            class_attacker_profile.COMBATANT_LEVEL_MIN - 1,
+        ):
+            with self.subTest(level=bad):
+                with self.assertRaises(Exception):
+                    mob_combat.Combatant(
+                        level=bad, ability_str=0, ability_con=0,
+                    )
+        # And the refusal a caller sees is always this module's own class, at
+        # both ends of the WIDER pair -- the ceiling this module enforces is
+        # the client table's, so no level can reach `Combatant`'s edge at all.
+        self.assertLessEqual(
+            class_attacker_profile.LEVEL_MAX,
+            class_attacker_profile.COMBATANT_LEVEL_MAX,
+        )
+        self.assertGreaterEqual(
+            class_attacker_profile.LEVEL_MIN,
+            class_attacker_profile.COMBATANT_LEVEL_MIN,
+        )
 
     def test_no_table_read_can_fail_because_there_is_no_table_read(self):
         # Round `hhmvit` (pf-adversary D5) pinned that an unreadable

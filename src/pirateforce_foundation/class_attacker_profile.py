@@ -100,11 +100,23 @@ from . import mob_combat
 # mention rather than a call, and the obvious "fix" for that would be a second
 # allowlist.  Its own test file names it in full.
 #
-# WHAT THIS COSTS, STATED PLAINLY: a level that lands inside the numeric span
-# but is MISSING FROM THE TABLE is no longer refused -- only the `Combatant`
-# bounds below are left, and they are a range comparison, which is exactly the
-# weaker check the withdrawn one was chosen over.  Nothing silently substitutes
-# a dummy; the refusal reason simply says less than it did.
+# WHAT IS KEPT, AND HOW (pf-adversary round `b2cnxe`, D5): the first draft of
+# this withdrawal simply fell back to `Combatant`'s own 1..1000 range and wrote
+# a label saying what was lost.  That threw away a check this house already
+# knows how to keep without the import -- `gm/level_command.py` hit exactly
+# this wall in round `l86bt4` and solved it: spell the table's last level as a
+# LITERAL here, and tie that literal to the real table from `tests/`, a tree
+# the pin's text scan does not read.  A literal with a test on it, never a
+# literal on its own.  So `TABLE_LAST_LEVEL` below is the ceiling this module
+# refuses above, and `tests/test_class_attacker_profile.py` turns red the day
+# it stops being the committed table's last row.
+#
+# WHAT IS STILL LOST, STATED PLAINLY: the withdrawn check was a REAL ROW READ,
+# so a level inside the span but missing from the table refused.  A ceiling is
+# a range comparison and cannot do that.  Today the two agree because the
+# committed table is contiguous 1..TABLE_LAST_LEVEL, and a test below pins that
+# contiguity -- the day the table grows a hole, that test goes red and says so
+# rather than letting this module quietly accept the hole.
 # On the round LANE-DB's retirement lands on main, restoring the import is this
 # lane's FIRST job (<=30 minutes, COO-DECISION 20260907_2050 item 4), together
 # with mutant M2 (a range comparison in place of a real row read) going red again.
@@ -141,10 +153,27 @@ ABILITY_STR_MAX = 100000
 
 #: The bounds `mob_combat.Combatant.__post_init__` enforces on `level`, mirrored
 #: for the same reason and with the same duplication warning as the pair above.
-#: These are the ONLY level bounds left while the progression-table import is
-#: withdrawn (see the block at the top of this file).
-LEVEL_MIN = 1
-LEVEL_MAX = 1000
+#: A test walks `Combatant` itself and turns red if either drifts (pf-adversary
+#: round `b2cnxe` D6: the first draft mirrored these without extending that
+#: test, so lowering `Combatant`'s ceiling leaked `MobCombatContractError` --
+#: a DIFFERENT class than this module's docstring tells a caller to branch on,
+#: which is pf-adversary D4 of round `hhmvit` reopened).
+COMBATANT_LEVEL_MIN = 1
+COMBATANT_LEVEL_MAX = 1000
+
+#: The FIRST and LAST level the client's committed progression table carries,
+#: spelled here as literals instead of imported, for the reason the block at the
+#: top of this file gives.  `tests/test_class_attacker_profile.py` reads the real
+#: table and turns red if either stops matching it -- the `gm/level_command.py`
+#: recipe, not an invention of this round.
+TABLE_FIRST_LEVEL = 1
+TABLE_LAST_LEVEL = 255
+
+#: What `profile_for_character` actually refuses outside.  The client's table is
+#: the narrower of the two and is the one that means something: a level the
+#: client has no progression row for is not a level this server should swing at.
+LEVEL_MIN = TABLE_FIRST_LEVEL
+LEVEL_MAX = TABLE_LAST_LEVEL
 
 #: The STR this project has actually watched, imported rather than restated.
 #: Re-exported under a name that says WHY it is still a pin, so a reader of a
@@ -238,10 +267,10 @@ def profile_for_character(
     if not LEVEL_MIN <= level <= LEVEL_MAX:
         raise ClassAttackerProfileError(
             REFUSE_LEVEL_OFF_TABLE,
-            "level %d is outside the range the combatant record accepts, "
-            "%d..%d -- NOTE this is a range comparison, not a read of the "
-            "client's progression table; the table read is withdrawn, see "
-            "the block at the top of this module"
+            "level %d is outside the client's committed progression table, "
+            "%d..%d -- NOTE this is a range comparison against that table's "
+            "ends, not a read of the row itself; see the block at the top of "
+            "this module for what that does and does not still catch"
             % (level, LEVEL_MIN, LEVEL_MAX),
         )
     strength = _require_int(

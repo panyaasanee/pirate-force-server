@@ -397,7 +397,12 @@ class TheLaneIsNotWiredAndSaysSoTests(unittest.TestCase):
             if path.resolve() != here
             and "skill_list_at_login" in path.read_text(encoding="utf-8")
         )
-        self.assertIn("callers_in_src=%d" % len(callers), summary[0])
+        # Whole token, not a substring: pf-adversary showed on the sibling
+        # module (round `hhmvit` D2) that `assertIn("callers_in_src=1", ...)`
+        # passes against `callers_in_src=12`.
+        self.assertIn(
+            "callers_in_src=%d" % len(callers), summary[0].split(),
+        )
         self.assertEqual([], callers, "callers appeared: %r" % (callers,))
 
     def test_every_console_line_survives_the_bridge_console(self):
