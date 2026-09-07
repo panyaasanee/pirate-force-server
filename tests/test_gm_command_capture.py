@@ -910,16 +910,23 @@ class GmCommandCaptureTests(unittest.TestCase):
         self.assertIn("Jos", printed[0])
 
     def _stuck_line_for(self, account="panya", root=None, stream=None):
-        """Drive the stuck-file path once and hand back what was printed."""
+        """Drive the stuck-file path once and hand back what was printed.
+
+        Also leaves the `os.unlink` spy on `self.unlink_spy`, so a caller can
+        ask how many attempts were REALLY made and not only how many the line
+        claims (pf-adversary, round `i3evov`, D7: the mock was already here
+        and no test ever read its `call_count`).
+        """
         stderr = stream if stream is not None else io.StringIO()
         with mock.patch.object(
             command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
         ), mock.patch.object(
             command_capture.os, "unlink",
             side_effect=OSError("simulated Windows sharing violation"),
-        ), mock.patch.object(
+        ) as unlink_spy, mock.patch.object(
             command_capture.time, "sleep",
         ), contextlib.redirect_stderr(stderr):
+            self.unlink_spy = unlink_spy
             with self.assertRaises(CaptureFileNotVerifiedRemoved):
                 capture_raw_gm_command(
                     b"x", account,
@@ -1543,6 +1550,15 @@ class GmCommandCaptureTests(unittest.TestCase):
         retrying = self._stuck_line_for(account="panya").splitlines()
         self.assertEqual(len(retrying), 1, retrying)
         self.assertIn(f"attempts={command_capture._UNLINK_ATTEMPTS}", retrying[0])
+        # D7: the number the line PRINTS is checked above; this is the number
+        # of attempts that actually happened. Without it, a mutant that always
+        # retries and always prints `attempts=1` is killed only by a test 800
+        # lines away, not by the test whose name promises to catch it.
+        self.assertEqual(
+            self.unlink_spy.call_count,
+            command_capture._UNLINK_ATTEMPTS,
+            "the retrying path must really make _UNLINK_ATTEMPTS attempts",
+        )
 
         shutdown = io.StringIO()
         with mock.patch.object(
@@ -1550,7 +1566,7 @@ class GmCommandCaptureTests(unittest.TestCase):
         ), mock.patch.object(
             command_capture.os, "unlink",
             side_effect=OSError("simulated Windows sharing violation"),
-        ), mock.patch.object(
+        ) as shutdown_unlink, mock.patch.object(
             command_capture.time, "sleep",
         ), contextlib.redirect_stderr(shutdown):
             with self.assertRaises(SystemExit):
@@ -1560,6 +1576,11 @@ class GmCommandCaptureTests(unittest.TestCase):
         printed = shutdown.getvalue().splitlines()
         self.assertEqual(len(printed), 1, printed)
         self.assertIn("attempts=1", printed[0])
+        self.assertEqual(
+            shutdown_unlink.call_count,
+            1,
+            "the shutdown path must really make exactly one attempt",
+        )
         # The two paths must not print the same number, or a literal
         # satisfies both assertions above at once.
         self.assertGreater(command_capture._UNLINK_ATTEMPTS, 1)
