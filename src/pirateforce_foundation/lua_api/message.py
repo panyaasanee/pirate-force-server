@@ -137,6 +137,8 @@ client, and a scene bucket is a record of intent, not a broadcast.
 
 from __future__ import annotations
 
+from .vendored import VendoredDataError
+
 import csv
 import re
 import threading
@@ -188,7 +190,7 @@ _KEEP_LITERAL = frozenset(
     chr(code) for code in range(0x20, 0x7F) if chr(code) != "\\")
 
 
-class MessageCatalogError(RuntimeError):
+class MessageCatalogError(VendoredDataError):
     """The vendored catalog could not be read.
 
     Raised LOUDLY and by name, with the path in the message.  The previous
