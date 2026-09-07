@@ -121,6 +121,11 @@ REFUSE_SKILL_ID_OUTSIDE_U32 = "skill_id_is_outside_the_u32_wire_field"
 REFUSE_DUPLICATE_SKILL_ID = "skill_ids_are_not_distinct"
 REFUSE_TOO_MANY_FOR_THE_WIRE = "record_count_is_outside_the_u16_wire_field"
 REFUSE_TOO_MANY_UNMEASURED = "record_count_is_above_any_observed_acceptance"
+#: pf-adversary D5 (round `jqeid1`): `path.is_file()` waves a zero-byte file
+#: through, and `sqlite3.connect` then CREATES a database in it -- while the
+#: refusal string beside it says this command never creates one.  A separate
+#: reason, so an operator whose --db is a stub reads which of the two it was.
+REFUSE_NOT_A_DATABASE = "path_is_not_an_sqlite_database"
 
 
 class SkillListAtLoginError(RuntimeError):
@@ -352,13 +357,33 @@ def repository_root() -> "Any":
 def seam_carrier(runtime_path: "Any" = None) -> str:
     """Who would send this frame today, MEASURED off ``runtime.py``.
 
-    ``runtime`` when the login path actually names ``login_skill_list_response``,
-    ``module_only`` when it does not, ``unknown`` when there is no runtime to
-    read.  GT-307's token line ends in ``sent_by=``, and a hard-coded
+    ``runtime`` when the login path actually CALLS
+    ``login_skill_list_response``, ``module_only`` when it does not,
+    ``unknown`` when there is no runtime to read or it does not parse.
+    GT-307's token line ends in ``sent_by=``, and a hard-coded
     ``sent_by=runtime`` would be the same species of lie as the
     ``callers_in_src=0`` that pf-adversary killed in round ``e8pss9``: a
     claim about the tree, printed by a format string that cannot see it.
+
+    THIS IS AN AST CHECK BECAUSE A SUBSTRING CHECK WAS ALREADY WRONG.  The
+    first version of this function asked ``LOGIN_SEAM_SYMBOL in text``, and
+    pf-adversary (round ``jqeid1``, D4) turned it on with a single line:
+
+        # TODO(next round): call login_skill_list_response from the login path
+
+    One comment and the token an operator pastes as ``HEADLESS_PROOF:``
+    reads ``sent_by=runtime`` on a server that sends nothing.  A call node is
+    the smallest thing that cannot be written by accident or by a plan.
+
+    WHAT IT STILL CANNOT SEE, said rather than implied: this reads ONE file.
+    ``runtime.py`` imports the ``lane_hooks`` package, which auto-imports
+    every module dropped into it, so a lane that wires this in through a
+    hook puts the frame on a live boot path without ``runtime.py`` changing
+    by a byte -- and this function would still say ``module_only``
+    (pf-adversary D2).  Widening it is next round's work and is filed as
+    such; printing a narrower answer as if it were the whole answer is not.
     """
+    import ast
     from pathlib import Path
 
     path = (
@@ -370,7 +395,17 @@ def seam_carrier(runtime_path: "Any" = None) -> str:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return "unknown"
-    return "runtime" if LOGIN_SEAM_SYMBOL in text else "module_only"
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return "unknown"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = getattr(func, "attr", getattr(func, "id", ""))
+            if name == LOGIN_SEAM_SYMBOL:
+                return "runtime"
+    return "module_only"
 
 
 def headless_token(
@@ -429,6 +464,8 @@ def compose_from_database(
     from .legacy_bridge import load_legacy
     from .store import SQLiteStore
 
+    import sqlite3
+
     path = Path(database_path)
     if not path.is_file():
         raise SkillListAtLoginError(
@@ -436,12 +473,51 @@ def compose_from_database(
             "no database at %s; this command reads an existing database and "
             "never creates one" % (path,),
         )
+    # pf-adversary D5: is_file() is True of a zero-byte file, and
+    # sqlite3.connect turns one into a fresh database on disk -- the exact
+    # thing the refusal above promises not to do.  The header is the only
+    # answer that is not a guess: every sqlite file starts with these 16
+    # bytes, and no truncated copy or text stub does.
+    with path.open("rb") as handle:
+        header = handle.read(16)
+    if header != b"SQLite format 3\x00":
+        raise SkillListAtLoginError(
+            REFUSE_NOT_A_DATABASE,
+            "%s is not an sqlite database (header %r); refusing rather than "
+            "creating one in it" % (path, header),
+        )
     root = repository_root()
     store = SQLiteStore(path, root / "migrations")
-    skill_ids = read_character_skill_ids(store, character_id)
+    try:
+        skill_ids = read_character_skill_ids(store, character_id)
+    except OverflowError as error:
+        raise SkillListAtLoginError(
+            REFUSE_CHARACTER_ID_NOT_AN_INT,
+            "character id %r does not fit an sqlite INTEGER" % (character_id,),
+        ) from error
+    except sqlite3.DatabaseError as error:
+        raise SkillListAtLoginError(
+            REFUSE_NOT_A_DATABASE,
+            "%s did not answer as this project's database: %s" % (path, error),
+        ) from error
     legacy = load_legacy(root / "current" / "pf_login_game_server_v141.py")
     _pc, frame = make_skill_list_response(legacy, skill_ids)
     return skill_ids, frame
+
+
+def _print_console_line(line: str) -> None:
+    """Print one line the cp874 bridge console can carry, always.
+
+    ``headless_token`` builds its line out of integers and cannot carry a
+    surprise, but the refusal line interpolates the operator's own ``--db``
+    path.  pf-adversary (D6) pointed one at a directory with an "o-umlaut" in
+    it and ``print`` raised ``UnicodeEncodeError`` INSIDE the error report --
+    the tool dying while explaining why it could not run, which is the
+    round-142 failure the ASCII house rule exists to prevent.  Escaping is
+    lossy on purpose: an operator reading ``sch\\xf6n`` still recognises the
+    path, and a dead console recognises nothing.
+    """
+    print(line.encode("ascii", "backslashreplace").decode("ascii"))
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -483,12 +559,12 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         skill_ids, frame = compose_from_database(database, args.character)
     except SkillListAtLoginError as error:
-        print(
+        _print_console_line(
             "SKILL_LIST_AT_LOGIN_REFUSED cid=%s reason=%s detail=%s"
             % (args.character, error.reason, error)
         )
         return 1
-    print(
+    _print_console_line(
         headless_token(
             args.character, skill_ids, frame, seam_carrier(args.runtime),
         )

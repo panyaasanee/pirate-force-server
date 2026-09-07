@@ -464,8 +464,13 @@ class TheHeadlessTokenIsMeasuredNotSpelledTests(_Fixture):
     def test_deleting_one_row_shortens_the_token_and_the_frame(self):
         """GT-307 step (c), measured here so the attended run is a re-check.
 
-        This is the one step that tells "read the rows" apart from "read the
-        class table": the ids stay legal either way, only the count moves.
+        pf-adversary (D8) refuted this test's first rationale, which called
+        it "the one step that tells rows from the class table": the fixture
+        grants 7/8/9, and no class starts with those, so the IDS already
+        separate the two hypotheses and the count is a second, independent
+        witness rather than the only one.  It still earns its place -- on the
+        attended run the character carries her real class ids, where the ids
+        alone prove nothing and only the count moves.
         """
         character = self._with_skills((7, 8, 9))
         _code, before = self._run(
@@ -489,6 +494,35 @@ class TheHeadlessTokenIsMeasuredNotSpelledTests(_Fixture):
             int(dict(t.split("=", 1) for t in before.split() if "=" in t)
                 ["frame_bytes"]),
         )
+
+    def test_main_reports_sent_by_from_the_runtime_it_is_pointed_at(self):
+        """pf-adversary D3: nothing pinned that ``main`` calls seam_carrier.
+
+        The spelled-literal mutant -- ``headless_token(..., "runtime")`` --
+        was green against every other test in this file, so the one line an
+        operator pastes as HEADLESS_PROOF could end ``sent_by=runtime`` with
+        nothing behind it.  Two runtimes, two answers, through ``main``.
+        """
+        character = self._with_skills((7, 8, 9))
+        calls = Path(self.tmp.name) / "calls_runtime.py"
+        calls.write_text(
+            "def start_game(legacy, store, cid):\n"
+            "    return %s(legacy, store, cid)\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+            encoding="utf-8",
+        )
+        silent = Path(self.tmp.name) / "silent_runtime.py"
+        silent.write_text("class GameState:\n    pass\n", encoding="utf-8")
+        _code, wired = self._run([
+            "--character", str(character.id), "--db", str(self.path),
+            "--runtime", str(calls),
+        ])
+        _code, bare = self._run([
+            "--character", str(character.id), "--db", str(self.path),
+            "--runtime", str(silent),
+        ])
+        self.assertIn("sent_by=runtime", wired.split())
+        self.assertIn("sent_by=module_only", bare.split())
 
     def test_a_character_with_no_rows_prints_one_refusal_line_and_exits_1(self):
         character = self._character()
@@ -540,6 +574,57 @@ class TheHeadlessTokenIsMeasuredNotSpelledTests(_Fixture):
                 connection.execute("PRAGMA journal_mode").fetchone()[0],
             )
 
+    def test_a_zero_byte_file_is_refused_and_stays_zero_bytes(self):
+        """pf-adversary D5: is_file() is True of a stub, and sqlite fills it.
+
+        A truncated copy or an operator's placeholder used to become a fresh
+        database on disk, followed by a traceback -- while the refusal string
+        one line above promised this command never creates one.
+        """
+        stub = Path(self.tmp.name) / "stub.sqlite3"
+        stub.write_bytes(b"")
+        code, line = self._run(["--character", "1", "--db", str(stub)])
+        self.assertEqual(1, code)
+        self.assertIn(
+            "reason=%s" % skill_list_at_login.REFUSE_NOT_A_DATABASE,
+            line.split(),
+        )
+        self.assertEqual(b"", stub.read_bytes())
+
+    def test_a_text_file_is_refused_by_name_and_not_by_traceback(self):
+        text = Path(self.tmp.name) / "notes.txt"
+        text.write_text("this is not a database\n", encoding="utf-8")
+        code, line = self._run(["--character", "1", "--db", str(text)])
+        self.assertEqual(1, code)
+        self.assertTrue(line.startswith("SKILL_LIST_AT_LOGIN_REFUSED "))
+        self.assertEqual(1, len(line.splitlines()))
+
+    def test_a_character_id_too_large_for_sqlite_is_a_named_refusal(self):
+        character = self._with_skills((7, 8, 9))
+        del character
+        code, line = self._run(
+            ["--character", "9" * 26, "--db", str(self.path)]
+        )
+        self.assertEqual(1, code)
+        self.assertIn(
+            "reason=%s" % skill_list_at_login.REFUSE_CHARACTER_ID_NOT_AN_INT,
+            line.split(),
+        )
+
+    def test_a_path_outside_cp874_does_not_kill_the_report(self):
+        """pf-adversary D6: the refusal line interpolates the operator's path.
+
+        A --db under a directory with a character cp874 cannot carry used to
+        raise UnicodeEncodeError inside print() -- the tool dying while
+        explaining why it could not run.
+        """
+        missing = Path(self.tmp.name) / "sch\u00f6n" / "missing.sqlite3"
+        code, line = self._run(["--character", "1", "--db", str(missing)])
+        self.assertEqual(1, code)
+        line.encode("ascii")
+        line.encode("cp874")
+        self.assertTrue(line.startswith("SKILL_LIST_AT_LOGIN_REFUSED "))
+
     def test_the_command_does_not_write_to_the_database_it_reads(self):
         """Against a database already in WAL -- i.e. every canonical one."""
         character = self._with_skills((7, 8, 9))
@@ -564,7 +649,7 @@ class SentByIsReadOffTheTreeTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.dir = Path(self.tmp.name)
 
-    def test_a_runtime_that_names_the_entry_point_reads_as_runtime(self):
+    def test_a_runtime_that_calls_the_entry_point_reads_as_runtime(self):
         path = self.dir / "runtime.py"
         path.write_text(
             "frame = %s(legacy, store, cid)\n"
@@ -572,6 +657,33 @@ class SentByIsReadOffTheTreeTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertEqual("runtime", skill_list_at_login.seam_carrier(path))
+
+    def test_a_comment_mentioning_the_entry_point_is_not_a_seam(self):
+        """pf-adversary D4, run as its own input.
+
+        The substring version of seam_carrier turned on for this one line.
+        """
+        path = self.dir / "runtime.py"
+        path.write_text(
+            "# TODO(next round): call %s from the login path\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+            encoding="utf-8",
+        )
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(path))
+
+    def test_importing_it_without_calling_it_is_not_a_seam(self):
+        path = self.dir / "runtime.py"
+        path.write_text(
+            "from .skill_list_at_login import %s\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+            encoding="utf-8",
+        )
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(path))
+
+    def test_a_runtime_that_does_not_parse_reads_as_unknown(self):
+        path = self.dir / "runtime.py"
+        path.write_text("def broken(:\n", encoding="utf-8")
+        self.assertEqual("unknown", skill_list_at_login.seam_carrier(path))
 
     def test_a_runtime_without_the_entry_point_reads_as_module_only(self):
         path = self.dir / "runtime.py"
@@ -583,15 +695,30 @@ class SentByIsReadOffTheTreeTests(unittest.TestCase):
             "unknown", skill_list_at_login.seam_carrier(self.dir / "gone.py")
         )
 
-    def test_the_shipped_tree_is_reported_truthfully_today(self):
-        runtime = SRC / "runtime.py"
-        expected = (
-            "runtime"
-            if skill_list_at_login.LOGIN_SEAM_SYMBOL
-            in runtime.read_text(encoding="utf-8")
-            else "module_only"
+    def test_the_shipped_tree_is_never_reported_as_wired_while_it_is_not(self):
+        """One direction only, and that is deliberate.
+
+        pf-adversary (D4) showed the first version of this test recomputed
+        the implementation's own substring search on both sides -- a
+        tautology that could only ever pass.  The honest half is the half
+        that can fail: if runtime.py does not mention the symbol AT ALL,
+        then no reading of it can honestly say ``runtime``.  The other
+        direction is left unasserted on purpose, so the round that lands the
+        seam does not have to come back and edit this lane's test to go
+        green.
+        """
+        text = (SRC / "runtime.py").read_text(encoding="utf-8")
+        mentions = skill_list_at_login.LOGIN_SEAM_SYMBOL in text
+        # One assertion, no skip and no branch: a file that never mentions
+        # the symbol cannot honestly be read as `runtime`, and the AST check
+        # under test is strictly narrower than the substring on the left, so
+        # this is not the same computation twice.
+        self.assertTrue(
+            mentions or skill_list_at_login.seam_carrier() == "module_only",
+            "runtime.py does not mention %s, yet seam_carrier() said %r"
+            % (skill_list_at_login.LOGIN_SEAM_SYMBOL,
+               skill_list_at_login.seam_carrier()),
         )
-        self.assertEqual(expected, skill_list_at_login.seam_carrier())
 
     def test_the_token_line_survives_the_bridge_console(self):
         line = skill_list_at_login.headless_token(1, (111, 40000), b"x" * 50,
