@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -73,6 +74,133 @@ class GmSceneCatalogTests(unittest.TestCase):
         # the table's n_ID column is not contiguous 1..330; 997/999 exist too
         self.assertTrue(scene_catalog.is_known_scene_id(997))
         self.assertTrue(scene_catalog.is_known_scene_id(999))
+
+
+class ResolveGmSceneNameTests(unittest.TestCase):
+    """The name -> id direction `warp <scene name>` is built on.
+
+    Every number in this class is a MEASUREMENT of the committed, sha-pinned
+    table, not a preference. If the table is ever re-derived and a row moves,
+    these die -- which is the point: the resolver's whole safety argument is
+    "the table says so".
+    """
+
+    def test_the_three_scenes_the_owner_order_letter_names(self):
+        # The M2 ladder is worded "island 2 and island 3" and these are the
+        # rows those words land on. An operator at the client types the name.
+        self.assertEqual(scene_catalog.resolve_gm_scene_name("Port Royal"), (1,))
+        self.assertEqual(
+            scene_catalog.resolve_gm_scene_name("Prison Exile Island"), (2,)
+        )
+        self.assertEqual(
+            scene_catalog.resolve_gm_scene_name("Spice Paradise Island"), (3,)
+        )
+
+    def test_folding_is_case_and_whitespace_insensitive(self):
+        # The shipped table pads every cell with spaces, and an operator
+        # typing at 1 a.m. does not reproduce a shipped string exactly.
+        for typed in (
+            "spice paradise island",
+            "SPICE PARADISE ISLAND",
+            "  Spice   Paradise  Island  ",
+        ):
+            with self.subTest(typed=typed):
+                self.assertEqual(scene_catalog.resolve_gm_scene_name(typed), (3,))
+
+    def test_a_duplicated_name_returns_every_id_and_never_picks_one(self):
+        # `Hidden Island` is on twenty scenes in the client's own table. A
+        # resolver that returned one of them would send a GM somewhere they
+        # did not ask for, and nothing downstream could tell.
+        ids = scene_catalog.resolve_gm_scene_name("Hidden Island")
+        self.assertEqual(len(ids), 20)
+        self.assertEqual(list(ids), sorted(ids))
+        self.assertIn(308, ids)
+        poseidon = scene_catalog.resolve_gm_scene_name("Poseidon Island")
+        self.assertEqual(len(poseidon), 10)
+
+    def test_an_empty_or_blank_query_matches_nothing(self):
+        # Four rows (13, 137, 138, 141) carry an empty name in the shipped
+        # table. A resolver keyed on the raw string would hand all four back
+        # for the empty query -- i.e. `warp ` would be a legal warp to a
+        # scene picked at random from four.
+        for query in ("", " ", "\t", "   \n  "):
+            with self.subTest(query=repr(query)):
+                self.assertEqual(scene_catalog.resolve_gm_scene_name(query), ())
+        for blank_id in (13, 137, 138, 141):
+            with self.subTest(scene_id=blank_id):
+                self.assertNotIn(
+                    blank_id,
+                    [i for ids in scene_catalog._GM_NAME_TO_SCENE_IDS.values() for i in ids],
+                )
+
+    def test_the_empty_query_guard_holds_even_if_the_index_ever_carries_one(self):
+        # Measured, not assumed: with the index built as it is today, DELETING
+        # the `if not key: return ()` line changes no test -- `_build_name_index`
+        # already drops empty keys, so the guard has two defences and only one
+        # witness. This is that witness. It aims at the guard itself by handing
+        # the resolver an index that DOES carry an empty key, which is exactly
+        # the state a future edit to `_build_name_index` would create.
+        poisoned = dict(scene_catalog._GM_NAME_TO_SCENE_IDS)
+        poisoned[""] = (13, 137, 138, 141)
+        with mock.patch.object(scene_catalog, "_GM_NAME_TO_SCENE_IDS", poisoned):
+            self.assertEqual(scene_catalog.resolve_gm_scene_name(""), ())
+            self.assertEqual(scene_catalog.resolve_gm_scene_name("   "), ())
+            # and the same index still answers a real name, so the test is not
+            # passing because the patch broke the resolver outright
+            self.assertEqual(scene_catalog.resolve_gm_scene_name("Port Royal"), (1,))
+
+    def test_an_unknown_name_is_an_empty_tuple_not_an_exception(self):
+        self.assertEqual(scene_catalog.resolve_gm_scene_name("Atlantis"), ())
+
+    def test_a_non_str_query_raises_rather_than_matching(self):
+        for bad in (2, None, ["Port Royal"], b"Port Royal"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(TypeError):
+                    scene_catalog.resolve_gm_scene_name(bad)
+
+    def test_the_fold_invents_no_ambiguity_the_table_does_not_already_have(self):
+        # The safety argument for folding case is that it merges no two
+        # DISTINCT shipped names. Measured here rather than asserted: for
+        # every folded key, the set of ids it returns must equal the union of
+        # the ids of the shipped names that fold to it -- and each such key
+        # must come from exactly one distinct shipped spelling.
+        spellings: dict[str, set[str]] = {}
+        for n_id, _name, gm_name in scene_catalog._ROWS:
+            key = scene_catalog._fold_gm_scene_name(gm_name)
+            if not key:
+                continue
+            spellings.setdefault(key, set()).add(gm_name.strip())
+        merged = {k: v for k, v in spellings.items() if len(v) > 1}
+        self.assertEqual(merged, {}, f"case/space folding merged distinct names: {merged}")
+
+    def test_every_shipped_name_resolves_back_to_the_row_it_came_from(self):
+        # Round trip over the WHOLE table, not a sample: no row may be
+        # unreachable by its own name (except the four nameless ones).
+        unreachable = [
+            n_id
+            for n_id, _name, gm_name in scene_catalog._ROWS
+            if gm_name.strip() and n_id not in scene_catalog.resolve_gm_scene_name(gm_name)
+        ]
+        self.assertEqual(unreachable, [])
+
+    def test_the_counts_this_lane_prints_to_an_operator_are_the_tables_own(self):
+        self.assertEqual(scene_catalog.SCENE_COUNT, 330)
+        self.assertEqual(scene_catalog.GM_NAME_COUNT, 293)
+        self.assertEqual(
+            scene_catalog.GM_NAME_COUNT, len(scene_catalog._GM_NAME_TO_SCENE_IDS)
+        )
+
+    def test_every_name_in_the_table_survives_the_console_encoding(self):
+        # 209 of the 330 names carry Thai. The bridge console is cp874 (the
+        # Thai code page), so today every name encodes -- measured, not
+        # assumed. This test is the tripwire for a re-derived table that
+        # introduces a name outside cp874: at that moment any code path that
+        # echoes a scene name to the console becomes a way to kill it, and
+        # whoever re-derives the table must see that here rather than at 1
+        # a.m. on the bridge.
+        for n_id, _name, gm_name in scene_catalog._ROWS:
+            with self.subTest(scene_id=n_id):
+                gm_name.encode("cp874")
 
 
 if __name__ == "__main__":

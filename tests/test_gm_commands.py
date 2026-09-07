@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.gm import commands as commands_module
+from pirateforce_foundation.gm import scene_catalog
 from pirateforce_foundation.gm.commands import (
     MAX_SAY_MESSAGE_LENGTH,
     GmCommand,
@@ -507,6 +508,103 @@ class LogGmCommandTests(unittest.TestCase):
             self.assertEqual(mode, 0o700, oct(mode))
         else:
             self.assertTrue(nested_log_path.parent.is_dir())
+
+
+class WarpByNameTests(unittest.TestCase):
+    """`warp <scene name>` -- the form an operator at the client can type.
+
+    The design claim under test is narrow: the name form resolves to the
+    SAME `GmCommand` the id form produces, so nothing downstream learns a
+    second shape, and it takes nothing away from the id form.
+    """
+
+    def test_a_name_produces_exactly_the_command_the_id_form_produces(self):
+        by_name = parse_gm_command("warp Prison Exile Island")
+        by_id = parse_gm_command("warp 2")
+        self.assertEqual(by_name.name, by_id.name)
+        self.assertEqual(by_name.args, by_id.args)
+        self.assertEqual(by_name.args, ("2",))
+        # `raw` is the one field that differs, and it must: the audit record
+        # is what an operator's typed line is kept in.
+        self.assertEqual(by_name.raw, "warp Prison Exile Island")
+
+    def test_the_id_form_is_untouched_by_the_new_branch(self):
+        # Every shape the numeric grammar accepted before the name branch
+        # existed, including the ones `int()` accepts and a digit test would
+        # not. A name form that narrowed these would be a regression paid
+        # for with convenience.
+        for text, expected in (
+            ("warp 2", ("2",)),
+            ("warp 2 10 20", ("2", "10", "20")),
+            ("warp -1", ("-1",)),
+            ("warp +7", ("+7",)),
+            ("warp 007", ("007",)),
+            ("warp 1_0", ("1_0",)),
+            ("warp 999 1.5 -2.5", ("999", "1.5", "-2.5")),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(parse_gm_command(text).args, expected)
+
+    def test_an_unknown_scene_id_is_still_accepted_the_asymmetry_is_deliberate(self):
+        # A number is a wire value and stands without the catalog; a name has
+        # no meaning except through it. Pinned because the asymmetry looks
+        # like an oversight until it is read as the rule.
+        self.assertFalse(scene_catalog.is_known_scene_id(123456))
+        self.assertEqual(parse_gm_command("warp 123456").args, ("123456",))
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command("warp Definitely Not A Scene")
+
+    def test_an_ambiguous_name_refuses_and_names_the_way_out(self):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command("warp Hidden Island")
+        message = str(caught.exception)
+        self.assertIn("20 scenes", message)
+        self.assertIn("warp <scene_id>", message)
+        # Readable, not a dump of twenty numbers.
+        self.assertIn("...", message)
+        self.assertLessEqual(
+            message.count(","), commands_module.MAX_AMBIGUOUS_SCENE_IDS_SHOWN + 1
+        )
+
+    def test_a_name_ending_in_digits_still_resolves_and_never_eats_coordinates(self):
+        # 52 of the table's 330 names end in a digit, so "the last two tokens
+        # are x/y" cannot be told from "the name ends in numbers". The name
+        # form therefore takes NO coordinates, and the trailing-number line
+        # is refused rather than silently warped without them.
+        self.assertEqual(parse_gm_command("warp Navy Prison2").args, ("123",))
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command("warp Navy Prison2 10 20")
+
+    def test_no_message_this_branch_raises_echoes_what_the_operator_typed(self):
+        # These lines reach a cp874 console. Echoing arbitrary client text is
+        # one unlucky character from killing it, and the operator can already
+        # see their own line. Both refusal paths are checked, with a query
+        # that would be visible if it were echoed.
+        marker = "ZZQQ_UNLIKELY_MARKER"
+        for text in (f"warp {marker}", "warp Hidden Island"):
+            with self.subTest(text=text):
+                with self.assertRaises(GmCommandParseError) as caught:
+                    parse_gm_command(text)
+                message = str(caught.exception)
+                self.assertNotIn(marker, message)
+                self.assertNotIn("Hidden", message)
+                message.encode("ascii")
+
+    def test_the_bare_verb_still_shows_the_usage_line(self):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command("warp")
+        self.assertEqual(str(caught.exception), commands_module.COMMAND_USAGE["warp"])
+
+    def test_the_usage_line_an_operator_reads_mentions_both_forms(self):
+        # The grammar is spelled once (`COMMAND_USAGE`), so a form the parser
+        # accepts but no usage sentence mentions is a form nobody finds.
+        usage = commands_module.COMMAND_USAGE["warp"]
+        self.assertIn("<scene_id>", usage)
+        self.assertIn("<scene name>", usage)
+
+    def test_the_resolved_id_is_what_the_audit_record_and_the_hint_read(self):
+        command = parse_gm_command("warp Spice Paradise Island")
+        self.assertEqual(describe_warp_target(command), "Spice Paradise Island")
 
 
 if __name__ == "__main__":
