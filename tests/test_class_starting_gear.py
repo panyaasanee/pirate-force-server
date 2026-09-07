@@ -341,10 +341,20 @@ class NotWiredYetTests(unittest.TestCase):
                     if name in ("import_module", "__import__"):
                         importers.append(path.relative_to(ROOT).as_posix())
         self.assertEqual(importers, [])
-        # Recorded, not enforced: today the only mention is class_catalog's
-        # docstring pointing readers at this module.
+        # Recorded, not enforced: today the mentions are two comments, and
+        # NEITHER is a caller.  `class_catalog` points readers here from its
+        # docstring.  `inventory.py` gained its line while this branch was
+        # closed -- LANE-DB changed STARTING_BACKPACKS from a name comparison
+        # to a set membership and named this module as the owner of the
+        # contents it will one day hold (their commit 7b8fff6, on main).  A
+        # comment that names a module is not an import of it, which is why
+        # this list is recorded and `importers` is the assertion that bites.
         self.assertEqual(
-            mentions, ["src/pirateforce_foundation/class_catalog.py"]
+            mentions,
+            [
+                "src/pirateforce_foundation/class_catalog.py",
+                "src/pirateforce_foundation/inventory.py",
+            ],
         )
 
     def test_production_allowed_is_false_while_there_is_no_seam(self):
