@@ -107,17 +107,35 @@ To get the line back, ask the census, not `grep`:
 
 ```
 python3 tools/pf_ui_wire_name_census.py --where GM_RunGMCommandVital
-src/pirateforce_foundation/gm/<file>.py:<line>
+src/pirateforce_foundation/gm/command_capture.py:800
++1 more files, use --where-all GM_RunGMCommandVital     <- this line is on STDERR
+
+python3 tools/pf_ui_wire_name_census.py --where-all GM_RunGMCommandVital
+src/pirateforce_foundation/gm/command_capture.py:800
+src/pirateforce_foundation/gm/gmui_catalog.py:502
 ```
 
-The output above is deliberately NOT a real line number. This page is the one
-that explains that these numbers drift on other lanes' schedule; printing one
-here as an example makes the page contradict itself the next time LANE-GM adds
-fifty lines, and nothing re-derives it -- `CoverageDocMatchesCommittedArtifactTests`
-pins the headline numbers, the scoreboard line, the non-claims and `UI_LANE.md`,
-but it did not pin this block (round `8btjto`, pf-adversary D-C on `#1013`; the
-example used to read `...command_capture.py:800`, measured on `6b5b6b8` and
-already stale by the round after). Run the command; do not copy its answer.
+`800` and `502` above are a **dated reading, not a pin** -- the same label
+this page puts on the `18 of 30` and on `lines 3 and 4` below. [MEASURED
+round `cpgueb`, by running exactly the two commands above at `11f937a`.]
+Nothing re-derives them: `CoverageDocMatchesCommittedArtifactTests` pins the
+headline numbers, the scoreboard line, the non-claims and `UI_LANE.md`, and
+does not pin this block. Run the commands; do not copy their answers.
+
+Round `8btjto` replaced the file name here with `<file>.py` on the reading
+that `800` was a value that had gone stale. It had not: `800` is where
+`6b5b6b8` MOVED that row to (`750 -> 800`, the arrow two paragraphs up), and
+`--where` still answers `800` today. Hiding the file name cost more than it
+saved -- the file does not drift at all, it is pinned by two tests, and
+`gm/<file>.py` made every answer look as if it lived under `gm/`, which 23 of
+the 30 `SOURCE` rows do not (pf-adversary D7 on `#1017`).
+
+The `--where` line is on stdout and the `+1 more files` line is on stderr, so
+`LINE=$(python3 tools/pf_ui_wire_name_census.py --where GM_RunGMCommandVital)`
+still captures one line and nothing else (COO-DECISION `20260907_1141` item
+(c), which approved `--where-all` as an addition on exactly that condition).
+Eleven of the 327 catalog names are counted in more than one file; the
+artifact can only ever name one of them, because it is one row per name.
 
 🔴 **`grep -n "<name>" <file>` is the wrong answer and this page used to give
 it** (round `jx6r5p`, pf-adversary D2 on `#1005`). `grep` reports docstring
