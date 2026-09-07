@@ -11056,3 +11056,39 @@ non-default `login_scene_config_path` or `gm_accounts_config_path` reads back
 the files the chat commands were given, while `runtime.py`'s login leaves all
 three at their defaults. The writer and the readback agree; the login is the
 odd one out, for every staging command in this lane.
+
+## The staged `/warp` now answers on screen (round `0w9jhq`) -- `STAGED RELOG`
+
+A cross-scene `/warp` sends no frame.  It writes the account's next-login
+scene (`gm/login_scene_stage.py`) and the scene appears after a relog.  Until
+this round its only report was the server console line
+`GM_CHAT_STAGED_NEXT_LOGIN`, which is not where the person typing the command
+is looking: the owner read that silence off her own screen during R307 and
+reported the command as "nothing happened" (`PANYA-DECISION 20260903_1800`).
+
+The command now returns one local-talk notice, twelve printable ASCII
+characters like every other sentence on this channel:
+
+    STAGED RELOG   the stage was written; the scene comes on the next login
+
+* THE SCENE ID IS NOT IN IT.  Twelve characters do not hold both facts, and
+  the two an operator acts on are "it was accepted" and "relog".  `staged`
+  answers "which id" on demand (`SCENE 000278`), from the same lookup the
+  login makes.
+* THE CONSOLE LOSES NOTHING.  The verdict carries `is_notice=True`, so the
+  route's `sent` stays False and `GM_CHAT_STAGED_NEXT_LOGIN` still prints with
+  its `next=` sentence.  The screen gained a line; the console kept its own.
+* THE LABEL IS INVISIBLE TO THE WARP MACHINERY, on purpose:
+  `LANE_GM_CHAT_WARP_STAGED_LOCAL_TALK_NOTICE` is in neither `runtime.py`'s
+  `_GM_WARP_LABELS` resync nor the `TELEPORT`-substring move-authority rule.
+  A staged warp moves nobody, and a label either list recognised would tell
+  `runtime.py` a character had just been placed in a scene it is not in.
+* A COURTESY MAY NEVER COST THE COMMAND.  The stage is on disk before the
+  sentence is composed; a wire that refuses the notice leaves the warp staged
+  and silent, named by `gm_chat_action_warp_notice_failed_<Type>`, never
+  raised on the listener thread.
+
+NONCLAIM.  `STAGED RELOG` says a config entry was written.  It does not say
+the next login will grant that scene (the claim and `resolve_entry` still run
+at login), it is not evidence for M2, and it is not evidence for any GT
+ticket: GM tooling is how this project REACHES a testable state.

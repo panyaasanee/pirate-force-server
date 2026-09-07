@@ -308,7 +308,20 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
                 state = self._login_and_start("gm_runner")
                 actions = self._say(state, "/warp 2")
             # Observe-only: the point adds no reply of its own.
-            self.assertEqual(actions, control)
+            # ~~"Observe-only: the point adds no reply of its own."~~ -- struck
+            # LANE-GM round `0w9jhq`.  A staged `/warp` now answers
+            # `STAGED RELOG` on the notice channel, so the route DOES add one
+            # action -- and this is the first place in the repository where
+            # CORE-REQUEST-GM-029's append is observable end to end (round
+            # `apk7ue` measured that nothing here could see it at all: three
+            # mutations of the append line left the whole suite green).  The
+            # control run is still every action that is NOT this sentence.
+            self.assertEqual(actions[: len(control)], control)
+            self.assertEqual(len(actions), len(control) + 1)
+            self.assertEqual(
+                actions[-1][0],
+                chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL,
+            )
         self.assertIn("gm_chat_action_accepted_warp", state.events)
         records = self._audit_lines()
         # Two rows since CORE-REQUEST-GM-032 (issued + outcome), one pair per
@@ -401,6 +414,12 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
                 "RUNTIME_RES_ACK_FIRST_REQ",
                 "V99_SHOW_MESSAGE_LOCAL_SERVER_ONLINE",
                 "V100_MUSIC_CONTROL_CURRENT_SCENE",
+                # LANE-GM round `0w9jhq`: the staged warp's own sentence,
+                # LAST and exactly once.  Its position in this list is the
+                # property CORE-REQUEST-GM-029 asked for and nothing could
+                # observe before -- an append that ran twice, never, or as a
+                # prepend would move or duplicate this one entry.
+                chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL,
             ],
         )
         self.assertEqual(state.rx_frames, rx_before + 1)

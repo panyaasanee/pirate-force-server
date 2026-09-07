@@ -282,7 +282,16 @@ class OnlyTheReasonsADifferentDestinationWouldFixTests(_Case):
             warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
         ):
             action, console = self.act(session, f"/warp {target}")
-        self.assertIsNone(action, "a cross-scene warp stages, it does not send")
+        # ~~`assertIsNone(action)`~~ -- struck LANE-GM round `0w9jhq`: a
+        # cross-scene warp still sends NO TELEPORT, and since that round it
+        # answers `STAGED RELOG` on the notice channel.  The label is what
+        # this line checks now; the absence of any action at all stopped
+        # being the property and became the old silence.
+        self.assertEqual(
+            action[0],
+            chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL,
+            "a cross-scene warp stages and says so, it does not teleport",
+        )
         # THE NAME HAS TO BE EARNED.  pf-adversary D10: both assertions below
         # are equally true of a `config_unreadable` REFUSAL -- nothing staged,
         # no way-out line -- so this test was green for a warp that failed,

@@ -290,7 +290,7 @@ from __future__ import annotations
 
 import sys
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 from .. import gm_npc_toggle_recompose
@@ -553,6 +553,19 @@ LV_REFUSED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_LV_REFUSED_LOCAL_TALK_NOTICE"
 # way.  Which of the three sentences went out is on the
 # `STAGED_READBACK_CONSOLE_TOKEN` line, in full.
 STAGED_READBACK_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_STAGED_READBACK_LOCAL_TALK_NOTICE"
+
+# The cross-scene `/warp`'s own sentence (`say_wire.WARP_STAGED_NOTICE_TEXT`).
+#
+# !! IT MUST NOT CONTAIN `TELEPORT`, and here that rule is load-bearing rather
+# than a formality: `runtime.py`'s `_GM_WARP_LABELS` resync rewrites
+# `selected.position.scene_id` to a warp's DESTINATION for every action whose
+# label it knows, and `_move_authority_note_server_moves` reopens the
+# move-authority grace window on the `TELEPORT` substring.  A staged warp
+# moves NOBODY -- it writes a config entry -- so a label either list could
+# recognise would tell `runtime.py` that a character had just been placed in a
+# scene it is not in.  This label is in neither, on purpose, and
+# `StagedWarpNoticeTests` pins both halves.
+WARP_STAGED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_WARP_STAGED_LOCAL_TALK_NOTICE"
 
 # The `characters` column LANE-DB's persistence entry point is keyed by for
 # this one field, resolved THROUGH their own table rather than spelled here
@@ -1534,6 +1547,13 @@ EVENT_LV_WITHHELD_CANONICAL_DB = "gm_chat_action_lv_withheld_canonical_db"
 EVENT_LV_ROW_WRITTEN = "gm_chat_action_lv_row_written"
 EVENT_LV_NOTICE_COMPOSED_PREFIX = "gm_chat_action_lv_notice_composed_"
 EVENT_LV_NOTICE_FAILED_PREFIX = "gm_chat_action_lv_notice_failed_"
+
+# The same pair for the cross-scene `/warp`'s sentence.  SEPARATE PREFIXES
+# rather than reuse of `/lv`'s: these events are the only record of whether a
+# GM saw her warp confirmed, and a reader grepping `lv_notice_failed_` must
+# not be shown a warp's failure wearing `/lv`'s name.
+EVENT_WARP_NOTICE_COMPOSED_PREFIX = "gm_chat_action_warp_notice_composed_"
+EVENT_WARP_NOTICE_FAILED_PREFIX = "gm_chat_action_warp_notice_failed_"
 EVENT_SPEED_PERSIST_REFUSED_PREFIX = "gm_chat_action_speed_persist_refused_"
 # THE STORE DOOR REFUSED AND THE ROW IS UNTOUCHED.  Its own name, deliberately
 # NOT a suffix under the prefix above: that prefix's console sentence says "do
@@ -2094,7 +2114,11 @@ class _Verdict:
     # a mutant that re-derives the value at print time survives the whole
     # suite, which is how it was caught.  The resync loop fires only for
     # actions whose label is in `_GM_WARP_LABELS`, and a staged verdict
-    # returns `action=None`, so nothing can resync between `_warp_action`'s
+    # carries no such label -- it carried `action=None` when this note was
+    # written, and since round `0w9jhq` it carries the NOTICE action
+    # `WARP_STAGED_NOTICE_ACTION_LABEL`, which is in neither `_GM_WARP_LABELS`
+    # nor the `TELEPORT` substring rule (pinned by `StagedWarpNoticeTests`) --
+    # so nothing can resync between `_warp_action`'s
     # read and a print-time read WITHIN one command; and when an EARLIER live
     # warp has already poisoned the field, `_warp_action`'s own read is
     # poisoned identically -- which is not a reason to prefer one read over
@@ -3275,6 +3299,11 @@ def _warp_action(
             session,
             target_scene_id,
             has_coordinates,
+            # REQUIRED, not defaulted: this is the only object that can
+            # compose the staged warp's on-screen sentence, and a caller that
+            # forgot it would silently ship the pre-`0w9jhq` silence back --
+            # the failure the sentence exists to end.
+            legacy=legacy,
             token=token,
             gm_accounts_config_path=gm_accounts_config_path,
             login_scene_config_path=login_scene_config_path,
@@ -4841,6 +4870,7 @@ def _print_speed_deferred(
 #: command's: the console may be quiet, it may not be wrong.
 NOTICE_TEXT_FOR_LABEL = MappingProxyType({
     SPEED_DENIED_NOTICE_ACTION_LABEL: say_wire.SPEED_DENIED_NOTICE_TEXT,
+    WARP_STAGED_NOTICE_ACTION_LABEL: say_wire.WARP_STAGED_NOTICE_TEXT,
     TYPO_REFUSED_NOTICE_ACTION_LABEL: say_wire.TYPO_REFUSED_NOTICE_TEXT,
     LV_SET_NOTICE_ACTION_LABEL: say_wire.LV_SET_NOTICE_TEXT,
     LV_REFUSED_NOTICE_ACTION_LABEL: say_wire.LV_REFUSED_NOTICE_TEXT,
@@ -5027,6 +5057,7 @@ def _stage_action(
     scene_id: int,
     has_coordinates: bool,
     *,
+    legacy: object,
     token: str,
     gm_accounts_config_path: str | None,
     login_scene_config_path: str | None,
@@ -5097,7 +5128,7 @@ def _stage_action(
             scene_registry=scene_registry,
         )
 
-    return _Verdict(
+    staged_verdict = _Verdict(
         None,
         (
             OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED
@@ -5113,6 +5144,13 @@ def _stage_action(
         same_scene_basis=same_scene_basis,
         staged_blocker=blocker,
     )
+    # THE SENTENCE IS ATTACHED LAST, AFTER THE STAGE IS ON DISK.  Composing it
+    # earlier would put a frame in hand for a stage that might still be
+    # refused; composing it here means the screen speaks only for a warp that
+    # really wrote something.  A compose that fails returns the verdict
+    # unchanged -- the warp stands, silent, exactly as it did before this
+    # lane's round `0w9jhq`.
+    return _staged_warp_notice(session, legacy, staged_verdict)
 
 
 def _say_action(session: object, command: object, legacy: object) -> _Verdict:
@@ -6190,6 +6228,61 @@ def _lv_notice(
         outcome,
         undo,
         line_printed=True,
+        is_notice=True,
+    )
+
+
+def _staged_warp_notice(
+    session: object,
+    legacy: object,
+    verdict: "_Verdict",
+) -> "_Verdict":
+    """Attach `STAGED RELOG` to a warp verdict that staged the next login.
+
+    WHY A STAGED WARP SPEAKS AT ALL.  A cross-scene `/warp` puts nothing on
+    the wire: it writes the account's next-login scene and the scene arrives
+    after a relog.  Until this function existed the only report of that was
+    `STAGED_CONSOLE_TOKEN` on the SERVER console, and the owner read that
+    silence off her own screen as "nothing happened" during R307
+    (`PANYA-DECISION 20260903_1800`) -- the same failure `/lv` answers with
+    `LV SET RELOG` and a refused `/speed` answers with `SPEED DENIED`.  The
+    staged warp was the last accepted command in this lane that changed
+    durable state and said nothing to the person who typed it.
+
+    THE VERDICT IS THE PRODUCT, THE SENTENCE IS THE COURTESY, exactly as
+    `_lv_notice` states it: a notice that cannot be composed is NAMED and
+    dropped, never raised, because an on-screen courtesy must not turn a
+    decided outcome into `gm_chat_action_unexpected_<Type>` on the listener
+    thread.  The stage is already on disk when this runs, and the undo this
+    verdict carries stays attached either way.
+
+    `is_notice=True`, which is what keeps the rest of the route honest: the
+    caller's `sent` stays False, so `_announce_console_outcome` still reaches
+    the `STAGED_OUTCOMES` branch and still prints
+    `GM_CHAT_STAGED_NEXT_LOGIN` with its `next=` sentence.  The screen gains a
+    line; the console loses none.  Reporting `is_notice=False` would claim a
+    warp frame went out, which is the one claim this command may never make.
+
+    EVERY OTHER FIELD IS CARRIED THROUGH UNCHANGED -- outcome, undo,
+    `line_printed`, and the three console-wording fields -- because this
+    function decides one thing only: whether a sentence is attached.  A
+    rebuilt verdict that dropped `staged_same_scene` would silently swap the
+    `next=` tail an attended tester grades.
+    """
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(
+            legacy, say_wire.WARP_STAGED_NOTICE_TEXT
+        )
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(session, f"{EVENT_WARP_NOTICE_FAILED_PREFIX}{type(error).__name__}")
+        return verdict
+    _note(
+        session,
+        f"{EVENT_WARP_NOTICE_COMPOSED_PREFIX}{WARP_STAGED_NOTICE_ACTION_LABEL}",
+    )
+    return replace(
+        verdict,
+        action=(WARP_STAGED_NOTICE_ACTION_LABEL, pc, frame, 0.0),
         is_notice=True,
     )
 
