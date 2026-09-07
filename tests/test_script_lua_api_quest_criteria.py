@@ -37,7 +37,8 @@ from pf_preconditions import (BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS,
                              LUA_CORPUS_RUNNABLE, SIBLING)
 
 from pirateforce_foundation import script_host
-from pirateforce_foundation.lua_api import (quest, quest_criteria as qc,
+from pirateforce_foundation.lua_api import (dispatch, quest,
+                                            quest_criteria as qc,
                                             spec as api_spec)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -641,53 +642,11 @@ class QuestDispatchTests(unittest.TestCase):
         self.assertIsNone(amount)
         self.assertEqual(reason, qc.REFUSE_NO_PLAYER_LEVEL)
 
-    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
-    def test_the_path_is_resolved_by_stem_not_by_gluing_a_table_cell_on(self):
-        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
-        path = script_host.script_path_for_quest(root, 2170)
-        self.assertEqual(path.name, "q_arch1.lua")
-        self.assertEqual(path.parent.name, "Quest")
-        self.assertTrue(path.is_file())
-
-    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
-    def test_every_script_a_quest_names_exists_on_disk_exactly_once(self):
-        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
-        for name in sorted({r.script for r in qc.load_reward_rows().values()}):
-            with self.subTest(script=name):
-                matches = [p for p in root.rglob("*.lua")
-                           if p.stem.lower() == name.lower()]
-                self.assertEqual(len(matches), 1)
-
-    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
-    def test_how_much_of_the_corpus_the_dispatcher_actually_unblocks(self):
-        """The measurement this round is allowed to claim, computed here.
-
-        1213 of the 1544 quest rows dispatch a script that calls at least
-        one criteria name; 1039 of those now resolve a real amount.  The
-        remaining 174 are the ``Lv`` triple, which refuses for want of a
-        player level and is NOT counted as unblocked.
-        """
-        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
-        text = {p.stem.lower(): p.read_text(encoding="latin-1")
-                for p in root.rglob("*.lua")}
-        with_calls = resolving = 0
-        for row in qc.load_reward_rows().values():
-            body = text.get(row.script.lower(), "")
-            used = [n for n in qc.LEVEL_SOURCE if ("Quest." + n) in body]
-            if not used:
-                continue
-            with_calls += 1
-            if any(qc.resolve_for_api(n, row.quest_id)[1] is None
-                   for n in used):
-                resolving += 1
-        self.assertEqual(with_calls, 1213)
-        self.assertEqual(resolving, 1039)
-
     @LUA_CORPUS_RUNNABLE.skip_unless_present()
     def test_a_real_shipped_script_loads_as_its_quest_and_names_the_number(self):
         root = SIBLING / "pf_bridge" / "gamedata" / "lua"
         calls = []
-        host = script_host.load_quest_script(root, 2170, character_id=7,
+        host = dispatch.load_quest_script(root, 2170, character_id=7,
                                              log=calls.append)
         self.assertIn("LUA_QUEST_DISPATCH quest=2170 character=7 "
                       "script=q_arch1", calls[0])
@@ -708,12 +667,12 @@ class QuestDispatchTests(unittest.TestCase):
                           if "refused=%s" % qc.REFUSE_NO_QUEST_ROW in line])
 
     def test_an_unknown_quest_id_and_a_missing_corpus_each_say_which(self):
-        with self.assertRaises(script_host.QuestDispatchError) as no_row:
-            script_host.script_path_for_quest(REPO_ROOT, 999999)
+        with self.assertRaises(dispatch.QuestDispatchError) as no_row:
+            dispatch.script_path_for_quest(REPO_ROOT, 999999)
         self.assertIn("no row in the vendored quest mirror",
                       str(no_row.exception))
-        with self.assertRaises(script_host.QuestDispatchError) as no_corpus:
-            script_host.script_path_for_quest(
+        with self.assertRaises(dispatch.QuestDispatchError) as no_corpus:
+            dispatch.script_path_for_quest(
                 REPO_ROOT / "no_such_corpus_dir", 2170)
         self.assertIn("no lua corpus at", str(no_corpus.exception))
 
@@ -820,6 +779,48 @@ class VendoredMirrorMatchesTheRealTableTests(unittest.TestCase):
                 self.assertEqual(entry.exp, int(raw["n_QUEST_EXP"]))
                 self.assertEqual(entry.cash, int(raw["n_QUEST_CASH"]))
                 self.assertEqual(entry.skill_point, int(raw["n_QUEST_SP"]))
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_the_path_is_resolved_by_stem_not_by_gluing_a_table_cell_on(self):
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        path = dispatch.script_path_for_quest(root, 2170)
+        self.assertEqual(path.name, "q_arch1.lua")
+        self.assertEqual(path.parent.name, "Quest")
+        self.assertTrue(path.is_file())
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_every_script_a_quest_names_exists_on_disk_exactly_once(self):
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        for name in sorted({r.script for r in qc.load_reward_rows().values()}):
+            with self.subTest(script=name):
+                matches = [p for p in root.rglob("*.lua")
+                           if p.stem.lower() == name.lower()]
+                self.assertEqual(len(matches), 1)
+
+    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    def test_how_much_of_the_corpus_the_dispatcher_actually_unblocks(self):
+        """The measurement this round is allowed to claim, computed here.
+
+        1213 of the 1544 quest rows dispatch a script that calls at least
+        one criteria name; 1039 of those now resolve a real amount.  The
+        remaining 174 are the ``Lv`` triple, which refuses for want of a
+        player level and is NOT counted as unblocked.
+        """
+        root = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        text = {p.stem.lower(): p.read_text(encoding="latin-1")
+                for p in root.rglob("*.lua")}
+        with_calls = resolving = 0
+        for row in qc.load_reward_rows().values():
+            body = text.get(row.script.lower(), "")
+            used = [n for n in qc.LEVEL_SOURCE if ("Quest." + n) in body]
+            if not used:
+                continue
+            with_calls += 1
+            if any(qc.resolve_for_api(n, row.quest_id)[1] is None
+                   for n in used):
+                resolving += 1
+        self.assertEqual(with_calls, 1213)
+        self.assertEqual(resolving, 1039)
 
     @BRIDGE_LUA_SCRIPTS.skip_unless_present()
     def test_the_two_triples_of_call_sites_are_disjoint_in_the_corpus(self):
