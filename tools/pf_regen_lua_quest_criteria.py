@@ -7,7 +7,8 @@ LANE-Q.  Two vendored mirrors, one command, same shape and same reasons as
     (255 levels x cash/exp/skill-point: the standard per-level quest reward
     curve the six ``Quest.Add*Criteria*`` names read their base amount from)
   * ``quest_criteria_rows.tsv``   <- ``QUESTDATA_TH__QUEST.tsv``
-    (1544 quests x criteria level + the three float multipliers)
+    (1544 quests x criteria level, the three float multipliers, and the
+    name of the .lua script that quest dispatches -- ``s_LUASCRIPT``)
 
 WHY MIRROR THE SECOND ONE AT ALL, when the first is the amount table.  The
 amount is ``curve[level] * multiplier`` and BOTH halves live in different
@@ -16,6 +17,13 @@ sibling checkout is the drift the message-catalog decision already ruled
 against.  Only the reward-relevant columns are copied -- five of the quest
 table's 62 -- because the other 57 belong to other lanes' seams and copying
 them here would make this file the place people edit instead of the source.
+``s_LUASCRIPT`` is the sixth, added round ``wn088m``: it is the ONLY
+direction of the script<->quest relation that is a function.  A quest row
+names exactly one script; a script is named by up to 160 quest rows
+(``Q_CON1``), which is why a running script can never be asked which quest
+it belongs to and why the six zero-arity reward names need the caller to
+say.  Mirroring the column is what lets this server dispatch a script FOR
+a quest id instead of loading it as an anonymous file.
 
 BOTH MIRRORS ARE PURE ASCII on disk (the bridge console is cp874) and carry
 a ``# body_sha256:`` of their own body, so ``--check`` is meaningful in two
@@ -80,7 +88,7 @@ def read_rows(path: Path):
         for row in csv.DictReader(handle, delimiter="\t"):
             rows.append((int(row["n_ID"]), int(row["n_LEVEL_EXP"]),
                          row["f_CASH"].strip(), row["f_EXP"].strip(),
-                         row["f_SP"].strip()))
+                         row["f_SP"].strip(), row["s_LUASCRIPT"].strip()))
     return rows
 
 
@@ -113,14 +121,16 @@ def render_curve(rows, digest: str, pulled: str) -> str:
 
 def render_rows(rows, digest: str, pulled: str) -> str:
     body = ["\t".join(ROW_COLUMNS)]
-    for quest_id, level, cash, exp, sp in rows:
-        body.append("%d\t%d\t%s\t%s\t%s" % (quest_id, level, cash, exp, sp))
+    for quest_id, level, cash, exp, sp, script in rows:
+        body.append("%d\t%d\t%s\t%s\t%s\t%s"
+                    % (quest_id, level, cash, exp, sp, script))
     rendered = "\n".join(body) + "\n"
     return _header(
         ROWS_TARGET.name, ROWS_SOURCE_RELPATH, digest, len(rows), pulled,
         rendered,
         "criteria_level is QUESTDATA n_LEVEL_EXP; multipliers are f_CASH/"
-        "f_EXP/f_SP copied verbatim (float32-widened in the source).") + rendered
+        "f_EXP/f_SP copied verbatim (float32-widened in the source); script "
+        "is s_LUASCRIPT, the one .lua file this quest dispatches.") + rendered
 
 
 def _digest(path: Path) -> str:

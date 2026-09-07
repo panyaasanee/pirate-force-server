@@ -20,11 +20,13 @@ LANE-Q's own previous round wrote down.  Round ``02mkqc``'s letter named
 candidate columns holding the amount.  Reading the actual values disproves
 both readings:
 
-  * ``f_EXP`` holds 11 distinct values across all 1544 quest rows and every
-    one of them is a small ratio -- 0.0, 0.1, 0.25, 0.3, 0.5, 1.0, 1.4,
-    1.5, 2.0, 3.0, 5.0 (stored float32-widened, e.g. literally
+  * ``f_EXP`` holds 12 distinct values across all 1544 quest rows and
+    every one of them is a small ratio -- 0.0, 0.1, 0.25, 0.3, 0.5, 0.85,
+    1.0, 1.4, 1.5, 2.0, 3.0, 5.0 (stored float32-widened, e.g. literally
     ``0.10000000149011612`` on disk).  Those are MULTIPLIERS, not exp
     amounts; no quest in this game awards 1.5 experience points.
+    (Round ``xlk7hl``'s docstring said 11 and omitted 0.85; recounted from
+    the mirror this round -- 12 distinct strings over 4632 cells.)
   * ``n_LEVEL_EXP`` runs 1..120 and EVERY ONE of the 1544 rows resolves to
     a row of ``CONSTDATA_TH__STANDARD_QUEST.tsv`` (0 orphans, measured).
     That is a LEVEL INDEX, not an amount.
@@ -64,17 +66,20 @@ never a number) when the caller cannot supply a player level, rather than
 falling back to the quest row's level and quietly paying the wrong amount.
 
 WHAT THIS DOES NOT YET REACH, stated before anything else it claims.
-Against the shipped corpus today EVERY one of the 225 criteria call sites
-resolves ``refused=no_quest_row``, measured on real files, because nothing
-supplies a quest id: these functions take no arguments precisely because
-the ENGINE knows which quest instance dispatched the script, and this
-server has no such dispatch, so ``quest.DEFAULT_CONTEXT`` is ``quest_id=0``
-and the lowest id in the mirror is 12.  The read half is complete, tested
-and inert until a dispatcher exists.  Relatedly, ``s_LUASCRIPT`` is
-one-to-many (``q_con1`` is the script of 160 quest rows carrying 86
-distinct ``(level, multiplier)`` pairs), so the amount can never be
-resolved from the ``.lua`` file alone -- another way of saying the same
-missing piece.
+A criteria call resolves only when the CALLER says which quest is running.
+Round ``wn088m`` mirrored ``s_LUASCRIPT`` and added
+``script_host.load_quest_script``, which supplies that: measured, 1213 of
+the 1544 quest rows dispatch a script calling at least one criteria name
+and 1039 of those now resolve a real amount.  ``quest.DEFAULT_CONTEXT``
+still carries ``quest_id=0`` and still refuses, correctly -- and NOTHING
+IN THE SERVER CALLS THE DISPATCHER YET (pf-adversary D10, round
+``wn088m``: ``load_quest_script`` has two call sites and both are tests).
+So the read half is complete and tested and still reaches no player: what
+is missing is no longer the argument, it is a quest system to pass it and
+a grant to spend the answer on.  The relation stays one-to-many in the
+OTHER direction (``Q_CON1`` is the script of 160 quest rows), which is why
+a running script can never be asked which quest it is, and why nothing
+here infers a quest from a file.
 
 ONE MORE THING THE ASSUMPTION ABOVE SHOULD BE READ AGAINST:
 ``gamedata/PF_GAMEDATA_LUA_API.tsv`` records ``AddLvCriteriaExp`` as
@@ -82,12 +87,52 @@ ONE MORE THING THE ASSUMPTION ABOVE SHOULD BE READ AGAINST:
 client at all -- and it is exactly the name whose level source is being
 assumed here.  The other five carry a ``delegate_va``.
 
-ROUNDING IS ALSO NOT KNOWN, so it is not hidden.  ``curve * multiplier``
-is a float; whether the client floors, rounds or keeps a fraction is not
-in any committed artifact.  :class:`CriteriaAmount` carries BOTH the exact
-product (:attr:`CriteriaAmount.raw`) and the floored integer
-(:attr:`CriteriaAmount.amount`), and callers that eventually grant are
-expected to make that choice explicitly rather than inherit this module's.
+ROUNDING IS STILL NOT KNOWN, and it is not hidden.  ``curve * multiplier``
+is not an integer for every row; whether the real client floors, rounds or
+keeps a fraction is in no committed artifact.  COO-DECISION
+``notes_to_chief/20260907_0845_COO-DECISION-q0742-lv-criteria-player-level-LANE-Q.md``
+settled what THIS server does in the meantime -- FLOOR -- with two
+conditions this module keeps: the un-rounded product stays on the result
+(:attr:`CriteriaAmount.exact`, plus :attr:`CriteriaAmount.raw` for
+provenance), and floor lives at ONE place (:data:`ROUNDING_MODE` /
+:func:`round_amount`) so an RE answer changes a single line.  Nothing here
+states floor as a fact about the client.
+
+THE FLOOR HAS TO BE TAKEN OF THE RIGHT NUMBER, which is the part that was
+actually wrong.  ``f_EXP`` is a float32 column, so the mirror faithfully
+carries e.g. ``1.399999976158142`` -- one ULP BELOW the 1.4 the table
+author wrote.  ``int(base * that)`` therefore floors to one LESS than the
+intended reward whenever the true product is a whole number: measured on
+the shipped mirrors, 14 of the 4632 plain-triple resolutions and 3632 of
+the 1181160 ``(row, level)`` products a player-level triple can reach
+(eight quests, 2170-2177; 16 cells carry 1.4 and 14 of them had a whole
+number for a true product, which is where the lost unit shows).  ``0.1``/``0.3``/``0.85`` widen
+UPWARD and so never lost a unit -- only ``1.4`` did, which is why the bug
+was small enough to survive a round.  The fix is not to hand-edit the
+mirror (a mirror that is not byte-equal to its source is not a mirror):
+:func:`multiplier_decimal` recovers, at parse time, the shortest decimal
+that round-trips through float32 to the same bits, and the product is
+taken in :class:`decimal.Decimal`.  All 12 distinct values in the mirror
+are exactly representable as float32 (measured), which is the evidence
+this recovery is reading a float32 column and not inventing precision.
+
+[LANE-Q ASSUMPTION wn088m - NOT A PROOF, and the BIGGER of the two here]
+Recovering the decimal is a bet on the WIDTH OF THE MULTIPLY, not on the
+rounding mode, and it is the bet that moved all 14 numbers (pf-adversary
+D7, round ``wn088m``).  ``15800 * float32(1.4)`` is exactly
+``22119.999623298645`` in float64 -- no rounding happens in the product at
+all.  A client that keeps the product in single precision, or stores it
+back to a ``float`` before the cast, floors to 22120; one evaluating on
+x87 in extended precision floors to 22119.  Nothing in any committed
+artifact distinguishes them, and both are ``(int)(base * f_EXP)`` in C++.
+This module takes the first reading because it reproduces the number a
+designer typing 1.4 into a table meant, and the RE ticket sent to LANE-K
+this round asks about BOTH -- the mode and the width -- because if the
+answer is x87 then ``ROUNDING_MODE`` is not the line that moves.
+Measured while choosing: over all 1181160 reachable ``(row, level, kind)``
+products, ``Decimal(base) * multiplier_decimal(m)`` and
+``float32(float32(base) * float32(m))`` agree on every one, so the
+single-precision reading and this implementation are the same answer.
 
 THE TWO VENDORED MIRRORS.  ``quest_criteria_curve.tsv`` and
 ``quest_criteria_rows.tsv`` are complete, ASCII, machine-regenerated copies
@@ -104,7 +149,9 @@ blaming whichever quest script happened to be loading (pf-adversary D11).
 from __future__ import annotations
 
 import hashlib
+import struct
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -115,7 +162,8 @@ CURVE_COLUMNS = ("level", "cash", "exp", "skill_point")
 
 #: Column headers of the vendored per-quest mirror, in order.
 ROW_COLUMNS = ("quest_id", "criteria_level",
-               "cash_multiplier", "exp_multiplier", "sp_multiplier")
+               "cash_multiplier", "exp_multiplier", "sp_multiplier",
+               "script")
 
 #: The three reward kinds, spelled the way the API names spell them.
 KIND_EXP = "Exp"
@@ -132,8 +180,13 @@ _KIND_FIELDS = {
 
 #: Level source per API name.  ``"quest"`` = the level on the quest's own
 #: row; ``"player"`` = the level of the character running the script.
-#: [LANE-Q lane assumption -- awaiting COO confirmation]: see the module
-#: docstring for the two measurements behind it and why neither is a proof.
+#: [COO-ASSUMPTION 0845 - NOT A PROOF]: accepted by COO round ``0845`` in
+#: ``notes_to_chief/20260907_0845_COO-DECISION-q0742-lv-criteria-player-``
+#: ``level-LANE-Q.md`` on the two measurements in the module docstring,
+#: which that letter itself calls weight and not proof.  The letter also
+#: forbids ever falling back to the quest row's level when the player
+#: level is unknown (see :data:`REFUSE_NO_PLAYER_LEVEL`), and names the RE
+#: ticket that would retire this label as the thing that must answer it.
 LEVEL_SOURCE_QUEST = "quest"
 LEVEL_SOURCE_PLAYER = "player"
 LEVEL_SOURCE: Dict[str, str] = {
@@ -172,6 +225,87 @@ REFUSE_UNKNOWN_API = "unknown_api"
 REFUSE_BAD_PLAYER_LEVEL = "bad_player_level"
 
 BODY_DIGEST_PREFIX = "# body_sha256: "
+
+#: How a fractional reward becomes an integer, in ONE place.  COO-DECISION
+#: ``20260907_0845`` chose floor for now and said explicitly that no file
+#: may write "the client floors" down as a fact: the RE ticket this lane
+#: sends to LANE-K this round is what would turn this constant into a
+#: measured one.  When that answer lands, change this line and
+#: :func:`round_amount` -- nothing else in the tree decides rounding.
+ROUNDING_MODE = ROUND_FLOOR
+
+#: Widest float32 significand, i.e. how many decimal digits can ever be
+#: needed to name a float32 exactly.  Used as the search ceiling in
+#: :func:`multiplier_decimal`, never as a precision claim.
+_FLOAT32_MAX_DIGITS = 17
+
+
+def round_amount(exact: Decimal) -> int:
+    """The single rounding point of the reward seam (:data:`ROUNDING_MODE`).
+
+    Takes a :class:`~decimal.Decimal`, never a float: the whole reason
+    this function exists is that flooring a float that is one ULP below
+    its intended value silently pays one less (module docstring).
+    """
+    return int(exact.to_integral_value(rounding=ROUNDING_MODE))
+
+
+def _float32_bits(value: float) -> bytes:
+    """The 4 bytes ``value`` occupies as a float32, or raise for a float
+    that has no float32 (an out-of-range multiplier is corrupt data)."""
+    try:
+        return struct.pack("<f", value)
+    except (OverflowError, ValueError, struct.error) as exc:
+        raise QuestCriteriaError(
+            "multiplier %r does not fit a float32 column" % (value,)) from exc
+
+
+def is_exact_float32(value: float) -> bool:
+    """True when ``value`` is exactly a widened float32.
+
+    Every one of the 12 distinct multipliers in the shipped mirror answers
+    True (measured); a False here means the source column is NOT the
+    float32 this module reads it as, and :func:`multiplier_decimal` would
+    be inventing precision rather than recovering it.
+    """
+    return struct.unpack("<f", _float32_bits(value))[0] == value
+
+
+#: Memo for :func:`multiplier_decimal`.  BOUNDED on purpose: ``resolve``
+#: is public and takes an arbitrary float, so a future grant path applying
+#: a per-player scale would leak one entry per distinct float forever --
+#: the same unbounded-key defect the ``REFUSE_*`` set exists to avoid
+#: (pf-adversary D8, round ``wn088m``).  The mirror holds 12 distinct
+#: multipliers; the cap is far above that and finite, which is the point.
+_MULTIPLIER_CACHE_MAX = 256
+_MULTIPLIER_DECIMALS: Dict[float, Decimal] = {}
+
+
+def multiplier_decimal(value: float) -> Decimal:
+    """The shortest decimal that round-trips through float32 to ``value``.
+
+    ``1.399999976158142`` -> ``Decimal("1.4")``: recovering what the table
+    author typed, not rounding the number we were given.  A value that is
+    not exactly a float32 is returned digit-for-digit instead (``repr``),
+    because there is then nothing to recover and quietly shortening it
+    would be the invention this function exists to avoid.
+    """
+    cached = _MULTIPLIER_DECIMALS.get(value)
+    if cached is not None:
+        return cached
+    if not is_exact_float32(value):
+        result = Decimal(repr(value))
+    else:
+        target = _float32_bits(value)
+        result = Decimal(repr(value))
+        for digits in range(1, _FLOAT32_MAX_DIGITS + 1):
+            candidate = "%.*g" % (digits, value)
+            if _float32_bits(float(candidate)) == target:
+                result = Decimal(candidate)
+                break
+    if len(_MULTIPLIER_DECIMALS) < _MULTIPLIER_CACHE_MAX:
+        _MULTIPLIER_DECIMALS[value] = result
+    return result
 
 
 class QuestCriteriaError(VendoredDataError):
@@ -215,15 +349,24 @@ class QuestRewardRow:
     cash_multiplier: float
     exp_multiplier: float
     sp_multiplier: float
+    script: str
 
 
 @dataclass(frozen=True)
 class CriteriaAmount:
     """A resolved reward: every input kept, so the number can be argued with.
 
-    ``raw`` is the exact ``base * multiplier`` product and ``amount`` its
-    floor.  Both are here because which one the client uses is unverified
-    (module docstring); a caller that grants must pick one on purpose.
+    Three views of the same product, all kept, because which one the real
+    client uses is unverified (module docstring):
+
+    * ``raw`` -- ``base * multiplier`` in binary floats, exactly what the
+      mirror's bytes produce.  Provenance only.  It is the number that
+      floors one short on the 1.4 rows; nothing grants from it.
+    * ``exact`` -- ``Decimal(base) * multiplier_decimal(multiplier)``, the
+      product with the float32 column's authored value recovered.  This is
+      the one an RE answer will argue with.
+    * ``amount`` -- ``exact`` through :func:`round_amount`, i.e. today's
+      floor and only today's.
     """
 
     kind: str
@@ -231,13 +374,30 @@ class CriteriaAmount:
     base: int
     multiplier: float
     raw: float
+    exact: Decimal
     amount: int
 
     def log_fields(self) -> str:
-        """ASCII, one line, for the console the bridge reads (cp874)."""
-        return ("kind=%s level=%d base=%d mult=%s amount=%d"
-                % (self.kind, self.level, self.base,
-                   repr(self.multiplier), self.amount))
+        """ASCII, one line, for the console the bridge reads (cp874).
+
+        ``mult`` is the recovered decimal (``1.4``), not the widened float,
+        because the widened float in a log line is what made a human read
+        past this bug once already.  ``exact`` appears only when it differs
+        from ``amount``, so a fractional reward cannot hide behind a clean
+        integer.
+        """
+        fields = ("kind=%s level=%d base=%d mult=%s"
+                  % (self.kind, self.level, self.base,
+                     multiplier_decimal(self.multiplier)))
+        if self.exact != self.amount:
+            fields += " exact=%s" % self.exact
+        if self.raw != self.exact:
+            # The float32-contaminated product the recovery acted on: the
+            # only operator-visible sign that a recovery happened at all,
+            # and the number a future RE result argues with (pf-adversary
+            # D9, round wn088m).
+            fields += " raw=%r" % self.raw
+        return fields + " amount=%d" % self.amount
 
 
 _CURVE_PATH = Path(__file__).with_name("quest_criteria_curve.tsv")
@@ -304,11 +464,63 @@ def _parse_int(path: Path, name: str, raw: str) -> int:
 
 
 def _parse_float(path: Path, name: str, raw: str) -> float:
+    """A finite multiplier, or :class:`QuestCriteriaError` naming the cell.
+
+    ``float("inf")`` and ``float("1e400")`` both succeed and
+    ``struct.pack("<f", inf)`` does NOT raise, so an infinity would sail
+    through the float32 check and die later as a bare ``OverflowError``
+    out of ``int(Infinity)`` -- which ``script_host`` would print as
+    ``LUA_SCRIPT <file> ERR`` against up to 616 innocent quest scripts,
+    the exact D11 shape this module claims to have closed (pf-adversary
+    D4, round ``wn088m``).  It is refused HERE, at the cell, instead.
+    """
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError as exc:
         raise QuestCriteriaError("%s: %s is not a number: %r"
                                  % (path, name, raw)) from exc
+    if value != value or value in (float("inf"), float("-inf")):
+        raise QuestCriteriaError("%s: %s is not finite: %r"
+                                 % (path, name, raw))
+    return value
+
+
+def _parse_script(path: Path, raw: str) -> str:
+    """The ``s_LUASCRIPT`` cell, refused rather than defaulted when empty.
+
+    A quest row with no script is a row this server could never dispatch,
+    and an empty cell reaching :func:`script_for_quest` would resolve to
+    the corpus root itself.  Measured on the shipped table: 0 of 1544 rows
+    are empty, so an empty one means the mirror was truncated.
+    """
+    name = raw.strip()
+    if not name:
+        raise QuestCriteriaError("%s: a quest row has an empty script name"
+                                 % path)
+    return name
+
+
+def script_for_quest(quest_id: int) -> Optional[str]:
+    """The one script name a quest dispatches, or ``None`` for no such row.
+
+    The only direction of this relation that is a function: 1544 quest rows
+    name 209 distinct scripts, and ``Q_CON1`` alone is named by 160 rows.
+    That is why a running script cannot be asked which quest it is, and why
+    :func:`resolve_for_api` refuses instead of guessing.
+    """
+    row = load_reward_rows().get(quest_id)
+    return None if row is None else row.script
+
+
+def quests_for_script(script: str) -> tuple:
+    """Every quest id that dispatches ``script``, ascending.  Case-folded.
+
+    Returned so a caller can SEE the ambiguity rather than trip over it:
+    a corpus file alone is never enough to resolve a reward.
+    """
+    key = script.strip().lower()
+    return tuple(sorted(qid for qid, row in load_reward_rows().items()
+                        if row.script.lower() == key))
 
 
 def load_curve() -> Dict[int, CriteriaCurveRow]:
@@ -351,6 +563,7 @@ def load_reward_rows() -> Dict[int, QuestRewardRow]:
                     _ROWS_PATH, "exp_multiplier", fields[3]),
                 sp_multiplier=_parse_float(
                     _ROWS_PATH, "sp_multiplier", fields[4]),
+                script=_parse_script(_ROWS_PATH, fields[5]),
             )
         _ROWS_CACHE = table
     return _ROWS_CACHE
@@ -362,6 +575,7 @@ def reset_caches() -> None:
     global _CURVE_CACHE, _ROWS_CACHE
     _CURVE_CACHE = None
     _ROWS_CACHE = None
+    _MULTIPLIER_DECIMALS.clear()
 
 
 def _coerce_player_level(value: Any) -> Optional[int]:
@@ -395,6 +609,10 @@ def resolve(kind: str, level: int, multiplier: float) -> Optional[CriteriaAmount
 
     ``None`` rather than an exception or a zero: a level outside the curve
     is a caller mistake to report, not a reward of nothing to pay out.
+
+    The product is taken in :class:`~decimal.Decimal` over the recovered
+    multiplier, never in binary floats: see the module docstring for the
+    14 shipped resolutions that ``int(base * multiplier)`` pays short.
     """
     if kind not in _KIND_FIELDS:
         raise QuestCriteriaError("unknown reward kind %r" % (kind,))
@@ -403,9 +621,10 @@ def resolve(kind: str, level: int, multiplier: float) -> Optional[CriteriaAmount
     if row is None:
         return None
     base = getattr(row, curve_field)
-    raw = base * multiplier
+    exact = Decimal(base) * multiplier_decimal(multiplier)
     return CriteriaAmount(kind=kind, level=level, base=base,
-                          multiplier=multiplier, raw=raw, amount=int(raw))
+                          multiplier=multiplier, raw=base * multiplier,
+                          exact=exact, amount=round_amount(exact))
 
 
 def resolve_for_api(api_name: str, quest_id: int,
