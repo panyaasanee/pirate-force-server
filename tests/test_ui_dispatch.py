@@ -643,6 +643,119 @@ class ValidationOrderTests(_RegistryIsolation):
         self.assertIn("UI_DISPATCH_ANSWER_ERR", stderr.getvalue())
 
 
+class RoundTwoFindingsTests(_RegistryIsolation):
+    """pf-adversary round 2: R1, R2, R3, R5, R7 -- each with its own pin."""
+
+    def test_a_list_typed_action_is_refused_because_it_stays_shared(self):
+        # R1. list(actions) copies the OUTER list only, so a list-typed
+        # action stays the answerer's own object and can be rewritten from
+        # inside a delay comparison AFTER its label was cleared. Measured
+        # end to end: a party-invite frame shipped the GM warp label under
+        # a green token. Refusing the mutable shape closes it at the type
+        # check; every action this project emits is a tuple.
+        self.assertFalse(
+            ui_dispatch._actions_are_well_formed(
+                [["UI_L", b"\x01", b"\x02", 0.0]]
+            )
+        )
+        self.assertTrue(
+            ui_dispatch._actions_are_well_formed(
+                [("UI_L", b"\x01", b"\x02", 0.0)]
+            )
+        )
+
+    def test_a_forged_dunder_name_does_not_open_the_gate(self):
+        # R2. frame.f_globals["__name__"] is a dict entry the calling
+        # module owns: one line in a production_allowed = False lane file
+        # made the gate answer True and printed an innocent module's name
+        # in the token. The sys.modules KEY is set by the import
+        # machinery, so the registrar is resolved by identity now.
+        from pirateforce_foundation.lane_hooks import lane_gm_run_command
+
+        namespace = {
+            "__name__": lane_gm_run_command.__name__,
+            "ui_dispatch": ui_dispatch,
+            "PARTY_INVITE_VITAL_ID": PARTY_INVITE_VITAL_ID,
+        }
+        source = (
+            "def _answer(session=None, vital_id=None, payload=None):\n"
+            "    return [('UI_FORGED', b'\\x01', b'\\x02', 0.0)]\n"
+            "ok = ui_dispatch.register_answerer("
+            "PARTY_INVITE_VITAL_ID, _answer)\n"
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            exec(compile(source, "<forged lane>", "exec"), namespace)
+        module_name, _fn = ui_dispatch.registered_answerer(
+            PARTY_INVITE_VITAL_ID
+        )
+        self.assertEqual(module_name, "<unknown>")
+        self.assertFalse(lane_hooks.module_production_allowed(module_name))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
+
+    def test_a_ui_label_carrying_a_foreign_substring_is_refused(self):
+        # R3. The prefix closes the consumer that compares labels for
+        # equality; the one beside it asks `"TELEPORT" in action[0]`, and
+        # UI_PARTY_INVITE_TELEPORT_A satisfies the prefix. Measured: the
+        # move-authority grace window reopened on a party-invite frame,
+        # with no forgery -- that is a name a lane would plausibly pick.
+        for label in ("UI_PARTY_INVITE_TELEPORT_A",
+                      "UI_TELEPORT", "UI_X_LOCAL_REFRESH_Y"):
+            with self.subTest(label=label):
+                self.assertFalse(
+                    ui_dispatch._actions_are_well_formed(
+                        [(label, b"\x01", b"\x02", 0.0)]
+                    )
+                )
+        self.assertTrue(
+            ui_dispatch._actions_are_well_formed(
+                [("UI_PARTY_INVITE_ACK", b"\x01", b"\x02", 0.0)]
+            )
+        )
+
+    def test_an_exception_whose_repr_raises_is_still_caught(self):
+        # R5. The %r ran while building _say's argument, inside the except
+        # block, so it escaped the handler that exists to stop it.
+        class Boom(Exception):
+            def __repr__(self):
+                raise RuntimeError("repr blew up in the except handler")
+
+        def answerer(session=None, vital_id=None, payload=None):
+            raise Boom()
+
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        self.allow()
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn("UI_DISPATCH_ANSWER_ERR", stderr.getvalue())
+
+    def test_subclasses_of_list_and_tuple_are_refused_not_duck_typed(self):
+        # R7: two surviving mutants turned the shipped type() checks into
+        # isinstance(), which admits a subclass that can lie about its own
+        # contents after the check.
+        class SneakyList(list):
+            pass
+
+        class SneakyTuple(tuple):
+            pass
+
+        good = ("UI_L", b"\x01", b"\x02", 0.0)
+        self.assertFalse(
+            ui_dispatch._actions_are_well_formed(SneakyList([good]))
+        )
+        self.assertFalse(
+            ui_dispatch._actions_are_well_formed([SneakyTuple(good)])
+        )
+        self.assertTrue(ui_dispatch._actions_are_well_formed([good]))
+
+
 class GateIsKeyedOnTheRegistrarTests(_RegistryIsolation):
     """pf-adversary D5: functools.wraps must not carry the gate with it."""
 

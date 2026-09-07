@@ -10,8 +10,14 @@ mail, trade invite -- counts the frame, fires a report-only
 runtime.py are not what this point shape is for"), so on those eight
 frames the server structurally CANNOT put a byte back on the wire.  That
 is not "not written yet": it is the shape of the only route this lane
-had.  Measured over 4-8 Sep: fourteen ``ui_*`` modules with proven
-encoders and green tests, zero of them reachable from a frame.
+had.  Measured at HEAD: 18 ``ui_*_wire.py`` modules with proven encoders
+and green tests; 14 of them are named in neither ``runtime.py`` nor
+``app.py``, and the other 4 are named only so the report-only hooks can
+DECODE what arrives.  So five of them DO already run on the production
+path (pf-adversary D10 measured exactly which).  What none of the 18 can
+do is put a byte BACK on the wire.  An earlier draft of this sentence
+said "zero of them reachable from a frame", which is false: it confused
+inbound decode, which happens today, with answering, which does not.
 
 WHAT THIS FILE IS.  ``answer()`` is called by that one branch instead of
 its ``return []``, and returns the action list the branch returns.  A
@@ -68,7 +74,18 @@ import math
 import numbers
 import sys
 
-from . import lane_hooks
+# NO ``from . import lane_hooks`` HERE (pf-adversary round 2, R4).
+# ``runtime.py`` imports this module at line 30 and ``lane_hooks`` at
+# line 47, so a module-level import here pulled ``lane_hooks`` -- and
+# therefore ``_discover()`` -- in while THIS module was still half-built.
+# Measured: a ``lane_ui_*.py`` that calls ``register_answerer`` at import
+# time died with ``partially initialized module ... has no attribute
+# 'register_answerer'``, was swallowed as ``LANE_HOOK_DISCOVERY ...
+# IMPORT_FAILED``, and the vital answered [] forever -- while
+# ``tests/test_ui_dispatch.py``, which happens to import ``lane_hooks``
+# first, saw the working order and stayed green.  The first real answerer
+# would have shipped dead under a green suite.  Imported inside the three
+# functions that need it instead.
 
 # NO ``production_allowed`` FLAG HERE, ON PURPOSE (pf-adversary D11).
 # The draft carried one set to True and a MODULE_NAME beside it; nothing
@@ -132,6 +149,8 @@ def _say(line):
     attended rounds looking for game tokens.
     """
     try:
+        from . import lane_hooks  # noqa: PLC0415 - see the header comment
+
         print(lane_hooks._console_safe(line), file=sys.stderr)
     except Exception:  # pragma: no cover - stderr itself is broken
         pass
@@ -154,7 +173,24 @@ def _registering_module_name():
         frame = sys._getframe(2)
     except Exception:  # pragma: no cover - no Python frame above us
         return "<unknown>"
-    return frame.f_globals.get("__name__") or "<unknown>"
+    # BY IDENTITY, NOT BY THE FRAME'S ``__name__`` (pf-adversary round 2,
+    # R2).  ``frame.f_globals["__name__"]`` is a plain dict entry the
+    # calling module owns: measured, one line -- ``__name__ = "<an
+    # allowed module>"`` -- in a real ``production_allowed = False`` lane
+    # file opened the gate for it and printed the innocent module's name
+    # in the token.  The KEY in ``sys.modules`` is set by the import
+    # machinery, not by the file.  A namespace that more than one key
+    # maps to (an alias a module inserted for itself) is refused rather
+    # than guessed at, and a non-str key cannot arise from import.
+    namespace = frame.f_globals
+    found = [
+        name for name, module in list(sys.modules.items())
+        if getattr(module, "__dict__", None) is namespace
+        and isinstance(name, str)
+    ]
+    if len(found) != 1:
+        return "<unknown>"
+    return found[0]
 
 
 def register_answerer(vital_id, fn):
@@ -198,6 +234,8 @@ def register_answerer(vital_id, fn):
         # the id from a ``lane_ui_zzz_*.py`` that has it on -- and the
         # vital would answer [] forever while printing UI_DISPATCH_GATED
         # on every frame.  A gated incumbent therefore yields the slot.
+        from . import lane_hooks  # noqa: PLC0415 - see the header comment
+
         if lane_hooks.module_production_allowed(incumbent):
             _say(
                 "UI_DISPATCH_REGISTER_REFUSED id=%s reason=already_taken by=%s"
@@ -228,6 +266,13 @@ def clear_answerers():
 
 LABEL_PREFIX = "UI_"
 
+# Substrings a consumer downstream keys on, which a UI_-prefixed label
+# must therefore not contain. Sources, grepped this round:
+#   runtime.py's move-authority server-moves note -- "TELEPORT" in label
+#   pf_login_game_server_v141.py -- startswith of two refresh prefixes,
+#   already unreachable behind LABEL_PREFIX, listed for the next reader
+_FOREIGN_LABEL_SUBSTRINGS = ("TELEPORT", "LOCAL_REFRESH_")
+
 
 def _label_is_this_lanes_own(label):
     """May this label go into the dispatcher's action list?
@@ -245,8 +290,13 @@ def _label_is_this_lanes_own(label):
     returning ``chat_command_action.WARP_ACTION_LABEL`` on a party-invite
     frame flipped ``gm_warp_position_pending`` to ``True`` -- a player
     clicking "invite to party" arming the GM warp-confirm window, with no
-    GM, no ``/warp`` and no chat frame anywhere.  A lane that cannot
-    spell another subsystem's label cannot reach that flag by accident.
+    GM, no ``/warp`` and no chat frame anywhere.  The prefix closes the
+    consumer that compares labels for EQUALITY.  It does NOT close one
+    that matches a SUBSTRING, which is why the check also carries an
+    explicit list of foreign substrings: the earlier draft of this
+    paragraph claimed the prefix alone was enough, and round 2 measured a
+    ``UI_``-prefixed label reopening the move-authority grace window with
+    no forgery at all.
 
     THE CONTROL-CHARACTER RULE (D12).  The v141 sender writes
     ``SENT <label> ...`` into the evidence file attended rounds grep; a
@@ -256,7 +306,19 @@ def _label_is_this_lanes_own(label):
         return False
     if not label.startswith(LABEL_PREFIX):
         return False
-    return all(ch.isprintable() for ch in label)
+    if not all(ch.isprintable() for ch in label):
+        return False
+    # A PREFIX DOES NOT STOP A SUBSTRING MATCH (pf-adversary round 2, R3).
+    # The prefix closes the consumer that compares labels for EQUALITY.
+    # The one beside it asks ``"TELEPORT" in action[0]``, so
+    # ``UI_PARTY_INVITE_TELEPORT_A`` satisfies the prefix and reopens the
+    # move-authority grace window on a party-invite frame -- measured A/B
+    # against a control, needing no forgery at all: it is a name a lane
+    # answering a movement-ish UI vital would plausibly pick.
+    # WHO OWNS THIS VOCABULARY is the question this round could not answer
+    # (recorded in the round file): the list below is what a grep of the
+    # consumers found today, not a boundary anyone maintains.
+    return not any(word in label for word in _FOREIGN_LABEL_SUBSTRINGS)
 
 
 def _hex(vital_id):
@@ -311,7 +373,19 @@ def _actions_are_well_formed(actions):
     if type(actions) not in (list, tuple):
         return False
     for action in actions:
-        if type(action) not in (list, tuple) or len(action) != 4:
+        # ``tuple`` ONLY, not ``list`` (pf-adversary round 2, R1).  The
+        # draft admitted a list-typed action, and ``list(actions)`` copies
+        # only the OUTER list -- an inner list stayed the answerer's own
+        # object.  Validating a ``numbers.Real`` delay runs the answerer's
+        # ``__ge__``, and delay is checked LAST, so a lane could rewrite
+        # label/pc/frame after they were cleared, on the object that gets
+        # returned: measured, a party-invite frame shipped the GM warp
+        # label and armed ``gm_warp_position_pending`` under a green
+        # UI_DISPATCH_ANSWERED token -- verbatim the D2 symptom this
+        # module claims to close.  Every action this project emits is a
+        # tuple; refusing the mutable shape closes the hole at the type
+        # check instead of by copying deeper.
+        if type(action) is not tuple or len(action) != 4:
             return False
         label, pc, frame, delay = action
         if not _label_is_this_lanes_own(label):
@@ -344,6 +418,8 @@ def answer(session, vital_id, payload):
     if entry is None:
         return []
     module_name, fn = entry
+    from . import lane_hooks  # noqa: PLC0415 - see the header comment
+
     if not lane_hooks.module_production_allowed(module_name):
         _say(
             "UI_DISPATCH_GATED id=%s module=%s reason=not_production_allowed"
@@ -361,8 +437,12 @@ def answer(session, vital_id, payload):
         # explicitly opts into -- so a lane could rewrite the list from
         # inside a comparison and ship what it liked: measured, a ``str``
         # where ``bytes`` must be and a delay of ``-99.0`` both went out
-        # under a green ``UI_DISPATCH_ANSWERED`` token.  Copying first
-        # means the thing checked and the thing returned are one object.
+        # under a green ``UI_DISPATCH_ANSWERED`` token.  This copy is
+        # SHALLOW and on its own was NOT enough -- round 2 of the review
+        # got the same payload through a list-typed action, whose inner
+        # list this copy does not touch.  What closes that is the
+        # ``type(action) is not tuple`` check in the validator; this copy
+        # only settles the outer container.
         if type(actions) in (list, tuple):
             actions = list(actions)
         # AND THE CHECK ITSELF IS INSIDE THIS try (pf-adversary D4).  It
@@ -373,9 +453,18 @@ def answer(session, vital_id, payload):
         # promised could not happen.
         well_formed = _actions_are_well_formed(actions)
     except Exception as exc:
+        # ``%r`` OF THE EXCEPTION IS ITSELF ANSWERER CODE (pf-adversary
+        # round 2, R5).  It ran while building _say's argument, inside
+        # the except block, so an exception whose ``__repr__`` raises
+        # escaped answer() -- out of the handler that exists to stop
+        # exactly that.
+        try:
+            detail = repr(exc)
+        except Exception:
+            detail = "<exception whose repr raised>"
         _say(
-            "UI_DISPATCH_ANSWER_ERR id=%s module=%s %r"
-            % (_hex(vital_id), module_name, exc)
+            "UI_DISPATCH_ANSWER_ERR id=%s module=%s %s"
+            % (_hex(vital_id), module_name, detail)
         )
         return []
     if not well_formed:
