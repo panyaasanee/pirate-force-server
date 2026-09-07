@@ -159,8 +159,6 @@ def _letter_exists_for(pf_bridge_dir, date_match):
     for root in roots:
         if root.is_dir():
             entries.extend(root.rglob("*"))
-    if not entries:
-        return False
     for entry in entries:
         name = entry.name
         # pf-adversary, round b08g3z, RAN this: the first draft accepted ANY
@@ -239,10 +237,16 @@ class WideningRulingSchemaGateTests(unittest.TestCase):
                 continue
             if not _letter_exists_for(pf_bridge_dir, date_match):
                 failures.append(
-                    "%r matches the new schema but no notes_to_chief file "
-                    "stamped with its trailing date and naming COO-DECISION "
-                    "+ widen was found under %s"
-                    % (key, pf_bridge_dir / "notes_to_chief")
+                    # pf-adversary D7: the old wording named one of the
+                    # two roots that are actually walked, so an operator
+                    # whose letter had been swept had no thread to pull.
+                    "%r matches the b1647 schema but no .md file stamped "
+                    "%s%s%s_%s%s and naming COO-DECISION + widen was found "
+                    "anywhere under %s or %s (both are searched "
+                    "recursively; a .CONSUMED.txt stub does not count)"
+                    % ((key,) + date_match.groups()
+                       + (pf_bridge_dir / "notes_to_chief",
+                          pf_bridge_dir / "archive"))
                 )
 
         for warning in warnings:
@@ -312,8 +316,9 @@ class LetterFinderReachesTheWholeMailboxTests(unittest.TestCase):
         self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
 
     def test_a_letter_filed_deeper_still_is_found(self) -> None:
+        """Depth alone must not stop the walk."""
         self._write(
-            "archive/notes_to_chief_2026-08/consumed/" + self.LETTER)
+            "archive/notes_to_chief_2026-08/bg0001/" + self.LETTER)
         self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
 
     def test_no_letter_anywhere_is_red(self) -> None:
@@ -339,6 +344,114 @@ class LetterFinderReachesTheWholeMailboxTests(unittest.TestCase):
         self._write("notes_to_chief/" + self.LETTER + ".CONSUMED.txt")
         self._write(
             "archive/notes_to_chief_2026-09/" + self.LETTER + ".CONSUMED.txt")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    # -- pf-adversary D1, round ot2cru, ANSWERED IN THE OTHER DIRECTION.
+    #
+    # D1 said the recursion admits ``notes_to_chief/consumed/``, a folder the
+    # CONSUMING LANE writes into, so a lane could satisfy this gate with a
+    # file it wrote itself.  Round 3u1dfh shipped that exclusion and pf-
+    # adversary broke it the same round, end to end: the house convention is
+    # NOT always copy-and-leave.  Sometimes a lane MOVES the letter into
+    # ``consumed/`` and leaves only a ``.CONSUMED.txt`` stub behind.
+    #
+    # RE-MEASURED BY THIS LANE against the bridge checkout before the
+    # exclusion was withdrawn: of 784 distinct ``COO-DECISION*.md`` names
+    # under the two roots, SIX exist ONLY inside a consumed folder, four of
+    # them with nothing but a stub left at top level --
+    # ``20260831_0350_COO-DECISION-attr-wire-probe-shelved-*``,
+    # ``20260831_0351_COO-DECISION-claim-trigger-is-rounds-not-lanes``,
+    # ``20260904_0847_COO-DECISION-lane-b-door-b-live-*``,
+    # ``20260905_2050_COO-DECISION-gm1933-*``,
+    # ``20260905_2059_COO-DECISION-ka1a2038-*``,
+    # ``20260906_1745_COO-DECISION-panya1704-*``.
+    #
+    # So the exclusion red-lines REAL COO LETTERS, which is verbatim the
+    # failure COO-DECISION 0546 item 2 exists to prevent, and it does not
+    # close the hole either: the same forged file is still accepted at
+    # ``notes_to_chief/`` top level, a directory nine lanes have added .md
+    # files to (this lane four times).  A location filter cannot tell a copy
+    # of COO's letter from a lane's invention, because on the filesystem
+    # they are the same shape.  The exclusion is WITHDRAWN and these three
+    # tests pin the withdrawal, so no later round re-introduces it by
+    # reading D1 without D1's own refutation.
+    #
+    # The hole itself needs an AUTHORSHIP oracle, not another directory
+    # rule.  That is a ruling, not a patch: letter
+    # 20260907_*_LANE-B-ASK-COO-letter-gate-authorship-oracle.md.
+
+    def test_a_letter_that_lives_only_in_consumed_still_counts(self) -> None:
+        """Six real COO letters are in exactly this state today."""
+        self._write("notes_to_chief/consumed/" + self.LETTER)
+        self._write("notes_to_chief/" + self.LETTER + ".CONSUMED.txt")
+        self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_consumed_folder_swept_into_the_archive_still_counts(self):
+        """``archive/notes_to_chief_2026-08/consumed/`` exists in the real
+        checkout and holds four COO ``widen-death-scope`` ORIGINALS (0954,
+        0955, 1350, 2250).  A rule that skipped it would take those with it.
+        """
+        self._write("archive/notes_to_chief_2026-08/consumed/" + self.LETTER)
+        self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_an_archive_folder_named_consumed_still_counts(self) -> None:
+        """``archive/notes_to_chief_consumed_to_2026-08-26/`` is a DATE-RANGE
+        sweep of originals that had been consumed -- 259 ``.md`` files, 35 of
+        them ``COO-DECISION`` -- not a folder of lane copies.  Its name says
+        "consumed", its contents are letters.
+        """
+        self._write(
+            "archive/notes_to_chief_consumed_to_2026-08-26/" + self.LETTER)
+        self.assertTrue(_letter_exists_for(self.bridge, self.date_match))
+
+    # -- pf-adversary D2, round ot2cru: five of nine mutants survived because
+    # every existing negative test tripped two filters at once, so each
+    # filter had an alibi.  One test per filter, each tripping only its own.
+
+    def test_a_non_md_letter_is_not_a_letter(self) -> None:
+        """Trips the ``.md`` rule ONLY: no ``.CONSUMED.`` in the name, right
+        stamp, right words.  The pre-existing stub test tripped ``.md`` and
+        ``.CONSUMED.`` together, so deleting either one alone survived it.
+        """
+        self._write("notes_to_chief/" + self.LETTER[:-3] + ".txt")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_consumed_marker_that_ends_in_md_is_not_a_letter(self) -> None:
+        """Trips the ``.CONSUMED.`` rule ONLY: a real ``.md`` suffix, right
+        stamp, right words.  The other half of the alibi above.
+        """
+        self._write(
+            "notes_to_chief/" + self.LETTER[:-3] + ".CONSUMED.md")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_coo_decision_that_is_not_about_widening_does_not_count(self):
+        """Trips ``"widen" in name`` ONLY.  COO writes several decisions a
+        day; the gate asks for the one that grants THIS scope, not for any
+        letter COO happened to send that minute.
+        """
+        self._write(
+            "notes_to_chief/20260907_0405_COO-DECISION-"
+            "require-cls-trap-LANE-B.md")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_a_lane_letter_about_widening_does_not_count(self) -> None:
+        """Trips ``"COO-DECISION" in name`` ONLY -- and it is the shape a
+        lane produces every round: this lane's own ``*-TO-COO-*`` letters
+        argue for widening and carry the same stamp as COO's reply.
+        """
+        self._write(
+            "notes_to_chief/20260907_0405_LANE-B-TO-COO-"
+            "widen-death-scope-bg0001-please.md")
+        self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
+
+    def test_the_stamp_must_open_the_filename_not_merely_appear_in_it(self):
+        """Trips ``startswith(stamp)`` ONLY.  ``stamp in name`` survived
+        every earlier test; a lane that cites the ruling's timestamp in the
+        BODY of its own filename would mint the permit under that mutant.
+        """
+        self._write(
+            "notes_to_chief/20260907_0732_LANE-B-note-on-20260907_0405-"
+            "COO-DECISION-widen-death-scope-bg0001.md")
         self.assertFalse(_letter_exists_for(self.bridge, self.date_match))
 
     def test_a_directory_named_like_a_letter_is_not_a_letter(self) -> None:
