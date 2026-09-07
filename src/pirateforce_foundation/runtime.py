@@ -1,6 +1,8 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
 from dataclasses import replace
+import inspect
 import math
+import os
 import random
 import struct
 import sys
@@ -530,6 +532,42 @@ COMPOSABLE_SCENARIO_LANE_SETS = frozenset({
         "item_operate_res_hypothesis_scenario",
     }),
 })
+
+
+# Which armed name-colour sweeps have to be composed ALONE, with the town
+# left out of the collection (CORE-REQUEST LANE-B, pf_bridge
+# notes_to_chief/20260908_0024 item 2; COO-ORDER 20260908_0042 topic 2).
+#
+# THE MODULE OWNS THIS LIST IF IT EVER PUBLISHES ONE.  These two values are
+# LANE-B's vocabulary, not this file's, and the default below is written out
+# only because the set that needs it lands in LANE-B's own pull request.  The
+# lookup goes through the module first, so the day name_colour_sweep declares
+# `SWEEP_SETS_WANTING_AN_EMPTY_WORLD` this file follows it with no chief round
+# in between.
+NAME_COLOUR_SWEEP_EMPTY_WORLD_SETS = ("ALL", "ALL-NOID")
+
+
+def _sweep_wants_an_empty_world(env=None) -> bool:
+    """True when PF_NAME_COLOUR_SWEEP names a set that must be composed alone.
+
+    Reads the SAME environment variable the module reads, through the module's
+    own constant, so there is one name for it in the tree.  Every failure --
+    no such variable, an unreadable environment, a module without the constant
+    -- answers False, which is the town-preserving answer and the behaviour
+    every boot before this function had.
+    """
+    try:
+        names = getattr(
+            name_colour_sweep,
+            "SWEEP_SETS_WANTING_AN_EMPTY_WORLD",
+            NAME_COLOUR_SWEEP_EMPTY_WORLD_SETS,
+        )
+        value = (
+            os.environ if env is None else env
+        ).get(name_colour_sweep.SWEEP_ENV, "")
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(value) and value in tuple(names)
 
 
 class _EventEchoList(list):
@@ -12186,10 +12224,56 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # catch-all, same reason, as the census composer above
                         # and world_density.m1_console_line below.
                         sweep_suffix = ""
+                        # CORE-REQUEST LANE-B (pf_bridge
+                        # notes_to_chief/20260908_0024) ITEM 1: WHO IS
+                        # LOOKING.  Three rows of the ALL set -- N-LNKP,
+                        # N-IDNEG-LNKP, N-ID0-LNKP, the "(viewer, mob) pair"
+                        # reading of NPCAttr+0x98 -- cannot be built without
+                        # the identity of the session the census is being
+                        # composed FOR, and that identity is a runtime fact
+                        # the module has no way to reach.  Same qword idiom
+                        # this file already builds for mob_scene_recompose.
                         try:
-                            sweep_bodies = name_colour_sweep.sweep_entries(
-                                legacy,
+                            sweep_viewer = self.foundation.selected
+                            sweep_viewer_identity = (
+                                (sweep_viewer.identity_hi & 0xFFFFFFFF) << 32
+                                | (sweep_viewer.identity_lo & 0xFFFFFFFF)
                             )
+                        except Exception:  # noqa: BLE001
+                            # No selected character on this path, or a shape
+                            # without the pair: the sweep still arms, it just
+                            # arms without the three viewer rows -- which is
+                            # exactly what the module does with None.
+                            sweep_viewer_identity = None
+                        # THE KEYWORD IS PASSED ONLY WHEN THE MODULE TAKES
+                        # IT, and this is not politeness.  The keyword lands
+                        # with LANE-B's own PR; a hard `viewer_identity=`
+                        # here would make every armed boot on a tree without
+                        # it raise TypeError into the refusal path below --
+                        # an unarmed town for set 1 and set 2, which are the
+                        # two sets that work TODAY.  One signature read, no
+                        # retry: a call that fails and is silently repeated
+                        # would run the module's side effects twice.
+                        try:
+                            sweep_takes_viewer = "viewer_identity" in (
+                                inspect.signature(
+                                    name_colour_sweep.sweep_entries
+                                ).parameters
+                            )
+                        except Exception:  # noqa: BLE001
+                            sweep_takes_viewer = False
+                        try:
+                            if sweep_takes_viewer:
+                                sweep_bodies = (
+                                    name_colour_sweep.sweep_entries(
+                                        legacy,
+                                        viewer_identity=sweep_viewer_identity,
+                                    )
+                                )
+                            else:
+                                sweep_bodies = (
+                                    name_colour_sweep.sweep_entries(legacy)
+                                )
                         except Exception as error:  # noqa: BLE001
                             sweep_bodies = ()
                             self.events.append(
@@ -12242,10 +12326,61 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 f"allowed={colour_verdict.allowed} "
                                 f"blockers={len(colour_verdict.blockers)}"
                             )
+                            # CORE-REQUEST LANE-B (pf_bridge
+                            # notes_to_chief/20260908_0024) ITEM 2: AN EMPTY
+                            # WORLD FOR THE ALL SETS.  The owner's row anchor
+                            # (X 11800 +150, Y 9340) sits INSIDE Port Royal:
+                            # LANE-B measured the first row 23.6 units from
+                            # the live NPC `Mutant Green Eagle` and the
+                            # module's own nameboard-reading ceiling is 200
+                            # units, so an ALL boot composed on top of the
+                            # town gives the attended tester a label read off
+                            # somebody else's actor.  For those sets the
+                            # collection carries the sweep and NOTHING ELSE.
+                            #
+                            # THE TOWN IS REMOVED BY OMISSION, NOT BY A
+                            # SECOND FRAME.  RE-092 measured this client's
+                            # remote-actor consumer as replace-by-omission at
+                            # COLLECTION scope, so composing one collection
+                            # that names only the sweep is precisely how the
+                            # town goes away -- the same mechanism the append
+                            # above exists to AVOID for sets 1 and 2, used
+                            # here on purpose.
+                            #
+                            # `generation` IS NOT MODIFIED.  It is what this
+                            # file hands back to build_world_population on
+                            # every later recompose; the empty rung below is
+                            # a separate object built for this one compose,
+                            # and `census_actors=` on the ARMED line reads
+                            # the rung that was ACTUALLY composed, so the
+                            # console says 0 when the town is not on the wire
+                            # and cannot claim a census it did not send.
+                            census_rung = generation
+                            if _sweep_wants_an_empty_world():
+                                try:
+                                    census_rung = world_population.empty_rung(
+                                        legacy, generation,
+                                    )
+                                except Exception as error:  # noqa: BLE001
+                                    # Fail closed to the town.  A sweep read
+                                    # against Port Royal is a BAD result; a
+                                    # boot that cannot build the empty rung
+                                    # at all is a WORSE one, and the tester
+                                    # has to be able to tell them apart.
+                                    census_rung = generation
+                                    self.events.append(
+                                        "name_colour_sweep_empty_world_"
+                                        f"refused_{type(error).__name__}"
+                                    )
+                                    print(
+                                        "NAME_COLOUR_SWEEP_EMPTY_WORLD_"
+                                        f"REFUSED {type(error).__name__} "
+                                        f"{ascii(str(error))}"
+                                    )
                             try:
                                 census_pc, census_frame = (
                                     world_population.append_census_entries(
-                                        legacy, generation, sweep_bodies,
+                                        legacy, census_rung, sweep_bodies,
                                     )
                                 )
                             except Exception as error:  # noqa: BLE001
@@ -12296,7 +12431,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 print(
                                     "NAME_COLOUR_SWEEP_ARMED "
                                     f"actors={len(sweep_bodies)} "
-                                    f"census_actors={generation.actor_count} "
+                                    f"census_actors={census_rung.actor_count} "
                                     f"wire={sweep_wire} "
                                     f"pc={len(census_pc)} "
                                     f"frame={len(census_frame)}"
