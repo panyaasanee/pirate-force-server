@@ -297,6 +297,43 @@ class TheTwoTablesStillAgreeTests(unittest.TestCase):
                 self.assertIsNotNone(combat_pose.equip_type_for_class(class_id))
 
 
+class TheAuditCanStillReadThisRegistrationTests(unittest.TestCase):
+    """``gm/lane_gate_name_audit.py`` grades hook points from SOURCE.
+
+    A registration whose point name is not a string literal makes that audit
+    refuse to grade any hook point in the whole tree, so this file must keep
+    a literal in the decorator -- and the constant beside it must keep saying
+    the same thing.  Both halves are pinned here rather than trusted.
+    """
+
+    def _decorator_literals(self):
+        import ast
+
+        tree = ast.parse(Path(mod.__file__).read_text(encoding="ascii"))
+        found = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            for decorator in node.decorator_list:
+                if not isinstance(decorator, ast.Call):
+                    continue
+                name = getattr(decorator.func, "id", None)
+                if name != "hook":
+                    continue
+                found.append(
+                    [arg.value for arg in decorator.args
+                     if isinstance(arg, ast.Constant)])
+        return found
+
+    def test_every_registration_names_its_point_as_a_string_literal(self):
+        literals = self._decorator_literals()
+        self.assertEqual(len(literals), 1)
+        self.assertEqual(len(literals[0]), 1)
+
+    def test_the_decorator_literal_and_the_constant_cannot_drift_apart(self):
+        self.assertEqual(self._decorator_literals()[0][0], mod.HOOK_POINT)
+
+
 class TheConsoleStaysReadableOnCp874Tests(unittest.TestCase):
     def test_the_source_file_is_pure_ascii(self):
         raw = Path(mod.__file__).read_bytes()

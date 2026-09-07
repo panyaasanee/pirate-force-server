@@ -223,7 +223,17 @@ def _class_id_of(character):
     return class_id
 
 
-@hook(HOOK_POINT)
+# The point name is spelled as a LITERAL here, not as ``HOOK_POINT``, and
+# that is not a style choice: ``gm/lane_gate_name_audit.py``'s dead-hook-point
+# audit grades every registration from source, and a name it cannot read as a
+# string literal makes it refuse to grade ANY hook point in the tree
+# (``hook_point_audit_undecidable_dynamic_name``) -- one lane's constant would
+# blind the audit for every lane.  Measured, not assumed: this file registered
+# with ``@hook(HOOK_POINT)`` first and turned
+# ``test_the_repository_registers_no_hook_point_that_nothing_fires`` red.
+# ``test_the_decorator_literal_and_the_constant_cannot_drift_apart`` below
+# reads this decorator back with AST so the two spellings stay one fact.
+@hook("vital_inbound_item_operate_op5")
 def remember_the_equip(session=None, value32=None, item_identity=None) -> None:
     """Persist an ``op=5`` equip for the one item whose kind is derivable.
 
