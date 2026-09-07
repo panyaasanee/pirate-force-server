@@ -330,8 +330,159 @@ def describe_skill_list(skill_ids: "tuple[int, ...] | list[int]") -> tuple[str, 
     return tuple(lines)
 
 
-if __name__ == "__main__":  # pragma: no cover - console entry point
-    from .class_catalog import starting_skill_ids
+#: The name a login-path caller has to spell in ``runtime.py`` for this
+#: module to reach a player.  ``seam_carrier()`` looks for exactly this and
+#: reports what it finds, so the console token below turns on the day the
+#: seam lands and not one round earlier.
+LOGIN_SEAM_SYMBOL = "login_skill_list_response"
 
-    for line in describe_skill_list(starting_skill_ids(1)):
-        print(line)
+#: The database ``app.py`` boots on when nobody passes ``--db``.  Spelled
+#: once here so the headless token GT-307 asks for reads what a normal boot
+#: reads, rather than a copy somebody remembered to point at.
+DEFAULT_DB_RELATIVE_PATH = "state/pirateforce.sqlite3"
+
+
+def repository_root() -> "Any":
+    """The checkout this module is running out of."""
+    from pathlib import Path
+
+    return Path(__file__).resolve().parents[2]
+
+
+def seam_carrier(runtime_path: "Any" = None) -> str:
+    """Who would send this frame today, MEASURED off ``runtime.py``.
+
+    ``runtime`` when the login path actually names ``login_skill_list_response``,
+    ``module_only`` when it does not, ``unknown`` when there is no runtime to
+    read.  GT-307's token line ends in ``sent_by=``, and a hard-coded
+    ``sent_by=runtime`` would be the same species of lie as the
+    ``callers_in_src=0`` that pf-adversary killed in round ``e8pss9``: a
+    claim about the tree, printed by a format string that cannot see it.
+    """
+    from pathlib import Path
+
+    path = (
+        Path(runtime_path)
+        if runtime_path is not None
+        else Path(__file__).resolve().parent / "runtime.py"
+    )
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "unknown"
+    return "runtime" if LOGIN_SEAM_SYMBOL in text else "module_only"
+
+
+def headless_token(
+    character_id: int, skill_ids: "tuple[int, ...]", frame: bytes,
+    sent_by: str,
+) -> str:
+    """The one ASCII line GT-307 names as its ``HEADLESS_PROOF:``.
+
+    Every number in it is a measurement of the arguments it was handed: the
+    row count is the length of what the store returned, the byte count is
+    the length of the frame the proven encoder composed, and ``sent_by``
+    comes from ``seam_carrier()``.  Nothing here re-derives an id from the
+    class table -- that is the substitution GT-307 exists to rule out.
+    """
+    return (
+        "SKILL_LIST_AT_LOGIN cid=%d rows=%d ids=(%s) trailing_u8=%d "
+        "frame_bytes=%d sent_by=%s"
+        % (
+            character_id,
+            len(skill_ids),
+            ",".join(str(skill_id) for skill_id in skill_ids),
+            SKILL_LIST_TRAILING_BYTE,
+            len(frame),
+            sent_by,
+        )
+    )
+
+
+def compose_from_database(
+    database_path: "Any", character_id: int,
+) -> "tuple[tuple[int, ...], bytes]":
+    """``(skill ids, frame)`` for one character, read out of a real database.
+
+    Opens the file that is already there and refuses a missing one by name.
+    It does NOT call ``store.migrate()``: this runs against the canonical
+    database in an attended boot, and a proof command that can write to it
+    is not a proof command.  The rows come back through
+    ``read_character_skill_ids``, which is the same call the seam makes, so
+    the token measures the production route rather than a second one built
+    for the console.
+    """
+    from pathlib import Path
+
+    from .legacy_bridge import load_legacy
+    from .store import SQLiteStore
+
+    path = Path(database_path)
+    if not path.is_file():
+        raise SkillListAtLoginError(
+            REFUSE_CHARACTER_ROW_MISSING,
+            "no database at %s; this command reads an existing database and "
+            "never creates one" % (path,),
+        )
+    root = repository_root()
+    store = SQLiteStore(path, root / "migrations")
+    skill_ids = read_character_skill_ids(store, character_id)
+    legacy = load_legacy(root / "current" / "pf_login_game_server_v141.py")
+    _pc, frame = make_skill_list_response(legacy, skill_ids)
+    return skill_ids, frame
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    """``python -m pirateforce_foundation.skill_list_at_login --character N``.
+
+    Prints GT-307's token on success, or a single ``SKILL_LIST_AT_LOGIN_REFUSED``
+    line with the named reason and exits 1.  A refusal is not a crash: the
+    attended operator reads one line either way, and the reason string is the
+    same one the seam would append to ``self.events``.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="python -m pirateforce_foundation.skill_list_at_login",
+        description=(
+            "Read one character's persisted skill rows and compose the login "
+            "skill-list frame from them."
+        ),
+    )
+    parser.add_argument(
+        "--character", type=int, required=True, metavar="CID",
+        help="character id (the cid the console prints at creation)",
+    )
+    parser.add_argument(
+        "--db", default=None, metavar="PATH",
+        help="database file; default is the one a flagless boot opens (%s)"
+             % DEFAULT_DB_RELATIVE_PATH,
+    )
+    parser.add_argument(
+        "--runtime", default=None, metavar="PATH",
+        help="runtime module to measure sent_by against (default: the "
+             "runtime.py next to this module)",
+    )
+    args = parser.parse_args(argv)
+
+    database = args.db
+    if database is None:
+        database = repository_root() / DEFAULT_DB_RELATIVE_PATH
+    try:
+        skill_ids, frame = compose_from_database(database, args.character)
+    except SkillListAtLoginError as error:
+        print(
+            "SKILL_LIST_AT_LOGIN_REFUSED cid=%s reason=%s detail=%s"
+            % (args.character, error.reason, error)
+        )
+        return 1
+    print(
+        headless_token(
+            args.character, skill_ids, frame, seam_carrier(args.runtime),
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - console entry point
+    raise SystemExit(main())
