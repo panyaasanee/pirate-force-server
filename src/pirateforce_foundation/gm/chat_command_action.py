@@ -6217,7 +6217,7 @@ def _print_lv_line(session: object, token: str, line: str) -> None:
 
 
 def _print_staged_readback_line(
-    session: object, token: str, detail: str, notice_text: str, *, delivered: bool
+    session: object, token: str, detail: str, notice_text: str, *, composed: bool
 ) -> None:
     """One `GM_CHAT_STAGED_READBACK` line on STDERR.  Never alters dispatch.
 
@@ -6225,17 +6225,33 @@ def _print_staged_readback_line(
     a `None` stream or a stream that raises costs this line and nothing else
     (`EVENT_CONSOLE_WRITE_FAILED_PREFIX`), never the command.
 
-    `delivered` IS THE POINT OF THE LINE, not decoration.  Printed before the
+    `composed` IS THE POINT OF THE LINE, not decoration.  Printed before the
     compose, as the first version did, the token said `notice='SCENE 000278'`
     whether or not any frame existed -- so no line anywhere separated "the
     operator read SCENE 000278 off their screen" from "the operator saw
     nothing at all", and a mutant that moved the print above a failing
     compose passed every test in the suite (pf-adversary round `qpauwp`,
     D4).  This is called AFTER the compose, on both arms, and carries its
-    verdict: `frame=yes` means a notice action is being returned to the
-    caller, `frame=no` means the sentence never became bytes.  It is still
-    not a claim that the client rendered anything -- only this lane's own
-    two answers about its own frame.
+    verdict.
+
+    IT SAYS `composed=`, NOT `frame=`, AND THE DIFFERENCE IS THE WHOLE
+    HONESTY OF THE LINE (pf-adversary round `h7bwnl`, D1).  A first version
+    of this fix printed `frame=yes` here and its docstring claimed "a notice
+    action is being returned to the caller" -- which this function CANNOT
+    know.  `_make_action` runs after it and drops the action when the audit
+    row cannot be written (`EVENT_OUTCOMES_NOT_AUDITED_NOTICE_DROPPED`,
+    measured with an unwritable `capture/gm_command_log.ndjson`), so
+    `frame=yes` was printed for a sentence the operator never saw.  This
+    token now claims exactly the thing that IS decided at this point: the
+    body became a frame, or it did not.
+
+    WHAT ANSWERS THE OPERATOR'S QUESTION IS THE PAIR OF LINES, and the rule
+    for reading them is stated here because an attended run greps them:
+    `composed=yes` FOLLOWED BY NO `GM_CHAT_NO_BYTES_SENT` line for the same
+    command is a sentence that reached the caller.  `composed=yes` WITH one
+    (`why=audit_row_not_written`) is a sentence that did not.  That second
+    line is printed by `_make_action` from `action is not None`, which is the
+    only place the answer exists -- see its own comment at `notice_sent=`.
 
     NOTHING THE GM TYPED IS EVER PRINTED, and here that is free rather than
     guarded: `staged` takes no arguments, `detail` is built by
@@ -6244,8 +6260,15 @@ def _print_staged_readback_line(
     `console_safe` is applied to the catalog name half AND to the account,
     because the names are Thai-capable rows of a shipped table, an account
     name is whatever `--token` was given, and the bridge console is cp874 --
-    an unfolded `{token!r}` took the WHOLE line out for a name outside that
-    code page (same round, D10), which is the one line an attended run greps.
+    an unfolded account field took the WHOLE line out for a name outside
+    that code page (`qpauwp` D10), which is the one line an attended run
+    greps.  The account is folded `console_safe(_one_line(token))` inside
+    quotes, the SAME shape as the nine other `account=` fields in this file
+    -- not `console_safe(repr(token))`, which this round wrote first and
+    pf-adversary caught (`h7bwnl` D7): `repr` doubles backslashes, which is
+    the exact defect `console_safe`'s own docstring records as having cost
+    this lane a round, and it flips the quoting for a name containing `'`
+    so the field stops being greppable in one shape.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
@@ -6254,8 +6277,8 @@ def _print_staged_readback_line(
     try:
         print(
             f"{STAGED_READBACK_CONSOLE_TOKEN} "
-            f"account={console_safe(repr(token), stream)} "
-            f"frame={'yes' if delivered else 'no'} "
+            f"account='{console_safe(_one_line(token), stream)}' "
+            f"composed={'yes' if composed else 'no'} "
             f"notice={notice_text!r} {console_safe(detail, stream)}",
             file=stream,
         )
@@ -6353,7 +6376,7 @@ def _staged_action(
             token,
             readback.console_detail,
             readback.notice_text,
-            delivered=False,
+            composed=False,
         )
         return _Verdict(
             None,
@@ -6366,7 +6389,7 @@ def _staged_action(
         token,
         readback.console_detail,
         readback.notice_text,
-        delivered=True,
+        composed=True,
     )
     return _Verdict(
         (STAGED_READBACK_NOTICE_ACTION_LABEL, pc, frame, 0.0),

@@ -111,9 +111,19 @@ COMMAND_USAGE = {
     # for why the two are not interchangeable doors.
     "speed": "speed <value>",
     # A LANE-GM TOOLING COMMAND, like `gmprobe` and unlike the six above: it
-    # changes nothing at all.  `staged` reads back what a previous
-    # cross-scene `/warp` wrote into `config/gm_login_scene.json` for THIS
-    # account and answers it on screen -- see `gm/staged_readback.py`'s
+    # WRITES nothing -- no file, no row, no frame but its own sentence.  NOT
+    # "changes nothing at all", which this comment said until pf-adversary
+    # measured it (round `h7bwnl`, D5): the loader it calls prints
+    # `GM_LOGIN_SCENE_CONFIG_REFUSED` to stderr for every row the running
+    # process would refuse, INCLUDING rows belonging to other accounts, so
+    # typing `staged` does put lines on the server console.
+    #
+    # `staged` answers what THIS account's next login is staged to open, by
+    # asking the same lookup the login asks.  NOT "reads back what a previous
+    # cross-scene `/warp` wrote into `config/gm_login_scene.json`", which was
+    # this comment's other retracted half: since `h7bwnl` it consults both
+    # login-scene maps and the GM allowlist, so it can answer for a
+    # standalone entry no `/warp` ever wrote.  See `gm/staged_readback.py`'s
     # module docstring for why a staged warp was the one durable effect this
     # lane produced with no on-screen sentence of its own.  Appended LAST for
     # the third time, for the reason both comments above give: growing the

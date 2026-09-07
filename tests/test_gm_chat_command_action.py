@@ -55,6 +55,7 @@ from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import say_wire  # noqa: E402
 from pirateforce_foundation.gm import scene_catalog  # noqa: E402
 from pirateforce_foundation.gm import staged_readback  # noqa: E402
+from pirateforce_foundation.gm import login_scene_override  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.gm import warp_target_record  # noqa: E402
@@ -2586,7 +2587,7 @@ class StagedReadbackModuleTests(unittest.TestCase):
         Measured here in the direction no gate at the call site can reach:
         the snapshot is NARROWER than the disk."""
         registry_json = json.loads(
-            Path("scenarios/world_scene_registry_001.json").read_text(
+            (ROOT / "scenarios" / "world_scene_registry_001.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -2664,7 +2665,103 @@ class StagedReadbackCommandTests(_Case):
     `/warp`, typing `staged` answers ON SCREEN with the scene id their next
     login will open in. Before this, that fact existed only in
     `config/gm_login_scene.json` and on the server console.
+
+    THE STANDALONE MAP IS POINTED AT A THROWAWAY FILE, and unlike the two
+    paths `_Case` already redirects, it has to be done through the ENV VAR:
+    `make_gm_chat_command_action` takes no `standalone_config_path`, and
+    deliberately so (it is defaulted at the login call site too -- see
+    `_staged_action`).  Left alone, `read_staged_scene` resolves that map
+    CWD-relative to `config/gm_login_scene_standalone.json`, so these tests
+    would pass or fail on a file somebody left in the checkout -- and
+    `.gitignore`'s deny-all makes such a file invisible to `git status`.
+    MEASURED by pf-adversary (round `h7bwnl`, D3): with that env var pointed
+    at a map holding `{"GM_ONE": 5}`, three tests in this class went red.
+    The sibling class states the same rule for its own three paths.
     """
+
+    def setUp(self):
+        super().setUp()
+        standalone = self.tmp / "config" / "gm_login_scene_standalone.json"
+        patcher = mock.patch.dict(
+            os.environ,
+            {login_scene_override.STANDALONE_ENV_OVERRIDE: str(standalone)},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.standalone_config_path = standalone
+
+    def test_the_registry_snapshot_reaches_the_readback_through_the_door(self):
+        """D2's pin at the WIRING, not only inside the module (pf-adversary
+        round `h7bwnl`, D2).
+
+        `read_staged_scene` passing its `scene_registry` on was pinned; the
+        `_make_action` -> `_staged_action` hand-off was not, and the mutant
+        that dropped it survived the whole suite.  That is the argument that
+        makes the screen agree with the login, so it is pinned here through
+        the real entry point: the same staged scene, read once with the
+        default fresh registry and once with a snapshot that bars it."""
+        registry_json = json.loads(
+            (ROOT / "scenarios" / "world_scene_registry_001.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        registry_json["destinations"] = [
+            row for row in registry_json["destinations"] if row["n_id"] != 278
+        ]
+        narrowed = self.tmp / "narrowed_registry.json"
+        narrowed.write_text(json.dumps(registry_json), encoding="utf-8")
+        snapshot = world_scene_travel.load_scene_registry(narrowed)
+
+        self.act(FakeSession(position=FakePosition(scene_id=2)), "/warp 278")
+        fresh = self.act(
+            FakeSession(position=FakePosition(scene_id=2)), "/staged"
+        )
+        self.assertIn("SCENE 000278".encode("utf-16-le"), bytes(fresh[2]))
+        with_snapshot = self.act(
+            FakeSession(position=FakePosition(scene_id=2)),
+            "/staged",
+            scene_registry=snapshot,
+        )
+        self.assertIn(
+            "STAGE BARRED".encode("utf-16-le"), bytes(with_snapshot[2])
+        )
+
+    def test_the_console_line_never_claims_a_frame_the_caller_did_not_get(self):
+        """D1, MEASURED (pf-adversary round `h7bwnl`).  A first version of
+        this round's own D4 fix printed `frame=yes` here and claimed in its
+        docstring that a notice action was being returned -- which this point
+        of the code cannot know: `_make_action` runs after it and DROPS the
+        action when the audit row cannot be written.  With an unwritable
+        `capture/gm_command_log.ndjson` the operator saw nothing and the
+        grepped line said `frame=yes`.
+
+        The token now claims only what is decided where it is printed
+        (`composed=`), and the pair of lines answers the operator's real
+        question: `composed=yes` with no `GM_CHAT_NO_BYTES_SENT` beside it
+        means the sentence reached the caller."""
+        self.act(FakeSession(position=FakePosition(scene_id=2)), "/warp 278")
+        # The OUTCOME row is what has to fail, not the acceptance row: an
+        # audit file that is unwritable BEFORE dispatch is refused at the
+        # door (`GM_CHAT_DROPPED_BEFORE_DISPATCH`) and `staged` never runs,
+        # which is a different, already-correct path.  This injects the
+        # fault where a disk that fills up between the two writes puts it.
+        stream = io.StringIO()
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError(28, "No space left on device"),
+        ):
+            with contextlib.redirect_stderr(stream):
+                action = self.act(
+                    FakeSession(position=FakePosition(scene_id=2)), "/staged"
+                )
+        printed = stream.getvalue()
+        # The caller got nothing -- this is the arm the first fix mislabelled.
+        self.assertIsNone(action)
+        self.assertIn("composed=yes", printed)
+        self.assertNotIn("frame=yes", printed)
+        # And the line that says the operator saw nothing is there beside it.
+        self.assertIn(chat_command_action.WITHHELD_CONSOLE_TOKEN, printed)
 
     def test_a_gm_reads_back_the_scene_a_warp_staged(self):
         # `/warp 278` from scene 2 is the shape that STAGES (scene 278 has
@@ -2748,7 +2845,7 @@ class StagedReadbackCommandTests(_Case):
             [r.get("outcome") for r in records],
         )
 
-    def test_the_console_line_says_whether_the_frame_exists(self):
+    def test_the_console_line_says_whether_the_body_became_a_frame(self):
         """D4, MEASURED (pf-adversary round `qpauwp`).  Printed BEFORE the
         compose, the line said `notice='SCENE 000278'` whether or not any
         frame was built, so nothing anywhere separated "the operator read it
@@ -2759,7 +2856,7 @@ class StagedReadbackCommandTests(_Case):
         good = io.StringIO()
         with contextlib.redirect_stderr(good):
             self.act(FakeSession(position=FakePosition(scene_id=2)), "/staged")
-        self.assertIn("frame=yes", good.getvalue())
+        self.assertIn("composed=yes", good.getvalue())
 
         self.act(FakeSession(position=FakePosition(scene_id=2)), "/warp 278")
         bad = io.StringIO()
@@ -2774,8 +2871,8 @@ class StagedReadbackCommandTests(_Case):
                 )
         printed = bad.getvalue()
         self.assertIn(chat_command_action.STAGED_READBACK_CONSOLE_TOKEN, printed)
-        self.assertIn("frame=no", printed)
-        self.assertNotIn("frame=yes", printed)
+        self.assertIn("composed=no", printed)
+        self.assertNotIn("composed=yes", printed)
 
     def test_an_account_name_the_console_cannot_encode_keeps_the_line(self):
         """D10, MEASURED.  `account={token!r}` was the one field on this line
@@ -2788,7 +2885,7 @@ class StagedReadbackCommandTests(_Case):
             "GM_\u4e2d\u6587",
             "staged_readback nothing_staged",
             staged_readback.NOTICE_NOTHING_STAGED,
-            delivered=True,
+            composed=True,
         )  # smoke: the default stream path still works
         with contextlib.redirect_stderr(stream):
             chat_command_action._print_staged_readback_line(
@@ -2796,7 +2893,7 @@ class StagedReadbackCommandTests(_Case):
                 "GM_\u4e2d\u6587",
                 "staged_readback nothing_staged",
                 staged_readback.NOTICE_NOTHING_STAGED,
-                delivered=True,
+                composed=True,
             )
             stream.flush()
         written = stream.buffer.getvalue().decode("cp874")

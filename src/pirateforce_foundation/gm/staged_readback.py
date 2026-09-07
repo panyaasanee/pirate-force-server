@@ -35,8 +35,26 @@ file that reads perfectly.  So this module now calls
 `login_scene_override.get_login_scene_override` -- the function the login
 path's own `consume_login_scene_override` calls to decide the scene, minus
 the claim that spends it -- and passes the caller's `scene_registry`
-snapshot straight into it.  The screen and the login now disagree only where
-the disk changes between the two moments, which no design can close.
+snapshot straight into it.
+
+WHAT THAT DOES AND DOES NOT CLOSE, stated because the first version of this
+paragraph said "the screen and the login now disagree only where the disk
+changes between the two moments, which no design can close" -- and two
+divergences in this module's own PR refuted it (pf-adversary round
+`h7bwnl`, D4).  What is closed is the QUESTION: the same lookup, over the
+same maps, judged against the same registry snapshot.  What is not:
+
+* a boot argument.  A listener booted with a non-default
+  `login_scene_config_path` or `gm_accounts_config_path` reads back the
+  files the chat commands were given, while `runtime.py`'s login leaves all
+  three at their defaults.  That is a divergence with nothing on disk
+  moving, and it belongs to every staging command in this lane rather than
+  to this readback (`gm/chat_command_action.py::_staged_action` carries the
+  detail and why it is not this lane's to close).
+* what happens AFTER the lookup.  This function answers what the lookup
+  would return.  The login then claims the entry and resolves an entry
+  point, and either can still fail -- so `SCENE 000123` means the lookup
+  says 123, never that a character will stand there.  See NONCLAIMS below.
 
 THE THREE ANSWERS, and why each is the length it is.  A notice body is
 exactly 12 printable ASCII characters (`gm/say_wire.py::
