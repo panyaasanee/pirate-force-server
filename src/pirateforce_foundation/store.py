@@ -321,6 +321,26 @@ class UnmeasuredSkillPointsError(RuntimeError):
     """
 
 
+class UnmeasuredTypedAttributeError(RuntimeError):
+    """`add_typed_attribute` refused: the row's column is NULL.
+
+    Same rule as `UnmeasuredSkillPointsError` and the same decision behind
+    it (`COO-DECISION 20260901_1059`): a NULL column is "nobody has measured
+    this yet", not zero, so adding to it would be adding to a guess.  The
+    message names the COLUMN, because this door serves every typed column
+    rather than one, and the caller's next move differs per column.
+
+    THIS IS WHY LANE-Q'S `pay()` COULD NOT DO ITS OWN READ-MODIFY-WRITE.
+    `read_typed_attributes` DROPS a NULL column from the dict it returns, so
+    a caller doing the arithmetic itself reaches for `.get(column, 0)` and
+    guesses the zero this exception exists to refuse
+    (`pf_bridge/notes_to_chief/20260907_1027_LANE-Q-CORE-REQUEST-atomic-add-
+    typed-attribute-for-quest-reward-payout.md`, reason 2 of 2).
+
+    Nothing is written when this is raised.
+    """
+
+
 class SQLiteStore:
     def __init__(self, path: str | Path, migrations: str | Path):
         self.path, self.migrations = str(path), Path(migrations)
@@ -3575,6 +3595,151 @@ class SQLiteStore:
                 (character_id,),
             ).fetchone()
         return after["skill_points"]
+
+    def add_typed_attribute(self, character_id: int, column: str, delta: int) -> int:
+        """Add `delta` to one typed column of `characters`, returning the
+        value AFTER the addition.
+
+        `LANE-Q CORE-REQUEST pf_bridge/notes_to_chief/20260907_1027`, whose
+        four contracts this method is written against one for one.  A NEW
+        method: `write_typed_attributes` sets a value the caller already
+        knows and is not touched here, because the whole point of this door
+        is that the caller must NOT know the value -- it never reads the
+        balance, so it cannot lose someone else's write by writing back a
+        stale one.
+
+        ONE TRANSACTION.  `BEGIN IMMEDIATE` takes SQLite's write lock before
+        the value is read, so no other connection can add against the same
+        column between this method's read and its `UPDATE`.  That is the
+        contract LANE-Q cannot verify from the outside -- a method of this
+        NAME whose body was a read-modify-write across two connections would
+        satisfy their `callable(getattr(...))` check and silently eat the
+        other writer's payout (their reason 1 of 2, `pf-adversary D14` round
+        `wn088m`).  The `AND <column>=?` clause on the `UPDATE` cannot fire
+        inside one `BEGIN IMMEDIATE`; it is there for the same reason
+        `spend_skill_points` carries its own, so that removing either guard
+        alone cannot silently widen what this method may do.
+
+        NEVER GUESSES ZERO.  A NULL column raises
+        `UnmeasuredTypedAttributeError` naming the column, rather than
+        treating the balance as `0` (`COO-DECISION 20260901_1059`).
+
+        DELTA MUST BE >= 0, and that is a narrowing this lane chose rather
+        than one the request asked for -- LANE-Q left the sign to this lane
+        and does not rely on negatives.  A subtracting door has to answer
+        "what happens at the floor", and this repository already has that
+        door with that answer (`spend_skill_points`, which refuses a spend
+        below its balance with `InsufficientSkillPointsError`).  Two doors
+        subtracting with different refusal shapes is how a caller ends up
+        catching the wrong one.  Ask for it in a letter and it can widen;
+        widening is a smaller change than taking it back.
+
+        THE RESULT IS VALIDATED, NOT CLAMPED.  `persistence_typed_attrs.
+        validate` decides whether the value AFTER the addition is storable
+        for that column's wire kind, so an addition that would carry
+        `experience` past a `u32` raises `TypedAttrError` and writes
+        nothing, instead of storing a number the client cannot be sent or
+        silently wrapping it.  That call is also what makes `column` safe:
+        anything not in `TYPED_COLUMNS` is refused there before it can reach
+        an SQL string.
+
+        RETRY IS SAFE FOR EVERY EXCEPTION NAMED HERE, which is LANE-Q's
+        open question (b).  The read, the `UPDATE` and the read-back all run
+        inside one `BEGIN IMMEDIATE`, and `connect()` rolls the transaction
+        back on any exception before re-raising, so a raise from this method
+        means nothing was committed and calling it again pays exactly once.
+        The half-paid case they describe -- committed on disk while the
+        caller sees a failure -- cannot be produced by this method's own
+        body.  It is not a promise about a process killed between COMMIT and
+        return; nothing in this repository can make that promise without an
+        idempotency key, and LANE-Q retries nothing today.
+
+        Raises `TypeError` for a non-int/bool `character_id` or `delta` or a
+        non-str `column`, `ValueError` for a negative `delta` or for either
+        integer outside SQLite's representable `INTEGER` range,
+        `TypedAttrError` for an unknown column or an unstorable result,
+        `UnmeasuredTypedAttributeError` for a NULL column, `KeyError` for a
+        character that does not exist or has been soft-deleted, and
+        `WriteLockTimeout` instead of a raw `sqlite3.OperationalError` when
+        the write lock cannot be taken -- matching every other write door in
+        this file.  Nothing is written when anything is refused.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if not isinstance(column, str):
+            raise TypeError("column must be a str")
+        if isinstance(delta, bool) or not isinstance(delta, int):
+            raise TypeError("delta must be an int")
+        if delta < 0:
+            raise ValueError(
+                f"delta must be >= 0, got {delta!r} -- this door only adds; "
+                "spend_skill_points is the subtracting door and owns the "
+                "floor rule"
+            )
+        if not _fits_sqlite_integer(delta):
+            raise ValueError(
+                f"delta {delta!r} is outside SQLite's representable "
+                "INTEGER range"
+            )
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+
+        from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
+
+        if column not in typed_attrs.TYPED_COLUMNS:
+            raise typed_attrs.TypedAttrError(
+                f"{column!r} is not a typed attribute column "
+                f"(built: {sorted(typed_attrs.TYPED_COLUMNS)})"
+            )
+
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s {column} addition within connect()'s "
+                    f"busy_timeout: {error}"
+                ) from error
+            vitals.verify_schema(db)
+            # `column` is interpolated because SQLite cannot bind an
+            # identifier.  It is safe for exactly one measurable reason: it
+            # was checked for membership in `TYPED_COLUMNS` above, and
+            # `persistence_typed_attrs._build` refuses to admit any column
+            # whose name does not match `^[a-z][a-z0-9_]*$` -- so the set
+            # this name came from cannot contain a quote, a space or a
+            # semicolon.  A caller's string never reaches SQL; a name from
+            # that table does.
+            row = db.execute(
+                f"SELECT {column} FROM characters "  # noqa: S608
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            current = row[column]
+            if current is None:
+                raise UnmeasuredTypedAttributeError(
+                    f"character {character_id} has no {column} value yet "
+                    "(NULL) -- refusing to add to an unmeasured value rather "
+                    "than treating it as 0 (COO-DECISION 20260901_1059)"
+                )
+            after = typed_attrs.validate(column, current + delta)
+            updated = db.execute(
+                f"UPDATE characters SET {column}=?,updated_at=? "  # noqa: S608
+                f"WHERE id=? AND deleted_at IS NULL AND {column}=?",
+                (after, _now(), character_id, current),
+            ).rowcount
+            if updated != 1:
+                raise KeyError(character_id)
+            read_back = db.execute(
+                f"SELECT {column} FROM characters WHERE id=?",  # noqa: S608
+                (character_id,),
+            ).fetchone()
+        return read_back[column]
 
     def equip_item(
         self,
