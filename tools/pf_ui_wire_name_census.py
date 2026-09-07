@@ -28,8 +28,12 @@ Skipping full-line comments removes the one false positive found by
 pf-adversary on round `9dezrf`'s first draft (`VitalData` was SOURCE only
 because of a comment in `app.py` reusing the name as generic prose for an
 unrelated memory-layout concept, with no real reference anywhere else in the
-tree) -- it does NOT catch a name mentioned only inside a trailing inline
-comment or a docstring body; those remain a known, disclosed gap.
+tree). Round `mg3nr4` added the second exclusion, docstring bodies, by AST
+(COO-DECISION `pf_bridge/notes_to_chief/20260907_0546_COO-DECISION-q0454-
+census-tool-skips-docstrings-LANE-UI.md`): a lane writing the honest note
+"this module does NOT build `XxxVital`" used to push n/327 UP by one with
+nothing wired. A name mentioned only inside a TRAILING INLINE comment is
+still counted; that remains a known, disclosed gap.
 
 TIERS
 -----
@@ -63,6 +67,7 @@ Pure stdlib. No side effects on import.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -177,16 +182,107 @@ def is_client_req(name: str) -> bool:
     return "Req" in _PASCAL_TOKEN.findall(name)
 
 
+def _parse(text):
+    """``ast.parse`` with the two encodings this project actually receives.
+
+    A leading UTF-8 BOM makes ``ast.parse`` raise, and this repo is synced
+    from a Windows/PowerShell bridge whose default output encoding writes
+    one. Round `mg3nr4`, pf-adversary D7: without the strip, one BOM'd file
+    would silently fall back to the no-exclusion path, its docstrings would
+    start counting again, and the only symptom would be a pin going red with
+    nothing naming the cause. Returns ``None`` when the text does not parse
+    at all, so callers can both fall back AND count the fallback."""
+    try:
+        return ast.parse(text.lstrip("\ufeff"))
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+
+
+def prose_string_line_numbers(text):
+    """Line numbers (1-based) of every BARE STRING STATEMENT in ``text``.
+
+    A bare string statement is an ``ast.Expr`` whose value is a string
+    constant: it evaluates the string and throws it away. Python assigns no
+    meaning to one beyond the first-statement case it calls a docstring, so
+    every one of them is prose about the code, never a reference from it.
+    Every physical line the literal spans is returned.
+
+    WHY NOT JUST DOCSTRINGS (round `mg3nr4`, pf-adversary D1). The first
+    version of this matched Python's own docstring definition -- the first
+    statement of a module, class, function or async function, i.e. what
+    ``ast.get_docstring`` returns. Measured on that version: prepending one
+    extra one-line docstring above each ``ui_*_wire.py`` module docstring
+    demotes the original prose block to a SECOND bare string,
+    which is then not a docstring, and n/327 jumps 30 -> 149 with no wire
+    code touched. A lint rule asking for a one-line summary, or anyone
+    splitting a long docstring, would have done it by accident and the
+    movement log would have read it as 119 rows of progress. Counting every
+    bare string statement has no such spelling to slip through.
+
+    Deliberately NOT excluded, because they are code, not prose: a string
+    bound to a name (``WIRE_NAME = "ShowMessageVital"``), a string passed as
+    an argument, a string in a collection, an f-string, and any trailing
+    inline comment.
+    """
+    tree = _parse(text)
+    if tree is None:
+        return frozenset()
+    lines = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Expr):
+            continue
+        value = node.value
+        if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+            continue
+        end = getattr(value, "end_lineno", None) or value.lineno
+        lines.update(range(value.lineno, end + 1))
+    return frozenset(lines)
+
+
+def unparseable_py_files(py_files):
+    """The subset of ``py_files`` whose text does not parse.
+
+    Exists so the fallback in ``prose_string_line_numbers`` cannot be a
+    silent skip (round `mg3nr4`, pf-adversary D7): a file in here has its
+    prose counted as code, which moves the census with nothing to point at.
+    Pinned empty over the real tree by the test file."""
+    bad = []
+    for path in py_files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if _parse(text) is None:
+            bad.append(path)
+    return bad
+
+
 def _build_source_hits(names, py_files):
     """One pass over every file in ``py_files`` (sorted, so deterministic):
-    for every identifier token on a non-comment line, record the FIRST
-    ``"relpath:line"`` it is seen at, for every name in ``names`` that is
-    still unresolved. Full-line comments (``line.lstrip().startswith("#")``)
-    are skipped so a name used only as this codebase's own descriptive
-    prose (e.g. a comment reusing a wire name as a generic term) is not
-    counted as a code reference; this does not catch a name mentioned only
-    in a trailing inline comment or inside a docstring body -- see
-    docs/UI_WIRE_COVERAGE.md's non-claims."""
+    for every identifier token on a line that is neither a full-line comment
+    nor part of a docstring, record the FIRST ``"relpath:line"`` it is seen
+    at, for every name in ``names`` that is still unresolved.
+
+    TWO kinds of line are skipped, for the same reason -- both are this
+    codebase's own prose about the game, not references to it:
+
+    * full-line comments (``line.lstrip().startswith("#")``), which removed
+      the one false positive pf-adversary found on round `9dezrf` (a comment
+      in `app.py` reusing `VitalData` as a generic memory-layout term);
+    * bare string statements (``prose_string_line_numbers``, AST-based),
+      added round `mg3nr4` per COO-DECISION `20260907_0546` on LANE-Q's
+      `0454` alert -- docstrings and every other string that is evaluated
+      and discarded.
+      Without this, a lane writing the honest note "this module does NOT
+      build `XxxVital`" pushed n/327 UP by one with nothing wired: the
+      metric moved opposite to what it measures, and an inflated value gets
+      read as progress. AST, not a three-quote regex, because the regex
+      would have to reimplement raw/f-prefixes, nesting and escapes.
+
+    STILL not caught, and still disclosed in docs/UI_WIRE_COVERAGE.md's
+    non-claims: a name that appears ONLY in a trailing inline comment
+    (``x = 1  # see FooVital``) counts as SOURCE, because that line does
+    carry code and this tool does not tokenize sub-line spans."""
     remaining = set(names)
     hits: dict = {}
     for path in py_files:
@@ -203,10 +299,20 @@ def _build_source_hits(names, py_files):
         # gate-windows's `pytest_subset` 9 failed on PR #961 (LANE-UI
         # round `on8hbb`, per COO-DECISION 20260907_0148 item 2).
         relpath = path.relative_to(ROOT).as_posix()
-        for lineno, line in enumerate(text.splitlines(), start=1):
+        prose_lines = prose_string_line_numbers(text)
+        # split("\n"), not splitlines(): splitlines() also breaks on FF,
+        # VT, FS, GS, RS, NEL, U+2028 and U+2029, which ast does NOT count
+        # as line breaks. One form feed inside a docstring shifts every
+        # later line number and the exclusion inverts -- real code skipped,
+        # docstring prose counted (round `mg3nr4`, pf-adversary D6; latent
+        # today, 0 such characters in the tree). read_text already
+        # normalises \r\n and \r.
+        for lineno, line in enumerate(text.split("\n"), start=1):
             if not remaining:
                 break
             if line.lstrip().startswith("#"):
+                continue
+            if lineno in prose_lines:
                 continue
             for token in _IDENT_TOKEN.findall(line):
                 if token in remaining:

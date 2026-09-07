@@ -55,8 +55,22 @@ pin that kept the wiring check honest was therefore replaced by a repo-wide
 invariant (``NoFoundationModuleCallsTheUntaggedPairTests``): no file under
 ``src/pirateforce_foundation/`` except ``ui_social_wire.py`` itself (which
 defines the pair) may call it, and a synthetic witness proves the detector
-still returns True for the offending shape. The wiring check below is
-unchanged and still live for both modules.
+still returns True for the offending shape.
+
+CORRECTION (round `mg3nr4`, pf-adversary D4 raised on round `fvp9ke`): the
+line that used to stand here -- "the wiring check below is unchanged and
+still live for both modules" -- was false of the TEST even though it was
+true of the code. ``test_wiring_before_migration_is_caught`` opened with
+``if not _module_is_imported(...): continue``, and once the `d1b231`
+migration left nothing importing the guarded modules, that branch was taken
+every run: the assertion under it had not executed for several rounds, and
+the test could not go red for any reason. Measured: stubbing
+``_module_calls_untagged_pair`` to ``return False`` turned four other tests
+in this file red and left that one green. The rule now lives in
+``_wiring_violations``, a pure function of two source strings, driven both
+against the real tree (which records today's state) and against synthetic
+sources that put the tree in the forbidden state on purpose
+(``WiringGuardFiresOnSyntheticSourcesTests``, which CAN go red).
 
 What this guards, and what it does not
 ---------------------------------------
@@ -213,6 +227,34 @@ def _module_calls_untagged_pair(source: str) -> bool:
     return False
 
 
+def _wiring_violations(runtime_source, module_sources):
+    """Names in ``module_sources`` that ``runtime_source`` imports AND that
+    still call the untagged pair -- i.e. the exact condition
+    `COO-DECISION 20260906_1649` forbids.
+
+    Split out of the test body in round `mg3nr4` (pf-adversary D4, raised on
+    round `fvp9ke`). Before the split the rule lived inside a loop that began
+    ``if not _module_is_imported(...): continue``, and since round `d1b231`
+    migrated the last module and nothing imports any of them, that `continue`
+    was taken for every module on every run: the assertion below it had not
+    executed for several rounds and COULD NOT go red, while a comment right
+    there claimed the opposite ("the moment a round imports it ... the check
+    below starts running"). The claim is true of the CODE and was false of
+    the TEST -- nothing proved the code still worked. As a pure function of
+    two strings the same rule is testable against synthetic sources that put
+    the tree in the forbidden state on purpose, which is what
+    ``WiringGuardFiresOnSyntheticSourcesTests`` does.
+
+    ``module_sources`` maps module name -> that module's source text."""
+    violations = []
+    for module_name, module_source in sorted(module_sources.items()):
+        if not _module_is_imported(runtime_source, module_name):
+            continue
+        if _module_calls_untagged_pair(module_source):
+            violations.append(module_name)
+    return violations
+
+
 class ExpressCommunitySocialMigrationGuardTests(unittest.TestCase):
     def test_current_state_is_unwired(self):
         # Documents the state COO-DECISION 20260906_1649/1745 expects right
@@ -234,33 +276,143 @@ class ExpressCommunitySocialMigrationGuardTests(unittest.TestCase):
                 )
 
     def test_wiring_before_migration_is_caught(self):
+        # The real tree, checked through the same pure function the
+        # synthetic tests below drive. On today's tree this asserts an empty
+        # list because nothing imports the guarded modules -- that is a
+        # genuine "the forbidden state does not exist", not a passing
+        # assertion (round `mg3nr4`: it used to be neither, because a
+        # `continue` skipped the assert entirely and the comment here
+        # claimed the check was live). The proof that the rule still BITES
+        # is `WiringGuardFiresOnSyntheticSourcesTests`, which can go red;
+        # this one records the tree's state.
         runtime_source = (FOUNDATION_DIR / "runtime.py").read_text(
             encoding="utf-8"
         )
-        for module_name in _GUARDED_MODULES:
-            with self.subTest(module=module_name):
-                if not _module_is_imported(runtime_source, module_name):
-                    # Not wired yet -- nothing to guard for this module in
-                    # this state. The moment a round imports it (any
-                    # shape: module level, `from . import`, or inside a
-                    # function/branch), this branch stops being taken and
-                    # the check below starts running against that same
-                    # round's diff.
-                    continue
-                module_source = (
-                    FOUNDATION_DIR / f"{module_name}.py"
-                ).read_text(encoding="utf-8")
-                self.assertFalse(
-                    _module_calls_untagged_pair(module_source),
-                    f"{module_name} is wired into runtime.py but still "
-                    "calls ui_social_wire.encode_untagged_wstring/"
-                    "read_untagged_wstring -- migrate this module onto "
-                    "wire.wstring_tag/wire.read_wstring_tag (tag 0x48, "
-                    "same pair ui_friend_wire.py/ui_mail_wire.py/"
-                    "ui_party_wire.py/ui_trade_wire.py already proved) "
-                    "before wiring it, per COO-DECISION 20260906_1649.",
-                )
+        module_sources = {
+            module_name: (FOUNDATION_DIR / f"{module_name}.py").read_text(
+                encoding="utf-8"
+            )
+            for module_name in _GUARDED_MODULES
+        }
+        self.assertEqual(
+            _wiring_violations(runtime_source, module_sources),
+            [],
+            "a guarded module is imported by runtime.py while it still "
+            "calls ui_social_wire.encode_untagged_wstring/"
+            "read_untagged_wstring -- migrate it onto wire.wstring_tag/"
+            "wire.read_wstring_tag (tag 0x48, the same pair "
+            "ui_friend_wire.py/ui_mail_wire.py/ui_party_wire.py/"
+            "ui_trade_wire.py already proved) before wiring it, per "
+            "COO-DECISION 20260906_1649.",
+        )
 
+
+class WiringGuardFiresOnSyntheticSourcesTests(unittest.TestCase):
+    """Proves ``_wiring_violations`` still catches the forbidden state, using
+    sources built here instead of the tree's -- so it is red-capable no
+    matter what state the real modules happen to be in.
+
+    This is the test round `fvp9ke`'s pf-adversary asked for (D4): the
+    tree-reading test cannot fail while nothing is wired, so on its own it
+    proved only that today's tree is fine, never that the detector works."""
+
+    WIRED_RUNTIME = "from . import ui_probe_wire\n"
+    # The shape that defeated the original regex: indented, function-local.
+    WIRED_RUNTIME_NESTED = (
+        "def dispatch(op):\n"
+        "    if op == 1:\n"
+        "        from . import ui_probe_wire\n"
+        "        return ui_probe_wire\n"
+    )
+    UNMIGRATED = (
+        "from . import ui_social_wire as wire\n"
+        "def put(buf, s):\n"
+        "    return wire.encode_untagged_wstring(buf, s)\n"
+    )
+    MIGRATED = (
+        "from . import wire\n"
+        "def put(buf, s):\n"
+        "    return wire.wstring_tag(buf, s)\n"
+    )
+
+    def test_wired_and_unmigrated_is_reported(self):
+        self.assertEqual(
+            _wiring_violations(
+                self.WIRED_RUNTIME, {"ui_probe_wire": self.UNMIGRATED}
+            ),
+            ["ui_probe_wire"],
+        )
+
+    def test_a_function_local_indented_import_still_counts_as_wired(self):
+        self.assertEqual(
+            _wiring_violations(
+                self.WIRED_RUNTIME_NESTED, {"ui_probe_wire": self.UNMIGRATED}
+            ),
+            ["ui_probe_wire"],
+        )
+
+    def test_an_aliased_untagged_call_still_counts_as_unmigrated(self):
+        aliased = (
+            "from . import ui_social_wire as sw\n"
+            "def put(buf, s):\n"
+            "    return sw.read_untagged_wstring(buf, s)\n"
+        )
+        self.assertEqual(
+            _wiring_violations(self.WIRED_RUNTIME, {"ui_probe_wire": aliased}),
+            ["ui_probe_wire"],
+        )
+
+    def test_a_subpackage_level_two_import_still_counts_as_unmigrated(self):
+        # Round `fvp9ke` fixed `_resolve_untagged_pair_aliases` from
+        # `node.level == 1` to `>= 1` because a file in `lane_hooks/` reaches
+        # the wire module as `from .. import ui_social_wire`, and proved it
+        # with a probe file it then deleted -- so nothing pinned the fix.
+        # Measured in round `mg3nr4`: reverting that line to `== 1` left the
+        # whole file green. This is the pin.
+        level_two = (
+            "from .. import ui_social_wire as wire\n"
+            "def put(buf, s):\n"
+            "    return wire.encode_untagged_wstring(buf, s)\n"
+        )
+        self.assertEqual(
+            _wiring_violations(
+                self.WIRED_RUNTIME, {"ui_probe_wire": level_two}
+            ),
+            ["ui_probe_wire"],
+        )
+
+    def test_wired_and_migrated_is_clean(self):
+        self.assertEqual(
+            _wiring_violations(
+                self.WIRED_RUNTIME, {"ui_probe_wire": self.MIGRATED}
+            ),
+            [],
+        )
+
+    def test_unwired_and_unmigrated_is_not_this_guard_s_business(self):
+        # Deliberate scope, not an oversight: an unwired module that still
+        # calls the pair is caught by
+        # NoFoundationModuleCallsTheUntaggedPairTests, repo-wide. This guard
+        # answers only "was something wired before it was migrated".
+        self.assertEqual(
+            _wiring_violations(
+                "x = 1\n", {"ui_probe_wire": self.UNMIGRATED}
+            ),
+            [],
+        )
+
+    def test_every_wired_unmigrated_module_is_named_not_just_the_first(self):
+        runtime = "from . import ui_probe_wire\nfrom . import ui_other_wire\n"
+        self.assertEqual(
+            _wiring_violations(
+                runtime,
+                {
+                    "ui_probe_wire": self.UNMIGRATED,
+                    "ui_other_wire": self.UNMIGRATED,
+                },
+            ),
+            ["ui_other_wire", "ui_probe_wire"],
+        )
 
 
 class NoFoundationModuleCallsTheUntaggedPairTests(unittest.TestCase):
