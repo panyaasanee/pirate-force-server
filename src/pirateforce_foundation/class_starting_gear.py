@@ -226,6 +226,36 @@ def starting_backpack_state(class_id: int) -> BackpackState:
     )
 
 
+def starting_backpack_states() -> tuple[BackpackState, ...]:
+    """Every legal starting bag, one per class, in class-id order.
+
+    This is the SET COO-DECISION 20260907_2342 put in place of the single
+    ``INITIAL_BACKPACK`` golden.  LANE-DB owns gates 2/3/4 and changes them
+    from ``== INITIAL_BACKPACK`` to ``in starting_backpack_states()``; this
+    lane owns what the set contains.  Nothing here reads or writes a
+    database, and this module still has no production importer.
+
+    Why a tuple and not a set: ``in`` on a tuple compares with ``==``, which
+    is the comparison the gates already make against the one golden today,
+    so the gate's meaning does not change when the collection does.  A
+    ``frozenset`` would silently swap that for hash-then-equality, and the
+    day any field of a bag stops being hashable the gate would start raising
+    instead of refusing.  Ordered by ``class_catalog.CLASS_IDS`` so the
+    sequence is stable across runs, machines and Python versions.
+
+    Element 0 is the committed ``INITIAL_BACKPACK`` OBJECT itself, not a copy
+    of it, so an old character's untouched bag is admitted by the same
+    identity it always was.  That is the whole reason COO chose the set over
+    a per-class golden: every character alive today carries class 1's bag,
+    and a per-class rule would have locked four classes out of the world
+    until a migration exists.
+    """
+    return tuple(
+        starting_backpack_state(class_id)
+        for class_id in class_catalog.CLASS_IDS
+    )
+
+
 def describe(class_id: int) -> str:
     """One console-safe ASCII token line for one class.
 
