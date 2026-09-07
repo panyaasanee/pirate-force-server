@@ -469,7 +469,7 @@ in `STILL_STUBBED`.
 | Player | GetCash | 7 | stub |
 | Player | PlayMovie | 7 | stub |
 | Player | ResetMarker | 7 | stub |
-| Player | AddCash | 6 | stub |
+| Player | AddCash | 6 | stub (blocked on a SPEND door: the corpus calls it with a negative amount, `store.add_typed_attribute` takes `delta >= 0` only) |
 | Player | CheckSkill | 6 | stub |
 | Player | EnterInstanceThenPlayMovie | 6 | stub |
 | Player | ItemAddon | 6 | stub |
@@ -480,9 +480,9 @@ in `STILL_STUBBED`.
 | Player | CheckSoulmate | 4 | stub |
 | Player | LeaveInstance | 4 | stub |
 | Player | LoadStore | 3 | stub |
-| Player | AddExp | 2 | stub |
+| Player | AddExp | 2 | real (round `yfeauz`: pays a `characters` row through `lua_api/reward.grant`; no frame out yet) |
 | Player | AddPpClass | 2 | stub |
-| Player | AddSkillPoint | 2 | stub |
+| Player | AddSkillPoint | 2 | real (round `yfeauz`: pays a `characters` row through `lua_api/reward.grant`; no frame out yet) |
 | Player | CastSkillXYZ | 2 | stub |
 | Player | CheckParty | 2 | stub |
 | Player | CheckThrowAnyPenpalLetter | 2 | stub |

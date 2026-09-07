@@ -84,6 +84,19 @@ REFUSE_NO_CHARACTER = "no_character"
 REFUSE_NOTHING_TO_PAY = "amount_is_zero"
 REFUSE_NEGATIVE = "amount_is_negative"
 REFUSE_STORE_ERROR = "store_error"
+#: :func:`grant` only.  ``pay`` takes its kind from the game's own tables
+#: through ``quest_criteria``, so it cannot produce this one; ``grant``
+#: takes the kind from ITS CALLER (a namespace closure naming which column
+#: that API grants), and a caller naming a kind this module cannot pay is a
+#: bug in this package, refused by name rather than KeyError'd into a
+#: script's traceback.
+REFUSE_UNKNOWN_KIND = "unknown_reward_kind"
+#: :func:`grant` only.  Its ``amount`` comes off a Lua stack through a
+#: namespace closure's coercion; something that is not an ``int`` at all
+#: (a string, a table, ``True``) is a DIFFERENT fact from a negative
+#: number, and a reader counting refusals needs to tell "the script asked
+#: to charge the player" from "the script handed us a table".
+REFUSE_BAD_AMOUNT = "amount_is_not_an_integer"
 
 #: Every reason this module itself can produce.  A test asserts
 #: :func:`pay` never returns a reason outside this set union
@@ -91,6 +104,7 @@ REFUSE_STORE_ERROR = "store_error"
 REFUSALS: frozenset = frozenset({
     REFUSE_NO_STORE, REFUSE_STORE_NOT_ATOMIC, REFUSE_NO_CHARACTER,
     REFUSE_NOTHING_TO_PAY, REFUSE_NEGATIVE, REFUSE_STORE_ERROR,
+    REFUSE_UNKNOWN_KIND, REFUSE_BAD_AMOUNT,
 })
 
 
@@ -205,6 +219,152 @@ def _has_atomic_add(store: Any) -> bool:
     return callable(getattr(store, "add_typed_attribute", None))
 
 
+def _store_delta(store: Any, character_id: int, column: str,
+                 delta: int) -> Tuple[Optional[int], Optional[str]]:
+    """Hand one POSITIVE delta to the store and check what comes back.
+
+    Returns ``(balance_after, None)`` when the store honoured the
+    :class:`QuestRewardStore` contract, and ``(None, extra)`` otherwise,
+    where ``extra`` is the ``" err=..."`` tail the caller appends to its own
+    ``refused=store_error`` line.  ONE implementation for both doors
+    (:func:`pay`, criteria-resolved, and :func:`grant`, caller-supplied), so
+    a store that lies cannot be believed by one of them and caught by the
+    other.
+
+    THREE THINGS ARE CHECKED, and each one has already been the hole:
+
+    * The call RAISED.  Per LANE-DB's contract (``store.py``'s own
+      ``add_typed_attribute`` docstring, and ``store.connect()`` rolling
+      back before re-raising) a raise means NOTHING was committed.
+    * The answer is not an ``int``.  A store that answers with something
+      else has not honoured the contract, and believing it would put a
+      non-number into a log line that reads like a measurement.
+    * The answer is BELOW the delta.  Until round ``95aw54`` the token was
+      compared against nothing, so a store whose ``add_typed_attribute``
+      was ``return 0`` -- the ``mov al,1; ret`` of stores, writing nothing
+      -- produced a line reading ``paid=1050 balance_after=0`` with no
+      refusal.  Why this invariant and not a stronger one: all three
+      columns in :data:`KIND_COLUMN` carry ``CHECK(... BETWEEN 0 AND ...)``
+      in migration 006 and every ``delta`` reaching here is positive (both
+      callers refuse zero and negative first), so ``balance_after >=
+      delta`` holds for ANY correct atomic add regardless of what the
+      balance was before -- which this lane deliberately never reads.
+
+    WHAT IS STILL NOT CHECKABLE FROM THIS SIDE, unchanged by moving the
+    code: the two refusal branches after the store has already COMMITTED (a
+    non-int answer, a too-small balance) are indistinguishable to a caller
+    from the raising case, so a caller that retries on ``store_error`` can
+    pay twice.  Neither door retries, and a caller that adds a retry loop
+    owes an idempotency key nobody has written.
+    """
+    try:
+        balance_after = store.add_typed_attribute(character_id, column, delta)
+    except Exception as exc:  # noqa: BLE001 - deliberate, see pay()'s docstring
+        return None, " err=%s: %s" % (type(exc).__name__, exc)
+    if isinstance(balance_after, bool) or not isinstance(balance_after, int):
+        return None, " err=balance_after=%r" % (balance_after,)
+    if balance_after < delta:
+        return None, (" err=balance_after=%d is below the delta it was "
+                      "asked to add (%d): the store reported a write that "
+                      "cannot have happened" % (balance_after, delta))
+    return balance_after, None
+
+
+@dataclass(frozen=True)
+class Grant:
+    """One EXPLICIT amount that actually reached a row.
+
+    The sibling of :class:`Payout` for the other door.  No
+    :class:`quest_criteria.CriteriaAmount` here on purpose: a
+    ``Player.AddExp(n)`` amount does not come out of a shipped table, it
+    comes out of the running script (``Player.GetLv()*Trigger.Var5`` in
+    ``t_getm_rat_exp&sp.lua``), so there is no base/level/multiplier
+    provenance to carry and pretending otherwise would be the invention
+    this lane refuses.  What IS carried is which API asked, which column
+    moved, and what the store said the balance became.
+    """
+
+    api_name: str
+    character_id: int
+    column: str
+    amount: int
+    balance_after: int
+
+    def log_fields(self) -> str:
+        return ("character=%d column=%s paid=%d balance_after=%d"
+                % (self.character_id, self.column, self.amount,
+                   self.balance_after))
+
+
+def grant(api_name: str, kind: str, character_id: int, amount: int, *,
+          store: Optional[Any] = None,
+          log: Optional[Callable[[str], None]] = None,
+          ) -> Tuple[Optional[Grant], Optional[str]]:
+    """Pay an amount the SCRIPT named, or say exactly why not.
+
+    The second door onto the same seam :func:`pay` uses, for the API names
+    whose amount is an argument rather than a table row --
+    ``Player.AddExp``/``Player.AddSkillPoint`` today.  Same store contract,
+    same closed refusal set, same all-or-nothing posture, and the same
+    never-raise rule: a refusal here leaves the calling Lua script running,
+    because a host that dies on an unpaid grant turns one missing reward
+    into a whole quest file logged as broken.
+
+    ``kind`` is one of ``quest_criteria.KIND_*`` and comes from the CALLING
+    CLOSURE, never from a script: no cell of any shipped table and no Lua
+    value is ever concatenated into a column name, the same discipline the
+    module docstring describes for :data:`KIND_COLUMN`.
+
+    ``amount`` must already be a coerced non-negative ``int`` -- the
+    namespace closure that read it off the Lua stack owns that coercion
+    (``lua_api.player._coerce_int``).  A ``bool``, a non-``int`` or a
+    negative is REFUSED rather than trusted, because this door is also
+    reachable from a future closure whose coercion is not yet written.
+
+    NEGATIVE AMOUNTS ARE REFUSED, AND THAT IS A REAL GAP, NOT AN OVERSIGHT.
+    ``Player.AddCash(-Quest.Var3)`` exists in the corpus
+    (``gamedata/lua/Quest/q_ship.lua:50``, ``q_boat_health.lua:21``): a
+    quest that CHARGES the player. ``store.add_typed_attribute`` takes
+    ``delta >= 0`` only, deliberately (its own docstring: a subtracting door
+    has to answer "what happens at the floor", and this repository already
+    has that answer in ``spend_skill_points``). So the spend half is a
+    letter to LANE-DB, not a sign flip here, and ``Player.AddCash`` stays
+    stubbed until it exists -- see ``lua_api.player.STILL_STUBBED``.
+    """
+    log = log or (lambda _line: None)
+
+    def _refuse(why: str, extra: str = "") -> Tuple[None, str]:
+        log("LUA_PLAYER_GRANT %s character=%s kind=%s refused=%s unpaid=%r%s"
+            % (api_name, character_id, kind, why, amount, extra))
+        return None, why
+
+    if kind not in KIND_COLUMN:
+        return _refuse(REFUSE_UNKNOWN_KIND)
+    if isinstance(character_id, bool) or not isinstance(character_id, int) \
+            or character_id <= 0:
+        return _refuse(REFUSE_NO_CHARACTER)
+    if isinstance(amount, bool) or not isinstance(amount, int):
+        return _refuse(REFUSE_BAD_AMOUNT)
+    if amount < 0:
+        return _refuse(REFUSE_NEGATIVE)
+    if amount == 0:
+        return _refuse(REFUSE_NOTHING_TO_PAY)
+    if store is None:
+        return _refuse(REFUSE_NO_STORE)
+    if not _has_atomic_add(store):
+        return _refuse(REFUSE_STORE_NOT_ATOMIC)
+
+    column = KIND_COLUMN[kind]
+    balance_after, err = _store_delta(store, character_id, column, amount)
+    if err is not None:
+        return _refuse(REFUSE_STORE_ERROR, err)
+    granted = Grant(api_name=api_name, character_id=character_id,
+                    column=column, amount=amount,
+                    balance_after=balance_after)
+    log("LUA_PLAYER_GRANT %s %s" % (api_name, granted.log_fields()))
+    return granted, None
+
+
 def pay(api_name: str, character_id: int, quest_id: int, *,
         store: Optional[Any] = None,
         player_level: Optional[int] = None,
@@ -269,39 +429,10 @@ def pay(api_name: str, character_id: int, quest_id: int, *,
         return _refuse(REFUSE_STORE_NOT_ATOMIC)
 
     column = KIND_COLUMN[amount.kind]
-    try:
-        balance_after = store.add_typed_attribute(
-            character_id, column, amount.amount)
-    except Exception as exc:  # noqa: BLE001 - deliberate, see docstring
-        return _refuse(REFUSE_STORE_ERROR,
-                       " err=%s: %s" % (type(exc).__name__, exc))
-    if isinstance(balance_after, bool) or not isinstance(balance_after, int):
-        # A store that answers with something other than an integer balance
-        # has not honoured the contract above; believing it would put a
-        # non-number into a log line that reads like a measurement.
-        return _refuse(REFUSE_STORE_ERROR,
-                       " err=balance_after=%r" % (balance_after,))
-    if balance_after < amount.amount:
-        # THE TOKEN IS COMPARED AGAINST SOMETHING (pf-adversary finding 1,
-        # this round).  Until now `pay` checked only that the answer was an
-        # int, so a store whose `add_typed_attribute` was `return 0` -- the
-        # `mov al,1; ret` of stores, writing nothing -- produced a line
-        # reading `paid=1050 balance_after=0` with `reason=None`.  That line
-        # is the ONLY artifact the next round is told to size this seam
-        # from, and it was asserting nothing.
-        #
-        # Why this particular invariant and not a stronger one: all three
-        # columns in KIND_COLUMN carry `CHECK(... BETWEEN 0 AND ...)` in
-        # migration 006, and `delta` here is always positive (a zero or
-        # negative amount is refused above), so `balance_after >= delta`
-        # holds for ANY correct atomic add regardless of what the balance
-        # was before -- which this lane deliberately does not know.  It is
-        # the strongest statement available to a caller that never reads.
-        return _refuse(REFUSE_STORE_ERROR,
-                       " err=balance_after=%d is below the delta it was "
-                       "asked to add (%d): the store reported a write that "
-                       "cannot have happened"
-                       % (balance_after, amount.amount))
+    balance_after, err = _store_delta(store, character_id, column,
+                                      amount.amount)
+    if err is not None:
+        return _refuse(REFUSE_STORE_ERROR, err)
     payout = Payout(api_name=api_name, quest_id=quest_id,
                     character_id=character_id, column=column,
                     amount=amount, balance_after=balance_after)

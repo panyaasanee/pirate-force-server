@@ -7,7 +7,7 @@ Player.RemoveBuff	Player	2	2	AUTH	arity 1 (var)	buff	STUB	NO	needs skill/buff st
 Quest.AddCriteriaCash	Quest	165	165	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character cash grant seam (Player.* queue, not built)	M5
 Quest.AddLvCriteriaCash	Quest	58	58	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character cash grant seam (Player.* queue, not built)	M5
 Player.GetCash	Player	7	7	AUTH	arity 0	cash	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M5
-Player.AddCash	Player	6	6	AUTH	arity 1 (var)	cash	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
+Player.AddCash	Player	6	6	AUTH	arity 1 (var)	cash	STUB	PARTIAL	the column and the atomic add exist, but the corpus calls this name with a NEGATIVE amount (q_ship.lua:50, q_boat_health.lua:21) and add_typed_attribute takes delta >= 0 only: needs a spend door with a floor answer from LANE-DB	M5
 Player.CastSkillAt	Player	69	46	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	needs skill/buff state + cast wire frame, cross-lane w/ LANE-B/CS combat	M4
 Trigger.CastSkillXYZ	Trigger	11	6	AUTH	arity 4 (var|var|var|var)	combat-skill	STUB	PARTIAL	needs skill-cast wire frame (LANE-CS territory)	M4
 Trigger.CastSkill	Trigger	9	9	AUTH	arity 1 (var)	combat-skill	STUB	PARTIAL	needs skill-cast wire frame (LANE-CS territory)	M4
@@ -21,9 +21,9 @@ Player.GetLv	Player	91	89	AUTH	arity 0	exp-level	REAL	YES		M5
 Player.GetClass	Player	60	14	AUTH	arity 0	exp-level	REAL	YES		M5
 Quest.AddLvCriteriaExp	Quest	59	59	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character EXP grant seam (Player.* queue, not built)	M5
 Quest.AddLvCriteriaSkillPoint	Quest	59	59	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character skill-point grant seam (Player.* queue, not built)	M5
-Player.AddExp	Player	2	2	AUTH	arity 1 (call)	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
+Player.AddExp	Player	2	2	AUTH	arity 1 (call)	exp-level	REAL	YES	real round yfeauz: pays through store.add_typed_attribute via lua_api/reward.grant; no frame goes out yet	M5
 Player.AddPpClass	Player	2	2	AUTH	arity 1 (var)	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
-Player.AddSkillPoint	Player	2	2	AUTH	arity 1 (call)	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
+Player.AddSkillPoint	Player	2	2	AUTH	arity 1 (call)	exp-level	REAL	YES	real round yfeauz: pays through store.add_typed_attribute via lua_api/reward.grant; no frame goes out yet	M5
 Player.GetPpClass	Player	1	1	AUTH	arity 0	exp-level	STUB	PARTIAL	needs per-character state PlayerContext does not carry yet (only level/class_id today)	M5
 Player.GiveLvCriteriaPercentageEXP	Player	1	1	AUTH	arity 0	exp-level	STUB	PARTIAL	needs a per-character stat WRITE/grant seam (Player.* queue, not built)	M5
 Quest.GetQuestFlag	Quest	508	366	AUTH	arity 1 (var)	flag-quest-state	STUB	NO	needs per-character Quest flag state (LANE-DB column, COO-DECISION 20260905_2058)	M5
@@ -148,7 +148,7 @@ Player.CameraFocus	Player	16	11	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	ne
 Player.Warp	Player	10	10	AUTH	arity 4 (var|var|var|var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
 Player.TeleportThenPlayMovie	Player	8	7	AUTH	arity 2 (var|var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
 Player.ResetMarker	Player	7	7	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
-Player.TeleportWithVehicle	Player	6	5	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
+Player.TeleportWithVehicle	Player	6	5	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	owner LANE-A (PANYA-DECISION 20260907_1825 point 2, relayed as COO-ORDER 20260907_1849): the whole outbound path is LANE-A's; LANE-Q supplies only the script_host binding when A asks for it	M2
 Player.TeleportCheck	Player	1	1	AUTH	arity 1 (var)	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
 Player.WarpNearestMarker	Player	1	1	AUTH	arity 0	teleport-warp	STUB	PARTIAL	needs world-movement/vehicle wire frame, cross-lane w/ LANE-A world registry	M2
 Quest.CountDownTime	Quest	54	54	AUTH	arity 1 (var)	timer	STUB	NO	needs per-character running quest timer (LANE-DB column)	M5

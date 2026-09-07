@@ -402,7 +402,7 @@ class NamespaceWiringTests(unittest.TestCase):
     def test_a_script_call_moves_a_row_when_a_store_is_bound(self):
         store = RmwTripwireStore(start=0)
         lines: list = []
-        namespace = self._namespace(lines.append, reward_store=store)
+        namespace = self._namespace(lines.append, payout_store=store)
         namespace["AddCriteriaExp"]()
         self.assertEqual(store.calls,
                          [(7, "experience", self.expected.amount)])
@@ -418,7 +418,7 @@ class NamespaceWiringTests(unittest.TestCase):
     def test_criteria_and_payout_are_two_separate_lines(self):
         store = RmwTripwireStore()
         lines: list = []
-        namespace = self._namespace(lines.append, reward_store=store)
+        namespace = self._namespace(lines.append, payout_store=store)
         namespace["AddCriteriaExp"]()
         self.assertEqual(
             len([line for line in lines if "LUA_QUEST_CRITERIA" in line]), 1)
@@ -429,7 +429,7 @@ class NamespaceWiringTests(unittest.TestCase):
         """No `LUA_QUEST_PAYOUT` echo of a refusal the resolver already made."""
         lines: list = []
         namespace = self._namespace(lines.append,
-                                    reward_store=RmwTripwireStore())
+                                    payout_store=RmwTripwireStore())
         namespace["AddLvCriteriaExp"]()
         self.assertEqual(
             len([line for line in lines if "LUA_QUEST_CRITERIA" in line]), 1)
@@ -445,9 +445,133 @@ class NamespaceWiringTests(unittest.TestCase):
         guessing an API contract it has not measured.
         """
         store = RmwTripwireStore()
-        namespace = self._namespace(lambda _line: None, reward_store=store)
+        namespace = self._namespace(lambda _line: None, payout_store=store)
         self.assertEqual(namespace["AddCriteriaExp"](),
                          lua_api_quest.STUB_DEFAULT)
+
+
+class ExplicitAmountGrantTests(unittest.TestCase):
+    """`reward.grant` -- the door for an amount the SCRIPT names.
+
+    `pay` resolves its number out of the shipped tables; `grant` is handed
+    one by a namespace closure (`Player.AddExp(n)`).  Everything downstream
+    of the number is the SAME code (`_store_delta`), so what is pinned here
+    is the part that is not shared: which amounts are allowed through the
+    door at all, and that a refusal names the right reason.
+    """
+
+    def test_a_positive_amount_moves_the_column_the_kind_maps_to(self):
+        store = RmwTripwireStore(start=40)
+        granted, reason = reward.grant(
+            "Player.AddExp", quest_criteria.KIND_EXP, 7, 250, store=store)
+        self.assertIsNone(reason)
+        self.assertEqual(store.calls, [(7, "experience", 250)])
+        self.assertEqual(granted.balance_after, 290)
+        self.assertEqual(granted.column, "experience")
+
+    def test_skill_point_grants_reach_the_skill_point_column(self):
+        store = RmwTripwireStore()
+        reward.grant("Player.AddSkillPoint",
+                     quest_criteria.KIND_SKILL_POINT, 7, 3, store=store)
+        self.assertEqual(store.calls, [(7, "skill_points", 3)])
+
+    def test_a_negative_amount_is_refused_and_nothing_is_written(self):
+        """The corpus's `Player.AddCash(-Quest.Var3)` shape.
+
+        `store.add_typed_attribute` takes `delta >= 0` only, so a sign flip
+        here would either be refused by the store with a shape this lane
+        does not control or -- worse, if the store ever widened -- charge a
+        player through a door built to pay them.
+        """
+        store = RmwTripwireStore()
+        granted, reason = reward.grant(
+            "Player.AddCash", quest_criteria.KIND_CASH, 7, -500, store=store)
+        self.assertIsNone(granted)
+        self.assertEqual(reason, reward.REFUSE_NEGATIVE)
+        self.assertEqual(store.calls, [])
+
+    def test_a_non_integer_amount_refuses_under_its_own_name(self):
+        """Not the same fact as a negative, so not the same reason.
+
+        A reader counting refusals has to be able to tell "the script asked
+        to charge the player" from "the script handed us a table".
+        """
+        store = RmwTripwireStore()
+        for amount in ("120", None, 12.5, True):
+            with self.subTest(amount=amount):
+                granted, reason = reward.grant(
+                    "Player.AddExp", quest_criteria.KIND_EXP, 7, amount,
+                    store=store)
+                self.assertIsNone(granted)
+                self.assertEqual(reason, reward.REFUSE_BAD_AMOUNT)
+        self.assertEqual(store.calls, [])
+
+    def test_a_kind_this_module_cannot_pay_refuses_instead_of_raising(self):
+        store = RmwTripwireStore()
+        granted, reason = reward.grant(
+            "Player.AddHP", "hit_points", 7, 10, store=store)
+        self.assertIsNone(granted)
+        self.assertEqual(reason, reward.REFUSE_UNKNOWN_KIND)
+        self.assertEqual(store.calls, [])
+
+    def test_every_refusal_reason_is_in_the_closed_set(self):
+        cases = [
+            ("Player.AddExp", "not_a_kind", 7, 10, RmwTripwireStore()),
+            ("Player.AddExp", quest_criteria.KIND_EXP, 0, 10,
+             RmwTripwireStore()),
+            ("Player.AddExp", quest_criteria.KIND_EXP, 7, 0,
+             RmwTripwireStore()),
+            ("Player.AddExp", quest_criteria.KIND_EXP, 7, -1,
+             RmwTripwireStore()),
+            ("Player.AddExp", quest_criteria.KIND_EXP, 7, "x",
+             RmwTripwireStore()),
+            ("Player.AddExp", quest_criteria.KIND_EXP, 7, 10, None),
+            ("Player.AddExp", quest_criteria.KIND_EXP, 7, 10, object()),
+            ("Player.AddExp", quest_criteria.KIND_EXP, 7, 10,
+             ExplodingStore()),
+            ("Player.AddExp", quest_criteria.KIND_EXP, 7, 10,
+             RmwTripwireStore(answer=0)),
+        ]
+        for api_name, kind, character_id, amount, store in cases:
+            with self.subTest(kind=kind, amount=amount, store=type(store)):
+                granted, reason = reward.grant(
+                    api_name, kind, character_id, amount, store=store)
+                self.assertIsNone(granted)
+                self.assertIn(reason, reward.REFUSALS)
+
+    def test_a_store_that_writes_nothing_is_caught_here_too(self):
+        """The `return 0` store, on the grant door as well as the pay door.
+
+        `_store_delta` is shared, and this is the test that says so: a
+        future edit that gives `grant` its own copy of the store call
+        without the below-delta check fails here.
+        """
+        lines: list = []
+        granted, reason = reward.grant(
+            "Player.AddExp", quest_criteria.KIND_EXP, 7, 250,
+            store=RmwTripwireStore(answer=0), log=lines.append)
+        self.assertIsNone(granted)
+        self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+        self.assertTrue(any("below the delta" in line for line in lines),
+                        lines)
+
+    def test_a_refusal_says_what_was_not_paid(self):
+        lines: list = []
+        reward.grant("Player.AddExp", quest_criteria.KIND_EXP, 7, 250,
+                     store=None, log=lines.append)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("LUA_PLAYER_GRANT Player.AddExp", lines[0])
+        self.assertIn("refused=%s" % reward.REFUSE_NO_STORE, lines[0])
+        self.assertIn("unpaid=250", lines[0])
+
+    def test_a_paid_grant_logs_the_balance_the_store_reported(self):
+        lines: list = []
+        reward.grant("Player.AddExp", quest_criteria.KIND_EXP, 7, 250,
+                     store=RmwTripwireStore(start=40), log=lines.append)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("paid=250", lines[0])
+        self.assertIn("balance_after=290", lines[0])
+        self.assertIn("column=experience", lines[0])
 
 
 if __name__ == "__main__":  # pragma: no cover
