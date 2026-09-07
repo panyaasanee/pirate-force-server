@@ -38,10 +38,12 @@ still counted; that remains a known, disclosed gap.
 TIERS
 -----
   SOURCE     the identifier appears in a `.py` file under
-             `src/pirateforce_foundation/` -- evidence = the `path` of the
-             file holding the first hit. Deliberately NOT `path:line`: see
+             `src/pirateforce_foundation/`. WHICH file is no longer a column
+             of the artifact (COO-DECISION `20260907_2241`, item (e)); ask
+             `--where <name>` for it, which re-derives the `path` of the file
+             holding the first hit. Deliberately NOT `path:line`: see
              `_build_source_hits` for the measurement that removed the line
-             number, and `--where <name>` below to recover it. NOT grep --
+             number. NOT grep --
              the same refuted recovery this file already warns about 27
              lines further down (pf-adversary D9 on `#1017` found this
              sixth copy of it after D-E on `#1013` had swept five).
@@ -52,7 +54,8 @@ TIERS
              PF_PROTOCOL_REGISTRY.tsv` (serializer/handler VA table) or
              `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` (proven wire
              layouts), or in this repo's own `docs/UI_LANE.md` function
-             table -- evidence names which source(s).
+             table. WHICH of those named it is not a column either; the
+             tier is the answer this census commits to.
   UNTOUCHED  neither -- the only place the name exists is the master catalog
              row itself.
 
@@ -75,7 +78,7 @@ Usage:
       --summary   print the family/tier counts table to stdout and exit 0
                   (does not touch the artifact).
       --where N   print `relpath:line` of the exact occurrence this census
-                  counts as name N's SOURCE evidence, and exit 0; exit 1 when
+                  counts as name N's SOURCE hit, and exit 0; exit 1 when
                   N has no counted occurrence. Exactly one line on stdout,
                   nothing else. This is the supported way to recover the line
                   number the artifact stopped carrying in round `o50gly` --
@@ -103,8 +106,10 @@ Usage:
                   the first of them is exactly what `--where` prints. Exit 0,
                   or exit 1 with the same stderr message as `--where` when N
                   has no counted occurrence. 11 of the 327 catalog names are
-                  counted in more than one file; the artifact can only ever
-                  name one, because it is one row per name. [MEASURED this
+                  counted in more than one file; the artifact names none of
+                  them since COO-DECISION `20260907_2241` item (e) dropped the
+                  `evidence` column, and before that it could only ever name
+                  one, because it is one row per name. [MEASURED this
                   round, re-derived here, not quoted:
                     python3 -c 'import sys; sys.path.insert(0, "tools");
                     import pf_ui_wire_name_census as c;
@@ -135,7 +140,19 @@ UI_LANE_DOC = ROOT / "docs" / "UI_LANE.md"
 SRC_DIR = ROOT / "src" / "pirateforce_foundation"
 DEFAULT_ARTIFACT = ROOT / "reports" / "PF_UI_WIRE_NAME_CENSUS_20260906.tsv"
 
-ARTIFACT_HEADER = "id\tname\tfamily\tis_client_req\ttier\tevidence"
+ARTIFACT_HEADER = "id\tname\tfamily\tis_client_req\ttier"
+# COO-DECISION `pf_bridge/notes_to_chief/20260907_2241_COO-DECISION-ui2155-drop-the-evidence-column-fix-the-emit-guard-first-LANE-UI.md`, item (e):
+# the artifact used to carry a sixth `evidence` column naming the FILE a
+# SOURCE row was found in.  Any lane adding an ordinary file could move
+# that string and turn this census red on `main`, while only this lane
+# could clear it -- a gate that bites work instead of guarding it
+# (`pf_bridge/NOW.md` `1830`).  The census exists to answer "is this wire
+# name in the code or not"; a filename is not that answer.  `--where NAME`
+# and `--where-all NAME` still print it, re-derived on demand from the same
+# `code_token_lines` walk `build_rows()` uses, so nothing is lost except
+# the committed string.  `build_rows()` still CARRIES `evidence` in memory
+# (the --where/artifact agreement test compares the two); only the rendered
+# and parsed artifact drops it.
 
 
 def first_uncommented_line(text: str) -> str:
@@ -148,20 +165,78 @@ def first_uncommented_line(text: str) -> str:
     `# id<TAB>name` -- so a check that looks at the first PARSED row pair
     ("id", "name") accuses the real catalog the moment those two comment
     characters are gone, and a check that looks at any two-column header
-    accuses it as well.  `ARTIFACT_HEADER` has SIX columns and the catalog
-    has no six-column header row in any spelling, commented or not.
+    accuses it as well.  Every entry of
+    `ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED` has five or six TAB-separated
+    columns and the catalog has no five- or six-column header row in any
+    spelling, commented or not.
     """
-    for line in text.splitlines():
+    for line in text.lstrip("\ufeff").splitlines():
         if not line.strip() or line.startswith("#"):
             continue
         return line
     return ""
 
 
+# Every header spelling this tool has ever emitted, newest first.  The guards
+# below ask "did THIS TOOL write that file", and the answer has to survive a
+# header migration: the round that dropped `evidence` measured the cost of
+# tying the question to the CURRENT header alone -- `--emit` refused to
+# rewrite its own artifact ("that file is not this tool's artifact"), because
+# the file on disk still carried the header the previous commit emitted, so
+# the only way to land a column change was to delete the artifact by hand
+# first, which is exactly the destructive move the D2 guard exists to stop.
+# The master catalog matches NO entry here in any spelling (its four leading
+# lines are all `#` comments and its first uncommented line is a data row), so
+# widening this tuple does not widen what `--emit` is willing to destroy.
+# A new header goes at the FRONT of this tuple; the old spelling stays.
+_ARTIFACT_HEADER_WITH_EVIDENCE_COLUMN = (
+    "id\tname\tfamily\tis_client_req\ttier\tevidence"
+)
+ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED = (
+    ARTIFACT_HEADER,
+    _ARTIFACT_HEADER_WITH_EVIDENCE_COLUMN,
+)
+
+
+# How far into a file to look for one of those headers.  pf-adversary D3 of
+# round `53yj9g` measured what the first-line-only test refuses: an artifact
+# carrying git merge-conflict markers (`<<<<<<< HEAD` is then the first
+# uncommented line), and an artifact truncated to zero bytes.  Both are
+# states this generated 328-line table really lands in -- several PRs re-emit
+# it -- and in both the correct repair is `--emit`, which used to answer
+# "that file is not this tool's artifact" and send the lane back to deleting
+# it by hand: the exact habit this guard exists to break.  An ABSENT file was
+# always allowed, so refusing an EMPTY one was never coherent either.
+# The master catalog is unreachable by this widening: its first 8 uncommented
+# lines are data rows, in every spelling, commented or not.
+_HEADER_SEARCH_LINES = 8
+
+
+def is_this_tools_artifact(text: str) -> bool:
+    """True when TEXT is a census artifact this tool emitted, any version.
+
+    Empty (or whitespace-only) counts: that file says nothing about whose it
+    is, and an absent file at the same path is already allowed.
+    """
+    if not text.strip():
+        return True
+    seen = 0
+    for line in text.lstrip("\ufeff").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        if line in ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED:
+            return True
+        seen += 1
+        if seen >= _HEADER_SEARCH_LINES:
+            return False
+    return False
+
+
 def _artifact_where_catalog_belongs(path) -> str:
     return (
         f"{path} looks like this tool's own emitted artifact (its first "
-        f"uncommented line is the artifact header `{ARTIFACT_HEADER}`), not "
+        "uncommented line is one of the artifact headers this tool emits: "
+        f"{ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED}), not "
         "the master catalog. --tsv READS the catalog "
         "(pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv); "
         "--artifact READS AND, with --emit, OVERWRITES the census artifact "
@@ -174,8 +249,9 @@ def _artifact_where_catalog_belongs(path) -> str:
 def _catalog_where_artifact_belongs(path) -> str:
     return (
         f"CENSUS ERROR: refusing to write the census over {path}: that file "
-        "is not this tool's artifact (its first uncommented line is not "
-        f"`{ARTIFACT_HEADER}`). --artifact is the OUTPUT path and --emit "
+        "is not this tool's artifact (its first uncommented line is none of "
+        f"{ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED}). --artifact is the OUTPUT "
+        "path and --emit "
         "overwrites it; the catalog goes to --tsv, which is read only"
     )
 
@@ -193,7 +269,7 @@ def load_names(tsv_path: Path = DEFAULT_TSV):
             "DEFAULT_TSV for the same layout assumption)"
         )
     text = tsv_path.read_text(encoding="utf-8")
-    if first_uncommented_line(text) == ARTIFACT_HEADER:
+    if is_this_tools_artifact(text):
         raise CensusError(_artifact_where_catalog_belongs(tsv_path))
     rows = []
     for line in text.splitlines():
@@ -697,7 +773,6 @@ def render_tsv(rows) -> str:
                     row["family"],
                     row["is_client_req"],
                     row["tier"],
-                    row["evidence"],
                 )
             )
         )
@@ -712,7 +787,20 @@ def parse_tsv(text: str):
     for line in lines[1:]:
         if not line.strip():
             continue
-        wid, name, family, is_req, tier, evidence = line.split("\t", 5)
+        parts = line.split("\t")
+        if len(parts) != 5:
+            # pf-adversary D11 of round `53yj9g`: this used to be
+            # `split("\t", 4)`, so a row from the PREVIOUS six-column
+            # artifact parsed happily and folded the dropped column into
+            # `tier` ("NAME-ONLY\tdocs/PF_VITAL_NAMES.json+..."), which then
+            # died further downstream in `summarize` with a KeyError naming
+            # neither the file nor the cause.  Say it here instead.
+            raise CensusError(
+                "artifact row has %d columns, expected %d (%r) -- if this "
+                "file was written by an older version of this tool, rerun "
+                "with --emit" % (len(parts), 5, line[:120])
+            )
+        wid, name, family, is_req, tier = parts
         rows.append(
             {
                 "id": wid,
@@ -720,10 +808,52 @@ def parse_tsv(text: str):
                 "family": family,
                 "is_client_req": is_req,
                 "tier": tier,
-                "evidence": evidence,
             }
         )
     return rows
+
+
+def _rows_for_compare(text: str):
+    """The artifact's rows, from any header version, or ``None``.
+
+    ``None`` means "this text cannot be read as rows at all" (a truncated
+    file, conflict markers, a hand-edit that broke a line) -- a caller that
+    wants to describe a change must then say it cannot compare, not guess.
+    """
+    try:
+        lines = text.lstrip("\ufeff").splitlines()
+        if not lines:
+            return None
+        header = lines[0]
+        if header not in ARTIFACT_HEADERS_THIS_TOOL_HAS_EMITTED:
+            return None
+        width = len(header.split("\t"))
+        rows = []
+        for line in lines[1:]:
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) != width:
+                return None
+            rows.append(tuple(parts[:5]))  # the five columns both versions share
+        return rows
+    except Exception:  # noqa: BLE001 - a description never raises
+        return None
+
+
+def _emit_verdict(existing: str, rendered: str) -> str:
+    """One line saying what --emit is about to change, before it changes it."""
+    if existing == rendered:
+        return "no change"
+    old_rows = _rows_for_compare(existing)
+    new_rows = _rows_for_compare(rendered)
+    if old_rows is None or new_rows is None:
+        return "rewriting a file this tool cannot read as rows"
+    if old_rows == new_rows:
+        return "no rows changed (header or formatting only)"
+    added = len([row for row in new_rows if row not in set(old_rows)])
+    removed = len([row for row in old_rows if row not in set(new_rows)])
+    return "rows changed (+%d -%d)" % (added, removed)
 
 
 def summarize(rows):
@@ -864,7 +994,7 @@ def main(argv=None) -> int:
         # emit); a file that exists and is not this tool's artifact is not.
         if args.artifact.exists():
             existing = args.artifact.read_text(encoding="utf-8")
-            if first_uncommented_line(existing) != ARTIFACT_HEADER:
+            if not is_this_tools_artifact(existing):
                 print(
                     _catalog_where_artifact_belongs(args.artifact),
                     file=sys.stderr,
@@ -873,10 +1003,15 @@ def main(argv=None) -> int:
             # D4: --emit writes before the comparison below, so that
             # comparison is guaranteed to pass and says nothing.  Say the
             # useful thing instead, out loud, before the write.
-            print(
-                "CENSUS EMIT: %s"
-                % ("rows changed" if existing != rendered else "no change")
-            )
+            #
+            # pf-adversary D4 of round `53yj9g`: comparing the TEXT and
+            # calling the answer "rows changed" is a different claim from
+            # the one printed.  Measured on this round's own migration --
+            # every one of the 327 rows byte-identical in all five committed
+            # fields, headline 30/286/11 unchanged -- and it still printed
+            # `rows changed`, contradicting the page it exists to inform.
+            # Compare the ROWS, on the columns both versions share.
+            print("CENSUS EMIT: %s" % _emit_verdict(existing, rendered))
         # newline="" -- write exactly the "\n" this module already joins
         # with, not whatever this OS's default text-mode translation would
         # do (Windows would otherwise write "\r\n", which read_text's own

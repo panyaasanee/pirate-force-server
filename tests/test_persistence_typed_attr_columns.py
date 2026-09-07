@@ -53,6 +53,7 @@ import subprocess
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -2067,11 +2068,362 @@ class NoModuleOfThisLaneReportsASkipTests(unittest.TestCase):
     child fails loudly instead of forking without end.
     """
 
-    #: The three modules take ~8s together on this machine; the bound is
-    #: generous enough that a loaded windows-latest runner cannot trip it by
-    #: being slow, and small enough that a hang is reported rather than run
-    #: out the job's whole 360-minute default.
+    #: How many of this lane's modules ONE child pytest process runs.
+    #:
+    #: WHY THIS EXISTS AT ALL.  Until 2026-09-08 this test ran all of
+    #: `LANE_TEST_MODULES` in a SINGLE child with a 600s bound.  That child
+    #: reached ~93% on the windows-latest runner and was cut by the timeout
+    #: -- [REPORTED in the COO order cited below, not measured in this
+    #: repository: no round file, report or Actions run id in either repo
+    #: records it, and an adversary pass grepped for it],
+    #: which turned `pytest_subset` red with no FAILED line anywhere in the
+    #: job log -- and `gate-windows.yml` closes a pull request on a red cell
+    #: whatever the cell's reason, so one slow child was closing the pull
+    #: requests of EVERY lane, not just this one (COO order 2026-09-08 0142,
+    #: GM `2350` / `#1072`, and `#1087`, the M2 door, red the same way).
+    #:
+    #: WHY ONE, AND NOT EIGHT.  The bound that matters is the HEAVIEST child,
+    #: not the average, and this corpus has one module that dominates it.
+    #: Measured in this checkout (Linux, `python3 -m pytest <module> -q -p
+    #: no:cacheprovider`, each module alone), 2026-09-08:
+    #:
+    #:     slowest module                      16.2s   <- 28% of the total
+    #:     2nd                                  7.0s
+    #:     3rd                                  6.1s
+    #:     4th                                  3.3s
+    #:     the other 26                        <=2.5s each
+    #:     all 30 in one child                 53.7s
+    #:     all 30, one child each, summed      58.9s   <- +5.2s of startup
+    #:
+    #: The names behind those four rows are deliberately NOT spelled here.
+    #: Three of this lane's modules pin the exact set of files that mention
+    #: them by name -- a door with two callers is two doors that will drift
+    #: -- and a timing table is not a caller.  Re-measure instead of reading
+    #: a name off a comment: the `CONSOLE_TOKEN` line below prints the
+    #: module and its wall time for every child, on every run.
+    #:
+    #: The windows-latest runner cut the single child at 600s at ~93%, so its
+    #: whole-corpus cost is about 645s against 53.7s here: a factor of ~12.
+    #: Scaling the table by that factor is what the chunk size has to answer:
+    #:
+    #:     8 modules/child, glob order   worst child ~= 23s here  -> ~276s
+    #:     4 modules/child, glob order   worst child ~= 23s here  -> ~276s
+    #:     1 module /child               worst child  = 16.2s     -> ~195s
+    #:
+    #: Chunking by COUNT does not help this corpus: the glob is SORTED, and
+    #: the dominant module shares a name prefix with three others, so all
+    #: four land in the SAME chunk at every size above one and that chunk
+    #: carries the dominant module plus its neighbours.  At eight and at
+    #: four the worst
+    #: child lands within 10% of the 300s ceiling COO set, which is not a
+    #: bound, it is the same accident again with a smaller number.  One
+    #: module per child is the only size whose worst case is a MEASURED
+    #: quantity -- the slowest single module -- rather than an assumption
+    #: about how the sort happened to group them.  It costs 29 extra
+    #: interpreter starts, measured above at 5.2s in total here.
+    #:
+    #: This is a number, not a design: raise it the day the per-child
+    #: `CONSOLE_TOKEN` lines below have been read off a real Windows run and
+    #: some larger size can be shown to keep the worst child under the bound.
+    MODULES_PER_CHILD = 1
+
+    #: Hard wall-clock bound for ONE child, NOT for the whole census.  This
+    #: is the HANG detector: a child that trips it is killed and the failure
+    #: names the ONE module it was running, which the old 600s bound over
+    #: all 30 could never do.
     CHILD_TIMEOUT_SECONDS = 600
+
+    #: The bound COO set (`0142` section 5: "the heaviest chunk under 300s on
+    #: Windows").  It is ASSERTED, not assumed: a slowest child above it
+    #: fails the test with the module's name and its seconds, on a run that
+    #: otherwise finished.  That is the difference between learning the
+    #: number is drifting and being killed by it.
+    #:
+    #: WHY THIS IS NOT THE TIMEOUT.  A timeout tells you a module took
+    #: "at least" its bound and gives up the report; this assertion tells
+    #: you what it actually took.  `pf-adversary` round `in9c8v` measured the
+    #: consequence of having only the timeout: the slowest module drifting
+    #: from 190s to 290s is INVISIBLE on a green gate, and the round that
+    #: pushes it to 301s closes every lane's pull requests again with no
+    #: warning on the green side.
+    #:
+    #: HOW MUCH HEADROOM THIS REALLY IS -- honestly, a range.  pytest's `-q`
+    #: percentage counts COLLECTED ITEMS, not time, and this corpus is
+    #: violently non-uniform: the dominant module is 5.5% of the tests and
+    #: 27% of the wall time, and 93% of the tests falls INSIDE it.  So "cut
+    #: at 600s at ~93%" is consistent with 600s being anywhere from 67% to
+    #: 94% of the corpus time, i.e. a factor between ~10.8x and ~15.2x, i.e.
+    #: a slowest module between ~173s and ~244s, i.e. between 1.2x and 1.7x
+    #: of this ceiling.  The comment above quotes ~12x, which is the middle
+    #: of that range and NOT a measurement.  The first green Windows run of
+    #: this test replaces the whole range with a number.
+    SLOWEST_CHILD_CEILING_SECONDS = 300
+
+    #: Bound on the WHOLE census, which the split would otherwise remove.
+    #:
+    #: The single-child form could cost at most its own 600s.  Thirty
+    #: children bounded individually can cost 30x that, and `pf-adversary`
+    #: round `in9c8v` pointed at the consequence: `gate-windows.yml` sets
+    #: `timeout-minutes: 90` on the job and puts NO timeout on the pytest
+    #: step, so a runner slow enough to put every module near its own bound
+    #: -- with no child ever tripping it, so no child ever failing -- kills
+    #: the JOB and produces no cell at all.  That is strictly worse than the
+    #: symptom this change exists to fix, which at least wrote a message.
+    #:
+    #: 1800s is ~2x the corpus's estimated Windows cost (~645-900s) and a
+    #: third of the job's own cap, and it is checked BEFORE starting a child
+    #: that cannot finish inside what is left, so the census reports rather
+    #: than being reported on.
+    TOTAL_BUDGET_SECONDS = 1800
+
+    #: Printed once per child.  ASCII only: the bridge console is cp874 and a
+    #: byte outside it kills the tool that reads this output.  `pytest -q`
+    #: captures stdout of a passing test, so on a green gate this line lives
+    #: in the captured section rather than in the job log; it is on the
+    #: screen for `-s`, and it is quoted verbatim into every failure message
+    #: below, which is where it is actually needed.
+    CONSOLE_TOKEN = "LANE_DB_SKIP_CENSUS"
+
+    @staticmethod
+    def chunks_of(modules, size):
+        """Split `modules` into consecutive tuples of at most `size`.
+
+        Consecutive and derived from the same sorted glob, so the split is
+        the same on every machine and in every run: a child that goes red
+        names a module list the next round can reproduce exactly.
+        """
+        if size < 1:
+            raise ValueError("MODULES_PER_CHILD must be at least 1")
+        return tuple(
+            tuple(modules[start:start + size])
+            for start in range(0, len(modules), size)
+        )
+
+    def _timing_table(self, timings):
+        """The per-child lines measured so far, for a failure message."""
+        return "\n".join(
+            "%s child=%d/%d seconds=%.1f rc=%s passed=%s modules=%s"
+            % row for row in timings
+        )
+
+    def _problems_in_one_child(
+        self, report, returncode, number, count, chunk, carries_this_file,
+        selector, pinned,
+    ):
+        """Every guarantee the single-child version made, made per child.
+
+        Returns a LIST of problem strings rather than asserting, so one run
+        names EVERY offending module.  `pf-adversary` round `in9c8v` planted
+        an undeclared skip in the module child 25 runs and measured the
+        cost of asserting inside the loop: children 26..30 never ran, the
+        summary line was never printed, and a second offender in the same
+        round would have cost another ~90-minute Windows job to discover.
+        The single-child form listed every offending line from all 30
+        modules in one report; losing that is a regression the split has to
+        pay for, not inherit.
+        """
+        where = "child %d of %d (%s)" % (number, count, ", ".join(chunk))
+        problems = []
+
+        def bad(message):
+            problems.append("%s: %s" % (where, message))
+
+        # A child that dies without a summary -- segfault, OOM, an internal
+        # pytest error, an import that raises -- prints no `SKIPPED` line
+        # either, and "no skips found" is exactly what this test is looking
+        # for.  Splitting one child into thirty multiplies that hole by
+        # thirty, so it gets closed here rather than assumed away: a report
+        # is only evidence of absence if the run that produced it finished.
+        # An adversary pass measured the hole directly -- concatenating the
+        # children's reports and asserting once reported PASS with two of
+        # four children exited rc=1 on an ImportError, 14 of 30 modules
+        # never run.
+        if returncode != 0:
+            bad(
+                "exited %s.  A child that does not finish cleanly cannot be "
+                "read as `no module of this lane skips`.  Such a failure is "
+                "USUALLY red in the parent suite too and this is the same "
+                "fact seen from the census -- but not always: this child ran "
+                "ONE module alone, with %s set, while the gate's parent run "
+                "has all of them together and neither variable.  If the "
+                "parent cell is green, then this module needs a neighbour to "
+                "have run first, and THAT is the defect.\n%s"
+                % (returncode, _RECURSION_GUARD, report[-4000:])
+            )
+
+        # Guard the guard, part one: prove the --deselect actually matched
+        # THIS test, and prove it matched in exactly the one child that runs
+        # this file.  A selector naming a path that does not exist is
+        # accepted by pytest in silence, and an adversary pass measured the
+        # consequence -- with the selector broken, the child re-ran this
+        # test, the recursion marker made the CHILD fail, and the parent,
+        # which reads only skips, still reported PASS.  The deselected count
+        # is the one number that cannot be satisfied by a selector that
+        # matched nothing.
+        #
+        # The same pass measured what pytest does with a `--deselect` naming
+        # a module that is not in the argument list: it is accepted in
+        # SILENCE, exit 0, with no `deselected` token in the summary at all.
+        # So the selector is handed ONLY to the child that runs this file,
+        # and every other child must show no deselection -- that second
+        # assertion is not decoration, it is what stops the split from
+        # quietly ceasing to be a partition.
+        deselected = re.search(r"(\d+) deselected", report)
+        if carries_this_file:
+            if deselected is None:
+                bad(
+                    "reported no deselection, so `--deselect %s` matched "
+                    "nothing.\n%s" % (selector, report[-4000:])
+                )
+            elif int(deselected.group(1)) != 1:
+                bad(
+                    "deselected %s tests, expected exactly 1.\n%s"
+                    % (deselected.group(1), report[-4000:])
+                )
+        elif deselected is not None:
+            bad(
+                "deselected something although it was given no "
+                "`--deselect`.\n%s" % report[-4000:]
+            )
+
+        # Guard the guard, part two: "no SKIPPED lines" is also what a run
+        # that collected nothing produces.  Demand evidence that tests really
+        # ran before believing the absence of skips means anything -- and
+        # demand it of EVERY child.  At one module per child this is
+        # STRONGER than the whole-corpus form: it catches a module-level
+        # module-level skip directive that 1171 other passes would have
+        # buried.  (Spelling it out here would itself read as a new skip
+        # marker to the gate's preflight -- measured, red on the first run.)
+        passed = re.search(r"(\d+) passed", report)
+        if passed is None:
+            bad("produced no pytest summary.\n%s" % report[-4000:])
+        elif int(passed.group(1)) <= 0:
+            bad("collected nothing.\n%s" % report[-4000:])
+
+        # What is forbidden is an UNDECLARED skip -- the thing the census
+        # closes a pull request for -- not every skip.  A reason carrying the
+        # `[precondition:<key>]` token is one the census accepts by design,
+        # and `tests/test_persistence_premigration_backup.py` already
+        # contemplates guarding on `BACKUPS_TREE`.  An adversary pass showed
+        # the strict form going red on exactly that: a census-approved,
+        # docs-pinned precondition skip, reported with a message telling its
+        # author to fix something that was already correct.  Whether such a
+        # skip is also PINNED is the census's job, not this test's; this test
+        # owns the one case the census calls UNDECLARED.
+        #
+        # `SUBSKIPPED` is included because pytest spells a `subTest` skip
+        # that way and this corpus runs 1135 subtests.  The census's own
+        # SKIP_LINE regex does not match it, so this is deliberately
+        # STRICTER than the gate rather than a claim about what the gate
+        # would do.
+        for line in report.splitlines():
+            if not line.startswith(("SKIPPED", "SUBSKIPPED")):
+                continue
+            if pf_preconditions.TOKEN_PREFIX not in line:
+                bad(
+                    "reported a skip that carries no `%s<key>]` token.  The "
+                    "gate's census calls that an UNDECLARED SKIP and accepts "
+                    "it only as a design_skips pin in docs/, which this lane "
+                    "may not write -- so `skip_census` goes red and the pull "
+                    "request is closed with every assertion passing, exactly "
+                    "how PR #503 died.  Assert what IS true on that platform "
+                    "instead of skipping.\n%s"
+                    % (pf_preconditions.TOKEN_PREFIX, line)
+                )
+                continue
+            # A `[precondition:...]` skip is accepted by the census only if
+            # it is ALSO pinned, by key and module, in
+            # docs/PYTEST_SKIP_PINS.json; otherwise the census says UNPINNED
+            # and the pull request closes just the same.  This lane cannot
+            # write that file, so the practical rule is: do not add a
+            # precondition skip to these modules without chief landing the
+            # pin in the same change.  Reading the pin file is not writing
+            # it.
+            #
+            # NOTE, measured by `pf-adversary` round `in9c8v`: this branch
+            # has never executed.  All 30 modules report 0 skipped, and none
+            # of the 99 entries in docs/PYTEST_SKIP_PINS.json names a
+            # `tests/test_persistence_*` module.  Nobody may cite "the pin
+            # check passed" as evidence of anything.
+            key = pf_preconditions.key_of(line)
+            if key is None:
+                continue
+            module = re.search(r"(tests/[\w./-]+\.py):\d+", line)
+            if module is None:
+                bad("skip line names no module: %s" % line)
+            elif (key, module.group(1)) not in pinned:
+                bad(
+                    "skips on precondition '%s', which is not pinned for it "
+                    "in docs/PYTEST_SKIP_PINS.json.  The census calls that "
+                    "UNPINNED and the gate goes red exactly as it does for "
+                    "an undeclared skip.  That pin is chief's to write, so "
+                    "it has to land in the same change as the skip.\n%s"
+                    % (key, line)
+                )
+
+        # `xfail(run=False)` is a test that never executes and that NOTHING
+        # counts: no SKIPPED line, no `N skipped`, no census row, nothing in
+        # docs/PYTEST_SKIP_PINS.json to pin.  A round forbidden by this very
+        # test from skipping would reach for it next, trading a counted skip
+        # for an uncounted non-execution -- strictly worse.  These modules
+        # carry no xfail today and this keeps it that way.
+        for token in ("xfailed", "xpassed"):
+            if re.search(r"(\d+) %s" % token, report) is not None:
+                bad(
+                    "reported %s.  Nothing anywhere counts an xfail, so it "
+                    "hides a check that did not run even better than a skip "
+                    "does.\n%s" % (token, report[-4000:])
+                )
+
+        # The totals line is the belt to the braces above: it survives
+        # `--no-summary`, and it catches a skip spelling whose per-line form
+        # this test does not know about.
+        summary_count = re.search(r"(\d+) skipped", report)
+        if summary_count is not None:
+            declared = [
+                line for line in report.splitlines()
+                if line.startswith(("SKIPPED", "SUBSKIPPED"))
+            ]
+            if int(summary_count.group(1)) != len(declared):
+                bad(
+                    "reported %s skips but named %d, so at least one carries "
+                    "a spelling this test cannot inspect.\n%s"
+                    % (summary_count.group(1), len(declared), report[-4000:])
+                )
+        return problems
+
+    def test_the_split_is_a_partition_at_every_size(self):
+        """`chunks_of` covers the list exactly once, at sizes it is not run at.
+
+        The partition assertion in the census test grades only the size the
+        class is configured with, and at `MODULES_PER_CHILD = 1` an
+        off-by-one in the range -- `len(modules) - size + 1`, which drops the
+        last partial chunk and leaves a module ungraded while every child
+        runs green -- is an EQUIVALENT mutant: measured, it survives the
+        census test at 59.97s green.  It stops being equivalent the moment
+        somebody raises the constant, which the constant's own comment
+        invites.  So the property is pinned here, at the sizes the census is
+        not run at, rather than left to the day someone changes the number.
+        """
+        corpus = tuple("m%02d" % index for index in range(30))
+        for size in (1, 2, 3, 4, 7, 8, 29, 30, 31):
+            chunks = NoModuleOfThisLaneReportsASkipTests.chunks_of(
+                corpus, size
+            )
+            with self.subTest(size=size):
+                self.assertEqual(
+                    tuple(item for chunk in chunks for item in chunk), corpus
+                )
+                self.assertTrue(all(chunks))
+                self.assertTrue(all(len(chunk) <= size for chunk in chunks))
+                self.assertEqual(
+                    len(chunks), -(-len(corpus) // size), chunks
+                )
+        self.assertEqual(
+            NoModuleOfThisLaneReportsASkipTests.chunks_of((), 4), ()
+        )
+        with self.assertRaises(ValueError):
+            NoModuleOfThisLaneReportsASkipTests.chunks_of(corpus, 0)
 
     def test_pytest_reports_no_skip_for_any_module_of_this_lane(self):
         if os.environ.get(_RECURSION_GUARD):
@@ -2084,15 +2436,47 @@ class NoModuleOfThisLaneReportsASkipTests(unittest.TestCase):
         # hole; `tests/test_pytest_precondition_census.py` learned that as
         # R172 adversary finding 8 and pins its own list the same way.
         self.assertTrue(LANE_TEST_MODULES, "the module glob matched nothing")
-        self.assertIn(
-            "tests/test_persistence_typed_attr_columns.py", LANE_TEST_MODULES
+        own_module = Path(__file__).resolve().relative_to(ROOT).as_posix()
+        self.assertEqual(
+            own_module, "tests/test_persistence_typed_attr_columns.py"
         )
+        self.assertIn(own_module, LANE_TEST_MODULES)
 
         selector = "%s::%s::%s" % (
-            Path(__file__).resolve().relative_to(ROOT).as_posix(),
-            type(self).__name__,
-            self._testMethodName,
+            own_module, type(self).__name__, self._testMethodName,
         )
+
+        chunks = self.chunks_of(LANE_TEST_MODULES, self.MODULES_PER_CHILD)
+        # The split has to be a PARTITION of the glob.  An off-by-one in
+        # `chunks_of` that dropped the last chunk would leave a module
+        # ungraded while every child ran green, which reads exactly like the
+        # all-clear this test exists to give -- the same shape as the
+        # hand-listed module tuple an adversary pass already caught above.
+        self.assertEqual(
+            tuple(module for chunk in chunks for module in chunk),
+            tuple(LANE_TEST_MODULES),
+            "the children do not cover this lane's modules exactly once",
+        )
+        for chunk in chunks:
+            self.assertTrue(chunk, "an empty child grades nothing")
+            self.assertLessEqual(len(chunk), self.MODULES_PER_CHILD)
+        carriers = [chunk for chunk in chunks if own_module in chunk]
+        self.assertEqual(
+            len(carriers), 1,
+            "exactly one child may run this file, and it is the only one "
+            "that gets the --deselect: %r" % (carriers,),
+        )
+
+        pins = json.loads(
+            (ROOT / "docs" / "PYTEST_SKIP_PINS.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        pinned = {
+            (entry["key"], entry["module"].replace("\\", "/"))
+            for entry in pins.get("preconditions", [])
+        }
+
         environment = dict(
             os.environ,
             **{
@@ -2107,159 +2491,138 @@ class NoModuleOfThisLaneReportsASkipTests(unittest.TestCase):
                 "PYTHONIOENCODING": "utf-8",
             },
         )
-        try:
-            completed = subprocess.run(
-                [
-                    sys.executable, "-m", "pytest", *LANE_TEST_MODULES,
-                    "-q", "-rs", "-p", "no:cacheprovider",
-                    "--deselect", selector,
-                ],
-                cwd=str(ROOT), capture_output=True, env=environment,
-                # `capture_output` returns when the PIPE closes, not when the
-                # child exits, so a grandchild holding the pipe open blocks
-                # here forever.  `gate-windows.yml` puts no timeout on the
-                # pytest step and its `Step` helper only echoes after the
-                # step completes, so an unbounded wait burns the whole job
-                # and reports nothing at all.  `tests/pf_preconditions.py`
-                # already settled the shape: DEVNULL in, a bound, a message.
-                stdin=subprocess.DEVNULL,
-                timeout=self.CHILD_TIMEOUT_SECONDS,
-            )
-        except subprocess.TimeoutExpired as expired:
-            self.fail(
-                "the child pytest did not finish within %ds.  Either a test "
-                "in %s hangs, or something it spawned outlived it and is "
-                "holding the output pipe open.\n%s"
+
+        timings = []
+        problems = []
+        for number, chunk in enumerate(chunks, start=1):
+            # Check the whole-census budget BEFORE starting a child that
+            # cannot finish inside what is left of it, so this test reports
+            # the overrun instead of the job being killed around it.
+            spent = sum(row[3] for row in timings)
+            remaining = self.TOTAL_BUDGET_SECONDS - spent
+            self.assertGreater(
+                remaining, self.CHILD_TIMEOUT_SECONDS,
+                "the census has spent %.1fs of its %ds budget with %d of %d "
+                "children still to run, and the next child may take up to "
+                "%ds.  `gate-windows.yml` gives the whole job 90 minutes and "
+                "the pytest step no timeout at all, so continuing here risks "
+                "the job being killed with no cell reported -- worse than "
+                "any red this test can produce.\n%s"
                 % (
-                    self.CHILD_TIMEOUT_SECONDS,
-                    ", ".join(LANE_TEST_MODULES),
-                    (expired.output or b"").decode("utf-8", "replace")[-4000:],
-                )
+                    spent, self.TOTAL_BUDGET_SECONDS, len(chunks) - number + 1,
+                    len(chunks), self.CHILD_TIMEOUT_SECONDS,
+                    self._timing_table(timings),
+                ),
             )
-        report = (completed.stdout + completed.stderr).decode(
-            "utf-8", "replace"
-        )
-
-        # Guard the guard, part one: prove the --deselect above actually
-        # matched THIS test.  A selector naming a path that does not exist is
-        # accepted by pytest in silence, and an adversary pass measured the
-        # consequence -- with the selector broken, the child re-ran this test,
-        # the recursion marker below made the CHILD fail, and the parent, which
-        # reads only skips, still reported PASS.  The deselected count is the
-        # one number that cannot be satisfied by a selector that matched
-        # nothing.
-        deselected = re.search(r"(\d+) deselected", report)
-        self.assertIsNotNone(
-            deselected,
-            "pytest did not report a deselection, so `--deselect %s` matched "
-            "nothing:\n%s" % (selector, report[-4000:]),
-        )
-        self.assertEqual(int(deselected.group(1)), 1, report[-4000:])
-
-        # Guard the guard, part two: "no SKIPPED lines" is also what a run
-        # that collected nothing produces.  Demand evidence that tests really
-        # ran before believing the absence of skips means anything.
-        passed = re.search(r"(\d+) passed", report)
-        self.assertIsNotNone(
-            passed, "the child produced no pytest summary:\n%s" % report[-4000:]
-        )
-        self.assertGreater(int(passed.group(1)), 0, report[-4000:])
-
-        # What is forbidden is an UNDECLARED skip -- the thing the census
-        # closes a pull request for -- not every skip.  A reason carrying the
-        # `[precondition:<key>]` token is one the census accepts by design,
-        # and `tests/test_persistence_premigration_backup.py` already
-        # contemplates guarding on `BACKUPS_TREE`.  An adversary pass showed
-        # the strict form going red on exactly that: a census-approved,
-        # docs-pinned precondition skip, reported with a message telling its
-        # author to fix something that was already correct.  Whether such a
-        # skip is also PINNED is the census's job, not this test's; this test
-        # owns the one case the census calls UNDECLARED.
-        #
-        # `SUBSKIPPED` is included because pytest spells a `subTest` skip that
-        # way and this file runs 340 subtests.  The census's own SKIP_LINE
-        # regex does not match it, so this is deliberately STRICTER than the
-        # gate rather than a claim about what the gate would do.
-        undeclared = [
-            line for line in report.splitlines()
-            if (line.startswith("SKIPPED") or line.startswith("SUBSKIPPED"))
-            and pf_preconditions.TOKEN_PREFIX not in line
-        ]
-        self.assertEqual(
-            undeclared, [],
-            "a module of this lane reported a skip that carries no "
-            "`%s<key>]` token.  The gate's census calls that an UNDECLARED "
-            "SKIP and accepts it only as a design_skips pin in docs/, which "
-            "this lane may not write -- so `skip_census` goes red and the "
-            "pull request is closed with every assertion passing, exactly "
-            "how PR #503 died.  Assert what IS true on that platform "
-            "instead of skipping.\n%s"
-            % (pf_preconditions.TOKEN_PREFIX, report[-4000:]),
-        )
-
-        # A `[precondition:...]` skip is accepted by the census only if it is
-        # ALSO pinned, by key and module, in docs/PYTEST_SKIP_PINS.json;
-        # otherwise the census says `UNPINNED` and the pull request closes
-        # just the same.  This lane cannot write that file, so the practical
-        # rule is: do not add a precondition skip to these modules without
-        # chief landing the pin in the same change.  Reading the pin file is
-        # not writing it.
-        pins = json.loads(
-            (ROOT / "docs" / "PYTEST_SKIP_PINS.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        pinned = {
-            (entry["key"], entry["module"].replace("\\", "/"))
-            for entry in pins.get("preconditions", [])
-        }
-        for line in report.splitlines():
-            if not line.startswith(("SKIPPED", "SUBSKIPPED")):
-                continue
-            key = pf_preconditions.key_of(line)
-            if key is None:
-                continue  # already reported as undeclared above
-            module = re.search(r"(tests/[\w./-]+\.py):\d+", line)
-            self.assertIsNotNone(module, line)
-            self.assertIn(
-                (key, module.group(1)), pinned,
-                "a module of this lane skips on precondition '%s', which is "
-                "not pinned for it in docs/PYTEST_SKIP_PINS.json.  The census "
-                "calls that UNPINNED and the gate goes red exactly as it does "
-                "for an undeclared skip.  That pin is chief's to write, so it "
-                "has to land in the same change as the skip.\n%s"
-                % (key, line),
-            )
-
-        # `xfail(run=False)` is a test that never executes and that NOTHING
-        # counts: no SKIPPED line, no `N skipped`, no census row, nothing in
-        # docs/PYTEST_SKIP_PINS.json to pin.  A round forbidden by this very
-        # test from skipping would reach for it next, trading a counted skip
-        # for an uncounted non-execution -- strictly worse.  These modules
-        # carry no xfail today and this keeps it that way.
-        for token in ("xfailed", "xpassed"):
-            self.assertIsNone(
-                re.search(r"(\d+) %s" % token, report),
-                "a module of this lane reported %s.  Nothing anywhere counts "
-                "an xfail, so it hides a check that did not run even better "
-                "than a skip does.\n%s" % (token, report[-4000:]),
-            )
-
-        # The totals line is the belt to the braces above: it survives
-        # `--no-summary`, and it catches a skip spelling whose per-line form
-        # this test does not know about.
-        summary_count = re.search(r"(\d+) skipped", report)
-        if summary_count is not None:
-            declared = [
-                line for line in report.splitlines()
-                if line.startswith(("SKIPPED", "SUBSKIPPED"))
+            carries_this_file = own_module in chunk
+            command = [
+                sys.executable, "-m", "pytest", *chunk,
+                "-q", "-rs", "-p", "no:cacheprovider",
             ]
-            self.assertEqual(
-                int(summary_count.group(1)), len(declared),
-                "the child reported more skips than it named, so at least "
-                "one carries a spelling this test cannot inspect:\n%s"
-                % report[-4000:],
+            if carries_this_file:
+                command += ["--deselect", selector]
+            started = time.monotonic()
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=str(ROOT), capture_output=True, env=environment,
+                    # `capture_output` returns when the PIPE closes, not when
+                    # the child exits, so a grandchild holding the pipe open
+                    # blocks here forever.  `gate-windows.yml` puts no
+                    # timeout on the pytest step and its `Step` helper only
+                    # echoes after the step completes, so an unbounded wait
+                    # burns the whole job and reports nothing at all.
+                    # `tests/pf_preconditions.py` already settled the shape:
+                    # DEVNULL in, a bound, a message.
+                    stdin=subprocess.DEVNULL,
+                    timeout=self.CHILD_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired as expired:
+                self.fail(
+                    "child %d of %d did not finish within %ds.  It was "
+                    "running %s -- either a test in it hangs, or something "
+                    "it spawned outlived it and is holding the output pipe "
+                    "open.  The children that finished before it are listed "
+                    "under this message with their wall times; that list is "
+                    "what tells the next round whether this module got "
+                    "slower or the runner did.\n%s\n%s"
+                    % (
+                        number, len(chunks), self.CHILD_TIMEOUT_SECONDS,
+                        ", ".join(chunk),
+                        self._timing_table(timings),
+                        (expired.output or b"").decode("utf-8", "replace")
+                        [-4000:],
+                    )
+                )
+            elapsed = time.monotonic() - started
+            report = (completed.stdout + completed.stderr).decode(
+                "utf-8", "replace"
             )
+            passed = re.search(r"(\d+) passed", report)
+            timings.append((
+                self.CONSOLE_TOKEN, number, len(chunks), elapsed,
+                completed.returncode,
+                passed.group(1) if passed else "none",
+                " ".join(chunk),
+            ))
+            print(
+                "%s child=%d/%d seconds=%.1f rc=%s passed=%s modules=%s"
+                % timings[-1],
+                flush=True,
+            )
+            problems.extend(self._problems_in_one_child(
+                report, completed.returncode, number, len(chunks), chunk,
+                carries_this_file, selector, pinned,
+            ))
+
+        total = sum(row[3] for row in timings)
+        slowest = max(timings, key=lambda row: row[3])
+        print(
+            "%s children=%d total_seconds=%.1f budget_seconds=%d "
+            "slowest_seconds=%.1f ceiling_seconds=%d slowest_modules=%s"
+            % (
+                self.CONSOLE_TOKEN, len(timings), total,
+                self.TOTAL_BUDGET_SECONDS, slowest[3],
+                self.SLOWEST_CHILD_CEILING_SECONDS, slowest[6],
+            ),
+            flush=True,
+        )
+
+        # Every child ran before anything is asserted, so ONE run names
+        # EVERY offending module.  Asserting inside the loop cost the five
+        # modules after the first offender in an adversary pass, and each
+        # one of those would have been another ~90-minute Windows job.
+        self.assertEqual(
+            problems, [],
+            "%d of %d children of this lane's skip census reported a "
+            "problem:\n\n%s\n\n%s"
+            % (
+                len({problem.split(":")[0] for problem in problems}),
+                len(chunks), "\n\n".join(problems),
+                self._timing_table(timings),
+            ),
+        )
+
+        # The number that caused the incident, asserted rather than printed.
+        self.assertLess(
+            slowest[3], self.SLOWEST_CHILD_CEILING_SECONDS,
+            "the slowest child took %.1fs against a ceiling of %ds while "
+            "running %s.  Nothing timed out and every check above is green, "
+            "which is exactly why this has to be red: the module is drifting "
+            "toward the %ds hang bound, and the round that crosses it closes "
+            "every lane's pull requests again.  Split that module, make it "
+            "faster, or raise the ceiling on evidence -- do not raise it to "
+            "clear this message.\n%s"
+            % (
+                slowest[3], self.SLOWEST_CHILD_CEILING_SECONDS, slowest[6],
+                self.CHILD_TIMEOUT_SECONDS, self._timing_table(timings),
+            ),
+        )
+        self.assertLess(
+            total, self.TOTAL_BUDGET_SECONDS,
+            "the census took %.1fs against a budget of %ds.\n%s"
+            % (total, self.TOTAL_BUDGET_SECONDS, self._timing_table(timings)),
+        )
 
 
 class ReadTypedAttributesAndNameTests(unittest.TestCase):
