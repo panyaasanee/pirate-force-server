@@ -72,6 +72,7 @@ own evidence and its own GT ticket.
 """
 import math
 import numbers
+import re
 import sys
 
 # NO ``from . import lane_hooks`` HERE (pf-adversary round 2, R4).
@@ -156,8 +157,84 @@ def _say(line):
         pass
 
 
+_LANE_PACKAGE = "pirateforce_foundation.lane_hooks."
+
+
+def _module_name_of_namespace(namespace):
+    """``sys.modules`` key whose module dict IS ``namespace``, or ``None``.
+
+    BY IDENTITY, NOT BY THE FRAME'S ``__name__`` (pf-adversary round 2,
+    R2).  ``frame.f_globals["__name__"]`` is a plain dict entry the
+    calling module owns: measured, one line -- ``__name__ = "<an allowed
+    module>"`` -- in a real ``production_allowed = False`` lane file
+    opened the gate for it and printed the innocent module's name in the
+    token.  The KEY in ``sys.modules`` is set by the import machinery,
+    not by the file.  A namespace that more than one key maps to (an
+    alias a module inserted for itself) is refused rather than guessed
+    at, and a non-str key cannot arise from import.
+    """
+    found = [
+        name for name, module in list(sys.modules.items())
+        if getattr(module, "__dict__", None) is namespace
+        and isinstance(name, str)
+    ]
+    if len(found) != 1:
+        return None
+    return found[0]
+
+
+def _gating_module_names(fn):
+    """EVERY lane module the gate must clear for this registration.
+
+    ONE FRAME IS NOT THE REGISTRAR (pf-adversary round 3, D1).  The
+    previous version of this file read a fixed ``sys._getframe(2)`` and
+    its docstring claimed a caller's module "cannot be borrowed that
+    way".  It can, by the most ordinary factoring there is.  Measured: a
+    ``lane_ui_helpers.py`` with ``production_allowed = True`` exposing
+    ``def wire(vital_id, fn): return register_answerer(vital_id, fn)``,
+    called from a ``lane_ui_experimental.py`` with ``production_allowed =
+    False``, registered successfully, printed the helper's innocent name
+    in the token, and put the experimental lane's frame on the wire --
+    verbatim the R2 symptom this file said it had closed.  A decorator
+    factory, a ``functools.partial(register_answerer)`` and a ``for
+    vital_id, fn in TABLE: helpers.wire(...)`` loop all have that shape.
+
+    So the gate stops asking WHO registered and asks WHO TOOK PART: every
+    frame on the registration stack that belongs to a lane module, plus
+    ``fn``'s own defining module when that is a lane module.  All of them
+    must be production-allowed for a frame to go out (``answer()``).
+    Borrowing an allowed helper no longer launders the decision, because
+    the borrower's frame is still on the stack under it.
+
+    ``fn.__module__`` is included here but is NOT trusted alone -- it is a
+    plain mutable attribute, ``functools.wraps`` copies it off the wrapped
+    function, and a closure built by a factory in an allowed module
+    carries that module's name whoever called the factory (round 2, D5).
+    Adding it can only ever ADD a module the gate must clear, never
+    remove one, so a forged value cannot open the gate; the worst a lie
+    achieves is closing the gate on its own registration.
+    """
+    names = []
+
+    def add(name):
+        if isinstance(name, str) and name.startswith(_LANE_PACKAGE):
+            if name not in names:
+                names.append(name)
+
+    depth = 2
+    while True:
+        try:
+            frame = sys._getframe(depth)
+        except Exception:  # no more Python frames above us
+            break
+        add(_module_name_of_namespace(frame.f_globals))
+        depth += 1
+    add(getattr(fn, "__module__", None))
+    return tuple(names)
+
+
 def _registering_module_name():
-    """The module that CALLED ``register_answerer``, for the gate to read.
+    """The module that CALLED ``register_answerer``, for the token to name.
 
     NOT ``fn.__module__`` (pf-adversary D5).  ``__module__`` names where
     a function OBJECT was defined, not who decided to wire it, and it is
@@ -173,24 +250,8 @@ def _registering_module_name():
         frame = sys._getframe(2)
     except Exception:  # pragma: no cover - no Python frame above us
         return "<unknown>"
-    # BY IDENTITY, NOT BY THE FRAME'S ``__name__`` (pf-adversary round 2,
-    # R2).  ``frame.f_globals["__name__"]`` is a plain dict entry the
-    # calling module owns: measured, one line -- ``__name__ = "<an
-    # allowed module>"`` -- in a real ``production_allowed = False`` lane
-    # file opened the gate for it and printed the innocent module's name
-    # in the token.  The KEY in ``sys.modules`` is set by the import
-    # machinery, not by the file.  A namespace that more than one key
-    # maps to (an alias a module inserted for itself) is refused rather
-    # than guessed at, and a non-str key cannot arise from import.
-    namespace = frame.f_globals
-    found = [
-        name for name, module in list(sys.modules.items())
-        if getattr(module, "__dict__", None) is namespace
-        and isinstance(name, str)
-    ]
-    if len(found) != 1:
-        return "<unknown>"
-    return found[0]
+    name = _module_name_of_namespace(frame.f_globals)
+    return "<unknown>" if name is None else name
 
 
 def register_answerer(vital_id, fn):
@@ -212,6 +273,7 @@ def register_answerer(vital_id, fn):
     gate therefore lives in ``answer()``, on every frame.
     """
     module_name = _registering_module_name()
+    gating = _gating_module_names(fn) if callable(fn) else ()
     if vital_id not in ANSWERABLE_VITAL_IDS:
         _say(
             "UI_DISPATCH_REGISTER_REFUSED id=%s reason=not_routed_here"
@@ -246,17 +308,44 @@ def register_answerer(vital_id, fn):
             "UI_DISPATCH_REGISTER_REPLACED id=%s gated=%s by=%s"
             % (_hex(vital_id), incumbent, module_name)
         )
-    _ANSWERERS[vital_id] = (module_name, fn)
+    # ONE STATEMENT, NOT A CHECK-THEN-ACT (pf-adversary round 3, D9).
+    # The refusal above still reads the dict first, but the write that
+    # takes the slot is a single dict store, so the "first wins" claim
+    # does not additionally depend on nothing running between a read and
+    # a write.  (D9 was a shape complaint, not a measured loss: 200
+    # two-thread races lost no entry, because ``_discover()`` is
+    # single-threaded and the GIL serialises the dict ops.)
+    _ANSWERERS[vital_id] = (module_name, gating, fn)
     _say(
-        "UI_DISPATCH_ANSWERER id=%s module=%s"
-        % (_hex(vital_id), module_name)
+        "UI_DISPATCH_ANSWERER id=%s module=%s gating=%s"
+        % (_hex(vital_id), module_name, ",".join(gating) or "-")
     )
     return True
 
 
 def registered_answerer(vital_id):
-    """``(module_name, fn)`` for ``vital_id``, or ``None``. Read-only."""
-    return _ANSWERERS.get(vital_id)
+    """``(module_name, fn)`` for ``vital_id``, or ``None``. Read-only.
+
+    The public shape stays a two-tuple; the gating set stored beside it
+    (round 3, D1) is read by ``answer()`` and by
+    ``gating_module_names()``, not by callers of this.
+    """
+    entry = _ANSWERERS.get(vital_id)
+    if entry is None:
+        return None
+    module_name, _gating, fn = entry
+    return (module_name, fn)
+
+
+def gating_module_names(vital_id):
+    """Every lane module ``answer()`` must clear for ``vital_id``.
+
+    ``()`` when nothing is registered, or when the registration came from
+    outside the lane package (a test, a REPL) -- in which case the gate
+    falls back to the single registrar name, exactly as before D1.
+    """
+    entry = _ANSWERERS.get(vital_id)
+    return () if entry is None else entry[1]
 
 
 def clear_answerers():
@@ -264,7 +353,65 @@ def clear_answerers():
     _ANSWERERS.clear()
 
 
+# WHAT AN ANSWERER MAY REACH OF THE RUNTIME -- THE WHOLE LIST
+# (pf-adversary round 3, D2).  ``answer()`` used to hand the answerer
+# ``session`` itself, the live state object.  Everything this module says
+# about labels -- the prefix, the foreign-substring list, the measured
+# paragraph about a party-invite frame arming ``gm_warp_position_pending``
+# -- defends ONE route to those consumers, and the answerer was holding a
+# reference that walks straight past it.  Measured end to end through the
+# real ``state.dispatch()`` on a logged-in session: an answerer that
+# returns ``[]`` flipped ``gm_warp_position_pending`` False -> True and
+# set ``move_authority_grace_remaining`` to 99, while this module printed
+# a green token and returned an empty list.  "Fail-closed in every
+# direction" was true of the RETURN VALUE only.
+#
+# So the answerer no longer gets the session.  It gets this, and this
+# exposes an EXPLICIT ALLOWLIST of attribute names -- today the empty
+# tuple, because no answerer exists yet and nothing has argued for a
+# name.  Reading anything else raises ``AttributeError``; writing or
+# deleting anything raises ``TypeError``, inside ``answer()``'s ``try``,
+# so a lane reaching for the runtime fails closed on its own frame
+# instead of quietly reaching it.
+#
+# THIS TUPLE IS THE DECISION POINT.  Widening it is a reviewed edit to
+# this file naming the answerer that needs the field and why -- one
+# place, for every lane, instead of a rule each producer remembers.
+_SESSION_VIEW_FIELDS = ()
+
+
+class _SealedSession:
+    """The session as an answerer sees it: an allowlist, and no writes."""
+
+    __slots__ = ("_session",)
+
+    def __init__(self, session):
+        object.__setattr__(self, "_session", session)
+
+    def __getattr__(self, name):
+        if name in _SESSION_VIEW_FIELDS:
+            return getattr(object.__getattribute__(self, "_session"), name)
+        raise AttributeError(
+            "ui_dispatch seals the session: %r is not in"
+            " _SESSION_VIEW_FIELDS. Widening that tuple is a reviewed"
+            " edit to ui_dispatch.py (pf-adversary round 3, D2)." % (name,)
+        )
+
+    def __setattr__(self, name, value):
+        raise TypeError(
+            "ui_dispatch seals the session: an answerer may not write %r"
+            % (name,)
+        )
+
+    def __delattr__(self, name):
+        raise TypeError(
+            "ui_dispatch seals the session: an answerer may not delete %r"
+            % (name,)
+        )
+
+
 LABEL_PREFIX = "UI_"
+_LABEL_GRAMMAR = re.compile(r"\AUI_[A-Z0-9_]{1,64}\Z")
 
 # Substrings a consumer downstream keys on, which a UI_-prefixed label
 # must therefore not contain. Sources, grepped this round:
@@ -302,11 +449,39 @@ def _label_is_this_lanes_own(label):
     ``SENT <label> ...`` into the evidence file attended rounds grep; a
     newline inside a label forges a line in that artifact.
     """
+    # A POSITIVE GRAMMAR, NOT ``isprintable()`` (pf-adversary round 3,
+    # D3 and D4).  ``' '.isprintable()`` is True and so is every printable
+    # non-ASCII character, and both of those are live defects, not
+    # tidiness:
+    #
+    #   D3 -- the evidence artifacts are matched by SUBSTRING, not by
+    #   line.  ``tools/wait_for_pf_stage.py:53`` asks ``all(needle in line
+    #   for needle in pattern)``, and the v141 sender writes ``SENT
+    #   label=<label> frame_bytes=...``.  Measured: the label
+    #   ``UI_PARTY_INVITE_ACK SENT label=RUNTIME_RES_ACK_FIRST_REQ``
+    #   passed the old check and made ``wait_for_pf_stage`` report stage
+    #   ``runtime-ready`` REACHED -- a green Port Royal signal, from a
+    #   party-invite frame, in an attended round following
+    #   ``tools/PF_FAST_ENTRY_AUTOMATION.md`` step 5.  The D12 paragraph
+    #   reasoned about newlines forging a LINE; the forgeable thing was
+    #   never the line boundary.
+    #
+    #   D4 -- ``current/pf_login_game_server_v141.py`` prints ``[G>]
+    #   {label} ...`` on a cp874 stdout it never reconfigures, AFTER
+    #   ``c.sendall(out_frame)``, inside a ``try`` whose only handler is a
+    #   ``finally``.  Measured: ``UI_PARTY_INVITE_ACK_\u2713`` killed the
+    #   connection thread with ``UnicodeEncodeError`` with the bytes
+    #   already on the wire.  ``tests/test_name_colour_sweep_all.py:261``
+    #   already asserts ``label.isascii()`` for the same reason.
+    #
+    # Both close the same way and only this way: say what a label MAY
+    # contain instead of listing what it may not.  ``UI_`` then upper
+    # case, digits and underscore, 1..64 of them.  No space, no ``=``, no
+    # non-ASCII, no control character, and nothing a future consumer's
+    # separator can hide in.
     if not isinstance(label, str) or not label:
         return False
-    if not label.startswith(LABEL_PREFIX):
-        return False
-    if not all(ch.isprintable() for ch in label):
+    if not _LABEL_GRAMMAR.match(label):
         return False
     # A PREFIX DOES NOT STOP A SUBSTRING MATCH (pf-adversary round 2, R3).
     # The prefix closes the consumer that compares labels for EQUALITY.
@@ -417,17 +592,40 @@ def answer(session, vital_id, payload):
     entry = _ANSWERERS.get(vital_id)
     if entry is None:
         return []
-    module_name, fn = entry
+    module_name, gating, fn = entry
     from . import lane_hooks  # noqa: PLC0415 - see the header comment
 
-    if not lane_hooks.module_production_allowed(module_name):
-        _say(
-            "UI_DISPATCH_GATED id=%s module=%s reason=not_production_allowed"
-            % (_hex(vital_id), module_name)
-        )
-        return []
+    # EVERY LANE MODULE THAT TOOK PART, NOT JUST THE ONE THAT CALLED
+    # (pf-adversary round 3, D1).  ``gating`` is the set collected at
+    # registration: the lane modules on the registration stack plus
+    # ``fn``'s defining module.  A helper in an allowed module no longer
+    # launders a ``production_allowed = False`` lane's decision, because
+    # that lane's frame was under the helper's when the slot was taken.
+    # THE REGISTRAR IS ALWAYS IN THE GATE, AND ``gating`` ONLY ADDS TO IT.
+    # The first draft of this fix read ``gating or (module_name,)``, so a
+    # non-empty ``gating`` REPLACED the registrar -- and ``gating``
+    # includes ``fn.__module__``, which is a plain mutable attribute.  Its
+    # own suite caught it: ``test_the_gate_reads_the_registering_module_
+    # not_fn_dunder_module`` and ``test_a_forged_dunder_name_does_not_
+    # open_the_gate`` both went green->red->green, because one line
+    # ``fn.__module__ = "<an allowed lane module>"`` in a module the gate
+    # was closed on now answered the frame.  That is round 2's R2/D5
+    # regression, reintroduced by round 3's D1 fix.  Union, never
+    # substitution: adding a name can only ever CLOSE the gate harder.
+    for name in (module_name,) + tuple(gating):
+        if not lane_hooks.module_production_allowed(name):
+            _say(
+                "UI_DISPATCH_GATED id=%s module=%s blocked=%s"
+                " reason=not_production_allowed"
+                % (_hex(vital_id), module_name, name)
+            )
+            return []
     try:
-        actions = fn(session=session, vital_id=vital_id, payload=payload)
+        actions = fn(
+            session=_SealedSession(session),
+            vital_id=vital_id,
+            payload=payload,
+        )
         if actions is None:
             return []
         # SNAPSHOT FIRST, VALIDATE THE SNAPSHOT (pf-adversary D3).  The
@@ -473,8 +671,18 @@ def answer(session, vital_id, payload):
             % (_hex(vital_id), module_name)
         )
         return []
+    # NAMED FOR WHAT IT MEASURES (pf-adversary round 3, D5).  This line
+    # was ``UI_DISPATCH_ANSWERED``, and it fires here -- after the
+    # validator liked the shape, BEFORE the dispatcher hands the batch to
+    # ``sendall``.  Two states print it while nothing reaches the client:
+    # an answerer returning ``[]`` (the natural "nothing for this
+    # payload", which ``test_an_empty_answer_is_accepted_not_refused``
+    # blesses) prints ``actions=0``, and a batch that later dies on
+    # ``SEND_FAILED`` leaves a line claiming ``actions=2``.  A token read
+    # as evidence that a button answered must not be one layer short of
+    # the wire, so it says what it knows: the actions were ACCEPTED.
     _say(
-        "UI_DISPATCH_ANSWERED id=%s module=%s actions=%d"
+        "UI_DISPATCH_ACCEPTED id=%s module=%s actions=%d"
         % (_hex(vital_id), module_name, len(actions))
     )
     return actions
