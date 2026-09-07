@@ -522,12 +522,44 @@ class StatGrantReachesARealRowTests(unittest.TestCase):
 class RealPlayerLuaIntegrationTests(unittest.TestCase):
     """The same context checks, driven from real Lua through a ScriptHost."""
 
-    def _host(self, context=None, store=None):
+    def _host(self, context=None, store=None, payout_store=None):
         from pirateforce_foundation import script_host
         calls = []
         host = script_host.ScriptHost(
-            log=calls.append, player_context=context, player_store=store)
+            log=calls.append, player_context=context, player_store=store,
+            payout_store=payout_store)
         return host, calls
+
+    def test_add_exp_from_real_lua_reaches_the_hosts_payout_store(self):
+        """``ScriptHost``'s new pass-through, exercised through a Lua state.
+
+        The namespace-level tests above prove the closure; this proves the
+        WIRING -- that a store handed to the host arrives at the Player
+        namespace and not at some private default.  Written at the shape
+        of the corpus's own only call site
+        (``gamedata/lua/t_getm_rat_exp&sp.lua:19``:
+        ``Player.AddExp(Player.GetLv()*Trigger.Var5)``), with
+        ``Trigger.Var5`` reading STUB_DEFAULT=0 through the host's own
+        contract -- so the product is 0 and REFUSED, which is why the
+        amount is written as a literal in the paying half below.
+        """
+        store = _RecordingPayoutStore()
+        host, calls = self._host(
+            context=player.PlayerContext(level=7, character_id=9),
+            payout_store=store)
+        host.load("function Probe() Player.AddExp(Player.GetLv()*50) end")
+        host.call("Probe")
+        self.assertEqual(store.calls, [(9, "experience", 350)])
+        self.assertTrue(any("LUA_PLAYER_GRANT Player.AddExp" in line
+                            for line in calls), calls)
+
+    def test_a_host_with_no_payout_store_refuses_out_loud(self):
+        host, calls = self._host(
+            context=player.PlayerContext(level=7, character_id=9))
+        host.load("function Probe() Player.AddSkillPoint(3) end")
+        host.call("Probe")
+        refusals = [line for line in calls if "refused=no_reward_store" in line]
+        self.assertEqual(len(refusals), 1, calls)
 
     def test_get_lv_from_lua_reads_the_injected_context(self):
         host, calls = self._host(player.PlayerContext(level=17, class_id=2))

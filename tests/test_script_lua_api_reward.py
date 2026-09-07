@@ -26,6 +26,8 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
+from pf_preconditions import LUPA_PACKAGE
+
 from pirateforce_foundation import persistence_typed_attrs
 from pirateforce_foundation.lua_api import quest as lua_api_quest
 from pirateforce_foundation.lua_api import quest_criteria, reward
@@ -572,6 +574,51 @@ class ExplicitAmountGrantTests(unittest.TestCase):
         self.assertIn("paid=250", lines[0])
         self.assertIn("balance_after=290", lines[0])
         self.assertIn("column=experience", lines[0])
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class HostWiringTests(unittest.TestCase):
+    """``ScriptHost(payout_store=...)`` reaches the QUEST namespace too.
+
+    The same one parameter feeds both namespaces on purpose, so a script
+    whose ``Quest.AddCriteriaExp()`` and ``Player.AddExp(n)`` calls run in
+    one dispatch add through one store rather than two.  This is the Quest
+    half of that claim; the Player half is in
+    ``tests/test_script_lua_api_player.py``.
+    """
+
+    def test_a_criteria_call_from_real_lua_reaches_the_hosts_store(self):
+        from pirateforce_foundation import script_host
+
+        quest_id = _a_resolvable_quest()
+        expected, _reason = quest_criteria.resolve_for_api(
+            "AddCriteriaExp", quest_id)
+        store = RmwTripwireStore()
+        lines: list = []
+        host = script_host.ScriptHost(
+            log=lines.append,
+            quest_context=lua_api_quest.QuestContext(character_id=7,
+                                                     quest_id=quest_id),
+            payout_store=store)
+        host.load("function Probe() Quest.AddCriteriaExp() end")
+        host.call("Probe")
+        self.assertEqual(store.calls, [(7, "experience", expected.amount)])
+
+    def test_a_host_without_one_pays_nothing_and_says_so(self):
+        from pirateforce_foundation import script_host
+
+        quest_id = _a_resolvable_quest()
+        lines: list = []
+        host = script_host.ScriptHost(
+            log=lines.append,
+            quest_context=lua_api_quest.QuestContext(character_id=7,
+                                                     quest_id=quest_id))
+        host.load("function Probe() Quest.AddCriteriaExp() end")
+        host.call("Probe")
+        refusals = [line for line in lines
+                    if "LUA_QUEST_PAYOUT" in line and "refused=" in line]
+        self.assertEqual(len(refusals), 1, refusals)
+        self.assertIn(reward.REFUSE_NO_STORE, refusals[0])
 
 
 if __name__ == "__main__":  # pragma: no cover
