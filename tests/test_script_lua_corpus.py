@@ -492,10 +492,12 @@ class BrokenApiSpecIsOursNotTheScriptsTests(unittest.TestCase):
         self.assertEqual(report.ran, [])
         self.assertEqual([line for line in logged
                           if line.startswith("LUA_SCRIPT")], [])
-        self.assertEqual(
-            [line for line in logged if line.startswith("LUA_HOST")],
-            ["LUA_HOST ApiSpecError ERR %s is missing discovered_at=innocent.lua"
-             % (self.root / "no_such_api_spec.tsv")])
+        host_lines = [line for line in logged if line.startswith("LUA_HOST")]
+        self.assertEqual(len(host_lines), 1)
+        self.assertIn("VendoredDataError", host_lines[0])
+        self.assertIn(str(self.root / "no_such_api_spec.tsv"), host_lines[0])
+        self.assertTrue(host_lines[0].endswith("discovered_at=innocent.lua"),
+                        host_lines[0])
 
     def test_the_same_holds_for_the_load_only_sweep(self):
         logged = []

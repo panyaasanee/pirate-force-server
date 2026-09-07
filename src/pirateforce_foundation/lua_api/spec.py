@@ -16,29 +16,23 @@ file's own count assertions in ``tests/test_script_lua_api_spec.py`` will
 say so on the very next run, on any machine, without a sibling checkout.
 
 LOADED ON FIRST USE, NOT AT IMPORT (pf-adversary finding 13, round
-``8ou0zg``).  The first shape of this module ran the parse at import time
-and let a missing/corrupt TSV escape as ``FileNotFoundError`` /
-``AssertionError`` / ``ValueError``, which had two consequences the rest of
-the lane's fail-closed design could not repair:
+``8ou0zg``, paid in round ``oghyca``).  The parse used to run at this
+module's own import, which had one consequence no amount of care inside
+:func:`_load` could repair: ``script_host`` imports this module, so a
+corrupt ``api_spec.tsv`` made ``import script_host`` itself raise, before
+any of that module's fail-closed sweeps -- or
+``script_host._host_side_error_types()``, whose whole job is to keep a
+defect of OURS from being logged against a shipped quest script -- existed
+to see it.  The one mirror every ``ScriptHost`` construction depends on was
+the one mirror whose failure could never be classified.
 
-* ``import script_host`` itself raised, because ``script_host`` imports this
-  module -- so every sweep in ``script_host`` was dead before its own
-  ``try`` could run, and ``_host_side_error_types()``, whose whole job is to
-  keep a defect of OURS from being logged as a broken quest script, never
-  got the chance to classify the one vendored file every other vendored
-  file's classification depends on.
-* the escaping types were not :class:`~.vendored.VendoredDataError`
-  subclasses, so even reached, they would have been classified as a script's
-  fault rather than ours.
-
-Both are fixed by loading lazily and raising :class:`ApiSpecError`: a broken
-``api_spec.tsv`` now surfaces where the corpus sweep can see it (inside
-``load_script_file``, at ``ScriptHost`` construction), gets the
-``LUA_HOST ... discovered_at=<file>`` line rather than ``LUA_SCRIPT <file>
-ERR``, and lands in the report's ``host_failed`` bucket like every other
-mirror of ours.  Module-level names (``API_FUNCTIONS`` and friends) still
-read exactly as before at every call site -- they resolve through PEP 562
-``__getattr__`` on first attribute access.
+Now the parse happens on first ATTRIBUTE ACCESS instead, so it lands inside
+``load_script_file``'s own try, gets the ``LUA_HOST ... discovered_at=<file>``
+line, and is counted in the sweep's ``host_failed`` bucket like every other
+mirror of ours (measured end to end:
+``BrokenApiSpecIsOursNotTheScriptsTests``, ``tests/test_script_lua_corpus.py``).
+Call sites are unchanged: the module-level names below still read as
+plain attributes, resolved through PEP 562 ``__getattr__``.
 """
 from __future__ import annotations
 
@@ -50,19 +44,11 @@ from .vendored import VendoredDataError
 
 _SPEC_PATH = Path(__file__).with_name("api_spec.tsv")
 
-_COLUMNS = (
+#: The header this module was written against, in order.
+_HEADER = (
     "namespace", "method", "call_count", "file_count",
     "arity_min", "arity_max",
 )
-
-
-class ApiSpecError(VendoredDataError):
-    """``api_spec.tsv`` is missing, unreadable, or corrupt.
-
-    A defect in THIS checkout, never something a shipped Lua script can
-    provoke -- which is exactly what makes it host-side to
-    ``script_host._host_side_error_types()``.
-    """
 
 
 @dataclass(frozen=True)
@@ -79,52 +65,86 @@ class ApiFunction:
         return "%s.%s" % (self.namespace, self.method)
 
 
-def _parse_int(name: str, raw: str, line_no: int) -> int:
+def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
+    """Parse ``api_spec.tsv``, refusing loudly on anything it is not.
+
+    ``path`` defaults to the vendored file beside this module and exists so
+    the refusals below can be exercised against a corrupt COPY without
+    touching the real one -- in particular from a child interpreter running
+    under ``-O``, which is the only way to prove the guard survives
+    optimisation.  The first attempt at those tests copied the whole 21 MB
+    ``src/`` tree per test instead; on the Windows gate that is 126 MB of
+    file copying plus an ``rmtree`` over a tree a child interpreter has just
+    written ``__pycache__`` into, and the gate went RED at ``pytest_subset``
+    with no FAILED line.  A parameter is cheaper and says more.
+
+    RAISES, NEVER ASSERTS (pf-adversary D13, round ``wn088m``).  The header
+    check used to be a bare ``assert``, which ``python -O`` DELETES: under
+    ``-O`` a re-vendor that reordered the columns would have been parsed
+    happily, silently swapping ``call_count`` with ``file_count`` for all
+    160 rows -- the guard would not have failed, it would not have existed.
+    Every refusal here names the file and, where there is one, the line.
+
+    :class:`~lua_api.vendored.VendoredDataError` rather than a bespoke
+    class, so that wherever this error IS catchable it is classified as a
+    corrupt mirror of ours rather than a broken quest file.
+
+    WHERE THIS IS CAUGHT (round ``oghyca``).  Round ``wn088m`` corrected an
+    earlier draft of this docstring that claimed ``script_host`` reports
+    this as ``LUA_HOST``: at the time it could not, because this function
+    ran at IMPORT time and took ``import script_host`` down with it before
+    ``_host_side_error_types()`` existed to classify anything.  That is no
+    longer the shape -- see this module's own docstring -- so the claim is
+    true again, and this time it is a measured one rather than a hopeful
+    one: ``tests/test_script_lua_corpus.py``'s
+    ``BrokenApiSpecIsOursNotTheScriptsTests`` runs a real sweep over a
+    one-file corpus with this file pointed at a missing path and asserts
+    the ``LUA_HOST`` line, the ``host_failed`` bucket, and the ABSENCE of
+    any ``LUA_SCRIPT`` line naming the innocent script.
+    """
     try:
-        return int(raw)
-    except ValueError:
-        raise ApiSpecError(
-            "%s line %d: %s is not an integer: %r"
-            % (_SPEC_PATH, line_no, name, raw)) from None
-
-
-def _load() -> tuple:
-    try:
-        text = _SPEC_PATH.read_text(encoding="ascii")
-    except FileNotFoundError as exc:
-        raise ApiSpecError("%s is missing" % _SPEC_PATH) from exc
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ApiSpecError(
-            "%s is unreadable: %s" % (_SPEC_PATH, exc)) from exc
-
+        text = path.read_text(encoding="ascii")
+    except OSError as exc:
+        raise VendoredDataError(
+            "cannot read %s: %s" % (path, exc)) from exc
+    except UnicodeDecodeError as exc:
+        raise VendoredDataError(
+            "%s is not ASCII: %s" % (path, exc)) from exc
     lines = text.splitlines()
     if not lines:
-        raise ApiSpecError("%s is empty" % _SPEC_PATH)
-    header, rows = tuple(lines[0].split("\t")), lines[1:]
-    if header != _COLUMNS:
-        raise ApiSpecError(
-            "%s header is %r, expected %r" % (_SPEC_PATH, header, _COLUMNS))
+        raise VendoredDataError("%s is empty" % (path,))
+    header = tuple(lines[0].split("\t"))
+    if header != _HEADER:
+        raise VendoredDataError(
+            "%s header drifted: got %r, want %r"
+            % (path, header, _HEADER))
     out = []
-    for offset, line in enumerate(rows):
+    for lineno, line in enumerate(lines[1:], start=2):
         if not line:
             continue
-        line_no = offset + 2  # 1-based, and the header is line 1
-        fields = line.split("\t")
-        if len(fields) != len(_COLUMNS):
-            raise ApiSpecError(
-                "%s line %d has %d columns, expected %d"
-                % (_SPEC_PATH, line_no, len(fields), len(_COLUMNS)))
-        ns, method, call_count, file_count, arity_min, arity_max = fields
+        cells = line.split("\t")
+        if len(cells) != len(_HEADER):
+            raise VendoredDataError(
+                "%s line %d has %d columns, want %d: %r"
+                % (path, lineno, len(cells), len(_HEADER), line))
+        ns, method, call_count, file_count, arity_min, arity_max = cells
+        try:
+            numbers = [int(cell) for cell in
+                       (call_count, file_count, arity_min, arity_max)]
+        except ValueError as exc:
+            raise VendoredDataError(
+                "%s line %d has a non-integer count: %r"
+                % (path, lineno, line)) from exc
         out.append(ApiFunction(
             namespace=ns,
             method=method,
-            call_count=_parse_int("call_count", call_count, line_no),
-            file_count=_parse_int("file_count", file_count, line_no),
-            arity_min=_parse_int("arity_min", arity_min, line_no),
-            arity_max=_parse_int("arity_max", arity_max, line_no),
+            call_count=numbers[0],
+            file_count=numbers[1],
+            arity_min=numbers[2],
+            arity_max=numbers[3],
         ))
     if not out:
-        raise ApiSpecError("%s has a header but no rows" % _SPEC_PATH)
+        raise VendoredDataError("%s has a header and no rows" % (path,))
     return tuple(out)
 
 
@@ -133,11 +153,14 @@ _CACHE: dict = {}
 
 
 def _tables() -> dict:
-    """Parse the TSV once, then hand back the same four tables forever.
+    """Parse the census once, then hand back the same tables forever.
 
-    Locked because the corpus sweep and the future live dispatch both reach
-    this from whichever thread touched a script first; the double check
-    keeps the steady-state read off the lock.
+    Locked because a corpus sweep and the future live dispatch both reach
+    this from whichever thread touched a script first; the unlocked first
+    read is what keeps the steady state off the lock.  ``_CACHE`` is a dict
+    rather than four module globals so a test can point ``_SPEC_PATH``
+    somewhere else and call ``_CACHE.clear()`` in one line, with no chance
+    of clearing three of four.
     """
     tables = _CACHE.get("tables")
     if tables is not None:
@@ -145,34 +168,32 @@ def _tables() -> dict:
     with _LOCK:
         tables = _CACHE.get("tables")
         if tables is None:
-            functions = _load()
+            functions = _load(_SPEC_PATH)
             methods: dict = {}
             for fn in functions:
                 methods.setdefault(fn.namespace, set()).add(fn.method)
+            #: namespace -> frozenset of its method names, e.g. ["Quest"].
+            namespace_methods = {k: frozenset(v) for k, v in methods.items()}
             tables = {
+                # Every row of the frozen census, in file order.
                 "API_FUNCTIONS": functions,
-                "NAMESPACE_METHODS": {
-                    k: frozenset(v) for k, v in methods.items()},
+                "NAMESPACE_METHODS": namespace_methods,
+                # The 8 namespace names the scripts index as Lua globals.
+                "NAMESPACES": tuple(sorted(namespace_methods)),
+                # qualified name ("Quest.SetFlag") -> ApiFunction.
                 "BY_QUALIFIED_NAME": {
                     fn.qualified_name: fn for fn in functions},
             }
-            tables["NAMESPACES"] = tuple(sorted(tables["NAMESPACE_METHODS"]))
             _CACHE["tables"] = tables
     return tables
 
 
-#: The module-level names this module has always exposed, resolved on first
-#: access instead of at import.  Listed here rather than inferred so a typo
-#: in a call site still raises ``AttributeError`` at that call site.
+#: The module-level names this module has always exposed.  Listed rather
+#: than inferred, so a typo at a call site still raises AttributeError
+#: there instead of quietly parsing the census and then failing on a dict
+#: lookup with a different name in the message.
 _LAZY_NAMES = (
-    # Every row of the frozen census, in file order (namespace, method).
-    "API_FUNCTIONS",
-    # namespace -> frozenset of its method names, e.g. ["Quest"].
-    "NAMESPACE_METHODS",
-    # The 8 namespace names the game's scripts index as Lua globals.
-    "NAMESPACES",
-    # qualified name ("Quest.SetFlag") -> ApiFunction, by call site.
-    "BY_QUALIFIED_NAME",
+    "API_FUNCTIONS", "NAMESPACE_METHODS", "NAMESPACES", "BY_QUALIFIED_NAME",
 )
 
 
