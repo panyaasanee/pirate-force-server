@@ -367,8 +367,15 @@ class RateGatedCorpusFilesTests(unittest.TestCase):
         # absolute pin (see this module's docstring).  Scripts that ran
         # zero API calls now run some; nothing that ran before stops.
         found = lua_api_prelude.read_prelude(LUA_ROOT, clock=FIXED_SEED_CLOCK)
+        # `prelude=None` EXPLICITLY, not by omission (round `e5epdj`).  The
+        # sweeps' default is now script_host.SHIPPED_PRELUDE, so an omitted
+        # argument here would compare the prelude against ITSELF and this
+        # test would assert nothing while still passing -- it failed loudly
+        # the moment the default flipped, which is the only reason the
+        # regression was visible at all.
         before = script_host.run_corpus_entry_points(
-            LUA_ROOT, log=lambda _m: None, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=lambda _m: None, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=None)
         after = script_host.run_corpus_entry_points(
             LUA_ROOT, log=lambda _m: None, quest_clock=FIXED_QUEST_CLOCK,
             prelude=found)
