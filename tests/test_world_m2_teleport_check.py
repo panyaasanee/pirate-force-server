@@ -72,6 +72,98 @@ class TheVitalIdAgreesWithTheServerWeShipWith(unittest.TestCase):
             legacy.parse_outer(_client_echo_pc(legacy, 1)))
 
 
+class TheInboundDecoderRefusesEverythingButAnEcho(unittest.TestCase):
+    """What `decode_echo` refuses, MEASURED -- it was prose before.
+
+    `decode_echo`'s docstring named checks it does not make itself: the vital
+    class and the nested version are v141's parser's, and the RuntimeRes v4
+    carrier with its trailing derived mask is `parse_outer`'s, upstream of the
+    object this is handed.  Inheriting them is correct (RE-292 forbids this
+    lane from putting a decoder of its own in that path) but nothing pinned
+    that the inheritance actually holds (pf-adversary, `ebh143`, D7).
+    """
+
+    def test_a_real_client_echo_decodes_to_its_marker_id(self):
+        legacy = _legacy()
+        for marker_id in (1, 17):
+            self.assertEqual(
+                tc.decode_echo(legacy,
+                               legacy.parse_outer(_client_echo_pc(legacy, marker_id))),
+                marker_id)
+
+    def test_this_servers_own_outbound_prompt_is_not_an_echo(self):
+        # The frame this server SENDS differs in carrier (Res, not Req) and in
+        # carrying the derived change mask.  If it decoded, a reflected or
+        # replayed outbound frame would consume the order it announced.
+        legacy = _legacy()
+        pc, _frame = tc.encode_prompt(legacy, 1)
+        self.assertIsNone(tc.decode_echo(legacy, legacy.parse_outer(pc)))
+
+    def test_another_vital_class_in_the_same_carrier_is_not_an_echo(self):
+        legacy = _legacy()
+        other = (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0) + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2) + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TELEPORT_CHECK_VITAL + 1)
+            + legacy.u8tag(0x0B, 0)
+            + legacy.u16tag(0x0F, 17)
+        )
+        self.assertIsNone(tc.decode_echo(legacy, legacy.parse_outer(other)))
+
+    def test_a_wrong_nested_version_is_not_an_echo(self):
+        legacy = _legacy()
+        wrong_version = (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0) + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2) + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TELEPORT_CHECK_VITAL)
+            + legacy.u8tag(0x0B, tc.TELEPORT_CHECK_VITAL_VERSION + 1)
+            + legacy.u16tag(0x0F, 17)
+        )
+        self.assertIsNone(tc.decode_echo(legacy, legacy.parse_outer(wrong_version)))
+
+
+class TheWireArgumentIsCoercedWithoutThisDoorsBound(unittest.TestCase):
+    """`coerce_wire_marker_id` answers "is this a number", nothing else."""
+
+    def test_a_number_is_returned_unclamped_in_every_shape_lua_hands_over(self):
+        for value, expected in ((1, 1), (1.0, 1), (0, 0), (-1, -1),
+                                (70000, 70000), (10 ** 30, 10 ** 30)):
+            self.assertEqual(tc.coerce_wire_marker_id(value), expected)
+            self.assertIs(type(tc.coerce_wire_marker_id(value)), int)
+
+    def test_everything_that_is_not_a_number_is_none(self):
+        for value in (True, False, "17", None, 1.5, float("nan"),
+                      float("inf"), float("-inf"), b"17", [17], object()):
+            self.assertIsNone(tc.coerce_wire_marker_id(value), repr(value))
+
+    def test_an_int_subclass_arrives_as_a_plain_int(self):
+        # `_coerce_marker_id` downstream is a `type(x) is int` check, so an
+        # IntEnum or a bool-like subclass that reached it unnormalised would
+        # be refused as "not an int" while being one.
+        class MarkerLike(int):
+            pass
+
+        self.assertEqual(tc.coerce_wire_marker_id(MarkerLike(17)), 17)
+        self.assertIs(type(tc.coerce_wire_marker_id(MarkerLike(17))), int)
+
+    def test_it_never_raises_for_anything_the_door_can_be_handed(self):
+        class Hostile:
+            def __int__(self):
+                raise RuntimeError("no")
+
+            def __index__(self):
+                raise RuntimeError("no")
+
+            def __eq__(self, other):
+                raise RuntimeError("no")
+
+        # A raise here would leave the Lua closure, where the traceback names
+        # the script rather than the caller that passed the wrong object.
+        self.assertIsNone(tc.coerce_wire_marker_id(Hostile()))
+
+
 class TheOutboundFrameCarriesTheMarkerIdAndNothingElse(unittest.TestCase):
     """The pin the COO order names: u16 == MARKER.n_ID."""
 
@@ -325,13 +417,21 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         self.assertEqual(sink.orders[0].pending.marker_id, 1)
         self.assertTrue(any("Player.TeleportCheck" in line for line in self.logged))
 
-    def test_the_wrong_arity_is_refused_and_counted(self):
+    def test_the_wrong_arity_is_refused_under_its_own_name(self):
         sink = tc.InMemoryTeleportCheckSink()
         namespace = self._namespace(sink)
         self.assertEqual(namespace["TeleportCheck"](), lua_player.STUB_DEFAULT)
         self.assertEqual(namespace["TeleportCheck"](1, 2), lua_player.STUB_DEFAULT)
         self.assertEqual(sink.orders, [])
-        self.assertEqual(len(sink.refusals), 2)
+        # BY NAME, not by count.  Counting two refusals passed while both of
+        # them were spelled CHECK_REFUSED_MARKER_ID_NOT_AN_INT, which sends
+        # the reader of a run's tally to look for a bad marker id in a script
+        # that passed the wrong NUMBER of arguments (pf-adversary, `ebh143`,
+        # D6).
+        self.assertEqual(sink.refusals, [
+            tc.CHECK_REFUSED_BAD_ARITY,
+            tc.CHECK_REFUSED_BAD_ARITY,
+        ])
 
     def test_an_unusable_marker_id_is_refused_by_name_and_counted(self):
         sink = tc.InMemoryTeleportCheckSink()
@@ -414,6 +514,82 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         self.assertIsNot(first_sink, second_sink)
         self.assertEqual(len(first_sink.orders), 3)
         self.assertEqual(len(second_sink.orders), 1)
+
+    def test_an_out_of_field_marker_id_is_refused_under_its_own_name(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        # 70000 does not fit the u16 the wire carries and -1 is not a marker
+        # id at all; both are CALLER bugs in a script, and the fix for them is
+        # not the fix for a row this repository has not transcribed.  Before
+        # this round the door range-checked first and handed `open_check` a
+        # None, so every one of these arrived as "not an int" and
+        # CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD -- a name this module ships and
+        # documents -- could not be produced by any live call at all
+        # (pf-adversary, `ebh143`, D6).
+        for value in (70000, -1, 0x1_0000, 10 ** 30):
+            self.assertEqual(
+                namespace["TeleportCheck"](value), lua_player.STUB_DEFAULT)
+        self.assertEqual(sink.orders, [])
+        self.assertEqual(sink.refusals,
+                         [tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD] * 4)
+
+    def test_a_lua_float_still_reaches_the_row_it_names(self):
+        # lupa hands every Lua number across as a float, so the door has to
+        # accept an exact-integer float -- and only an exact-integer float.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        self.assertEqual(namespace["TeleportCheck"](1.0), 1)
+        self.assertEqual(sink.orders[0].pending.marker_id, 1)
+        self.assertEqual(
+            namespace["TeleportCheck"](1.5), lua_player.STUB_DEFAULT)
+        self.assertEqual(sink.refusals, [tc.CHECK_REFUSED_MARKER_ID_NOT_AN_INT])
+
+    def test_the_console_prompt_line_is_printed_by_the_live_door(self):
+        # The token exists to be grepped out of a real boot's console
+        # (HEADLESS_PROOF).  Until this round nothing outside tests/ called
+        # the composer, so the token could not be fired at all and the proof
+        # could not be measured (pf-adversary, `ebh143`, D9).
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        self.assertEqual(namespace["TeleportCheck"](1), 1)
+        prompts = [line for line in self.logged
+                   if line.startswith(tc.TOKEN + " PROMPT")]
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(prompts[0],
+                         tc.prompt_console_line(sink.orders[0].pending))
+        # The bridge console is cp874: a non-ASCII byte here kills the tool
+        # that reads the proof, not just the line.
+        prompts[0].encode("ascii")
+
+    def test_no_prompt_line_is_printed_for_an_order_the_sink_refused(self):
+        # stored=0 is a refusal at the cap.  A PROMPT line for it would name a
+        # window no player is ever asked about, in the exact console a reader
+        # is told to trust as evidence that the mechanism is armed.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        for _ in range(tc.ORDER_CAP):
+            namespace["TeleportCheck"](1)
+        printed_before = len([line for line in self.logged
+                              if line.startswith(tc.TOKEN + " PROMPT")])
+        self.assertEqual(namespace["TeleportCheck"](1), 0)
+        printed_after = len([line for line in self.logged
+                             if line.startswith(tc.TOKEN + " PROMPT")])
+        self.assertEqual(printed_before, tc.ORDER_CAP)
+        self.assertEqual(printed_after, printed_before)
+
+    def test_the_sink_is_readable_by_name_from_outside_the_namespace(self):
+        # D2: while the recorder lived only in a private attribute, every
+        # order Player.TeleportCheck accepted was unreachable from the code
+        # that would have to turn it into a frame -- the module's own claim
+        # that "one plug point remains" was false while that was true.
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = self._namespace(sink)
+        self.assertIs(namespace.teleport_check_sink, sink)
+        default_namespace = self._namespace()
+        self.assertIs(default_namespace.teleport_check_sink,
+                      default_namespace._teleport_check_sink)
+        self.assertIsNot(default_namespace.teleport_check_sink,
+                         self._namespace().teleport_check_sink)
 
     def test_the_recorder_stops_at_its_cap_instead_of_growing_forever(self):
         sink = tc.InMemoryTeleportCheckSink()

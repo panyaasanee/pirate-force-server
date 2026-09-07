@@ -1524,6 +1524,21 @@
         "TheShippedScriptChargesARealRowTests::test_the_same_script_under_an_unbound_quest_still_charges_nothing"
       ],
       "note": "round joa0u6 (LANE-Q): the four tests that run the SHIPPED Quest/q_class.lua through real Lua with quest 3200 bound and a real SQLiteStore on disk, and read the money back off the characters row -- the evidence that Player.AddCash(Quest.Var4) charges the 15,000 the designer typed instead of the 0 every VarN used to return. ONE key rather than two stacked guards: lua_corpus_runnable already IS bridge_lua_scripts AND lupa_package, and stacking BRIDGE_LUA_SCRIPTS outside it would make unittest record the outer reason and hide that these four need a Lua runtime -- the mistake pf_preconditions.py documents beside that key and the reason the first draft of this module was corrected mid-round (pf-adversary D2). MEASURED 2026-09-08 in this round's own rehearsal (this repository with pf_bridge renamed away): 4 skips under this key in this module; 0 in this lane's cloud clone, where the bridge is present and lupa is installed, so all four ran and passed."
+    },
+    {
+      "key": "lupa_package",
+      "module": "tests/test_world_m2_teleport_check_host_door.py",
+      "count": 7,
+      "tests": [
+        "TheHostHandsTheTravelOrderOutTests::test_a_load_script_file_host_carries_the_sink_through_too",
+        "TheHostHandsTheTravelOrderOutTests::test_a_script_calling_teleport_check_lands_in_the_hosts_own_sink",
+        "TheHostHandsTheTravelOrderOutTests::test_a_script_passing_a_bad_id_is_refused_by_name_not_by_a_raise",
+        "TheHostHandsTheTravelOrderOutTests::test_the_console_token_reaches_a_real_hosts_log",
+        "TheHostHandsTheTravelOrderOutTests::test_the_door_is_the_same_object_the_namespace_records_into",
+        "TheHostHandsTheTravelOrderOutTests::test_the_sink_the_caller_supplied_is_the_one_that_is_written_to",
+        "TheHostHandsTheTravelOrderOutTests::test_two_hosts_never_share_one_sink"
+      ],
+      "note": "round ew9416 (LANE-A). New module: the M2 travel order's door out of the Lua namespace (pf-adversary D2 of round ebh143). Every test here drives a live ScriptHost, so the whole class carries ONE key and each of the 7 methods carries the class decorator -- no stacked second precondition, which is the drift shape COO-DECISION 20260906_0550 traced to a red gate. The module reads no sibling checkout (no fixture, no gamedata): the namespace-level behaviour that needs no Lua is pinned in tests/test_world_m2_teleport_check.py instead, which stays unguarded. MEASURED, not predicted: the module was collected with lupa absent and reported exactly these 7 skips, and 7 only."
     }
   ],
   "windows_gate_excluded_modules": {
