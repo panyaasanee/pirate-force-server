@@ -169,6 +169,7 @@ from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from . import vendored
 from .vendored import VendoredDataError
 
 #: Column headers of the vendored curve mirror, in order.
@@ -660,49 +661,71 @@ def quests_for_script(script: str) -> tuple:
 
 
 def load_curve() -> Dict[int, CriteriaCurveRow]:
-    """``{level: CriteriaCurveRow}``, parsed once and cached."""
+    """``{level: CriteriaCurveRow}``, parsed once and cached.
+
+    The read is wrapped in ``vendored.read_mirror`` so a broken copy of
+    this mirror is COUNTED under its own key and a good one records a
+    success stamp (pf-adversary D3/D6, round ``95aw54``: a lazily-read
+    mirror breaks at call time, where a construction-time guard is blind).
+    The wrapper re-raises, so nothing about what a caller sees changes.
+    """
     global _CURVE_CACHE
     if _CURVE_CACHE is None:
-        table: Dict[int, CriteriaCurveRow] = {}
-        for fields in _read_mirror(_CURVE_PATH, CURVE_COLUMNS):
-            level = _parse_int(_CURVE_PATH, "level", fields[0])
-            if level in table:
-                raise QuestCriteriaError("%s: duplicate level %d"
-                                         % (_CURVE_PATH, level))
-            table[level] = CriteriaCurveRow(
-                level=level,
-                cash=_parse_int(_CURVE_PATH, "cash", fields[1]),
-                exp=_parse_int(_CURVE_PATH, "exp", fields[2]),
-                skill_point=_parse_int(_CURVE_PATH, "skill_point", fields[3]),
-            )
-        _CURVE_CACHE = table
+        _CURVE_CACHE = vendored.read_mirror(
+            vendored.MIRROR_CRITERIA_CURVE, _parse_curve)
     return _CURVE_CACHE
 
 
+def _parse_curve() -> Dict[int, CriteriaCurveRow]:
+    """The read itself, so the recording wrapper has one callable."""
+    table: Dict[int, CriteriaCurveRow] = {}
+    for fields in _read_mirror(_CURVE_PATH, CURVE_COLUMNS):
+        level = _parse_int(_CURVE_PATH, "level", fields[0])
+        if level in table:
+            raise QuestCriteriaError("%s: duplicate level %d"
+                                     % (_CURVE_PATH, level))
+        table[level] = CriteriaCurveRow(
+            level=level,
+            cash=_parse_int(_CURVE_PATH, "cash", fields[1]),
+            exp=_parse_int(_CURVE_PATH, "exp", fields[2]),
+            skill_point=_parse_int(_CURVE_PATH, "skill_point", fields[3]),
+        )
+    return table
+
+
 def load_reward_rows() -> Dict[int, QuestRewardRow]:
-    """``{quest_id: QuestRewardRow}``, parsed once and cached."""
+    """``{quest_id: QuestRewardRow}``, parsed once and cached.
+
+    Wrapped for the same reason as :func:`load_curve` above.
+    """
     global _ROWS_CACHE
     if _ROWS_CACHE is None:
-        table: Dict[int, QuestRewardRow] = {}
-        for fields in _read_mirror(_ROWS_PATH, ROW_COLUMNS):
-            quest_id = _parse_int(_ROWS_PATH, "quest_id", fields[0])
-            if quest_id in table:
-                raise QuestCriteriaError("%s: duplicate quest_id %d"
-                                         % (_ROWS_PATH, quest_id))
-            table[quest_id] = QuestRewardRow(
-                quest_id=quest_id,
-                criteria_level=_parse_int(
-                    _ROWS_PATH, "criteria_level", fields[1]),
-                cash_multiplier=_parse_float(
-                    _ROWS_PATH, "cash_multiplier", fields[2]),
-                exp_multiplier=_parse_float(
-                    _ROWS_PATH, "exp_multiplier", fields[3]),
-                sp_multiplier=_parse_float(
-                    _ROWS_PATH, "sp_multiplier", fields[4]),
-                script=_parse_script(_ROWS_PATH, fields[5]),
-            )
-        _ROWS_CACHE = table
+        _ROWS_CACHE = vendored.read_mirror(
+            vendored.MIRROR_CRITERIA_ROWS, _parse_reward_rows)
     return _ROWS_CACHE
+
+
+def _parse_reward_rows() -> Dict[int, QuestRewardRow]:
+    """The read itself, so the recording wrapper has one callable."""
+    table: Dict[int, QuestRewardRow] = {}
+    for fields in _read_mirror(_ROWS_PATH, ROW_COLUMNS):
+        quest_id = _parse_int(_ROWS_PATH, "quest_id", fields[0])
+        if quest_id in table:
+            raise QuestCriteriaError("%s: duplicate quest_id %d"
+                                     % (_ROWS_PATH, quest_id))
+        table[quest_id] = QuestRewardRow(
+            quest_id=quest_id,
+            criteria_level=_parse_int(
+                _ROWS_PATH, "criteria_level", fields[1]),
+            cash_multiplier=_parse_float(
+                _ROWS_PATH, "cash_multiplier", fields[2]),
+            exp_multiplier=_parse_float(
+                _ROWS_PATH, "exp_multiplier", fields[3]),
+            sp_multiplier=_parse_float(
+                _ROWS_PATH, "sp_multiplier", fields[4]),
+            script=_parse_script(_ROWS_PATH, fields[5]),
+        )
+    return table
 
 
 def reset_caches() -> None:

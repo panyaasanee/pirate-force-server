@@ -63,7 +63,19 @@ from .lua_api import trigger as lua_api_trigger
 from .lua_api import instance as lua_api_instance
 from .lua_api import player as lua_api_player
 from .lua_api import message as lua_api_message
-from .lua_api.vendored import VendoredDataError
+from .lua_api.vendored import (
+    KNOWN_MIRRORS,
+    MIRROR_API_SPEC,
+    MIRROR_CRITERIA_CURVE,
+    MIRROR_CRITERIA_ROWS,
+    MIRROR_HEALTH,
+    MIRROR_MESSAGE_CATALOG,
+    MIRROR_UNNAMED,
+    MirrorFailureTally,
+    MirrorHealth,
+    VendoredDataError,
+    ascii_safe,
+)
 
 #: Lua standard-library names the game's scripts must never reach
 #: (prompts/LANE-Q.md: "sandbox: an script access io/os/require/load of Lua
@@ -221,109 +233,15 @@ class MirrorUnavailable(VendoredDataError):
     """
 
 
-@dataclass(frozen=True)
-class MirrorFailureTally:
-    """What a reader can learn about mirror health WITHOUT opening a log.
-
-    COO-DECISION ``20260907_1441`` (answering
-    ``pf_bridge/notes_to_chief/20260907_1344_LANE-Q-ASK-COO-who-reads-host-
-    failed-at-boot.md``): fail-soft is right, but "a log nobody reads" is
-    not an answer, so the host must keep at least the count, the last
-    error and a stamp in readable state.
-    """
-
-    #: How many times a vendored mirror read has failed in this process.
-    failures: int
-    #: ``<ExceptionType>: <message>`` of the most recent failure, ASCII-safe
-    #: (the bridge console is cp874), or ``None`` if there has been none.
-    last_error: Optional[str]
-    #: ISO-8601 UTC stamp of the most recent failure, or ``None``.
-    last_failed_at: Optional[str]
-
-    def log_fields(self) -> str:
-        """One ASCII field group, quoted so a reader can split on spaces."""
-        return ('mirror_failures=%d last_failed_at="%s" last_error="%s"'
-                % (self.failures, self.last_failed_at or "",
-                   self.last_error or ""))
-
-
-class MirrorHealth:
-    """The counter behind :class:`MirrorFailureTally`, safe to share.
-
-    Process-wide by default (:data:`MIRROR_HEALTH`) because the thing being
-    counted is process-wide: ``lua_api/api_spec.tsv`` is read once per
-    :class:`ScriptHost` construction, and a checkout whose mirror is broken
-    breaks every host in the process, not one of them.  A caller that wants
-    an isolated tally -- every test here does -- passes its own instance.
-
-    WHAT THE LOCK IS AND IS NOT, MEASURED (same posture ``lua_api/spec.py``
-    takes about its own ``_LOCK``).  The 16-thread test in this lane's
-    tests does NOT kill a no-lock mutant: with ``self._failures = 1``
-    replaced for ``+= 1`` two tests go red, but simply deleting the lock
-    leaves all ten green, because CPython does not interleave this
-    particular body often enough to lose a count in one run.  So the lock
-    is [PROPOSED] protection against a caller with more contention than any
-    test here produces -- it also keeps ``failures``, ``last_error`` and
-    ``last_failed_at`` from being read half-updated, which no test here
-    produces either -- and not a guard some test proves is load-bearing.
-
-    ``clock`` returns a :class:`datetime`; an aware one is converted to UTC,
-    a naive one is taken as UTC already (a test injecting a fixed clock is
-    the only caller that passes one).  It is called with the lock held: it
-    is one function call, this module never re-enters it, and reading it
-    outside the lock would let two threads write the tally's count and its
-    stamp in opposite orders.
-    """
-
-    def __init__(self, clock: Optional[Callable[[], datetime]] = None):
-        self._lock = threading.Lock()
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._failures = 0
-        self._last_error: Optional[str] = None
-        self._last_failed_at: Optional[str] = None
-
-    def record(self, exc: BaseException) -> MirrorFailureTally:
-        """Count one failed mirror read; return the tally after counting."""
-        # BOTH halves escaped, not just the message (pf-adversary D10, this
-        # round): a VendoredDataError subclass whose CLASS NAME carries a
-        # character outside cp874 would otherwise reach `print` unescaped
-        # and kill the sweep mid-report.
-        message = "%s: %s" % (
-            type(exc).__name__.encode("ascii", "backslashreplace").decode("ascii"),
-            _ascii_safe(exc))
-        with self._lock:
-            now = self._clock()
-            if now.tzinfo is not None:
-                now = now.astimezone(timezone.utc)
-            self._failures += 1
-            self._last_error = message
-            self._last_failed_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-            return MirrorFailureTally(
-                self._failures, self._last_error, self._last_failed_at)
-
-    def tally(self) -> MirrorFailureTally:
-        """The current state, as one immutable value."""
-        with self._lock:
-            return MirrorFailureTally(
-                self._failures, self._last_error, self._last_failed_at)
-
-
-#: The process-wide tally every :class:`ScriptHost` records into unless its
-#: caller hands it one of its own.  Deliberately a module-level object and
-#: not four module-level globals: a future health check reads ONE name and
-#: gets a consistent snapshot, rather than three that can disagree.
-#:
-#: NOTHING IN THIS REPOSITORY READS THIS YET, AND THAT IS SAID OUT LOUD
-#: RATHER THAN IMPLIED.  ``grep -rn "def .*health\|/health" --include=*.py
-#: src/`` returns two lines, both in ``world_scene_registry.py``
-#: (``def remembers_health``, a scene predicate) -- no health-check
-#: endpoint of any kind (pf-adversary D11, this round: the earlier wording
-#: here said the grep "finds none", which is not what it prints).
-#: COO-DECISION ``20260907_1441`` item 4 forbids this lane from inventing
-#: one.  What this closes is the half inside this lane's own walls: the
-#: state EXISTS and is readable in one attribute, so the day a health check
-#: does exist it is a one-line read instead of a log parser.
-MIRROR_HEALTH = MirrorHealth()
+# `MirrorFailureTally`, `MirrorHealth` and the process-wide `MIRROR_HEALTH`
+# USED TO BE DEFINED HERE (round `95aw54`).  They now live in
+# `lua_api/vendored.py` and are imported at the top of this module, so every
+# name this module published still resolves from `script_host` -- no caller
+# and no test changes -- while the three mirrors that are read LAZILY, long
+# after any host was built, can record into the same object.  A loader in
+# `lua_api` importing this module would be an import cycle; `vendored.py` is
+# the leaf every one of them already imports.  See that module's own comment
+# block for the two pf-adversary findings (D3, D6) that moved it.
 
 
 def guard_mirrors(build: Callable[[], Any], log: Callable[[str], None],
@@ -334,15 +252,21 @@ def guard_mirrors(build: Callable[[], Any], log: Callable[[str], None],
 
     ``build`` is a callable rather than a value so the guard covers
     everything a construction does rather than one read it knows the name
-    of.  WHAT IT COVERS TODAY, MEASURED (pf-adversary D3/D4, this round --
-    an earlier draft of this docstring claimed more): exactly ONE of the
-    four mirrors under ``lua_api/``, ``api_spec.tsv``, because that is the
-    only one a construction reads.  ``message_catalog.tsv`` and the two
-    ``quest_criteria_*.tsv`` are read inside the namespaces' own call
-    closures, so a broken copy of any of them builds a host fine and
-    raises at CALL time, where this counter never sees it.  Those three
-    are named in ``docs/SCRIPT_LANE.md`` as the next round's first job,
-    not covered here and not implied to be.
+    of.  WHAT IT COVERS, MEASURED: exactly ONE of the four mirrors under
+    ``lua_api/``, ``api_spec.tsv``, because that is the only one a
+    construction reads -- so what it records is now recorded UNDER THAT
+    KEY (``MIRROR_API_SPEC``) rather than into an unkeyed count.
+
+    The other three (``message_catalog.tsv`` and the two
+    ``quest_criteria_*.tsv``) are read lazily inside the namespaces' own
+    call closures, so a broken copy of any of them builds a host fine and
+    raises at CALL time, which no construction-time guard can see
+    (pf-adversary D3, round ``95aw54``).  They are covered now, but not by
+    this function: their loaders call ``lua_api.vendored.read_mirror``,
+    which records into the SAME :data:`MIRROR_HEALTH` under their own keys
+    and then re-raises.  Two functions rather than one with a flag,
+    because the two jobs differ: this one swallows so a host can be built
+    degraded, that one re-raises so a call fails.
 
     Returns ``(value, None)`` when ``build`` succeeds and ``(None, tally)``
     when it does not, so a caller can both say it is degraded and carry
@@ -362,12 +286,20 @@ def guard_mirrors(build: Callable[[], Any], log: Callable[[str], None],
     """
     health = MIRROR_HEALTH if health is None else health
     try:
-        return build(), None
+        value = build()
     except _host_side_error_types() as exc:
-        tally = health.record(exc)
+        tally = health.record(exc, MIRROR_API_SPEC)
         log("LUA_MIRROR_DEGRADED %s discovered_at=\"%s\""
             % (tally.log_fields(), discovered_at))
         return None, tally
+    # OUTSIDE the try, so a success signal is recorded for a read that
+    # SUCCEEDED and never for one whose failure was raised by the recording
+    # itself.  This is the other half of pf-adversary D6: without it
+    # ``broken_now`` for this mirror would latch true after the first bad
+    # checkout and stay true for the life of the process even once the file
+    # was repaired and every later host built fine.
+    health.record_ok(MIRROR_API_SPEC)
+    return value, None
 
 
 def _require_lupa() -> None:
@@ -671,8 +603,14 @@ def _host_side_error_types():
 
 def _ascii_safe(exc: BaseException) -> str:
     """Console-safe text for any exception (AGENTS.md section 7: everything
-    printed is ASCII -- the bridge console is cp874)."""
-    return str(exc).encode("ascii", "backslashreplace").decode("ascii")
+    printed is ASCII -- the bridge console is cp874).
+
+    ONE implementation, in ``lua_api/vendored.py``, because the counter
+    that lives there escapes the same way and two copies of an escaping
+    rule are two copies that can drift.  This name is kept because every
+    caller in this module already uses it.
+    """
+    return ascii_safe(exc)
 
 
 def _log_host_side(log: Callable[[str], None], rel: str,
