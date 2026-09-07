@@ -65,6 +65,31 @@ or similar without a citation to the RE answer that proves it.
 This module decodes a payload already split out of its runtime-vital
 envelope; it does not execute, dispatch, or interpret anything, and it does
 not read off a live socket.
+
+WHERE THE ENVELOPE ENDS, AND WHY THIS FILE DOES NOT STRIP IT (RE-292,
+pf_bridge/notes_to_chief/20260907_1315_RE-292-RESULT-first-0B-is-vital-
+version-presence-is-the-second-pair.md).  Every runtime vital -- not just
+0x51E9 -- carries a one-byte ``vital_version`` under tag 0x0B written by the
+COMMON envelope at VA 0x005F3993 from ``vital_object + 0x10``, between the
+u16 class id (tag 0x12) and the class serializer's own first byte.  The
+receiving side reads it at 0x005F3EF4 and compares it for EXACT equality
+with its own ``+0x10`` at 0x005F3EFC/0x005F3F01; a mismatch raises
+ErrorData=0xE0000031 and the WHOLE frame is dropped, with no client-side log
+a tester at the keyboard can see.  So an outbound composer must send the
+version the client expects (measured 0 for 0x51E9); this is not optional.
+
+That envelope pair is ALREADY CONSUMED before any byte reaches this module:
+``current/pf_login_game_server_v141.py``'s ``parse_outer`` reads
+``nested_version = c.u8(0x0B)`` and only then slices ``nested_payload``, so
+``decode_gm_run_command_vital`` is handed the class serializer's own bytes
+and must NOT read a version of its own.  RE-292's BUILD_IMPACT item 1 ("add
+vital_version as the first field of the decoder") is therefore already
+satisfied one layer up for this repository, and adding it here would move
+the decoder one field off the wire rather than onto it.
+``tests/test_gm_run_command_envelope_version_boundary.py`` pins that
+boundary against RE-292's own three real R322B frames, driving v141's real
+parser, so the day the envelope stops stripping the pair the pin goes red
+instead of this file quietly decoding garbage.
 """
 from __future__ import annotations
 
@@ -86,6 +111,14 @@ RESULT_SERIALIZER_SPAN_SHA256 = (
 
 _TAG_U8 = 0x0B
 _TAG_U32 = 0x14
+
+#: Tag the COMMON runtime-vital envelope writes before its one-byte
+#: ``vital_version``, between the u16 class id and the class serializer's
+#: first byte (RE-292; writer VA 0x005F3993, reader VA 0x005F3EF4).  Named
+#: here so a reader of this file can recognise the pair on sight; nothing in
+#: this module consumes it, because ``parse_outer`` already has -- see the
+#: module docstring.
+VITAL_ENVELOPE_VERSION_TAG = 0x0B
 
 
 class GmCommandWireError(ValueError):
@@ -194,41 +227,100 @@ def _read_tagged_wstring(buf: bytes, offset: int) -> tuple[str, int]:
     return text, end
 
 
-def decode_gm_run_command_vital(raw: bytes) -> GmRunCommandBody | None:
-    """Decode the RE-088 pinned wire shape of one GM_RunGMCommandVital payload.
+#: Appended to the `presence=0 but N trailing byte(s) remain` message.  That
+#: exact shape cannot come from a well-formed class payload -- RE-088 says a
+#: zero presence stops the serializer, so there is nothing left to write --
+#: but it IS what an un-stripped envelope looks like, because the envelope's
+#: `0B <vital_version>` pair reads as a zero presence followed by the whole
+#: real body (RE-292, measured on all three R322B 0x51E9 frames).  This is a
+#: HINT at the most common cause, not a claim about these particular bytes:
+#: a fuzzed or new-shape client frame can produce the same message.
+_UNSTRIPPED_ENVELOPE_HINT = (
+    " -- this is the shape an un-stripped runtime-vital envelope makes: its"
+    f" tag 0x{VITAL_ENVELOPE_VERSION_TAG:02X} vital_version pair reads as a"
+    " zero presence and the real body follows (RE-292).  Callers pass the"
+    " bytes AFTER the id+version header, which parse_outer already strips"
+)
 
-    ``raw`` is the vital's payload bytes only (the bytes after vital id and
-    version in the runtime-vital envelope), not the whole frame.
 
-    Returns ``None`` when the presence flag is 0 -- a structurally valid,
-    empty message (RE-088: "if zero, serializer stops").  Raises
-    ``GmCommandWireError`` when the bytes do not match the pinned shape,
-    including any bytes left over after a nested body decodes cleanly: a
-    real client payload is expected to consume the buffer exactly.
+def decode_gm_run_command_vital_prefix(
+    raw: bytes,
+) -> tuple[GmRunCommandBody | None, int]:
+    """Decode one nested body from the FRONT of ``raw``; report bytes used.
+
+    Same pinned shape and same exceptions as ``decode_gm_run_command_vital``
+    below, minus its "the buffer must end here" rule: this returns
+    ``(body, consumed)`` and leaves the caller to decide what any remaining
+    bytes are.  ``body`` is ``None`` for a zero presence (RE-088: the
+    serializer stops), in which case ``consumed`` is 2.
+
+    It exists because ``runtime.py`` hands this lane
+    ``bytes(parsed.nested_payload)``, and v141 sets that to EVERY BYTE AFTER
+    THE FIRST NESTED VITAL'S HEADER -- not to the first vital's body.  On a
+    frame carrying one vital the two are the same bytes; on a frame carrying
+    two they are not, and the client is MEASURED to bundle up to five (ka1-A
+    attended round R303, pf_bridge letter 20260902_1800; and R313 caught a
+    real chat frame with 0xAC52 followed by 0x0F01 in one frame, which is
+    why ``gm/chat_frame_tail.py`` exists for the chat door).  This function
+    is the same courtesy for 0x51E9's door: it lets a reader recover the
+    command's own fields instead of losing them to a trailing-bytes refusal.
+
+    It does NOT interpret, walk, or claim anything about the remaining
+    bytes.  Deciding whether they are further whole vitals needs
+    ``vital_walk``'s declared body lengths and a ``legacy`` handle, which
+    this module deliberately does not take.
     """
     if not isinstance(raw, (bytes, bytearray)):
         raise TypeError("raw must be bytes")
     buf = bytes(raw)
     presence, offset = _read_u8_tag(buf, 0, _TAG_U8)
     if presence == 0:
-        if offset != len(buf):
-            raise GmCommandWireError(
-                f"presence=0 but {len(buf) - offset} trailing byte(s) remain"
-            )
-        return None
+        return None, offset
     field_0x10, offset = _read_u32_tag(buf, offset, _TAG_U32)
     field_0x14, offset = _read_u32_tag(buf, offset, _TAG_U32)
     field_0x18, offset = _read_u8_tag(buf, offset, _TAG_U8)
     string_0x1c, offset = _read_tagged_wstring(buf, offset)
     string_0x38, offset = _read_tagged_wstring(buf, offset)
+    return (
+        GmRunCommandBody(
+            presence, field_0x10, field_0x14, field_0x18, string_0x1c, string_0x38
+        ),
+        offset,
+    )
+
+
+def decode_gm_run_command_vital(raw: bytes) -> GmRunCommandBody | None:
+    """Decode the RE-088 pinned wire shape of one GM_RunGMCommandVital payload.
+
+    ``raw`` is the vital's payload bytes only (the bytes after vital id and
+    version in the runtime-vital envelope), not the whole frame.  RE-292
+    proves where that boundary is and that ``parse_outer`` already puts it
+    there -- see the module docstring; this function must not read a version
+    byte of its own.
+
+    Returns ``None`` when the presence flag is 0 -- a structurally valid,
+    empty message (RE-088: "if zero, serializer stops").  Raises
+    ``GmCommandWireError`` when the bytes do not match the pinned shape,
+    including any bytes left over after a nested body decodes cleanly: a
+    real client payload is expected to consume the buffer exactly.  Callers
+    that must survive a multi-vital frame want
+    ``decode_gm_run_command_vital_prefix`` instead of relaxing this rule.
+    """
+    body, offset = decode_gm_run_command_vital_prefix(raw)
+    buf = bytes(raw)
+    if body is None:
+        if offset != len(buf):
+            raise GmCommandWireError(
+                f"presence=0 but {len(buf) - offset} trailing byte(s) remain"
+                + _UNSTRIPPED_ENVELOPE_HINT
+            )
+        return None
     if offset != len(buf):
         raise GmCommandWireError(
             f"nested body decoded cleanly but {len(buf) - offset} trailing "
             "byte(s) remain"
         )
-    return GmRunCommandBody(
-        presence, field_0x10, field_0x14, field_0x18, string_0x1c, string_0x38
-    )
+    return body
 
 
 def decode_gm_run_command_result_vital(raw: bytes) -> int:

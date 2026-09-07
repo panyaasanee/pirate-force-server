@@ -49,10 +49,70 @@ from .activity_cheat_code_wire import (
     GmActivityCheatCodeWireError,
     decode_activity_cheat_code_vital,
 )
-from .command_wire import GmCommandWireError, decode_gm_run_command_vital
+from .command_wire import (
+    GmCommandWireError,
+    decode_gm_run_command_vital,
+    decode_gm_run_command_vital_prefix,
+)
 from .login_scene_override import console_safe
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
+
+#: Tag byte a nested vital's u16 class id is written under inside a v141
+#: packet.  MEASURED, not assumed: RE-292 lines 28-29 read the writer at VA
+#: 0x005F3956 pushing 0x12, and v141 itself writes `u16tag(0x12, msg_id)` at
+#: `:703`.
+#:
+#: It is NOT on its own a signal that a tail is a nested vital.  v141's
+#: `parse_outer` (`:2902`) opens an OUTER packet with `outer_id = c.u16(0x12)`
+#: too, so the likeliest tail splice of all -- a second whole packet appended
+#: -- also starts with this byte.  What this sink checks is the five-byte
+#: nested HEADER, below.
+NESTED_VITAL_ID_TAG = 0x12
+
+#: Tag byte the envelope's version is written under, the second half of a
+#: nested vital's header (RE-292: `u16(tag 0x12)` id then `u8(tag 0x0B)`
+#: version).
+NESTED_VITAL_VERSION_TAG = 0x0B
+
+#: A nested vital header is exactly these five bytes.  `gm/chat_frame_tail.py`
+#: reads the same header at `:325-326` (`cursor.u16(0x12)`, `cursor.u8(0x0B)`)
+#: with `_NESTED_HEADER_LENGTH = 5` at `:215`, and -- this is why the check is
+#: available here -- reading THOSE FIVE BYTES needs no body-length table, so it
+#: costs this sink neither a `vital_walk` import nor a `legacy` handle.
+#:
+#: It is a SUBSET of what `chat_frame_tail` does, not "the same rule"
+#: (pf-adversary round `xex30b`, D7): that module walks on with
+#: `body_length_table(legacy)` and returns a NAMED reason (`TAIL_WALKED`,
+#: `TAIL_UNDECLARED_BODY`, `TAIL_TRUNCATED`).  This sink copies the header
+#: half and stops there, which is why its own sentence has to hedge.
+#:
+#: The earlier claim that one byte was "the ONLY signal this sink has" was
+#: written without grepping this lane's own directory; it was false when
+#: written (pf-adversary round `uk16x4`, H1/M2).
+NESTED_VITAL_HEADER_LENGTH = 5
+
+
+def looks_like_nested_vital_header(tail: bytes) -> bool:
+    """True when `tail` OPENS with a well-formed nested vital header.
+
+    Necessary, still not sufficient -- a second whole packet whose own
+    fourth byte happens to be 0x0B would pass, and nothing this sink can
+    reach rules that out.  So callers must say "consistent with", never
+    "is".  What it does buy over `tail[0] == 0x12` is measured, not
+    argued: a lone `0x12`, a short tail, and the actual head of a second
+    v141 packet (`12 c2 0b 14 ...`, whose byte 3 is `0x14`) all fail it.
+    """
+    # Both halves are load-bearing and neither is a range: byte 0 must be
+    # the ID tag exactly (0x0B, the version tag, is the byte an un-stripped
+    # envelope's leftover opens with, and accepting it here would report
+    # that very defect as "not a defect" -- pf-adversary round `xex30b`,
+    # D1), and byte 3 must be the version tag exactly.
+    return (
+        len(tail) >= NESTED_VITAL_HEADER_LENGTH
+        and tail[0] == NESTED_VITAL_ID_TAG
+        and tail[3] == NESTED_VITAL_VERSION_TAG
+    )
 
 DEFAULT_CAPTURE_ROOT = "capture/gm_command_capture"
 
@@ -441,13 +501,7 @@ def _escape_for_header(text: str) -> str:
     return text.encode("unicode_escape").decode("ascii")
 
 
-def _decode_section(raw: bytes) -> str:
-    try:
-        body = decode_gm_run_command_vital(raw)
-    except GmCommandWireError as exc:
-        return f"# decode: FAILED against RE-088 pin -- {exc}\n"
-    if body is None:
-        return "# decode: presence=0 (no nested body; structurally valid, empty)\n"
+def _body_lines(body) -> str:
     return (
         f"# decode: presence={body.presence} (nonzero -- RE-088 pin; field"
         " names are positional, not semantic)\n"
@@ -456,6 +510,124 @@ def _decode_section(raw: bytes) -> str:
         f"# decode: string_0x1c=\"{_escape_for_header(body.string_0x1c)}\"\n"
         f"# decode: string_0x38=\"{_escape_for_header(body.string_0x38)}\"\n"
     )
+
+
+def _decode_section(raw: bytes) -> str:
+    """The `# decode:` block for one GM_RunGMCommandVital payload.
+
+    Three outcomes, and the middle one is why this is not a two-liner.
+    `runtime.py` hands this lane `bytes(parsed.nested_payload)`, which v141
+    sets to EVERY BYTE AFTER THE FIRST NESTED VITAL'S HEADER -- so on a
+    frame carrying more than one vital the bytes after this command's own
+    body belong to the vital next door.  The client is MEASURED to bundle
+    up to five (ka1-A attended round R303; R313 caught a real chat frame
+    with 0xAC52 followed by 0x0F01, which is why `gm/chat_frame_tail.py`
+    exists).  Before this branch such a capture printed only
+    `# decode: FAILED ... trailing byte(s) remain` and threw the decoded
+    command away -- the reader lost the fields to a frame shape that is not
+    a defect.  Now the fields are printed and the leftover is REPORTED, on
+    its own greppable `# decode: TRAILING` line.
+
+    What that line does NOT say is what the leftover bytes ARE.  Deciding
+    that needs `vital_walk`'s declared body lengths and a `legacy` handle,
+    and this sink takes neither by design -- it must keep working when
+    nothing else does.  So it reports a length and the tail's first tag
+    byte, never an interpretation.
+
+    The one exception, and the reason it is an exception rather than a
+    guess: a nested vital in a v141 packet OPENS with a five-byte header --
+    `u16(tag 0x12)` class id then `u8(tag 0x0B)` version (RE-292).  A tail
+    shorter than five bytes, or whose byte 0 is not 0x12, or whose byte 3 is
+    not 0x0B, is therefore NOT the multi-vital shape, whatever else it may
+    be -- a splice bug at the TAIL, a sixth field the RE-088 pin does not
+    know, or a frame nobody has measured.  Those cases keep their
+    `# decode: FAILED` line so that
+    `tests/test_gm_command_capture_splice_contract.py`'s greppable marker
+    holds in BOTH directions.
+
+    NOTE -- The header check is NECESSARY, NOT SUFFICIENT, and the line printed
+    when it passes says "consistent with" for that reason.  An earlier
+    version of this branch checked byte 0 alone and asserted a cause
+    outright; v141's `parse_outer` (`:2902`) opens an OUTER packet with
+    `outer_id = c.u16(0x12)`, so the head of a second whole packet appended
+    at the tail -- the likeliest splice of all -- passed that guard and was
+    reported as a multi-vital frame with the greppable FAILED marker
+    swallowed (pf-adversary round uk16x4, H1: the same defect as D2,
+    entering through a different byte).  Byte 3 of that head is 0x14, so
+    the five-byte rule refuses it; a lone stray 0x12 is refused for length.
+    """
+    try:
+        body = decode_gm_run_command_vital(raw)
+    except GmCommandWireError as exc:
+        try:
+            prefix_body, consumed = decode_gm_run_command_vital_prefix(raw)
+        except GmCommandWireError:
+            prefix_body, consumed = None, 0
+        if consumed and consumed < len(raw):
+            tail = raw[consumed:]
+            # `consumed` is nonzero only when the prefix decoder read a whole
+            # presence byte, so a None body here means presence=0 -- a first
+            # vital that is structurally valid and empty, NOT a decode
+            # failure of its own (pf-adversary round uk16x4, M3: this arm
+            # used to accuse every presence=0 tail of being an un-stripped
+            # envelope, including a real multi-vital frame whose first vital
+            # is empty).  The un-stripped envelope stays distinguishable:
+            # its tail opens `0x0B <version>`, which fails the header rule.
+            head_lines = (
+                _body_lines(prefix_body)
+                if prefix_body is not None
+                else "# decode: presence=0 for THIS vital (no nested body;"
+                " structurally valid, empty)\n"
+            )
+            if looks_like_nested_vital_header(tail):
+                return (
+                    head_lines
+                    + f"# decode: TRAILING {len(tail)} byte(s) after this"
+                    " vital's body, opening with a well-formed nested vital\n"
+                    f"# decode: header (0x{NESTED_VITAL_ID_TAG:02X} id tag,"
+                    f" 0x{NESTED_VITAL_VERSION_TAG:02X} version tag at byte 3,"
+                    f" {NESTED_VITAL_HEADER_LENGTH} bytes) --\n"
+                    "# decode: CONSISTENT WITH a multi-vital frame (v141"
+                    " nested_payload runs to the end of the packet).\n"
+                    "# decode: Necessary, not sufficient -- a sixth field the"
+                    f" RE-088 pin does not know, written under tag"
+                    f" 0x{NESTED_VITAL_ID_TAG:02X}\n"
+                    "# decode: then tag"
+                    f" 0x{NESTED_VITAL_VERSION_TAG:02X} (both tags this very"
+                    " serializer already uses), reaches this line too.\n"
+                    "# decode: Deciding more than this needs a body-length"
+                    " table this sink does not take.  Not decoded here; the"
+                    " hex\n"
+                    "# decode: dump below still carries every byte.\n"
+                )
+            return (
+                head_lines
+                + f"# decode: FAILED against RE-088 pin -- {exc}\n"
+                + f"# decode: TRAILING {len(tail)} byte(s) after this vital's"
+                f" body, opening with tag 0x{tail[0]:02X}, which is NOT a\n"
+                f"# decode: well-formed nested vital header"
+                f" (0x{NESTED_VITAL_ID_TAG:02X} id tag then"
+                f" 0x{NESTED_VITAL_VERSION_TAG:02X} version tag at byte 3, five"
+                " bytes minimum), so\n"
+                "# decode: this tail does not OPEN as a nested vital.  The"
+                " frame may still be multi-vital -- a sixth field on\n"
+                "# decode: this vital would push the next header past byte 0."
+                "  Cause unknown here:\n"
+                "# decode: a splice bug at the tail, a sixth field the RE-088"
+                " pin does not know, or a frame shape nobody has measured.\n"
+                + (
+                    "# decode: The fields above are what the pinned five"
+                    " decoded to; the hex dump below still carries every"
+                    " byte.\n"
+                    if prefix_body is not None
+                    else "# decode: No field decoded for this vital (presence"
+                    " was 0); the hex dump below still carries every byte.\n"
+                )
+            )
+        return f"# decode: FAILED against RE-088 pin -- {exc}\n"
+    if body is None:
+        return "# decode: presence=0 (no nested body; structurally valid, empty)\n"
+    return _body_lines(body)
 
 
 def _activity_cheat_code_decode_section(raw: bytes) -> str:
