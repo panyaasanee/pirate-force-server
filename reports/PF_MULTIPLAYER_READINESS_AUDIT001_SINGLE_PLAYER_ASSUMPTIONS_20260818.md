@@ -357,6 +357,17 @@ and `test_tornado_eagle_strict_profile`) for the GEO-PF-006 GT-034 observation s
 counts test functions in those files, so it moves in the same commit as the tests. Re-derived on the cloud clone
 by `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
 
+**Re-pin, chief round 388 (2026-09-07): `package_a_pinned_test_functions` 96 -> 99.** Same rule as the
+re-pins above, not drift and not a correction: `tests/test_runtime_console.py` is one of the seven
+package-A pinned files, and round 388 added three tests to it (`RuntimeConsoleLifetimeTest`) when it
+fixed `RuntimeConsole.close()` handing `sys.stdout` to a mirror whose retained file was already
+closed -- the shape that exits the process with code 120 and swallows the operator's last line. The
+pinned-impact number counts test functions in those files, so it moves in the same commit as the
+tests. The L06 assumption site is unaffected in substance and in spelling: `RuntimeConsole.__init__`
+still builds both mirrors through `build_console_mirror` and still swaps stdout and stderr; the
+assignment is now via a named attribute so `close()` can ask whether the stream it installed is still
+in place, and the L06 pin matches on the factory call, which did not move.
+
 **Re-pin, chief round 386 (2026-09-07): `package_a_pinned_test_functions` 93 -> 96, and the L06
 guard re-spelled.** Same rule as the re-pins above, not drift and not a correction:
 `tests/test_runtime_console.py` is one of the seven package-A pinned files, and round 386 added three
@@ -433,7 +444,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "package_a_files_new": 1,
   "package_a_sites_covered": 32,
   "package_a_pinned_test_files": 7,
-  "package_a_pinned_test_functions": 96,
+  "package_a_pinned_test_functions": 99,
   "package_b_files_touched": 5,
   "package_b_files_new": 2,
   "package_b_sites_covered": 6,
