@@ -293,34 +293,49 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from . import inventory
 from .inventory import (
-    INITIAL_BACKPACK,
-    MERGED_V111_BACKPACK,
     BackpackState,
     ItemAttrState,
     require_backpack_shape,
 )
 
 
-#: The snapshots ``is_unmoved_baseline`` admits.  This is a SECOND copy of a
-#: list that lives inside that function, and the honest way to hold it is not
-#: a subset assertion.  The first draft guarded it with
-#: "GOLDEN_BACKPACKS is a subset of baseline", which cannot see the case that
-#: matters: add
-#: a THIRD baseline to ``is_unmoved_baseline`` and this module silently becomes
-#: STRICTLY NARROWER than the gate it claims to reproduce, with the guard still
-#: green -- measured by pf-adversary, who added one and watched the test pass
-#: while ``may_enter_world`` refused a bag today's gate admits.
+#: The snapshots ``is_unmoved_baseline`` admits.  It used to be a SECOND copy
+#: of a list that lived inside that function, guarded by an ``ast`` test that
+#: read the function's source and required the names in its comparison tuple to
+#: be exactly these, in this order -- because a subset assertion cannot see a
+#: THIRD baseline being added there, which makes this module silently STRICTLY
+#: NARROWER than the gate it claims to reproduce (measured by pf-adversary, who
+#: added one and watched the test pass while ``may_enter_world`` refused a bag
+#: today's gate admits).
 #:
-#: ``inventory.py`` is outside this lane's write zone, so the fix is not to
-#: export a shared constant from there.  Instead
-#: ``test_the_goldens_are_exactly_the_ones_is_unmoved_baseline_compares_against``
-#: reads ``is_unmoved_baseline``'s own source with ``ast`` and requires the
-#: names in its comparison tuple to be EXACTLY these, in this order.  A third
-#: baseline added there fails this file instead of quietly shrinking the gate.
-GOLDEN_BACKPACKS: tuple[BackpackState, ...] = (
-    INITIAL_BACKPACK, MERGED_V111_BACKPACK,
-)
+#: It is not a copy any more.  ``is_unmoved_baseline`` and this tuple are now
+#: both built from ``inventory.STARTING_BACKPACKS`` and
+#: ``inventory.MERGED_V111_BACKPACKS``, so there is no second list to drift:
+#: adding a baseline there adds it in both places or in neither.  What
+#: replaces the source-reading guard is a MECHANISM test
+#: (``test_the_two_gates_move_together_when_the_starting_set_moves``) that
+#: installs an extra starting bag into that module and requires BOTH answers to
+#: move -- which also catches the copy this file no longer makes.
+#:
+#: Order: every starting bag first, then their merged counterparts, so with
+#: one starting bag the tuple is byte-for-byte the pair this module has always
+#: listed, in the same order, and ``golden=initial``/``golden=merged_v111``
+#: keep meaning what every existing grep of the console token expects.
+def golden_backpacks() -> tuple[BackpackState, ...]:
+    """The goldens, read from ``inventory`` at CALL time, not at import.
+
+    A module-level tuple built once at import is a copy again the moment
+    anything can change the starting set after this module is loaded -- and
+    the mechanism test below does exactly that, because a guard that cannot
+    move the input cannot prove the two gates move together.  A function is
+    also the only version that stays honest when
+    ``inventory.STARTING_BACKPACKS`` becomes LANE-CS's call.
+    """
+    return (
+        *inventory.STARTING_BACKPACKS, *inventory.MERGED_V111_BACKPACKS,
+    )
 
 #: See NONCLAIM 4: duplicated from ``mob_pickup`` rather than imported, and
 #: pinned equal to it by the test file.  ``BAG_SLOT_COUNT`` is here because
@@ -620,7 +635,7 @@ def classify(
         )
 
     refusals: list[tuple[tuple, BagAdmission]] = []
-    for index, golden in enumerate(GOLDEN_BACKPACKS):
+    for index, golden in enumerate(golden_backpacks()):
         admission = _classify_against(value, golden, index, issued_through)
         if admission.admissible:
             return admission
@@ -719,16 +734,29 @@ def may_enter_world(
     return admission.verdict == VERDICT_GOLDEN_PLUS_ACQUIRED
 
 
-#: Names for the two snapshots, index-aligned with ``GOLDEN_BACKPACKS``, so
-#: a console line survives the tuple being reordered.
-GOLDEN_NAMES: tuple[str, ...] = ("initial", "merged_v111")
+def golden_names() -> tuple[str, ...]:
+    """Names index-aligned with ``golden_backpacks()``, derived from its shape.
+
+    Index 0 of each half keeps the name it has always had, so the console
+    token an attended run greps (``golden=initial``, ``golden=merged_v111``)
+    does not change meaning on the day the set grows.  The rest are suffixed
+    with their position in ``inventory.STARTING_BACKPACKS``, which LANE-CS's
+    letter 20260908_0022 pins to ``class_catalog.CLASS_IDS`` order -- a
+    position, not a guessed class name.
+    """
+    return tuple(
+        stem if index == 0 else f"{stem}_{index}"
+        for stem in ("initial", "merged_v111")
+        for index in range(len(inventory.STARTING_BACKPACKS))
+    )
 
 
 def golden_name(index: int | None) -> str:
-    """``GOLDEN_NAMES[index]``, or ``none`` for a refusal with no golden."""
-    if index is None or not 0 <= index < len(GOLDEN_NAMES):
+    """``golden_names()[index]``, or ``none`` for a refusal with no golden."""
+    names = golden_names()
+    if index is None or not 0 <= index < len(names):
         return "none"
-    return GOLDEN_NAMES[index]
+    return names[index]
 
 
 def console_line(admission: BagAdmission) -> str:
@@ -740,7 +768,7 @@ def console_line(admission: BagAdmission) -> str:
     """
     # The golden is named, not numbered.  An index into a module-level tuple
     # means whatever the tuple order means that day: reorder
-    # ``GOLDEN_BACKPACKS`` and ``golden=0`` silently changes which snapshot it
+    # ``golden_backpacks()`` and ``golden=0`` silently changes which snapshot it
     # refers to, while every grep of the token keeps matching.  A greppable
     # token whose meaning depends on declaration order is not a report.
     parts = [

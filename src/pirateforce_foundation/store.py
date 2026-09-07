@@ -13,8 +13,11 @@ from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
     INITIAL_BACKPACK,
     MERGED_V111_BACKPACK,
+    MERGED_V111_BACKPACKS,
+    STARTING_BACKPACKS,
     ItemAttrState,
     merge_known_item_into_occupied_slot,
+    merged_v111_state,
     move_known_item_to_free_slot,
     require_backpack_shape,
     swap_known_item_with_occupied_slot,
@@ -1072,10 +1075,20 @@ class SQLiteStore:
             db.execute("BEGIN IMMEDIATE")
             self._require_selected_session(db, sid, character_id)
             before = self._load_backpack(db, character_id)
-            if before == MERGED_V111_BACKPACK:
+            if before in MERGED_V111_BACKPACKS:
                 return None
-            if before != INITIAL_BACKPACK:
+            if before not in STARTING_BACKPACKS:
                 raise ValueError("Backpack is outside the exact V111 pre-state")
+            # DERIVED from the row that is actually there, not the one
+            # constant this method used to compare against.  The merge folds
+            # identity 3 into identity 1 and never touches the weapon row, so
+            # a class born holding a different weapon merges to a bag that
+            # differs from MERGED_V111_BACKPACK in exactly that row.  Checking
+            # the post-state against the constant would raise AFTER the UPDATE
+            # and DELETE below had already run -- inside the transaction, so
+            # nothing is written, but the caller is told the row changed under
+            # it when in fact the merge was correct and the expectation wrong.
+            expected_after = merged_v111_state(before)
             updated = db.execute(
                 "UPDATE character_backpack_items SET quantity=2 "
                 "WHERE character_id=? AND item_identity=1 AND template_id=2600001 "
@@ -1099,7 +1112,7 @@ class SQLiteStore:
                 (_now(), character_id),
             )
             after = self._load_backpack(db, character_id)
-            if after != MERGED_V111_BACKPACK:
+            if after != expected_after:
                 raise RuntimeError("exact V111 post-state validation failed")
             return after
 

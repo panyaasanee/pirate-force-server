@@ -90,8 +90,77 @@ def _item_content_signature(item: ItemAttrState) -> tuple[int, ...]:
     )
 
 
-_INITIAL_CONTENT = tuple(_item_content_signature(item) for item in INITIAL_BACKPACK.items)
-_MERGED_CONTENT = tuple(_item_content_signature(item) for item in MERGED_V111_BACKPACK.items)
+#: Every bag a character can be BORN holding.  One tuple, read by all three
+#: content gates below and -- through them -- by ``bag_admission`` and by
+#: ``store.apply_v111_stack_merge``, so widening the set is one edit and no
+#: gate can be left behind.  COO-DECISION 20260907_2342 made this lane the
+#: owner of that widening.
+#:
+#: Today it holds ONE bag, which is the same bag it held when the gates
+#: compared against ``INITIAL_BACKPACK`` by name: this commit changes the
+#: SHAPE of the rule ("is the bag in the starting set") without changing the
+#: set, so no character's answer moves.  LANE-CS owns the contents:
+#: ``class_starting_gear.starting_backpack_states()`` (their PR #1091, NOT on
+#: main at the time of writing) returns five, one per class in
+#: ``class_catalog.CLASS_IDS`` order, and their letter 20260908_0022 pins that
+#: its FIRST entry is this very object rather than an equal copy -- which is
+#: what keeps every character alive today admitted by identity.  Swapping this
+#: literal for that call is the whole of the remaining change.
+STARTING_BACKPACKS: tuple[BackpackState, ...] = (INITIAL_BACKPACK,)
+
+
+def merged_v111_state(before: BackpackState) -> BackpackState:
+    """The exact V111 post-merge state for one starting bag.
+
+    The merge is "identity 3's stack folds into identity 1, and identity 3
+    goes"; it touches neither the weapon row nor the base fields.  DERIVING
+    the post-state instead of comparing against one constant is what lets the
+    starting set grow: the day a class is born holding a different weapon, its
+    merged bag differs from ``MERGED_V111_BACKPACK`` in exactly that row, and
+    a constant post-state check would reject a merge it had just performed --
+    leaving the row already written.  Pinned against the measured constant by
+    ``test_inventory_starting_set``.
+
+    Raises ``ValueError`` if the rows the merge needs are not both present,
+    rather than silently returning ``before``: a caller asking for the
+    post-state of a bag that cannot merge has a bug, and a quiet answer here
+    becomes a post-state check that passes on an unchanged row.
+    """
+    by_identity = {item.identity: item for item in before.items}
+    target = by_identity.get(1)
+    source = by_identity.get(3)
+    if target is None or source is None:
+        raise ValueError("the V111 merge needs identities 1 and 3")
+    if target.template_id != source.template_id:
+        raise ValueError("the V111 merge needs one template on both rows")
+    merged_rows = tuple(
+        replace(item, quantity=target.quantity + source.quantity)
+        if item.identity == 1 else item
+        for item in before.items
+        if item.identity != 3
+    )
+    return replace(before, items=merged_rows)
+
+
+#: The post-merge counterpart of every entry of ``STARTING_BACKPACKS``, index
+#: aligned with it.  Derived, not typed: see ``merged_v111_state``.
+MERGED_V111_BACKPACKS: tuple[BackpackState, ...] = tuple(
+    merged_v111_state(state) for state in STARTING_BACKPACKS
+)
+
+
+def _content_allowlist() -> tuple[tuple[tuple[int, ...], ...], ...]:
+    """The content signatures ``require_known_backpack`` admits.
+
+    Computed per call rather than frozen at import.  ``STARTING_BACKPACKS``
+    becomes a call into LANE-CS's module in the commit after this one, and a
+    module-level snapshot of it would keep answering with the set that existed
+    at import time -- a gate that is stale in exactly the way nothing tests.
+    """
+    return tuple(
+        tuple(_item_content_signature(item) for item in state.items)
+        for state in STARTING_BACKPACKS + MERGED_V111_BACKPACKS
+    )
 
 
 def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
@@ -154,14 +223,21 @@ def require_known_backpack(value: Any) -> BackpackState:
     """
     value = require_backpack_shape(value)
     content = tuple(_item_content_signature(item) for item in value.items)
-    if content not in (_INITIAL_CONTENT, _MERGED_CONTENT):
+    if content not in _content_allowlist():
         raise ValueError("backpack contents are outside the governed V111 allowlist")
     return value
 
 
 def is_unmoved_baseline(value: Any) -> bool:
-    """Return whether a state is one of the two production-neutral snapshots."""
-    return value in (INITIAL_BACKPACK, MERGED_V111_BACKPACK)
+    """Return whether a state is one of the production-neutral snapshots.
+
+    "The two snapshots" was true while every character was born holding the
+    same bag.  It is now every starting bag and its merged counterpart --
+    ``bag_admission.GOLDEN_BACKPACKS`` is built from the same two tuples, so
+    the two gates cannot drift apart the way the AST guard in
+    ``test_bag_admission`` used to watch for.
+    """
+    return value in STARTING_BACKPACKS or value in MERGED_V111_BACKPACKS
 
 
 # PF-HYPOTHESIS-LEDGER: HYP-PF-010 active
