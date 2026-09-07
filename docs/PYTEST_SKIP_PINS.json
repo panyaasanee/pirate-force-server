@@ -1414,6 +1414,18 @@
       "tests": [
         "StatsProgressionStatic::test_the_shipped_potential_table_agrees_with_the_bind_list"
       ]
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_pf_mine_scene_mob_roster_outfit_rule.py",
+      "count": 4,
+      "tests": [
+        "OutfitRuleMeasuredTests::test_the_owner_rule_gains_bg0002_the_forty_rows_it_refused",
+        "OutfitRuleMeasuredTests::test_every_row_the_owner_rule_gains_was_refused_for_the_outfit_only",
+        "OutfitRuleMeasuredTests::test_the_bg0001_control_is_re_pinned_for_the_owner_rule",
+        "OutfitRuleMeasuredTests::test_the_re_pinned_control_actually_catches_a_moved_row"
+      ],
+      "note": "round nxcwdn (LANE-B): the owner ruling of 2026-09-07 (PANYA 1313 / COO-DECISION 20260907_1346) took s_OUTFIT out of the hostility decision, and these four are the half of that change that can only be MEASURED against the client's own CONSTDATA/TEXTDATA dumps on the bridge clone. Two of them re-derive the ruling's own premise rather than repeating it (the 40 bg0002 placements it gains fell to the outfit half and to nothing else, asked row by row); the other two are the bg0001 control COO-DECISION 20260907_1346 requires to be RE-PINNED in the same commit rather than closed, skipped or xfailed -- verify_frozen still reproduces v141's 115 rows, verify_frozen_any adds the superset claim over 146, and the fourth moves a derived row by a metre and demands the control notice, so it is a control that has been seen to fail. PINNED LATE, AND SAYING SO: the tests landed in 3a5c4da and this entry did not, which made tools/pf_pytest_precondition_census.py the gate's only red step -- the exact defect shape the bg0002 entry above already records pf-adversary catching three times (rounds ctflxc, 2vxlx2, and that round's own first draft). This is the fourth, caught by pf-adversary on the nxcwdn diff after the round had already unlocked, and repaired on the round's own branch rather than handed to the next round with a red gate attached."
     }
   ],
   "windows_gate_excluded_modules": {

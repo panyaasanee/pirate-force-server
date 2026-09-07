@@ -11,15 +11,38 @@ the server can import with no bridge present.
     gamedata/tables/CONSTDATA_TH__STANDARD_MOB.tsv   level -> n_HPMAX
     gamedata/tables/TEXTDATA_TH__MOBS_TIP.tsv        n_ID -> displayed name
 
-THE SELECTION RULE, AND WHY IT IS EXACTLY THIS ONE.  A placement is carried
-only when its template resolves in MOBS and that row's ``s_OUTFIT`` is a single
-unambiguous basename (no ``;``).  That rule is not invented here: running it
-over ``bg0001`` reproduces ``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS`` in
+THE SELECTION RULE, AND WHY IT IS NOW TWO NAMED RULES.  ~~A placement is
+carried only when its template resolves in MOBS and that row's ``s_OUTFIT`` is
+a single unambiguous basename (no ``;``).~~  [OWNER RULING 2026-09-07, PANYA
+1313, relayed COO-DECISION 20260907_1346: the ``;`` half is OUT of the
+hostility decision.  ``s_OUTFIT`` - one value or a list - does not decide who
+is an enemy.  ``ka1-A`` measured before the ruling that 565 of MOBS' 3,210 rows
+carry a list and 546 of those have ``rank > 0``, so that half was refusing
+nearly every field monster in the game; on bg0002 alone it refused 40
+placements, all of them for that reason only.]
+
+The old reading is not deleted, because it is what every scene module already
+committed here was mined under.  ``--outfit-rule`` names the two:
+
+    unambiguous  (default)  a ``;`` list is refused.  What v141 froze.
+    any                     ``s_OUTFIT`` decides nothing; a NON-EMPTY cell is
+                            still required, since an empty one is no avatar
+                            at all and the client draws nothing.
+
+BOTH RULES HAVE A CHECKABLE CONTROL AGAINST v141, AND THAT IS THE POINT.
+Running ``unambiguous`` over ``bg0001`` reproduces
+``PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS`` in
 ``current/pf_login_game_server_v141.py`` EXACTLY - 149 placements, minus 3 whose
 template is absent from MOBS, minus 31 whose outfit is a ``;`` list, is 115
 rows, and all 115 match the frozen table on index, template, x, y, z and
-outfit.  ``--verify-frozen`` re-runs that comparison and is the reason to trust
-anything else this tool prints.
+outfit.  ``--verify-frozen`` re-runs that comparison.  Running ``any`` over the
+same scene returns 146 rows, and ``--verify-frozen`` checks the RE-PIN
+COO-DECISION 20260907_1346 asks for: those 146 rows contain all 115 frozen rows
+UNCHANGED on all six compared columns, and the 31 extra rows are exactly the
+ones the old rule dropped for a variant-list avatar.  Neither control was
+weakened, skipped or xfailed to let the ruling through; the new rule is pinned
+harder than the old one was, because a superset claim also pins what did NOT
+move.
 
 WHAT COUNTS AS HOSTILE IS OURS, AND IT IS A CHOICE, NOT A LAW.  This tool marks
 a placement hostile when its MOBS row has BOTH ``n_RANK != 0`` AND
@@ -103,6 +126,22 @@ LEGACY_CONTROL_NAME = "Tornado Eagle"
 CONTROL_SCENE = "bg0001"
 LEGACY_CONTROL_PLACEMENT_INDEX = 30
 CONTROL_UNAMBIGUOUS_COUNT = 115
+# ROUND nxcwdn, OWNER RULING 2026-09-07 (PANYA 1313, relayed as COO-DECISION
+# 20260907_1346): ``s_OUTFIT`` no longer takes part in deciding WHO is an
+# enemy.  The old reading is not deleted, because it is what every scene
+# module committed before this round was mined under and what ``v141``'s
+# frozen table reproduces; it becomes a NAMED rule the caller chooses.
+OUTFIT_RULE_UNAMBIGUOUS = "unambiguous"
+OUTFIT_RULE_ANY = "any"
+OUTFIT_RULES = (OUTFIT_RULE_UNAMBIGUOUS, OUTFIT_RULE_ANY)
+# The same bg0001 control, re-derived under the owner's rule.  MEASURED this
+# round on the committed tables, not carried over: dropping the ``;`` half
+# turns v141's 115 rows into 146 -- the 115 unchanged, plus exactly the 31
+# rows the old rule refused for a variant-list avatar.  ``verify_frozen_any``
+# is what checks that sentence; it is the re-pin COO-DECISION 20260907_1346
+# asks for, and it replaces nothing: ``verify_frozen`` still runs the old
+# rule against v141 and still expects 115.
+CONTROL_ANY_OUTFIT_COUNT = 146
 
 # THE IDENTITY RULE, AND WHY THERE ARE NOW TWO OF THEM.
 #   setnum: a placement's Mob-Set number IS its MOBS.n_ID.  This is what this
@@ -370,17 +409,50 @@ class Sources:
 
 def unambiguous_placements(
     sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+    outfit_rule: str = OUTFIT_RULE_UNAMBIGUOUS,
 ) -> list[tuple]:
-    """Every placement this rule resolves to one unambiguous MOBS row.
+    """Every placement this rule resolves to one MOBS row it can carry.
 
-    The selection filter (one template, a MOBS row, a single-basename
-    ``s_OUTFIT``) is applied to the row the RULE lands on, not to the row the
-    Mob-Set number happens to index.  Under ``setnum`` those are the same row
-    and this function returns exactly what it always returned - that is what
+    The selection filter (one template, a MOBS row, a non-empty ``s_OUTFIT``)
+    is applied to the row the RULE lands on, not to the row the Mob-Set number
+    happens to index.  Under ``setnum`` those are the same row and this
+    function returns exactly what it always returned - that is what
     ``--verify-frozen`` still compares against v141.
+
+    THE NAME IS NOW HALF A LIE, AND KEEPING IT IS DELIBERATE.  Under
+    ``outfit_rule=OUTFIT_RULE_ANY`` (the owner's 2026-09-07 ruling) a row
+    whose ``s_OUTFIT`` is a ``;`` list is CARRIED, so "unambiguous" describes
+    only the default.  Renaming the function would have touched eleven
+    committed test files in a round whose job is one scene, so the lie is
+    written down here instead of being fixed silently.
+
+    ``outfit_rule``:
+
+    * ``OUTFIT_RULE_UNAMBIGUOUS`` (default, unchanged): a row whose
+      ``s_OUTFIT`` contains ``;`` is dropped.  This is the reading every
+      scene module in this repository was mined under, and the one
+      ``verify_frozen`` reproduces out of ``v141``.
+    * ``OUTFIT_RULE_ANY``: ``s_OUTFIT`` decides nothing about hostility.  The
+      owner ruled on 2026-09-07 that an enemy is ``n_RANK`` plus
+      ``n_AI_COMBAT`` and nothing else; ``ka1-A`` measured, before that
+      ruling, that 565 of 3,210 MOBS rows carry a list and 546 of those have
+      ``rank > 0``, so the old half refused nearly every field monster in the
+      table.  A row still needs a NON-EMPTY ``s_OUTFIT``: an empty one is not
+      an ambiguous avatar, it is no avatar, and the client draws nothing.
+
+    WHAT THIS FUNCTION STILL DOES NOT DECIDE (``RE-296`` RESULT,
+    2026-09-07T14:50): the client does not choose a variant at load time at
+    all - it tokenises ``s_OUTFIT`` on ``;``, TAB and SPACE and keeps every
+    token in a list at ``MOBS_record+0x108``.  WHO picks from that list, and
+    on what, is the half ``RE-296`` left open.  ``visual_preset`` below is
+    therefore the RAW cell, list separators included, and no consumer of this
+    tool may read it as "the avatar".  Composing a single avatar out of it is
+    the thing COO-DECISION 20260907_1346 forbids expanding into.
     """
     if rule not in IDENTITY_RULES:
         raise MineError("unknown identity rule %r" % rule)
+    if outfit_rule not in OUTFIT_RULES:
+        raise MineError("unknown outfit rule %r" % outfit_rule)
     if rule == IDENTITY_RULE_CLINE and not sources.crosswalk:
         raise MineError(
             "scene %r declares no CLINE block, so the crosswalk rule has "
@@ -405,7 +477,9 @@ def unambiguous_placements(
         if mob is None:
             continue
         outfit = (mob.get("s_OUTFIT") or "").strip()
-        if not outfit or ";" in outfit:
+        if not outfit:
+            continue
+        if outfit_rule == OUTFIT_RULE_UNAMBIGUOUS and ";" in outfit:
             continue
         index = _int(row, "index", "placement")
         if index in seen:
@@ -461,7 +535,10 @@ def _set_number_or_none(raw: str) -> int | None:
         return None
 
 
-def unresolved_reason(sources: Sources, set_number: int, rule: str) -> str:
+def unresolved_reason(
+    sources: Sources, set_number: int, rule: str,
+    outfit_rule: str = OUTFIT_RULE_UNAMBIGUOUS,
+) -> str:
     """WHY a placement was not carried, named rather than counted.
 
     pf-adversary (round szdkgs, D8): "zero hostiles in this town" is a claim
@@ -479,12 +556,15 @@ def unresolved_reason(sources: Sources, set_number: int, rule: str) -> str:
     outfit = (mob.get("s_OUTFIT") or "").strip()
     if not outfit:
         return "n_id_%d_has_no_avatar_template" % n_id
-    if ";" in outfit:
+    if outfit_rule == OUTFIT_RULE_UNAMBIGUOUS and ";" in outfit:
         return "n_id_%d_avatar_is_a_variant_list" % n_id
     return ""
 
 
-def unresolved_placements(sources: Sources, rule: str) -> list[dict]:
+def unresolved_placements(
+    sources: Sources, rule: str,
+    outfit_rule: str = OUTFIT_RULE_UNAMBIGUOUS,
+) -> list[dict]:
     """Every placement this rule could NOT read, with its reason."""
     out: list[dict] = []
     for row in sources.placements:
@@ -509,7 +589,7 @@ def unresolved_placements(sources: Sources, rule: str) -> list[dict]:
                 ),
             })
             continue
-        reason = unresolved_reason(sources, set_number, rule)
+        reason = unresolved_reason(sources, set_number, rule, outfit_rule)
         if reason:
             out.append({
                 "placement_index": _int(row, "index", "placement"),
@@ -546,17 +626,23 @@ def _roster_row(sources: Sources, item: tuple) -> dict:
 
 def hostile_roster(
     sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+    outfit_rule: str = OUTFIT_RULE_UNAMBIGUOUS,
 ) -> list[dict]:
-    """Placements whose resolved MOBS row has BOTH a rank and a combat AI."""
+    """Placements whose resolved MOBS row has BOTH a rank and a combat AI.
+
+    Since the owner's 2026-09-07 ruling that pair is the WHOLE predicate; the
+    ``outfit_rule`` argument only decides which rows reach it.
+    """
     return [
         _roster_row(sources, item)
-        for item in unambiguous_placements(sources, rule)
+        for item in unambiguous_placements(sources, rule, outfit_rule)
         if _nonzero(item[6], "n_RANK") and _nonzero(item[6], "n_AI_COMBAT")
     ]
 
 
 def town_target_roster(
     sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+    outfit_rule: str = OUTFIT_RULE_UNAMBIGUOUS,
 ) -> list[dict]:
     """Placements on the named town-target allowlist (see TOWN_TARGET_N_IDS).
 
@@ -566,12 +652,15 @@ def town_target_roster(
     """
     return [
         _roster_row(sources, item)
-        for item in unambiguous_placements(sources, rule)
+        for item in unambiguous_placements(sources, rule, outfit_rule)
         if item[1] in TOWN_TARGET_N_IDS
     ]
 
 
-def withdrawn_under_rule(sources: Sources, rule: str) -> list[dict]:
+def withdrawn_under_rule(
+    sources: Sources, rule: str,
+    outfit_rule: str = OUTFIT_RULE_UNAMBIGUOUS,
+) -> list[dict]:
     """What the OTHER rule called hostile here and this one does not ship.
 
     Written into the generated module so a reader can see the cost of the
@@ -582,16 +671,25 @@ def withdrawn_under_rule(sources: Sources, rule: str) -> list[dict]:
         else IDENTITY_RULE_CLINE
     )
     try:
-        previous = {row["placement_index"]: row for row in hostile_roster(sources, other)}
+        previous = {
+            row["placement_index"]: row
+            for row in hostile_roster(sources, other, outfit_rule)
+        }
     except MineError:
         return []
-    now = {row["placement_index"] for row in hostile_roster(sources, rule)}
-    now |= {row["placement_index"] for row in town_target_roster(sources, rule)}
+    now = {
+        row["placement_index"]
+        for row in hostile_roster(sources, rule, outfit_rule)
+    }
+    now |= {
+        row["placement_index"]
+        for row in town_target_roster(sources, rule, outfit_rule)
+    }
     dropped = []
     for index in sorted(set(previous) - now):
         was = previous[index]
         resolved = None
-        for item in unambiguous_placements(sources, rule):
+        for item in unambiguous_placements(sources, rule, outfit_rule):
             if item[0] == index:
                 resolved = _roster_row(sources, item)
                 break
@@ -611,7 +709,8 @@ def withdrawn_under_rule(sources: Sources, rule: str) -> list[dict]:
                 if leader else ""
             )
             now_name = "%s [not carried: %s]" % (
-                now_name, unresolved_reason(sources, set_number, rule),
+                now_name,
+                unresolved_reason(sources, set_number, rule, outfit_rule),
             )
         dropped.append({
             "placement_index": index,
@@ -626,11 +725,12 @@ def withdrawn_under_rule(sources: Sources, rule: str) -> list[dict]:
 
 def predicate_census(
     sources: Sources, rule: str = IDENTITY_RULE_SETNUM,
+    outfit_rule: str = OUTFIT_RULE_UNAMBIGUOUS,
 ) -> dict[str, int]:
     """How the four candidate hostility readings split THIS scene's placements."""
     census = {"unambiguous": 0, "rank": 0, "ai_combat": 0,
               "drops_normal": 0, "rank_and_ai_combat": 0, "town_target": 0}
-    for item in unambiguous_placements(sources, rule):
+    for item in unambiguous_placements(sources, rule, outfit_rule):
         mob = item[6]
         census["unambiguous"] += 1
         census["town_target"] += int(item[1] in TOWN_TARGET_N_IDS)
@@ -758,6 +858,77 @@ def check_controls(sources: Sources) -> None:
         )
 
 
+def verify_frozen_any(gamedata: Path, legacy_path: Path) -> tuple[int, int, int]:
+    """The bg0001 control RE-PINNED for the owner's rule (round nxcwdn).
+
+    Returns ``(derived_rows, frozen_rows_matched, mismatches)``.
+
+    COO-DECISION 20260907_1346 requires the bg0001 control to be re-pinned in
+    the same commit that drops the ``s_OUTFIT`` half, and forbids closing,
+    skipping or xfailing it.  A plain row-count equality cannot be that pin:
+    under ``any`` the rule DELIBERATELY returns more rows than v141 froze, so
+    the old control would now be a false alarm rather than a check.
+
+    The honest re-pin is a SUPERSET claim, and it is strictly stronger than
+    what the count check ever said:
+
+    * every one of v141's frozen placements is still derived, and still
+      carries the same index, template, x, y, z and outfit - i.e. dropping the
+      ``;`` half moved NOTHING that was already on the wire;
+    * the derived table is exactly ``CONTROL_ANY_OUTFIT_COUNT`` rows, so the
+      31 rows it gains are counted, not waved at.
+
+    A reordering of the tuple's first six columns, the failure the old
+    fixed-arity unpack used to catch, still surfaces here as mismatches.
+    """
+    sources = Sources(gamedata, CONTROL_SCENE)
+    derived = [
+        (row[0], row[1], row[2], row[3], row[4], row[5])
+        for row in unambiguous_placements(
+            sources, outfit_rule=OUTFIT_RULE_ANY,
+        )
+    ]
+    if len(derived) != CONTROL_ANY_OUTFIT_COUNT:
+        raise MineError(
+            "row count drift under the owner rule: derived %d, expected %d"
+            % (len(derived), CONTROL_ANY_OUTFIT_COUNT)
+        )
+    frozen = _frozen_placements(legacy_path)
+    if len(frozen) != CONTROL_UNAMBIGUOUS_COUNT:
+        raise MineError(
+            "frozen table drift: %d rows, expected %d"
+            % (len(frozen), CONTROL_UNAMBIGUOUS_COUNT)
+        )
+    by_index = {row[0]: row for row in derived}
+    matched = 0
+    mismatches = 0
+    for row in frozen:
+        row = tuple(row[:6])
+        derived_row = by_index.get(row[0])
+        if derived_row is None:
+            mismatches += 1
+            continue
+        matched += 1
+        if derived_row != row:
+            mismatches += 1
+    return len(derived), matched, mismatches
+
+
+def _frozen_placements(legacy_path: Path) -> list:
+    """v141's frozen bg0001 table, read out of the shipped source."""
+    import ast
+
+    text = legacy_path.read_text(encoding="utf-8")
+    marker = "PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS = ["
+    start = text.find(marker)
+    if start < 0:
+        raise MineError("frozen placement table not found in %s" % legacy_path)
+    end = text.find("\n]", start)
+    if end < 0:
+        raise MineError("frozen placement table is unterminated")
+    return ast.literal_eval(text[start + len(marker) - 1:end + 2])
+
+
 def verify_frozen(gamedata: Path, legacy_path: Path) -> tuple[int, int]:
     """Re-derive bg0001's 115 unambiguous rows and diff them against v141.
 
@@ -796,22 +967,12 @@ def verify_frozen(gamedata: Path, legacy_path: Path) -> tuple[int, int]:
       Windows gate -- the same condition that let this bug live through two
       scenes, and not something this round fixes.
     """
-    import ast
-
     sources = Sources(gamedata, CONTROL_SCENE)
     derived = [
         (row[0], row[1], row[2], row[3], row[4], row[5])
         for row in unambiguous_placements(sources)
     ]
-    text = legacy_path.read_text(encoding="utf-8")
-    marker = "PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS = ["
-    start = text.find(marker)
-    if start < 0:
-        raise MineError("frozen placement table not found in %s" % legacy_path)
-    end = text.find("\n]", start)
-    if end < 0:
-        raise MineError("frozen placement table is unterminated")
-    frozen = ast.literal_eval(text[start + len(marker) - 1:end + 2])
+    frozen = _frozen_placements(legacy_path)
     if len(derived) != CONTROL_UNAMBIGUOUS_COUNT or len(frozen) != len(derived):
         raise MineError(
             "row count drift: derived %d, frozen %d, expected %d"
@@ -854,7 +1015,7 @@ from __future__ import annotations
 
 SCENE = %(scene)r
 IDENTITY_RULE = %(rule)r
-SCENE_CLINE_TYPE = %(cline_type)s
+%(outfit_rule_block)sSCENE_CLINE_TYPE = %(cline_type)s
 SOURCE_DIGESTS = %(digests)s
 PREDICATE_CENSUS = %(census)s
 # What the crosswalk controls found at mining time.  Recorded, not a check:
@@ -975,7 +1136,20 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
                   rank_zero_combat: list[dict] | None = None,
                   pending: list[dict] | None = None,
                   legacy_control_row: dict | None = None,
-                  unresolved: list[dict] | None = None) -> str:
+                  unresolved: list[dict] | None = None,
+                  outfit_rule: str = OUTFIT_RULE_UNAMBIGUOUS) -> str:
+    """Render one scene module.
+
+    ``outfit_rule`` is written into the module ONLY when it is not the
+    historical default.  That is not shyness about the owner's ruling, it is
+    the drift control staying usable: ten scene modules committed before
+    round nxcwdn were mined under ``unambiguous`` and their byte-for-byte
+    regenerate tests compare the WHOLE file, so emitting an unconditional new
+    line would have turned a one-scene ruling into ten stale modules in a
+    round that cannot re-mine and re-review ten rosters.  A reader of a module
+    with no ``OUTFIT_RULE`` line reads ``unambiguous``; see this tool's
+    docstring for what that means and why it is now the older of two rules.
+    """
     def _rows(items: list[dict]) -> str:
         out = []
         for item in items:
@@ -994,6 +1168,8 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
             )
         return "".join(out)
 
+    if outfit_rule not in OUTFIT_RULES:
+        raise MineError("unknown outfit rule %r" % outfit_rule)
     town = town or []
     pending = pending or []
     withdrawn = withdrawn or []
@@ -1150,6 +1326,20 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
         "scene": scene,
         "rule": rule,
         "cline_type": repr(cline_type),
+        "outfit_rule_block": (
+            "" if outfit_rule == OUTFIT_RULE_UNAMBIGUOUS else
+            "# s_OUTFIT DOES NOT DECIDE WHO IS AN ENEMY IN THIS SCENE.  Owner\n"
+            "# ruling 2026-09-07 (PANYA 1313 / COO-DECISION 20260907_1346):\n"
+            "# an enemy is n_RANK plus n_AI_COMBAT and nothing else.  A row\n"
+            "# whose s_OUTFIT is a variant list is carried here; a module with\n"
+            "# no OUTFIT_RULE line was mined under the older rule that\n"
+            "# refused those rows.  visual_preset below is the RAW cell,\n"
+            "# separators included: RE-296 (2026-09-07T14:50) measured that\n"
+            "# the client tokenises it on ';', TAB and SPACE and keeps EVERY\n"
+            "# token, and left open who picks one.  Do not read this column\n"
+            "# as 'the avatar'.\n"
+            "OUTFIT_RULE = %r\n" % (outfit_rule,)
+        ),
         "digests": _ascii_dict(digests),
         "census": _ascii_dict(census),
         "controls": _ascii_dict(controls or {}),
@@ -1202,6 +1392,12 @@ def main(argv: list[str]) -> int:
                         choices=list(IDENTITY_RULES),
                         help="how a Mob-Set number becomes a MOBS.n_ID "
                              "(default: cline, the RE-128 crosswalk)")
+    parser.add_argument("--outfit-rule", default=OUTFIT_RULE_UNAMBIGUOUS,
+                        choices=list(OUTFIT_RULES),
+                        help="whether s_OUTFIT may refuse a placement "
+                             "(default: unambiguous, the rule every module "
+                             "committed before 2026-09-07 was mined under; "
+                             "'any' is the owner's ruling of that date)")
     args = parser.parse_args(argv)
 
     try:
@@ -1209,40 +1405,46 @@ def main(argv: list[str]) -> int:
             compared, mismatches = verify_frozen(args.gamedata, args.legacy)
             print("verify-frozen: %d rows compared, %d mismatches"
                   % (compared, mismatches))
-            if mismatches:
+            derived, matched, any_mismatches = verify_frozen_any(
+                args.gamedata, args.legacy)
+            print("verify-frozen-any: %d rows derived, %d frozen rows "
+                  "matched, %d mismatches" % (derived, matched, any_mismatches))
+            if mismatches or any_mismatches:
                 return 1
 
         sources = Sources(args.gamedata, args.scene)
         rule = args.identity_rule
+        outfit_rule = args.outfit_rule
         controls: dict[str, str] = {}
         if rule == IDENTITY_RULE_SETNUM:
             check_controls(sources)
             controls = {"legacy_setnum_controls": "re-derived"}
         else:
             controls = check_crosswalk_controls(sources)
-        census = predicate_census(sources, rule)
+        census = predicate_census(sources, rule, outfit_rule)
         if args.predicate_census:
             for name, value in sorted(census.items()):
                 print("census %-20s %d" % (name, value))
-        roster = hostile_roster(sources, rule)
-        town = town_target_roster(sources, rule)
+        roster = hostile_roster(sources, rule, outfit_rule)
+        town = town_target_roster(sources, rule, outfit_rule)
         if not roster and not town:
             raise MineError(
                 "scene %r ships nothing under rule %r: no placement has both "
                 "a rank and a combat AI, and none is on the town-target "
                 "allowlist" % (args.scene, rule)
             )
-        withdrawn = withdrawn_under_rule(sources, rule)
+        withdrawn = withdrawn_under_rule(sources, rule, outfit_rule)
         pending = []
         if args.keep_withdrawn_rows and rule != IDENTITY_RULE_SETNUM:
             kept = {item["placement_index"] for item in withdrawn}
             pending = [
-                row for row in hostile_roster(sources, IDENTITY_RULE_SETNUM)
+                row for row in hostile_roster(
+                    sources, IDENTITY_RULE_SETNUM, outfit_rule)
                 if row["placement_index"] in kept
             ]
         rank_zero_combat = [
             _roster_row(sources, item)
-            for item in unambiguous_placements(sources, rule)
+            for item in unambiguous_placements(sources, rule, outfit_rule)
             if _nonzero(item[6], "n_AI_COMBAT") and not _nonzero(item[6], "n_RANK")
         ]
         # The row GT-035 was actually watched on: placement 30 as the
@@ -1254,7 +1456,8 @@ def main(argv: list[str]) -> int:
         if (args.scene.strip().lower() == CONTROL_SCENE
                 and rule == IDENTITY_RULE_CLINE):
             legacy_control_row = next(
-                (row for row in hostile_roster(sources, IDENTITY_RULE_SETNUM)
+                (row for row in hostile_roster(
+                    sources, IDENTITY_RULE_SETNUM, outfit_rule)
                  if row["placement_index"] == LEGACY_CONTROL_PLACEMENT_INDEX),
                 None,
             )
@@ -1270,16 +1473,18 @@ def main(argv: list[str]) -> int:
             withdrawn=withdrawn, controls=controls,
             rank_zero_combat=rank_zero_combat, pending=pending,
             legacy_control_row=legacy_control_row,
-            unresolved=unresolved_placements(sources, rule),
+            unresolved=unresolved_placements(sources, rule, outfit_rule),
+            outfit_rule=outfit_rule,
         )
     except MineError as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)
         return 2
 
-    print("scene %s rule %s: %d hostile + %d town-target + %d legacy-pending "
-          "placements, "
+    print("scene %s rule %s outfit-rule %s: %d hostile + %d town-target + "
+          "%d legacy-pending placements, "
           "%d distinct templates, %d withdrawn"
-          % (args.scene, rule, len(roster), len(town), len(pending),
+          % (args.scene, rule, outfit_rule,
+             len(roster), len(town), len(pending),
              len({item["template_id"] for item in roster + town}),
              len(withdrawn)))
     for item in withdrawn:
@@ -1291,7 +1496,7 @@ def main(argv: list[str]) -> int:
     # and in the module's own UNRESOLVED_PLACEMENTS.  A silently short scene
     # is exactly what COO-DECISION 2026-09-06T07:48+07:00 item 3 forbids.
     unnumbered = [
-        item for item in unresolved_placements(sources, rule)
+        item for item in unresolved_placements(sources, rule, outfit_rule)
         if item["reason"].startswith("template_id_is_not_a_number_")
     ]
     if unnumbered:
