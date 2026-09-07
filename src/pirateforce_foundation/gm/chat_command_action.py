@@ -563,8 +563,13 @@ STAGED_READBACK_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_STAGED_READBACK_LOCAL_TALK_N
 # move-authority grace window on the `TELEPORT` substring.  A staged warp
 # moves NOBODY -- it writes a config entry -- so a label either list could
 # recognise would tell `runtime.py` that a character had just been placed in a
-# scene it is not in.  This label is in neither, on purpose, and
-# `StagedWarpNoticeTests` pins both halves.
+# scene it is not in.  This label is in neither, on purpose.
+# ~~`StagedWarpNoticeTests` pins both halves.~~ -- STRUCK round `2rk98y`.  It
+# pins the `TELEPORT` half only; the `_GM_WARP_LABELS` half is
+# `tests/test_gm_chat_command_action.py::StagedWarpRuntimeLabelWiringTests`,
+# which reads `runtime.py` as text and carries its own positive control (the
+# first draft of it searched for this VALUE, which that file never spells, so
+# it could not have gone red -- pf-adversary round `2rk98y`, D-1).
 WARP_STAGED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_WARP_STAGED_LOCAL_TALK_NOTICE"
 
 # The `characters` column LANE-DB's persistence entry point is keyed by for
@@ -2131,7 +2136,10 @@ class _Verdict:
     # carries no such label -- it carried `action=None` when this note was
     # written, and since round `0w9jhq` it carries the NOTICE action
     # `WARP_STAGED_NOTICE_ACTION_LABEL`, which is in neither `_GM_WARP_LABELS`
-    # nor the `TELEPORT` substring rule (pinned by `StagedWarpNoticeTests`) --
+    # nor the `TELEPORT` substring rule (the first pinned by
+    # `StagedWarpRuntimeLabelWiringTests`, the second by
+    # `StagedWarpNoticeTests`; ~~"both by `StagedWarpNoticeTests`"~~ struck
+    # round `2rk98y`) --
     # so nothing can resync between `_warp_action`'s
     # read and a print-time read WITHIN one command; and when an EARLIER live
     # warp has already poisoned the field, `_warp_action`'s own read is
@@ -4375,10 +4383,21 @@ def _print_staged_way_out(
     it, and this one does not.  A forgotten `notice=` would print the same
     word on the boot where the sentence reached the screen and the boot
     where it never composed -- which is precisely the silence this field
-    exists to end, arriving by omission.  It is the caller's FINAL answer
-    (`notice_sent` in `_announce_console_outcome`), not the verdict's:
-    `is_notice` says a sentence was ATTACHED, and an audit failure can drop
-    an attached sentence one function up.
+    exists to end, arriving by omission.
+
+    IT IS FED FROM THE CALLER'S FINAL `notice_sent`, NOT FROM
+    `verdict.is_notice`, AND TODAY THAT IS A CHOICE OF SOURCE, NOT A
+    BEHAVIOUR.  `is_notice` says a sentence was ATTACHED; `notice_sent` says
+    one was returned.  They can differ only where an audit failure drops the
+    action -- and that branch sets `audited` False, while THIS printer is
+    reached under `audit_outcome in STAGED_OUTCOMES and audited`, so on every
+    path that reaches this line the two are equal (measured: swapping the
+    source leaves five GM test files at 370 passed -- an equivalent mutant,
+    pf-adversary round `2rk98y`, D-5).  The caller's answer is still the
+    right source, because it is the one `GM_CHAT_NOTICE_SENT` is keyed on
+    two lines up, so the two console lines cannot disagree if the reachable
+    set ever widens -- but no test pins that, and nothing here should be
+    read as saying the difference has ever been exercised.
     """
     stream = sys.stderr
     if stream is None:

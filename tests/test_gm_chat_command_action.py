@@ -1973,7 +1973,11 @@ class EventNameContractTests(_Case):
         # The cross-scene `/warp`'s confirmation (LANE-GM round `0w9jhq`).
         # A staged warp moves nobody, so this label is deliberately absent
         # from `runtime.py`'s `_GM_WARP_LABELS` and carries no `TELEPORT`
-        # substring -- both pinned by `StagedWarpNoticeTests` below.
+        # substring.  ~~"both pinned by `StagedWarpNoticeTests` below"~~ --
+        # STRUCK round `2rk98y`: that class is in
+        # `tests/test_gm_chat_no_bytes_line.py`, not below and not in this
+        # file, and it pins the `TELEPORT` half only.  The `_GM_WARP_LABELS`
+        # half is `StagedWarpRuntimeLabelWiringTests`, which IS in this file.
         "WARP_STAGED_NOTICE_ACTION_LABEL": (
             "LANE_GM_CHAT_WARP_STAGED_LOCAL_TALK_NOTICE"
         ),
@@ -3114,6 +3118,26 @@ class StagedWarpRuntimeLabelWiringTests(_Case):
 
     RUNTIME = ROOT / "src/pirateforce_foundation/runtime.py"
     LABELS_NAME = "_GM_WARP_LABELS"
+    #: The attribute name, NOT its value.  ~~`chat_command_action.WARP_STAGED_
+    #: NOTICE_ACTION_LABEL`, i.e. the string `"LANE_GM_CHAT_WARP_STAGED_LOCAL_
+    #: TALK_NOTICE"`~~ -- struck in the same round that wrote it (round
+    #: `2rk98y`, pf-adversary D-1).  `runtime.py` NEVER SPELLS A LABEL VALUE:
+    #: every member of the tuple is an attribute reference, and the only two
+    #: `LANE_GM_CHAT_` strings in the whole file belong to an unrelated console
+    #: line.  The first draft of this test therefore asserted the absence of a
+    #: needle that cannot be in that haystack under the style the file uses --
+    #: the mutant it was written to kill survived the entire suite with it
+    #: green.  An absence assertion is only worth what its positive control is
+    #: worth, which is why `test_the_needle_would_be_found_if_it_were_there`
+    #: exists below.
+    FORBIDDEN_NEEDLES = (
+        "WARP_STAGED_NOTICE_ACTION_LABEL",
+        "LANE_GM_CHAT_WARP_STAGED_LOCAL_TALK_NOTICE",
+    )
+    #: A member the tuple really does carry, spelled the same way.  If this
+    #: cannot be found, the slice or the needle is broken and the absence
+    #: assertions above are meaningless rather than reassuring.
+    CONTROL_NEEDLE = "WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL"
 
     def runtime_source(self):
         return self.RUNTIME.read_text(encoding="utf-8")
@@ -3124,6 +3148,14 @@ class StagedWarpRuntimeLabelWiringTests(_Case):
         Sliced rather than imported: `runtime.py` builds this tuple inside a
         function body, so there is no attribute to read, and a scan of the
         whole file would be answered by this test's own error strings.
+
+        ~~`end = source.find(")", start)`~~ -- struck round `2rk98y`
+        (pf-adversary D-2): the FIRST `)` after the tuple opens closes the
+        window, so a member added below any line containing a `)` -- an
+        ordinary explanatory comment with a parenthetical is enough -- falls
+        outside the block and every assertion below reads a truncated tuple
+        as a clean one.  Measured: with `find`, the D3 mutant plus a comment
+        survived even after the needle was corrected.  Balanced now.
         """
         start = source.find(f"{self.LABELS_NAME} = (")
         self.assertNotEqual(
@@ -3133,22 +3165,49 @@ class StagedWarpRuntimeLabelWiringTests(_Case):
             "file and this lane may not edit it -- report a CORE-REQUEST "
             "rather than deleting this test.",
         )
-        end = source.find(")", start)
-        self.assertNotEqual(end, -1, "unterminated tuple")
-        return source[start:end]
+        depth = 0
+        for offset in range(start, len(source)):
+            char = source[offset]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    return source[start:offset + 1]
+        self.fail(f"{self.LABELS_NAME}'s tuple is never closed in runtime.py")
+
+    def test_the_needle_would_be_found_if_it_were_there(self):
+        """THE POSITIVE CONTROL, and the reason the two tests below mean
+        anything.  An absence assertion is green when the code is right AND
+        when the needle is misspelled, the file changes style, or the slice
+        window closes early -- and it cannot tell a reader which.  This one
+        looks for a member the tuple DOES carry, spelled exactly the way the
+        forbidden one would be.
+        """
+        block = self.warp_labels_block(self.runtime_source())
+        self.assertIn(
+            self.CONTROL_NEEDLE,
+            block,
+            "the slice or the spelling is broken: a label runtime.py really "
+            "does list cannot be found in the block this test reads, so the "
+            "absence assertions beside it prove nothing.\n" + block,
+        )
 
     def test_the_staged_notice_label_is_not_in_the_runtime_warp_resync(self):
         block = self.warp_labels_block(self.runtime_source())
-        self.assertNotIn(
-            chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL,
-            block,
-            "runtime.py's %s now lists the STAGED-warp notice label. That "
-            "resync writes selected.position.scene_id to the warp's "
-            "destination and arms gm_warp_position_pending -- for a command "
-            "that moved nobody and sent no teleport. The GM's next ordinary "
-            "step would be counted as the warp landing."
-            % self.LABELS_NAME,
-        )
+        for needle in self.FORBIDDEN_NEEDLES:
+            with self.subTest(needle=needle):
+                self.assertNotIn(
+                    needle,
+                    block,
+                    "runtime.py's %s now lists the STAGED-warp notice label "
+                    "(as %r). That resync writes selected.position.scene_id "
+                    "to the warp's destination and arms "
+                    "gm_warp_position_pending -- for a command that moved "
+                    "nobody and sent no teleport. The GM's next ordinary "
+                    "step would be counted as the warp landing."
+                    % (self.LABELS_NAME, needle),
+                )
 
     def test_the_labels_the_resync_does_carry_are_still_teleport_labels(self):
         # "never neither": a mutant that empties the tuple would pass the
@@ -3283,6 +3342,15 @@ class NoticeLabelCountTests(_Case):
             if name.endswith("_NOTICE_ACTION_LABEL")
         )
 
+    #: The two labels the paragraph calls "about a command that did NOT run".
+    #: Named here so the SPLIT is checked too, not only the total: pinning
+    #: one number out of three in one paragraph lets the other two rot in
+    #: exactly the way the total just did (pf-adversary round `2rk98y`, D-6).
+    DID_NOT_RUN = (
+        "SPEED_DENIED_NOTICE_ACTION_LABEL",
+        "TYPO_REFUSED_NOTICE_ACTION_LABEL",
+    )
+
     def test_the_docstring_number_matches_the_labels_the_module_ships(self):
         labels = self.notice_labels()
         self.assertGreaterEqual(len(labels), 2, labels)
@@ -3295,6 +3363,29 @@ class NoticeLabelCountTests(_Case):
             "the module ships %d notice labels (%s) and its entry point's "
             "docstring names a different number. Update the sentence in the "
             "same commit as the label." % (len(labels), ", ".join(labels)),
+        )
+
+    def test_the_split_inside_that_paragraph_is_pinned_too(self):
+        labels = self.notice_labels()
+        doc = chat_command_action.make_gm_chat_command_action.__doc__
+        for name in self.DID_NOT_RUN:
+            self.assertIn(name, labels, labels)
+        did_not_run = len(self.DID_NOT_RUN)
+        did_run = len(labels) - did_not_run
+        total_word = self.WORDS[len(labels)].lower()
+        self.assertIn(
+            f"{self.WORDS[did_not_run]} of the {total_word} are about a "
+            "command that did NOT run",
+            doc,
+            "the docstring's split no longer matches the labels: %d refuse, "
+            "%d report a command that ran." % (did_not_run, did_run),
+        )
+        self.assertIn(
+            f"The other {self.WORDS[did_run].lower()} report a command that "
+            "DID run",
+            doc,
+            "the docstring's second half of the split is stale (%d labels "
+            "report a command that ran)." % did_run,
         )
 
     def test_every_notice_label_is_a_distinct_shipped_string(self):

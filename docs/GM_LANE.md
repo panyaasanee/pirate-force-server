@@ -11090,6 +11090,20 @@ characters like every other sentence on this channel:
   pinned now, the second by
   `tests/test_gm_chat_command_action.py::StagedWarpRuntimeLabelWiringTests`,
   which reads chief's file as text.
+  !! AND THE SAME SENTENCE WAS FALSE ONCE MORE BEFORE IT WAS TRUE, which is
+  worth more than the fix.  Round `2rk98y`'s FIRST draft of that test asserted
+  the absence of the label's VALUE, and `runtime.py` never spells a label
+  value -- every member of the tuple is an attribute reference, and the only
+  two `LANE_GM_CHAT_` strings in that whole file belong to an unrelated
+  console line.  The needle could not be in the haystack, so the assertion
+  could not go red, and the mutant survived the suite a second time
+  (pf-adversary round `2rk98y`, D-1).  The lesson is written into the test:
+  an absence assertion is worth exactly what its POSITIVE CONTROL is worth,
+  so `test_the_needle_would_be_found_if_it_were_there` looks for a label the
+  tuple really does carry, spelled the way the forbidden one would be, and
+  the block is sliced to a BALANCED paren rather than to the first `)` -- a
+  member added below an ordinary comment with a parenthetical fell outside
+  the window and read as clean (D-2).
 * A COURTESY MAY NEVER COST THE COMMAND.  The stage is on disk before the
   sentence is composed; a wire that refuses the notice leaves the warp staged
   and silent, named by `gm_chat_action_warp_notice_failed_<Type>`, never
