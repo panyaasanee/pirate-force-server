@@ -38,6 +38,7 @@ queued and not run.
 """
 from __future__ import annotations
 
+import ast
 import dataclasses
 from dataclasses import replace
 import hashlib
@@ -1368,20 +1369,29 @@ class StartingKitStepTests(unittest.TestCase):
         self.assertNotIn(SKILL_ATTR_RECORD_PROBE.key, keys)
         self.assertEqual(len(keys), 4)
 
-    def test_the_module_types_no_skill_id_of_its_own(self):
+    def test_the_module_reads_the_table_and_types_no_skill_id_of_its_own(self):
+        # A mutant that replaces the derivation with the same four numbers
+        # typed out passes every OTHER test in this file -- the bytes and
+        # the pins are identical until the day the table moves, which is
+        # exactly the day the pins are supposed to speak.  So the source
+        # itself is the assertion: the call must be there, and no id may
+        # appear as a literal anywhere outside a comment or a docstring.
         source = (
             ROOT / "src" / "pirateforce_foundation"
             / "skill_attr_hypothesis.py"
         ).read_text(encoding="utf-8")
-        code = "\n".join(
-            line for line in source.splitlines()
-            if not line.lstrip().startswith("#")
-        )
-        code = code.split('"""', 2)[-1]
+        module = ast.parse(source)
+        self.assertIn("class_catalog.starting_skill_ids(",
+                      ast.unparse(module))
+        # Every integer the module actually EVALUATES, not a substring of a
+        # VA or a sha digest: none of them may be one of the four ids.
+        evaluated = [
+            node.value for node in ast.walk(module)
+            if isinstance(node, ast.Constant) and type(node.value) is int
+        ]
+        self.assertTrue(evaluated)
         for skill_id in (111, 40000, 99, 110):
-            self.assertNotIn(
-                "SkillAttrRecord(%d" % skill_id, code, skill_id,
-            )
+            self.assertNotIn(skill_id, evaluated, skill_id)
 
     def test_a_hand_typed_kit_is_refused_by_the_plan_guard(self):
         original = SKILL_ATTR_STEP_RECORDS["COUNT4_STARTING_SKILLS_CLASS1"]
