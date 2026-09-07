@@ -225,7 +225,8 @@ class RuntimeConsoleLifetimeTest(unittest.TestCase):
         # This pins the order the code ships with TODAY so it cannot
         # drift silently; which order is right is open, and turns on
         # `write()` not being atomic across its two sinks.
-        # Nothing here pins encoding/errors (D2 is undecided).
+        # D2 is decided (COO `20260907_1346`); encoding/errors are
+        # pinned by the two tests below, not here.
         order: list[str] = []
 
         class _Recorder(io.StringIO):
@@ -367,6 +368,43 @@ class RuntimeConsoleLifetimeTest(unittest.TestCase):
         self.assertEqual(hostile.write("swallowed\n"), len("swallowed\n"))
         hostile.flush()
 
+    def test_flush_forwards_after_teardown_too_not_only_write(self):
+        # pf-adversary T3: ruling `20260907_1441` names write() AND
+        # flush(); only write() was pinned, so `flush()` could go back to
+        # a bare `return` with the suite still green.
+        flushed = []
+
+        class _Counting(io.StringIO):
+            def flush(self) -> None:
+                flushed.append(True)
+                super().flush()
+
+        fallback = _Counting()
+        mirror = build_console_mirror(io.StringIO(), io.StringIO())
+        mirror.stop_mirroring(fallback)
+        mirror.flush()
+        self.assertTrue(flushed)
+
+    def test_a_torn_down_mirror_reports_the_stream_it_now_writes_to(self):
+        # pf-adversary F1: `console_safe()` asks what the stream being
+        # written to can take.  After teardown that is the fallback; a
+        # mirror still answering for its dead console lets a cp874 screen
+        # take a utf-8 line, raise, and have ruling `1441`'s swallow eat
+        # the evidence.
+        class _Narrow(io.StringIO):
+            encoding = "cp874"
+            errors = "strict"
+
+        class _Wide(io.StringIO):
+            encoding = "utf-8"
+            errors = "replace"
+
+        mirror = build_console_mirror(_Wide(), io.StringIO())
+        self.assertEqual(mirror.encoding, "utf-8")
+        mirror.stop_mirroring(_Narrow())
+        self.assertEqual(mirror.encoding, "cp874")
+        self.assertEqual(mirror.errors, "strict")
+
     def test_a_mirror_reports_the_encoding_of_the_console_it_wraps(self):
         # COO ruling `20260907_1346`: `console_safe()` asks one question
         # -- what can the stream being written to actually take -- and a
@@ -392,8 +430,10 @@ class RuntimeConsoleLifetimeTest(unittest.TestCase):
     def test_nested_consoles_leave_the_process_exiting_zero(self):
         # The whole point, measured the only way that counts: a real
         # interpreter that opened two consoles, closed them out of order
-        # and printed afterwards must exit 0.  Before `#1039` this exact
-        # script exited 120 while flushing at shutdown.
+        # and printed afterwards must exit 0.  Measured across three
+        # commits: 120 before this PR's first commit, 0 from it on --
+        # so this pins THAT commit, which reaches main only here,
+        # because the gate closed `#1039` before it could land.
         script = (
             "import io, sys\n"
             "sys.path.insert(0, {src!r})\n"

@@ -70,16 +70,32 @@ class _Mirror(TextIO):
         self._warned = False
         self._lock = threading.RLock()
 
+    def _reported_sink(self) -> object:
+        """The stream `encoding`/`errors` are answering FOR.
+
+        Ruling `1346` names the question as "what can the stream that is
+        being written to actually take?", so after teardown the honest
+        answer is the fallback, not the console this mirror has stopped
+        writing to (pf-adversary F1: reporting the dead console lets
+        `console_safe()` skip a fold the fallback needed, and ruling
+        `1441`'s swallow then eats the UnicodeEncodeError -- the line is
+        recorded nowhere, which is the scar ruling `1346` exists for).
+        """
+        with self._lock:
+            if self._detached and self._fallback is not None:
+                return self._fallback
+            return self._console
+
     @property
     def encoding(self) -> str:
-        return _reported_text_attr(self._console, "encoding", "utf-8")
+        return _reported_text_attr(self._reported_sink(), "encoding", "utf-8")
 
     @property
     def errors(self) -> str:
         # "replace", not "strict": a diagnostic that makes console_safe()
         # fold wider than the real console needs is the mirror-image of
         # the damage this property exists to prevent.
-        return _reported_text_attr(self._console, "errors", "replace")
+        return _reported_text_attr(self._reported_sink(), "errors", "replace")
 
     def writable(self) -> bool:
         return True

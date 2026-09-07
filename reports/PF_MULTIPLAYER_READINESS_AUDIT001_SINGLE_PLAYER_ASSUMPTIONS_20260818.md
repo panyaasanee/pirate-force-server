@@ -357,11 +357,11 @@ and `test_tornado_eagle_strict_profile`) for the GEO-PF-006 GT-034 observation s
 counts test functions in those files, so it moves in the same commit as the tests. Re-derived on the cloud clone
 by `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
 
-**Re-pin, chief round 389 (2026-09-07): `package_a_pinned_test_functions` 96 -> 103, and the L06
+**Re-pin, chief round 389 (2026-09-07): `package_a_pinned_test_functions` 96 -> 105, and the L06
 guard re-spelled a second time.** Rounds 388 and 389 are one piece of work: 388's pull request
 (server `#1039`) went red at the Windows gate and was closed by `merge-claude-pr.yml`, so its commits
 land here instead. `tests/test_runtime_console.py` is one of the seven package-A pinned files; 388
-added three tests to it and 389 added four more (teardown forwards, the warning fires once, the
+added three tests to it and 389 added six more (teardown forwards, the warning fires once, the
 forward survives a fallback cycle and a raising fallback, and the mirror reports the encoding of the
 console it wraps), plus a subprocess test that measures the exit code itself. The pinned-impact
 number counts test functions in those files, so it moves in the same commit as the tests.
@@ -453,7 +453,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "package_a_files_new": 1,
   "package_a_sites_covered": 32,
   "package_a_pinned_test_files": 7,
-  "package_a_pinned_test_functions": 103,
+  "package_a_pinned_test_functions": 105,
   "package_b_files_touched": 5,
   "package_b_files_new": 2,
   "package_b_sites_covered": 6,
