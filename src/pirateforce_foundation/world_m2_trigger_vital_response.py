@@ -734,6 +734,40 @@ M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS: tuple[
 # water".  It is the one question the crosswalk ticket still has to ask.
 M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES = ("rx112 id=35", "rx248 id=2")
 
+# COO-DECISION `20260907_1245` item 2 pointed at line 35 of the same letter
+# as "a clue you have not used", and said in the same breath that it is
+# supporting evidence and NOT a permit to name the discriminator.  It is
+# transcribed here because transcribing numbers is copying, not deciding:
+#
+#     LANE_A_TRIGGER_VITAL id=35 name=Thorn Flower  PROP no_responder bytes_out=0
+#     LANE_A_TRIGGER_VITAL id=2  name=Edmund Hidden Treasure PROP no_responder bytes_out=0  (x3)
+#     LANE_A_TRIGGER_VITAL id=3  name=Seafood Cargo  PROP no_responder bytes_out=0          (x2)
+#
+# AND THE ROWS AROUND IT KILL THE CLUE, WHICH IS WHY ALL THREE ARE HERE AND
+# NOT ONLY THE ONE THE LETTER OFFERED.  The open-water frame's id resolves
+# to a `PROP` with `no_responder` and `bytes_out=0` -- and so does every
+# CONTACT frame in the same session, on lines 36 and 37 of the same letter.
+# Contact and open water are INDISTINGUISHABLE on this field: all six
+# frames of `GT-228` got the identical `PROP no_responder bytes_out=0`.  So
+# "the id resolves to a prop with no responder" cannot answer "is this
+# frame an island contact", which is the one question
+# `ISLAND_CONTACT_DISCRIMINATOR` exists to answer.
+#
+# NONCLAIM, stated so no later round can quote the id-35 row on its own:
+# this table is NOT a discriminator and MUST NOT be read as one.  What it
+# does support is the narrower, already-committed claim that the open-water
+# frame carried id 35 rather than id 3 -- `name=Thorn Flower` is a third
+# independent spelling of that, after the raw capture and the EVENTS log.
+# `ISLAND_CONTACT_DISCRIMINATOR` is still `None`, and the test that pins it
+# `None` is still in the file.
+M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION: tuple[
+    tuple[int, str, str, str, int], ...
+] = (
+    (35, "Thorn Flower", "PROP", "no_responder", 0),
+    (2, "Edmund Hidden Treasure", "PROP", "no_responder", 0),
+    (3, "Seafood Cargo", "PROP", "no_responder", 0),
+)
+
 
 # READ-ONLY TO EVERY IMPORTER -- COO-DECISION `20260907_0945` item 1.
 # pf-adversary's repro for the tier-3 hole had three legs and this table was
@@ -1549,6 +1583,7 @@ class _FrozenTier3Module(ModuleType):
             "M2_WIRE_ORDINAL_CROSSWALK_LETTER",
             "M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS",
             "M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES",
+            "M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION",
         }
     )
 

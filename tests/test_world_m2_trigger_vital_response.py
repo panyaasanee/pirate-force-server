@@ -1008,6 +1008,42 @@ class TheCrosswalkIsMeasuredNotAssertedTests(M2RegistryIsolation):
         self.assertIn("-1720.4", text)
         self.assertIn("OBSERVER_CONFIRMED", text)
 
+    def test_the_name_resolution_rows_cannot_separate_contact_from_open_water(
+        self,
+    ):
+        # COO-DECISION `20260907_1245` item 2 handed this lane one row --
+        # `id=35 name=Thorn Flower PROP no_responder bytes_out=0`, the
+        # open-water frame -- as supporting evidence, with "do NOT use it to
+        # fill the name" attached. This test is what makes that instruction
+        # mechanical instead of a sentence somebody has to remember.
+        #
+        # The letter's next two lines say the CONTACT frames resolved the
+        # same way. So the columns are constant across all three ids and the
+        # table separates nothing. If a later round edits a row so that the
+        # open-water id looks different from the contact ids, this test goes
+        # red and sends it back to the letter rather than letting a table
+        # quietly grow into a classifier.
+        rows = trigger_response.M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(sorted(row[0] for row in rows), [2, 3, 35])
+        # Column 1 (the client's own name for the id) is the only one that
+        # differs; every other column is identical for the open-water frame
+        # and for both contact frames.
+        self.assertEqual({row[2] for row in rows}, {"PROP"})
+        self.assertEqual({row[3] for row in rows}, {"no_responder"})
+        self.assertEqual({row[4] for row in rows}, {0})
+        self.assertEqual(len({row[1] for row in rows}), 3)
+
+        open_water = [row for row in rows if row[0] == 35]
+        self.assertEqual(len(open_water), 1)
+        contact = [row for row in rows if row[0] in (2, 3)]
+        self.assertEqual(len(contact), 2)
+        # Stated as the property, not as three separate equalities: no
+        # column after the name tells the two populations apart.
+        for row in contact:
+            with self.subTest(contact_id=row[0]):
+                self.assertEqual(row[2:], open_water[0][2:])
+
     def test_the_discriminator_is_still_unnamed_after_all_of_this(self):
         # THE POINT OF THE WHOLE ROUND, PINNED. Delivering the second
         # measurement is not the same act as deciding to act on it. Three
@@ -1098,8 +1134,43 @@ class FieldOrderIsTheContractTests(M2RegistryIsolation):
         # with no non-vacuity assertion, so narrowing it to `()` dropped
         # seven subtests and stayed green. The functions are DISCOVERED now
         # and the discovery is pinned, the way the seam pin already does it.
-        import dis
+        #
+        # AND THE VERSION ABOVE READ THE BYTECODE, WHICH CLOSED THE WINDOWS
+        # GATE ON THIS LANE FOR A WHOLE ROUND.  It collected the operands of
+        # `LOAD_FAST` and `LOAD_FAST_BORROW`.  CPython 3.14 -- which is what
+        # `gate-windows.yml` pins (`python-version: '3.14'`), while a cloud
+        # clone runs 3.11 -- compiles two adjacent local reads into ONE
+        # superinstruction, `LOAD_FAST_BORROW_LOAD_FAST_BORROW`, whose
+        # `argval` is the TUPLE `('current_scene_id', 'wire_trigger_id')`.
+        # Neither name is then in `loads` at all, so this test failed four
+        # ways on 3.14 while passing on 3.11:
+        #
+        #     AssertionError: 'current_scene_id' not found in ['island_contact']
+        #
+        # That is what turned `pirate-force-server#1026` red and got it
+        # closed by the automerge workflow (run 34086718298, step
+        # `pytest_subset` exit=1), with no FAILED line anywhere in the job
+        # log because `-q -rs` prints the skip report and the closer's grep
+        # only looks for `^FAILED `.
+        #
+        # THE LESSON IS NOT "ADD THE THIRD OPNAME".  The set of
+        # superinstructions is a CPython implementation detail that changes
+        # every release; a pin written against it is a pin that reddens the
+        # gate on the next upgrade, on a runner this lane does not control.
+        # The property this test actually wants -- "the delegation puts each
+        # argument in the slot it declares" -- is a property of the SOURCE
+        # STRUCTURE, so it is read from the `ast` instead.  The `ast` is
+        # stable across releases, and it keeps the reason the bytecode was
+        # chosen over `in source` in the first place: a comment or a
+        # docstring naming a parameter produces no `ast.Name` node, exactly
+        # as it produced no instruction.
+        #
+        # Measured sweep before choosing: `grep -rn LOAD_FAST tests/ tools/
+        # src/` returns exactly ONE line, the one deleted here.  No other
+        # lane carries this trap today.
+        import ast
         import inspect
+        import textwrap
 
         delegations = {
             "candidate_for_trigger_id": trigger_response.candidate_for_trigger_id,
@@ -1115,12 +1186,22 @@ class FieldOrderIsTheContractTests(M2RegistryIsolation):
         self.assertEqual(len(delegations), 4)
 
         for name, function in delegations.items():
-            code = function.__code__
-            loads = [
-                instruction.argval
-                for instruction in dis.get_instructions(code)
-                if instruction.opname in ("LOAD_FAST", "LOAD_FAST_BORROW")
+            tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+            self.assertIsInstance(tree.body[0], ast.FunctionDef)
+            # The BODY only. Parameter names in the `def` line are
+            # `ast.arg`, not `ast.Name`, so they cannot satisfy this on
+            # their own -- declaring a parameter is not forwarding it.
+            reads = [
+                node
+                for statement in tree.body[0].body
+                for node in ast.walk(statement)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
             ]
+            # `ast.walk` is breadth-first, so it is NOT source order. Sort by
+            # position to get the order a reader sees, which is the order a
+            # transposition reverses.
+            reads.sort(key=lambda node: (node.lineno, node.col_offset))
+            loads = [node.id for node in reads]
             parameters = list(inspect.signature(function).parameters)
             for parameter in parameters:
                 with self.subTest(function=name, parameter=parameter):
@@ -2033,6 +2114,7 @@ class Tier3StateIsReadOnlyToImportersTests(M2RegistryIsolation):
             "M2_WIRE_ORDINAL_CROSSWALK_LETTER",
             "M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS",
             "M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES",
+            "M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION",
         ):
             with self.subTest(name=name):
                 with self.assertRaises(AttributeError):
