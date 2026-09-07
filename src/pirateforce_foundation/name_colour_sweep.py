@@ -818,9 +818,6 @@ def placement_index_for_identity(identity: int) -> int:
     return identity - 0x2000 - 1
 
 
-#: Kept as the slot-0 monster placement index this module has always used.
-MOB_NEGATIVE_PLACEMENT_INDEX = placement_index_for_identity(IDENTITY_NEGATIVE)
-
 #: THE ZERO CLASS HAS EXACTLY ONE VALUE.  ``hi == lo == 0`` is one identity,
 #: not a family, so exactly one board in a boot can ask the zero question.
 #: This is the label that carries it; any other zero row is refused with that
