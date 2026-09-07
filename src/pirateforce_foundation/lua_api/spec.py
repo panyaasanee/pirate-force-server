@@ -20,7 +20,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .vendored import VendoredDataError
+
 _SPEC_PATH = Path(__file__).with_name("api_spec.tsv")
+
+#: The header this module was written against, in order.
+_HEADER = (
+    "namespace", "method", "call_count", "file_count",
+    "arity_min", "arity_max",
+)
 
 
 @dataclass(frozen=True)
@@ -38,25 +46,63 @@ class ApiFunction:
 
 
 def _load() -> tuple[ApiFunction, ...]:
-    lines = _SPEC_PATH.read_text(encoding="ascii").splitlines()
-    header, rows = lines[0].split("\t"), lines[1:]
-    assert header == [
-        "namespace", "method", "call_count", "file_count",
-        "arity_min", "arity_max",
-    ], "api_spec.tsv header drifted: %r" % (header,)
+    """Parse ``api_spec.tsv``, refusing loudly on anything it is not.
+
+    RAISES, NEVER ASSERTS (pf-adversary D13, round ``wn088m``).  The header
+    check used to be a bare ``assert``, which ``python -O`` DELETES: under
+    ``-O`` a re-vendor that reordered the columns would have been parsed
+    happily, silently swapping ``call_count`` with ``file_count`` for all
+    160 rows -- the guard would not have failed, it would not have existed.
+    Every refusal here names the file and, where there is one, the line.
+
+    :class:`~lua_api.vendored.VendoredDataError` rather than a bespoke
+    class, so ``script_host`` classifies a corrupt mirror of OURS as
+    ``LUA_HOST`` against this checkout instead of ``LUA_SCRIPT`` against
+    whichever quest file was loading when the import happened.
+    """
+    try:
+        text = _SPEC_PATH.read_text(encoding="ascii")
+    except OSError as exc:
+        raise VendoredDataError(
+            "cannot read %s: %s" % (_SPEC_PATH, exc)) from exc
+    except UnicodeDecodeError as exc:
+        raise VendoredDataError(
+            "%s is not ASCII: %s" % (_SPEC_PATH, exc)) from exc
+    lines = text.splitlines()
+    if not lines:
+        raise VendoredDataError("%s is empty" % (_SPEC_PATH,))
+    header = tuple(lines[0].split("\t"))
+    if header != _HEADER:
+        raise VendoredDataError(
+            "%s header drifted: got %r, want %r"
+            % (_SPEC_PATH, header, _HEADER))
     out = []
-    for line in rows:
+    for lineno, line in enumerate(lines[1:], start=2):
         if not line:
             continue
-        ns, method, call_count, file_count, arity_min, arity_max = line.split("\t")
+        cells = line.split("\t")
+        if len(cells) != len(_HEADER):
+            raise VendoredDataError(
+                "%s line %d has %d columns, want %d: %r"
+                % (_SPEC_PATH, lineno, len(cells), len(_HEADER), line))
+        ns, method, call_count, file_count, arity_min, arity_max = cells
+        try:
+            numbers = [int(cell) for cell in
+                       (call_count, file_count, arity_min, arity_max)]
+        except ValueError as exc:
+            raise VendoredDataError(
+                "%s line %d has a non-integer count: %r"
+                % (_SPEC_PATH, lineno, line)) from exc
         out.append(ApiFunction(
             namespace=ns,
             method=method,
-            call_count=int(call_count),
-            file_count=int(file_count),
-            arity_min=int(arity_min),
-            arity_max=int(arity_max),
+            call_count=numbers[0],
+            file_count=numbers[1],
+            arity_min=numbers[2],
+            arity_max=numbers[3],
         ))
+    if not out:
+        raise VendoredDataError("%s has a header and no rows" % (_SPEC_PATH,))
     return tuple(out)
 
 

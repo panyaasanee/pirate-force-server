@@ -29,10 +29,23 @@ it yet (pf-adversary D10, round ``wn088m``).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional, Tuple
 
 from . import quest as lua_api_quest
 from . import quest_criteria
+
+#: How many distinct corpus roots :func:`_stem_index` will remember at once.
+#: Bounded for the same reason ``quest_criteria``'s multiplier memo is
+#: (pf-adversary D8, round ``wn088m``): an unbounded cache keyed by
+#: something a caller chooses is a key per input.  A server has ONE corpus
+#: root; a test suite has a handful of tmpdirs.  Past the cap the index is
+#: simply rebuilt, so exceeding it costs time and never correctness.
+ROOTS_CACHED_CAP = 8
+
+#: resolved root -> {case-folded stem: (paths, ...)}. Built once per root
+#: instead of walking 616 files on every dispatch (pf-adversary D11, round
+#: ``wn088m``).
+_STEM_INDEX: Dict[Path, Dict[str, Tuple[Path, ...]]] = {}
 
 
 class QuestDispatchError(Exception):
@@ -64,8 +77,14 @@ def script_path_for_quest(root, quest_id: int) -> Path:
         raise QuestDispatchError(
             "no lua corpus at %s (this needs a pf_bridge checkout)" % root)
     wanted = name.lower()
-    matches = [path for path in sorted(root.rglob("*.lua"))
-               if path.stem.lower() == wanted]
+    # The index is built from -- and keyed on -- the RESOLVED root, so the
+    # paths it hands back are resolved too.  Report them relative to that
+    # same resolved root, never to the caller's spelling of it: a relative
+    # root, or one containing "..", would make `relative_to` raise
+    # ValueError from inside the error path, replacing a refusal that names
+    # the duplicate files with a traceback that names nothing.
+    resolved_root = root.resolve()
+    matches = list(_stem_index(root).get(wanted, ()))
     if not matches:
         raise QuestDispatchError(
             "quest %d names script %r and no %s.lua exists under %s"
@@ -74,8 +93,61 @@ def script_path_for_quest(root, quest_id: int) -> Path:
         raise QuestDispatchError(
             "quest %d names script %r and %d files under %s answer to it: %s"
             % (quest_id, name, len(matches), root,
-               ", ".join(m.relative_to(root).as_posix() for m in matches)))
+               ", ".join(m.relative_to(resolved_root).as_posix()
+                         for m in matches)))
     return matches[0]
+
+
+def _stem_index(root: Path) -> Dict[str, Tuple[Path, ...]]:
+    """``{case-folded stem: (paths, ...)}`` for one corpus root, built once.
+
+    WHY A CACHE AT ALL (pf-adversary D11, round ``wn088m``): the previous
+    implementation ran ``root.rglob("*.lua")`` and sorted all 616 shipped
+    files on EVERY dispatch, to pick one.  A quest script that dispatches
+    another quest walks the tree again; a scene full of NPCs walks it once
+    per interaction.
+
+    WHY IT IS SAFE TO SHARE BETWEEN SESSIONS (``NOW.md`` "shared world"):
+    the value is derived read-only from the filesystem and is never handed
+    out mutable -- callers get a tuple, and :func:`script_path_for_quest`
+    copies it into a list before it reports on it.  Two sessions in one
+    scene resolving the same quest get the same paths, which is the same
+    answer the uncached version gave, only once.
+
+    THE STEM IS THE ONLY THING MATCHED, still.  Directory names are never
+    compared and the table's cell is never concatenated into a path, so a
+    ``s_LUASCRIPT`` cell cannot escape ``root`` or select by prefix -- the
+    cache preserves that because it is keyed on ``path.stem.lower()`` of
+    files that were FOUND under ``root``, never on anything the table said.
+
+    The index is keyed on the RESOLVED root, so two spellings of one
+    directory (a relative path and its absolute form, or a path with a
+    ``..`` in it) share one entry instead of building two that can drift.
+    """
+    key = root.resolve()
+    cached = _STEM_INDEX.get(key)
+    if cached is not None:
+        return cached
+    index: Dict[str, list] = {}
+    for path in sorted(key.rglob("*.lua")):
+        index.setdefault(path.stem.lower(), []).append(path)
+    built = {stem: tuple(paths) for stem, paths in index.items()}
+    if len(_STEM_INDEX) >= ROOTS_CACHED_CAP:
+        _STEM_INDEX.clear()
+    _STEM_INDEX[key] = built
+    return built
+
+
+def reset_caches() -> None:
+    """Drop the per-root stem index.
+
+    For tests that write a corpus, dispatch, then write MORE files into the
+    same directory: the index is a snapshot, and without this such a test
+    would see the first snapshot and pass or fail for the wrong reason.
+    Mirrors ``quest_criteria.reset_caches()``, which exists for exactly the
+    same hazard one layer down.
+    """
+    _STEM_INDEX.clear()
 
 
 def load_quest_script(root, quest_id: int, character_id: int,
