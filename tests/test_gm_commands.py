@@ -607,5 +607,179 @@ class WarpByNameTests(unittest.TestCase):
         self.assertEqual(describe_warp_target(command), "Spice Paradise Island")
 
 
+class WarpNameNearMissTests(unittest.TestCase):
+    """A mistyped island name names the island, instead of ending the line."""
+
+    def _message(self, text):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(text)
+        return str(caught.exception)
+
+    def test_one_dropped_letter_gets_the_scene_id_it_meant(self):
+        message = self._message("warp Prison Exile Iland")
+        self.assertIn("did you mean 'Prison Exile Island' (scene 2)", message)
+        # The way out is still there; the suggestion is added, not swapped in.
+        self.assertIn("warp <scene_id>", message)
+
+    def test_a_name_with_coordinates_now_names_the_id_that_carries_them(self):
+        # This is the case the id-only rule used to leave at a dead end:
+        # `Navy Prison2` really is a scene, and `warp Navy Prison2 10 20` is
+        # refused because a trailing digit cannot be told from a coordinate.
+        # Before this round the operator was told only to "use warp
+        # <scene_id>" -- without being told which id that is.
+        message = self._message("warp Navy Prisn2 10 20")
+        self.assertIn("did you mean 'Navy Prison2' (scene 123)", message)
+
+    def test_an_ambiguous_suggestion_prints_a_count_not_twenty_ids(self):
+        message = self._message("warp hidden iland")
+        self.assertIn("'Hidden Island' (on 20 scenes)", message)
+        self.assertNotIn("308, 309", message)
+
+    def test_nonsense_adds_no_suggestion_clause_at_all(self):
+        message = self._message("warp qqqqqqqq")
+        self.assertNotIn("did you mean", message)
+        self.assertIn("no GM scene carries that name", message)
+
+    def test_the_suggestion_never_echoes_what_the_operator_typed(self):
+        # These lines reach a cp874 console. Every character printed has to
+        # come out of the pinned table, which is measured cp874-safe; the
+        # typed text carries no such guarantee. A marker that cannot appear
+        # in any of the 330 shipped names is the witness.
+        marker = "ZqxjvwZ"
+        message = self._message("warp Prison Exile Iland %s" % marker)
+        self.assertNotIn(marker, message)
+        for candidate in ("warp %s" % marker, "warp Port Royl %s" % marker):
+            with self.subTest(text=candidate):
+                self.assertNotIn(marker, self._message(candidate))
+
+    def test_every_suggestion_this_parser_prints_encodes_on_the_console(self):
+        for text in (
+            "warp Prison Exile Iland",
+            "warp Navy Prisn2 10 20",
+            "warp hidden iland",
+            "warp Port Royl",
+        ):
+            with self.subTest(text=text):
+                self._message(text).encode("cp874")
+
+    def test_an_exact_name_still_parses_and_gains_no_suggestion_path(self):
+        self.assertEqual(
+            parse_gm_command("warp Prison Exile Island"),
+            GmCommand("warp", ("2",), "warp Prison Exile Island"),
+        )
+
+    def test_the_numeric_form_is_untouched_by_the_suggestion_branch(self):
+        for text, args in (
+            ("warp 2", ("2",)),
+            ("warp -1", ("-1",)),
+            ("warp 007 5 6", ("007", "5", "6")),
+            ("warp 1_0 5 6", ("1_0", "5", "6")),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(parse_gm_command(text).args, args)
+
+    def test_an_ambiguous_exact_name_keeps_its_own_rejection(self):
+        # The ambiguous branch runs before this one and must not be reworded
+        # by it: an exact ambiguous name lists ids, it does not "suggest".
+        message = self._message("warp Hidden Island")
+        self.assertIn("that name is on 20 scenes", message)
+        self.assertNotIn("did you mean", message)
+
+
+class WarpNameQueryIsHeldToTheConsoleCodecTests(unittest.TestCase):
+    """pf-adversary round `nqgmam` D2: the query is the client-chosen side."""
+
+    def _message(self, text):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(text)
+        return str(caught.exception)
+
+    def test_a_homoglyph_no_longer_resolves_to_a_real_scene(self):
+        # `casefold()` is many-to-one: U+017F folds to 's', so this used to
+        # come back as scene 2 and put a character with no cp874 byte into
+        # the audit record's `raw`. Before the name form existed the same
+        # line was a parse error and never reached the audit writer at all.
+        self.assertIn("console can print", self._message("warp pri\u017fon exile i\u017fland"))
+
+    def test_separators_and_controls_that_str_split_accepted_are_refused(self):
+        # `str.split()` splits on every `str.isspace()` character, and none
+        # of these is Unicode category Cf, so the chat layer's format filter
+        # does not see them either.
+        for text in (
+            "warp Prison\u2028Exile\u2029Island",
+            "warp \x0bPort\x0cRoyal",
+            "warp Port\x1cRoyal",
+            "warp Port\u3000Royal",
+            "warp Port\x85Royal",
+        ):
+            with self.subTest(text=text):
+                self.assertIn("console can print", self._message(text))
+
+    def test_the_guard_excludes_no_shipped_name(self):
+        # The bar is the one all 330 shipped names already meet, so closing
+        # this must cost nothing that worked. Every name in the table still
+        # parses (ambiguous ones raise the ambiguity error, never the codec
+        # error -- which is the assertion that keeps this from passing by
+        # refusing everything).
+        for scene_id, name in scene_catalog.SCENE_ID_TO_GM_NAME.items():
+            if not name.strip():
+                continue
+            with self.subTest(scene_id=scene_id):
+                try:
+                    resolved = parse_gm_command("warp %s" % name)
+                except GmCommandParseError as error:
+                    self.assertIn("that name is on", str(error))
+                    continue
+                self.assertEqual(resolved.name, "warp")
+                self.assertIn(scene_id, scene_catalog.resolve_gm_scene_name(name))
+
+    def test_ascii_space_and_tab_still_separate_a_name(self):
+        self.assertEqual(parse_gm_command("warp Port\tRoyal").args, ("1",))
+        self.assertEqual(parse_gm_command("warp  Port   Royal ").args, ("1",))
+
+    def test_the_codec_refusal_echoes_nothing_typed_and_keeps_the_way_out(self):
+        message = self._message("warp \u017fZqxjvwZ")
+        self.assertNotIn("Zqxjvw", message)
+        self.assertIn("warp <scene_id>", message)
+        message.encode("cp874")
+
+    def test_the_numeric_form_never_reaches_the_guard(self):
+        # The guard sits inside the name branch only. A numeric first token
+        # is decided before it, so the id form cannot be narrowed by this.
+        for text, args in (("warp 2", ("2",)), ("warp -1", ("-1",)),
+                           ("warp 007 5 6", ("007", "5", "6"))):
+            with self.subTest(text=text):
+                self.assertEqual(parse_gm_command(text).args, args)
+
+
+class WarpUnknownNameMessageContentTests(unittest.TestCase):
+    """pf-adversary round `nqgmam` D1: this branch's message had no witness."""
+
+    def _message(self, text):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(text)
+        return str(caught.exception)
+
+    def test_the_two_counts_it_prints_are_the_two_it_means(self):
+        # Mutant M21 swapped GM_NAME_COUNT for SCENE_COUNT and survived,
+        # printing "330 names over 330 scenes" to an operator. The two
+        # numbers differ, so pinning both catches the swap.
+        message = self._message("warp qqqqqqqq")
+        self.assertNotEqual(scene_catalog.GM_NAME_COUNT, scene_catalog.SCENE_COUNT)
+        self.assertIn(
+            "(%d names over %d scenes)"
+            % (scene_catalog.GM_NAME_COUNT, scene_catalog.SCENE_COUNT),
+            message,
+        )
+
+    def test_the_way_out_survives_on_the_unknown_branch_too(self):
+        # Mutants M24 and M27 (drop the usage clause; replace the whole body
+        # with "no") survived because only the AMBIGUOUS branch's way-out was
+        # pinned.
+        message = self._message("warp qqqqqqqq")
+        self.assertIn("no GM scene carries that name", message)
+        self.assertIn("warp <scene_id>", message)
+
+
 if __name__ == "__main__":
     unittest.main()
