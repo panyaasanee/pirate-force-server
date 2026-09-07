@@ -66,6 +66,53 @@ ROOT = Path(__file__).resolve().parents[1]
 SIBLING = ROOT.parent
 
 
+def a_test_instance(case, key: str):
+    """Refuse ``require(cls)`` on EVERY machine, not only a bridgeless one.
+
+    WHY THIS EXISTS, MEASURED (chief round 1w9f0q / R384, COO order 0641).
+    ``require`` is the imperative form of a precondition and needs a live
+    ``unittest.TestCase`` to raise a skip through.  Handed a CLASS - which is
+    what ``setUpClass(cls)`` has, because no instance exists yet - every one of
+    the four ``require`` implementations below is still perfectly quiet, right
+    up until the precondition happens to be ABSENT: only that branch touches
+    ``case`` at all, and it touches it as ``case.skipTest(reason)``, which on a
+    class is an unbound call missing its ``self`` and dies as a ``TypeError``
+    inside ``setUpClass`` - an ERROR for every test in the class, not a skip.
+
+    So the defect is invisible exactly where it is written.  A cloud round
+    always has the bridge checked out beside it, so ``present`` is true, so
+    ``require(cls)`` looks healthy on the author's machine and detonates hours
+    later on the Windows gate, in a pull request whose author never touched it.
+    The family has closed three already: #966, #990, and the ``bg0008`` /
+    ``bg0010`` rows that ``docs/PYTEST_SKIP_PINS.json`` recorded against
+    itself.  No lane could have caught it from inside its own round.
+
+    Hence: validate the ARGUMENT first, before ``present`` is ever consulted,
+    so the same source line fails the same way on every machine on earth.
+    Returns the case so callers can write ``a_test_instance(case, key)`` as a
+    guard clause and keep using ``case``.
+    """
+    if isinstance(case, type):
+        raise TypeError(
+            "%s.require() needs a unittest.TestCase INSTANCE and was handed the "
+            "class %s itself. setUpClass has no instance to raise a skip "
+            "through, so this call can only ever end as a TypeError - and only "
+            "on a machine that lacks the precondition, which is why it reads as "
+            "healthy where it was written. Decorate the class instead: "
+            "@<PRECONDITION>.skip_unless_present() above 'class %s', or move the "
+            "require(self) call down into setUp or into the test method."
+            % (key, case.__name__, case.__name__)
+        )
+    if not isinstance(case, unittest.TestCase):
+        raise TypeError(
+            "%s.require() needs a unittest.TestCase instance, got %r. Only a "
+            "live test case can carry a skip; a module-level setUpModule has "
+            "none, so use the decorator form on each class instead."
+            % (key, type(case).__name__)
+        )
+    return case
+
+
 class Precondition:
     """A named piece of evidence that a fresh clone does not have.
 
@@ -122,6 +169,7 @@ class Precondition:
 
     def require(self, case: unittest.TestCase) -> None:
         """Imperative form, for a precondition only known inside the test."""
+        a_test_instance(case, self.key)
         if not self.present:
             case.skipTest(self.reason)
 
@@ -312,6 +360,7 @@ class HistoricalGitObject:
 
     def require(self, case: unittest.TestCase) -> None:
         """Skip only for a cause that was measured; otherwise fail loudly."""
+        a_test_instance(case, self.key)
         state, detail = self.state()
         if state == self.PRESENT:
             return
@@ -384,6 +433,7 @@ class OptionalPackage:
         return unittest.skipUnless(self.present, self.reason)
 
     def require(self, case: unittest.TestCase) -> None:
+        a_test_instance(case, self.key)
         if not self.present:
             case.skipTest(self.reason)
 
@@ -441,6 +491,7 @@ class AllOfThese:
         return unittest.skipUnless(self.present, self.reason)
 
     def require(self, case: unittest.TestCase) -> None:
+        a_test_instance(case, self.key)
         if not self.present:
             case.skipTest(self.reason)
 
