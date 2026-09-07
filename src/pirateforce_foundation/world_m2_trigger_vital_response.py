@@ -392,10 +392,13 @@ no measurement behind it.  This module does not answer that question today
 and must not start by indexing the extent table.
 The ask was
 `notes_to_chief/20260907_1022_LANE-A-ASK-COO-containment-discriminator-does-
-not-need-the-ordinal-crosswalk.md`, and it is no longer an open assumption:
-`RE-298` supplied the crosswalk observation that licenses indexing the
-extent table BY THE WIRE ID, which is what
-`M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` records.  What stays true is the
+not-need-the-ordinal-crosswalk.md`, and it is no longer an open assumption.
+THE PERMIT IS ``COO-DECISION 20260907_1441`` ITEM 4, NOT ``RE-298``:
+`RE-298` supplied the crosswalk observation -- recorded in
+`M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` -- and `COO-DECISION 20260907_1245`
+section 1 says in red that the observation arriving does NOT by itself grant
+the right to fill the name.  Evidence and authority are different layers and
+this paragraph used to collapse them (pf-adversary D5).  What stays true is the
 paragraph above it: the DESTINATION a wire id names is still unmeasured,
 and this module still does not answer that.  Reverting remains one line --
 put ``ISLAND_CONTACT_DISCRIMINATOR`` back to ``None`` -- and costs no
@@ -871,15 +874,22 @@ ISLAND_EXTENT_BOX_CITATIONS: dict[int, str] = {
 #
 # WHAT THIS PARAGRAPH SAID UNTIL `p7rob4`, AND WHY IT IS NOW HISTORY:
 # it read "`ISLAND_CONTACT_DISCRIMINATOR` IS STILL `None` twenty lines up",
-# and it was true on the day it was written.  It is not true now -- line
-# 509 names it, `RE-298 Bg3001.tgr ordinal box contains the ship position`
-# -- and two other paragraphs in this file (at the constant itself and in
-# `_tier3_contact_reason`) had already been updated to say so, leaving the
-# file contradicting itself for three rounds.  pf-adversary D8 caught it
-# three times before a round paid it; the second half of the finding was
-# that "twenty lines up" was never right either, the constant sits 346
-# lines above this comment.  A comment that names a distance ages worse
-# than one that names a symbol, so this one names the symbol.
+# and it was true on the day it was written.  It is not true now -- the
+# constant is assigned `RE-298 Bg3001.tgr ordinal box contains the ship
+# position` -- and two other paragraphs in this file (at the constant
+# itself and in `_tier3_contact_reason`) had already been updated to say
+# so, leaving the file contradicting itself for three rounds.
+# pf-adversary D8 caught it three times before a round paid it.
+#
+# AND THE FIRST FIX OF IT REPEATED THE DEFECT INSIDE THE SENTENCE THAT
+# ANNOUNCED THE FIX.  The replacement written earlier this round said the
+# constant was at "line 509" and, one sentence later, that "a comment that
+# names a distance ages worse than one that names a symbol, so this one
+# names the symbol" -- while naming a line number.  It was already wrong
+# when committed (514, because the same commit added five lines above it)
+# and is wrong again now.  pf-adversary D2 of THIS round measured both.
+# So this paragraph now names ONLY the symbol: search
+# `^ISLAND_CONTACT_DISCRIMINATOR`.  No line number, no distance in lines.
 #
 # The decision the old paragraph was deferring HAS been taken: naming the
 # discriminator is a decision, not a measurement, and it was routed through
@@ -1939,9 +1949,13 @@ def registered_count() -> int:
 # WHICH BOUNDARY IS THIS FREEZE?  DISCIPLINE, NOT SECURITY.
 # CONFIRMED BY COO-DECISION `20260907_1744`, which upheld reading (b) and
 # made both consequences below BINDING, not this lane's assumption.  The
-# `[assumption of LANE-A]` tag that stood here for five rounds is gone
-# because the decision arrived, and that decision added a third rule which
-# is now item 3.
+# `[assumption of LANE-A]` tag that stood here is gone because the
+# decision arrived, and that decision added a third rule which is now
+# item 3.  (The first version of this line said "for five rounds".
+# pf-adversary D6 re-derived it: the tag exists in the tree of exactly two
+# LANE-A rounds, `fr81hi` (#1054, which added it) and `yw28ea` (#1058).
+# A count of rounds nobody can re-derive from the repository is the same
+# defect as a stale line number, so this sentence no longer carries one.)
 #
 # pf-adversary asked the question that the last four rounds of this file
 # were avoiding: "who is the importer this freeze protects against, and
@@ -1964,7 +1978,10 @@ def registered_count() -> int:
 # happened here: `""` was measured unlocking all three tiers on `550a36d`
 # and on `#993`.
 #
-# TWO CONSEQUENCES, BOTH BINDING ON LATER ROUNDS:
+# THREE CONSEQUENCES, ALL BINDING ON LATER ROUNDS.  (This header said TWO
+# over three items for the length of one round: item 3 was added with the
+# count left alone -- the exact D7 shape this same commit was paying.
+# pf-adversary D3 of round `p7rob4` measured it.)
 #   1. SCOPE FOLLOWS THE TIERS, NOT THE ATTACKER.  The set below must
 #      contain every name a tier READS while deciding -- which is why a
 #      test now derives that list from the tiers' own syntax instead of
@@ -1991,6 +2008,21 @@ def registered_count() -> int:
 # tier3-freeze.md`; the answer is
 # `notes_to_chief/20260907_1744_COO-DECISION-a1622-freeze-is-a-discipline-line-
 # LANE-A.md`.
+#
+# THE DECISION THAT LICENSED NAMING `ISLAND_CONTACT_DISCRIMINATOR` IS
+# `COO-DECISION 20260907_1441` ITEM 4, AND UNTIL ROUND `p7rob4` THIS FILE
+# NEVER CITED IT.  That matters twice.  First, because `RE-298` is
+# evidence, not authority: `COO-DECISION 20260907_1245` section 1 says in
+# red that the crosswalk being answered does NOT by itself grant the right
+# to fill the name, and any sentence in this file reading "`RE-298`
+# licenses it" is repeating the reading that decision refused -- the
+# permit is `1441` item 4, which cites `RE-298` as its grounds.  Second,
+# because `1441` attached a condition this lane did not meet: fill the
+# name AND remove the docstring prohibition IN THE SAME COMMIT.  The name
+# was filled at `8ce0c44`; the prohibition text was still being corrected
+# rounds later.  Recorded here rather than quietly fixed, because a
+# condition missed and unlogged is how the next one gets missed too.
+# (pf-adversary D5 of round `p7rob4` found both.)
 class _FrozenTier3Module(ModuleType):
     """The class this module's own object is given at import time, so that
     ``world_m2_trigger_vital_response.ISLAND_CONTACT_DISCRIMINATOR = "x"``
@@ -2103,15 +2135,27 @@ class _FrozenTier3Module(ModuleType):
             # THE CODE (pf-adversary D7 and D1 against `yw28ea`).  It said
             # TWO functions and named `_ordinal_is_in_table`, a name that
             # was renamed to `_readable_extent_for` in the same commit and
-            # has zero hits in this file -- a comment describing an earlier
-            # draft of its own commit.  And it claimed these names "go in
+            # survives nowhere in this file except the two sentences
+            # discussing it -- a comment describing an earlier draft of its
+            # own commit.  (The first version of THIS sentence said "zero
+            # hits", which its own existence refuted: pf-adversary D3.)  And it claimed these names "go in
             # the set in the SAME commit that creates them", which
             # `git show 4014f72` refutes about these very functions: that
-            # commit minted them OUTSIDE this set, went red on its own
-            # suite, and left the D1 hole genuinely open until `e748577`.
-            # The rule is right and the sentence was a boast: what the lane
-            # actually learned from D1 is that the set is checked by a
-            # test, not by the author remembering.
+            # commit minted `_ordinals_containing_position` OUTSIDE this
+            # set, went red on its own suite (45 failed, including
+            # `test_every_name_a_tier_reads_is_frozen`), and left the D1
+            # hole open until `e748577`.
+            #
+            # PRECISELY, BECAUSE THE FIRST DRAFT OF THIS CORRECTION
+            # OVERSTATED ITSELF IN THE OTHER DIRECTION (pf-adversary D7 of
+            # round `p7rob4`): `4014f72` never contained
+            # `_readable_extent_for` or `_is_a_readable_row` at all.  Both
+            # were minted at `e748577`, WHICH ADDED ALL THREE NAMES TO THIS
+            # SET IN THAT SAME COMMIT.  So the "same commit" rule held for
+            # two of the three functions and was broken for one.  What the
+            # lane actually learned from D1 stands either way: the set is
+            # kept honest by a test that walks the tiers' own syntax, not
+            # by the author remembering -- and that test is what went red.
             "_ordinals_containing_position",
             "_readable_extent_for",
             "_is_a_readable_row",
