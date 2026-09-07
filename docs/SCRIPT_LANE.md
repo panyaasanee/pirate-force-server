@@ -4016,3 +4016,136 @@ Re-measured across 8 seeds (0, 1, 2, 7, 999983, 1757000000, 1757000001,
 - **`utility.lua` is still a load failure and that is the design.**  The
   one-key `os` shim lives only for the duration of the prelude chunk, so the
   same bytes arriving through the ordinary door are still refused.
+
+## Round `joa0u6` (2026-09-08) -- `Quest.Var1..Var20` stop being zero: the quest row reaches the script
+
+COO-DECISION `20260908_0042` item 5 approved option (kho) and named the
+owner: the layer that joins `Quest.VarN` to `QUESTDATA_TH__QUEST.tsv` is
+this lane's, not LANE-DB's.  This round built it.
+
+**What a player gets that they did not have yesterday.**  Changing class
+costs 15,000 again.  `Quest/q_class.lua:60` is `Player.AddCash(Quest.Var4)`
+inside `Report_Run`; quest 3200's `n_VARI_4` cell is `4294952296`, which is
+a designer's `-15000` stored as unsigned 32-bit.  Until this commit that
+expression evaluated to `0` and the class change was free -- not because
+anyone decided it should be, but because every `VarN` fell through
+`RealQuestNamespace.__getitem__`'s last line.
+
+### Three new artifacts, and which kind of fact each one holds
+
+| file | holds | how it is checked |
+|---|---|---|
+| `lua_api/quest_var_rows.tsv` | 1544 quests x 20 cells, VERBATIM unsigned | `body_sha256`; and cell-by-cell against the source **by column name** where the bridge is |
+| `lua_api/quest_var_signedness.tsv` | the 5 (script, column) pairs that are signed, each with the corpus line that proves it | re-derived from scratch where the bridge is; provenance walked back into the row mirror where it is not |
+| `tools/pf_regen_lua_quest_vars.py` | the derivation itself | `--check` (drift), `--explain` (the scan, printed) |
+
+`lua_api/quest_vars.py` is the join.  It holds **no list of its own**: the
+signedness rule lives in the table, per COO's "haam son nai fangkchan
+plaeng".  Delete the table and every wrapped cell becomes a refusal --
+which is exactly option (ko), the documented rollback.
+
+### The derivation, in full, so it can be argued with
+
+30,880 cells scanned; **13** are at or above `2**31`; they fall into **5**
+(script, column) groups; each group's corpus line answers what the column
+means:
+
+```
+Q_CLASS        n_VARI_4   Quest/q_class.lua:60        Player.AddCash        -15000 x5
+Q_GUILD_BOSS2  n_VARI_8   Quest/q_guild_boss2.lua:59  Player.AddCash        -10000/-40000/-50000
+Q_KILL_SKXYZ   n_VARI_10  Quest/q_kill_skxyz.lua:85   Player.CastSkillXYZ   -23754  (X)
+Q_KILL_SKXYZ   n_VARI_11  Quest/q_kill_skxyz.lua:85   Player.CastSkillXYZ   -18008  (Y)
+Q_KILL_SKXYZ   n_VARI_12  Quest/q_kill_skxyz.lua:85   Player.CastSkillXYZ   -800    (Z)
+```
+
+Two money columns and three coordinates -- the two kinds COO's decision
+predicted -- and **no id column**, which is the negative result that
+matters: ids are never negative, so they never wrap, so nothing about this
+change can reinterpret one.
+
+**The threshold is safe because of the gap, not because it is round.**
+Largest ordinary cell **2,608,007**; smallest wrapped **4,294,917,296**.
+Three orders of magnitude of empty space.  A test asserts both numbers and
+the gap, so the day the game ships a cell in between, a person decides
+rather than the scan guessing.  The scan threshold and the decode rule are
+**separate constants** on purpose: one is a heuristic over one table, the
+other follows from the width of the field.
+
+**The tool refuses to guess.**  Only step 4 (which API takes which kind)
+is lane-authored, it is four lines (`KIND_BY_API`), and a wrapped column
+whose call site uses an unlisted API **stops the tool** with a named error
+instead of taking a default.  A new signed column has to be looked at.
+
+**The corpus is read as bytes, never decoded.**  `q_kill_skxyz.lua` carries
+Big5 comment bytes on lines 11-13 -- `Quest.Var10=<X coordinate>` -- three
+lines above the call site the table needs, and text decoding raises
+`UnicodeDecodeError` on exactly that file.  This pays pf-adversary **D12**
+of round `yfeauz`.  It also forced a real design choice: the FIRST line
+matching `Quest.Var10` is that comment, so the tool prefers the line that
+passes the name to a classified API.  Provenance points at code.
+
+### What an unbound run does, and why it is not silent-but-also-not-noise
+
+Quest id `0` (`DEFAULT_CONTEXT`, the corpus sweep, most tests) is bound to
+no quest at all.  That is **not** a data fault -- there is no id to have got
+wrong -- so it has its own refusal reason, `no_quest_bound_to_this_script`,
+and it is logged **once per namespace** rather than once per read.  The
+sweep reads `VarN` 301 times across 616 files; a line each would bury every
+other line the host prints, which is the practical way a "never silent"
+rule turns into a log nobody opens.  Every other refusal stays per-read,
+because each one names a different cell.
+
+### Evidence, two layers kept apart
+
+- **The row on disk** (`TheShippedScriptChargesARealRowTests`): the SHIPPED
+  `q_class.lua` run through real Lua with quest 3200 bound and a real
+  `SQLiteStore`.  cash 20000 -> **5070**: `charged=15000` then this quest's
+  own `AddCriteriaCash` pays 70.  Both halves asserted separately -- one
+  total can hide a wrong charge behind a right sum.
+- **The console** (a different reading, not the same fact restated):
+  `LUA_QUEST_VAR Quest.Var4 quest=3200 value=-15000`.
+- **The mutant that proves the join, not luck**: the same file, same store,
+  same call, with only the quest binding removed -> `Var4` is 0,
+  `refused=amount_is_zero`, the row does not move.  And quest **3195**
+  (`Q_CLASS2`, same column, plain `0`) -> the row does not move either.
+- `python3 tools/pf_regen_lua_quest_vars.py --check` -> both mirrors OK.
+- Full suite on the merged tree; `pf_gate_preflight.py` green.
+
+### A red pin this round found and paid, which was NOT this round's doing
+
+`BASELINE_TOTAL_STUB_CALLS` 2606 -> **2600** and `BASELINE_TOTAL_REAL_CALLS`
+2865 -> **2871**.  Measured with this round's own `quest.py` change
+**stashed**: `origin/main` alone already prints 2600/2871, so both pins were
+already red on any machine that has the corpus.  The -6/+6 is exactly
+`Player.AddCash`'s 6 call sites moving from the stub bucket to the real one
+-- what round `2euu94` (`#1088`) landed.  That round could not see it: the
+cloud clone had no lupa then, so everything under `LUA_CORPUS_RUNNABLE`
+skipped, and the Windows gate has no corpus at all.  This is pf-adversary
+**F1** of round `5qtaqy` happening for real, on this lane's own commit.
+
+### Nonclaims
+
+- **Nothing is on a player's screen.**  There is still no dispatcher that
+  runs a quest script when a player talks to an NPC; that seam is in
+  `runtime.py`, which is not this lane's to edit.  What landed is that a
+  script which IS dispatched now reads its own row instead of zeros.
+- **The 160-API table does not move: 37 real / 123 stub, unchanged.**
+  `Quest.VarN` is table data, not one of the 25 `Quest.*` API names, so it
+  enters no bucket.  This round widened what the already-real names can
+  *do*, not how many of them exist -- and that distinction is the whole
+  reason the corpus counts did not move either.
+- **The corpus sweep still resolves every one of its 301 `VarN` reads to
+  0**, because it binds no quest.  Measured, not assumed.
+- **Only the TH table was read.**  `QUESTDATA_TH__QUESTTALK.tsv` is the only
+  other quest table in the bridge tree and has no `n_VARI_*` columns; there
+  is no non-TH `QUESTDATA_*` in the committed artifacts to disagree with.
+- **`s_VARI_1`/`s_VARI_2` (the string vars) are untouched** and still fall
+  through to `STUB_DEFAULT` silently.  No reader in this lane, no mirror.
+- **A signed column with no wrapped cell in the shipped table cannot be
+  found this way and this round does not pretend otherwise.**  The
+  derivation sees columns that DO hold a negative today; a column that is
+  semantically signed but happens to hold only positives is invisible to it
+  and will be refused the day a negative appears -- loudly, by name, which
+  is the outcome this design chooses over a silent decode.
+- **`Player.CastSkillXYZ` is still a stub.**  Its three coordinates now
+  resolve correctly; nothing consumes them yet.

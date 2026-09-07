@@ -276,6 +276,14 @@ class FoundationPopulationEmitsNoGaitTests(_LegacyCase):
         # plain-NPC composer passes movement_speed=0.0 (the dummy stands
         # still) the same shape field_mobs.py's own composers already use.
         "name_colour_sweep.py",
+        # ROUND phv2u0 (lane B, COO-ORDER 2026-09-07T20:50): the NPCAttr body
+        # walk NAMES the field -- ``movement_speed`` is the key and the codex
+        # semantic it prints for BasicAttr+0x54 -- and never REQUESTS one: it
+        # has no composer, calls no ``make_npc_attr``, and passes no keyword
+        # to anything.  It is here because this scan is a text scan by
+        # design (see ``modules_requesting_movement_speed``), and a module
+        # that spells the word owes the list an entry with its reason.
+        "npc_attr_body_diff.py",
         # R310, the player's own login-speed seam -- see the docstring above.
         # `login_speed.py` is deliberately NOT here: it resolves the column
         # `speed_walk` and never spells `movement_speed`, and this list is

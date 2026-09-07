@@ -1,0 +1,14 @@
+# VENDORED MIRROR -- do not hand-edit.
+# regenerate: python3 tools/pf_regen_lua_quest_vars.py
+# source: pf_bridge/gamedata/tables/QUESTDATA_TH__QUEST.tsv cross-read against pf_bridge/gamedata/lua
+# source_sha256: cc9927286def2bda166c320a2dddd16f5457eb4579ce5207a3d76758707527bd
+# source_rows: 5
+# pulled: 2026-09-07
+# body_sha256: ed011337eeb2e11335d3d73b1b9132123df62941f614f89564676eb6f383e798
+# one row per (script, n_VARI_k) that holds a signed quantity; call_site is the corpus line that proves it, evidence_quest_ids/evidence_raw are the source rows exhibiting the wrapped value.
+script	var_index	kind	api_name	call_site	evidence_quest_ids	evidence_raw
+Q_CLASS	4	signed_money	Player.AddCash	Quest/q_class.lua:60	3200,3201,3202,3203,3204	4294952296,4294952296,4294952296,4294952296,4294952296
+Q_GUILD_BOSS2	8	signed_money	Player.AddCash	Quest/q_guild_boss2.lua:59	8061,8062,8063,8064,8065	4294957296,4294927296,4294917296,4294917296,4294917296
+Q_KILL_SKXYZ	10	signed_coordinate	Player.CastSkillXYZ	Quest/q_kill_skxyz.lua:85	1071	4294943542
+Q_KILL_SKXYZ	11	signed_coordinate	Player.CastSkillXYZ	Quest/q_kill_skxyz.lua:85	997	4294949288
+Q_KILL_SKXYZ	12	signed_coordinate	Player.CastSkillXYZ	Quest/q_kill_skxyz.lua:85	1071	4294966496

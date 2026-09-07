@@ -300,11 +300,18 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
         # this round -- see lua_api/quest.py's own module docstring for the
         # two-script derivation. Quest.StringVar2 takes its place as an
         # ordinary "anything else" table-data property.
+        # Quest.Var1 is deliberately NOT probed here any more either: round
+        # `joa0u6` gave Var1..Var20 a real table behind them
+        # (lua_api/quest_vars.py), so an UNBOUND run now says so once
+        # instead of answering silently. Its silence had nothing to do with
+        # this test's subject, which is that a non-API property never
+        # produces a LUA_API_STUB line. StringVar1/StringVar2 still carry
+        # that subject -- the s_VARI_* columns have no reader yet.
         calls = []
         host = script_host.ScriptHost(log=calls.append)
-        host.load("function Probe() return Quest.Var1, Quest.StringVar1, Quest.StringVar2 end")
+        host.load("function Probe() return Quest.StringVar1, Quest.StringVar2 end")
         result = host.call("Probe")
-        self.assertEqual(result, (0, 0, 0))
+        self.assertEqual(result, (0, 0))
         self.assertEqual(calls, [])  # not API surface - no LUA_API_STUB line
 
     def test_known_api_name_logs_exactly_once_per_call_and_returns_default(self):
@@ -411,7 +418,7 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "CanReportDailyQuest", "ReportDailyQuest",
         }))
 
-    def test_the_9_real_player_names_are_excluded_above_not_forgotten(self):
+    def test_the_11_real_player_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the guards above, for Player's own real
         # names (GetLv/GetClass from round gqjas5, CheckItemNum/GetItemNum/
         # CheckEquipItem from round qbr5h8's inventory read seam, MobAppear
@@ -438,6 +445,11 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             # q_boat_health.lua:21) and paying only the positive ones
             # would have handed the player a free ship.
             "AddCash",
+            # TeleportCheck joined in round `w4cp5c` (LANE-A, the M2 captain
+            # report): the name lives in this file because that is where the
+            # name is, but the closure and its frame composer belong to
+            # LANE-A.  It records a travel order and builds no frame.
+            "TeleportCheck",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):

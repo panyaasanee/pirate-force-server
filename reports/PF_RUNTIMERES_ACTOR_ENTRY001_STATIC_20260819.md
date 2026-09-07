@@ -308,17 +308,18 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "src_modules_forbidding_names": [
     "remote_player_hypothesis.py"
   ],
-  "src_modules_mentioning_basicattr_bit_0x0080": 8,
+  "src_modules_mentioning_basicattr_bit_0x0080": 9,
   "src_modules_passing_zero_hp_by_named_constant": [
     "damage_hp_link_hypothesis.py",
     "hostile_hp_link_hypothesis.py",
     "mob_combat.py",
     "mob_death.py",
     "mob_ledger_admission.py",
+    "name_colour_sweep.py",
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 27,
+  "src_vital_stream_call_sites": 29,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -581,6 +582,16 @@ to the state of `src/` at this commit, deliberately and upward, never loosened.
 | `src_modules_building_actor_entries` | 7 | **8** | HYP-PF-038 |
 | `src_modules_mentioning_basicattr_bit_0x0080` | 6 | **7** | HYP-PF-038 |
 | `src_modules_doing_both` (SET) | 2 | **3** | HYP-PF-038 |
+
+### Round `phv2u0` (LANE-B, 2026-09-07): `src_modules_mentioning_basicattr_bit_0x0080` 8 -> 9
+
+`npc_attr_body_diff.py` is a WALKER, not an emitter: it names BasicAttr bit `0x0080`
+(`Main_Dead_threshold_operand_vs_DURATION_DYING_minus_0_5`, codex order 8) in its field
+table so that a body carrying the bit can be decoded and reported instead of refused.
+It ORs nothing into any mask, composes no body and sends no frame - the same
+over-reporting shape this note already describes for `hostile_hp_link_hypothesis.py`,
+one step further removed. Re-pinned here in the commit that added the module, as
+`tests/test_static_verifier_pins_cloud.py` requires.
 
 Two things the table does not say and this note must:
 
@@ -1027,3 +1038,20 @@ byte in this round: identical prefix, 58 bytes vs 60.
 
 No other census key moves: the function composes no actor entry and no
 remote-actor stream, and the change is one call, not a new path.
+
+## Round `ebh143` (LANE-A), 2026-09-08
+
+`src_vital_stream_call_sites` moves **27 -> 29**. Both new sites are in the
+same new module, `world_m2_teleport_check`, which owns the two halves of the
+M2 captain-report handshake: `encode_prompt` composes the outbound
+`TeleportCheckVital` that asks the player, and `encode_transport` composes the
+`TeleportVital` that moves the ship once the client echoes back an OK.
+
+Neither is a new sender today. `runtime.py` has no branch for either id, so
+nothing here reaches a socket; the module's own PR carries the one-line
+request for the two call sites. What the number records is that this
+repository now composes two more plural-envelope frames than it did, and the
+count moved in the same change that added them, as this block's rule requires.
+
+No other census key moves: the module composes no actor entry and no
+remote-actor stream, and it passes no zero HP.

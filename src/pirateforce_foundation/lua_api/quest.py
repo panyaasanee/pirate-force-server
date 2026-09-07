@@ -153,6 +153,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import quest_criteria
+from . import quest_vars
 from . import reward as lua_api_reward
 
 try:
@@ -587,6 +588,30 @@ def _log_real(log: Callable[[str], None], start_raw: Any, end_raw: Any,
         % (start_raw, end_raw, now_minutes, result))
 
 
+#: ``Quest.Var1`` .. ``Quest.Var20`` and nothing else.  Built once, as a
+#: dict rather than a regex, so ``Var21``/``Var0``/``Var01``/``VarX`` all
+#: miss it and keep the old fall-through to :data:`STUB_DEFAULT` instead of
+#: being answered with a column the shipped table does not have.
+_VAR_NAMES: Dict[str, int] = {
+    "Var%d" % index: index
+    for index in range(1, quest_vars.VAR_COUNT + 1)
+}
+
+
+def _var_index_of(name) -> Optional[int]:
+    """The 1-based column a bare ``VarN`` attribute names, or ``None``.
+
+    ``name`` arrives from Lua and is a ``str`` for every real read, but the
+    lookup is written to survive anything hashable: an unhashable key would
+    otherwise turn an ordinary namespace read into a ``TypeError`` inside
+    the host, which ``script_host`` would report as OUR fault.
+    """
+    try:
+        return _VAR_NAMES.get(name)
+    except TypeError:  # pragma: no cover - unhashable key from Lua
+        return None
+
+
 def _log_bad_arity(log: Callable[[str], None], api_name: str, got: int, want: str) -> None:
     log("LUA_QUEST_BAD_ARITY Quest.%s got=%d want=%s" % (api_name, got, want))
 
@@ -747,7 +772,8 @@ class RealQuestNamespace:
     """
 
     __slots__ = ("_clock", "_context", "_store", "_payout_store", "_log",
-                 "_stub_methods", "namespace", "calls")
+                 "_stub_methods", "_var_facts_said", "namespace",
+                 "calls")
 
     def __init__(self, methods: frozenset, clock: Clock, log: Callable[[str], None],
                  context: "QuestContext", store: "QuestStateStore",
@@ -765,6 +791,13 @@ class RealQuestNamespace:
         self._payout_store = payout_store
         self._log = log
         self._stub_methods = methods - REAL_METHODS
+        #: What `lua_api.quest_vars` has already logged for THIS script
+        #: run.  The quest binding cannot change inside one namespace, so
+        #: `VarN` has one answer for the whole run: each distinct fact is
+        #: said once and the repeats are dropped (35,078 identical lines
+        #: over one full dispatch, measured -- pf-adversary D9). Per
+        #: NAMESPACE, so two scripts each get their own lines.
+        self._var_facts_said: set = set()
         self.calls: list = []
 
     def __getitem__(self, name):
@@ -963,6 +996,12 @@ class RealQuestNamespace:
 
         if name in _STATUS_CONSTANTS:
             return _STATUS_CONSTANTS[name]
+
+        var_index = _var_index_of(name)
+        if var_index is not None:
+            return quest_vars.resolve_for_namespace(
+                self._log, self._context.quest_id, var_index, STUB_DEFAULT,
+                self._var_facts_said)
 
         if name in self._stub_methods:
             qualified = "Quest.%s" % name

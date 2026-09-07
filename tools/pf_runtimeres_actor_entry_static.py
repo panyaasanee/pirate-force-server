@@ -1213,11 +1213,14 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
           # and emits nothing, so it is one of the over-reported kind this
           # census names on purpose.
           "mob_ledger_admission.py",
+          # Round ixdda8: name_colour_sweep.SWEEP_HP_ZERO, the N-HP0 row of
+          # the ALL sweep -- env-gated, never composed on an ordinary boot.
+          "name_colour_sweep.py",
           "npc_hp_link_hypothesis.py",
           "runtimeres_death_hypothesis.py"),
       "GAP 2 CLOSED in round 86 and re-derived in round 7ptoku: the literal "
       "`current_hp = 0` still appears nowhere in src/ or v141, and the src/ "
-      "modules that pass zero through a NAMED constant are exactly these seven "
+      "modules that pass zero through a NAMED constant are exactly these eight "
       "%s -- of which mob_combat.py and mob_death.py are the first that are "
       "production_allowed with no flag"
       % (SRC_ZERO_HP_CONST_MODULES,))
@@ -1291,8 +1294,8 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # no longer true of the path a player's hit takes, and this note is here
 # because a census that quietly changes MEANING stops being a census just as
 # surely as one that quietly widens (pf-adversary, round 9jrsei, D6).
-guard(SRC_VITAL_STREAM_SITES == 27,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 27 call sites")
+guard(SRC_VITAL_STREAM_SITES == 29,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 29 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",
