@@ -183,7 +183,21 @@ class TheEnvelopeVersionIsStrippedBeforeThisLaneTests(unittest.TestCase):
 
 
 class AnUnstrippedEnvelopeIsLoudNeverSilentTests(unittest.TestCase):
-    """The day the boundary moves, this must fail -- not decode garbage."""
+    """The day the boundary moves, this must fail -- not decode garbage.
+
+    HOW FAR "LOUD" ACTUALLY REACHES, since the class name promises more than
+    production delivers.  At the FUNCTION layer it is a raised
+    `GmCommandWireError`, which is what these tests assert.  At the sink it
+    is already quieter: `capture_raw_gm_command` swallows the exception into
+    a `# decode: FAILED` COMMENT inside the capture file, so nothing fails
+    and nobody is paged -- somebody has to read the file.  And that file
+    lands under `capture/`, which `.gitignore` drops, so it never reaches a
+    reviewer unless it is carried off the boot machine by hand.
+
+    At R322B no capture file was written AT ALL (GT-279's negative result),
+    which is the loudest reminder available that this class name describes a
+    property of three functions, not a property of the system.
+    """
 
     def test_the_whole_region_is_refused_by_the_strict_decoder(self):
         for n, region in _R322B_REGIONS.items():
