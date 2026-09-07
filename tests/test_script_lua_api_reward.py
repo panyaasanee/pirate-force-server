@@ -957,3 +957,157 @@ class ChargeTests(unittest.TestCase):
         _charged, reason, _lines = self._charge(
             quest_criteria.KIND_CASH, 7, 250, LookupExplodes())
         self.assertEqual(reason, reward.REFUSE_STORE_CANNOT_SPEND)
+
+
+class BalanceDoorTests(unittest.TestCase):
+    """``reward.balance`` -- the fourth door, and the only one that reads.
+
+    Every case is about the SAME distinction the write doors already make
+    and that ``COO-DECISION 20260901_1059`` forbids collapsing: "we have
+    never measured this player's purse" is not "this player has no money".
+    A door that answered 0 to the first would make ``q_class.lua:47``'s
+    ``Player.GetCash() >= (Quest.Var3)`` a decision about a number nobody
+    has ever stored.
+    """
+
+    def _balance(self, kind, character_id, store):
+        lines: list = []
+        value, reason = reward.balance(
+            "Player.GetCash", kind, character_id, store=store,
+            log=lines.append)
+        return value, reason, lines
+
+    def test_a_measured_column_is_answered_with_its_value(self):
+        class Reads:
+            def read_typed_attributes(self, character_id):
+                return {"cash": 1234, "experience": 7}
+
+        value, reason, lines = self._balance(
+            quest_criteria.KIND_CASH, 7, Reads())
+        self.assertEqual(value, 1234)
+        self.assertIsNone(reason)
+        self.assertTrue(any("LUA_PLAYER_READ Player.GetCash character=7 "
+                            "kind=%s column=cash balance=1234"
+                            % quest_criteria.KIND_CASH in line
+                            for line in lines), lines)
+
+    def test_zero_is_a_real_answer_and_is_not_a_refusal(self):
+        """A player who spent their last coin HAS a balance: 0.
+
+        The one case where the value and the stub default coincide, and
+        they still have to arrive by different routes -- this one logs
+        ``balance=0`` with no ``refused=``.
+        """
+        class Broke:
+            def read_typed_attributes(self, character_id):
+                return {"cash": 0}
+
+        value, reason, lines = self._balance(
+            quest_criteria.KIND_CASH, 7, Broke())
+        self.assertEqual(value, 0)
+        self.assertIsNone(reason)
+        self.assertTrue(any("balance=0" in line for line in lines), lines)
+        self.assertFalse(any("refused=" in line for line in lines), lines)
+
+    def test_an_absent_column_is_unmeasured_never_zero(self):
+        class NothingMeasured:
+            def read_typed_attributes(self, character_id):
+                return {"experience": 100}
+
+        value, reason, lines = self._balance(
+            quest_criteria.KIND_CASH, 7, NothingMeasured())
+        self.assertIsNone(value)
+        self.assertEqual(reason, reward.REFUSE_UNMEASURED)
+        self.assertTrue(any("refused=%s" % reward.REFUSE_UNMEASURED in line
+                            for line in lines), lines)
+
+    def test_a_store_that_cannot_read_gets_its_own_token(self):
+        class WriteOnly:
+            def add_typed_attribute(self, character_id, column, delta):
+                raise AssertionError("balance() must not write")
+
+        value, reason, _lines = self._balance(
+            quest_criteria.KIND_CASH, 7, WriteOnly())
+        self.assertIsNone(value)
+        self.assertEqual(reason, reward.REFUSE_STORE_CANNOT_READ)
+        self.assertIn(reward.REFUSE_STORE_CANNOT_READ, reward.REFUSALS)
+
+    def test_no_store_and_no_character_and_no_kind_each_refuse(self):
+        class Reads:
+            def read_typed_attributes(self, character_id):
+                return {"cash": 5}
+
+        self.assertEqual(
+            self._balance(quest_criteria.KIND_CASH, 7, None)[1],
+            reward.REFUSE_NO_STORE)
+        for bad in (0, -1, True, "7", None):
+            self.assertEqual(
+                self._balance(quest_criteria.KIND_CASH, bad, Reads())[1],
+                reward.REFUSE_NO_CHARACTER, bad)
+        self.assertEqual(
+            self._balance("not_a_kind", 7, Reads())[1],
+            reward.REFUSE_UNKNOWN_KIND)
+
+    def test_a_store_that_raises_is_a_store_error_not_a_crash(self):
+        class Angry:
+            def read_typed_attributes(self, character_id):
+                raise KeyError(character_id)
+
+        value, reason, lines = self._balance(
+            quest_criteria.KIND_CASH, 7, Angry())
+        self.assertIsNone(value)
+        self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+        self.assertTrue(any("err=KeyError" in line for line in lines), lines)
+
+    def test_a_value_the_schema_forbids_is_refused_not_returned(self):
+        """A float, a bool, or a negative is schema drift, not a purse.
+
+        ``cash`` is ``INTEGER CHECK(... BETWEEN 0 AND ...)`` in migration
+        006, so each of these is a store reporting a row state its own
+        constraint forbids.  Rounding or clamping would hand a Lua
+        comparison a number no row holds.
+        """
+        for bad in (1.5, True, -1):
+            class Drifted:
+                def read_typed_attributes(self, character_id, _bad=bad):
+                    return {"cash": _bad}
+
+            value, reason, _lines = self._balance(
+                quest_criteria.KIND_CASH, 7, Drifted())
+            self.assertIsNone(value, bad)
+            self.assertEqual(reason, reward.REFUSE_STORE_ERROR, bad)
+
+    def test_a_store_whose_answer_is_not_a_mapping_is_a_store_error(self):
+        class Garbage:
+            def read_typed_attributes(self, character_id):
+                return 17
+
+        value, reason, _lines = self._balance(
+            quest_criteria.KIND_CASH, 7, Garbage())
+        self.assertIsNone(value)
+        self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+
+    def test_the_read_door_never_writes(self):
+        """The module docstring's read-modify-write ban, pinned.
+
+        A store whose WRITING doors explode is still a perfectly good
+        answer to "how much cash is there", so this test would fail the
+        day someone made ``balance`` helpful.
+        """
+        class ReadsOnlyAndBitesWriters:
+            def read_typed_attributes(self, character_id):
+                return {"cash": 42}
+
+            def add_typed_attribute(self, *_a, **_k):
+                raise AssertionError("balance() wrote")
+
+            def spend_typed_attribute(self, *_a, **_k):
+                raise AssertionError("balance() wrote")
+
+            def write_typed_attributes(self, *_a, **_k):
+                raise AssertionError("balance() wrote")
+
+        value, reason, _lines = self._balance(
+            quest_criteria.KIND_CASH, 7, ReadsOnlyAndBitesWriters())
+        self.assertEqual(value, 42)
+        self.assertIsNone(reason)

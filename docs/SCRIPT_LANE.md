@@ -274,7 +274,9 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (123/160 stub, 37/160 real, as of round `2euu94`)
+### API status table (121/160 stub, 39/160 real, as of round `yzdgx1`)
+
+> The two counts in this heading are the TABLE's own, and the header had been left at `2euu94`'s 123/37 for several rounds while the rows below it moved.  Re-derived from the rows themselves this round, not restated: `Player.TeleportCheck` (round `2241`) and `Player.GetCash` (this round) are the two the header was missing.  The live number is always `script_host.REAL_QUALIFIED_NAMES`, which is 39 at this commit; this heading is a mirror of it and drifts unless a round re-derives it.
 
 **Round `wn088m` changed no status.**  It changed a NUMBER: the six
 criteria rows were flooring the wrong float.  `f_EXP` is a float32 column,
@@ -472,7 +474,7 @@ in `STILL_STUBBED`.
 | Player | DropProcess | 9 | stub |
 | Player | TeleportThenPlayMovie | 8 | stub |
 | Player | CheckGender | 7 | stub |
-| Player | GetCash | 7 | stub |
+| Player | GetCash | 7 | real (round `yzdgx1`; `reward.balance` -> `store.read_typed_attributes` on the same `cash` column `AddCash` writes, so it needed no wider `PlayerContext` -- see `lua_api.player.STAT_READ_KINDS`). An ABSENT column is refused as `balance_was_never_measured`, never answered `0` (`COO-DECISION 20260901_1059`); a freshly created character is that case, measured. THE SWEEP EXECUTES 6 OF THE 7 CALL SITES: `Quest/q_con3.lua:19` short-circuits on `(Quest.Var4 == 0) or ...` and is also the only `<=` of the seven |
 | Player | PlayMovie | 7 | stub |
 | Player | ResetMarker | 7 | stub |
 | Player | AddCash | 6 | real (round `2euu94`; the only name so far that writes in BOTH directions -- `reward.grant` on a positive argument, `reward.charge` -> `store.spend_typed_attribute` on a negative one). NOT REACHED BY ANY SHIPPED SCRIPT YET: `Quest.VarN` still answers `STUB_DEFAULT`, and the table cells behind all six call sites are either `0` or u32-wrapped negatives this door refuses on purpose until the signedness rule is decided (`_MAX_SIGNED_STAT_MAGNITUDE`, letter to COO round `2euu94`) |

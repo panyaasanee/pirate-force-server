@@ -1065,3 +1065,236 @@ class SignedStatNeedsBothDoorsTests(unittest.TestCase):
         ns, _calls = self._namespace(store)
         ns["AddExp"](250)
         self.assertEqual(store.calls, [(9, "experience", 250)])
+
+
+class GetCashReadsTheColumnAddCashWritesTests(unittest.TestCase):
+    """``Player.GetCash`` -- the purse READ four spending quests gate on.
+
+    The point of the name is not the number.  It is that
+    ``gamedata/lua/Quest/q_class.lua:47``
+    (``if( Player.GetCash() >= (Quest.Var3) )``) was a guard that could
+    never be true while the name answered ``STUB_DEFAULT``, so the shipped
+    quest's own affordability check had never run once -- and
+    ``lua_api.reward.charge``'s docstring names the cost of that from the
+    other side: ``q_ship.lua`` charges and hands the ship over with no
+    check of its own, so the SCRIPT's guard is the only thing between a
+    broke player and a free ship.
+    """
+
+    def _namespace(self, store=None, character_id=9):
+        from pirateforce_foundation.lua_api import spec as api_spec
+        calls: list = []
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=character_id),
+            payout_store=store)
+        return ns, calls
+
+    class _ReadingStore(_RecordingPayoutStore):
+        """The recording double, plus the one READ method this seam uses.
+
+        Deliberately backed by the SAME ``_balances`` dict the writing
+        doors move, so a test can charge and then read and see the two
+        halves agree -- which is the whole claim: one column, two doors.
+        """
+
+        def read_typed_attributes(self, character_id: int):
+            return {column: value
+                    for (cid, column), value in self._balances.items()
+                    if cid == character_id}
+
+    def test_get_cash_is_no_longer_a_stub(self):
+        self.assertNotIn("GetCash", player.STILL_STUBBED)
+        self.assertIn("GetCash", player.REAL_METHODS)
+        ns, calls = self._namespace(self._ReadingStore(balances={
+            (9, "cash"): 4200}))
+        self.assertEqual(ns["GetCash"](), 4200)
+        self.assertFalse(any("LUA_API_STUB Player.GetCash" in line
+                             for line in calls), calls)
+
+    def test_the_read_map_is_exactly_get_cash(self):
+        """Closed and one entry, the same pin ``SIGNED_STAT_KINDS`` has.
+
+        A second name arriving here silently would be a column this lane
+        reads without having said which store door writes it.
+        """
+        from pirateforce_foundation.lua_api import quest_criteria
+        self.assertEqual(player.STAT_READ_KINDS,
+                         {"GetCash": quest_criteria.KIND_CASH})
+
+    def test_what_add_cash_wrote_is_what_get_cash_reads(self):
+        """One column, two doors -- the claim in a single test.
+
+        Not two assertions about two numbers: the balance is never
+        written by the test, it is put there by ``Player.AddCash`` going
+        through ``reward.grant`` and taken away by the same name going
+        through ``reward.charge``.
+        """
+        store = self._ReadingStore(balances={(9, "cash"): 1000})
+        ns, _calls = self._namespace(store)
+        ns["AddCash"](500)
+        self.assertEqual(ns["GetCash"](), 1500)
+        ns["AddCash"](-200)
+        self.assertEqual(ns["GetCash"](), 1300)
+
+    def test_an_unmeasured_purse_stubs_out_and_says_so(self):
+        """The refusal that must not look like an answer.
+
+        ``STUB_DEFAULT`` is what the Lua comparison gets, but the log
+        carries ``refused=balance_was_never_measured`` -- so a census can
+        tell "this player has no money" from "nobody has ever measured
+        this player's money", which ``COO-DECISION 20260901_1059``
+        forbids collapsing.
+        """
+        from pirateforce_foundation.lua_api import reward
+        store = self._ReadingStore()
+        ns, calls = self._namespace(store)
+        self.assertEqual(ns["GetCash"](), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=%s" % reward.REFUSE_UNMEASURED in line
+                            for line in calls), calls)
+
+    def test_no_payout_store_refuses_rather_than_inventing_a_purse(self):
+        from pirateforce_foundation.lua_api import reward
+        ns, calls = self._namespace(store=None)
+        self.assertEqual(ns["GetCash"](), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=%s" % reward.REFUSE_NO_STORE in line
+                            for line in calls), calls)
+
+    def test_an_argument_is_a_bad_arity_not_a_read(self):
+        """All seven corpus call sites are ``Player.GetCash()``, arity 0."""
+        store = self._ReadingStore(balances={(9, "cash"): 4200})
+        ns, calls = self._namespace(store)
+        self.assertEqual(ns["GetCash"](1), player.STUB_DEFAULT)
+        self.assertTrue(any("LUA_PLAYER_BAD_ARITY Player.GetCash got=1 want=0"
+                            in line for line in calls), calls)
+
+    def test_the_call_is_counted_under_its_qualified_name(self):
+        calls: list = []
+        from pirateforce_foundation.lua_api import spec as api_spec
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=9),
+            payout_store=self._ReadingStore(balances={(9, "cash"): 1}))
+        ns["GetCash"]()
+        self.assertIn("Player.GetCash", ns.calls)
+
+
+class GetCashReachesARealRowTests(unittest.TestCase):
+    """The same name against a real ``SQLiteStore`` on disk."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        from pirateforce_foundation.store import SQLiteStore
+
+        migrations = Path(__file__).resolve().parents[1] / "migrations"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.store = SQLiteStore(Path(tmp.name) / "state.sqlite3", migrations)
+        self.store.migrate()
+        account_id = self.store.ensure_account("acct-purse")
+        self.store.open_session(account_id)
+        self.character = self.store.create_character(
+            account_id, "Purse01", "purse01", "fp-purse",
+            lambda selector: (b"wire", b"avatar", 4242, 0),
+            _grant_home(),
+        )
+
+    def _namespace(self):
+        from pirateforce_foundation.lua_api import spec as api_spec
+        calls: list = []
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=self.character.id),
+            payout_store=self.store)
+        return ns, calls
+
+    def test_a_freshly_created_character_has_no_measured_cash(self):
+        """MEASURED, not assumed, and it is the reason the refusal exists.
+
+        ``create_character`` leaves ``cash`` NULL, so the very first
+        player to walk up to a class-change NPC is the unmeasured case,
+        not an exotic one.
+        """
+        from pirateforce_foundation.lua_api import reward
+        self.assertNotIn(
+            "cash", self.store.read_typed_attributes(self.character.id))
+        ns, calls = self._namespace()
+        self.assertEqual(ns["GetCash"](), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=%s" % reward.REFUSE_UNMEASURED in line
+                            for line in calls), calls)
+
+    def test_the_row_on_disk_is_what_the_name_answers(self):
+        self.store.write_typed_attributes(self.character.id, {"cash": 15000})
+        ns, calls = self._namespace()
+        self.assertEqual(ns["GetCash"](), 15000)
+        self.assertTrue(any("balance=15000" in line for line in calls), calls)
+
+    def test_a_charge_moves_the_row_and_the_next_read_sees_it(self):
+        """``q_class.lua``'s two lines, end to end on a real row.
+
+        Line 47 asks whether the purse covers 15,000; line 60 debits it
+        (``n_VARI_4`` = 4294952296 = -15000, resolved to a charge by the
+        signed door).  Both halves now go through the same column.
+        """
+        self.store.write_typed_attributes(self.character.id, {"cash": 20000})
+        ns, _calls = self._namespace()
+        self.assertGreaterEqual(ns["GetCash"](), 15000)
+        ns["AddCash"](-15000)
+        self.assertEqual(ns["GetCash"](), 5000)
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id)["cash"], 5000)
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class GetCashFromRealLuaTests(unittest.TestCase):
+    """The guard shape the corpus actually writes, run as Lua."""
+
+    def _host(self, payout_store):
+        from pirateforce_foundation import script_host
+        calls: list = []
+        host = script_host.ScriptHost(
+            log=calls.append,
+            player_context=player.PlayerContext(character_id=9),
+            payout_store=payout_store)
+        return host, calls
+
+    def test_the_affordability_guard_can_finally_be_true(self):
+        """``q_class.lua:47`` in miniature, both ways.
+
+        With the name stubbed this branch was false for every player
+        forever; the two halves of this test are the same script text
+        against the same store with two different balances.
+        """
+        store = GetCashReadsTheColumnAddCashWritesTests._ReadingStore(
+            balances={(9, "cash"): 15000})
+        host, _calls = self._host(store)
+        host.load("function Probe()\n"
+                  "  if( Player.GetCash() >= 15000 ) then\n"
+                  "    return 1\n"
+                  "  else\n"
+                  "    return 0\n"
+                  "  end\n"
+                  "end")
+        self.assertEqual(host.call("Probe"), 1)
+
+        poor = GetCashReadsTheColumnAddCashWritesTests._ReadingStore(
+            balances={(9, "cash"): 14999})
+        host, _calls = self._host(poor)
+        host.load("function Probe()\n"
+                  "  if( Player.GetCash() >= 15000 ) then\n"
+                  "    return 1\n"
+                  "  else\n"
+                  "    return 0\n"
+                  "  end\n"
+                  "end")
+        self.assertEqual(host.call("Probe"), 0)
+
+    def test_an_unmeasured_purse_leaves_the_guard_false_from_lua(self):
+        store = GetCashReadsTheColumnAddCashWritesTests._ReadingStore()
+        host, calls = self._host(store)
+        host.load("function Probe() return Player.GetCash() end")
+        self.assertEqual(host.call("Probe"), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=balance_was_never_measured" in line
+                            for line in calls), calls)
