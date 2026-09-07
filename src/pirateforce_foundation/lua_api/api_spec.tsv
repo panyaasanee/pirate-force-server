@@ -1,6 +1,7 @@
 # VENDORED MIRROR -- do not hand-edit.
 # source: pf_bridge/gamedata/PF_GAMEDATA_LUA_API.tsv (pulled 2026-09-05)
-# a re-vendor recomputes the digest below: python3 -c "from pirateforce_foundation.lua_api import spec; print(spec.body_digest(open(spec._SPEC_PATH).read()))"
+# a re-vendor recomputes the digest below, from the repository root:
+# PYTHONPATH=src python3 -c "from pirateforce_foundation.lua_api import spec; print(spec.body_digest(open(spec._SPEC_PATH).read()))"
 # body_sha256: 494b9b4a5d50f747600b4db62bebbaf405dc2ca7352caa8be1c68103af46ac22
 namespace	method	call_count	file_count	arity_min	arity_max
 Guild	AddMeritExp	6	6	1	1

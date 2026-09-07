@@ -178,8 +178,12 @@ def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
     ``quest_criteria_rows.tsv``, is the check that needs no imagination: a
     re-vendor that changes any header or row byte and does not recompute
     the digest is refused whatever it looks like.  A re-vendor recomputes it
-    with ``python3 -c "from pirateforce_foundation.lua_api import spec;
-    print(spec.body_digest(open(spec._SPEC_PATH).read()))"``.
+    with, from the repository root, ``PYTHONPATH=src python3 -c "from
+    pirateforce_foundation.lua_api import spec;
+    print(spec.body_digest(open(spec._SPEC_PATH).read()))"`` -- the
+    ``PYTHONPATH`` is not decoration, the command does not run without it,
+    and a recompute command that does not run is how a digest header goes
+    stale.
     """
     try:
         text = path.read_text(encoding="ascii")
