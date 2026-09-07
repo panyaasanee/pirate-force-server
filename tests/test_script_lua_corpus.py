@@ -386,7 +386,17 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: not an API name, so it enters no bucket, and the corpus sweep binds no
 #: quest, so all 301 of its VarN reads still resolve to 0 and shift no
 #: branch. Measured both ways to be sure, not assumed.
-BASELINE_TOTAL_STUB_CALLS = 2600
+#: RE-MEASURED to 2599 (LANE-A, round `ew9416`).  `Player.TeleportCheck`
+#: became real when pirate-force-server#1087/#1101 landed on main, and the
+#: corpus calls it exactly once -- `t_telchk_lv.lua`'s `ScriptStart` -- so one
+#: call moved from this bucket into the real one.  THAT ROUND OWED THIS EDIT IN
+#: THE SAME COMMIT (the comment on the test below says so in as many words) and
+#: did not make it, which is the same lane's debt paid here.  Measured on
+#: `origin/main` in a clean worktree beside a pf_bridge checkout: green at
+#: 84bf078 (the commit before the merge), 2872/2599 at 43b392b (after) --
+#: red on main today, and invisible to `gate-windows`, which has no sibling
+#: checkout and skips this module entirely.
+BASELINE_TOTAL_STUB_CALLS = 2599
 
 #: The other half of the split, pinned for the same reason (pf-adversary
 #: D1, round `oghyca`).  Only the stub total was pinned before, so a round
@@ -398,7 +408,9 @@ BASELINE_TOTAL_STUB_CALLS = 2600
 #: RE-MEASURED (LANE-Q, round `joa0u6`) to 2871 -- see the note on
 #: BASELINE_TOTAL_STUB_CALLS above for why, and for why it is not this
 #: round's change that moved it.
-BASELINE_TOTAL_REAL_CALLS = 2871
+#: RE-MEASURED to 2872 (LANE-A, round `ew9416`): the same one call, arriving
+#: in this bucket.  See the note on BASELINE_TOTAL_STUB_CALLS above.
+BASELINE_TOTAL_REAL_CALLS = 2872
 
 
 def bucket_conservation(report):
