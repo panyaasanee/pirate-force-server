@@ -921,7 +921,18 @@ class FieldMobTests(unittest.TestCase):
             # (``world_scene_registry.WORLD_REGISTRY_SEED_WIRING``) and its
             # write half is LANE-B's own call site (COO-DECISION
             # 20260905_1153) -- neither has landed.
-            ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
+            # ROUND 623ivx (lane CS) adds damage_level_projection.py: paying
+            # adversary finding T1-E it began REFUSING a mob that is not the
+            # practice dummy, so it names ``field_mobs.TOWN_TARGET_N_ID`` --
+            # the only thing it takes from this module, and it takes the id
+            # rather than re-typing 916.  The detector above is textual, so a
+            # module that reads one public constant lands here.  IT DISPATCHES
+            # NOTHING: it reads no roster, its caller hands it the row, and
+            # nothing in runtime.py/app.py calls it (grepped for both, zero
+            # hits) -- it is the projection table CORE-REQUEST row 032 asks
+            # for alongside the wiring, and that wiring has not landed.
+            ["damage_level_projection.py",
+             "diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
              "lane_a_click_hp.py",
              "mob_ai_control.py",
              "mob_census_hostility.py",

@@ -167,9 +167,12 @@ tier 3 below has no counterpart there:
           session's state, or in the frame, that separates "id 3 while
           touching an island" from "id 3 while sailing open water in the
           same scene".  `ISLAND_CONTACT_DISCRIMINATOR` names it.  It is
-          ``None`` today because NOBODY HAS MEASURED ONE -- so tier 3
-          refuses every call, and this lookup answers ``None`` for every
-          (scene, id) pair even if a slot were filled.
+          `RE-298`'s measurement since 2026-09-07.  Until that day it was
+          ``None`` because NOBODY HAD MEASURED ONE, and tier 3 refused
+          every call.  It can pass now, for a reading tagged with that
+          name and standing inside a committed box; this lookup still
+          answers ``None`` for every (scene, id) pair whose slot is empty,
+          which today is all of them.
 
 Tier 3 is the point of this guard.  Without it, the day a slot is filled,
 a player sailing open water in scene 126 fires id 3 and there is nothing in
@@ -450,44 +453,61 @@ SCENE_REFUSED_NOT_THE_SEA_SCENE = "SCENE_REFUSED_NOT_THE_SEA_SCENE"
 # situations, so the id alone is "an unsafe classifier if anyone uses it to
 # decide the world".
 #
-# `RE-289` ANSWERED ON 2026-09-07T09:55+07:00 AND THIS IS STILL `None`.
-# THAT IS THE POINT OF THIS COMMENT.  The letter's ordinals 2 and 3 are
-# POINT BOXES (squares under 11% of the scene frame on both axes), not
-# scene-wide regions, so a measured extent now exists and is committed in
-# `ISLAND_EXTENT_BOXES` below.  What does NOT exist is the right to name it
-# here, and three separate documents say so in the same words:
+# `RE-298` ANSWERED ON 2026-09-07T14:26+07:00 AND THIS IS NO LONGER `None`.
+# The crosswalk ticket that three documents named as the missing step is the
+# ticket that answered, and it answered the exact question they scoped it to:
 #
-#   * this file, four screens up: "a SECOND, separate measurement has to tie
-#     that box to the wire before `ISLAND_CONTACT_DISCRIMINATOR` may name
-#     it.  A round that fills this slot from the `.tgr` table alone has
-#     skipped that step."
-#   * `pf_bridge/tickets/RE-289.md`, section "what this ticket does NOT
-#     ask", item 1 -- written by THIS LANE when it drafted the ticket: the
-#     result of this ticket is not enough to fill the discriminator, and the
-#     crosswalk is a separate ticket.
-#   * `RE-289`'s own nonclaim (1): the `.tgr` ordinal is not shown to be the
-#     wire trigger id, "so the crosswalk ticket is still needed".
+#   * the open-water frame of `GT-228` (`rx112`, wire id 35, ship at
+#     (-872.04, 3175.01, 86.0)) is OUTSIDE all three committed island boxes,
+#     on both the trigger position and the ship position.  So a box really
+#     does separate "touching an island" from "sailing open water in the
+#     same scene", which is the one thing `RE-234` item (3) said the wire id
+#     alone could not do, and the one thing this constant was withheld for.
+#   * `rx248` (wire id 2, ship at (-6231.26, 4871.58, 86.0)) is inside box
+#     ordinal 2 AND ONLY THAT ONE, of all 52 boxes in the scene.
+#   * the `.tgr` `ordinal` is a STORED u16 FIELD, not the record's position
+#     in the file: the values run 1, 2, 3, 6, 7, 8, 13, ... so reading the
+#     table by file order gives the wrong answer from the fourth record on.
+#     The name string's own `[nn]` agrees with the binary field 52/52.
+#   * the crosswalk is 15 measured points now, not 13, and it survived
+#     CROSSING TRIGGER TYPES (`TELCHK_LV` and `OPNPLC_RAT_LV`) without a
+#     relabel.
 #
-# `COO-DECISION 20260907_0945` authorised three things -- the freeze, tests
-# that stop writing module state, and a per-row citation with a
-# letter-exists check.  It did not waive the crosswalk, and its closing
-# sentence runs the other way: "a table with no letter behind it is a tier-3
-# refusal, not a pass with a warning."
+# WHAT THE NAME BELOW MEANS, EXACTLY.  It is the name of the MEASUREMENT a
+# reading must have been taken by, not a description of a place.  A caller
+# tags its `IslandContactEvidence` with this string to say "these
+# coordinates were read the way `RE-298` read them"; tier 3 refuses any
+# reading tagged with a different name, because a reading taken by an older
+# measurement is a reading this module cannot grade.
 #
-# So the round that consumed `RE-289` committed the TABLE and left the NAME
-# alone.  Filling it is one line, the day the crosswalk ticket answers.
-# pf-adversary measured what that one line did on the tree of that round:
-# with it set, `answer_guard_reason(126, 3, reading_at_ordinal_3)` returns
-# `None` AND a forged `registry=` reached the caller.  HALF OF THAT SENTENCE
-# IS NO LONGER TRUE, and deliberately so: the second half was C6, and this
-# round shut that door (the seam is private now, see
-# `_candidate_for_trigger_id`), on the argument that a door held shut only
-# by an unmeasured discriminator is a door the NEXT round opens by doing
-# nothing.  The first half stands unchanged: filling this name still opens
-# all three tiers for any reading inside a committed box, which is the
-# decision this constant exists to withhold until somebody has measured the
-# right to grant it.
-ISLAND_CONTACT_DISCRIMINATOR: str | None = None
+# WHAT IS STILL FORBIDDEN, IN THE SAME BREATH.  `RE-298` nonclaim (1) is
+# explicit: it did not measure WHAT THE SERVER SHOULD ANSWER when the frame
+# arrives.  Naming the discriminator lets the module DECIDE "island or open
+# water" from coordinates it owns.  It does not license a reply frame, and
+# `NOW.md` still says: NO GUESSED FRAMES.
+#
+# AND ONE THING THIS OPENS THAT NOBODY SHOULD MISREAD, `RE-298`'s own
+# emphasis: `TriggerVital 0x1FB2` is NOT an island-contact frame.  It fires
+# for a ship entering ANY trigger box -- `rx112`'s id 35 is a real
+# `OPNPLC_RAT_LV` box the ship was standing in, not a client misfire.  So
+# "a 0x1FB2 arrived" must never be read as "the ship touched an island".
+# The classification happens HERE, from the box table, or it does not
+# happen at all.  That sentence is why filling this name is a step toward
+# M2 and not the arrival of it.
+ISLAND_CONTACT_DISCRIMINATOR: str | None = (
+    "RE-298 Bg3001.tgr ordinal box contains the ship position"
+)
+
+# `RE-298`, the letter that unlocked the name above, and its sha256 on
+# `origin/main` of the bridge at the moment of the copy -- same posture, and
+# the same citation gate, as `RE289_RESULT_LETTER` below.
+RE298_RESULT_LETTER = (
+    "20260907_1426_RE-298-RESULT-open-water-frame-is-trigger-35-and-"
+    "ordinal-is-a-stored-field.md"
+)
+RE298_RESULT_LETTER_SHA256 = (
+    "683557d964c27c8da0821d895b7ebe1c092058d07cb397a46b8092783e106161"
+)
 
 # The letter this module copied its numbers out of, and its sha256 as
 # published on `origin/main` of the bridge at the moment of the copy.  Both
@@ -750,12 +770,16 @@ ISLAND_EXTENT_BOX_CITATIONS: dict[int, str] = {
 # expected to be missing, and found the letter's section (kho) decoding four
 # of the six `0x1FB2` frames of the sea session into `trigger_xyz` and the
 # ship's `TargetPos`, plus five HUD contact positions in its section (kor)
-# table.  Thirteen points in total, each with the wire id the client sent at
-# that moment.
+# table.  Thirteen points then; SEVENTEEN since `RE-298` decoded the two
+# frames this letter left as ids without coordinates.  Each carries the wire
+# id the client sent at that moment.
 #
 # WHAT IS MEASURED BELOW, AND IT IS A CROSSWALK, NOT A RESTATEMENT:  every
-# one of those thirteen points falls inside the box of the ordinal whose
-# NUMBER EQUALS THE WIRE ID, and inside NO OTHER BOX.  The two tables were
+# one of the FIFTEEN ISLAND points falls inside the box of the ordinal
+# whose NUMBER EQUALS THE WIRE ID, and inside NO OTHER BOX.  The other two
+# are `RE-298`'s OPEN-WATER pair (wire id 35), and they fall inside NO
+# COMMITTED BOX AT ALL, which is the half of the crosswalk that no round
+# before `RE-298` could write down.  The two tables were
 # produced three days apart by different parties from different artifacts --
 # the boxes from `Bg3001.tgr` by the RE runner, the points from the wire and
 # the screen by ka1-A with Panya at the client -- and neither was derived
@@ -819,7 +843,32 @@ M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS: tuple[
     ("HUD ISL2-CONTACT-3", 2, -6167.0, 5130.0, 86.0),
     ("HUD ISL3-CONTACT-1", 3, -1560.0, -5331.0, 86.0),
     ("HUD ISL3-CONTACT-2", 3, -1877.0, -5370.0, 86.0),
+    # THE TWO FRAMES THE LETTER LEFT UNDECODED, DECODED BY `RE-298` FROM THE
+    # RAW CAPTURE ITSELF (not from `GT-228`'s prose).  They are the two rows
+    # this lane wrote, four screens down, that it "most wants".  The id-35
+    # pair is the OPEN-WATER control: it is the only pair here that must
+    # fall outside every island box, and the pass path is worth nothing
+    # without a point that has to fail it.
+    ("rx112 trigger", 35, -752.17, 3138.06, 186.0),
+    ("rx112 ship", 35, -872.04, 3175.01, 86.0),
+    ("rx248 trigger", 2, -6412.74, 4629.52, 186.0),
+    ("rx248 ship", 2, -6231.26, 4871.58, 86.0),
 )
+
+# The box `rx112` WAS standing in, from `RE-298`'s sweep of all 52 records:
+# `ordinal 35`, `Trigger OPNPLC_RAT_LV [35]`, pos (-1488.53, 2518.85, 86.0),
+# extent (1500, 1500, 300).  Read the committed way -- centre plus full
+# width -- that is x[-2238.53, -738.53] y[1768.85, 3268.85].
+#
+# IT IS NOT IN `ISLAND_EXTENT_BOXES` AND MUST NOT BE PUT THERE.  It is here
+# to carry one fact that changes how every later round reads a 0x1FB2: the
+# open-water frame was not the client firing at nothing.  The ship was
+# inside a real trigger volume of a DIFFERENT KIND.  A round that "fixes"
+# open water by adding boxes until every observed frame lands in one has
+# rebuilt exactly the classifier `RE-234` item (3) rejected.
+M2_OPEN_WATER_CONTROL_ORDINAL = 35
+M2_OPEN_WATER_CONTROL_BOX = (-2238.53, 1768.85, -64.0, -738.53, 3268.85, 236.0)
+M2_OPEN_WATER_CONTROL_TRIGGER_NAME = "Trigger OPNPLC_RAT_LV [35]"
 
 # NOT DECODED IN THE LETTER, so not here either, and named rather than left
 # for a later round to notice as an absence: `rx248` (id 2) and `rx112`
@@ -828,7 +877,12 @@ M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS: tuple[
 # open-water position to check against the boxes would turn "the boxes
 # separate the two islands" into "the boxes separate contact from open
 # water".  It is the one question the crosswalk ticket still has to ask.
-M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES = ("rx112 id=35", "rx248 id=2")
+# EMPTY SINCE `RE-298`, AND KEPT RATHER THAN DELETED.  Both names moved up
+# into the observations tuple with coordinates.  The tuple stays so the test
+# that pairs it against the observations can say "nothing is waiting" in the
+# same shape it used to say "two frames are waiting", instead of the absence
+# of a name meaning two different things on two different days.
+M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES: tuple[str, ...] = ()
 
 # COO-DECISION `20260907_1245` item 2 pointed at line 35 of the same letter
 # as "a clue you have not used", and said in the same breath that it is
@@ -854,8 +908,10 @@ M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES = ("rx112 id=35", "rx248 id=2")
 # does support is the narrower, already-committed claim that the open-water
 # frame carried id 35 rather than id 3 -- `name=Thorn Flower` is a third
 # independent spelling of that, after the raw capture and the EVENTS log.
-# `ISLAND_CONTACT_DISCRIMINATOR` is still `None`, and the test that pins it
-# `None` is still in the file.
+# `ISLAND_CONTACT_DISCRIMINATOR` IS NO LONGER `None` -- `RE-298` filled it
+# -- and this paragraph is still true and still load-bearing: the name
+# resolution table did NOT fill it and must never be quoted as the thing
+# that did.  What filled it was the box sweep.
 M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION: tuple[
     tuple[int, str, str, str, int], ...
 ] = (
@@ -1278,8 +1334,20 @@ def _tier3_contact_reason(
          says so instead of quietly passing.
       5. the position is not inside any committed extent: the session is in
          OPEN WATER.  `RE-234` item (3)'s finding -- the wire id alone
-         cannot tell an island from open water -- now decided HERE, from
-         coordinates the server owns, rather than accepted from a caller.
+         cannot tell an island from open water -- now decided HERE, by the
+         committed table, rather than by the presence of a frame.
+         SAY WHOSE COORDINATES THESE ARE, because an earlier draft of
+         this line said "coordinates the server owns" and that is FALSE:
+         they arrive in ``island_contact`` from the caller, and the caller
+         the next round is going to write reads them out of the CLIENT's
+         ``TargetPos`` in the `0x1FB2` frame.  So this refusal decides
+         "does the position the client reported fall in a box we measured",
+         which is a strictly weaker sentence than "where the ship is".  The
+         question of what the server's own source of truth for the ship
+         position is, and which one wins when they disagree, IS NOT
+         ANSWERED ANYWHERE IN THIS PROJECT YET -- pf-adversary asked it
+         against this round and it is written here rather than left for a
+         later round to assume the strong reading.
 
     ``discriminator`` and ``boxes`` ARE TEST SEAMS ON A PRIVATE FUNCTION
     (COO-DECISION `20260907_0945` item 2).  Omitted, this function reads the
@@ -1335,7 +1403,9 @@ def answer_guard_reason(
 
     Since `RE-289` the third tier can PASS: a reading tagged with the
     module's measured discriminator whose position falls inside one of the
-    two committed boxes returns ``None`` from all three tiers.  A call that
+    THREE committed boxes returns ``None`` from all three tiers -- and
+    since `RE-298` named that discriminator, it can do so ON THE SHIPPED
+    TREE, not only through the private seam.  A call that
     supplies no reading at all still gets
     ``CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED`` for the ONE input
     that gets that far (scene 126 with wire id 2 or 3) and a tier-1/tier-2
@@ -1346,10 +1416,13 @@ def answer_guard_reason(
     which is a refusal, not a pass -- see ``IslandContactEvidence`` for why
     the parameter exists at all and ``_tier3_contact_reason`` for the four
     ways it is refused.  The default keeps every call written before this
-    round answering EXACTLY what it answered before WHILE THE DISCRIMINATOR
-    IS UNMEASURED, which is every call today and every call any caller can
-    make: tier 3 refused everything then and refuses everything now.  That
-    is the honest form of the sentence.  An earlier draft of this docstring
+    round answering EXACTLY what it answered before -- which was true of
+    EVERY call while the discriminator was unmeasured.  `RE-298` ended
+    that: a call that passes no reading now earns
+    ``CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED`` rather than
+    ``CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED``, because the module
+    HAS a measurement and the caller has no reading -- a different
+    sentence about a different world, and the tests moved with it.  An earlier draft of this docstring
     said the module's own suite passed "unedited", which its own diff
     refutes -- about fifteen call sites in the test file had to be given an
     `island_contact=` argument to keep reaching the code they were named
@@ -1493,8 +1566,9 @@ def _candidate_for_trigger_id(
     had never been executed by a passing call.  See ``_answer_guard_reason``
     for the mutant pf-adversary used to prove it.  They are forwarded, not
     consumed, and the public function forwards NEITHER -- so on the shipped
-    tree this function still reads the module's own unmeasured discriminator
-    and refuses, exactly as before.
+    tree this function reads the module's own MEASURED discriminator (since
+    `RE-298`) and can return ``None``.  Before that letter it read an
+    unmeasured one and refused every input in the world.
     """
     if (
         _answer_guard_reason(
@@ -1611,7 +1685,11 @@ def registered_count() -> int:
     instead is the mutant that reads identically and is wrong.
 
     This is a COUNT OF SLOTS, and says nothing about whether any of them
-    could be answered -- tier 3 refuses every lookup today regardless.
+    could be answered.  It used to add "tier 3 refuses every lookup today
+    regardless"; since `RE-298` that is false, and the count is still a
+    count of slots -- every one of which is empty, so every lookup still
+    answers ``None`` for want of a REGISTERED FRAME, not for want of a
+    measurement.
 
     IT TAKES NO ARGUMENTS AT ALL SINCE THIS ROUND.  It used to take the
     test-only ``registry``, which made it the one public callable in this
@@ -1626,6 +1704,45 @@ def registered_count() -> int:
 # ---------------------------------------------------------------------------
 # THE MODULE FREEZE -- COO-DECISION `20260907_0945` item 1.
 # ---------------------------------------------------------------------------
+# WHICH BOUNDARY IS THIS FREEZE?  DISCIPLINE, NOT SECURITY.
+# [assumption of LANE-A - awaiting COO confirmation]
+#
+# pf-adversary asked the question that the last four rounds of this file
+# were avoiding: "who is the importer this freeze protects against, and
+# what can they already do?"  Its own answer is right and this file now
+# says so instead of leaving it implied.  Every door that is still open --
+# `getattr(module, "__CANDIDATES")[2] = forged`, `gc.get_referents` on the
+# proxies, rebinding a name nobody thought to freeze -- needs the SAME
+# capability: run arbitrary Python in this process.  Anybody holding that
+# capability does not need any of these doors; they can call
+# `_tier3_contact_reason` themselves and ignore the module entirely.  So
+# this freeze CANNOT be a security boundary, and no test in this file may
+# be sold as buying one.
+#
+# What it IS: the boundary between "a measured fact arrives through an RE
+# result letter, a citation and a test" and "a measured fact arrives
+# through an assignment".  The failure it exists to prevent is not an
+# attacker.  It is A LATER ROUND OF THIS LANE, at minute 70, writing
+# `module.ISLAND_CONTACT_DISCRIMINATOR = "yes"` to make a red test green
+# and shipping a world that decides islands from nothing.  That has
+# happened here: `""` was measured unlocking all three tiers on `550a36d`
+# and on `#993`.
+#
+# TWO CONSEQUENCES, BOTH BINDING ON LATER ROUNDS:
+#   1. SCOPE FOLLOWS THE TIERS, NOT THE ATTACKER.  The set below must
+#      contain every name a tier READS while deciding -- which is why a
+#      test now derives that list from the tiers' own syntax instead of
+#      trusting this set to be typed correctly by hand.  It does NOT have
+#      to contain every name reachable by every trick.
+#   2. AN UNCLOSABLE DOOR IS NOT A CRITICAL BUG HERE.  `gc.get_referents`
+#      is not a hole in a discipline boundary; it is deliberate effort,
+#      which is exactly what a discipline boundary is allowed to require.
+#      A round that spends itself chasing those instead of covering a name
+#      a tier reads has the priority backwards.
+#
+# If COO decides the boundary is something else, item 2 above is what
+# changes, and `pf_bridge/notes_to_chief/20260907_*_LANE-A-ASK-COO-*` is
+# the letter that asks.
 class _FrozenTier3Module(ModuleType):
     """The class this module's own object is given at import time, so that
     ``world_m2_trigger_vital_response.ISLAND_CONTACT_DISCRIMINATOR = "x"``
@@ -1759,22 +1876,125 @@ class _FrozenTier3Module(ModuleType):
             "M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS",
             "M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES",
             "M2_WIRE_ORDINAL_CROSSWALK_NAME_RESOLUTION",
+            # pf-adversary C2, CRITICAL, and it is the hole that MATTERED
+            # the day `ISLAND_CONTACT_DISCRIMINATOR` stopped being `None`.
+            # Every name below is READ BY A TIER while it decides, and none
+            # of them was frozen.  One assignment,
+            # `module.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED = None`,
+            # turned "refuse everything" into "pass everything" for a
+            # session with no reading at all, because tier 3 returns that
+            # constant and `answer_guard_reason` returning `None` MEANS
+            # PASS.  `M2_ISLAND_CONTACT_SCENE_ID = <your scene>` opened tier
+            # 1; `CANDIDATE_TRIGGER_IDS = (your id,)` opened tier 2;
+            # `IslandContactEvidence = <a class that accepts anything>`
+            # opened tier 3's type test.  Freezing the data the tiers PRINT
+            # while leaving the data the tiers DECIDE WITH writable was the
+            # shape of the whole hole.
+            "SCENE_REFUSED_NOT_AN_INT",
+            "SCENE_REFUSED_NOT_THE_SEA_SCENE",
+            "TRIGGER_ID_REFUSED_NOT_AN_INT",
+            "TRIGGER_ID_REFUSED_NOT_M2",
+            "CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED",
+            "CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED",
+            "CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR",
+            "CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT",
+            "CONTACT_REFUSED_NO_EXTENT_TABLE",
+            "EXTENT_TABLE_REFUSED_NOT_A_MAPPING",
+            "REGISTRY_REFUSED_NOT_A_MAPPING",
+            "M2_ISLAND_CONTACT_SCENE_ID",
+            "CANDIDATE_TRIGGER_IDS",
+            "IslandContactEvidence",
+            "_UNSET",
+            # Named in `ISLAND_EXTENT_BOX_SOURCE`'s own sentence and read by
+            # the citation gate, and the one name pf-adversary went looking
+            # for specifically because it was in neither the freeze nor the
+            # data census.
+            "RE289_BG3001_TGR_SHA256",
+            "ISLAND_EXTENT_BOX_SOURCE",
+            # `RE-298`: the letter that filled the discriminator, and the
+            # open-water control that is the only committed point which MUST
+            # fail the pass path.  A round that can rewrite the control can
+            # make the pass path look two-sided while it is not.
+            "RE298_RESULT_LETTER",
+            "RE298_RESULT_LETTER_SHA256",
+            "M2_OPEN_WATER_CONTROL_ORDINAL",
+            "M2_OPEN_WATER_CONTROL_BOX",
+            "M2_OPEN_WATER_CONTROL_TRIGGER_NAME",
+            # pf-adversary C2 AGAINST THIS ROUND'S OWN FIX, and it is D1's
+            # shape one level up: `__setattr__` and `__delattr__` resolve
+            # the name `_FrozenTier3Module` FROM MODULE GLOBALS at call
+            # time, so the freeze depended on a name the freeze did not
+            # cover.  `module._FrozenTier3Module = <a shim carrying an
+            # empty __FROZEN>` -- an ORDINARY ASSIGNMENT, exactly the
+            # accident this boundary exists to turn into a named error --
+            # switched the whole thing off without ever meeting
+            # `_is_the_same_freeze`.  Measured: a forged frame then reached
+            # a caller standing in no scene with no reading.
+            "_FrozenTier3Module",
+            # pf-adversary C5: tier 3 LOADS `Mapping` (`isinstance(table,
+            # Mapping)` guards the named raise) and it arrives by `from
+            # ... import`, which the AST derivation does not walk -- so the
+            # derivation could not have required it.  Rebinding it turns
+            # "the caller is promised a named refusal, never an exception"
+            # into a `TypeError` on a valid reading.
+            "Mapping",
         }
     )
 
     @staticmethod
     def _is_the_same_freeze(value: object) -> bool:
         """``True`` for the class this module installs on itself, INCLUDING
-        the fresh one a reload builds.
+        the fresh one a reload builds -- and for NOTHING ELSE THAT IS CHEAP
+        TO WRITE.
 
         `importlib.reload` re-executes the body, which ends by assigning
         `__class__` again -- with a NEW class object, so an identity test
-        against the closure's own class would make every reload raise. The
-        test is "does the incoming class carry this same freeze", spelled
-        through the mangled attribute name, which a reload reproduces and an
-        attacker's `types.ModuleType` does not have.
+        against the closure's own class would make every reload raise.  That
+        is why this is not `value is _FrozenTier3Module`, and it stays not
+        that.
+
+        WHAT THIS USED TO BE, AND WHY IT WAS THE WHOLE FREEZE'S HOLE.  It
+        was `getattr(value, "_FrozenTier3Module__FROZEN", None) is not
+        None` -- a DUCK TYPE.  pf-adversary wrote three lines against it:
+
+            class Unfrozen(ModuleType):
+                _FrozenTier3Module__FROZEN = frozenset()
+            module.__class__ = Unfrozen
+
+        `Unfrozen` defines no `__setattr__` at all, so after that
+        assignment EVERY name in the set below is writable again and the
+        public, "frozen" `candidate_for_trigger_id` hands out a forged
+        frame to a caller standing in no scene with no reading.  One
+        attribute name was the whole gate.
+
+        The test now asks five things a reload reproduces exactly and a
+        three-line stand-in does not: it is a class; it is a module class;
+        it is THIS class by name and by defining module; it DEFINES ITS OWN
+        `__setattr__` AND `__delattr__` (`vars`, not `getattr` -- inherited
+        ones are what `Unfrozen` had); and it carries a frozen set EQUAL to
+        the live one, not merely present.  Equality rather than presence is
+        the half that matters most: `frozenset()` is exactly what an
+        attacker supplies and exactly what a reload does not.
+
+        Never raises: a hostile `value` whose attribute access explodes is
+        "not the same freeze", not an exception escaping `__setattr__`.
         """
-        return getattr(value, "_FrozenTier3Module__FROZEN", None) is not None
+        try:
+            if not isinstance(value, type) or not issubclass(value, ModuleType):
+                return False
+            if value.__name__ != "_FrozenTier3Module":
+                return False
+            if value.__module__ != __name__:
+                return False
+            own = vars(value)
+            if "__setattr__" not in own or "__delattr__" not in own:
+                return False
+            incoming = own.get("_FrozenTier3Module__FROZEN")
+            if type(incoming) is not frozenset:
+                return False
+            return incoming == _FrozenTier3Module.__FROZEN
+        except Exception:
+            return False
 
     def __setattr__(self, name: str, value: object) -> None:
         if name == "__class__" and _FrozenTier3Module._is_the_same_freeze(value):

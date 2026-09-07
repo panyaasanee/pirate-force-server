@@ -49,6 +49,7 @@ from .gm.accounts import is_gm_account
 from .gm import chat_command_action
 from .gm import name_color_gate
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
+from .gm.activity_cheat_code_wire import ACTIVITY_CHEAT_CODE_VITAL_ID
 from .ui_friend_wire import (
     COMMUNITY_REMOVE_FRIEND_VITAL_ID, COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
 )
@@ -353,6 +354,20 @@ CLIENT_CONFIRMED_SCENE_FIELD = "client_confirmed_scene"
 # server.  It has not -- we have never provisioned the survey record that
 # makes the window pop (RE-227 nonclaim 6, COO-DECISION 20260904_0747).
 NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID = 0xC723
+
+
+# CORE-REQUEST-GM-063.  The ONE event a frame no reader claimed is allowed
+# to have left behind before the unclaimed-id point fires (see the call site
+# in dispatch()).  Composed from `vital_walk`'s own registered reason rather
+# than typed out, so the day that reason is renamed this constant follows it
+# instead of quietly matching nothing; the reason is asserted to be a
+# registered one at import, which is the same refusal `vital_walk` makes at
+# its own call sites ("a reason can never be invented at a call site").
+_UNCLAIMED_VITAL_REASON = "unknown_vital_id"
+assert _UNCLAIMED_VITAL_REASON in vital_walk.VITAL_WALK_REFUSAL_REASONS
+UNCLAIMED_VITAL_ONLY_EVENT = "vital_walk_refused_%s" % (
+    _UNCLAIMED_VITAL_REASON,
+)
 NAVIGATIONEX_ENTER_INSTANCE_VITAL_NAME = "NavigationEx_EnterInstanceVital"
 
 
@@ -6736,7 +6751,61 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # nothing, and a lock that survived that would fire the token on
             # the next frame the tester walked by hand.
             warp_frame = self._gm_warp_open_confirm_window(parsed)
+            # CORE-REQUEST-GM-063 (pf_bridge/notes_to_chief/20260906_1215),
+            # branch two of the three COO-DECISION 20260907_1141 item 1
+            # allows in one PR.  Read three counters across the call below;
+            # nothing else here changes.
+            #
+            # WHY HERE AND NOT WHERE THE LETTER ASKED.  The letter asks for
+            # the fire() "at the very end of the nested_id dispatch chain,
+            # before the `return []` at that point".  There is no such
+            # point: `_dispatch_with_lanes` is ~5,000 lines with early
+            # returns throughout and ONE final return, and that final
+            # return is also where TargetPos and every other frame the lane
+            # tail composes an answer for arrives.  Firing there would have
+            # recorded ids that DO have a branch -- a wrong id in a P-3
+            # capture, which the hook module's own docstring says is the
+            # one failure it must not commit.
+            #
+            # WHAT IS MEASURED INSTEAD, and it is a measurement, not a
+            # guess: this frame produced no action, and the only event it
+            # left behind (if any) is `vital_walk`'s own
+            # `unknown_vital_id` refusal.  That is "no reader claimed it"
+            # in the only sense this file can observe from one place.
+            #
+            # TWO THINGS THE LETTER DID NOT KNOW, both measured here.
+            # (1) `rx_frames` is bumped on generic paths a frame passes
+            # through whatever happens to it, so requiring it unchanged
+            # made this detector fire on nothing at all.  (2) `vital_walk`
+            # ALREADY records one event per unknown-id frame
+            # (`_vital_walk_note_refusal`, reason `unknown_vital_id` --
+            # the letter's grep for a pre-dispatch capture line missed it
+            # because it is a post-walk refusal, not a print before
+            # dispatch).  Requiring "no new event" therefore also fired on
+            # nothing.  Allowing exactly that one refusal, and nothing
+            # else, is what makes the point reachable -- and it is the
+            # right allowance, because that event IS the existing record
+            # that no table claimed the id.  It
+            # UNDER-reports by construction (a branch that returns [] after
+            # recording an event is invisible here, correctly), and
+            # under-reporting is silence, which the hook module prefers by
+            # name.  The hook dedups per session per id, so a frame class
+            # arriving in a flood costs one line, not one per frame.
+            #
+            # NOT CLAIMED: that an id reaching the hook has no branch in
+            # the chain.  What is claimed is exactly the sentence above --
+            # the dispatcher did nothing observable with this frame.
+            _unclaimed_events = len(self.events)
             actions = self._dispatch_with_lanes(parsed)
+            if not actions and all(
+                event == UNCLAIMED_VITAL_ONLY_EVENT
+                for event in self.events[_unclaimed_events:]
+            ):
+                lane_hooks.fire(
+                    "vital_inbound_unknown_id",
+                    session=self,
+                    vital_id=parsed.nested_id,
+                )
             # COO-DECISION 20260901_0145 / lane_hooks.lane_b_mob_ai_tick's own
             # LANE_B_MOB_AI_TICK_WIRING (round iok5z1 named this exact block,
             # this round pastes it): the one direct-call site
@@ -8691,6 +8760,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     payload=bytes(parsed.nested_payload),
                 )
                 return []
+            if nested_id == ACTIVITY_CHEAT_CODE_VITAL_ID:
+                # CORE-REQUEST-GM-062 (pf_bridge/notes_to_chief/
+                # 20260906_1029, LANE-GM round `eu2g1d`), granted by
+                # COO-DECISION 20260907_1141 item 1 as branch one of three
+                # in one PR.  ALWAYS ON, no scenario flag -- the same shape
+                # as the GM_RUN_GM_COMMAND_VITAL_ID branch above, which is
+                # what the letter asked for: count the frame, fire the
+                # report-only hook point, send nothing back.
+                #
+                # THE ID IS IMPORTED, NOT RE-DECLARED, from the module that
+                # owns it (gm/activity_cheat_code_wire.py), for the reason
+                # this file already writes out for the eight LANE-UI ids
+                # above: two sources of truth for one number are in sync
+                # only while a human keeps copying them right.
+                #
+                # IDENTITY COMES FROM THE CONNECTION, NEVER THE PAYLOAD.
+                # This call site hands the hook the session; the hook reads
+                # `session.token`, the verified login name, exactly as its
+                # 0x51E9 sibling does.  No byte the client sent can name
+                # who it is (gm/accounts.py).
+                #
+                # NOT CLAIMED: that any client has ever sent this frame.
+                # PF_FIELD_VALIDATION.tsv reads NOT_OBSERVED for both its
+                # rows (the letter's own correction of itself).  The point
+                # of the seam is that P-3 can now tell "the client sent
+                # 0x6CEC and we dropped it" apart from "the client sent
+                # nothing", which an empty capture folder cannot.
+                self.rx_frames += 1
+                lane_hooks.fire(
+                    "vital_inbound_activity_cheat_code",
+                    session=self,
+                    payload=bytes(parsed.nested_payload),
+                )
+                return []
             if nested_id == legacy.TRIGGER_VITAL:
                 # CORE-REQUEST of `pf_bridge/notes_to_chief/20260904_0434`
                 # and `20260904_0437` (LANE-A), granted by round R332's own
@@ -9767,6 +9870,48 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 candidate = parse_merge_candidate(legacy, parsed)
                 if candidate is not None:
                     return self._dispatch_v111_persistent_merge(parsed)
+                # CORE-REQUEST of pf_bridge/notes_to_chief/20260906_1452
+                # (LANE-DB round `xqi5p4`), branch three of the three
+                # COO-DECISION 20260907_1141 item 1 allows in one PR.
+                #
+                # SEAM ONLY -- NO BEHAVIOUR.  op=5 (the equip attempt
+                # RE-272 recorded as "client sends, server silent") gets a
+                # report-only hook point and NOTHING else: no reply is
+                # composed, no store method is called, `rx_frames` is not
+                # bumped and there is NO `return`, so every frame leaves
+                # this block on exactly the path it left it on before.  The
+                # letter asks for a seam that calls `store.equip_item` and
+                # answers with ItemOperateVitalRes; that is new behaviour
+                # and it waits for the RE answer the letter itself is still
+                # waiting for (20260906_1449).  What lands today is the
+                # half that does not need it, so LANE-DB can write the hook
+                # module in its own zone without a second CORE-REQUEST.
+                #
+                # PLACED AFTER the three existing sub-branches, not before
+                # them: op=5 under `--item-move-capture` reaches
+                # `_dispatch_item_move_capture` today and records
+                # `item_move_capture_wrong_tuple_no_reply`, and a seam in
+                # front of that would have silently changed what a capture
+                # boot reports.  Here it can only see a frame all three
+                # existing readers declined.
+                #
+                # NOT CLAIMED: what `op`, `value32` or `item_identity` mean.
+                # `legacy.parse_item_operate_req` names them by position
+                # only (its own docstring says so), and 5 is the number the
+                # letter measured on the wire, not a decoded verb.
+                try:
+                    _op, _value32, _item_identity = (
+                        legacy.parse_item_operate_req(parsed)
+                    )
+                except (ValueError, TypeError, AttributeError):
+                    _op = None
+                if _op == 5:
+                    lane_hooks.fire(
+                        "vital_inbound_item_operate_op5",
+                        session=self,
+                        value32=_value32,
+                        item_identity=_item_identity,
+                    )
 
             durable_target = legacy.parse_v141_refresh_target_pos(parsed)
             if (
