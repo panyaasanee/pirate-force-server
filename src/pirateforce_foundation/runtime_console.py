@@ -52,6 +52,29 @@ class _Mirror(TextIO):
             self._retained.flush()
 
 
+def build_console_mirror(console: TextIO, retained: TextIO) -> TextIO:
+    """Return the object ``RuntimeConsole`` installs as stdout/stderr.
+
+    Built over caller-owned streams: this opens no file, creates no
+    directory and never touches ``sys``, so a test can drive the real
+    mirror -- the one an operator reads through -- instead of a stand-in
+    of its own making.  CORE-REQUEST-GM-064 (LANE-GM round `fx4p76`,
+    chief queue item (4)) asked for exactly this door, because a test
+    stream that encodes cp874 folds line-breaking controls for free and
+    so stays green with `_fold_line_breaking_controls` deleted, while
+    this mirror declares utf-8 and does not.
+
+    The declared ``encoding`` is deliberately NOT a parameter here: it is
+    `_Mirror`'s own decision, so the day it changes, every test built on
+    this factory moves with it instead of pinning a copy of the old
+    answer.
+
+    ``RuntimeConsole.__init__`` is required to build its two mirrors
+    through this function; `test_runtime_console.py` fails if it stops.
+    """
+    return _Mirror(console, retained)
+
+
 class RuntimeConsole:
     """Own mirrored stdout/stderr for one actual server process."""
 
@@ -81,8 +104,8 @@ class RuntimeConsole:
         self._previous_err = sys.stderr
         self._closed = False
         self._lock = threading.RLock()
-        sys.stdout = _Mirror(console_out, self._retained_out)
-        sys.stderr = _Mirror(console_err, self._retained_err)
+        sys.stdout = build_console_mirror(console_out, self._retained_out)
+        sys.stderr = build_console_mirror(console_err, self._retained_err)
 
     def close(self) -> None:
         with self._lock:
