@@ -94,7 +94,7 @@ def _item_content_signature(item: ItemAttrState) -> tuple[int, ...]:
 #: content gates below and -- through them -- by the gate-2 admission module
 #: and by ``store.apply_v111_stack_merge``.
 #:
-#: 🔴 IT IS NOT YET EVERY GATE, and the first draft of this comment claimed it
+#: IT IS NOT YET EVERY GATE, and the first draft of this comment claimed it
 #: was.  pf-adversary found three more comparisons against the singular
 #: ``MERGED_V111_BACKPACK`` in ``runtime.py`` (the committed-merge check, the
 #: item-move capture, the HYP-PF-008 move), one of which RAISES AFTER the
