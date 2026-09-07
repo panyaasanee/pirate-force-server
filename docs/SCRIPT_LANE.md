@@ -151,11 +151,17 @@ headless to completion with no error, and prove the loader can load all
     `math.randomseed`), which the sandbox correctly blocks per the
     charter's own instruction ("sandbox: an script must never reach
     io/os/require/load").  This is the fail-closed behaviour working
-    exactly as specified, not a defect in this host.  Follow-up for a
-    later round, NOT done this round (scope discipline): give the host a
-    narrow, safe clock/RNG-seed function instead of blocking `os` outright,
-    so `utility.lua`'s one legitimate use case stops needing the sandbox
-    widened wholesale.
+    exactly as specified, not a defect in this host.  DONE, round
+    `q6nytd`: `lua_api/prelude.py` runs this file as what it is -- the
+    engine's own startup PRELUDE, not a quest -- with an `os` that is a Lua
+    table carrying exactly one key, `time`, for the duration of that chunk
+    and no longer.  It stays on this list anyway, and that is the point:
+    loading `utility.lua` as if it were a SCRIPT still fails on `os.time()`
+    exactly as before, because the prelude seam is a separate, opt-in
+    entrance -- `load_corpus`'s DEFAULT prelude (round `e5epdj`,
+    `script_host.SHIPPED_PRELUDE`) runs the same bytes through the prelude
+    door, and the ordinary door still refuses them.  Measured: the load
+    failures stay at exactly these five with the default on.
   - These four-plus-one are pinned by name in
     `test_script_lua_corpus.py::KNOWN_LOAD_FAILURES` -- a new failure OR an
     old one silently disappearing both go red, per this project's
@@ -268,7 +274,7 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (126/160 stub, 34/160 real, as of round `wn088m`)
+### API status table (124/160 stub, 36/160 real, as of round `yfeauz`)
 
 **Round `wn088m` changed no status.**  It changed a NUMBER: the six
 criteria rows were flooring the wrong float.  `f_EXP` is a float32 column,
@@ -469,7 +475,7 @@ in `STILL_STUBBED`.
 | Player | GetCash | 7 | stub |
 | Player | PlayMovie | 7 | stub |
 | Player | ResetMarker | 7 | stub |
-| Player | AddCash | 6 | stub |
+| Player | AddCash | 6 | stub (blocked on a SPEND door: the corpus calls it with a negative amount, `store.add_typed_attribute` takes `delta >= 0` only) |
 | Player | CheckSkill | 6 | stub |
 | Player | EnterInstanceThenPlayMovie | 6 | stub |
 | Player | ItemAddon | 6 | stub |
@@ -480,9 +486,9 @@ in `STILL_STUBBED`.
 | Player | CheckSoulmate | 4 | stub |
 | Player | LeaveInstance | 4 | stub |
 | Player | LoadStore | 3 | stub |
-| Player | AddExp | 2 | stub |
+| Player | AddExp | 2 | real closure (round `yfeauz`), UNREACHED: pays a `characters` row through `lua_api/reward.grant`, but both corpus call sites die on a nil global `rate` before the line, `Trigger.Var5` is 0, and no dispatcher supplies a `player_context` |
 | Player | AddPpClass | 2 | stub |
-| Player | AddSkillPoint | 2 | stub |
+| Player | AddSkillPoint | 2 | real closure (round `yfeauz`), UNREACHED: pays a `characters` row through `lua_api/reward.grant`, but both corpus call sites die on a nil global `rate` before the line, `Trigger.Var5` is 0, and no dispatcher supplies a `player_context` |
 | Player | CastSkillXYZ | 2 | stub |
 | Player | CheckParty | 2 | stub |
 | Player | CheckThrowAnyPenpalLetter | 2 | stub |
@@ -683,16 +689,44 @@ neither visible from `load_corpus`'s load-only check (pinned in
   `check_1 * check_2 * check_3` on a nil raises. Read straight from the
   source (`grep -n "check_1" gamedata/lua/Quest/q_gather_anticlass.lua`);
   not a guess about Lua semantics.
-- 13 files (`t_ge2tm_rat.lua` and 12 more matching `*rat*.lua`) call a bare
-  global `rate(dicevalue)` that is defined in a DIFFERENT file,
-  `utility.lua` -- this host gives every script its OWN Lua state
-  (deliberate, `script_host.py`'s own module docstring: stops 616 files
-  sharing one global table from overwriting each other's same-named entry
-  points), so a name defined in one file is never visible from another.
-  `utility.lua` is itself one of the 5 `KNOWN_LOAD_FAILURES` (calls
-  `os.time()` at its own top level, sandbox-blocked), so even a
-  shared-preload design would not make `rate` real without also widening
-  the `os` sandbox (named as unfinished follow-up by round `s2fxf6`).
+- 17 files call a bare global `rate(dicevalue)` that is defined in a
+  DIFFERENT file, `utility.lua`.  RE-MEASURED, round `q6nytd` -- the "13
+  files matching `*rat*.lua`" this paragraph used to claim was low and the
+  shape of the pattern was wrong: `grep -rlE '(^|[^A-Za-z_])rate[[:space:]]
+  *\(' --include=*.lua gamedata/lua` returns 18 paths, of which one is
+  `utility.lua` itself (it DEFINES `rate`), leaving 17 callers over 34 call
+  sites; **two** of them (`t_escaphk_sp.lua`, `t_getmorpopmo_q1.lua`) do
+  not match `*rat*.lua` at all.  (A first draft of this correction said
+  "four", adding `t_getm&cat_himd_q1_rat.lua` and
+  `t_indani_l_cat_pt_rat.lua`, which both contain `rat` and both match --
+  pf-adversary D10, this round: a stale number replaced by a new wrong one
+  in the same commit.)  The 17 are pinned by name in
+  `tests/test_script_lua_prelude.py::RATE_CALLERS`.
+  This host gives every script its OWN Lua state (deliberate,
+  `script_host.py`'s own module docstring: stops 616 files sharing one
+  global table from overwriting each other's same-named entry points), so a
+  name defined in one file is never visible from another -- which is why
+  the answer is a PRELUDE run into each host's own state rather than one
+  shared global environment.  Round `q6nytd` built that
+  (`lua_api/prelude.py`).  It shipped OFF that round for one reason only:
+  the cloud container had no `lupa`, so the four census pins could not be
+  re-measured, and pinning unmeasured numbers is the one thing the house
+  rules forbid outright.  Round `e5epdj` was the measuring round
+  COO-DECISION `20260907_2148` granted, and it is **on by default now**
+  (`script_host.SHIPPED_PRELUDE`); `prelude=None` still buys the host of
+  yesterday, byte for byte, and the difference test in
+  `test_script_lua_prelude.py` is what spends it.
+  🔴 13, not 17, and the number was already in this repo before anyone ran
+  a sweep: `KNOWN_ENTRY_POINT_CALL_FAILURES` pins exactly those 13.  The
+  other four never reach `rate` -- `t_escaphk_sp.lua` returns on an empty
+  backpack, `t_getm&cat_himd_q1_rat.lua` and `t_getmorpopmo_q1.lua` return
+  on `0 >= 0`, and `t_opnplc_rat_lv&buf.lua` returns because
+  `Player.CheckBuff` stubs to 0 and **0 is truthy in Lua**.  And the 13 that
+  do run still fail every roll: `Trigger.VarN` is `STUB_DEFAULT` = 0, so
+  every one of the 34 sites evaluates `rate(0)` and takes the false branch
+  (measured by pf-adversary, round `q6nytd`: the whole prelude is worth
+  +22 API calls out of 5449, and `Player.AddExp`/`AddSkillPoint` stay at
+  ZERO reached call sites because theirs sit behind `not rate(...)`).
 
 ### Nonclaims
 
@@ -3927,3 +3961,58 @@ creates a key.
   one. What is closed is this lane's own half: the state exists, is
   readable in one attribute, and can now be asked which mirror and whether
   it still fails.
+
+
+## Round e5epdj (2026-09-07) -- the shipped prelude is the default, and the four census pins are measured again
+
+**What moved**: the measuring round COO-DECISION `20260907_2148` granted --
+`lupa==2.8` for this round only, `PKG_ENV:` at both ends of the run, one
+commit carrying the seam flip and the four pins together.  Round `q6nytd`
+built the prelude and could not measure it; this round measured it.
+
+Measured on the real 616-file corpus, both directions, in one container
+(`PKG_ENV: lupa=2.8 python=3.11.15`):
+
+| | stub calls | real calls | load failures | entry-point call failures |
+|---|---|---|---|---|
+| `prelude=None` (the old default) | 2597 | 2852 | 5 | 17 |
+| `prelude=SHIPPED_PRELUDE` (the new one) | **2606** | **2865** | **5** | **4** |
+
+The off-column reproduces the pins that were already in the repository
+exactly, which is what makes the on-column trustworthy: the same container,
+the same commit, the same fixed quest clock, one argument different.
+
+**The seam's three states.**  `SHIPPED_PRELUDE` (read `utility.lua` from the
+sweep's own root), `None` (explicitly no prelude), or a `Prelude` (use
+exactly that one).  Two states could not express this: before, "the caller
+wants yesterday" and "the caller said nothing" were the same value, so
+flipping the default would have taken the opt-out away with it.
+
+**Why the census pins its own seed.**  The 13 repaired files reach `rate`
+exactly **27** times per sweep (measured per file: `t_ins_ratx6_lv.lua` 6,
+`x5` 5, `x4` 4, `x3` 3, the other nine 1 each), always as `rate(0)`, so the
+true branch needs `math.random(0, 1000000)` to return exactly 0 -- 27
+chances in 1000001, a 2.7e-05 chance per unseeded sweep of a wrong pin.  Not
+theoretical: with `rate` forced true the same corpus reports 2619/2878, so
+one unlucky roll moves both pins by 13.  `CENSUS_PRELUDE_SEED` is therefore
+the same kind of object as `FIXED_QUEST_CLOCK`, for the same house rule.
+Re-measured across 8 seeds (0, 1, 2, 7, 999983, 1757000000, 1757000001,
+2147483647): all eight give 2606/2865/4.
+
+### Nonclaims
+
+- **13 files run their body; none of them SUCCEEDS at anything.**  All 27
+  rolls are `rate(0)` because `Trigger.VarN` is `STUB_DEFAULT`, so every one
+  takes the false branch and the reward halves behind them stay unreached.
+  `Player.AddExp`/`Player.AddSkillPoint` still have **zero** reached call
+  sites in this corpus.  26 API calls moved.  No player-visible outcome did.
+- **Still nothing on a player's screen.**  There is no dispatcher that runs
+  a trigger script when a player sails into a trigger; that seam lives in
+  `runtime.py`, which is not this lane's to edit.
+- **The seed-ownership question is still open** (one `Prelude` seeds every
+  host it is given to identically -- `lua_api/prelude.py::Prelude`).  This
+  commit does not answer it and does not make it worse: the census pins its
+  own seed, and no production caller exists to be hit by the default.
+- **`utility.lua` is still a load failure and that is the design.**  The
+  one-key `os` shim lives only for the duration of the prelude chunk, so the
+  same bytes arriving through the ordinary door are still refused.

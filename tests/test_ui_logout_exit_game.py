@@ -42,6 +42,7 @@ from pirateforce_foundation.logout_hypothesis import (  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from pirateforce_foundation import world_logout_button_notice  # noqa: E402
 from pirateforce_foundation.ui_logout_exit_game import (  # noqa: E402
     DEFAULT_CLOSE_DELAY_MS,
     ExitGameLogoutOutcome,
@@ -268,6 +269,55 @@ class UiLogoutExitGameTests(unittest.TestCase):
         self.assertEqual(second.reason, "already_acknowledged")
         self.assertEqual(len(self.timer_factory.scheduled), 1)
         self.assertEqual(state.logout_ack_count, 1)
+
+    # ---- the PRODUCTION SHAPE nothing else in this repo exercises -------
+    #
+    # Round `719e10`, pf-adversary D3, MEASURED.  Eight tests in
+    # tests/test_world_logout_button_notice_wiring.py drive the real
+    # subcode-3 frame through the real dispatcher and assert LANE-A's
+    # `BACK REFUSED` receipt reaches the wire.  All eight are green for a
+    # reason that has nothing to do with what they claim: their harness
+    # makes the LogoutVital the session's FIRST runtime request (so
+    # `runtime_ack_sent` is still False when this module reads it) and
+    # never calls `attach_transport_socket_closer`, which production does
+    # for every accepted GAME socket (`connection.py`, `AcceptedGameSocket
+    # .bind`).  Either condition alone sends the frame down this module's
+    # fail-closed path and on to the notice.  No test in the repository
+    # has BOTH a closer attached AND a logout that is not the first
+    # runtime request -- the shape a real player is always in.
+    #
+    # So this file pins it, from inside LANE-UI's own write zone: in the
+    # production shape, a Back click today composes LANE-A's receipt and
+    # nothing of this module's.  A change that makes this module claim
+    # subcode 3 reddens HERE instead of passing everything and being found
+    # by an attended boot.  That is not hypothetical: this round wrote
+    # exactly that change, went green across the whole suite, and reverted
+    # it only after pf-adversary produced GT-007/GT-008/R311/R319 -- four
+    # attended runs proving ack+close does not move that client's screen.
+
+    def test_a_back_click_in_the_production_shape_still_gets_the_receipt(self):
+        state, _selector = self._state("uia_prod", ready=False)
+        # First click: this frame is itself the session's first runtime
+        # request, so v141's own handler flips `runtime_ack_sent` while
+        # dispatching it -- the second click is the shape a player who
+        # clicks Back twice is in, with the transport closer attached the
+        # way production attaches it.
+        state.dispatch(self._logout_parsed(3))
+        self.assertTrue(
+            state.runtime_ack_sent,
+            "the first runtime request must arm the sequence gate; if this "
+            "fails the test below is vacuous for a different reason",
+        )
+        self.assertIsNotNone(state.transport_socket_closer)
+        actions = state.dispatch(self._logout_parsed(3))
+        labels = [a[0] for a in actions]
+        self.assertIn(
+            world_logout_button_notice.UIA_ACTION_LABEL, labels, labels)
+        self.assertEqual(
+            [name for name in labels if name.startswith("UI_LOGOUT_")],
+            [],
+            labels,
+        )
 
     def test_no_selected_character_fails_closed(self):
         state_type = make_state_class(

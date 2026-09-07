@@ -70,3 +70,64 @@ def scene_ids_named(gm_scene_name_query: str) -> list[int]:
 
 def is_known_scene_id(scene_id: int) -> bool:
     return scene_id in SCENE_ID_TO_GM_NAME
+
+
+# --- name -> scene_id, the direction an operator at the client needs ------
+#
+# `gm_scene_name` answers "what is scene 2 called".  An operator sitting at
+# the client at 1 a.m. has the opposite question: they know they want the
+# island, not that the island is scene 2.  `resolve_gm_scene_name` is that
+# direction, and `gm/commands.py`'s `warp` grammar is its only caller today.
+#
+# THE TABLE IS NOT A FUNCTION.  Measured on the pinned file: 330 rows,
+# 294 distinct GM names.  Seven names repeat -- `Hidden Island` alone is on
+# 20 scene ids and `Poseidon Island` on 10 -- and FOUR rows carry an empty
+# name (ids 13, 137, 138, 141).  So this returns ALL matching ids and lets
+# the caller decide; a "first match wins" resolver would have silently sent
+# a GM to one of twenty Hidden Islands, and an empty query would have
+# matched four scenes at once.  An empty (or whitespace-only) query matches
+# NOTHING here, by construction rather than by a caller remembering to
+# check.
+#
+# Folding: leading/trailing space is stripped, internal whitespace runs
+# collapse to one space (the shipped table pads every cell with spaces),
+# and case folds.  Measured on the pinned file: folding case merges no two
+# distinct names, so the fold cannot invent an ambiguity the table does not
+# already have -- `test_gm_scene_catalog.py` pins that.
+
+
+def _fold_gm_scene_name(name: str) -> str:
+    """Fold one GM scene name to the key `resolve_gm_scene_name` matches on."""
+    return " ".join(name.split()).casefold()
+
+
+def _build_name_index() -> dict[str, tuple[int, ...]]:
+    index: dict[str, list[int]] = {}
+    for n_id, _scene_name, gm_name in _ROWS:
+        key = _fold_gm_scene_name(gm_name)
+        if not key:
+            # The four unnamed rows. They are reachable by id and only by id.
+            continue
+        index.setdefault(key, []).append(n_id)
+    return {key: tuple(sorted(ids)) for key, ids in index.items()}
+
+
+_GM_NAME_TO_SCENE_IDS: dict[str, tuple[int, ...]] = _build_name_index()
+
+GM_NAME_COUNT = len(_GM_NAME_TO_SCENE_IDS)
+
+
+def resolve_gm_scene_name(query: str) -> tuple[int, ...]:
+    """Every scene id whose GM scene name folds to `query`, ascending.
+
+    Empty tuple means no scene carries that name -- including for an empty
+    or whitespace-only query, which never matches the table's four unnamed
+    rows.  A tuple longer than one means the name is genuinely ambiguous in
+    the client's own table; the caller must not pick one.
+    """
+    if not isinstance(query, str):
+        raise TypeError("query must be a str")
+    key = _fold_gm_scene_name(query)
+    if not key:
+        return ()
+    return _GM_NAME_TO_SCENE_IDS.get(key, ())

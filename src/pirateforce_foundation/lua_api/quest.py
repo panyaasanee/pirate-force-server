@@ -654,7 +654,7 @@ def _log_criteria(log: Callable[[str], None], api_name: str,
 
 
 def _pay_criteria(log: Callable[[str], None], api_name: str,
-                  context: "QuestContext", reward_store: Any):
+                  context: "QuestContext", payout_store: Any):
     """Resolve one criteria reward, then try to pay it.  Two lines, two facts.
 
     ``LUA_QUEST_CRITERIA`` says what the game's own tables resolve for this
@@ -675,7 +675,7 @@ def _pay_criteria(log: Callable[[str], None], api_name: str,
         return None
     payout, _reason = lua_api_reward.pay(
         api_name, context.character_id, context.quest_id,
-        store=reward_store, log=log)
+        store=payout_store, log=log)
     return payout
 
 
@@ -746,12 +746,12 @@ class RealQuestNamespace:
     real correctness bug, not a cosmetic one.
     """
 
-    __slots__ = ("_clock", "_context", "_store", "_reward_store", "_log",
+    __slots__ = ("_clock", "_context", "_store", "_payout_store", "_log",
                  "_stub_methods", "namespace", "calls")
 
     def __init__(self, methods: frozenset, clock: Clock, log: Callable[[str], None],
                  context: "QuestContext", store: "QuestStateStore",
-                 reward_store: Any = None):
+                 payout_store: Any = None):
         self.namespace = "Quest"
         self._clock = clock
         self._context = context
@@ -762,7 +762,7 @@ class RealQuestNamespace:
         # would let a test -- or a spike someone later points at a live
         # client -- report a reward as paid when no row moved.  No store
         # means refused, out loud (`lua_api.reward.REFUSE_NO_STORE`).
-        self._reward_store = reward_store
+        self._payout_store = payout_store
         self._log = log
         self._stub_methods = methods - REAL_METHODS
         self.calls: list = []
@@ -971,7 +971,7 @@ class RealQuestNamespace:
                 self.calls.append(_qualified)
                 if _name in CRITERIA_METHODS:
                     _pay_criteria(self._log, _name, self._context,
-                                  self._reward_store)
+                                  self._payout_store)
                 self._log("LUA_API_STUB %s" % _qualified)
                 return STUB_DEFAULT
 
@@ -990,7 +990,7 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
                      clock: Optional[Clock] = None,
                      context: Optional["QuestContext"] = None,
                      store: Optional["QuestStateStore"] = None,
-                     reward_store: Any = None) -> RealQuestNamespace:
+                     payout_store: Any = None) -> RealQuestNamespace:
     """The ``Quest`` global ``ScriptHost`` installs, real half included.
 
     ``clock`` defaults to the real server wall clock (:func:`_server_clock`)
@@ -1009,5 +1009,5 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
         methods, clock if clock is not None else _server_clock, log,
         context if context is not None else DEFAULT_CONTEXT,
         store if store is not None else InMemoryQuestStateStore(),
-        reward_store,
+        payout_store,
     )

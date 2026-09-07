@@ -19,6 +19,7 @@ from pf_preconditions import LUA_CORPUS_RUNNABLE, LUPA_PACKAGE, SIBLING
 
 from pirateforce_foundation import script_host
 from pirateforce_foundation.lua_api import message as lua_api_message
+from pirateforce_foundation.lua_api import prelude as lua_api_prelude
 from pirateforce_foundation.lua_api import spec as lua_api_spec
 
 LUA_ROOT = SIBLING / "pf_bridge" / "gamedata" / "lua"
@@ -38,6 +39,39 @@ LUA_ROOT = SIBLING / "pf_bridge" / "gamedata" / "lua"
 #: also nowhere near noon).
 FIXED_QUEST_CLOCK = lambda: datetime(2026, 9, 5, 12, 0)  # noqa: E731
 
+#: The prelude seed every corpus-wide census in this module runs with, and
+#: WHY a fixed one is not optional here (measured this round, `e5epdj`).
+#: Round `q6nytd` gave the sweeps the game's own `utility.lua`, whose one
+#: global is `rate(d)` = `math.random(0, 1000000) / 10000 <= d`.  The 13
+#: files it repairs reach `rate` exactly 27 times per sweep, always with
+#: `Trigger.VarN` = STUB_DEFAULT = 0, so every roll needs `math.random`
+#: to return exactly 0 to take the true branch -- 27 chances in 1000001,
+#: i.e. a 2.7e-05 chance per unseeded sweep that this file's own pinned
+#: totals are wrong through nobody's fault.  It is not a theoretical
+#: branch: measured with a `rate` forced true, the same corpus reports
+#: 2619/2878 instead of 2606/2865, so a single unlucky roll moves both
+#: pins by 13.  Same reasoning as FIXED_QUEST_CLOCK above, same house rule
+#: (a test must never silently change behaviour on something it does not
+#: control) -- so the census passes its own Prelude rather than taking
+#: script_host.SHIPPED_PRELUDE's wall-clock seed.  Re-measured across 8
+#: seeds (0, 1, 2, 7, 999983, 1757000000, 1757000001, 2147483647): all
+#: eight give 2606/2865/4, so this value is not load-bearing MAGIC, it is
+#: load-bearing DETERMINISM.
+CENSUS_PRELUDE_SEED = 1757000000
+
+
+def census_prelude():
+    """The shipped prelude, seeded fixed, for this module's pinned sweeps.
+
+    A function rather than a module-level constant so a machine without
+    the corpus (LUA_CORPUS_RUNNABLE absent) does not read the bridge
+    checkout at import time -- import must not depend on a sibling that
+    the skip pins exist precisely to tolerate being missing.
+    """
+    return lua_api_prelude.read_prelude(
+        LUA_ROOT, clock=lambda: CENSUS_PRELUDE_SEED)
+
+
 #: Measured 2026-09-05, round s2fxf6 (see docs/SCRIPT_LANE.md "known
 #: findings").  Four are real syntax errors in the shipped source (missing
 #: `end`/`)` - the original scripts, not this host's parsing); one
@@ -54,6 +88,14 @@ FIXED_QUEST_CLOCK = lambda: datetime(2026, 9, 5, 12, 0)  # noqa: E731
 #: fails if this stops being the shape of the real problem.
 THE_ONE_SPACED_FILE_NAME = "t_test auto.lua"
 
+#: STILL FIVE AFTER THE PRELUDE DEFAULT FLIPPED (round `e5epdj`), AND
+#: `utility.lua` IS STILL ONE OF THEM -- deliberately, not by oversight.
+#: The one-key `os` shim exists only for the duration of the PRELUDE chunk
+#: (lua_api/prelude.py::run_prelude re-nils it in a `finally`).  A corpus
+#: sweep also loads `utility.lua` as an ordinary member file, with no shim,
+#: and there its top-line `os.time()` raises exactly as it did yesterday.
+#: That is the seam behaving as designed: the prelude door is narrow enough
+#: that the same bytes going through the ordinary door are still refused.
 KNOWN_LOAD_FAILURES = frozenset({
     "Quest/q_day_send_new.lua",
     "Quest/q_repeat_send_new.lua",
@@ -162,24 +204,26 @@ class FullCorpusLoadsHeadlessTests(unittest.TestCase):
 #:   error -- it plausibly loads utility.lua once into a shared global
 #:   environment before running any trigger/quest script, which this
 #:   isolated-per-script host does not attempt (out of scope this round).
+#:
+#: THIRTEEN CAME OFF THIS LIST IN ROUND `e5epdj`, AND NOT BY BEING FIXED
+#: HERE.  Every `t_*rat*.lua` entry above is gone because the sweeps now
+#: run the game's OWN `utility.lua` by default (script_host.SHIPPED_PRELUDE),
+#: so the bare global `rate` those files call is defined when they call it.
+#: 17 -> 4, measured on the real corpus this round; the four that remain
+#: are the `local check_N` scoping bug, which is a real bug in the shipped
+#: source and has nothing to do with the prelude.
+#: NONCLAIM, because the number is easy to over-read: those 13 files now
+#: RUN THEIR BODY, they do not SUCCEED at anything a player would see.
+#: Every one of the 27 rolls is `rate(0)` (Trigger.VarN is STUB_DEFAULT),
+#: so all 27 take the false branch and the reward halves behind them stay
+#: unreached -- `Player.AddExp`/`AddSkillPoint` still have ZERO reached
+#: call sites in this corpus.  What moved is 26 API calls (2597 -> 2606
+#: stub, 2852 -> 2865 real), not one player-visible outcome.
 KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
     ("Quest/q_gather_anticlass.lua", "Report_Check"),
     ("Quest/q_kill_anticlass.lua", "Report_Check"),
     ("Quest/q_repeat_gather_new.lua", "Report_Check"),
     ("Quest/q_repeat_kill_new.lua", "Report_Check"),
-    ("t_ge2tm_rat.lua", "ScriptStart"),
-    ("t_getm_rat_exp&sp.lua", "ScriptStart"),
-    ("t_indani_l_cat_pt_rat.lua", "ScriptStart"),
-    ("t_ins_ratx3_lv.lua", "ScriptStart"),
-    ("t_ins_ratx4_lv.lua", "ScriptStart"),
-    ("t_ins_ratx5_lv.lua", "ScriptStart"),
-    ("t_ins_ratx6_lv.lua", "ScriptStart"),
-    ("t_inskyev_danifx_rat.lua", "ScriptStart"),
-    ("t_inskyev_getm_rat_exp&sp.lua", "ScriptStart"),
-    ("t_inskyev_himdlfx_rat.lua", "ScriptStart"),
-    ("t_inskyev_rat.lua", "ScriptStart"),
-    ("t_opnplc_rat_lv.lua", "ScriptStart"),
-    ("t_opnplc_rat_setoth.lua", "ScriptStart"),
 })
 
 #: Measured 2026-09-05, round 4jsydv, on the real 616-file corpus: calling
@@ -326,7 +370,7 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: real in the source and unreachable in THIS harness for want of trigger
 #: table data, not for want of LANE-A's Scene.* seam; that is a gap this
 #: pin makes visible rather than a count to celebrate.
-BASELINE_TOTAL_STUB_CALLS = 2597
+BASELINE_TOTAL_STUB_CALLS = 2606
 
 #: The other half of the split, pinned for the same reason (pf-adversary
 #: D1, round `oghyca`).  Only the stub total was pinned before, so a round
@@ -335,7 +379,7 @@ BASELINE_TOTAL_STUB_CALLS = 2597
 #: ceiling -- a round that makes another API real raises this in the same
 #: commit; a round that breaks one gets caught here.  Measured 2026-09-07,
 #: round `5qtaqy`, with FIXED_QUEST_CLOCK.
-BASELINE_TOTAL_REAL_CALLS = 2852
+BASELINE_TOTAL_REAL_CALLS = 2865
 
 
 def bucket_conservation(report):
@@ -366,7 +410,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
 
     def test_every_present_entry_point_gets_called_or_its_failure_is_pinned(self):
         report = script_host.run_corpus_entry_points(
-            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=census_prelude())
         self.assertEqual(set(report.load_failed), KNOWN_LOAD_FAILURES)
         # Structural lookup (run.errors is keyed by entry-point name), not a
         # substring search over a concatenated message -- a name that
@@ -386,7 +431,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # with its 12 still-stub methods, so a naive "sum every namespace's
         # .calls" silently double-books real calls as stub calls.
         report = script_host.run_corpus_entry_points(
-            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=census_prelude())
         stub_names = set(report.stub_call_counts)
         real_names = set(report.real_call_counts)
         self.assertEqual(stub_names & real_names, set())
@@ -400,7 +446,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # silent dead weight this report's totals would never explain --
         # this test is the tripwire if the corpus ever grows one.
         report = script_host.run_corpus_entry_points(
-            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=census_prelude())
         self.assertEqual(report.no_entry_point, [])
 
     def test_run_corpus_entry_points_never_raises_out_of_the_full_616_file_run(self):
@@ -416,7 +463,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # which is the exact shape this project's house rule forbids.
         logged = []
         report = script_host.run_corpus_entry_points(
-            LUA_ROOT, log=logged.append, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=logged.append, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=census_prelude())
         host_lines = [line for line in logged if line.startswith("LUA_HOST")]
         self.assertEqual(report.host_failed, [], "\n".join(host_lines))
         self.assertEqual([run.path for run in report.host_failed_runs], [])
@@ -430,7 +478,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # counts would move.
         logged = []
         script_host.run_corpus_entry_points(
-            LUA_ROOT, log=logged.append, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=logged.append, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=census_prelude())
         blamed = [line for line in logged if line.startswith("LUA_SCRIPT")]
         self.assertEqual(
             len(blamed),
@@ -442,13 +491,15 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # if they partitioned the corpus and do not.  See
         # bucket_conservation above for the equation that does hold.
         report = script_host.run_corpus_entry_points(
-            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=census_prelude())
         total, accounted = bucket_conservation(report)
         self.assertEqual(total, accounted)
 
     def test_exactly_the_pinned_real_call_count_no_more_no_fewer(self):
         report = script_host.run_corpus_entry_points(
-            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=census_prelude())
         self.assertEqual(report.total_real_calls, BASELINE_TOTAL_REAL_CALLS)
 
     def test_exactly_the_pinned_stub_call_count_no_more_no_fewer(self):
@@ -459,7 +510,8 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         # a round that regresses one (count would rise) gets caught here
         # instead of silently drifting.
         report = script_host.run_corpus_entry_points(
-            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK)
+            LUA_ROOT, log=lambda _msg: None, quest_clock=FIXED_QUEST_CLOCK,
+            prelude=census_prelude())
         self.assertEqual(report.total_stub_calls, BASELINE_TOTAL_STUB_CALLS)
 
 
