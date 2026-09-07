@@ -651,3 +651,6 @@
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content
 /.claude/worktrees/
+
+# LANE-DB round dcz2sv: RE-305 precondition probe (COO-DECISION 20260907_2148)
+!/tools/pf_backpack_attr_headless_replay.py
