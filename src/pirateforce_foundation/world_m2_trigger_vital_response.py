@@ -637,6 +637,104 @@ ISLAND_EXTENT_BOX_CITATIONS: dict[int, str] = {
        "extent 1800x1800x500" % RE289_RESULT_LETTER_SHA256,
 }
 
+# ---------------------------------------------------------------------------
+# THE SECOND MEASUREMENT.  THE SLOT ABOVE HAS BEEN WAITING FOR THIS ONE, AND
+# IT WAS ALREADY IN THE REPOSITORY.
+# ---------------------------------------------------------------------------
+# This file has said, in the same words, for three rounds: "a SECOND,
+# separate measurement has to tie that box to the wire before
+# `ISLAND_CONTACT_DISCRIMINATOR` may name it.  A round that fills this slot
+# from the `.tgr` table alone has skipped that step."  `RE-289` supplied the
+# boxes and said so itself in its nonclaim (1).  The round that consumed it
+# wrote a crosswalk TICKET as the way to get the other half.
+#
+# The other half is `GT-228` / R308, `OBSERVER_CONFIRMED 2026-09-04T13:22`,
+# and it has been sitting in the bridge repository since 4 September with
+# every number this needs.  This round went looking for a coordinate it
+# expected to be missing, and found the letter's section (kho) decoding four
+# of the six `0x1FB2` frames of the sea session into `trigger_xyz` and the
+# ship's `TargetPos`, plus five HUD contact positions in its section (kor)
+# table.  Thirteen points in total, each with the wire id the client sent at
+# that moment.
+#
+# WHAT IS MEASURED BELOW, AND IT IS A CROSSWALK, NOT A RESTATEMENT:  every
+# one of those thirteen points falls inside the box of the ordinal whose
+# NUMBER EQUALS THE WIRE ID, and inside NO OTHER BOX.  The two tables were
+# produced three days apart by different parties from different artifacts --
+# the boxes from `Bg3001.tgr` by the RE runner, the points from the wire and
+# the screen by ka1-A with Panya at the client -- and neither was derived
+# from the other.  That is the independence the slot was asking for.
+#
+# WHAT IS STILL NOT DONE, DELIBERATELY:  `ISLAND_CONTACT_DISCRIMINATOR` IS
+# STILL `None` twenty lines up.  Naming it is a DECISION, not a
+# measurement, and three documents (this file, `tickets/RE-289.md`, and
+# `RE-289`'s own nonclaim) route that decision through a crosswalk ticket.
+# This round delivers the evidence that ticket was going to ask for and
+# leaves the naming to COO and to the round that answers, which is the same
+# posture the previous round took when it committed the table and left the
+# name alone.  The letter to COO is
+# `notes_to_chief/20260907_1152_LANE-A-ASK-COO-*`.
+#
+# AND ONE PREMISE THIS PROJECT HAS BEEN REPEATING IS REFUTED BY ITS OWN
+# PRIMARY SOURCE.  `RE-234` item (3), quoted in `CLIENT_RE_QUEUE.md`, in
+# `tickets/RE-289.md`, and beside `ISLAND_CONTACT_DISCRIMINATOR` in this
+# file, says `GT-228` saw wire id 3 BOTH on island contact AND while sailing
+# open water -- which is the whole reason the id alone was called an unsafe
+# classifier.  `GT-228`'s results letter enumerates every `0x1FB2` frame of
+# that session, three independent ways that agree (raw capture, EVENTS, and
+# the lane hook's own console, six lines, no `UNPARSED`):
+#
+#     rx112 id=35   <- the open-water frame, sailing toward island 2
+#     rx130 id=2  rx152 id=2  rx248 id=2
+#     rx433 id=3  rx491 id=3
+#
+# The open-water frame carried id 35, not id 3.  There is no id-3 open-water
+# sighting in `GT-228` at all.  This lane is NOT rewriting the shared
+# documents on its own reading -- the ASK-COO letter carries it -- and the
+# refutation changes nothing here today, because tier 3 refuses on the
+# unmeasured discriminator either way.  It is recorded because a premise
+# repeated in three places while its source says otherwise is a fact this
+# project should stop paying for.
+M2_WIRE_ORDINAL_CROSSWALK_LETTER = (
+    "20260904_1331_KA1A-R308-RESULTS-gt228-pass-box-B-island-contact-fires-"
+    "triggervital-id-2-at-prison-exile-and-id-3-at-spice-paradise-not-153-"
+    "154.md"
+)
+
+# (label, wire trigger id the client sent, x, y, z).  Transcribed from the
+# letter's sections (kho) and (kor), NOT recomputed from anything in this
+# file.  `trigger` rows are the frame's own `trigger_xyz`; `ship` rows are
+# the `TargetPos` carried in the same frame; `HUD` rows are the on-screen
+# contact positions from the letter's table, which are the ones Panya
+# watched happen.
+M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS: tuple[
+    tuple[str, int, float, float, float], ...
+] = (
+    ("rx130 trigger", 2, -4451.6, 4531.1, 186.0),
+    ("rx130 ship", 2, -4800.0, 4632.2, 86.0),
+    ("rx152 trigger", 2, -5613.8, 4162.5, 186.0),
+    ("rx152 ship", 2, -5613.8, 4162.5, 86.0),
+    ("rx433 trigger", 3, -1563.5, -5275.1, 186.0),
+    ("rx433 ship", 3, -1560.1, -5331.6, 86.0),
+    ("rx491 trigger", 3, -1720.4, -5251.6, 186.0),
+    ("rx491 ship", 3, -1877.2, -5370.0, 86.0),
+    ("HUD ISL2-CONTACT-1", 2, -5064.0, 4492.0, 86.0),
+    ("HUD ISL2-CONTACT-2", 2, -5406.0, 4397.0, 86.0),
+    ("HUD ISL2-CONTACT-3", 2, -6167.0, 5130.0, 86.0),
+    ("HUD ISL3-CONTACT-1", 3, -1560.0, -5331.0, 86.0),
+    ("HUD ISL3-CONTACT-2", 3, -1877.0, -5370.0, 86.0),
+)
+
+# NOT DECODED IN THE LETTER, so not here either, and named rather than left
+# for a later round to notice as an absence: `rx248` (id 2) and `rx112`
+# (id 35, the open-water frame) have timestamps and ids but no coordinates
+# in section (kho).  The id-35 one is the row this lane most wants -- an
+# open-water position to check against the boxes would turn "the boxes
+# separate the two islands" into "the boxes separate contact from open
+# water".  It is the one question the crosswalk ticket still has to ask.
+M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES = ("rx112 id=35", "rx248 id=2")
+
+
 # READ-ONLY TO EVERY IMPORTER -- COO-DECISION `20260907_0945` item 1.
 # pf-adversary's repro for the tier-3 hole had three legs and this table was
 # one of them: a caller that can write a box can decide that open water is
@@ -769,8 +867,23 @@ __CANDIDATES: dict[int, CandidateFrame | None] = {
 # THAT SENTENCE WAS WRONG AND pf-adversary RAN IT: a module-level
 # `__NAME` is NOT mangled -- mangling happens only inside a class body -- so
 # `vars(module)` holds the plain `__CANDIDATES` and `getattr(module,
-# "__CANDIDATES")[2] = forged` worked.  The writable dict is in `__FROZEN`
-# now, which is a real refusal rather than a speed bump that was not there.
+# "__CANDIDATES")[2] = forged` worked.  The name `__CANDIDATES` is in
+# `__FROZEN` now, so REBINDING it is refused.
+#
+# AND THAT IS STILL NOT THE SAME THING, WHICH THE SENTENCE HERE USED TO
+# CLAIM IT WAS.  pf-adversary re-ran the original repro against this round
+# and it STILL SUCCEEDS: freezing a name stops `module.__CANDIDATES = {}`,
+# it does nothing about `getattr(module, "__CANDIDATES")[2] = forged`, which
+# writes THROUGH the name into the dict the proxy is a view of.  The same
+# holds for `_ISLAND_EXTENT_BOXES[99] = a box the size of the world`, which
+# the freeze docstring lists among the bypasses it closed.  With a
+# discriminator measured, that second one hands a session sitting in open
+# water a frame nobody cited.  `test_the_two_tables_cannot_be_mutated_in_
+# place` checks the PROXIES; nothing checks the dicts behind them.  This is
+# not fixed in this round -- it is a different door from C6 and the round
+# is out of budget -- and it is written down here, unhedged, as the first
+# job of the next one rather than left as a sentence that reads as though
+# it were already handled.
 _CANDIDATES: "Mapping[int, CandidateFrame | None]" = MappingProxyType(__CANDIDATES)
 
 
@@ -1187,12 +1300,21 @@ def _candidate_for_trigger_id(
     at all.  So it is shut here, BEFORE the discriminator is measured, which
     is the order the previous round wrote down as its first job.
 
-    The public function forwards NOTHING to this parameter, and two separate
-    tests measure that: the signature pin (no ``registry`` on any public
-    callable, alongside ``discriminator`` and ``boxes``) and the public
-    surface test, whose ``registry`` allowlist entry was DELETED in the same
-    commit -- an allowlist entry does not close a door, which is the lesson
-    that test's own docstring already taught about ``allowed_id_only``.
+    The public function forwards NOTHING to this parameter, and two tests
+    measure that: ``test_the_public_lookup_has_exactly_three_parameters``,
+    which pins the parameter LIST rather than the absence of one name, and
+    ``test_no_public_callable_carries_any_of_the_three_seams``, which is the
+    sole killer for a seam re-appearing on ``answer_guard_reason`` or under
+    a new public re-export.
+
+    NOT the public-surface test, and this sentence used to say it was.
+    pf-adversary measured it blind here: that test's SHAPE prong is only
+    consulted for a callable that is NOT tier-ordered, and this function is
+    tier-ordered, so re-adding ``registry=`` to it leaves that test green.
+    Deleting its ``registry`` allowlist entry was still right -- an
+    allowlist entry does not close a door -- but its power is over
+    ``registered_count``, not over this function, and claiming otherwise was
+    an assertion dressed as a measurement.
     """
     if (
         answer_guard_reason(current_scene_id, wire_trigger_id, island_contact)
@@ -1353,9 +1475,11 @@ class _FrozenTier3Module(ModuleType):
     discriminator, i.e. it was held shut by the very fact the next round is
     sent to change.  Both lookups now keep the seam on a private twin
     (``_candidate_for_trigger_id``, ``_registered_count``); the public pair
-    take no registry at all, which is checked by the signature pin and by
-    the public-surface test, whose ``registry`` allowlist entry is deleted
-    in the same commit.  The freeze converts an ACCIDENT (an ordinary assignment, which
+    take no registry at all, which is checked by the exact-parameter-list
+    pin and by the discovery-based seam pin.  NOT by the public-surface
+    test: pf-adversary measured that one blind to a TIER-ORDERED function
+    re-growing the keyword, so its deleted allowlist entry has power over
+    ``registered_count`` alone.  The freeze converts an ACCIDENT (an ordinary assignment, which
     is what the repro used and what a hurried round would write) into a
     named error, and leaves the deliberate act visible in a diff as a line
     no honest caller has a reason to contain.  That distinction is the whole
@@ -1400,6 +1524,31 @@ class _FrozenTier3Module(ModuleType):
             "_table_for",
             "candidate_for_trigger_id",
             "registered_count",
+            # pf-adversary D1 AGAINST THIS ROUND'S OWN FIX, and it was
+            # CRITICAL: closing C6 minted two new module-level functions and
+            # left them out of this set, while the public pair -- which ARE
+            # in it -- do nothing but delegate to them.  One assignment,
+            # `module._candidate_for_trigger_id = lambda *a, **k: forged`,
+            # then made the FROZEN public function hand a forged frame to a
+            # caller standing in no scene, with no reading and no measured
+            # discriminator.  That is strictly worse than C6, which needed
+            # both a discriminator and an in-box reading.  The comment three
+            # screens up says exactly why -- "the module's functions call
+            # each other through module globals, so rebinding ANY of them
+            # defeats the guard without touching the data" -- and this round
+            # walked past its own sentence.  The set is no longer typed by
+            # hand alone: a test DERIVES this module's function names and
+            # requires this set to contain every one of them, so the next
+            # twin cannot be forgotten the same way.
+            "_candidate_for_trigger_id",
+            "_registered_count",
+            # The crosswalk table landed this round too.  It decides nothing
+            # today, and it is the table a discriminator would be judged
+            # against tomorrow -- the same argument that put
+            # `_ISLAND_EXTENT_BOXES` here.
+            "M2_WIRE_ORDINAL_CROSSWALK_LETTER",
+            "M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS",
+            "M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES",
         }
     )
 
