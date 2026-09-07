@@ -1,1 +1,1 @@
-{"sha":"2f2811b3b61eddaf18dcbded4fe704d4cd748621","conclusion":"failure","event":"push","ref":"refs/heads/claude/nice-ramanujan-qvdk7n","run_id":"34080676235","utc":"2026-09-07T04:12:01Z"}
+{"sha":"2f2811b3b61eddaf18dcbded4fe704d4cd748621","conclusion":"failure","event":"pull_request","ref":"refs/pull/1015/merge","run_id":"34080712167","utc":"2026-09-07T04:18:27Z"}
