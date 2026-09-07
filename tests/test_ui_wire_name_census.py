@@ -1711,7 +1711,126 @@ class ArtifactPassedAsCatalogIsRefused(unittest.TestCase):
         UI_WIRE_CENSUS_INPUTS.require(self)
         rows = census.load_names()
         self.assertGreater(len(rows), 300)
-        self.assertNotIn(("id", "name"), rows)
+
+    def test_a_catalog_whose_header_comment_is_gone_is_not_accused(self):
+        """The round `8y18nc` guard was too wide, measured (D3/D5).
+
+        That guard refused any catalog whose first PARSED row was the pair
+        ("id", "name"), and its comment claimed the real catalog could never
+        present one because "its two leading lines are `#` comments".  The
+        catalog has FOUR `#` lines and the fourth of them IS `# id<TAB>name`,
+        so removing two comment characters -- an edit no rule forbids --
+        made the tool accuse the real catalog and refuse to run at all.
+        The header this tool emits has SIX columns; that is what is checked
+        now, and a two-column id/name header is not it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = Path(tmp) / "catalog.tsv"
+            catalog.write_text(
+                "# a comment\n"
+                "id\tname\n"
+                "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\n",
+                encoding="utf-8",
+            )
+            rows = census.load_names(catalog)
+        self.assertIn(
+            ("0x0AEA", "Winemaking_UpdateLearnedFormulaVital"), rows,
+        )
+
+    def test_first_uncommented_line_skips_comments_and_blanks(self):
+        self.assertEqual(
+            census.first_uncommented_line("# one\n\n# two\nreal\nlater"),
+            "real",
+        )
+        self.assertEqual(census.first_uncommented_line("# only\n"), "")
+
+
+class EmitRefusesToOverwriteWhatIsNotItsArtifact(unittest.TestCase):
+    """`--emit --artifact <catalog>` destroyed the catalog and said PASS.
+
+    Measured (pf-adversary D2 of round `8y18nc`, re-measured this round on a
+    copy): md5 173f662e -> 9f211939, exit 0, the 327-name master catalog
+    replaced by a 328-line census.  The guard added in round `8y18nc` closed
+    the door a lane walks through by mistake in ONE direction (`--tsv
+    <artifact>`) and its own error message pointed at this one.
+    """
+
+    def _catalog(self, tmp: str) -> Path:
+        catalog = Path(tmp) / "VITAL_REGISTRY.tsv"
+        catalog.write_text(
+            "# master catalog\n"
+            "# id\tname\n"
+            "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\n",
+            encoding="utf-8",
+        )
+        return catalog
+
+    def test_emit_over_a_catalog_writes_nothing_and_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = self._catalog(tmp)
+            before = catalog.read_bytes()
+            err = io.StringIO()
+            with mock.patch.object(sys, "stderr", err):
+                code = census.main([
+                    "--emit", "--tsv", str(catalog),
+                    "--artifact", str(catalog),
+                ])
+            after = catalog.read_bytes()
+        self.assertEqual(code, 2)
+        self.assertEqual(before, after)
+        self.assertIn("refusing to write", err.getvalue())
+
+    def test_a_first_emit_into_a_path_that_does_not_exist_is_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = self._catalog(tmp)
+            artifact = Path(tmp) / "fresh_artifact.tsv"
+            out = io.StringIO()
+            with mock.patch.object(sys, "stdout", out):
+                code = census.main([
+                    "--emit", "--tsv", str(catalog),
+                    "--artifact", str(artifact),
+                ])
+            self.assertTrue(artifact.exists())
+            first = census.first_uncommented_line(
+                artifact.read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        self.assertEqual(first, census.ARTIFACT_HEADER)
+
+    def test_emit_says_whether_rows_moved_before_the_trivial_compare(self):
+        """D4: the compare after a write is equal by construction."""
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = self._catalog(tmp)
+            artifact = Path(tmp) / "artifact.tsv"
+            out = io.StringIO()
+            with mock.patch.object(sys, "stdout", out):
+                census.main([
+                    "--emit", "--tsv", str(catalog),
+                    "--artifact", str(artifact),
+                ])
+                first_run = out.getvalue()
+                census.main([
+                    "--emit", "--tsv", str(catalog),
+                    "--artifact", str(artifact),
+                ])
+                second_run = out.getvalue()[len(first_run):]
+        self.assertNotIn("CENSUS EMIT", first_run)  # nothing existed yet
+        self.assertIn("CENSUS EMIT: no change", second_run)
+
+
+class EveryFlagExplainsItself(unittest.TestCase):
+    """D6: neither flag had a `help=`, and two lanes swapped them."""
+
+    def test_help_names_input_and_output_for_the_two_path_flags(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            with self.assertRaises(SystemExit):
+                census.main(["--help"])
+        text = out.getvalue()
+        self.assertIn("--tsv", text)
+        self.assertIn("--artifact", text)
+        self.assertIn("INPUT", text)
+        self.assertIn("OUTPUT", text)
+        self.assertIn("OVERWRITTEN", text)
 
 
 if __name__ == "__main__":

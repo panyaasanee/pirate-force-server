@@ -88,6 +88,52 @@ DEFAULT_CLOSE_DELAY_MS = logout_hypothesis.LOGOUT_CLOSE_DELAY_MS
 
 _EXIT_GAME_SUBCODE = 1  # UI-B ("exit game"); UI-A (subcode 3) is not handled here
 
+# Console tokens.  ASCII, one line, no punctuation a cp874 console cannot
+# print.  They exist because "the code is on main" and "the mechanism fired
+# on this boot" are different facts, and only the second one can carry an
+# attended ticket (`NOW.md` `HEADLESS_PROOF:`).  Both are printed by THIS
+# module rather than by `runtime.py` (chief's zone), and only for a frame
+# this module has already classified as a real exit-game click, so neither
+# line ever narrates another lane's branch.
+TOKEN_ACK_COMPOSED = "UI_LOGOUT_EXIT_GAME_ACK_COMPOSED"
+TOKEN_NOT_SENT = "UI_LOGOUT_EXIT_GAME_NOT_SENT"
+
+
+def _say(line: str) -> None:
+    """Print one token line that can NEVER take the listener thread down.
+
+    pf-adversary F1 (round `uw3bxb`, measured): a bare `print()` here raises
+    `ValueError: I/O operation on closed file` the moment stdout is a closed
+    handle or a dead pipe -- and both call sites sit AFTER `close_connection()`
+    has committed and the close timer is scheduled, so the exception escapes
+    into `v141:7558`'s `try:` (which has a `finally:` and no `except:`) and
+    ENDS THE GAME LISTENER THREAD, leaving the lease closed, the ack never
+    sent and nothing in `session.events`.  `connection.py:150-172` and
+    `runtime.py:7645-7650` both record this exact failure from earlier rounds;
+    LANE-A's neighbouring notice print is inside a try for the same reason.
+    `_refused` is worse still: it is called from an `except Exception` handler,
+    where a raising print would REPLACE the original exception.
+    """
+    try:
+        print(line)
+    except BaseException:  # noqa: BLE001 - a console is never worth a thread
+        pass
+
+
+
+def _refused(reason: str) -> "ExitGameLogoutOutcome":
+    """Fail closed AND say so on the console, for exit-game clicks only.
+
+    A refusal is the case an attended run cannot tell apart from "the
+    branch is not on this build at all" -- both look like a dead button.
+    One token with the reason in it separates them.  Bounded by player
+    clicks (a real client sends one LogoutVital per press), not by frame
+    volume: nothing on the tick path reaches here.
+    """
+    _say("%s reason=%s" % (TOKEN_NOT_SENT, reason))
+    return ExitGameLogoutOutcome(False, reason)
+
+
 
 @dataclass(frozen=True)
 class ExitGameLogoutOutcome:
@@ -132,16 +178,19 @@ def dispatch_real_exit_game_logout(
     """
     classification = logout_hypothesis.classify_logout_attempt(legacy, parsed)
     if classification != f"exact_{_EXIT_GAME_SUBCODE:02d}":
+        # NOT an exit-game click at all (subcode 3 is UI-A, and a malformed
+        # envelope is nobody's).  Silent on purpose: LANE-A's notice owns
+        # this frame and printing here would narrate another lane's branch.
         return ExitGameLogoutOutcome(False, f"not_exit_game_{classification}")
     if session.foundation.selected is None:
-        return ExitGameLogoutOutcome(False, "no_selected_character")
+        return _refused("no_selected_character")
     if session.logout_acknowledged:
-        return ExitGameLogoutOutcome(False, "already_acknowledged")
+        return _refused("already_acknowledged")
     if not session.teleport_sent or not session.runtime_ack_sent:
-        return ExitGameLogoutOutcome(False, "wrong_sequence")
+        return _refused("wrong_sequence")
     closer = session.transport_socket_closer
     if closer is None:
-        return ExitGameLogoutOutcome(False, "no_transport_closer")
+        return _refused("no_transport_closer")
 
     # Composed and pinned before the lease is touched, same discipline as
     # every other lane in this dispatch: nothing is queued unless the
@@ -154,16 +203,24 @@ def dispatch_real_exit_game_logout(
     except Exception as exc:  # noqa: BLE001 - a courtesy fail-closed path
         # must never take the listener thread down for the player whose
         # click it was, same discipline as `_dispatch_logout_hypothesis`.
-        return ExitGameLogoutOutcome(
-            False, f"repository_failure_{type(exc).__name__}",
-        )
+        return _refused(f"repository_failure_{type(exc).__name__}")
     if not closed:
-        return ExitGameLogoutOutcome(False, "already_closed")
+        return _refused("already_closed")
 
     session.logout_acknowledged = True
     session.logout_ack_count += 1
     session.logout_close_scheduled = True
     close_timer_factory(close_delay_ms / 1000.0, closer)
+
+    # The one line an attended run reads off the console to know the SERVER
+    # half of this click actually happened on this build, at the moment it
+    # happened.  Every value in it is measured here, after the write: the
+    # lease commit already returned True, the ack bytes already exist, and
+    # the close timer is already scheduled.  See TOKEN_ACK_COMPOSED above.
+    _say(
+        "%s subcode=%d ack_bytes=%d lease_closed=1 close_delay_ms=%d"
+        % (TOKEN_ACK_COMPOSED, _EXIT_GAME_SUBCODE, len(frame), close_delay_ms)
+    )
 
     return ExitGameLogoutOutcome(
         True,
