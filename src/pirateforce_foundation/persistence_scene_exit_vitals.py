@@ -54,18 +54,32 @@ and the request went out in the same round as this file
 in the other repository; a reviewer of this one cannot open it, which is why
 it is named as a request rather than cited as an authority).
 
-WHAT IS NOT "no call site", and is this module's one real advance: the
-restate it composes is handed to `persistence_hp_pair_selector.guard_block`
-BEFORE it is offered to any caller.  That door has had no caller anywhere
-but its own tests since the round that built it, which is a debt three
-`pf-adversary` passes have named.  It now has one, on the exact path the
-owner's symptom is on -- so a restate that would itself put a dishonest pair
-on the HUD cannot leave this module.
+WHAT THE `guard_block` CALL IS AND IS NOT.  The restate this module composes
+is handed to `persistence_hp_pair_selector.guard_block` before it is
+returned, and that door had no caller outside its own tests until this
+round.  Stated precisely, because the first draft of this paragraph
+overstated it twice and `pf-adversary` measured both:
+
+* NOT "the door is now on the path the owner's symptom is on".  This module
+  has no caller either, so what the door gained is an import-graph edge to a
+  second unwired module.  The production HP path (the session's login vitals
+  seam, down to this lane's vitals resolver) still does not call it.
+* NOT the discharge of an outstanding debt.  That door's own module records a
+  MEASURED, deliberate scope decision -- there is no hole in the login wall
+  for it to plug, and the request for a call site was WITHDRAWN in the round
+  that wrote it.  Calling that a debt and paying it here would be reframing
+  finished reasoning as an oversight.
+* What it IS: a real refusal on a real input set.  Probed on pairs a migrated
+  store can hold, the call refuses `101/100`, `50/0`, `0xFFFFFFFF/1`,
+  `0xFFFFFFF0/0xFFFFFFFF` and `2**31/2**32-1`, and ADMITS `0/100` -- a dead
+  character, which must pass, and which the first draft of this module's
+  suite never tested even once.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from .persistence_attr_compose import SERVER_OWNED_FIELDS
 from .persistence_hp_pair_selector import (
@@ -93,20 +107,46 @@ REASON_GUARD_REFUSED = "hp_pair_guard_refused_the_restate"
 #: x=52 / x=53 are not stated by this server.  Not an error -- a boundary.
 REASON_ALTERNATE_UNOWNED = "boat_health_rows_have_no_column_on_this_server"
 
-#: The column names behind the primary pair, derived from the same table the
-#: compose path reads rather than typed here a second time.  A migration that
-#: renames either column moves this with it; a hand-written pair of strings
-#: would have gone quietly stale instead.
-_PRIMARY_COLUMNS = tuple(SERVER_OWNED_FIELDS[x].column for x in PRIMARY_PAIR)
+#: The column names behind the primary pair, READ from the same table the
+#: compose path reads rather than typed here a second time.
+#:
+#: WHAT THAT BUYS AND WHAT IT DOES NOT, because the sentence that stood here
+#: claimed more than it delivers: `SERVER_OWNED_FIELDS` holds HAND-WRITTEN
+#: strings (`_SERVER_OWNED_ROWS` in that module), so a MIGRATION renaming
+#: `hp_current` moves nothing here -- a human editing that table does.  What
+#: reading it buys is that this module and the compose path cannot disagree
+#: about which column is x=3.  `SchemaPinTests` is what compares that table
+#: to `migrations/`; this line free-rides on that and does not replace it.
+def _primary_columns() -> tuple[str, ...]:
+    """The `characters` columns behind x=3 / x=4, read at call time.
+
+    A FUNCTION rather than a module constant, and that is the repair for
+    pf-adversary `5vzis0` D8 rather than a style choice: as a constant
+    evaluated at import, the literal `("hp_current", "hp_max")` was
+    indistinguishable from the read, because the only test of it compared the
+    constant to the same expression that built it -- a tautology that both
+    spellings pass.  Computed per call, a test can patch the owned table and
+    watch the answer move, which is what kills the literal.  It is the same
+    shape `alternate_rows_owned_by_this_server` already had, and the reason
+    that one's mutants died while this one's survived.
+    """
+    return tuple(SERVER_OWNED_FIELDS[x].column for x in PRIMARY_PAIR)
 
 
 def alternate_rows_owned_by_this_server() -> tuple[int, ...]:
     """Which of x=52 / x=53 this server has a column for.  Empty today.
 
-    Computed from `SERVER_OWNED_FIELDS`, never written as `()`.  The day a
-    migration of this lane adds `boat_health_current` / `boat_health_max`,
-    this function changes answer without anyone editing it, and
-    `SceneExitVitals.alternate_rows_refused` narrows with it.
+    Computed from `SERVER_OWNED_FIELDS`, never written as `()` -- and that
+    much IS defended: this module's suite patches that table to pretend a
+    column shipped and watches the answer narrow, which kills the literal.
+
+    The day this lane ships `boat_health_current` / `boat_health_max` takes
+    TWO edits and the sentence that stood here named only one: a migration
+    for the columns, AND a row in `_SERVER_OWNED_ROWS`, whose strings are
+    typed by hand.  This function follows the second automatically.  It does
+    not read `migrations/`, and saying it changes answer "without anyone
+    editing it" was a false docstring sentence of exactly the kind this lane
+    has now shipped in four consecutive rounds.
     """
     return tuple(x for x in ALTERNATE_PAIR if x in SERVER_OWNED_FIELDS)
 
@@ -115,16 +155,37 @@ def alternate_rows_owned_by_this_server() -> tuple[int, ...]:
 class SceneExitVitals:
     """The restate one character's scene exit may carry, and why.
 
-    `rows` is what a composer may put on the wire: `{}` when nothing may be
-    stated, never a dict of invented zeroes.  `reason` is `None` exactly when
-    `rows` is non-empty, so a caller cannot read a refusal as a send.
+    `rows` is what a composer may put on the wire: empty when nothing may be
+    stated, never a mapping of invented zeroes.
+
+    IT IS A READ-ONLY VIEW, and `frozen=True` is why that has to be said
+    separately.  `frozen` stops the FIELD being rebound; it does nothing
+    about the mapping behind it.  With a plain dict a caller could write
+    `rows[52] = 0xFFFFFFFF` AFTER `guard_block` had passed the pair, and
+    `console_line` would then print x=52 carrying -1 while still reporting
+    the boat rows as unstated.  A guard verdict that does not bind the object
+    it verified is not a verdict, so what is handed out is a
+    `MappingProxyType` and that write raises.
+
+    `reason` is `None` exactly when `rows` is non-empty -- enforced in
+    `__post_init__` rather than promised here, because an invariant attached
+    to a class anyone can construct is a property of the factory, not of the
+    class.
     """
 
     character_id: int
     scene_id: int
-    rows: dict[int, int]
+    rows: "MappingProxyType[int, int] | dict[int, int]"
     reason: str | None
     detail: str
+
+    def __post_init__(self):
+        if bool(self.rows) != (self.reason is None):
+            raise ValueError(
+                "SceneExitVitals must carry a reason when it states no rows, "
+                "and no reason when it states some: "
+                f"rows={dict(self.rows)!r} reason={self.reason!r}"
+            )
 
     @property
     def may_restate(self) -> bool:
@@ -149,22 +210,30 @@ def resolve_for_scene_exit(store, character_id: int, scene_id: int) -> SceneExit
 
     `scene_id` is carried, never compared.  This module holds no opinion that
     scene `126` is special: the ocean panel is where the owner SAW the
-    symptom, and a restate that is honest there is honest everywhere.  A
-    hardcoded `126` here would have to be re-derived the day the ocean has a
-    second scene id, and `field_mobs.scene_for_scene_id` already owns that
-    mapping for the lanes that need it.
+    symptom, and a restate that is honest there is honest everywhere.
+
+    A NAME THIS PARAGRAPH USED TO CARRY AND MUST NOT: it claimed another
+    module of this repository "already owns" the scene-id-to-ocean mapping.
+    MEASURED, and false twice over -- that function answers `None` for scene
+    126 (it maps only the scenes with a mined mob roster, and the module that
+    does resolve 126 is a different one), and merely NAMING it in this
+    docstring turned that module's own importer pin RED, because the pin is a
+    substring scan.  Deleted rather than repaired: this module does not need
+    to know which module owns the ocean, which is the point of not comparing
+    `scene_id` at all.
     """
     typed = store.read_typed_attributes(character_id)
-    values = [typed.get(column) for column in _PRIMARY_COLUMNS]
+    columns = _primary_columns()
+    values = [typed.get(column) for column in columns]
 
     if any(value is None for value in values):
         missing = ", ".join(
-            column for column, value in zip(_PRIMARY_COLUMNS, values) if value is None
+            column for column, value in zip(columns, values) if value is None
         )
         return SceneExitVitals(
             character_id=character_id,
             scene_id=scene_id,
-            rows={},
+            rows=MappingProxyType({}),
             reason=REASON_ROW_UNSEEDED,
             detail=(
                 f"no value in the row for {missing}; the server states nothing "
@@ -179,7 +248,7 @@ def resolve_for_scene_exit(store, character_id: int, scene_id: int) -> SceneExit
         return SceneExitVitals(
             character_id=character_id,
             scene_id=scene_id,
-            rows={},
+            rows=MappingProxyType({}),
             reason=REASON_GUARD_REFUSED,
             detail=str(exc),
         )
@@ -187,7 +256,9 @@ def resolve_for_scene_exit(store, character_id: int, scene_id: int) -> SceneExit
     return SceneExitVitals(
         character_id=character_id,
         scene_id=scene_id,
-        rows=rows,
+        # Read-only: the guard has spoken about exactly this mapping, and no
+        # caller may edit it afterwards.  See the class docstring.
+        rows=MappingProxyType(rows),
         reason=None,
         detail=(
             f"x={PRIMARY_PAIR[0]}/{PRIMARY_PAIR[1]} restated from the row; "
