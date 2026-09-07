@@ -121,7 +121,7 @@ refuses cleanly, removes its temp file and leaves the operator's file alone.
 That is a real property and it runs on every platform; it is NOT the same as
 counting descriptors, and nobody should read it as such.  The open question --
 what measures the descriptor property itself on Windows -- is asked of COO in
-`notes_to_chief/20260907_1219_LANE-GM-ASK-COO-what-measures-descriptors-on-windows.md`
+`notes_to_chief/20260907_1211_LANE-GM-ASK-COO-what-measures-descriptors-on-windows.md`
 and is not answered here.
 
 The stand-ins here patch the MODULE ATTRIBUTE (`login_scene_stage.os`), not the
