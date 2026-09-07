@@ -189,6 +189,109 @@ class TheNumbersAreTheFormulaAndNotATable(unittest.TestCase):
                          "the projection types a number it must derive")
 
 
+class TheNumberReallyComesOutOfTheFormula(unittest.TestCase):
+    """Monkeypatch pins, not text pins.
+
+    An earlier draft of this file checked the module's AST for typed numbers
+    and checked the arithmetic against the same constants the module reads.
+    Both are necessary and neither is sufficient: a mutant that keeps the
+    imports, keeps consuming `mob`, keeps calling the guard, and then
+    returns `870 + level + level + level` types no forbidden literal, agrees
+    with the derivation, and passed every test in this file.  That is the
+    same defect `pf-adversary` found in round `z8o8ma` (A4) -- "computed,
+    not transcribed" is only a real claim if removing the computation goes
+    red.  These tests remove it.
+    """
+
+    def test_the_damage_is_whatever_the_shipped_formula_says_it_is(self):
+        mob = town_target_mob()
+        sentinel = 424242
+        original = damage_town_target.unclamped_hit_damage
+        try:
+            damage_town_target.unclamped_hit_damage = (
+                lambda attacker, target: sentinel)
+            self.assertEqual(projection.damage_at_level(1, mob), sentinel)
+        finally:
+            damage_town_target.unclamped_hit_damage = original
+
+    def test_the_hit_count_is_computed_from_that_same_damage(self):
+        mob = town_target_mob()
+        original = damage_town_target.unclamped_hit_damage
+        try:
+            damage_town_target.unclamped_hit_damage = (
+                lambda attacker, target: 1)
+            self.assertEqual(
+                projection.hits_to_fell_at_level(1, mob),
+                int(mob.max_hp) - mob_combat.HP_FLOOR,
+            )
+        finally:
+            damage_town_target.unclamped_hit_damage = original
+
+    def test_the_attacker_handed_to_the_formula_carries_the_asked_level(self):
+        mob = town_target_mob()
+        seen = []
+        original = damage_town_target.unclamped_hit_damage
+        try:
+            damage_town_target.unclamped_hit_damage = (
+                lambda attacker, target: seen.append((attacker, target)) or 1)
+            projection.damage_at_level(42, mob)
+        finally:
+            damage_town_target.unclamped_hit_damage = original
+        self.assertEqual(len(seen), 1)
+        attacker, target = seen[0]
+        self.assertEqual(attacker.level, 42)
+        self.assertIs(target, mob)
+
+    def test_the_guard_is_on_the_path_and_not_merely_exported(self):
+        """Removing `require_only_level_differs` from `damage_at_level` used
+        to change nothing measurable.  Now it does."""
+        mob = town_target_mob()
+        original = projection.require_only_level_differs
+        marker = projection.LevelProjectionError("guard reached")
+
+        def refuse(projected):
+            raise marker
+
+        try:
+            projection.require_only_level_differs = refuse
+            with self.assertRaises(projection.LevelProjectionError) as caught:
+                projection.damage_at_level(1, mob)
+            self.assertIs(caught.exception, marker)
+        finally:
+            projection.require_only_level_differs = original
+
+
+class TheGuardLooksAtEveryFieldAndNotOne(unittest.TestCase):
+    """`require_only_level_differs` claims to walk `dataclasses.fields`.  A
+    guard that only ever inspected `ability_str` passed every other test
+    here, so the claim needs a field it would have to have walked to see."""
+
+    def test_a_moved_ability_con_is_refused_too(self):
+        pin = mob_combat.pin_attacker()
+        cheat = mob_combat.Combatant(
+            level=pin.level,
+            ability_str=pin.ability_str,
+            ability_con=pin.ability_con + 1,
+        )
+        with self.assertRaises(projection.LevelProjectionError):
+            projection.require_only_level_differs(cheat)
+
+    def test_every_non_level_field_of_the_pin_is_actually_compared(self):
+        """One subtest per field, so a guard that skips any one of them goes
+        red naming that field rather than passing quietly."""
+        import dataclasses as _dc
+
+        pin = mob_combat.pin_attacker()
+        for field in _dc.fields(pin):
+            if field.name == "level":
+                continue
+            with self.subTest(field=field.name):
+                moved = _dc.replace(
+                    pin, **{field.name: getattr(pin, field.name) + 1})
+                with self.assertRaises(projection.LevelProjectionError):
+                    projection.require_only_level_differs(moved)
+
+
 class ItRefusesRatherThanGuesses(unittest.TestCase):
 
     def test_a_level_the_shipped_record_refuses_is_refused_here(self):
