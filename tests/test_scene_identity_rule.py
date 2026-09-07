@@ -117,17 +117,36 @@ class TheEqualityCooAskedFor(unittest.TestCase):
 class TheFiveRowsTheConditionDoesNotCover(unittest.TestCase):
     """Bg0002 places Mob-Set numbers the 35/35 measurement never saw."""
 
-    def test_bg0002_ships_five_placements_outside_the_agreeing_block(self):
+    def test_bg0002_no_longer_ships_a_placement_outside_the_agreeing_block(
+            self):
+        """~~test_bg0002_ships_five_placements_outside_the_agreeing_block~~
+
+        ROUND najn72: THE OWNER ANSWERED THE OPEN QUESTION.  The tick
+        (pf_bridge notes_to_chief/20260908_0025..., item 1) moved this scene
+        onto ``cline``, and the crosswalk resolves Mob-Set 103 to MOBS 917 --
+        rank 0, no combat AI, INVISIBLE -- which the hostility predicate
+        cannot select, so the five placements the question was about are out
+        of ``SET_NUMBER_FOR_PLACEMENT`` entirely.  The constant that named
+        them stays in ``scene_identity_rule``: it is the record of what the
+        question WAS, and this test now holds both halves -- the five are
+        gone from the table, and the record still says which five they were.
+        """
         outside = tuple(sorted(
             (index, set_number)
             for index, set_number in bg0002.SET_NUMBER_FOR_PLACEMENT.items()
             if set_number not in sir.AGREEING_BLOCK
         ))
         self.assertEqual(
-            outside, sir.BG0002_PLACEMENTS_OUTSIDE_THE_AGREEING_BLOCK,
-            "the set of Bg0002 placements outside Mob-Set 1..35 changed.  "
-            "That set is the whole subject of the open question with the "
-            "owner; update the letter before updating this test."
+            outside, (),
+            "a Bg0002 placement is outside Mob-Set 1..35 again -- the "
+            "crosswalk flip has been reverted, or a regeneration readmitted "
+            "the disputed block"
+        )
+        self.assertEqual(
+            sir.BG0002_PLACEMENTS_OUTSIDE_THE_AGREEING_BLOCK,
+            ((92, 103), (93, 103), (94, 103), (95, 103), (96, 103)),
+            "the record of WHICH five placements the owner's question was "
+            "about has been edited; it is history now, not a measurement"
         )
 
     def test_the_two_readings_of_set_103_are_different_creatures(self):
@@ -145,21 +164,49 @@ class TheFiveRowsTheConditionDoesNotCover(unittest.TestCase):
         )
         self.assertEqual(chosen[3], "INVISIBLE")
 
-    def test_bg0002_still_ships_under_the_legacy_rule_this_round(self):
-        """The hold is a fact in the tree, not only a sentence in a letter.
+    def test_bg0002_ships_under_the_projects_rule_now_and_answers_for_it(self):
+        """~~test_bg0002_still_ships_under_the_legacy_rule_this_round~~
 
-        When the owner rules and this flips to ``cline``, this test fails --
-        and the round that flips it must also cut the five rows out of
-        ``SET_NUMBER_FOR_PLACEMENT`` and answer for the map going from
-        seventeen hostiles to twelve.
+        ROUND najn72 IS THE ROUND THIS DOCSTRING NAMED.  The owner ruled
+        (tick 20260908_0025 item 1), the rule flipped to ``cline``, and the
+        two things that round was told to do are both asserted here rather
+        than described:
+
+        * the five rows ARE cut out of ``SET_NUMBER_FOR_PLACEMENT`` -- the
+          test above holds that;
+        * and the map count is answered.  ~~seventeen hostiles to twelve~~
+          was the arithmetic of the crosswalk ALONE.  The owner changed a
+          second rule in the same breath (COO-DECISION 20260907_1346,
+          NOW.md `1313`: ``s_OUTFIT`` decides nothing about who is an
+          enemy), and the two together take the map from seventeen to
+          FIFTY-TWO: the crosswalk removes the five disputed Orc Chief rows,
+          and the outfit ruling readmits forty placements the ";"-list rule
+          had been dropping.  Both numbers are asserted so neither rule can
+          be flipped alone and call this test satisfied.
         """
-        self.assertEqual(bg0002.IDENTITY_RULE, sir.LEGACY_IDENTITY_RULE)
-        self.assertEqual(len(bg0002.HOSTILE_PLACEMENTS), 17)
+        self.assertEqual(bg0002.IDENTITY_RULE, sir.PROJECT_IDENTITY_RULE)
+        self.assertEqual(getattr(bg0002, "OUTFIT_RULE", None), "any")
+        self.assertEqual(len(bg0002.HOSTILE_PLACEMENTS), 52)
+        self.assertEqual(
+            {row[1] for row in bg0002.HOSTILE_PLACEMENTS} & {103}, set(),
+            "the disputed Mob-Set 103 rows are back in the roster")
 
-    def test_divergent_set_numbers_reports_exactly_those_five_numbers(self):
+    def test_divergent_set_numbers_reports_nothing_for_the_flipped_table(self):
+        """~~..._reports_exactly_those_five_numbers~~
+
+        ROUND najn72: the table no longer places a divergent Mob-Set number,
+        so the honest report over it is empty.  The FUNCTION is what this
+        card is about, though, and an empty answer proves nothing about it --
+        so it is driven a second time over the numbers the old table placed,
+        which is the input that used to produce (103,).
+        """
         self.assertEqual(
             sir.divergent_set_numbers(
                 2, bg0002.SET_NUMBER_FOR_PLACEMENT.values()),
+            (),
+        )
+        self.assertEqual(
+            sir.divergent_set_numbers(2, [31, 34, 35, 103]),
             (103,),
         )
 

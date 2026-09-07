@@ -65,8 +65,18 @@ existed; this module is built to that shape on purpose, not by accident:
   (see the paragraph above).  Still not a wall clock or a new timer -- that
   part of the sentence still holds.
 * THE STOP RULE is that the loop is bounded by the register's own row count
-  -- a per-session roster this project has never shipped larger than
-  seventeen rows (Bg0002's ``PREDICATE_CENSUS``) -- and nothing here re-reads
+  -- ~~a per-session roster this project has never shipped larger than
+  seventeen rows (Bg0002's ``PREDICATE_CENSUS``)~~ ROUND najn72,
+  pf-adversary D8: that number is stale and understated the hot-path cost.
+  Bg0002 was re-mined through the crosswalk with the owner's outfit rule
+  (NOW.md `1313`, tick 20260908_0025) and its ``PREDICATE_CENSUS`` is 52,
+  so the largest per-session roster this project ships is FIFTY-TWO rows,
+  4.3x the number this sentence used to quote.  The stop rule itself is
+  unchanged and is what matters here: the bound is the register's own row
+  count, whatever that count is.  The number is quoted only to say what
+  scale the loop runs at, and it runs once per TARGET_POS_VITAL frame a
+  moving player sends -- so a reader sizing that cost should size it at 52
+  -- and nothing here re-reads
   the register from storage or retries: :func:`mob_ai_control.commit_step` is
   called exactly once per row, against the register THIS function is still
   holding, never against a value re-fetched mid-loop.  A concurrent writer

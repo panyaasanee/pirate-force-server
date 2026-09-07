@@ -173,7 +173,7 @@ class WhatUsedToHappenTests(unittest.TestCase):
         # refusal and returned ``{}`` would also not raise, and would empty
         # the scene's hostile splice.
         self.assertEqual(override, without)
-        self.assertEqual(len(override), 12)
+        self.assertEqual(len(override), 52)  # ROUND najn72: ~~12~~
 
 
 class AdmissionStateTests(unittest.TestCase):
@@ -558,6 +558,8 @@ class WhatTheComposerActuallyRefusesOnTests(unittest.TestCase):
 class ConsoleTests(unittest.TestCase):
     """G-OBS: the decision reaches a boot log, or it did not happen."""
 
+    maxDiff = None
+
     def test_the_line_is_one_ascii_line_in_the_pinned_shape(self):
         record = admission.admit_ledger(BG0002_SCENE_ID, bg0001_ledger())
         lines = admission.describe_ledger_admission(record)
@@ -566,15 +568,26 @@ class ConsoleTests(unittest.TestCase):
         self.assertNotIn("\n", lines[0])
         self.assertEqual(
             lines[0],
+            # ROUND najn72: ~~covered=0/12 and twelve missing identities~~
+            # -> 0/52 and fifty-two.  Scene 2 was re-mined (NOW.md `1313`,
+            # tick 20260908_0025).  The SHAPE this card pins -- one ASCII
+            # line, every field present, the measured half agreeing with
+            # the decided half -- is unchanged; the roster it reports on is
+            # bigger.
             "MOB_LEDGER_ADMISSION scene_id=2 scene=Bg0002 "
-            "ledger_scene=%s state=other_scene admitted=no covered=0/12 "
-            "missing=0x2033,0x203B,0x203C,0x203D,0x203E,0x204E,0x204F,"
-            "0x2050,0x2051,0x2057,0x2058,0x2059 conflicts=not_measured "
+            "ledger_scene=%s state=other_scene admitted=no covered=0/52 "
+            "missing=0x2020,0x2021,0x2022,0x2023,0x2024,0x2025,0x2026,"
+            "0x2027,0x2028,0x2029,0x202A,0x202B,0x202C,0x202D,0x202E,"
+            "0x202F,0x2030,0x2031,0x2032,0x2033,0x2034,0x2035,0x2036,"
+            "0x2037,0x2038,0x2039,0x203A,0x203B,0x203C,0x203D,0x203E,"
+            "0x203F,0x2046,0x2047,0x2048,0x2049,0x204A,0x204B,0x204C,"
+            "0x204D,0x204E,0x204F,0x2050,0x2051,0x2052,0x2053,0x2054,"
+            "0x2055,0x2056,0x2057,0x2058,0x2059 conflicts=not_measured "
             "register=unchecked vacuous=no" % BG0001_SCENE,
         )
 
     def test_the_line_reports_what_was_true_not_only_what_was_decided(self):
-        # ``covered=0/12`` above is the MEASURED half of the line: ``state=``
+        # ``covered=0/52`` above is the MEASURED half of the line: ``state=``
         # says what was decided, ``covered=`` says what was found.  A mutant
         # that decides by label and never looks at membership still prints
         # ``state=other_scene`` correctly and cannot print this number.

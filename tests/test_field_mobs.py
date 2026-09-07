@@ -461,7 +461,14 @@ class FieldMobTests(unittest.TestCase):
             # ROUND wmomy7: ~~17~~ -> 12; the owner's
             # ``owner_says_do_not_place`` ruling on the n_id 101-104 block
             # keeps placements 92-96 out of what this lane ships.
-            (field_mobs.BG0002_SCENE, 12),
+            # ROUND najn72: ~~12~~ -> 52, the scene re-mined through the
+            # crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+            # 20260908_0025).  The refusal above is untouched and still
+            # bites nothing: the crosswalk resolves no body for 92-96 at
+            # all.  The MEASUREMENT this test makes is the interesting part
+            # -- 52 rows still occupy 52 distinct (x, y, z), so nothing in
+            # the 40 readmitted placements stands inside another monster.
+            (field_mobs.BG0002_SCENE, 52),
         ):
             roster = load_roster(scene=scene)
             self.assertEqual(len(roster), expected_count)
@@ -494,16 +501,33 @@ class FieldMobTests(unittest.TestCase):
         # ``n_id_101_104_block ... owner_says_do_not_place`` ruling, so the
         # whole template leaves the shipped roster with them.  The generated
         # table still carries all 17 rows and all 4 templates.
-        self.assertEqual(len(bg0002_roster), 12)
+        # ROUND najn72: ~~12 rows, 3 templates~~ -> 52 rows, 9 templates
+        # {27..35}, the scene re-mined through the crosswalk with the
+        # owner's outfit rule (NOW.md `1313`, tick 20260908_0025).  The
+        # SHIPPED count and the TABLE count are now the SAME number, and
+        # that is a statement, not a simplification: under the old rule the
+        # table carried five rows the owner's refusal removed, and under the
+        # crosswalk those five placements resolve to no named body, so the
+        # refusal has nothing left to remove.  Both are asserted below, so a
+        # future round that puts a refused row back in the table fails here
+        # rather than shipping it.
+        self.assertEqual(len(bg0002_roster), 52)
         self.assertEqual(
-            len({mob.template_id for mob in bg0002_roster}), 3)
+            len({mob.template_id for mob in bg0002_roster}), 9)
         self.assertEqual(
-            {mob.template_id for mob in bg0002_roster}, {31, 34, 35})
+            {mob.template_id for mob in bg0002_roster}, set(range(27, 36)))
         table_rows = field_mobs._parse_hostile_placements(
             field_mob_tables_bg0002)
-        self.assertEqual(len(table_rows), 17)
+        self.assertEqual(len(table_rows), 52)
         self.assertEqual(
-            {mob.template_id for mob in table_rows}, {31, 34, 35, 103})
+            {mob.template_id for mob in table_rows}, set(range(27, 36)))
+        self.assertEqual(
+            {mob.placement_index for mob in table_rows}
+            & set(field_mobs.owner_refused_placements("Bg0002")),
+            set(),
+            "the re-mined table carries a placement the owner refused: the "
+            "load_roster filter would hide it here, but the table is what "
+            "every other consumer reads")
         for mob in bg0002_roster:
             self.assertEqual(mob.scene, field_mob_tables_bg0002.SCENE)
             self.assertEqual(mob.scene, "Bg0002")
@@ -1228,6 +1252,38 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         * Every new pair still resolves a DIFFERENT template on each side --
           checked over ALL 52 pairs by this test's own loop, not asserted
           in prose: no ``template_a == template_b`` row exists at HEAD.
+
+        ~~fifty-two pairs~~  ROUND najn72: scene 2 was RE-MINED, not
+        registered -- the crosswalk identity rule and the owner's outfit rule
+        (NOW.md `1313`, owner tick 20260908_0025) take Bg0002 from 12 shipped
+        placements to 52 -- and that one table moved this card more than any
+        registration ever has: FIFTY-SIX new pairs and FIVE gone, 52 -> 103.
+        MEASURED off ``cross_scene_identity_collisions()`` after the
+        re-mining, not assembled from the scene's placement list.
+
+        * THE FIVE THAT LEFT are 0x205D-0x2061 (Bg0002/Bg0010), the dense run
+          the paragraph above recorded: they were scene 2's placements 92-96,
+          the five "Orc Chief" rows the crosswalk resolves no named body for,
+          so they are not in the table at all any more.  A collision
+          DISAPPEARING is why this card names pairs instead of counting them.
+        * The 56 new pairs are all Bg0002-against-something, across TEN
+          scenes at once (Bg0003 8, Bg0007 7, Bg0011 7, Bg0015 7, Bg0010 6,
+          bg0004 6, Bg0009 5, bg0005 5, Bg0008 3, bg0006 2), over 30 distinct
+          identities: scene 2's placement indices now run 31-88 unbroken,
+          which is the same index band every other scene's roster occupies,
+          so the coincidences are dense rather than exotic.
+        * WHY THIS IS STILL "REPORTED, NOT EXPLOITABLE", re-walked rather
+          than inherited, because this card says a new pair is a reason to
+          walk it again: the death register keys ``(scene, actor_identity)``,
+          a ledger is opened per scene id and admission refuses a foreign one
+          as ``other_scene``, and a loot cell is scoped to its current scene.
+          The MEASUREMENT half for this round's own scene is in
+          ``tests/test_scene_scoped_combat_wiring.py``, which drives a real
+          Bg0002 row through strike, ledger, rehydration and killing blow
+          under bg0001's letter and under its own.
+        * Every pair still resolves a DIFFERENT template on each side --
+          checked over ALL 103 pairs by this test's own loop, not asserted
+          in prose: no ``template_a == template_b`` row exists at HEAD.
         """
         rows = list(cross_scene_identity_collisions())
         got = {
@@ -1235,60 +1291,111 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             for row in rows
         }
         self.assertEqual(got, {
-            (0x201C, "Bg0003", "Bg0015"),
+            (0x2019, "Bg0010", "Bg0015"),
             (0x201C, "Bg0003", "Bg0008"),
+            (0x201C, "Bg0003", "Bg0015"),
             (0x201C, "Bg0008", "Bg0015"),
             (0x201D, "Bg0003", "Bg0007"),
-            (0x201E, "Bg0003", "Bg0015"),
             (0x201E, "Bg0003", "Bg0007"),
+            (0x201E, "Bg0003", "Bg0015"),
             (0x201E, "Bg0007", "Bg0015"),
+            (0x2020, "Bg0002", "Bg0010"),
+            (0x2020, "Bg0002", "Bg0015"),
+            (0x2020, "Bg0002", "bg0004"),
+            (0x2020, "Bg0010", "Bg0015"),
+            (0x2020, "Bg0010", "bg0004"),
             (0x2020, "Bg0015", "bg0004"),
+            (0x2021, "Bg0002", "Bg0010"),
+            (0x2021, "Bg0002", "bg0004"),
+            (0x2021, "Bg0010", "bg0004"),
+            (0x2022, "Bg0002", "Bg0003"),
+            (0x2023, "Bg0002", "Bg0003"),
+            (0x2024, "Bg0002", "Bg0003"),
+            (0x2024, "Bg0002", "Bg0007"),
             (0x2024, "Bg0003", "Bg0007"),
+            (0x2027, "Bg0002", "Bg0011"),
+            (0x2027, "Bg0002", "bg0006"),
             (0x2027, "Bg0011", "bg0006"),
+            (0x2028, "Bg0002", "Bg0003"),
+            (0x2028, "Bg0002", "Bg0010"),
+            (0x2028, "Bg0003", "Bg0010"),
+            (0x2029, "Bg0002", "Bg0003"),
+            (0x2029, "Bg0002", "Bg0007"),
             (0x2029, "Bg0003", "Bg0007"),
-            (0x202B, "Bg0003", "bg0004"),
+            (0x202A, "Bg0002", "Bg0003"),
+            (0x202B, "Bg0002", "Bg0003"),
+            (0x202B, "Bg0002", "Bg0009"),
+            (0x202B, "Bg0002", "Bg0011"),
+            (0x202B, "Bg0002", "bg0004"),
             (0x202B, "Bg0003", "Bg0009"),
             (0x202B, "Bg0003", "Bg0011"),
+            (0x202B, "Bg0003", "bg0004"),
             (0x202B, "Bg0009", "Bg0011"),
             (0x202B, "Bg0009", "bg0004"),
             (0x202B, "Bg0011", "bg0004"),
+            (0x202C, "Bg0002", "Bg0007"),
+            (0x202C, "Bg0002", "Bg0011"),
             (0x202C, "Bg0007", "Bg0011"),
+            (0x202D, "Bg0002", "Bg0007"),
+            (0x202D, "Bg0002", "Bg0011"),
+            (0x202D, "Bg0002", "Bg0015"),
             (0x202D, "Bg0007", "Bg0011"),
             (0x202D, "Bg0007", "Bg0015"),
             (0x202D, "Bg0011", "Bg0015"),
+            (0x202E, "Bg0002", "Bg0011"),
+            (0x202E, "Bg0002", "Bg0015"),
             (0x202E, "Bg0011", "Bg0015"),
-            (0x202F, "Bg0011", "Bg0015"),
-            (0x2032, "Bg0009", "Bg0011"),
-            (0x2033, "Bg0002", "Bg0011"),
-            (0x2034, "Bg0008", "Bg0015"),
-            (0x2035, "Bg0008", "bg0006"),
-            (0x2039, "Bg0007", "Bg0009"),
-            (0x203B, "Bg0002", "Bg0003"),
-            (0x203C, "Bg0002", "bg0005"),
-            (0x2046, "Bg0003", "bg0004"),
-            (0x2046, "Bg0003", "bg0005"),
-            (0x2046, "Bg0003", "Bg0008"),
-            (0x2046, "bg0004", "bg0005"),
-            (0x2046, "Bg0008", "bg0004"),
-            (0x2046, "Bg0008", "bg0005"),
-            (0x2047, "Bg0015", "bg0005"),
-            (0x2058, "Bg0002", "Bg0015"),
-            (0x2019, "Bg0010", "Bg0015"),
-            (0x2020, "Bg0010", "Bg0015"),
-            (0x2020, "Bg0010", "bg0004"),
-            (0x2021, "Bg0010", "bg0004"),
-            (0x2028, "Bg0003", "Bg0010"),
+            (0x202F, "Bg0002", "Bg0010"),
+            (0x202F, "Bg0002", "Bg0011"),
+            (0x202F, "Bg0002", "Bg0015"),
             (0x202F, "Bg0010", "Bg0011"),
             (0x202F, "Bg0010", "Bg0015"),
+            (0x202F, "Bg0011", "Bg0015"),
+            (0x2030, "Bg0002", "Bg0010"),
+            (0x2030, "Bg0002", "Bg0015"),
             (0x2030, "Bg0010", "Bg0015"),
+            (0x2031, "Bg0002", "Bg0007"),
+            (0x2031, "Bg0002", "Bg0010"),
             (0x2031, "Bg0007", "Bg0010"),
-            (0x205D, "Bg0002", "Bg0010"),
-            (0x205E, "Bg0002", "Bg0010"),
-            (0x205F, "Bg0002", "Bg0010"),
-            (0x2060, "Bg0002", "Bg0010"),
-            (0x2061, "Bg0002", "Bg0010"),
+            (0x2032, "Bg0002", "Bg0009"),
+            (0x2032, "Bg0002", "Bg0011"),
+            (0x2032, "Bg0009", "Bg0011"),
+            (0x2033, "Bg0002", "Bg0011"),
+            (0x2034, "Bg0002", "Bg0008"),
+            (0x2034, "Bg0002", "Bg0015"),
+            (0x2034, "Bg0008", "Bg0015"),
+            (0x2035, "Bg0002", "Bg0008"),
+            (0x2035, "Bg0002", "bg0006"),
+            (0x2035, "Bg0008", "bg0006"),
+            (0x2037, "Bg0002", "Bg0009"),
+            (0x2038, "Bg0002", "Bg0007"),
+            (0x2039, "Bg0002", "Bg0007"),
+            (0x2039, "Bg0002", "Bg0009"),
+            (0x2039, "Bg0007", "Bg0009"),
+            (0x203A, "Bg0002", "Bg0009"),
+            (0x203B, "Bg0002", "Bg0003"),
+            (0x203C, "Bg0002", "bg0005"),
+            (0x2046, "Bg0002", "Bg0003"),
+            (0x2046, "Bg0002", "Bg0008"),
+            (0x2046, "Bg0002", "bg0004"),
+            (0x2046, "Bg0002", "bg0005"),
+            (0x2046, "Bg0003", "Bg0008"),
+            (0x2046, "Bg0003", "bg0004"),
+            (0x2046, "Bg0003", "bg0005"),
+            (0x2046, "Bg0008", "bg0004"),
+            (0x2046, "Bg0008", "bg0005"),
+            (0x2046, "bg0004", "bg0005"),
+            (0x2047, "Bg0002", "Bg0015"),
+            (0x2047, "Bg0002", "bg0005"),
+            (0x2047, "Bg0015", "bg0005"),
+            (0x204B, "Bg0002", "bg0005"),
+            (0x2053, "Bg0002", "bg0004"),
+            (0x2054, "Bg0002", "bg0004"),
+            (0x2055, "Bg0002", "bg0005"),
+            (0x2056, "Bg0002", "bg0005"),
+            (0x2058, "Bg0002", "Bg0015"),
         })
-        self.assertEqual(len(got), 52)
+        self.assertEqual(len(got), 103)
         # THE CLAIM PROSE MAKES ABOVE, MEASURED: no colliding pair is two
         # spellings of one monster.
         for row in rows:
@@ -1436,11 +1543,35 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         # A proposed as option 3 and COO declined for this lane (it touches
         # world_population).  Re-mining cannot remove it and this test must
         # keep reporting it until someone widens the identity space.
+        # ROUND najn72: ~~ONE~~ -> EIGHT, and it is the identity rule again,
+        # in the other direction.  Bg0002 was re-mined through the crosswalk
+        # with the owner's outfit rule (NOW.md `1313`, tick 20260908_0025):
+        # its shipped placements went 12 -> 52 and now run 31-88 unbroken,
+        # so seven MORE of Bg0015's indices have a Bg0002 row to collide
+        # with.  The paragraph above is unchanged in its reasoning and is
+        # the reason this number may only grow with the index band: the
+        # identity is 0x2000 + placement + 1 with no scene term, so any two
+        # scenes that use the same index collide no matter who stands there,
+        # and no re-mining can remove it.  Placement 87 (the survivor the
+        # paragraph names) is still one of the eight.
+        # Every one of the eight is still a DIFFERENT template on each side,
+        # asserted below rather than in prose, so none of them is two
+        # spellings of one monster.
         self.assertEqual(sorted(by_pair), [("Bg0002", "Bg0015")])
-        self.assertEqual(len(by_pair[("Bg0002", "Bg0015")]), 1)
-        self.assertEqual(len(collisions), 1)
-        survivor = collisions[0]
-        self.assertEqual(survivor["placement_index"], 87)
+        self.assertEqual(len(by_pair[("Bg0002", "Bg0015")]), 8)
+        self.assertEqual(len(collisions), 8)
+        self.assertEqual(
+            {(row["placement_index"], row["template_a"], row["template_b"])
+             for row in collisions},
+            {(31, 28, 353), (44, 33, 343), (45, 33, 343), (46, 30, 343),
+             (47, 30, 343), (51, 33, 343), (70, 29, 355), (87, 34, 924)})
+        for row in collisions:
+            with self.subTest(placement=row["placement_index"]):
+                self.assertEqual(
+                    row["actor_identity"], 0x2000 + row["placement_index"] + 1)
+                self.assertNotEqual(row["template_a"], row["template_b"])
+        survivor = next(
+            row for row in collisions if row["placement_index"] == 87)
         self.assertEqual(survivor["actor_identity"], 0x2000 + 87 + 1)
         self.assertEqual(
             (survivor["template_a"], survivor["template_b"]), (34, 924))
@@ -1641,9 +1772,14 @@ class SelfAggroPlacementSurveyTests(unittest.TestCase):
     RESULT, measured here rather than left as an open question:
     ``bg0001`` ships zero hostile placements at all (Port Royal is the
     town), so it has no self-aggro row to be either banned or not; ``Bg0002``
-    -- the only OTHER scene :func:`field_mobs.load_roster` can load today --
+    ~~-- the only OTHER scene :func:`field_mobs.load_roster` can load today --
     ships self-aggro rows ONLY at the same Orc Chief (n_ID 103) placements
-    the owner's refusal already covers.  ``Bg0015`` (mined, committed, still
+    the owner's refusal already covers~~ -- ROUND najn72, re-measured after
+    the scene was re-mined through the crosswalk: it is no longer the only
+    other loadable scene, and it now ships NO self-aggro row at all, because
+    the Orc Chief placements that carried one resolve to no named body under
+    that rule.  All 52 of its shipped rows are ai_wander 16.  ``Bg0015``
+    (mined, committed, still
     COO-gated dormant per COO-DECISION 2026-08-26T12:46+07:00 pending lane
     A's second travel gate) DOES carry un-banned self-aggro rows -- so a
     real candidate exists for the day that gate opens, and this is not it
@@ -1678,11 +1814,26 @@ class SelfAggroPlacementSurveyTests(unittest.TestCase):
     def test_every_wired_scenes_self_aggro_row_is_owner_refused(self) -> None:
         # bg0001 is excluded on purpose -- see the test above for why it has
         # nothing to compare.
+        # ROUND najn72: THE SURVEY WAS RE-RUN, which is what the message
+        # below asked the next round to do.  Scene 2 was re-mined through
+        # the crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+        # 20260908_0025) and its 52 shipped placements are EVERY ONE of them
+        # ai_wander 16: the scene has no wander-11 row left, because the
+        # five Orc Chief placements that carried one (92-96) resolve to no
+        # named body under the crosswalk.  So the tripwire moves off "this
+        # scene must still have one" -- which is a fact about the data, not
+        # a property worth defending -- and onto the two statements that
+        # matter and are both still checkable: whatever self-aggro rows a
+        # wired scene has must be inside the owner's refusal block, and the
+        # count of them is pinned so a re-mining that CREATES one is a red
+        # test rather than a silent monster that charges.
+        self.assertEqual(
+            self._wander_11_placements(field_mob_tables_bg0002), (),
+            "Bg0002 ships a self-aggro (wander-11) row again -- NEW "
+            "information: nothing in the town scene initiated after the "
+            "najn72 re-mining, and mob_aggro.py's own paragraph says so")
         for module in (field_mob_tables_bg0002,):
             wander_11 = set(self._wander_11_placements(module))
-            self.assertTrue(wander_11, "scene %r has no wander-11 row to "
-                             "check any more -- re-run the survey" %
-                             (module.SCENE,))
             refused = set(field_mobs.owner_refused_placements(module.SCENE))
             leftover = wander_11 - refused
             self.assertFalse(

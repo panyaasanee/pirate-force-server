@@ -3257,7 +3257,19 @@ class TheRealDefenceColumnIsPricedNotTaken(unittest.TestCase):
 
     # level -> (n_CONSITUTION, n_AC_PHYSICS, n_HPMAX), transcribed by this lane
     # from CONSTDATA_TH__STANDARD_MOB.tsv on the bridge clone.
+    # ROUND najn72: four levels added (16, 17, 19, 23).  Scene 2 was re-mined
+    # through the crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+    # 20260908_0025) and its 52 shipped rows span six levels instead of two.
+    # Transcribed from the same CONSTDATA_TH__STANDARD_MOB.tsv rows as the two
+    # that were already here, and the transcription is checked by
+    # ``test_the_fixture_hp_column_transcribes_the_shipped_roster`` below
+    # against every shipped roster row's own max_hp -- so a mistyped line here
+    # is a red test, not a quietly wrong price.
     STANDARD_MOB_ROWS = {
+        16: (26, 37, 1054),
+        17: (28, 40, 1201),
+        19: (32, 47, 1569),
+        23: (43, 63, 2525),
         25: (49, 74, 3138),
         27: (55, 86, 3857),
         100: (554, 4467, 198125),
@@ -3324,7 +3336,26 @@ class TheRealDefenceColumnIsPricedNotTaken(unittest.TestCase):
                 adopted, self._hits_to_kill(mob.max_hp, adopted))
         # Every cell of the table in mob_combat's own comment block, so the
         # block cannot drift away from the code it describes.
-        self.assertEqual(priced, {25: (966, 4, 873, 4), 27: (964, 5, 849, 5)})
+        # ROUND najn72: ~~two levels~~ -> six, the scene re-mined (NOW.md
+        # `1313`).  The finding the block states is not weakened by the
+        # wider data -- the hits-to-kill column is the same on both sides at
+        # every level -- and that is asserted directly below rather than
+        # left for a reader to compare the tuples by eye.
+        self.assertEqual(priced, {
+            16: (975, 2, 956, 2),
+            17: (974, 2, 949, 2),
+            19: (972, 2, 934, 2),
+            23: (968, 3, 896, 3),
+            25: (966, 4, 873, 4),
+            27: (964, 5, 849, 5),
+        })
+        for level, (_today, hits_today, _adopted, hits_adopted) in priced.items():
+            with self.subTest(level=level):
+                self.assertEqual(
+                    hits_today, hits_adopted,
+                    "adopting the real defence column changes the kill count "
+                    "at level %d -- 'very nearly free' is no longer true and "
+                    "mob_combat's own block has to say so" % level)
         self.assertEqual(self.attack, 1045)
 
     def test_on_port_royal_the_defence_half_alone_hits_the_floor(self):

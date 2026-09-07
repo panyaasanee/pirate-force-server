@@ -391,69 +391,154 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # that gained a third member, 0x2020 and 0x202F) is in
         # ``tests/test_field_mobs.py``'s own collision card, which this set
         # still mirrors exactly because both read the same live registry.
+        # ROUND najn72: scene 2 was RE-MINED (crosswalk identity rule +
+        # the owner's outfit rule, NOW.md `1313`, tick 20260908_0025) and
+        # its shipped placements went 12 -> 52, running 31-88 unbroken.
+        # That brought FIFTY-SIX more pairs and removed FIVE (0x205D-0x2061,
+        # the Orc Chief run scene 2 no longer resolves): 52 -> 103.  The
+        # full accounting is in ``tests/test_field_mobs.py``'s own collision
+        # card, which this set still mirrors exactly because both read the
+        # same live registry.
         self.assertEqual(got, {
-            (0x201C, "Bg0003", "Bg0015"),
+            (0x2019, "Bg0010", "Bg0015"),
             (0x201C, "Bg0003", "Bg0008"),
+            (0x201C, "Bg0003", "Bg0015"),
             (0x201C, "Bg0008", "Bg0015"),
             (0x201D, "Bg0003", "Bg0007"),
-            (0x201E, "Bg0003", "Bg0015"),
             (0x201E, "Bg0003", "Bg0007"),
+            (0x201E, "Bg0003", "Bg0015"),
             (0x201E, "Bg0007", "Bg0015"),
+            (0x2020, "Bg0002", "Bg0010"),
+            (0x2020, "Bg0002", "Bg0015"),
+            (0x2020, "Bg0002", "bg0004"),
+            (0x2020, "Bg0010", "Bg0015"),
+            (0x2020, "Bg0010", "bg0004"),
             (0x2020, "Bg0015", "bg0004"),
+            (0x2021, "Bg0002", "Bg0010"),
+            (0x2021, "Bg0002", "bg0004"),
+            (0x2021, "Bg0010", "bg0004"),
+            (0x2022, "Bg0002", "Bg0003"),
+            (0x2023, "Bg0002", "Bg0003"),
+            (0x2024, "Bg0002", "Bg0003"),
+            (0x2024, "Bg0002", "Bg0007"),
             (0x2024, "Bg0003", "Bg0007"),
+            (0x2027, "Bg0002", "Bg0011"),
+            (0x2027, "Bg0002", "bg0006"),
             (0x2027, "Bg0011", "bg0006"),
+            (0x2028, "Bg0002", "Bg0003"),
+            (0x2028, "Bg0002", "Bg0010"),
+            (0x2028, "Bg0003", "Bg0010"),
+            (0x2029, "Bg0002", "Bg0003"),
+            (0x2029, "Bg0002", "Bg0007"),
             (0x2029, "Bg0003", "Bg0007"),
-            (0x202B, "Bg0003", "bg0004"),
+            (0x202A, "Bg0002", "Bg0003"),
+            (0x202B, "Bg0002", "Bg0003"),
+            (0x202B, "Bg0002", "Bg0009"),
+            (0x202B, "Bg0002", "Bg0011"),
+            (0x202B, "Bg0002", "bg0004"),
             (0x202B, "Bg0003", "Bg0009"),
             (0x202B, "Bg0003", "Bg0011"),
+            (0x202B, "Bg0003", "bg0004"),
             (0x202B, "Bg0009", "Bg0011"),
             (0x202B, "Bg0009", "bg0004"),
             (0x202B, "Bg0011", "bg0004"),
+            (0x202C, "Bg0002", "Bg0007"),
+            (0x202C, "Bg0002", "Bg0011"),
             (0x202C, "Bg0007", "Bg0011"),
+            (0x202D, "Bg0002", "Bg0007"),
+            (0x202D, "Bg0002", "Bg0011"),
+            (0x202D, "Bg0002", "Bg0015"),
             (0x202D, "Bg0007", "Bg0011"),
             (0x202D, "Bg0007", "Bg0015"),
             (0x202D, "Bg0011", "Bg0015"),
+            (0x202E, "Bg0002", "Bg0011"),
+            (0x202E, "Bg0002", "Bg0015"),
             (0x202E, "Bg0011", "Bg0015"),
-            (0x202F, "Bg0011", "Bg0015"),
-            (0x2032, "Bg0009", "Bg0011"),
-            (0x2033, "Bg0002", "Bg0011"),
-            (0x2034, "Bg0008", "Bg0015"),
-            (0x2035, "Bg0008", "bg0006"),
-            (0x2039, "Bg0007", "Bg0009"),
-            (0x203B, "Bg0002", "Bg0003"),
-            (0x203C, "Bg0002", "bg0005"),
-            (0x2046, "Bg0003", "bg0004"),
-            (0x2046, "Bg0003", "bg0005"),
-            (0x2046, "Bg0003", "Bg0008"),
-            (0x2046, "bg0004", "bg0005"),
-            (0x2046, "Bg0008", "bg0004"),
-            (0x2046, "Bg0008", "bg0005"),
-            (0x2047, "Bg0015", "bg0005"),
-            (0x2058, "Bg0002", "Bg0015"),
-            (0x2019, "Bg0010", "Bg0015"),
-            (0x2020, "Bg0010", "Bg0015"),
-            (0x2020, "Bg0010", "bg0004"),
-            (0x2021, "Bg0010", "bg0004"),
-            (0x2028, "Bg0003", "Bg0010"),
+            (0x202F, "Bg0002", "Bg0010"),
+            (0x202F, "Bg0002", "Bg0011"),
+            (0x202F, "Bg0002", "Bg0015"),
             (0x202F, "Bg0010", "Bg0011"),
             (0x202F, "Bg0010", "Bg0015"),
+            (0x202F, "Bg0011", "Bg0015"),
+            (0x2030, "Bg0002", "Bg0010"),
+            (0x2030, "Bg0002", "Bg0015"),
             (0x2030, "Bg0010", "Bg0015"),
+            (0x2031, "Bg0002", "Bg0007"),
+            (0x2031, "Bg0002", "Bg0010"),
             (0x2031, "Bg0007", "Bg0010"),
-            (0x205D, "Bg0002", "Bg0010"),
-            (0x205E, "Bg0002", "Bg0010"),
-            (0x205F, "Bg0002", "Bg0010"),
-            (0x2060, "Bg0002", "Bg0010"),
-            (0x2061, "Bg0002", "Bg0010"),
+            (0x2032, "Bg0002", "Bg0009"),
+            (0x2032, "Bg0002", "Bg0011"),
+            (0x2032, "Bg0009", "Bg0011"),
+            (0x2033, "Bg0002", "Bg0011"),
+            (0x2034, "Bg0002", "Bg0008"),
+            (0x2034, "Bg0002", "Bg0015"),
+            (0x2034, "Bg0008", "Bg0015"),
+            (0x2035, "Bg0002", "Bg0008"),
+            (0x2035, "Bg0002", "bg0006"),
+            (0x2035, "Bg0008", "bg0006"),
+            (0x2037, "Bg0002", "Bg0009"),
+            (0x2038, "Bg0002", "Bg0007"),
+            (0x2039, "Bg0002", "Bg0007"),
+            (0x2039, "Bg0002", "Bg0009"),
+            (0x2039, "Bg0007", "Bg0009"),
+            (0x203A, "Bg0002", "Bg0009"),
+            (0x203B, "Bg0002", "Bg0003"),
+            (0x203C, "Bg0002", "bg0005"),
+            (0x2046, "Bg0002", "Bg0003"),
+            (0x2046, "Bg0002", "Bg0008"),
+            (0x2046, "Bg0002", "bg0004"),
+            (0x2046, "Bg0002", "bg0005"),
+            (0x2046, "Bg0003", "Bg0008"),
+            (0x2046, "Bg0003", "bg0004"),
+            (0x2046, "Bg0003", "bg0005"),
+            (0x2046, "Bg0008", "bg0004"),
+            (0x2046, "Bg0008", "bg0005"),
+            (0x2046, "bg0004", "bg0005"),
+            (0x2047, "Bg0002", "Bg0015"),
+            (0x2047, "Bg0002", "bg0005"),
+            (0x2047, "Bg0015", "bg0005"),
+            (0x204B, "Bg0002", "bg0005"),
+            (0x2053, "Bg0002", "bg0004"),
+            (0x2054, "Bg0002", "bg0004"),
+            (0x2055, "Bg0002", "bg0005"),
+            (0x2056, "Bg0002", "bg0005"),
+            (0x2058, "Bg0002", "Bg0015"),
         })
 
-    def test_the_one_collision_registration_would_create(self) -> None:
-        self.assertEqual(gates.bg0002_bg0015_identity_collisions(), (0x2058,))
-        bg0015_row = next(
-            m for m in hostile_bg0015.scene14_hostile_roster()
-            if m.actor_identity == 0x2058)
-        bg0002_row = next(
-            m for m in field_mobs.roster_for_scene_id(gates.BG0002_SCENE_ID)
-            if m.actor_identity == 0x2058)
+    def test_the_eight_collisions_registration_would_create(self) -> None:
+        """~~test_the_one_collision_registration_would_create~~
+
+        ROUND najn72: ~~one~~ -> EIGHT.  Scene 2's re-mining (NOW.md `1313`,
+        tick 20260908_0025) gave it 52 shipped placements running 31-88
+        unbroken, so seven more of Bg0015's indices now have a Bg0002 row on
+        the same ``0x2000 + placement + 1`` identity.  Nothing about the
+        hazard changed: the identity has no scene term, so this number moves
+        with the index bands and no re-mining can shrink it.  0x2058 (the
+        one this card was written for) is still among them and is still
+        checked by name and by template on both sides.
+        """
+        self.assertEqual(
+            gates.bg0002_bg0015_identity_collisions(),
+            (0x2020, 0x202D, 0x202E, 0x202F, 0x2030, 0x2034, 0x2047, 0x2058))
+        bg0015_rows = {
+            m.actor_identity: m
+            for m in hostile_bg0015.scene14_hostile_roster()}
+        bg0002_rows = {
+            m.actor_identity: m
+            for m in field_mobs.roster_for_scene_id(gates.BG0002_SCENE_ID)}
+        for identity in gates.bg0002_bg0015_identity_collisions():
+            with self.subTest(identity=hex(identity)):
+                a, b = bg0015_rows[identity], bg0002_rows[identity]
+                self.assertEqual(a.placement_index, b.placement_index)
+                self.assertEqual(
+                    a.actor_identity, 0x2000 + a.placement_index + 1)
+                self.assertNotEqual(
+                    a.template_id, b.template_id,
+                    "two scenes agree on an identity AND a template -- that "
+                    "is one monster with two homes, not a placement-index "
+                    "coincidence, and it needs its own walk")
+        bg0015_row = bg0015_rows[0x2058]
+        bg0002_row = bg0002_rows[0x2058]
         self.assertEqual(
             (bg0015_row.placement_index, bg0002_row.placement_index), (87, 87))
         self.assertEqual(

@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from dataclasses import replace
 
 from pirateforce_foundation import field_mob_tables_bg0002 as fmt2
+from pirateforce_foundation import field_mob_tables_bg0008 as fmt8
 from pirateforce_foundation import field_mobs
 from pirateforce_foundation import mob_census_hostility as mch
 from pirateforce_foundation import mob_combat
@@ -39,9 +40,25 @@ BG0002_SCENE_ID = 2
 # ships only the five in ``OWNER_REFUSED_SHIPPED_TODAY``; the other three
 # are carried so a future regeneration cannot quietly start shipping them.
 OWNER_REFUSED = (89, 90, 92, 93, 94, 95, 96, 97)
-OWNER_REFUSED_SHIPPED_TODAY = (92, 93, 94, 95, 96)
+# ROUND najn72: ~~(92, 93, 94, 95, 96)~~ -> ().  Scene 2 was re-mined through
+# the crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+# 20260908_0025) and that rule resolves no named body for ANY of the eight
+# placements the ruling covers, so the table no longer carries one.  The
+# ruling and its drift guard are untouched: what changed is that the filter
+# now has nothing left to remove, which is a fact worth pinning in both
+# directions rather than a reason to delete either.
+OWNER_REFUSED_SHIPPED_TODAY = ()
 # 0x2000 + placement_index + 1, the identity rule field_mobs documents.
-GHOST_IDENTITY = 0x205D
+# ROUND najn72: ~~GHOST_IDENTITY = 0x205D~~ (Bg0002 placement 92, Orc Chief)
+# -- that row is not in any table now, so it can no longer play the ghost.
+# The ghost moves to a row that IS still filtered out of a shipped roster
+# with real data behind it: Bg0008 placement 69 ("Nina", template 529), held
+# back by this lane's own withholding list rather than by the owner's
+# refusal.  The DEFECT the card pins is the same one either way -- a ledger
+# row for a body no client was sent.
+GHOST_SCENE_ID = 8
+GHOST_IDENTITY = 0x2046
+GHOST_MAX_HP = 146413
 SUBJECT_IDENTITY = 0x2033  # Tornado Eagle, placement 50
 
 
@@ -75,7 +92,12 @@ class LaneWithheldReportedTests(unittest.TestCase):
         report = mch.census_backing_report(BG0002_SCENE_ID, ())
         self.assertEqual(report["withheld"], ())
         self.assertEqual(report["withheld_count"], 0)
-        self.assertTrue(report["refused"])
+        # ROUND najn72, pf-adversary D3: ~~assertTrue(report["refused"])~~.
+        # The scene still has a RULING (8 placements wide) but the ruling
+        # removes nothing now, and this card is about the withheld half, so
+        # it reads the field that still says the ruling exists.
+        self.assertEqual(report["refused"], ())
+        self.assertTrue(report["refused_ruled"])
 
     def test_an_unknown_scene_id_still_answers_both_keys(self):
         """``scene`` is ``None`` there, and the keys must not vanish."""
@@ -92,7 +114,7 @@ class OwnerRefusalTests(unittest.TestCase):
         indices = {mob.placement_index for mob in shipped}
         for refused in OWNER_REFUSED:
             self.assertNotIn(refused, indices)
-        self.assertEqual(len(shipped), 12)
+        self.assertEqual(len(shipped), 52)
 
     def test_only_five_of_the_eight_ruled_placements_were_ever_shipped(self):
         # Keeps the two numbers from being conflated: the ruling is eight
@@ -104,14 +126,22 @@ class OwnerRefusalTests(unittest.TestCase):
             table & set(OWNER_REFUSED), set(OWNER_REFUSED_SHIPPED_TODAY),
         )
 
-    def test_the_generated_table_still_carries_all_seventeen_rows(self):
+    def test_the_generated_table_and_the_shipped_roster_now_agree(self):
+        # ~~test_the_generated_table_still_carries_all_seventeen_rows~~.
         # The filter narrows what this lane SHIPS.  It must not quietly
         # edit the generated data, which is the mining result and is
-        # regenerated from the bridge clone.  These two numbers being
-        # different is the point, not an inconsistency.
-        self.assertEqual(len(fmt2.HOSTILE_PLACEMENTS), 17)
+        # regenerated from the bridge clone.  ~~These two numbers being
+        # different is the point~~ -- ROUND najn72: they are the SAME number
+        # now (52), and that is not the guard weakening, it is the mining
+        # rule changing which rows exist to be filtered.  The guard is the
+        # sentence below: the table must not contain a refused row at all,
+        # which is a STRONGER statement than "the filter removes it".
+        self.assertEqual(len(fmt2.HOSTILE_PLACEMENTS), 52)
         parsed = field_mobs._parse_hostile_placements(fmt2)
-        self.assertEqual(len(parsed), 17)
+        self.assertEqual(len(parsed), 52)
+        self.assertEqual(
+            {row[0] for row in fmt2.HOSTILE_PLACEMENTS} & set(OWNER_REFUSED),
+            set())
 
     def test_bg0001_has_no_refusal_and_is_byte_for_byte_unchanged(self):
         self.assertEqual(field_mobs.owner_refused_placements('bg0001'), ())
@@ -253,13 +283,17 @@ class OwnerRefusalTests(unittest.TestCase):
 class LedgerTests(unittest.TestCase):
     def test_the_ledger_no_longer_opens_on_a_monster_with_no_body(self):
         # THE defect of this round, pinned from both sides.
-        unfiltered = field_mobs._parse_hostile_placements(fmt2)
+        # ROUND najn72: the subject moves from Bg0002 to Bg0008 (see
+        # GHOST_IDENTITY at the top of this file).  The card is unchanged in
+        # what it proves -- an unfiltered table opens a ledger row for a body
+        # no client is sent, and the shipped roster does not.
+        unfiltered = field_mobs._parse_hostile_placements(fmt8)
         before = mob_combat.open_ledger(unfiltered)
         self.assertIn(GHOST_IDENTITY, set(before.identities()))
-        self.assertEqual(before.balance_of(GHOST_IDENTITY).max_hp, 38728)
+        self.assertEqual(before.balance_of(GHOST_IDENTITY).max_hp, GHOST_MAX_HP)
 
         after = mob_combat.open_ledger(
-            field_mobs.roster_for_scene_id(BG0002_SCENE_ID)
+            field_mobs.roster_for_scene_id(GHOST_SCENE_ID)
         )
         self.assertNotIn(GHOST_IDENTITY, set(after.identities()))
         with self.assertRaises(mob_combat.MobCombatContractError) as caught:
@@ -296,8 +330,11 @@ class CensusHostilityTests(unittest.TestCase):
         )
         self.assertEqual(report["unbacked"], ())
         self.assertTrue(report["fully_backed"])
-        self.assertEqual(report["roster_count"], 12)
-        self.assertEqual(report["backed_count"], 12)
+        # ROUND najn72: ~~12~~ -> 52 (scene re-mined, NOW.md `1313`).  The
+        # substantive half is the two lines above, unchanged: every shipped
+        # monster has a census body and nothing is unbacked.
+        self.assertEqual(report["roster_count"], 52)
+        self.assertEqual(report["backed_count"], 52)
         self.assertEqual(report["census_count"], 97)
 
     def test_the_report_says_whether_the_owner_filter_is_still_doing_anything(
@@ -308,11 +345,25 @@ class CensusHostilityTests(unittest.TestCase):
         # simply no longer produces them: byte-identical console line,
         # identical pins.  The day the ruling stops mattering must look
         # different from every other day.
+        # ROUND najn72, pf-adversary D3: THAT DAY ARRIVED AND THE FIELD DID
+        # NOT FIRE, because it was the owner's LITERAL LIST and never the
+        # intersection -- so it printed refused=8 on a tree where the filter
+        # removes nothing.  ``refused`` is the effect now and
+        # ``refused_ruled`` is the ruling's own width, and this card holds
+        # BOTH plus the fact that they disagree, which is the whole point
+        # the paragraph above was reaching for.
         report = mch.census_backing_report(
             BG0002_SCENE_ID, self.generation.actor_identities,
         )
-        self.assertEqual(report["refused"], OWNER_REFUSED)
-        self.assertEqual(report["refused_count"], len(OWNER_REFUSED))
+        self.assertEqual(report["refused"], ())
+        self.assertEqual(report["refused_count"], 0)
+        self.assertEqual(report["refused_ruled"], OWNER_REFUSED)
+        self.assertEqual(
+            report["refused_ruled_count"], len(OWNER_REFUSED))
+        self.assertNotEqual(
+            report["refused"], report["refused_ruled"],
+            "the owner's ruling and its effect agree again -- a placement "
+            "it names is back in the generated table")
         # ...and it is a real join, not a constant: bg0001 has no ruling.
         bg0001 = mch.census_backing_report(world_population.SCENE_ID, ())
         self.assertEqual(bg0001["refused"], ())
@@ -375,12 +426,12 @@ class CensusHostilityTests(unittest.TestCase):
 
     def test_the_override_covers_every_shipped_monster(self):
         override = self._override()
-        self.assertEqual(len(override), 12)
+        self.assertEqual(len(override), 52)  # ROUND najn72: ~~12~~
         coverage = mob_death.roster_override_coverage(
             override, self.generation.actor_identities,
         )
         self.assertEqual(coverage["missing"], ())
-        self.assertEqual(coverage["matched_count"], 12)
+        self.assertEqual(coverage["matched_count"], 52)
 
     # -- CORE-REQUEST-GM-061 (this round): ``viewer_identity`` threaded from
     # here down through mob_death.full_roster_override to
@@ -565,8 +616,15 @@ class CensusHostilityTests(unittest.TestCase):
         self.assertNotIn("\n", line)
         self.assertEqual(
             line,
-            "MOB_CENSUS_HOSTILITY scene_id=2 scene=Bg0002 roster=12 "
-            "backed=12 unbacked=none refused=8 override=not_reported "
+            "MOB_CENSUS_HOSTILITY scene_id=2 scene=Bg0002 roster=52 "
+            # ROUND najn72, pf-adversary D3: ~~refused=8~~ -> refused=0.
+            # The field counted the owner's RULING, not its EFFECT, and the
+            # day those stopped agreeing is this one -- the crosswalk
+            # resolves no body for any of the eight, so the filter removes
+            # nothing.  ``refused_ruled_count`` carries the ruling's own
+            # width (still 8) so nothing is lost; the console says what is
+            # HAPPENING.
+            "backed=52 unbacked=none refused=0 override=not_reported "
             "ledger=not_reported withheld=0",
         )
 
@@ -577,7 +635,7 @@ class CensusHostilityTests(unittest.TestCase):
         )
         line = mch.describe_census_hostility(BG0002_SCENE_ID, short)[0]
         self.assertIn("unbacked=0x2033", line)
-        self.assertIn("backed=11", line)
+        self.assertIn("backed=51", line)  # ROUND najn72: ~~11~~ (52 - 1)
 
 
 if __name__ == "__main__":

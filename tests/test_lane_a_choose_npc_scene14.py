@@ -1138,11 +1138,25 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
         from pirateforce_foundation import field_mobs as fm
         scene2_roster = fm.roster_for_scene_id(2)
         scene2_identities = {mob.actor_identity for mob in scene2_roster}
+        # ROUND najn72: ~~the collision is gone from the live sets~~ -- IT IS
+        # BACK, and wider than it ever was.  LANE-B re-mined Bg0002 through
+        # the crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+        # 20260908_0025); its shipped placements went 12 -> 52 and now run
+        # 31-88 unbroken, so SEVEN of scene 14's live identities have a live
+        # scene-2 row on the same 0x2000 + placement + 1 number.  That is a
+        # strictly stronger setting for this card than the mined-only subject
+        # it had to fall back on: the refusal below is now driven on two rows
+        # a player can meet in the same week.
+        # The seven are named rather than counted, so one appearing or
+        # disappearing says which.
+        live_shared = scene2_identities & {
+            mob.actor_identity for mob in self.hostile.values()}
         self.assertEqual(
-            scene2_identities & {
-                mob.actor_identity for mob in self.hostile.values()},
-            set(),
-            "scene 2 and scene 14's LIVE rosters share an identity again",
+            sorted(live_shared),
+            [0x2020, 0x202D, 0x202E, 0x202F, 0x2030, 0x2034, 0x2047],
+            "the set of identities scene 2 and scene 14 share LIVE has "
+            "moved -- this is the hazard this card is named for, so say "
+            "which rows moved before editing this list",
         )
         mined = {
             mob.placement_index: mob
@@ -1151,6 +1165,10 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
         shared = scene2_identities & {
             mob.actor_identity for mob in mined.values()}
         self.assertTrue(shared, "the collision this test is about is gone")
+        # 0x2058 (placement 87, the WITHHELD Carlos row) is still in the
+        # mined-only half and still not live, which is what keeps the two
+        # halves of this card distinct.
+        self.assertIn(0x2058, shared - live_shared)
         identity = sorted(shared)[0]
         foreign = mob_combat.open_ledger(scene2_roster)
         row = foreign.balance_of(identity)

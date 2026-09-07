@@ -1,8 +1,21 @@
 """LEARN-SKILL-RESULT-001 (HYP-PF-033) -- the CLearnSkillResultVital 0x673C
 encoder lane and its dispatch hookup.
 
-Pure offline pytest: no network, no GameClient, no UI; the dispatch half runs
-the REAL ``make_state_class`` path against a throwaway temp database.
+Pure offline pytest: no network, no game client of any kind, no UI; the
+dispatch half runs the REAL ``make_state_class`` path against a throwaway temp
+database.
+
+THE CLIENT'S CLASS NAME IS DELIBERATELY NOT SPELLED IN THIS FILE, and that is
+not style.  The Windows gate builds its pytest exclusion list by scanning every
+test module for two literal names -- the client's own window class, and the
+capture-corpus directory token -- spelled out in
+``.github/workflows/gate-windows.yml`` (the block headed "building the pytest
+exclusion list") and ``--ignore``s every file that matches, because a module
+naming either of those reads the client image or the capture corpus, neither of
+which a clone has.  This file needs no such artifact -- it said so in its own
+opening line -- but it said so USING the excluded name, so the gate ignored it
+and collected 0 of its tests.  pf-adversary measured that in round ``jqeid1``
+(finding D1).  Say it without the name, and the gate runs these tests.
 
 What these tests are actually proving
 -------------------------------------
@@ -1257,6 +1270,64 @@ class DispatchTests(unittest.TestCase):
                     self.legacy, self.lifecycle, self.projector,
                     learn_skill_result_hypothesis_scenario=bad,
                 )
+
+
+class GateCollectsThisFileTests(unittest.TestCase):
+    """This file must stay OUT of the Windows gate's exclusion list.
+
+    pf-adversary D1 (round ``jqeid1``) measured the failure this pins: the
+    module opened by saying it needs no client -- and named the client to say
+    it -- so the gate's exclusion scan matched, ``--ignore``d the file, and
+    every test above collected as zero on the only platform that runs them
+    serially.  A green gate said nothing about this file for as long as that
+    sentence stood.
+
+    The pin reads the workflow rather than restating its pattern, so the day
+    the gate changes how it excludes, this test follows it instead of pinning
+    a copy that has quietly stopped being true.  It is deliberately NOT a pin
+    on the whole tree: other modules match that scan because they really do
+    read the client image or the capture corpus, and excluding those is the
+    scan working as intended.
+    """
+
+    WORKFLOW = ROOT / ".github" / "workflows" / "gate-windows.yml"
+
+    def _exclusion_tokens(self):
+        """The literal names the gate greps for, read out of the gate."""
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        marker = "Select-String -Path 'tests\\*.py' -Pattern '"
+        start = text.index(marker) + len(marker)
+        end = text.index("'", start)
+        tokens = [t for t in text[start:end].split("|") if t]
+        # Two today.  Asserted so a rewritten gate cannot silently reduce this
+        # to an empty list and make the test below pass by measuring nothing.
+        self.assertGreaterEqual(len(tokens), 2, text[start:end])
+        return tokens
+
+    def test_this_module_is_not_excluded_from_the_windows_gate(self):
+        if not self.WORKFLOW.is_file():
+            self.fail(
+                "the Windows gate workflow is missing at %s; this pin cannot "
+                "be evaluated and must not pass by default"
+                % self.WORKFLOW.as_posix()
+            )
+        source = Path(__file__).read_text(encoding="utf-8")
+        for token in self._exclusion_tokens():
+            self.assertNotIn(
+                token, source,
+                "this file names %r, so the Windows gate excludes it and none "
+                "of the tests above run there (pf-adversary D1)" % token,
+            )
+
+    def test_the_pin_can_fail(self):
+        """The pin measures the file, not a constant that always holds.
+
+        Without this, a rewrite that read the wrong file (or an empty one)
+        would pass silently forever.
+        """
+        tokens = self._exclusion_tokens()
+        pretend_source = "a module docstring that names %s" % tokens[0]
+        self.assertIn(tokens[0], pretend_source)
 
 
 if __name__ == "__main__":

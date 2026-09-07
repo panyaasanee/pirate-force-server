@@ -26,19 +26,30 @@ SOURCES AND THEIR DIGESTS AT MINING TIME
     standard_mob   4b2db7f9553c877c2ec471105754dd08982d9e80027cc468c1ceaee840d68925
 
 SELECTION CENSUS FOR THIS SCENE (see the generator on why this is printed)
-    ai_combat            17
-    drops_normal         17
-    rank                 17
-    rank_and_ai_combat   17
+    ai_combat            52
+    drops_normal         52
+    rank                 52
+    rank_and_ai_combat   52
     town_target          0
-    unambiguous          49
+    unambiguous          104
 """
 
 from __future__ import annotations
 
 
 SCENE = 'Bg0002'
-IDENTITY_RULE = 'setnum'
+IDENTITY_RULE = 'cline'
+# s_OUTFIT DOES NOT DECIDE WHO IS AN ENEMY IN THIS SCENE.  Owner
+# ruling 2026-09-07 (PANYA 1313 / COO-DECISION 20260907_1346):
+# an enemy is n_RANK plus n_AI_COMBAT and nothing else.  A row
+# whose s_OUTFIT is a variant list is carried here; a module with
+# no OUTFIT_RULE line was mined under the older rule that
+# refused those rows.  visual_preset below is the RAW cell,
+# separators included: RE-296 (2026-09-07T14:50) measured that
+# the client tokenises it on ';', TAB and SPACE and keeps EVERY
+# token, and left open who picks one.  Do not read this column
+# as 'the avatar'.
+OUTFIT_RULE = 'any'
 SCENE_CLINE_TYPE = 2
 SOURCE_DIGESTS = {
     'cline': 'aa4a55b8db882eb965d0b7e186cd7bc7b5a81da8f057fee24586a27c94b2dc40',
@@ -49,12 +60,12 @@ SOURCE_DIGESTS = {
     'standard_mob': '4b2db7f9553c877c2ec471105754dd08982d9e80027cc468c1ceaee840d68925',
 }
 PREDICATE_CENSUS = {
-    'ai_combat': 17,
-    'drops_normal': 17,
-    'rank': 17,
-    'rank_and_ai_combat': 17,
+    'ai_combat': 52,
+    'drops_normal': 52,
+    'rank': 52,
+    'rank_and_ai_combat': 52,
     'town_target': 0,
-    'unambiguous': 49,
+    'unambiguous': 104,
 }
 # What the crosswalk controls found at mining time.  Recorded, not a check:
 # nothing here can re-read CLINE, which lives on the bridge clone.
@@ -104,29 +115,65 @@ PREDICATE_CENSUS = {
 #     generator's call.
 # --- PROVENANCE BLOCK END -------------------------------------------------
 CONTROL_FINDINGS = {
-    'legacy_setnum_controls': 're-derived',
+    'prison_exile_identity': '35/35',
+    'town_target_916_hp': '198125',
 }
 
 # The scene file's own Mob-Set number per placement, so a reader can redo the
 # resolution by hand: SET_NUMBER_FOR_PLACEMENT[i] -> CLINE -> template_id.
 SET_NUMBER_FOR_PLACEMENT = {
+    31: 28,
+    32: 28,
+    33: 28,
+    34: 28,
+    35: 28,
+    36: 27,
+    37: 27,
+    38: 27,
+    39: 27,
+    40: 29,
+    41: 29,
+    42: 29,
+    43: 30,
+    44: 33,
+    45: 33,
+    46: 30,
+    47: 30,
+    48: 30,
+    49: 30,
     50: 31,
+    51: 33,
+    52: 33,
+    53: 32,
+    54: 33,
+    55: 30,
+    56: 30,
+    57: 30,
     58: 34,
     59: 34,
     60: 34,
     61: 35,
+    62: 32,
+    69: 33,
+    70: 29,
+    71: 29,
+    72: 30,
+    73: 30,
+    74: 30,
+    75: 33,
+    76: 33,
     77: 31,
     78: 31,
     79: 35,
     80: 35,
+    81: 29,
+    82: 33,
+    83: 28,
+    84: 29,
+    85: 32,
     86: 34,
     87: 34,
     88: 34,
-    92: 103,
-    93: 103,
-    94: 103,
-    95: 103,
-    96: 103,
 }
 
 # (placement_index, template_id, x, y, z, visual_preset, display_name, level,
@@ -134,23 +181,58 @@ SET_NUMBER_FOR_PLACEMENT = {
 #  drops_equipment, drops_specially)
 # Placements whose resolved MOBS row carries BOTH a rank and a combat AI.
 HOSTILE_PLACEMENTS = [
+    (31, 28, 6924.79833984375, 11621.9033203125, 2491.86376953125, 'M001_000_000_N;M001_000_000_SP1', 'Drunk wolf pirates', 16, 1, 16, 110, 100, 1054, 2701001, 5400001, 0),
+    (32, 28, 7540.783203125, 9423.3486328125, 2339.728515625, 'M001_000_000_N;M001_000_000_SP1', 'Drunk wolf pirates', 16, 1, 16, 110, 100, 1054, 2701001, 5400001, 0),
+    (33, 28, 7904.90673828125, 7103.75732421875, 2399.0791015625, 'M001_000_000_N;M001_000_000_SP1', 'Drunk wolf pirates', 16, 1, 16, 110, 100, 1054, 2701001, 5400001, 0),
+    (34, 28, 7402.69091796875, 4605.966796875, 2431.791015625, 'M001_000_000_N;M001_000_000_SP1', 'Drunk wolf pirates', 16, 1, 16, 110, 100, 1054, 2701001, 5400001, 0),
+    (35, 28, 4553.7744140625, 2544.940673828125, 2383.078125, 'M001_000_000_N;M001_000_000_SP1', 'Drunk wolf pirates', 16, 1, 16, 110, 100, 1054, 2701001, 5400001, 0),
+    (36, 27, 3124.040283203125, 378.0357971191406, 2299.1484375, 'M005_000_000_SP1;M005_000_000_SP2', 'Mountain Deer', 17, 1, 16, 150, 100, 1201, 2701001, 5400001, 2802222),
+    (37, 27, 682.3438720703125, 1555.4178466796875, 2927.33740234375, 'M005_000_000_SP1;M005_000_000_SP2', 'Mountain Deer', 17, 1, 16, 150, 100, 1201, 2701001, 5400001, 2802222),
+    (38, 27, -5054.56982421875, 13031.8916015625, 1343.759765625, 'M005_000_000_SP1;M005_000_000_SP2', 'Mountain Deer', 17, 1, 16, 150, 100, 1201, 2701001, 5400001, 2802222),
+    (39, 27, -8637.4619140625, 13720.3984375, 867.1171875, 'M005_000_000_SP1;M005_000_000_SP2', 'Mountain Deer', 17, 1, 16, 150, 100, 1201, 2701001, 5400001, 2802222),
+    (40, 29, -5655.052734375, 1122.0823974609375, 3414.732421875, 'M001_000_001_SP1;M001_000_001_SP2', 'Lion pirates', 19, 1, 16, 110, 100, 1569, 2701001, 5400001, 0),
+    (41, 29, -7929.8720703125, 2489.582763671875, 3621.234130859375, 'M001_000_001_SP1;M001_000_001_SP2', 'Lion pirates', 19, 1, 16, 110, 100, 1569, 2701001, 5400001, 0),
+    (42, 29, -3454.65234375, -2209.150390625, 4429.8564453125, 'M001_000_001_SP1;M001_000_001_SP2', 'Lion pirates', 19, 1, 16, 110, 100, 1569, 2701001, 5400001, 0),
+    (43, 30, 20340.9921875, -11901.7119140625, 511.68829345703125, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (44, 33, -5033.64111328125, -12530.1669921875, 4164.88330078125, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
+    (45, 33, -8911.7939453125, -14937.2421875, 3571.885009765625, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
+    (46, 30, -10866.1005859375, -18732.95703125, 2222.3076171875, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (47, 30, -14330.3974609375, -19398.423828125, 2082.44189453125, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (48, 30, 20598.708984375, -8844.66796875, 497.8904113769531, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (49, 30, 19908.462890625, -4308.9296875, 510.07379150390625, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
     (50, 31, -13085.171875, -19977.615234375, 2012.8807373046875, 'M011_000_000_SP3', 'Tornado Eagle', 27, 1, 16, 214, 100, 3857, 2701001, 5400001, 2802234),
+    (51, 33, 9501.0439453125, -6198.6337890625, 1224.273681640625, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
+    (52, 33, 8349.6513671875, -11477.1435546875, 1509.3643798828125, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
+    (53, 32, 4840.14208984375, -16955.1328125, 924.340576171875, 'M006_000_000_SP1;M006_000_000_SP2', 'Rock turtle', 23, 1, 16, 164, 100, 2525, 2701001, 5400001, 2802228),
+    (54, 33, -249.96929931640625, -11861.9306640625, 3094.955078125, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
+    (55, 30, 9124.7275390625, -21878.76953125, 995.5101928710938, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (56, 30, 13341.11328125, -21878.73046875, 659.9921264648438, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (57, 30, 17032.955078125, -18020.771484375, 565.7628784179688, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
     (58, 34, 18879.498046875, 1349.995361328125, 742.139404296875, 'M025_001_000_N', 'Fighting Fish soldier', 25, 1, 16, 350, 100, 3138, 2701001, 5400001, 2802264),
     (59, 34, 18530.75390625, 6839.6767578125, 966.080322265625, 'M025_001_000_N', 'Fighting Fish soldier', 25, 1, 16, 350, 100, 3138, 2701001, 5400001, 2802264),
     (60, 34, 21421.005859375, 9277.1123046875, 590.6787719726562, 'M025_001_000_N', 'Fighting Fish soldier', 25, 1, 16, 350, 100, 3138, 2701001, 5400001, 2802264),
     (61, 35, 19111.2265625, -1607.8365478515625, 716.8709716796875, 'M025_001_000_BOSS', 'Fighting Fish Sergeant', 27, 1, 16, 352, 100, 3857, 2701001, 5400001, 2802264),
+    (62, 32, -1726.652587890625, -19164.966796875, 564.5496826171875, 'M006_000_000_SP1;M006_000_000_SP2', 'Rock turtle', 23, 1, 16, 164, 100, 2525, 2701001, 5400001, 2802228),
+    (69, 33, 8191.88232421875, -4096.4951171875, 1863.89111328125, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
+    (70, 29, -8426.798828125, 426.71600341796875, 4405.99853515625, 'M001_000_001_SP1;M001_000_001_SP2', 'Lion pirates', 19, 1, 16, 110, 100, 1569, 2701001, 5400001, 0),
+    (71, 29, -9559.884765625, 2990.335205078125, 3840.907470703125, 'M001_000_001_SP1;M001_000_001_SP2', 'Lion pirates', 19, 1, 16, 110, 100, 1569, 2701001, 5400001, 0),
+    (72, 30, 20015.45703125, -6608.15185546875, 579.5313110351562, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (73, 30, 15271.048828125, -20091.658203125, 598.2581787109375, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (74, 30, 11696.0439453125, -21716.974609375, 896.9006958007812, 'M011_000_000_SP1;M011_000_000_SP2', 'Desert Eagle', 25, 1, 16, 210, 100, 3138, 2701001, 5400001, 2802234),
+    (75, 33, 4724.2880859375, -1465.498291015625, 2178.907958984375, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
+    (76, 33, 2360.637451171875, 1690.940673828125, 2691.794921875, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
     (77, 31, -10755.2109375, -19645.896484375, 2102.639892578125, 'M011_000_000_SP3', 'Tornado Eagle', 27, 1, 16, 214, 100, 3857, 2701001, 5400001, 2802234),
     (78, 31, -15819.3173828125, -19490.04296875, 2092.069580078125, 'M011_000_000_SP3', 'Tornado Eagle', 27, 1, 16, 214, 100, 3857, 2701001, 5400001, 2802234),
     (79, 35, 18347.130859375, 6794.07177734375, 985.388671875, 'M025_001_000_BOSS', 'Fighting Fish Sergeant', 27, 1, 16, 352, 100, 3857, 2701001, 5400001, 2802264),
     (80, 35, 19162.310546875, 1337.4029541015625, 708.5288696289062, 'M025_001_000_BOSS', 'Fighting Fish Sergeant', 27, 1, 16, 352, 100, 3857, 2701001, 5400001, 2802264),
+    (81, 29, -9434.8642578125, 796.3521728515625, 4436.84423828125, 'M001_000_001_SP1;M001_000_001_SP2', 'Lion pirates', 19, 1, 16, 110, 100, 1569, 2701001, 5400001, 0),
+    (82, 33, 6788.8017578125, -3051.13525390625, 2117.647705078125, 'M000_000_001_SP1;M000_000_001_SP2', 'Sediment Wolf', 19, 1, 16, 100, 100, 1569, 2701001, 5400001, 2802202),
+    (83, 28, 5726.9091796875, 3208.04736328125, 2385.8447265625, 'M001_000_000_N;M001_000_000_SP1', 'Drunk wolf pirates', 16, 1, 16, 110, 100, 1054, 2701001, 5400001, 0),
+    (84, 29, -11636.51171875, 1761.240478515625, 4462.7490234375, 'M001_000_001_SP1;M001_000_001_SP2', 'Lion pirates', 19, 1, 16, 110, 100, 1569, 2701001, 5400001, 0),
+    (85, 32, 1206.410400390625, -19004.802734375, 529.0416259765625, 'M006_000_000_SP1;M006_000_000_SP2', 'Rock turtle', 23, 1, 16, 164, 100, 2525, 2701001, 5400001, 2802228),
     (86, 34, 20485.072265625, 8018.71337890625, 623.4412231445312, 'M025_001_000_N', 'Fighting Fish soldier', 25, 1, 16, 350, 100, 3138, 2701001, 5400001, 2802264),
     (87, 34, 18747.009765625, 5091.45166015625, 963.4185180664062, 'M025_001_000_N', 'Fighting Fish soldier', 25, 1, 16, 350, 100, 3138, 2701001, 5400001, 2802264),
     (88, 34, 19234.421875, 2805.1865234375, 849.1326293945312, 'M025_001_000_N', 'Fighting Fish soldier', 25, 1, 16, 350, 100, 3138, 2701001, 5400001, 2802264),
-    (92, 103, 17870.701171875, 6142.2685546875, 946.0828857421875, 'M023_000_001_SP3', 'Orc Chief', 58, 1, 11, 332, 100, 38728, 2701003, 5400003, 0),
-    (93, 103, 17646.60546875, 5751.74072265625, 1472.725830078125, 'M023_000_001_SP3', 'Orc Chief', 58, 1, 11, 332, 100, 38728, 2701003, 5400003, 0),
-    (94, 103, 17927.32421875, 5449.716796875, 920.7349853515625, 'M023_000_001_SP3', 'Orc Chief', 58, 1, 11, 332, 100, 38728, 2701003, 5400003, 0),
-    (95, 103, 17194.107421875, 6104.9345703125, 1016.1411743164062, 'M023_000_001_SP3', 'Orc Chief', 58, 1, 11, 332, 100, 38728, 2701003, 5400003, 0),
-    (96, 103, 17243.01171875, 5434.12158203125, 979.5286254882812, 'M023_000_001_SP3', 'Orc Chief', 58, 1, 11, 332, 100, 38728, 2701003, 5400003, 0),
 ]
 
 # Placements this lane ships as attackable that the hostility predicate does
@@ -168,23 +250,58 @@ LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION = [
 
 # Which rule produced each shipped row, so no reader has to infer it.
 IDENTITY_RULE_PER_PLACEMENT = {
-    50: 'setnum',
-    58: 'setnum',
-    59: 'setnum',
-    60: 'setnum',
-    61: 'setnum',
-    77: 'setnum',
-    78: 'setnum',
-    79: 'setnum',
-    80: 'setnum',
-    86: 'setnum',
-    87: 'setnum',
-    88: 'setnum',
-    92: 'setnum',
-    93: 'setnum',
-    94: 'setnum',
-    95: 'setnum',
-    96: 'setnum',
+    31: 'cline',
+    32: 'cline',
+    33: 'cline',
+    34: 'cline',
+    35: 'cline',
+    36: 'cline',
+    37: 'cline',
+    38: 'cline',
+    39: 'cline',
+    40: 'cline',
+    41: 'cline',
+    42: 'cline',
+    43: 'cline',
+    44: 'cline',
+    45: 'cline',
+    46: 'cline',
+    47: 'cline',
+    48: 'cline',
+    49: 'cline',
+    50: 'cline',
+    51: 'cline',
+    52: 'cline',
+    53: 'cline',
+    54: 'cline',
+    55: 'cline',
+    56: 'cline',
+    57: 'cline',
+    58: 'cline',
+    59: 'cline',
+    60: 'cline',
+    61: 'cline',
+    62: 'cline',
+    69: 'cline',
+    70: 'cline',
+    71: 'cline',
+    72: 'cline',
+    73: 'cline',
+    74: 'cline',
+    75: 'cline',
+    76: 'cline',
+    77: 'cline',
+    78: 'cline',
+    79: 'cline',
+    80: 'cline',
+    81: 'cline',
+    82: 'cline',
+    83: 'cline',
+    84: 'cline',
+    85: 'cline',
+    86: 'cline',
+    87: 'cline',
+    88: 'cline',
 }
 
 # What this lane ships for this scene.  This is the list the roster loader
@@ -201,6 +318,13 @@ SHIPPED_PLACEMENTS = sorted(
 # and this one does not ship, with who they actually are.  Kept so the cost of
 # the rule change is readable per placement instead of as a count.
 WITHDRAWN_UNDER_THIS_RULE = [
+    (89, 102, 'Orc', 10004, '(no MOBS_TIP name) [not carried: n_id_10004_has_no_avatar_template]'),
+    (90, 101, 'Swamp Tortoise', 10003, '(no MOBS_TIP name) [not carried: n_id_10003_has_no_avatar_template]'),
+    (92, 103, 'Orc Chief', 917, '(no MOBS_TIP name)'),
+    (93, 103, 'Orc Chief', 917, '(no MOBS_TIP name)'),
+    (94, 103, 'Orc Chief', 917, '(no MOBS_TIP name)'),
+    (95, 103, 'Orc Chief', 917, '(no MOBS_TIP name)'),
+    (96, 103, 'Orc Chief', 917, '(no MOBS_TIP name)'),
 ]
 
 # (placement_index, template_id, display_name, ai_combat) - placements whose
@@ -218,62 +342,7 @@ COMBAT_AI_AT_RANK_ZERO = [
 # a count.  PREDICATE_CENSUS['unambiguous'] plus len(this list) is the scene's
 # whole placement count.
 UNRESOLVED_PLACEMENTS = [
-    (2, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (3, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (4, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (5, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (31, 28, 'n_id_28_avatar_is_a_variant_list'),
-    (32, 28, 'n_id_28_avatar_is_a_variant_list'),
-    (33, 28, 'n_id_28_avatar_is_a_variant_list'),
-    (34, 28, 'n_id_28_avatar_is_a_variant_list'),
-    (35, 28, 'n_id_28_avatar_is_a_variant_list'),
-    (36, 27, 'n_id_27_avatar_is_a_variant_list'),
-    (37, 27, 'n_id_27_avatar_is_a_variant_list'),
-    (38, 27, 'n_id_27_avatar_is_a_variant_list'),
-    (39, 27, 'n_id_27_avatar_is_a_variant_list'),
-    (40, 29, 'n_id_29_avatar_is_a_variant_list'),
-    (41, 29, 'n_id_29_avatar_is_a_variant_list'),
-    (42, 29, 'n_id_29_avatar_is_a_variant_list'),
-    (43, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (44, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (45, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (46, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (47, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (48, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (49, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (51, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (52, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (53, 32, 'n_id_32_avatar_is_a_variant_list'),
-    (54, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (55, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (56, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (57, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (62, 32, 'n_id_32_avatar_is_a_variant_list'),
-    (65, 37, 'n_id_37_has_no_MOBS_row'),
-    (66, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (69, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (70, 29, 'n_id_29_avatar_is_a_variant_list'),
-    (71, 29, 'n_id_29_avatar_is_a_variant_list'),
-    (72, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (73, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (74, 30, 'n_id_30_avatar_is_a_variant_list'),
-    (75, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (76, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (81, 29, 'n_id_29_avatar_is_a_variant_list'),
-    (82, 33, 'n_id_33_avatar_is_a_variant_list'),
-    (83, 28, 'n_id_28_avatar_is_a_variant_list'),
-    (84, 29, 'n_id_29_avatar_is_a_variant_list'),
-    (85, 32, 'n_id_32_avatar_is_a_variant_list'),
-    (89, 102, 'n_id_102_avatar_is_a_variant_list'),
-    (90, 101, 'n_id_101_avatar_is_a_variant_list'),
-    (97, 104, 'n_id_104_has_no_MOBS_row'),
-    (98, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (99, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (100, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (101, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (102, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (103, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (104, 3, 'n_id_3_avatar_is_a_variant_list'),
-    (105, 3, 'n_id_3_avatar_is_a_variant_list'),
+    (89, 102, 'n_id_10004_has_no_avatar_template'),
+    (90, 101, 'n_id_10003_has_no_avatar_template'),
 ]
 

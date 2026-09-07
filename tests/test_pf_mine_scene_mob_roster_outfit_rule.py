@@ -76,7 +76,8 @@ BG0002_HOSTILE_UNDER_OWNER_RULE = 52
 # owner's do-not-place ruling cuts five of them at load, which is where the
 # 12 the console line reports comes from.  Both numbers are pinned, because
 # confusing them is exactly how a reader concludes the flip already happened.
-BG0002_SHIPPED_ROWS_IN_THE_COMMITTED_MODULE = 17
+# ROUND najn72: ~~17~~ -> 52.  The owner ticked the flip (20260908_0025).
+BG0002_SHIPPED_ROWS_IN_THE_COMMITTED_MODULE = 52
 BG0002_HOSTILE_UNDER_OLD_RULE = 12
 BG0002_TEMPLATES_UNDER_OWNER_RULE = {27, 28, 29, 30, 31, 32, 33, 34, 35}
 
@@ -129,26 +130,47 @@ class OutfitRuleShapeTests(unittest.TestCase):
                 "Bg0000", [], {}, {}, outfit_rule="whatever",
             )
 
-    def test_bg0002_still_ships_the_older_rule_and_says_so_by_absence(self):
-        """This round changed the generator, NOT this scene's table.
+    def test_bg0002_ships_the_owners_rule_and_its_death_ruling_moved_with_it(
+            self):
+        """~~test_bg0002_still_ships_the_older_rule_and_says_so_by_absence~~
 
-        The flip is blocked on a decision, not on code: under the owner's
-        rule scene 2 carries templates 27..35, ``mob_death``'s ruling set
-        for it is ``{31, 34, 35, 103}``, and widening that set is a row in
-        ``NOW.md`` waiting for the owner to tick.  A module mined under the
-        older rule carries NO ``OUTFIT_RULE`` line, so the absence below is
-        the assertion, and it is what a reader of the table sees too.
+        ROUND najn72: THE DECISION ARRIVED.  The owner ticked
+        (``pf_bridge/notes_to_chief/20260908_0025_KA1A-PANYA-TICK-COO-4-items
+        ...``, item 1, word for word "do them together"), so the round that
+        re-mines the scene is the round that widens the ruling, and this
+        card turns from an absence into the INTERLOCK -- which is the
+        stronger of the two.  What it used to say is preserved as the reason
+        it exists: a table mined under the owner's rule carries templates
+        27..35, and a ``mob_death`` ruling that does not cover them would
+        leave monsters on the map that a strike can reach and no letter can
+        finish.  So this asserts BOTH halves and that they AGREE, and it
+        fails whichever one moves alone.
         """
-        self.assertFalse(
-            hasattr(field_mob_tables_bg0002, "OUTFIT_RULE"),
-            "field_mob_tables_bg0002 was re-mined under the owner's rule "
-            "without the death-scope decision NOW.md is holding",
+        self.assertEqual(
+            getattr(field_mob_tables_bg0002, "OUTFIT_RULE", None), "any",
+            "field_mob_tables_bg0002 is not mined under the owner's rule",
         )
         self.assertEqual(
             len(field_mob_tables_bg0002.HOSTILE_PLACEMENTS),
             BG0002_SHIPPED_ROWS_IN_THE_COMMITTED_MODULE,
         )
-        self.assertEqual(field_mob_tables_bg0002.IDENTITY_RULE, "setnum")
+        from pirateforce_foundation import mob_death
+        ruling = mob_death.WIDENING_RULINGS[
+            "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
+            "widen-death-scope-bg0002"]
+        shipped = {row[1] for row in field_mob_tables_bg0002.HOSTILE_PLACEMENTS}
+        self.assertEqual(shipped, set(range(27, 36)))
+        self.assertEqual(
+            ruling, shipped,
+            "the Bg0002 roster and its death ruling disagree: the owner's "
+            "tick says these two move in ONE commit, and a ruling that does "
+            "not cover a shipped template is a monster nothing can kill",
+        )
+        # ROUND najn72: ~~"setnum"~~ -> "cline".  The two rules moved in one
+        # commit as well, and for the same reason: NOW.md `1313` rules this
+        # scene onto the crosswalk, and the templates the ruling above names
+        # are the ones the crosswalk resolves.
+        self.assertEqual(field_mob_tables_bg0002.IDENTITY_RULE, "cline")
 
 
 class OutfitRuleMeasuredTests(unittest.TestCase):
