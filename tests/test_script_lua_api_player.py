@@ -16,6 +16,36 @@ from pirateforce_foundation.inventory import BackpackState, ItemAttrState
 from pirateforce_foundation.lua_api import player
 
 
+#: A minimal stand-in for the one store method this seam is allowed to
+#: call.  Deliberately not a mock: an attribute nobody has thought of yet
+#: would be invented by a mock and explode here instead, the same posture
+#: ``tests/test_script_lua_api_reward.py``'s own tripwire store takes.
+class _RecordingPayoutStore:
+    def __init__(self, start: int = 0):
+        self.calls: list = []
+        self._balances: dict = {}
+        self._start = start
+
+    def add_typed_attribute(self, character_id: int, column: str, delta: int):
+        self.calls.append((character_id, column, delta))
+        key = (character_id, column)
+        self._balances[key] = self._balances.get(key, self._start) + delta
+        return self._balances[key]
+
+
+def _grant_home():
+    """The home position ``create_character`` needs.
+
+    Irrelevant to a stat grant -- only its type is -- so it is built from
+    the real ``model.Position`` rather than a tuple that happens to work
+    today, the same value shape ``tests/test_store_add_typed_attribute.py``
+    uses.
+    """
+    from pirateforce_foundation.model import Position
+
+    return Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+
+
 class RealPlayerNamespaceTests(unittest.TestCase):
     """The ``__getitem__``/``__setitem__`` contract, without a Lua state."""
 
@@ -299,16 +329,252 @@ class RealPlayerNamespaceTests(unittest.TestCase):
         self.assertEqual(player.DEFAULT_CONTEXT.class_id, player_wire.PLAYER_LOGIN_CLASS_ID)
 
 
+class StatGrantTests(unittest.TestCase):
+    """``Player.AddExp``/``Player.AddSkillPoint`` -- the first two Player.*
+    names that WRITE.
+
+    The amount is the script's own (``Player.AddExp(Player.GetLv()*
+    Trigger.Var5)`` in ``gamedata/lua/t_getm_rat_exp&sp.lua``), so what is
+    pinned here is the door: which arguments get through, which column the
+    kind maps to, and that a namespace with no store refuses OUT LOUD
+    instead of pretending.  The store contract itself is
+    ``lua_api.reward``'s and is pinned in that lane's own test file.
+    """
+
+    def _namespace(self, **kwargs):
+        from pirateforce_foundation.lua_api import spec as api_spec
+        methods = api_spec.NAMESPACE_METHODS["Player"]
+        calls = []
+        ns = player.build_namespace(methods, calls.append, **kwargs)
+        return ns, calls
+
+    def test_add_exp_moves_the_experience_column(self):
+        store = _RecordingPayoutStore()
+        ns, calls = self._namespace(
+            context=player.PlayerContext(character_id=9), payout_store=store)
+        ns["AddExp"](250)
+        self.assertEqual(store.calls, [(9, "experience", 250)])
+        self.assertTrue(any("LUA_PLAYER_GRANT Player.AddExp" in line
+                            for line in calls), calls)
+
+    def test_add_skill_point_moves_the_skill_point_column(self):
+        store = _RecordingPayoutStore()
+        ns, _calls = self._namespace(
+            context=player.PlayerContext(character_id=9), payout_store=store)
+        ns["AddSkillPoint"](3)
+        self.assertEqual(store.calls, [(9, "skill_points", 3)])
+
+    def test_a_paid_grant_still_returns_the_stub_default(self):
+        """A payout is a SIDE EFFECT.
+
+        Nobody has measured what the game's own engine returns from these
+        two names, and both corpus call sites use them as statements, so
+        handing back a column balance would be inventing an API contract.
+        Same rule the six ``Quest.Add*Criteria*`` names already live under.
+        """
+        store = _RecordingPayoutStore()
+        ns, _calls = self._namespace(
+            context=player.PlayerContext(character_id=9), payout_store=store)
+        self.assertEqual(ns["AddExp"](250), player.STUB_DEFAULT)
+
+    def test_without_a_store_nothing_is_written_and_the_log_says_so(self):
+        ns, calls = self._namespace(
+            context=player.PlayerContext(character_id=9))
+        self.assertEqual(ns["AddExp"](250), player.STUB_DEFAULT)
+        refusals = [line for line in calls if "refused=" in line]
+        self.assertEqual(len(refusals), 1, calls)
+        self.assertIn("no_reward_store", refusals[0])
+        self.assertIn("unpaid=250", refusals[0])
+
+    def test_a_negative_or_unusable_amount_never_reaches_the_store(self):
+        """The store call is what is asserted, not just the return value.
+
+        ``store.add_typed_attribute`` takes ``delta >= 0``; a negative that
+        got this far would be refused by SOMEBODY, but it must be refused
+        HERE, where the log names the script's own number.
+        """
+        store = _RecordingPayoutStore()
+        ns, calls = self._namespace(
+            context=player.PlayerContext(character_id=9), payout_store=store)
+        for amount in (-1, 12.5, float("nan"), float("inf"), True, "250"):
+            with self.subTest(amount=amount):
+                self.assertEqual(ns["AddExp"](amount), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+        self.assertEqual(len([c for c in calls if "LUA_API_BAD_VALUE" in c
+                              or "bad_value" in c.lower()]), 6, calls)
+
+    def test_the_wrong_arity_is_refused_before_the_store(self):
+        store = _RecordingPayoutStore()
+        ns, _calls = self._namespace(
+            context=player.PlayerContext(character_id=9), payout_store=store)
+        self.assertEqual(ns["AddExp"](), player.STUB_DEFAULT)
+        self.assertEqual(ns["AddExp"](1, 2), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+
+    def test_the_default_context_character_is_refused_not_paid(self):
+        """``character_id`` 0 is the inert bucket, not a player."""
+        store = _RecordingPayoutStore()
+        ns, calls = self._namespace(payout_store=store)
+        ns["AddExp"](250)
+        self.assertEqual(store.calls, [])
+        self.assertTrue(any("refused=no_character" in line for line in calls),
+                        calls)
+
+    def test_add_cash_is_still_a_stub_and_says_why(self):
+        """The corpus CHARGES with this name (``q_ship.lua:50``).
+
+        Paying its positive call sites while dropping its negative ones
+        would let a player buy a ship for free, so it stays stubbed until a
+        spend door with a floor answer exists.
+        """
+        store = _RecordingPayoutStore()
+        ns, calls = self._namespace(
+            context=player.PlayerContext(character_id=9), payout_store=store)
+        self.assertEqual(ns["AddCash"](500), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+        self.assertIn("LUA_API_STUB Player.AddCash", calls)
+        self.assertIn("NEGATIVE", player.STILL_STUBBED["AddCash"])
+
+    def test_the_grant_map_is_exactly_these_two_names(self):
+        """GRANT_KINDS pinned BY VALUE, not merely iterated.
+
+        pf-adversary D11 (round yfeauz): the loop below passes on an empty
+        map and on a third entry, so it could not catch a name being added
+        to the paying set without anyone reading the corpus for its sign --
+        which is the whole reason AddCash is not in it.
+        """
+        from pirateforce_foundation.lua_api import quest_criteria
+
+        self.assertEqual(player.GRANT_KINDS, {
+            "AddExp": quest_criteria.KIND_EXP,
+            "AddSkillPoint": quest_criteria.KIND_SKILL_POINT,
+        })
+
+    def test_every_grant_kind_maps_to_a_column_this_lane_can_pay(self):
+        from pirateforce_foundation.lua_api import reward
+        for name, kind in player.GRANT_KINDS.items():
+            with self.subTest(name=name):
+                self.assertIn(name, player.REAL_METHODS)
+                self.assertNotIn(name, player.STILL_STUBBED)
+                self.assertIn(kind, reward.KIND_COLUMN)
+
+
+class StatGrantReachesARealRowTests(unittest.TestCase):
+    """The same two names against a real ``SQLiteStore`` on disk.
+
+    The layer above pins the door with a recording double; this one pins
+    that the door opens onto an actual ``characters`` row -- read back off
+    the store after the call, never from the number the namespace returned.
+    """
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        from pirateforce_foundation.store import SQLiteStore
+
+        migrations = Path(__file__).resolve().parents[1] / "migrations"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.store = SQLiteStore(Path(tmp.name) / "state.sqlite3", migrations)
+        self.store.migrate()
+        account_id = self.store.ensure_account("acct-grant")
+        self.store.open_session(account_id)
+        self.character = self.store.create_character(
+            account_id, "Grant01", "grant01", "fp-grant",
+            lambda selector: (b"wire", b"avatar", 4242, 0),
+            _grant_home(),
+        )
+        # A measured starting balance: `add_typed_attribute` refuses a NULL
+        # column rather than guessing zero, so a row nobody has ever
+        # measured is not a row this seam may add to.
+        self.store.write_typed_attributes(
+            self.character.id, {"experience": 100, "skill_points": 2})
+
+    def _namespace(self):
+        from pirateforce_foundation.lua_api import spec as api_spec
+        calls = []
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=self.character.id),
+            payout_store=self.store)
+        return ns, calls
+
+    def test_add_exp_adds_to_the_row_on_disk(self):
+        ns, calls = self._namespace()
+        ns["AddExp"](250)
+        stored = self.store.read_typed_attributes(self.character.id)
+        self.assertEqual(stored["experience"], 350)
+        self.assertTrue(any("balance_after=350" in line for line in calls),
+                        calls)
+
+    def test_add_skill_point_adds_to_the_row_on_disk(self):
+        ns, _calls = self._namespace()
+        ns["AddSkillPoint"](3)
+        stored = self.store.read_typed_attributes(self.character.id)
+        self.assertEqual(stored["skill_points"], 5)
+
+    def test_an_unmeasured_column_refuses_rather_than_starting_at_zero(self):
+        """COO-DECISION 20260901_1059, end to end.
+
+        A character nobody has ever granted cash to has a NULL column; the
+        store refuses, and this seam reports it as a refusal rather than
+        inventing a starting balance.  Uses ``reward.grant`` directly for
+        cash because ``Player.AddCash`` is deliberately still a stub.
+        """
+        from pirateforce_foundation.lua_api import quest_criteria, reward
+        lines: list = []
+        granted, reason = reward.grant(
+            "Player.AddCash", quest_criteria.KIND_CASH, self.character.id,
+            500, store=self.store, log=lines.append)
+        self.assertIsNone(granted)
+        self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+        stored = self.store.read_typed_attributes(self.character.id)
+        self.assertNotIn("cash", stored)
+
+
 @LUPA_PACKAGE.skip_unless_present()
 class RealPlayerLuaIntegrationTests(unittest.TestCase):
     """The same context checks, driven from real Lua through a ScriptHost."""
 
-    def _host(self, context=None, store=None):
+    def _host(self, context=None, store=None, payout_store=None):
         from pirateforce_foundation import script_host
         calls = []
         host = script_host.ScriptHost(
-            log=calls.append, player_context=context, player_store=store)
+            log=calls.append, player_context=context, player_store=store,
+            payout_store=payout_store)
         return host, calls
+
+    def test_add_exp_from_real_lua_reaches_the_hosts_payout_store(self):
+        """``ScriptHost``'s new pass-through, exercised through a Lua state.
+
+        The namespace-level tests above prove the closure; this proves the
+        WIRING -- that a store handed to the host arrives at the Player
+        namespace and not at some private default.  Written at the shape
+        of the corpus's own only call site
+        (``gamedata/lua/t_getm_rat_exp&sp.lua:19``:
+        ``Player.AddExp(Player.GetLv()*Trigger.Var5)``), with
+        ``Trigger.Var5`` reading STUB_DEFAULT=0 through the host's own
+        contract -- so the product is 0 and REFUSED, which is why the
+        amount is written as a literal in the paying half below.
+        """
+        store = _RecordingPayoutStore()
+        host, calls = self._host(
+            context=player.PlayerContext(level=7, character_id=9),
+            payout_store=store)
+        host.load("function Probe() Player.AddExp(Player.GetLv()*50) end")
+        host.call("Probe")
+        self.assertEqual(store.calls, [(9, "experience", 350)])
+        self.assertTrue(any("LUA_PLAYER_GRANT Player.AddExp" in line
+                            for line in calls), calls)
+
+    def test_a_host_with_no_payout_store_refuses_out_loud(self):
+        host, calls = self._host(
+            context=player.PlayerContext(level=7, character_id=9))
+        host.load("function Probe() Player.AddSkillPoint(3) end")
+        host.call("Probe")
+        refusals = [line for line in calls if "refused=no_reward_store" in line]
+        self.assertEqual(len(refusals), 1, calls)
 
     def test_get_lv_from_lua_reads_the_injected_context(self):
         host, calls = self._host(player.PlayerContext(level=17, class_id=2))
