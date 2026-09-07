@@ -203,5 +203,98 @@ class ResolveGmSceneNameTests(unittest.TestCase):
                 gm_name.encode("cp874")
 
 
+class NearMissSuggestionTests(unittest.TestCase):
+    """`suggest_gm_scene_names` -- the search an exact-match resolver denied."""
+
+    def test_one_dropped_letter_still_finds_the_island(self):
+        self.assertEqual(
+            scene_catalog.suggest_gm_scene_names("Prison Exile Iland"),
+            (("Prison Exile Island", 1),),
+        )
+
+    def test_nonsense_suggests_nothing_rather_than_the_nearest_island(self):
+        # The cutoff earns its value here: a suggestion that is merely the
+        # closest row of 293 would send a GM to the wrong island with a
+        # confident-looking line.
+        self.assertEqual(scene_catalog.suggest_gm_scene_names("qqqqqqqq"), ())
+
+    def test_an_exact_hit_is_not_a_suggestion(self):
+        # The caller already had a match; anything printed here would be
+        # noise under a successful warp.
+        self.assertEqual(scene_catalog.suggest_gm_scene_names("Port Royal"), ())
+        self.assertEqual(scene_catalog.suggest_gm_scene_names("  pOrT   roYAL "), ())
+
+    def test_empty_and_whitespace_suggest_nothing(self):
+        for query in ("", "   ", "\t\n"):
+            with self.subTest(query=query):
+                self.assertEqual(scene_catalog.suggest_gm_scene_names(query), ())
+
+    def test_an_ambiguous_name_reports_a_count_not_twenty_numbers(self):
+        self.assertEqual(
+            scene_catalog.suggest_gm_scene_names("hidden iland"),
+            (("Hidden Island", 20),),
+        )
+
+    def test_the_limit_is_honoured_and_zero_means_nothing(self):
+        many = scene_catalog.suggest_gm_scene_names("Navy Prisn2", limit=3)
+        self.assertEqual(len(many), 3)
+        self.assertEqual(
+            scene_catalog.suggest_gm_scene_names("Navy Prisn2", limit=1), many[:1]
+        )
+        self.assertEqual(
+            scene_catalog.suggest_gm_scene_names("Navy Prisn2", limit=0), ()
+        )
+
+    def test_every_suggested_name_is_a_row_of_the_table_verbatim(self):
+        # The whole safety argument for printing these lines is that no
+        # character of them comes from the query. Assert it against the
+        # table rather than trusting the implementation.
+        shipped = set(scene_catalog.SCENE_ID_TO_GM_NAME.values())
+        for query in ("Prison Exile Iland", "Navy Prisn2", "hidden iland", "Port Royl"):
+            with self.subTest(query=query):
+                suggestions = scene_catalog.suggest_gm_scene_names(query)
+                self.assertTrue(suggestions)
+                for name, id_count in suggestions:
+                    self.assertIn(name, shipped)
+                    self.assertEqual(
+                        id_count, len(scene_catalog.resolve_gm_scene_name(name))
+                    )
+
+    def test_a_suggested_name_resolves_back_to_that_many_ids(self):
+        # A suggestion the operator cannot then type is worse than silence.
+        for query in ("Prison Exile Iland", "Port Royl"):
+            with self.subTest(query=query):
+                for name, id_count in scene_catalog.suggest_gm_scene_names(query):
+                    self.assertEqual(
+                        len(scene_catalog.resolve_gm_scene_name(name)), id_count
+                    )
+
+    def test_the_empty_query_guard_holds_even_when_the_matcher_answers_everything(self):
+        # Aimed at the GUARD, not at today's behaviour. `_build_name_index`
+        # drops the table's four unnamed rows, so an empty key is absent and
+        # deleting `if not key` changes no result today -- the guard has no
+        # witness. Put the empty key IN the index (the state a future edit to
+        # `_build_name_index` would create) and the guard becomes the only
+        # thing standing between a blank line and four scenes.
+        # Today the matcher itself returns nothing for an empty key, so
+        # deleting `if not key` changes no result and the guard has no
+        # witness. Make the matcher answer everything -- the state any
+        # future change of matcher or cutoff could create -- and the guard
+        # is then the only thing between a blank line and a suggestion.
+        always = lambda key, keys, n=3, cutoff=0.0: list(keys)[:n]  # noqa: E731
+        with mock.patch.object(scene_catalog.difflib, "get_close_matches", always):
+            for query in ("", "   ", "\t\n"):
+                with self.subTest(query=query):
+                    self.assertEqual(scene_catalog.suggest_gm_scene_names(query), ())
+                    self.assertEqual(scene_catalog.resolve_gm_scene_name(query), ())
+            # ...and a real near miss still comes back through the very same
+            # patched matcher, so this cannot pass by breaking the function.
+            self.assertTrue(scene_catalog.suggest_gm_scene_names("Prison Exile Iland"))
+
+    def test_a_non_string_query_is_a_type_error_not_a_silent_empty(self):
+        with self.assertRaises(TypeError):
+            scene_catalog.suggest_gm_scene_names(2)
+
+
 if __name__ == "__main__":
     unittest.main()

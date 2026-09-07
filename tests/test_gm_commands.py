@@ -607,5 +607,84 @@ class WarpByNameTests(unittest.TestCase):
         self.assertEqual(describe_warp_target(command), "Spice Paradise Island")
 
 
+class WarpNameNearMissTests(unittest.TestCase):
+    """A mistyped island name names the island, instead of ending the line."""
+
+    def _message(self, text):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(text)
+        return str(caught.exception)
+
+    def test_one_dropped_letter_gets_the_scene_id_it_meant(self):
+        message = self._message("warp Prison Exile Iland")
+        self.assertIn("did you mean 'Prison Exile Island' (scene 2)", message)
+        # The way out is still there; the suggestion is added, not swapped in.
+        self.assertIn("warp <scene_id>", message)
+
+    def test_a_name_with_coordinates_now_names_the_id_that_carries_them(self):
+        # This is the case the id-only rule used to leave at a dead end:
+        # `Navy Prison2` really is a scene, and `warp Navy Prison2 10 20` is
+        # refused because a trailing digit cannot be told from a coordinate.
+        # Before this round the operator was told only to "use warp
+        # <scene_id>" -- without being told which id that is.
+        message = self._message("warp Navy Prisn2 10 20")
+        self.assertIn("did you mean 'Navy Prison2' (scene 123)", message)
+
+    def test_an_ambiguous_suggestion_prints_a_count_not_twenty_ids(self):
+        message = self._message("warp hidden iland")
+        self.assertIn("'Hidden Island' (on 20 scenes)", message)
+        self.assertNotIn("308, 309", message)
+
+    def test_nonsense_adds_no_suggestion_clause_at_all(self):
+        message = self._message("warp qqqqqqqq")
+        self.assertNotIn("did you mean", message)
+        self.assertIn("no GM scene carries that name", message)
+
+    def test_the_suggestion_never_echoes_what_the_operator_typed(self):
+        # These lines reach a cp874 console. Every character printed has to
+        # come out of the pinned table, which is measured cp874-safe; the
+        # typed text carries no such guarantee. A marker that cannot appear
+        # in any of the 330 shipped names is the witness.
+        marker = "ZqxjvwZ"
+        message = self._message("warp Prison Exile Iland %s" % marker)
+        self.assertNotIn(marker, message)
+        for candidate in ("warp %s" % marker, "warp Port Royl %s" % marker):
+            with self.subTest(text=candidate):
+                self.assertNotIn(marker, self._message(candidate))
+
+    def test_every_suggestion_this_parser_prints_encodes_on_the_console(self):
+        for text in (
+            "warp Prison Exile Iland",
+            "warp Navy Prisn2 10 20",
+            "warp hidden iland",
+            "warp Port Royl",
+        ):
+            with self.subTest(text=text):
+                self._message(text).encode("cp874")
+
+    def test_an_exact_name_still_parses_and_gains_no_suggestion_path(self):
+        self.assertEqual(
+            parse_gm_command("warp Prison Exile Island"),
+            GmCommand("warp", ("2",), "warp Prison Exile Island"),
+        )
+
+    def test_the_numeric_form_is_untouched_by_the_suggestion_branch(self):
+        for text, args in (
+            ("warp 2", ("2",)),
+            ("warp -1", ("-1",)),
+            ("warp 007 5 6", ("007", "5", "6")),
+            ("warp 1_0 5 6", ("1_0", "5", "6")),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(parse_gm_command(text).args, args)
+
+    def test_an_ambiguous_exact_name_keeps_its_own_rejection(self):
+        # The ambiguous branch runs before this one and must not be reworded
+        # by it: an exact ambiguous name lists ids, it does not "suggest".
+        message = self._message("warp Hidden Island")
+        self.assertIn("that name is on 20 scenes", message)
+        self.assertNotIn("did you mean", message)
+
+
 if __name__ == "__main__":
     unittest.main()

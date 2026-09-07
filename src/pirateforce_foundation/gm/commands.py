@@ -500,6 +500,40 @@ def _is_int_literal(value: str) -> bool:
     return True
 
 
+def _did_you_mean(rest: str) -> str:
+    """`; did you mean ...` for a near miss, or `""` when there is none.
+
+    THE ONLY REASON THIS CAN BE PRINTED AT ALL is that every character of it
+    comes out of the pinned client table and none of it comes out of `rest`.
+    `test_gm_scene_catalog.py` pins that all 330 shipped GM names encode to
+    cp874, which is the bridge console's codec, so no suggestion can be the
+    unlucky byte that kills the console the way echoing the operator's own
+    text could.  `_parse_warp_named` below says its branch echoes nothing
+    typed; this helper is held to the same rule and a test asserts it
+    directly, with a marker that appears in none of the 330 shipped names.
+
+    Why it exists: exact-or-nothing was right for deciding where to send a
+    GM and wrong as the LAST thing an operator reads.  One dropped letter
+    out of a 330-row table used to end at "no GM scene carries that name",
+    with no way to search from the client.
+
+    An ambiguous suggestion is reported as a name and a COUNT (`Hidden
+    Island` is on twenty scenes) -- a way-out line that prints twenty
+    numbers is a way-out line nobody reads.
+    """
+    suggestions = scene_catalog.suggest_gm_scene_names(rest)
+    if not suggestions:
+        return ""
+    parts = []
+    for name, id_count in suggestions:
+        if id_count == 1:
+            scene_id = scene_catalog.resolve_gm_scene_name(name)[0]
+            parts.append(f"{name!r} (scene {scene_id})")
+        else:
+            parts.append(f"{name!r} (on {id_count} scenes)")
+    return "; did you mean " + " or ".join(parts)
+
+
 def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     """`warp <scene name>` -> the same GmCommand `warp <scene_id>` produces.
 
@@ -528,7 +562,7 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
         raise GmCommandParseError(
             "no GM scene carries that name in the catalog "
             f"({scene_catalog.GM_NAME_COUNT} names over "
-            f"{scene_catalog.SCENE_COUNT} scenes); "
+            f"{scene_catalog.SCENE_COUNT} scenes){_did_you_mean(rest)}; "
             f'use {COMMAND_USAGE["warp"]!r}'
         )
     if len(matches) > 1:
