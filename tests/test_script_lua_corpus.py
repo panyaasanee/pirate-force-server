@@ -47,6 +47,13 @@ FIXED_QUEST_CLOCK = lambda: datetime(2026, 9, 5, 12, 0)  # noqa: E731
 #: that just asserted "failed == []" would go red the moment ANY future
 #: script is added to the corpus with its own unrelated bug, telling nobody
 #: which of 616 files to look at.
+#: The corpus's one file whose name contains a space, measured (round
+#: `5qtaqy`, pf-adversary D6).  Named here rather than inside the test that
+#: uses it because two classes need it: the fixture that reproduces the
+#: ambiguous log line without the corpus, and the corpus-guarded test that
+#: fails if this stops being the shape of the real problem.
+THE_ONE_SPACED_FILE_NAME = "t_test auto.lua"
+
 KNOWN_LOAD_FAILURES = frozenset({
     "Quest/q_day_send_new.lua",
     "Quest/q_repeat_send_new.lua",
@@ -84,6 +91,18 @@ class FullCorpusLoadsHeadlessTests(unittest.TestCase):
         host_lines = [line for line in logged if line.startswith("LUA_HOST")]
         self.assertEqual(report.host_failed, [], "\n".join(host_lines))
         self.assertEqual(host_lines, [])
+
+    def test_the_corpus_still_has_exactly_one_file_with_a_space_in_its_name(self):
+        # The other half of the D6 pin (round `oghyca`).  The fixture in
+        # AHostLineNamesAPathWithASpaceUnambiguouslyTests reproduces the
+        # ambiguous log line without needing the corpus; this says the
+        # fixture is still shaped like the real problem.  Red here means
+        # either the file was renamed (fix the name in the constant) or the
+        # corpus grew more of them (nothing to fix, but somebody should
+        # know).
+        spaced = sorted(path.name for path in LUA_ROOT.rglob("*.lua")
+                        if " " in path.name)
+        self.assertEqual(spaced, [THE_ONE_SPACED_FILE_NAME])
 
     def test_load_corpus_never_raises_out_of_the_full_616_file_run(self):
         # The fail-closed contract itself: calling load_corpus over the
@@ -572,7 +591,7 @@ class AHostLineNamesAPathWithASpaceUnambiguouslyTests(unittest.TestCase):
     keeps naming the file that motivated it.
     """
 
-    SPACED = "t_test auto.lua"
+    SPACED = THE_ONE_SPACED_FILE_NAME
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="pf_lua_spaced_"))
@@ -603,16 +622,6 @@ class AHostLineNamesAPathWithASpaceUnambiguouslyTests(unittest.TestCase):
         # asserted about: the quoted field round-trips the whole name.
         after = host_lines[0].split('discovered_at="', 1)[1]
         self.assertEqual(after.split('"', 1)[0], self.SPACED)
-
-    def test_the_corpus_still_has_exactly_one_such_file(self):
-        # If this ever goes red the fixture above is no longer the shape of
-        # the real problem -- either the file was renamed (fix the name
-        # here) or the corpus grew more of them (nothing to fix, but say so).
-        if not LUA_ROOT.is_dir():
-            self.skipTest("no sibling pf_bridge corpus on this machine")
-        spaced = sorted(path.name for path in LUA_ROOT.rglob("*.lua")
-                        if " " in path.name)
-        self.assertEqual(spaced, [self.SPACED])
 
 
 @LUPA_PACKAGE.skip_unless_present()
