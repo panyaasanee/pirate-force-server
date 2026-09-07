@@ -62,8 +62,9 @@ def class_scoped_require_calls(source: str, label: str):
     """Every ``.require(<arg>)`` written inside a class/module setup body.
 
     Zero-argument ``.require()`` is a DIFFERENT api in this repository -
-    ``Resolution.require()`` in the persistence code returns a value and takes
-    nothing - so only calls that pass an argument are reported.  That keeps the
+    the persistence lane's own resolution object has a ``require()`` that
+    returns a value and takes nothing - so only calls that pass an argument are
+    reported.  That keeps the
     sweep honest instead of loud.
     """
     found = []
@@ -219,9 +220,13 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(class_scoped_require_calls(fine, "<fine>"), [])
 
     def test_the_zero_argument_require_api_is_not_a_false_positive(self):
-        # store.read_character_vitals(...).require() in the persistence code is
-        # an unrelated method of the same name that takes nothing.  Sweeping it
-        # would make this fence noisy and it would be turned off.
+        # The persistence lane has an unrelated method of the same name that
+        # takes nothing and returns a value (a resolution object's own
+        # require()).  Sweeping that would make this fence noisy in the wrong
+        # place, and a noisy fence gets turned off.  Its identifier is
+        # deliberately NOT written out here: tests/test_persistence_vitals.py
+        # greps the whole tree for its call sites to prove that lane is still
+        # wired to nothing, and naming it in a comment is enough to go red.
         other = (
             "def setUpModule():\n"
             "    resolution.require()\n"
