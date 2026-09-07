@@ -175,49 +175,86 @@ class RuleDerivedWideningTests(unittest.TestCase):
         would notice the union coming back.  This holds the difference
         directly, on shipped data rather than a fixture:
 
-        * template 27 IS in the pooled union of every hand-typed letter,
-        * template 27 is NOT in Bg0002's own hand-typed permit,
-        * and ``field_mob_tables_bg0002.UNRESOLVED_PLACEMENTS`` carries
-          four placements of it, waiting on the owner's tick.
+        ROUND najn72: THE DAY THIS TEST NAMED ARRIVED, and the witness had
+        to move because of it.  ~~template 27 IS in the pooled union / is
+        NOT in Bg0002's own permit / has four unresolved placements waiting
+        on the owner's tick~~ -- the owner ticked (20260908_0025 item 1),
+        the roster flipped 12 -> 52 and Bg0002's own permit now names 27,
+        so 27 can no longer tell a per-scene reading from a pooled one.
+        The property this test defends is unchanged and the shape of the
+        witness is unchanged; only which template plays it moves, to the
+        one the same flip freed up:
 
-        So on the day that roster flips 12 -> 52 (``NOW.md``, pending the
-        owner), assertion 2 under the union would report template 27 as
-        already permitted in Bg0002 on the strength of a bg0001 letter,
-        and would name one widened template fewer than there are.  This
-        test goes red the moment ``_hand_typed_permit_for`` stops reading
-        ``WIDENING_RULING_SCENES``.
+        * template 103 ("Orc Chief") IS in the pooled union of every
+          hand-typed letter -- bg0004's letter names it, and so did
+          Bg0002's until this round,
+        * template 103 is NOT in Bg0002's own hand-typed permit any more:
+          the crosswalk resolves no named body for it in this scene, so
+          the ruling dropped it in the same commit that re-mined the
+          roster,
+        * and it is not a fixture: ``field_mob_tables_bg0002
+          .WITHDRAWN_UNDER_THIS_RULE`` carries the five placements that
+          used to ship it.
 
-        This asserts nothing about whether 27 SHOULD be killable in Bg0002
-        -- that is the owner's tick, and this lane does not flip it.
+        So assertion 2 under a pooled union would report template 103 as
+        already permitted in Bg0002 on the strength of bg0004's letter.
+        This test goes red the moment ``_hand_typed_permit_for`` stops
+        reading ``WIDENING_RULING_SCENES``.
+
+        This asserts nothing about whether 103 SHOULD be killable in
+        Bg0002 -- no row of the scene carries it, which is why it left.
         """
         pooled: set[int] = set()
         for templates in _hand_typed_rulings().values():
             pooled |= set(templates)
         self.assertIn(
-            27, pooled,
-            "template 27 no longer has a hand-typed permit anywhere, so "
+            103, pooled,
+            "template 103 no longer has a hand-typed permit anywhere, so "
             "this test's whole premise is gone and the round that removed "
             "the permit owes it a replacement witness",
         )
         self.assertNotIn(
-            27, _hand_typed_permit_for("Bg0002"),
-            "template 27 counts as already-permitted in Bg0002 although "
-            "its only hand-typed letter names bg0001 -- the scene-blind "
-            "union is back and assertion 2's baseline is pooled again",
+            103, _hand_typed_permit_for("Bg0002"),
+            "template 103 counts as already-permitted in Bg0002 although "
+            "no letter of that scene names it -- the scene-blind union is "
+            "back and assertion 2's baseline is pooled again",
         )
+        # And the witness is a real withdrawal, not a template nobody ever
+        # placed here: the rows that carried it are named in the table.
+        from pirateforce_foundation import field_mob_tables_bg0002
+        self.assertEqual(
+            [row[0] for row in
+             field_mob_tables_bg0002.WITHDRAWN_UNDER_THIS_RULE
+             if row[1] == 103],
+            [92, 93, 94, 95, 96])
         self.assertIn(
             27, _hand_typed_permit_for("bg0001"),
             "template 27 is no longer permitted in bg0001, the one scene "
             "its letter does name -- the scene tie is being read as a "
             "refusal instead of a scope",
         )
-        unresolved = [
-            row for row in field_mob_tables_bg0002.UNRESOLVED_PLACEMENTS
+        # ROUND najn72: ~~four UNRESOLVED template-27 placements~~ -> four
+        # SHIPPED ones.  COO-DECISION 1641 item c counted them while they
+        # were waiting on the owner's tick; the tick came (20260908_0025)
+        # and the same four placements (36-39) are now real rows of the
+        # scene.  The count is what item c pinned and the count is
+        # unchanged -- what moved is which list they sit in, so the check
+        # follows them rather than reporting zero and calling it a move.
+        self.assertEqual(
+            [row[1] for row in field_mob_tables_bg0002.UNRESOLVED_PLACEMENTS
+             if row[1] == 27],
+            [],
+            "template 27 is unresolved in Bg0002 again -- the re-mining "
+            "that resolved it has been reverted, and the four rows below "
+            "no longer ship",
+        )
+        shipped_27 = [
+            row[0] for row in field_mob_tables_bg0002.HOSTILE_PLACEMENTS
             if row[1] == 27
         ]
         self.assertEqual(
-            len(unresolved), 4,
-            "Bg0002 no longer holds exactly the four unresolved template-27 "
+            shipped_27, [36, 37, 38, 39],
+            "Bg0002 no longer ships exactly the four template-27 "
             "placements COO-DECISION 1641 item c counted; the number this "
             "test was written against has moved",
         )

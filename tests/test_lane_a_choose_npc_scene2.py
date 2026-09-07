@@ -68,7 +68,18 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 PRISON_EXILE = 2
 ROSTER_COUNT = 97
-HOSTILE_COUNT = 12
+# ROUND najn72 (LANE-B, in LANE-A's file, and said out loud rather than done
+# quietly): ~~12~~ -> 52.  LANE-B re-mined Bg0002 through the crosswalk
+# identity rule with the owner's outfit rule (NOW.md `1313`, owner tick
+# 20260908_0025 item 1), so ``field_mobs.load_roster(scene='Bg0002')`` ships
+# 52 rows.  ONLY THE COUNTS MOVE HERE: no assertion of this file is relaxed,
+# and the membership property this file is really about --
+# ``test_every_hostile_row_is_one_of_the_ninety_seven`` -- still holds
+# unchanged, which is the reason ROSTER_COUNT above did not move: LANE-A's
+# census is the same 97 actors and every one of the 52 hostile rows is
+# inside it.  A letter to LANE-A is in pf_bridge/notes_to_chief for this
+# round; if LANE-A wants these pins written differently, they are LANE-A's.
+HOSTILE_COUNT = 52
 QUALIFIED_MODULE = (
     "pirateforce_foundation.lane_hooks.lane_a_choose_npc_scene2"
 )
@@ -747,7 +758,7 @@ class TheLedgerPathTests(unittest.TestCase):
         line = response.console_lines[0]
         self.assertIn("wounded=0", line)
         self.assertIn("dead_at_ceiling=1", line)
-        self.assertIn("from_ledger=11", line)
+        self.assertIn("from_ledger=51", line)  # ROUND najn72: ~~11~~ (52 - 1)
 
     def test_the_dead_body_line_names_the_identity_in_hex(self):
         """Every identity in this tree is written ``0x2033``; a decimal one
