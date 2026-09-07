@@ -18,8 +18,11 @@ currently deals the same damage numbers GT-035 already published".
     per-character battle-stat source DOES exist now, on `main`, in LANE-DB's
     territory: `migrations/006_character_typed_attribute_columns.sql` adds
     `characters.level` and `characters.class_id`, `migrations/
-    009_character_birth_defaults.sql` gives `level` a `DEFAULT 1` and names
-    it one of the three birth-seeded columns, and `store.py` already ships
+    009_character_birth_defaults.sql` gives `level` a `DEFAULT 1` (that
+    file's own opening line says FOUR columns carry a DEFAULT -- `level`,
+    `hp_current`, `hp_max`, `speed_walk`; an earlier draft here said "three",
+    which is 009's count of a different list -- pf-adversary D11), and
+    `store.py` already ships
     both reading doors -- `read_typed_attributes` (level) and
     `read_class_id_by_identity` ("`class_id` of the ACTIVE character carrying
     this wire identity").  Nothing in this module writes, migrates, or
@@ -32,9 +35,19 @@ for a FOURTH copy of `ATK_BASE`/`K_ATK_STR`/etc") and this module holds that
 line harder: it does not compute a damage number at all.  It builds a
 `mob_combat.Combatant` -- the record whose `attack` property IS the formula,
 owned by `mob_combat.py` -- and every constant it needs is imported from
-there rather than restated.  It is also NOT a wiring change: `runtime.py` is
-outside this lane's write zone (`prompts/LANE-CS.md`: "`runtime.py`/`app.py`/
-`store.py`/`gm/` (seam = one CORE-REQUEST per seam)"), so the one line that
+there rather than restated.
+
+    PRECISELY WHAT `class_id` DOES AND DOES NOT DO (pf-adversary D8).  It is
+    a GATE, never an input to the record: two characters of different classes
+    at the same level get IDENTICAL numbers out of this module, and the
+    five-line headless block below is five labels over one number, not a
+    per-class measurement.  The class decides WHETHER this module answers;
+    the level decides WHAT it answers.  It is also NOT a wiring change: `runtime.py` is
+outside this lane's write zone -- `prompts/LANE-CS.md` names `runtime.py`,
+`app.py`, `store.py` and `gm/` as seams, one CORE-REQUEST per seam.  That
+clause is an ENGLISH RENDERING of a Thai line, not a quotation of it; an
+earlier draft presented it inside quote marks (pf-adversary D3), which is the
+same defect this lane was hit for in round `75udgf`.  So the one line that
 would put this module on the live path is a CORE-REQUEST, filed in the same
 round as this file, NOT edited here.
 
@@ -70,6 +83,7 @@ from . import mob_combat
 from .persistence_standard_status import (
     STANDARD_STATUS_MAX_LEVEL,
     STANDARD_STATUS_MIN_LEVEL,
+    StandardStatusError,
     standard_status_row,
 )
 
@@ -82,6 +96,21 @@ REFUSE_LEVEL_OFF_TABLE = "level_is_outside_the_committed_table"
 REFUSE_CLASS_ID_NOT_AN_INT = "class_id_is_not_an_int"
 REFUSE_CLASS_ID_UNKNOWN = "class_id_is_not_a_selectable_class"
 REFUSE_ABILITY_STR_NOT_AN_INT = "ability_str_is_not_an_int"
+#: pf-adversary D4: `_require_int` only ever checked TYPE, so an in-type but
+#: out-of-range STR fell through to `Combatant.__post_init__` and came back
+#: as `mob_combat.MobCombatContractError` -- a DIFFERENT exception class than
+#: the one this module's own docstring tells callers to branch on.  That is
+#: not hypothetical: `migrations/006` bounds `stat_str` and `bonus_str` at
+#: 65535 each, so the obvious "this character's STR" (their sum) reaches
+#: 131070, over `Combatant`'s 100000 ceiling.
+REFUSE_ABILITY_STR_OUT_OF_RANGE = "ability_str_is_outside_the_combatant_range"
+
+#: The bounds `mob_combat.Combatant.__post_init__` enforces on `ability_str`,
+#: restated here ONLY as the pair this module checks first so it can refuse in
+#: its own currency.  Kept beside the constant it mirrors so a reader sees the
+#: duplication; a test asserts the two still agree by walking `Combatant`.
+ABILITY_STR_MIN = 0
+ABILITY_STR_MAX = 100000
 
 #: The STR this project has actually watched, imported rather than restated.
 #: Re-exported under a name that says WHY it is still a pin, so a reader of a
@@ -124,7 +153,7 @@ def _require_int(value: object, what: str, reason: str) -> int:
     return value
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class CharacterBattleRow:
     """The two persisted columns this module reads, and nothing else.
 
@@ -173,7 +202,7 @@ def profile_for_character(
     level = _require_int(row.level, "level", REFUSE_LEVEL_NOT_AN_INT)
     try:
         standard_status_row(level)
-    except Exception as error:
+    except StandardStatusError as error:
         raise ClassAttackerProfileError(
             REFUSE_LEVEL_OFF_TABLE,
             "level %d is not carried by the committed progression table "
@@ -188,6 +217,12 @@ def profile_for_character(
     strength = _require_int(
         ability_str, "ability str", REFUSE_ABILITY_STR_NOT_AN_INT
     )
+    if not ABILITY_STR_MIN <= strength <= ABILITY_STR_MAX:
+        raise ClassAttackerProfileError(
+            REFUSE_ABILITY_STR_OUT_OF_RANGE,
+            "ability str %d is outside the range the combatant record "
+            "accepts, %d..%d" % (strength, ABILITY_STR_MIN, ABILITY_STR_MAX),
+        )
     return mob_combat.Combatant(
         level=level, ability_str=strength, ability_con=0
     )
@@ -237,8 +272,12 @@ def _headless_summary() -> tuple[str, ...]:
     Printed by ``python3 -m pirateforce_foundation.class_attacker_profile``.
     The last line is the token a ``HEADLESS_PROOF:`` block quotes; it says
     ARMED rather than WIRED on purpose -- nothing in ``src/`` calls this
-    module yet, and a token that said otherwise would be the exact kind of
-    "named, not observed" claim ``prompts/COMMON_LANE_ROUND.md`` forbids.
+    module yet, and a token that said otherwise would be claiming a wiring
+    that was named but never observed, which the house round rules forbid.
+    (pf-adversary, round ``hhmvit``, D3: an earlier draft put that phrase in
+    quotation marks and attributed it to a named file.  It appears in no
+    file in either repository -- it was this module's own words dressed as
+    a citation.)
 
     ``callers_in_src=0`` IS A WRITTEN CLAIM, NOT A RUNTIME MEASUREMENT, and
     saying so here is the point: a src module has no business scanning its

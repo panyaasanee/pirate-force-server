@@ -232,6 +232,89 @@ class RowsThatCannotAnswerAreRefusedByNameTests(unittest.TestCase):
         )
 
 
+class TheRefusalContractDoesNotLeakTests(unittest.TestCase):
+    """pf-adversary D4: an in-type but out-of-range STR used to come back as
+    `mob_combat.MobCombatContractError`, a different class than the one this
+    module's docstring tells callers to branch on."""
+
+    def test_an_out_of_range_ability_str_refuses_in_this_modules_currency(
+        self,
+    ):
+        for bad in (-1, class_attacker_profile.ABILITY_STR_MAX + 1, 131070):
+            with self.subTest(bad=bad):
+                with self.assertRaises(
+                    class_attacker_profile.ClassAttackerProfileError
+                ) as caught:
+                    class_attacker_profile.profile_for_character(
+                        _row(1, 7), bad
+                    )
+                self.assertEqual(
+                    class_attacker_profile.REFUSE_ABILITY_STR_OUT_OF_RANGE,
+                    caught.exception.reason,
+                )
+
+    def test_the_two_migration_str_columns_summed_are_refused_by_name(self):
+        # `migrations/006` bounds `stat_str` and `bonus_str` at 65535 each,
+        # so the obvious "this character's STR" reaches 131070.  That is the
+        # caller the module docstring says needs no change here, so it must
+        # get a named refusal rather than an uncaught foreign exception.
+        with self.assertRaises(
+            class_attacker_profile.ClassAttackerProfileError
+        ):
+            class_attacker_profile.profile_for_character(
+                _row(1, 7), 65535 + 65535
+            )
+
+    def test_the_restated_bounds_still_agree_with_the_combatant_record(self):
+        # The bounds are duplicated from `Combatant`; walk the real record to
+        # prove the copy has not drifted, in both directions.
+        mob_combat.Combatant(
+            level=7,
+            ability_str=class_attacker_profile.ABILITY_STR_MAX,
+            ability_con=0,
+        )
+        with self.assertRaises(Exception):
+            mob_combat.Combatant(
+                level=7,
+                ability_str=class_attacker_profile.ABILITY_STR_MAX + 1,
+                ability_con=0,
+            )
+
+    def test_a_table_read_failure_is_not_relabelled_as_a_bad_level(self):
+        # pf-adversary D5: `except Exception` reported an unreadable table as
+        # "your level is outside the table" -- wrong reason, and the message
+        # said level 7 is not carried when it is.  The arm is narrow now, so
+        # a foreign failure propagates instead of being mislabelled.
+        boom = OSError("[Errno 5] Input/output error: standard_status.tsv")
+        with mock.patch.object(
+            class_attacker_profile, "standard_status_row", side_effect=boom
+        ):
+            with self.assertRaises(OSError):
+                class_attacker_profile.profile_for_character(_row(1, 7))
+
+
+class TheRowCannotBeBuiltInTheWrongOrderTests(unittest.TestCase):
+    """pf-adversary D6: every selectable class id is also a legal level."""
+
+    def test_positional_construction_is_refused_outright(self):
+        with self.assertRaises(TypeError):
+            class_attacker_profile.CharacterBattleRow(4, 2)
+
+    def test_every_class_id_is_also_a_legal_level(self):
+        # This is WHY the row is keyword-only; if it ever stops being true
+        # the reason for that decision has changed and should be re-read.
+        for class_id in class_catalog.CLASS_IDS:
+            with self.subTest(class_id=class_id):
+                self.assertLessEqual(
+                    persistence_standard_status.STANDARD_STATUS_MIN_LEVEL,
+                    class_id,
+                )
+                self.assertLessEqual(
+                    class_id,
+                    persistence_standard_status.STANDARD_STATUS_MAX_LEVEL,
+                )
+
+
 class TheFormulaIsImportedNotCopiedTests(unittest.TestCase):
     def test_the_pinned_str_is_the_same_object_mob_combat_owns(self):
         self.assertIs(
@@ -290,19 +373,29 @@ class CallersInSrcTokenIsMeasuredTests(unittest.TestCase):
     """The token says `callers_in_src=0`.  This measures whether that holds."""
 
     def _importers(self):
+        # `rglob`, not `glob` (pf-adversary D2): the package has `gm/`,
+        # `lua_api/` and `lane_hooks/` subpackages whose modules import
+        # siblings routinely.  The earlier non-recursive scan let a real
+        # caller land in `gm/level_command.py` with the token still reading
+        # `callers_in_src=0` and every test green -- measured, not supposed.
         found = []
-        for path in sorted(SRC.glob("*.py")):
+        for path in sorted(SRC.rglob("*.py")):
             if path.name == "class_attacker_profile.py":
                 continue
-            text = path.read_text(encoding="utf-8")
+            text = path.read_text(encoding="utf-8", errors="replace")
             if "class_attacker_profile" in text:
-                found.append(path.name)
+                found.append(path.relative_to(SRC).as_posix())
         return found
 
     def test_the_token_count_matches_the_tree(self):
         importers = self._importers()
         summary = class_attacker_profile._headless_summary()[-1]
-        self.assertIn("callers_in_src=%d" % len(importers), summary)
+        # Whole-token match, not `assertIn` (pf-adversary D2): a token
+        # reading `callers_in_src=12` contains the substring
+        # `callers_in_src=1` and would have passed against one importer.
+        self.assertIn(
+            " callers_in_src=%d " % len(importers), " %s " % summary
+        )
 
     def test_the_module_still_has_no_caller_in_src(self):
         # When this fails, the wiring the CORE-REQUEST asked for has landed.
