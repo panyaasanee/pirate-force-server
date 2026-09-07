@@ -143,6 +143,7 @@ from typing import Any, Optional
 
 from . import field_mob_ai_tables
 from . import mob_aggro
+from . import mob_ai_rules
 from .field_mobs import FieldMob
 from .mob_combat import HitOutcome
 
@@ -1082,3 +1083,64 @@ def pin_document(mobs: tuple[FieldMob, ...]) -> dict:
         "nonclaims": list(MOB_AI_CONTROL_NONCLAIMS),
         "wiring": MOB_AI_CONTROL_WIRING,
     }
+
+
+# ---------------------------------------------------------------------------
+# The join between the mined AI_COMBAT row and the parser that reads it.
+# PANYA-DECISION 20260906_2032 work item 4: "connect to mob_aggro.tick without
+# writing a second controller" (COO-DECISION 2026-08-26 section 1.3 forbids
+# two threat implementations).  Nothing below picks a TARGET or moves a
+# monster -- mob_aggro owns both, and this file already routes every tick
+# through it.  What these two functions answer is the question mob_aggro does
+# not ask: once the monster has decided to act on its target, WHICH of its
+# own rule lines is the one the table gives it.
+
+
+def combat_program_of(mob: FieldMob) -> Optional[mob_ai_rules.CombatProgram]:
+    """The parsed AI_COMBAT program of one roster monster, or None.
+
+    None means the table says this monster HAS no combat AI (``n_AI_COMBAT``
+    is 0), which ``ai_rows_of`` already distinguishes from a dangling key --
+    the dangling key still raises there, by name.  So None here is a fact
+    about the monster and never a swallowed error.
+
+    Parsed on demand rather than cached: the tables are frozen at import and
+    a program is a few hundred bytes, so a cache would buy nothing and would
+    add a second place where a stale row could live.
+    """
+    _wander, combat = ai_rows_of(mob)
+    if combat is None:
+        return None
+    return mob_ai_rules.parse_program(mob.ai_combat, combat[0], combat[1])
+
+
+def combat_line_for(register: MobAiRegister, actor_identity: int,
+                    state: mob_ai_rules.EvalState,
+                    rng: Any = None) -> Optional[mob_ai_rules.RuleLine]:
+    """The rule line this monster's own table row selects, or None.
+
+    Takes an IDENTITY for the same reason ``tick_step`` does: the register is
+    the only thing that knows which row belongs to which identity, and a
+    signature that took the row would let a driver drive one monster from
+    another monster's rules without raising.
+
+    None has two meanings and the caller may not conflate them with an
+    action: the monster has no combat AI at all, or no line matched (a row
+    with no ``GO(0)`` default).  Either way the answer is "this monster does
+    not act on a rule this tick" -- never "use the line above".
+
+    ``state`` is the DRIVER'S observation of the world, exactly as
+    ``tick_step`` takes the driver's ``MobObservation``.  This module reads no
+    positions off a wire and invents no HP.  ``rng`` is the caller's generator;
+    a row with a ``RATE`` token and no generator raises rather than drawing
+    from the module-global stream.
+    """
+    if type(register) is not MobAiRegister:
+        raise MobAiControlError(
+            REFUSE_TYPE_NOT_TYPED_RECORD,
+            "register must be a typed MobAiRegister")
+    row = register.row_of(actor_identity)
+    program = combat_program_of(row.mob)
+    if program is None:
+        return None
+    return mob_ai_rules.choose(program, state, rng)
