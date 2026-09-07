@@ -46,7 +46,7 @@ trusting a claim here that a mismatch would invalidate):
 | vital id | name | direction | layout status |
 |---|---|---|---|
 | 0x5A19 | `GM_UpdateGMStateVital` | server->client | **proven**: u8tag(0x0B) + u8tag(0x0B) + u32tag(0x14), span_sha256 `03b18673...033c661` |
-| 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + ~~UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE~~ **CORRECTED round `q6p0pb` (2026-09-02): each wide string is `tag 0x48 + uint32le byte count + UTF-16LE` = 5+N bytes**, per `PF_A2_STRING_WIRE_TAG_DELTA.tsv` (sha256 `e1f4f987...e208b3a2`) rows 6266/6267/6279/6280 -- same nested span sha256 as pinned here, tag instructions `0x0089A833`/`0x0089A89C` `push 0x48`. This is the SAME shape row 0x9F2C below already proved against real captured frames, which is what makes the coarse `UNTAGGED_*` label in `PF_SERIALIZER_FIELDS.tsv` the outdated one, not a second opinion. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
+| 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + ~~UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE~~ **CORRECTED round `q6p0pb` (2026-09-02): each wide string is `tag 0x48 + uint32le byte count + UTF-16LE` = 5+N bytes**, per `PF_A2_STRING_WIRE_TAG_DELTA.tsv` (sha256 `e1f4f987...e208b3a2`) rows 6266/6267/6279/6280 -- same nested span sha256 as pinned here, tag instructions `0x0089A833`/`0x0089A89C` `push 0x48`. **READING THIS ROW AGAINST A HEXDUMP (RE-292, round `m133mu`):** the shape above is the CLASS BODY, and it starts at the SECOND `0B` pair on the wire, not the first.  Every runtime vital carries a one-byte `vital_version` under tag `0x0B` written by the common envelope (VA `0x005F3993`) between the u16 class id and the class serializer's first byte, and `parse_outer` in `current/pf_login_game_server_v141.py` already consumes it before slicing `nested_payload`.  So R322B frame 1, `0B 00 0B 01 14 01000000 14 00000000 0B 01 48 00000000 48 00000000`, is `vital_version=0` and then `presence=1` -- laying this row against those bytes from the left reads the version as the presence flag, comes out `presence=0` with 24 bytes left over, and loses the command. Pinned by `tests/test_gm_run_command_envelope_version_boundary.py`. This is the SAME shape row 0x9F2C below already proved against real captured frames, which is what makes the coarse `UNTAGGED_*` label in `PF_SERIALIZER_FIELDS.tsv` the outdated one, not a second opinion. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
 | 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **proven**: single u8tag(0x0B) @+0x14, span_sha256 `ad65d125...633e9`. Meaning of the byte not proven (RE-088 explicitly declines to call it success/error). Decoder: `gm/command_wire.py`. |
 | 0x162E | `CheatVital` | both | ~~proven: single UNTAGGED_STRING8_LEN32LE @+0x14~~ **CORRECTED round `q6p0pb` (2026-09-02): tag `0x44` + `uint32le` byte count + payload = 5+N bytes @+0x14**, per `PF_A2_STRING_WIRE_TAG_DELTA.tsv` (sha256 `e1f4f987...e208b3a2`) rows 565/566, tag instructions `0x0089A6F1`/`0x0089A75C` `push 0x44`, same base span sha256 the module already pinned (reference only, not reused as GM wire). Codec: `gm/cheat_wire.py` (round `thhkup`, corrected `q6p0pb`) -- round-trip encode/decode, rejects a wrong tag and rejects the old 4+N shape, tested, NOT wired into `dispatch.py`/`runtime.py`; see that module's docstring for why the "not reused" note stays true. |
 | 0x9F2C | `Channel_GMGlobalMessageVital` | server->client (Global-scope `Channel_*` family) | **already proven elsewhere in this repo -- do not re-derive or re-codec in this lane's zone.** `reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md` (byte-exact static, 69 static guards + `tests/test_chat_channel_family_static.py`, 15 passed) proves `Channel_GMGlobalMessageVital` shares serializer `0x65AD40` with four other channels (LocalTalk/Party/Guild/ActorBoardcast) byte-for-byte identically: `tag 0x48 + u32 byte-length + UTF-16LE` wstring codec, field order `speaker@+0x34` then `body@+0x18`. This is a **different, more specific wire shape** than `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`'s coarser `UNTAGGED_WSTRING16LE_LEN32LE` label for the same offsets implies (no leading tag byte) -- the report's claim is corroborated against real captured GT-006 frames (three independent byte-for-byte hash cross-checks against pins produced by an unrelated code path), which the TSV row alone is not. `src/pirateforce_foundation/channel_message_hypothesis.py` already implements a tested encoder/decoder for all five shared-serializer channels including this one (`CHANNEL_MESSAGE_FIELD_ORDER`, `SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVital"] = 0x9F2C`). **This lane tried to build its own codec for this message in a since-retracted round (see "Attempted and retracted" below) before finding this.** `gm/say_wire.py` (say-wire round, below) now bridges a parsed `say` `GmCommand` to that existing encoder by import -- no second codec. |
@@ -144,6 +144,51 @@ semantics (RE-091) or a real capture close that gap.
   to record. The two decoded strings are client-controlled bytes and go
   through the same `unicode_escape` header-injection guard already used for
   `account_name`.
+
+### The `# decode:` contract a reader can grep (round `xex30b`)
+
+Every header line the sink writes starts `# decode: `, and exactly three
+outcomes exist.  This is the contract the docstring of `_decode_section`
+told readers to grep for while this document said nothing about it
+(pf-adversary round `uk16x4`, L3):
+
+**Grep these ANCHORED (`grep -c '^# decode: ...'`), never as a substring.**
+The decoded strings are CLIENT-CONTROLLED and they are printed on their own
+`# decode: string_0x1c="..."` line, so a GM panel text box can contain the
+text `# decode: FAILED against RE-088 pin` and an unanchored count will read
+it.  `_escape_for_header` stops a client from forging a whole LINE (it
+escapes the newline), which is what makes the anchored form safe; it does
+not stop a client from forging text INSIDE one (pf-adversary round
+`xex30b`, D3).
+
+| grep for (anchored) | what it means |
+|---|---|
+| `^# decode: presence=` | the pinned five fields decoded, or presence was 0 |
+| `^# decode: FAILED against` | the bytes did not match the RE-088 pin.  **Exactly one such line per capture**, so a count is meaningful -- anchored, and only anchored |
+| `^# decode: TRAILING` | bytes remained after this vital's body |
+
+`TRAILING` comes in two flavours and the wording is the whole signal:
+
+- **`CONSISTENT WITH a multi-vital frame`** -- the leftover OPENS with a
+  well-formed nested vital header: at least five bytes, tag `0x12` at byte
+  0, tag `0x0B` at byte 3 (RE-292).  No `FAILED` line accompanies it,
+  because a multi-vital frame is a shape, not a defect.
+- **anything else** -- the leftover keeps its `FAILED` line and the header
+  says the cause is unknown here (a splice bug at the tail, a sixth field
+  the RE-088 pin does not know, or a shape nobody has measured).
+
+**NONCLAIM**, and it is deliberately printed in the capture itself: the
+header rule is NECESSARY, NOT SUFFICIENT.  v141's `parse_outer` opens an
+OUTER packet with `outer_id = c.u16(0x12)` as well, so a second whole packet
+appended at the tail also starts with that byte -- it is refused only
+because byte 3 of an outer packet is `0x14`.  Deciding more than "consistent
+with" needs `vital_walk`'s declared body lengths and a `legacy` handle,
+which this sink does not take.  An earlier version checked byte 0 alone and
+asserted a cause outright; do not walk it back.
+
+Pinned by `tests/test_gm_command_capture_splice_contract.py`
+(`TheOneByteGuardIsNotEnoughTests`,
+`APresenceZeroFirstVitalIsNotAnUnstrippedEnvelopeTests`).
 
 ## Modules delivered (npc-switch-catalog round)
 
