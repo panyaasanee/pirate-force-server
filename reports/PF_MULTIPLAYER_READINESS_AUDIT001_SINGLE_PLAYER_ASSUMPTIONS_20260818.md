@@ -357,6 +357,26 @@ and `test_tornado_eagle_strict_profile`) for the GEO-PF-006 GT-034 observation s
 counts test functions in those files, so it moves in the same commit as the tests. Re-derived on the cloud clone
 by `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
 
+**Re-pin, chief round 389 (2026-09-07): `package_a_pinned_test_functions` 96 -> 105, and the L06
+guard re-spelled a second time.** Rounds 388 and 389 are one piece of work: 388's pull request
+(server `#1039`) went red at the Windows gate and was closed by `merge-claude-pr.yml`, so its commits
+land here instead. `tests/test_runtime_console.py` is one of the seven package-A pinned files; 388
+added three tests to it and 389 added six more (teardown forwards, the warning fires once, the
+forward survives a fallback cycle and a raising fallback, and the mirror reports the encoding of the
+console it wraps), plus a subprocess test that measures the exit code itself. The pinned-impact
+number counts test functions in those files, so it moves in the same commit as the tests.
+
+🔴 **Correction to round 388's own note, which is why `#1039` was red.** 388 wrote that "the L06 pin
+matches on the factory call, which did not move". It did move. `RuntimeConsole.__init__` now reads
+`self._installed_out = build_console_mirror(...)` followed by `sys.stdout = self._installed_out`, so
+the pinned pattern `sys\.stdout = build_console_mirror\(` matched zero times and `mpaudit` exited 1
+with `assumption L06 ... found 0 at []`. The claim was never measured on the branch; the audit was
+run before the rename and not after. The pin now follows the process-wide swap itself
+(`sys\.stdout = self\._installed_out`), which is what L06 actually asserts, and the separate claim
+that the mirror is built through the factory is pinned where it belongs, in
+`test_runtime_console.test_runtime_console_installs_what_the_factory_returns`. The assumption is
+unchanged in substance: stdout and stderr are still swapped process-wide for one mirrored console.
+
 **Re-pin, chief round 386 (2026-09-07): `package_a_pinned_test_functions` 93 -> 96, and the L06
 guard re-spelled.** Same rule as the re-pins above, not drift and not a correction:
 `tests/test_runtime_console.py` is one of the seven package-A pinned files, and round 386 added three
@@ -433,7 +453,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "package_a_files_new": 1,
   "package_a_sites_covered": 32,
   "package_a_pinned_test_files": 7,
-  "package_a_pinned_test_functions": 96,
+  "package_a_pinned_test_functions": 105,
   "package_b_files_touched": 5,
   "package_b_files_new": 2,
   "package_b_sites_covered": 6,

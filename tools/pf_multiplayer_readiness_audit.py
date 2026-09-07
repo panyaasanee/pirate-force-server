@@ -229,10 +229,15 @@ ASSUMPTION_SITES = (
     ("L05", "capture", APP, r"os\.chdir\(capture_root\)", 1,
      "the server chdirs the whole process into one capture root"),
     ("L06", "capture", RUNTIME_CONSOLE,
-     r"sys\.stdout = build_console_mirror\(", 1,
+     r"sys\.stdout = self\._installed_out", 1,
      "stdout/stderr are swapped process-wide for one mirrored console "
-     "(CORE-REQUEST-GM-064 moved the construction behind the factory; "
-     "the assumption is unchanged, only its spelling)"),
+     "(CORE-REQUEST-GM-064 moved the construction behind the factory, "
+     "then close() had to remember WHICH object it installed so it only "
+     "restores its own; the assumption is unchanged, only its spelling. "
+     "The pin follows the process-wide swap, not the construction: that "
+     "the mirror is built through the factory is pinned by "
+     "test_runtime_console.test_runtime_console_installs_what_the_"
+     "factory_returns)"),
 
     # --- interlock: why a half-done fix is worse than none ----------------
     ("X01", "interlock", RUNTIME, r"self\.foundation\.checkpoint\(candidate\)", 1,
