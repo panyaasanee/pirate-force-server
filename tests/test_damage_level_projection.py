@@ -7,22 +7,29 @@ pinned attacker, and the practice-dummy row out of the shipped roster.
 
 THE EXCEPTIONS, NAMED, BECAUSE AN EARLIER VERSION OF THIS PARAGRAPH SAID
 "every" AND WAS WRONG.  `TheDummyItselfIsPinnedHere` transcribes the dummy's
-`max_hp`, `level` and `template_id`, and `TheColumnThatWentToChiefIsPinned`
-transcribes the eleven numbers that were actually sent.  Both are transcribed
-ON PURPOSE, and the first one is a fix, not an oversight: the hit-count
+`max_hp`, `level` and `template_id`; `TheColumnThatWentToChiefIsPinned`
+transcribes the eight rows the `0910` letter sent (32 numbers, of which the 16
+in the first two columns are the ones that actually left this lane -- the word
+"eleven" stood here and matched nothing, ADVERSARY S7/D6); and
+`AnHpThisModuleCannotCountFromIsRefused` transcribes 223 and 217, the two
+counts the D8 paragraph is about.  All are transcribed ON PURPOSE, and the
+first is a fix, not an oversight: the hit-count
 assertions have `mob.max_hp` on BOTH sides, so before this pin existed,
 moving `max_hp` from 198125 to 99999 left this file reporting green with every
 hit count in it silently wrong.  A derivation cannot anchor itself; one end of
 it has to be nailed to something that does not move when the source does.
 """
 
+import array
 import ast
 import collections.abc
 import dataclasses
+import inspect
 import math
 import pathlib
 import re
 import sys
+import textwrap
 import types
 import unittest
 
@@ -76,54 +83,190 @@ def _ABOVE_CEILING_PROBES(ceiling):
             100 * ceiling, 1000 * ceiling, 2 ** 31 - 1)
 
 
-def _declared_level_bounds():
-    """The `[minimum, maximum]` `Combatant.__post_init__` declares for `level`.
+def _declared_level_gate():
+    """The `(label, minimum, maximum)` `Combatant.__post_init__` declares.
 
     Read out of the shipped source with `ast` rather than out of a refusal
     message, because a message is formatted by the same code that would have
     to be wrong for this to matter.  The body is required to be nothing but
     `_require_int` calls so that "this call is the accepted set" is a checked
     statement and not an assumption -- see :func:`_combatant_max_level` step 1.
+
+    S1: THE READER IS JOINED TO THE RUNTIME OBJECT.  Adversary broke the
+    previous version with a decoy `class Combatant` inside an uncalled
+    function (`ast.walk` is breadth-first and the old loop kept the LAST
+    match, so the decoy won) and with a monkeypatched `__post_init__` (which
+    the source never sees).  Two lines close both: exactly one `Combatant`
+    class node may exist in the file, and the `ast.FunctionDef` picked here
+    must be the very code object `mob_combat.Combatant.__post_init__` runs --
+    same file, same first line.  A monkeypatch moves `co_filename` into
+    whatever module patched it, so it can no longer hide behind the source.
+
+    S6: IT DIAGNOSES INSTEAD OF DYING.  A docstring on `__post_init__` used
+    to be reported as "calls something other than `_require_int`", and a
+    keyword argument raised a bare `IndexError` with no message at all --
+    both at import time, which took the whole file down with a wrong
+    explanation.  A leading docstring is now allowed and skipped, and every
+    other shape is named, with the file and function in the message.
     """
     source = (ROOT / "src" / "pirateforce_foundation" / "mob_combat.py")
     tree = ast.parse(source.read_text(encoding="utf-8"))
-    post_init = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "Combatant":
-            for item in node.body:
-                if (isinstance(item, ast.FunctionDef)
-                        and item.name == "__post_init__"):
-                    post_init = item
-    assert post_init is not None, (
-        "`Combatant.__post_init__` is not in the shipped source; this file "
-        "reads the level gate out of it")
+    post_init = _the_only_post_init(tree)
+    _join_source_to_running_gate(post_init, source)
+    return _gate_out_of(post_init)
+
+
+def _the_only_post_init(tree):
+    """The one `Combatant.__post_init__` in `tree`, or an AssertionError.
+
+    Split out of :func:`_declared_level_gate` so the decoy case can be
+    measured on a parsed decoy rather than described in prose (S1).
+    """
+    where = "`mob_combat.Combatant.__post_init__`"
+    classes = [node for node in ast.walk(tree)
+               if isinstance(node, ast.ClassDef) and node.name == "Combatant"]
+    assert len(classes) == 1, (
+        "`mob_combat.py` defines %d classes named `Combatant`; this file "
+        "reads the level gate out of the source and cannot tell which one "
+        "the record uses (S1: a decoy class is how the previous reader was "
+        "fooled)" % (len(classes),))
+    post_inits = [item for item in classes[0].body
+                  if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and item.name == "__post_init__"]
+    assert len(post_inits) == 1, (
+        "%s is defined %d times in the shipped source; this file reads the "
+        "level gate out of it" % (where, len(post_inits)))
+    return post_inits[0]
+
+
+def _join_source_to_running_gate(post_init, source):
+    """Assert the parsed `post_init` IS the code the record runs (S1)."""
+    where = "`mob_combat.Combatant.__post_init__`"
+    running = getattr(mob_combat.Combatant, "__post_init__", None)
+    code = getattr(running, "__code__", None)
+    assert code is not None, (
+        "%s is not a plain Python function at run time (%r); the source this "
+        "file reads and the gate the record runs cannot be joined"
+        % (where, running))
+    assert pathlib.Path(code.co_filename) == source, (
+        "%s runs from %s, not from the shipped source %s that this file "
+        "parses -- the two oracles are not the same gate (S1)"
+        % (where, code.co_filename, source))
+    # ADVERSARY D2: `ast.FunctionDef.lineno` EXCLUDES DECORATORS AND
+    # `co_firstlineno` INCLUDES THEM.  One `@_traced` on the validation hook
+    # -- the ordinary shape for a validator -- fired this assertion with a
+    # diagnosis that was flatly wrong (the reader WAS on the right gate), at
+    # collection time, taking every test in the file with it.  The
+    # declaration spans from the first decorator to the `def`, and the code
+    # object has to start inside that span.
+    declared_from = min(
+        [post_init.lineno]
+        + [node.lineno for node in post_init.decorator_list])
+    assert declared_from <= code.co_firstlineno <= post_init.lineno, (
+        "%s runs code starting at line %d while the source this file parsed "
+        "declares it at lines %d-%d; the reader is not looking at the gate "
+        "the record runs (S1)"
+        % (where, code.co_firstlineno, declared_from, post_init.lineno))
+
+
+def _gate_out_of(post_init):
+    """`(label, minimum, maximum)` read off the parsed `post_init` body."""
+    where = "`mob_combat.Combatant.__post_init__`"
+    body = list(post_init.body)
+    if (body and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)):
+        body = body[1:]          # a docstring is not a gate (S6)
+    assert body, (
+        "%s has no statements left after its docstring; this file asserts "
+        "the level gate is one `_require_int` call" % (where,))
     found = []
-    for statement in post_init.body:
+    for statement in body:
         assert isinstance(statement, ast.Expr), (
-            "`Combatant.__post_init__` gained a statement that is not a bare "
-            "call (%s).  This file asserts the level gate is one "
-            "`_require_int` call; a second gate would make every sweep here "
-            "cover a subset of what the record accepts." % (
-                type(statement).__name__,))
+            "%s gained a statement that is not a bare call (%s).  This file "
+            "asserts the level gate is one `_require_int` call; a second "
+            "gate would make every sweep here cover a subset of what the "
+            "record accepts." % (where, type(statement).__name__))
         call = statement.value
         assert (isinstance(call, ast.Call)
                 and isinstance(call.func, ast.Name)
                 and call.func.id == "_require_int"), (
-            "`Combatant.__post_init__` calls something other than "
-            "`_require_int`; see the assertion above for why that matters")
-        target = call.args[0]
-        if (isinstance(target, ast.Attribute) and target.attr == "level"):
+            "%s calls something other than `_require_int`; see the assertion "
+            "above for why that matters" % (where,))
+        assert not call.keywords and len(call.args) == 4, (
+            "%s calls `_require_int` with %d positional arguments and %d "
+            "keywords; this file reads (value, label, minimum, maximum) by "
+            "position and will not guess at any other spelling (S6)"
+            % (where, len(call.args), len(call.keywords)))
+        target, label = call.args[0], call.args[1]
+        if isinstance(target, ast.Attribute) and target.attr == "level":
+            assert (isinstance(label, ast.Constant)
+                    and isinstance(label.value, str)), (
+                "the level gate in %s labels itself with something that is "
+                "not a string literal; this file probes `_require_int` with "
+                "that exact label" % (where,))
             bounds = call.args[2], call.args[3]
             for bound in bounds:
                 assert isinstance(bound, ast.Constant) and isinstance(
                     bound.value, int), (
-                    "the level bounds in `Combatant.__post_init__` are not "
-                    "plain int literals any more; this file cannot read them")
-            found.append((bounds[0].value, bounds[1].value))
+                    "the level bounds in %s are not plain int literals any "
+                    "more; this file cannot read them" % (where,))
+            found.append((label.value, bounds[0].value, bounds[1].value))
     assert len(found) == 1, (
-        "`Combatant.__post_init__` has %d range checks on `level`, not one; "
-        "the accepted set is no longer a single interval" % (len(found),))
+        "%s has %d range checks on `level`, not one; the accepted set is no "
+        "longer a single interval" % (where, len(found)))
     return found[0]
+
+
+def _declared_level_bounds():
+    """The `[minimum, maximum]` half of :func:`_declared_level_gate`."""
+    _, minimum, maximum = _declared_level_gate()
+    return minimum, maximum
+
+
+def _require_int_is_that_interval(label, lo, hi):
+    """Measure `mob_combat._require_int` itself against its own contract (S1).
+
+    Step 1 of :func:`_combatant_max_level` checks that `__post_init__` CALLS
+    `_require_int`; adversary's second island was five lines added inside
+    `_require_int`, which that check never looks at.  So the helper is
+    measured here the same way the record is: with the LABEL the gate
+    actually passes (a version that special-cases `"level"` cannot hide
+    behind a probe using some other label), over the edges of the band, and
+    at the same decades sampled above it.  Accepting anything outside
+    `[lo, hi]`, or refusing anything inside, is an island wherever it was
+    written.
+    """
+    def accepted(value):
+        try:
+            mob_combat._require_int(value, label, lo, hi)
+        except mob_combat.MobCombatContractError:
+            return False
+        return True
+
+    # ADVERSARY D1: THIS WAS FIVE SAMPLED POINTS AND IT INHERITED THE EXACT
+    # BLIND SPOT IT WAS WRITTEN TO CLOSE.  With `[1500, 1600]` written into
+    # `_require_int` itself -- depending on nothing but its four arguments,
+    # so the nonclaim above did not cover it -- the whole file stayed green,
+    # because 1500 is in neither list.  It scans the window now, exactly as
+    # step 2 scans the record: same cost, no sampled gap below the span.
+    inside = tuple(range(lo, hi + 1))
+    outside = (tuple(range(max(0, lo - 8), lo))
+               + tuple(range(hi + 1, LEVEL_PROBE_SPAN + 1))
+               + _ABOVE_CEILING_PROBES(hi))
+    wrong = [value for value in inside if not accepted(value)]
+    assert not wrong, (
+        "`mob_combat._require_int(value, %r, %d, %d)` refuses %r, which is "
+        "inside the band it was handed" % (label, lo, hi, wrong))
+    leaked = [value for value in outside if accepted(value)]
+    assert not leaked, (
+        "`mob_combat._require_int(value, %r, %d, %d)` accepts %r, which is "
+        "outside the band it was handed; the gate the record declares is not "
+        "the gate `_require_int` enforces (S1)"
+        % (label, lo, hi, leaked[:8]))
+    for value in (True, 1.0, "1", None):
+        assert not accepted(value), (
+            "`mob_combat._require_int` accepts %r as a plain int" % (value,))
 
 
 def _combatant_max_level():
@@ -170,32 +313,41 @@ def _combatant_max_level():
          run time -- the exact shape adversary used.  `5 * hi` catches the
          `[5000, 6000]` island on today's bounds.
 
-    NONCLAIM, CORRECTED BY MEASUREMENT AND NOT BY REASONING.  A first version
-    of this paragraph claimed the three steps together meant an island "can
-    no longer be built by monkeypatching `__post_init__` or by editing the
-    range check in place".  pf-adversary refuted that on this very commit
-    with three working islands, all leaving the whole file green:
+      4. JOIN THE TWO ORACLES, AND MEASURE THE HELPER THE GATE DELEGATES TO
+         (S1).  Steps 1-3 were a reader of the source and a sampler of the
+         record with nothing tying them together, and pf-adversary built
+         three islands in that gap, all leaving the whole file green:
+         `[1500, 1600]` monkeypatched into `__post_init__` (it clears every
+         sampled point, and step 1 reads the SOURCE, which a monkeypatch does
+         not touch); five lines added to `mob_combat._require_int` itself
+         (step 1 checks that `__post_init__` CALLS it, never what it does);
+         and a decoy `class Combatant` inside an uncalled function (the old
+         reader kept the LAST `ast.walk` match).  Three questions replace
+         the trusting: `_declared_level_gate` requires exactly ONE
+         `Combatant` in the file and requires the `ast.FunctionDef` it read
+         to be the code object the record RUNS (`co_filename`, and
+         `co_firstlineno` inside the declaration's own span -- decorators
+         included, ADVERSARY D2), and
+         :func:`_require_int_is_that_interval` measures `_require_int` under
+         the label the gate passes it.
 
-      * `[1500, 1600]` monkeypatched into `__post_init__` -- it clears all
-        seven sampled points, and step 1 reads the SOURCE, which a
-        monkeypatch does not touch;
-      * five lines added to `mob_combat._require_int` itself -- step 1 checks
-        that `__post_init__` CALLS `_require_int`, never what that function
-        does;
-      * a decoy `class Combatant` inside an uncalled function -- `ast.walk`
-        is breadth-first and this reader keeps the LAST match, so the decoy
-        wins.
+    A FIRST VERSION OF THIS PARAGRAPH SAID "ALL THREE ARE CLOSED" AND WAS
+    MEASURED FALSE IN THE SAME ROUND.  Step 4's probe was five sampled points
+    inside the band and nine outside, so `[1500, 1600]` written into
+    `_require_int` itself -- depending on nothing but its four arguments,
+    which the nonclaim below did NOT cover -- left the whole file green while
+    `project_levels(mob, (1550,))` answered a row.  The probe scans the
+    window now, at the same cost as step 2, so there is no sampled gap below
+    `LEVEL_PROBE_SPAN` for an island to sit in.
 
-    So the honest statement of what the three steps buy is narrower: they
-    catch an island that a sampled decade lands in (`5 * hi` catches
-    `[5000, 6000]`), a hole inside the declared band, and a second range
-    check written into `__post_init__` itself.  They do NOT close the general
-    case, and the two oracles are not joined: nothing here checks that the
-    class the AST reads is the class the sampler instantiates.  Comparing
-    `Combatant.__post_init__.__code__.co_firstlineno` against the
-    `ast.FunctionDef` this reader picked would join them and would kill the
-    first and third islands; it is written up as next round's first work
-    rather than added at the end of a round that is already over budget.
+    WHAT IS STILL NOT CLOSED, STATED RATHER THAN IMPLIED.  A `_require_int`
+    that answers on WHO CALLED IT (or on a global mode flag) passes step 4,
+    because step 4 calls it directly -- it is caught only by step 2's scan,
+    which instantiates the record, and there is a test that fires exactly
+    that shape.  Above `LEVEL_PROBE_SPAN` both layers are back to sampled
+    decades, so an island there that no decade lands in is the remaining
+    hole.  That is why steps 2 and 3 both stay: they are the half that does
+    not care why a level is accepted.
     """
     def accepted(level):
         try:
@@ -204,7 +356,8 @@ def _combatant_max_level():
             return False
         return True
 
-    lo, hi = _declared_level_bounds()
+    label, lo, hi = _declared_level_gate()
+    _require_int_is_that_interval(label, lo, hi)
     assert accepted(lo), (
         "`Combatant.__post_init__` declares levels [%d, %d] but refuses its "
         "own lower bound %d" % (lo, hi, lo))
@@ -584,25 +737,77 @@ class TheDummyItselfIsPinnedHere(unittest.TestCase):
 
 
 class TheColumnThatWentToChiefIsPinned(unittest.TestCase):
-    """The eleven numbers that left this lane in a letter.
+    """The sixteen numbers that left this lane in a letter, plus a column.
 
     Deliberately transcribed: derived numbers cannot catch a letter that
     reported something the code never said.  If the shipped sources move,
     these go red and the letter has to be corrected -- which is the point.
     Rows are (level, UNCLAMPED damage per hit, hits to fell, what the LAST
-    swing prints).  The fourth column is transcribed for the same reason as
-    the other three, and it is the column the letter did not have: the letter
-    said "223 hits of 891" where the 223rd hit prints 323.
+    swing prints).
+
+    S7: THESE ARE THE ROWS THAT ACTUALLY WENT, AND SIX OF THEM WERE NOT.
+    The letter is `pf_bridge/notes_to_chief/20260907_0910_LANE-CS-TO-CHIEF-
+    pin-891-projection-for-core-request-row-032.md`, and its table has EIGHT
+    rows: levels 1, 3, 7, 10, 30, 40, 50, 100.  This class pinned six --
+    1, 7, 25, 40, 60, 100 -- so levels 25 and 60 were pinned as "reported to
+    chief" having never left this lane in any letter, while 3, 10, 30 and 50,
+    which did leave, were pinned nowhere.  A class named for a letter was
+    guarding a different set of numbers than the letter carried, and the word
+    "eleven" in the file docstring matched neither, and is gone from there
+    too.  Sixteen numbers left (eight
+    levels, two columns each).
+
+    THE FOURTH COLUMN IS THIS FILE'S, NOT THE LETTER'S, AND THAT IS THE
+    POINT.  The letter said "223 hits of 891" where the 223rd hit prints 323;
+    the final-swing column is transcribed here for the same drift-catching
+    reason as the other three, and is marked as an addition rather than a
+    quotation because no letter has carried it yet.
+
+    NO ORACLE, SAID PLAINLY (same shape as D10).  `pf_gate_preflight` runs
+    this suite with no `pf_bridge` beside it, so nothing here can open that
+    letter and check the levels against it.  The transcription is checked
+    against the MODULE; that it is the letter's set is checked by a reader.
     """
 
+    #: Level, unclamped damage per hit, hits to fell -- the eight rows of the
+    #: letter -- and the final swing, which the letter did not carry.
     REPORTED = (
         (1, 873, 227, 827),
+        (3, 879, 226, 350),
         (7, 891, 223, 323),
-        (25, 945, 210, 620),
+        (10, 900, 221, 125),
+        (30, 960, 207, 365),
         (40, 990, 201, 125),
-        (60, 1050, 189, 725),
+        (50, 1020, 195, 245),
         (100, 1170, 170, 395),
     )
+
+    #: The two columns that were in the letter, so a future edit cannot
+    #: quietly re-add a level nobody sent by appending a row above.
+    LEVELS_IN_THE_LETTER = (1, 3, 7, 10, 30, 40, 50, 100)
+
+    def test_the_pinned_levels_are_the_levels_the_letter_carried(self):
+        """AN EDIT GUARD, NOT A VERIFICATION, AND IT SAYS SO ITSELF.
+
+        Both sides of this comparison are transcribed in this file, so it is
+        the shape adversary killed once already (D1: two literals compared to
+        each other).  It is kept anyway, for the one thing it does do -- a
+        row appended to `REPORTED` without a matching edit above goes red --
+        and it is named as an edit guard so nobody quotes it as proof that
+        the eight levels are the letter's.  Nothing here can open the letter:
+        `pf_gate_preflight` runs this suite with no `pf_bridge` beside it.
+        The claim that these are the letter's levels is checked by a reader,
+        and S7 is what happens when nobody does that for a while.
+        """
+        self.assertEqual(
+            tuple(row[0] for row in self.REPORTED),
+            self.LEVELS_IN_THE_LETTER)
+        self.assertEqual(
+            len(set(self.LEVELS_IN_THE_LETTER)),
+            len(self.LEVELS_IN_THE_LETTER), "a level is pinned twice")
+        self.assertEqual(
+            list(self.LEVELS_IN_THE_LETTER),
+            sorted(self.LEVELS_IN_THE_LETTER), "the letter's table is sorted")
 
     def test_every_row_reported_to_chief_is_what_the_module_answers(self):
         mob = town_target_mob()
@@ -1062,32 +1267,194 @@ class TheCeilingIsTheRecordsOwnAndNotTheProbeWindows(unittest.TestCase):
         self.addCleanup(
             setattr, mob_combat.Combatant, "__post_init__", original)
 
-    def test_an_accepted_island_above_the_ceiling_is_caught(self):
-        """Adversary's construction, run against the new helper.
-
-        `[1, 1000] u [5000, 6000]` left the previous helper measuring 1000
-        and the whole suite green.  The sampled probes include `5 * hi`, so
-        it is now named.
-        """
-        lo, hi = _declared_level_bounds()
-
+    def _island(self, lo, hi, extra):
+        """A `__post_init__` that accepts `[lo, hi]` and `extra` as well."""
         def islanded(self_):
-            if lo <= self_.level <= hi or 5 * hi <= self_.level <= 6 * hi:
+            if lo <= self_.level <= hi or extra[0] <= self_.level <= extra[1]:
                 return
             raise ValueError("level")
+        return islanded
 
-        self._with_post_init(islanded)
+    def test_every_monkeypatched_island_is_now_caught_by_the_join(self):
+        """S1: the three islands adversary built, including the survivor.
+
+        `[5000, 6000]` was caught before by `5 * hi`.  `[1500, 1600]` was
+        NOT: it clears every sampled decade, and the source reader could not
+        see a monkeypatch at all.  Both are caught in the same place now and
+        for the same reason -- the gate the record RUNS is no longer the
+        source this file parsed, which is a fact about the patch and not
+        about which levels it happens to accept.
+        """
+        lo, hi = _declared_level_bounds()
+        for extra in ((5 * hi, 6 * hi), (1500, 1600), (hi + 1, hi + 2)):
+            with self.subTest(island=extra):
+                self._with_post_init(self._island(lo, hi, extra))
+                with self.assertRaises(AssertionError) as caught:
+                    _combatant_max_level()
+                self.assertIn("not from the shipped source",
+                              str(caught.exception))
+
+    def test_the_reader_and_the_record_are_the_same_gate(self):
+        """The join itself, asked of the helper rather than re-implemented.
+
+        ADVERSARY D4: an earlier version copied the two comparisons inline,
+        so deleting the helper's own `co_firstlineno` assertion changed
+        nothing anywhere -- the advertised join was dead code with a green
+        test beside it.  It calls the helper now.
+        """
+        source = ROOT / "src" / "pirateforce_foundation" / "mob_combat.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        post_init = _the_only_post_init(tree)
+        self.assertIsNone(_join_source_to_running_gate(post_init, source))
+        code = mob_combat.Combatant.__post_init__.__code__
+        self.assertEqual(pathlib.Path(code.co_filename), source)
+        declared_from = min(
+            [post_init.lineno]
+            + [node.lineno for node in post_init.decorator_list])
+        self.assertLessEqual(declared_from, code.co_firstlineno)
+        self.assertLessEqual(code.co_firstlineno, post_init.lineno)
+
+    def test_the_join_fires_when_the_running_gate_is_somewhere_else(self):
+        """D4's other half: the `co_firstlineno` arm, walked.
+
+        A function compiled from a fixture carries the shipped file's name
+        and a line number nowhere near the gate -- the one thing
+        `co_filename` on its own cannot see.
+        """
+        source = ROOT / "src" / "pirateforce_foundation" / "mob_combat.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        post_init = _the_only_post_init(tree)
+        namespace = {}
+        exec(compile("def __post_init__(self):\n    pass\n",
+                     str(source), "exec"), namespace)
+        self._with_post_init(namespace["__post_init__"])
         with self.assertRaises(AssertionError) as caught:
-            _combatant_max_level()
-        self.assertIn("above the declared gate", str(caught.exception))
+            _join_source_to_running_gate(post_init, source)
+        self.assertIn("runs code starting at line", str(caught.exception))
 
-    def test_a_second_gate_in_the_body_is_caught_before_any_probing(self):
-        """Step 1: the accepted set is ONE range check, and that is checked."""
+    def test_a_decorated_gate_does_not_take_the_file_down_either(self):
+        """ADVERSARY D2, measured on a compiled fixture rather than argued:
+        `ast` lineno excludes decorators and `co_firstlineno` includes them,
+        so one `@_traced` fired the join with a wrong diagnosis at collection
+        time.  The span rule the join uses accepts both numbers."""
+        namespace = {}
+        source = ("def _traced(fn):\n"
+                  "    return fn\n"
+                  "\n"
+                  "@_traced\n"
+                  "def __post_init__(self):\n"
+                  "    pass\n")
+        exec(compile(source, "fixture.py", "exec"), namespace)
+        picked = [node for node in ast.parse(source).body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "__post_init__"][0]
+        running = namespace["__post_init__"].__code__.co_firstlineno
+        self.assertNotEqual(
+            running, picked.lineno,
+            "the fixture no longer reproduces the decorator offset")
+        declared_from = min(
+            [picked.lineno] + [node.lineno for node in picked.decorator_list])
+        self.assertLessEqual(declared_from, running)
+        self.assertLessEqual(running, picked.lineno)
+
+    def test_a_decoy_combatant_class_is_refused_rather_than_preferred(self):
+        """S1's third island: `ast.walk` used to keep the LAST match.
+
+        Measured on a real decoy: the shipped source with adversary's
+        uncalled function appended.  The old reader answered `[1, 9999]`
+        here without a word; the reader refuses to choose at all, which is
+        the only honest answer -- it cannot tell which class the record is.
+        """
         source = (ROOT / "src" / "pirateforce_foundation"
                   / "mob_combat.py").read_text(encoding="utf-8")
-        self.assertIn('_require_int(self.level, "level", 1, 1000)', source)
+        decoyed = source + (
+            "\n\ndef _never_called():\n"
+            "    class Combatant:\n"
+            "        def __post_init__(self):\n"
+            "            _require_int(self.level, \"level\", 1, 9999)\n")
+        tree = ast.parse(decoyed)
+        self.assertEqual(
+            len([node for node in ast.walk(tree)
+                 if isinstance(node, ast.ClassDef)
+                 and node.name == "Combatant"]),
+            2, "the decoy did not parse as a second Combatant")
+        with self.assertRaises(AssertionError) as caught:
+            _the_only_post_init(tree)
+        self.assertIn("cannot tell which one", str(caught.exception))
+
+    def test_a_docstring_on_the_gate_does_not_take_the_file_down(self):
+        """S6: LANE-B adds a docstring and this file used to die at import.
+
+        The old reader called a docstring "something other than
+        `_require_int`" -- a wrong diagnosis, delivered at collection time,
+        for every test in the file.  The gate reads the same either way now.
+        """
+        source = (ROOT / "src" / "pirateforce_foundation"
+                  / "mob_combat.py").read_text(encoding="utf-8")
+        documented = source.replace(
+            '        _require_int(self.level, "level", 1, 1000)',
+            '        """Ranges, in one place."""\n'
+            '        _require_int(self.level, "level", 1, 1000)', 1)
+        self.assertNotEqual(documented, source, "the gate line moved")
+        self.assertEqual(
+            _gate_out_of(_the_only_post_init(ast.parse(documented))),
+            ("level", 1, 1000))
+
+    def test_a_keyword_argument_is_diagnosed_and_not_an_index_error(self):
+        """S6: `_require_int(value=..., ...)` used to raise a bare IndexError.
+
+        No message, no file name, nothing to act on -- and it took the whole
+        file down with it.  It is refused by name now, and the message says
+        what this reader will and will not read.
+        """
+        source = (ROOT / "src" / "pirateforce_foundation"
+                  / "mob_combat.py").read_text(encoding="utf-8")
+        keyworded = source.replace(
+            '_require_int(self.level, "level", 1, 1000)',
+            '_require_int(self.level, "level", minimum=1, maximum=1000)', 1)
+        self.assertNotEqual(keyworded, source, "the gate line moved")
+        with self.assertRaises(AssertionError) as caught:
+            _gate_out_of(_the_only_post_init(ast.parse(keyworded)))
+        message = str(caught.exception)
+        self.assertIn("keywords", message)
+        self.assertIn("mob_combat.Combatant.__post_init__", message)
+
+    def test_a_second_gate_in_the_body_is_caught_before_any_probing(self):
+        """Step 1: the accepted set is ONE range check, and that is checked.
+
+        S1: THIS WAS A SUBSTRING GREP OVER A 3070-LINE FILE.  `assertIn('_re
+        quire_int(self.level, "level", 1, 1000)', source)` passes if that
+        text appears ANYWHERE -- in a comment, in a docstring, in a second
+        class -- and says nothing about the statement the record runs.  It
+        asks the parsed gate now, which is the same object
+        `_combatant_max_level` measures.
+        """
+        label, lo, hi = _declared_level_gate()
+        self.assertEqual((label, lo, hi), ("level", 1, 1000))
+
+    def test_an_island_written_into_require_int_itself_is_caught(self):
+        """S1's second island: the helper the gate delegates to."""
+        original = mob_combat._require_int
+
+        def leaky(value, label, minimum, maximum):
+            if label == "level" and 5000 <= value <= 6000:
+                return value
+            return original(value, label, minimum, maximum)
+
+        mob_combat._require_int = leaky
+        self.addCleanup(setattr, mob_combat, "_require_int", original)
+        with self.assertRaises(AssertionError) as caught:
+            _combatant_max_level()
+        self.assertIn("not the gate `_require_int` enforces",
+                      str(caught.exception))
 
     def test_a_hole_inside_the_declared_band_is_still_caught(self):
+        """A hole is caught by the JOIN now, one step earlier than before.
+
+        The monkeypatch is what the assertion names, which is more nearly
+        true than "the accepted levels are not the interval": a patched
+        record is not the shipped record, whatever shape its holes have.
+        """
         lo, hi = _declared_level_bounds()
 
         def holed(self_):
@@ -1096,6 +1463,51 @@ class TheCeilingIsTheRecordsOwnAndNotTheProbeWindows(unittest.TestCase):
             raise ValueError("level")
 
         self._with_post_init(holed)
+        with self.assertRaises(AssertionError) as caught:
+            _combatant_max_level()
+        self.assertIn("not from the shipped source", str(caught.exception))
+
+    def test_a_hole_written_into_require_int_is_caught_by_the_window_scan(
+            self):
+        """ADVERSARY D1 closed both ways: the probe scans, so 137 is seen."""
+        original = mob_combat._require_int
+
+        def holed(value, label, minimum, maximum):
+            answer = original(value, label, minimum, maximum)
+            if label == "level" and answer == 137:
+                raise mob_combat.MobCombatContractError(
+                    mob_combat.REFUSE_VALUE_OUT_OF_RANGE, "hole")
+            return answer
+
+        mob_combat._require_int = holed
+        self.addCleanup(setattr, mob_combat, "_require_int", original)
+        with self.assertRaises(AssertionError) as caught:
+            _combatant_max_level()
+        message = str(caught.exception)
+        self.assertIn("refuses", message)
+        self.assertIn("137", message)
+
+    def test_the_full_scan_is_what_catches_a_caller_dependent_gate(self):
+        """Step 2 is not dead code, and this is the case that needs it.
+
+        ADVERSARY D4 asked what step 2 buys once step 4 exists.  This is the
+        answer, and it is exactly the nonclaim the helper states: a
+        `_require_int` that answers on WHO CALLED IT passes step 4's probe
+        (which calls it directly) and is caught only by instantiating the
+        record.
+        """
+        original = mob_combat._require_int
+
+        def two_faced(value, label, minimum, maximum):
+            caller = sys._getframe(1).f_code.co_name
+            if (caller == "__post_init__" and label == "level"
+                    and 100 < value < 200):
+                raise mob_combat.MobCombatContractError(
+                    mob_combat.REFUSE_VALUE_OUT_OF_RANGE, "hole")
+            return original(value, label, minimum, maximum)
+
+        mob_combat._require_int = two_faced
+        self.addCleanup(setattr, mob_combat, "_require_int", original)
         with self.assertRaises(AssertionError) as caught:
             _combatant_max_level()
         self.assertIn("not the interval", str(caught.exception))
@@ -1226,6 +1638,202 @@ class TheRequestThisModuleAnswersIsAddressedAndNotJustNamed(
             with self.subTest(condition=condition):
                 self.assertIn(condition, text)
         self.assertIn("is a TRANSLATION, not a quotation", text)
+
+
+
+class AnHpThisModuleCannotCountFromIsRefused(unittest.TestCase):
+    """S3: `_room` used to coerce the record's hp with `int()`.
+
+    The finding pf-adversary called the worst thing on the branch: with
+    `max_hp=1.5` the module ANSWERED -- `ProjectedRow(level=7, ...,
+    hits_to_fell=1, final_hit_damage=1)` -- a complete, ordinary-looking row
+    for a dummy no measurement could produce.  A truncation is not a check.
+    """
+
+    def _entry_points(self, mob):
+        return {
+            "hits_to_fell_at_level": lambda: (
+                projection.hits_to_fell_at_level(7, mob)),
+            "hits_to_fell_from_hp": lambda: (
+                projection.hits_to_fell_from_hp(7, mob, None)),
+            "final_hit_damage_at_level": lambda: (
+                projection.final_hit_damage_at_level(7, mob)),
+            "project_levels": lambda: projection.project_levels(mob, (7,)),
+            "production_pin_row": lambda: projection.production_pin_row(mob),
+        }
+
+    def test_a_fractional_max_hp_is_refused_and_not_answered_as_one(self):
+        mob = dataclasses.replace(town_target_mob(), max_hp=1.5)
+        for name, call in self._entry_points(mob).items():
+            with self.subTest(entry=name):
+                with self.assertRaises(
+                        projection.HpWillNotReadAsAnIntError) as caught:
+                    call()
+                self.assertIn("max_hp", str(caught.exception))
+
+    def test_the_row_that_used_to_come_back_for_it_does_not(self):
+        """The exact answer the old code gave, pinned as no longer given."""
+        mob = dataclasses.replace(town_target_mob(), max_hp=1.5)
+        with self.assertRaises(projection.LevelProjectionError):
+            projection.project_levels(mob, (7,))
+
+    def test_no_hp_reading_entry_point_leaks_a_raw_builtin_refusal(self):
+        """D3 closed this on the record side; `int()` reopened it one line
+        lower.  A caller under `except LevelProjectionError` catches these.
+
+        ADVERSARY D9: THE NAME SAID "no entry point" AND THE LIST IS FIVE.
+        It is the five that read hp, which is what this class is about; the
+        four that do not are `attacker_at_level`, `damage_at_level`,
+        `require_only_level_differs` and `unchecked_attributes`.  The last of
+        those STILL LEAKS -- `unchecked_attributes(object())` raises a raw
+        `TypeError` out of `dataclasses.fields` -- and that is recorded as
+        open in this round's file rather than hidden behind a name that
+        promised nine."""
+        for bad in ("198125", None, [198125], object()):
+            mob = dataclasses.replace(town_target_mob(), max_hp=bad)
+            for name, call in self._entry_points(mob).items():
+                with self.subTest(max_hp=repr(bad), entry=name):
+                    with self.assertRaises(projection.LevelProjectionError):
+                        call()
+
+    def test_a_ceiling_at_or_under_the_floor_is_refused_by_name(self):
+        """ADVERSARY D8/D13: `max_hp=0` answered `hits_to_fell=0`, and
+        `max_hp=-5` blamed a `current_hp` the caller never passed."""
+        for ceiling in (0, -5):
+            mob = dataclasses.replace(town_target_mob(), max_hp=ceiling)
+            with self.subTest(max_hp=ceiling):
+                with self.assertRaises(
+                        projection.HpWillNotReadAsAnIntError) as caught:
+                    projection.project_levels(mob, (7,))
+                message = str(caught.exception)
+                self.assertIn("max_hp", message)
+                self.assertNotIn("current_hp", message)
+
+    def test_a_boolean_hp_is_refused_on_both_sides(self):
+        mob = town_target_mob()
+        with self.assertRaises(projection.HpWillNotReadAsAnIntError):
+            projection.hits_to_fell_from_hp(7, mob, True)
+        with self.assertRaises(projection.HpWillNotReadAsAnIntError):
+            projection.hits_to_fell_at_level(
+                7, dataclasses.replace(mob, max_hp=True))
+
+    def test_the_shipped_dummy_is_still_answered(self):
+        """The refusal is about hp that is not an int, not about hp."""
+        mob = town_target_mob()
+        self.assertEqual(projection.hits_to_fell_at_level(7, mob), 223)
+        self.assertEqual(
+            projection.hits_to_fell_from_hp(7, mob, 192779), 217)
+
+    def test_there_is_no_int_coercion_left_in_the_room_helper(self):
+        """The mutant M12 adversary ran (delete the `int()`) has nothing to
+        delete: no call to `int` survives in `_room`'s executable body.
+
+        The docstring is dropped before looking, because it QUOTES the line
+        that was removed -- a text search that counted that quotation would
+        pass forever whatever the code did.
+        """
+        body = ast.parse(
+            textwrap.dedent(inspect.getsource(projection._room))).body[0]
+        if (isinstance(body.body[0], ast.Expr)
+                and isinstance(body.body[0].value, ast.Constant)):
+            del body.body[0]
+        called = {node.func.id for node in ast.walk(body)
+                  if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Name)}
+        self.assertNotIn("int", called)
+        self.assertIn("_require_hp_int", called)
+
+
+class TheOrderCheckMeasuresOrderInsteadOfTrustingRegistration(
+        unittest.TestCase):
+    """S4: `isinstance(x, Sequence)` is a registration, not a proof."""
+
+    def test_a_memoryview_is_refused_like_the_bytes_it_views(self):
+        """Adversary's counterexample: `memoryview(b'\\x07d')` walked
+        through and was read as `[7, 100]` while the identical `bytes`
+        object was refused by name."""
+        mob = town_target_mob()
+        raw = b"\x07d"
+        with self.assertRaises(projection.UnorderedLevelRequestError):
+            projection.project_levels(mob, raw)
+        with self.assertRaises(projection.UnorderedLevelRequestError) as view:
+            projection.project_levels(mob, memoryview(raw))
+        self.assertIn("buffer", str(view.exception))
+
+    def test_every_buffer_is_refused_and_not_a_list_of_three_names(self):
+        mob = town_target_mob()
+        for container in (b"\x07", bytearray(b"\x07"),
+                          memoryview(bytearray(b"\x07")),
+                          array.array("l", [7, 10])):
+            with self.subTest(container=type(container).__name__):
+                with self.assertRaises(
+                        projection.UnorderedLevelRequestError):
+                    projection.project_levels(mob, container)
+
+    def test_a_container_registered_as_a_sequence_is_still_measured(self):
+        """`Sequence.register(frozenset)` makes `isinstance` say yes to a
+        container with no `__getitem__` at all."""
+        mob = town_target_mob()
+
+        class _RegisteredButNotIndexed(frozenset):
+            pass
+
+        collections.abc.Sequence.register(_RegisteredButNotIndexed)
+        self.assertIsInstance(
+            _RegisteredButNotIndexed({7}), collections.abc.Sequence)
+        with self.assertRaises(
+                projection.UnorderedLevelRequestError) as caught:
+            projection.project_levels(mob, _RegisteredButNotIndexed({7}))
+        self.assertIn("will not be read that way", str(caught.exception))
+
+    def test_a_mapping_registered_as_a_sequence_is_refused_by_index(self):
+        """The `KeyError` arm of the index walk, walked rather than written.
+
+        A mapping keyed by something other than `0..len-1` is the shape that
+        raises `KeyError` instead of `IndexError` when this helper asks for
+        position 0, and registering one as a `Sequence` is the only way it
+        gets that far.  Without this the arm would be a branch nothing walks
+        -- the defect this module was raised about twice.
+        """
+        mob = town_target_mob()
+
+        class _RegisteredMapping(dict):
+            pass
+
+        collections.abc.Sequence.register(_RegisteredMapping)
+        with self.assertRaises(
+                projection.UnorderedLevelRequestError) as caught:
+            projection.project_levels(mob, _RegisteredMapping({"a": 7}))
+        self.assertIn("will not be read that way", str(caught.exception))
+
+    def test_a_container_whose_index_order_is_not_its_walk_order(self):
+        """The other half of "the order given": one object, two orders."""
+        mob = town_target_mob()
+
+        class _TwoOrders(collections.abc.Sequence):
+            def __init__(self, values):
+                self._values = list(values)
+
+            def __getitem__(self, index):
+                return self._values[index]
+
+            def __len__(self):
+                return len(self._values)
+
+            def __iter__(self):
+                return iter(reversed(self._values))
+
+        with self.assertRaises(
+                projection.UnorderedLevelRequestError) as caught:
+            projection.project_levels(mob, _TwoOrders([1, 7]))
+        self.assertIn("two different orders", str(caught.exception))
+
+    def test_the_containers_a_caller_actually_hands_it_still_work(self):
+        mob = town_target_mob()
+        for container in ([1, 7], (1, 7), range(1, 8, 6)):
+            with self.subTest(container=type(container).__name__):
+                rows = projection.project_levels(mob, container)
+                self.assertEqual([row.level for row in rows], [1, 7])
 
 
 
