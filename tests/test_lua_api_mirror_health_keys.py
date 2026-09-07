@@ -374,13 +374,27 @@ class TheTwoPublishedNamesAreOneObjectTests(unittest.TestCase):
                          len(vendored.KNOWN_MIRRORS))
         shipped = {p.stem for p in
                    Path(vendored.__file__).parent.glob("*.tsv")}
-        # `quest_criteria_curve.tsv` -> key `criteria_curve`: the key drops
-        # the package-name prefix the filename carries, so the comparison
-        # is over stems with that prefix removed.
-        stems = {stem[len("quest_"):] if stem.startswith("quest_") else stem
-                 for stem in shipped}
-        self.assertEqual(set(vendored.KNOWN_MIRRORS), stems,
-                         sorted(shipped))
+        # A key names its file, with the `quest_` filename prefix OPTIONAL:
+        # `quest_criteria_curve.tsv` is keyed `criteria_curve` and
+        # `quest_var_rows.tsv` is keyed `quest_var_rows`, because "var_rows"
+        # alone says nothing in a health line. Widened from "always strip
+        # the prefix" in round `joa0u6`, keeping D10's actual point intact:
+        # the map below is built by RESOLVING each key against the shipped
+        # files, so a key that names no file raises KeyError here, and the
+        # bijection assertion means two keys cannot share one file nor a
+        # file go unkeyed. `("a","b","c","d")` still fails.
+        resolved = {}
+        for key in vendored.KNOWN_MIRRORS:
+            for candidate in (key, "quest_%s" % key):
+                if candidate in shipped:
+                    resolved[key] = candidate
+                    break
+            else:
+                self.fail("mirror key %r names no shipped .tsv (have %s)"
+                          % (key, sorted(shipped)))
+        self.assertEqual(len(set(resolved.values())), len(resolved),
+                         "two keys resolve to one file: %r" % (resolved,))
+        self.assertEqual(set(resolved.values()), shipped, sorted(shipped))
 
     def test_a_class_name_outside_ascii_is_escaped_in_both_halves(self):
         health = vendored.MirrorHealth()

@@ -151,9 +151,25 @@ class RealQuestNamespaceTests(unittest.TestCase):
         self.assertEqual(set(quest.STILL_STUBBED) & quest.REAL_METHODS, set())
 
     def test_a_non_api_key_returns_the_stub_default_silently(self):
+        """`StringVar1`, not `Var1`: the latter has a real table now.
+
+        Round `joa0u6` bound `Var1..Var20` to the quest row
+        (`lua_api/quest_vars.py`), so they are no longer "anything else".
+        `s_VARI_1`/`s_VARI_2` still are -- no reader in this lane, no
+        mirror -- which is what this test is actually about: a non-API
+        property must never emit a `LUA_API_STUB` line.
+        """
+        ns, calls = self._namespace()
+        self.assertEqual(ns["StringVar1"], quest.STUB_DEFAULT)
+        self.assertEqual(calls, [])
+
+    def test_a_var_name_is_no_longer_one_of_those_keys(self):
+        """The other half of the pin above, so the move is visible here."""
         ns, calls = self._namespace()
         self.assertEqual(ns["Var1"], quest.STUB_DEFAULT)
-        self.assertEqual(calls, [])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("LUA_QUEST_VAR_BAD_VALUE", calls[0])
+        self.assertNotIn("LUA_API_STUB", calls[0])
 
     def test_writing_into_the_namespace_is_accepted_and_discarded(self):
         ns, _calls = self._namespace()
@@ -460,8 +476,15 @@ class RealQuestAgainstTheShippedFileTests(unittest.TestCase):
         # ever reached; `Quest.CheckOpenTime(Quest.Var3, Quest.Var4)` --
         # also STUB_DEFAULT, decoding to the single-minute window
         # [00:00,00:00] -- is what this call actually exercises.
+        #
+        # The first line is round `joa0u6`: `load_script_file` binds NO
+        # quest, so the vars still read 0 -- but the host now SAYS so once
+        # rather than pretending 0 was the answer. The values, and this
+        # test's subject, are unchanged.
         result = host.call("Accept_Check")
         self.assertEqual(calls, [
+            "LUA_QUEST_VAR_BAD_VALUE Quest.Var1 quest=0 raw=? "
+            "refused=no_quest_bound_to_this_script (said once per script run)",
             "LUA_QUEST_REAL Quest.CheckOpenTime start=0 end=0 now_minutes=45 result=False"
         ])
         # at 00:45 the window [00:00,00:00] does not contain the clock, so
