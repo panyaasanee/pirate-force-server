@@ -514,6 +514,40 @@ class RegisterPresenceForACharacterRow(unittest.TestCase):
         self.assertEqual(theirs.actor_count, 0)
 
 
+    def test_no_shape_a_call_site_could_hand_it_makes_it_raise(self):
+        """The door sits on the login and movement paths.  An exception
+        there takes the session down with it, so every hostile shape must
+        come back as a NAMED outcome -- and a nameless one (empty reason on
+        a row that did not land) would be just as bad as a raise."""
+        class NoAttributesAtAll:
+            pass
+
+        cases = {
+            "no attributes": NoAttributesAtAll(),
+            "None": None,
+            "position is not a position": type(
+                "X", (), {"position": 5, "id": 1, "name": "a"})(),
+            "scene id is a bool": type("X", (), {
+                "position": model.Position(True, 0, 1.0, 2.0, 3.0),
+                "id": 1, "name": "a", "hp_current": None, "hp_max": None})(),
+            "name is None": _character(name=None),
+            "identity is None": _character(identity=None),
+            "scene nothing addresses": _character(scene_id=99999),
+        }
+        for label, row in cases.items():
+            with self.subTest(row=label):
+                outcome = wrpa.register_presence_for_character(
+                    row, registry=self.book)
+                self.assertFalse(outcome.noted)
+                self.assertTrue(outcome.reason)
+
+    def test_a_position_override_of_the_wrong_shape_is_refused_not_written(self):
+        outcome = wrpa.register_presence_for_character(
+            _character(identity=3), position=[1, 2], registry=self.book)
+        self.assertFalse(outcome.noted)
+        self.assertTrue(outcome.reason)
+
+
 class TheAskNoLongerCarriesAnOpenQuestion(unittest.TestCase):
 
     def test_no_placeholder_survives_in_the_pasteable_ask(self):
