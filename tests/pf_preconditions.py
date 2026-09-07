@@ -92,7 +92,12 @@ def a_test_instance(case, precondition):
     shipped modules that carried no pin; neither of those contains a
     ``require`` call at all.  What all four share is the ASYMMETRIC
     ENVIRONMENT - the sandbox that writes the test always has the bridge
-    beside it - which is what this guard is aimed at.  (The "three pull
+    beside it - which is what this guard is aimed at.  Counted over the
+    commits a SHALLOW cloud clone can reach (519 here), which is the honest
+    bound on the word "one"; and the decorator-and-pin family in
+    ``docs/PYTEST_SKIP_PINS.json`` is larger than the rows named here
+    (#710, #847, #852, #952 are in it too) - what is claimed is only that
+    none of them is a ``require(cls)`` death.  (The "three pull
     requests" reading was chief's own error in R384, refuted by pf-adversary
     and corrected in round lafdux / R385.)
 
@@ -104,8 +109,9 @@ def a_test_instance(case, precondition):
     ``HistoricalGitObject`` deliberately has no ``skip_unless_present()`` (its
     class docstring says why), so telling its callers to decorate the class
     hands them an ``AttributeError`` at import - worse than the symptom this
-    guard replaces.  A bare string is accepted for direct callers and gets
-    only the advice that is true everywhere.
+    guard replaces.  A bare string is accepted for direct callers; it has no
+    object to ask, so it gets only the advice that is true everywhere and no
+    sentence about decorators at all.
 
     Returns the case so a caller may use the call as a guard-clause
     expression; the four ``require`` implementations below discard the value.
@@ -122,12 +128,16 @@ def a_test_instance(case, precondition):
                 "@<PRECONDITION>.skip_unless_present() above 'class %s'."
                 % case.__name__
             )
-        else:
+        elif not isinstance(precondition, str):
             advice += (
                 " This precondition offers no skip_unless_present() decorator "
                 "on purpose - its class docstring says why - so the imperative "
                 "form is the only form it has."
             )
+        # A bare string is a key with no object behind it: there is nothing to
+        # ask about a decorator, so say nothing about one.  Claiming either way
+        # here is how the defect this guard replaces was written in the first
+        # place (pf-adversary A3, round lafdux).
         raise TypeError(
             "%s.require() needs a unittest.TestCase INSTANCE and was handed the "
             "class %s itself. setUpClass has no instance to raise a skip "

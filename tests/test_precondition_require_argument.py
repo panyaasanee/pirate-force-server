@@ -160,7 +160,10 @@ class ArgumentGuardTests(unittest.TestCase):
                 message = str(caught.exception)
                 self.assertIn("INSTANCE", message)
                 self.assertIn("FakeCase", message)
-                self.assertIn("setUp", message)
+                # Pin the SENTENCE, not a token: "setUp" also occurs in
+                # the unconditional half of the message, so asserting it
+                # survived deleting the whole remedy (pf-adversary A2).
+                self.assertIn("into setUp or into the test method", message)
                 # D2 (pf-adversary, round 1w9f0q): the guard used to tell
                 # every caller to decorate the class - including the two
                 # preconditions that deliberately have no decorator, where
@@ -188,7 +191,7 @@ class ArgumentGuardTests(unittest.TestCase):
             present.require(FakeCase)
 
     def test_an_instance_is_accepted_and_returned(self):
-        case = FakeCase("runTest")
+        case = FakeCase("not_a_test")
         self.assertIs(a_test_instance(case, "any_key"), case)
 
     def test_a_non_case_argument_is_refused_too(self):
@@ -287,8 +290,19 @@ class SweepTests(unittest.TestCase):
             (root / "tests" / "broken.py").write_text("def (:\n",
                                                       encoding="utf-8")
             (root / "tests" / "not_utf8.py").write_bytes(b"# \xff\xfe\n")
+            # Sorts AFTER both unreadable files on purpose: without it,
+            # turning the loop's `continue` into `break` left the whole new
+            # suite green while the fence reported zero offenders with one
+            # sitting in the tree (pf-adversary A4, round lafdux).
+            (root / "tests" / "zz_offender.py").write_text(
+                "import unittest\n"
+                "class T(unittest.TestCase):\n"
+                "    @classmethod\n"
+                "    def setUpClass(cls):\n"
+                "        SOMETHING.require(cls)\n", encoding="utf-8")
             offenders, unparseable = sweep_repository(root, ("tests",))
-        self.assertEqual(offenders, [])
+        self.assertEqual([(label, scope) for label, _, scope in offenders],
+                         [("tests/zz_offender.py", "setUpClass")])
         self.assertEqual(sorted(label for label, _ in unparseable),
                          ["tests/broken.py", "tests/not_utf8.py"])
 
@@ -329,7 +343,8 @@ class SweepTests(unittest.TestCase):
     def _explain(self, offenders):
         lines = ["%s:%d inside %s" % row for row in offenders]
         return (
-            "require(<arg>) inside %s is the #990 shape: it is silent on a "
+            "require(<arg>) inside %s is the #990 shape (the gate log numbers "
+            "are in tests/test_name_colour_sweep.py): it is silent on a "
             "machine that has the precondition and raises TypeError on one "
             "that does not. Move the call into setUp / the test method where a "
             "real case exists, or - if this precondition has one - decorate "
@@ -341,15 +356,22 @@ class SweepTests(unittest.TestCase):
 class FakeCase(unittest.TestCase):
     """A real TestCase subclass, used both as a class and as an instance.
 
-    ``__test__ = False`` because without it the collector falls back to
-    ``runTest`` and banks a permanently-green test that asserts nothing:
-    ``--collect-only`` counted it (pf-adversary, round 1w9f0q), which is how
-    "13 tests" in R384 was really 12 tests and one ghost.
+    There is deliberately NO ``runTest`` and no ``test*`` method: with one,
+    ``unittest`` falls back to it and banks a permanently-green test that
+    asserts nothing (``--collect-only`` counted it, pf-adversary round
+    1w9f0q - which is how "13 tests" in R384 was really 12 and one ghost).
+    ``__test__ = False`` alone does NOT fix that: it is a pytest convention
+    and appears nowhere in ``unittest/loader.py``, so a raising ``runTest``
+    turns the green ghost into a RED one under
+    ``python -m unittest discover -s tests`` - a red in a file the lane
+    running it never touched, which is the exact shape this file exists to
+    prevent (pf-adversary A1, round lafdux).  With no such method, BOTH
+    runners collect nothing from this class.
     """
 
     __test__ = False
 
-    def runTest(self):
+    def not_a_test(self):
         raise AssertionError(
             "FakeCase is a fixture for the guard tests, not a test itself")
 
