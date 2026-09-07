@@ -29,7 +29,7 @@ it yet (pf-adversary D10, round ``wn088m``).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional, Tuple
 
 from . import quest as lua_api_quest
 from . import quest_criteria
@@ -64,8 +64,14 @@ def script_path_for_quest(root, quest_id: int) -> Path:
         raise QuestDispatchError(
             "no lua corpus at %s (this needs a pf_bridge checkout)" % root)
     wanted = name.lower()
-    matches = [path for path in sorted(root.rglob("*.lua"))
-               if path.stem.lower() == wanted]
+    # The index is built from -- and keyed on -- the RESOLVED root, so the
+    # paths it hands back are resolved too.  Report them relative to that
+    # same resolved root, never to the caller's spelling of it: a relative
+    # root, or one containing "..", would make `relative_to` raise
+    # ValueError from inside the error path, replacing a refusal that names
+    # the duplicate files with a traceback that names nothing.
+    resolved_root = root.resolve()
+    matches = list(_stem_index(root).get(wanted, ()))
     if not matches:
         raise QuestDispatchError(
             "quest %d names script %r and no %s.lua exists under %s"
@@ -74,8 +80,66 @@ def script_path_for_quest(root, quest_id: int) -> Path:
         raise QuestDispatchError(
             "quest %d names script %r and %d files under %s answer to it: %s"
             % (quest_id, name, len(matches), root,
-               ", ".join(m.relative_to(root).as_posix() for m in matches)))
+               ", ".join(m.relative_to(resolved_root).as_posix()
+                         for m in matches)))
     return matches[0]
+
+
+def _stem_index(root: Path) -> Dict[str, Tuple[Path, ...]]:
+    """``{case-folded stem: (paths, ...)}`` for one corpus root, walked LIVE.
+
+    NOT CACHED, AND THAT IS THE FINDING (pf-adversary finding 3, round
+    ``8ou0zg``).  This round first answered D11 -- "``script_path_for_quest``
+    rglobs 616 files on every dispatch" -- with a per-root index built once.
+    The adversary then MEASURED what D11 was worth: **0.06 ms per dispatch**
+    on the warm corpus, 0.1 s to dispatch all 1,213 quest rows once.  And it
+    measured what the index cost: the corpus is not static (``pf_bridge``
+    takes ``sync: N file(s) from the Windows bridge`` commits), so an index
+    built before a sync is a STALE SNAPSHOT --
+
+      * a second file with the same stem landing after the first dispatch
+        was not seen, so the duplicate-stem refusal silently returned one
+        of them; and
+      * a file deleted after indexing turned into a bare
+        ``FileNotFoundError`` from ``load_script_file``'s own
+        ``read_bytes`` -- which is neither :class:`QuestDispatchError` (what
+        callers are told to catch) nor a ``VendoredDataError`` (what
+        ``script_host`` classifies as ours), so it landed in the generic
+        ``except Exception`` and printed ``LUA_SCRIPT <file> ERR`` against
+        an innocent script.  That is D11's ORIGINAL mis-attribution shape,
+        re-opened by D11's own fix, and logged AFTER a
+        ``LUA_QUEST_DISPATCH`` line claiming the dispatch had happened.
+
+    Trading a measured 0.06 ms for two silent wrong answers is a bad trade,
+    so it is not made.  D11 stands answered by measurement rather than by
+    code: the walk is not a hot path.  If it ever becomes one, the cache
+    that replaces this needs an invalidation story, which is the part the
+    first attempt did not have.
+
+    It also removes the module-level mutable state the index introduced --
+    ``lua_api.dispatch`` is back to holding none, which is what lets this
+    lane keep answering ``TWO_SESSIONS_SAME_SCENE`` with "nothing shared".
+
+    THE STEM IS THE ONLY THING MATCHED.  Directory names are never compared
+    and the table's cell is never concatenated into a path, so an
+    ``s_LUASCRIPT`` cell can neither escape ``root`` nor select by prefix.
+    """
+    index: Dict[str, list] = {}
+    for path in sorted(root.resolve().rglob("*.lua")):
+        index.setdefault(path.stem.lower(), []).append(path)
+    return {stem: tuple(paths) for stem, paths in index.items()}
+
+
+def reset_caches() -> None:
+    """No-op: this module holds no cache to drop (see :func:`_stem_index`).
+
+    Kept as a named no-op rather than deleted because
+    ``quest_criteria.reset_caches()`` exists one layer down and callers
+    reasonably reach for the pair; a missing name would be an
+    ``AttributeError`` in a test cleanup, which reads as a broken test
+    rather than as "there is nothing to reset".
+    """
+    return None
 
 
 def load_quest_script(root, quest_id: int, character_id: int,

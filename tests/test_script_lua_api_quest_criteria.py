@@ -26,10 +26,13 @@ Four levels, in the order a reader should doubt them:
     -- what a script actually sees, and (under BRIDGE_GAMEDATA) that the
     copy still equals the game's own tables.
 """
+import shutil
 import struct
 import subprocess
+import tempfile
 import sys
 import unittest
+from unittest import mock
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 
@@ -39,6 +42,7 @@ from pf_preconditions import (BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS,
 from pirateforce_foundation import script_host
 from pirateforce_foundation.lua_api import (dispatch, quest,
                                             quest_criteria as qc,
+                                            reward,
                                             spec as api_spec)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -689,15 +693,45 @@ class NamespaceWiringTests(unittest.TestCase):
         return ns, calls
 
     def test_a_plain_criteria_call_logs_the_number_it_would_have_paid(self):
-        row = next(iter(qc.load_reward_rows().values()))
-        ns, calls = self._namespace(row.quest_id)
+        """THREE lines since round `8ou0zg`, not two, and each says one thing.
+
+        `LUA_QUEST_CRITERIA` is what the game's tables resolve;
+        `LUA_QUEST_PAYOUT` is what happened to that number (here: refused,
+        no reward store is bound to the default namespace); `LUA_API_STUB`
+        is what the script got back, and is unchanged. The payout line was
+        added deliberately -- a resolved reward that nothing pays is the
+        fact this lane most needs visible in a log, not the fact it most
+        needs hidden.
+        """
+        # A row whose Exp criteria is actually POSITIVE. The first row in
+        # the mirror (quest 12) carries multiplier 0.0, so it resolves to a
+        # reward of nothing and is refused as `amount_is_zero` before the
+        # store is ever considered -- a true statement about that quest, but
+        # not the one this test is about.
+        quest_id = next(
+            qid for qid in sorted(qc.load_reward_rows())
+            if (qc.resolve_for_api("AddCriteriaExp", qid)[0] or
+                type("", (), {"amount": 0})).amount > 0)
+        ns, calls = self._namespace(quest_id)
+        row = qc.load_reward_rows()[quest_id]
         self.assertEqual(ns["AddCriteriaExp"](), quest.STUB_DEFAULT)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
         self.assertTrue(calls[0].startswith(
             "LUA_QUEST_CRITERIA Quest.AddCriteriaExp quest=%d " % row.quest_id))
         self.assertIn("amount=", calls[0])
+        self.assertTrue(calls[1].startswith("LUA_QUEST_PAYOUT AddCriteriaExp"))
+        self.assertIn("refused=%s" % reward.REFUSE_NO_STORE, calls[1])
         # The stub line itself is UNCHANGED: still stubbed, still says so.
-        self.assertEqual(calls[1], "LUA_API_STUB Quest.AddCriteriaExp")
+        self.assertEqual(calls[2], "LUA_API_STUB Quest.AddCriteriaExp")
+
+    def test_nothing_is_paid_without_a_reward_store(self):
+        """The default namespace must not invent a payment out of nowhere."""
+        row = next(iter(qc.load_reward_rows().values()))
+        ns, calls = self._namespace(row.quest_id)
+        ns["AddCriteriaExp"]()
+        self.assertEqual(
+            [line for line in calls
+             if "LUA_QUEST_PAYOUT" in line and "refused=" not in line], [])
 
     def test_an_lv_criteria_call_logs_a_refusal_and_no_number(self):
         row = next(iter(qc.load_reward_rows().values()))
@@ -712,12 +746,21 @@ class NamespaceWiringTests(unittest.TestCase):
         self.assertIn("refused=%s" % qc.REFUSE_NO_QUEST_ROW, calls[0])
 
     def test_every_criteria_line_is_ascii_and_one_line(self):
+        """ASCII only: the bridge console is cp874 and dies on anything else.
+
+        Line count differs by NAME, on purpose: an `AddLvCriteria*` call
+        refuses at resolution and is logged ONCE (the payment layer never
+        gets a number to report on), while a plain `AddCriteria*` call
+        resolves and so gets a payout line too.
+        """
         row = next(iter(qc.load_reward_rows().values()))
         for name in qc.LEVEL_SOURCE:
             with self.subTest(method=name):
                 ns, calls = self._namespace(row.quest_id)
                 ns[name]()
-                self.assertEqual(len(calls), 2)
+                expected = 2 if qc.LEVEL_SOURCE[name] == \
+                    qc.LEVEL_SOURCE_PLAYER else 3
+                self.assertEqual(len(calls), expected)
                 for line in calls:
                     self.assertTrue(line.isascii())
                     self.assertNotIn("\n", line)
@@ -842,3 +885,116 @@ class VendoredMirrorMatchesTheRealTableTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+#: A quest id whose `s_LUASCRIPT` cell names a script, picked from the
+#: vendored mirror at import time rather than typed in, so a re-vendor that
+#: renumbers the rows moves this test instead of making it lie.
+_A_DISPATCHABLE_QUEST = next(
+    quest_id for quest_id in sorted(qc.load_reward_rows())
+    if qc.script_for_quest(quest_id)
+)
+
+
+class DispatchStemIndexTests(unittest.TestCase):
+    """Dispatch resolves against the corpus AS IT IS NOW, not a snapshot.
+
+    Round `8ou0zg` first answered pf-adversary D11 ("616 files re-walked on
+    every dispatch") with a per-root index built once. The adversary then
+    measured D11's actual cost -- 0.06 ms per dispatch -- and measured what
+    the index cost: a corpus that changes under a live index (pf_bridge
+    takes `sync: N file(s) from the Windows bridge` commits) gives two
+    silent wrong answers. The index was removed in the same round it was
+    added. These tests are what hold that decision: they pass only if the
+    walk is live.
+    """
+
+    def setUp(self):
+        from pirateforce_foundation.lua_api import dispatch
+
+        dispatch.reset_caches()
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.script = qc.script_for_quest(_A_DISPATCHABLE_QUEST)
+        self.assertIsNotNone(self.script)
+
+    def _write(self, relative: str) -> Path:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("-- test corpus\n", encoding="ascii")
+        return path
+
+    def test_a_file_that_lands_after_the_first_dispatch_is_seen(self):
+        """pf-adversary finding 3: the index stopped seeing new files.
+
+        With the index in place this returned `Quest/<script>.lua` happily
+        on the second call -- the duplicate-stem guard, the whole point of
+        which is to refuse an ambiguous corpus, had gone blind.
+        """
+        from pirateforce_foundation.lua_api import dispatch
+
+        self._write("Quest/%s.lua" % self.script.lower())
+        first = dispatch.script_path_for_quest(self.root,
+                                               _A_DISPATCHABLE_QUEST)
+        self.assertEqual(first.name, "%s.lua" % self.script.lower())
+        self._write("%s.lua" % self.script.lower())
+        with self.assertRaises(dispatch.QuestDispatchError) as caught:
+            dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
+        self.assertIn("2 files", str(caught.exception))
+
+    def test_a_file_deleted_after_a_dispatch_refuses_by_name(self):
+        """pf-adversary finding 3, second half.
+
+        With the index in place the stale path survived and
+        `load_script_file` raised a bare `FileNotFoundError` -- neither a
+        `QuestDispatchError` nor a `VendoredDataError`, so `load_corpus`
+        filed it as `LUA_SCRIPT <file> ERR` against an innocent script:
+        D11's original mis-attribution, re-opened by D11's own fix.
+        """
+        from pirateforce_foundation.lua_api import dispatch
+
+        path = self._write("Quest/%s.lua" % self.script.lower())
+        dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
+        path.unlink()
+        with self.assertRaises(dispatch.QuestDispatchError):
+            dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
+
+    def test_the_module_holds_no_shared_state(self):
+        """TWO_SESSIONS_SAME_SCENE, held as a test rather than a sentence."""
+        from pirateforce_foundation.lua_api import dispatch
+
+        shared = [name for name, value in vars(dispatch).items()
+                  if isinstance(value, (dict, list, set))
+                  and not name.startswith("__")]
+        self.assertEqual(shared, [],
+                         "lua_api.dispatch grew module-level mutable state; "
+                         "two sessions in one scene share this process")
+
+    def test_a_duplicate_stem_refuses_and_names_both_files(self):
+        """The refusal, through a root spelled with `..`.
+
+        This bug predates the round and survived on the pre-round base: the
+        message built its paths with `relative_to(root)` against the
+        CALLER's spelling while the paths came from the resolved root, so a
+        root containing `..` raised a bare `ValueError` out of the error
+        path instead of the refusal that names the duplicates.
+        """
+        from pirateforce_foundation.lua_api import dispatch
+
+        self._write("Quest/%s.lua" % self.script.lower())
+        self._write("%s.lua" % self.script.lower())
+        spelled_with_dotdot = self.root / ".." / self.root.name
+        with self.assertRaises(dispatch.QuestDispatchError) as caught:
+            dispatch.script_path_for_quest(spelled_with_dotdot,
+                                           _A_DISPATCHABLE_QUEST)
+        message = str(caught.exception)
+        self.assertIn("Quest/%s.lua" % self.script.lower(), message)
+        self.assertIn("2 files", message)
+
+    def test_a_missing_script_still_refuses_by_name(self):
+        from pirateforce_foundation.lua_api import dispatch
+
+        self._write("Quest/not_the_one.lua")
+        with self.assertRaises(dispatch.QuestDispatchError) as caught:
+            dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
+        self.assertIn(self.script.lower(), str(caught.exception))

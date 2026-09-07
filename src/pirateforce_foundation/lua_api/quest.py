@@ -153,6 +153,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import quest_criteria
+from . import reward as lua_api_reward
 
 try:
     from typing import Protocol
@@ -646,9 +647,36 @@ def _log_criteria(log: Callable[[str], None], api_name: str,
     if amount is None:
         log("LUA_QUEST_CRITERIA Quest.%s quest=%d refused=%s"
             % (api_name, context.quest_id, reason))
-        return
+        return None
     log("LUA_QUEST_CRITERIA Quest.%s quest=%d %s"
         % (api_name, context.quest_id, amount.log_fields()))
+    return amount
+
+
+def _pay_criteria(log: Callable[[str], None], api_name: str,
+                  context: "QuestContext", reward_store: Any):
+    """Resolve one criteria reward, then try to pay it.  Two lines, two facts.
+
+    ``LUA_QUEST_CRITERIA`` says what the game's own tables resolve for this
+    quest; ``LUA_QUEST_PAYOUT`` says what happened to that number.  They are
+    separate because they fail separately and a reader needs to tell which:
+    "this quest has no reward row" is a mirror question, "there is no atomic
+    add on the store" is a LANE-DB question, and collapsing them into one
+    ``refused=`` would hide which lane is holding the reward up.
+
+    A resolve refusal short-circuits, so the refusal is logged ONCE rather
+    than restated by the payment layer that never got a number.  Returns the
+    :class:`lua_api.reward.Payout` when a row actually moved, else ``None``
+    -- today always ``None``, for the measured reason in
+    :func:`lua_api.reward.pay`: nothing implements the atomic delta yet.
+    """
+    amount = _log_criteria(log, api_name, context)
+    if amount is None:
+        return None
+    payout, _reason = lua_api_reward.pay(
+        api_name, context.character_id, context.quest_id,
+        store=reward_store, log=log)
+    return payout
 
 
 #: The 10 names real this round: the clock (round 4jsydv/s2fxf6 lineage)
@@ -718,14 +746,23 @@ class RealQuestNamespace:
     real correctness bug, not a cosmetic one.
     """
 
-    __slots__ = ("_clock", "_context", "_store", "_log", "_stub_methods", "namespace", "calls")
+    __slots__ = ("_clock", "_context", "_store", "_reward_store", "_log",
+                 "_stub_methods", "namespace", "calls")
 
     def __init__(self, methods: frozenset, clock: Clock, log: Callable[[str], None],
-                 context: "QuestContext", store: "QuestStateStore"):
+                 context: "QuestContext", store: "QuestStateStore",
+                 reward_store: Any = None):
         self.namespace = "Quest"
         self._clock = clock
         self._context = context
         self._store = store
+        # Deliberately defaults to None, NOT to an in-memory bucket like
+        # `store` does.  A quest-flag bucket that forgets on reboot is a
+        # usable default for a spike; a REWARD bucket that forgets on reboot
+        # would let a test -- or a spike someone later points at a live
+        # client -- report a reward as paid when no row moved.  No store
+        # means refused, out loud (`lua_api.reward.REFUSE_NO_STORE`).
+        self._reward_store = reward_store
         self._log = log
         self._stub_methods = methods - REAL_METHODS
         self.calls: list = []
@@ -933,7 +970,8 @@ class RealQuestNamespace:
             def stub(*_args, _qualified=qualified, _name=name):
                 self.calls.append(_qualified)
                 if _name in CRITERIA_METHODS:
-                    _log_criteria(self._log, _name, self._context)
+                    _pay_criteria(self._log, _name, self._context,
+                                  self._reward_store)
                 self._log("LUA_API_STUB %s" % _qualified)
                 return STUB_DEFAULT
 
@@ -951,7 +989,8 @@ class RealQuestNamespace:
 def build_namespace(methods: frozenset, log: Callable[[str], None], *,
                      clock: Optional[Clock] = None,
                      context: Optional["QuestContext"] = None,
-                     store: Optional["QuestStateStore"] = None) -> RealQuestNamespace:
+                     store: Optional["QuestStateStore"] = None,
+                     reward_store: Any = None) -> RealQuestNamespace:
     """The ``Quest`` global ``ScriptHost`` installs, real half included.
 
     ``clock`` defaults to the real server wall clock (:func:`_server_clock`)
@@ -970,4 +1009,5 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
         methods, clock if clock is not None else _server_clock, log,
         context if context is not None else DEFAULT_CONTEXT,
         store if store is not None else InMemoryQuestStateStore(),
+        reward_store,
     )

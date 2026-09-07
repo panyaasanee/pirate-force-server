@@ -20,7 +20,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .vendored import VendoredDataError
+
 _SPEC_PATH = Path(__file__).with_name("api_spec.tsv")
+
+#: The header this module was written against, in order.
+_HEADER = (
+    "namespace", "method", "call_count", "file_count",
+    "arity_min", "arity_max",
+)
 
 
 @dataclass(frozen=True)
@@ -37,26 +45,84 @@ class ApiFunction:
         return "%s.%s" % (self.namespace, self.method)
 
 
-def _load() -> tuple[ApiFunction, ...]:
-    lines = _SPEC_PATH.read_text(encoding="ascii").splitlines()
-    header, rows = lines[0].split("\t"), lines[1:]
-    assert header == [
-        "namespace", "method", "call_count", "file_count",
-        "arity_min", "arity_max",
-    ], "api_spec.tsv header drifted: %r" % (header,)
+def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
+    """Parse ``api_spec.tsv``, refusing loudly on anything it is not.
+
+    ``path`` defaults to the vendored file beside this module and exists so
+    the refusals below can be exercised against a corrupt COPY without
+    touching the real one -- in particular from a child interpreter running
+    under ``-O``, which is the only way to prove the guard survives
+    optimisation.  The first attempt at those tests copied the whole 21 MB
+    ``src/`` tree per test instead; on the Windows gate that is 126 MB of
+    file copying plus an ``rmtree`` over a tree a child interpreter has just
+    written ``__pycache__`` into, and the gate went RED at ``pytest_subset``
+    with no FAILED line.  A parameter is cheaper and says more.
+
+    RAISES, NEVER ASSERTS (pf-adversary D13, round ``wn088m``).  The header
+    check used to be a bare ``assert``, which ``python -O`` DELETES: under
+    ``-O`` a re-vendor that reordered the columns would have been parsed
+    happily, silently swapping ``call_count`` with ``file_count`` for all
+    160 rows -- the guard would not have failed, it would not have existed.
+    Every refusal here names the file and, where there is one, the line.
+
+    :class:`~lua_api.vendored.VendoredDataError` rather than a bespoke
+    class, so that wherever this error IS catchable it is classified as a
+    corrupt mirror of ours rather than a broken quest file.
+
+    [CORRECTED - pf-adversary, this round] An earlier draft of this
+    docstring claimed ``script_host`` would report it as ``LUA_HOST``.  It
+    would not, and cannot: ``_load()`` runs at IMPORT time, so a corrupt
+    ``api_spec.tsv`` makes ``import script_host`` itself raise, before
+    ``_host_side_error_types()`` exists to classify anything.  The base
+    class still earns its place -- it is the right type, and it is
+    catchable by anything that imports this module lazily -- but the
+    boot-time case is a hard failure at import, which for a file vendored
+    into this repository is the correct outcome and not a claim about log
+    lines.
+    """
+    try:
+        text = path.read_text(encoding="ascii")
+    except OSError as exc:
+        raise VendoredDataError(
+            "cannot read %s: %s" % (path, exc)) from exc
+    except UnicodeDecodeError as exc:
+        raise VendoredDataError(
+            "%s is not ASCII: %s" % (path, exc)) from exc
+    lines = text.splitlines()
+    if not lines:
+        raise VendoredDataError("%s is empty" % (path,))
+    header = tuple(lines[0].split("\t"))
+    if header != _HEADER:
+        raise VendoredDataError(
+            "%s header drifted: got %r, want %r"
+            % (path, header, _HEADER))
     out = []
-    for line in rows:
+    for lineno, line in enumerate(lines[1:], start=2):
         if not line:
             continue
-        ns, method, call_count, file_count, arity_min, arity_max = line.split("\t")
+        cells = line.split("\t")
+        if len(cells) != len(_HEADER):
+            raise VendoredDataError(
+                "%s line %d has %d columns, want %d: %r"
+                % (path, lineno, len(cells), len(_HEADER), line))
+        ns, method, call_count, file_count, arity_min, arity_max = cells
+        try:
+            numbers = [int(cell) for cell in
+                       (call_count, file_count, arity_min, arity_max)]
+        except ValueError as exc:
+            raise VendoredDataError(
+                "%s line %d has a non-integer count: %r"
+                % (path, lineno, line)) from exc
         out.append(ApiFunction(
             namespace=ns,
             method=method,
-            call_count=int(call_count),
-            file_count=int(file_count),
-            arity_min=int(arity_min),
-            arity_max=int(arity_max),
+            call_count=numbers[0],
+            file_count=numbers[1],
+            arity_min=numbers[2],
+            arity_max=numbers[3],
         ))
+    if not out:
+        raise VendoredDataError("%s has a header and no rows" % (path,))
     return tuple(out)
 
 

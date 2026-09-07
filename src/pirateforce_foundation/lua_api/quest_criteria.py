@@ -151,6 +151,7 @@ from __future__ import annotations
 import hashlib
 import struct
 from dataclasses import dataclass
+import math
 from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -594,6 +595,22 @@ def _coerce_player_level(value: Any) -> Optional[int]:
     if type(value) is bool:
         return None
     if isinstance(value, float):
+        # `inf`/`nan` FIRST: `int(inf)` raises OverflowError and `int(nan)`
+        # raises ValueError, so the `value != int(value)` test below cannot
+        # reach its own `return None` for them -- it raises THROUGH this
+        # function and out of `resolve_for_api`, and (since round `8ou0zg`
+        # exposed `player_level` as a public keyword) out of
+        # `lua_api.reward.pay`, whose docstring promises it never raises for
+        # a refusal (pf-adversary finding 5, round `8ou0zg`). This is not a
+        # theoretical input: `lupa` hands every Lua number across as a
+        # float, and Lua's `1/0` is `inf`.
+        #
+        # Same defect, same fix, as the multiplier cell three functions
+        # away -- which this module already refuses at the cell and says so
+        # in its docstring. The claim was true of multipliers and not of
+        # levels; it is true of both now.
+        if not math.isfinite(value):
+            return None
         if value != int(value):
             return None
         value = int(value)
@@ -616,6 +633,13 @@ def resolve(kind: str, level: int, multiplier: float) -> Optional[CriteriaAmount
     """
     if kind not in _KIND_FIELDS:
         raise QuestCriteriaError("unknown reward kind %r" % (kind,))
+    if isinstance(multiplier, float) and not math.isfinite(multiplier):
+        # Public function, so it is reachable with a multiplier no mirror
+        # cell can hold. Refused by name (pf-adversary finding 5, round
+        # `8ou0zg`) instead of raising an undocumented OverflowError out of
+        # `multiplier_decimal` -- and, worse, CACHING the way there.
+        raise QuestCriteriaError(
+            "multiplier %r is not a finite number" % (multiplier,))
     curve_field, _ = _KIND_FIELDS[kind]
     row = load_curve().get(level)
     if row is None:
