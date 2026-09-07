@@ -885,28 +885,40 @@ jobs:
               # it", and the gate verdict is to be read as a first-class
               # marker, equal in standing to the marker line in the body.
               #
-              # This is the ONE place in this file where a pull request whose
-              # gate is green gets closed, and the prose two lines below has
-              # always admitted why the merge was refused: "If this pull
-              # request was still a draft, that refusal is expected -- the API
-              # will not merge a draft".  House rule 1849 makes every seam
-              # that runs on every frame open as a DRAFT until pf-adversary
-              # reports, so this path closed pull requests for OBEYING a rule:
-              # green tree, green gate, refused only for being a draft (the
-              # drafts named in the owner's letter: server #1077, #1084,
-              # #1076).
+              # Three closes in this file can fire on a GREEN gate: `decide`'s
+              # `mergeable != true`, `decide`'s failed merge call, and this
+              # one.  This is the only one of the three whose refusal is
+              # CAUSED BY THE PULL REQUEST OBEYING A RULE, and the prose two
+              # lines below has always admitted it: "If this pull request was
+              # still a draft, that refusal is expected -- the API will not
+              # merge a draft".  House rule 1849 makes every seam that runs on
+              # every frame open as a DRAFT until pf-adversary reports, so
+              # this path closed pull requests for doing what the rules told
+              # them to do.
               #
-              # A draft is not a corpse and it is not a stuck lock either: the
-              # lane's round lock is its own `claim` pull request in pf_bridge,
-              # not this one.  Leave it open and say so - the round that pays
-              # the adversary debt marks it ready itself, and `decide` merges
-              # it on the next event.  Every OTHER refusal here (403, a
-              # conflict, a head that moved) still closes below: a NON-draft
-              # green pull request that will not merge is a fact, not a rule
-              # being obeyed.
-              if [ "$DRAFT" = "true" ]; then
-                echo "::warning::#${PR} ${HEAD_REF} left open ON PURPOSE - gate GREEN for ${HEAD_SHA}, merge refused only because it is still a DRAFT (the API will not merge one). A green draft is a live round waiting for its adversary result [PANYA-DECISION 20260908_0010]."
+              # WHAT THIS DOES NOT FIX, said plainly because the owner's
+              # letter names both halves.  The letter's item 3 lists
+              # #1077/#1747/#1084 under "PR draft รอ adversary ไม่มี marker",
+              # and a pull request with NO marker never reaches this line: the
+              # marker gate 128 lines above skips it, on purpose, because the
+              # marker is what stops a stranger buying a merge with two
+              # strings.  The letter's other half - read the gate verdict as a
+              # marker of first rank - is therefore NOT implemented here, and
+              # must not be implemented by weakening that gate.  This guard
+              # helps exactly one shape: a MARKED green draft.
+              #
+              # BOUNDED, like every other leave-open in this file (see the
+              # invariant at the top: no path may end with an eligible pull
+              # request open forever).  A green draft is a live round waiting
+              # for its adversary result, and that debt is paid by the lane's
+              # NEXT round - hours, not days.  Past PF_STALE_HOURS * 4 nobody
+              # is coming, and the close below runs exactly as it did before.
+              GREEN_DRAFT_GRACE=$(( LIMIT * 4 ))
+              if [ "$DRAFT" = "true" ] && [ "$AGE" -lt "$GREEN_DRAFT_GRACE" ]; then
+                echo "::warning::#${PR} ${HEAD_REF} left open ON PURPOSE - gate GREEN for ${HEAD_SHA}, merge refused only because it is still a DRAFT (the API will not merge one). A green draft is a live round waiting for its adversary result [PANYA-DECISION 20260908_0010]. Bound: $(( GREEN_DRAFT_GRACE / 3600 ))h, age $(( AGE / 3600 ))h."
                 continue
+              elif [ "$DRAFT" = "true" ]; then
+                echo "  green draft past its $(( GREEN_DRAFT_GRACE / 3600 ))h grace - the adversary debt was never paid and no round is coming back; closing as this path always did"
               fi
 
               REASON="$(printf '%s\n' \

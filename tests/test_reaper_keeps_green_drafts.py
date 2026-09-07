@@ -11,22 +11,36 @@ therefore closing pull requests for obeying a rule.  The close comment itself
 said so ("If this pull request was still a draft, that refusal is expected --
 the API will not merge a draft") and closed anyway.
 
-PANYA-DECISION 20260908_0010+07:00 (via ka1-A), item 3 remedy (b), measured on
-server #1077, #1084 and #1076: "a pull request whose CI is GREEN while its
-adversary result has not come back is ALIVE - the reaper may not close it",
-and the gate verdict is read as a first-class marker, equal in standing to the
-marker line in the body.
+PANYA-DECISION 20260908_0010+07:00 (via ka1-A), item 3 remedy (b): "a pull
+request whose CI is GREEN while its adversary result has not come back is
+ALIVE - the reaper may not close it", and the gate verdict is read as a
+first-class marker, equal in standing to the marker line in the body.
 
-WHAT THIS FILE DOES NOT CLAIM.  It does not claim the guard has ever run on
-GitHub - no reap tick has been observed since it landed.  It reads the shipped
-workflow text, the same method as
-``tests/test_merge_workflow_logs_marker_verdict.py``, and pins the ORDER of
-the three statements that decide a green draft's fate.  It says nothing about
-red gates: a red verdict still closes, in ``decide``, untouched by this round.
+WHAT THIS FILE DOES NOT CLAIM (pf-adversary, this round, findings D3/D4/D6).
 
-MUTATION-PROOF ON PURPOSE.  Delete the guard, drop its ``continue``, move it
-below the close, or widen it to close nothing green at all, and a named test
-here goes red.
+* NOT measured on a closed pull request.  The letter's item 3 names
+  #1077/#1747/#1084, and it names them under "no marker", not under "closed
+  while green".  A pull request with no marker never reaches the guarded line
+  - the reap job's marker gate skips it 128 lines earlier - so this change
+  helps none of those three.  No close comment of any pull request was read
+  while writing this file.
+* The letter's OTHER half - read the gate verdict as a marker of first rank -
+  is deliberately NOT implemented.  The marker gate is what stops a stranger
+  buying a merge with two strings, and weakening it is a bigger hole than the
+  one being closed.
+* NOT "the one place a green pull request is closed".  Three closes can fire
+  on a green gate: ``decide``'s ``mergeable != true``, ``decide``'s failed
+  merge call, and the reap job's.  This is the only one whose refusal is
+  caused by the pull request obeying rule 1849.
+* Not observed running on GitHub - no reap tick since it landed.  This file
+  reads the shipped workflow text, the same method as
+  ``tests/test_merge_workflow_logs_marker_verdict.py``.
+
+MUTATION-PROOF ON PURPOSE.  Seven mutants die: guard deleted; guard widened
+past the ``$DRAFT`` test; guard closes anyway; guard without its ``continue``;
+guard moved inside the merge-success block where it is dead code; ``DRAFT``
+sourced from a field that is always false; and a second, decoy green branch
+appended after the reap job.
 """
 
 import re
@@ -49,8 +63,11 @@ GREEN_CLOSE_HEADLINE = "but this pull request could not be merged - closing it"
 # these tests by accident.
 GREEN_BRANCH = 'if [ "$GREEN" = "yes" ]; then'
 
+# The guard may carry extra conditions on the same line (it carries an age
+# bound), and may end in an `elif` arm rather than a bare `fi`, so match the
+# opener loosely and stop at whichever comes first.
 DRAFT_GUARD = re.compile(
-    r'if \[ "\$DRAFT" = "true" \]; then(?P<body>.*?)\n\s*fi\n',
+    r'if \[ "\$DRAFT" = "true" \][^\n]*; then(?P<body>.*?)\n\s*(?:elif|fi)\b',
     re.S,
 )
 
@@ -65,10 +82,35 @@ def _green_region(text):
     Bounded on purpose.  `decide` has its own green handling and its own
     `mergeable != true` close; a guard that drifted into THAT job would be a
     different (and wrong) change, and would not be found here.
+
+    Both landmarks are asserted UNIQUE by
+    ``test_the_green_branch_and_its_close_are_unique_landmarks``.  Without
+    that, `rindex` would happily anchor on a second, decoy green branch
+    appended after the reap job and certify a report-only stub as the reaper
+    (pf-adversary finding D5, mutant F2).
     """
     start = text.rindex(GREEN_BRANCH)
     end = text.index(GREEN_CLOSE_HEADLINE, start)
     return text[start:end]
+
+
+def _unbalanced_then(fragment):
+    """How many `if ...; then` blocks are still open at the end of `fragment`.
+
+    A guard that sits INSIDE the `if gh pr merge ...; then` success block is
+    dead code - the `continue` above it can never fall through - and every
+    string test in this file still passes (pf-adversary finding D5, mutant A).
+    Counting block openers and closers is what tells the two positions apart.
+    """
+    depth = 0
+    for line in fragment.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("if ") or stripped.startswith("elif "):
+            if stripped.endswith("then"):
+                depth += 1 if stripped.startswith("if ") else 0
+        elif stripped == "fi":
+            depth -= 1
+    return depth
 
 
 class ReaperKeepsGreenDrafts(unittest.TestCase):
@@ -150,6 +192,58 @@ class ReaperKeepsGreenDrafts(unittest.TestCase):
             after_guard,
             "something else `continue`s after the draft guard - the close is "
             "unreachable for non-drafts",
+        )
+
+    def test_the_green_branch_and_its_close_are_unique_landmarks(self):
+        """`_green_region` anchors on these two strings; a second copy of
+        either one lets a decoy job impersonate the reaper."""
+        text = _text()
+        self.assertEqual(
+            text.count(GREEN_BRANCH), 1, "more than one green branch in the file"
+        )
+        self.assertEqual(
+            text.count(GREEN_CLOSE_HEADLINE),
+            1,
+            "more than one green-close headline in the file",
+        )
+
+    def test_the_guard_is_not_dead_code_inside_the_merge_success_block(self):
+        region = _green_region(_text())
+        guard = DRAFT_GUARD.search(region, region.index(REAPER_MERGE))
+        assert guard is not None, "covered by the guard test above"
+        before = region[: guard.start()]
+        # 1 = the green branch itself, which the region opens with.  Anything
+        # deeper means the guard is nested inside a block that started after
+        # the merge attempt.
+        self.assertEqual(
+            _unbalanced_then(before),
+            1,
+            "the draft guard sits inside an unclosed `if ...; then` block - "
+            "most likely the `if gh pr merge`, whose success arm ends in "
+            "`continue`, which makes the guard unreachable",
+        )
+
+    def test_the_guard_is_bounded_like_every_other_leave_open(self):
+        """The file's own invariant: no path may leave an eligible pull
+        request open forever.  Every other skip states the age at which it
+        stops applying; this one has to as well (pf-adversary finding D1)."""
+        region = _green_region(_text())
+        guard = DRAFT_GUARD.search(region, region.index(REAPER_MERGE))
+        assert guard is not None, "covered by the guard test above"
+        head = region[guard.start(): guard.start() + len(guard.group(0))]
+        self.assertIn(
+            "$AGE",
+            head.split("\n", 1)[0],
+            "the draft guard has no age bound - a green draft whose adversary "
+            "debt is never paid would sit open forever",
+        )
+
+    def test_the_draft_flag_comes_from_the_pull_requests_own_draft_field(self):
+        """Mutant B: source `DRAFT` from a field that is always false and the
+        guard never fires, with every string test still green."""
+        self.assertIn(
+            """DRAFT=$(printf '%s' "$META"     | jq -r '.draft')""",
+            _text(),
         )
 
     def test_the_red_verdict_still_closes(self):
