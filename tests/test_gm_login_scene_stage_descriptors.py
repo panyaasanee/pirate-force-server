@@ -15,28 +15,57 @@ is FALSE.  The shipped module closes the descriptor on all four paths; what
 was missing was the FENCE, not the close.  This file adds the fence and says
 so, instead of quietly landing a "fix" for a bug that was never there.
 
-Why the fence matters even though POSIX hides it: `command_capture.py`'s own
-docstring records the two Windows-gate closures (`#962`, `#970`) that a leaked
+Why the fence matters even though POSIX hides it: `tests/pf_gm_capture_mocks.py`
+(line 72) records the two Windows-gate closures (`#962`, `#970`) that a leaked
 handle caused.  Here the consequence would be sharper still -- on Windows an
 open handle on the temp file makes `os.replace(temp_path, path)` on the VERY
 NEXT LINE raise `PermissionError`, so dropping line 736 would turn every GM
 stage on the owner's own machine into a refusal, while every Linux round in
 this project stayed green.
 
-Two independent assertions per path, on purpose:
+WHAT EACH ASSERTION IS FOR, spelled out because the first version of this file
+got it wrong in both directions (pf-adversary, round `s03veu`, D1 and D3).
+Exactly ONE of the three enforces the property in the first line of this
+docstring; the other two pin the MECHANISM this module happens to use today:
 
-* the module ASKED for the close (recorded through a stand-in for the module's
-  own `os` binding), which is a positive fact about this module;
-* the descriptor is REALLY gone (`os.fstat` raises `EBADF`), which is a fact
-  about the process and would still hold if the module were refactored to use
-  `contextlib`, `os.closerange`, or a `finally`.
+* PROPERTY -- the fd table of this process is unchanged across the call
+  (`/proc/self/fd`, whole-table delta).  This is the only assertion here that
+  is about descriptors at all rather than about statements: it survives a
+  refactor to `contextlib`, `os.fdopen`, `os.closerange` or a `finally`, and it
+  is the one that sees a descriptor opened by any call other than the module's
+  own `mkstemp`.  The earlier version had no such assertion, so an inserted
+  `os.dup(fd)` -- a live handle carried into `os.replace` on the next line,
+  verbatim the disaster the paragraph above describes -- kept the file at
+  `5 passed`.
+* MECHANISM -- `os.fstat(fd)` raises `EBADF` for the ONE fd `mkstemp` returned.
+  A negative about a number the OS may hand out again, and blind to every
+  other descriptor.
+* MECHANISM -- the module ASKED for the close, recorded through a stand-in for
+  its own `os` binding: `self.closed == [fd]`.  This pins the LITERAL
+  `os.close(fd)` statement.  Rewriting the module as
+  `with os.fdopen(fd, "wb") as handle:` -- correct, and measured leak-free --
+  turns this red, together with the site count below.  That is a deliberate,
+  documented cost, NOT a bug report about your refactor: if you meet these red
+  and the fd-table assertion GREEN, you changed how this module closes and the
+  right response is to update this file on purpose, never to delete the
+  property assertion that is still green.
 
-Known limit, inherited from `descriptors_opened_by` in `tests/pf_gm_capture_mocks.py`:
-asking `os.fstat` about an fd NUMBER is a negative about a number the OS may
-hand out again.  Nothing in these tests opens a descriptor between the close
-and the assert in a single-threaded run, so the failure mode is a false RED,
-never a false green.  A THREADED runner would need real bookkeeping; process
-parallelism (`pytest-xdist`) is safe, because each worker has its own fd table.
+Known limit of the two mechanism assertions, inherited from
+`descriptors_opened_by` in `tests/pf_gm_capture_mocks.py`: asking `os.fstat`
+about an fd NUMBER is a negative about a number the OS may hand out again.
+Nothing in these tests opens a descriptor between the close and the assert in a
+single-threaded run, and the fd-table snapshot is taken around the module call
+alone, so the failure mode is a false RED, never a false green.  Both rest on
+CPython refcounting closing the descriptors the test body itself opens
+(`read_text`, `read_bytes`, `iterdir`) at the end of their expression --
+measured, 25/25 green, but named here because it is an assumption and not a
+guarantee (pf-adversary, round `s03veu`, D6).  A THREADED runner would need
+real bookkeeping; process parallelism (`pytest-xdist`) is safe, because each
+worker is a separate PROCESS with its own fd table.
+
+The fd-table read is POSIX-only.  On a host without `/proc/self/fd` the
+property assertion cannot run, and rather than pass quietly this file FAILS if
+that happens on Linux -- a fence going silent must never look like a green.
 
 The stand-ins here patch the MODULE ATTRIBUTE (`login_scene_stage.os`), not the
 `os` module itself.  That is the difference from `descriptors_opened_by`, which
@@ -47,10 +76,12 @@ binding keeps the blast radius to the one module under test.
 """
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -59,6 +90,46 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
+
+FD_TABLE = "/proc/self/fd"
+
+# The module opens descriptors ONLY through these two spellings today. The site
+# count below reads the source for them, so a third opening site -- the only way
+# a leak can enter -- fails loudly instead of landing invisible to this file.
+OPENING_SITE = re.compile(r"tempfile\.mkstemp\(|(?<!\w)os\.open\(")
+CLOSING_SITE = "os.close(fd)"
+
+
+def read_fd_table():
+    """Every descriptor this process holds, as `{fd: target}`, or None off POSIX.
+
+    The descriptor `os.listdir` itself uses to read the directory appears in
+    its own listing; it points at `/proc/<pid>/fd` and is dropped here, so two
+    reads taken around a call cancel it out. An fd that vanishes between the
+    listing and the `readlink` is that same descriptor being closed under us.
+    """
+    try:
+        names = os.listdir(FD_TABLE)
+    except OSError:
+        return None
+    table = {}
+    for name in names:
+        try:
+            number = int(name)
+        except ValueError:
+            continue
+        try:
+            target = os.readlink(f"{FD_TABLE}/{name}")
+        except OSError:
+            continue
+        if target.startswith("/proc/") and target.endswith("/fd"):
+            continue
+        table[number] = target
+    return table
+
+
+class _NeverWatched:
+    """Sentinel: this case called the module without watching the fd table."""
 
 
 class _OsStandIn:
@@ -113,6 +184,7 @@ class _DescriptorCase(unittest.TestCase):
         self.tmp = pathlib.Path(self._tmp.name)
         self.opened: list[int] = []
         self.closed: list[int] = []
+        self.leaked = _NeverWatched
 
     def install(self, fsync_error: BaseException | None = None):
         """Point the module at the stand-ins for the duration of one test."""
@@ -127,15 +199,60 @@ class _DescriptorCase(unittest.TestCase):
 
         self.addCleanup(restore)
 
+    @contextlib.contextmanager
+    def watching_the_fd_table(self):
+        """Snapshot every descriptor this process holds around ONE module call.
+
+        Wrapped around the call and nothing else, so descriptors the test body
+        opens to check its own results are outside the window.
+        """
+        before = read_fd_table()
+        try:
+            yield
+        finally:
+            after = read_fd_table()
+            if before is None or after is None:
+                self.leaked = None
+            else:
+                self.leaked = {
+                    number: target
+                    for number, target in after.items()
+                    if before.get(number) != target
+                }
+
+    def assert_no_descriptor_leaked(self):
+        """THE PROPERTY. Everything else in this file pins a statement."""
+        self.assertIsNot(
+            self.leaked,
+            _NeverWatched,
+            "this case called the module outside `watching_the_fd_table()`, so "
+            "the only leak-detecting assertion in this file never ran",
+        )
+        if self.leaked is None:
+            self.assertFalse(
+                sys.platform.startswith("linux"),
+                f"{FD_TABLE} is unreadable on a Linux host: the one assertion "
+                "here that can see a leaked descriptor just went silent. Fix "
+                "the reader; do not weaken the fence.",
+            )
+            return
+        self.assertEqual(
+            self.leaked,
+            {},
+            "the call left descriptors open that it did not hold before: "
+            f"{self.leaked!r}",
+        )
+
     def assert_every_descriptor_released(self):
+        # Property first: it is the only one of the three that sees a leak the
+        # module did not open through its own `mkstemp`.
+        self.assert_no_descriptor_leaked()
         self.assertEqual(
             len(self.opened),
             1,
             f"expected exactly one mkstemp descriptor, got {self.opened!r}",
         )
         fd = self.opened[0]
-        # The process-level fact first, because it is the one that survives a
-        # refactor of HOW the module closes; the recorder is the corroboration.
         with self.assertRaises(OSError) as raised:
             os.fstat(fd)
         self.assertEqual(
@@ -143,10 +260,14 @@ class _DescriptorCase(unittest.TestCase):
             errno.EBADF,
             f"fd {fd} is still open after the call returned",
         )
+        # MECHANISM PIN, see this file's docstring: a correct rewrite to
+        # `os.fdopen`/`finally` turns this red with the fd table green.
         self.assertEqual(
             self.closed,
             [fd],
-            "the module did not ask to close the descriptor it opened",
+            "the module did not ask to close the descriptor it opened with a "
+            "literal `os.close(fd)`; if the fd-table assertion above is green "
+            "you refactored HOW it closes -- update this file deliberately",
         )
 
 
@@ -157,7 +278,8 @@ class AtomicWriteReleasesItsDescriptorTests(_DescriptorCase):
         path = self.tmp / "config" / "gm_login_scene.json"
         self.install()
 
-        login_scene_stage._atomic_write_json(path, {"entries": {"GM_ONE": 1}})
+        with self.watching_the_fd_table():
+            login_scene_stage._atomic_write_json(path, {"entries": {"GM_ONE": 1}})
 
         self.assertEqual(
             json.loads(path.read_text(encoding="ascii")), {"entries": {"GM_ONE": 1}}
@@ -168,7 +290,7 @@ class AtomicWriteReleasesItsDescriptorTests(_DescriptorCase):
         path = self.tmp / "config" / "gm_login_scene.json"
         self.install(fsync_error=OSError(errno.EIO, "injected fsync failure"))
 
-        with self.assertRaises(OSError):
+        with self.watching_the_fd_table(), self.assertRaises(OSError):
             login_scene_stage._atomic_write_json(path, {"entries": {}})
 
         self.assertFalse(path.exists(), "a failed write must not create the file")
@@ -193,7 +315,8 @@ class RestoreReleasesItsDescriptorTests(_DescriptorCase):
         path.write_bytes(b"replaced by a refusal\n")
         self.install()
 
-        login_scene_stage._restore_bytes(path, b'{"entries": {}}\n')
+        with self.watching_the_fd_table():
+            login_scene_stage._restore_bytes(path, b'{"entries": {}}\n')
 
         self.assertEqual(path.read_bytes(), b'{"entries": {}}\n')
         self.assert_every_descriptor_released()
@@ -205,7 +328,8 @@ class RestoreReleasesItsDescriptorTests(_DescriptorCase):
 
         # No `assertRaises`: this function must never raise over the top of the
         # refusal that called it.
-        login_scene_stage._restore_bytes(path, b'{"entries": {}}\n')
+        with self.watching_the_fd_table():
+            login_scene_stage._restore_bytes(path, b'{"entries": {}}\n')
 
         self.assertEqual(
             path.read_bytes(),
@@ -220,26 +344,98 @@ class RestoreReleasesItsDescriptorTests(_DescriptorCase):
         self.assert_every_descriptor_released()
 
 
+class TheLeakDetectorItselfWorksTests(_DescriptorCase):
+    """The fence's one property assertion, pointed at a leak on purpose.
+
+    Without this, `read_fd_table` returning a constant -- an empty dict, the
+    same dict twice, `None` -- leaves every test in this file green while
+    detecting nothing, which is the exact failure mode round `s03veu` shipped.
+    """
+
+    def test_a_descriptor_left_open_inside_the_window_is_reported(self):
+        handle, name = tempfile.mkstemp(dir=str(self.tmp), prefix=".probe.")
+        self.addCleanup(os.unlink, name)
+        with self.watching_the_fd_table():
+            leaked_fd = os.dup(handle)
+        os.close(handle)
+        self.addCleanup(os.close, leaked_fd)
+
+        if self.leaked is None:
+            self.assertFalse(
+                sys.platform.startswith("linux"),
+                f"{FD_TABLE} is unreadable on a Linux host",
+            )
+            return
+        self.assertIn(
+            leaked_fd,
+            self.leaked,
+            "a descriptor opened inside the window and still open at the end "
+            "of it was not reported: this file cannot see a leak",
+        )
+
+    def test_a_window_that_leaks_nothing_reports_nothing(self):
+        with self.watching_the_fd_table():
+            handle, name = tempfile.mkstemp(dir=str(self.tmp), prefix=".probe.")
+            os.close(handle)
+            os.unlink(name)
+
+        if self.leaked is None:
+            self.assertFalse(
+                sys.platform.startswith("linux"),
+                f"{FD_TABLE} is unreadable on a Linux host",
+            )
+            return
+        self.assertEqual(
+            self.leaked,
+            {},
+            f"the reader invented a leak that is not there: {self.leaked!r}",
+        )
+
+
 class TheFenceCoversEverySiteTests(unittest.TestCase):
     """A fence that misses a site is worse than no fence: it reads as coverage.
 
-    Counted from the module's own source rather than trusted, so a fifth
-    `os.close(fd)` added later fails HERE -- with the count in the message --
-    instead of landing unpinned the way these four did.
+    Counted from the module's own source rather than trusted. The count that
+    matters is of OPENING sites, because an opening site is the only way a leak
+    can enter and it is the one thing the per-path assertions structurally
+    cannot see (pf-adversary, round `s03veu`, D1: a fifth site that opened and
+    never closed kept the earlier version of this file at `5 passed`).
     """
 
-    def test_the_module_has_exactly_the_four_close_sites_this_file_pins(self):
-        source = pathlib.Path(login_scene_stage.__file__).read_text(encoding="utf-8")
+    def source(self):
+        return pathlib.Path(login_scene_stage.__file__).read_text(encoding="utf-8")
+
+    def test_the_module_has_exactly_the_two_opening_sites_this_file_pins(self):
         sites = [
             number
-            for number, line in enumerate(source.splitlines(), start=1)
-            if line.strip() == "os.close(fd)"
+            for number, line in enumerate(self.source().splitlines(), start=1)
+            if OPENING_SITE.search(line)
+        ]
+        self.assertEqual(
+            len(sites),
+            2,
+            f"login_scene_stage.py opens descriptors at {len(sites)} sites "
+            f"(lines {sites}); this file pins two, both `tempfile.mkstemp`. A "
+            "new one is a new leak surface no test here covers: add a case.",
+        )
+
+    def test_the_four_literal_close_statements_are_still_there(self):
+        """MECHANISM PIN. A correct refactor may legitimately change this.
+
+        See this file's docstring: if this is red while every fd-table
+        assertion is green, nothing leaked -- the module stopped closing with a
+        literal `os.close(fd)`, and this number is to be updated on purpose.
+        """
+        sites = [
+            number
+            for number, line in enumerate(self.source().splitlines(), start=1)
+            if line.strip() == CLOSING_SITE
         ]
         self.assertEqual(
             len(sites),
             4,
-            f"login_scene_stage.py has {len(sites)} `os.close(fd)` sites at lines "
-            f"{sites}; this file pins four. Add a case for the new one.",
+            f"login_scene_stage.py has {len(sites)} `{CLOSING_SITE}` sites at "
+            f"lines {sites}; this file pins four.",
         )
 
 
