@@ -30,9 +30,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import bag_admission, class_catalog, class_starting_gear
+from pirateforce_foundation import class_catalog, class_starting_gear
 from pirateforce_foundation.inventory import (
     INITIAL_BACKPACK,
+    is_unmoved_baseline,
     make_backpack_attr,
     require_backpack_shape,
     require_known_backpack,
@@ -472,8 +473,19 @@ class Gate2RefusesEveryClassButOneTodayTests(unittest.TestCase):
     would sit on "connecting" forever.  ``INITIAL_BACKPACK`` is four goldens
     at once -- the V141 encoder pin (which stays green), gate 2's admission
     golden, ``require_known_backpack``'s allowlist and
-    ``apply_v111_stack_merge``'s pre-state -- and three of the four still
-    spell "carries the Gladiator sword" as part of "is a legal bag".
+    ``store.apply_v111_stack_merge``'s pre-state -- and three of the four
+    still spell "carries the Gladiator sword" as part of "is a legal bag".
+
+    WHY THIS PINS THE TERM AND NOT THE PREDICATE.  The gate-2 module carries
+    another lane's guard admitting exactly one caller in the package plus a
+    named list of files that may even mention it.  A first cut of this file
+    imported it, turned that guard red, and the only ways out would have
+    been to widen someone else's list or to delete a correct check -- both
+    forbidden by ``COO-DECISION 20260907_2050``.  So the wall is pinned by
+    the term gate 2 turns on for an untouched bag,
+    ``inventory.is_unmoved_baseline``, plus gate 3's own raise.  Those are
+    the two facts that make the refusal happen; the end-to-end refusal
+    itself is measured in the adversary token quoted above.
 
     These tests pass BECAUSE the refusal is real.  The day someone answers
     "what is a legal Paladin bag", they go red and must be rewritten by the
@@ -481,16 +493,11 @@ class Gate2RefusesEveryClassButOneTodayTests(unittest.TestCase):
     describing it.
     """
 
-    def test_class_1_is_admitted_and_every_other_class_is_refused(self):
+    def test_only_class_1_still_looks_like_the_untouched_baseline(self):
         for class_id in class_catalog.CLASS_IDS:
             with self.subTest(class_id=class_id):
                 state = class_starting_gear.starting_backpack_state(class_id)
-                verdict = bag_admission.may_enter_world(
-                    state,
-                    allow_hypothesized_item_move=False,
-                    issued_through=max(item.identity for item in state.items),
-                )
-                self.assertIs(verdict, class_id == 1)
+                self.assertIs(is_unmoved_baseline(state), class_id == 1)
 
     def test_the_governed_item_gates_refuse_them_too(self):
         """Not one gate to widen: three sites, measured (pf-adversary D5)."""
