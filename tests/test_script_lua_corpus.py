@@ -9,13 +9,17 @@ machine missing either, these tests skip with a declared, pinned reason
 failing or silently vanishing; on the bridge, and on any cloud round
 paired with a pf_bridge checkout, they run against the real files.
 """
+import shutil
+import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 
-from pf_preconditions import LUA_CORPUS_RUNNABLE, SIBLING
+from pf_preconditions import LUA_CORPUS_RUNNABLE, LUPA_PACKAGE, SIBLING
 
 from pirateforce_foundation import script_host
+from pirateforce_foundation.lua_api import message as lua_api_message
+from pirateforce_foundation.lua_api import spec as lua_api_spec
 
 LUA_ROOT = SIBLING / "pf_bridge" / "gamedata" / "lua"
 
@@ -359,3 +363,143 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class HostSideCallFailureBucketingTests(unittest.TestCase):
+    """pf-adversary D12 (round 8ou0zg): a defect of OURS that surfaces while
+    an entry point is being CALLED must be counted once, against us.
+
+    Not gated on the real corpus (LUA_CORPUS_RUNNABLE) on purpose -- these
+    three files are written here, so the numbers asserted below are exact
+    and do not move when the shipped corpus does.  The host-side failure is
+    injected the way the real one arrives: the vendored message catalog is
+    pointed at a path that does not exist, so `Player.ShowMessage` -- the
+    first API the corpus reaches that reads a mirror of ours -- raises
+    MessageCatalogError, a VendoredDataError, exactly as a corrupt checkout
+    would make it.
+    """
+
+    HOST_SIDE_CALL = "Player.ShowMessage(1)"
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="pf_lua_bucket_"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+        # Three entry points, every one of them reaching our broken mirror.
+        (self.root / "ours.lua").write_text(
+            "function ScriptStart() %s end\n"
+            "function Accept_Run() %s end\n"
+            "function Report_Run() %s end\n"
+            % ((self.HOST_SIDE_CALL,) * 3), encoding="ascii")
+        # One of ours, one genuinely the script's own bug.
+        (self.root / "both.lua").write_text(
+            "function ScriptStart() %s end\n"
+            "function Accept_Run() error('this one is the script') end\n"
+            % self.HOST_SIDE_CALL, encoding="ascii")
+        (self.root / "clean.lua").write_text(
+            "function ScriptStart() return 1 end\n", encoding="ascii")
+
+        catalog_path = lua_api_message._CATALOG_PATH
+        catalog_cache = lua_api_message._CATALOG_CACHE
+        lua_api_message._CATALOG_PATH = self.root / "no_such_catalog.tsv"
+        lua_api_message._CATALOG_CACHE = None
+
+        def restore():
+            lua_api_message._CATALOG_PATH = catalog_path
+            lua_api_message._CATALOG_CACHE = catalog_cache
+
+        self.addCleanup(restore)
+
+    def _report(self):
+        self.logged = []
+        return script_host.run_corpus_entry_points(
+            self.root, log=self.logged.append, quest_clock=FIXED_QUEST_CLOCK)
+
+    def test_the_broken_mirror_is_counted_once_per_file_not_once_per_entry_point(self):
+        report = self._report()
+        # Three failing entry points in ours.lua, one in both.lua: the old
+        # shape appended a path per failure and reported four.
+        self.assertEqual(sorted(report.host_failed), ["both.lua", "ours.lua"])
+
+    def test_our_defect_never_makes_a_script_look_like_a_broken_quest(self):
+        report = self._report()
+        # ours.lua has no bug of its own, so it is in NEITHER call_failed
+        # (which pins "quests known to fail") nor ran (it did not run).
+        self.assertEqual([run.path for run in report.call_failed], ["both.lua"])
+        self.assertEqual([run.path for run in report.ran], ["clean.lua"])
+        self.assertEqual(sorted(run.path for run in report.host_failed_runs),
+                         ["both.lua", "ours.lua"])
+
+    def test_the_two_kinds_of_failure_are_kept_in_separate_dicts(self):
+        report = self._report()
+        by_path = {run.path: run for run in report.host_failed_runs}
+        self.assertEqual(sorted(by_path["ours.lua"].host_errors),
+                         ["Accept_Run", "Report_Run", "ScriptStart"])
+        self.assertEqual(by_path["ours.lua"].errors, {})
+        # both.lua: our failure and the script's, each in its own dict, so
+        # a caller pinning script failures never inherits ours.
+        self.assertEqual(sorted(by_path["both.lua"].host_errors), ["ScriptStart"])
+        self.assertEqual(sorted(by_path["both.lua"].errors), ["Accept_Run"])
+        self.assertFalse(by_path["both.lua"].ok)
+
+    def test_the_log_line_names_the_defect_not_the_script(self):
+        self._report()
+        blamed = [line for line in self.logged
+                  if line.startswith("LUA_SCRIPT ours.lua")]
+        self.assertEqual(blamed, [], "our own defect was logged against a script")
+        ours = [line for line in self.logged
+                if line.startswith("LUA_HOST") and "discovered_at=ours.lua" in line]
+        self.assertEqual(len(ours), 3)
+        for line in ours:
+            self.assertIn("MessageCatalogError", line)
+
+
+@LUPA_PACKAGE.skip_unless_present()
+class BrokenApiSpecIsOursNotTheScriptsTests(unittest.TestCase):
+    """lua_api/spec.py's own claim, checked end to end.
+
+    The vendored API census is the one mirror every ScriptHost reads while
+    it is being BUILT, so a corrupt copy of it used to raise out of an
+    import and take script_host down with it -- before any sweep's own
+    try/except could classify it, and as a type
+    script_host._host_side_error_types() would not have recognised anyway
+    (pf-adversary finding 13, round 8ou0zg).  Now it is a lazily-raised
+    ApiSpecError, which is a VendoredDataError, which is host-side: these
+    two tests are what says so out loud.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="pf_lua_spec_"))
+        self.addCleanup(shutil.rmtree, self.root, True)
+        (self.root / "innocent.lua").write_text(
+            "function ScriptStart() return 1 end\n", encoding="ascii")
+        spec_path = lua_api_spec._SPEC_PATH
+        lua_api_spec._SPEC_PATH = self.root / "no_such_api_spec.tsv"
+        lua_api_spec._CACHE.clear()
+
+        def restore():
+            lua_api_spec._SPEC_PATH = spec_path
+            lua_api_spec._CACHE.clear()
+
+        self.addCleanup(restore)
+
+    def test_a_corrupt_census_is_reported_against_us_not_against_the_script(self):
+        logged = []
+        report = script_host.run_corpus_entry_points(
+            self.root, log=logged.append, quest_clock=FIXED_QUEST_CLOCK)
+        self.assertEqual(report.host_failed, ["innocent.lua"])
+        self.assertEqual(report.load_failed, [])
+        self.assertEqual(report.ran, [])
+        self.assertEqual([line for line in logged
+                          if line.startswith("LUA_SCRIPT")], [])
+        self.assertEqual(
+            [line for line in logged if line.startswith("LUA_HOST")],
+            ["LUA_HOST ApiSpecError ERR %s is missing discovered_at=innocent.lua"
+             % (self.root / "no_such_api_spec.tsv")])
+
+    def test_the_same_holds_for_the_load_only_sweep(self):
+        logged = []
+        report = script_host.load_corpus(self.root, log=logged.append)
+        self.assertEqual(report.host_failed, ["innocent.lua"])
+        self.assertEqual(report.failed, [])
+        self.assertEqual(report.ok, 0)

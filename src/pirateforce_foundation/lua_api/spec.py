@@ -14,13 +14,55 @@ TSV, so a re-vendor is a diff, not a retype.  If the count drifts (a new
 game script pass finds more callers, or a rescan changes an arity), this
 file's own count assertions in ``tests/test_script_lua_api_spec.py`` will
 say so on the very next run, on any machine, without a sibling checkout.
+
+LOADED ON FIRST USE, NOT AT IMPORT (pf-adversary finding 13, round
+``8ou0zg``).  The first shape of this module ran the parse at import time
+and let a missing/corrupt TSV escape as ``FileNotFoundError`` /
+``AssertionError`` / ``ValueError``, which had two consequences the rest of
+the lane's fail-closed design could not repair:
+
+* ``import script_host`` itself raised, because ``script_host`` imports this
+  module -- so every sweep in ``script_host`` was dead before its own
+  ``try`` could run, and ``_host_side_error_types()``, whose whole job is to
+  keep a defect of OURS from being logged as a broken quest script, never
+  got the chance to classify the one vendored file every other vendored
+  file's classification depends on.
+* the escaping types were not :class:`~.vendored.VendoredDataError`
+  subclasses, so even reached, they would have been classified as a script's
+  fault rather than ours.
+
+Both are fixed by loading lazily and raising :class:`ApiSpecError`: a broken
+``api_spec.tsv`` now surfaces where the corpus sweep can see it (inside
+``load_script_file``, at ``ScriptHost`` construction), gets the
+``LUA_HOST ... discovered_at=<file>`` line rather than ``LUA_SCRIPT <file>
+ERR``, and lands in the report's ``host_failed`` bucket like every other
+mirror of ours.  Module-level names (``API_FUNCTIONS`` and friends) still
+read exactly as before at every call site -- they resolve through PEP 562
+``__getattr__`` on first attribute access.
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from .vendored import VendoredDataError
+
 _SPEC_PATH = Path(__file__).with_name("api_spec.tsv")
+
+_COLUMNS = (
+    "namespace", "method", "call_count", "file_count",
+    "arity_min", "arity_max",
+)
+
+
+class ApiSpecError(VendoredDataError):
+    """``api_spec.tsv`` is missing, unreadable, or corrupt.
+
+    A defect in THIS checkout, never something a shipped Lua script can
+    provoke -- which is exactly what makes it host-side to
+    ``script_host._host_side_error_types()``.
+    """
 
 
 @dataclass(frozen=True)
@@ -37,42 +79,108 @@ class ApiFunction:
         return "%s.%s" % (self.namespace, self.method)
 
 
-def _load() -> tuple[ApiFunction, ...]:
-    lines = _SPEC_PATH.read_text(encoding="ascii").splitlines()
-    header, rows = lines[0].split("\t"), lines[1:]
-    assert header == [
-        "namespace", "method", "call_count", "file_count",
-        "arity_min", "arity_max",
-    ], "api_spec.tsv header drifted: %r" % (header,)
+def _parse_int(name: str, raw: str, line_no: int) -> int:
+    try:
+        return int(raw)
+    except ValueError:
+        raise ApiSpecError(
+            "%s line %d: %s is not an integer: %r"
+            % (_SPEC_PATH, line_no, name, raw)) from None
+
+
+def _load() -> tuple:
+    try:
+        text = _SPEC_PATH.read_text(encoding="ascii")
+    except FileNotFoundError as exc:
+        raise ApiSpecError("%s is missing" % _SPEC_PATH) from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ApiSpecError(
+            "%s is unreadable: %s" % (_SPEC_PATH, exc)) from exc
+
+    lines = text.splitlines()
+    if not lines:
+        raise ApiSpecError("%s is empty" % _SPEC_PATH)
+    header, rows = tuple(lines[0].split("\t")), lines[1:]
+    if header != _COLUMNS:
+        raise ApiSpecError(
+            "%s header is %r, expected %r" % (_SPEC_PATH, header, _COLUMNS))
     out = []
-    for line in rows:
+    for offset, line in enumerate(rows):
         if not line:
             continue
-        ns, method, call_count, file_count, arity_min, arity_max = line.split("\t")
+        line_no = offset + 2  # 1-based, and the header is line 1
+        fields = line.split("\t")
+        if len(fields) != len(_COLUMNS):
+            raise ApiSpecError(
+                "%s line %d has %d columns, expected %d"
+                % (_SPEC_PATH, line_no, len(fields), len(_COLUMNS)))
+        ns, method, call_count, file_count, arity_min, arity_max = fields
         out.append(ApiFunction(
             namespace=ns,
             method=method,
-            call_count=int(call_count),
-            file_count=int(file_count),
-            arity_min=int(arity_min),
-            arity_max=int(arity_max),
+            call_count=_parse_int("call_count", call_count, line_no),
+            file_count=_parse_int("file_count", file_count, line_no),
+            arity_min=_parse_int("arity_min", arity_min, line_no),
+            arity_max=_parse_int("arity_max", arity_max, line_no),
         ))
+    if not out:
+        raise ApiSpecError("%s has a header but no rows" % _SPEC_PATH)
     return tuple(out)
 
 
-#: Every row of the frozen census, in file order (namespace, then method).
-API_FUNCTIONS: tuple[ApiFunction, ...] = _load()
+_LOCK = threading.RLock()
+_CACHE: dict = {}
 
-#: namespace -> frozenset of its method names, e.g. NAMESPACE_METHODS["Quest"].
-NAMESPACE_METHODS: dict[str, frozenset[str]] = {}
-for _fn in API_FUNCTIONS:
-    NAMESPACE_METHODS.setdefault(_fn.namespace, set()).add(_fn.method)
-NAMESPACE_METHODS = {k: frozenset(v) for k, v in NAMESPACE_METHODS.items()}
 
-#: The 8 namespace names the game's scripts index as Lua globals.
-NAMESPACES: tuple[str, ...] = tuple(sorted(NAMESPACE_METHODS))
+def _tables() -> dict:
+    """Parse the TSV once, then hand back the same four tables forever.
 
-#: qualified name ("Quest.SetFlag") -> ApiFunction, for lookup by call site.
-BY_QUALIFIED_NAME: dict[str, ApiFunction] = {
-    fn.qualified_name: fn for fn in API_FUNCTIONS
-}
+    Locked because the corpus sweep and the future live dispatch both reach
+    this from whichever thread touched a script first; the double check
+    keeps the steady-state read off the lock.
+    """
+    tables = _CACHE.get("tables")
+    if tables is not None:
+        return tables
+    with _LOCK:
+        tables = _CACHE.get("tables")
+        if tables is None:
+            functions = _load()
+            methods: dict = {}
+            for fn in functions:
+                methods.setdefault(fn.namespace, set()).add(fn.method)
+            tables = {
+                "API_FUNCTIONS": functions,
+                "NAMESPACE_METHODS": {
+                    k: frozenset(v) for k, v in methods.items()},
+                "BY_QUALIFIED_NAME": {
+                    fn.qualified_name: fn for fn in functions},
+            }
+            tables["NAMESPACES"] = tuple(sorted(tables["NAMESPACE_METHODS"]))
+            _CACHE["tables"] = tables
+    return tables
+
+
+#: The module-level names this module has always exposed, resolved on first
+#: access instead of at import.  Listed here rather than inferred so a typo
+#: in a call site still raises ``AttributeError`` at that call site.
+_LAZY_NAMES = (
+    # Every row of the frozen census, in file order (namespace, method).
+    "API_FUNCTIONS",
+    # namespace -> frozenset of its method names, e.g. ["Quest"].
+    "NAMESPACE_METHODS",
+    # The 8 namespace names the game's scripts index as Lua globals.
+    "NAMESPACES",
+    # qualified name ("Quest.SetFlag") -> ApiFunction, by call site.
+    "BY_QUALIFIED_NAME",
+)
+
+
+def __getattr__(name: str):
+    if name in _LAZY_NAMES:
+        return _tables()[name]
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
+
+
+def __dir__() -> list:
+    return sorted(list(globals()) + list(_LAZY_NAMES))

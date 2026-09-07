@@ -3117,3 +3117,90 @@ Carried to the next round, named rather than hidden:
   carrying 86 distinct `(level, multiplier)` pairs.  So no per-file test
   can ever tie a resolved amount to an observed reward -- only a live quest
   instance can, which is the same missing dispatcher as above.
+
+## Round `oghyca` (2026-09-07) -- the two structural defects the last two rounds' findings lists carried are paid
+
+No API name changed status this round (still 34 real of 160): both items
+are in the machinery that REPORTS on the corpus, and both were already
+written down as known-and-unpaid at the bottom of this file.  They are
+paid now, with tests that fail without the fix.
+
+### 1. A defect of ours no longer reads as a broken quest (pf-adversary D12)
+
+`run_corpus_entry_points` classified a load-time failure correctly
+(`host_failed`, `LUA_HOST` line) but not a CALL-time one: an entry point
+that hit one of our own broken vendored mirrors put its run into
+`report.call_failed` -- the bucket whose whole meaning is "this shipped
+quest script has a bug" and which
+`tests/test_script_lua_corpus.py`'s `KNOWN_ENTRY_POINT_CALL_FAILURES` pins
+by name -- and appended the file's path to `host_failed` once per failing
+entry point.  A file defines up to 8 of `STANDARD_ENTRY_POINTS`, and a
+broken mirror fails every one it reaches, so three affected files could be
+reported as up to 24 "host failures": a number nobody could reconcile
+against a corpus of 616 files.
+
+Now:
+
+* `EntryPointRun.host_errors` (new) holds the failures that are OURS,
+  `EntryPointRun.errors` only the ones the script itself caused.  A caller
+  pinning script failures can no longer inherit ours by accident.
+* `host_failed` gets the path once per FILE, which is what its name says
+  and what `LoadReport.host_failed` (one load per file) always meant.
+* `call_failed` holds only runs with at least one script-side error;
+  `host_failed_runs` (new) keeps the detail for runs that failed only
+  through us; `ran` keeps only fully clean runs.  A run with both kinds is
+  in both buckets, once each.
+
+Measured by `HostSideCallFailureBucketingTests`
+(`tests/test_script_lua_corpus.py`), which writes its own three-file corpus
+and injects the failure the way the real one arrives -- the vendored
+message catalog pointed at a path that does not exist, so the first API the
+corpus reaches that reads a mirror of ours raises `MessageCatalogError`.
+The old code returns `host_failed == 4 paths` and files the innocent file
+in `call_failed`; the new code returns 2 paths and files it in neither
+`call_failed` nor `ran`.
+
+### 2. The vendored API census is no longer read at import (finding 13)
+
+`lua_api/spec.py` parsed `api_spec.tsv` at module import, with a bare
+`assert` for its header and no error type of its own.  Two consequences,
+both of which defeated the machinery `lua_api/vendored.py` exists to feed:
+
+* `import script_host` itself raised, because `script_host` imports
+  `spec` -- so every fail-closed sweep in that module was dead before its
+  own `try` could run.  The one mirror every `ScriptHost` construction
+  depends on was the one mirror whose failure could never be classified.
+* the escaping types (`FileNotFoundError`, `AssertionError`, `ValueError`)
+  are not `VendoredDataError` subclasses, so even if reached they would
+  have been logged `LUA_SCRIPT <quest file> ERR ...` -- our defect wearing
+  an innocent script's name, which is precisely D11.
+
+Now the parse is lazy, cached under an `RLock`, and every failure shape
+raises `ApiSpecError(VendoredDataError)` naming the file and the line:
+missing, unreadable, empty, drifted header, ragged row, non-integer count,
+header-with-no-rows.  Module-level names (`API_FUNCTIONS`,
+`NAMESPACE_METHODS`, `NAMESPACES`, `BY_QUALIFIED_NAME`) resolve through PEP
+562 `__getattr__` on first access, so no call site changed.
+
+Measured twice, deliberately from opposite ends:
+
+* `BrokenVendoredCensusIsRefusedByNameTests` and
+  `TheCensusIsNotReadAtImportTimeTests` (`tests/test_script_lua_api_spec.py`,
+  no Lua runtime needed) -- the second runs a child interpreter, because
+  import happens once per process, and asserts `import script_host`
+  SUCCEEDS with the census pointed at a missing file and that the first
+  ACCESS then raises `ApiSpecError`.
+* `BrokenApiSpecIsOursNotTheScriptsTests`
+  (`tests/test_script_lua_corpus.py`) -- end to end through both sweeps: a
+  one-file corpus with a broken census yields `host_failed == [that file]`,
+  `load_failed == []`, and exactly one `LUA_HOST ApiSpecError ERR ...
+  discovered_at=<file>` line, with no `LUA_SCRIPT` line anywhere.
+
+### Still open, unchanged by this round
+
+The other entries in "known findings" below stand as written: the
+`ScriptHost` hang budget, the `reward_store`/`player_context` seam waiting
+on chief's symbol-guard answer, the atomic store method waiting on
+LANE-DB, and the `Lv` RE ticket.  Nothing here moves M2, M3 or M4; the
+corpus-wide stub-call pin (`BASELINE_TOTAL_STUB_CALLS = 2597`) is
+unchanged, because no API became real.
