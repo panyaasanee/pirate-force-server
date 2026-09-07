@@ -56,13 +56,35 @@ WHAT IS NOT DECIDED HERE, ON PURPOSE.
   ("migration+backup or leave it -- you decide"), and this module has no
   write path of any kind.
 
-NOT WIRED YET.  ``store._insert_initial_backpack`` never receives a class
-id, and ``store.py`` is not this lane's write zone; the one-line seam is
-asked for by ``pf_bridge/notes_to_chief/20260907_2237_LANE-CS-CORE-REQUEST-
-the-starting-bag-needs-the-class-she-picked.md``.  Until that seam lands, no
-character's bag changes and ``production_allowed`` stays ``False``.  A test
-measures that this module has no production caller rather than asserting it
-in prose.
+NOT WIRED YET, AND THE SEAM ALONE IS NOT ENOUGH -- READ THIS BEFORE WIRING
+IT.  ``pf-adversary`` (round ``e8pss9``, finding D1) booted a real store, a
+real ``lifecycle`` and ``FoundationSession.select_and_start`` with the bag
+this module composes for a Sniper and measured:
+
+    BAG_ADMISSION verdict=refused golden=initial acquired=0
+                  reason=golden_item_moved_or_altered
+    SELECT_AND_START_RAISED PermissionError
+
+Gate 2 (``bag_admission.may_enter_world``) refuses every class but 1 today,
+because ``INITIAL_BACKPACK`` is not one thing wearing one hat: it is the
+V141 encoder golden AND gate 2's admission golden AND
+``inventory.require_known_backpack``'s content allowlist AND
+``store.apply_v111_stack_merge``'s exact pre-state.  Three of those four
+still spell "carries 2200002" as part of "is a legal bag", so today there is
+no such thing anywhere in this server as a valid non-Gladiator bag.  Wiring
+the seam without answering that first would let a Paladin be created and
+then refuse her at select with no reply frame at all -- the client would sit
+on "connecting" forever.  ``tests/test_class_starting_gear.py::
+Gate2RefusesEveryClassButOneTodayTests`` pins that refusal so it cannot be
+discovered by a player instead of by a test.
+
+So the ``store.py`` seam (``pf_bridge/notes_to_chief/20260907_2237_LANE-CS-
+CORE-REQUEST-the-starting-bag-needs-the-class-she-picked.md``) is filed as
+HOLD, and the question of who owns the golden a non-Gladiator bag is
+measured against went to COO in ``pf_bridge/notes_to_chief/20260907_2258_
+LANE-CS-ASK-COO-there-is-no-legal-non-gladiator-bag-yet.md``.  Until both
+are answered no character's bag changes, ``production_allowed`` stays
+``False``, and a test measures that no production module imports this one.
 """
 
 from __future__ import annotations
@@ -78,6 +100,8 @@ production_allowed = False
 # below is derived from this one number plus the table; it is not a second
 # name for "the first row" or "the default".
 V141_BAG_CLASS_ID = 1
+
+_MODULE_NAME = "class_starting_gear"
 
 
 class ClassStartingGearError(RuntimeError):
@@ -104,8 +128,36 @@ def _weapon_row_index() -> int:
             "(%d); exactly one is required to know which row is the weapon"
             % (len(hits), V141_BAG_CLASS_ID, rhand)
         )
-    return hits[0]
+    index = hits[0]
+    row = INITIAL_BACKPACK.items[index]
+    # "Exactly one hit" alone cannot tell a weapon row from a cask row:
+    # pf-adversary (D2) drifted class 1's n_SLOT_RHAND to the cask template,
+    # which also appears exactly once, and got a Sniper born with a rifle in
+    # the cask slot and the Gladiator sword still in the weapon slot -- the
+    # "potion rewritten into a sword" this module says it cannot do.  The
+    # identity and slot of the committed weapon row are therefore part of
+    # the match, so a drifted table changes WHICH ROW ONLY IF the whole row
+    # moved with it, and otherwise refuses.
+    if (row.identity, row.slot) != _V141_WEAPON_ROW_ID_AND_SLOT:
+        raise ClassStartingGearError(
+            "the row carrying class %d's n_SLOT_RHAND (%d) is identity %d in "
+            "slot %d, not the committed weapon row %r -- the table and the "
+            "bag no longer agree about which row is the weapon"
+            % (V141_BAG_CLASS_ID, rhand, row.identity, row.slot,
+               _V141_WEAPON_ROW_ID_AND_SLOT)
+        )
+    return index
 
+
+# The committed weapon row's own (identity, slot), read off the bag at import
+# rather than spelled as numbers: it is whatever row currently carries class
+# 1's table weapon, and _weapon_row_index() then refuses any drift that would
+# move the weapon to a DIFFERENT row of the same bag.
+_V141_WEAPON_ROW_ID_AND_SLOT = next(
+    (item.identity, item.slot)
+    for item in INITIAL_BACKPACK.items
+    if item.template_id == class_catalog.starting_hand_slots(V141_BAG_CLASS_ID)[0]
+)
 
 WEAPON_ROW_INDEX = _weapon_row_index()
 
@@ -134,14 +186,24 @@ def starting_backpack_state(class_id: int) -> BackpackState:
     docstring) so the V141 byte pin inside ``inventory.make_backpack_attr``
     keeps guarding Gladiators unchanged.
     """
-    if type(class_id) is not int or isinstance(class_id, bool):
+    # bool first and on its own: `True` is an int, sqlite binds it as 1, and
+    # `isinstance` (not `type() is`) keeps an IntEnum from the seam's own
+    # resolver usable.  Written as two terms that can each be the sole reason
+    # for the raise -- the earlier `type() is not int or isinstance(bool)`
+    # form had a second term nothing could ever reach (pf-adversary D7).
+    if isinstance(class_id, bool) or not isinstance(class_id, int):
         raise TypeError("class_id must be int, not %r" % (type(class_id).__name__,))
     template = starting_weapon_template(class_id)
     if class_id == V141_BAG_CLASS_ID:
         return INITIAL_BACKPACK
     rows = list(INITIAL_BACKPACK.items)
-    weapon = rows[WEAPON_ROW_INDEX]
-    rows[WEAPON_ROW_INDEX] = ItemAttrState(
+    # Re-derived per call, not read off the module global: a global is a
+    # literal index the moment anything assigns to it, and the docstring's
+    # "not row index 3, not the last row" has to be true of the path that
+    # actually ships (pf-adversary D2 killed both mutants through it).
+    index = _weapon_row_index()
+    weapon = rows[index]
+    rows[index] = ItemAttrState(
         weapon.identity,
         template,
         weapon.quantity,
@@ -182,12 +244,53 @@ def describe(class_id: int) -> str:
     )
 
 
+def count_production_importers(root=None) -> int:
+    """How many shipped modules import this one, counted at run time.
+
+    pf-adversary (D3) dropped a real importer into the package and the
+    console token still printed ``wired_callers=0``, because the zero was
+    inside the format string: a number that can only ever be the number it
+    already is.  This walks the package's parsed modules instead, so the
+    operator's console reports what is true of the tree it is running on.
+    """
+    import ast
+    import pathlib
+
+    here = pathlib.Path(__file__).resolve()
+    base = here.parent if root is None else pathlib.Path(root)
+    count = 0
+    for path in sorted(base.rglob("*.py")):
+        if path == here:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(a.name.split(".")[-1] == _MODULE_NAME for a in node.names):
+                    count += 1
+                    break
+            elif isinstance(node, ast.ImportFrom):
+                if (node.module or "").split(".")[-1] == _MODULE_NAME or any(
+                    a.name == _MODULE_NAME for a in node.names
+                ):
+                    count += 1
+                    break
+    return count
+
+
 def main() -> int:
     for class_id in class_catalog.CLASS_IDS:
         print(describe(class_id))
     print(
-        "CLASS_STARTING_GEAR_SUMMARY classes=%d wired_callers=0 "
-        "production_allowed=%s" % (class_catalog.CLASS_COUNT, production_allowed)
+        "CLASS_STARTING_GEAR_SUMMARY classes=%d wired_callers=%d "
+        "production_allowed=%s gate2_admits_non_class_1=NO"
+        % (
+            class_catalog.CLASS_COUNT,
+            count_production_importers(),
+            production_allowed,
+        )
     )
     return 0
 
