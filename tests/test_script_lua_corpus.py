@@ -370,7 +370,23 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: real in the source and unreachable in THIS harness for want of trigger
 #: table data, not for want of LANE-A's Scene.* seam; that is a gap this
 #: pin makes visible rather than a count to celebrate.
-BASELINE_TOTAL_STUB_CALLS = 2606
+#: RE-MEASURED (LANE-Q, round `joa0u6`): 2606 -> 2600 and 2865 -> 2871.
+#: NOT this round's doing -- measured with round `joa0u6`'s own quest.py
+#: change stashed, `origin/main` alone already prints 2600/2871, so these
+#: two pins were ALREADY RED on any machine that has the corpus. The -6/+6
+#: is exactly `Player.AddCash`'s 6 call sites moving from the stub bucket
+#: to the real one, which is what round `2euu94` (`#1088`) landed. That
+#: round could not see it: the cloud clone had no lupa then, so every test
+#: under LUA_CORPUS_RUNNABLE skipped, and the Windows gate has no corpus at
+#: all. This is pf-adversary F1 of round `5qtaqy` happening for real -- a
+#: machine with the corpus goes red while the machine that decides whether
+#: the PR merges sees nothing -- and it is this lane's own debt, paid here
+#: rather than left for whoever next installs lupa.
+#: Round `joa0u6` itself moves NEITHER number: `Quest.VarN` is table data,
+#: not an API name, so it enters no bucket, and the corpus sweep binds no
+#: quest, so all 301 of its VarN reads still resolve to 0 and shift no
+#: branch. Measured both ways to be sure, not assumed.
+BASELINE_TOTAL_STUB_CALLS = 2600
 
 #: The other half of the split, pinned for the same reason (pf-adversary
 #: D1, round `oghyca`).  Only the stub total was pinned before, so a round
@@ -379,7 +395,10 @@ BASELINE_TOTAL_STUB_CALLS = 2606
 #: ceiling -- a round that makes another API real raises this in the same
 #: commit; a round that breaks one gets caught here.  Measured 2026-09-07,
 #: round `5qtaqy`, with FIXED_QUEST_CLOCK.
-BASELINE_TOTAL_REAL_CALLS = 2865
+#: RE-MEASURED (LANE-Q, round `joa0u6`) to 2871 -- see the note on
+#: BASELINE_TOTAL_STUB_CALLS above for why, and for why it is not this
+#: round's change that moved it.
+BASELINE_TOTAL_REAL_CALLS = 2871
 
 
 def bucket_conservation(report):

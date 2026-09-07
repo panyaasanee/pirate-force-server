@@ -80,6 +80,8 @@ MIRROR_API_SPEC = "api_spec"
 MIRROR_MESSAGE_CATALOG = "message_catalog"
 MIRROR_CRITERIA_CURVE = "criteria_curve"
 MIRROR_CRITERIA_ROWS = "criteria_rows"
+MIRROR_QUEST_VAR_ROWS = "quest_var_rows"
+MIRROR_QUEST_VAR_SIGNEDNESS = "quest_var_signedness"
 
 #: What a read that did not say which mirror it was reading is filed under.
 #: Kept so `record(exc)` with no key stays legal for a caller outside this
@@ -93,6 +95,8 @@ KNOWN_MIRRORS: tuple = (
     MIRROR_MESSAGE_CATALOG,
     MIRROR_CRITERIA_CURVE,
     MIRROR_CRITERIA_ROWS,
+    MIRROR_QUEST_VAR_ROWS,
+    MIRROR_QUEST_VAR_SIGNEDNESS,
 )
 
 

@@ -960,6 +960,15 @@ class FieldMobTests(unittest.TestCase):
              # the same fail-closed shape as ``pose_trial.PF_POSE_TRIAL``; no
              # runtime.py/app.py call site exists.
              "name_colour_sweep.py",
+             # LANE-B round `phv2u0` (COO-ORDER 2026-09-07T20:50): the
+             # NPCAttr body walk that names the fields two bodies differ in.
+             # It does NOT import this module -- it imports nothing from the
+             # package but ``gm.name_color_gate`` -- and names
+             # ``field_mobs.hostile_npc_attr``/``BASIC_BIT_LEVEL`` in its
+             # docstring and one FieldSpec source string, which is what this
+             # census counts.  It dispatches nothing and composes nothing:
+             # every function in it takes bytes and returns a description.
+             "npc_attr_body_diff.py",
              "player_hostile_pairing.py", "runtime.py",
              "scene_door_walk.py",
              "world_census_level.py",
