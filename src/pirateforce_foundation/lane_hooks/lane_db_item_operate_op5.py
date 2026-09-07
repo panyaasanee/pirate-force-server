@@ -33,15 +33,30 @@ So the screen half of this feature is blocked on two named, filed RE
 questions, not on this lane's effort, and the honest sentence is "the equip
 is no longer forgotten", never "the equip comes back".
 
-WHAT READS THE ROW TODAY, SINCE A ROW NOTHING READS IS NOT A FEATURE.  One
-designed consumer exists: LANE-Q's ``lua_api/player.py`` builds
-``PlayerContext.equipped_template_ids`` out of ``store.list_equipped_items``
-and answers ``Player.CheckEquipItem`` from it (``lua_api/player.py:58-79``).
-That consumer is SLOT-AGNOSTIC -- it reduces the rows by dropping
-``slot_id`` -- which is exactly why this file can write a row today whose
-slot number is provenance-backed but not yet client-proven: no reader is
-relying on the number, and the swap semantics it keys do not depend on
-which absolute number it is (see below).
+WHAT READS THE ROW TODAY: NOTHING, ON ANY LAYER.  Said flatly, because an
+earlier version of this paragraph said "one designed consumer exists" and
+``pf-adversary`` (round ``i7ihga``, ``D-G``) measured that it is not one:
+``store.list_equipped_items`` has zero callers under ``src/``, ``tools/``,
+``gm/`` and ``current/``; LANE-Q's ``PlayerContext.equipped_template_ids``
+(``lua_api/player.py:384``) is hardwired to ``frozenset()`` and never
+assigned from a store; and the very file this module used to cite says so
+itself four lines past the cited range ("no live dispatcher exists yet ...
+that wiring, WHEN IT LANDS, calls ``store.list_equipped_items``").
+What is true is the weaker thing: the one DESIGNED shape for a reader is
+slot-agnostic (it drops ``slot_id`` and keeps the template), so the slot
+number is not load bearing for anything that exists or is planned today.
+
+THE QUESTION THIS FILE HAS NOT ANSWERED, WRITTEN DOWN RATHER THAN ARGUED
+AWAY.  ``character_backpack_items.raw_u8_39`` already IS the client's
+``ItemAttr+0x39``, per item, persisted since migration ``003``, and it is
+the copy that leaves the socket at login.  If ``slot_id`` is that same
+field, this file writes the copy the client cannot see and leaves the copy
+it can see saying ``0xFF``.  Either ``character_equipment`` is a SLOT
+OCCUPANCY table -- and then its number must be a slot, which ``RE-280``'s
+own nonclaim says nobody has recovered yet -- or it is a WORN BYTE table,
+and then ``raw_u8_39`` is already it.  This lane owes that decision an
+answer before this row is treated as the equip's home, and it is the first
+job of the next round, not a footnote here.
 
 WHAT ``slot_id`` HOLDS, AND WHY IT IS NO LONGER ``n_EQUIPTYPE``.  It holds
 the client's own ``ItemAttr+0x39`` EQUIPMENT-MASK INDEX -- the ``N`` in the
@@ -62,13 +77,29 @@ three different ``n_EQUIPTYPE`` values (8, 16, 64) share one physical
 ``n_EQUIPSLOT`` (24), so keying the swap on the kind would let one physical
 slot accumulate rows instead of replacing them.
 
-An index cannot break either way: it is ``0..31`` by construction, and it
-IS the client's physical slot (one bit of one mask per worn item), so
-``UNIQUE(character_id, slot_id)`` is exactly one item per slot and
-``INSERT OR REPLACE`` is exactly the swap ``015`` was built for.
+An index cannot break the FIRST way: it is ``0..31`` by construction.  An
+earlier version of this paragraph went further and said the index "IS the
+client's physical slot (one bit of one mask per worn item)" -- and
+``pf-adversary`` (round ``i7ihga``, ``D-D``) refuted that from the same
+table ``D1`` came from: ``n_EQUIPSLOT = 24 = 8|16`` is TWO bits, on 93 of
+974 rows, three of the five creation right hands among them.  So the honest
+statement is narrower: ``UNIQUE(character_id, slot_id)`` gives one row per
+(character, number), and today this module can write exactly one number for
+exactly one item per character, so the swap it argues for is not even
+exercised.  Whether that number is the client's physical slot is the open
+question named below, not a property this file may assert.
 
-WHERE THE NUMBER COMES FROM, AND WHAT HAPPENS IF IT IS EVER WRONG.  It is
-not typed in here: ``_right_hand_equipment_index()`` reads it out of the
+WHERE THE NUMBER COMES FROM, WHAT IT IS NOT, AND WHAT HAPPENS IF IT IS EVER
+WRONG.  What it is NOT, first, because ``pf-adversary`` (round ``i7ihga``,
+``D-C``) is right and this paragraph used to oversell it: the sentence the
+number is read from describes what the V130 build SET, not what the client
+confirmed -- V130 is a committed NEGATIVE checkpoint whose own result was
+an empty ``ITEM_RH_ONE``, for two other sufficient reasons.  ``RE-280``
+nonclaim 1 says the bit-to-on-screen-slot mapping is unproven, and
+``CONSTDATA_TH__EQUIPMENT_BASE.tsv`` gives the same blade
+``n_EQUIPSLOT = 16384 = 1 << 14``, i.e. a competing reading in which the
+index would be 14.  So: 3 is the only number stated in the committed
+evidence, and it is NOT proof.  It is not typed in here: ``_right_hand_equipment_index()`` reads it out of the
 committed sentence in
 ``reports/PF_RE_V130_Equipped_Blade_Negative_Boundary_20260815.md`` at
 import, so the report is the single source and a test dies if that sentence
@@ -135,6 +166,8 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+import sqlite3
 
 from . import console_safe, hook
 from ..persistence_class_id import CLASS_PRESETS
@@ -233,7 +266,14 @@ def _right_hand_equipment_index():
     """
     try:
         text = EQUIP_INDEX_REPORT.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, ValueError):
+        # `ValueError` is not padding: `UnicodeDecodeError` IS one and is
+        # NOT an `OSError`, so a report re-saved as cp874 on the owner's
+        # machine used to raise straight out of the module body -- import
+        # failure, hook gone from every point, no per-frame line, none of
+        # the designed refusal (`pf-adversary`, round `i7ihga`, `D-L`).
+        # The report already carries non-ASCII bytes, so this is one save
+        # away, not hypothetical.
         return None
     found = EQUIP_INDEX_SENTENCE.findall(text)
     if len(found) != 1:
@@ -437,7 +477,18 @@ def remember_the_equip(session=None, value32=None, item_identity=None) -> None:
             item_identity=row.identity,
             item_template_id=template_id,
         )
-    except WriteLockTimeout as exc:
+    except sqlite3.OperationalError as exc:
+        # `WriteLockTimeout` is a subclass, so this arm catches both -- and
+        # it has to: `pf-adversary` (round `i7ihga`, `D-E`) measured that a
+        # connection held in `PRAGMA locking_mode=EXCLUSIVE` makes
+        # `connect()` ITSELF raise a raw `sqlite3.OperationalError`
+        # ("database is locked") before `equip_item_nowait`'s short budget
+        # is ever applied.  That is a lost race, not an illegal write, and
+        # calling it `store_refused` inverts the one distinction this
+        # module added a reason for.  The stall that arrives with it lives
+        # in `connect()`'s own 5,000 ms and is NOT fixed here -- see the
+        # round file: fixing it means changing an existing method, which
+        # this lane's charter does not allow, so it is filed, not hidden.
         # Somebody else held the write lock and this door does not wait for
         # it on a player's dispatch thread.  A legal write that lost a race
         # is not a refusal, and the console must not read like one.

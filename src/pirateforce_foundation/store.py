@@ -155,8 +155,9 @@ DAMAGE_WRITE_LOCK_REFUSED_TOKEN = "DAMAGE_WRITE_LOCK_REFUSED"
 #: `BEGIN IMMEDIATE` (that one already prints `DAMAGE_WRITE_LOCK_REFUSED_
 #: TOKEN` or raises `WriteLockTimeout`; this one, if it ever fires, fires
 #: BEFORE either door even tries to acquire the lock).  Both
-#: `_begin_immediate_under_contention` (healing) and
-#: `_begin_immediate_for_damage` (damage) share this token and the counter
+#: `_begin_immediate_under_contention` (healing),
+#: `_begin_immediate_for_damage` (damage) and `equip_item_nowait` (equip)
+#: share this token and the counter
 #: below -- `COO-DECISION 20260903_1248` point 4: "ให้ pragma ที่ถูกปฏิเสธ
 #: นับและพิมพ์บรรทัด ห้ามลดตัวเองลงเงียบ ๆ กลับไป 5,000 ms" (a refused
 #: pragma must be counted and printed, never silently swallowed, and must
@@ -250,7 +251,8 @@ PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT = 0
 
 def _note_pragma_busy_timeout_refused(door, requested_ms):
     """Counts and prints one `PRAGMA busy_timeout` refusal for `door`
-    (`"heal"` or `"damage"`) at the timeout in milliseconds that was asked
+    (`"heal"`, `"damage"` or `"equip"`) at the timeout in milliseconds that
+    was asked
     for and refused.  Does not raise and does not touch either caller's
     control flow -- the caller's bare `except sqlite3.Error: pass` becomes
     `except sqlite3.Error: _note_pragma_busy_timeout_refused(...)`, and
@@ -3918,7 +3920,12 @@ class SQLiteStore:
 
         WHY IT RETURNS THE ROW ID.  So a caller can say "the row is there"
         instead of "the call returned".  The id is read back inside the same
-        transaction that wrote it (`last_insert_rowid()`), so a caller's
+        transaction that wrote it, with a `SELECT` on
+        `UNIQUE(character_id, slot_id)` -- NOT `last_insert_rowid()`, which
+        an earlier version of this paragraph claimed (`pf-adversary`, round
+        `i7ihga`, `D-K`).  The two agree under `INSERT OR REPLACE`, but the
+        `SELECT` states the weaker and truer thing: a row occupies that
+        slot.  Either way a caller's
         success line cannot outlive a rollback: if the commit that
         `connect()` performs on the way out fails, this method raises and
         the caller never reaches its own announcement.

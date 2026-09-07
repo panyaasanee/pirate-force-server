@@ -6,18 +6,20 @@ function called directly, and the same function reached through
 ``runtime.py:9910`` reaches it -- so "registered" is measured, not assumed.
 
 THE PIN THIS FILE EXISTS FOR is
-``test_the_slot_written_is_the_equip_type_and_never_the_wire_value``: the
-wire's ``value32`` is 8 in the only capture this project has (``RE-272``),
-and ``n_EQUIPTYPE`` for the class whose weapon it plausibly is happens to be
-8 as well.  ``RE-280``'s red warning is that those two 8s must not be
-assumed to be the same 8.  A fixture where they are equal cannot tell a
-correct implementation from the guess, so every write test here uses a
-class whose ``n_EQUIPTYPE`` differs from the ``value32`` handed in.
+``test_the_slot_written_is_the_mask_index_and_nothing_else``: four numbers
+are in play for one equipped blade -- the ``+0x39`` mask index the column
+holds, the wire's ``value32`` (8 in the only capture this project has,
+``RE-272``), the class's ``n_EQUIPTYPE``, and the class id -- and
+``RE-280``'s red warning is that they must not be assumed to be the same
+number.  A fixture where any two of them coincide cannot tell a correct
+implementation from a guess, which is why the class under test is 32 and
+why ``_DISTINCT`` asserts it at import.
 """
 from __future__ import annotations
 
 import csv
 import hashlib
+import ast
 import inspect
 import io
 import sys
@@ -212,13 +214,24 @@ class TheWriteTests(unittest.TestCase):
         self.assertIn("value32=8", fire(session, value32=8))
 
     def test_the_sentinel_that_means_not_worn_is_never_written(self):
-        # RE-280: 0xFF is the client's "not equipped" sentinel, and only
-        # 0..31 can ever be a real slot bit.  Whatever numbering the column
-        # holds, the sentinel must not be a value this server writes.
+        """RE-280's `0xFF` never reaches the column, measured at the CALL.
+
+        The earlier spelling asserted `equip_type_for_class(...) != 0xFF`
+        -- a number this module stopped writing when `D1` was answered --
+        so a hook that wrote 255 passed it (`pf-adversary`, round
+        `i7ihga`, finding `D-J`).  The assertion now reads what was
+        actually handed to the store, for every class this file can write
+        for.
+        """
         for class_id in mod.RIGHT_HAND_TEMPLATE_BY_CLASS_ID:
             with self.subTest(class_id=class_id):
-                self.assertNotEqual(
-                    combat_pose.equip_type_for_class(class_id), 0xFF)
+                session, store = a_session(
+                    class_id=class_id,
+                    template_id=mod.RIGHT_HAND_TEMPLATE_BY_CLASS_ID[class_id])
+                fire(session)
+                self.assertEqual(len(store.calls), 1)
+                self.assertNotEqual(store.calls[0]["slot_id"], 0xFF)
+                self.assertTrue(0 <= store.calls[0]["slot_id"] <= 31)
 
 
 class TheRefusalsWriteNothingTests(unittest.TestCase):
@@ -422,8 +435,6 @@ class TheConsoleStaysReadableOnCp874Tests(unittest.TestCase):
                 line.encode("cp874")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TheOneClientNumberComesFromTheCommittedReportTests(unittest.TestCase):
@@ -436,10 +447,41 @@ class TheOneClientNumberComesFromTheCommittedReportTests(unittest.TestCase):
     """
 
     def test_the_index_is_the_number_the_committed_report_states(self):
+        """The literal, written out here ON PURPOSE.
+
+        An earlier version of this test re-ran `mod.EQUIP_INDEX_SENTENCE`
+        over the same file and compared the result to
+        `mod.EQUIP_INDEX_RIGHT_HAND_ONE` -- i.e. it re-executed the parser
+        and compared it to its own output, so editing the number in the
+        report changed every player's row with a green suite
+        (`pf-adversary`, round `i7ihga`, finding `D-B`).  3 is written here
+        as an INDEPENDENT expectation: change the report and this dies,
+        which is the whole claim the module docstring makes.
+        """
+        self.assertEqual(mod.EQUIP_INDEX_RIGHT_HAND_ONE, 3)
         text = mod.EQUIP_INDEX_REPORT.read_text(encoding="utf-8")
-        found = mod.EQUIP_INDEX_SENTENCE.findall(text)
-        self.assertEqual(len(found), 1, "the provenance sentence moved")
-        self.assertEqual(mod.EQUIP_INDEX_RIGHT_HAND_ONE, int(found[0]))
+        self.assertEqual(mod.EQUIP_INDEX_SENTENCE.findall(text), ["3"])
+
+    def test_the_constant_is_assigned_from_the_reader_not_typed_in(self):
+        """A mutant that replaced the call with a literal `3` survived every
+        other test in this file (self-review, round `i7ihga`), because a
+        literal and a correct read produce the same number today.  The only
+        thing that can tell them apart is the assignment itself, so it is
+        read back with AST.
+        """
+        module = ast.parse(
+            Path(mod.__file__).read_text(encoding="utf-8"))
+        assigned = [
+            node for node in module.body
+            if isinstance(node, ast.Assign)
+            and any(getattr(target, "id", None) == "EQUIP_INDEX_RIGHT_HAND_ONE"
+                    for target in node.targets)
+        ]
+        self.assertEqual(len(assigned), 1)
+        value = assigned[0].value
+        self.assertIsInstance(value, ast.Call, "the constant is typed in")
+        self.assertEqual(getattr(value.func, "id", None),
+                         "_right_hand_equipment_index")
 
     def test_the_report_is_a_file_in_this_repository(self):
         self.assertTrue(mod.EQUIP_INDEX_REPORT.is_file())
@@ -461,6 +503,23 @@ class TheOneClientNumberComesFromTheCommittedReportTests(unittest.TestCase):
                     with mock.patch.object(
                             mod, "EQUIP_INDEX_REPORT", doctored):
                         self.assertIsNone(mod._right_hand_equipment_index())
+
+    def test_a_report_saved_in_cp874_is_none_and_never_an_import_crash(self):
+        """`UnicodeDecodeError` is a `ValueError`, NOT an `OSError`.
+
+        Caught only as `OSError`, one re-save of the report on the owner's
+        Windows machine raises out of the module body, the import fails,
+        and the hook disappears from every point -- no refusal line, no
+        per-frame line, nothing (`pf-adversary`, round `i7ihga`, `D-L`).
+        A mutant that narrows the guard back to `OSError` must die here.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            doctored = Path(tmp) / "report.md"
+            doctored.write_bytes(
+                "statically mapped right-hand-one equipment index 3\n"
+                .encode("ascii") + b"\xe0\xe1\xe2 thai bytes\n")
+            with mock.patch.object(mod, "EQUIP_INDEX_REPORT", doctored):
+                self.assertIsNone(mod._right_hand_equipment_index())
 
     def test_a_missing_report_is_none_and_never_an_import_crash(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -517,3 +576,14 @@ class TheReasonCensusIsNotVacuousTests(unittest.TestCase):
         self.assertEqual(named, set(mod.REASONS))
         for reason in mod.REASONS:
             self.assertEqual(reason, reason.encode("ascii").decode("ascii"))
+
+
+# LAST LINE OF THIS FILE, AND THAT IS THE POINT.  `pf-adversary` (round
+# `i7ihga`) measured this block sitting in the MIDDLE of the file: it calls
+# `sys.exit()`, so `python3 tests/test_lane_db_item_operate_op5.py` never
+# even DEFINED the three classes below it and printed `Ran 29 tests ... OK`
+# while nine tests -- every test of this round's own design -- did not run.
+# pytest collected them, a direct run did not, and the direct run is what a
+# runbook uses.
+if __name__ == "__main__":
+    unittest.main()
