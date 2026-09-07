@@ -19,8 +19,20 @@ is untouched by this file, and ``COO-DECISION 20260904_0942`` ("item 4
 means existing defaults only, ``1607`` stands, no migration") still governs
 every one of the 17 columns that decision left ``NULL``.  This module
 writes NOTHING -- no migration, no ``store.py`` call, no character row --
-and changes no existing seed value.  It has no caller anywhere in this
-repository as of the round that added it.
+and changes no existing seed value.
+
+IT NOW HAS A CALLER, AND THE SENTENCE THAT SAID OTHERWISE IS RETIRED HERE.
+Every round from the one that added this file until LANE-DB round
+``6n7pam`` could say "no caller anywhere in this repository", and its test
+file pinned exactly that.  ``persistence_experience`` is the first one:
+it reads ``standard_status_row(level + 1).exp_currentlv`` to find the
+experience a character needs for its next level -- the same number the
+client's own XP bar divides by, which is the one proven fact about this
+table named two paragraphs down.  The pin retires in the same commit
+(``tests/test_persistence_standard_status.py::TheFirstCallerTests``), by
+this module's owner, which is the only way ``COO-DECISION 20260907_2050``
+allows a scaffold pin to go.  What is still true unchanged: this module
+writes nothing, and reading a row remains the whole of what it does.
 
 WHAT THIS MODULE DOES DO.  ``CONSTDATA_TH__STANDARD_STATUS.tsv`` is a
 plain, already-committed gamedata table -- ``class_catalog.py``'s own
