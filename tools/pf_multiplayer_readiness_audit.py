@@ -228,8 +228,11 @@ ASSUMPTION_SITES = (
      "the capture directory is resolved relative to the process CWD"),
     ("L05", "capture", APP, r"os\.chdir\(capture_root\)", 1,
      "the server chdirs the whole process into one capture root"),
-    ("L06", "capture", RUNTIME_CONSOLE, r"sys\.stdout = _Mirror", 1,
-     "stdout/stderr are swapped process-wide for one mirrored console"),
+    ("L06", "capture", RUNTIME_CONSOLE,
+     r"sys\.stdout = build_console_mirror\(", 1,
+     "stdout/stderr are swapped process-wide for one mirrored console "
+     "(CORE-REQUEST-GM-064 moved the construction behind the factory; "
+     "the assumption is unchanged, only its spelling)"),
 
     # --- interlock: why a half-done fix is worse than none ----------------
     ("X01", "interlock", RUNTIME, r"self\.foundation\.checkpoint\(candidate\)", 1,

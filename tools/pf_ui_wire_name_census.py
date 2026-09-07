@@ -63,6 +63,23 @@ Usage:
                   the project's other census tools).
       --summary   print the family/tier counts table to stdout and exit 0
                   (does not touch the artifact).
+      --where N   print `relpath:line` of the exact occurrence this census
+                  counts as name N's SOURCE evidence, and exit 0; exit 1 when
+                  N has no counted occurrence. Exactly one line on stdout,
+                  nothing else. This is the supported way to recover the line
+                  number the artifact stopped carrying in round `o50gly` --
+                  `grep -n` is NOT, because grep also reports docstring and
+                  full-line-comment hits, which this census deliberately does
+                  not count (round `jx6r5p`, pf-adversary D2 on `#1005`:
+                  measured, `grep -n`'s first hit disagrees with the counted
+                  hit on 18 of the 30 SOURCE rows, including both rows that
+                  motivated dropping the line).
+                  Needs no `pf_bridge` sibling: it reads only this repo -- so
+                  N is NOT checked against the master catalog. Any identifier
+                  token that appears in counted code gets located, catalog row
+                  or not; this mode answers "where is this spelled", not "is
+                  this a vital" (pf-adversary D-D on `#1013`).
+                  Does not touch the artifact.
 
 Pure stdlib. No side effects on import.
 """
@@ -259,11 +276,111 @@ def unparseable_py_files(py_files):
     return bad
 
 
+def code_token_lines(text):
+    """Yield ``(lineno, [identifier tokens])`` for every line of ``text`` this
+    census counts as CODE -- i.e. every line that is neither a full-line
+    comment nor part of a bare string statement.
+
+    Split out of ``_build_source_hits`` in round `jx6r5p` so that
+    ``source_hit_location`` (which backs ``--where``) applies the SAME two
+    exclusions rather than a second, hand-kept copy of them. A recovery
+    command that disagrees with the census about which lines count is worse
+    than no recovery command at all: that is exactly what ``grep -n`` was,
+    and it shipped in FIVE places before it was measured. Round `jx6r5p`
+    counted "three" (the commit message, this file's own comment,
+    docs/UI_WIRE_COVERAGE.md); pf-adversary D-E on `#1013` found the two that
+    count most, both in `pf_bridge`: the ASK-COO note of `0758` that COO read
+    when approving COO-DECISION `0845` (still unconsumed at the time), and
+    this lane's own round file for `o50gly`.
+
+    ``split("\n")``, not ``splitlines()``: ``splitlines()`` also breaks on FF,
+    VT, FS, GS, RS, NEL, U+2028 and U+2029, which ``ast`` does NOT count as
+    line breaks. One form feed inside a docstring shifts every later line
+    number and the exclusion inverts -- real code skipped, docstring prose
+    counted (round `mg3nr4`, pf-adversary D6; latent today, 0 such characters
+    in the tree). ``read_text`` already normalises ``\r\n`` and ``\r``."""
+
+    prose_lines = prose_string_line_numbers(text)
+    for lineno, line in enumerate(text.split("\n"), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        if lineno in prose_lines:
+            continue
+        yield lineno, _IDENT_TOKEN.findall(line)
+
+
+def census_file_texts(py_files):
+    """Yield ``(relpath, text)`` for ``py_files``, in the order given, with the
+    ONE spelling of the path and the ONE reading policy this census has.
+
+    Extracted round `8btjto` (pf-adversary D-A on `#1013`, measured). Before
+    it, ``_build_source_hits`` and ``source_hit_location`` each carried their
+    own copy of these five lines, and nothing compared the copies: three
+    one-line mutants in the copy inside ``source_hit_location`` sent
+    ``--where`` to a DIFFERENT file from the one the artifact names while
+    tests/test_ui_wire_name_census.py stayed green -- including
+    ``str(path.relative_to(ROOT))``, which is PR #961's Windows backslash bug
+    reappearing verbatim in the newer function, three lines away from the
+    comment that explains why it must not.
+
+    ``.as_posix()``, not ``str()``: on Windows ``str()`` renders backslashes
+    (``src\\pirateforce_foundation\\x.py``), which never matches the
+    forward-slash evidence baked into the committed artifact (generated on
+    Linux) -- the actual cause of gate-windows's ``pytest_subset`` 9 failed on
+    PR #961 (LANE-UI round `on8hbb`, per COO-DECISION 20260907_0148 item 2).
+
+    ``errors="replace"`` and the ``OSError`` skip: a file this process cannot
+    read must not take the whole census down, and one undecodable byte must
+    not hide every name in that file. Both are exercised by
+    ``CensusFileTextsTests`` -- before round `8btjto` neither had ever run
+    (pf-adversary D-H: deleting both kept the suite green)."""
+
+    for path in py_files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        yield path.relative_to(ROOT).as_posix(), text
+
+
+def source_hit_location(name, py_files=None):
+    """Return ``(relpath, lineno)`` of the FIRST occurrence of ``name`` that
+    this census counts, or ``None`` when it counts none.
+
+    This is the artifact's missing column, on demand. The committed artifact
+    stopped carrying the line number in round `o50gly` because any lane adding
+    lines above a cited hit rewrote this lane's file and reddened main; the
+    line itself still has readers (a human opening the handler).
+
+    It walks ``census_file_texts(py_files)`` -- the SAME generator
+    ``_build_source_hits`` walks, so file order and path spelling are one
+    piece of code, not two that happen to agree today. Round `jx6r5p` claimed
+    that agreement while the two functions each held their own copy of those
+    lines; pf-adversary D-A broke it with three one-line mutants that left the
+    whole test file green. What is still genuinely separate is the membership
+    test (one name here, a shrinking set there), and
+    ``WhereAndCensusCannotDisagreeTests`` pins that across a fixture with many
+    files, a subpackage, many names and names that are substrings of each
+    other."""
+
+    if py_files is None:
+        py_files = _iter_py_files(SRC_DIR)
+    for relpath, text in census_file_texts(py_files):
+        for lineno, tokens in code_token_lines(text):
+            if name in tokens:
+                return relpath, lineno
+    return None
+
+
 def _build_source_hits(names, py_files):
     """One pass over every file in ``py_files`` (sorted, so deterministic):
     for every identifier token on a line that is neither a full-line comment
-    nor part of a docstring, record the FIRST ``"relpath:line"`` it is seen
-    at, for every name in ``names`` that is still unresolved.
+    nor part of a docstring, record the ``"relpath"`` of the FIRST line it is
+    seen at, for every name in ``names`` that is still unresolved.
+
+    The FILE, not ``"relpath:line"`` -- this sentence still said `:line` for a
+    round after the value stopped carrying it (round `jx6r5p`). Use
+    ``source_hit_location()`` / ``--where`` when the line itself is wanted.
 
     TWO kinds of line are skipped, for the same reason -- both are this
     codebase's own prose about the game, not references to it:
@@ -287,36 +404,13 @@ def _build_source_hits(names, py_files):
     carry code and this tool does not tokenize sub-line spans."""
     remaining = set(names)
     hits: dict = {}
-    for path in py_files:
+    for relpath, text in census_file_texts(py_files):
         if not remaining:
             break
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        # .as_posix(), not str(relpath): on Windows, str() renders
-        # backslashes ("src\\pirateforce_foundation\\x.py"), which never
-        # matches the forward-slash evidence baked into the committed
-        # artifact (generated on Linux) -- this was the actual cause of
-        # gate-windows's `pytest_subset` 9 failed on PR #961 (LANE-UI
-        # round `on8hbb`, per COO-DECISION 20260907_0148 item 2).
-        relpath = path.relative_to(ROOT).as_posix()
-        prose_lines = prose_string_line_numbers(text)
-        # split("\n"), not splitlines(): splitlines() also breaks on FF,
-        # VT, FS, GS, RS, NEL, U+2028 and U+2029, which ast does NOT count
-        # as line breaks. One form feed inside a docstring shifts every
-        # later line number and the exclusion inverts -- real code skipped,
-        # docstring prose counted (round `mg3nr4`, pf-adversary D6; latent
-        # today, 0 such characters in the tree). read_text already
-        # normalises \r\n and \r.
-        for lineno, line in enumerate(text.split("\n"), start=1):
+        for _lineno, tokens in code_token_lines(text):
             if not remaining:
                 break
-            if line.lstrip().startswith("#"):
-                continue
-            if lineno in prose_lines:
-                continue
-            for token in _IDENT_TOKEN.findall(line):
+            for token in tokens:
                 if token in remaining:
                     # The FILE, not `file:line` (round `o50gly`). The line
                     # number was in the committed artifact until this round,
@@ -332,9 +426,19 @@ def _build_source_hits(names, py_files):
                     # `gm/` catalogs; `delete_actor.py`) belong to other
                     # lanes, so that red is unbounded and only this lane can
                     # clear it. The line number is also the one part of the
-                    # row nothing else needs: `grep -n "<name>" <file>`
-                    # re-derives it in one command, and the tier -- which is
-                    # what n/327 counts -- does not depend on it.
+                    # row nothing else needs: `--where <name>` re-derives it
+                    # in one command, and the tier -- which is what n/327
+                    # counts -- does not depend on it.
+                    #
+                    # NOT `grep -n` (round `jx6r5p`, pf-adversary D2 on
+                    # `#1005`). grep reports docstring bodies and full-line
+                    # comments, which this function skips, so its first hit
+                    # is a DIFFERENT line on 18 of the 30 SOURCE rows --
+                    # including the two rows whose drift caused this change
+                    # (`gm/command_capture.py` spells both names in its
+                    # module docstring). `--where` shares `code_token_lines`
+                    # and this file order with the loop above, so it agrees
+                    # with the census by construction rather than by hand.
                     hits[token] = relpath
                     remaining.discard(token)
     return hits
@@ -506,7 +610,43 @@ def main(argv=None) -> int:
     parser.add_argument("--artifact", type=Path, default=DEFAULT_ARTIFACT)
     parser.add_argument("--emit", action="store_true")
     parser.add_argument("--summary", action="store_true")
+    parser.add_argument("--where", metavar="NAME", default=None)
     args = parser.parse_args(argv)
+
+    if args.where is not None:
+        # `is not None`, not truthiness: `--where ""` used to fall through to
+        # the full census and exit 2 with `CENSUS ERROR ... needs a sibling
+        # pf_bridge`, which is the one thing this mode promises never to need
+        # (pf-adversary D-F on `#1013`). The empty string is simply a name
+        # with no counted occurrence, and says so.
+        #
+        # Answered before build_rows() on purpose: this branch reads only
+        # this repo's own `src/` tree, so it works on a checkout with no
+        # `pf_bridge` sibling -- which is where a reader who just found a
+        # bare path in the artifact usually is.
+        location = source_hit_location(args.where)
+        if location is None:
+            # State what was measured -- no occurrence this census counts --
+            # and offer the two reasons as possibilities, not as a finding.
+            # This used to assert the docstring rule as THE cause, which is
+            # false for the commonest case of all, a misspelled name: no
+            # token matched anywhere and no exclusion ever fired
+            # (pf-adversary D-D on `#1013`).
+            print(
+                f"NOT A SOURCE ROW: {args.where} has no occurrence that this "
+                f"census counts under {SRC_DIR.relative_to(ROOT).as_posix()} "
+                "-- either the name is spelled nowhere in that tree (check "
+                "the spelling against the master catalog), or every "
+                "occurrence is in a docstring or a full-line comment, which "
+                "are not counted by rule (COO-DECISION 20260907_0546). This "
+                "tool does not read the master catalog, so it cannot tell "
+                "you which.",
+                file=sys.stderr,
+            )
+            return 1
+        relpath, lineno = location
+        print(f"{relpath}:{lineno}")
+        return 0
 
     try:
         rows = build_rows(args.tsv)

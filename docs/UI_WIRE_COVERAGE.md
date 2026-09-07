@@ -39,7 +39,7 @@ question the RE-ticket search rule already requires before opening a new RE
 
 | Tier | Meaning | Evidence column |
 |---|---|---|
-| `SOURCE` | identifier appears on a non-comment line of a `.py` file under `src/pirateforce_foundation/` (any lane) | `path:line` of the first hit |
+| `SOURCE` | identifier appears on a non-comment line of a `.py` file under `src/pirateforce_foundation/` (any lane) | `path` of the first counted hit -- the FILE only, no line number (round `o50gly`; `--where <name>` re-derives the line) |
 | `NAME-ONLY` | not in `SOURCE`, but the identifier appears in at least one of the project's three function-map files -- `docs/PF_VITAL_NAMES.json` (this repo's admitted-names table), `pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv` (serializer/handler VA table), `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` (proven wire layouts) -- or in this repo's own `docs/UI_LANE.md` function table | which of those file(s), `+`-joined |
 | `UNTOUCHED` | none of the above; the name exists only as a row in the master catalog | `-` |
 
@@ -101,8 +101,38 @@ Measured at the start of round `o50gly` on `6b5b6b8`: LANE-GM grew
 `Activity_CheatCodeVital` 803 -> 853, same file and same tier for both, and
 `main` was red. The files this census cites most (`runtime.py`, 9 rows; the
 `gm/` catalogs; `delete_actor.py`) belong to OTHER lanes, so that red recurs on
-their schedule and only this lane can clear it. To get the line back:
-`grep -n "<name>" <file>`.
+their schedule and only this lane can clear it.
+
+To get the line back, ask the census, not `grep`:
+
+```
+python3 tools/pf_ui_wire_name_census.py --where GM_RunGMCommandVital
+src/pirateforce_foundation/gm/<file>.py:<line>
+```
+
+The output above is deliberately NOT a real line number. This page is the one
+that explains that these numbers drift on other lanes' schedule; printing one
+here as an example makes the page contradict itself the next time LANE-GM adds
+fifty lines, and nothing re-derives it -- `CoverageDocMatchesCommittedArtifactTests`
+pins the headline numbers, the scoreboard line, the non-claims and `UI_LANE.md`,
+but it did not pin this block (round `8btjto`, pf-adversary D-C on `#1013`; the
+example used to read `...command_capture.py:800`, measured on `6b5b6b8` and
+already stale by the round after). Run the command; do not copy its answer.
+
+🔴 **`grep -n "<name>" <file>` is the wrong answer and this page used to give
+it** (round `jx6r5p`, pf-adversary D2 on `#1005`). `grep` reports docstring
+bodies and full-line comments; the census counts neither, so grep's first hit
+is a different line from the counted one on **18 of the 30 `SOURCE` rows** --
+measured on `82a3b54`, a dated measurement of the tree, not a pinned
+invariant. The two rows that motivated dropping the line number are both in
+that 18: `gm/command_capture.py` spells `GM_RunGMCommandVital` and
+`Activity_CheatCodeVital` in its module docstring near the top of the file
+(lines 3 and 4 as measured on `82a3b54` -- another dated reading of another
+lane's file, not an invariant), so grep hands back exactly the prose hit rounds
+`9dezrf` and `mg3nr4` were spent excluding. `--where` shares this repo's `code_token_lines()` and file order
+with the census loop itself, so it agrees by construction; it reads only this
+repo, so it works with no `pf_bridge` sibling; and it exits 1 with a named
+reason when the name has no counted occurrence at all.
 
 ## Scoreboard
 
