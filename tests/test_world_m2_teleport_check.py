@@ -7,6 +7,7 @@ this lane makes about those bytes.  Neither is allowed to stand in for the
 other -- in particular no test here calls a rule function and then asserts a
 byte string this module also produced.
 """
+import ast
 import unittest
 from pathlib import Path
 import sys
@@ -77,11 +78,8 @@ class TheOutboundFrameCarriesTheMarkerIdAndNothingElse(unittest.TestCase):
     def test_the_single_u16_is_the_marker_id_for_every_pinned_row(self):
         legacy = _legacy()
         seen = 0
-        for marker_id in range(tc.MARKER_ID_MIN, tc.MARKER_ID_MAX + 1):
-            try:
-                tc.marker_destination(marker_id)
-            except tc.TeleportCheckError:
-                continue
+        for marker_id in _pinned_marker_ids():
+            tc.marker_destination(marker_id)
             seen += 1
             pc, _frame = tc.encode_prompt(legacy, marker_id)
             parsed = legacy.parse_outer(pc)
@@ -156,11 +154,8 @@ class TheTransportGoesWhereTheMarkerRowSaysAndNowhereElse(unittest.TestCase):
     def test_every_pinned_row_encodes_its_own_scene_and_point(self):
         legacy = _legacy()
         rows = 0
-        for marker_id in range(tc.MARKER_ID_MIN, tc.MARKER_ID_MAX + 1):
-            try:
-                pending = tc.open_check(marker_id)
-            except tc.TeleportCheckError:
-                continue
+        for marker_id in _pinned_marker_ids():
+            pending = tc.open_check(marker_id)
             rows += 1
             pc, _frame = tc.encode_transport(legacy, pending)
             d = pending.destination
@@ -175,12 +170,8 @@ class TheTransportGoesWhereTheMarkerRowSaysAndNowhereElse(unittest.TestCase):
         single-row assertion above and fail this one."""
         legacy = _legacy()
         frames = set()
-        for marker_id in range(tc.MARKER_ID_MIN, tc.MARKER_ID_MAX + 1):
-            try:
-                pending = tc.open_check(marker_id)
-            except tc.TeleportCheckError:
-                continue
-            frames.add(tc.encode_transport(legacy, pending)[0])
+        for marker_id in _pinned_marker_ids():
+            frames.add(tc.encode_transport(legacy, tc.open_check(marker_id))[0])
         self.assertGreater(len(frames), 1)
 
 
@@ -191,28 +182,41 @@ class TheRefusals(unittest.TestCase):
             tc.marker_destination(True)
         self.assertIn(tc.CHECK_REFUSED_MARKER_ID_NOT_AN_INT, str(caught.exception))
 
-    def test_out_of_table_ids_are_named_apart_from_unpinned_ones(self):
-        for bad in (0, tc.MARKER_ID_MAX + 1, 70000):
+    def test_ids_the_u16_field_cannot_carry_are_named_apart(self):
+        for bad in (0, -1, tc.MARKER_ID_MAX + 1, 70000):
             with self.assertRaises(tc.TeleportCheckError) as caught:
                 tc.marker_destination(bad)
-            self.assertIn(tc.CHECK_REFUSED_MARKER_ID_OUT_OF_TABLE,
+            self.assertIn(tc.CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD,
                           str(caught.exception))
 
-    def test_an_id_in_range_but_not_in_the_committed_copy_says_so(self):
-        unpinned = [
-            marker_id for marker_id in range(tc.MARKER_ID_MIN, tc.MARKER_ID_MAX + 1)
-            if world_marker_copy_row(marker_id) is None
-        ]
-        self.assertTrue(unpinned, "the copy now pins all 390 rows; retire this test")
+    def test_an_id_the_field_can_carry_but_the_table_does_not_know_says_so(self):
+        known = set(_pinned_marker_ids())
+        unpinned = next(m for m in range(tc.MARKER_ID_MIN, tc.MARKER_ID_MAX + 1)
+                        if m not in known)
         with self.assertRaises(tc.TeleportCheckError) as caught:
-            tc.marker_destination(unpinned[0])
+            tc.marker_destination(unpinned)
         self.assertIn(tc.CHECK_REFUSED_MARKER_ROW_NOT_PINNED,
                       str(caught.exception))
 
+    def test_this_module_does_not_import_the_release_less_copy_reader(self):
+        """``tests/test_world_marker_copy.py`` pins this for the whole
+        package; pinned again here because THIS module is the one that wanted
+        those 18 rows and would be the one to reach for them again."""
+        source = (Path(__file__).resolve().parents[1] / "src"
+                  / "pirateforce_foundation" / "world_m2_teleport_check.py")
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [getattr(node, "module", "") or ""] + [
+                    alias.name for alias in node.names]
+                self.assertFalse(
+                    any(name.endswith("world_marker_copy") for name in names))
 
-def world_marker_copy_row(marker_id):
-    from pirateforce_foundation import world_marker_copy
-    return world_marker_copy.verbatim_marker_row(marker_id)
+
+def _pinned_marker_ids():
+    from pirateforce_foundation import world_scene_marker
+    return [world_scene_marker.arrival_point(scene).marker_n_id
+            for scene in world_scene_marker.scenes_with_an_arrival_point()]
 
 
 class TheWordingThePlayerWillSee(unittest.TestCase):

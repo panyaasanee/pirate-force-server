@@ -73,7 +73,7 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-from . import world_marker_copy
+from . import world_scene_marker
 
 #: ``TeleportCheckVital``'s wire id.  Cited, not measured -- see NOT CLAIMED 3.
 #: ``tests`` pin this against ``current/pf_login_game_server_v141.py``'s own
@@ -89,15 +89,17 @@ TELEPORT_CHECK_VITAL_VERSION = 0
 #: The tag of the single u16 field (``PF_SERIALIZER_FIELDS.tsv``, both rows).
 TELEPORT_CHECK_FIELD_TAG = 0x0F
 
-#: ``MARKER`` is 390 rows, ids 1..390 (RE-303 section 4; the same count is
-#: independently pinned in ``world_scene_marker.MARKER_ROW_COUNT``).
+#: The client's ``MARKER`` table is 390 rows (RE-303 section 4, and
+#: ``world_scene_marker.MARKER_ROW_COUNT`` pins the same number).  THE IDS ARE
+#: NOT 1..390 THOUGH, and this module learned that from its own data rather
+#: than from a letter: ``world_scene_marker``'s transcribed rows include
+#: marker id 1000 for scene 130.  So the only bound that can be asserted here
+#: is the one the WIRE imposes -- the field is a u16 -- and everything else is
+#: "the table knows this id or it does not".  An earlier draft of this file
+#: range-checked 1..390 and would have refused a row the repository already
+#: carries.
 MARKER_ID_MIN = 1
-MARKER_ID_MAX = 390
-
-#: A u16 field cannot carry more than this, and the range check below reports
-#: the two failures separately: an id outside the TABLE is a caller mistake,
-#: an id outside the FIELD is a frame that could not be built at all.
-_U16_MAX = 0xFFFF
+MARKER_ID_MAX = 0xFFFF
 
 #: ``n_SCENE_TYPE == 8`` -- open sea.  RE-303 counted the type-8 rows in
 #: ``CONSTDATA_TH__SCENE_NAME.tsv`` and got exactly {126, 127, 128, 304, 305},
@@ -112,7 +114,7 @@ CONFIRM_ID_MOVING_AHEAD = 21   # UI_MESSAGE 1132, scene type 8
 CONFIRM_ID_DOCKING = 22        # UI_MESSAGE 1133, every other scene type
 
 CHECK_REFUSED_MARKER_ID_NOT_AN_INT = "CHECK_REFUSED_MARKER_ID_NOT_AN_INT"
-CHECK_REFUSED_MARKER_ID_OUT_OF_TABLE = "CHECK_REFUSED_MARKER_ID_OUT_OF_TABLE"
+CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD = "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD"
 CHECK_REFUSED_MARKER_ROW_NOT_PINNED = "CHECK_REFUSED_MARKER_ROW_NOT_PINNED"
 ECHO_REFUSED_NOTHING_PENDING = "ECHO_REFUSED_NOTHING_PENDING"
 ECHO_REFUSED_MARKER_ID_MISMATCH = "ECHO_REFUSED_MARKER_ID_MISMATCH"
@@ -132,9 +134,12 @@ class TeleportCheckError(ValueError):
 class MarkerDestination(NamedTuple):
     """One ``MARKER`` row, read in the marker -> scene direction only.
 
-    ``world_marker_copy.verbatim_marker_row``'s docstring is emphatic about
-    that direction and this type keeps the emphasis: indexing ``MARKER`` BY A
-    SCENE lies for 257 scenes, so nothing here ever goes back the other way.
+    ``world_scene_marker.forbidden_direct_index_scenes`` exists because
+    indexing ``MARKER`` BY A SCENE lies for 257 scenes.  This type is built
+    from a marker id something else already named, and it carries that row's
+    OWN back-pointer scene (``MarkerArrival.marker_row_scene``), never the
+    scene the row was found under -- so nothing here can go back the other
+    way by accident.
     """
 
     marker_id: int
@@ -173,32 +178,58 @@ def _coerce_marker_id(marker_id: Any) -> int | None:
     return marker_id
 
 
+def _by_marker_id() -> "dict[int, Any]":
+    """Marker id -> ``world_scene_marker.MarkerArrival``, built from that
+    module's PUBLIC accessors only.
+
+    WHY NOT ``world_marker_copy``, WHICH HAS 18 ROWS INSTEAD OF 13.  That
+    module reads a JSON file the release archive deliberately does not ship,
+    and ``tests/test_world_marker_copy.py`` pins that NO module in this
+    package may import it: a release-side caller would get ``MarkerCopyError``
+    instead of a row.  A travel mechanism that works in the repository and
+    raises in the release is worse than one with five fewer rows, so this
+    reads the transcribed table that does ship.  (Measured, not reasoned: the
+    first draft of this module imported the copy reader and turned that pin
+    red.)
+    """
+    rows = {}
+    for scene_n_id in world_scene_marker.scenes_with_an_arrival_point():
+        arrival = world_scene_marker.arrival_point(scene_n_id)
+        if arrival is not None:
+            rows[arrival.marker_n_id] = arrival
+    return rows
+
+
 def marker_destination(marker_id: Any) -> MarkerDestination:
     """The row ``marker_id`` names, or raise :class:`TeleportCheckError`.
 
-    Reads the committed crosswalk (``world_marker_copy``), which carries 18 of
-    the client's 390 rows verbatim.  "Absent here" therefore means NOT PINNED,
-    never "not in the client's table" -- the refusal says so by name, because
-    the two have completely different fixes (regenerate the copy on the bridge
-    vs. the caller named a row that does not exist).
+    Two refusals, kept apart because their fixes are different: an id the WIRE
+    could not carry (the field is one u16) is a caller bug, and an id the
+    TRANSCRIBED TABLE does not know is a row this repository has not written
+    down yet -- fixed by transcribing it in ``world_scene_marker``, never by
+    typing coordinates here.
     """
     coerced = _coerce_marker_id(marker_id)
     if coerced is None:
         raise TeleportCheckError(
             "%s marker_id=%r" % (CHECK_REFUSED_MARKER_ID_NOT_AN_INT, marker_id))
-    if not (MARKER_ID_MIN <= coerced <= MARKER_ID_MAX) or coerced > _U16_MAX:
+    if not (MARKER_ID_MIN <= coerced <= MARKER_ID_MAX):
         raise TeleportCheckError(
-            "%s marker_id=%d range=%d..%d"
-            % (CHECK_REFUSED_MARKER_ID_OUT_OF_TABLE, coerced,
+            "%s marker_id=%d field=u16 range=%d..%d"
+            % (CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD, coerced,
                MARKER_ID_MIN, MARKER_ID_MAX))
-    row = world_marker_copy.verbatim_marker_row(coerced)
-    if row is None:
+    arrival = _by_marker_id().get(coerced)
+    if arrival is None:
         raise TeleportCheckError(
-            "%s marker_id=%d (the committed copy keeps 18 rows verbatim; "
-            "regenerate it on the bridge, do not type the numbers here)"
-            % (CHECK_REFUSED_MARKER_ROW_NOT_PINNED, coerced))
-    scene_id, x, y, z, direction = row
-    return MarkerDestination(coerced, scene_id, x, y, z, direction)
+            "%s marker_id=%d (world_scene_marker transcribes %d of the "
+            "client's %d rows; transcribe the row there, do not type "
+            "coordinates here)"
+            % (CHECK_REFUSED_MARKER_ROW_NOT_PINNED, coerced,
+               world_scene_marker.SCENES_WITH_A_MARKER,
+               world_scene_marker.MARKER_ROW_COUNT))
+    return MarkerDestination(
+        coerced, arrival.marker_row_scene,
+        arrival.x, arrival.y, arrival.z, arrival.direction)
 
 
 def predicted_confirm_id(scene_id: int) -> int:
