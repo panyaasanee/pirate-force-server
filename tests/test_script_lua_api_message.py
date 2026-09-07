@@ -201,6 +201,9 @@ class PlayerShowMessageTests(unittest.TestCase):
             def record_refusal(self, _reason):
                 return 0
 
+            def refusals(self):
+                return ()
+
             def messages_for(self, _character_id):
                 return ()
 
@@ -363,10 +366,6 @@ class NoLaneQModuleBuildsTheVitalTests(unittest.TestCase):
         text = (ROOT / "src/pirateforce_foundation/script_host.py").read_text(
             encoding="utf-8")
         self.assertNotIn("SHOW_MESSAGE", text.upper())
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class EscapeRoundTripTests(unittest.TestCase):
@@ -574,16 +573,104 @@ class CatalogAccessorsTests(unittest.TestCase):
         self.assertRaises(UnicodeEncodeError, text.encode, "ascii")
         self.assertIsNone(message.message_text(962))
 
+    @staticmethod
+    def _reachers_of_the_text(root):
+        """Every file under ``root`` that REACHES FOR ``message_text``.
+
+        pf-adversary D10 (round 7kxfe9) against the substring version of
+        this guard, which asked whether the seven characters
+        ``message_text(`` appeared in a file.  Two holes, both measured
+        below by :meth:`test_the_guard_catches_both_shapes_of_reach`:
+
+        * ``getattr(message, "message_text")(1)`` never contains
+          ``message_text(`` at all -- the paren follows the getattr.  The
+          old guard read the file and said nothing was there.
+        * The scan started at ``lua_api/`` and stopped there, so
+          ``script_host.py`` -- the module ONE LAYER UP that owns the log
+          callback every namespace writes through, and therefore the most
+          likely place for this defect to actually appear -- was never
+          read.  It is inside this walk now, along with the rest of the
+          package.
+
+        Names in PROSE stay legal (this module's own docstrings name the
+        function on purpose, and the house rule is that every lane leaves
+        a handoff note): an ``ast.Constant`` string only counts when it is
+        exactly the function name, which is the shape a ``getattr`` takes,
+        never the shape a sentence takes.
+        """
+        import ast
+
+        target = "message_text"
+        reachers = []
+        for path in sorted(root.rglob("*.py")):
+            if path.name == "message.py":
+                continue  # the module that DEFINES it
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name) and node.id == target:
+                    reachers.append(path.name)
+                    break
+                if isinstance(node, ast.Attribute) and node.attr == target:
+                    reachers.append(path.name)
+                    break
+                if (isinstance(node, ast.Constant)
+                        and isinstance(node.value, str)
+                        and node.value == target):
+                    reachers.append(path.name)
+                    break
+        return reachers
+
     def test_no_module_in_this_package_logs_the_localized_text(self):
         # House rule: everything printed to the bridge console is ASCII
-        # (cp874 dies otherwise).  The text is for a UTF-16LE frame payload,
-        # never for a log line -- pinned here rather than trusted, by
-        # reading every source file in the package for a call to it.
-        package = ROOT / "src" / "pirateforce_foundation" / "lua_api"
-        callers = [path.name for path in sorted(package.rglob("*.py"))
-                   if "message_text(" in path.read_text(encoding="utf-8")
-                   and path.name != "message.py"]
-        self.assertEqual(callers, [])
+        # (cp874 dies otherwise -- and 62 of the 907 rows carry codepoints
+        # cp874 cannot map at all).  The text is for a UTF-16LE frame
+        # payload, never for a log line.
+        package = ROOT / "src" / "pirateforce_foundation"
+        self.assertEqual(self._reachers_of_the_text(package), [])
+
+    def test_the_walk_actually_covers_the_module_that_owns_the_log(self):
+        # A guard is only worth its sentence if the file most likely to
+        # break it is inside the walk.  Named, not assumed.
+        package = ROOT / "src" / "pirateforce_foundation"
+        scanned = {path.name for path in package.rglob("*.py")}
+        self.assertIn("script_host.py", scanned)
+        self.assertIn("player.py", scanned)
+        self.assertIn("trigger.py", scanned)
+
+    def test_the_guard_catches_both_shapes_of_reach(self):
+        # Control, run against a scratch tree rather than argued: the
+        # direct call the old substring guard did catch, and the getattr
+        # form it did not.
+        import tempfile
+
+        direct = "\n".join([
+            "from .message import message_text",
+            "def f(i):",
+            "    return message_text(i)",
+            "",
+        ])
+        indirect = "\n".join([
+            "from . import message",
+            "def f(i):",
+            "    return getattr(message, 'message_text')(i)",
+            "",
+        ])
+        innocent = "\n".join([
+            '"""Prose that names message_text on purpose."""',
+            "VALUE = 1",
+            "",
+        ])
+        shapes = {"direct.py": direct, "indirect.py": indirect,
+                  "innocent.py": innocent}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, body in shapes.items():
+                (root / name).write_text(body, encoding="utf-8")
+            caught = self._reachers_of_the_text(root)
+        self.assertEqual(sorted(caught), ["direct.py", "indirect.py"])
+        # And the shape the OLD substring guard would have missed, stated
+        # as a measurement rather than a claim.
+        self.assertNotIn("message_text(", indirect)
 
 
 class RefusalCountersTests(unittest.TestCase):
@@ -642,6 +729,118 @@ class RefusalCountersTests(unittest.TestCase):
                        message.REFUSE_BUCKET_FULL,
                        message.REFUSE_TOO_MANY_BUCKETS):
             self.assertIn(reason, message.REFUSAL_REASONS)
+
+
+class RefusalCounterHasACeilingTests(unittest.TestCase):
+    """pf-adversary D7, round 7kxfe9: `record_refusal` gave every string it
+    received its own dict key, in the one path a corpus sweep takes
+    constantly, so a caller that built a reason out of runtime data grew the
+    dict for as long as the process lived."""
+
+    def test_a_thousand_invented_reasons_do_not_widen_the_counter(self):
+        sink = message.InMemoryMessageSink()
+        for i in range(1000):
+            sink.record_refusal("scene_%d_id_%d" % (i, i * 7))
+        self.assertEqual([reason for reason, _ in sink.refusals()],
+                         [message.REFUSE_OTHER])
+
+    def test_what_the_ceiling_folds_is_counted_not_dropped(self):
+        # The distinction that makes this a ceiling rather than a silent
+        # drop: the NUMBER is exact, only the invented name is gone.
+        sink = message.InMemoryMessageSink()
+        for _ in range(37):
+            sink.record_refusal("made_up")
+        self.assertEqual(dict(sink.refusals()), {message.REFUSE_OTHER: 37})
+
+    def test_a_declared_reason_still_keeps_its_own_name(self):
+        sink = message.InMemoryMessageSink()
+        sink.record_refusal(message.REFUSE_BAD_ARITY)
+        sink.record_refusal(message.REFUSE_BAD_ARITY)
+        sink.record_refusal(message.REFUSE_NO_SCENE)
+        self.assertEqual(dict(sink.refusals()),
+                         {message.REFUSE_BAD_ARITY: 2,
+                          message.REFUSE_NO_SCENE: 1})
+
+    def test_the_widest_the_counter_can_ever_get_is_a_pinned_number(self):
+        sink = message.InMemoryMessageSink()
+        for reason in message.REFUSAL_REASONS:
+            sink.record_refusal(reason)
+        sink.record_refusal("invented")
+        self.assertEqual(len(sink.refusals()), message.MAX_REFUSAL_KEYS)
+        self.assertEqual(message.MAX_REFUSAL_KEYS, 7)
+
+    def test_the_reader_is_part_of_the_sink_contract_now(self):
+        # A sink written against LAST round's protocol has the writer and
+        # not the reader; that is refused at INJECTION, by name.
+        class WriteOnly:
+            def record(self, *_args):
+                return 0
+
+            def record_refusal(self, _reason):
+                return 0
+
+            def messages_for(self, _character_id):
+                return ()
+
+            def broadcasts_for(self, _scene):
+                return ()
+
+        self.assertIn("refusals", message.SINK_METHODS)
+        with self.assertRaises(TypeError) as caught:
+            message.check_sink(WriteOnly())
+        self.assertIn("refusals", str(caught.exception))
+
+
+class HostSideFailureDoesNotWearTheScriptsNameTests(unittest.TestCase):
+    """pf-adversary D11, round 7kxfe9: every sweep body caught bare
+    `Exception` and logged `LUA_SCRIPT <file> ERR`, so a defect in OUR
+    vendored catalog was reported as a defect in whichever quest file was
+    loading at the time -- once per file, up to 616 times, with the real
+    cause named nowhere."""
+
+    def _script_host(self):
+        from pirateforce_foundation import script_host
+
+        return script_host
+
+    def test_the_catalog_error_is_on_the_host_side_list(self):
+        self.assertIn(message.MessageCatalogError,
+                      self._script_host()._host_side_error_types())
+
+    def test_a_host_error_logs_LUA_HOST_and_never_LUA_SCRIPT(self):
+        host = self._script_host()
+        lines = []
+        rel = "Quest/q_kill5.lua"
+        host._log_host_side(lines.append, rel,
+                            message.MessageCatalogError("catalog is gone"))
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("LUA_HOST "), lines[0])
+        self.assertNotIn("LUA_SCRIPT", lines[0])
+        # The file is still named -- as where it was FOUND, not as the cause.
+        self.assertIn("discovered_at=%s" % rel, lines[0])
+        self.assertIn("MessageCatalogError", lines[0])
+
+    def test_the_line_is_ascii_even_when_the_exception_is_not(self):
+        # AGENTS.md section 7: the bridge console is cp874.
+        host = self._script_host()
+        lines = []
+        host._log_host_side(lines.append, "t_nex_t6.lua",
+                            message.MessageCatalogError("row \u0e01 bad"))
+        lines[0].encode("ascii")
+
+    def test_both_reports_keep_our_defects_out_of_the_script_lists(self):
+        host = self._script_host()
+        self.assertEqual(host.LoadReport().host_failed, [])
+        self.assertEqual(host.CorpusEntryPointReport().host_failed, [])
+
+    def test_a_host_error_is_still_fail_closed(self):
+        # The charter's own rule survives the fix: logging a host defect
+        # returns, it does not re-raise, so one bad vendored file cannot
+        # take a boot down either.
+        host = self._script_host()
+        returned = host._log_host_side(
+            lambda _line: None, "x.lua", message.MessageCatalogError("boom"))
+        self.assertEqual(returned, "boom")
 
 
 class SinkIsThreadSafeTests(unittest.TestCase):
@@ -866,3 +1065,12 @@ class RegenerateScriptSeparatesDriftFromInconclusiveTests(unittest.TestCase):
             self.assertEqual(tool.main(["--check"]), 2)
         finally:
             tool.SOURCE = saved
+
+
+if __name__ == "__main__":
+    # Round 02mkqc: this block used to sit two thirds of the way UP the
+    # file, so `python3 tests/test_script_lua_api_message.py` ran the
+    # classes defined above it and exited before the twelve defined below
+    # were ever created.  pytest never noticed (it imports, it does not
+    # execute `__main__`), which is exactly why it survived four rounds.
+    unittest.main()

@@ -409,9 +409,23 @@ class MessageSink(Protocol):
         """
         ...
 
+    def refusals(self) -> Tuple[Tuple[str, int], ...]:
+        """``((reason, count), ...)`` sorted by reason, empty on a clean run.
 
-#: Every method a sink handed to ``build_namespace`` must have.
-SINK_METHODS = ("record", "record_refusal", "messages_for", "broadcasts_for")
+        pf-adversary D7 (round 7kxfe9): ``record_refusal`` was on this
+        protocol but the READER of what it counts was not, so a sink could
+        satisfy every check there was and still have no way to answer the
+        one question the counter exists to answer.  A write-only counter is
+        not a counter, so the reader is part of the contract.
+        """
+        ...
+
+
+#: Every method a sink handed to ``build_namespace`` must have.  ``refusals``
+#: joined this tuple in round 02mkqc (pf-adversary D7): a counter nobody can
+#: read is indistinguishable from no counter at all.
+SINK_METHODS = ("record", "record_refusal", "refusals", "messages_for",
+                "broadcasts_for")
 
 
 def check_sink(sink):
@@ -461,10 +475,29 @@ REFUSE_NO_SCENE = "no_scene"
 REFUSE_BUCKET_FULL = "bucket_full"
 REFUSE_TOO_MANY_BUCKETS = "too_many_buckets"
 
+#: The one bucket every reason OUTSIDE the declared set is counted under.
+#: pf-adversary D7 (round 7kxfe9): ``record_refusal`` took whatever string a
+#: caller handed it and gave it its own dict key, so a caller that built a
+#: reason out of runtime data (an id, a scene name) grew the dict without
+#: bound -- in the one code path a corpus sweep takes constantly (51 of the
+#: 116 call sites pass an unmined ``Trigger.VarN``).  Counting it here
+#: instead is NOT a silent drop: the count still rises, and it rises under a
+#: name that says exactly what happened -- somebody invented a reason.  What
+#: is lost is only the invented string, which by
+#: ``test_every_reason_a_closure_can_raise_is_in_the_declared_set`` no
+#: closure in this package ever produces.
+REFUSE_OTHER = "other"
+
 REFUSAL_REASONS = frozenset({
     REFUSE_BAD_ARITY, REFUSE_UNKNOWN_MESSAGE_ID, REFUSE_BAD_AUDIENCE,
     REFUSE_NO_SCENE, REFUSE_BUCKET_FULL, REFUSE_TOO_MANY_BUCKETS,
 })
+
+#: Hard ceiling on how many distinct keys :meth:`InMemoryMessageSink.refusals`
+#: can ever return -- the declared reasons plus :data:`REFUSE_OTHER`.  A
+#: number, not a promise: pinned by a test that feeds the sink a thousand
+#: made-up reasons and reads the width back.
+MAX_REFUSAL_KEYS = len(REFUSAL_REASONS) + 1
 
 
 class InMemoryMessageSink:
@@ -521,9 +554,14 @@ class InMemoryMessageSink:
             return len(rows)
 
     def _count(self, reason: str) -> int:
+        # An undeclared reason is COUNTED, under REFUSE_OTHER, never given a
+        # key of its own: the dict is bounded by MAX_REFUSAL_KEYS no matter
+        # what a caller passes.  See REFUSE_OTHER's own comment for why this
+        # is a ceiling rather than a drop.
+        key = reason if reason in REFUSAL_REASONS else REFUSE_OTHER
         with self._lock:
-            self._refusals[reason] = self._refusals.get(reason, 0) + 1
-            return self._refusals[reason]
+            self._refusals[key] = self._refusals.get(key, 0) + 1
+            return self._refusals[key]
 
     def record(self, scene: Optional[str], character_id: int, audience: int,
                message_id: int) -> int:
@@ -545,9 +583,11 @@ class InMemoryMessageSink:
     def record_refusal(self, reason: str) -> int:
         """See :meth:`MessageSink.record_refusal`.
 
-        An unrecognised reason is counted under its own name rather than
-        dropped: a counter that silently swallows what it does not
-        recognise is the same defect this counter exists to fix.
+        An unrecognised reason is counted under :data:`REFUSE_OTHER` rather
+        than dropped AND rather than given a key of its own: a counter that
+        silently swallows what it does not recognise is the defect this
+        counter exists to fix, and a counter a caller can grow without
+        bound is the defect pf-adversary D7 found in the fix.
         """
         return self._count(reason)
 
