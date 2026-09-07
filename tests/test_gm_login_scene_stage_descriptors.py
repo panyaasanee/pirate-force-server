@@ -4,10 +4,20 @@ Why this file exists, and why it is separate from `test_gm_login_scene_stage.py`
 
 `pf-adversary` (round `i3evov`, D6) measured that
 `sed '736s/os.close(fd)/pass/' src/pirateforce_foundation/gm/login_scene_stage.py`
-left `pytest -k "login_scene or stage"` at **391 passed**.  All four
-`os.close(fd)` sites in that module -- 733 and 736 in `_atomic_write_json`, 770
-and 773 in `_restore_bytes` -- were unpinned, so a refactor could drop any of
-them and this project's whole test suite would agree.
+left `pytest -k "login_scene or stage"` GREEN.  All four `os.close(fd)` sites
+in that module -- 733 and 736 in `_atomic_write_json`, 770 and 773 in
+`_restore_bytes` -- were unpinned, so a refactor could drop any of them and
+this project's whole test suite would agree.
+
+That reading used to be written here as a count, `391 passed`.  The count is
+gone, and it is worth saying why rather than quietly correcting it: it did not
+re-derive.  Round `da16dj` corrected it to `415`; `418` was measured a round
+later; the selection grows every time any lane adds a test whose name contains
+`stage`, so the number was a pin on a target this lane does not own and it went
+stale twice in two rounds (pf-adversary, round `qrf8qq`).  What DOES re-derive
+at HEAD, and is the sentence that was always meant, is the mutant's verdict
+TODAY: the same `sed` now gives `8 failed`, five of them in this file.  Re-run
+that, not a number.
 
 CORRECTION, measured here rather than repeated: round `i3evov`'s round file
 wrote that line 736 leaks one descriptor on every successful GM stage.  That
@@ -119,10 +129,55 @@ the descriptor: `test_a_rename_that_fails_removes_the_temp_file_and_raises`,
 `PermissionError` that an open handle causes there and assert the module
 refuses cleanly, removes its temp file and leaves the operator's file alone.
 That is a real property and it runs on every platform; it is NOT the same as
-counting descriptors, and nobody should read it as such.  The open question --
-what measures the descriptor property itself on Windows -- is asked of COO in
+counting descriptors, and nobody should read it as such.  That sentence is
+permanent: it is not to be deleted in a later round on the grounds that
+everything here is green (COO `20260907_1245` section 4).
+
+The question it used to leave open -- what measures the descriptor property
+itself on Windows -- was put to COO in
 `notes_to_chief/20260907_1211_LANE-GM-ASK-COO-what-measures-descriptors-on-windows.md`
-and is not answered here.
+and RULED ON in `notes_to_chief/20260907_1245_COO-DECISION-gm1211-windows-`
+`measures-the-effect-LANE-GM.md`: NOTHING measures it there, and that is
+accepted, because counting handles through the Windows API is a new tool built
+for one test file.  What is measured there is the CONSEQUENCE, above.  The one
+condition attached to accepting it is `UNMEASURED_ASSERTIONS`: on a host where
+the table cannot be read, `assert_no_descriptor_leaked` appends the calling
+case's id and returns, so "nobody looked" is an event in the run and not an
+absence -- a no-op and a pass are otherwise the same colour in a test report,
+which is how a tree with a real leak injected reached `27 passed`.
+`TheUnmeasuredArmIsRecordedTests` pins all three directions of that: the row
+appears when the reader returns None off Linux, it does NOT appear for a case
+that merely forgot to open the window, and it does not appear on a window that
+really was measured.  The ledger says nothing about descriptors; it says only
+whether anyone looked.
+
+AND THE LEDGER IS ANNOUNCED, which the first version of it was not.
+pf-adversary (round `qrf8qq`, D-A) took that first version at its word and
+measured what the person reading the gate log actually got: on a simulated
+Windows host with a real per-call leak injected, this file reported
+`30 passed`, filed 18 ledger rows, held 15 leaked descriptors and printed the
+word "unmeasured" zero times.  A list that dies with the process is the
+docstring saying so in a second place, not the run saying so.  So
+`tearDownModule` calls `announce_unmeasured_assertions`, which raises a
+warning carrying `GM_DESCRIPTOR_PROPERTY_NOT_MEASURED` and the row count --
+the one channel pytest prints in its own summary on a GREEN run, with `-q`,
+unasked, and the summary line itself becomes `... passed, 1 warning`.
+Re-measured on the same simulated host: 21 rows, one announcement.  Why a
+warning and not the three obvious alternatives is argued at that function.
+Five further early-return arms in this file now file rows too (D-B): the three
+behind `off_posix` and two inside `TheLeakDetectorItselfWorksTests`, all of
+which used to report PASS having asserted nothing at all.
+
+STILL NOT PAID, named so the next round does not have to rediscover them
+(pf-adversary, round `qrf8qq`): EIGHT arms of `_write_entry_locked` /
+`_load_document` have never executed under any case here, and
+`test_a_refused_stage_leaks_nothing` wraps its window around a path with no
+opening site in it at all -- it cannot catch a leak by construction (D-3).  A
+leak that fires ONCE PER PROCESS is invisible to every window in this file,
+because `setUp` has already used the module by the time any window opens, and
+no in-file shape was found that sees it without a subprocess boundary or a
+session-scoped snapshot -- the second being the pytest-ordering dependency
+this design refuses (D-1).  Both are recorded as open, not as covered.
 
 The stand-ins here patch the MODULE ATTRIBUTE (`login_scene_stage.os`), not the
 `os` module itself.  That is the difference from `descriptors_opened_by`, which
@@ -142,6 +197,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+import warnings
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -149,6 +205,77 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 
 FD_TABLE = "/proc/self/fd"
+
+# Every time `assert_no_descriptor_leaked` returns WITHOUT having measured
+# anything, it appends the id of the case that called it here.  The list exists
+# so that "the fd table could not be read" is a recorded event and not an
+# absence: on a host where the table is unreadable the assertion is a no-op,
+# and a no-op and a pass are the same colour in a test report.  Read by
+# `TheUnmeasuredArmIsRecordedTests`, which is the only thing in this file that
+# can tell those two apart (COO ruling `20260907_1245`, answering LANE-GM's
+# letter `20260907_1211`; raised by pf-adversary, round `da16dj`, D-2).
+#
+# NOT a substitute for the property.  Nothing in this list says a descriptor
+# was or was not leaked; it says only that nobody looked.
+UNMEASURED_ASSERTIONS: list[str] = []
+
+# ASCII, because the bridge console is cp874 and this string is written to
+# reach a human reading a gate log.
+UNMEASURED_TOKEN = "GM_DESCRIPTOR_PROPERTY_NOT_MEASURED"
+
+
+def record_unmeasured(case_id: str) -> None:
+    """File one arm that returned without deciding anything.
+
+    Called from `assert_no_descriptor_leaked`'s platform arm AND from the
+    other early returns in this file that report PASS having asserted nothing
+    (pf-adversary, round `qrf8qq`, D-B: the ledger covered one arm out of six,
+    while COO `20260907_1245` section 3 makes the rule general -- an
+    early-return arm must never read as a pass).
+    """
+    UNMEASURED_ASSERTIONS.append(case_id)
+
+
+def announce_unmeasured_assertions(rows: list[str] | None = None) -> bool:
+    """Put the ledger where the person reading the gate log will see it.
+
+    pf-adversary (round `qrf8qq`, D-A) measured what the first version of this
+    ledger was worth to that person: on a simulated Windows host with a real
+    per-call leak injected, the file reported `30 passed`, left 18 ledger rows
+    behind, held 15 leaked descriptors, and printed the word "unmeasured"
+    exactly zero times.  A list that dies with the process is not "the run
+    saying so"; it is the docstring saying so in a second place.  COO's
+    condition was about the READER of the run.
+
+    `warnings.warn` is the channel, chosen over three others and worth
+    recording why, since the next round will be tempted to re-open it:
+    `skipTest` would be correct English and is unavailable -- a new skip
+    marker with no row in `docs/PYTEST_SKIP_PINS.json` (chief's file) is a red
+    preflight, and COO `1245` section 1 forbids a `CORE-REQUEST` for that row
+    while an alternative exists.  A bare `print` is captured per-test by pytest
+    and shown only on failure, i.e. shown exactly when nobody needs it.  A
+    failing test would be a lie: the property is not broken here, it is
+    unmeasurable.  A warning is the one channel pytest prints in its own
+    summary on a GREEN run, with `-q`, unasked.
+
+    Returns whether it warned, so the cases below can assert on it.
+    """
+    rows = UNMEASURED_ASSERTIONS if rows is None else rows
+    if not rows:
+        return False
+    warnings.warn(
+        f"{UNMEASURED_TOKEN} cases={len(rows)} platform={sys.platform} "
+        f"table={FD_TABLE} -- the descriptor-leak property was NOT checked in "
+        "these cases; they passed without measuring it. This is not a "
+        "failure and not a pass of that property. See this module's header.",
+        stacklevel=2,
+    )
+    return True
+
+
+def tearDownModule():
+    """The one place that runs after every case in this module, on any host."""
+    announce_unmeasured_assertions()
 
 # Attribute spellings that hand back a descriptor.  `mkdtemp` is deliberately
 # absent: it makes a directory and returns a name, never an fd.
@@ -249,8 +376,20 @@ def read_fd_table():
     every one of them `ENOENT` for exactly one name and no `/proc/<pid>/fd`
     target resolved at all.  The `OSError` arm below is therefore what drops
     it, the filter was dead code, and dead code in a fence reads as protection
-    that is not there.  `TheReaderItselfTests` pins the arm that really does
-    the work.
+    that is not there.
+
+    WHAT PINS THIS ARM: NOTHING, and the sentence that used to stand here said
+    otherwise.  It read "`TheReaderItselfTests` pins the arm that really does
+    the work", and pf-adversary (round `qrf8qq`, D-6) falsified it: replacing
+    `except OSError: continue` with a recorded `"<vanished>"` target leaves the
+    whole file green.  Of the two cases that looked like the pin, one
+    re-implements the `listdir`/`readlink` loop inline and never calls this
+    function, and the other is the one this file labels CHARACTERISATION and
+    says plainly nothing can make red.  No false green in the DETECTION was
+    found -- with that mutant a real leak still lands on a different fd number
+    and is still caught -- so what was wrong was the claim, not the fence.  The
+    claim is withdrawn here rather than propped up with a new case, because a
+    pin written to rescue a sentence tends to pin the sentence and not the arm.
     """
     try:
         names = os.listdir(FD_TABLE)
@@ -295,6 +434,7 @@ class _OsStandIn:
         self._closed = closed
         self._fsync_error = fsync_error
         self._short_write = short_write
+        self._short_writes = 0
         self._replace_error = replace_error
 
     def __getattr__(self, name):
@@ -309,8 +449,34 @@ class _OsStandIn:
             raise self._fsync_error
         os.fsync(fd)
 
+    # A non-advancing write is how the module's own guard is exercised, and it
+    # is also how a broken guard becomes an infinite loop.  pf-adversary
+    # (round `qrf8qq`, D-7) measured both halves: `count <= 0` -> `count < 0`
+    # at either guard site makes this file HANG rather than fail, and this
+    # project has no `pytest.ini`, no `addopts`, and no `pytest-timeout` --
+    # the only backstop is `gate-windows.yml`'s `timeout-minutes: 90`.  So a
+    # future edit to that comparison costs a full gate window and reports
+    # "job cancelled", which names neither the file nor the line.  Worse in
+    # production than in CI: `_atomic_write_json` runs under the module's
+    # global write lock, so the spin would take every later GM stage in that
+    # process with it.  The cap below cannot make the shipped guard wrong --
+    # the real module raises on the FIRST zero and never reaches call two --
+    # so it costs the passing path nothing and converts the hang into a named
+    # failure.
+    _SHORT_WRITE_CALL_CAP = 64
+
     def write(self, fd: int, data):
         if self._short_write:
+            self._short_writes += 1
+            if self._short_writes > self._SHORT_WRITE_CALL_CAP:
+                raise AssertionError(
+                    "the module asked for a write "
+                    f"{self._short_writes} times without advancing: its "
+                    "short-write guard no longer refuses a non-advancing "
+                    "`os.write`, and the loop in `_atomic_write_json` does "
+                    "not terminate. This is the hang, reported instead of "
+                    "waited out."
+                )
             return 0
         return os.write(fd, data)
 
@@ -398,6 +564,12 @@ class _DescriptorCase(unittest.TestCase):
                 "here that can see a leaked descriptor just went silent. Fix "
                 "the reader; do not weaken the fence.",
             )
+            # Off Linux this method has just decided nothing.  Say so out loud
+            # instead of returning into a green: the entry below is the only
+            # difference between "measured, clean" and "did not look".  The
+            # sentinel arm above returns by RAISING, so a case that forgot the
+            # window can never land here and be filed as a platform limit.
+            record_unmeasured(self.id())
             return
         self.assertEqual(
             self.leaked,
@@ -776,6 +948,9 @@ class TheLeakDetectorItselfWorksTests(_DescriptorCase):
                 sys.platform.startswith("linux"),
                 f"{FD_TABLE} is unreadable on a Linux host",
             )
+            # This arm never calls the assertion, so the ledger's only other
+            # append site cannot see it (pf-adversary, round `qrf8qq`, D-B).
+            record_unmeasured(self.id())
             return
         with self.assertRaises(AssertionError) as raised:
             self.assert_no_descriptor_leaked()
@@ -804,6 +979,7 @@ class TheLeakDetectorItselfWorksTests(_DescriptorCase):
         look like a green" was itself an unmeasured claim.
         """
         if not sys.platform.startswith("linux"):
+            record_unmeasured(self.id())
             return
         self.leaked = None
         with self.assertRaises(AssertionError) as raised:
@@ -816,6 +992,238 @@ class TheLeakDetectorItselfWorksTests(_DescriptorCase):
         with self.assertRaises(AssertionError) as raised:
             self.assert_no_descriptor_leaked()
         self.assertIn("outside `watching_the_fd_table()`", str(raised.exception))
+
+
+class TheUnmeasuredArmIsRecordedTests(_DescriptorCase):
+    """A host that could not look must not report the same colour as a host that did.
+
+    COO ruling `20260907_1245`, answering this lane's letter `20260907_1211`,
+    which pf-adversary forced in round `da16dj` (D-2).  The ruling accepts that
+    nothing on Windows can count this process's descriptors and sets one price
+    for accepting it: the RUN has to say so, not just the docstring.  The
+    finding being paid was `27 passed` on a tree with a real descriptor leak
+    injected -- green, on the one platform where that leak is fatal.
+
+    These three cases are about the LEDGER, not about descriptors.  Nothing
+    here can tell you whether anything leaked.
+    """
+
+    def rows_this_case_manufactured(self, before: int) -> list[str]:
+        """Take back the ledger rows this case staged, and return them.
+
+        A row filed under a SIMULATED platform is not a finding about the host
+        that is running; leaving it in place would make
+        `announce_unmeasured_assertions` warn on every green POSIX run, and a
+        warning that always fires is read as noise within one round.  The rows
+        the rest of the file files -- from arms that really did return without
+        measuring on THIS host -- are left exactly where they are.
+        """
+        rows = UNMEASURED_ASSERTIONS[before:]
+        del UNMEASURED_ASSERTIONS[before:]
+        return rows
+
+    @contextlib.contextmanager
+    def a_host_that_cannot_read_its_fd_table(self):
+        """`read_fd_table()` returning None the way a non-POSIX host makes it.
+
+        The table path is moved to a name that does not exist, so the None
+        comes back out of the reader's own `except OSError` arm -- the line a
+        Windows host takes -- instead of being assigned to `self.leaked` by
+        hand.  `sys.platform` moves with it because the two are not
+        independent here: a LINUX host that cannot read the table is a broken
+        reader and has to stay red, which is what
+        `test_a_table_that_could_not_be_read_fails_the_assertion_on_linux`
+        pins.  Both are restored on the way out, including on a failure.
+
+        HALF OF THIS IS REASONING, NOT MEASUREMENT, and that half is named on
+        purpose.  What is measured: when the reader returns None and the host
+        is not Linux, the early return is reached and recorded.  What is NOT
+        measured: what a real Windows host does.  No Windows host has run this
+        -- there is none in this project's reach -- and there the None comes
+        from `/proc/self/fd` not existing rather than from a path this test
+        invented.  Do not upgrade this sentence later because the case is
+        green; green here is not a Windows measurement (COO `1245` section 4).
+        """
+        global FD_TABLE
+        real_table, real_platform = FD_TABLE, sys.platform
+        FD_TABLE = str(self.tmp / "there-is-no-fd-table-on-this-host")
+        sys.platform = "win32"
+        try:
+            yield
+        finally:
+            FD_TABLE = real_table
+            sys.platform = real_platform
+
+    def test_a_host_that_cannot_read_the_table_records_that_nothing_was_measured(self):
+        """The case COO asked for: a real leak, a green assertion, a ledger row.
+
+        The descriptor opened inside the window is deliberately still open when
+        the assertion runs.  On this host the assertion would catch it; with
+        the table unreadable it does not, and passes.  That pass is exactly the
+        `27 passed` pf-adversary reported, reproduced on purpose -- so the row
+        this leaves behind is the whole point of the case.
+        """
+        before = len(UNMEASURED_ASSERTIONS)
+        with self.a_host_that_cannot_read_its_fd_table():
+            with self.watching_the_fd_table():
+                handle, name = tempfile.mkstemp(dir=str(self.tmp), prefix=".probe.")
+            self.addCleanup(os.unlink, name)
+            self.addCleanup(os.close, handle)
+            self.assertIsNone(
+                self.leaked,
+                "the reader read a table it was told does not exist, so this "
+                "case is no longer simulating the platform it claims to",
+            )
+            # Passes, with a descriptor left open. That is the defect, staged.
+            self.assert_no_descriptor_leaked()
+        self.assertEqual(
+            self.rows_this_case_manufactured(before),
+            [self.id()],
+            "the assertion decided nothing and left no trace of deciding "
+            "nothing, so a reader of this run cannot tell it from a pass",
+        )
+
+    def test_a_case_that_forgot_the_window_is_not_filed_as_a_platform_limit(self):
+        """The two ways of not measuring must not be laundered into each other.
+
+        A case that never opened the window is a BUG IN THE CASE and stays a
+        failure; only the platform arm is allowed to record and return.  If the
+        ledger row were appended before the sentinel check, this file would
+        start excusing its own broken cases on every non-Linux runner.
+        """
+        before = len(UNMEASURED_ASSERTIONS)
+        with self.a_host_that_cannot_read_its_fd_table():
+            self.assertIs(self.leaked, _NeverWatched, "setUp stopped arming the sentinel")
+            with self.assertRaises(AssertionError) as raised:
+                self.assert_no_descriptor_leaked()
+        self.assertIn("outside `watching_the_fd_table()`", str(raised.exception))
+        self.assertEqual(
+            self.rows_this_case_manufactured(before),
+            [],
+            "a case that forgot the window was filed as a platform limit",
+        )
+
+    def test_the_ledger_grows_exactly_when_the_table_could_not_be_read(self):
+        """Both directions, on whatever host is running, with no early return.
+
+        Deliberately not guarded by platform: on a POSIX host this is the case
+        that kills an unconditional append (a ledger that grows on every call
+        records nothing), and on a host without the table it is the case that
+        kills a missing one.  Whichever host runs it, one of the two mutants
+        dies here.
+        """
+        before = len(UNMEASURED_ASSERTIONS)
+        with self.watching_the_fd_table():
+            handle, name = tempfile.mkstemp(dir=str(self.tmp), prefix=".probe.")
+            os.close(handle)
+            os.unlink(name)
+        expected = [self.id()] if self.leaked is None else []
+        self.assert_no_descriptor_leaked()
+        self.assertEqual(
+            self.rows_this_case_manufactured(before),
+            expected,
+            "the ledger and the reader disagree about whether this window was "
+            "measured at all",
+        )
+
+    def test_the_row_is_filed_by_the_assertion_and_not_by_the_window(self):
+        """Where the append LIVES, which the three cases above do not pin.
+
+        pf-adversary (round `qrf8qq`, D-C): moving the append out of
+        `assert_no_descriptor_leaked` and into `watching_the_fd_table`'s `None`
+        branch left the whole file green, while silently changing what a row
+        MEANS -- from "an assertion decided nothing" to "a window was
+        unmeasurable".  Under that relocation a future case that opens the
+        window on Windows and then forgets the assertion entirely gets filed as
+        a platform limit: the same laundering
+        `test_a_case_that_forgot_the_window_is_not_filed_as_a_platform_limit`
+        exists to prevent, entered through the other door.
+
+        So: open the window on a host that cannot read the table, do NOT call
+        the assertion, and require the ledger to stay empty.
+        """
+        before = len(UNMEASURED_ASSERTIONS)
+        with self.a_host_that_cannot_read_its_fd_table():
+            with self.watching_the_fd_table():
+                pass
+            self.assertIsNone(self.leaked, "the simulation stopped simulating")
+        self.assertEqual(
+            self.rows_this_case_manufactured(before),
+            [],
+            "the window filed a ledger row on its own, so a row no longer "
+            "means that an assertion ran and decided nothing",
+        )
+
+    def test_the_ledger_reaches_the_reader_of_the_run(self):
+        """D-A: a list that dies with the process is not the run saying so.
+
+        pf-adversary (round `qrf8qq`) measured the first version of this
+        ledger under a simulated Windows host with a real leak injected:
+        `30 passed`, 18 rows filed, 15 descriptors held, and the word
+        "unmeasured" printed zero times.  COO `20260907_1245` section 2 asked
+        for the RUN to say so.  This pins the channel that makes it say so,
+        in both directions -- silent when there is nothing to report, and
+        carrying the count and the ASCII token when there is.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.assertFalse(
+                announce_unmeasured_assertions([]),
+                "an empty ledger warned; a warning that fires on every green "
+                "run is read as noise inside one round",
+            )
+            self.assertEqual(caught, [])
+
+            self.assertTrue(announce_unmeasured_assertions(["a.b.C.test_x"]))
+        self.assertEqual(len(caught), 1)
+        message = str(caught[0].message)
+        self.assertIn(UNMEASURED_TOKEN, message)
+        self.assertIn("cases=1", message)
+        self.assertTrue(
+            message.isascii(),
+            f"the gate console is cp874; this line is not ASCII: {message!r}",
+        )
+
+    def test_every_early_return_arm_in_this_file_files_a_row(self):
+        """The other five arms, pinned on a host that can read the table.
+
+        Deleting the `record_unmeasured` call inside `off_posix` is invisible
+        on Linux -- that helper returns False here and the line never runs --
+        so without this case the D-B fix would be three lines nothing could
+        check, on the one platform where the arms it covers actually fire.
+        The arms are driven directly with the platform moved, which is the
+        only way to reach them from a POSIX runner.
+        """
+        reader_case = TheReaderItselfTests("test_the_listing_names_a_descriptor_that_is_gone_before_it_is_resolved")
+        real_platform = sys.platform
+        before = len(UNMEASURED_ASSERTIONS)
+        sys.platform = "win32"
+        try:
+            self.assertTrue(reader_case.off_posix())
+        finally:
+            sys.platform = real_platform
+        self.assertEqual(
+            self.rows_this_case_manufactured(before),
+            [reader_case.id()],
+            "`off_posix` returned True -- three cases are about to report PASS "
+            "having asserted nothing -- and filed no row",
+        )
+
+    def test_the_module_teardown_is_what_announces(self):
+        """The wiring, not just the helper.
+
+        Without this, `announce_unmeasured_assertions` could be perfect and
+        never called -- which is exactly what the first version of the ledger
+        was: correct, and wired to nobody.
+        """
+        called = []
+        real = globals()["announce_unmeasured_assertions"]
+        globals()["announce_unmeasured_assertions"] = lambda *a, **k: called.append(a)
+        try:
+            tearDownModule()
+        finally:
+            globals()["announce_unmeasured_assertions"] = real
+        self.assertEqual(len(called), 1, "tearDownModule does not announce")
 
 
 class TheReaderItselfTests(unittest.TestCase):
@@ -843,8 +1251,17 @@ class TheReaderItselfTests(unittest.TestCase):
         file passes trivially off-POSIX rather than skipping -- see
         `assert_no_descriptor_leaked`.  These three follow the same rule so the
         Windows gate reads one story, not two.
+
+        It files a ledger row on the way out.  Round `da16dj` shipped this
+        helper with a bare `return` and no trace, so three cases reported PASS
+        having asserted nothing at all -- the same shape COO `20260907_1245`
+        section 3 turned into a house rule, one floor down from the arm the
+        rule was written about (pf-adversary, round `qrf8qq`, D-B).
         """
-        return not sys.platform.startswith("linux")
+        if sys.platform.startswith("linux"):
+            return False
+        record_unmeasured(self.id())
+        return True
 
     def test_the_listing_names_a_descriptor_that_is_gone_before_it_is_resolved(self):
         """The reader's own dirfd, and the arm that actually drops it.
