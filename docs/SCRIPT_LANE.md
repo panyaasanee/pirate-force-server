@@ -3643,11 +3643,19 @@ answered the question the round before last put to COO ("a corrupt
   the process, not one of them.
 * `script_host.guard_mirrors(build, log, health)` -- runs a callable and,
   on a `VendoredDataError` (the base class `_host_side_error_types()`
-  already classifies as ours), counts it, writes `LUA_HOST ...` and
-  `LUA_HOST_DEGRADED mirror_failures=N last_failed_at="..." last_error="..."`,
-  and returns `None`. A callable rather than a value because the census is
-  not the only mirror a construction reads -- the message catalog is
-  another, and the next one is not written yet.
+  already classifies as ours), counts it, writes one line, and returns
+  `None`.
+  🔴 **CORRECTED IN ROUND `h20x7g` (pf-adversary D3), because this
+  paragraph shipped two things that were already false when it was
+  written.** The line's prefix is **`LUA_MIRROR_DEGRADED`**, never
+  `LUA_HOST_DEGRADED` -- a second prefix starting `LUA_HOST` is exactly
+  what broke the sweep contract at 1848 lines where 616 are pinned, and
+  `grep -rn LUA_HOST_DEGRADED src/` finds nothing. And **the message
+  catalog is NOT read during a construction**: measured, deleting
+  `message_catalog.tsv` and calling `player.build_namespace()` or
+  `trigger.build_namespace()` builds fine and records nothing. A callable
+  rather than a value is still right, but for the plainer reason that a
+  construction does more than one read-shaped thing.
 * `ScriptHost` builds all eight namespaces into a LOCAL dict and installs
   them only if every one succeeded (all or none: a half-built host reads
   to a script, and to a log reader, as a working host with half the API

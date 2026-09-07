@@ -43,9 +43,7 @@ needs that particular script's functions callable.
 """
 from __future__ import annotations
 
-import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -63,14 +61,17 @@ from .lua_api import trigger as lua_api_trigger
 from .lua_api import instance as lua_api_instance
 from .lua_api import player as lua_api_player
 from .lua_api import message as lua_api_message
+# RE-EXPORTED, NOT DECORATIVE: `MIRROR_HEALTH`, `MirrorHealth` and
+# `MirrorFailureTally` were defined in THIS module until round `h20x7g`
+# moved them one directory down, so every existing caller and test still
+# reaches them here.  `MIRROR_API_SPEC` is the key this module records
+# under.  The other five keys are NOT imported: nothing here uses them, and
+# five names that never existed in this module cannot be justified by "so
+# no caller changes" (pf-adversary D8, round `h20x7g`).  Their home is
+# `lua_api.vendored`, and that is where a reader should go for them.
 from .lua_api.vendored import (
-    KNOWN_MIRRORS,
     MIRROR_API_SPEC,
-    MIRROR_CRITERIA_CURVE,
-    MIRROR_CRITERIA_ROWS,
     MIRROR_HEALTH,
-    MIRROR_MESSAGE_CATALOG,
-    MIRROR_UNNAMED,
     MirrorFailureTally,
     MirrorHealth,
     VendoredDataError,
@@ -292,12 +293,30 @@ def guard_mirrors(build: Callable[[], Any], log: Callable[[str], None],
         log("LUA_MIRROR_DEGRADED %s discovered_at=\"%s\""
             % (tally.log_fields(), discovered_at))
         return None, tally
-    # OUTSIDE the try, so a success signal is recorded for a read that
+    # OUTSIDE the try, so a success signal is recorded for a build that
     # SUCCEEDED and never for one whose failure was raised by the recording
     # itself.  This is the other half of pf-adversary D6: without it
     # ``broken_now`` for this mirror would latch true after the first bad
     # checkout and stay true for the life of the process even once the file
     # was repaired and every later host built fine.
+    #
+    # TWO THINGS THIS SUCCESS DOES NOT MEAN (pf-adversary D1/D2, round
+    # ``h20x7g``), stated here because this is the call site a reader
+    # lands on.  (1) ``lua_api.spec`` CACHES: only the first construction
+    # in a process actually reads ``api_spec.tsv``, so every later
+    # ``record_ok`` here stamps a cache hit, and deleting the file cannot
+    # move this state at all.  (2) ``spec._load`` refuses a malformed cell
+    # and a wrong body digest, but nothing checks the census is COMPLETE:
+    # a hand-trimmed ``api_spec.tsv`` carrying only two namespaces, with
+    # its digest recomputed the way that module's own re-vendor note says
+    # to, parses fine, builds a host with 2 of 8 Lua globals and
+    # ``degraded`` False, and is recorded HEALTHY here -- while every
+    # script touching ``Trigger.``/``Instance.`` hits a nil global and is
+    # logged ``LUA_SCRIPT <quest file> ERR``, the mis-attribution
+    # ``MirrorUnavailable`` exists to prevent.  Completeness is not this
+    # round's to fix (it belongs to the census loader, and inventing a
+    # rule for "complete" without an owner's decision is how a mirror
+    # stops matching its source), but it is named, not implied away.
     health.record_ok(MIRROR_API_SPEC)
     return value, None
 
@@ -363,17 +382,30 @@ class ScriptHost:
     posture ``quest_store`` takes for its own default. Every other
     namespace is unchanged: a plain ``ApiNamespaceStub``.
 
-    DEGRADED HOSTS (COO-DECISION ``20260907_1441``).  Every construction
-    reads at least one vendored mirror of ours (``lua_api/api_spec.tsv``,
-    and the message catalog while ``Player``/``Trigger`` build).  If one is
-    broken this constructor no longer raises: it records the failure in
+    DEGRADED HOSTS (COO-DECISION ``20260907_1441``).  A construction reads
+    EXACTLY ONE vendored mirror of ours, ``lua_api/api_spec.tsv``.  If it
+    is broken this constructor no longer raises: it records the failure in
     ``mirror_health`` (readable without a log, which is the whole point of
-    the decision), logs ``LUA_HOST``/``LUA_HOST_DEGRADED``, and builds a
-    host with ``degraded`` True and NO namespaces, which then refuses to
+    the decision), logs one ``LUA_MIRROR_DEGRADED`` line, and builds a host
+    with ``degraded`` True and NO namespaces, which then refuses to
     ``load``/``call`` anything with :class:`MirrorUnavailable` rather than
     letting Lua blame the next quest file for our own broken file.  The
     sandbox is unaffected: ``BLOCKED_GLOBALS`` are nil on a degraded host
     exactly as on a healthy one.
+
+    TWO SENTENCES THAT USED TO BE HERE AND WERE BOTH FALSE (pf-adversary
+    D3, round ``h20x7g``).  "and the message catalog while
+    ``Player``/``Trigger`` build" -- measured false: deleting
+    ``message_catalog.tsv`` and calling either ``build_namespace`` builds
+    fine and records nothing, because that mirror is read inside the call
+    closures.  ``docs/SCRIPT_LANE.md`` says round ``95aw54`` corrected this
+    claim "in all three places"; it corrected two, and this one was
+    re-shipped.  And ``LUA_HOST_DEGRADED`` is a prefix NOTHING writes --
+    :func:`guard_mirrors` says in capitals that it is deliberately
+    ``LUA_MIRROR_DEGRADED``, because a second prefix starting ``LUA_HOST``
+    is what turned the gate red at 1848 lines where 616 are pinned.  A
+    reader who greps for the name this docstring used found nothing; a
+    reader who trusted it would have re-introduced the gate-red shape.
     """
 
     def __init__(self, log: Optional[Callable[[str], None]] = None, *,

@@ -365,11 +365,22 @@ class TheTwoPublishedNamesAreOneObjectTests(unittest.TestCase):
                       vendored.MirrorFailureTally)
 
     def test_every_shipped_mirror_has_a_key_and_the_keys_are_unique(self):
+        # NAMES, NOT A COUNT (pf-adversary D10, round `h20x7g`): the first
+        # version compared `len(shipped)` with `len(KNOWN_MIRRORS)`, which
+        # `("a", "b", "c", "d")` passes. A count proves a fifth file was
+        # noticed; it does not prove the four keys mean anything. Each key
+        # must be the stem of a file this package actually ships.
         self.assertEqual(len(set(vendored.KNOWN_MIRRORS)),
                          len(vendored.KNOWN_MIRRORS))
-        shipped = sorted(p.name for p in
-                         Path(vendored.__file__).parent.glob("*.tsv"))
-        self.assertEqual(len(shipped), len(vendored.KNOWN_MIRRORS), shipped)
+        shipped = {p.stem for p in
+                   Path(vendored.__file__).parent.glob("*.tsv")}
+        # `quest_criteria_curve.tsv` -> key `criteria_curve`: the key drops
+        # the package-name prefix the filename carries, so the comparison
+        # is over stems with that prefix removed.
+        stems = {stem[len("quest_"):] if stem.startswith("quest_") else stem
+                 for stem in shipped}
+        self.assertEqual(set(vendored.KNOWN_MIRRORS), stems,
+                         sorted(shipped))
 
     def test_a_class_name_outside_ascii_is_escaped_in_both_halves(self):
         health = vendored.MirrorHealth()
@@ -380,6 +391,75 @@ class TheTwoPublishedNamesAreOneObjectTests(unittest.TestCase):
                       vendored.MIRROR_API_SPEC)
         health.tally().log_fields().encode("cp874")
         health.tally_for(vendored.MIRROR_API_SPEC).log_fields().encode("ascii")
+
+
+class WhatThisStateCannotSeeTests(unittest.TestCase):
+    """pf-adversary D1/D4/D7, round `h20x7g` -- pinned, not just written up.
+
+    Two of these pin a LIMIT rather than a capability. A limit that only
+    lives in a docstring is a limit the next round deletes by accident.
+    """
+
+    def test_a_deleted_mirror_cannot_flip_broken_now_once_the_cache_is_warm(self):
+        # THE FINDING, AS A TEST. Not a bug being hidden: the design's
+        # honest boundary, pinned so that a future round which claims
+        # `broken_now` is a liveness signal has to delete this test first.
+        with isolated_health() as health:
+            quest_criteria.reset_caches()
+            self.addCleanup(quest_criteria.reset_caches)
+            quest_criteria.load_curve()
+            self.assertFalse(
+                health.tally_for(vendored.MIRROR_CRITERIA_CURVE).broken_now)
+            stamp = health.tally_for(vendored.MIRROR_CRITERIA_CURVE).last_ok_at
+            # The file goes away. Nothing clears the cache, exactly as
+            # production never does.
+            original = quest_criteria._CURVE_PATH
+            quest_criteria._CURVE_PATH = MISSING
+            self.addCleanup(setattr, quest_criteria, "_CURVE_PATH", original)
+            for _ in range(3):
+                quest_criteria.load_curve()
+            after = health.tally_for(vendored.MIRROR_CRITERIA_CURVE)
+        self.assertFalse(after.broken_now,
+                         "measured, and this is the LIMIT: a warm cache is "
+                         "never re-read, so healthy -> broken cannot be seen")
+        self.assertEqual(after.last_ok_at, stamp,
+                         "and no later read stamps a fresher success either")
+
+    def test_the_roll_up_quotes_a_mirror_that_is_still_broken(self):
+        # pf-adversary D4: ordering by sequence alone produced a line that
+        # named message_catalog in `broken=` and quoted an api_spec error
+        # that had already been repaired.
+        health = vendored.MirrorHealth()
+        health.record(VendoredDataError("message_catalog.tsv is missing"),
+                      vendored.MIRROR_MESSAGE_CATALOG)
+        health.record(VendoredDataError("api_spec.tsv is missing"),
+                      vendored.MIRROR_API_SPEC)
+        health.record_ok(vendored.MIRROR_API_SPEC)
+        roll_up = health.tally()
+        self.assertEqual(roll_up.broken, (vendored.MIRROR_MESSAGE_CATALOG,))
+        self.assertIn("message_catalog.tsv", roll_up.last_error)
+        self.assertNotIn("api_spec.tsv", roll_up.last_error)
+
+    def test_with_nothing_broken_the_roll_up_still_carries_the_history(self):
+        # The other side of the same fix: once every mirror is repaired,
+        # the newest failure of all is the right answer, because `broken`
+        # is empty and the line reads as history.
+        health = vendored.MirrorHealth()
+        health.record(VendoredDataError("api_spec.tsv is missing"),
+                      vendored.MIRROR_API_SPEC)
+        health.record_ok(vendored.MIRROR_API_SPEC)
+        roll_up = health.tally()
+        self.assertEqual(roll_up.broken, ())
+        self.assertFalse(roll_up.broken_now)
+        self.assertIn("api_spec.tsv", roll_up.last_error)
+
+    def test_a_mirror_key_outside_cp874_does_not_kill_the_console(self):
+        # pf-adversary D7: the key was the third piece of caller-supplied
+        # text on this line and the one nothing escaped.
+        health = vendored.MirrorHealth()
+        health.record(VendoredDataError("boom"), "caf\u00e9_mirror")
+        health.tally().log_fields().encode("cp874")
+        health.tally_for("caf\u00e9_mirror").log_fields().encode("ascii")
 
 
 if __name__ == "__main__":  # pragma: no cover

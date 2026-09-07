@@ -134,11 +134,29 @@ class QuestRewardStore(Protocol):
     method's own docstring says the same in ``store.py``): the read, the
     ``UPDATE`` and the read-back all run inside ONE ``BEGIN IMMEDIATE``,
     and ``store.connect()`` rolls the transaction back on any exception
-    before re-raising.  So a raise out of ``add_typed_attribute`` means
-    NOTHING was committed, and a retry pays exactly once.  The half-paid
-    case this docstring used to name -- committed on disk while the caller
-    sees ``refused=store_error`` -- cannot be produced by that method's own
-    body.
+    before re-raising.  So a RAISE out of ``add_typed_attribute`` means
+    NOTHING was committed.
+
+    THAT SENTENCE IS ABOUT ``store.py``, AND THE PARAGRAPH THIS DOCSTRING
+    BUILT ON IT WAS TOO WIDE (pf-adversary D6, round ``h20x7g``, correcting
+    round ``95aw54``'s wording).  It used to read "a retry pays exactly
+    once" and "the half-paid case cannot be produced".  Both are false of
+    :func:`pay`, whatever is true of the store: :func:`pay` has TWO refusal
+    branches that run AFTER the store has already committed -- a return
+    that is not an ``int``, and a ``balance_after`` smaller than the delta
+    -- and both report ``refused=store_error``, indistinguishable to a
+    caller from the raising case.  A store wrapper that commits and returns
+    ``None`` increments the row, logs ``refused=store_error``, and a caller
+    who believed the old sentence and retried would pay TWICE.  What the
+    letter's guarantee actually buys is narrower and is all that is claimed
+    here: a retry after a RAISE pays once.
+
+    ALSO CORRECTED: the letter cited above is titled ``add_typed_attribute``
+    **is not on main yet**.  The method IS on ``origin/main`` now, so the
+    conclusion stands -- but it stands on the grep, not on that letter, and
+    quoting the letter as the authority for the opposite of its own
+    headline is the kind of citation this lane has been caught making
+    before.
 
     WHAT IS STILL NOT PROMISED, so this is not read as more than it is: a
     process killed between ``COMMIT`` and return is outside that guarantee

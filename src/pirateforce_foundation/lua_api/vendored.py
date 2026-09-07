@@ -106,6 +106,11 @@ def ascii_safe(exc: BaseException) -> str:
     return str(exc).encode("ascii", "backslashreplace").decode("ascii")
 
 
+def _ascii_text(text: str) -> str:
+    """Console-safe text for any string, not only an exception's."""
+    return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
 def _ascii_name(exc: BaseException) -> str:
     """The exception's CLASS NAME, escaped as well as its message.
 
@@ -134,10 +139,31 @@ class MirrorFailureTally:
 
     `broken_now` is the field D6 asked for and the reason a bare count was
     not enough: a count only ever rises, so it answers "has this ever
-    failed", never "is it failing now".  `last_ok_at` is the other half --
-    a mirror that was broken and is now read successfully says so with a
-    stamp, rather than leaving a reader to guess from a number that never
-    comes down.
+    failed", never "did the last attempt fail".  `last_ok_at` is the other
+    half -- a mirror that was broken and is then parsed successfully says
+    so with a stamp, rather than leaving a reader to guess from a number
+    that never comes down.
+
+    WHAT `broken_now` AND `last_ok_at` DO **NOT** MEAN, MEASURED
+    (pf-adversary D1, round `h20x7g`, and the strongest finding against
+    this design).  They describe THE MOST RECENT PARSE ATTEMPT IN THIS
+    PROCESS, not the file on disk.  Every one of the four mirrors is
+    parsed at most once and then cached (`spec._TABLES`,
+    `message._CATALOG_CACHE`, `quest_criteria._CURVE_CACHE`/`_ROWS_CACHE`),
+    so once a mirror has been read successfully NOTHING READS IT AGAIN:
+    delete the file and `broken_now` stays false and `last_ok_at` keeps
+    the stamp of a read that happened before the deletion.  Measured with
+    an injected clock: `api_spec.tsv` moved off disk, three further host
+    constructions, `broken_now=false last_ok_at=<fifteen minutes later>`.
+
+    So the transition this state can observe is broken -> healthy, and
+    only that.  A healthy -> broken transition is unobservable for the
+    life of the process, because there is no re-read to observe it with.
+    THIS IS NOT A LIVENESS SIGNAL, and a health check built on it would
+    report a deleted mirror as fine; the open design question -- whether
+    anything should ever re-stat or re-parse a warm mirror -- is written
+    up for COO rather than answered here, because the answer changes what
+    the loaders do and this lane has no decision for that.
     """
 
     #: How many failed reads have been recorded (for this mirror, or in
@@ -165,13 +191,24 @@ class MirrorFailureTally:
         published, because `tests/test_script_host_mirror_health.py` and a
         reader's grep both already know them; the four that answer D6 are
         appended rather than mixed in.
+
+        THE KEY IS ESCAPED TOO (pf-adversary D7, round `h20x7g`).  Round
+        `95aw54` escaped an exception's message and then its class name;
+        the key was the third piece of caller-supplied text on this line
+        and the one nothing escaped.  `record` takes an arbitrary key and
+        its own docstring invites callers outside this package, so a key
+        with a character outside cp874 would die inside `print` on the
+        bridge console -- the same shape, one field along.  Every in-repo
+        caller passes one of `KNOWN_MIRRORS`, so this was risk, not a live
+        break.
         """
         return ('mirror_failures=%d last_failed_at="%s" last_error="%s" '
                 'mirror="%s" broken_now=%s last_ok_at="%s" broken="%s"'
                 % (self.failures, self.last_failed_at or "",
-                   self.last_error or "", self.mirror or "",
+                   self.last_error or "", _ascii_text(self.mirror or ""),
                    "true" if self.broken_now else "false",
-                   self.last_ok_at or "", ",".join(self.broken)))
+                   self.last_ok_at or "",
+                   ",".join(_ascii_text(name) for name in self.broken)))
 
 
 @dataclasses.dataclass
@@ -274,8 +311,15 @@ class MirrorHealth:
         The half D6 was missing.  `failures` is deliberately NOT reset --
         it is the history and a reader who wants "has this ever broken"
         must keep being able to ask -- but `broken_now` goes false and
-        `last_ok_at` is stamped, so "is it broken NOW" has an answer that
-        a repair actually changes.
+        `last_ok_at` is stamped, so a repair is visible instead of being
+        hidden behind a number that only rises.
+
+        SUCCESS HERE MEANS "THIS PARSE ATTEMPT RAISED NOTHING", and no
+        more than that -- see `MirrorFailureTally` for the two ways that
+        is weaker than it sounds (a warm cache means there is no later
+        attempt at all; a mirror that parses but is INCOMPLETE raises
+        nothing and is recorded healthy, pf-adversary D2 of round
+        `h20x7g`).
         """
         with self._lock:
             state = self._state_unlocked(mirror)
@@ -314,19 +358,36 @@ class MirrorHealth:
         with self._lock:
             total = 0
             newest: Optional[_OneMirror] = None
+            newest_any: Optional[_OneMirror] = None
             last_ok_at: Optional[str] = None
             broken = []
             for name, state in self._mirrors.items():
                 total += state.failures
-                if state.failures and (newest is None
+                if state.failures and (newest_any is None
                                        or state.last_failure_seq
-                                       > newest.last_failure_seq):
+                                       > newest_any.last_failure_seq):
+                    newest_any = state
+                # THE QUOTED CAUSE IS TAKEN FROM A MIRROR THAT IS STILL
+                # BROKEN, whenever one is (pf-adversary D4, round
+                # `h20x7g`).  Ordering by sequence alone produced a line
+                # that named `message_catalog` in `broken=` and quoted an
+                # `api_spec` error that had already been repaired -- D7 of
+                # round `95aw54` ("a host describing itself with another
+                # host's error") arriving one level up, in the object a
+                # health check is meant to read.  With nothing broken the
+                # newest failure of all is the right answer, because then
+                # the line is history and `broken=""` says so.
+                if state.broken_now and state.failures and (
+                        newest is None
+                        or state.last_failure_seq > newest.last_failure_seq):
                     newest = state
                 if state.last_ok_at is not None and (
                         last_ok_at is None or state.last_ok_at > last_ok_at):
                     last_ok_at = state.last_ok_at
                 if state.broken_now:
                     broken.append(name)
+            if newest is None:
+                newest = newest_any
             return MirrorFailureTally(
                 failures=total,
                 last_error=None if newest is None else newest.last_error,
