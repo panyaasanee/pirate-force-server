@@ -151,7 +151,34 @@ ALTERNATE_CONSTRUCTION_DEFAULTS: tuple[object, object] = (
     CLIENT_CONSTRUCTION_DEFAULTS[ALTERNATE_PAIR[1]].value,
 )
 
-_U32_MODULUS = 1 << 32
+#: The rows this module reads a NUMBER out of.  The selector row x=9 is not
+#: here: nothing converts it, it is only ever compared.
+_NUMERIC_ROWS: tuple[int, ...] = PRIMARY_PAIR + ALTERNATE_PAIR
+
+
+def _row_width_bits(x: int) -> int:
+    """The width `gm/attr_wire.FIELDS` records for row `x`, in bits.
+
+    pf-adversary round `2v18x3`, D-D.  This module's whole discipline is
+    "derive the indices, never type them", and the WIDTH was the one number
+    that got away: `1 << 32` was typed in, while the width lives in
+    `attr_wire.FIELDS[x][5]` and is never read.  Measured failure that
+    justified the change: re-measure x=53 as `u16` in LANE-GM's table and
+    `as_signed_row_value(53, 0xFFFF)` returned `65535`, so a block putting
+    `100/-1` on the HUD was PASSED, with the whole suite green and this
+    module's entire `-1` narrative off by 65536.
+    """
+    for row in attr_wire.FIELDS:
+        if row[0] == x:
+            kind = row[5]
+            if not (isinstance(kind, str) and kind.startswith("u")):
+                raise HpPairError(f"x={x} is not an unsigned row: {kind!r}")
+            return int(kind[1:])
+    raise HpPairError(f"x={x} is not a row of gm/attr_wire.FIELDS")
+
+
+def _row_modulus(x: int) -> int:
+    return 1 << _row_width_bits(x)
 
 #: [FRAME LAYER] the row is not in the block, so its mask bit is unset and
 #: the client's full-object-copy apply reads it as ZERO (`RE-222` Q0).
@@ -226,8 +253,14 @@ ALL_REASONS: frozenset[str] = ALTERNATE_REASONS | PRIMARY_REASONS
 HP_PAIR_REFUSED_CONSOLE_TOKEN = "DB_HP_PAIR_DISHONEST"
 
 
-def as_signed_u32(value: object) -> int:
-    """The number the HUD prints for a u32 row, or raise.
+def as_signed_row_value(x: int, value: object) -> int:
+    """The number the HUD prints for row `x`, or raise.
+
+    RENAMED from `as_signed_u32` and given the row (pf-adversary `2v18x3`
+    D-D): the old name asserted a width this module was not reading.  The
+    width now comes from `gm/attr_wire.FIELDS[x][5]`, so the day LANE-GM
+    re-measures one of these rows this function follows the table instead of
+    quietly printing a number 65536 too large.
 
     0xFFFFFFFF is what the corpus records and `-1` is what a HUD prints for
     it; this is the one function that turns one into the other, so no other
@@ -238,10 +271,11 @@ def as_signed_u32(value: object) -> int:
     here would be reported under the wrong reason.
     """
     if isinstance(value, bool) or not isinstance(value, int):
-        raise HpPairError(f"not a u32 value: {value!r}")
-    if not 0 <= value < _U32_MODULUS:
-        raise HpPairError(f"outside u32: {value!r}")
-    return value - _U32_MODULUS if value >= (_U32_MODULUS >> 1) else value
+        raise HpPairError(f"not an unsigned value: {value!r}")
+    modulus = _row_modulus(x)
+    if not 0 <= value < modulus:
+        raise HpPairError(f"outside the width of x={x}: {value!r}")
+    return value - modulus if value >= (modulus >> 1) else value
 
 
 @dataclass(frozen=True)
@@ -273,7 +307,7 @@ def _row_gap(x: int, index: int, values: dict[int, object]) -> PairGap | None:
         return PairGap(x, _field_name(x), REASON_ABSENT_READS_ZERO)
     value = values[x]
     try:
-        shown = as_signed_u32(value)
+        shown = as_signed_row_value(x, value)
     except HpPairError:
         return PairGap(x, _field_name(x), REASON_NOT_A_U32)
     if value == ALTERNATE_CONSTRUCTION_DEFAULTS[index]:
@@ -323,8 +357,12 @@ def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
         if gap is not None
     ]
     if not gaps:
-        current = as_signed_u32(values[ALTERNATE_PAIR[0]])
-        maximum = as_signed_u32(values[ALTERNATE_PAIR[1]])
+        current = as_signed_row_value(
+            ALTERNATE_PAIR[0], values[ALTERNATE_PAIR[0]]
+        )
+        maximum = as_signed_row_value(
+            ALTERNATE_PAIR[1], values[ALTERNATE_PAIR[1]]
+        )
         # `>` not `>=`: current EQUAL to max is a character at full HP,
         # the commonest honest state there is.  pf-adversary `cgnzsd` D6
         # mutated this to `>=` and no test went red; the test named
@@ -387,7 +425,7 @@ def primary_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
             gaps.append(PairGap(x, _field_name(x), REASON_ABSENT_READS_ZERO))
             continue
         try:
-            numbers[x] = as_signed_u32(values[x])
+            numbers[x] = as_signed_row_value(x, values[x])
         except HpPairError:
             gaps.append(PairGap(x, _field_name(x), REASON_NOT_A_U32))
     if len(numbers) != len(PRIMARY_PAIR):
@@ -510,10 +548,12 @@ def live_hp_pair_report(store, character_id: int) -> HpPairReport:
         character_id=character_id,
         primary_current=typed.get("hp_current"),
         primary_max=typed.get("hp_max"),
-        alternate_if_unset_current=as_signed_u32(
-            ALTERNATE_CONSTRUCTION_DEFAULTS[0]
+        alternate_if_unset_current=as_signed_row_value(
+            ALTERNATE_PAIR[0], ALTERNATE_CONSTRUCTION_DEFAULTS[0]
         ),
-        alternate_if_unset_max=as_signed_u32(ALTERNATE_CONSTRUCTION_DEFAULTS[1]),
+        alternate_if_unset_max=as_signed_row_value(
+            ALTERNATE_PAIR[1], ALTERNATE_CONSTRUCTION_DEFAULTS[1]
+        ),
         # Derived from `SERVER_OWNED_FIELDS`, never written as `False`.
         # pf-adversary `cgnzsd` D6 replaced this expression with the literal
         # `False` and the whole suite stayed green; `test_the_supplied_flag_

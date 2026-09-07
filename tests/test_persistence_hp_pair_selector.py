@@ -120,25 +120,29 @@ class TheMinusOneIsTheCorpusValueTests(unittest.TestCase):
 
     def test_the_current_default_prints_as_minus_one(self):
         self.assertEqual(
-            sel.as_signed_u32(sel.ALTERNATE_CONSTRUCTION_DEFAULTS[0]), -1
+            sel.as_signed_row_value(
+                sel.ALTERNATE_PAIR[0], sel.ALTERNATE_CONSTRUCTION_DEFAULTS[0]
+            ), -1
         )
 
     def test_the_max_default_prints_as_one(self):
         self.assertEqual(
-            sel.as_signed_u32(sel.ALTERNATE_CONSTRUCTION_DEFAULTS[1]), 1
+            sel.as_signed_row_value(
+                sel.ALTERNATE_PAIR[1], sel.ALTERNATE_CONSTRUCTION_DEFAULTS[1]
+            ), 1
         )
 
     def test_signed_conversion_is_a_conversion_not_a_clamp(self):
-        self.assertEqual(sel.as_signed_u32(0), 0)
-        self.assertEqual(sel.as_signed_u32(100), 100)
-        self.assertEqual(sel.as_signed_u32(0x7FFFFFFF), 0x7FFFFFFF)
-        self.assertEqual(sel.as_signed_u32(0x80000000), -(1 << 31))
+        self.assertEqual(sel.as_signed_row_value(52, 0), 0)
+        self.assertEqual(sel.as_signed_row_value(52, 100), 100)
+        self.assertEqual(sel.as_signed_row_value(52, 0x7FFFFFFF), 0x7FFFFFFF)
+        self.assertEqual(sel.as_signed_row_value(52, 0x80000000), -(1 << 31))
 
     def test_non_u32_values_raise(self):
         for bad in (None, "100", 1.5, True, -1, 1 << 32):
             with self.subTest(bad=bad):
                 with self.assertRaises(sel.HpPairError):
-                    sel.as_signed_u32(bad)
+                    sel.as_signed_row_value(52, bad)
 
 
 class TheGapsNameEveryDishonestRowTests(unittest.TestCase):
@@ -276,6 +280,31 @@ class TheGuardHasTeethTests(unittest.TestCase):
             with self.subTest(reason=reason):
                 reasons = [g.reason for g in sel.alternate_pair_gaps(values)]
                 self.assertIn(reason, reasons)
+
+    def test_the_max_rows_construction_default_of_one_is_pinned(self):
+        """pf-adversary round `2v18x3`, M06.  Mutating
+        `ALTERNATE_CONSTRUCTION_DEFAULTS[index]` to `[0]` flipped
+        `{9:8, 52:1, 53:1}` from REFUSE to PASS and no test noticed: every
+        existing case exercised index 0's `0xFFFFFFFF` and nothing pinned
+        index 1's `1`.  That is exactly the KNOWN CONSERVATISM the module
+        docstring spends seven lines defending, left unpinned."""
+        gaps = sel.alternate_pair_gaps(
+            {sel.ALTERNATE_PAIR[0]: 87, sel.ALTERNATE_PAIR[1]: 1}
+        )
+        self.assertEqual(
+            [(g.x, g.reason) for g in gaps],
+            [(sel.ALTERNATE_PAIR[1], sel.REASON_CONSTRUCTION_DEFAULT)],
+        )
+        with self.assertRaises(sel.HpPairError):
+            sel.guard_armed_block(
+                {
+                    sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+                    sel.ALTERNATE_PAIR[0]: 1,
+                    sel.ALTERNATE_PAIR[1]: 1,
+                    sel.PRIMARY_PAIR[0]: 87,
+                    sel.PRIMARY_PAIR[1]: 100,
+                }
+            )
 
     def test_a_bool_is_not_accepted_as_the_number_one(self):
         """`True == 1` and 1 is x=53's construction default, so a bool must
@@ -438,14 +467,50 @@ class TheTriggerIsTheArmedValueNotThePresenceTests(unittest.TestCase):
 
     def test_a_login_shaped_block_is_not_refused(self):
         """The regression the first draft would have shipped: x=9 present,
-        carrying an ordinary scene byte, no alternate pair."""
-        for scene_byte in (0, 1, 3, 126, 255):
-            if scene_byte == sel.SELECTOR_ARMED_VALUE:
-                continue
+        carrying an ordinary scene byte, no alternate pair.
+
+        pf-adversary round `2v18x3` D-B: this loop used to `continue` past
+        any byte equal to `SELECTOR_ARMED_VALUE`.  Measured, that line had
+        NEVER executed (nothing in the sample equals 8) -- and the moment
+        LANE-GM's comparand drifted onto a sampled byte the test skipped
+        itself silently, re-arming D2 with the suite reporting green and the
+        subtest count dropping 49 -> 48 as the only trace.  A test may not
+        decide in silence that it has nothing to prove: the sample is now
+        DERIVED so it can never contain the armed value, and both the
+        derivation and the count are asserted."""
+        sample = tuple(
+            byte
+            for byte in (0, 1, 3, 126, 255)
+            if byte != sel.SELECTOR_ARMED_VALUE
+        )
+        # If the comparand ever lands on a sampled byte the sample shrinks;
+        # this says so out loud instead of quietly proving less.
+        self.assertEqual(
+            len(sample),
+            5,
+            "SELECTOR_ARMED_VALUE now collides with a sampled scene byte -- "
+            "pick different bytes rather than letting the sample shrink",
+        )
+        for scene_byte in sample:
             with self.subTest(scene_byte=scene_byte):
                 self.assertIsNone(
                     sel.guard_armed_block({sel.SELECTOR_FIELD: scene_byte})
                 )
+
+    def test_the_armed_value_is_what_lane_gm_compares_against(self):
+        """pf-adversary round `2v18x3`, D-A.  The module's docstring promises
+        that if LANE-GM changes its comparand "this module follows in the
+        same commit OR ITS TESTS GO RED".  Measured, the second half was
+        false: setting `attr_wire.SELECTOR_COMPARED_VALUE = 3` left this
+        file at `68 passed` and only LANE-GM's own suite noticed.  It did not
+        follow-or-go-red, it followed silently -- and a comparand landing on
+        an ordinary scene byte is D2 verbatim.  This is the red."""
+        self.assertEqual(sel.SELECTOR_ARMED_VALUE, 8)
+        self.assertEqual(attr_wire.SELECTOR_COMPARED_VALUE, 8)
+        # The value is not free to be any byte: it must not collide with a
+        # scene byte an ordinary login can carry, or every such login is
+        # refused.
+        self.assertNotIn(sel.SELECTOR_ARMED_VALUE, (0, 1, 3, 126, 255))
 
     def test_only_the_armed_value_arms_the_guard(self):
         self.assertTrue(
@@ -639,6 +704,33 @@ class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
         text = MODULE_FILE.read_text(encoding="utf-8")
         self.assertIn("WHO CALLS THIS PREDICATE TODAY: NOBODY", text)
         self.assertIn("WITHDRAWN", text)
+
+    def test_the_no_caller_claim_is_checked_against_the_tree_not_the_prose(self):
+        """pf-adversary round `2v18x3`, Cat-6.4: the test above verifies that
+        a SENTENCE exists, not that the sentence is TRUE.  The day someone
+        wires this module up it stays green while the docstring lies.  This
+        is the check that acts: it walks the shipped tree and fails on a real
+        import, naming it.
+
+        Scoped to this repository on purpose -- reading `pf_bridge` from a
+        server test is the out-of-repo citation round `cgnzsd` removed (D6),
+        and a markdown mention over there is not a caller anyway."""
+        importers = []
+        for path in sorted((ROOT / "src").rglob("*.py")) + sorted(
+            (ROOT / "tests").rglob("*.py")
+        ):
+            if path == MODULE_FILE or path == Path(__file__).resolve():
+                continue
+            body = path.read_text(encoding="utf-8", errors="replace")
+            if "persistence_hp_pair_selector" in body:
+                importers.append(str(path.relative_to(ROOT)))
+        self.assertEqual(
+            importers,
+            [],
+            "the module now HAS a caller, so its docstring's "
+            "'WHO CALLS THIS PREDICATE TODAY: NOBODY' is false: " 
+            + ", ".join(importers),
+        )
 
 
 class TheModuleDoesNotDecodeCategoryEightTests(unittest.TestCase):
