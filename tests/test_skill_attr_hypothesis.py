@@ -63,6 +63,10 @@ from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from pirateforce_foundation import class_catalog  # noqa: E402
+from pirateforce_foundation import (  # noqa: E402
+    skill_attr_hypothesis as skill_attr_module,
+)
 from pirateforce_foundation.skill_attr_hypothesis import (  # noqa: E402
     SKILL_ATTR_ACTION_LABEL_PREFIX,
     SKILL_ATTR_BODY_BASE_SIZE,
@@ -79,6 +83,7 @@ from pirateforce_foundation.skill_attr_hypothesis import (  # noqa: E402
     SKILL_ATTR_PC_VITAL_ID_SLICE,
     SKILL_ATTR_PROBE_BODY_SHA256,
     SKILL_ATTR_PROBE_BODY_SIZE,
+    SKILL_ATTR_PROBE_CHARACTER_CLASS_ID,
     SKILL_ATTR_PROBE_FRAME_SHA256,
     SKILL_ATTR_PROBE_FRAME_SIZE,
     SKILL_ATTR_PROBE_IDENTITY_HI,
@@ -759,9 +764,91 @@ class ScenarioGateTests(unittest.TestCase):
             replace(scenario, step_order=SKILL_ATTR_STEP_ORDER[:1]),
             replace(scenario, hypothesis_id="HYP-PF-020"),
             replace(scenario, scenario_id="skill_attr_other"),
+            replace(scenario, character_class_id=1),
+            replace(scenario, character_class_id=0),
         ):
             with self.assertRaises(ValueError):
                 require_skill_attr_hypothesis_scenario(bad)
+
+    def test_the_declared_class_is_none_and_says_so_everywhere(self):
+        # chief letter pf_bridge/notes_to_chief/20260907_1109_FROM_CHIEF-to-
+        # LANE-CS-class-gate-needs-one-field.md asked for ONE field so the
+        # dispatcher's class gate can read a number this module declares.
+        # Today the sweep declares nothing, and that is a statement about
+        # the bytes: neither pinned variant is built from a class's skill
+        # rows.  This test is what turns red the day someone sets the
+        # declaration without changing the step records with it.
+        scenario = load_skill_attr_hypothesis_scenario(SCENARIO_PATH)
+        self.assertIsNone(SKILL_ATTR_PROBE_CHARACTER_CLASS_ID)
+        self.assertIsNone(scenario.character_class_id)
+        self.assertIsNone(
+            require_skill_attr_hypothesis_scenario(scenario)
+            .character_class_id
+        )
+        # And the module still imports nothing from its own package: the
+        # declaration is a value it carries, not a lookup it performs, so
+        # the containment shape this lane was built with is unchanged.
+        source = (SRC_ROOT / "skill_attr_hypothesis.py").read_text(
+            encoding="utf-8",
+        )
+        self.assertNotIn("from .", source)
+        self.assertNotIn("from pirateforce_foundation", source)
+        # ... and the field really is on the dataclass, defaulted, so
+        # setting it later is a one-line change and not a signature break.
+        fields = {
+            field.name: field
+            for field in dataclasses.fields(type(scenario))
+        }
+        self.assertIn("character_class_id", fields)
+        self.assertIsNone(fields["character_class_id"].default)
+
+    def test_a_declared_class_must_be_a_real_positive_class_id(self):
+        # The guard runs against the PINNED profile, so drive it by moving
+        # the pin -- the caller can never get a different object past the
+        # equality check above.  Every value here would make the
+        # dispatcher's class gate compare against nonsense; 0 is the nasty
+        # one, because it reads as "declared" while matching no real class.
+        original = skill_attr_module._PROFILE_ATTR_SWEEP
+        for bad in (0, -1, True, 1.0, "1"):
+            with self.subTest(bad=bad):
+                skill_attr_module._PROFILE_ATTR_SWEEP = replace(
+                    original, character_class_id=bad,
+                )
+                try:
+                    with self.assertRaises(RuntimeError):
+                        require_skill_attr_hypothesis_scenario(
+                            skill_attr_module._PROFILE_ATTR_SWEEP,
+                        )
+                finally:
+                    skill_attr_module._PROFILE_ATTR_SWEEP = original
+        # Every real class id of the committed CHARCREATE_CLASS table, and
+        # None, passes the module guard -- the guard rejects shapes, not
+        # classes.
+        for good in (None,) + class_catalog.CLASS_IDS:
+            with self.subTest(good=good):
+                skill_attr_module._PROFILE_ATTR_SWEEP = replace(
+                    original, character_class_id=good,
+                )
+                try:
+                    self.assertEqual(
+                        require_skill_attr_hypothesis_scenario(
+                            skill_attr_module._PROFILE_ATTR_SWEEP,
+                        ).character_class_id,
+                        good,
+                    )
+                finally:
+                    skill_attr_module._PROFILE_ATTR_SWEEP = original
+        self.assertIs(skill_attr_module._PROFILE_ATTR_SWEEP, original)
+        # The table check the module deliberately does NOT do (it imports
+        # nothing from the package, see the guard docstring): the pin, if it
+        # declares anything, must name a row of that table.  It is DORMANT
+        # today and this assert says so out loud -- the pin is None, so
+        # nothing below the branch runs, and it goes live in the same commit
+        # that first sets a class.
+        declared = original.character_class_id
+        self.assertIsNone(declared)
+        if declared is not None:  # pragma: no cover - dormant until pinned
+            self.assertTrue(class_catalog.is_known_class_id(declared))
 
     def test_this_lane_is_reachable_only_through_the_opt_in_scenario(self):
         # The two importers are named and the list is exact, so a third one

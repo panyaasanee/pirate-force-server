@@ -282,10 +282,27 @@ class SkillAttrRecord:
 
 @dataclass(frozen=True)
 class SkillAttrHypothesisScenario:
+    """The opt-in sweep profile the dispatcher holds.
+
+    ``character_class_id`` is the player class the pinned step bytes were
+    built for.  It exists because the dispatcher's class gate must compare
+    the selected character against a number THIS MODULE declares, never one
+    typed into ``runtime.py`` (chief letter pf_bridge/notes_to_chief/
+    20260907_1109_FROM_CHIEF-to-LANE-CS-class-gate-needs-one-field.md,
+    answering LANE-CS CORE-REQUEST 20260907_0907).
+
+    ``None`` means THIS SWEEP DECLARES NO CLASS.  It is not "class 1" and it
+    is not "any class": a gate reading None must stay silent and let the
+    identity gate alone decide, because guessing a class here would be the
+    exact hole condition 1 of that CORE-REQUEST forbids.  Today's sweep
+    declares None -- see ``SKILL_ATTR_PROBE_CHARACTER_CLASS_ID`` for why.
+    """
+
     scenario_id: str
     hypothesis_id: str
     step_order: tuple[str, ...]
     spacing_seconds: float
+    character_class_id: int | None = None
 
 
 # ------------------------------------------------------------ the sweep plan
@@ -318,6 +335,19 @@ SKILL_ATTR_STEP_RECORDS = {
 # bytes byte for byte or nothing.
 SKILL_ATTR_PROBE_IDENTITY_LO = 0x10010001
 SKILL_ATTR_PROBE_IDENTITY_HI = 0
+
+# The player class the pinned step bytes above were built for.
+#
+# None, and this is a measured statement about the bytes, not a placeholder:
+# the two variants are COUNT0_EMPTY (record_count = 0) and COUNT1_KEY1 (one
+# arbitrary probe record key=1/0/0).  Neither is derived from any class's
+# skill rows -- ``class_catalog.starting_skill_ids()`` is not read by this
+# module and no class id appears anywhere in the composition -- so this sweep
+# has no class to declare.  A sweep that DID carry a class's real skill ids
+# would set this to that class id in the SAME commit that changes the step
+# records, and the dispatcher's class gate would then start refusing a
+# selected character of any other class.
+SKILL_ATTR_PROBE_CHARACTER_CLASS_ID: int | None = None
 
 # Seconds between consecutive sends.  The frozen V141 sender treats the
 # fourth action-tuple field as a gap on a cumulative deadline (send_deadline
@@ -404,6 +434,38 @@ def _require_step_plan() -> None:
         raise RuntimeError(
             "HYP-PF-035 the one-record variant must stay the arbitrary "
             "pinned probe record key=1 opaque_u16=0 opaque_u32=0"
+        )
+
+
+def _require_declared_class() -> None:
+    """The declared class must be a real class id, or honestly absent.
+
+    This guards the PIN, not the caller: ``require_...`` already refuses any
+    object that is not equal to ``_PROFILE_ATTR_SWEEP``, so a caller can
+    never hand a different class in.  What can still go wrong is an edit to
+    this file -- the day a sweep starts carrying a class's real skill ids and
+    someone sets the declaration by hand.  A class id of 0, a negative, a
+    bool or a float would make the dispatcher's class gate compare against
+    nonsense, and ``0`` in particular would compare unequal to every real
+    class while still reading as "declared", so it is refused here rather
+    than on a live socket.
+
+    What is NOT checked here: whether a positive int names a real row of
+    the committed CHARCREATE_CLASS table.  That check lives in
+    ``tests/test_skill_attr_hypothesis.py`` against ``class_catalog``, and
+    it is DORMANT while the declaration is None -- it starts asserting in
+    the same commit that first sets a class.  It is kept out of this module
+    on purpose, so this file keeps importing nothing from its own package
+    (the containment shape ``test_this_lane_is_reachable_only_through_the_
+    opt_in_scenario`` pins).
+    """
+    declared = _PROFILE_ATTR_SWEEP.character_class_id
+    if declared is None:
+        return
+    if type(declared) is not int or declared <= 0:
+        raise RuntimeError(
+            "HYP-PF-035 declared character class id must be a positive int "
+            "or None"
         )
 
 
@@ -713,6 +775,7 @@ _PROFILE_ATTR_SWEEP = SkillAttrHypothesisScenario(
     SKILL_ATTR_HYPOTHESIS_ID,
     SKILL_ATTR_STEP_ORDER,
     SKILL_ATTR_SPACING_SECONDS,
+    SKILL_ATTR_PROBE_CHARACTER_CLASS_ID,
 )
 
 
@@ -895,4 +958,5 @@ def require_skill_attr_hypothesis_scenario(
             "skill attr hypothesis scenario object exceeds the allowlist"
         )
     _require_step_plan()
+    _require_declared_class()
     return value
