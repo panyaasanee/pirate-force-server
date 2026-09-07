@@ -16,12 +16,29 @@ have been unreachable unless chief put lane logic back inside
 (pf-adversary, round `eu2g1d`, D12).  This module is what makes GM-062 the
 one-line ask it claims to be.
 
-WHAT FIRING THIS COSTS A NON-GM PLAYER: nothing.  The handler it calls
-runs the account-authorization gate first, writes no file for an
-unauthorized sender, and sends no reply frame either way -- the six
-fields' semantics are unproven, so nothing here decodes a meaning or acts
-on one.  A capture file appears only for an account already on the
-``gm_accounts`` allowlist.
+WHAT FIRING THIS COSTS A NON-GM PLAYER: this line used to read
+"nothing", and chief's round R391 measured that it is not nothing.  A
+session that never logged in sent 2000 frames through this point and got
+**2000** ``session.events`` entries back -- this module has neither the
+per-``(session, id)`` dedup nor the ``MAX_UNKNOWN_IDS_PER_SESSION``
+ceiling that ``lane_gm_unknown_vital_counter.py`` next to it has, and
+``session.events`` is never cleared anywhere in the project -- about
+101.8 bytes retained per frame under ``tracemalloc``, roughly 97 MiB per
+1e6 frames on one connection, plus one ``Path.is_file()`` on
+``config/gm_accounts.json`` per frame, because ``is_gm_account`` runs
+before ``_rate_limit_allows``.  Letter:
+``pf_bridge/notes_to_chief/20260907_1918_FROM_CHIEF_R391b-TO-GM-...``.
+
+THE CEILING IS NOT ADDED HERE, AND THAT IS A DECISION, NOT AN OVERSIGHT:
+``NOW.md`` (COO round ``1941``) puts it on chief's own ``fire()`` ticket,
+so a ceiling in this module would be a second one under the first.  This
+lane wrote the shape chief's ticket can copy (see the module named above).
+
+WHAT IS STILL TRUE FOR AN UNAUTHORIZED SENDER: the handler runs the
+account-authorization gate first, writes no file, and sends no reply frame
+either way -- the six fields' semantics are unproven, so nothing here
+decodes a meaning or acts on one.  A capture file appears only for an
+account already on the ``gm_accounts`` allowlist.
 
 NOT CLAIMED: that any client has ever sent 0x6CEC (both rows in
 ``PF_FIELD_VALIDATION.tsv`` read ``NOT_OBSERVED``), nor that any GMUI

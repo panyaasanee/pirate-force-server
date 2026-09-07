@@ -4104,6 +4104,177 @@ class SQLiteStore:
             ).fetchone()
         return read_back[column]
 
+    def grant_experience(
+        self, character_id: int, amount: int
+    ) -> "persistence_experience.ExperienceGain":
+        """Pay `amount` experience to a character and raise its LEVEL.
+
+        Returns a `persistence_experience.ExperienceGain` built from the
+        row as it reads back after the write.  STATED AS DISCIPLINE, NOT AS
+        A MEASURABLE FEATURE (pf-adversary round `6n7pam`, `D6`): on every
+        success path the read-back and the plan are provably equal --
+        `persistence_typed_attrs.validate` raises instead of clamping,
+        `migrations/` defines no trigger, and `BEGIN IMMEDIATE` excludes
+        another writer -- so no input can make them differ and no test can
+        tell the two apart.  It is written this way for the same reason
+        `add_typed_attribute` reads back: the day one of those three
+        premises stops holding, the value returned is still the row's.
+
+        WHY THIS IS A SECOND DOOR ON `experience` AND NOT A WIDENING OF THE
+        FIRST.  `add_typed_attribute(character_id, "experience", n)` adds
+        the number and stops -- that is its whole contract and this method
+        does not change it (a caller of that door keeps the behaviour it
+        has today, including the level staying still).  This door is the
+        one that also spends the experience on levels, because the level
+        rule needs BOTH columns inside ONE transaction: reading
+        `experience`, deciding, and writing `level` across two calls would
+        let a second payout land between them and be counted twice or lost.
+        A caller picks exactly one of the two doors for a given payout;
+        `pf_bridge` letter to LANE-Q of this round asks `Player.AddExp` to
+        move to this one.  Both doors are safe to mix on a row -- neither
+        can corrupt the pair, because both take SQLite's write lock before
+        reading -- but a payout sent through the plain door simply buys no
+        level.
+
+        ONE TRANSACTION.  `BEGIN IMMEDIATE` takes the write lock before the
+        pair is read, so the level decision cannot be made against a
+        balance another connection is changing.  The `UPDATE` carries
+        `AND level=? AND experience=?` for the same reason
+        `add_typed_attribute` carries its own: the clause cannot fire
+        inside one `BEGIN IMMEDIATE`, and it is there so removing the lock
+        alone cannot silently widen what this method may do.
+
+        NEVER GUESSES ZERO.  A NULL `level` or `experience` raises
+        `UnmeasuredTypedAttributeError` naming the column rather than
+        treating the missing value as `0`
+        (`COO-DECISION 20260901_1059`).
+
+        REFUSES A PAIR ANOTHER DOOR ALREADY MOVED.  If the stored
+        experience is at or past the threshold for the stored level,
+        `persistence_experience.InconsistentLevelExperienceError` is raised
+        and nothing is written: harvesting experience that some other door
+        banked would award a level on a payout of zero, which pf-adversary
+        measured on this method before it shipped (`6n7pam`, `D5`).
+
+        Raises, and the list is NOT closed by accident -- the two names the
+        first draft omitted are here because it omitted them (`D8`, the
+        same finding round `dcz2sv` closed one round earlier for the
+        subtracting door):
+        `TypeError` for non-int arguments; `ValueError`/
+        `persistence_experience.ExperienceError` (including
+        `InconsistentLevelExperienceError`) for a negative or
+        unrepresentable amount, for a level the client's committed table
+        cannot describe, and for the already-past-the-line pair;
+        `persistence_typed_attrs.TypedAttrError` when the resulting
+        experience or level leaves its wire kind's range;
+        `persistence_vitals.SchemaDriftError` from the `verify_schema` call
+        this method makes inside its transaction; `KeyError` for a
+        character that does not exist or has been soft-deleted; and
+        `WriteLockTimeout` instead of a raw `sqlite3.OperationalError` when
+        the write lock cannot be taken.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if isinstance(amount, bool) or not isinstance(amount, int):
+            raise TypeError("amount must be an int")
+        if not _fits_sqlite_integer(amount):
+            raise ValueError(
+                f"amount {amount!r} is outside SQLite's representable "
+                "INTEGER range"
+            )
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+
+        from . import persistence_experience as experience_rule
+        from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
+
+        level_column = experience_rule.LEVEL_COLUMN
+        experience_column = experience_rule.EXPERIENCE_COLUMN
+
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s experience grant within connect()'s "
+                    f"busy_timeout: {error}"
+                ) from error
+            vitals.verify_schema(db)
+            # Both names are module constants of `persistence_experience`,
+            # not caller strings, and both are members of
+            # `TYPED_COLUMNS` (asserted here rather than assumed, so a
+            # renamed column fails loudly instead of building SQL from a
+            # name nothing checked).
+            for name in (level_column, experience_column):
+                if name not in typed_attrs.TYPED_COLUMNS:
+                    raise typed_attrs.TypedAttrError(
+                        f"{name!r} is not a typed attribute column "
+                        f"(built: {sorted(typed_attrs.TYPED_COLUMNS)})"
+                    )
+            row = db.execute(
+                f"SELECT {level_column},{experience_column} "  # noqa: S608
+                "FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            level_before = row[level_column]
+            experience_before = row[experience_column]
+            # One message per column, and neither message contains the
+            # OTHER column's name: pf-adversary (`6n7pam`, `D7`) measured
+            # that a shared sentence saying "refusing to level an
+            # unmeasured character" carries the substring `level`, so a
+            # door that named the wrong column every time passed both
+            # "refused by name" tests.
+            for name, value in (
+                (level_column, level_before),
+                (experience_column, experience_before),
+            ):
+                if value is None:
+                    raise UnmeasuredTypedAttributeError(
+                        f"character {character_id} has no {name} value yet "
+                        f"(NULL) -- refusing to read {name} as 0 "
+                        "(COO-DECISION 20260901_1059)"
+                    )
+            plan = experience_rule.plan_experience_gain(
+                level_before, experience_before, amount
+            )
+            level_after = typed_attrs.validate(
+                level_column, plan.level_after)
+            experience_after = typed_attrs.validate(
+                experience_column, plan.experience_after)
+            updated = db.execute(
+                f"UPDATE characters SET {level_column}=?,"  # noqa: S608
+                f"{experience_column}=?,updated_at=? "
+                f"WHERE id=? AND deleted_at IS NULL "
+                f"AND {level_column}=? AND {experience_column}=?",
+                (level_after, experience_after, _now(), character_id,
+                 level_before, experience_before),
+            ).rowcount
+            if updated != 1:
+                raise KeyError(character_id)
+            read_back = db.execute(
+                f"SELECT {level_column},{experience_column} "  # noqa: S608
+                "FROM characters WHERE id=?",
+                (character_id,),
+            ).fetchone()
+        return experience_rule.ExperienceGain(
+            level_before=level_before,
+            level_after=read_back[level_column],
+            experience_before=experience_before,
+            experience_after=read_back[experience_column],
+            amount=amount,
+            levels_gained=read_back[level_column] - level_before,
+            at_table_ceiling=(
+                read_back[level_column]
+                == experience_rule.STANDARD_STATUS_MAX_LEVEL
+            ),
+        )
+
     def equip_item(
         self,
         character_id: int,
