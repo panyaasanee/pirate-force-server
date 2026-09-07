@@ -21,6 +21,7 @@ import types
 import enum
 import importlib
 import unittest
+from collections.abc import Hashable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,12 +59,15 @@ class M2RegistryIsolation(unittest.TestCase):
     def setUp(self):
         self._registry_before = dict(trigger_response._CANDIDATES)
         self._discriminator_before = trigger_response.ISLAND_CONTACT_DISCRIMINATOR
+        self._boxes_before = dict(trigger_response.ISLAND_EXTENT_BOXES)
 
     def tearDown(self):
         after = dict(trigger_response._CANDIDATES)
         trigger_response._CANDIDATES.clear()
         trigger_response._CANDIDATES.update(self._registry_before)
         trigger_response.ISLAND_CONTACT_DISCRIMINATOR = self._discriminator_before
+        trigger_response.ISLAND_EXTENT_BOXES.clear()
+        trigger_response.ISLAND_EXTENT_BOXES.update(self._boxes_before)
         self.assertEqual(
             after,
             self._registry_before,
@@ -72,13 +76,35 @@ class M2RegistryIsolation(unittest.TestCase):
 
     def measured_discriminator(self, name="TEST_ONLY_PRETEND_MEASURED"):
         """Pretend, for one test only, that somebody measured the thing tier
-        3 is waiting for. Restored by tearDown above.
+        3 is waiting for, AND return the one reading that matches it.
+        Restored by tearDown above.
 
         This is the ONLY way a test may make tier 3 pass. Setting
         `ISLAND_CONTACT_DISCRIMINATOR` in the module to satisfy a test would
         be a claim that the fact was measured, which it was not.
+
+        THE RETURN VALUE IS THE HALF THIS ROUND ADDED. Before this round,
+        setting the name WAS passing tier 3 -- which is exactly the defect
+        `IslandContactEvidence` exists to close, and the reason a test that
+        wants through tier 3 now has to hold a reading in its hand and pass
+        it. A test that only calls this and passes nothing is measuring the
+        refusal, which is a legitimate thing to measure and is now visibly
+        different from measuring the pass.
         """
         trigger_response.ISLAND_CONTACT_DISCRIMINATOR = name
+        trigger_response.ISLAND_EXTENT_BOXES[3] = TEST_ONLY_BOX
+        return trigger_response.IslandContactEvidence(
+            discriminator=name, x=10.0, y=10.0, z=10.0, source="TEST_ONLY"
+        )
+
+    def open_water_reading(self, name="TEST_ONLY_PRETEND_MEASURED"):
+        """A reading from the same measurement, taken OUTSIDE every box."""
+        return trigger_response.IslandContactEvidence(
+            discriminator=name, x=9999.0, y=9999.0, z=9999.0, source="TEST_ONLY"
+        )
+
+
+TEST_ONLY_BOX = (0.0, 0.0, 0.0, 100.0, 100.0, 100.0)
 
 
 def _fake(va="sub_DEADBEEF", vital_id=0xC723, frame=b"\x12\x34\x56"):
@@ -204,8 +230,8 @@ class ThreeTierGuardTests(M2RegistryIsolation):
         )
 
     def test_all_three_tiers_pass_only_together(self):
-        self.measured_discriminator()
-        self.assertIsNone(trigger_response.answer_guard_reason(SEA, 3))
+        evidence = self.measured_discriminator()
+        self.assertIsNone(trigger_response.answer_guard_reason(SEA, 3, evidence))
         self.assertEqual(
             trigger_response.answer_guard_reason(SEA - 1, 3),
             trigger_response.SCENE_REFUSED_NOT_THE_SEA_SCENE,
@@ -233,18 +259,91 @@ class OneSpellingOfIsThisAnIntTests(M2RegistryIsolation):
         """A plain `int` subclass -- not an enum -- so the pin is on the
         SUBCLASS rule, not on anything `enum` does."""
 
-    def test_an_int_subclass_is_answered_the_same_way_by_both_guards(self):
-        # THE mutant this kills: `isinstance(x, int) and not isinstance(x,
-        # bool)` -> `type(x) is int`. Nothing else in this file changes.
-        self.assertIsNone(trigger_response.scene_guard_reason(self.Scene.ATLANTIS))
-        self.assertIsNone(
-            trigger_response.trigger_id_guard_reason(self.Trigger.SPICE_PARADISE)
+    class EqRaises(int):
+        """An `int` subclass whose comparison RAISES. Nothing about it is
+        exotic -- `__eq__` is ordinary Python and anything reaching this
+        module comes off a live session."""
+
+        def __eq__(self, other):  # noqa: D105
+            raise ValueError("wire said no")
+
+        def __ne__(self, other):  # noqa: D105
+            raise ValueError("wire said no")
+
+        def __hash__(self):  # noqa: D105
+            return 0
+
+    class EqAlwaysTrue(int):
+        """An `int` subclass that claims to equal everything, including the
+        one scene id tier 1 exists to check for."""
+
+        def __eq__(self, other):  # noqa: D105
+            return True
+
+        def __ne__(self, other):  # noqa: D105
+            return False
+
+        def __hash__(self):  # noqa: D105
+            return hash(3)
+
+    def test_an_int_subclass_is_refused_the_same_way_by_both_guards(self):
+        # THE mutant this kills: `type(x) is int` -> `isinstance(x, int) and
+        # not isinstance(x, bool)`, which is the spelling `#993` SHIPPED and
+        # this round takes back out. The previous version of this test
+        # asserted the opposite and is the reason the regression went green.
+        self.assertEqual(
+            trigger_response.scene_guard_reason(self.Scene.ATLANTIS),
+            trigger_response.SCENE_REFUSED_NOT_AN_INT,
+        )
+        self.assertEqual(
+            trigger_response.trigger_id_guard_reason(self.Trigger.SPICE_PARADISE),
+            trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
+        )
+        self.assertEqual(
+            trigger_response.scene_guard_reason(self.Counted(126)),
+            trigger_response.SCENE_REFUSED_NOT_AN_INT,
+        )
+        self.assertEqual(
+            trigger_response.trigger_id_guard_reason(self.Counted(3)),
+            trigger_response.TRIGGER_ID_REFUSED_NOT_AN_INT,
+        )
+        # And the plain int still passes, so the pin is on SUBCLASSES, not
+        # on having broken the guard for everybody.
+        self.assertIsNone(trigger_response.scene_guard_reason(126))
+        self.assertIsNone(trigger_response.trigger_id_guard_reason(3))
+
+    def test_an_int_subclass_whose_eq_raises_is_answered_not_raised(self):
+        # D1(a): the CONSEQUENCE, not the spelling. `type(x) is not int`
+        # short-circuits before `__eq__` runs; `isinstance` does not, so on
+        # `#993`'s head this call came back `ValueError` and broke
+        # `candidate_for_trigger_id`'s own "never raises" promise.
+        boom = self.EqRaises(126)
+        self.assertEqual(
+            trigger_response.scene_guard_reason(boom),
+            trigger_response.SCENE_REFUSED_NOT_AN_INT,
+        )
+        self.assertIsNone(trigger_response.candidate_for_trigger_id(boom, 3))
+        self.assertIsNone(trigger_response.candidate_for_trigger_id(126, boom))
+        # The sibling that is actually on this call path answers the same
+        # way, which is the agreement `#993` broke.
+        self.assertIsNone(world_sea_edge_crossing.crossing_target(boom, 3))
+
+    def test_an_int_subclass_that_equals_everything_cannot_pass_tier1(self):
+        # D1(b): with a discriminator measured AND a matching reading in
+        # hand, `#993` handed back a live CandidateFrame FOR SCENE 999.
+        evidence = self.measured_discriminator()
+        sneaky = self.EqAlwaysTrue(999)
+        self.assertEqual(
+            trigger_response.answer_guard_reason(sneaky, sneaky, evidence),
+            trigger_response.SCENE_REFUSED_NOT_AN_INT,
         )
         self.assertIsNone(
-            trigger_response.scene_guard_reason(self.Counted(126))
-        )
-        self.assertIsNone(
-            trigger_response.trigger_id_guard_reason(self.Counted(3))
+            trigger_response.candidate_for_trigger_id(
+                sneaky,
+                sneaky,
+                registry={3: _fake(va="sub_X", vital_id=1, frame=b"\xff")},
+                island_contact=evidence,
+            )
         )
 
     def test_the_two_guards_never_disagree_about_a_type(self):
@@ -322,6 +421,7 @@ class TwoSpellingsNoValueTestCanSeparateTests(M2RegistryIsolation):
             return {
                 "scene": trigger_response.M2_ISLAND_CONTACT_SCENE_ID,
                 "ids": trigger_response.CANDIDATE_TRIGGER_IDS,
+                "registry_keys": tuple(sorted(trigger_response._CANDIDATES)),
             }
         finally:
             setattr(module, attribute, original)
@@ -335,6 +435,26 @@ class TwoSpellingsNoValueTestCanSeparateTests(M2RegistryIsolation):
         self.assertEqual(seen["scene"], 777)
         self.assertEqual(trigger_response.M2_ISLAND_CONTACT_SCENE_ID, SEA)
 
+    def test_the_registry_keys_follow_the_candidate_ids_not_a_literal(self):
+        # pf-adversary D6: `_CANDIDATES = {trigger_id: None for trigger_id in
+        # CANDIDATE_TRIGGER_IDS}` could be mutated to the literal
+        # `{2: None, 3: None}` and nothing noticed -- the same
+        # duplicated-literal shape A9 paid for one screen higher up. Same
+        # mechanism kills it: move what it depends on, reimport, and the
+        # literal stops tracking.
+        original = trigger_response.ISLAND_CONTACT_DISCRIMINATOR
+        try:
+            seen = self.reimported_with(
+                island_trigger_log,
+                "M2_OBSERVED_ISLAND_TRIGGER_IDS",
+                {8: 800, 9: 900},
+            )
+            self.assertEqual(seen["ids"], (8, 9))
+            self.assertEqual(seen["registry_keys"], (8, 9))
+        finally:
+            trigger_response.ISLAND_CONTACT_DISCRIMINATOR = original
+        self.assertEqual(sorted(trigger_response._CANDIDATES), [2, 3])
+
     def test_the_candidate_ids_are_sorted_not_merely_copied(self):
         # Kills the mutant `tuple(M2_OBSERVED_ISLAND_TRIGGER_IDS)`: with the
         # hook's dict written the other way round, a copy would give (3, 2).
@@ -347,18 +467,304 @@ class TwoSpellingsNoValueTestCanSeparateTests(M2RegistryIsolation):
         self.assertEqual(trigger_response.CANDIDATE_TRIGGER_IDS, (2, 3))
 
 
+class Tier3IsACheckNotANameTests(M2RegistryIsolation):
+    """pf-adversary D2, against `#993` and against `550a36d` alike: tier 3
+    used to be, in full, `if ISLAND_CONTACT_DISCRIMINATOR is None`. Setting
+    the module constant to the EMPTY STRING -- a value whose plain meaning is
+    "nothing was measured" -- unlocked all three tiers and produced a live
+    frame. And `answer_guard_reason(current_scene_id, wire_trigger_id)` had
+    NOWHERE to put the fact `RE-289` will measure, so the first round to
+    receive a discriminator could have closed M2 with a one-line assignment
+    that passed every test in this file.
+
+    These tests are the reason that one line is not enough any more.
+
+    [assumption of LANE-A - pending COO confirmation] -- the shape change is asked in
+    `20260907_0722_LANE-A-ASK-COO-tier3-signature-must-grow-...`.
+    """
+
+    def test_a_blank_discriminator_is_not_a_measurement(self):
+        # THE defect, stated as a value. On both shipped trees this returned
+        # None and handed back a frame.
+        for blank in ("", "   ", "\t", 0, object()):
+            with self.subTest(discriminator=blank):
+                trigger_response.ISLAND_CONTACT_DISCRIMINATOR = blank
+                self.assertEqual(
+                    trigger_response.answer_guard_reason(SEA, 3),
+                    trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
+                )
+                self.assertIsNone(
+                    trigger_response.candidate_for_trigger_id(
+                        SEA, 3, registry={3: _fake()}
+                    )
+                )
+
+    def test_naming_the_discriminator_is_not_enough_on_its_own(self):
+        # The one-line M2 close, refused: the name is set and a candidate is
+        # registered, and the answer is still None because no session
+        # reading was handed in.
+        self.measured_discriminator()
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3),
+            trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
+        )
+        self.assertIsNone(
+            trigger_response.candidate_for_trigger_id(SEA, 3, registry={3: _fake()})
+        )
+
+    def test_a_bare_truthy_value_is_not_evidence(self):
+        # What a caller reaches for when it wants the guard to go away.
+        self.measured_discriminator()
+        for pretend in (True, 1, "yes", ("TEST_ONLY_PRETEND_MEASURED", True, "x")):
+            with self.subTest(island_contact=pretend):
+                self.assertEqual(
+                    trigger_response.answer_guard_reason(SEA, 3, pretend),
+                    trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
+                )
+
+    def test_a_reading_from_another_discriminator_is_refused_by_name(self):
+        # Evidence gathered under an older measurement cannot be replayed
+        # against a newer one.
+        self.measured_discriminator("RE-289-ORDINAL-V2")
+        stale = trigger_response.IslandContactEvidence(
+            discriminator="RE-289-ORDINAL-V1", x=10.0, y=10.0, z=10.0, source="RE-289"
+        )
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, stale),
+            trigger_response.CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR,
+        )
+
+    def test_open_water_is_refused_by_its_own_name(self):
+        # `RE-234` item (3)'s finding, as a named refusal: the id alone
+        # cannot tell an island from open water, so the reading has to.
+        evidence = self.measured_discriminator()
+        open_water = self.open_water_reading()
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, open_water),
+            trigger_response.CONTACT_REFUSED_OPEN_WATER,
+        )
+        self.assertIsNone(
+            trigger_response.candidate_for_trigger_id(
+                SEA, 3, registry={3: _fake()}, island_contact=open_water
+            )
+        )
+
+    def test_a_coordinate_that_is_not_a_number_is_refused_as_no_evidence(self):
+        # pf-adversary, against this round's FIRST draft: that draft carried
+        # `in_contact: bool`, so the CALLER decided the thing tier 3 exists
+        # to decide and the module could only check the spelling. A session
+        # in open water that handed in `in_contact=True` was accepted. The
+        # reading now carries coordinates the server owns, and a coordinate
+        # that is not exactly a number is not a position.
+        evidence = self.measured_discriminator()
+        for junk in ("10.0", None, True, [10.0]):
+            with self.subTest(x=junk):
+                self.assertEqual(
+                    trigger_response.answer_guard_reason(
+                        SEA, 3, evidence._replace(x=junk)
+                    ),
+                    trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
+                )
+
+    def test_a_str_subclass_discriminator_cannot_make_tier3_raise(self):
+        # THE regression this round nearly shipped, measured by pf-adversary
+        # against its own draft: the first `_tier3_contact_reason` compared
+        # with `!=` after only an `isinstance` check, so a `str` subclass
+        # whose `__ne__` raises made the guard RAISE -- D1's bug reappearing
+        # one round later inside the code written to fix it.
+        class BoomStr(str):
+            def __eq__(self, other):  # noqa: D105
+                raise ValueError("boom")
+
+            def __ne__(self, other):  # noqa: D105
+                raise ValueError("boom")
+
+            def __hash__(self):  # noqa: D105
+                return 0
+
+        evidence = self.measured_discriminator()
+        forged = evidence._replace(discriminator=BoomStr(evidence.discriminator))
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, forged),
+            trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
+        )
+
+    def test_an_evidence_subclass_cannot_walk_through_tier3(self):
+        # Also pf-adversary against the draft: with `isinstance`, a subclass
+        # overriding the fields with properties passed every check. Same
+        # spelling question this file spends sixty lines on in
+        # `_is_a_wire_int`, and the draft answered it the loose way.
+        evidence = self.measured_discriminator()
+        name = evidence.discriminator
+
+        class Forged(trigger_response.IslandContactEvidence):
+            @property
+            def discriminator(self):  # noqa: D102
+                return name
+
+        self.assertEqual(
+            trigger_response.answer_guard_reason(
+                SEA, 3, Forged("WRONG", 10.0, 10.0, 10.0, "")
+            ),
+            trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
+        )
+
+    def test_a_name_without_a_committed_extent_table_decides_nothing(self):
+        # The refusal that stops "assign the name" from being enough even
+        # with a well-formed reading in hand: RE-289 is open, so there is no
+        # box to be inside of.
+        evidence = self.measured_discriminator()
+        trigger_response.ISLAND_EXTENT_BOXES.clear()
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, evidence),
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_TABLE,
+        )
+
+    def test_the_shipped_extent_table_is_empty(self):
+        # If this fails somebody committed an extent. That needs RE-289's
+        # result behind it, not a green test.
+        self.assertEqual(trigger_response.ISLAND_EXTENT_BOXES, {})
+
+    def test_a_reading_wrong_in_two_ways_reports_the_earlier_one(self):
+        # pf-adversary: swapping checks 3 and 4 inside `_tier3_contact_reason`
+        # SURVIVED, because no test ever handed in a reading that was wrong
+        # in two ways at once. A stale reading taken in open water must
+        # report the STALE half -- the reading cannot be judged for position
+        # at all until it is established which measurement it belongs to.
+        self.measured_discriminator("RE-289-V2")
+        stale_and_adrift = trigger_response.IslandContactEvidence(
+            discriminator="RE-289-V1", x=9999.0, y=9999.0, z=9999.0, source="RE-289"
+        )
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, stale_and_adrift),
+            trigger_response.CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR,
+        )
+        # And with the table emptied as well, the discriminator still wins:
+        # three things wrong, one answer, and it is the earliest.
+        trigger_response.ISLAND_EXTENT_BOXES.clear()
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 3, stale_and_adrift),
+            trigger_response.CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR,
+        )
+
+    def test_the_five_tier3_refusals_are_five_different_strings(self):
+        reasons = (
+            trigger_response.CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED,
+            trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
+            trigger_response.CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR,
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_TABLE,
+            trigger_response.CONTACT_REFUSED_OPEN_WATER,
+        )
+        self.assertEqual(len(set(reasons)), 5)
+        for reason in reasons:
+            with self.subTest(reason=reason):
+                self.assertTrue(reason.startswith("CONTACT_REFUSED_"))
+
+    def test_tier3_runs_after_tier1_and_tier2_not_before(self):
+        # Order pin in the new direction: a wrong scene with GOOD evidence
+        # still reports the scene, not the contact.
+        evidence = self.measured_discriminator()
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA - 1, 3, evidence),
+            trigger_response.SCENE_REFUSED_NOT_THE_SEA_SCENE,
+        )
+        self.assertEqual(
+            trigger_response.answer_guard_reason(SEA, 4, evidence),
+            trigger_response.TRIGGER_ID_REFUSED_NOT_M2,
+        )
+
+    def test_tier3_never_raises_on_any_reading(self):
+        # Same posture as the other two session-sourced arguments.
+        self.measured_discriminator()
+        for hostile in (None, object(), [], b"\x01", 2.0, {"x": 1.0}):
+            with self.subTest(island_contact=hostile):
+                self.assertEqual(
+                    trigger_response.answer_guard_reason(SEA, 3, hostile),
+                    trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
+                )
+
+    def test_nothing_in_src_constructs_an_evidence_reading_yet(self):
+        # The honest state of the door frame this round widened: it is a
+        # door frame, not a door. If this ever fails, somebody wired tier 3
+        # to a live session and that needs a ticket, not a green test.
+        import subprocess
+
+        src = Path(__file__).resolve().parents[1] / "src"
+        found = subprocess.run(
+            ["grep", "-rl", "--include=*.py", "IslandContactEvidence", str(src)],
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+        self.assertEqual(
+            sorted(Path(hit).name for hit in found),
+            ["world_m2_trigger_vital_response.py"],
+        )
+
+
+class FieldOrderIsTheContractTests(M2RegistryIsolation):
+    """pf-adversary D3: `CandidateFrame`'s field ORDER was unpinned --
+    swapping `va` and `vital_id` in the NamedTuple left 42 tests passing,
+    because every test in this file builds it with keywords. The module's one
+    job is to carry three values from a LANE-UI letter UNCHANGED, and the
+    obvious way a letter gets typed in is POSITIONALLY."""
+
+    def test_the_two_optional_arguments_are_keyword_only(self):
+        # pf-adversary, measured against this round's draft: with `registry`
+        # third and positional, a caller MEANING to pass evidence
+        # (`candidate_for_trigger_id(126, 3, evidence)`) had it land in
+        # `registry`, and got a silent `None` with no error, no warning and
+        # no way to notice. A `*` turns that into a TypeError at the call.
+        # Nothing in the repo imports this module, so this costs no caller.
+        evidence = self.measured_discriminator()
+        with self.assertRaises(TypeError):
+            trigger_response.candidate_for_trigger_id(SEA, 3, evidence)
+        # The keyword spelling is the one that works.
+        self.assertIsNone(
+            trigger_response.candidate_for_trigger_id(
+                SEA, 3, island_contact=evidence
+            )
+        )
+
+    def test_candidate_frame_field_order_is_pinned(self):
+        self.assertEqual(
+            trigger_response.CandidateFrame._fields, ("va", "vital_id", "frame")
+        )
+
+    def test_a_positionally_built_candidate_frame_lands_where_it_reads(self):
+        # The failure this prevents, spelled out: someone transcribing a
+        # letter writes the three values in the order the letter gives them.
+        frame = trigger_response.CandidateFrame("sub_C0FFEE", 0x1FB2, b"\x01\x02")
+        self.assertEqual(frame.va, "sub_C0FFEE")
+        self.assertEqual(frame.vital_id, 0x1FB2)
+        self.assertEqual(frame.frame, b"\x01\x02")
+
+    def test_island_contact_evidence_field_order_is_pinned(self):
+        # Same reasoning, applied to the type this round adds before anyone
+        # can build one positionally against the wrong order.
+        self.assertEqual(
+            trigger_response.IslandContactEvidence._fields,
+            ("discriminator", "x", "y", "z", "source"),
+        )
+        reading = trigger_response.IslandContactEvidence(
+            "RE-289", 1.0, 2.0, 3.0, "vital 154"
+        )
+        self.assertEqual(reading.discriminator, "RE-289")
+        self.assertEqual((reading.x, reading.y, reading.z), (1.0, 2.0, 3.0))
+        self.assertEqual(reading.source, "vital 154")
+
+
 class LookupIsAPassThroughTests(M2RegistryIsolation):
     """A synthetic registration only -- never written into the module's own
     ``_CANDIDATES`` -- proves the lookup hands back exactly what it was
     given, unedited, once all three tiers pass."""
 
     def test_a_registered_candidate_comes_back_unchanged(self):
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
         fake = _fake()
         synthetic_registry = {2: fake, 3: None}
 
         result = trigger_response.candidate_for_trigger_id(
-            SEA, 2, registry=synthetic_registry
+            SEA, 2, registry=synthetic_registry, island_contact=evidence
         )
 
         self.assertIs(result, fake)
@@ -367,12 +773,12 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
         self.assertEqual(result.frame, b"\x12\x34\x56")
 
     def test_the_other_id_in_the_same_synthetic_registry_stays_none(self):
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
         synthetic_registry = {2: _fake(), 3: None}
 
         self.assertIsNone(
             trigger_response.candidate_for_trigger_id(
-                SEA, 3, registry=synthetic_registry
+                SEA, 3, registry=synthetic_registry, island_contact=evidence
             )
         )
 
@@ -382,6 +788,25 @@ class LookupIsAPassThroughTests(M2RegistryIsolation):
         self.assertEqual(
             trigger_response.registered_count(registry=synthetic_registry), 1
         )
+
+    def test_registered_count_reads_an_empty_registry_as_empty(self):
+        # pf-adversary D6, second survivor: `_table_for(registry)` mutated to
+        # `_table_for(registry) or _CANDIDATES` survived, because no test
+        # ever handed in a FALSY mapping. An empty dict is a legitimate
+        # registry that says "nothing registered" -- it must not silently
+        # fall back to the module's own table.
+        self.assertEqual(trigger_response.registered_count(registry={}), 0)
+        self.assertIsNone(
+            trigger_response.candidate_for_trigger_id(SEA, 2, registry={})
+        )
+        # And with the production table actually carrying something, so the
+        # mutant would have a different answer to give.
+        trigger_response._CANDIDATES[2] = _fake()
+        try:
+            self.assertEqual(trigger_response.registered_count(registry={}), 0)
+            self.assertEqual(trigger_response.registered_count(), 1)
+        finally:
+            trigger_response._CANDIDATES[2] = None
 
     def test_registered_count_is_scoped_to_candidate_trigger_ids(self):
         # Mutant killer: `sum(... for trigger_id in table)` reads identically
@@ -400,24 +825,29 @@ class RegistryTypeDisagreementTests(M2RegistryIsolation):
     Mapping)` cannot silently become `dict` or `hasattr(..., "get")`."""
 
     def test_a_read_only_mapping_that_is_not_a_dict_is_accepted(self):
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
         fake = _fake()
         proxy = types.MappingProxyType({2: fake, 3: None})
 
         self.assertIs(
-            trigger_response.candidate_for_trigger_id(SEA, 2, registry=proxy), fake
+            trigger_response.candidate_for_trigger_id(
+                SEA, 2, registry=proxy, island_contact=evidence
+            ),
+            fake,
         )
         self.assertEqual(trigger_response.registered_count(registry=proxy), 1)
 
     def test_an_object_that_merely_owns_a_get_is_refused_by_name(self):
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
 
         class NotAMappingButHasGet:
             def get(self, key, default=None):  # pragma: no cover - never called
                 return "wrong"
 
         for callable_under_test in (
-            lambda r: trigger_response.candidate_for_trigger_id(SEA, 2, registry=r),
+            lambda r: trigger_response.candidate_for_trigger_id(
+                SEA, 2, registry=r, island_contact=evidence
+            ),
             lambda r: trigger_response.registered_count(registry=r),
         ):
             with self.subTest(callable_under_test=callable_under_test):
@@ -444,11 +874,11 @@ class NonM2TriggerIdGuardTests(M2RegistryIsolation):
         # Even a poisoned synthetic registry that DOES carry an entry for a
         # non-M2 id must not be answered -- this slot is only ever for 2/3 --
         # and that holds even with tier 3 satisfied.
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
         poisoned_registry = {7: _fake(va="sub_NOT_M2", vital_id=1, frame=b"\x00")}
         self.assertIsNone(
             trigger_response.candidate_for_trigger_id(
-                SEA, 7, registry=poisoned_registry
+                SEA, 7, registry=poisoned_registry, island_contact=evidence
             )
         )
 
@@ -554,14 +984,32 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         # reached. Overriding tier 3 puts the named guard back in the path,
         # and the day a real discriminator lands they keep measuring the
         # same thing instead of turning red for an unrelated reason.
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
+        # D7: `assertIsNone(candidate_for_trigger_id(...))` was satisfied by
+        # the EMPTY production registry no matter what the guard did -- all
+        # the killing power sat in the `assertIn` below. A registry POISONED
+        # with a frame for every hostile row gives the first assertion teeth:
+        # it can only stay None because the guard refused, not because there
+        # was nothing to hand back.
+        poisoned = {
+            hostile: _fake(va="sub_POISON", vital_id=1, frame=b"\xde\xad")
+            for hostile in self.HOSTILE
+            if isinstance(hostile, Hashable)
+        }
         for hostile in self.HOSTILE:
             with self.subTest(wire_trigger_id=hostile):
                 self.assertIsNone(
-                    trigger_response.candidate_for_trigger_id(SEA, hostile)
+                    trigger_response.candidate_for_trigger_id(
+                        SEA, hostile, registry=poisoned, island_contact=evidence
+                    )
                 )
-                if hostile not in trigger_response.CANDIDATE_TRIGGER_IDS or (
-                    isinstance(hostile, bool)
+                # pf-adversary: `2.0 in (2, 3)` is True, so THE ONE ROW in
+                # this sweep that is a float equal to a real id used to skip
+                # its reason assertion in silence -- the single most
+                # interesting row, unasserted and uncounted. The type test
+                # is what the guard actually asks, so it is what this asks.
+                if type(hostile) is not int or (
+                    hostile not in trigger_response.CANDIDATE_TRIGGER_IDS
                 ):
                     self.assertIn(
                         trigger_response.answer_guard_reason(SEA, hostile),
@@ -572,12 +1020,23 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
                     )
 
     def test_no_scene_id_of_any_type_raises(self):
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
+        # Same D7 poisoning on the scene sweep: id 3 IS registered here, so
+        # every None below is the SCENE guard refusing and nothing else.
+        poisoned = {3: _fake(va="sub_POISON", vital_id=1, frame=b"\xde\xad")}
         for hostile in self.HOSTILE:
             with self.subTest(current_scene_id=hostile):
-                self.assertIsNone(
-                    trigger_response.candidate_for_trigger_id(hostile, 3)
+                # No value of any type raises -- that is this test's name.
+                answered = trigger_response.candidate_for_trigger_id(
+                    hostile, 3, registry=poisoned, island_contact=evidence
                 )
+                if type(hostile) is int and hostile == SEA:
+                    # The ONE legitimate row: it gets the poisoned frame,
+                    # which is what proves the None on every other row came
+                    # from the scene guard and not from an empty registry.
+                    self.assertEqual(answered.va, "sub_POISON")
+                else:
+                    self.assertIsNone(answered)
                 if hostile != trigger_response.M2_ISLAND_CONTACT_SCENE_ID or (
                     isinstance(hostile, bool)
                 ):
@@ -594,18 +1053,18 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         # one hostile row that is a legitimate (scene, id) pair gets THROUGH
         # the guard. If that stops being true, the sweep above has gone back
         # to being answered by something other than tiers 1 and 2.
-        self.measured_discriminator()
-        self.assertIsNone(trigger_response.answer_guard_reason(SEA, 2))
+        evidence = self.measured_discriminator()
+        self.assertIsNone(trigger_response.answer_guard_reason(SEA, 2, evidence))
         self.assertIn(126, self.HOSTILE)
-        self.assertIsNone(trigger_response.answer_guard_reason(126, 3))
+        self.assertIsNone(trigger_response.answer_guard_reason(126, 3, evidence))
 
     def test_a_registry_that_is_not_a_mapping_is_refused_by_name(self):
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
         for not_a_mapping in ([], "x", 7, object()):
             with self.subTest(registry=not_a_mapping):
                 with self.assertRaises(TypeError) as raised:
                     trigger_response.candidate_for_trigger_id(
-                        SEA, 2, registry=not_a_mapping
+                        SEA, 2, registry=not_a_mapping, island_contact=evidence
                     )
                 self.assertEqual(
                     str(raised.exception),
@@ -624,9 +1083,11 @@ class TheTwoArgumentsGetOppositePosturesTests(M2RegistryIsolation):
         # Guard order matters: the three tiers are checked FIRST, so a non-M2
         # id is still answered None rather than being turned into a raise by
         # a malformed test registry sitting behind it.
-        self.measured_discriminator()
+        evidence = self.measured_discriminator()
         self.assertIsNone(
-            trigger_response.candidate_for_trigger_id(SEA, 7, registry=[])
+            trigger_response.candidate_for_trigger_id(
+                SEA, 7, registry=[], island_contact=evidence
+            )
         )
 
     def test_a_refused_scene_is_answered_before_a_bad_registry_is_seen(self):

@@ -59,9 +59,27 @@ line 98 is TriggerVital itself (the subject, not a control) and line 442's
 pf-adversary caught it.  The honest control is a whole-file count of the
 handler_va column (field 8), re-measured this round in the bridge clone:
 
-    awk -F'\t' '$8=="0x00710440"' external/PF_PROTOCOL_REGISTRY.tsv | wc -l
-        -> 69     (of 520 rows; TriggerVital is one of the 69, so 68 OTHER
-                   classes are dispatched to the very same five bytes)
+    awk -F'\t' 'NR>1 && $8=="0x00710440"' external/PF_PROTOCOL_REGISTRY.tsv \
+        | wc -l
+        -> 69     (of 519 DATA rows -- `wc -l` on the whole file says 520
+                   because it counts the header, which is the error the
+                   first version of this sentence shipped with.  TriggerVital
+                   is one of the 69, so 68 OTHER classes are dispatched to
+                   the very same five bytes.)
+
+and the same VA in the SERIALIZER column (field 7) gives 19, which is what
+says the two columns answer different questions.  0x00710440 is the single
+most common `handler_va` in the whole table, and those 69 rows are very
+nearly the client-to-server REQUEST set -- so this is not "some shared
+helper", it is the client's DEFAULT HANDLER FOR VITALS IT NEVER RECEIVES.
+That is the sentence to keep; the bare count was the weaker half of it.
+
+The nature of the original citation error is worth naming too, because
+naming it is what stops it recurring: it was a COLUMN CONFUSION, not random
+rows.  `GeneralUIHandleModule`'s SERIALIZER really is this VA -- the old
+citation read field 7 and reported it as field 8.  Two of the four rows it
+named (`ChooseNPC`, `ChooseNPCByTableID`) were correct and got thrown out
+with the wrong two.
 
 which is a STRONGER reading than the wrong one it replaces, not a weaker
 one: 68 unrelated classes sharing one `mov al,1; ret 4` is a shared stub by
@@ -401,6 +419,87 @@ ISLAND_CONTACT_DISCRIMINATOR: str | None = None
 CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED = (
     "CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED"
 )
+CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED = "CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED"
+CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR = (
+    "CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR"
+)
+CONTACT_REFUSED_OPEN_WATER = "CONTACT_REFUSED_OPEN_WATER"
+
+
+ISLAND_EXTENT_BOXES: dict[int, tuple[float, float, float, float, float, float]] = {}
+CONTACT_REFUSED_NO_EXTENT_TABLE = "CONTACT_REFUSED_NO_EXTENT_TABLE"
+
+
+class IslandContactEvidence(NamedTuple):
+    """ONE SESSION'S RAW POSITION at the moment it sent the trigger, tagged
+    with the name of the measurement it is to be judged against.  Tier 3's
+    INPUT -- the thing this module had nowhere to put until this round.
+
+    WHY THIS TYPE EXISTS.
+    Before this round tier 3 was, in full, `if ISLAND_CONTACT_DISCRIMINATOR
+    is None`.  pf-adversary measured what that means: setting the module
+    constant to the EMPTY STRING -- a value whose plain meaning is "nothing
+    was measured" -- unlocked all three tiers and produced a live frame, on
+    `550a36d` and on `#993` alike.  Tier 3 was a NAME, not a CHECK.  And
+    whatever `RE-289` comes back with is a fact about WHERE A SESSION IS,
+    which a signature of `(current_scene_id, wire_trigger_id)` has nowhere
+    to put -- so the first round to receive a discriminator would have faced
+    a choice between growing the signature and simply assigning the name,
+    and assigning the name is ONE LINE that passes every test in the file.
+    THE SIGNATURE HAS TO GROW BEFORE THE FACT ARRIVES.
+
+    WHY IT CARRIES A POSITION AND NOT A `bool`.
+    The first version of this type this round wrote carried `in_contact:
+    bool`, and pf-adversary broke it in one line: the CALLER decided the
+    thing tier 3 exists to decide, so the module could only check that the
+    caller had spelled its answer correctly.  A session sailing open water
+    that hands in `in_contact=True` was accepted, and nothing in the module
+    could disagree.  That is weaker than the defect it replaced by exactly
+    one `import`, not by one measurement.
+
+    So the reading carries what the SERVER ALREADY OWNS AND THE CALLER
+    CANNOT INVENT -- the session's own coordinates -- and the CONTAINMENT
+    DECISION STAYS INSIDE THIS MODULE, against ``ISLAND_EXTENT_BOXES``, a
+    table of committed, auditable extents.  `RE-289`'s pass criteria are a
+    position, an extent and a `block[0x34]` dump, i.e. a BOX; a box belongs
+    in a table this file owns, not in an argument a caller supplies.
+
+    ``discriminator``  the NAME of the measurement this reading is to be
+                       judged against.  Must be exactly a ``str`` (not a
+                       subclass) and must equal the module's
+                       ``ISLAND_CONTACT_DISCRIMINATOR``, so a reading taken
+                       under an older or different measurement cannot be
+                       replayed against a newer one.  The exact-``str``
+                       rule is not pedantry either: a ``str`` SUBCLASS whose
+                       ``__ne__`` raises made the FIRST version of
+                       ``_tier3_contact_reason`` raise, which is D1's bug
+                       reappearing one round later in the code written to
+                       fix it.
+    ``x`` ``y`` ``z``  the session's position, exactly ``float`` or ``int``.
+    ``source``         where the reading came from: a session field, a vital
+                       id, an RE ticket.  Carried so an acceptance or a
+                       refusal can be traced to something a person can check.
+
+    NOTHING CONSTRUCTS ONE OF THESE TODAY, in `src/` or anywhere else, and
+    ``ISLAND_EXTENT_BOXES`` IS EMPTY, so tier 3 refuses every input twice
+    over.  That is deliberate: this round widens the door frame, it does not
+    open the door.
+
+    [assumption of LANE-A - pending COO confirmation] -- `COO-DECISION
+    20260907_0405` ratified the three-tier shape with the two-argument
+    signature, and this changes that shape.  The letter asking is
+    `notes_to_chief/20260907_0722_LANE-A-ASK-COO-tier3-signature-must-grow-
+    before-re289-answers.md`.  Reverting is deleting this type, the table,
+    the four constants and the third parameter of two functions: no caller
+    and no behaviour changes either way, because nothing imports this module
+    at all (measured: repo-wide grep finds this file and its test file).
+    """
+
+    discriminator: str
+    x: float
+    y: float
+    z: float
+    source: str
 
 
 class CandidateFrame(NamedTuple):
@@ -438,31 +537,90 @@ def _is_a_wire_int(value: object) -> bool:
 
     pf-adversary counted FOUR spellings of this question in this one file
     and killed none of them with a test: mutating `type(x) is not int` to
-    `isinstance(x, int)` left all 30 tests green, and the docstring reason
+    `isinstance(x, int)` left all 32 tests green, and the docstring reason
     given for the strict spelling (`126.0 == 126`) does not actually
     separate the two -- `isinstance(126.0, int)` is False as well.  The only
     input the two spellings disagree on is an `int` SUBCLASS, and the file
     disagreed with ITSELF about that: an `IntEnum` valued 126 was refused as
     a scene id and accepted as a trigger id in the same module.
 
-    This is the isinstance spelling, matching the sibling this file's guards
-    cite, `world_m2_survey_plan.scene_guard_reason`.  So:
+    THE PREVIOUS ROUND UNIFIED THEM ON THE WRONG SPELLING AND IT SHIPPED.
+    `#993` landed `isinstance(value, int) and not isinstance(value, bool)`,
+    borrowed from `world_m2_survey_plan`, which is NOT on this call path.
+    THERE IS NO CALL PATH TO BORROW FROM, AND THAT MATTERS.  A repo-wide
+    grep for this module and for `candidate_for_trigger_id` finds this file
+    and its test file and nothing else -- no `src/`, no `gm/`, no
+    `lane_hooks/`, no `tools/` -- so "the spelling used by the modules on
+    this call path" was a claim with no call path behind it.  The honest
+    comparison is narrower and still decides the question:
+    `world_sea_edge_crossing.crossing_target`, the sibling this file's own
+    guards cite and whose scene constant it imports, refuses int subclasses
+    (`type(x) is not int or isinstance(x, bool)`), and the isinstance
+    spelling made the STRICTER of this file's two guards LOOSER.
+    (`runtime.py:4419` was cited here as a second witness in this round's
+    first draft; pf-adversary measured it and it is NOT one -- it is
+    `_gm_warp_target_unknown_reason`, whose own docstring says it never
+    gates anything and only names things after the fact.  A diagnostic label
+    is not a guard, and stacking the two was mixing evidence layers.
+    Withdrawn rather than quietly dropped.)
+    The house has both spellings in it -- roughly 283 `type(...) is int` and
+    90 `isinstance(..., int)` across `src/` -- so "one spelling" here is a
+    claim about THIS FILE, not about the project.  In particular
+    `world_m2_survey_plan.py:526`, which the comment above
+    `SCENE_REFUSED_NOT_AN_INT` cites as the model for splitting the two
+    named refusals, still spells the type test `isinstance`.  The SPLIT is
+    what is borrowed from it; the PREDICATE is not, and this paragraph is
+    here so the next reader does not "unify" them back the wrong way.
+    pf-adversary measured both halves and this lane reproduced both:
+
+      * it made `candidate_for_trigger_id` RAISE, falsifying that function's
+        own "never raises on either argument" promise.  `type(x) is not int`
+        short-circuits before `__eq__` ever runs; `isinstance` does not, so
+        an `int` subclass whose `__eq__` raises reached the comparison:
+
+            class Boom(int):
+                def __eq__(s, o): raise ValueError("wire said no")
+                def __hash__(s): return 0
+
+            crossing_target(Boom(126), 3)         -> None      (sibling)
+            candidate_for_trigger_id(Boom(126),3) -> ValueError (#993)
+
+      * it let a scene that is NOT 126 pass TIER 1 and, with a discriminator
+        set, produce a real frame -- an `int` subclass whose `__eq__` just
+        returns True satisfies `current_scene_id != M2_ISLAND_CONTACT_
+        SCENE_ID` for ANY value.
+
+    So the docstring sentence that spelling was landed with -- an int
+    subclass "IS the integer, and nothing downstream can tell the
+    difference" -- is measurably FALSE in this very file: `__eq__` decides
+    tier 1 and tier 2, and `__hash__` decides the registry lookup.  Both
+    are attacker-chosen on a subclass and neither is on an `int`.
+
+    THE SPELLING IS `type(value) is int`, and A6's split of the two named
+    scene refusals -- which nobody questioned -- is kept.  So:
 
       * `126.0`, `"126"`, `None`, `b"\x02"`, `[]`, `object()` -> False.
         A float is refused even though `126.0 == 126`, which is the whole
         reason a bare equality check is not enough.
-      * `True`/`False` -> False.  `bool` subclasses `int` in Python, and
-        `True == 1` would otherwise pass a stray boolean off as an id.
-      * an `IntEnum` or other `int` subclass valued 126 -> True, the same
-        answer in BOTH guards now.  Refusing it would be a distinction with
-        no safety behind it: it IS the integer, and nothing downstream can
-        tell the difference.
+      * `True`/`False` -> False, and no separate `bool` clause is needed to
+        say so: `type(True) is bool`, not `int`.  The clause the previous
+        spelling required is gone because the predicate no longer admits
+        subclasses at all.  A test still pins the ANSWER for `bool`, since
+        that answer is what callers depend on, not the way it is reached.
+      * an `IntEnum` or other `int` subclass valued 126 -> False, the same
+        answer in BOTH guards.  This is a real loss of convenience for an
+        honest caller holding an `IntEnum`, and it is the price: a session
+        hands these two arguments in off the wire, so the guard is written
+        against a hostile value, not a tidy one.  An honest caller with an
+        enum writes `int(x)` at the boundary, which is where the widening
+        should be visible.
 
-    `tests/test_world_m2_trigger_vital_response.py` pins the int-subclass
-    row specifically, because that row is the only one that dies when the
-    spelling is mutated.
+    `tests/test_world_m2_trigger_vital_response.py` pins this with two int
+    subclasses -- one whose `__eq__` raises, one whose `__eq__` returns
+    True -- because a plain `int` subclass valued 126 separates the two
+    SPELLINGS but only these two separate their CONSEQUENCES.
     """
-    return isinstance(value, int) and not isinstance(value, bool)
+    return type(value) is int
 
 
 def trigger_id_guard_reason(wire_trigger_id: object) -> str | None:
@@ -508,17 +666,119 @@ def scene_guard_reason(current_scene_id: object) -> str | None:
     return None
 
 
+def _position_is_inside_a_committed_extent(x: float, y: float, z: float) -> bool:
+    """``True`` when ``(x, y, z)`` falls inside ANY box in
+    ``ISLAND_EXTENT_BOXES``.  ``False`` when the table is empty, which is
+    every call today.
+
+    The boxes are inclusive on both bounds and are stored
+    ``(x0, y0, z0, x1, y1, z1)`` with each low bound <= its high bound; a
+    row written the other way round simply never contains anything, which
+    is the fail-closed direction.
+    """
+    for x0, y0, z0, x1, y1, z1 in ISLAND_EXTENT_BOXES.values():
+        if x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1:
+            return True
+    return False
+
+
+def _tier3_contact_reason(island_contact: object) -> str | None:
+    """TIER 3 ALONE, AND PRIVATE FOR THE SAME REASON
+    ``_tier2_id_is_a_candidate`` IS: a caller able to ask tier 3 by itself
+    would be one import away from answering the world with a fact that never
+    passed tiers 1 and 2.  ``answer_guard_reason`` is the only caller.
+
+    Five refusals, in this order, each a different thing being wrong:
+
+      1. ``ISLAND_CONTACT_DISCRIMINATOR`` is unmeasured -- ``None``, any
+         non-``str``, or a string that is empty or ALL WHITESPACE.  THE
+         BLANK CASE IS NOT PEDANTRY: `""` was measured unlocking all three
+         tiers on both `550a36d` and `#993`, and `""` is precisely the value
+         that asserts nothing was measured.  `"   "` was then caught by this
+         round's OWN test after the first version of this check was written
+         `if not ISLAND_CONTACT_DISCRIMINATOR`, which a whitespace string
+         passes.
+      2. the reading is missing, or is not EXACTLY an
+         ``IslandContactEvidence``, or its fields are not exactly the types
+         they are annotated as.  ``type(...) is`` throughout, NOT
+         ``isinstance``: this is the same call the file spends sixty lines
+         explaining in ``_is_a_wire_int``, and the first version of this
+         function got it wrong in the round written to fix it -- a
+         ``str`` subclass whose ``__ne__`` raised made step 3 raise, and an
+         ``IslandContactEvidence`` SUBCLASS overriding ``discriminator``
+         with a property walked straight through.  Both were measured by
+         pf-adversary against this round's own draft.
+      3. the reading names a DIFFERENT measurement than the one this module
+         is currently enforcing.  Reached only once step 2 has established
+         both sides are exact ``str``, so ``!=`` here cannot dispatch to
+         anything a caller wrote.
+      4. ``ISLAND_EXTENT_BOXES`` is empty -- NOBODY HAS COMMITTED AN EXTENT
+         YET.  `RE-289` is numbered and open.  A discriminator NAME without
+         a table behind it decides nothing, and this is the refusal that
+         says so instead of quietly passing.
+      5. the position is not inside any committed extent: the session is in
+         OPEN WATER.  `RE-234` item (3)'s finding -- the wire id alone
+         cannot tell an island from open water -- now decided HERE, from
+         coordinates the server owns, rather than accepted from a caller.
+
+    Returns ``None`` only when all five are satisfied.  Never raises on
+    ``island_contact``, and unlike the first draft of this function that
+    sentence is now pinned by a test that hands in an actual reading built
+    from hostile field types, not only by non-readings that die at step 2.
+    """
+    if (
+        not isinstance(ISLAND_CONTACT_DISCRIMINATOR, str)
+        or not ISLAND_CONTACT_DISCRIMINATOR.strip()
+    ):
+        return CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED
+    if type(island_contact) is not IslandContactEvidence:
+        return CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED
+    if type(island_contact.discriminator) is not str:
+        return CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED
+    if any(
+        type(coordinate) is not float and type(coordinate) is not int
+        for coordinate in (island_contact.x, island_contact.y, island_contact.z)
+    ):
+        return CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED
+    if island_contact.discriminator != ISLAND_CONTACT_DISCRIMINATOR:
+        return CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR
+    if not ISLAND_EXTENT_BOXES:
+        return CONTACT_REFUSED_NO_EXTENT_TABLE
+    if not _position_is_inside_a_committed_extent(
+        island_contact.x, island_contact.y, island_contact.z
+    ):
+        return CONTACT_REFUSED_OPEN_WATER
+    return None
+
+
 def answer_guard_reason(
-    current_scene_id: object, wire_trigger_id: object
+    current_scene_id: object,
+    wire_trigger_id: object,
+    island_contact: object = None,
 ) -> str | None:
     """``None`` when all THREE tiers pass; otherwise the NAMED reason the
     first failing tier gives, in tier order (scene, then id, then contact).
 
     Today the third tier always fails, because
-    ``ISLAND_CONTACT_DISCRIMINATOR`` is ``None``, so this function returns
+    ``ISLAND_CONTACT_DISCRIMINATOR`` is unmeasured, so this function returns
     ``CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED`` for the ONE input
     that gets that far (scene 126 with wire id 2 or 3) and a tier-1/tier-2
-    reason for everything else.  Never raises, on either argument.
+    reason for everything else.  Never raises, on any of the three
+    arguments.
+
+    ``island_contact`` IS THE THIRD ARGUMENT AND IT DEFAULTS TO ``None``,
+    which is a refusal, not a pass -- see ``IslandContactEvidence`` for why
+    the parameter exists at all and ``_tier3_contact_reason`` for the four
+    ways it is refused.  The default keeps every call written before this
+    round answering EXACTLY what it answered before WHILE THE DISCRIMINATOR
+    IS UNMEASURED, which is every call today and every call any caller can
+    make: tier 3 refused everything then and refuses everything now.  That
+    is the honest form of the sentence.  An earlier draft of this docstring
+    said the module's own suite passed "unedited", which its own diff
+    refutes -- about fifteen call sites in the test file had to be given an
+    `island_contact=` argument to keep reaching the code they were named
+    for.  No PRODUCTION call changed, because there are no production
+    callers.
     """
     scene_reason = scene_guard_reason(current_scene_id)
     if scene_reason is not None:
@@ -526,9 +786,7 @@ def answer_guard_reason(
     trigger_reason = trigger_id_guard_reason(wire_trigger_id)
     if trigger_reason is not None:
         return trigger_reason
-    if ISLAND_CONTACT_DISCRIMINATOR is None:
-        return CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED
-    return None
+    return _tier3_contact_reason(island_contact)
 
 
 def _tier2_id_is_a_candidate(wire_trigger_id: object) -> bool:
@@ -578,7 +836,9 @@ def _table_for(
 def candidate_for_trigger_id(
     current_scene_id: object,
     wire_trigger_id: object,
+    *,
     registry: "Mapping[int, CandidateFrame | None] | None" = None,
+    island_contact: object = None,
 ) -> "CandidateFrame | None":
     """The candidate registered for ``wire_trigger_id`` when ALL THREE tiers
     of ``answer_guard_reason`` pass, returned UNCHANGED; otherwise ``None``.
@@ -605,6 +865,16 @@ def candidate_for_trigger_id(
     only so a test can pass a synthetic mapping without mutating production
     state -- never set from calling code outside a test.
 
+    ``island_contact`` is TIER 3's reading and is passed straight through to
+    ``answer_guard_reason``; ``None`` is a refusal, not a pass.  It sits
+    FOURTH, after the test-only ``registry``, purely so that the third
+    POSITIONAL argument keeps meaning what it meant before this round --
+    a real caller supplies it by keyword and never supplies ``registry`` at
+    all.  If COO accepts the shape (see ``IslandContactEvidence``), the
+    round that receives a discriminator should consider moving it to third
+    and making ``registry`` keyword-only, which is a change to test call
+    sites and to nothing else.
+
     Never raises on ``current_scene_id`` or ``wire_trigger_id``: EVERY value
     of either, of every type, is answered with ``None`` rather than an
     exception, because both arguments come from a live session.  A
@@ -615,8 +885,11 @@ def candidate_for_trigger_id(
     THAT RAISE IS CONDITIONAL, AND ON THE SHIPPED MODULE IT CANNOT HAPPEN
     HERE AT ALL.  The three tiers are checked BEFORE the registry is
     touched, deliberately -- a malformed test registry must not be able to
-    turn a refusal into a traceback -- and tier 3 refuses every input while
-    ``ISLAND_CONTACT_DISCRIMINATOR`` is ``None``.  So today
+    turn a refusal into a traceback -- and tier 3 refuses every input.  Note
+    that reaching the registry now takes TWO things, not one: a measured
+    discriminator AND a matching reading whose position falls inside a
+    committed extent; before this round the discriminator alone did it, and
+    the sentence here said so.  So today
     ``candidate_for_trigger_id(126, 2, registry=[])`` answers ``None``, not
     ``TypeError``, and pf-adversary was right that the flat promise above
     read as though it did otherwise.  The raise becomes reachable through
@@ -633,7 +906,10 @@ def candidate_for_trigger_id(
     so the claim rests on "nothing in `src/` imports this module", not on
     the keyword spelling).
     """
-    if answer_guard_reason(current_scene_id, wire_trigger_id) is not None:
+    if (
+        answer_guard_reason(current_scene_id, wire_trigger_id, island_contact)
+        is not None
+    ):
         return None
     table = _table_for(registry)
     return table.get(wire_trigger_id)
