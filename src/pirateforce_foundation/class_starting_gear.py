@@ -65,7 +65,8 @@ this module composes for a Sniper and measured:
                   reason=golden_item_moved_or_altered
     SELECT_AND_START_RAISED PermissionError
 
-Gate 2 (``bag_admission.may_enter_world``) refuses every class but 1 today,
+Gate 2 -- the character-select admission predicate ``session.py`` asks
+before world entry -- refuses every class but 1 today,
 because ``INITIAL_BACKPACK`` is not one thing wearing one hat: it is the
 V141 encoder golden AND gate 2's admission golden AND
 ``inventory.require_known_backpack``'s content allowlist AND
@@ -75,8 +76,13 @@ no such thing anywhere in this server as a valid non-Gladiator bag.  Wiring
 the seam without answering that first would let a Paladin be created and
 then refuse her at select with no reply frame at all -- the client would sit
 on "connecting" forever.  ``tests/test_class_starting_gear.py::
-Gate2RefusesEveryClassButOneTodayTests`` pins that refusal so it cannot be
-discovered by a player instead of by a test.
+Gate2RefusesEveryClassButOneTodayTests`` pins that refusal through the term
+it turns on (``inventory.is_unmoved_baseline``) and through gate 3's own
+raise, so it cannot be discovered by a player instead of by a test.  It
+does that WITHOUT importing or naming the gate-2 module: that module
+carries another lane's pin admitting exactly one caller and a named list of
+files that may mention it, and adding this lane to a list is the move
+``COO-DECISION 20260907_2050`` forbids outright.
 
 So the ``store.py`` seam (``pf_bridge/notes_to_chief/20260907_2237_LANE-CS-
 CORE-REQUEST-the-starting-bag-needs-the-class-she-picked.md``) is filed as
