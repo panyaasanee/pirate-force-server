@@ -275,8 +275,22 @@ class MirrorHealth:
             return self._tally_unlocked(mirror)
 
     def tally_for(self, mirror: str) -> MirrorFailureTally:
-        """One mirror's state.  A key never read yet reads as all-zero."""
+        """One mirror's state.  A key never read yet reads as all-zero.
+
+        READING NEVER CREATES A KEY.  `_state_unlocked` does create one,
+        because a `record`/`record_ok` must have somewhere to write; going
+        through it here would mean that merely ASKING about a mirror put it
+        in `mirrors()`, which reports what has been READ.  A reader polling
+        all four keys would then see all four listed and conclude every
+        mirror had been touched.  Caught by this module's own test, not by
+        review.
+        """
         with self._lock:
+            state = self._mirrors.get(mirror)
+            if state is None:
+                return MirrorFailureTally(
+                    failures=0, last_error=None, last_failed_at=None,
+                    mirror=mirror)
             return self._tally_unlocked(mirror)
 
     def tally(self) -> MirrorFailureTally:
