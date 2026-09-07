@@ -69,6 +69,35 @@ _HOME = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
 _next_identity = iter(range(0x30000001, 0x30001000))
 
 
+@contextlib.contextmanager
+def _sqlite(path):
+    """`sqlite3.connect`, but the handle is CLOSED when the block ends.
+
+    THIS IS THE ONE DEFECT THAT TURNED THE WINDOWS GATE RED FOR `#1103`
+    (run 34156908531, `pytest_subset exit=1`, every other check GREEN).
+    `sqlite3.Connection.__exit__` commits or rolls back the transaction and
+    deliberately leaves the connection OPEN, so the four call sites below
+    still held `state.sqlite3` when `TemporaryDirectory` cleanup ran, and
+    Windows answered `PermissionError: [WinError 32] The process cannot
+    access the file because it is being used by another process`.  POSIX
+    unlinks an open file without a word, which is why the same four lines are
+    green on this clone and red on windows-latest -- the second platform
+    difference this module has produced after the path separators of #1091.
+
+    The failure lands in `tearDown`, not in the test body, so pytest reports
+    it as an ERROR: with the gate's `-rs` (which REPLACES the default
+    reportchars) no `FAILED` line is printed at all, and the gate's
+    tail-readable summary said `none`.  The cause was in the log, 1000 lines
+    above that summary.
+    """
+    connection = sqlite3.connect(path)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
 def _build_wire(selector):
     return b"wire", b"avatar", next(_next_identity), 0
 
@@ -476,7 +505,7 @@ class TheHeadlessTokenIsMeasuredNotSpelledTests(_Fixture):
         _code, before = self._run(
             ["--character", str(character.id), "--db", str(self.path)]
         )
-        with sqlite3.connect(self.path) as connection:
+        with _sqlite(self.path) as connection:
             connection.execute(
                 "DELETE FROM character_skills WHERE character_id=? "
                 "AND skill_id=?",
@@ -560,15 +589,15 @@ class TheHeadlessTokenIsMeasuredNotSpelledTests(_Fixture):
         side effect that is written down.
         """
         character = self._with_skills((7, 8, 9))
-        with sqlite3.connect(self.path) as connection:
+        with _sqlite(self.path) as connection:
             connection.execute("PRAGMA journal_mode=DELETE")
-        with sqlite3.connect(self.path) as connection:
+        with _sqlite(self.path) as connection:
             self.assertEqual(
                 "delete",
                 connection.execute("PRAGMA journal_mode").fetchone()[0],
             )
         self._run(["--character", str(character.id), "--db", str(self.path)])
-        with sqlite3.connect(self.path) as connection:
+        with _sqlite(self.path) as connection:
             self.assertEqual(
                 "wal",
                 connection.execute("PRAGMA journal_mode").fetchone()[0],
@@ -783,6 +812,61 @@ class TheDatabaseLayerIsReachedOnlyByTheTwoFunctionsThatNeedItTests(
         self.assertEqual("store", (node.module or "").split(".")[-1])
         self.assertIn(
             "learn_skill_result_frame", self._module_level_imports()
+        )
+
+
+class NoSqliteHandleOutlivesItsBlockTests(unittest.TestCase):
+    """The Windows-only leak of `#1103`, pinned where this clone can see it.
+
+    Neither test here needs Windows.  The first one measures the property
+    Windows punished -- the handle is shut, not merely committed -- and the
+    second one stops the shape from coming back, because the leak is invisible
+    on this platform and costs a whole gate round on the other one.
+    """
+
+    def test_the_helper_shuts_the_connection_and_not_only_the_transaction(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.sqlite3"
+            with _sqlite(path) as connection:
+                connection.execute("CREATE TABLE t (a INTEGER)")
+                connection.execute("INSERT INTO t VALUES (1)")
+            # committed ...
+            with _sqlite(path) as reopened:
+                self.assertEqual([(1,)], reopened.execute("SELECT a FROM t").fetchall())
+            # ... and shut.  `sqlite3.connect(...)`'s own context manager
+            # passes the line above and fails this one.
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connection.execute("SELECT a FROM t")
+
+    def test_no_sqlite_connect_in_this_module_is_used_as_a_with_item(self):
+        """`with sqlite3.connect(...)` anywhere in this file = the same red.
+
+        An AST walk, not a grep: a name comparison would miss
+        `sqlite3 . connect` and would fire on the sentence in `_sqlite`'s own
+        docstring that explains why this rule exists.
+        """
+        source = Path(__file__).read_text(encoding="utf-8")
+        offenders = []
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, (ast.With, ast.AsyncWith)):
+                continue
+            for item in node.items:
+                call = item.context_expr
+                if not isinstance(call, ast.Call):
+                    continue
+                func = call.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "connect"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "sqlite3"
+                ):
+                    offenders.append(node.lineno)
+        self.assertEqual(
+            offenders,
+            [],
+            "line(s) %s open a database in a `with` that does not close it; "
+            "use the module's `_sqlite` helper" % (offenders,),
         )
 
 
