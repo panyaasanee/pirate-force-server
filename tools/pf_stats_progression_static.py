@@ -657,11 +657,26 @@ TABLE_LITERALS = {
     0xF14B08: "n_PERCEPTION",
 }
 # POTENTIAL row loader, from RE-293 (static, client image, 2026-09-07).
-# One table row -> one 32-byte record.  The loader reads n_ID FIRST and uses it
-# as the row KEY; n_LEVEL is a STORED COLUMN of the record, not part of the key
-# and not one of the five primary attributes.  The pre-RE-293 form of this list
-# had six entries: it dropped the key bind entirely and its first entry
-# (0x4A449D = n_LEVEL) was read as if it were a stat.
+# One table row -> one 32-byte record.  The loader reads n_ID FIRST, and n_LEVEL
+# is a STORED COLUMN of the record, not one of the five primary attributes.  The
+# pre-RE-293 form of this list had six entries: it dropped the n_ID bind entirely
+# and its first entry (0x4A449D = n_LEVEL) was read as if it were a stat.
+#
+# WHAT "key" IN THE ROLE COLUMN IS AND IS NOT.  What is MEASURED is READ
+# ORDER: the push of L"n_ID" sits at a lower address than the other six.  That
+# n_ID is the row KEY is RE-293's reading of it, and RE-293's OWN item 2 - walk
+# 0x005888D5 to the find(key) side and see what is actually handed in - is still
+# OPEN.  A loader that reads n_ID first only to log or range-check it, then keys
+# by something else, satisfies every byte checked below.  So: do not build a
+# server-side POTENTIAL on either shape until item 2 closes.  What IS settled is
+# the negative RE-293 states directly: the loader takes no class argument here.
+#
+# The record offsets are relayed from RE-293's table, not re-derived here: the
+# guards below check the column-name push at each bind site, never where the
+# value lands.  The loader zeroes 8 dwords (+0x00..+0x1C) and this list binds
+# six of them; +0x00 and +0x04 are UNACCOUNTED FOR, and where the n_ID value
+# itself is stored was not measured - which is why its offset is None (meaning
+# "not known to be stored", not "known not to be stored").
 # (bind site VA, column-name literal VA, column name, record offset, role)
 POTENTIAL_BINDS = [
     (0x4A43BE, 0xF0C958, "n_ID",           None, "key"),
@@ -1308,20 +1323,26 @@ for site, lit, col, off, role in POTENTIAL_BINDS:
         pot_bad.append((col, "bind", hex(site)))
     if wstr(lit) != col:
         pot_bad.append((col, "literal", hex(lit)))
-check("the POTENTIAL loader binds seven columns and the FIRST one it reads is "
-      "n_ID at 0x4A43BE - that is the row KEY, so a row is keyed by n_ID alone "
-      "and NOT by class x level; n_LEVEL at 0x4A449D is a stored column",
+check("the POTENTIAL loader binds seven columns, all seven pushes sit inside the "
+      "one loop 0x4A4371-0x4A4576, and the FIRST column it reads is n_ID at "
+      "0x4A43BE (READ ORDER is what this measures - RE-293 reads that as the "
+      "row key and its own item 2, the find(key) side, is still open)",
       not pot_bad and POTENTIAL_BINDS[0][2] == "n_ID"
-      and POTENTIAL_BINDS[0][4] == "key", str(pot_bad))
+      and POTENTIAL_BINDS[0][4] == "key"
+      and [b[0] for b in POTENTIAL_BINDS] == sorted(b[0] for b in POTENTIAL_BINDS)
+      and all(POTENTIAL_LOADER[0] <= b[0] < POTENTIAL_LOADER[1]
+              for b in POTENTIAL_BINDS), str(pot_bad))
 check("one POTENTIAL row is one %d-byte record: the loop allocates 0x20 at "
       "0x4A43E4 and the six stored columns land at +0x08..+0x1C, four bytes "
       "apart, all inside that record" % POTENTIAL_ROW_BYTES,
       bytes_at(POTENTIAL_ROW_ALLOC, "6a20")
+      and POTENTIAL_LOADER[0] <= POTENTIAL_ROW_ALLOC < POTENTIAL_LOADER[1]
       and [b[3] for b in POTENTIAL_BINDS[1:]] == list(range(0x08, 0x20, 4))
       and all(b[3] < POTENTIAL_ROW_BYTES for b in POTENTIAL_BINDS[1:]))
-check("the loader has a SILENT exit for an empty table (jle 0x4A43A0 -> "
-      "0x4A459C, no log, no error) - so on a build where POTENTIAL ships with "
-      "zero rows nothing on screen can have come from this table",
+check("the loader jumps the whole per-row loop when the table is empty (jle at "
+      "0x4A43A0 -> 0x4A459C, which is past the loop end 0x4A4576) - the jump "
+      "TARGET is not disassembled here, so 'and it does so silently' is "
+      "RE-293's reading, not this guard's measurement",
       dmap(POTENTIAL_EMPTY_SKIP[0], 8).get(POTENTIAL_EMPTY_SKIP[0])
       == ('jle', hex(POTENTIAL_EMPTY_SKIP[1])))
 check("STANDARD_STATUS also declares n_POINT_ABILITY (the per-level allocation-point "

@@ -1389,6 +1389,14 @@
         "OneScriptHostSharesOneMessageSinkTests::test_two_hosts_do_not_share_the_default_sink"
       ],
       "note": "round 7kxfe9 (LANE-Q), fixing a hole round 6775u1 opened in its own module. These three tests build a real ScriptHost, which raises RuntimeError('lupa is not installed') without the package - so on a lupa-free machine the module went RED instead of skipping, while that module's own header claimed every test in it ran with or without the Lua runtime. MEASURED before the fix in this round's cloud session (`pip uninstall -y lupa` then pytest -rs over this module and test_script_lua_corpus.py): 3 failed, 51 passed, 9 skipped, the three failures being exactly these tests. MEASURED after: 3 skips under this key here, 0 with lupa reinstalled."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_stats_progression_static.py",
+      "count": 1,
+      "tests": [
+        "StatsProgressionStatic::test_the_shipped_potential_table_agrees_with_the_bind_list"
+      ]
     }
   ],
   "windows_gate_excluded_modules": {

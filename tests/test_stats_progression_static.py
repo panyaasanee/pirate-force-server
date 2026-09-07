@@ -56,7 +56,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The proprietary client image cannot be in a fresh clone; every test that reads
 # it carries its own @CLIENT_IMAGE guard below - see tests/pf_preconditions.py.
 sys.path.insert(0, str(ROOT / "tests"))
-from pf_preconditions import CLIENT_IMAGE
+from pf_preconditions import BRIDGE_GAMEDATA, CLIENT_IMAGE
 
 BINARY_CANDIDATES = [
     ROOT.parent / "GameClient" / "GameClient.local.bin",
@@ -311,6 +311,7 @@ POTENTIAL_BINDS = [
     (0x4A4522, 0xF14B24, "n_INTELLECT",    0x18, "stat"),
     (0x4A4542, 0xF14B08, "n_PERCEPTION",   0x1C, "stat"),
 ]
+POTENTIAL_LOADER = (0x4A4371, 0x4A4576)
 POTENTIAL_ROW_ALLOC = 0x4A43E4
 POTENTIAL_ROW_BYTES = 0x20
 POTENTIAL_EMPTY_SKIP = (0x4A43A0, 0x4A459C)
@@ -844,8 +845,20 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual((col, off, role), ("n_ID", None, "key"))
         self.assertEqual(site, 0x4A43BE)
         self.assertEqual(lit, 0xF0C958)
-        # the key is read before every stored column
+        # the key is read before every stored column, and the six stored binds
+        # are themselves in strictly ascending address order.  pf-adversary
+        # showed the earlier form of this test passed with n_AGILITY's and
+        # n_INTELLECT's bind sites SWAPPED: comparing only against the key left
+        # five of the seven VAs free on any machine without the image.
         self.assertTrue(all(site < b[0] for b in POTENTIAL_BINDS[1:]))
+        sites = [b[0] for b in POTENTIAL_BINDS]
+        self.assertEqual(sites, sorted(sites))
+        self.assertEqual(sites, [0x4A43BE, 0x4A449D, 0x4A44C5, 0x4A44E5,
+                                 0x4A4502, 0x4A4522, 0x4A4542])
+        # every bind, and the record allocation, sits inside the one loop
+        lo, hi = POTENTIAL_LOADER
+        self.assertTrue(all(lo <= b[0] < hi for b in POTENTIAL_BINDS))
+        self.assertTrue(lo <= POTENTIAL_ROW_ALLOC < hi)
         stored = POTENTIAL_BINDS[1:]
         self.assertEqual([b[2] for b in stored],
                          ["n_LEVEL", "n_STRENGH", "n_CONSTITUTION",
@@ -880,6 +893,52 @@ class StatsProgressionStatic(unittest.TestCase):
             tool_binds,
             "tools/pf_stats_progression_static.py lost POTENTIAL_BINDS")
         self.assertEqual([tuple(b) for b in tool_binds], POTENTIAL_BINDS)
+        # ... and the four constants that travel with it.  pf-adversary showed
+        # POTENTIAL_ROW_ALLOC could be changed in the tool alone and every test
+        # stayed green, because only POTENTIAL_BINDS was twin-bound.
+        others = {}
+        for node in ast.walk(tool_tree):
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id in (
+                        "POTENTIAL_LOADER", "POTENTIAL_ROW_ALLOC",
+                        "POTENTIAL_ROW_BYTES", "POTENTIAL_EMPTY_SKIP",
+                        "TABLE_LITERALS",
+                    ):
+                        others[t.id] = ast.literal_eval(node.value)
+        self.assertEqual(sorted(others), [
+            "POTENTIAL_EMPTY_SKIP", "POTENTIAL_LOADER", "POTENTIAL_ROW_ALLOC",
+            "POTENTIAL_ROW_BYTES", "TABLE_LITERALS"])
+        self.assertEqual(tuple(others["POTENTIAL_LOADER"]), POTENTIAL_LOADER)
+        self.assertEqual(others["POTENTIAL_ROW_ALLOC"], POTENTIAL_ROW_ALLOC)
+        self.assertEqual(others["POTENTIAL_ROW_BYTES"], POTENTIAL_ROW_BYTES)
+        self.assertEqual(tuple(others["POTENTIAL_EMPTY_SKIP"]),
+                         POTENTIAL_EMPTY_SKIP)
+        # the tool's TABLE_LITERALS was read by nothing at all; bind it to the
+        # seven column names so a literal VA cannot drift on one side only.
+        for b in POTENTIAL_BINDS:
+            self.assertEqual(others["TABLE_LITERALS"][b[1]], b[2], hex(b[1]))
+
+    # -- 19d -----------------------------------------------------------------
+    @BRIDGE_GAMEDATA.skip_unless_present()  # see tests/pf_preconditions.py
+    def test_the_shipped_potential_table_agrees_with_the_bind_list(self):
+        """A SECOND, INDEPENDENT layer for the column names and the row count.
+
+        Tests 19b and 19c both trace back to one source: RE-293 reading the
+        client image.  This one reads the extracted data table instead, so a
+        typo in the bind list no longer has only itself to agree with.  It can
+        say nothing about bind VAs or record offsets - two layers agreeing on
+        the names is consistency, not proof that the loader binds them here.
+        """
+        tsv = (Path(__file__).resolve().parents[2] / "pf_bridge" / "gamedata"
+               / "tables" / "CONSTDATA_TH__POTENTIAL.tsv")
+        rows = tsv.read_text(encoding="utf-8", errors="replace").splitlines()
+        header = rows[0].split("\t")
+        self.assertEqual(header[:7], [b[2] for b in POTENTIAL_BINDS])
+        # RE-282's count, restated where something can go red if it changes:
+        # the table ships header-only, which is why nothing on screen in this
+        # build can have come from POTENTIAL.
+        self.assertEqual([r for r in rows[1:] if r.strip()], [])
 
     # -- 19c -----------------------------------------------------------------
     @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
