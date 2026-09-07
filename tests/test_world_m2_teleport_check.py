@@ -661,8 +661,15 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         prompts = [line for line in self.logged
                    if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
         self.assertEqual(len(prompts), 1)
-        self.assertEqual(prompts[0],
-                         tc.prompt_console_line(sink.orders[0].pending))
+        self.assertEqual(
+            prompts[0],
+            tc.prompt_console_line(sink.orders[0].pending, sink))
+        # The door hands its OWN sink to the composer.  Without the second
+        # argument the same line reads `sink=unnamed drain=unknown`, which is
+        # the shape a caller that does not know its recorder gets -- and the
+        # live door always knows (H4).
+        self.assertNotEqual(prompts[0],
+                            tc.prompt_console_line(sink.orders[0].pending))
         # NOT "PROMPT", and not a send.  The old verb was byte-for-byte the
         # line GT-309 named as proof that the server SENT 0x4477, while this
         # path never calls encode_prompt and hands no byte to a socket
@@ -685,10 +692,17 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         self.assertEqual(namespace["TeleportCheck"](17), 1)
         recorded = [line for line in self.logged
                     if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
+        # The only field a literal cannot carry is the sink's sequence
+        # number, which is per process and deliberately not reused; every
+        # other word of the line, the recorder's CLASS NAME and the
+        # `drain=unclaimed` verdict included, is pinned here.
+        sequence = tc.sink_fingerprint(sink).split("@")[1]
+        self.assertTrue(sequence.isdigit(), sequence)
         self.assertEqual(recorded, [
             "LANE_A_M2_TELEPORT_CHECK ORDER_RECORDED marker=17 scene=126"
             " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
-            " sent=0"
+            " sent=0 sink=InMemoryTeleportCheckSink@%s drain=unclaimed"
+            % sequence
         ])
 
     def test_the_sent_line_is_a_different_line_only_a_sender_may_print(self):
@@ -701,8 +715,25 @@ class TheLuaNameIsRealNow(unittest.TestCase):
             line,
             "LANE_A_M2_TELEPORT_CHECK PROMPT_SENT marker=17 scene=126"
             " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
-            " bytes_out=44")
+            " bytes_out=44 sink=unnamed drain=unknown")
         line.encode("ascii")
+        # A sender that says WHICH recorder it drained gets the word the
+        # ORDER_RECORDED line of the same order carries, and that is the whole
+        # of H4's answer: the two halves can be compared by eye, by one reader,
+        # in one log.
+        sink = tc.InMemoryTeleportCheckSink()
+        tc.claim_sink_for_drain(sink, "dispatch-drain")
+        sent = tc.prompt_sent_console_line(pending, 44, sink)
+        self.assertEqual(
+            sent,
+            "LANE_A_M2_TELEPORT_CHECK PROMPT_SENT marker=17 scene=126"
+            " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
+            " bytes_out=44 sink=%s drain=dispatch-drain"
+            % tc.sink_fingerprint(sink))
+        recorded = tc.prompt_console_line(pending, sink)
+        self.assertEqual(
+            [word for word in sent.split() if word.startswith("sink=")],
+            [word for word in recorded.split() if word.startswith("sink=")])
         # WHO MAY CALL IT, not "nobody may".  Asserting an empty list turns
         # red the moment chief adds the drain call this lane's own PR body
         # asks for -- the instruction and the pin would be the same line with
@@ -922,6 +953,304 @@ class TheLuaNameIsRealNow(unittest.TestCase):
         self.assertEqual(namespace["TeleportCheck"](1), 0)
         self.assertEqual(len(sink.orders), tc.ORDER_CAP)
         self.assertIn(tc.ORDER_REFUSED_AT_CAP, sink.refusals)
+
+
+class TheDoorSaysWhichRecorderItFiledInto(unittest.TestCase):
+    """H4: an order in a recorder nobody drains used to read like success.
+
+    The door records an order and prints a token with ``stored=1``.  Whether
+    the recorder holding that order is the one the dispatch drain will empty
+    was invisible: the same line was printed for a sink wired to a live drain
+    and for a sink nothing on earth would ever read -- R307's "window that
+    goes nowhere", one layer up (pf-adversary, round `nilasm`, H4).
+
+    This module cannot see the drain (it lives in `runtime.py`, chief's file),
+    so it does not claim to.  What it does is name the object and repeat the
+    name on the sending half, so ONE reader of ONE log can see whether the two
+    halves are talking about the same recorder, and say `unclaimed` out loud
+    when nobody ever said they would drain it.
+    """
+
+    def test_a_recorder_nobody_claimed_says_unclaimed_not_nothing(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        self.assertIsNone(tc.sink_drain_claim(sink))
+        self.assertEqual(
+            tc.sink_console_fields(sink),
+            "sink=InMemoryTeleportCheckSink@%s drain=unclaimed"
+            % tc.sink_fingerprint(sink).split("@")[1])
+
+    def test_a_line_that_was_not_told_its_recorder_says_unknown(self):
+        # `unknown` and `unclaimed` are different findings: one is a caller
+        # that did not name its sink, the other is a measured fact about a
+        # named object.  A reader who cannot tell them apart fixes the wrong
+        # half of the wiring.
+        self.assertEqual(tc.sink_console_fields(None),
+                         "sink=unnamed drain=unknown")
+        self.assertNotEqual(tc.sink_console_fields(None),
+                            tc.sink_console_fields(
+                                tc.InMemoryTeleportCheckSink()))
+
+    def test_a_claim_names_one_object_and_not_its_neighbours(self):
+        claimed = tc.InMemoryTeleportCheckSink()
+        other = tc.InMemoryTeleportCheckSink()
+        tc.claim_sink_for_drain(claimed, "dispatch-drain")
+        self.assertEqual(tc.sink_drain_claim(claimed), "dispatch-drain")
+        self.assertIsNone(tc.sink_drain_claim(other))
+        self.assertNotEqual(tc.sink_fingerprint(claimed),
+                            tc.sink_fingerprint(other))
+
+    def test_a_fingerprint_does_not_move_under_the_object_it_names(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        first = tc.sink_fingerprint(sink)
+        for _ in range(3):
+            self.assertEqual(tc.sink_fingerprint(sink), first)
+        # ... and the claim does not change it either: the name is the object,
+        # not its wiring.
+        tc.claim_sink_for_drain(sink, "dispatch-drain")
+        self.assertEqual(tc.sink_fingerprint(sink), first)
+
+    def test_a_recorder_that_redefines_equality_keeps_its_own_identity(self):
+        # A recorder is allowed to be a value type.  Any registry keyed by the
+        # OBJECT would fold these two into one entry and hand the second one
+        # the first one's claim; keyed by address with a liveness re-check, it
+        # cannot.
+        class EqualToEverything:
+            __slots__ = ("orders", "refusals", "__weakref__")
+
+            def __init__(self):
+                self.orders = []
+                self.refusals = []
+
+            def __eq__(self, other):
+                return True
+
+            __hash__ = None
+
+            def record(self, character_id, pending):
+                return 1
+
+            def record_refusal(self, reason):
+                self.refusals.append(reason)
+
+        first, second = EqualToEverything(), EqualToEverything()
+        self.assertEqual(first, second)
+        tc.claim_sink_for_drain(first, "dispatch-drain")
+        self.assertEqual(tc.sink_drain_claim(first), "dispatch-drain")
+        self.assertIsNone(tc.sink_drain_claim(second))
+
+    def test_a_claim_dies_with_the_object_that_carried_it(self):
+        # An address is reused.  If a claim outlived its object, the next
+        # recorder allocated there would inherit a drain it has never been
+        # wired to and the console would say so -- which is worse than saying
+        # nothing, because the line reads like proof.
+        import gc
+
+        sink = tc.InMemoryTeleportCheckSink()
+        tc.claim_sink_for_drain(sink, "dispatch-drain")
+        key = id(sink)
+        self.assertIn(key, tc._SINK_REGISTRY)
+        del sink
+        gc.collect()
+        self.assertNotIn(key, tc._SINK_REGISTRY)
+
+    def test_a_reused_address_does_not_inherit_the_dead_claim(self):
+        # The dict is keyed by address BECAUSE a recorder may be unhashable or
+        # a value type -- and an address is the one key that gets handed to
+        # somebody else.  Every lookup re-checks that the entry's weak
+        # reference still points at THIS object; drop that check and a fresh
+        # recorder starts life wearing a dead one's drain.
+        import gc
+        import weakref
+
+        dead = tc.InMemoryTeleportCheckSink()
+        stale = tc._SinkEntry(weakref.ref(dead), 999)
+        stale.claim = "stale-drain"
+        live = tc.InMemoryTeleportCheckSink()
+        tc._SINK_REGISTRY[id(live)] = stale
+        del dead
+        gc.collect()
+        self.assertIsNone(stale.ref())
+        self.assertIsNone(tc.sink_drain_claim(live))
+        self.assertNotEqual(tc.sink_fingerprint(live),
+                            "InMemoryTeleportCheckSink@999")
+
+    def test_a_dead_recorders_callback_cannot_evict_a_live_entry(self):
+        # The cleanup runs AFTER the object is gone, which is exactly when a
+        # new one may already hold that address and that key.  Deleting by key
+        # alone would throw away a live recorder's identity and its claim.
+        import weakref
+
+        live = tc.InMemoryTeleportCheckSink()
+        tc.claim_sink_for_drain(live, "dispatch-drain")
+        key = id(live)
+        other = tc.InMemoryTeleportCheckSink()
+        tc._forget_sink(key, weakref.ref(other))
+        self.assertIn(key, tc._SINK_REGISTRY)
+        self.assertEqual(tc.sink_drain_claim(live), "dispatch-drain")
+
+    def test_asking_who_drains_a_recorder_does_not_start_remembering_it(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        self.assertIsNone(tc.sink_drain_claim(sink))
+        self.assertNotIn(id(sink), tc._SINK_REGISTRY)
+
+    def test_a_second_claim_replaces_the_first_rather_than_stacking(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        tc.claim_sink_for_drain(sink, "dispatch-drain")
+        tc.claim_sink_for_drain(sink, "test-harness")
+        self.assertEqual(tc.sink_drain_claim(sink), "test-harness")
+        self.assertIn(" drain=test-harness", tc.sink_console_fields(sink))
+
+    def test_a_claim_that_would_corrupt_the_console_line_is_refused(self):
+        # The claim is printed unescaped, space-delimited, on a cp874 console,
+        # next to the token an attended ticket greps for.  Every one of these
+        # would either split the line into fields that are not fields or kill
+        # the tool reading it.
+        sink = tc.InMemoryTeleportCheckSink()
+        cases = [
+            (7, tc.CLAIM_REFUSED_NOT_A_STRING),
+            (None, tc.CLAIM_REFUSED_NOT_A_STRING),
+            (b"drain", tc.CLAIM_REFUSED_NOT_A_STRING),
+            ("", tc.CLAIM_REFUSED_EMPTY),
+            ("x" * (tc.DRAIN_CLAIM_MAX_LEN + 1), tc.CLAIM_REFUSED_TOO_LONG),
+            ("dispatch drain", tc.CLAIM_REFUSED_NOT_PRINTABLE_ASCII),
+            ("dispatch\ndrain", tc.CLAIM_REFUSED_NOT_PRINTABLE_ASCII),
+            ("\u0e14\u0e23\u0e19", tc.CLAIM_REFUSED_NOT_PRINTABLE_ASCII),
+        ]
+        for claim, reason in cases:
+            with self.subTest(claim=repr(claim)):
+                with self.assertRaises(tc.SinkClaimError) as caught:
+                    tc.claim_sink_for_drain(sink, claim)
+                self.assertTrue(str(caught.exception).startswith(reason),
+                                str(caught.exception))
+                str(caught.exception).encode("ascii")
+        self.assertIsNone(tc.sink_drain_claim(sink))
+        self.assertEqual(tc.DRAIN_CLAIM_MAX_LEN, 40)
+
+    def test_a_recorder_no_weak_reference_can_hold_is_refused_by_name(self):
+        class NoWeakref:
+            __slots__ = ("orders",)
+
+            def __init__(self):
+                self.orders = []
+
+        sink = NoWeakref()
+        with self.assertRaises(tc.SinkClaimError) as caught:
+            tc.claim_sink_for_drain(sink, "dispatch-drain")
+        self.assertTrue(
+            str(caught.exception).startswith(
+                tc.CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE),
+            str(caught.exception))
+        # ...and the console line still comes out, saying the one true thing:
+        # this module cannot tell this object from the next one at its address.
+        self.assertEqual(tc.sink_console_fields(sink),
+                         "sink=NoWeakref@unpinned drain=unclaimed")
+
+    def test_the_default_recorder_can_be_claimed_at_all(self):
+        # `__weakref__` in InMemoryTeleportCheckSink.__slots__ is what makes
+        # this pass.  Take it out and the lane's own default recorder becomes
+        # the one shape the claim door refuses.
+        tc.claim_sink_for_drain(tc.InMemoryTeleportCheckSink(), "drain")
+        self.assertIn("__weakref__", tc.InMemoryTeleportCheckSink.__slots__)
+
+    def test_a_recorders_class_name_cannot_kill_the_cp874_console(self):
+        cls = type("\u0e01\u0e25\u0e48\u0e2d\u0e07", (), {"__slots__": ()})
+        line = tc.sink_console_fields(cls())
+        line.encode("ascii")
+        self.assertEqual(line, "sink=sink@unpinned drain=unclaimed")
+
+    def test_the_live_door_prints_the_claim_its_own_sink_carries(self):
+        sink = tc.InMemoryTeleportCheckSink()
+        logged = []
+        namespace = lua_player.build_namespace(
+            frozenset(lua_player.REAL_METHODS) | set(lua_player.STILL_STUBBED),
+            logged.append,
+            context=lua_player.PlayerContext(character_id=2),
+            teleport_check_sink=sink)
+        tc.claim_sink_for_drain(sink, "dispatch-drain")
+        self.assertEqual(namespace["TeleportCheck"](1), 1)
+        recorded = [line for line in logged
+                    if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
+        self.assertEqual(len(recorded), 1)
+        self.assertIn(" sink=%s drain=dispatch-drain" % tc.sink_fingerprint(sink),
+                      recorded[0])
+        recorded[0].encode("ascii")
+
+    def test_the_two_halves_disagree_out_loud_when_they_hold_two_recorders(self):
+        # This is the failure H4 is about, and this is what it now looks like
+        # on the console: the recorded half names one object, the sent half
+        # names another, and a reader can see it without a debugger.
+        filed_into = tc.InMemoryTeleportCheckSink()
+        drained = tc.InMemoryTeleportCheckSink()
+        tc.claim_sink_for_drain(drained, "dispatch-drain")
+        pending = tc.open_check(17)
+        recorded = tc.prompt_console_line(pending, filed_into)
+        sent = tc.prompt_sent_console_line(pending, 44, drained)
+        recorded_sink = [w for w in recorded.split() if w.startswith("sink=")]
+        sent_sink = [w for w in sent.split() if w.startswith("sink=")]
+        self.assertEqual(len(recorded_sink), 1)
+        self.assertEqual(len(sent_sink), 1)
+        self.assertNotEqual(recorded_sink, sent_sink)
+        self.assertIn(" drain=unclaimed", recorded)
+        self.assertIn(" drain=dispatch-drain", sent)
+
+
+class TheTransportSaysWhatItDoesToTheSession(unittest.TestCase):
+    """chief's G1: the transport moves the client and told nobody.
+
+    Measured by chief on a real dispatcher with a real store (letter
+    `20260908_0545_FROM_CHIEF_R398b`): echo -> transport to scene 126 -> one
+    ordinary TargetPos -> the DESTINATION's coordinates written to the durable
+    row under `scene_id=1`, and the next login honouring that home row puts
+    the character in Port Royal at a point that belongs to the open sea.
+
+    The fork chief refused to settle alone is a WORLD question, so it is
+    settled here: the frame IS a relocation (the same TeleportVital v4 body
+    with a TeleportTarget that the GM warp path composes), and relocating is
+    still not a licence to write the row -- COO-DECISION 20260828_2130 owns
+    that half and this lane does not reopen it.
+    """
+
+    def test_the_relocation_names_the_marker_rows_own_scene_and_point(self):
+        pending = tc.open_check(17)
+        relocation = tc.transport_relocation(pending)
+        self.assertEqual(
+            relocation,
+            tc.TransportRelocation(scene_id=126, x=3050, y=232, z=90,
+                                   scene_label_is_server_guess=True,
+                                   durable_write_allowed=False))
+        # ...and it is the row the transport frame itself carries, not a
+        # second derivation that can drift from it.
+        self.assertEqual(
+            (relocation.scene_id, relocation.x, relocation.y, relocation.z),
+            (pending.destination.scene_id, pending.destination.x,
+             pending.destination.y, pending.destination.z))
+
+    def test_a_transport_never_licenses_a_durable_write(self):
+        # COO-DECISION 20260828_2130: the owner of a position is the position
+        # the CLIENT confirmed; a frame that left the server is a request.  A
+        # True here would make every M2 journey write a row nobody observed.
+        self.assertFalse(tc.TRANSPORT_DURABLE_WRITE_ALLOWED)
+        for marker_id in (1, 17):
+            with self.subTest(marker_id=marker_id):
+                relocation = tc.transport_relocation(tc.open_check(marker_id))
+                self.assertFalse(relocation.durable_write_allowed)
+                self.assertTrue(relocation.scene_label_is_server_guess)
+
+    def test_the_resync_line_is_pinned_field_by_field_and_is_ascii(self):
+        line = tc.transport_resync_console_line(tc.open_check(17))
+        self.assertEqual(
+            line,
+            "LANE_A_M2_TELEPORT_CHECK TRANSPORT_RESYNC marker=17 scene=126"
+            " xyz=3050,232,90 guess=1 durable=0")
+        line.encode("ascii")
+
+    def test_the_relocation_is_not_the_transport_frames_own_claim(self):
+        # Two different sentences: "these bytes went to a send path" and "this
+        # session's scene label is now the destination".  The second is what
+        # the caller must DO; the first is all the transport line may say.
+        pending = tc.open_check(17)
+        self.assertNotIn("TRANSPORT_RESYNC", tc.transport_console_line(pending, 44))
+        self.assertNotIn("durable", tc.transport_console_line(pending, 44))
 
 
 if __name__ == "__main__":
