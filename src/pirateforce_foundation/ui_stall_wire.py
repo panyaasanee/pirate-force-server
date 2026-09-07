@@ -327,6 +327,52 @@ def _read_members(
     return tuple(members), offset
 
 
+def _window(buf: bytes, offset: int, length: int) -> bytes:
+    """Return exactly ``buf[offset:offset + length]`` or fail closed.
+
+    WHY THIS EXISTS, AND WHAT IT REMOVES (pirate-force-server PR #1045,
+    the reviewer's own counter-proposal, carried over from LANE-UI round
+    ``53yj9g``'s "next round" list).  The three whole-buffer decoders
+    below answer one question -- "do these bytes parse as this class?" --
+    and they answer it about the WHOLE object they are handed.  A caller
+    holding an envelope therefore has to slice the payload out by hand
+    first, and the failure mode of a wrong slice is not symmetric:
+    under-slicing always fails closed (a truncated field raises), while
+    OVER-slicing is only caught when the surplus does not happen to be a
+    complete member record.  For ``StallStartVital`` and
+    ``StallOperateVital`` -- whose tails are a member-record loop that
+    reads until the buffer is exhausted -- a surplus that IS a complete
+    22-byte member record decodes silently, as one extra member.  That is
+    a property of the surplus CONTENT, not of its length, so no caller
+    can defend against it by checking lengths, and no docstring sentence
+    about it is true in general.
+
+    This function moves the boundary decision to where the caller can
+    actually make it: the caller declares ``offset`` and ``length``, and
+    the parse is bounded by that declaration rather than by ``len(buf)``.
+    An over-long declaration is still the caller's own statement, but it
+    is now a statement made once, in one argument, instead of an implicit
+    property of a slice made somewhere else.
+
+    Fail-closed on every out-of-range window (negative offset, negative
+    length, or a window running past the end of ``buf``), raising the same
+    ``WireDecodeError`` every other reader in this module raises, so the
+    ``decode_*`` wrappers turn it into ``None`` exactly like any other
+    parse failure and no caller has to learn a second error shape.
+    """
+
+    if offset < 0:
+        raise wire.WireDecodeError("negative window offset: %d" % offset)
+    if length < 0:
+        raise wire.WireDecodeError("negative window length: %d" % length)
+    if offset + length > len(buf):
+        raise wire.WireDecodeError(
+            "window runs past the buffer: offset=%d length=%d len=%d"
+            % (offset, length, len(buf))
+        )
+    return buf[offset:offset + length]
+
+
 def encode_stall_open_payload(fields: StallOpenFields) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
@@ -338,7 +384,37 @@ def encode_stall_open_payload(fields: StallOpenFields) -> bytes:
     return bytes(out)
 
 
+def decode_stall_open_payload_at(
+    buf: bytes, offset: int, length: int
+) -> StallOpenFields | None:
+    """Decode one ``StallOpenVital`` payload from an explicit window.
+
+    Consumes the declared window exactly: a window that is one byte short
+    fails closed on the truncated field, and a window with any surplus
+    fails closed on ``require_exhausted``.  ``None`` on every failure,
+    never a partial object.
+    """
+
+    try:
+        payload = _window(buf, offset, length)
+    except wire.WireDecodeError:
+        return None
+    return _decode_stall_open_exact(payload)
+
+
 def decode_stall_open_payload(payload: bytes) -> StallOpenFields | None:
+    """Whole-buffer form: the window is the whole buffer.
+
+    Defined in terms of :func:`decode_stall_open_payload_at` on purpose --
+    one parse, two entry points, so the two can never drift apart the way
+    two copied bodies can (the shape pf-adversary flagged as D-A in round
+    ``jx6r5p`` for a different pair of functions in this lane).
+    """
+
+    return decode_stall_open_payload_at(payload, 0, len(payload))
+
+
+def _decode_stall_open_exact(payload: bytes) -> StallOpenFields | None:
     try:
         field1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         field2, offset = wire.read_u16tag(payload, offset, _TAG_U16)
@@ -364,7 +440,33 @@ def encode_stall_start_payload(fields: StallStartFields) -> bytes:
     return bytes(out)
 
 
+def decode_stall_start_payload_at(
+    buf: bytes, offset: int, length: int
+) -> StallStartFields | None:
+    """Decode one ``StallStartVital`` payload from an explicit window.
+
+    This is the class the over-slicing asymmetry described on
+    :func:`_window` actually bites: the trailing member-record loop reads
+    until the buffer ends, so under the whole-buffer entry point a surplus
+    that happens to be a complete 22-byte member record is indistinguish-
+    able from a real extra member.  Here the loop ends where the CALLER
+    said the payload ends, so the same surplus is simply not read.
+    """
+
+    try:
+        payload = _window(buf, offset, length)
+    except wire.WireDecodeError:
+        return None
+    return _decode_stall_start_exact(payload)
+
+
 def decode_stall_start_payload(payload: bytes) -> StallStartFields | None:
+    """Whole-buffer form -- see :func:`decode_stall_open_payload`."""
+
+    return decode_stall_start_payload_at(payload, 0, len(payload))
+
+
+def _decode_stall_start_exact(payload: bytes) -> StallStartFields | None:
     try:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_U8_A)
         field2, offset = wire.read_u16tag(payload, offset, _TAG_U16)
@@ -390,7 +492,31 @@ def encode_stall_operate_payload(fields: StallOperateFields) -> bytes:
     return bytes(out)
 
 
+def decode_stall_operate_payload_at(
+    buf: bytes, offset: int, length: int
+) -> StallOperateFields | None:
+    """Decode one ``StallOperateVital`` payload from an explicit window.
+
+    Same member-record tail as :func:`decode_stall_start_payload_at`, and
+    the same reason for existing.
+    """
+
+    try:
+        payload = _window(buf, offset, length)
+    except wire.WireDecodeError:
+        return None
+    return _decode_stall_operate_exact(payload)
+
+
 def decode_stall_operate_payload(payload: bytes) -> StallOperateFields | None:
+    """Whole-buffer form -- see :func:`decode_stall_open_payload`."""
+
+    return decode_stall_operate_payload_at(payload, 0, len(payload))
+
+
+def _decode_stall_operate_exact(
+    payload: bytes,
+) -> StallOperateFields | None:
     try:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_U8_A)
         field2, offset = wire.read_u64tag(payload, offset, _TAG_U64)

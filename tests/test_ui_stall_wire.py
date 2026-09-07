@@ -517,5 +517,152 @@ class ValueRangeTests(unittest.TestCase):
         )
 
 
+class ExplicitWindowDecodeTests(unittest.TestCase):
+    """``decode_*_payload_at(buf, offset, length)`` -- the boundary the
+    caller declares, not the one a slice happened to make.
+
+    Written for the counter-proposal that closed
+    ``pirate-force-server#1045``: the whole-buffer decoders answer a
+    question about the whole object they are handed, so the caller owns
+    the slice, and a wrong slice fails ASYMMETRICALLY -- short always
+    raises, long only raises when the surplus is not itself a complete
+    member record.  These tests measure that asymmetry on real bytes
+    first (so the reason the window form exists is a fact in the suite,
+    not a sentence in a docstring), then pin the window form against it.
+    """
+
+    CASES = (
+        ("open", _open_fields(), sw.encode_stall_open_payload,
+         sw.decode_stall_open_payload, sw.decode_stall_open_payload_at),
+        ("start", _start_fields(field5_u16=1, members=(MEMBER_A,)),
+         sw.encode_stall_start_payload,
+         sw.decode_stall_start_payload, sw.decode_stall_start_payload_at),
+        ("operate", _operate_fields(members=(MEMBER_A, MEMBER_B)),
+         sw.encode_stall_operate_payload,
+         sw.decode_stall_operate_payload, sw.decode_stall_operate_payload_at),
+    )
+
+    PREFIX = b"\xAA\xBB\xCC"
+    SUFFIX = b"\x00\xFF"
+
+    def test_the_whole_buffer_form_is_the_window_form_on_the_whole_buffer(self):
+        for name, fields, encode, decode, decode_at in self.CASES:
+            with self.subTest(name):
+                payload = encode(fields)
+                self.assertEqual(
+                    decode(payload), decode_at(payload, 0, len(payload))
+                )
+                self.assertEqual(decode(payload), fields)
+
+    def test_a_payload_embedded_in_a_larger_buffer_decodes(self):
+        for name, fields, encode, decode, decode_at in self.CASES:
+            with self.subTest(name):
+                payload = encode(fields)
+                buf = self.PREFIX + payload + self.SUFFIX
+                self.assertEqual(
+                    decode_at(buf, len(self.PREFIX), len(payload)), fields
+                )
+
+    def test_over_slicing_by_one_member_record_is_silent_without_a_window(self):
+        """The measured asymmetry, on the two classes that have a member
+        tail.  This is a NEGATIVE result about the whole-buffer form kept
+        in full: it does not raise, it returns a DIFFERENT object."""
+
+        for name, fields, encode, decode, decode_at in self.CASES[1:]:
+            with self.subTest(name):
+                payload = encode(fields)
+                over = payload + sw._encode_member(MEMBER_B)
+                decoded = decode(over)
+                self.assertIsNotNone(decoded)
+                self.assertNotEqual(decoded, fields)
+                self.assertEqual(
+                    len(decoded.members), len(fields.members) + 1
+                )
+                # ... and the window form does not read the surplus.
+                self.assertEqual(decode_at(over, 0, len(payload)), fields)
+
+    def test_over_slicing_that_is_not_a_whole_record_fails_closed_either_way(self):
+        for name, fields, encode, decode, decode_at in self.CASES:
+            with self.subTest(name):
+                payload = encode(fields)
+                over = payload + b"\x99"
+                self.assertIsNone(decode(over))
+                self.assertIsNone(decode_at(over, 0, len(over)))
+
+    def test_a_window_one_byte_short_fails_closed(self):
+        for name, fields, encode, decode, decode_at in self.CASES:
+            with self.subTest(name):
+                payload = encode(fields)
+                buf = self.PREFIX + payload + self.SUFFIX
+                self.assertIsNone(
+                    decode_at(buf, len(self.PREFIX), len(payload) - 1)
+                )
+
+    def test_a_window_one_byte_long_fails_closed(self):
+        """One surplus byte cannot be a whole member record, so this is
+        rejected on every class, member tail or not."""
+
+        for name, fields, encode, decode, decode_at in self.CASES:
+            with self.subTest(name):
+                payload = encode(fields)
+                buf = self.PREFIX + payload + self.SUFFIX
+                self.assertIsNone(
+                    decode_at(buf, len(self.PREFIX), len(payload) + 1)
+                )
+
+    def test_out_of_range_windows_fail_closed(self):
+        payload = sw.encode_stall_open_payload(_open_fields())
+        for offset, length in (
+            (-1, len(payload)),
+            (0, -1),
+            (0, len(payload) + 1),
+            (len(payload), 1),
+            (1, len(payload)),
+        ):
+            with self.subTest(offset=offset, length=length):
+                self.assertIsNone(
+                    sw.decode_stall_open_payload_at(payload, offset, length)
+                )
+
+    def test_an_empty_window_fails_closed_and_never_raises(self):
+        for name, fields, encode, decode, decode_at in self.CASES:
+            with self.subTest(name):
+                self.assertIsNone(decode_at(b"", 0, 0))
+                self.assertIsNone(decode_at(self.PREFIX, 1, 0))
+
+    def test_the_whole_buffer_form_does_not_reimplement_the_parse(self):
+        """Mutation-shaped pin: replace the window form and the
+        whole-buffer form must follow it.  Without this, a future edit
+        can quietly restore two independent parse bodies -- the drift
+        shape pf-adversary raised as D-A in round ``jx6r5p``."""
+
+        sentinel = object()
+        names = (
+            "decode_stall_open_payload_at",
+            "decode_stall_start_payload_at",
+            "decode_stall_operate_payload_at",
+        )
+        wrappers = (
+            sw.decode_stall_open_payload,
+            sw.decode_stall_start_payload,
+            sw.decode_stall_operate_payload,
+        )
+        for at_name, wrapper in zip(names, wrappers):
+            with self.subTest(at_name):
+                original = getattr(sw, at_name)
+                seen = []
+
+                def fake(buf, offset, length, _seen=seen):
+                    _seen.append((bytes(buf), offset, length))
+                    return sentinel
+
+                setattr(sw, at_name, fake)
+                try:
+                    self.assertIs(wrapper(b"\x01\x02\x03"), sentinel)
+                finally:
+                    setattr(sw, at_name, original)
+                self.assertEqual(seen, [(b"\x01\x02\x03", 0, 3)])
+
+
 if __name__ == "__main__":
     unittest.main()
