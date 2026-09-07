@@ -23,17 +23,29 @@ and changes no existing seed value.  That is still true today, and it is
 the half of this paragraph that has NOT changed: being read by somebody
 does not give this module a write.
 
-WHO READS IT.  Exactly one production caller, since 2026-09-07:
-``class_attacker_profile.py`` (LANE-CS, round ``hhmvit``), which asks the
-one question this module exists to answer -- whether a character's level
-is a level the client's own progression table actually carries.  An
-earlier version of this paragraph said "no caller anywhere in this
-repository", and ``COO-ORDER 20260907_2050`` (``pf_bridge/notes_to_chief/
-20260907_2050_COO-ORDER-cs2010-retire-the-scaffold-pin-for-its-first-
-caller-LANE-DB.md``) ordered the owner of this module -- this lane -- to
-retire that sentence rather than let LANE-CS allowlist a name inside a
-LANE-DB pin.  ``tests/test_persistence_standard_status.py`` pins the
-caller list itself: that ONE name, and red on a second.
+WHO READS IT, SINCE 2026-09-07: EXACTLY ONE PRODUCTION CALLER -- LANE-CS's
+class-attacker-profile module (round ``hhmvit``), which asks this module
+the one question it exists to answer, whether a character's level is a
+level the client's own progression table actually carries.
+
+THE NAME IS DELIBERATELY NOT SPELLED OUT AS A LITERAL STRING HERE, for the
+same measured reason this docstring already gives two paragraphs down for
+LANE-B's encoder and ``persistence_class_id.py`` gives for its own
+sibling: that module's ``CallersInSrcTokenIsMeasuredTests`` scans every
+``src/pirateforce_foundation/**/*.py`` file for its filename as a
+SUBSTRING, so prose naming it would be counted as an importer and turn a
+guard red on a sentence.  ``tests/test_persistence_standard_status.py``
+carries the full name, in an assertion, and is where the caller list is
+actually pinned: that ONE name, red on a second, and red if it
+disappears -- ``tests/`` is not scanned by that guard.
+
+AN EARLIER VERSION OF THIS PARAGRAPH SAID "no caller anywhere in this
+repository".  ``COO-ORDER 20260907_2050``
+(``pf_bridge/notes_to_chief/20260907_2050_COO-ORDER-cs2010-retire-the-
+scaffold-pin-for-its-first-caller-LANE-DB.md``) ordered the owner of this
+module -- this lane -- to retire that sentence, rather than let LANE-CS
+allowlist a name inside a LANE-DB pin: the declaration "scaffold, not
+wiring" belongs to the module's owner.
 
 WHAT THIS MODULE DOES DO.  ``CONSTDATA_TH__STANDARD_STATUS.tsv`` is a
 plain, already-committed gamedata table -- ``class_catalog.py``'s own
