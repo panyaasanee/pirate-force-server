@@ -10534,8 +10534,11 @@ PANYA-ORDER `20260906_0155` (เส้นตาย 14:00) สั่งให้ 
 🔴 **ครบ 3 ครั้งแล้วยังลบไม่ได้ = สัญญาเดิมทุกข้อคงเดิม**: คืน `CaptureFileNotVerifiedRemoved`
 (chain จาก error เดิม) · `gm/dispatch.py` **ไม่คืนโควตา** ของสายเรียกนั้น · ไฟล์ยังอยู่บนดิสก์ ·
 พิมพ์ stderr **หนึ่งบรรทัด** `GM_CAPTURE_UNLINK_STUCK path=<ไฟล์> account=<บัญชี>
-attempted_bytes=<ไบต์> attempts=<N>` (ASCII ล้วน ผ่าน `console_safe` ทั้งสองฟิลด์ที่มาจากผู้ใช้จริง —
-`path`/`account`) **ไม่มี janitor และไม่มีอะไรคืนโควตานั้นให้ภายหลัง — โควตาที่ค้างแบบนี้ล้างได้ทางเดียวคือ
+attempted_bytes=<ไบต์> attempts=<N>` (ผ่าน `console_safe` ทั้งสองฟิลด์ที่มาจากผู้ใช้จริง —
+`path`/`account`) 🔴 **ย่อหน้านี้ล้าสมัยไปสองที่ อ่านรูปแบบจริงที่ ADDENDUM รอบ `nfbat1` ข้อ 1 และ
+รอบ `wxh2tw`**: (ก) ไม่ใช่ "ASCII ล้วน" อีกต่อไป — บัญชีชื่อไทยพิมพ์เป็นไทยบนคอนโซล cp874 ·
+(ข) ค่าทุกฟิลด์ถูกใส่เครื่องหมายคำพูดแล้ว (`account="admin"` ไม่ใช่ `account=admin`) ⇒ ผู้ดูแลที่
+grep ตามย่อหน้านี้จะไม่เจอบรรทัดของตัวเอง **ไม่มี janitor และไม่มีอะไรคืนโควตานั้นให้ภายหลัง — โควตาที่ค้างแบบนี้ล้างได้ทางเดียวคือ
 รีสตาร์ต process** (COO ตัดข้อ janitor + คืนโควตาออกจนกว่าจะวัดอาการจริงบนเครื่อง Windows ได้)
 
 **ADDENDUM (รอบ `0op9bt`, ตามผล pf-adversary หลังปลดล็อกรอบก่อน)** — เส้นทาง shutdown
@@ -10547,6 +10550,15 @@ attempted_bytes=<ไบต์> attempts=<N>` (ASCII ล้วน ผ่าน `c
 (`except Exception` ไม่ครอบ `KeyboardInterrupt`/`SystemExit` ซึ่งเป็นสองตัวที่ comment เดิมอ้างถึง) ·
 ทั้งสองข้อพิสูจน์ด้วยมิวแทนต์ (retry=True ที่เส้นทาง shutdown / แคบ guard กลับเป็น `except Exception`)
 ใน `tests/test_gm_command_capture.py`
+🔴 **ครึ่งหลังของประโยคนี้จริงตอนเขียน และเท็จตั้งแต่รอบ `nfbat1` (วัดซ้ำเองรอบ `i3evov`)**: มิวแทนต์
+`except BaseException:` → `except Exception:` ที่ guard ของบรรทัด log **รอด** — `100 passed` บน
+`tests/test_gm_command_capture.py` + `tests/test_gm_command_dispatch.py` ที่คอมมิต `f80f231`
+เหตุผลเชิงกลไก ไม่ใช่เทสหาย: `nfbat1` เพิ่ม clause `except (KeyboardInterrupt, SystemExit)` ไว้
+**ก่อน** clause นี้ ⇒ KI/SE ถูกจับที่ clause บนเสมอ · สิ่งที่เหลือให้ `BaseException` จับคือชนิดที่
+เส้นทางนี้ไปไม่ถึงจริง ⇒ **การกว้างนั้นกลายเป็นของเหลือ** ไม่ใช่การป้องกันที่ทดสอบได้
+🔴 **รอบ `i3evov` จงใจไม่แก้โค้ดตรงนี้ และจงใจไม่เขียนเทสปลอมมาปิดปาก**: นโยบายการกลืน
+`BaseException` ทั้งบ้านเป็นของ chief ตาม `COO-DECISION 0641` ข้อ 4 (รูปที่สาม: ครอบ `BaseException`
+บันทึก แล้ว re-raise `KeyboardInterrupt`/`SystemExit`) — สายนี้รอ chief ลงแล้วค่อยเลิกกลืนตาม
 
 ## เทสของสาย GM ห้ามตรึง "โฮสต์เป็น POSIX" (รอบ `nfbat1` · สาเหตุที่เกตปิด `#962`)
 
@@ -10566,6 +10578,9 @@ attempted_bytes=<ไบต์> attempts=<N>` (ASCII ล้วน ผ่าน `c
 หลักฐานรอบ `nfbat1` (สองชั้นแยกกัน): (1) log ของ job เกตเอง — ชื่อเทสสองใบและข้อความ assert ตรงตัว ·
 (2) จำลองบนคลาวด์ลินุกซ์ด้วยการใส่ `os.O_BINARY` เข้าไปในโมดูล `os` ก่อนเรียก pytest → ไฟล์ก่อนแก้ให้
 **2 failed / 94 passed** เท่ากับเกตเป๊ะ ไฟล์หลังแก้ให้ **96 passed** และไม่ใส่ก็ 96 passed เหมือนกัน ·
+(🔴 **96 คือสแนปช็อตของรอบ `nfbat1` ไม่ใช่เลขที่รันวันนี้แล้วได้** — วัดซ้ำรอบ `i3evov`:
+`pytest tests/test_gm_command_capture.py tests/test_gm_commands.py` = **110 passed** บนกิ่งนี้
+(106 ที่ `f80f231` + 4 ใบใหม่ของรอบนี้) · เลขในเอกสารนี้ตั้งแต่นี้ไปต้องมีคอมมิตกำกับเสมอ)
 ฟันของเทสยังอยู่ (มิวแทนต์: fallback `0`→`4` ทำให้สองใบ "absent" แดง · ถอดแฟล็กออกจากนิพจน์ flags
 ทำให้สองใบ "when available" แดง)
 
@@ -10626,7 +10641,9 @@ except OSError:
 หลักฐานรอบ `vxr32s` (สองชั้นแยกกัน): (1) log ของ job เกตเอง — traceback และ `WinError 123` ตรงตัว
 (เกตยัง **ไม่** พิมพ์บรรทัด `FAILED <node id>` เพราะใบ `-rfE` ของ chief ยังไม่ลง จึงต้องอ่าน traceback แทน) ·
 (2) จำลองกฎชื่อไฟล์ของ Windows บนคลาวด์ลินุกซ์: ไฟล์เทสของ `#970` = **1 failed / 50 passed** (ใบเดียวกับเกตเป๊ะ)
-ไฟล์หลังแก้ = **52 passed** ทั้งในโหมดจำลองและโหมดลินุกซ์ปกติ · ฟันยังอยู่ (มิวแทนต์: ถอด
+ไฟล์หลังแก้ = **52 passed** ทั้งในโหมดจำลองและโหมดลินุกซ์ปกติ
+(🔴 สแนปช็อตของรอบ `vxr32s` เช่นกัน — วัดซ้ำรอบ `i3evov`: `pytest tests/test_gm_command_capture.py`
+= **60 passed** บนกิ่งนี้ (56 ที่ `f80f231`)) · ฟันยังอยู่ (มิวแทนต์: ถอด
 `_fold_line_breaking_controls` ออกจากฟิลด์ `path` ⇒ แดงทั้งสองใบ)
 
 ---
@@ -10758,3 +10775,45 @@ the next `"` that is **not doubled**; `""` inside means one literal `"`; the
 doubling rather than backslash escaping on purpose -- `"` is not a legal
 character in a Windows path, so an ordinary path prints as `path="C:\clean"`
 with one pair of quotes added and nothing else changed.
+
+---
+
+## Round `i3evov` -- เทสที่ถามไดเรกทอรีอย่างเดียวไม่ได้ตรึง descriptor และ fake ที่โกหกเรื่อง encoding
+
+รอบนี้ปิดสี่มิวแทนต์ที่ `pf-adversary` รอบ `wxh2tw` วัดว่า **รอด** และรอบนั้นไม่ได้แก้
+(ทั้งสี่อยู่ในเขตสายนี้ · วัดซ้ำเองก่อนแก้ทุกตัว: ลบ `os.close(fd)` ทีละกิ่ง แล้วไฟล์เทสยัง `56 passed`)
+
+### กฎที่ 1 — เทส cleanup ต้องถาม **descriptor** ไม่ใช่ถามแค่ไดเรกทอรี
+`_capture_raw` ปิด fd ใน `try: os.close(fd) except OSError: pass` สองกิ่ง · บน POSIX `unlink`
+สำเร็จทั้งที่ fd ยังเปิด ⇒ เทสที่ assert แค่ `leftover == []` **เขียวเท่ากันทั้งที่รั่ว** ·
+บน Windows handle ที่รั่วล็อกไฟล์ทั้งอายุ process ⇒ **แพลตฟอร์มเป็นตัวบังคับ ไม่ใช่เทส**
+(ความไม่สมมาตรแบบเดียวกับที่ปิด `#962`/`#970` แค่กลับด้าน)
+⇒ ใช้ `descriptors_opened_by(<module>)` ใน `tests/pf_gm_capture_mocks.py`: สอดส่อง `os.open`
+เก็บเลข fd แล้ว assert `os.fstat(fd)` โยน `OSError` (EBADF) · **ห้าม mock `os.close`** ในเทสชนิดนี้
+เพราะสิ่งที่ต้องพิสูจน์คือ descriptor จริงหายไปจริง ไม่ใช่ว่า mock ถูกเรียก
+ข้อจำกัดที่รู้ (สืบทอดจากเทสเดิมที่แยกออกมา): เป็นการ assert เชิงลบกับ **เลข** fd ที่ OS แจกซ้ำได้ ⇒
+false RED เป็นไปได้ · false green ไม่ได้ในรันเธรดเดียว · ถ้าวันหนึ่งใช้ `pytest-xdist` ต้องเปลี่ยนเป็นบัญชีจริง
+
+### กฎที่ 2 — fake ของสตรีมต้อง **โกหกไม่ได้** เรื่อง encoding
+`io.StringIO` ไม่มี `.encoding` เลย ⇒ `console_safe` ถือว่า ASCII และ fold ที่กำลังทดสอบไม่เคยถูกเดินจริง ·
+ซับคลาสที่ **ตั้ง** `encoding = "cp874"` เฉย ๆ โดยไม่ยอมโยนคือกับดักชั้นถัดไป: เดิน fold แล้วแต่ยังรับ
+ทุกอย่างที่ fold พลาด ⇒ มิวแทนต์ M09 (ถอด `console_safe` ออกจากฟิลด์ `account` ของบรรทัด
+`GM_CAPTURE_UNLINK_STUCK`) **รอดมาเพราะเหตุนี้ตรง ๆ**
+⇒ `Cp874Stream`/`Utf8Stream` ย้ายมาอยู่ที่ `tests/pf_gm_capture_mocks.py` **นิยามเดียว** ทั้งสองไฟล์
+(เหตุผลเดียวกับ `close_that_really_closes_then_fails` รอบ `lkwmkp` D3: สำเนาที่ guard ไปไม่ถึงคือสำเนาที่พัง)
+· `Cp874Stream.write` เรียก `text.encode("cp874")` จริงก่อนเขียน = คอนโซลจริงโยนตรงไหน มันโยนตรงนั้น
+· บัญชีชื่อ **จีน** คือเคสที่แยกสองอย่างนี้ออกจากกัน (cp874 พาไทยได้ พาจีนไม่ได้)
+
+### กฎที่ 3 — ตัวเลขที่ผู้ดูแลอ่านต้องผูกกับงานที่ทำจริง
+`attempts=` เคยพิมพ์เลขที่ literal `3` ก็ทำให้เทสเขียวได้เท่ากัน เพราะทุกเทสที่อ่านบรรทัดนี้เข้ามาทาง
+เส้นทาง retry ซึ่ง 3 เป็นคำตอบจริงพอดี · เส้นทาง shutdown (`retry=False`) พยายาม **ครั้งเดียว** ⇒
+ผู้ดูแลที่กด Ctrl-C แล้วอ่าน `attempts=3` ถูกบอกว่าลบสามครั้งทั้งที่ลบครั้งเดียว
+⇒ เทสหนึ่งใบต้องอ่านบรรทัดจาก **สองเส้นทาง** ในเทสเดียว และ assert ว่าเลข **ต่างกัน**
+ไม่งั้น literal ตัวเดียวผ่านทั้งสอง assert พร้อมกัน
+
+### สิ่งที่รอบนี้ **ไม่** แก้ และเพราะอะไร
+- `N7` (escape `'` ใน `gm/login_scene_override.py`) · การชุบแข็งบรรทัดเพิ่มทุกชนิด — `COO-DECISION 0641`
+  ข้อ 2 สั่งหยุดจ่ายค่ากันปลอมบรรทัด ให้ย้ายค่าใช้จ่ายไปทาง "ทำให้บรรทัดถึงจอ" · M09 ผ่านเกณฑ์นั้น
+  (ชื่อจีน = ไม่ได้บรรทัดเลย) · N7 ไม่ผ่าน
+- `D6`/`N4` (กลืน Ctrl-C) และการกว้างเป็น `BaseException` — เป็นของ chief ตาม `COO-DECISION 0641` ข้อ 4
+- `N1`/`N2` (`_Mirror.encoding` · heartbeat ตัดบรรทัด) — `runtime_console.py` นอกเขตสาย ส่ง chief แล้ว

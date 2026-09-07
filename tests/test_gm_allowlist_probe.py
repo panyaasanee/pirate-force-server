@@ -38,6 +38,14 @@ from pirateforce_foundation.gm.allowlist_probe import (
     format_allowlist_refusal_line,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# The two truthful streams used to be defined here and nowhere else. They
+# moved to the shared helper module when `tests/test_gm_command_capture.py`
+# needed the same pair to make mutant M09 visible (round `i3evov`): one
+# definition, so a weakening of either is a weakening both files see.
+from pf_gm_capture_mocks import Cp874Stream, Utf8Stream  # noqa: E402
+
 
 def _fields(line: str) -> dict:
     """The reading rule docs/GM_LANE.md gives operators, as code.
@@ -69,40 +77,6 @@ def _fields(line: str) -> dict:
         fields.setdefault(key, "".join(out))
     return fields
 
-
-
-class _Cp874Stream(io.StringIO):
-    """A stream that tells the TRUTH about what it can carry.
-
-    `io.StringIO` has no `encoding` at all, so `console_safe` treats it as
-    able to carry anything and the folds it performs are never exercised --
-    which is how three mutants on this module survived their first review
-    (pf-adversary, round `wxh2tw`, N5: dropping the fold or `console_safe`
-    from a field left every test green). A real operator console on this
-    project is `cp874`; this is what one behaves like.
-    """
-
-    encoding = "cp874"
-
-    def write(self, text):
-        text.encode(self.encoding)  # a real console raises here, so do we
-        return super().write(text)
-
-
-class _Utf8Stream(io.StringIO):
-    """A stream that announces `utf-8`, which production's really does.
-
-    `runtime_console._Mirror.encoding` is a hardcoded `"utf-8"` property and
-    `app.py` installs it as `sys.stderr`, so this -- not cp874 -- is what
-    `console_safe` is asked about at runtime. It matters for the line-break
-    fold: on a cp874 stream `console_safe` folds `U+0085` anyway, because
-    cp874 cannot encode it, and a test written against cp874 alone therefore
-    passes with the fold removed (pf-adversary, round `wxh2tw`: mutant A06
-    survived its first review for exactly this reason). Here the character
-    is carryable, so only the fold can stop it.
-    """
-
-    encoding = "utf-8"
 
 
 class GmAllowlistProbeTests(unittest.TestCase):
@@ -242,7 +216,7 @@ class GmAllowlistProbeTests(unittest.TestCase):
         # console the print raises on the first character it cannot encode
         # and the operator gets NO LINE -- the exact failure the capture
         # line paid for in round `0op9bt` (D4), on a Thai-language project.
-        stream = _Cp874Stream()
+        stream = Cp874Stream()
         self.assertTrue(announce_not_gm_once("\u0e17\u0e14\u0e2a\u0e2d\u0e1a", stream=stream))
         printed = stream.getvalue()
         self.assertEqual(len(printed.splitlines()), 1)
@@ -251,7 +225,7 @@ class GmAllowlistProbeTests(unittest.TestCase):
     def test_an_account_name_that_cp874_cannot_carry_still_yields_a_line(self):
         # The other half: a name the console genuinely cannot encode must be
         # folded to something it can, not dropped along with the whole line.
-        stream = _Cp874Stream()
+        stream = Cp874Stream()
         self.assertTrue(announce_not_gm_once("\u5f20\u4f1f", stream=stream))
         self.assertEqual(len(stream.getvalue().splitlines()), 1)
 
@@ -261,7 +235,7 @@ class GmAllowlistProbeTests(unittest.TestCase):
         # on the allowlist path, so dropping it survived.
         hostile = Path(self._tmp.name) / "a\x85GM_COMMAND_REFUSED_NOT_GM b" / "x.json"
         line = format_allowlist_refusal_line(
-            describe_gm_allowlist(hostile), "admin", _Utf8Stream(),
+            describe_gm_allowlist(hostile), "admin", Utf8Stream(),
         )
         self.assertEqual(len(line.splitlines()), 1, repr(line))
         self.assertIn("\\x85", line)
@@ -290,7 +264,7 @@ class GmAllowlistProbeTests(unittest.TestCase):
         # one that printed. "Once per process" held only for a server with
         # one connection at a time, which is the opposite of an operator
         # holding EXECUTE while v141's heartbeat worker runs alongside.
-        stream = _Cp874Stream()
+        stream = Cp874Stream()
         winners = []
         barrier = threading.Barrier(8)
 
@@ -399,6 +373,26 @@ class GmRunCommandHookAnnouncesTests(unittest.TestCase):
         self.assertNotIn(GM_ALLOWLIST_CONSOLE_TOKEN, printed)
         self.assertTrue(any(root.rglob("*.txt")), "no capture file was written")
 
+    def test_an_allowlist_path_that_is_a_directory_agrees_with_the_loader(self):
+        # pf-adversary (round `wxh2tw`, N10): `describe_gm_allowlist` uses
+        # `is_file()`, matching `accounts.load_gm_accounts`, and no test
+        # anywhere covered the case where the resolved path EXISTS but is a
+        # directory -- the shape an operator produces by pointing the env
+        # override at the config folder instead of the file inside it.
+        #
+        # The property that matters is agreement, not the wording: this line
+        # must never describe a state the server did not act on. Both must
+        # read a directory as "nobody is GM", and the line must NOT report a
+        # count for a file it never opened.
+        with tempfile.TemporaryDirectory() as tmp:
+            as_directory = Path(tmp) / "gm_accounts.json"
+            as_directory.mkdir()
+            status = describe_gm_allowlist(as_directory)
+            self.assertEqual(accounts.load_gm_accounts(as_directory), frozenset())
+            self.assertFalse(status.exists)
+            line = format_allowlist_refusal_line(status, "admin", Utf8Stream())
+        self.assertIn("accounts=missing", line)
+        self.assertNotIn("accounts=0", line)
 
 
 if __name__ == "__main__":
