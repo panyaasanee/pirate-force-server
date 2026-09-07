@@ -49,7 +49,11 @@ from .activity_cheat_code_wire import (
     GmActivityCheatCodeWireError,
     decode_activity_cheat_code_vital,
 )
-from .command_wire import GmCommandWireError, decode_gm_run_command_vital
+from .command_wire import (
+    GmCommandWireError,
+    decode_gm_run_command_vital,
+    decode_gm_run_command_vital_prefix,
+)
 from .login_scene_override import console_safe
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
@@ -441,13 +445,7 @@ def _escape_for_header(text: str) -> str:
     return text.encode("unicode_escape").decode("ascii")
 
 
-def _decode_section(raw: bytes) -> str:
-    try:
-        body = decode_gm_run_command_vital(raw)
-    except GmCommandWireError as exc:
-        return f"# decode: FAILED against RE-088 pin -- {exc}\n"
-    if body is None:
-        return "# decode: presence=0 (no nested body; structurally valid, empty)\n"
+def _body_lines(body) -> str:
     return (
         f"# decode: presence={body.presence} (nonzero -- RE-088 pin; field"
         " names are positional, not semantic)\n"
@@ -456,6 +454,48 @@ def _decode_section(raw: bytes) -> str:
         f"# decode: string_0x1c=\"{_escape_for_header(body.string_0x1c)}\"\n"
         f"# decode: string_0x38=\"{_escape_for_header(body.string_0x38)}\"\n"
     )
+
+
+def _decode_section(raw: bytes) -> str:
+    """The `# decode:` block for one GM_RunGMCommandVital payload.
+
+    Three outcomes, and the middle one is why this is not a two-liner.
+    `runtime.py` hands this lane `bytes(parsed.nested_payload)`, which v141
+    sets to EVERY BYTE AFTER THE FIRST NESTED VITAL'S HEADER -- so on a
+    frame carrying more than one vital the bytes after this command's own
+    body belong to the vital next door.  The client is MEASURED to bundle
+    up to five (ka1-A attended round R303; R313 caught a real chat frame
+    with 0xAC52 followed by 0x0F01, which is why `gm/chat_frame_tail.py`
+    exists).  Before this branch such a capture printed only
+    `# decode: FAILED ... trailing byte(s) remain` and threw the decoded
+    command away -- the reader lost the fields to a frame shape that is not
+    a defect.  Now the fields are printed and the leftover is REPORTED, on
+    its own greppable `# decode: TRAILING` line.
+
+    What that line does NOT say is what the leftover bytes are.  Deciding
+    that needs `vital_walk`'s declared body lengths and a `legacy` handle,
+    and this sink takes neither by design -- it must keep working when
+    nothing else does.  So it reports a length, never an interpretation.
+    """
+    try:
+        body = decode_gm_run_command_vital(raw)
+    except GmCommandWireError as exc:
+        try:
+            prefix_body, consumed = decode_gm_run_command_vital_prefix(raw)
+        except (GmCommandWireError, TypeError):
+            prefix_body, consumed = None, 0
+        if prefix_body is not None and consumed < len(raw):
+            return (
+                _body_lines(prefix_body)
+                + f"# decode: TRAILING {len(raw) - consumed} byte(s) after this"
+                " vital's body -- not decoded here; the shape of a multi-vital\n"
+                "# decode: frame (v141 nested_payload runs to the end of the"
+                " packet).  The hex dump below still carries every byte.\n"
+            )
+        return f"# decode: FAILED against RE-088 pin -- {exc}\n"
+    if body is None:
+        return "# decode: presence=0 (no nested body; structurally valid, empty)\n"
+    return _body_lines(body)
 
 
 def _activity_cheat_code_decode_section(raw: bytes) -> str:
