@@ -3117,3 +3117,103 @@ Carried to the next round, named rather than hidden:
   carrying 86 distinct `(level, multiplier)` pairs.  So no per-file test
   can ever tie a resolved amount to an observed reward -- only a live quest
   instance can, which is the same missing dispatcher as above.
+
+## Round 8ou0zg (2026-09-07) -- the write half: a payout seam that refuses
+
+**What moved**: nothing in the 160-name count.  What moved is that a
+resolved reward number now has ONE place to go, and that place says out
+loud, on every call, that it is not going there yet and exactly whose
+seam is missing.  `lua_api/reward.py` is new; `Quest.AddCriteriaExp` /
+`AddCriteriaCash` / `AddCriteriaSkillPoint` call it.
+
+**Still 34/160 real.**  The six criteria names stay in `STILL_STUBBED`:
+they return `STUB_DEFAULT` unchanged, because nobody has measured what
+the game's own engine returns from them, and a payout is a side effect,
+not a return value.  Changing the return value to look busier would be
+this lane guessing an API contract it has not measured.
+
+### The shape, and why it is not the obvious one
+
+The obvious implementation is read the balance, add, write it back.  It is
+wrong here in two independent ways (`pf-adversary` D14, round `wn088m`),
+either one sufficient:
+
+1. **RMW across two connections silently eats the other writer.**  Two
+   sessions in one scene share this process (`NOW.md` "shared world") and
+   combat, trade and quest payouts all move the same columns.  A read at
+   T0 and an `UPDATE` at T2 discards anything written at T1, with no error
+   anywhere.  `store.spend_skill_points` is the shape this project already
+   settled on: one `BEGIN IMMEDIATE`, read and write inside it.
+2. **There is no balance to read.**  `store.read_typed_attributes` DROPS
+   NULL columns, so `.get("experience", 0)` on a character nobody has ever
+   granted experience to is a guess of zero -- forbidden by name in
+   `COO-DECISION 20260901_1059`.
+
+So `reward.pay` never reads a balance.  It asks its store for a DELTA and
+takes the store's word for the result.  A store that cannot do that
+atomically is REFUSED (`refused=store_has_no_atomic_add`), not served
+slowly.  `SQLiteStore` has no such method today; the `CORE-REQUEST` asking
+LANE-DB for `add_typed_attribute(character_id, column, delta)` went out
+this round (`pf_bridge/notes_to_chief/20260907_1027_LANE-Q-CORE-REQUEST-*`).
+
+### What is pinned, and how
+
+* The RMW ban is a TRIPWIRE, not a string count (`pf-adversary` D3's
+  lesson): `RmwTripwireStore.__getattr__` raises on any attribute the
+  payout path touches other than `add_typed_attribute`.  Reintroducing the
+  read fails a call, not a grep.
+* `KIND_COLUMN` is three frozen entries, pinned both ways: every value is a
+  real `persistence_typed_attrs.TYPED_COLUMNS` name, and every kind in
+  `quest_criteria.KINDS` appears.  No game-table cell becomes a column name.
+* `test_the_real_store_class_is_refused_today` goes RED the day LANE-DB
+  lands the method.  That is deliberate: the round that gets the method is
+  the round that must replace it with a test that pays a real row.
+* Every refusal reason comes from a closed set (`reward.REFUSALS` plus
+  `quest_criteria`'s own), so a caller counting refusals cannot grow one
+  key per input.
+
+### Two log lines, two facts
+
+`LUA_QUEST_CRITERIA` is what the game's tables resolve for this quest;
+`LUA_QUEST_PAYOUT` is what happened to that number.  They are separate
+because they fail separately and a reader needs to tell which lane is
+holding the reward up: "this quest has no reward row" is a mirror
+question, "the store has no atomic add" is a LANE-DB question.  A resolve
+refusal short-circuits, so it is logged once, not restated by a payment
+layer that never got a number.
+
+### Debts from round `wn088m` closed here
+
+* **D13** -- `lua_api/spec.py` guarded its TSV header with a bare `assert`.
+  `python -O` DELETES assert statements, so under `-O` a re-vendor that
+  reordered the count columns would have been parsed happily, swapping
+  `call_count` and `file_count` across all 160 rows.  The guard did not
+  weaken under `-O`, it ceased to exist.  Now raises `VendoredDataError`,
+  proven by running the loader against corrupt copies in a `-O` SUBPROCESS
+  (asserting it in-process proves nothing about a flag this process was not
+  started with).  Short rows, non-integer counts, an empty file and a
+  header with no rows each refuse by name and line number.
+* **D11** -- `script_path_for_quest` ran `rglob("*.lua")` over all 616
+  corpus files and sorted them, on EVERY dispatch, to pick one.  Now
+  indexed once per RESOLVED root, bounded at `ROOTS_CACHED_CAP`, with
+  `reset_caches()`.  Pinned by counting actual `rglob` calls, not by
+  asserting a cache exists.
+* Fixing D11 surfaced a live crash that was already there: the
+  duplicate-stem refusal built its message with `relative_to(root)` against
+  the CALLER's spelling while holding paths from the resolved root, so a
+  root containing `..` raised a bare `ValueError` from inside the error
+  path instead of the refusal naming the duplicate files.  There is a test.
+
+### Still open
+
+* **D10 is half closed.**  The reward path now has an in-server caller;
+  `load_quest_script` still has none.  Nothing decides which quest a player
+  is on, and NO FRAME GOES OUT -- a client watching its EXP bar will not
+  see it move because of anything in this round.
+* **D12** -- `run_corpus_entry_points` still files innocent scripts under
+  `call_failed`.
+* Zero-amount rewards are refused as `amount_is_zero` before the store is
+  consulted (quest 12 carries multiplier `0.0` and is a real example).
+  That is a true statement about those quests, not a defect, but it means
+  "refused" in a log is not by itself evidence of a missing seam -- read
+  the reason.
