@@ -814,10 +814,18 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
                     trigger_response.CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED,
                 )
 
-    def test_nothing_in_src_constructs_an_evidence_reading_yet(self):
-        # The honest state of the door frame this round widened: it is a
-        # door frame, not a door. If this ever fails, somebody wired tier 3
-        # to a live session and that needs a ticket, not a green test.
+    def test_exactly_one_production_file_constructs_an_evidence_reading(self):
+        # THE DOOR FRAME BECAME A DOOR IN ROUND `p7rob4`, AND THIS TEST
+        # CHANGED SIDES RATHER THAN BEING DELETED. It used to assert that
+        # NOTHING in `src/` built an `IslandContactEvidence` -- true while
+        # the module had no importer, and the honest thing to pin then.
+        # `lane_hooks/lane_a_island_trigger_log.py` now builds one from the
+        # bytes of every inbound 0x1FB2 frame and prints the verdict, which
+        # is what gives M2 a `HEADLESS_PROOF:` token at all.
+        #
+        # So the pin is now a CENSUS, not a zero: exactly these two files,
+        # and a third appearing is still a thing that needs a ticket rather
+        # than a green test.
         import subprocess
 
         src = Path(__file__).resolve().parents[1] / "src"
@@ -828,8 +836,26 @@ class Tier3IsACheckNotANameTests(M2RegistryIsolation):
         ).stdout.split()
         self.assertEqual(
             sorted(Path(hit).name for hit in found),
-            ["world_m2_trigger_vital_response.py"],
+            ["lane_a_island_trigger_log.py",
+             "world_m2_trigger_vital_response.py"],
         )
+
+    def test_the_one_importer_still_turns_no_verdict_into_a_frame(self):
+        # THE LINE `PANYA 1910` DRAWS, pinned where the module can see it.
+        # An importer that PRINTS a verdict is allowed; an importer that
+        # SENDS one is a guessed frame, which this lane is forbidden to
+        # write until the RE ticket for the captain-report window lands.
+        # Read from the hook's source rather than from its behaviour on
+        # purpose: this file must not import the hook (that closes the
+        # cycle documented in the hook itself).
+        hook_source = (
+            Path(__file__).resolve().parents[1]
+            / "src" / "pirateforce_foundation" / "lane_hooks"
+            / "lane_a_island_trigger_log.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("answer_guard_reason", hook_source)
+        for sending in ("session.send", "queue_frame", "compose_", "actions.append"):
+            self.assertNotIn(sending, hook_source)
 
 
 class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
@@ -2796,6 +2822,73 @@ class Tier2AndTier3HaveToAgreeOnWhichIslandTests(M2RegistryIsolation):
                     (),
                 )
 
+    def test_a_row_of_the_wrong_arity_is_skipped_in_both_directions(self):
+        # pf-adversary D3: `len(box) == 6` -> `>= 6` SURVIVED. The
+        # docstring justifies the arity check with a FIVE-field typo, and
+        # only the short direction was ever tested -- so a hand-typed table
+        # that gained a field, which is exactly as likely as one that lost
+        # one, reached the unpack and raised `ValueError` out of a function
+        # whose contract is "a named refusal, never an exception".
+        # SWEEP, NOT THREE EXAMPLES. The first version of this test
+        # whitelisted arities 5, 7 and 0, which pins those three arities and
+        # not the predicate: pf-adversary D1 of round `p7rob4` shipped
+        # `len(box) in (6, 4)` green, and a four-field transcription typo in
+        # a future extent row then escaped `_tier3_contact_reason` as
+        # `ValueError` -- the exact contract this check exists to keep.
+        box = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        rows = [tuple(float(i) for i in range(n)) for n in range(0, 13) if n != 6]
+        for row in rows:
+            with self.subTest(fields=len(row)):
+                self.assertFalse(trigger_response._is_a_readable_row(row))
+                self.assertEqual(
+                    trigger_response._ordinals_containing_position(
+                        5.0, 5.0, 5.0, {2: row}
+                    ),
+                    (),
+                )
+                # And through tier 3, which is where the raise would have
+                # escaped: a malformed row is a refusal WITH A NAME.
+                self.assertEqual(
+                    self.tier3((5.0, 5.0, 5.0), 2, boxes={2: row}),
+                    trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+                )
+
+    def test_a_tuple_subclass_is_not_a_readable_row(self):
+        # pf-adversary D4: `type(box) is tuple` -> `isinstance` SURVIVED.
+        # Fourth sighting of this mutant in a file that spends sixty lines
+        # on the lesson in `_is_a_wire_int`; the KEY side is pinned twice
+        # and the VALUE side was pinned nowhere. A subclass gets to answer
+        # `__len__` and `__getitem__` itself, so admitting one hands the
+        # unpack to the caller's code.
+        # AND A PLAIN `list` IS NOT A ROW EITHER, which the `Liar` case does
+        # NOT cover: pf-adversary D1 shipped `type(box) in (tuple, list)`
+        # green. A list row is a MUTABLE row admitted into the table the
+        # whole freeze section exists to keep immutable, and
+        # `_readable_extent_for` would vouch for it and hand the caller's own
+        # object back.
+        class Liar(tuple):
+            def __len__(self):
+                return 6
+
+        for row in (
+            Liar((0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 99.0)),
+            [0.0, 0.0, 0.0, 10.0, 10.0, 10.0],
+            [0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 99.0],
+        ):
+            with self.subTest(kind=type(row).__name__, fields=len(row)):
+                self.assertFalse(trigger_response._is_a_readable_row(row))
+                self.assertEqual(
+                    trigger_response._ordinals_containing_position(
+                        5.0, 5.0, 5.0, {2: row}
+                    ),
+                    (),
+                )
+                self.assertEqual(
+                    self.tier3((5.0, 5.0, 5.0), 2, boxes={2: row}),
+                    trigger_response.
+                    CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+                )
+
     def test_the_bounds_are_inclusive_on_all_twelve_half_axes(self):
         # pf-adversary C8, closed here because this round is already inside
         # the geometry: `<=` -> `<` survived every test in the file, so the
@@ -2803,16 +2896,128 @@ class Tier2AndTier3HaveToAgreeOnWhichIslandTests(M2RegistryIsolation):
         # was decided by nothing. A ship exactly on a bound is INSIDE --
         # the same direction the just-outside test one class down asserts
         # from the other side.
+        #
+        # TWELVE HALF-AXES MEANS TWELVE ASSERTIONS, AND UNTIL `p7rob4` THIS
+        # NAME LIED ABOUT WHAT IT MEASURED.  The first version walked the
+        # six bounds and asserted ONE direction only (on the bound => not
+        # refused).  A one-sided test cannot tell an inclusive bound from
+        # NO BOUND AT ALL, and pf-adversary's D2 measured exactly that:
+        # deleting `z0 <= z and z <= z1` from
+        # `_ordinals_containing_position` left the whole file green, so a
+        # ship one kilometre above Prison Exile was certified as moored
+        # there.  x and y were pinned by other tests in this file; z was
+        # pinned by nothing on either side, because every observation in
+        # `M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` sits at z 86.0 or 186.0
+        # and every box spans about [-164, +336] -- no point in the file
+        # has ever made a z comparison answer False.
+        #
+        # So each of the six bounds is now asserted from BOTH sides: ON the
+        # bound is inside (inclusivity, C8), and one step PAST it is
+        # refused by name (the bound exists at all, D2).  The step is large
+        # enough to survive float representation at these magnitudes and
+        # small enough that the point cannot land in another island's box
+        # -- ordinals 1, 2 and 3 are thousands of units apart in x and y.
         box = trigger_response.ISLAND_EXTENT_BOXES[2]
         x0, y0, z0, x1, y1, z1 = box
         centre = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+        outward = (-1.0, -1.0, -1.0, 1.0, 1.0, 1.0)
+        step = 0.5
+        probed: set[tuple[float, float, float]] = set()
         for axis, bound in enumerate((x0, y0, z0, x1, y1, z1)):
-            with self.subTest(axis=axis, bound=bound):
+            with self.subTest(axis=axis, bound=bound, side="on"):
                 point = list(centre)
                 point[axis % 3] = bound
                 self.assertIsNone(
                     self.tier3(tuple(point), 2),
                     "a position exactly on a bound of ordinal 2 was refused",
+                )
+                probed.add(tuple(point))
+            with self.subTest(axis=axis, bound=bound, side="past"):
+                point = list(centre)
+                point[axis % 3] = bound + outward[axis] * step
+                self.assertEqual(
+                    self.tier3(tuple(point), 2),
+                    trigger_response.
+                    CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
+                    "a position past a bound of ordinal 2 was let through",
+                )
+                probed.add(tuple(point))
+        # THE COUNT IS OF DISTINCT POINTS, AND EACH ONE MOVED EXACTLY ONE
+        # COORDINATE. The first version counted loop trips with a hand-written
+        # `asserted += 1`, and pf-adversary D4 of round `p7rob4` made that
+        # count read 12 while the sweep measured the x axis six times and y
+        # and z zero times -- the name back to being false with its own
+        # counter green. A hand-typed number about a loop is the same defect
+        # as a hand-typed line number about a file; both are re-derived here.
+        self.assertEqual(len(probed), 12)
+        for point in probed:
+            moved = [i for i in range(3) if point[i] != centre[i]]
+            self.assertEqual(len(moved), 1, point)
+        self.assertEqual(
+            {i for point in probed for i in range(3) if point[i] != centre[i]},
+            {0, 1, 2},
+            "an axis was never probed",
+        )
+
+    def test_the_z_bounds_are_read_from_the_row_not_from_ordinal_2(self):
+        # pf-adversary D8 of round `p7rob4`: replacing `z0 <= z <= z1` with
+        # ordinal 2's own z constants, `-163.99 <= z <= 336.01`, SURVIVED the
+        # whole file. Every committed row happens to share that z band and
+        # the sweep above walks only ordinal 2, so nothing ever read a z
+        # bound OUT OF THE ROW. A later round adding an island whose z extent
+        # differs -- which this file explicitly contemplates -- would have
+        # had that row's z bounds ignored and ordinal 2's used instead.
+        narrow = {7: (0.0, 0.0, 900.0, 10.0, 10.0, 910.0)}
+        self.assertEqual(
+            trigger_response._ordinals_containing_position(
+                5.0, 5.0, 905.0, narrow
+            ),
+            (7,),
+            "a row's own z band did not admit a point inside it",
+        )
+        for outside in (899.0, 911.0, 0.0, 186.0):
+            with self.subTest(z=outside):
+                self.assertEqual(
+                    trigger_response._ordinals_containing_position(
+                        5.0, 5.0, outside, narrow
+                    ),
+                    (),
+                    "a z outside the row's own band was admitted",
+                )
+
+    def test_the_z_bounds_are_pinned_as_tightly_as_x_and_y(self):
+        # pf-adversary D8 again: `z0 - 0.4 <= z <= z1 + 0.4` survived while
+        # the identical pad on x was killed, because the sweep's step is 0.5
+        # and nothing tighter probed z. These four points are one hundredth
+        # of a unit past the z bounds of the two real ordinals, so a pad of
+        # any size at all now dies on z as it already did on x.
+        for ordinal in (2, 3):
+            x0, y0, z0, x1, y1, z1 = trigger_response.ISLAND_EXTENT_BOXES[ordinal]
+            centre = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+            for z in (z0 - 0.01, z1 + 0.01):
+                with self.subTest(ordinal=ordinal, z=z):
+                    self.assertEqual(
+                        self.tier3((centre[0], centre[1], z), ordinal),
+                        trigger_response.
+                        CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
+                    )
+
+    def test_a_ship_high_above_an_island_is_not_moored_at_it(self):
+        # D2 IN THE PLAYER'S WORDS, kept separate from the half-axis sweep
+        # because this is the failure that was actually measured, not a
+        # boundary argument: with the z term deleted,
+        # `answer_guard_reason(126, 2, reading@(centre x, centre y,
+        # z=1_000_000.0))` returned `None` -- a pass. The sweep above would
+        # catch it too, but a mutant that keeps a HALF of the z comparison
+        # is caught by the sweep and this one states the whole point.
+        box = trigger_response.ISLAND_EXTENT_BOXES[2]
+        x0, y0, _z0, x1, y1, _z1 = box
+        for z in (1_000_000.0, -1_000_000.0):
+            with self.subTest(z=z):
+                self.assertEqual(
+                    self.tier3(((x0 + x1) / 2, (y0 + y1) / 2, z), 2),
+                    trigger_response.
+                    CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
                 )
 
     def test_the_crosswalk_this_change_rests_on_re_derives_from_the_tables(self):

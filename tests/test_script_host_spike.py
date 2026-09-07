@@ -411,11 +411,11 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "CanReportDailyQuest", "ReportDailyQuest",
         }))
 
-    def test_the_7_real_player_names_are_excluded_above_not_forgotten(self):
+    def test_the_9_real_player_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the guards above, for Player's own real
         # names (GetLv/GetClass from round gqjas5, CheckItemNum/GetItemNum/
         # CheckEquipItem from round qbr5h8's inventory read seam, MobAppear
-        # this round -- COO-DECISION 20260907_0043).
+        # from round x6gxzd -- COO-DECISION 20260907_0043).
         from pirateforce_foundation.lua_api import player as lua_api_player
 
         self.assertEqual(lua_api_player.REAL_METHODS, frozenset({
@@ -423,6 +423,12 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "MobAppear",
             # ShowMessage joined in round `6775u1` (message-wire).
             "ShowMessage",
+            # AddExp/AddSkillPoint joined in round `yfeauz`: the first two
+            # Player.* names that WRITE, paying through
+            # store.add_typed_attribute (lua_api/reward.py's grant door).
+            # AddCash is deliberately NOT here -- the corpus calls it with a
+            # negative amount and no spend door exists yet.
+            "AddExp", "AddSkillPoint",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):

@@ -1639,5 +1639,80 @@ class MultiFileCountIsRederivedTests(unittest.TestCase):
             )
 
 
+class ArtifactPassedAsCatalogIsRefused(unittest.TestCase):
+    """`--tsv <the artifact>` must name the mistake, not print CENSUS DRIFT.
+
+    THE FAILURE THIS PINS, MEASURED (round `8y18nc`, 2026-09-07).  Before the
+    guard in ``load_names``, running
+
+        python3 tools/pf_ui_wire_name_census.py \
+            --tsv reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv
+
+    read this tool's OWN emitted artifact as if it were the master catalog
+    -- the artifact's first line is ``id<TAB>name<TAB>family...`` and every
+    line under it also carries a hex id and a Vital name, so the parser
+    accepted all of it -- derived a 328-row census off that, compared it
+    against the committed artifact and printed ``CENSUS DRIFT ... does not
+    match a fresh re-derive``.
+
+    That output is a false alarm about the artifact, and it was read as a
+    true one twice: LANE-GM reported the artifact stale on main
+    (``pf_bridge/notes_to_chief/20260907_1929_LANE-GM-TO-COO-ui-wire-name-
+    census-artifact-is-stale-on-main.md``) and COO re-ran the same command,
+    got the same line, and ordered LANE-UI to re-emit
+    (``20260907_2050_COO-DECISION-gm1929-...``).  The artifact was never
+    stale: ``--emit`` with the real defaults on the same commit rewrites it
+    byte-for-byte (``git diff`` empty), which the sibling test below is what
+    already covers.
+
+    So this is not a usability nicety.  A measuring tool that answers a
+    question nobody asked, in the words of the question they did ask, spends
+    other lanes' rounds; two are already spent.  It refuses instead.
+    """
+
+    def test_artifact_as_tsv_raises_census_error_naming_both_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "PF_UI_WIRE_NAME_CENSUS_FAKE.tsv"
+            artifact.write_text(
+                "id\tname\tfamily\tis_client_req\ttier\tevidence\n"
+                "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\t"
+                "Winemaking_\t0\tNAME-ONLY\t-\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(census.CensusError) as caught:
+                census.load_names(artifact)
+        message = str(caught.exception)
+        # Both flag names, because the reader who hit this typed one of them
+        # meaning the other; a message that says only "wrong file" leaves
+        # them to guess which way round it goes.
+        self.assertIn("--tsv", message)
+        self.assertIn("--artifact", message)
+
+    def test_main_exits_2_and_prints_no_drift_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "PF_UI_WIRE_NAME_CENSUS_FAKE.tsv"
+            artifact.write_text(
+                "id\tname\tfamily\tis_client_req\ttier\tevidence\n"
+                "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\t"
+                "Winemaking_\t0\tNAME-ONLY\t-\n",
+                encoding="utf-8",
+            )
+            err = io.StringIO()
+            with mock.patch.object(sys, "stderr", err):
+                code = census.main(["--tsv", str(artifact)])
+        self.assertEqual(code, 2)
+        # The exact string two lanes acted on. It must not appear for a
+        # wrong INPUT file -- that is the whole regression.
+        self.assertNotIn("CENSUS DRIFT", err.getvalue())
+        self.assertIn("CENSUS ERROR", err.getvalue())
+
+    def test_the_real_catalog_still_loads(self):
+        """The guard must not fire on the file it is guarding for."""
+        UI_WIRE_CENSUS_INPUTS.require(self)
+        rows = census.load_names()
+        self.assertGreater(len(rows), 300)
+        self.assertNotIn(("id", "name"), rows)
+
+
 if __name__ == "__main__":
     unittest.main()

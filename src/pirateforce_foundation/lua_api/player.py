@@ -1,6 +1,7 @@
-"""LANE-Q's ``Player`` namespace: 6 of 73 names real
+"""LANE-Q's ``Player`` namespace: 9 of 73 names real
 (``GetLv``/``GetClass``, ``CheckItemNum``/``GetItemNum``/``CheckEquipItem``,
-plus this round's ``MobAppear``).
+``MobAppear``, ``ShowMessage``, plus round `yfeauz`'s ``AddExp``/
+``AddSkillPoint`` -- the first two that WRITE).
 
 WHY THESE TWO, WHY TOGETHER.  ``docs/SCRIPT_LANE.md`` (round `bxly5p`) found
 both of LANE-Q's own charter blockers still closed at this round's own
@@ -167,6 +168,8 @@ except ImportError:  # pragma: no cover - stdlib since Python 3.8, this project'
 
 from .. import inventory, player_wire
 from . import message as _message
+from . import quest_criteria as _quest_criteria
+from . import reward as _reward
 
 #: Mirrors ``script_host.STUB_DEFAULT`` without importing that module
 #: (``script_host`` imports THIS package, via ``lua_api/__init__.py`` ->
@@ -270,12 +273,65 @@ _EMPTY_BACKPACK = inventory.BackpackState(
     inventory.BACKPACK_RANGE_MASK, (),
 )
 
-#: The seven names real so far. See the module docstring for why these
-#: seven, and why every other Player.* name is not real yet.
+#: The nine names real so far. See the module docstring for why these
+#: nine, and why every other Player.* name is not real yet.
 REAL_METHODS = frozenset({
     "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
     "MobAppear", "ShowMessage",
+    # The two ADD-a-stat names whose column exists and whose sign is
+    # always positive in the corpus (see :data:`GRANT_KINDS`).
+    "AddExp", "AddSkillPoint",
 })
+
+#: The API name -> reward kind map for the grant closures: which
+#: ``characters`` column each name adds to.  FROZEN AND CLOSED, two
+#: entries, and the value is one of this package's own
+#: ``quest_criteria.KIND_*`` constants -- never a string a script can
+#: produce, never a column name spelled here (``lua_api.reward.
+#: KIND_COLUMN`` owns that mapping and a test pins it against
+#: ``persistence_typed_attrs.TYPED_COLUMNS``).
+#:
+#: WHY ONLY TWO, when eight names sit under ``_STAT_GRANT``.  Neither is
+#: called with a negative LITERAL anywhere in the corpus: all four call
+#: sites are ``Player.GetLv()*Trigger.Var5`` in ``t_getm_rat_exp&sp.lua``
+#: and ``t_inskyev_getm_rat_exp&sp.lua`` (grepped across all 616 files,
+#: the only call sites of either).  SAID EXACTLY (pf-adversary D6, round
+#: yfeauz, correcting an earlier wording here that claimed more): that is
+#: a fact about the argument's SHAPE, not about its VALUE -- ``Var5`` is
+#: trigger placement data that does not live in this repository, so its
+#: sign is UNMEASURED, and the closure below is what actually holds the
+#: floor by refusing anything negative before the store is touched.  Both
+#: names land in a column
+#: ``store.add_typed_attribute`` already accepts.  ``AddCash`` does NOT
+#: qualify on the first count: ``q_ship.lua:50`` calls
+#: ``Player.AddCash(-Quest.Var3)`` and ``q_boat_health.lua:21``
+#: ``Player.AddCash(Quest.Var2 * -1)`` -- a quest CHARGING the player,
+#: which needs a spend door with a floor answer that
+#: ``add_typed_attribute`` deliberately does not have (its own docstring:
+#: ``delta >= 0`` only).  Paying the positive calls and silently dropping
+#: the charges would let a player buy a ship for free, so ``AddCash``
+#: stays stubbed until that door exists.  The other five need columns
+#: (HP/ST/pp-class/morale) or a percentage-of-level rule that no table in
+#: the committed artifacts pins.
+GRANT_KINDS: dict[str, str] = {
+    "AddExp": _quest_criteria.KIND_EXP,
+    "AddSkillPoint": _quest_criteria.KIND_SKILL_POINT,
+}
+
+#: Sanity ceiling on a grant amount decoded off the Lua stack, the same
+#: role ``_MAX_TEMPLATE_ID``/``_MAX_MOB_ID`` play for ids: not a game rule,
+#: a door against a garbage float.  ``u32``, and THIS LANE'S OWN CHOICE
+#: rather than the column's (pf-adversary D10, round yfeauz, correcting an
+#: earlier comment here that presented it as deference):
+#: ``persistence_typed_attrs`` calls ``experience`` a ``u64``
+#: (max 9223372036854775807) and ``skill_points`` a ``u32``, so this bound
+#: is 2**32 tighter than the wider of the two columns.  Deliberate: no
+#: script in the corpus asks for a number anywhere near it, and a single
+#: grant past ``u32`` is far likelier to be a decode fault than a reward.
+#: The cost is named rather than hidden -- such an amount is refused as a
+#: BAD VALUE with no ``refused=`` token, in the same bucket as ``nan``;
+#: widening it is a one-constant change the day a real script needs it.
+_MAX_GRANT_AMOUNT = 0xFFFFFFFF
 
 
 class PlayerMobAppearStore(Protocol):
@@ -405,6 +461,15 @@ _STAT_GRANT = (
     "needs a per-character stat WRITE/grant seam this lane does not own "
     "yet (Player.* item/exp/money queue item, not built yet)"
 )
+_STAT_SPEND = (
+    "the column and the atomic add exist, but the corpus calls this name "
+    "with a NEGATIVE amount (gamedata/lua/Quest/q_ship.lua:50, "
+    "q_boat_health.lua:21 -- a quest charging the player) and "
+    "store.add_typed_attribute takes delta >= 0 only, deliberately; "
+    "paying the positive calls while dropping the charges would let a "
+    "player buy a ship for free, so this name waits for a spend door with "
+    "a floor answer (asked of LANE-DB by letter this round)"
+)
 _STAT_READ = (
     "needs per-character state this lane's PlayerContext does not carry "
     "yet (level/class_id are the only two PlayerContext exposes this "
@@ -445,11 +510,13 @@ STILL_STUBBED: dict[str, str] = {
     "CheckAllCollectItemSynthesisBuff": _ITEM_STATE,
     "DropProcess": _ITEM_STATE,
     # stat-grant writes (8)
-    "AddCash": _STAT_GRANT,
+    # AddExp/AddSkillPoint moved to REAL_METHODS this round (see
+    # GRANT_KINDS): their column exists and their corpus call sites are
+    # all non-negative.  The six below do not qualify, each for a reason
+    # named rather than "not done yet".
+    "AddCash": _STAT_SPEND,
     "AddHP": _STAT_GRANT,
     "AddST": _STAT_GRANT,
-    "AddExp": _STAT_GRANT,
-    "AddSkillPoint": _STAT_GRANT,
     "AddPpClass": _STAT_GRANT,
     "GiveLvCriteriaPercentageEXP": _STAT_GRANT,
     "Addmoralized": _STAT_GRANT,
@@ -538,17 +605,24 @@ class RealPlayerNamespace:
     ``Var1``) -> bare :data:`STUB_DEFAULT`, silently.
     """
 
-    __slots__ = ("_context", "_store", "_sink", "_log", "_stub_methods",
-                 "namespace", "calls")
+    __slots__ = ("_context", "_store", "_sink", "_payout_store", "_log",
+                 "_stub_methods", "namespace", "calls")
 
     def __init__(self, methods: frozenset, context: PlayerContext,
                  log: Callable[[str], None],
                  store: "PlayerMobAppearStore",
-                 sink: "_message.MessageSink"):
+                 sink: "_message.MessageSink",
+                 payout_store=None):
         self.namespace = "Player"
         self._context = context
         self._store = store
         self._sink = sink
+        # The character-column store the grant closures add through.  None
+        # is the honest default and it REFUSES OUT LOUD rather than
+        # pretending (lua_api.reward.REFUSE_NO_STORE): a namespace built
+        # without one must never tell a script -- or a client -- that a
+        # reward was paid when no row moved.
+        self._payout_store = payout_store
         self._log = log
         self._stub_methods = methods - REAL_METHODS
         self.calls: list = []
@@ -700,6 +774,46 @@ class RealPlayerNamespace:
 
             return show_message
 
+        if name in GRANT_KINDS:
+            kind = GRANT_KINDS[name]
+
+            def add_stat(*args, _name=name, _kind=kind):
+                self.calls.append("Player.%s" % _name)
+                if len(args) != 1:
+                    _log_bad_arity(self._log, _name, len(args), "1")
+                    return STUB_DEFAULT
+                amount = _coerce_int(args[0], _MAX_GRANT_AMOUNT)
+                if amount is None:
+                    # Includes every NEGATIVE amount: _coerce_int's floor is
+                    # 0.  Neither of these two names is ever called with one
+                    # in the corpus (GRANT_KINDS' own docstring), so a
+                    # negative arriving here is a script this host has not
+                    # seen or a Var that decoded wrong -- refused and
+                    # logged, never turned into a silent charge.
+                    _log_bad_value(self._log, _name, amount=args[0])
+                    return STUB_DEFAULT
+                _granted, _reason = _reward.grant(
+                    "Player.%s" % _name, _kind,
+                    self._context.character_id, amount,
+                    store=self._payout_store, log=self._log)
+                # THE RETURN VALUE STAYS STUB_DEFAULT EVEN ON A PAID GRANT,
+                # the same rule the six Quest.Add*Criteria* names already
+                # live under (tests/test_script_lua_api_reward.py::
+                # test_the_stub_still_returns_the_stub_default): a payout is
+                # a SIDE EFFECT, and nobody has measured what the game's own
+                # engine returns from these two names.  Both corpus call
+                # sites use them as statements
+                # (`Player.AddExp(Player.GetLv()*Trigger.Var5);`), so no
+                # script observes the difference today -- and handing back a
+                # raw column balance would be this lane inventing an API
+                # contract, which is the one thing its charter forbids.
+                # NO FRAME GOES OUT either: a client watching its EXP bar
+                # does not see this move until whatever Player.* frame
+                # reports a stat change is wired, which is not this round.
+                return STUB_DEFAULT
+
+            return add_stat
+
         if name in self._stub_methods:
             qualified = "Player.%s" % name
 
@@ -722,7 +836,8 @@ class RealPlayerNamespace:
 def build_namespace(methods: frozenset, log: Callable[[str], None], *,
                      context: Optional[PlayerContext] = None,
                      store: Optional["PlayerMobAppearStore"] = None,
-                     sink: "Optional[_message.MessageSink]" = None) -> RealPlayerNamespace:
+                     sink: "Optional[_message.MessageSink]" = None,
+                     payout_store=None) -> RealPlayerNamespace:
     """The ``Player`` global ``ScriptHost`` installs, real half included.
 
     ``context`` defaults to :data:`DEFAULT_CONTEXT` -- not a production
@@ -743,9 +858,19 @@ def build_namespace(methods: frozenset, log: Callable[[str], None], *,
     script run to land in one ordered record MUST pass the identical
     ``sink`` instance to both this function and
     ``lua_api.trigger.build_namespace``.
+
+    ``payout_store`` (this round, for ``AddExp``/``AddSkillPoint``) has NO
+    default and no in-memory stand-in on purpose, unlike every parameter
+    above it. A private in-memory reward balance would be a number that
+    looks paid, survives nothing, and reaches no client -- the exact shape
+    ``lua_api.reward`` refuses. Without one, both grant closures refuse
+    with ``no_reward_store`` and say so in the log; with one (the process's
+    real ``store.SQLiteStore``, handed down by ``script_host.ScriptHost``)
+    they move an actual ``characters`` row.
     """
     return RealPlayerNamespace(
         methods, context if context is not None else DEFAULT_CONTEXT, log,
         store if store is not None else InMemoryPlayerMobAppearStore(),
         _message.check_sink(sink) if sink is not None
-        else _message.InMemoryMessageSink())
+        else _message.InMemoryMessageSink(),
+        payout_store)
