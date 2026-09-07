@@ -257,6 +257,31 @@ class TheWordingThePlayerWillSee(unittest.TestCase):
                 reached[marker_id] = destination.scene_id
         self.assertEqual(reached, {17: 126, 343: 304, 345: 305})
 
+    def test_a_decreed_row_that_disagrees_with_its_own_accessor_raises(self):
+        # The `pragma: no cover` branches in _by_marker_id() are refusals, not
+        # decoration, and this is the test they point at: drive them by giving
+        # the module a decree table world_scene_marker does not back.
+        import unittest.mock as mock
+        with mock.patch.object(tc.world_scene_marker, "decreed_arrival_row",
+                               lambda scene, marker: None):
+            with self.assertRaises(tc.TeleportCheckError) as raised:
+                tc._by_marker_id()
+        self.assertIn(tc.CHECK_REFUSED_MARKER_ROW_NOT_PINNED,
+                      str(raised.exception))
+
+    def test_a_decreed_row_may_not_shadow_a_named_arrival_row(self):
+        import unittest.mock as mock
+        named = tc.world_scene_marker.arrival_point(1)
+        with mock.patch.object(
+                tc.world_scene_marker, "DECREED_ARRIVAL_ROWS",
+                ((named.marker_n_id, 126, 1, 2, 3, 4),)):
+            with mock.patch.object(tc.world_scene_marker,
+                                   "decreed_arrival_row",
+                                   lambda scene, marker: (1, 2, 3, 4)):
+                with self.assertRaises(tc.TeleportCheckError) as raised:
+                    tc._by_marker_id()
+        self.assertIn("both a named and a decreed", str(raised.exception))
+
     def test_a_marker_id_that_is_also_a_scene_id_resolves_as_a_marker(self):
         # 17 is both a marker id (scene 126's decreed arrival row) and a real
         # scene id.  `world_scene_marker.decreed_arrival_row` takes both ids

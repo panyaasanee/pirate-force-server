@@ -233,14 +233,14 @@ def _by_marker_id() -> "dict[int, Any]":
     for marker_n_id, scene_n_id, _x, _y, _z, _dir in (
             world_scene_marker.DECREED_ARRIVAL_ROWS):
         point = world_scene_marker.decreed_arrival_row(scene_n_id, marker_n_id)
-        if point is None:                       # pragma: no cover - see test
+        if point is None:                       # covered by a patched test
             raise TeleportCheckError(
                 "%s marker_id=%d scene=%d (DECREED_ARRIVAL_ROWS and "
                 "decreed_arrival_row disagree in world_scene_marker)"
                 % (CHECK_REFUSED_MARKER_ROW_NOT_PINNED, marker_n_id,
                    scene_n_id))
         x, y, z, direction = point
-        if marker_n_id in rows:                 # pragma: no cover - see test
+        if marker_n_id in rows:                 # covered by a patched test
             raise TeleportCheckError(
                 "%s marker_id=%d is both a named and a decreed arrival row"
                 % (CHECK_REFUSED_MARKER_ROW_NOT_PINNED, marker_n_id))
