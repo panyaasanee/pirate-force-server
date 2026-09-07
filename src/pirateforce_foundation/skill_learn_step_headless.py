@@ -24,6 +24,18 @@ It does NOT say the client accepts the frame, draws anything, or locks the
 walk -- nothing here has a client in it.  That is exactly the question
 GT-276 puts to an attended run, and this proof does not pre-empt one word
 of it.
+
+How to run it
+-------------
+From the repository root, with no PYTHONPATH and nothing installed::
+
+    python3 src/pirateforce_foundation/skill_learn_step_headless.py
+
+One step only, same command with ``--step COUNT1_TRAIL0`` appended.
+
+``python3 -m pirateforce_foundation.skill_learn_step_headless`` needs ``src``
+on PYTHONPATH already and is NOT the documented form: the ticket's re-run
+happens on a plain checkout.
 """
 
 from __future__ import annotations
@@ -33,7 +45,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+_THIS_FILE = Path(__file__).resolve()
+ROOT = _THIS_FILE.parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
@@ -48,6 +61,36 @@ from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+
+def _refuse_a_foreign_checkout() -> None:
+    """Every module in this proof must come from THIS tree, or say so loudly.
+
+    The bootstrap above only inserts ``src`` when it is absent from
+    ``sys.path``, so a PYTHONPATH naming another checkout's ``src`` FIRST
+    wins: this file drives that tree's composer, gate and dispatcher while
+    the token names nothing at all.  ka1-A re-runs this proof to decide
+    whether GT-276 boards the capture bus, so a token that can be produced
+    by code from a different commit is worse than no token.
+    """
+    home = str(ROOT / "src")
+    for module in (
+        "pirateforce_foundation.learn_skill_result_hypothesis",
+        "pirateforce_foundation.runtime",
+        "pirateforce_foundation.store",
+        "pirateforce_foundation.legacy_bridge",
+        "pirateforce_foundation.chat_input_hypothesis",
+    ):
+        origin = Path(sys.modules[module].__file__).resolve()
+        if not str(origin).startswith(home + "/") and not str(
+            origin
+        ).startswith(home + "\\"):
+            raise RuntimeError(
+                "%s came from %s, not from %s"
+                % (module, origin, home)
+            )
+
+
+_refuse_a_foreign_checkout()
 
 TOKEN_PREFIX = "LEARN_SKILL_STEP_ARMED"
 SCENARIOS = ROOT / "scenarios"
@@ -126,8 +169,15 @@ def _run_every_step() -> int:
     """Each step needs its own process: one process serves one plan."""
     lines = []
     for label in L.LEARN_SKILL_RESULT_STEP_ORDER:
+        # Address the child by FILE, not by "-m <module>": the documented
+        # command has to run from a plain checkout with no PYTHONPATH set
+        # (NOW.md has ka1-A re-run this proof before an attended boot and
+        # cull the ticket when it does not reproduce), and "-m" needs src on
+        # the path before the interpreter can even find this module.  Run by
+        # path, __spec__ is None here, so naming the file is also the only
+        # form that works in both directions.
         done = subprocess.run(
-            [sys.executable, "-m", __spec__.name, "--step", label],
+            [sys.executable, str(_THIS_FILE), "--step", label],
             capture_output=True, text=True, cwd=str(ROOT),
         )
         sys.stdout.write(done.stdout)
