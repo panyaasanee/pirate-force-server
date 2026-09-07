@@ -45,7 +45,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
     field_mob_ai_tables, field_mob_tables, field_mob_tables_bg0002,
-    field_mobs, mob_aggro, mob_ai_control, mob_death,
+    field_mob_tables_bg0003, field_mobs, mob_aggro, mob_ai_control, mob_death,
 )
 from pirateforce_foundation.mob_ai_control import (  # noqa: E402
     MobAiControlError, MobAiRegister, MobAiRow, MobAiStep, commit_step,
@@ -86,7 +86,23 @@ MINED_AGGRO_RADIUS = 1200
 # where a row that does still lives, so the tests that need one use that
 # scene's roster instead of a stand-in.
 OFFENSIVE_PLACEMENTS = ()
-BG0002_OFFENSIVE_PLACEMENTS = (92, 93, 94, 95, 96)
+# ROUND najn72: ~~BG0002_OFFENSIVE_PLACEMENTS = (92, 93, 94, 95, 96)~~ -> ().
+# Scene 2 was re-mined under the crosswalk identity rule (NOW.md `1313`, owner
+# tick 20260908_0025) and its 52 shipped placements are ALL ai_wander 16 --
+# measured, not assumed: every row of ``field_mob_tables_bg0002
+# .HOSTILE_PLACEMENTS`` has 16 in the wander column.  The five Orc Chief rows
+# that used to be this file's charging subject are gone from the table
+# entirely (the crosswalk resolves no named body for placements 92-96), so a
+# fixture reading them raises KeyError rather than going quietly stale.
+# The charging subject moves to a scene that still ships one AND ships it for
+# real -- Bg0003 placement 33 ("Ward Apes", ai_wander 11) -- which is
+# strictly better than what it replaced: the old subject was a row the
+# owner's own refusal list keeps OUT of the shipped roster, so this file's
+# join was exercised on a monster no player can meet.  Both carry the same
+# mined radius, because both read AI_WANDER row 11.
+BG0002_OFFENSIVE_PLACEMENTS = ()
+BG0003_OFFENSIVE_PLACEMENTS = (33, 35)
+CHARGING_PLACEMENT = 33
 
 
 def outcome(target, damage, hp_before, max_hp, attacker=PLAYER,
@@ -216,8 +232,17 @@ class MinedRowTests(unittest.TestCase):
         # an extra" cannot pass) AND every one of them is checked against
         # the derived dropped set above (so a NEW extra with no ruling
         # behind it fails here rather than being absorbed).
+        # ROUND najn72: ~~[69, 87, 92, 93, 94, 95, 96]~~ -> [69, 87].  The
+        # five Bg0002 Orc Chief placements left the LINKS TABLE with the
+        # scene re-mining, because the links are mined from the scene tables
+        # themselves and the crosswalk rule resolves no body for 92-96.  They
+        # are still in ``dropped`` above (the owner's ruling names all eight
+        # indices whether or not today's mining resolves them, which
+        # field_mobs says in its own words) -- so this is the two lists
+        # legitimately disagreeing, not the guard weakening: every extra is
+        # still checked against ``dropped`` below.
         self.assertEqual(
-            [row[0] for row in extras], [69, 87, 92, 93, 94, 95, 96])
+            [row[0] for row in extras], [69, 87])
         for row in extras:
             self.assertIn(row[0], dropped)
         # Index 87 is in the LINKS TABLE TWICE -- Bg0002 ships a placement
@@ -346,6 +371,14 @@ class ProfileJoinTests(unittest.TestCase):
             for m in field_mobs._parse_hostile_placements(
                 field_mob_tables_bg0002)
         }
+        # ROUND najn72: the initiating subject is Bg0003's, and it is read
+        # through ``load_roster`` -- the SHIPPED path -- rather than the
+        # generated table, because for this scene the row is genuinely
+        # shipped.  The comment above stays because its reasoning is what
+        # keeps the passive Bg0002 subject on the table path.
+        self.charging = next(
+            m for m in field_mobs.load_roster(scene=field_mob_tables_bg0003.SCENE)
+            if m.placement_index == CHARGING_PLACEMENT)
 
     def test_the_profile_of_every_roster_row_is_buildable(self):
         # Before this round the profile refused a zero aggro radius AND
@@ -451,7 +484,11 @@ class ProfileJoinTests(unittest.TestCase):
         # all, so profile_of forces them passive regardless of what their
         # wander row says (which is the third assertion below, kept separate
         # because it is a DIFFERENT statement).
-        charging = profile_of(self.bg0002[92])
+        # ROUND najn72: ~~self.bg0002[92]~~ -> self.charging.  See
+        # BG0002_OFFENSIVE_PLACEMENTS at the top of this file: scene 2 ships
+        # no initiating monster at all any more, and the charging subject is
+        # now a row a player can actually meet.
+        charging = profile_of(self.charging)
         passive = profile_of(self.bg0002[50])
         self.assertEqual(charging.aggro_radius, float(MINED_AGGRO_RADIUS))
         self.assertIs(charging.offensive, True)
@@ -1010,6 +1047,13 @@ class TickTests(unittest.TestCase):
         bg0002_roster = field_mobs._parse_hostile_placements(
             field_mob_tables_bg0002)
         self.bg0002 = {m.placement_index: m for m in bg0002_roster}
+        # ROUND najn72: the charging subject is Bg0003's shipped Ward Apes.
+        charging_roster = field_mobs.load_roster(
+            scene=field_mob_tables_bg0003.SCENE)
+        self.charging = next(
+            m for m in charging_roster
+            if m.placement_index == CHARGING_PLACEMENT)
+        self.charging_register = open_register(charging_roster)
         self.register = open_register(self.roster)
         # A register tracks the roster it was opened on, and the two scenes
         # are never merged into one (assert_single_scene_tables), so a Bg0002
@@ -1039,13 +1083,13 @@ class TickTests(unittest.TestCase):
         self.assertEqual(step.intent.kind, mob_aggro.INTENT_NONE)
 
     def test_a_charging_monster_acquires_inside_its_mined_radius(self):
-        mob = self.bg0002[92]
-        inside = tick_step(self.bg0002_register, mob.actor_identity,
+        mob = self.charging
+        inside = tick_step(self.charging_register, mob.actor_identity,
                            self.observe(mob, [self.player_at(
                                mob, float(MINED_AGGRO_RADIUS))]))
         self.assertEqual(inside.after.phase, mob_aggro.PHASE_AGGRO)
         self.assertEqual(inside.after.target_identity, PLAYER)
-        outside = tick_step(self.bg0002_register, mob.actor_identity,
+        outside = tick_step(self.charging_register, mob.actor_identity,
                             self.observe(mob, [self.player_at(
                                 mob, float(MINED_AGGRO_RADIUS) + 1.0)]))
         self.assertEqual(outside.after.phase, mob_aggro.PHASE_IDLE)
@@ -1086,13 +1130,15 @@ class TickTests(unittest.TestCase):
                          mob_ai_control.REFUSE_NOT_TRACKED)
 
     def test_a_tick_is_deterministic_and_mutates_nothing(self):
-        mob = self.bg0002[92]
+        mob = self.charging
         observation = self.observe(mob, [self.player_at(mob, 500.0)])
-        first = tick_step(self.bg0002_register, mob.actor_identity, observation)
-        second = tick_step(self.bg0002_register, mob.actor_identity, observation)
+        first = tick_step(self.charging_register, mob.actor_identity,
+                          observation)
+        second = tick_step(self.charging_register, mob.actor_identity,
+                           observation)
         self.assertEqual(first.after, second.after)
         self.assertEqual(first.intent, second.intent)
-        self.assertEqual(self.bg0002_register.generation, 0)
+        self.assertEqual(self.charging_register.generation, 0)
 
 
 class DescribeAndPinTests(unittest.TestCase):

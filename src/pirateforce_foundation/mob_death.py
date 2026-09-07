@@ -498,8 +498,39 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # would authorise it, because that mob's own .scene is "bg0001", not
     # "Bg0002" -- the exact reverse-direction hazard the task that added
     # this entry named explicitly.
+    # ROUND najn72: ~~{31, 34, 35, 103}~~ -> {27..35}, the whole census block
+    # the ADDENDUM named, in the SAME commit that re-mines the scene (owner
+    # tick 2026-09-08 ~00:1x, notes_to_chief/20260908_0025_KA1A-PANYA-TICK-
+    # COO-4-items..., item 1, word for word "do them together").  The
+    # paragraph above says the set is EXACTLY the mined roster's distinct
+    # template ids and that 27-30/32/33 fail the outfit-unambiguous rule.
+    # Both halves of that sentence changed, and neither changed here:
+    #   * the outfit rule was withdrawn by the owner (COO-DECISION 20260907_
+    #     1346, NOW.md `1313`: an enemy is n_RANK + n_AI_COMBAT and s_OUTFIT
+    #     decides nothing), so a ";"-list outfit no longer removes a row; and
+    #   * the identity rule for THIS scene is the crosswalk (`1313`), not the
+    #     set-number reading the old table was mined under.
+    # Under both, field_mob_tables_bg0002.HOSTILE_PLACEMENTS is 52 rows over
+    # nine templates, and those nine ARE 27..35 -- so this set is still
+    # "exactly the mined roster's distinct template ids", re-derived from the
+    # table in tests/test_mob_death.py, and it is still not a hand-guessed
+    # slice of the census block: it is the block because the mining now
+    # resolves the whole block, which is the reason the two halves had to
+    # land together.
+    # WHAT LEAVES: template 103 (Orc Chief).  Its only Bg0002 placements are
+    # 92-96, which the owner refused (field_mobs.OWNER_REFUSED_PLACEMENTS)
+    # and which the crosswalk does not resolve to a named body at all, so no
+    # Bg0002 row carries it any more and a permit for it here would authorise
+    # a body this lane never ships.  The bg0001 and Bg0004 rulings that also
+    # name 103 are untouched; they carry their own scene ties.
+    # WHAT NOW OVERLAPS: template 27 is in this set and in the
+    # diag-mountain-deer-template-27 ruling below.  That is the ordinary
+    # overlap this dict's scene axis exists for -- that one is tied to
+    # "bg0001" (the diagnostic objects stand at the bg0001 test point), this
+    # one to "Bg0002", and kill() checks mob.scene as well as template_id, so
+    # neither permit reaches the other's rows.
     "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
-    "widen-death-scope-bg0002": frozenset({31, 34, 35, 103}),
+    "widen-death-scope-bg0002": frozenset(range(27, 36)),
     # Same letter, same timestamp, ADDENDUM 20:18's SEPARATE sentence:
     # the owner named Mountain Deer (MOBS n_ID 27) as the body for all five
     # GT-114/DIAG-001 diagnostic objects

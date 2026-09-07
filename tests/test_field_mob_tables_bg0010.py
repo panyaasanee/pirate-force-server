@@ -261,7 +261,12 @@ class Bg0010ShapeTests(unittest.TestCase):
 
     def test_registering_scene_ten_left_the_other_scenes_alone(self) -> None:
         self.assertEqual(len(field_mobs.roster_for_scene_id(1)), 4)
-        self.assertEqual(len(field_mobs.roster_for_scene_id(2)), 12)
+        # ROUND najn72: ~~12~~ -> 52.  Scene 2 was re-mined through the
+        # crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+        # 20260908_0025).  This line means "registering THIS scene left
+        # scene 2 alone", and it still does: the number moved in the
+        # round that re-mined scene 2, not in this one.
+        self.assertEqual(len(field_mobs.roster_for_scene_id(2)), 52)
         self.assertEqual(len(field_mobs.roster_for_scene_id(3)), 12)
         self.assertEqual(len(field_mobs.roster_for_scene_id(4)), 7)
         self.assertEqual(len(field_mobs.roster_for_scene_id(5)), 6)

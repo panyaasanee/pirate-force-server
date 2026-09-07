@@ -247,7 +247,12 @@ class Bg0003ShapeTests(unittest.TestCase):
             self) -> None:
         """A fifth scene must not move the four already on the wire."""
         self.assertEqual(len(field_mobs.roster_for_scene_id(1)), 4)
-        self.assertEqual(len(field_mobs.roster_for_scene_id(2)), 12)
+        # ROUND najn72: ~~12~~ -> 52.  Scene 2 was re-mined through the
+        # crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+        # 20260908_0025).  This line means "registering THIS scene left
+        # scene 2 alone", and it still does: the number moved in the
+        # round that re-mined scene 2, not in this one.
+        self.assertEqual(len(field_mobs.roster_for_scene_id(2)), 52)
         self.assertEqual(len(field_mobs.roster_for_scene_id(5)), 6)
         # ~~12~~ -> 11 for scene 14, round j5v7mu: COO-DECISION
         # 20260905_0545 withheld placement 87 (Carlos) from what this lane
