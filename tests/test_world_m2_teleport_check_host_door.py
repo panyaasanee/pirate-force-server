@@ -95,6 +95,21 @@ class TheHostHandsTheTravelOrderOutTests(unittest.TestCase):
         self.assertIs(host.teleport_check_sink, namespace.teleport_check_sink)
         self.assertIs(host.teleport_check_sink, namespace._teleport_check_sink)
 
+    def test_the_hosts_door_cannot_be_swapped_out_from_under_the_namespace(self):
+        # An assignable attribute re-opened at the host layer the hole the
+        # namespace's own read-only property closes: assigning it left the
+        # namespace recording into the old sink while the dispatcher read a
+        # new one that stayed empty forever -- every travel order in the
+        # session lost with no log line (LANE-Q review, letter `20260908_0552`).
+        host = _host()
+        namespace = host.namespaces["Player"]
+        with self.assertRaises(AttributeError):
+            host.teleport_check_sink = tc.InMemoryTeleportCheckSink()
+        host.load("function Go() Player.TeleportCheck(%d) end" % PINNED_MARKER_ID)
+        host.call("Go")
+        self.assertIs(host.teleport_check_sink, namespace.teleport_check_sink)
+        self.assertEqual(len(host.teleport_check_sink.orders), 1)
+
     def test_a_load_script_file_host_carries_the_sink_through_too(self):
         import tempfile
         from pathlib import Path

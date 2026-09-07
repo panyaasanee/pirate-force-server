@@ -556,10 +556,6 @@ class ScriptHost:
         #: :class:`MirrorUnavailable`.
         self.degraded: bool = built is None
         self.namespaces: dict = {} if built is None else built
-        #: The travel orders `Player.TeleportCheck` records, reachable by the
-        #: caller that dispatches frames (LANE-A M2; None on a degraded host).
-        self.teleport_check_sink = getattr(
-            self.namespaces.get("Player"), "teleport_check_sink", None)
         g = self.runtime.globals()
         for namespace, stub in self.namespaces.items():
             g[namespace] = stub
@@ -600,6 +596,22 @@ class ScriptHost:
             raise MirrorUnavailable(
                 "%s refused: this host was built with a broken vendored "
                 "mirror and carries no API namespaces (%s)" % (what, cause))
+
+    @property
+    def teleport_check_sink(self):
+        """The travel orders `Player.TeleportCheck` records; None if degraded.
+
+        READ-THROUGH, and a property rather than an attribute set in
+        ``__init__`` because an assignable one re-opened at the host layer the
+        exact hole the namespace's own read-only property was added to close
+        (LANE-Q review, letter `20260908_0552`): ``host.teleport_check_sink =
+        other`` succeeded silently, the namespace kept recording into the old
+        sink, and whoever dispatched frames read a new one that stayed empty
+        forever -- every travel order in the session lost without one log line.
+        With no stored state there is nothing that can disagree.
+        """
+        return getattr(self.namespaces.get("Player"),
+                       "teleport_check_sink", None)
 
     def load(self, source: str) -> None:
         """Compile and run a script's top-level chunk (its function defs)."""
