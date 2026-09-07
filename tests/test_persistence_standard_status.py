@@ -10,6 +10,7 @@ grade the accessor itself: it must load the real committed table, its
 sha256 guard must fire on a corrupted copy (not silently pass), and its
 lookup must be fail-closed for a level the table does not carry.
 """
+import ast
 import hashlib
 import sys
 import tempfile
@@ -185,59 +186,64 @@ class SourceHashGuardTests(unittest.TestCase):
             standard_status_module._load_rows()
 
 
-class NoProductionCallerTests(unittest.TestCase):
-    def test_module_has_no_caller_outside_itself_and_this_test_file(self):
-        """This is a scaffold, not a wiring (module docstring): it must not
-        already be imported by any production module, migration or
-        scenario, the same "no caller yet" property
-        `test_world_avatar_attr.py::NoOtherCallerTests` pins for its own
-        decoder -- including that test's exact suffix set.  pf-adversary
-        (round `epxry7`) measured that an earlier draft of this test only
-        scanned `.py`/`.sql`, one suffix narrower than the reference guard
-        it claimed to follow (`.json` was missing), and proved the gap live
-        by dropping a `.json` file under `scenarios/` carrying this
-        module's name -- the suite stayed green.  `.json` is included here
-        for the same reason `test_world_avatar_attr.py` includes it:
-        `scenarios/*.json` files carry real prose, not just inert config.
+class SoleProductionCallerTests(unittest.TestCase):
+    #: The one production module allowed to name this one, written as a
+    #: repository-relative posix path so the assertion below reads as the
+    #: caller LIST it is, not as a count.  `COO-ORDER 20260907_2050`
+    #: (`pf_bridge/notes_to_chief/20260907_2050_COO-ORDER-cs2010-retire-
+    #: the-scaffold-pin-for-its-first-caller-LANE-DB.md`) names this file
+    #: as the first caller and this lane as the one who must say so.
+    SOLE_CALLER = "src/pirateforce_foundation/class_attacker_profile.py"
 
-        `tests/` and `reports/` are still not scanned -- the same gap the
-        reference guard itself has (its own `roots` list omits them too),
-        inherited on purpose rather than invented here; a second test file
-        added later that imports this module would not trip this guard,
-        same as it would not trip `test_world_avatar_attr.py`'s.
+    def test_class_attacker_profile_is_the_only_production_caller(self):
+        """`src/pirateforce_foundation/class_attacker_profile.py` -- and
+        nothing else -- may name this module.
 
-        [assumption of LANE-CS - awaiting COO] THIS SCAFFOLD NOW HAS EXACTLY
-        ONE CONSUMER, and the line below that admits it IS AN ALLOWLIST.
-        Calling it anything else would be false, and an earlier draft of this
-        paragraph did exactly that -- it claimed the guard had been
-        "narrowed", when `needle`, `roots` and the suffix set are
-        byte-identical before and after and the only change is one more entry
-        in the set this loop skips (pf-adversary, round `hhmvit`, D1).  The
-        rule LANE-CS is working under (`NOW.md`, pending section 7; the Thai
-        line reads `pin daeng tam docstring = klap pin nai bai diao kan ham
-        skip/xfail/allowlist`, rendered rather than quoted) says a pin that
-        goes red per its own docstring is moved in the same ticket and never
-        skipped, xfailed OR allowlisted.  So this edit uses a mechanism that
-        rule names, and LANE-CS is not pretending otherwise: it is here,
-        labelled, because the alternative was deleting a correctly sourced
-        check, and COO decides which is right.  LANE-CS's
-        `class_attacker_profile.py` (round `hhmvit`) asks this module the one
-        question it exists to answer -- whether a character's level is a
-        level the client's own progression table actually carries -- so the
-        docstring premise above ("it must not already be imported by any
-        production module") is no longer the property this project wants
-        pinned.  Every OTHER module is still guarded: adding a second
-        importer still turns this red.  LANE-CS edited a file outside its own
-        write zone to do this and says so rather than hiding it; the letter
-        `pf_bridge/notes_to_chief/20260907_2010_LANE-CS-ASK-COO-*` puts it to
-        COO and LANE-DB, who may reverse it -- reversing means LANE-CS drops
-        the import, not that the check gets silenced."""
+        WHAT REPLACED WHAT, SO THE CHANGE IS NOT MISTAKEN FOR A WEAKENING.
+        Until `COO-ORDER 20260907_2050` this was
+        `NoProductionCallerTests`, pinning that NOTHING imported this
+        module ("this is a scaffold, not a wiring"), the same "no caller
+        yet" property `test_world_avatar_attr.py::NoOtherCallerTests` pins
+        for its own decoder.  LANE-CS's `class_attacker_profile.py` (round
+        `hhmvit`) then asked this module the one question it exists to
+        answer -- whether a character's level is a level the client's own
+        progression table carries -- and the pin went red per its own
+        docstring.  LANE-CS proposed allowlisting one name inside a
+        LANE-DB pin; COO REFUSED that (the house rule forbids
+        skip/xfail/allowlist for a pin that goes red per its own
+        docstring) and ruled that the declaration "scaffold, not wiring"
+        belongs to the module's owner, which is this lane.  So the pin is
+        MOVED, in the ticket that made it red, to the property this
+        project now wants held: not "nobody calls it" but "exactly this
+        one caller calls it".
+
+        `needle`, `roots` and the suffix set are byte-identical to the
+        retired version -- pf-adversary (round `hhmvit`, D1) caught an
+        earlier LANE-CS draft calling an allowlist a "narrowing", and the
+        honest description of THIS edit is that the scan is unchanged and
+        only the EXPECTED RESULT moved from `[]` to a one-name list.
+        `class_attacker_profile.py` is deliberately NOT in `mine`: a name
+        skipped by the loop is a name nobody measures, and the whole point
+        of this test after the order is that the caller list is measured.
+
+        RED ON A SECOND CALLER, which is what makes it a pin at all: any
+        other file under `roots` naming this module appends to `offenders`
+        and the list stops matching.  A caller that DISAPPEARS turns it
+        red too -- an empty list is no longer the pass condition -- so the
+        day LANE-CS drops the import (the reversal their own letter
+        describes) this test says so instead of quietly going green.
+
+        `tests/` and `reports/` are still not scanned, the same gap the
+        reference guard `test_world_avatar_attr.py::NoOtherCallerTests`
+        has in its own `roots` list, inherited on purpose rather than
+        invented here.  `.json` IS scanned: pf-adversary (round `epxry7`)
+        proved the gap live by dropping a `.json` file under `scenarios/`
+        carrying this module's name while the suite stayed green.
+        """
         needle = "persistence_standard_status"
         mine = {
             (ROOT / "src" / "pirateforce_foundation"
              / "persistence_standard_status.py").resolve(),
-            (ROOT / "src" / "pirateforce_foundation"
-             / "class_attacker_profile.py").resolve(),
             Path(__file__).resolve(),
         }
         roots = [
@@ -259,7 +265,53 @@ class NoProductionCallerTests(unittest.TestCase):
                 text = path.read_text(encoding="utf-8", errors="replace")
                 if needle in text:
                     offenders.append(path.relative_to(ROOT).as_posix())
-        self.assertEqual(offenders, [])
+        self.assertEqual(offenders, [self.SOLE_CALLER])
+
+    def test_the_sole_caller_exists_and_really_imports_this_module(self):
+        """The list above is a string comparison; this is the fact behind
+        it.  Without this, a rename of `class_attacker_profile.py` would
+        turn the pin red for the right reason but a DELETION of its import
+        while the file kept the name in a comment would keep it green.
+        """
+        caller = ROOT / self.SOLE_CALLER
+        self.assertTrue(caller.is_file(), self.SOLE_CALLER)
+        source = caller.read_text(encoding="utf-8")
+        self.assertIn("persistence_standard_status", source)
+        tree = ast.parse(source)
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name.rsplit(".", 1)[-1]
+                                for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imported.add(node.module.rsplit(".", 1)[-1])
+                imported.update(alias.name for alias in node.names)
+        self.assertIn(
+            "persistence_standard_status", imported,
+            "the sole caller names this module but does not import it -- "
+            "the caller list is prose, not a wiring",
+        )
+
+    def test_this_module_still_writes_nothing(self):
+        """`COO-ORDER 20260907_2050` item 2 asks the owner to confirm, in
+        the same ticket, that being READ by somebody did not give this
+        module a WRITE.  Measured, not asserted in prose: no migration
+        names it, and it reaches no `store` write door.
+        """
+        module = (ROOT / "src" / "pirateforce_foundation"
+                  / "persistence_standard_status.py")
+        source = module.read_text(encoding="utf-8")
+        for forbidden in ("import store", "from .store", "from pirateforce_foundation.store",
+                          "INSERT ", "UPDATE ", "DELETE "):
+            self.assertNotIn(forbidden, source, forbidden)
+        migrations = ROOT / "migrations"
+        naming = [
+            path.name for path in sorted(migrations.glob("*.sql"))
+            if "persistence_standard_status" in path.read_text(
+                encoding="utf-8", errors="replace")
+        ]
+        self.assertEqual(naming, [])
 
 
 if __name__ == "__main__":

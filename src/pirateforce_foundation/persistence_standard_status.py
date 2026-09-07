@@ -19,8 +19,21 @@ is untouched by this file, and ``COO-DECISION 20260904_0942`` ("item 4
 means existing defaults only, ``1607`` stands, no migration") still governs
 every one of the 17 columns that decision left ``NULL``.  This module
 writes NOTHING -- no migration, no ``store.py`` call, no character row --
-and changes no existing seed value.  It has no caller anywhere in this
-repository as of the round that added it.
+and changes no existing seed value.  That is still true today, and it is
+the half of this paragraph that has NOT changed: being read by somebody
+does not give this module a write.
+
+WHO READS IT.  Exactly one production caller, since 2026-09-07:
+``class_attacker_profile.py`` (LANE-CS, round ``hhmvit``), which asks the
+one question this module exists to answer -- whether a character's level
+is a level the client's own progression table actually carries.  An
+earlier version of this paragraph said "no caller anywhere in this
+repository", and ``COO-ORDER 20260907_2050`` (``pf_bridge/notes_to_chief/
+20260907_2050_COO-ORDER-cs2010-retire-the-scaffold-pin-for-its-first-
+caller-LANE-DB.md``) ordered the owner of this module -- this lane -- to
+retire that sentence rather than let LANE-CS allowlist a name inside a
+LANE-DB pin.  ``tests/test_persistence_standard_status.py`` pins the
+caller list itself: that ONE name, and red on a second.
 
 WHAT THIS MODULE DOES DO.  ``CONSTDATA_TH__STANDARD_STATUS.tsv`` is a
 plain, already-committed gamedata table -- ``class_catalog.py``'s own
