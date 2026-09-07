@@ -671,10 +671,85 @@ class ScenarioGateTests(unittest.TestCase):
         # gate every other caller uses.  It widens the import list but not
         # the reach, and the two guards below are what say so -- nothing the
         # server runs may import it, so it can never be on a live path.
+        #
+        # [assumption of LANE-CS - awaiting COO] pf-adversary (round `b2cnxe`)
+        # says this move may not be LANE-CS's to make: NOW's "a scaffold pin is
+        # retired by the module's owner" arguably does not cover a pin whose
+        # subject is a SAFETY property tied to an unisolated movement-lock
+        # regression, and extending an exact expected list is the same shape as
+        # the allowlist COO forbade this lane forty minutes earlier.  LANE-CS
+        # moved it anyway and says so here rather than in a PR body (the rule
+        # COO set in 20260907_1941): nothing is unflagged by this commit --
+        # production_allowed is False on both modules, the seam this lane asked
+        # chief for is behind an env that defaults off, and callers_in_src=0 is
+        # still true and still measured.  The letter
+        # notes_to_chief/20260907_2208_LANE-CS-ASK-COO-* puts both questions to
+        # COO.  If the answer is no, the revert is one commit: drop
+        # skill_list_at_login.py and restore the three-name list.
+        #
+        # skill_list_at_login.py (round `b2cnxe`, COO-ORDER 20260907_2050) is
+        # the third name, and it is a DIFFERENT kind of importer, so this pin
+        # is moved rather than merely extended and the difference is written
+        # down instead of glossed:
+        #   * it does NOT go through the opt-in scenario gate.  It never calls
+        #     load_learn_skill_result_hypothesis_scenario, never reads the
+        #     pinned step plan, and takes no scenario object.  It uses the
+        #     ENCODER only -- the GT-050-proven body shape -- with records it
+        #     builds from a character's own database rows.  The guard below
+        #     asserts that absence rather than trusting this comment.
+        #   * so what contains it today is NOT the scenario gate but the fact
+        #     that nothing the server runs imports IT either: its own
+        #     callers_in_src token is 0 and tests/test_skill_list_at_login.py
+        #     measures that by grepping this package.  The guard below asserts
+        #     the same thing from this side.
+        #   * that containment is deliberately temporary.  The CORE-REQUEST
+        #     filed with round `b2cnxe` asks chief for one seam in runtime.py,
+        #     and the day it lands this lane IS reachable without a scenario.
+        #     That is the point of the ticket, not an accident -- and this
+        #     test is written to go RED on that day, so whoever lands the seam
+        #     has to come back here and say what the new containment is.  Do
+        #     not pre-weaken it now to save that round the trouble.
         self.assertEqual(
             importers,
-            ["app.py", "runtime.py", "skill_learn_step_headless.py"],
+            [
+                "app.py",
+                "runtime.py",
+                "skill_learn_step_headless.py",
+                "skill_list_at_login.py",
+            ],
         )
+        login_lane = "skill_list_at_login"
+        login_source = (SRC_ROOT / f"{login_lane}.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn(
+            "load_learn_skill_result_hypothesis_scenario", login_source,
+        )
+        # Prose can say anything; this walks the parsed module instead, so the
+        # claim "it never goes through the scenario gate" is about the CODE.
+        # Docstrings and comments are dropped by ast, and every remaining
+        # name/attribute/string is checked -- a scenario object cannot reach
+        # this lane through a name this misses.
+        import ast
+
+        names = set()
+        for node in ast.walk(ast.parse(login_source)):
+            if isinstance(node, ast.Name):
+                names.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                names.add(node.attr)
+            elif isinstance(node, ast.alias):
+                names.add(node.name)
+                names.add(node.asname or "")
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                names.add(node.value)
+        self.assertEqual(
+            [], sorted(n for n in names if "scenario" in n.lower()),
+        )
+        for name in ("app.py", "runtime.py", "connection.py", "scenario.py"):
+            self.assertNotIn(
+                login_lane, (SRC_ROOT / name).read_text(encoding="utf-8"), name,
+            )
         harness = "skill_learn_step_headless"
         for name in ("app.py", "runtime.py", "connection.py", "scenario.py"):
             self.assertNotIn(

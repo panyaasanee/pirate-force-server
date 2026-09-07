@@ -158,7 +158,10 @@ headless to completion with no error, and prove the loader can load all
     and no longer.  It stays on this list anyway, and that is the point:
     loading `utility.lua` as if it were a SCRIPT still fails on `os.time()`
     exactly as before, because the prelude seam is a separate, opt-in
-    entrance and `load_corpus` passes no prelude by default.
+    entrance -- `load_corpus`'s DEFAULT prelude (round `e5epdj`,
+    `script_host.SHIPPED_PRELUDE`) runs the same bytes through the prelude
+    door, and the ordinary door still refuses them.  Measured: the load
+    failures stay at exactly these five with the default on.
   - These four-plus-one are pinned by name in
     `test_script_lua_corpus.py::KNOWN_LOAD_FAILURES` -- a new failure OR an
     old one silently disappearing both go red, per this project's
@@ -705,10 +708,14 @@ neither visible from `load_corpus`'s load-only check (pinned in
   name defined in one file is never visible from another -- which is why
   the answer is a PRELUDE run into each host's own state rather than one
   shared global environment.  Round `q6nytd` built that
-  (`lua_api/prelude.py`), and it is off by default: a caller passes
-  `prelude=read_prelude(root)` and **13** of those 17 stop dying on a nil
-  `rate`; a caller that passes nothing gets the host of yesterday, byte for
-  byte, which is what keeps the census pins below honest.
+  (`lua_api/prelude.py`).  It shipped OFF that round for one reason only:
+  the cloud container had no `lupa`, so the four census pins could not be
+  re-measured, and pinning unmeasured numbers is the one thing the house
+  rules forbid outright.  Round `e5epdj` was the measuring round
+  COO-DECISION `20260907_2148` granted, and it is **on by default now**
+  (`script_host.SHIPPED_PRELUDE`); `prelude=None` still buys the host of
+  yesterday, byte for byte, and the difference test in
+  `test_script_lua_prelude.py` is what spends it.
   🔴 13, not 17, and the number was already in this repo before anyone ran
   a sweep: `KNOWN_ENTRY_POINT_CALL_FAILURES` pins exactly those 13.  The
   other four never reach `rate` -- `t_escaphk_sp.lua` returns on an empty
@@ -3954,3 +3961,58 @@ creates a key.
   one. What is closed is this lane's own half: the state exists, is
   readable in one attribute, and can now be asked which mirror and whether
   it still fails.
+
+
+## Round e5epdj (2026-09-07) -- the shipped prelude is the default, and the four census pins are measured again
+
+**What moved**: the measuring round COO-DECISION `20260907_2148` granted --
+`lupa==2.8` for this round only, `PKG_ENV:` at both ends of the run, one
+commit carrying the seam flip and the four pins together.  Round `q6nytd`
+built the prelude and could not measure it; this round measured it.
+
+Measured on the real 616-file corpus, both directions, in one container
+(`PKG_ENV: lupa=2.8 python=3.11.15`):
+
+| | stub calls | real calls | load failures | entry-point call failures |
+|---|---|---|---|---|
+| `prelude=None` (the old default) | 2597 | 2852 | 5 | 17 |
+| `prelude=SHIPPED_PRELUDE` (the new one) | **2606** | **2865** | **5** | **4** |
+
+The off-column reproduces the pins that were already in the repository
+exactly, which is what makes the on-column trustworthy: the same container,
+the same commit, the same fixed quest clock, one argument different.
+
+**The seam's three states.**  `SHIPPED_PRELUDE` (read `utility.lua` from the
+sweep's own root), `None` (explicitly no prelude), or a `Prelude` (use
+exactly that one).  Two states could not express this: before, "the caller
+wants yesterday" and "the caller said nothing" were the same value, so
+flipping the default would have taken the opt-out away with it.
+
+**Why the census pins its own seed.**  The 13 repaired files reach `rate`
+exactly **27** times per sweep (measured per file: `t_ins_ratx6_lv.lua` 6,
+`x5` 5, `x4` 4, `x3` 3, the other nine 1 each), always as `rate(0)`, so the
+true branch needs `math.random(0, 1000000)` to return exactly 0 -- 27
+chances in 1000001, a 2.7e-05 chance per unseeded sweep of a wrong pin.  Not
+theoretical: with `rate` forced true the same corpus reports 2619/2878, so
+one unlucky roll moves both pins by 13.  `CENSUS_PRELUDE_SEED` is therefore
+the same kind of object as `FIXED_QUEST_CLOCK`, for the same house rule.
+Re-measured across 8 seeds (0, 1, 2, 7, 999983, 1757000000, 1757000001,
+2147483647): all eight give 2606/2865/4.
+
+### Nonclaims
+
+- **13 files run their body; none of them SUCCEEDS at anything.**  All 27
+  rolls are `rate(0)` because `Trigger.VarN` is `STUB_DEFAULT`, so every one
+  takes the false branch and the reward halves behind them stay unreached.
+  `Player.AddExp`/`Player.AddSkillPoint` still have **zero** reached call
+  sites in this corpus.  26 API calls moved.  No player-visible outcome did.
+- **Still nothing on a player's screen.**  There is no dispatcher that runs
+  a trigger script when a player sails into a trigger; that seam lives in
+  `runtime.py`, which is not this lane's to edit.
+- **The seed-ownership question is still open** (one `Prelude` seeds every
+  host it is given to identically -- `lua_api/prelude.py::Prelude`).  This
+  commit does not answer it and does not make it worse: the census pins its
+  own seed, and no production caller exists to be hit by the default.
+- **`utility.lua` is still a load failure and that is the design.**  The
+  one-key `os` shim lives only for the duration of the prelude chunk, so the
+  same bytes arriving through the ordinary door are still refused.
