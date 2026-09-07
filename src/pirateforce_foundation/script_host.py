@@ -730,8 +730,58 @@ def _log_host_side(log: Callable[[str], None], rel: str,
     return message
 
 
+class _ShippedPrelude:
+    """Sentinel default for the corpus sweeps' ``prelude=`` parameter.
+
+    THREE STATES, NOT TWO, AND THAT IS THE WHOLE REASON THIS OBJECT EXISTS.
+    Before round ``e5epdj`` the sweeps took ``prelude=None`` and ran no
+    prelude, so "the caller wants yesterday's behaviour" and "the caller
+    said nothing" were the same value and a default could not be flipped
+    without taking the explicit opt-out away with it.  Now:
+
+    * :data:`SHIPPED_PRELUDE` (the default) -- read ``utility.lua`` from
+      the sweep's OWN ``root`` and run it.  A root that ships no such file,
+      or ships different bytes, logs ``LUA_PRELUDE ABSENT``/``REFUSED`` and
+      the sweep continues with no prelude: this is the supported shape for
+      every fixture root in the test suite, which is why flipping the
+      default did not have to touch one of them.
+    * ``None`` -- explicitly no prelude.  Yesterday's behaviour, still
+      reachable, still tested.
+    * a :class:`~.lua_api.prelude.Prelude` -- use exactly that one.  What
+      the census tests pass, because they need a FIXED seed (see
+      ``tests/test_script_lua_corpus.py::CENSUS_PRELUDE_SEED``).
+
+    Not a bare ``object()``: a reader who prints the default in a traceback
+    or a help() should see a name that says what it means.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "SHIPPED_PRELUDE"
+
+
+#: See :class:`_ShippedPrelude`.  The sweeps' default.
+SHIPPED_PRELUDE = _ShippedPrelude()
+
+
+def _resolve_prelude(root, prelude, log):
+    """Turn a sweep's ``prelude=`` argument into a ``Prelude`` or ``None``.
+
+    One function so the two sweeps cannot drift apart on the question, and
+    so the ``read_prelude`` call happens ONCE per sweep rather than once
+    per file -- 616 reads of the same 450 bytes would be waste, and 616
+    DIFFERENT seeds would be a behaviour change nobody asked for (each host
+    would get its own stream; see :class:`~.lua_api.prelude.Prelude` on why
+    the seed's ownership is still an open question either way).
+    """
+    if prelude is SHIPPED_PRELUDE:
+        return lua_api_prelude.read_prelude(root, log=log)
+    return prelude
+
+
 def load_corpus(root, log: Optional[Callable[[str], None]] = None, *,
-                prelude: "Optional[lua_api_prelude.Prelude]" = None) -> LoadReport:
+                prelude: Any = SHIPPED_PRELUDE) -> LoadReport:
     """Load every ``*.lua`` file under ``root`` into its own sandboxed host.
 
     Fail-closed, per the LANE-Q charter: a script that fails to parse or
@@ -744,6 +794,7 @@ def load_corpus(root, log: Optional[Callable[[str], None]] = None, *,
     """
     log = log or default_logger
     root = Path(root)
+    prelude = _resolve_prelude(root, prelude, log)
     report = LoadReport()
     for path in sorted(root.rglob("*.lua")):
         report.total += 1
@@ -935,7 +986,7 @@ class CorpusEntryPointReport:
 
 def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *,
                              quest_clock: "Optional[lua_api_quest.Clock]" = None,
-                             prelude: "Optional[lua_api_prelude.Prelude]" = None) -> CorpusEntryPointReport:
+                             prelude: Any = SHIPPED_PRELUDE) -> CorpusEntryPointReport:
     """Load every ``*.lua`` file under ``root`` AND call the standard entry
     points it defines, tallying every ``LUA_API_STUB``/``LUA_TRIGGER_REAL``
     call each one made along the way.
@@ -1006,6 +1057,7 @@ def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *
     """
     log = log or default_logger
     root = Path(root)
+    prelude = _resolve_prelude(root, prelude, log)
     report = CorpusEntryPointReport()
     for path in sorted(root.rglob("*.lua")):
         report.total += 1
