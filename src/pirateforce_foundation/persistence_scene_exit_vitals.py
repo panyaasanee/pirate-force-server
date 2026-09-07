@@ -61,9 +61,16 @@ round.  Stated precisely, because the first draft of this paragraph
 overstated it twice and `pf-adversary` measured both:
 
 * NOT "the door is now on the path the owner's symptom is on".  This module
-  has no caller either, so what the door gained is an import-graph edge to a
-  second unwired module.  The production HP path (the session's login vitals
-  seam, down to this lane's vitals resolver) still does not call it.
+  had no caller either when the sentence was written, so what the door
+  gained is an import-graph edge to a second unwired module.  The production
+  HP path (the session's login vitals seam, down to this lane's vitals
+  resolver) still does not call it, and that half does not change.
+  The other half does, once `pirate-force-server#1084` (chief, LANE-E round
+  R394) merges: it calls `resolve_for_scene_exit` from
+  `runtime.py::_note_client_confirmed_scene`, so this module gains a
+  production caller on the scene-EDGE path -- still not the login path.
+  Written as a named, open pull request rather than as a fact: on `main`
+  today the caller is not there.
 * NOT the discharge of an outstanding debt.  That door's own module records a
   MEASURED, deliberate scope decision -- there is no hole in the login wall
   for it to plug, and the request for a call site was WITHDRAWN in the round
