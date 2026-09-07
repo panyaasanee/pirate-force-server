@@ -41,12 +41,30 @@ PINNED_DUMMY_LEVEL = 100
 PINNED_DUMMY_TEMPLATE_ID = 916
 
 
+# How far up this file probes for the accepted band.  This is NOT a copy of
+# `Combatant`'s bound: `_combatant_max_level` asserts the top of this span is
+# REFUSED, so a record that grows past it turns this file red asking to be
+# widened instead of quietly measuring the wrong ceiling.
+LEVEL_PROBE_SPAN = 4096
+
+
 def _combatant_max_level():
     """The highest level the shipped `Combatant` accepts, MEASURED.
 
-    Probed rather than typed, so the sweeps below follow the record instead
-    of a constant in this file drifting away from it.  Doubling probe, then a
-    binary search on the boundary: no bound of `Combatant` is copied here.
+    T1-B, AND WHY THIS IS A SCAN AND NOT A BINARY SEARCH.  The previous
+    version doubled to the first refusal and then bisected, which measures
+    "the top of the first contiguous accepted run" -- not the ceiling.
+    Measured, not argued: with `Combatant.__post_init__` patched to reject
+    `100 < level < 200`, that version returned 100 while the record still
+    accepted up to 1000, every sweep below silently stopped at 100, and the
+    FULL SUITE STAYED GREEN.  Levels 200..1000 had nothing asserting anything
+    about them while a test class named for sweeping them reported success.
+
+    A ceiling can only be measured by a search that does not assume the
+    accepted set is an interval -- so this walks every level in the probe span
+    and then asserts the shape it was assuming: `[1, N]` with no holes.  Cheap
+    at this size (a `Combatant` is three range checks), and the assertion is
+    what makes the returned number mean "ceiling" rather than "first gap".
     """
     def accepted(level):
         try:
@@ -55,19 +73,20 @@ def _combatant_max_level():
             return False
         return True
 
-    assert accepted(1), "the shipped Combatant refuses level 1"
-    high = 1
-    while accepted(high * 2):
-        high *= 2
-        assert high < 1 << 30, "Combatant appears to accept any level at all"
-    low, high = high, high * 2          # low accepted, high refused
-    while high - low > 1:
-        mid = (low + high) // 2
-        if accepted(mid):
-            low = mid
-        else:
-            high = mid
-    return low
+    band = frozenset(l for l in range(1, LEVEL_PROBE_SPAN + 1) if accepted(l))
+    assert band, "the shipped Combatant accepts no level in the probe span"
+    assert 1 in band, "the shipped Combatant refuses level 1"
+    top = max(band)
+    assert top < LEVEL_PROBE_SPAN, (
+        "the shipped Combatant accepts %d, the top of this file's probe span; "
+        "widen LEVEL_PROBE_SPAN -- the ceiling is not inside it" % (top,))
+    holes = sorted(set(range(1, top + 1)) - band)
+    assert not holes, (
+        "the shipped Combatant's accepted levels are not the interval [1, %d]:"
+        " it refuses %r (first %d shown).  Every sweep in this file assumes an"
+        " interval; fix the sweeps, do not delete this assertion."
+        % (top, holes[:8], min(len(holes), 8)))
+    return top
 
 
 COMBATANT_MAX_LEVEL = _combatant_max_level()
@@ -91,7 +110,7 @@ class TheProjectionIsAnchoredToTheShippedPin(unittest.TestCase):
     def test_the_pin_level_reproduces_the_shipped_pinned_hit(self):
         mob = town_target_mob()
         self.assertEqual(
-            projection.production_pin_row(mob).damage_per_hit,
+            projection.production_pin_row(mob).unclamped_damage_per_hit,
             damage_town_target.unclamped_hit_damage(
                 mob_combat.pin_attacker(), mob),
         )
@@ -101,7 +120,7 @@ class TheProjectionIsAnchoredToTheShippedPin(unittest.TestCase):
         # that owns it, so a corrected observation moves both together.
         mob = town_target_mob()
         self.assertEqual(
-            projection.production_pin_row(mob).damage_per_hit,
+            projection.production_pin_row(mob).unclamped_damage_per_hit,
             damage_town_target.R322C_OBSERVED_DAMAGE_PER_HIT,
         )
 
@@ -221,7 +240,9 @@ class TheNumbersAreTheFormulaAndNotATable(unittest.TestCase):
         mob = town_target_mob()
         rows = projection.project_levels(mob, range(1, 101))
         for earlier, later in zip(rows, rows[1:]):
-            self.assertGreater(later.damage_per_hit, earlier.damage_per_hit)
+            self.assertGreater(
+                later.unclamped_damage_per_hit,
+                earlier.unclamped_damage_per_hit)
             self.assertLessEqual(later.hits_to_fell, earlier.hits_to_fell)
 
     def test_the_module_types_none_of_the_numbers_it_reports(self):
@@ -419,25 +440,39 @@ class TheColumnThatWentToChiefIsPinned(unittest.TestCase):
     Deliberately transcribed: derived numbers cannot catch a letter that
     reported something the code never said.  If the shipped sources move,
     these go red and the letter has to be corrected -- which is the point.
-    Rows are (level, damage per hit, hits to fell).
+    Rows are (level, UNCLAMPED damage per hit, hits to fell, what the LAST
+    swing prints).  The fourth column is transcribed for the same reason as
+    the other three, and it is the column the letter did not have: the letter
+    said "223 hits of 891" where the 223rd hit prints 323.
     """
 
     REPORTED = (
-        (1, 873, 227),
-        (7, 891, 223),
-        (25, 945, 210),
-        (40, 990, 201),
-        (60, 1050, 189),
-        (100, 1170, 170),
+        (1, 873, 227, 827),
+        (7, 891, 223, 323),
+        (25, 945, 210, 620),
+        (40, 990, 201, 125),
+        (60, 1050, 189, 725),
+        (100, 1170, 170, 395),
     )
 
     def test_every_row_reported_to_chief_is_what_the_module_answers(self):
         mob = town_target_mob()
-        for level, damage, hits in self.REPORTED:
+        for level, damage, hits, final in self.REPORTED:
             with self.subTest(level=level):
                 row = projection.project_levels(mob, (level,))[0]
-                self.assertEqual(row.damage_per_hit, damage)
+                self.assertEqual(row.unclamped_damage_per_hit, damage)
                 self.assertEqual(row.hits_to_fell, hits)
+                self.assertEqual(row.final_hit_damage, final)
+
+    def test_no_reported_row_prints_its_own_damage_on_the_last_swing(self):
+        """The defect T1-D named, asserted rather than described: on every row
+        that went to chief the final swing is SMALLER than the column beside
+        it, so a reader who quotes "N hits of D" is quoting a number the
+        screen never shows on the last one."""
+        for level, damage, hits, final in self.REPORTED:
+            with self.subTest(level=level):
+                self.assertLess(final, damage)
+                self.assertGreater(final, 0)
 
 
 class TheTwoRefusalsHaveDifferentNames(unittest.TestCase):
@@ -514,6 +549,201 @@ class TheGuardsBlindSpotIsReportedAndEmpty(unittest.TestCase):
         )
         with self.assertRaises(projection.LevelProjectionError):
             projection.require_only_level_differs(cheat)
+
+
+class TheRefusalsAreThisModulesOwnAndNotTheFormulasFromDeeper(
+        unittest.TestCase):
+    """T1-A: `mob_combat.pin_attacker()` sat outside every `try`.
+
+    A caller reading this module's exception hierarchy writes
+    `except LevelProjectionError`.  Before this fix, a pin that will not build
+    -- which is what `PIN_ATTACKER_ABILITY_STR` drifting out of range does --
+    threw `mob_combat.MobCombatContractError` straight through all seven
+    public entry points, and that sentence caught nothing.
+    """
+
+    ENTRY_POINTS = (
+        lambda mob: projection.attacker_at_level(7),
+        lambda mob: projection.unchecked_attributes(),
+        lambda mob: projection.require_only_level_differs(
+            mob_combat.Combatant(level=7, ability_str=132, ability_con=0)),
+        lambda mob: projection.damage_at_level(7, mob),
+        lambda mob: projection.final_hit_damage_at_level(7, mob),
+        lambda mob: projection.hits_to_fell_at_level(7, mob),
+        lambda mob: projection.hits_to_fell_from_hp(7, mob),
+        lambda mob: projection.project_levels(mob, (7,)),
+        lambda mob: projection.production_pin_row(mob),
+    )
+
+    def test_a_pin_that_will_not_build_is_this_modules_refusal_everywhere(
+            self):
+        mob = town_target_mob()
+        original = mob_combat.pin_attacker
+
+        def refuses():
+            raise mob_combat.MobCombatContractError("ability_str out of range")
+
+        try:
+            mob_combat.pin_attacker = refuses
+            for index, entry in enumerate(self.ENTRY_POINTS):
+                with self.subTest(entry=index):
+                    with self.assertRaises(projection.LevelProjectionError):
+                        entry(mob)
+        finally:
+            mob_combat.pin_attacker = original
+
+    def test_that_refusal_is_the_pin_one_and_names_the_deeper_class(self):
+        original = mob_combat.pin_attacker
+        try:
+            mob_combat.pin_attacker = lambda: (_ for _ in ()).throw(
+                mob_combat.MobCombatContractError("ability_str out of range"))
+            with self.assertRaises(projection.PinWillNotAssembleError) as got:
+                projection.attacker_at_level(7)
+        finally:
+            mob_combat.pin_attacker = original
+        self.assertNotIsInstance(
+            got.exception, projection.LevelOutOfRangeError)
+        self.assertIn("MobCombatContractError", str(got.exception))
+
+    def test_the_shipped_pin_really_does_go_through_that_wrapper(self):
+        """Without this, the two tests above would pass over a module that
+        called `mob_combat.pin_attacker` directly and happened to have a
+        wrapper nobody reaches."""
+        original = mob_combat.pin_attacker
+        seen = []
+        try:
+            mob_combat.pin_attacker = lambda: (
+                seen.append(None) or original())
+            projection.damage_at_level(7, town_target_mob())
+        finally:
+            mob_combat.pin_attacker = original
+        self.assertTrue(seen, "the module never asked mob_combat for the pin")
+
+
+class TheGuardsSkipBranchIsWalkedAndNotMerelyWritten(unittest.TestCase):
+    """T1-C, the "skip" half.  Deleting `field.name in skipped` from
+    `require_only_level_differs`, and the `except TypeError` from
+    `unchecked_attributes`, left the suite at 35 passed -- so neither branch
+    was doing anything a test could see.  These two walk them."""
+
+    def test_a_derived_field_on_the_pin_is_skipped_and_not_looked_up(self):
+        import dataclasses as _dc
+
+        @_dc.dataclass(frozen=True)
+        class PinWithDerived:
+            level: int
+            ability_str: int
+            ability_con: int
+            twice_level: int = _dc.field(init=False, default=0)
+
+        real = mob_combat.pin_attacker()
+        original = mob_combat.pin_attacker
+        try:
+            mob_combat.pin_attacker = lambda: PinWithDerived(
+                level=real.level,
+                ability_str=real.ability_str,
+                ability_con=real.ability_con,
+            )
+            # `twice_level` is a name the typed Combatant does not carry, so
+            # without the skip this is an AttributeError rather than a clean
+            # return -- which is what makes this a walk of that branch and
+            # not a restatement of the blind-spot report.
+            self.assertIsNone(projection.require_only_level_differs(real))
+        finally:
+            mob_combat.pin_attacker = original
+
+    def test_a_record_with_no_instance_dict_is_reported_as_nothing_unchecked(
+            self):
+        import dataclasses as _dc
+
+        @_dc.dataclass(frozen=True, slots=True)
+        class NoInstanceDict:
+            level: int
+            ability_str: int
+            ability_con: int
+
+        sample = NoInstanceDict(level=7, ability_str=132, ability_con=0)
+        with self.assertRaises(TypeError):
+            vars(sample)          # the condition the branch exists to survive
+        self.assertEqual(projection.unchecked_attributes(sample), ())
+
+
+class TheClampedSwingAndTheStartingHpAreTheirOwnNumbers(unittest.TestCase):
+    """T1-D and T1-E(c): the two places a row was quietly claiming more than
+    it measured."""
+
+    def test_the_last_swing_is_the_room_left_and_not_the_column_beside_it(
+            self):
+        mob = town_target_mob()
+        for level in (1, 7, 100, COMBATANT_MAX_LEVEL):
+            with self.subTest(level=level):
+                per_hit = projection.damage_at_level(level, mob)
+                hits = projection.hits_to_fell_at_level(level, mob)
+                final = projection.final_hit_damage_at_level(level, mob)
+                room = int(mob.max_hp) - mob_combat.HP_FLOOR
+                # Every earlier swing at full value, plus the last one, is
+                # exactly the room: an identity, so it cannot be satisfied by
+                # a final-hit number that was typed.
+                self.assertEqual((hits - 1) * per_hit + final, room)
+                self.assertTrue(0 < final <= per_hit)
+
+    def test_the_watched_run_started_below_full_and_takes_fewer_hits(self):
+        """R322C's dummy was at 192779, not at `max_hp`.  The full-bar table
+        answers 223 for the pinned level; the watched run is 217.  Asserting
+        they DIFFER is the point -- it is what stops one being quoted for the
+        other."""
+        mob = town_target_mob()
+        level = mob_combat.PIN_ATTACKER_LEVEL
+        watched = damage_town_target.R322C_OBSERVED_HP_BEFORE
+        from_full = projection.hits_to_fell_at_level(level, mob)
+        from_watched = projection.hits_to_fell_from_hp(level, mob, watched)
+        self.assertLess(from_watched, from_full)
+        per_hit = projection.damage_at_level(level, mob)
+        self.assertEqual(
+            from_watched,
+            -(-(watched - mob_combat.HP_FLOOR) // per_hit))
+
+    def test_a_starting_hp_the_mob_cannot_be_at_is_refused(self):
+        mob = town_target_mob()
+        for bad in (-1, int(mob.max_hp) + 1, 7.0, "192779", True):
+            with self.subTest(bad=bad):
+                with self.assertRaises(projection.LevelProjectionError):
+                    projection.hits_to_fell_from_hp(7, mob, bad)
+        # `None` is not a bad value -- it is the documented default, and it
+        # has to keep meaning FULL or `hits_to_fell_at_level` (which passes
+        # it) stops answering the question its own name asks.
+        self.assertEqual(
+            projection.hits_to_fell_from_hp(7, mob, None),
+            projection.hits_to_fell_from_hp(7, mob, int(mob.max_hp)))
+
+
+class ItAnswersOnlyForTheDummyAndOnlyForAnOrderedRequest(unittest.TestCase):
+    """T1-E(a) and T1-E(b)."""
+
+    def test_a_different_monster_is_refused_by_name(self):
+        import dataclasses as _dc
+
+        mob = town_target_mob()
+        other = _dc.replace(mob, template_id=31)
+        with self.assertRaises(projection.NotThePracticeDummyError):
+            projection.damage_at_level(7, other)
+        with self.assertRaises(projection.NotThePracticeDummyError):
+            projection.project_levels(other, (7,))
+
+    def test_the_dummy_itself_is_still_answered(self):
+        self.assertIsInstance(
+            projection.damage_at_level(7, town_target_mob()), int)
+
+    def test_an_unordered_request_is_refused_rather_than_given_an_order(self):
+        mob = town_target_mob()
+        for unordered in ({1, 7, 100}, {1: None, 7: None}, "17"):
+            with self.subTest(kind=type(unordered).__name__):
+                with self.assertRaises(projection.UnorderedLevelRequestError):
+                    projection.project_levels(mob, unordered)
+
+    def test_an_ordered_request_of_the_same_levels_is_answered(self):
+        rows = projection.project_levels(town_target_mob(), [100, 1, 7])
+        self.assertEqual(tuple(row.level for row in rows), (100, 1, 7))
 
 
 if __name__ == "__main__":
