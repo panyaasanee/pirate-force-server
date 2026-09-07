@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import tempfile
+import types
 import sys
 import unittest
 from unittest import mock
@@ -181,6 +183,145 @@ class ServerSentTokenTests(unittest.TestCase):
             )
         self.assertFalse(outcome.handled)
         self.assertEqual(outcome.reason, "repository_failure_OSError")
+
+
+class TokenNamesTheTreeItCameFromTests(unittest.TestCase):
+    """pf-adversary F7 of round `uw3bxb`: the token named no commit.
+
+    ka1-A re-runs this proof immediately before an attended boot and culls
+    the ticket when the token does not reproduce (PANYA `20260907_0159`).
+    Without these two fields, two tokens minted from different trees are the
+    same string, and the ticket cannot be told which one it quotes.
+    """
+
+    def test_every_token_line_carries_head_and_code_before_the_result(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            code = H.main([])
+        self.assertEqual(code, 0)
+        lines = [
+            line for line in out.getvalue().splitlines()
+            if line.startswith(H.TOKEN_PREFIX)
+        ]
+        self.assertEqual(len(lines), 3, lines)
+        for line in lines:
+            self.assertIn(" head=", line)
+            self.assertIn(" code=", line)
+            self.assertLess(
+                line.index("code="), line.index("RESULT="),
+                "the stamp must precede RESULT so a grep for the verdict "
+                "keeps working unchanged: " + line,
+            )
+
+    def test_the_stamp_is_ascii_and_shaped_for_a_cp874_console(self):
+        stamp = H.stamp()
+        stamp.encode("ascii")  # raises on anything the bridge cannot print
+        head, _, rest = stamp.partition(" ")
+        self.assertTrue(head.startswith("head="), stamp)
+        self.assertTrue(rest.startswith("code="), stamp)
+        self.assertEqual(len(rest[len("code="):]), 12, stamp)
+
+    def test_the_fingerprint_covers_every_module_the_proof_imported(self):
+        # pf-adversary D1 of round `53yj9g`: the first version hashed a
+        # hand-written four-name tuple, so a rewrite of `store.close_session`
+        # that closed EVERY session of the account still printed PASS under a
+        # byte-identical `code=`.  The list is derived from sys.modules now,
+        # and these two names are the ones that measurement burned.
+        names = {path.name for path in H.fingerprinted_files()}
+        for required in ("store.py", "runtime.py", "logout_hypothesis.py",
+                         "ui_logout_exit_game.py"):
+            self.assertIn(required, names)
+        self.assertGreater(
+            len(names), 50,
+            "the proof imports hundreds of modules; a handful means the "
+            "derivation stopped working and code= went back to a list",
+        )
+
+    def test_code_fingerprint_is_over_the_file_bytes_not_the_module(self):
+        # Drive it: a module of this package whose FILE changes must move the
+        # digest, with no import machinery involved.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_file = Path(tmp) / "zzz_fake_module_for_this_test.py"
+            fake_file.write_text("first\n", encoding="utf-8")
+            fake = types.ModuleType("pirateforce_foundation.zzz_fake")
+            fake.__file__ = str(fake_file)
+            with mock.patch.dict(
+                sys.modules,
+                {"pirateforce_foundation.zzz_fake": fake},
+            ):
+                self.assertIn(fake_file, H.fingerprinted_files())
+                before = H.code_fingerprint()
+                fake_file.write_text("second\n", encoding="utf-8")
+                after = H.code_fingerprint()
+                fake_file.unlink()
+                missing = H.code_fingerprint()
+            without = H.code_fingerprint()
+        self.assertNotEqual(before, after)
+        self.assertNotEqual(after, missing)
+        self.assertNotEqual(missing, without)
+        self.assertEqual(len(before), 12)
+
+    def test_head_commit_never_raises_and_says_unknown_without_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(H, "ROOT", Path(tmp)):
+                self.assertEqual(H.head_commit(), "unknown")
+                # A stamp is still printable when git is not there at all --
+                # the proof runs on plain checkouts and must not die on one.
+                self.assertIn("head=unknown", H.stamp())
+
+    def test_head_commit_reads_a_ref_a_detached_head_and_packed_refs(self):
+        sha = "0123456789abcdef0123456789abcdef01234567"
+        for label, build in (
+            ("ref", lambda git: (
+                (git / "refs" / "heads").mkdir(parents=True),
+                (git / "HEAD").write_text(
+                    "ref: refs/heads/main\n", encoding="utf-8"),
+                (git / "refs" / "heads" / "main").write_text(
+                    sha + "\n", encoding="utf-8"),
+            )),
+            ("detached", lambda git: (
+                (git / "HEAD").write_text(sha + "\n", encoding="utf-8"),
+            )),
+            ("packed", lambda git: (
+                (git / "HEAD").write_text(
+                    "ref: refs/heads/main\n", encoding="utf-8"),
+                (git / "packed-refs").write_text(
+                    "# pack-refs with: peeled\n"
+                    + sha + " refs/heads/main\n",
+                    encoding="utf-8"),
+            )),
+            # pf-adversary D7: a BRANCH worktree keeps HEAD beside a
+            # `commondir` file and its refs in the common dir named there.
+            # This shape printed `head=unknown` on a real `git worktree add
+            # -b`, and a worktree rehearsal is what HOWTO_OPEN_A_PR asks for
+            # before a push.
+            ("branch-worktree", lambda git: (
+                (git / "worktrees" / "wt").mkdir(parents=True),
+                (git / "refs" / "heads").mkdir(parents=True),
+                (git / "refs" / "heads" / "topic").write_text(
+                    sha + "\n", encoding="utf-8"),
+                (git / "worktrees" / "wt" / "HEAD").write_text(
+                    "ref: refs/heads/topic\n", encoding="utf-8"),
+                (git / "worktrees" / "wt" / "commondir").write_text(
+                    "../..\n", encoding="utf-8"),
+            )),
+        ):
+            with self.subTest(shape=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    git = root / ".git"
+                    git.mkdir()
+                    build(git)
+                    if label == "branch-worktree":
+                        # The checkout's `.git` is a FILE naming the
+                        # per-worktree directory, exactly as git writes it.
+                        root = root / "checkout"
+                        root.mkdir()
+                        (root / ".git").write_text(
+                            "gitdir: %s\n"
+                            % (git / "worktrees" / "wt"), encoding="utf-8")
+                    with mock.patch.object(H, "ROOT", root):
+                        self.assertEqual(H.head_commit(), sha[:12])
 
 
 if __name__ == "__main__":

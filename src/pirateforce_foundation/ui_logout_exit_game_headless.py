@@ -59,6 +59,7 @@ re-run happens on a plain checkout.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -113,6 +114,131 @@ def _refuse_a_foreign_checkout() -> None:
 
 
 _refuse_a_foreign_checkout()
+
+
+# --------------------------------------------------------------------------
+# pf-adversary F7 (round `uw3bxb`): the token said nothing about WHICH commit
+# produced it.  ka1-A re-runs this proof immediately before an attended boot
+# and culls the ticket when the token does not reproduce -- and two tokens
+# that differ only by the tree that produced them were indistinguishable once
+# pasted into a letter.  `_refuse_a_foreign_checkout` above guarantees the
+# modules came from THIS directory; it cannot say what was in them.
+#
+# Two fields, because they answer two different questions and either one on
+# its own can mislead:
+#   head=  the checkout's HEAD, read straight out of `.git` with no
+#          subprocess (this proof is documented to run on a plain checkout).
+#          A PROVENANCE HINT ONLY: it names the last commit, not the bytes
+#          that were imported, and it cannot see uncommitted edits.
+#   code=  sha256 over the exact bytes of the modules this proof drives, in a
+#          fixed order, first 12 hex.  Measured at the point it is printed
+#          and indifferent to git: same `code=`, same mechanism under test;
+#          different `code=`, the ticket is quoting a different mechanism no
+#          matter what `head=` says.
+_PACKAGE = "pirateforce_foundation"
+
+
+def fingerprinted_files() -> tuple[Path, ...]:
+    """Every module file of this package the proof has imported, sorted.
+
+    DERIVED, not hand-listed (pf-adversary D1/D9 of round `53yj9g`).  The
+    first version hashed a four-name tuple while the token claimed "same
+    code=, same mechanism under test".  Measured: the proof imports and
+    executes 234 modules of this package, and that list left out
+    ``store.py`` -- the file the ``lease_closed=`` half of the token is read
+    out of.  The adversary rewrote ``store.close_session`` to close EVERY
+    open session of the account (one player's Exit Game logging out their
+    other sessions) and the token printed ``RESULT=PASS`` with a
+    byte-identical ``code=``.  A fingerprint a behaviour change walks past
+    is worse than none, because PANYA ``20260907_0159``'s culling rule is
+    built on top of it.
+
+    Read at print time, when every import the run needed has happened.
+    """
+    files = []
+    for name, module in list(sys.modules.items()):
+        if name != _PACKAGE and not name.startswith(_PACKAGE + "."):
+            continue
+        origin = getattr(module, "__file__", None)
+        if origin:
+            files.append(Path(origin))
+    return tuple(sorted(set(files), key=str))
+
+
+def head_commit() -> str:
+    """Short HEAD sha of this checkout, or ``unknown`` -- never raises.
+
+    Read by hand rather than through ``git``: a `git` that is absent, refuses
+    or prompts must not be able to take the proof down with it, and the
+    documented way to run this file is a plain checkout with no tooling.
+    """
+    try:
+        git_dir = ROOT / ".git"
+        if git_dir.is_file():  # worktree: `.git` is a file naming the dir
+            pointer = git_dir.read_text(encoding="utf-8").strip()
+            git_dir = Path(pointer.split(":", 1)[1].strip())
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        # pf-adversary D7 of round `53yj9g`: in a BRANCH worktree, HEAD is
+        # `ref: refs/heads/<x>` and lives in `.git/worktrees/<name>/`, but
+        # `refs/` and `packed-refs` do NOT -- they live in the common dir
+        # the `commondir` file names.  Measured on a real `git worktree add
+        # -b`: this returned `unknown` before the lines below existed, and a
+        # worktree rehearsal is what `pf_bridge/HOWTO_OPEN_A_PR.md` asks for
+        # before a push, so the field degraded exactly where the process
+        # sends people.  A DETACHED worktree was fine (its HEAD holds the
+        # sha), which is why it went unnoticed.
+        if (git_dir / "commondir").exists():
+            common = (git_dir / "commondir").read_text(
+                encoding="utf-8").strip()
+            git_dir = (git_dir / common).resolve()
+        if head.startswith("ref:"):
+            ref = head.split(":", 1)[1].strip()
+            ref_file = git_dir / ref
+            if ref_file.exists():
+                head = ref_file.read_text(encoding="utf-8").strip()
+            else:  # packed refs: the shape a fresh clone can leave behind
+                head = ""
+                for line in (git_dir / "packed-refs").read_text(
+                        encoding="utf-8").splitlines():
+                    if line.endswith(" " + ref):
+                        head = line.split(" ", 1)[0].strip()
+                        break
+        if len(head) >= 12 and all(c in "0123456789abcdef" for c in head):
+            return head[:12]
+    except Exception:  # noqa: BLE001 - a provenance hint never raises
+        pass
+    return "unknown"
+
+
+def code_fingerprint() -> str:
+    """sha256 over the bytes of every module file imported, first 12 hex.
+
+    Hashes the FILES, not the imported module objects: what an attended
+    re-run compares is the code on disk it is about to boot.  Each file
+    contributes its name and its bytes; a file that cannot be read
+    contributes its name alone, which still moves the digest -- the honest
+    outcome, because that is a different tree from the one the token was
+    minted on.
+
+    Deliberately OVER-sensitive: any module this proof loads can move the
+    value.  That is the safe direction -- a ``code=`` that moves when the
+    behaviour could not have costs one re-measurement; a ``code=`` that
+    holds still when the behaviour changed boots a ticket against the wrong
+    tree.
+    """
+    digest = hashlib.sha256()
+    for path in fingerprinted_files():
+        digest.update(path.name.encode("ascii", "replace"))
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            pass
+    return digest.hexdigest()[:12]
+
+
+def stamp() -> str:
+    """The `head=... code=...` pair every token line below ends with."""
+    return "head=%s code=%s" % (head_commit(), code_fingerprint())
 
 
 class _RecordingTimerFactory:
@@ -263,11 +389,11 @@ def prove_the_exit_game_click() -> str:
     # teardown is what unblocked the character.
     return (
         "%s subcode=%d ack=%d lease_closed=%d close_scheduled_ms=%d "
-        "closer_called=%d relogin_after=%s RESULT=%s"
+        "closer_called=%d relogin_after=%s %s RESULT=%s"
         % (
             TOKEN_PREFIX, EXIT_GAME_SUBCODE, int(ACK_LABEL in labels),
             int(before is None and after is not None), scheduled_ms,
-            closer.calls, "ok" if relogin_ok else "no",
+            closer.calls, "ok" if relogin_ok else "no", stamp(),
             "PASS" if ok else "FAIL",
         )
     )
@@ -294,10 +420,10 @@ def prove_back_to_select_is_left_alone() -> str:
     ok = not mine and still_open and not timers.scheduled and not closer.calls
     return (
         "%s_CONTROL subcode=%d ui_actions=%d lease_still_open=%d "
-        "close_scheduled=%d RESULT=%s"
+        "close_scheduled=%d %s RESULT=%s"
         % (
             TOKEN_PREFIX, BACK_TO_SELECT_SUBCODE, len(mine),
-            int(still_open), len(timers.scheduled),
+            int(still_open), len(timers.scheduled), stamp(),
             "PASS" if ok else "FAIL",
         )
     )
@@ -314,8 +440,8 @@ def main(argv: list[str] | None = None) -> int:
         print(line)
     failed = [line for line in lines if not line.endswith("RESULT=PASS")]
     print(
-        "%s_SUMMARY cases=%d failed=%d RESULT=%s"
-        % (TOKEN_PREFIX, len(lines), len(failed),
+        "%s_SUMMARY cases=%d failed=%d %s RESULT=%s"
+        % (TOKEN_PREFIX, len(lines), len(failed), stamp(),
            "PASS" if not failed else "FAIL")
     )
     return 1 if failed else 0

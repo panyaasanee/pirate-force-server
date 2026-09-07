@@ -648,6 +648,7 @@
 # columns, and this is the command that re-derives and --checks them.
 !/tools/pf_regen_lua_quest_criteria.py
 !/tools/pf_regen_lua_quest_vars.py
+!/tools/pf_regen_lua_quest_rewards.py
 
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content

@@ -43,7 +43,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
-    field_mob_tables_bg0002, field_mobs, mob_aggro, mob_ai_control,
+    field_mob_tables_bg0002, field_mob_tables_bg0003, field_mobs, mob_aggro,
+    mob_ai_control,
     mob_ai_player_damage, mob_combat,
 )
 from pirateforce_foundation.lane_hooks import lane_b_mob_ai_tick  # noqa: E402
@@ -53,17 +54,24 @@ from pirateforce_foundation.mob_ai_player_damage import (  # noqa: E402
 
 SRC_ROOT = ROOT / "src" / "pirateforce_foundation"
 PLAYER = 0x750059
-BG0002_OFFENSIVE_PLACEMENT = 92  # Orc Chief, ai_wander=11 (offensive)
+# ROUND najn72: ~~OFFENSIVE_SCENE_PLACEMENT = 92 (Orc Chief)~~.  Scene 2 was
+# re-mined under the crosswalk identity rule (NOW.md `1313`, owner tick
+# 20260908_0025); its 52 shipped placements are every one of them ai_wander 16,
+# and placements 92-96 are not in the table at all any more.  The offensive
+# subject moves to Bg0003 placement 33 ("Ward Apes", ai_wander 11), which this
+# lane genuinely SHIPS -- the old one was inside the owner's refusal list, so
+# this file's tick was exercised on a body no player can meet.
+OFFENSIVE_SCENE_PLACEMENT = 33
 
 
 class MaybeTickTests(unittest.TestCase):
     def setUp(self):
-        bg0002_roster = field_mobs._parse_hostile_placements(
-            field_mob_tables_bg0002)
+        offensive_roster = field_mobs.load_roster(
+            scene=field_mob_tables_bg0003.SCENE)
         self.bg0002_by_placement = {
-            m.placement_index: m for m in bg0002_roster}
-        self.register = mob_ai_control.open_register(bg0002_roster)
-        self.ledger = mob_combat.open_ledger(bg0002_roster)
+            m.placement_index: m for m in offensive_roster}
+        self.register = mob_ai_control.open_register(offensive_roster)
+        self.ledger = mob_combat.open_ledger(offensive_roster)
 
         dummy_roster = field_mobs.load_roster()  # bg0001: four dummies
         self.dummy_register = mob_ai_control.open_register(dummy_roster)
@@ -73,7 +81,7 @@ class MaybeTickTests(unittest.TestCase):
         self.assertIs(lane_b_mob_ai_tick.production_allowed, True)
 
     def test_maybe_tick_passes_through_the_same_register_and_results(self):
-        mob = self.bg0002_by_placement[BG0002_OFFENSIVE_PLACEMENT]
+        mob = self.bg0002_by_placement[OFFENSIVE_SCENE_PLACEMENT]
         with redirect_stdout(io.StringIO()):
             wrapped_register, wrapped_results = lane_b_mob_ai_tick.maybe_tick(
                 self.register, self.ledger, PLAYER,
@@ -93,7 +101,7 @@ class MaybeTickTests(unittest.TestCase):
             [r.after_phase for r in direct_results])
 
     def test_only_a_phase_transition_prints_a_row_line(self):
-        mob = self.bg0002_by_placement[BG0002_OFFENSIVE_PLACEMENT]
+        mob = self.bg0002_by_placement[OFFENSIVE_SCENE_PLACEMENT]
         buf = io.StringIO()
         with redirect_stdout(buf):
             _register, results = lane_b_mob_ai_tick.maybe_tick(
@@ -615,12 +623,12 @@ class MaybeTickDamageOptInTests(unittest.TestCase):
     """The two optional arguments are the whole opt-in, and they are a pair."""
 
     def setUp(self):
-        bg0002_roster = field_mobs._parse_hostile_placements(
-            field_mob_tables_bg0002)
-        self.by_placement = {m.placement_index: m for m in bg0002_roster}
-        self.register = mob_ai_control.open_register(bg0002_roster)
-        self.ledger = mob_combat.open_ledger(bg0002_roster)
-        self.mob = self.by_placement[BG0002_OFFENSIVE_PLACEMENT]
+        offensive_roster = field_mobs.load_roster(
+            scene=field_mob_tables_bg0003.SCENE)
+        self.by_placement = {m.placement_index: m for m in offensive_roster}
+        self.register = mob_ai_control.open_register(offensive_roster)
+        self.ledger = mob_combat.open_ledger(offensive_roster)
+        self.mob = self.by_placement[OFFENSIVE_SCENE_PLACEMENT]
 
     def _tick(self, **kwargs):
         buf = io.StringIO()

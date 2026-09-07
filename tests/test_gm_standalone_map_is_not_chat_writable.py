@@ -160,6 +160,13 @@ COMMAND_EXERCISES: dict[str, tuple[str, ...]] = {
     "say": ("/say hello",),
     "gmprobe": ("/gmprobe baseline-all-zero",),
     "speed": ("/speed 5.0",),
+    # `staged` READS the GM-gated map and writes nothing at all, which makes
+    # it the one command here whose exercise could look redundant -- and it
+    # is exactly the one worth running through this door: a readback that
+    # took the loader's single-use path, or that wrote a file while
+    # answering, would leave the standalone map's guarantee resting on a
+    # promise instead of on a run.
+    "staged": ("/staged",),
 }
 
 # Lines that are not valid commands at all, run through the same door: a

@@ -2493,7 +2493,14 @@ class MobDeathTests(unittest.TestCase):
         # so ``field_mobs.OWNER_REFUSED_PLACEMENTS`` stops this lane
         # shipping them.  The generated table still carries all 17 rows --
         # what changed is what this lane ships, not what was mined.
-        self.assertEqual(len(self.bg0002_roster), 12)
+        # ROUND najn72: ~~12~~ -> 52, the scene re-mined through the
+        # crosswalk with the owner's outfit rule (NOW.md `1313`, tick
+        # 20260908_0025), and the widening ruling moved to {27..35} in the
+        # same commit.  What this loop asserts is the point of moving them
+        # together: EVERY row the scene now ships dies under its own letter,
+        # so there is no monster on the map that a strike can reach and a
+        # ruling cannot finish.
+        self.assertEqual(len(self.bg0002_roster), 52)
         for mob in self.bg0002_roster:
             self.assertEqual(mob.scene, field_mobs.BG0002_SCENE)
             outcome = self.killing_outcome_solo(mob).outcome
@@ -2520,16 +2527,25 @@ class MobDeathTests(unittest.TestCase):
         # Chief") is authorised to die and has no shipped placement to die
         # at -- consistent, not contradictory.  Asserted as coverage plus a
         # named difference, so an UNEXPLAINED divergence still fails.
+        # ROUND najn72: the superset became an EQUALITY, and the reason is
+        # worth keeping because the paragraph above explained the gap.
+        # ~~Template 103 ("Orc Chief") is authorised to die and has no
+        # shipped placement to die at~~ -- under the crosswalk identity rule
+        # (NOW.md `1313`, tick 20260908_0025) the scene resolves no named
+        # body for 103 at all, so the ruling dropped it in the same commit
+        # that re-mined the roster.  A permit for a template no row of the
+        # scene can carry is not "consistent", it is an authorisation
+        # nothing can consume, and the owner ordered the two halves moved
+        # together precisely so neither could sit ahead of the other.
         shipped = frozenset(m.template_id for m in self.bg0002_roster)
         ruling = mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING]
         self.assertTrue(shipped <= ruling)
-        self.assertEqual(ruling - shipped, frozenset({103}))
-        # And it is the SUBSET of the 27-35 census block that actually
-        # survives the mining tool's outfit-unambiguous rule, not the
-        # whole range -- 27, 28, 29, 30, 32, 33 all fail it and must NOT
-        # be members here.
-        self.assertEqual(ruling, frozenset({31, 34, 35, 103}))
-        self.assertEqual(shipped, frozenset({31, 34, 35}))
+        self.assertEqual(ruling - shipped, frozenset())
+        # And it is now the WHOLE 27-35 census block the ADDENDUM named,
+        # because the owner withdrew the outfit-unambiguous rule that used
+        # to exclude 27, 28, 29, 30, 32 and 33 (COO-DECISION 20260907_1346).
+        self.assertEqual(ruling, frozenset(range(27, 36)))
+        self.assertEqual(shipped, frozenset(range(27, 36)))
 
     def test_the_bg0001_and_bg0002_rulings_covered_templates_really_overlap(
             self):
@@ -2661,12 +2677,28 @@ class MobDeathTests(unittest.TestCase):
 
     def test_the_diag_mountain_deer_ruling_is_not_the_bg0002_roster_ruling(
             self):
-        # Template 27 fails the mined roster's outfit-unambiguous rule, so
-        # it must NOT be in WIDENED_BG0002_RULING's covered set, and the
-        # bg0002 ruling must not authorise it either.
-        self.assertNotIn(
+        # ~~Template 27 fails the mined roster's outfit-unambiguous rule, so
+        # it must NOT be in WIDENED_BG0002_RULING's covered set~~ -- ROUND
+        # najn72: the owner withdrew that rule, template 27 IS in the Bg0002
+        # ruling now, and it is a real Bg0002 placement.  What separates the
+        # two rulings was never the template -- the file said so in its own
+        # words when it gave 27 its own entry -- it is the SCENE, and the
+        # scene is what this card drives.  The stand-in below carries
+        # scene='bg0001' (DIAG-001 stands at the bg0001 test point), so the
+        # Bg0002 letter must still refuse it, and this is now the STRONGER
+        # test of the two: before this round the refusal could have come
+        # from the template check alone and nobody could tell.
+        self.assertIn(
             27, mob_death.WIDENING_RULINGS[WIDENED_BG0002_RULING])
+        self.assertEqual(
+            mob_death.WIDENING_RULING_SCENES[WIDENED_BG0002_RULING],
+            field_mobs.BG0002_SCENE)
+        self.assertEqual(
+            mob_death.WIDENING_RULING_SCENES[WIDENED_DIAG_MOUNTAIN_DEER_RULING],
+            "bg0001")
         deer = self.mountain_deer_stand_in()
+        self.assertEqual(deer.template_id, 27)
+        self.assertEqual(deer.scene, "bg0001")
         with self.assertRaises(MobDeathContractError) as caught:
             kill(self.legacy, deer,
                  strike(self.legacy, None, open_ledger(roster=(deer,)), None,

@@ -134,7 +134,13 @@ DROP_SEED = 1
 #: measured with the same spend.
 SEEDS_PER_ROW = 30
 
-#: MEASURED at ``2da358a``, 12 rows x 30 seeds.  A roll that yields MONEY
+#: MEASURED at ``2da358a``, 12 rows x 30 seeds.  ROUND najn72: RE-MEASURED,
+#: 52 rows x 30 seeds = 1560 rolls, after the scene was re-mined through the
+#: crosswalk with the owner's outfit rule (NOW.md `1313`, tick 20260908_0025).
+#: ~~252 / 24 / 84~~ -> 1092 / 104 / 364.  The three numbers keep the same
+#: ratio (70% / 6.7% / 23.3%) because the 40 readmitted placements carry the
+#: same DROPS_NORMAL sets the 12 already did -- so this is a wider sample of
+#: the same table, not a different table.  A roll that yields MONEY
 #: ONLY is counted apart from a roll that yields an item, and that
 #: distinction is the point (pf-adversary D1): ``mob_loot`` records money and
 #: never emits it (``money_element`` refuses by name,
@@ -142,9 +148,9 @@ SEEDS_PER_ROW = 30
 #: ``MOB_LOOT_DROP`` frame at all.  A control that counted money as "drops"
 #: would stay green through exactly the table edit that breaks the burst
 #: assertions below, which is the one job it has.
-BG0002_ITEM_ROLLS = 252
-BG0002_MONEY_ONLY_ROLLS = 24
-BG0002_EMPTY_ROLLS = 84
+BG0002_ITEM_ROLLS = 1092
+BG0002_MONEY_ONLY_ROLLS = 104
+BG0002_EMPTY_ROLLS = 364
 
 
 def _legacy():

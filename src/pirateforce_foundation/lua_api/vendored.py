@@ -82,6 +82,8 @@ MIRROR_CRITERIA_CURVE = "criteria_curve"
 MIRROR_CRITERIA_ROWS = "criteria_rows"
 MIRROR_QUEST_VAR_ROWS = "quest_var_rows"
 MIRROR_QUEST_VAR_SIGNEDNESS = "quest_var_signedness"
+MIRROR_QUEST_REWARD_ROWS = "quest_reward_rows"
+MIRROR_QUEST_COLUMN_GROUPS = "quest_column_groups"
 
 #: What a read that did not say which mirror it was reading is filed under.
 #: Kept so `record(exc)` with no key stays legal for a caller outside this
@@ -97,6 +99,8 @@ KNOWN_MIRRORS: tuple = (
     MIRROR_CRITERIA_ROWS,
     MIRROR_QUEST_VAR_ROWS,
     MIRROR_QUEST_VAR_SIGNEDNESS,
+    MIRROR_QUEST_REWARD_ROWS,
+    MIRROR_QUEST_COLUMN_GROUPS,
 )
 
 

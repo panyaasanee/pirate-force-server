@@ -2248,7 +2248,14 @@ class MobLootTests(unittest.TestCase):
         self.assertEqual(travelled & set(field_drop_tables.ITEMS), {2200423})
         self.assertNotIn(2200003, field_drop_tables.ITEMS)
         self.assertNotIn(2600001, field_drop_tables.ITEMS)
-        self.assertEqual(len(field_drop_tables.ITEMS), 85)
+        # ROUND najn72: ~~85~~ -> 88.  Re-derived, not adjusted: scene 2 was
+        # re-mined through the crosswalk with the owner's outfit rule
+        # (NOW.md `1313`, tick 20260908_0025), 40 more placements ship, and
+        # the drop tables were regenerated over the union of the scenes this
+        # lane ships -- three new item ids and one new DROPS_SPECIALLY set
+        # (2802202).  The three assertions above are the substantive half
+        # and none of them moved.
+        self.assertEqual(len(field_drop_tables.ITEMS), 88)
         nonclaims_text = " ".join(MOB_LOOT_NONCLAIMS)
         self.assertIn(
             "NOT ONE OF THE 43 IDS THIS LANE CAN EMIT HAS EVER BEEN ON A "
