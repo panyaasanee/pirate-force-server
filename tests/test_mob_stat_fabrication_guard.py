@@ -124,6 +124,12 @@ LANE_B_MODULES = (
     # Listed in the same commit as the module, same reason every other entry
     # on this tuple gives.
     "mob_ai_player_damage.py",
+    # ROUND k92czs: the AI_COMBAT rule language, parsed (PANYA-DECISION
+    # 20260906_2032 item 1).  No player stat of any kind -- it reads two
+    # columns of a mined table and answers which of a monster's own rule
+    # lines its own numbers select.  The caller supplies every world value
+    # it compares against; this module observes nothing on its own.
+    "mob_ai_rules.py",
     # ROUND wmomy7: the scene-scoped hostile census override, and the
     # census-backing check that found five roster rows with no body.
     "mob_census_hostility.py",

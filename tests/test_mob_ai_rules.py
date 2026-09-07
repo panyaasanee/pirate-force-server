@@ -105,6 +105,82 @@ class ParseEveryShippedRow(unittest.TestCase):
             mob_ai_rules.parse_program(1, "GO(0)", "CHASE(1);CHASE(2)")
 
 
+class TheShapesPfAdversaryMeasuredInTheFullTable(unittest.TestCase):
+    """Round k92czs findings, each pinned by the shape that produced it.
+
+    None of these rows is in the 34-row slice this repository ships, which is
+    exactly why they are constructed here: the slice cannot fail them, so
+    without these tests the parser's behaviour on the full table would be
+    prose.
+    """
+
+    def test_a_blank_first_condition_line_does_not_shift_the_actions(self):
+        """D2.  Six real rows open with a blank condition line.
+
+        Dropping it slid every action up by one -- the borrowing this module
+        says it refuses -- and made the line counts equal, so the row reported
+        parallel=True while disagreeing with the miner.
+        """
+        program = mob_ai_rules.parse_program(
+            3, "HP_I<(0.5)\\n\\nGO(0)",
+            "CHASE(2)\\nCHASE(9)\\nCHASE(1)")
+        self.assertEqual(len(program.lines), 3)
+        self.assertTrue(program.lines[1].is_blank)
+        self.assertEqual(program.lines[0].action.skill_slot, 2)
+        self.assertEqual(program.lines[2].action.skill_slot, 1)
+        healthy = mob_ai_rules.EvalState(hp_self=1.0)
+        self.assertEqual(mob_ai_rules.choose(program, healthy).action.skill_slot,
+                         1, "the blank line must not fire and must not shadow "
+                            "the default below it")
+        hurt = mob_ai_rules.EvalState(hp_self=0.2)
+        self.assertEqual(mob_ai_rules.choose(program, hurt).action.skill_slot, 2)
+
+    def test_the_parallel_measurement_counts_lines_the_way_the_miner_does(self):
+        """The two readings must be comparable or the comparison means nothing."""
+        program = mob_ai_rules.parse_program(
+            4, "\\nGO(0)", "CHASE(3)\\nCHASE(5)\\nCHASE(1)")
+        self.assertFalse(program.parallel)
+
+    def test_a_line_that_is_not_only_GO_is_not_the_default(self):
+        """D5.  17 real lines read DISTANCE...;DISTANCE...;GO(0)."""
+        program = mob_ai_rules.parse_program(
+            5, "DISTANCE_ENEMY>(800);DISTANCE_ENEMY<(1200);GO(0)\\nGO(0)",
+            "CHASE(3)\\nCHASE(1)")
+        self.assertFalse(program.lines[0].is_default)
+        self.assertTrue(program.lines[1].is_default)
+        far = mob_ai_rules.EvalState(distance_enemy=5000)
+        self.assertEqual(mob_ai_rules.choose(program, far).action.skill_slot, 1)
+
+    def test_the_table_spelling_Go_is_the_same_word(self):
+        """D1.  Rows 1505 and 1526 spell the default with a lowercase o."""
+        self.assertEqual(mob_ai_rules.parse_condition_token("Go(0)").name, "GO")
+        program = mob_ai_rules.parse_program(6, "Go(0)", "CHASE(1)")
+        self.assertTrue(program.ends_with_default)
+
+    def test_kd_enemy_may_carry_a_second_argument(self):
+        """D8.  Row 1029 ships KD_ENEMY(1,302)."""
+        condition = mob_ai_rules.parse_condition_token("KD_ENEMY(1,302)")
+        self.assertEqual(condition.args, (1.0, 302.0))
+        program = mob_ai_rules.parse_program(
+            7, "KD_ENEMY(1,302)\\nGO(0)", "CHASE(8)\\nCHASE(1)")
+        down = mob_ai_rules.EvalState(enemy_knocked_down=True)
+        self.assertEqual(mob_ai_rules.choose(program, down).action.skill_slot, 8)
+
+    def test_every_refusal_happens_at_parse_time_not_inside_the_tick(self):
+        """D3 and D4: the count is only worth reading if it sees them.
+
+        A comparison word with no operator, a word spelled without
+        parentheses, an operator on a word that takes none, and a word with
+        no argument at all: each used to reach the evaluator, where the
+        failure was either IndexError (not this module's exception at all) or
+        a raise the parse count could not see.
+        """
+        for bad in ("HP_I(0.5)", "HP_I", "DISTANCE_ENEMY>", "RATE<(50)",
+                    "RATE()", "GO()"):
+            with self.assertRaises(mob_ai_rules.UnknownRuleToken, msg=bad):
+                mob_ai_rules.parse_condition_token(bad)
+
+
 class ChooseOneLine(unittest.TestCase):
 
     def _program(self):

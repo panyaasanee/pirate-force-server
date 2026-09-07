@@ -137,8 +137,25 @@ class RuleLine:
 
     @property
     def is_default(self) -> bool:
-        """True for the ``GO(0)`` line: no test, always taken if reached."""
-        return any(c.name == "GO" for c in self.conditions)
+        """True only for a line that is NOTHING BUT ``GO``.
+
+        ``any(GO)`` was wrong and measured so: 17 lines across 11 rows of the
+        full table read ``DISTANCE_ENEMY>(800);DISTANCE_ENEMY<(1200);GO(0)``,
+        a distance-gated line that ``any`` would call the unconditional
+        fallback (pf-adversary round k92czs, D5).
+        """
+        return (len(self.conditions) == 1
+                and self.conditions[0].name == "GO")
+
+    @property
+    def is_blank(self) -> bool:
+        """A line the table left empty.  It holds a position and never fires.
+
+        See ``_split_lines``: the blank is kept so the action column still
+        lines up.  ``choose`` skips it -- ``all(())`` is True, so a blank line
+        would otherwise fire on every tick and shadow every line below it.
+        """
+        return not self.conditions
 
     @property
     def is_once_per_life(self) -> bool:
@@ -161,8 +178,21 @@ class CombatProgram:
     ends_with_default: bool
 
 
-_TOKEN_RE = re.compile(r"^([A-Z_]+)([<>]?)\(([^)]*)\)$")
-_BARE_TOKEN_RE = re.compile(r"^([A-Z_]+)([<>]?)$")
+_TOKEN_RE = re.compile(r"^([A-Za-z_]+)([<>]?)\(([^)]*)\)$")
+
+# Names are compared upper-cased.  pf-adversary round k92czs measured two rows
+# of the full CONSTDATA table (1505 and 1526) spelling the default ``Go(0)``;
+# a case-sensitive read calls those rows unparseable, which is a claim about
+# this parser and not about the game.
+#
+# WHICH CONDITIONS CARRY A COMPARISON.  ``HP_I(0.5)`` -- a comparison word
+# with no operator -- used to parse and then raise from inside the tick, so
+# the "zero unparsed tokens" count reported green for a row nothing could
+# evaluate (same round, D4).  The two sets below move that refusal to parse
+# time, where the count can see it.
+_NEEDS_OPERATOR = frozenset({"HP_I", "HP_ENEMY", "HP_ALLY", "DISTANCE_ENEMY"})
+_REFUSES_OPERATOR = frozenset({"BUFF_I", "BUFF_ENEMY", "RATE", "GO",
+                               "KD_ENEMY", "DOONCE"})
 
 # The union of the letter's vocabulary and what the shipped slice actually
 # uses (module docstring, "WHAT THIS LANE MEASURED").  Value = how many
@@ -172,7 +202,10 @@ CONDITION_VOCABULARY: Dict[str, Optional[int]] = {
     "BUFF_ENEMY": None,
     "RATE": 1,
     "GO": 1,
-    "KD_ENEMY": 1,
+    # Row 1029 of the full table ships ``KD_ENEMY(1,302)``: the second
+    # argument exists and nothing here knows what it means, so the arity is
+    # open and only the first argument is read (pf-adversary round k92czs).
+    "KD_ENEMY": None,
     "DOONCE": 1,
     "HP_I": 1,
     "HP_ENEMY": 1,
@@ -200,28 +233,40 @@ def _parse_args(raw: str) -> Tuple[float, ...]:
 
 
 def parse_condition_token(token: str) -> Condition:
-    """One ``s_CONDITOIN`` token, or ``UnknownRuleToken``."""
+    """One ``s_CONDITOIN`` token, or ``UnknownRuleToken``.
+
+    EVERY refusal happens HERE, not inside the tick.  An earlier draft let a
+    token spelled without parentheses through with no arguments, which skipped
+    the arity check below and raised ``IndexError`` -- not
+    ``UnknownRuleToken`` -- the first time a monster evaluated it, killing the
+    tick in a driver that catches the only exception this module documents.
+    No shipped row spells a token that way, so the leniency bought nothing and
+    cost the one guarantee the parse is for (pf-adversary round k92czs, D3).
+    """
     token = token.strip()
     if not token:
         raise UnknownRuleToken("empty condition token")
     match = _TOKEN_RE.match(token)
     if match is None:
-        bare = _BARE_TOKEN_RE.match(token)
-        if bare is not None and bare.group(1) in CONDITION_VOCABULARY:
-            # A token spelled without parentheses.  The shipped slice has
-            # none, so this stays a declared shape rather than a guess: it
-            # parses as the same name with no arguments.
-            return Condition(bare.group(1), bare.group(2), ())
         raise UnknownRuleToken("unparseable condition token %r" % (token,))
-    name, op, raw = match.group(1), match.group(2), match.group(3)
+    name, op, raw = match.group(1).upper(), match.group(2), match.group(3)
     if name not in CONDITION_VOCABULARY:
         raise UnknownRuleToken("unknown condition %r" % (name,))
+    if name in _NEEDS_OPERATOR and op not in ("<", ">"):
+        raise UnknownRuleToken(
+            "condition %s compares and carries no < or >" % (name,))
+    if name in _REFUSES_OPERATOR and op:
+        raise UnknownRuleToken(
+            "condition %s takes no comparison, got %r" % (name, op))
     args = _parse_args(raw)
     expected = CONDITION_VOCABULARY[name]
     if expected is not None and len(args) != expected:
         raise UnknownRuleToken(
             "condition %s takes %d argument(s), got %d"
             % (name, expected, len(args)))
+    if not args:
+        raise UnknownRuleToken(
+            "condition %s carries no argument" % (name,))
     return Condition(name, op, args)
 
 
@@ -233,7 +278,7 @@ def parse_action_token(token: str) -> Action:
     match = _TOKEN_RE.match(token)
     if match is None:
         raise UnknownRuleToken("unparseable action token %r" % (token,))
-    name, _op, raw = match.group(1), match.group(2), match.group(3)
+    name, _op, raw = match.group(1).upper(), match.group(2), match.group(3)
     if name not in ACTION_VOCABULARY:
         raise UnknownRuleToken("unknown action %r" % (name,))
     args = _parse_args(raw)
@@ -246,7 +291,20 @@ def parse_action_token(token: str) -> Action:
 
 
 def _split_lines(column: str) -> List[str]:
-    return [line for line in column.split(RULE_SEPARATOR) if line.strip()]
+    """Every segment, blanks INCLUDED, in table order.
+
+    Dropping blanks is the defect pf-adversary round k92czs measured as D2.
+    Six rows of the full table (1516, 1517, 1536, 1537, 1546, 1547) open with
+    a BLANK condition line while the action column has an action on that same
+    line.  Dropping the blank slides every later condition onto the previous
+    line's action -- exactly the "hand the monster an action the table never
+    put on that line" this module says it refuses -- and it also makes the
+    line counts equal, so ``parallel`` reported True and erased the very
+    disagreement the miner recorded.  Keeping the blank keeps the positional
+    join with the action column, which is the only join either column
+    describes.
+    """
+    return column.split(RULE_SEPARATOR)
 
 
 def parse_program(row_id: int, condition_column: str,
@@ -394,6 +452,8 @@ def choose(program: CombatProgram, state: EvalState,
     about what the row needs; a program WITH a RATE token and no rng raises.
     """
     for line in program.lines:
+        if line.is_blank:
+            continue
         if line.is_once_per_life:
             key = (program.row_id, line.index)
             if key in state.doonce_fired:
