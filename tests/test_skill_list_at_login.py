@@ -870,5 +870,126 @@ class NoSqliteHandleOutlivesItsBlockTests(unittest.TestCase):
         )
 
 
+class AHookCanWireThisWithoutRuntimeChangingTests(unittest.TestCase):
+    """pf-adversary D2 of round `jqeid1`, paid and then pinned.
+
+    `runtime.py` does `from . import lane_hooks`, and that package imports
+    every `lane_*.py` module beside it at process start.  So the sentence
+    "`runtime.py` does not call it" and the sentence "nothing sends this
+    frame" were never the same sentence, and `sent_by=module_only` was the
+    second one printed off a measurement of the first.  These tests build the
+    tree that separates them.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.runtime = self.dir / "runtime.py"
+        self.runtime.write_text(
+            "from . import lane_hooks\n", encoding="utf-8"
+        )
+        self.hooks = self.dir / "lane_hooks"
+        self.hooks.mkdir()
+
+    def _hook(self, name, body):
+        (self.hooks / name).write_text(body, encoding="utf-8")
+
+    def test_a_hook_that_calls_the_entry_point_is_named_not_hidden(self):
+        self._hook(
+            "lane_cs_skill_list.py",
+            "def on_login(legacy, store, cid):\n"
+            "    return %s(legacy, store, cid)\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+        )
+        self.assertEqual(
+            "hook:lane_cs_skill_list",
+            skill_list_at_login.seam_carrier(self.runtime, self.hooks),
+        )
+
+    def test_before_this_round_the_same_tree_read_module_only(self):
+        """The defect itself, run as a test: runtime alone cannot see it."""
+        self._hook(
+            "lane_cs_skill_list.py",
+            "x = %s(1, 2, 3)\n" % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+        )
+        runtime_only = skill_list_at_login.seam_carrier(
+            self.runtime, self.dir / "no_such_hooks"
+        )
+        self.assertEqual("module_only", runtime_only)
+        self.assertNotEqual(
+            runtime_only,
+            skill_list_at_login.seam_carrier(self.runtime, self.hooks),
+        )
+
+    def test_a_file_the_package_never_imports_is_not_a_carrier(self):
+        """`_discover()` skips every name that is not `lane_*`."""
+        self._hook(
+            "helper_skill_list.py",
+            "x = %s(1, 2, 3)\n" % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+        )
+        self.assertEqual(
+            "module_only",
+            skill_list_at_login.seam_carrier(self.runtime, self.hooks),
+        )
+
+    def test_a_comment_in_a_hook_is_not_a_carrier_either(self):
+        self._hook(
+            "lane_cs_skill_list.py",
+            "# TODO: call %s here\n" % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+        )
+        self.assertEqual(
+            "module_only",
+            skill_list_at_login.seam_carrier(self.runtime, self.hooks),
+        )
+
+    def test_runtime_wins_when_both_call_it(self):
+        self.runtime.write_text(
+            "from . import lane_hooks\n"
+            "frame = %s(legacy, store, cid)\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+            encoding="utf-8",
+        )
+        self._hook(
+            "lane_cs_skill_list.py",
+            "x = %s(1, 2, 3)\n" % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+        )
+        self.assertEqual(
+            "runtime",
+            skill_list_at_login.seam_carrier(self.runtime, self.hooks),
+        )
+
+    def test_the_named_hook_is_the_first_in_filename_sort_order(self):
+        """The package promises that order and nothing else; so does this."""
+        for name in ("lane_zz_last.py", "lane_aa_first.py"):
+            self._hook(
+                name, "x = %s(1, 2, 3)\n" % skill_list_at_login.LOGIN_SEAM_SYMBOL
+            )
+        self.assertEqual(
+            "hook:lane_aa_first",
+            skill_list_at_login.seam_carrier(self.runtime, self.hooks),
+        )
+
+    def test_a_hook_that_does_not_parse_is_stepped_over_not_fatal(self):
+        """`_discover()` prints IMPORT_FAILED and keeps going; so does this."""
+        self._hook("lane_aa_broken.py", "def (\n")
+        self._hook(
+            "lane_bb_real.py",
+            "x = %s(1, 2, 3)\n" % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+        )
+        self.assertEqual(
+            "hook:lane_bb_real",
+            skill_list_at_login.seam_carrier(self.runtime, self.hooks),
+        )
+
+    def test_the_live_tree_has_no_hook_carrier_today(self):
+        """Measured, not assumed: no lane_hooks module calls this today.
+
+        The day one does, this goes red and the round that wired it says so
+        out loud instead of shipping a token that reads `module_only`.
+        """
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier())
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

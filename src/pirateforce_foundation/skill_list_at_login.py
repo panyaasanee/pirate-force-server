@@ -354,7 +354,25 @@ def repository_root() -> "Any":
     return Path(__file__).resolve().parents[2]
 
 
-def seam_carrier(runtime_path: "Any" = None) -> str:
+def _calls_the_seam(tree: "Any") -> bool:
+    """True when this parsed module CALLS ``LOGIN_SEAM_SYMBOL`` somewhere.
+
+    Split out of ``seam_carrier`` when the search widened from one file to
+    the auto-imported hook package: two copies of an AST walk is how the two
+    halves of one answer drift apart.
+    """
+    import ast
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = getattr(func, "attr", getattr(func, "id", ""))
+            if name == LOGIN_SEAM_SYMBOL:
+                return True
+    return False
+
+
+def seam_carrier(runtime_path: "Any" = None, hooks_dir: "Any" = None) -> str:
     """Who would send this frame today, MEASURED off ``runtime.py``.
 
     ``runtime`` when the login path actually CALLS
@@ -375,13 +393,27 @@ def seam_carrier(runtime_path: "Any" = None) -> str:
     reads ``sent_by=runtime`` on a server that sends nothing.  A call node is
     the smallest thing that cannot be written by accident or by a plan.
 
-    WHAT IT STILL CANNOT SEE, said rather than implied: this reads ONE file.
-    ``runtime.py`` imports the ``lane_hooks`` package, which auto-imports
-    every module dropped into it, so a lane that wires this in through a
-    hook puts the frame on a live boot path without ``runtime.py`` changing
-    by a byte -- and this function would still say ``module_only``
-    (pf-adversary D2).  Widening it is next round's work and is filed as
-    such; printing a narrower answer as if it were the whole answer is not.
+    IT NO LONGER READS ONE FILE (pf-adversary D2, paid).  ``runtime.py`` does
+    ``from . import lane_hooks``, and that package's ``_discover()`` imports
+    EVERY ``lane_*.py`` module beside it at process start, so a lane can put
+    this frame on a live boot path without ``runtime.py`` changing by a byte.
+    The old answer for that tree was ``module_only``: the token would have
+    told an operator nothing sends this frame while a hook was sending it.
+    Every auto-imported hook module is now read too, in the same
+    filename-sort order the package documents, and a call in one of them
+    answers ``hook:<module>``.
+
+    ``runtime`` beats a hook when both call it, because a direct call on the
+    login path is the seam GT-307 is about and a hook is the way around it.
+
+    WHAT IT STILL CANNOT SEE, said rather than implied.  ``hook:<module>`` is
+    an UPPER bound on "this frame is live", not a proof of it: ``_discover()``
+    additionally refuses a hook module whose own ``production_allowed`` is
+    false (``LANE_HOOK_DISCOVERY ... SKIPPED_NOT_PRODUCTION_ALLOWED``), and
+    that flag is not read here.  And neither half sees a call made through a
+    variable, a ``getattr`` or an alias -- an AST call node is still the
+    smallest thing that cannot be written by accident, which is the property
+    this function trades reach for.
     """
     import ast
     from pathlib import Path
@@ -399,12 +431,31 @@ def seam_carrier(runtime_path: "Any" = None) -> str:
         tree = ast.parse(text)
     except SyntaxError:
         return "unknown"
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            name = getattr(func, "attr", getattr(func, "id", ""))
-            if name == LOGIN_SEAM_SYMBOL:
-                return "runtime"
+    if _calls_the_seam(tree):
+        return "runtime"
+
+    folder = (
+        Path(hooks_dir)
+        if hooks_dir is not None
+        else path.resolve().parent / "lane_hooks"
+    )
+    try:
+        # sorted(): lane_hooks/__init__.py documents filename-sort order as
+        # the ONLY ordering guarantee `_discover()` gives, and this answer
+        # names one module, so it has to break ties the same way.
+        candidates = sorted(folder.glob("lane_*.py"))
+    except OSError:
+        candidates = []
+    for candidate in candidates:
+        try:
+            hook_tree = ast.parse(candidate.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            # A hook file this function cannot read is one `_discover()`
+            # cannot import either -- it prints IMPORT_FAILED and moves on,
+            # and so does this.
+            continue
+        if _calls_the_seam(hook_tree):
+            return "hook:%s" % (candidate.stem,)
     return "module_only"
 
 
