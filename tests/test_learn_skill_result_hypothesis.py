@@ -656,7 +656,7 @@ class ScenarioGateTests(unittest.TestCase):
                 require_learn_skill_result_hypothesis_scenario(bad)
 
     def test_this_lane_is_reachable_only_through_the_opt_in_scenario(self):
-        # The two importers are named and the list is exact, so a third one
+        # The importers are named and the list is exact, so a fourth one
         # shows up here as a failure -- the CHAT-CHANNEL-003 containment
         # shape.  connection.py, scenario.py and the frozen v141 module know
         # nothing about any of it.
@@ -672,52 +672,98 @@ class ScenarioGateTests(unittest.TestCase):
         # the reach, and the two guards below are what say so -- nothing the
         # server runs may import it, so it can never be on a live path.
         #
-        # [assumption of LANE-CS - awaiting COO] pf-adversary (round `b2cnxe`)
-        # says this move may not be LANE-CS's to make: NOW's "a scaffold pin is
-        # retired by the module's owner" arguably does not cover a pin whose
-        # subject is a SAFETY property tied to an unisolated movement-lock
-        # regression, and extending an exact expected list is the same shape as
-        # the allowlist COO forbade this lane forty minutes earlier.  LANE-CS
-        # moved it anyway and says so here rather than in a PR body (the rule
-        # COO set in 20260907_1941): nothing is unflagged by this commit --
-        # production_allowed is False on both modules, the seam this lane asked
-        # chief for is behind an env that defaults off, and callers_in_src=0 is
-        # still true and still measured.  The letter
-        # notes_to_chief/20260907_2208_LANE-CS-ASK-COO-* puts both questions to
-        # COO.  If the answer is no, the revert is one commit: drop
-        # skill_list_at_login.py and restore the three-name list.
-        #
-        # skill_list_at_login.py (round `b2cnxe`, COO-ORDER 20260907_2050) is
-        # the third name, and it is a DIFFERENT kind of importer, so this pin
-        # is moved rather than merely extended and the difference is written
-        # down instead of glossed:
-        #   * it does NOT go through the opt-in scenario gate.  It never calls
-        #     load_learn_skill_result_hypothesis_scenario, never reads the
-        #     pinned step plan, and takes no scenario object.  It uses the
-        #     ENCODER only -- the GT-050-proven body shape -- with records it
-        #     builds from a character's own database rows.  The guard below
-        #     asserts that absence rather than trusting this comment.
-        #   * so what contains it today is NOT the scenario gate but the fact
-        #     that nothing the server runs imports IT either: its own
-        #     callers_in_src token is 0 and tests/test_skill_list_at_login.py
-        #     measures that by grepping this package.  The guard below asserts
-        #     the same thing from this side.
-        #   * that containment is deliberately temporary.  The CORE-REQUEST
-        #     filed with round `b2cnxe` asks chief for one seam in runtime.py,
-        #     and the day it lands this lane IS reachable without a scenario.
-        #     That is the point of the ticket, not an accident -- and this
-        #     test is written to go RED on that day, so whoever lands the seam
-        #     has to come back here and say what the new containment is.  Do
-        #     not pre-weaken it now to save that round the trouble.
+        # skill_list_at_login.py is NOT on this list, and COO-DECISION
+        # 20260907_2241 is why.  It needs the 0x673C body SHAPE and nothing
+        # else -- no step plan, no scenario object, no probe pin -- so the
+        # shape was MOVED into a plain frame module both sides import, rather
+        # than the login lane importing this one and a fourth name being added
+        # here.  Extending this list would have been the same shape as the
+        # allowlist COO forbade, and would have made the sentence above false.
+        # The guards after the list are the moved pin: they assert that the
+        # frame module knows nothing about this lane, and that both sides
+        # really do go through it.
         self.assertEqual(
             importers,
             [
                 "app.py",
                 "runtime.py",
                 "skill_learn_step_headless.py",
-                "skill_list_at_login.py",
             ],
         )
+        # The frame module is the shared half.  It must not import this lane,
+        # must not name this lane's opt-in gate, and must not carry a step
+        # plan -- otherwise the split bought nothing and the login lane is
+        # back on the sweep path by another road.
+        frame_lane = "learn_skill_result_frame"
+        frame_source = (SRC_ROOT / f"{frame_lane}.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn(module, frame_source)
+        import ast as _ast
+
+        frame_tree = _ast.parse(frame_source)
+        # ast keeps docstrings as ordinary string constants, so they are
+        # removed by hand here: prose is allowed to SAY "step plan"; code is
+        # not allowed to REACH one.  Everything else -- names, attributes,
+        # import aliases and every non-docstring string -- is checked.
+        docstrings = set()
+        for node in _ast.walk(frame_tree):
+            if isinstance(
+                node,
+                (_ast.Module, _ast.ClassDef, _ast.FunctionDef,
+                 _ast.AsyncFunctionDef),
+            ):
+                text = _ast.get_docstring(node, clean=False)
+                if text is not None:
+                    docstrings.add(text)
+        frame_names = set()
+        for node in _ast.walk(frame_tree):
+            if isinstance(node, _ast.Name):
+                frame_names.add(node.id)
+            elif isinstance(node, _ast.Attribute):
+                frame_names.add(node.attr)
+            elif isinstance(node, _ast.alias):
+                frame_names.add(node.name)
+                frame_names.add(node.asname or "")
+            elif isinstance(node, _ast.Constant) and isinstance(
+                node.value, str
+            ):
+                if node.value not in docstrings:
+                    frame_names.add(node.value)
+        self.assertEqual(
+            [], sorted(n for n in frame_names if "scenario" in n.lower()),
+        )
+        # Named one by one rather than by the substring "step": the frame's
+        # own refusal vocabulary legitimately contains `unknown_step_label`
+        # (this lane's step composer raises it), so a blanket "step" ban
+        # would have to be either weakened later or worked around by
+        # renaming a wire-facing string.  These are the gate and the plan.
+        for forbidden in (
+            "load_learn_skill_result_hypothesis_scenario",
+            "require_learn_skill_result_hypothesis_scenario",
+            "make_learn_skill_result_step_response",
+            "LEARN_SKILL_RESULT_STEPS",
+            "LEARN_SKILL_RESULT_STEP_ORDER",
+            "LEARN_SKILL_RESULT_STEP_RECORDS",
+            "LEARN_SKILL_RESULT_STEP_TRAILING",
+            "_select_step_plan",
+            "_require_step_plan",
+            "_active_step_order",
+        ):
+            self.assertNotIn(forbidden, frame_names)
+            self.assertNotIn(forbidden, frame_source)
+        # The exclusion above must not become a hole: a docstring is the only
+        # thing it drops, so a step-plan name smuggled into a NON-docstring
+        # string is still caught.  Proven by construction, not by trust.
+        self.assertNotEqual([], sorted(docstrings))
+        # ... and both sides really import it, so "one shape, two callers" is
+        # measured rather than asserted in prose.
+        for name in (f"{module}.py", "skill_list_at_login.py"):
+            self.assertIn(
+                f"from .{frame_lane} import",
+                (SRC_ROOT / name).read_text(encoding="utf-8"),
+                name,
+            )
         login_lane = "skill_list_at_login"
         login_source = (SRC_ROOT / f"{login_lane}.py").read_text(
             encoding="utf-8"
