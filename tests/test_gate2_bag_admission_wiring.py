@@ -47,6 +47,57 @@ from pirateforce_foundation.inventory import (  # noqa: E402
     move_known_item_to_free_slot,
 )
 from pirateforce_foundation.session import FoundationSession  # noqa: E402
+# The seat's single spelling, imported rather than retyped -- see the
+# constant's own comment in that file for the decision it implements
+# (ROUND pksqwj, COO-DECISION `20260908_0542` item 5).
+from test_bag_admission_expiry import (  # noqa: E402
+    RESERVED_MIGRATION_WRITER,
+)
+
+
+#: ROUND pksqwj.  The two package modules that may reach gate 2 once
+#: LANE-DB's class-weapon migration exists, and the reason each may.
+#:
+#: The migration rewrites a bag that a character will next carry through
+#: character-select, so the one thing it has to be true of is the thing
+#: this file exists to pin: THE BAG IT LEAVES BEHIND STILL GETS THROUGH
+#: GATE 2.  Reading the verdict from ``may_enter_world`` is the honest way
+#: to be sure of that; asserting its own idea of admissibility is how a
+#: migration ships a bag the login path then refuses, which is a character
+#: a player cannot log in to.  ``store.py`` is where the migration runs and
+#: ``persistence_class_weapon.py`` is where its admission arithmetic
+#: already lives (``admission_blockers``, on main, called by the read-only
+#: half today).
+#:
+#: A SEAT IS NOT A KEY.  ``_class_weapon_migration_has_landed`` below gives
+#: these two names their seat ONLY on a tree where the occupant is really
+#: defined; on this commit it is not (LANE-DB withdrew the writing half --
+#: ``store.py``'s "THE WRITING HALF IS WITHDRAWN, NOT FORGOTTEN" comment),
+#: so this frozenset grants nothing at all right now and a new reach for
+#: the predicate from either file is as red today as it was yesterday.
+CLASS_WEAPON_MIGRATION_SEATS = frozenset({
+    "store.py", "persistence_class_weapon.py",
+})
+
+
+def _class_weapon_migration_has_landed(package_root):
+    """True when ``store.py`` really defines the function the seats are for.
+
+    ROUND pksqwj.  Derived from the AST, not from a grep: ``store.py``
+    currently NAMES ``apply_class_weapon_migration`` in a comment that
+    explains why it is absent, and a substring scan would read that comment
+    as the function and open the seats on the strength of prose.  That is
+    the same defect this file already catches in the other direction (a
+    module that names ``bag_admission`` in prose is not a caller), applied
+    to the seat rather than to the gate.
+    """
+    tree = ast.parse((package_root / "store.py").read_text(encoding="utf-8"))
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == RESERVED_MIGRATION_WRITER
+        for node in ast.walk(tree)
+    )
+
 
 ITEM = 2400046  # the roster's most common drop, as tests/test_mob_pickup.py uses
 MOB = 0x2068
@@ -626,20 +677,38 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             str(path.relative_to(root)) for path in package
             if "bag_admission" in path.read_text(encoding="utf-8")
         )
+        # THE SEATS, AND THEY ARE SHUT ON THIS COMMIT (ROUND pksqwj, `0542`
+        # item 5).  Two names may reach the predicate -- but only on a tree
+        # where `store.apply_class_weapon_migration` is really defined, and
+        # only these two names.  An empty set here is the normal state and
+        # the assertions below then read exactly as they read before this
+        # round, byte for byte in what they permit.
+        seats = (CLASS_WEAPON_MIGRATION_SEATS
+                 if _class_weapon_migration_has_landed(root) else frozenset())
         self.assertEqual(
-            importers, ["session.py"],
+            sorted(set(importers) - seats), ["session.py"],
             "the set of modules that import bag_admission changed.  Gate 2 is "
             "the only gate this predicate was reviewed for; adding it to "
-            "another gate needs its own review and its own round.",
+            "another gate needs its own review and its own round.  The two "
+            "seats %s are open only while store.py defines %s, and they are "
+            "%s on this tree." % (
+                sorted(CLASS_WEAPON_MIGRATION_SEATS),
+                RESERVED_MIGRATION_WRITER,
+                "open" if seats else "shut",
+            ),
         )
         self.assertEqual(
-            sorted(set(mentioners) - mentions_allowed), ["session.py"],
+            sorted(set(mentioners) - mentions_allowed - seats), ["session.py"],
             "a module names bag_admission without importing it -- either a "
             "runtime lookup that dodges the import check (importlib, an "
             "attribute hop through another module), or new prose that needs "
             "a named exemption on the line above.",
         )
         self.assertEqual(len(mentions_allowed), 2)
+        # The seat set is pinned to its size too, for the same reason
+        # `mentions_allowed` is: a set that quietly grew is how an
+        # exemption becomes a policy.
+        self.assertEqual(len(CLASS_WEAPON_MIGRATION_SEATS), 2)
 
     def test_nothing_outside_the_package_calls_it_either(self):
         """The repo-wide half of the deleted guard: tools/, current/, entrypoints."""
@@ -730,6 +799,24 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
         # suffix, a python file by the AST rules this file already uses on
         # the package itself; a real caller still has to earn an allowlist
         # entry above, with its reason written next to it.
+        # THE SAME TWO SEATS, THE SAME CONDITION (ROUND pksqwj, `0542` item
+        # 5).  The scan above is the package-level half; this is the
+        # repo-wide one, and a seat that held in one and not the other would
+        # be a seat that means two different things.  Added to `allowed`
+        # only while the occupant is defined -- so on this commit nothing is
+        # added and `elsewhere` is computed against exactly the allowlist
+        # that was here before this round.
+        package_root = Path(bag_admission.__file__).parent
+        if _class_weapon_migration_has_landed(package_root):
+            # `as_posix`, because `hits` are `git grep` lines and git speaks
+            # forward slashes on Windows too -- where this gate runs.  A
+            # `str(Path(...))` here would build `src\...` and match nothing,
+            # which fails OPEN: the seat would silently stop being a seat.
+            prefix = package_root.relative_to(ROOT).as_posix()
+            allowed |= {
+                "%s/%s" % (prefix, name)
+                for name in CLASS_WEAPON_MIGRATION_SEATS
+            }
         elsewhere = _classify_repo_wide_hits(ROOT, hits, allowed)
         self.assertEqual(elsewhere, [], elsewhere)
 

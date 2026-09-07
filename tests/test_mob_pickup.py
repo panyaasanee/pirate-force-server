@@ -97,6 +97,16 @@ from pirateforce_foundation.mob_pickup import (
     test_only,
     within_pickup_radius,
 )
+# ONE SOURCE OF TRUTH FOR THE SEAT (ROUND pksqwj, COO-DECISION
+# `20260908_0542` item 5).  Three pins of this lane reserve the same seat
+# for LANE-DB's class-weapon migration; the reason and the rules live where
+# the write-side pin lives, and the other two import the name instead of
+# retyping it.  Retyped, a rename would move one pin and strand the other
+# two -- and a stranded pin is one that says something false while staying
+# green.
+from test_bag_admission_expiry import (  # noqa: E402
+    RESERVED_MIGRATION_WRITER,
+)
 
 
 MODULE_PATH = ROOT / "src" / "pirateforce_foundation" / "mob_pickup.py"
@@ -1597,7 +1607,27 @@ class MobPickupTests(unittest.TestCase):
             function for function, sql in _executed_sql("store")
             if "next_item_identity" in sql and "UPDATE" in sql
         ]
-        blocked = not pickup_inserts and not advances
+        # THE SEAT IS SUBTRACTED BEFORE `blocked` IS DERIVED, NOT AFTER, AND
+        # THAT ORDER IS THE POINT (ROUND pksqwj, `0542` item 5 on the
+        # owner's `0025` item 4).  LANE-DB's class-weapon migration writes a
+        # bag row and takes an identity for it, so it is seated in this
+        # lane's three pins -- but it is NOT this lane's pickup write, and
+        # `blocked` is this lane's own tripwire: derived from the raw lists
+        # it would read "the pickup write is here" on a tree where the
+        # pickup write had been deleted and only the migration remained,
+        # and this lane's prose, its two GOVERNED_BAG_ALLOWLIST_* constants
+        # and scenarios/combat_pickup_001.json would all keep saying
+        # something false while this test stayed green.  A seat given to
+        # another lane must not be able to answer a question about ours.
+        this_lanes_inserts = [
+            function for function in pickup_inserts
+            if function != RESERVED_MIGRATION_WRITER
+        ]
+        this_lanes_advances = [
+            function for function in advances
+            if function != RESERVED_MIGRATION_WRITER
+        ]
+        blocked = not this_lanes_inserts and not this_lanes_advances
         self.assertFalse(
             blocked,
             "store.py no longer writes a pickup row and/or no longer advances "
@@ -1606,8 +1636,13 @@ class MobPickupTests(unittest.TestCase):
             "GOVERNED_BAG_ALLOWLIST_* constants and "
             "scenarios/combat_pickup_001.json all say something false again",
         )
-        self.assertEqual(pickup_inserts, ["commit_acquired_backpack_item"])
-        self.assertEqual(advances, ["commit_acquired_backpack_item"])
+        # Still pinned exactly, and still by name: the seat is one function,
+        # so a writer that is neither ours nor the seated one is red here as
+        # it always was.
+        self.assertEqual(
+            this_lanes_inserts, ["commit_acquired_backpack_item"])
+        self.assertEqual(
+            this_lanes_advances, ["commit_acquired_backpack_item"])
         # ~~not blocked~~ WAS AN INVERTED RELATION THAT PASSED BY
         # COINCIDENCE, and the merge of two rounds is what exposed it.  Round
         # 149wbp derived `blocked` = "store.py writes no pickup row", which
@@ -1630,8 +1665,14 @@ class MobPickupTests(unittest.TestCase):
             if "INSERT INTO character_backpack_items" in sql
         )
         self.assertEqual(
-            every_insert,
+            [function for function in every_insert
+             if function != RESERVED_MIGRATION_WRITER],
             ["_insert_initial_backpack", "commit_acquired_backpack_item"],
+            "the functions that INSERT a backpack row are %s -- character "
+            "creation, this lane's pickup write, and at most the seat "
+            "reserved for %s (`0542` item 5).  Anything else and the OWNER "
+            "string below is naming the wrong obstacle again"
+            % (every_insert, RESERVED_MIGRATION_WRITER),
         )
         self.assertIn("GT-124", mob_pickup.GOVERNED_BAG_ALLOWLIST_OWNER)
         self.assertIn(

@@ -55,6 +55,47 @@ def _source(module_name: str) -> str:
     return (_SRC / (module_name + ".py")).read_text(encoding="utf-8")
 
 
+#: ROUND pksqwj (LANE-B), on COO-DECISION `20260908_0542` item 5, which
+#: answers LANE-DB's `20260908_0602` about the owner's `20260908_0025`
+#: item 4.  ONE RESERVED SEAT, AND IT IS NOT AN ALLOWLIST.
+#:
+#: The owner ordered a migration that gives every existing character the
+#: weapon its class says it holds.  Carrying the old weapon forward is an
+#: `INSERT INTO character_backpack_items`, and the row needs an identity, so
+#: the migration is a lawful writer of a bag row -- and this file is the pin
+#: that enumerates every function allowed to be one.  `store.py`'s own "THE
+#: WRITING HALF IS WITHDRAWN, NOT FORGOTTEN" comment is the record of
+#: LANE-DB withdrawing the caller rather than widening the pin, which is the
+#: one answer NOW.md `2050` allows.  This is the pin owner's half of that
+#: transaction, and it is deliberately shaped the same way round `4gqnwm`
+#: shaped the seat it gave `commit_acquired_backpack_item`: one name, with
+#: its reason on the line beside it.
+#:
+#: What a SEAT means here, written out so a later round cannot read it as a
+#: general exemption:
+#:   * exactly ONE name is reserved -- spelled out, not a pattern, not a
+#:     module, not a prefix;
+#:   * the required writers below stay REQUIRED: an empty seat is fine, a
+#:     missing pickup write or a missing character-creation insert is red;
+#:   * a FOURTH constant-SQL writer in either scanned module is still red,
+#:     which is the whole property this file exists to hold;
+#:   * no skip, no xfail, no allowlist file, and the scan itself is not
+#:     narrowed by one byte.
+#:
+#: The seat is EMPTY on this commit: LANE-DB's writing half is not on main,
+#: and the only occurrence of the name under `src/` is that comment.
+#: Occupied or empty, the assertions below assert the same thing.
+RESERVED_MIGRATION_WRITER = "apply_class_weapon_migration"
+
+#: The writers that must be present whatever the seat holds.  Kept apart
+#: from the seat so that a round which deletes the pickup write cannot
+#: satisfy either assertion by leaning on the reservation.
+REQUIRED_COUNTER_ADVANCERS = frozenset({"commit_acquired_backpack_item"})
+REQUIRED_BACKPACK_ROW_INSERTERS = frozenset({
+    "_insert_initial_backpack", "commit_acquired_backpack_item",
+})
+
+
 def test_nonclaim_8_states_the_expiry_and_names_the_replacement() -> None:
     """The tuple a console reader sees carries the rule's full history.
 
@@ -180,8 +221,16 @@ def test_exactly_one_named_write_advances_the_identity_counter() -> None:
     red the moment STORE-INSERT-001 landed -- which is what it was for.  It
     is not deleted, because "nobody writes this column" and "one named
     function writes this column" are different claims and the second is
-    still worth failing on: a second writer is how a monotonic counter stops
-    being monotonic.  So the tripwire becomes a pin.
+    still worth failing on: ~~a second writer~~ AN UNNAMED writer is how a
+    monotonic counter stops being monotonic.  So the tripwire becomes a pin.
+
+    ROUND pksqwj SEATED A SECOND NAME AND SAYS SO HERE, NOT ONLY IN THE
+    ASSERTION.  ``RESERVED_MIGRATION_WRITER`` above carries the reason and
+    the decision (`0542` item 5, on the owner's `0025` item 4); the word
+    that changed in the sentence above is "second" to "unnamed", and
+    nothing else about this pin moved.  Two writers who each take their
+    identity from this counter, both named here, is still a monotonic
+    counter; a third, unnamed one is not, and is still red.
 
     WHAT THIS PIN CAN AND CANNOT SEE -- an adversarial pass BUILT the
     evasions rather than imagining them, and three of them were green
@@ -234,12 +283,20 @@ def test_exactly_one_named_write_advances_the_identity_counter() -> None:
         "next_item_identity is %s, not character creation alone."
         % (sorted(seeds) or "empty",)
     )
-    assert advances == {"commit_acquired_backpack_item"}, (
+    # THE SEAT, SUBTRACTED ONCE, HERE (`0542` item 5, on `0025` item 4).
+    # The migration may advance the counter because the row it carries
+    # forward needs an identity nobody else holds -- which is the reason
+    # this column exists, not an exception to it.  Subtracting one named
+    # function leaves the assertion exactly as strict as it was: the pickup
+    # write is still required by name, and a third advancer still fails.
+    advances_besides_the_seat = advances - {RESERVED_MIGRATION_WRITER}
+    assert advances_besides_the_seat == set(REQUIRED_COUNTER_ADVANCERS), (
         "the set of functions that ADVANCE "
         "character_backpacks.next_item_identity is %s, not the single "
-        "pickup write.  A counter with two writers is not a counter: the "
-        "column exists so an identity is never handed out twice." % (
-            sorted(advances) or "empty",
+        "pickup write (plus, at most, the seat reserved for %s).  A counter "
+        "with two unnamed writers is not a counter: the column exists so an "
+        "identity is never handed out twice." % (
+            sorted(advances) or "empty", RESERVED_MIGRATION_WRITER,
         )
     )
 
@@ -258,7 +315,9 @@ def test_the_only_backpack_row_insert_is_the_one_that_makes_a_character() -> Non
 
     CONVERTED BY ROUND 4gqnwm, WHICH MET THIS HALF.  The second name is now
     here on purpose: ``commit_acquired_backpack_item`` is STORE-INSERT-001's
-    pickup write.  The set is still pinned exactly, so a third
+    pickup write.  The set is still pinned exactly, so ~~a third~~ A FOURTH
+    (ROUND pksqwj: the third is the reserved seat above, one named function,
+    and everything about the count moved by exactly one)
     constant-SQL inserter in either scanned module fails this test -- which
     is the property worth keeping now that "no pickup path exists" has
     stopped being true.  Same scope limit as the test above, and it is not
@@ -276,14 +335,21 @@ def test_the_only_backpack_row_insert_is_the_one_that_makes_a_character() -> Non
         for func, text in _executed_sql(module)
         if statement.search(text)
     }
-    assert inserters == {
-        "_insert_initial_backpack", "commit_acquired_backpack_item",
-    }, (
+    # THE SAME ONE SEAT (`0542` item 5).  The migration's INSERT is the old
+    # weapon being carried forward, and it takes its identity from the
+    # counter the test above pins -- so it arrives the way this test
+    # requires every row to arrive, not around it.
+    inserters_besides_the_seat = inserters - {RESERVED_MIGRATION_WRITER}
+    assert inserters_besides_the_seat == set(
+        REQUIRED_BACKPACK_ROW_INSERTERS
+    ), (
         "the set of functions that INSERT a backpack row is %s, not "
-        "character creation plus the one pickup write.  Every row a player "
-        "owns has to come from a path that took an identity from the "
-        "counter; a third inserter is a way for one to arrive without "
-        "one." % (sorted(inserters),)
+        "character creation plus the one pickup write (plus, at most, the "
+        "seat reserved for %s).  Every row a player owns has to come from a "
+        "path that took an identity from the counter; a fourth inserter is "
+        "a way for one to arrive without one." % (
+            sorted(inserters), RESERVED_MIGRATION_WRITER,
+        )
     )
 
 
