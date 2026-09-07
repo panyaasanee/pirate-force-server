@@ -935,16 +935,35 @@ class VocabularyTests(unittest.TestCase):
         # mining round changes that table, this card reports the new truth
         # instead of accusing anybody.
         from pirateforce_foundation import (
-            field_mob_tables_bg0002, field_mobs, mob_ai_control, mob_combat,
+            field_mob_tables_bg0003, field_mobs, mob_ai_control, mob_combat,
             mob_ai_scheduler,
         )
-        roster = field_mobs._parse_hostile_placements(field_mob_tables_bg0002)
-        register = mob_ai_control.open_register(roster)
-        ledger = mob_combat.open_ledger(roster)
-        orc_chief = next(m for m in roster if m.placement_index == 92)
+        # ROUND najn72: THE CARD DID ITS JOB.  Scene 2 was re-mined under the
+        # crosswalk identity rule (NOW.md `1313`, owner tick 20260908_0025)
+        # and now ships 52 rows of which ZERO are offensive -- so a mining
+        # round DID make every Bg0002 row non-offensive, which is the case
+        # this card's own message told the next reader to handle.  Handled
+        # here, both halves, rather than by moving the subject and saying
+        # nothing:
+        #   * the struck sentence in mob_aggro.py stays struck, because it
+        #     claims EVERY shipped roster is non-offensive and that is still
+        #     false -- so this half drives a scene where it is false, Bg0003;
+        #   * the Bg0002 measurement it quoted is now the OTHER way round,
+        #     and is asserted below as its own statement instead of being
+        #     dropped.
+        # Both are read through ``load_roster`` -- the shipped path -- not
+        # through the generated table: the old subject (placement 92, "Orc
+        # Chief") was a row the owner's refusal list keeps out of the roster,
+        # so this card used to measure a body no player can meet.
+        deciding_roster = field_mobs.load_roster(
+            scene=field_mob_tables_bg0003.SCENE)
+        register = mob_ai_control.open_register(deciding_roster)
+        ledger = mob_combat.open_ledger(deciding_roster)
+        ward_apes = next(
+            m for m in deciding_roster if m.placement_index == 33)
         _after, results = mob_ai_scheduler.tick_session(
             register, ledger, 0x750059,
-            (orc_chief.x, orc_chief.y, orc_chief.z))
+            (ward_apes.x, ward_apes.y, ward_apes.z))
         deciding = [
             r for r in results
             if r.intent_kind == ma.INTENT_ATTACK_UNDELIVERABLE
@@ -958,7 +977,17 @@ class VocabularyTests(unittest.TestCase):
             "on it: if a mining round made every row non-offensive, the "
             "struck sentence in mob_aggro.py is true again and should be "
             "unstruck -- with this measurement quoted")
-        self.assertGreater(len(acquired), len(deciding))
+        # ROUND najn72: ~~assertGreater(len(acquired), len(deciding))~~.
+        # That inequality was a PROPERTY OF THE OLD DATA, not a law: on
+        # Bg0002 five rows acquired and only one of them had a combat script
+        # to decide with.  On Bg0003 the one row that acquires also decides,
+        # so the strict inequality is false while nothing is wrong.  What the
+        # line was reaching for is the containment, which IS a law of the
+        # tick -- a row cannot decide to attack without having acquired --
+        # and it is asserted directly instead of inferred from a count.
+        acquired_ids = {r.actor_identity for r in acquired}
+        self.assertTrue(
+            {r.actor_identity for r in deciding} <= acquired_ids)
         self.assertLess(len(acquired), len(results))
         # THE PROSE NUMBERS, PINNED (pf-adversary D11: the first draft
         # asserted only the inequalities, so every number the struck
@@ -966,12 +995,30 @@ class VocabularyTests(unittest.TestCase):
         # placement 92, cadence 1 -- was unbacked prose).  Pinned as
         # DERIVED values, so a mining round that changes the table fails
         # here with the new truth rather than being told the old one.
-        self.assertEqual(len(results), 17)
-        self.assertEqual(len(acquired), 5)
+        # ROUND najn72: ~~17 rows, 5 acquiring, placement 92~~ -> Bg0003's
+        # 12 rows, 1 acquiring, placement 33.  Same discipline: derived, so
+        # the next mining round fails here with the new truth.
+        self.assertEqual(len(results), 12)
+        self.assertEqual(len(acquired), 1)
         self.assertEqual([r.actor_identity for r in deciding],
-                         [orc_chief.actor_identity])
+                         [ward_apes.actor_identity])
         self.assertEqual(mob_ai_control.ATTACK_CADENCE_TICKS, 1)
         self.assertEqual(mob_ai_control.MELEE_ATTACK_RANGE, 275.0)
+        # THE OTHER HALF, and the reason the sentence above had to be
+        # re-measured rather than re-pointed: on the scene the owner plays
+        # in, nothing initiates any more.  This is not a weakening -- it is
+        # the fact the re-mining produced, said out loud where the prose can
+        # be checked against it.  A future round that gives Bg0002 an
+        # offensive row fails HERE and gets to decide what the prose says.
+        bg0002_roster = field_mobs.load_roster(scene="Bg0002")
+        self.assertEqual(len(bg0002_roster), 52)
+        self.assertEqual(
+            [m.placement_index for m in bg0002_roster
+             if mob_ai_control.profile_of(m).offensive],
+            [],
+            "a Bg0002 row initiates again: mob_aggro.py's najn72 paragraph "
+            "says none does, and it has to be rewritten with this "
+            "measurement rather than this line relaxed")
         # AND THE PART THAT DID NOT CHANGE, so nobody reads this card as
         # Door B opening: deciding to attack still sends no byte.
         self.assertIs(ma.ATTACK_INTENT_DELIVERABLE, False)
