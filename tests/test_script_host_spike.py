@@ -418,7 +418,7 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             "CanReportDailyQuest", "ReportDailyQuest",
         }))
 
-    def test_the_11_real_player_names_are_excluded_above_not_forgotten(self):
+    def test_the_12_real_player_names_are_excluded_above_not_forgotten(self):
         # Same regression shape as the guards above, for Player's own real
         # names (GetLv/GetClass from round gqjas5, CheckItemNum/GetItemNum/
         # CheckEquipItem from round qbr5h8's inventory read seam, MobAppear
@@ -450,6 +450,14 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
             # name is, but the closure and its frame composer belong to
             # LANE-A.  It records a travel order and builds no frame.
             "TeleportCheck",
+            # GetCash joined in round `yzdgx1`: the purse READ four shipped
+            # quests gate a charge on (`q_class.lua:47` is
+            # `if( Player.GetCash() >= (Quest.Var3) )`).  It needed no new
+            # per-character state -- `characters.cash` is the column
+            # AddCash above already writes -- so it reads it back through
+            # the same store, via lua_api/reward.py's balance door.  An
+            # unmeasured (NULL) column is REFUSED there, never answered 0.
+            "GetCash",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):
