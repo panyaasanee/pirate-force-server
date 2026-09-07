@@ -41,7 +41,10 @@ TIERS
              `src/pirateforce_foundation/` -- evidence = the `path` of the
              file holding the first hit. Deliberately NOT `path:line`: see
              `_build_source_hits` for the measurement that removed the line
-             number, and grep the row's own `name` in that file to get it.
+             number, and `--where <name>` below to recover it. NOT grep --
+             the same refuted recovery this file already warns about 27
+             lines further down (pf-adversary D9 on `#1017` found this
+             sixth copy of it after D-E on `#1013` had swept five).
   NAME-ONLY  not in SOURCE, but the identifier appears in at least one of the
              project's three function-map files (`prompts/COMMON_LANE_ROUND.md`
              section "แผนที่โปรโตคอลของเกม"): `docs/PF_VITAL_NAMES.json`
@@ -79,6 +82,28 @@ Usage:
                   token that appears in counted code gets located, catalog row
                   or not; this mode answers "where is this spelled", not "is
                   this a vital" (pf-adversary D-D on `#1013`).
+                  When the name is counted in more than one file, a
+                  `+N more files, use --where-all` line goes to STDERR --
+                  stdout stays exactly one line, so `LINE=$(... --where X)`
+                  is byte-for-byte what it was (COO-DECISION `20260907_1141`
+                  item (c), which approved this as an ADDITION: no existing
+                  consumer changes).
+                  Does not touch the artifact.
+      --where-all N
+                  print EVERY occurrence this census counts for N, one
+                  `relpath:line` per line on stdout, in census file order --
+                  the first of them is exactly what `--where` prints. Exit 0,
+                  or exit 1 with the same stderr message as `--where` when N
+                  has no counted occurrence. 11 of the 327 catalog names are
+                  counted in more than one file; the artifact can only ever
+                  name one, because it is one row per name. [MEASURED this
+                  round, re-derived here, not quoted:
+                    python3 -c 'import sys; sys.path.insert(0, "tools");
+                    import pf_ui_wire_name_census as c;
+                    print(len(c.multi_file_counted_names(
+                        [n for _w, n in c.load_names()])))'
+                  -> 11, in about a second.  Needs the sibling catalog only
+                  for the count, not for the mode.]
                   Does not touch the artifact.
 
 Pure stdlib. No side effects on import.
@@ -142,12 +167,22 @@ def _iter_py_files(base: Path):
 
     Two OS-dependent behaviours had to be removed here (pf-adversary, round
     `d1b231`, both measured), because ``_build_source_hits`` records the FIRST
-    hit per name and 46 of the SOURCE names are hit in more than one file
-    (the 46 re-derives; an absolute SOURCE total is deliberately not repeated
-    here -- it moves whenever any lane lands a wire module, and a number
-    frozen in a docstring is exactly how this file went stale before)
+    hit per name and 11 of the catalog names are COUNTED in more than one file
     -- so this order decides those rows' ``evidence`` values, and a different
-    order on Windows is a Windows-only `CENSUS DRIFT`, exactly PR #961's shape:
+    order on Windows is a Windows-only `CENSUS DRIFT`, exactly PR #961's shape.
+
+    The number used to read 46, which was wrong under every definition this
+    file has (pf-adversary D6 on `#1017`; 46 > 30 = ``EXPECT_SOURCE`` in the
+    same test file, so the sentence refuted itself without a measurement) and
+    it is the number LANE-UI's ASK-COO of `1101` priced its whole question on.
+    11 is re-derived, not quoted -- ``--where-all`` in the usage block above
+    carries the command, and ``TheMultiFileCountIsRederived`` re-runs it in
+    the test suite so this docstring cannot go stale silently again. An
+    absolute SOURCE total is still deliberately not repeated here: it moves
+    whenever any lane lands a wire module, and a number frozen in a docstring
+    is exactly how this file went stale before.
+
+    The failure shape this ordering prevents:
 
     1. ``sorted(<Path objects>)`` compares ``PurePath._str_normcase``, which on
        Windows is ``str(path).lower()`` -- backslash separators AND case-folded.
@@ -363,13 +398,72 @@ def source_hit_location(name, py_files=None):
     files, a subpackage, many names and names that are substrings of each
     other."""
 
+    return next(iter_source_hits(name, py_files), None)
+
+
+def iter_source_hits(name, py_files=None):
+    """Yield ``(relpath, lineno)`` for the FIRST counted occurrence of ``name``
+    in EACH file, in census file order.
+
+    One generator so that ``--where`` (which takes the first) and
+    ``--where-all`` (which takes all) cannot disagree about which files, in
+    what order, with paths spelled how -- the same reason ``census_file_texts``
+    exists (pf-adversary D-A on `#1013`: two copies of those five lines, and
+    three one-line mutants of the second copy sent ``--where`` to a different
+    file from the artifact with the whole test file green).
+
+    Lazy on purpose: ``source_hit_location`` takes only the first element, so
+    it still stops at the first hit and stays cheap for the callers that run
+    it once per catalog name. Only ``--where-all`` (and the round's own
+    re-derive of the multi-file count) pays for the whole walk.
+
+    One line per file, not every line in a file: the artifact's evidence is a
+    file, and this mode exists to name the files the artifact cannot -- the
+    question COO-DECISION `20260907_1141` item (c) approved answering."""
+
     if py_files is None:
         py_files = _iter_py_files(SRC_DIR)
     for relpath, text in census_file_texts(py_files):
         for lineno, tokens in code_token_lines(text):
             if name in tokens:
-                return relpath, lineno
-    return None
+                yield relpath, lineno
+                break
+
+
+def source_hit_locations(name, py_files=None):
+    """``list(iter_source_hits(...))`` -- every file this census counts ``name``
+    in, with the line of its first counted occurrence in each."""
+
+    return list(iter_source_hits(name, py_files))
+
+
+def multi_file_counted_names(names, py_files=None):
+    """The subset of ``names`` this census counts in MORE THAN ONE file, in the
+    order given. ONE pass over the tree, so it is cheap enough for a docstring
+    to hand a reader as a command they will actually run.
+
+    Deliberately a SECOND implementation of what
+    ``[n for n in names if len(source_hit_locations(n)) > 1]`` computes, not a
+    wrapper around it: the number this answers (11, round `cpgueb`) sits in
+    two docstrings, and the previous number in that position (46) was wrong
+    under every definition this file has and survived a round because nothing
+    re-ran it (pf-adversary D6 on `#1017`). ``MultiFileCountIsRederivedTests``
+    asserts the two implementations agree, so a mutant has to break both the
+    same way, and neither can be a circular restatement of the other -- the
+    shape pf-adversary D10 on `#1017` faulted in the one-pass equivalence test
+    round `8btjto` shipped."""
+
+    if py_files is None:
+        py_files = _iter_py_files(SRC_DIR)
+    wanted = set(names)
+    seen_in = {}
+    for _relpath, text in census_file_texts(py_files):
+        here = set()
+        for _lineno, tokens in code_token_lines(text):
+            here.update(t for t in tokens if t in wanted)
+        for name in here:
+            seen_in[name] = seen_in.get(name, 0) + 1
+    return [n for n in names if seen_in.get(n, 0) > 1]
 
 
 def _build_source_hits(names, py_files):
@@ -611,9 +705,19 @@ def main(argv=None) -> int:
     parser.add_argument("--emit", action="store_true")
     parser.add_argument("--summary", action="store_true")
     parser.add_argument("--where", metavar="NAME", default=None)
+    parser.add_argument("--where-all", metavar="NAME", default=None)
     args = parser.parse_args(argv)
 
-    if args.where is not None:
+    if args.where is not None and args.where_all is not None:
+        # Two answers to "which file", one stdout. Refuse rather than pick.
+        print(
+            "CENSUS ERROR: --where and --where-all are two spellings of the "
+            "same question; pass one",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.where is not None or args.where_all is not None:
         # `is not None`, not truthiness: `--where ""` used to fall through to
         # the full census and exit 2 with `CENSUS ERROR ... needs a sibling
         # pf_bridge`, which is the one thing this mode promises never to need
@@ -624,8 +728,12 @@ def main(argv=None) -> int:
         # this repo's own `src/` tree, so it works on a checkout with no
         # `pf_bridge` sibling -- which is where a reader who just found a
         # bare path in the artifact usually is.
-        location = source_hit_location(args.where)
-        if location is None:
+        wanted = args.where if args.where is not None else args.where_all
+        # ONE walk for both modes: --where prints locations[0] and counts the
+        # rest onto stderr, --where-all prints them all. Nothing here can make
+        # the two disagree about file order or path spelling.
+        locations = source_hit_locations(wanted)
+        if not locations:
             # State what was measured -- no occurrence this census counts --
             # and offer the two reasons as possibilities, not as a finding.
             # This used to assert the docstring rule as THE cause, which is
@@ -633,7 +741,7 @@ def main(argv=None) -> int:
             # token matched anywhere and no exclusion ever fired
             # (pf-adversary D-D on `#1013`).
             print(
-                f"NOT A SOURCE ROW: {args.where} has no occurrence that this "
+                f"NOT A SOURCE ROW: {wanted} has no occurrence that this "
                 f"census counts under {SRC_DIR.relative_to(ROOT).as_posix()} "
                 "-- either the name is spelled nowhere in that tree (check "
                 "the spelling against the master catalog), or every "
@@ -644,8 +752,22 @@ def main(argv=None) -> int:
                 file=sys.stderr,
             )
             return 1
-        relpath, lineno = location
+        if args.where_all is not None:
+            for relpath, lineno in locations:
+                print(f"{relpath}:{lineno}")
+            return 0
+        relpath, lineno = locations[0]
+        # STDOUT stays exactly one line -- COO-DECISION `20260907_1141` item
+        # (c) approved the extra line only on STDERR, so that the pinned
+        # `LINE=$(... --where X)` contract (pf-adversary D-G on `#1013`) is
+        # byte-for-byte what it was.
         print(f"{relpath}:{lineno}")
+        if len(locations) > 1:
+            print(
+                f"+{len(locations) - 1} more files, use --where-all "
+                f"{wanted}",
+                file=sys.stderr,
+            )
         return 0
 
     try:

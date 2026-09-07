@@ -1148,7 +1148,7 @@ class CensusFileTextsTests(unittest.TestCase):
 
 
 class WhereAndCensusCannotDisagreeTests(unittest.TestCase):
-    """``--where`` and the artifact's `evidence` column must name the SAME
+    r"""``--where`` and the artifact's `evidence` column must name the SAME
     file -- checked on a tree shaped like the real one. Round `8btjto`,
     pf-adversary D-A/D-B on `#1013`, and D8 of the `#1005` report.
 
@@ -1158,8 +1158,17 @@ class WhereAndCensusCannotDisagreeTests(unittest.TestCase):
     census order. D-B measured the same monoculture across the whole unguarded
     half of this file -- 1-2 files, a one-name set, never a subpackage, and
     always the one vital name `Community_ProbeOnlyVital` -- while the real
-    call site passes several hundred files and 327 names, and 4 of the 30
+    call site passes several hundred files and 327 names, and 7 of the 30
     SOURCE rows live under `gm/`.
+
+    [MEASURED round `cpgueb`, re-derived, one command:
+      awk -F'\t' '$5=="SOURCE" && $6 ~ /\/gm\//' \
+        reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv | wc -l
+    -> 7 (gmui_catalog.py 4 + command_capture.py 2 + teleport_wire.py 1).
+    Round `8btjto` wrote 4 here and at the fixture below, which is the row
+    count of the single busiest gm/ FILE, not of the package -- and that
+    number was the argument that the fixture resembles the real tree
+    (pf-adversary D5 on `#1017`).]
 
     Every axis that was fixed is varied here:
 
@@ -1300,7 +1309,8 @@ class WhereAndCensusCannotDisagreeTests(unittest.TestCase):
         )
 
     def test_a_subpackage_path_keeps_its_separators(self):
-        # 4 of the 30 real SOURCE rows live under `gm/`, but no fixture had
+        # 7 of the 30 real SOURCE rows live under `gm/` (re-derived round
+        # `cpgueb`; the class docstring carries the command), but no fixture had
         # ever built a subpackage, so `relpath.count("/") <= 2` mutants
         # survived the whole file.
         for name, expected in (
@@ -1420,6 +1430,213 @@ class MainWhereFlagTests(unittest.TestCase):
         self.assertIn("or every occurrence is in a docstring", err)
         # The tool cannot know which, and must say so rather than assert one.
         self.assertIn("cannot tell you which", err)
+
+
+class MainWhereAllFlagTests(unittest.TestCase):
+    """``main(["--where-all", NAME])``'s contract, and the half of ``--where``'s
+    contract that COO-DECISION `20260907_1141` item (c) added: the extra line
+    goes to STDERR so stdout stays exactly one line.
+
+    Unguarded, runs on `gate-windows` -- it reads only a temp tree, never the
+    master catalog. ``build_rows`` is mocked to raise for the same reason
+    ``MainWhereFlagTests`` mocks it: a reader with no `pf_bridge` sibling is
+    exactly who runs these modes."""
+
+    NAME = "Community_ProbeOnlyVital"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.pkg = self.root / "src" / "pirateforce_foundation"
+        (self.pkg / "gm").mkdir(parents=True)
+        patcher = mock.patch.object(
+            census,
+            "build_rows",
+            side_effect=AssertionError("--where-all must not build rows"),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _run(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(census, "ROOT", self.root), mock.patch.object(
+            census, "SRC_DIR", self.pkg
+        ), mock.patch("sys.stdout", out), mock.patch("sys.stderr", err):
+            code = census.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def _three_files(self):
+        # Census file order is byte order on the posix relpath, so:
+        #   gm/a_wire.py < gm/b_wire.py < z_wire.py
+        # The name sits at a DIFFERENT line in each file, so a mutant that
+        # reported one file's line for another is visible.
+        (self.pkg / "gm" / "a_wire.py").write_text(
+            "X = 1\n" * 4 + f'WIRE = "{self.NAME}"\n', encoding="utf-8"
+        )
+        (self.pkg / "gm" / "b_wire.py").write_text(
+            "X = 1\n" * 9 + f'WIRE = "{self.NAME}"\n', encoding="utf-8"
+        )
+        (self.pkg / "z_wire.py").write_text(
+            "X = 1\n" * 14 + f'WIRE = "{self.NAME}"\n', encoding="utf-8"
+        )
+
+    def test_every_counted_file_is_printed_in_census_order(self):
+        self._three_files()
+        code, out, err = self._run(["--where-all", self.NAME])
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            out,
+            "src/pirateforce_foundation/gm/a_wire.py:5\n"
+            "src/pirateforce_foundation/gm/b_wire.py:10\n"
+            "src/pirateforce_foundation/z_wire.py:15\n",
+        )
+        self.assertEqual(err, "")
+
+    def test_the_first_line_is_exactly_what_where_prints(self):
+        # The whole point of the shared generator: --where is --where-all's
+        # first line, not a second implementation of "which file first".
+        self._three_files()
+        _c, all_out, _e = self._run(["--where-all", self.NAME])
+        _c, one_out, _e = self._run(["--where", self.NAME])
+        self.assertEqual(one_out, all_out.splitlines(True)[0])
+
+    def test_where_keeps_one_stdout_line_and_counts_the_rest_on_stderr(self):
+        self._three_files()
+        code, out, err = self._run(["--where", self.NAME])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "src/pirateforce_foundation/gm/a_wire.py:5\n")
+        self.assertEqual(err, f"+2 more files, use --where-all {self.NAME}\n")
+
+    def test_a_single_file_name_still_gets_a_silent_stderr(self):
+        # The stderr line must be a fact about THIS name, not decoration:
+        # a mutant printing it unconditionally says "+0 more files".
+        (self.pkg / "z_wire.py").write_text(
+            f'WIRE = "{self.NAME}"\n', encoding="utf-8"
+        )
+        code, out, err = self._run(["--where", self.NAME])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "src/pirateforce_foundation/z_wire.py:1\n")
+        self.assertEqual(err, "")
+
+    def test_only_the_first_hit_inside_one_file_is_reported(self):
+        # One line per FILE. The artifact's evidence is a file, and this mode
+        # exists to name the files the artifact cannot.
+        (self.pkg / "z_wire.py").write_text(
+            f'A = "{self.NAME}"\nB = "{self.NAME}"\nC = "{self.NAME}"\n',
+            encoding="utf-8",
+        )
+        _code, out, _err = self._run(["--where-all", self.NAME])
+        self.assertEqual(out, "src/pirateforce_foundation/z_wire.py:1\n")
+
+    def test_prose_only_files_are_left_out_of_the_list(self):
+        # --where-all inherits the census's two exclusions; it does not become
+        # a grep just because it prints more than one line.
+        (self.pkg / "gm" / "a_wire.py").write_text(
+            f'"""Handles {self.NAME}."""\nX = 1\n', encoding="utf-8"
+        )
+        (self.pkg / "gm" / "b_wire.py").write_text(
+            f"# {self.NAME} is handled elsewhere\nX = 1\n", encoding="utf-8"
+        )
+        (self.pkg / "z_wire.py").write_text(
+            f'WIRE = "{self.NAME}"\n', encoding="utf-8"
+        )
+        _code, out, _err = self._run(["--where-all", self.NAME])
+        self.assertEqual(out, "src/pirateforce_foundation/z_wire.py:1\n")
+
+    def test_no_counted_hit_exits_1_with_the_same_named_reason(self):
+        (self.pkg / "z_wire.py").write_text("X = 1\n", encoding="utf-8")
+        code, out, err = self._run(["--where-all", self.NAME])
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("NOT A SOURCE ROW", err)
+        self.assertIn(self.NAME, err)
+
+    def test_both_flags_at_once_is_refused_rather_than_guessed(self):
+        self._three_files()
+        code, out, err = self._run(["--where", self.NAME, "--where-all", self.NAME])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertIn("pass one", err)
+
+
+class MultiFileCountIsRederivedTests(unittest.TestCase):
+    """The `11` in ``_iter_py_files``'s docstring is re-derived here, not quoted.
+
+    Round `8btjto` shipped `46` in that docstring with the words "the 46
+    re-derives"; it was wrong under every definition this file has, and
+    LANE-UI's ASK-COO of `1101` priced its whole question on it
+    (pf-adversary D6 on `#1017`). A number a docstring asserts and nothing
+    re-runs is how that happened, so it is re-run here.
+
+    GUARDED, and this is a real cost: it walks the 327-name master catalog,
+    which lives in the `pf_bridge` sibling, so `gate-windows` -- the only CI
+    that runs pytest -- never executes it. What the gate DOES cover is the
+    mechanism underneath: ``MainWhereAllFlagTests`` and
+    ``WhereAndCensusCannotDisagreeTests`` pin the walk, the ordering and the
+    one-line-per-file rule over temp trees with no sibling. What the gate
+    cannot cover is the VALUE 11, because the value is a property of the real
+    tree plus the real catalog."""
+
+    def test_the_docstring_number_matches_a_fresh_rederive(self):
+        UI_WIRE_CENSUS_INPUTS.require(self)
+        files = census._iter_py_files(census.SRC_DIR)
+        names = [name for _wid, name in census.load_names()]
+        multi_names = census.multi_file_counted_names(names, files)
+        self.assertEqual(
+            len(multi_names),
+            11,
+            "the count of catalog names counted in more than one file moved; "
+            "update BOTH this number and the two docstrings that state it "
+            "(_iter_py_files and the --where-all usage block)",
+        )
+        doc = census._iter_py_files.__doc__
+        self.assertIn(
+            f"{len(multi_names)} of the catalog names are COUNTED in more "
+            "than one file",
+            doc,
+        )
+        # The number this replaced. It may still be NAMED in the paragraph
+        # that explains the correction, but never again as a count.
+        self.assertNotIn("46 of the", doc)
+
+    def test_the_one_pass_count_agrees_with_two_other_derivations(self):
+        # Two independent cross-checks, because pf-adversary D10 on `#1017`
+        # faulted round `8btjto`'s "one-pass equivalent" test for being
+        # f(x) == f(x) -- it called the same function twice with the same
+        # arguments and a mutant that dropped a name passed.
+        #
+        # (1) a derivation written HERE out of the two primitives
+        #     (`census_file_texts` + `code_token_lines`), which shares no
+        #     bookkeeping with `multi_file_counted_names` -- one pass, so it
+        #     costs about a second;
+        # (2) the per-name walk that actually backs `--where-all`, run on the
+        #     flagged names only, so a name flagged multi-file that `--where`
+        #     would report a single file for is caught. Running (2) over all
+        #     327 is minutes, which is why (1) carries the completeness half.
+        UI_WIRE_CENSUS_INPUTS.require(self)
+        files = census._iter_py_files(census.SRC_DIR)
+        names = [name for _wid, name in census.load_names()]
+        one_pass = census.multi_file_counted_names(names, files)
+
+        wanted = set(names)
+        files_per_name = {}
+        for relpath, text in census.census_file_texts(files):
+            here = set()
+            for _lineno, tokens in census.code_token_lines(text):
+                here.update(tok for tok in tokens if tok in wanted)
+            for name in here:
+                files_per_name.setdefault(name, set()).add(relpath)
+        expected = [n for n in names if len(files_per_name.get(n, ())) > 1]
+        self.assertEqual(one_pass, expected)
+
+        for name in one_pass:
+            self.assertGreater(
+                len(census.source_hit_locations(name, files)),
+                1,
+                f"{name}: the one-pass count says multi-file, the per-name "
+                "walk behind --where-all does not",
+            )
 
 
 if __name__ == "__main__":
