@@ -1073,6 +1073,27 @@ class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
                 with self.assertRaises(sel.HpPairError):
                     sel.guard_block(values)
 
+    def test_half_the_primary_pair_is_already_something_the_block_said(self):
+        """ONE row is enough to reach the door, and this is the mutant that
+        proves it has to be.
+
+        MEASURED in this round: `_pair_is_represented` written as
+        `set(pair) <= set(values)` -- both rows required -- survived the
+        whole file.  Under it a block carrying x=3 alone walks through, and
+        that block hands the client an `hp_max` of ZERO, because an unset
+        mask bit is a zero on this client and not "unchanged" (RE-222 Q0,
+        quoted at `gm/attr_wire.py:105`).  A half-supplied pair is not a
+        block that said nothing about HP; it is a block that said `50/0`.
+        """
+        for values in ({sel.PRIMARY_PAIR[0]: 50}, {sel.PRIMARY_PAIR[1]: 100}):
+            with self.subTest(values=values):
+                self.assertTrue(
+                    sel._pair_is_represented(sel.PRIMARY_PAIR, values)
+                )
+                with self.assertRaises(sel.HpPairError) as caught:
+                    sel.guard_block(values)
+                self.assertIn(sel.REASON_ABSENT_READS_ZERO, str(caught.exception))
+
     def test_the_refusal_of_an_unarmed_block_does_not_talk_about_the_selector(
         self,
     ):
