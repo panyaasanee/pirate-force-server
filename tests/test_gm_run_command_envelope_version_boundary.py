@@ -20,13 +20,23 @@ three real R322B frames, through v141's real parser -- so the claim is a
 measurement that can go red, not a sentence in a docstring.
 
 WHAT IS NOT CLAIMED.  Nothing here is client-observable evidence: no frame
-left a server and no screen changed.  The three frames are RE-292's byte
-table re-entered by hand from the letter, not a capture file this repository
+left a server and no screen changed.  The three frames are the ATTENDED
+LETTER's byte table re-entered by hand (RE-292 tabulates frame 1 only; see
+the correction above ``_R322B_REGIONS``), not a capture file this repository
 holds, and the outer packet around them is BUILT here from v141's own tag
 writers rather than taken off a wire -- so these tests pin the BOUNDARY
 between envelope and class body, which is all RE-292 answered, and claim
 nothing about what any field means (RE-088's nonclaim still stands) or about
 whether GT-279 passes.
+
+AND THE NONCLAIM THAT COSTS THE MOST TO LEAVE OUT: the multi-vital shape
+this file exercises has NEVER BEEN SEEN on a real 0x51E9 frame.  All three
+frames ka1-A measured were 44/44/46 B = an 18 B prefix plus the region, i.e.
+``vital_count == 1`` every time (pinned below, for free, so the day a real
+multi-vital 0x51E9 is captured this sentence goes red rather than stale).
+The multi-vital handling exists because v141's ``nested_payload`` slice
+MAKES it reachable and the client is measured to bundle up to five vitals on
+OTHER doors (R303, R313) -- not because this door has ever done it.
 """
 from __future__ import annotations
 
@@ -48,13 +58,24 @@ from pirateforce_foundation.gm.command_wire import (
     decode_gm_run_command_vital_prefix,
 )
 
-# RE-292's own byte table for the three 0x51E9 frames the client put on the
-# wire during attended boot R322B, as the NESTED-VITAL REGION: everything
-# after the u16 class id, i.e. the envelope's `0B <version>` pair followed by
-# the class serializer's bytes.  Frame 1 is quoted field by field in the
-# letter; frames 2 and 3 are the letter's stated deltas from frame 1
-# ("frame 2 differs in one byte, field 3; frame 3 differs at 14 00100000
-# (=0x1000) and its first string 48 02000000 3000").
+# The three 0x51E9 frames the client put on the wire during attended boot
+# R322B, as the NESTED-VITAL REGION: everything after the u16 class id, i.e.
+# the envelope's `0B <version>` pair followed by the class serializer's bytes.
+#
+# !! SOURCE, CORRECTED.  RE-292 tabulates FRAME 1 ONLY; its sentences about
+# frames 2 and 3 are prose deltas, and frame 3's delta is stated against
+# FRAME 2, not frame 1.  Reading it as a delta from frame 1 is how the first
+# version of this file put `0b01` at byte 15 of frame 3 -- and because the
+# same misreading produced BOTH the input and the expected table below, they
+# agreed with each other and no length check could notice (the byte does not
+# change the 46 B total).  The authority for frames 2 and 3 is therefore the
+# attended letter that spells all three out in full, not RE-292:
+#
+#   pf_bridge/notes_to_chief/20260907_0123_KA1A-R322B-RESULTS-GT281-screen-
+#   PASS-GT279-execute-0x51E9-x3-bg0002-hostile-gap.md, line 23, which gives
+#   frame 3 as
+#       0B 00 0B 01 14 00100000 14 00000000 0B 00 48 02000000 3000 48 00000000
+#                                           ^^^^^ zero, not one
 _R322B_REGIONS = {
     1: bytes.fromhex(
         "0b00" "0b01" "1401000000" "1400000000" "0b01" "4800000000" "4800000000"
@@ -63,17 +84,17 @@ _R322B_REGIONS = {
         "0b00" "0b01" "1401000000" "1400000000" "0b00" "4800000000" "4800000000"
     ),
     3: bytes.fromhex(
-        "0b00" "0b01" "1400100000" "1400000000" "0b01" "48020000003000" "4800000000"
+        "0b00" "0b01" "1400100000" "1400000000" "0b00" "48020000003000" "4800000000"
     ),
 }
 
-# What the letter says each frame's class body decodes to.  Written out as
-# data, not derived from the decoder, so a decoder change cannot quietly
-# re-bless itself.
+# What the R322B letter's bytes say each frame's class body decodes to.
+# Written out as data, not derived from the decoder, so a decoder change
+# cannot quietly re-bless itself.
 _R322B_EXPECTED = {
     1: (1, 1, 0, 1, "", ""),
     2: (1, 1, 0, 0, "", ""),
-    3: (1, 0x1000, 0, 1, "0", ""),
+    3: (1, 0x1000, 0, 0, "0", ""),
 }
 
 #: id header (tag 0x12 + u16) + version pair (tag 0x0B + u8).  This is the
@@ -128,6 +149,20 @@ class TheEnvelopeVersionIsStrippedBeforeThisLaneTests(unittest.TestCase):
             with self.subTest(frame=n):
                 self.assertEqual(region[0], VITAL_ENVELOPE_VERSION_TAG)
                 self.assertEqual(region[2], VITAL_ENVELOPE_VERSION_TAG)
+
+    def test_the_three_regions_reproduce_the_attended_frame_lengths(self):
+        """44/44/46 B -- the lengths ka1-A wrote down at the keyboard.
+
+        Free to assert and it pins more than it looks.  The letter's numbers
+        are prefix (18 B) + region, so reproducing them is also the
+        statement that each of the three frames carried EXACTLY ONE vital:
+        `vital_count == 1`.  If a later round ever swaps in a region that
+        does not come off a real frame, this is the check that notices.
+        """
+        self.assertEqual(
+            [len(_outer_packet(self.legacy, _R322B_REGIONS[n])) for n in (1, 2, 3)],
+            [44, 44, 46],
+        )
 
     def test_the_stripped_payload_decodes_to_re292_field_values(self):
         for n, region in _R322B_REGIONS.items():

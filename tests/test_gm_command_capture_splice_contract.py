@@ -115,6 +115,12 @@ def _hex_bytes(text: str) -> bytes:
     return bytes(out)
 
 
+def _decode_lines(text: str) -> list[str]:
+    """Just the `# decode:` block, so two captures can be compared by what
+    the header SAYS rather than by their timestamps and hex dumps."""
+    return [line for line in text.splitlines() if line.startswith("# decode:")]
+
+
 class CorrectSliceTests(unittest.TestCase):
     """The slice the live call site hands the sink today: payload only."""
 
@@ -182,6 +188,100 @@ class WrongSliceTests(unittest.TestCase):
         text = _capture(raw)
         self.assertEqual(_hex_bytes(text), raw)
         self.assertIn(f"length={len(raw)}", text)
+
+
+class TheTailDirectionIsAlsoPinnedTests(unittest.TestCase):
+    """The other half of the contract: bytes left over AFTER the body.
+
+    Every case in `WrongSliceTests` puts its extra bytes at the FRONT, which
+    is the direction a wrong splice at the call site produces.  When
+    `decode_gm_run_command_vital_prefix` arrived (LANE-GM round `m133mu`, so
+    a multi-vital frame stops costing the reader the command's fields), the
+    OTHER direction quietly lost its `# decode: FAILED` line: any leftover at
+    all printed the fields and called the frame multi-vital, a cause the sink
+    cannot see.  A single stray `00` and a sixth field the RE-088 pin does
+    not know both read as "multi-vital", byte for byte the same sentence.
+
+    A nested vital opens with tag 0x12 (its u16 class id), so that is the one
+    thing the sink CAN check without `vital_walk` and a `legacy` handle.
+    These tests pin the split: tag 0x12 at the tail is the multi-vital shape
+    and is not a failure; anything else keeps the greppable marker.
+    """
+
+    def test_a_single_stray_byte_at_the_tail_is_not_called_multi_vital(self):
+        text = _capture(_payload() + bytes(1))
+        self.assertIn(_FAILED_MARKER, text)
+        self.assertNotIn("multi-vital frame", text)
+        self.assertIn("TRAILING 1 byte(s)", text)
+        self.assertIn("opening with tag 0x00", text)
+
+    def test_an_unknown_sixth_field_at_the_tail_is_not_called_multi_vital(self):
+        """What a real client sending one more field than RE-088 pinned looks
+        like.  Before the guard this was indistinguishable, byte for byte,
+        from the stray-byte case above and from a genuine second vital."""
+        sixth = bytes([0x14]) + struct.pack("<I", 5)
+        text = _capture(_payload() + sixth)
+        self.assertIn(_FAILED_MARKER, text)
+        self.assertNotIn("multi-vital frame", text)
+        self.assertIn(f"TRAILING {len(sixth)} byte(s)", text)
+        self.assertIn("opening with tag 0x14", text)
+
+    def test_the_two_tail_causes_no_longer_print_the_same_line(self):
+        stray = _capture(_payload() + bytes(1))
+        sixth = _capture(_payload() + bytes([0x14]) + struct.pack("<I", 5))
+        self.assertNotEqual(_decode_lines(stray), _decode_lines(sixth))
+
+    def test_a_real_nested_vital_at_the_tail_is_not_a_failure(self):
+        """The case the prefix decoder was written for must stay clean, or
+        the guard has just re-broken what `m133mu` fixed."""
+        tail = bytes([0x12]) + struct.pack("<H", 0x0F01) + bytes([0x0B, 0x00])
+        text = _capture(_payload() + tail)
+        self.assertNotIn(_FAILED_MARKER, text)
+        self.assertIn("multi-vital frame", text)
+        self.assertIn(f"TRAILING {len(tail)} byte(s)", text)
+        self.assertIn("field_0x10=7 field_0x14=9 field_0x18=1", text)
+
+    def test_the_fields_survive_every_tail_shape(self):
+        """Whatever the tail is, the reader keeps what did decode -- that is
+        the whole point of the prefix decoder and the guard must not undo
+        it."""
+        for label, tail in (
+            ("stray", bytes(1)),
+            ("sixth-field", bytes([0x14]) + struct.pack("<I", 5)),
+            ("nested-vital", bytes([0x12]) + struct.pack("<H", 0x0F01)),
+        ):
+            with self.subTest(tail=label):
+                text = _capture(_payload() + tail)
+                self.assertIn("field_0x10=7 field_0x14=9 field_0x18=1", text)
+                self.assertIn('string_0x1c="cmd"', text)
+
+    def test_the_marker_stays_countable_on_a_tail_failure(self):
+        """`FailedIsAmbiguousTests` below greps for exactly one marker line.
+        A tail failure prints body lines too; it must still be exactly one."""
+        for label, tail in (
+            ("stray", bytes(1)),
+            ("sixth-field", bytes([0x14]) + struct.pack("<I", 5)),
+        ):
+            with self.subTest(tail=label):
+                text = _capture(_payload() + tail)
+                lines = [
+                    line
+                    for line in text.splitlines()
+                    if line.startswith(_FAILED_MARKER)
+                ]
+                self.assertEqual(len(lines), 1)
+
+    def test_every_byte_is_still_written_whatever_the_tail(self):
+        for label, tail in (
+            ("stray", bytes(1)),
+            ("sixth-field", bytes([0x14]) + struct.pack("<I", 5)),
+            ("nested-vital", bytes([0x12]) + struct.pack("<H", 0x0F01)),
+        ):
+            with self.subTest(tail=label):
+                raw = _payload() + tail
+                text = _capture(raw)
+                self.assertEqual(_hex_bytes(text), raw)
+                self.assertIn(f"length={len(raw)}", text)
 
 
 class FailedIsAmbiguousTests(unittest.TestCase):

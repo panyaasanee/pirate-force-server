@@ -58,6 +58,12 @@ from .login_scene_override import console_safe
 
 GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9
 
+#: Tag byte a nested vital's u16 class id is written under inside a v141
+#: packet.  The ONLY signal this sink has for telling "the next vital in a
+#: multi-vital frame" apart from "bytes nobody has explained", without the
+#: `vital_walk` + `legacy` handles it deliberately does not take.
+NESTED_VITAL_ID_TAG = 0x12
+
 DEFAULT_CAPTURE_ROOT = "capture/gm_command_capture"
 
 # Forensic filenames stay plain ASCII on purpose (never mangle a Thai
@@ -472,25 +478,54 @@ def _decode_section(raw: bytes) -> str:
     a defect.  Now the fields are printed and the leftover is REPORTED, on
     its own greppable `# decode: TRAILING` line.
 
-    What that line does NOT say is what the leftover bytes are.  Deciding
+    What that line does NOT say is what the leftover bytes ARE.  Deciding
     that needs `vital_walk`'s declared body lengths and a `legacy` handle,
     and this sink takes neither by design -- it must keep working when
-    nothing else does.  So it reports a length, never an interpretation.
+    nothing else does.  So it reports a length and the tail's first tag
+    byte, never an interpretation.
+
+    The one exception, and the reason it is an exception rather than a
+    guess: a nested vital in a v141 packet OPENS with tag 0x12 (its u16 class
+    id).  A tail that starts with any other byte is therefore NOT the
+    multi-vital shape, whatever else it may be -- a splice bug at the TAIL, a
+    sixth field the RE-088 pin does not know, or a frame nobody has measured.
+    Those cases keep their `# decode: FAILED` line so that
+    `tests/test_gm_command_capture_splice_contract.py`'s greppable marker
+    holds in BOTH directions.  Before that guard existed a single stray byte
+    at the end read as "multi-vital frame" in the capture header, which is a
+    cause this sink cannot see -- the very mistake RE-292 was opened to fix,
+    one layer up.
     """
     try:
         body = decode_gm_run_command_vital(raw)
     except GmCommandWireError as exc:
         try:
             prefix_body, consumed = decode_gm_run_command_vital_prefix(raw)
-        except (GmCommandWireError, TypeError):
+        except GmCommandWireError:
             prefix_body, consumed = None, 0
         if prefix_body is not None and consumed < len(raw):
+            tail = raw[consumed:]
+            if tail[0] == NESTED_VITAL_ID_TAG:
+                return (
+                    _body_lines(prefix_body)
+                    + f"# decode: TRAILING {len(tail)} byte(s) after this"
+                    f" vital's body, opening with tag"
+                    f" 0x{NESTED_VITAL_ID_TAG:02X} -- the shape of a\n"
+                    "# decode: multi-vital frame (v141 nested_payload runs to"
+                    " the end of the packet).  Not decoded here; the hex\n"
+                    "# decode: dump below still carries every byte.\n"
+                )
             return (
                 _body_lines(prefix_body)
-                + f"# decode: TRAILING {len(raw) - consumed} byte(s) after this"
-                " vital's body -- not decoded here; the shape of a multi-vital\n"
-                "# decode: frame (v141 nested_payload runs to the end of the"
-                " packet).  The hex dump below still carries every byte.\n"
+                + f"# decode: FAILED against RE-088 pin -- {exc}\n"
+                + f"# decode: TRAILING {len(tail)} byte(s) after this vital's"
+                f" body, opening with tag 0x{tail[0]:02X}, which is NOT a\n"
+                f"# decode: nested vital id (0x{NESTED_VITAL_ID_TAG:02X}), so"
+                " this is not the multi-vital shape.  Cause unknown here:\n"
+                "# decode: a splice bug at the tail, a sixth field the RE-088"
+                " pin does not know, or a frame shape nobody has measured.\n"
+                "# decode: The fields above are what the pinned five decoded"
+                " to; the hex dump below still carries every byte.\n"
             )
         return f"# decode: FAILED against RE-088 pin -- {exc}\n"
     if body is None:
