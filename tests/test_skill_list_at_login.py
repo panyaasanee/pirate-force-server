@@ -25,6 +25,7 @@ exactly that, and ``production_allowed`` stays ``False`` until it answers.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import sys
 import tempfile
@@ -39,6 +40,8 @@ from pirateforce_foundation.class_catalog import (  # noqa: E402
 )
 from pirateforce_foundation.learn_skill_result_hypothesis import (  # noqa: E402
     LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET,
+    LEARN_SKILL_RESULT_PROBE_FRAME_SHA256,
+    LEARN_SKILL_RESULT_PROBE_PC_SHA256,
     LEARN_SKILL_RESULT_RECORD_WIRE_SIZE,
     LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE,
     LEARN_SKILL_RESULT_VITAL_ID,
@@ -316,6 +319,40 @@ class TheComposedBytesAreTheProvenShapeTests(_Fixture):
             LEARN_SKILL_RESULT_VITAL_ID.to_bytes(2, "little"), pc
         )
         self.assertTrue(frame)
+
+    def test_the_frame_is_byte_identical_to_the_one_gt249_already_rendered(
+        self,
+    ):
+        """The strongest thing this module can honestly claim today.
+
+        GT-249 (2026-09-05, real client, owner watching) sent step 6 of the
+        pinned sweep -- class 1's four starting ids, trailing 0 -- and three
+        of the four appeared in the skill window with correct name and icon.
+        This module reaches the SAME 79-byte PC and 90-byte frame from a
+        different direction entirely: four rows read out of
+        `character_skills`, no scenario file, no flag, no pinned step index.
+
+        That equality is the ticket's whole argument and its whole honesty at
+        once.  It means an attended run of this module is not asking a client
+        to accept anything new -- these exact bytes were already accepted and
+        rendered.  It ALSO means the "from the database, not from a fixed
+        table" difference is not visible in the bytes for any character alive
+        today, because `lifecycle.py` wrote those rows from the same class
+        table.  Both halves are true and this test pins both.
+        """
+        character = self._with_skills(starting_skill_ids(1))
+        pc, frame = skill_list_at_login.login_skill_list_response(
+            self.legacy, self.store, character.id
+        )
+        step = "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0"
+        self.assertEqual(
+            LEARN_SKILL_RESULT_PROBE_PC_SHA256[step].lower(),
+            hashlib.sha256(pc).hexdigest(),
+        )
+        self.assertEqual(
+            LEARN_SKILL_RESULT_PROBE_FRAME_SHA256[step].lower(),
+            hashlib.sha256(frame).hexdigest(),
+        )
 
     def test_an_id_above_u16_is_refused_by_this_module_not_by_a_value_error(
         self,
