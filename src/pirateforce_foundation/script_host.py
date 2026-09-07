@@ -436,17 +436,29 @@ def _ascii_safe(exc: BaseException) -> str:
 
 
 def _log_host_side(log: Callable[[str], None], rel: str,
-                   exc: BaseException) -> str:
+                   exc: BaseException, entry: Optional[str] = None) -> str:
     """One ``LUA_HOST`` line, deliberately NOT ``LUA_SCRIPT``.
 
     Still fail-closed: this logs and returns, it never re-raises, because
     the charter's "one broken file must never take a boot down" holds for
     our own defects too.  What changes is only that the line names the
     defect and the file it was DISCOVERED in, instead of blaming the file.
+
+    THE PATH IS QUOTED, AND ``entry`` IS A FIELD (pf-adversary D6, round
+    ``oghyca``).  The corpus contains a file whose name has a space in it --
+    ``t_test auto.lua``, measured, exactly one -- and the caller used to
+    hand this function the string ``"<rel> entry=<name>"`` already joined.
+    Together those produced ``discovered_at=t_test auto.lua
+    entry=ScriptStart``: a reader splitting the line on whitespace got
+    ``discovered_at=t_test`` and no way at all to recover where the path
+    ended.  Quoting the path makes the boundary explicit, and ``entry``
+    being a parameter rather than something smuggled inside ``rel`` means
+    the two fields can never trade places.
     """
     message = _ascii_safe(exc)
-    log("LUA_HOST %s ERR %s discovered_at=%s"
-        % (type(exc).__name__, message, rel))
+    suffix = "" if entry is None else " entry=%s" % (entry,)
+    log('LUA_HOST %s ERR %s discovered_at="%s"%s'
+        % (type(exc).__name__, message, rel, suffix))
     return message
 
 
@@ -531,6 +543,19 @@ REAL_QUALIFIED_NAMES: frozenset = frozenset(
 class EntryPointRun:
     path: str
     called: list
+    #: False if ANY called entry point failed, whether the defect was the
+    #: script's (:attr:`errors`) or ours (:attr:`host_errors`).  One bool
+    #: over three states -- clean / ours / the script's -- so it answers
+    #: "did this run finish cleanly" and nothing else; WHOSE fault it was
+    #: is a question for the two dicts, never for this flag.  A caller that
+    #: reads ``ok`` alone and pins quest behaviour on it is reading a broken
+    #: checkout of ours as a broken quest, which is the whole defect D12
+    #: (round ``8ou0zg``) was raised about.  Pinned in both directions:
+    #: ``test_a_run_that_only_WE_broke_still_reports_ok_False`` and
+    #: ``test_the_two_kinds_of_failure_are_kept_in_separate_dicts``
+    #: (``tests/test_script_lua_corpus.py``) -- before round ``5qtaqy``
+    #: deleting ``run.ok = False`` from the host-side branch left 137 tests
+    #: green (pf-adversary D4, round ``oghyca``).
     ok: bool = True
     #: entry-point name -> ascii-safe exception message, keyed structurally
     #: (not a concatenated string a caller would have to substring-match to
@@ -613,6 +638,20 @@ class CorpusEntryPointReport:
     ran: list = field(default_factory=list)
     #: Runs where THE SCRIPT failed.  A run whose only failures were ours
     #: is in :attr:`host_failed_runs` instead; a run with both is in both.
+    #:
+    #: BUCKETS OVERLAP, SO THEY DO NOT SUM (pf-adversary D3, round
+    #: ``oghyca``).  Round ``oghyca``'s comment said the overlap applies to
+    #: RUNS and left the file lists reading as a partition; they are not
+    #: one.  A file with both kinds of failure is counted in ``call_failed``
+    #: AND ``host_failed``, so on that round's own three-file fixture the
+    #: file-level buckets summed to 4 against a ``total`` of 3.  The
+    #: equation that does hold, and is pinned on the real corpus and on a
+    #: deliberately overlapping fixture by
+    #: ``test_every_file_lands_in_exactly_one_bucket_or_a_named_overlap``::
+    #:
+    #:     total == len(load_failed) + len(no_entry_point) + len(ran)
+    #:              + len(set(run.path for run in call_failed)
+    #:                    | set(host_failed))
     call_failed: list = field(default_factory=list)
     #: Runs carrying at least one host-side (our defect) entry-point
     #: failure, so the detail is not lost by keeping those runs out of
@@ -661,6 +700,26 @@ def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *
     supports neither natively; the closest primitives are Lua's own debug
     hook (blocked, see ``BLOCKED_GLOBALS``) or a `signal.alarm`-based
     wall-clock cutoff around ``host.call``, both untried here.
+
+    NOT FAIL-CLOSED AGAINST A LUA PANIC EITHER, MEASURED (pf-adversary D5,
+    round ``oghyca``).  Second shape of the same structural gap, worse than
+    the hang because it is not even a Python-level event.  A script whose
+    TOP LEVEL installs a metamethod that raises -- ``setmetatable(_G,
+    {__index = function(t, k) error(...) end})`` -- loads fine (the chunk is
+    legal), and then the very next thing this function does,
+    ``host.has_function("ScriptStart")``, reaches that metamethod from
+    inside the Lua C API where there is no protected call: ``PANIC:
+    unprotected error in call to Lua API``, ``SIGABRT``, exit 134.  Neither
+    ``except Exception`` nor ``except BaseException`` sees anything; the
+    process is gone, this function never returns, and the other 615 files
+    are never touched.  No trigger exists in the shipped corpus today
+    (``grep -rli setmetatable gamedata/lua`` = 0 files, re-checked round
+    ``5qtaqy``), so this is a structural gap with no live trigger, written
+    down rather than discovered later.  The fix is the same shape as the
+    hang's and is not attempted here: the panic must be caught below this
+    layer (a subprocess per file, or ``lupa``'s own panic hook if a later
+    version exposes one), because by the time Python could look, there is
+    no interpreter left to look with.
 
     ``quest_clock`` MUST be fixed by any caller that needs a deterministic,
     repeatable call tally (every test in this module does).  Left ``None``,
@@ -712,7 +771,7 @@ def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *
                     # comments, and round 02mkqc turned it red by writing
                     # the name in this very comment.  Same class of defect
                     # as round 7kxfe9's docstring vs. the n/327 census.)
-                    message = _log_host_side(log, "%s entry=%s" % (rel, name), exc)
+                    message = _log_host_side(log, rel, exc, entry=name)
                     run.ok = False
                     run.host_errors[name] = message
                 except Exception as exc:  # noqa: BLE001 - fail-closed, one script must not sink the corpus
