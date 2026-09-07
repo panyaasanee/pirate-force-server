@@ -303,12 +303,30 @@ class EveryCommandNameGetsTheNoticeTests(_Case):
     def test_a_bare_verb_of_every_command_in_the_grammar_gets_the_notice(self):
         self.assertEqual(
             set(gm_commands.COMMAND_NAMES),
-            {"warp", "npc", "item", "lv", "spawn", "say", "gmprobe", "speed"},
+            {
+                "warp", "npc", "item", "lv", "spawn", "say", "gmprobe",
+                "speed",
+                # `staged` (LANE-GM round `qpauwp`) -- checked here as this
+                # assertion asks, and it is the first name whose BARE verb is
+                # not a typo at all: it is the whole command, so there is no
+                # parse refusal for this layer to answer. COO-DECISION `0647`
+                # is held, not bent: the condition is `command_parse_error_*`,
+                # and `staged 12` -- the only way to mistype this verb --
+                # still raises it and still gets the notice, which
+                # `test_a_mistyped_argument_of_the_no_argument_verb_gets_the_
+                # notice` below runs.
+                "staged",
+            },
             "the grammar's vocabulary changed. That is not a failure by "
             "itself -- but re-read COO-DECISION 0647, whose condition is "
             "stated over EVERY command name, and check the new one here.",
         )
-        for name in gm_commands.COMMAND_NAMES:
+        # The bare-verb sweep below covers every verb whose bare form IS a
+        # parse error, which is every verb except this one.
+        bare_verb_is_a_typo = [
+            name for name in gm_commands.COMMAND_NAMES if name != "staged"
+        ]
+        for name in bare_verb_is_a_typo:
             with self.subTest(command=name):
                 gm_dispatch.reset_rate_limit_state_for_tests()
                 session = FakeSession(position=FakePosition())
@@ -327,6 +345,40 @@ class EveryCommandNameGetsTheNoticeTests(_Case):
                     chat_command_action.EVENT_TYPO_REFUSED_NOTICE_COMPOSED,
                     session.events,
                 )
+
+    def test_a_mistyped_argument_of_the_no_argument_verb_gets_the_notice(self):
+        """What the exemption above owes this file. `staged` takes nothing, so
+        its bare form is the command -- but the way a human mistypes it
+        (giving it an argument) is a parse refusal like any other, and the one
+        layer answers it under the same word."""
+        for typed in ("/staged 12", "/staged now", "/staged 1 2 3"):
+            with self.subTest(typed=typed):
+                gm_dispatch.reset_rate_limit_state_for_tests()
+                session = FakeSession(position=FakePosition())
+                action = self.act(session, typed)
+                self.assertIn(
+                    chat_command_action.EVENT_REFUSED_PREFIX
+                    + chat_command.REFUSAL_PARSE_ERROR_PREFIX
+                    + "GmCommandParseError",
+                    session.events,
+                    session.events,
+                )
+                self.assertIsTheTypoNotice(action)
+
+    def test_the_bare_no_argument_verb_is_not_answered_as_a_typo(self):
+        """The other half: a GM who types `staged` correctly must not be told
+        they mistyped it."""
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition())
+        action = self.act(session, "/staged")
+        self.assertNotIn(
+            chat_command_action.EVENT_TYPO_REFUSED_NOTICE_COMPOSED,
+            session.events,
+        )
+        self.assertIsNotNone(action)
+        self.assertNotEqual(
+            chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL, action[0]
+        )
 
     def test_the_typos_a_human_actually_types_get_the_notice(self):
         """The lines the ASK-COO measured as silent, plus one per command.
