@@ -516,7 +516,32 @@ class TheHeadlessTokenIsMeasuredNotSpelledTests(_Fixture):
         self.assertTrue(line.startswith("SKILL_LIST_AT_LOGIN_REFUSED "))
         self.assertFalse(missing.exists())
 
+    def test_opening_a_delete_journal_database_flips_it_to_wal(self):
+        """The one side effect, measured instead of denied.
+
+        ``SQLiteStore.connect()`` runs ``PRAGMA journal_mode=WAL`` on every
+        open, so this command is not read-only against a database that is
+        not already in WAL.  Every canonical database is (the next test
+        sha256s that case), but a claim that rots silently is worse than a
+        side effect that is written down.
+        """
+        character = self._with_skills((7, 8, 9))
+        with sqlite3.connect(self.path) as connection:
+            connection.execute("PRAGMA journal_mode=DELETE")
+        with sqlite3.connect(self.path) as connection:
+            self.assertEqual(
+                "delete",
+                connection.execute("PRAGMA journal_mode").fetchone()[0],
+            )
+        self._run(["--character", str(character.id), "--db", str(self.path)])
+        with sqlite3.connect(self.path) as connection:
+            self.assertEqual(
+                "wal",
+                connection.execute("PRAGMA journal_mode").fetchone()[0],
+            )
+
     def test_the_command_does_not_write_to_the_database_it_reads(self):
+        """Against a database already in WAL -- i.e. every canonical one."""
         character = self._with_skills((7, 8, 9))
         before = hashlib.sha256(self.path.read_bytes()).hexdigest()
         self._run(["--character", str(character.id), "--db", str(self.path)])

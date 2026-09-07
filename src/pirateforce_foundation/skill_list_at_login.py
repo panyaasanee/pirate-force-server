@@ -405,12 +405,24 @@ def compose_from_database(
     """``(skill ids, frame)`` for one character, read out of a real database.
 
     Opens the file that is already there and refuses a missing one by name.
-    It does NOT call ``store.migrate()``: this runs against the canonical
-    database in an attended boot, and a proof command that can write to it
-    is not a proof command.  The rows come back through
+    It does NOT call ``store.migrate()``, writes no row and commits no
+    change of its own.  The rows come back through
     ``read_character_skill_ids``, which is the same call the seam makes, so
     the token measures the production route rather than a second one built
     for the console.
+
+    THE ONE SIDE EFFECT, STATED RATHER THAN DENIED.  ``list_character_skills``
+    reads through ``SQLiteStore.connect()``, and that context manager runs
+    ``PRAGMA journal_mode=WAL`` on every open.  Against a database the
+    server has already booted -- every canonical one -- the mode is already
+    WAL and the file does not change by a byte (a test sha256s it).  Against
+    a database still in ``delete`` journal mode, opening it FLIPS it to WAL,
+    which rewrites the header: that is a real write and this docstring is
+    not going to call it "read-only" (another test measures the flip, so the
+    claim cannot rot).  ``store.py`` has a ``connect_read_only()`` that would
+    avoid it, but no skills reader goes through it, and adding a second
+    query against LANE-DB's table is the thing this module refuses to do.
+    Filed for the seam's owner rather than worked around here.
     """
     from pathlib import Path
 
