@@ -52,6 +52,7 @@ from pirateforce_foundation.session import FoundationSession  # noqa: E402
 # (ROUND pksqwj, COO-DECISION `20260908_0542` item 5).
 from test_bag_admission_expiry import (  # noqa: E402
     RESERVED_MIGRATION_WRITER,
+    seat_is_occupied,
 )
 
 
@@ -80,6 +81,24 @@ CLASS_WEAPON_MIGRATION_SEATS = frozenset({
 })
 
 
+#: ROUND pksqwj SECOND PASS, pf-adversary D4.  The repo-relative paths the
+#: same seat covers outside the package.  LANE-DB's letter
+#: (`20260908_0602`) named THREE things its migration trips: its module, its
+#: COMMENT, and ITS TEST -- and the first pass seated the first two.  A test
+#: that reads the gate-2 verdict for the bag its migration leaves behind is
+#: exactly what the two precedent entries in the allowlist below are
+#: (`tests/test_store_acquired_item_insert.py`,
+#: `tests/test_mob_pickup_persist.py`), and without it COO's verification
+#: token for this order -- LANE-DB runs the full suite and five tests are
+#: green -- is unreachable and LANE-DB pays another cross-lane round on the
+#: same pin.
+CLASS_WEAPON_MIGRATION_REPO_SEATS = frozenset({
+    "src/pirateforce_foundation/store.py",
+    "src/pirateforce_foundation/persistence_class_weapon.py",
+    "tests/test_persistence_class_weapon.py",
+})
+
+
 def _class_weapon_migration_has_landed(package_root):
     """True when ``store.py`` really defines the function the seats are for.
 
@@ -90,13 +109,16 @@ def _class_weapon_migration_has_landed(package_root):
     the same defect this file already catches in the other direction (a
     module that names ``bag_admission`` in prose is not a caller), applied
     to the seat rather than to the gate.
+
+    SECOND PASS: the rule itself moved into ``test_bag_admission_expiry``
+    beside the seat it guards, and it got stricter there -- pf-adversary
+    opened both seats below with a never-called stub nested inside an
+    unrelated helper, and the write pins in that file were not gated at all.
+    One predicate, both halves, driven by planted sources in that file so it
+    cannot be answered by a constant.
     """
-    tree = ast.parse((package_root / "store.py").read_text(encoding="utf-8"))
-    return any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == RESERVED_MIGRATION_WRITER
-        for node in ast.walk(tree)
-    )
+    return seat_is_occupied(
+        (package_root / "store.py").read_text(encoding="utf-8"))
 
 
 ITEM = 2400046  # the roster's most common drop, as tests/test_mob_pickup.py uses
@@ -709,6 +731,16 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
         # `mentions_allowed` is: a set that quietly grew is how an
         # exemption becomes a policy.
         self.assertEqual(len(CLASS_WEAPON_MIGRATION_SEATS), 2)
+        self.assertEqual(len(CLASS_WEAPON_MIGRATION_REPO_SEATS), 3)
+        # The two sets have to agree about the package half, or a seat is
+        # open in one scan and shut in the other -- which is how a seat
+        # stops meaning one thing.
+        self.assertEqual(
+            {name.rsplit("/", 1)[1]
+             for name in CLASS_WEAPON_MIGRATION_REPO_SEATS
+             if name.startswith("src/")},
+            set(CLASS_WEAPON_MIGRATION_SEATS),
+        )
 
     def test_nothing_outside_the_package_calls_it_either(self):
         """The repo-wide half of the deleted guard: tools/, current/, entrypoints."""
@@ -808,15 +840,11 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
         # that was here before this round.
         package_root = Path(bag_admission.__file__).parent
         if _class_weapon_migration_has_landed(package_root):
-            # `as_posix`, because `hits` are `git grep` lines and git speaks
-            # forward slashes on Windows too -- where this gate runs.  A
-            # `str(Path(...))` here would build `src\...` and match nothing,
-            # which fails OPEN: the seat would silently stop being a seat.
-            prefix = package_root.relative_to(ROOT).as_posix()
-            allowed |= {
-                "%s/%s" % (prefix, name)
-                for name in CLASS_WEAPON_MIGRATION_SEATS
-            }
+            # Repo-relative and posix-spelled, because `hits` are `git grep`
+            # lines and git speaks forward slashes on Windows too -- where
+            # this gate runs.  Building these with `str(Path(...))` would
+            # produce `src\...` there and match nothing, which fails OPEN.
+            allowed |= set(CLASS_WEAPON_MIGRATION_REPO_SEATS)
         elsewhere = _classify_repo_wide_hits(ROOT, hits, allowed)
         self.assertEqual(elsewhere, [], elsewhere)
 

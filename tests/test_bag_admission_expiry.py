@@ -95,6 +95,84 @@ REQUIRED_BACKPACK_ROW_INSERTERS = frozenset({
     "_insert_initial_backpack", "commit_acquired_backpack_item",
 })
 
+#: ROUND pksqwj, SECOND PASS, after pf-adversary broke the first one.  The
+#: modules the write scans read.  ``persistence_class_weapon`` joins them in
+#: the same round that made it a seated participant in bag-row writing:
+#: pf-adversary D7 put a constant-SQL ``INSERT INTO character_backpack_items``
+#: plus a counter ``UPDATE`` in that module under any name at all and every
+#: pin here stayed green, because the scan read two modules and the seat had
+#: just named a third.
+SCANNED_WRITE_MODULES = ("store", "mob_pickup", "persistence_class_weapon")
+
+
+def _addressable_defs(source: str, name: str) -> tuple:
+    """Definitions of ``name`` a caller could actually reach, in order.
+
+    Module level, or the body of a module-level class.  A ``def`` nested
+    inside a function is a CLOSURE and is not ``store.<name>``; pf-adversary
+    opened both gate-2 seats with exactly that (a stub returned by an
+    unrelated helper, never called by anything).
+    """
+    tree = ast.parse(source)
+    found = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name == name:
+                found.append(node)
+        elif isinstance(node, ast.ClassDef):
+            for child in node.body:
+                if (isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and child.name == name):
+                    found.append(child)
+    return tuple(found)
+
+
+def _defs_anywhere(source: str, name: str) -> tuple:
+    """Every ``def`` of ``name`` at any depth, closures included."""
+    return tuple(
+        node for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == name
+    )
+
+
+def seat_is_occupied(source: str) -> bool:
+    """Is the reserved seat actually filled, in this module's source?
+
+    ROUND pksqwj, SECOND PASS.  THREE things, and each one is a hole
+    pf-adversary walked through in the first pass:
+
+      * at least one definition, so prose does not open the seat -- the
+        module NAMES the function today, in a comment explaining that it is
+        absent;
+      * exactly one definition ANYWHERE, closures included, because the SQL
+        scans attribute a statement to its INNERMOST enclosing function: a
+        second body with the same name, nested inside the pickup write, was
+        measured collapsing N writers into one seat;
+      * that one definition is addressable, so a never-called nested stub
+        cannot claim it.
+
+    A definition is still not an implementation, and this predicate does not
+    pretend otherwise -- what stops an EMPTY occupant is the counter rule at
+    the point of use: a seated INSERT that does not also advance the counter
+    fails, whatever its body looks like.
+    """
+    addressable = _addressable_defs(source, RESERVED_MIGRATION_WRITER)
+    anywhere = _defs_anywhere(source, RESERVED_MIGRATION_WRITER)
+    return len(addressable) == 1 and len(anywhere) == 1
+
+
+def _seat_on_this_tree() -> set:
+    """The one name the write pins may subtract, or nothing at all.
+
+    ROUND pksqwj SECOND PASS (pf-adversary D1).  ``store.py`` is where the
+    occupant has to live -- it is the module the write scans read and the
+    module COO's order names -- so the seat is open exactly when that
+    module holds it.
+    """
+    return ({RESERVED_MIGRATION_WRITER}
+            if seat_is_occupied(_source("store")) else set())
+
 
 def test_nonclaim_8_states_the_expiry_and_names_the_replacement() -> None:
     """The tuple a console reader sees carries the rule's full history.
@@ -268,7 +346,7 @@ def test_exactly_one_named_write_advances_the_identity_counter() -> None:
     # already reads -- passed this file while the docstring claimed in
     # capitals that a second writer fails.
     writes = [
-        hit for module in ("store", "mob_pickup")
+        hit for module in SCANNED_WRITE_MODULES
         for hit in _writes_naming(module, "next_item_identity")
     ]
     # Seeding and advancing are different acts and are pinned apart.  The
@@ -278,10 +356,21 @@ def test_exactly_one_named_write_advances_the_identity_counter() -> None:
     # allocator.
     seeds = {func for func, text in writes if re.search(r"\bINSERT\b", text.upper())}
     advances = {func for func, text in writes if re.search(r"\bUPDATE\b", text.upper())}
+    # NO SEAT HERE, AND THAT IS DELIBERATE -- pf-adversary D6 asked why, so
+    # the answer is written down instead of left as an accident.  SEEDING is
+    # the act of creating a character's bag row, and creating bags is
+    # character creation's job alone.  A migration that finds an old
+    # character with NO `character_backpacks` row and mints one is not
+    # carrying a weapon forward, it is minting a bag, and that is a
+    # different ask that needs its own decision from the owner rather than
+    # a seat granted in passing.  If LANE-DB needs it, this line is the one
+    # to bring to COO -- and it will go red first, loudly, which is the
+    # point.
     assert seeds == {"_insert_initial_backpack"}, (
         "the set of functions that SEED character_backpacks."
-        "next_item_identity is %s, not character creation alone."
-        % (sorted(seeds) or "empty",)
+        "next_item_identity is %s, not character creation alone.  The seat "
+        "reserved for %s does NOT cover seeding: see the comment above."
+        % (sorted(seeds) or "empty", RESERVED_MIGRATION_WRITER)
     )
     # THE SEAT, SUBTRACTED ONCE, HERE (`0542` item 5, on `0025` item 4).
     # The migration may advance the counter because the row it carries
@@ -289,7 +378,14 @@ def test_exactly_one_named_write_advances_the_identity_counter() -> None:
     # this column exists, not an exception to it.  Subtracting one named
     # function leaves the assertion exactly as strict as it was: the pickup
     # write is still required by name, and a third advancer still fails.
-    advances_besides_the_seat = advances - {RESERVED_MIGRATION_WRITER}
+    #
+    # AND THE SUBTRACTION IS CONDITIONAL, WHICH THE FIRST PASS OF THIS ROUND
+    # GOT WRONG.  pf-adversary D1: the gate-2 file gated its seats on the
+    # occupant really existing and this file did not, so the reservation was
+    # handed out on a tree where nothing had landed -- the commit message
+    # advertised a safeguard that lived in the other file.  Same predicate,
+    # both halves, now.
+    advances_besides_the_seat = advances - _seat_on_this_tree()
     assert advances_besides_the_seat == set(REQUIRED_COUNTER_ADVANCERS), (
         "the set of functions that ADVANCE "
         "character_backpacks.next_item_identity is %s, not the single "
@@ -331,15 +427,36 @@ def test_the_only_backpack_row_insert_is_the_one_that_makes_a_character() -> Non
     statement = re.compile(r"INSERT\s+INTO\s+character_backpack_items",
                            re.IGNORECASE)
     inserters = {
-        func for module in ("store", "mob_pickup")
+        func for module in SCANNED_WRITE_MODULES
         for func, text in _executed_sql(module)
         if statement.search(text)
     }
-    # THE SAME ONE SEAT (`0542` item 5).  The migration's INSERT is the old
-    # weapon being carried forward, and it takes its identity from the
-    # counter the test above pins -- so it arrives the way this test
-    # requires every row to arrive, not around it.
-    inserters_besides_the_seat = inserters - {RESERVED_MIGRATION_WRITER}
+    # THE SEAT'S REASON, ENFORCED RATHER THAN ASSERTED.  This comment used to
+    # say the migration's INSERT "takes its identity from the counter -- so
+    # it arrives the way this test requires every row to arrive, not around
+    # it", and NOTHING CHECKED IT.  pf-adversary D1 shipped a seated
+    # `apply_class_weapon_migration` whose INSERT used the literal identity
+    # 7 and never touched the counter, and the entire repository suite
+    # exited 0.  So the rule is now a rule: an occupant that inserts a bag
+    # row must also advance the counter, in the same module, or it loses the
+    # seat and is a fourth inserter like any other.
+    advancers = {
+        func for module in SCANNED_WRITE_MODULES
+        for func, text in _writes_naming(module, "next_item_identity")
+        if re.search(r"\bUPDATE\b", text.upper())
+    }
+    seat = _seat_on_this_tree()
+    if seat and RESERVED_MIGRATION_WRITER in inserters:
+        assert RESERVED_MIGRATION_WRITER in advancers, (
+            "%s INSERTs a backpack row and never advances "
+            "character_backpacks.next_item_identity.  The seat this lane "
+            "reserved for it was reserved on the ground that the row it "
+            "carries forward TAKES an identity from the counter; a row that "
+            "mints its own identity is the exact defect the pin exists to "
+            "stop, and the seat does not cover it"
+            % (RESERVED_MIGRATION_WRITER,)
+        )
+    inserters_besides_the_seat = inserters - seat
     assert inserters_besides_the_seat == set(
         REQUIRED_BACKPACK_ROW_INSERTERS
     ), (
@@ -402,3 +519,119 @@ def test_classify_against_still_exists_so_the_expiry_has_a_subject() -> None:
         "no function by that name exists; if it was renamed, update the "
         "nonclaims in the same commit as the rename"
     )
+
+
+# ---------------------------------------------------------------------------
+# The seat's own predicate, driven by PLANTED SOURCES rather than by the tree.
+#
+# ROUND pksqwj, SECOND PASS.  pf-adversary D5: both branches the first pass
+# added were dead code at HEAD -- a probe that raised inside each of them
+# left the suite green -- and D3: welding `return True` as the first line of
+# the predicate also left the suite green.  A helper can be driven with
+# planted sources; the live scan cannot.  This file's sibling
+# (tests/test_gate2_bag_admission_wiring.py) already learned exactly this
+# lesson once, in `ProseIsNotACallerButEveryDynamicRouteStillIs`, and the
+# first pass of this round added new acting lines without the planted test
+# its own precedent demands.
+# ---------------------------------------------------------------------------
+
+_A_COMMENT_NAMING_IT = (
+    "class SQLiteStore:\n"
+    "    # apply_class_weapon_migration was written and withdrawn; see 2050\n"
+    "    def other(self):\n"
+    "        return 1\n"
+)
+_A_METHOD = (
+    "class SQLiteStore:\n"
+    "    def apply_class_weapon_migration(self, character_id):\n"
+    "        return character_id\n"
+)
+_A_MODULE_LEVEL_FUNCTION = (
+    "def apply_class_weapon_migration(character_id):\n"
+    "    return character_id\n"
+)
+_A_NESTED_STUB_NOBODY_CALLS = (
+    "class SQLiteStore:\n"
+    "    def _unrelated_helper(self):\n"
+    "        def apply_class_weapon_migration():\n"
+    "            return None\n"
+    "        return apply_class_weapon_migration\n"
+)
+_A_SECOND_BODY_INSIDE_THE_PICKUP_WRITE = (
+    "class SQLiteStore:\n"
+    "    def apply_class_weapon_migration(self, character_id):\n"
+    "        return character_id\n"
+    "    def commit_acquired_backpack_item(self, row):\n"
+    "        def apply_class_weapon_migration():\n"
+    "            return None\n"
+    "        return apply_class_weapon_migration()\n"
+)
+_TWO_METHODS_OF_THE_SAME_NAME = (
+    "class SQLiteStore:\n"
+    "    def apply_class_weapon_migration(self, character_id):\n"
+    "        return character_id\n"
+    "class OtherStore:\n"
+    "    def apply_class_weapon_migration(self, character_id):\n"
+    "        return character_id\n"
+)
+
+
+def test_prose_naming_the_seated_function_does_not_fill_the_seat() -> None:
+    """The state of the shipped tree today, planted so it is measured."""
+    assert seat_is_occupied(_A_COMMENT_NAMING_IT) is False
+
+
+def test_a_method_or_a_module_level_function_fills_the_seat() -> None:
+    assert seat_is_occupied(_A_METHOD) is True
+    assert seat_is_occupied(_A_MODULE_LEVEL_FUNCTION) is True
+
+
+def test_a_nested_stub_nobody_calls_does_not_fill_the_seat() -> None:
+    """pf-adversary D3's payload against the first pass, verbatim in shape.
+
+    ``mov al,1; ret`` opened the door there: any ``def`` at any depth was
+    accepted, so a closure returned by an unrelated helper granted a seat
+    that covered a DIFFERENT file.
+    """
+    assert seat_is_occupied(_A_NESTED_STUB_NOBODY_CALLS) is False
+
+
+def test_a_second_body_of_the_same_name_forfeits_the_seat() -> None:
+    """pf-adversary D2: N writers collapsing into one reserved name.
+
+    The SQL scans attribute a statement to its INNERMOST enclosing function,
+    so a closure named after the seat, sitting inside the pickup write, was
+    measured writing a bag row AND resetting the counter with every pin
+    green.  One seat means one function, so more than one definition of the
+    name -- anywhere, at any depth -- is not a seat, it is a hiding place.
+    """
+    assert seat_is_occupied(_A_SECOND_BODY_INSIDE_THE_PICKUP_WRITE) is False
+    assert seat_is_occupied(_TWO_METHODS_OF_THE_SAME_NAME) is False
+
+
+def test_the_predicate_is_not_answerable_by_a_constant() -> None:
+    """The mutant that killed the first pass's version: ``return True``.
+
+    Four planted sources, two of each verdict, so neither a welded ``True``
+    nor a welded ``False`` can satisfy this file.
+    """
+    verdicts = [
+        seat_is_occupied(source) for source in (
+            _A_COMMENT_NAMING_IT,
+            _A_METHOD,
+            _A_NESTED_STUB_NOBODY_CALLS,
+            _A_MODULE_LEVEL_FUNCTION,
+        )
+    ]
+    assert verdicts == [False, True, False, True], verdicts
+
+
+def test_the_seat_is_shut_on_the_tree_this_test_runs_against() -> None:
+    """Stated as a fact about TODAY, and it is allowed to change.
+
+    When LANE-DB lands the occupant this goes red, and the round that lands
+    it flips this one line -- which is the point: the tree's state is
+    recorded, not assumed, and nobody can widen the seat without touching a
+    line that says what they are doing.
+    """
+    assert _seat_on_this_tree() == set()
