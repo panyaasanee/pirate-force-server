@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 import tempfile
 import threading
@@ -203,10 +204,68 @@ class ArrivalLedgerFileTests(unittest.TestCase):
         self.assertIn("account=one", lines[0])
         self.assertIn("account=two", lines[1])
 
+    def _mode_bits_are_enforced(self):
+        """Does THIS filesystem keep the bits `chmod` was given?
+
+        ASK THE FILESYSTEM, DO NOT ASK `os.name` (the rule round `vxr32s`
+        wrote into `tests/test_gm_command_capture.py` after a
+        `if os.name != "posix"` guard turned out to be a guess about the
+        host standing in for the property that actually decides).  The
+        probe below is that property, measured once per test on the very
+        directory the ledger will be written into.
+        """
+        probe = Path(self.tmp.name) / "mode_probe"
+        probe.write_bytes(b"")
+        probe.chmod(0o600)
+        enforced = stat.S_IMODE(probe.stat().st_mode) == 0o600
+        probe.unlink()
+        return enforced
+
     def test_file_and_directory_are_owner_only(self):
-        self._record()
-        self.assertEqual(self.ledger_path.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(self.ledger_path.parent.stat().st_mode & 0o777, 0o700)
+        # TWO properties, because only one of them is portable and the
+        # non-portable one is the one that matters on the server host.
+        #
+        # (a) WHAT THE MODULE ASKS FOR -- checkable on every OS: the open
+        #     of the ledger passes 0o600 and the directory is chmod-ed to
+        #     0o700 on every write.  A mutant that drops either call dies
+        #     here on Windows as well as on Linux.
+        # (b) WHAT THE FILESYSTEM THEN HOLDS -- asserted only where the
+        #     probe says the bits survive.  windows-latest ignores them
+        #     (measured: gate run 34125840418 read 0o666/0o777 back and
+        #     took the whole gate red for it, closing PR #1066), so on a
+        #     host like that this half asserts the weaker fact that is
+        #     still true there: the file exists and the line landed.
+        real_chmod, real_open = arrival_ledger.os.chmod, arrival_ledger.os.open
+        with mock.patch.object(
+            arrival_ledger.os, "chmod", wraps=real_chmod,
+        ) as chmod_spy, mock.patch.object(
+            arrival_ledger.os, "open", wraps=real_open,
+        ) as open_spy:
+            self._record()
+        # One `_record()` writes twice (the once-per-process header line,
+        # then the arrival line) and each write locks the directory down
+        # again, so this pins EVERY call rather than a call count: no write
+        # may ask for anything but 0o700 / 0o600, and at least one must
+        # have happened (an empty list would otherwise pass vacuously).
+        chmod_modes = [call.args[1] for call in chmod_spy.call_args_list]
+        open_modes = [call.args[2] for call in open_spy.call_args_list]
+        self.assertTrue(chmod_modes and open_modes)
+        self.assertEqual(
+            set(chmod_modes), {0o700},
+            "the ledger directory must be chmod-ed 0o700 on every write",
+        )
+        self.assertEqual(
+            set(open_modes), {0o600},
+            "the ledger file must be created with mode 0o600",
+        )
+        if self._mode_bits_are_enforced():
+            self.assertEqual(self.ledger_path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(
+                self.ledger_path.parent.stat().st_mode & 0o777, 0o700,
+            )
+        else:
+            self.assertTrue(self.ledger_path.is_file())
+            self.assertEqual(len(self._lines()), 1)
 
     def test_a_flood_cannot_spend_the_testers_budget(self):
         # The attack this budget shape exists for, in the form pf-adversary
@@ -330,11 +389,36 @@ class ArrivalLedgerFileTests(unittest.TestCase):
         # directory that already exists, and an operator following a ticket
         # ("look in capture/gm_arrival_ledger") is exactly who creates it
         # by hand first.
+        #
+        # Same two-property split as `test_file_and_directory_are_owner_only`
+        # above, and for the same measured reason: on windows-latest the
+        # `chmod(0o777)` below does not take either, so the assertion that
+        # the module locked it back down read 0o777 != 0o700 and took the
+        # gate red.  What the module DOES (it chmods an existing directory
+        # rather than trusting `makedirs(exist_ok=True)`) is checkable
+        # everywhere; what the directory then HOLDS is only checkable
+        # where the probe says the bits survive.
         root = arrival_ledger.ledger_root_for_capture_root(self.capture_root)
         root.mkdir(parents=True)
         root.chmod(0o777)
-        self._record()
-        self.assertEqual(root.stat().st_mode & 0o777, 0o700)
+        real_chmod = arrival_ledger.os.chmod
+        with mock.patch.object(
+            arrival_ledger.os, "chmod", wraps=real_chmod,
+        ) as chmod_spy:
+            self._record()
+        chmod_calls = [
+            (str(call.args[0]), call.args[1])
+            for call in chmod_spy.call_args_list
+        ]
+        self.assertTrue(chmod_calls)
+        self.assertEqual(
+            set(chmod_calls), {(str(root), 0o700)},
+            "an existing ledger directory must still be locked down",
+        )
+        if self._mode_bits_are_enforced():
+            self.assertEqual(root.stat().st_mode & 0o777, 0o700)
+        else:
+            self.assertTrue(self.ledger_path.is_file())
 
     def test_a_write_failure_costs_the_line_not_the_caller(self):
         with mock.patch.object(
