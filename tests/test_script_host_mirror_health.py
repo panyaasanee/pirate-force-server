@@ -72,7 +72,7 @@ class TheTallyMovesWhenAMirrorIsBrokenTests(unittest.TestCase):
         self.assertEqual(
             script_host.guard_mirrors(lambda: {"Quest": frozenset()},
                                       lines.append, health),
-            {"Quest": frozenset()})
+            ({"Quest": frozenset()}, None))
         self.assertEqual(health.tally().failures, 0)
         self.assertIsNone(health.tally().last_error)
         self.assertIsNone(health.tally().last_failed_at)
@@ -83,9 +83,11 @@ class TheTallyMovesWhenAMirrorIsBrokenTests(unittest.TestCase):
         health = script_host.MirrorHealth(clock=clock)
         lines = []
         with broken_census():
-            built = script_host.guard_mirrors(
+            built, failure = script_host.guard_mirrors(
                 lambda: spec.NAMESPACE_METHODS, lines.append, health)
         self.assertIsNone(built, "a degraded build hands back None")
+        self.assertIsNotNone(failure, "and the failure it hit, for the caller "
+                                      "to quote instead of a shared counter")
         tally = health.tally()
         self.assertEqual(tally.failures, 1)
         self.assertEqual(tally.last_failed_at, stamp)
@@ -102,23 +104,31 @@ class TheTallyMovesWhenAMirrorIsBrokenTests(unittest.TestCase):
                     lambda: spec.NAMESPACE_METHODS, lambda _line: None, health)
         self.assertEqual(health.tally().failures, 2)
 
-    def test_both_log_lines_are_written_and_the_second_carries_the_tally(self):
-        # Two lines, not one: `LUA_HOST` keeps the shape every sweep in
-        # this module already writes (and D6's quoted path), while
-        # `LUA_HOST_DEGRADED` is the machine-readable one.
+    def test_it_writes_one_line_and_that_line_is_not_a_LUA_HOST_line(self):
+        """pf-adversary D1, this round -- the finding that made the gate red.
+
+        `tests/test_script_lua_corpus.py` pins that one broken mirror of
+        ours produces exactly ONE line starting `LUA_HOST` per script it
+        stopped, ending in that script's name. The first draft of this
+        module wrote two more per host construction, both starting with
+        that prefix (`LUA_HOST ...` and `LUA_HOST_DEGRADED ...`): 3 where
+        1 was pinned, and over the real 616-file corpus 1848 lines where
+        main writes 616. The machine-readable line now has a prefix of its
+        own, and the `LUA_HOST` line stays the sweep's to write.
+        """
         clock, stamp = _fixed_clock()
         health = script_host.MirrorHealth(clock=clock)
         lines = []
         with broken_census():
             script_host.guard_mirrors(
                 lambda: spec.NAMESPACE_METHODS, lines.append, health)
-        self.assertEqual(len(lines), 2, lines)
-        self.assertTrue(lines[0].startswith("LUA_HOST VendoredDataError ERR "),
-                        lines[0])
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].startswith("LUA_MIRROR_DEGRADED "), lines[0])
+        self.assertEqual([line for line in lines
+                          if line.startswith("LUA_HOST")], [])
+        self.assertIn("mirror_failures=1", lines[0])
+        self.assertIn('last_failed_at="%s"' % stamp, lines[0])
         self.assertIn('discovered_at="ScriptHost construction"', lines[0])
-        self.assertTrue(lines[1].startswith("LUA_HOST_DEGRADED "), lines[1])
-        self.assertIn("mirror_failures=1", lines[1])
-        self.assertIn('last_failed_at="%s"' % stamp, lines[1])
 
     def test_every_line_it_writes_is_console_safe(self):
         # AGENTS.md section 7: the bridge console is cp874.
@@ -161,6 +171,16 @@ class TheTallyMovesWhenAMirrorIsBrokenTests(unittest.TestCase):
         for thread in threads:
             thread.join()
         self.assertEqual(health.tally().failures, 16)
+
+    def test_a_class_name_outside_ascii_is_escaped_too(self):
+        # pf-adversary D10, this round: only the message used to be
+        # escaped, so a subclass whose NAME carried such a character
+        # reached `print` and killed the sweep on a cp874 console.
+        health = script_host.MirrorHealth()
+
+        error_type = type("\u9328Error", (VendoredDataError,), {})
+        health.record(error_type("boom"))
+        health.tally().log_fields().encode("cp874")
 
     def test_the_process_wide_tally_exists_and_starts_at_zero_shape(self):
         # Not asserting it is 0 -- another test in this process may have
@@ -211,9 +231,15 @@ class ADegradedHostIsStillBuiltAndStillASandboxTests(unittest.TestCase):
                                           mirror_health=script_host.MirrorHealth())
         with self.assertRaises(script_host.MirrorUnavailable) as caught:
             host.load("function ScriptStart() return 1 end")
-        self.assertIn("mirror_failures=1", str(caught.exception))
+        # THIS host's own cause, not a shared counter's latest
+        # (pf-adversary D7): the sweep logs this text against the script it
+        # stopped, so it has to name the file that actually broke it.
+        self.assertIn("VendoredDataError", str(caught.exception))
+        self.assertIn("no_such_api_spec_for_this_test.tsv", str(caught.exception))
         with self.assertRaises(script_host.MirrorUnavailable):
             host.call("ScriptStart")
+        with self.assertRaises(script_host.MirrorUnavailable):
+            host.has_function("ScriptStart")
 
     def test_a_healthy_host_is_not_degraded_and_counts_nothing(self):
         health = script_host.MirrorHealth()
@@ -228,6 +254,14 @@ class ASweepOverABrokenMirrorBlamesUsNotTheScriptsTests(unittest.TestCase):
     """The end-to-end shape of D11, now that the host survives the failure."""
 
     def setUp(self):
+        # pf-adversary D8, this round: `load_corpus` builds its hosts with
+        # no `mirror_health`, so without this the module under test leaves
+        # the process-wide object holding a failure that names a file which
+        # has never existed. Swapped for the duration, restored after.
+        original = script_host.MIRROR_HEALTH
+        script_host.MIRROR_HEALTH = script_host.MirrorHealth()
+        self.isolated = script_host.MIRROR_HEALTH
+        self.addCleanup(setattr, script_host, "MIRROR_HEALTH", original)
         self.tmp = tempfile.mkdtemp(prefix="pf_lua_degraded_")
         self.addCleanup(shutil.rmtree, self.tmp, True)
         (Path(self.tmp) / "q_innocent.lua").write_text(
@@ -245,6 +279,24 @@ class ASweepOverABrokenMirrorBlamesUsNotTheScriptsTests(unittest.TestCase):
                           if line.startswith("LUA_SCRIPT ")], [])
         self.assertTrue([line for line in lines
                          if line.startswith("LUA_HOST ")], lines)
+        # Exactly one, and it names the script it stopped: the contract
+        # tests/test_script_lua_corpus.py pins (pf-adversary D1).
+        host_lines = [line for line in lines if line.startswith("LUA_HOST")]
+        self.assertEqual(len(host_lines), 1, lines)
+        self.assertTrue(host_lines[0].endswith('discovered_at="q_innocent.lua"'),
+                        host_lines[0])
+        self.assertIn("VendoredDataError", host_lines[0])
+
+    def test_a_host_built_with_no_health_records_into_the_published_one(self):
+        # pf-adversary D5, this round: every other test injects its own
+        # MirrorHealth, so `MIRROR_HEALTH` -- the ONE object a future health
+        # check would read, and the reason this round exists -- had no pin
+        # at all. Replacing the default with a fresh MirrorHealth() left
+        # every test green.
+        self.assertEqual(self.isolated.tally().failures, 0)
+        with broken_census():
+            script_host.load_corpus(self.tmp, log=lambda _line: None)
+        self.assertEqual(self.isolated.tally().failures, 1)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -3741,3 +3741,74 @@ which is a one-line read for whoever builds that endpoint.
   panic below it (D5, round `oghyca`).
 * `reward_store` / `player_context` are still not wired into `ScriptHost`.
 * Quest state per character still needs the LANE-DB column door (`#954`).
+
+### pf-adversary on this round, paid in this round
+
+Ordered at the start of the round, returned before push, twelve findings.
+The two blocking ones are why this section exists rather than a `Still
+open` bullet: **the first draft of this round would have turned the
+Windows gate red**, and the cloud clone could not see it (the two tests it
+broke are lupa-guarded, so they skip here and run there).
+
+* **D1 [MEASURED, blocking]** `tests/test_script_lua_corpus.py::Broken
+  ApiSpecIsOursNotTheScriptsTests` pins that one broken mirror of ours
+  produces exactly ONE `LUA_HOST` line per script it stopped, ending in
+  that script's name. The draft wrote two more per host construction,
+  both starting with that prefix (`LUA_HOST ...` and
+  `LUA_HOST_DEGRADED ...`): 3 where 1 is pinned, and 1848 lines over the
+  real 616-file corpus where main writes 616. FIXED: the machine-readable
+  line is `LUA_MIRROR_DEGRADED`, a prefix of its own; the `LUA_HOST` line
+  stays the sweep's, written once, against the file the failure stopped.
+  Verified by execution against both trees with a 9-line stub `lupa`:
+  branch-only failures 0, base-only failures 0, on the same file set.
+* **D2 [MEASURED, blocking]** the new module was the only lupa-guarded
+  module in the repository with no entry in `docs/PYTEST_SKIP_PINS.json`;
+  `tools/pf_pytest_precondition_census.py` said `UNPINNED ... add it in the
+  same commit`. FIXED: pinned at 6, with the six test ids and the measured
+  command.
+* **D3/D4 [MEASURED]** the counter covers ONE of the four mirrors under
+  `lua_api/` (`api_spec.tsv`), because that is the only one a construction
+  reads: `message_catalog.tsv` and the two `quest_criteria_*.tsv` are read
+  inside the namespaces' call closures, so a broken copy of any of them
+  builds a host fine and raises at CALL time, where this counter never
+  sees it. The draft claimed in three places that the catalog is read
+  while `Player`/`Trigger` build, which is false. FIXED: all three
+  corrected, and the gap is now stated in the code, here, and in the round
+  file rather than implied away. **Next round's first job: cover the other
+  three, which needs a call-time hook, not a construction-time guard.**
+* **D5 [MEASURED, mutation]** `MIRROR_HEALTH` -- the one object this round
+  exists to publish -- had no pin: replacing the constructor default with
+  a fresh `MirrorHealth()` left every test green. FIXED: a test drives
+  `load_corpus` (which injects nothing) and asserts the published object
+  moved 0 -> 1.
+* **D7 [MEASURED]** `MirrorUnavailable`'s message read the SHARED tally
+  live, so a host degraded by a missing census could describe itself with
+  another host's unrelated error, and that sentence is what a sweep logs
+  against an innocent script. FIXED: each host snapshots its own failure
+  (`ScriptHost.mirror_failure`) and quotes that.
+* **D8 [MEASURED]** the new module's own sweep test dirtied the published
+  object with a failure naming a file that never existed. FIXED: the test
+  swaps `MIRROR_HEALTH` for a fresh instance and restores it.
+* **D9 [code read]** `has_function` was not guarded, so the live dispatch
+  that is coming would have read our broken mirror as "this script defines
+  no entry point". FIXED: guarded like `load`/`call`.
+* **D10 [MEASURED]** only the message half of `record()`'s interpolation
+  was escaped; a `VendoredDataError` subclass whose CLASS NAME carried a
+  non-cp874 character would reach `print` and kill a sweep. FIXED, with a
+  test that encodes the result as cp874.
+* **D11 [MEASURED]** a grep quoted in three places as "finds none" actually
+  prints two lines (`def remembers_health`, a scene predicate in
+  `world_scene_registry.py`). The conclusion holds -- there is no
+  health-check endpoint -- but the citation described output nobody read.
+  FIXED in all three.
+* **D6 [MEASURED], NOT FIXED, named instead.** `mirror_failures` counts
+  host CONSTRUCTIONS, is monotone, and has no success signal: one broken
+  `api_spec.tsv` over the real corpus reads `mirror_failures=616`, and
+  after the file is repaired the state still says 616 with the old error.
+  A reader cannot answer "which mirror" or "is it broken now". Fixing it
+  properly means a per-mirror key plus a `record_ok`, which is the same
+  work D3 needs; both are the next round's first job, in one shape.
+* **D12 [PROPOSED], NOT FIXED.** `guard_mirrors` uses `None` as its failure
+  sentinel (no live caller can return `None` from a build -- `_load`
+  refuses an empty census), and a naive `clock` is stamped `Z` without
+  conversion (only tests pass a clock).
