@@ -785,6 +785,20 @@ class RealPlayerNamespace:
         self._stub_methods = methods - REAL_METHODS
         self.calls: list = []
 
+    @property
+    def teleport_check_sink(self):
+        """The recorder every accepted travel order is written to.
+
+        Readable BY NAME because the host that builds this namespace has to be
+        able to hand the same object to whoever dispatches frames.  While it
+        lived only in a private attribute the orders were unreachable from
+        outside the namespace, so `Player.TeleportCheck` recorded a window no
+        code could ever ask a client to draw (pf-adversary, round `ebh143`,
+        D2).  Read-only on purpose: a namespace that swapped its sink
+        mid-session would strand the orders already in the old one.
+        """
+        return self._teleport_check_sink
+
     def __getitem__(self, name):
         if name == "GetLv":
             def get_lv(*args):
@@ -947,13 +961,24 @@ class RealPlayerNamespace:
                 # world_m2_teleport_check.encode_prompt.
                 self.calls.append("Player.TeleportCheck")
                 if len(args) != 1:
+                    # Counted under ITS OWN name.  Borrowing the marker-id
+                    # refusal here told a reader that a script had passed a
+                    # bad id when it had passed the wrong NUMBER of arguments
+                    # -- two different fixes in two different scripts
+                    # (pf-adversary, round `ebh143`, D6).
                     _log_bad_arity(self._log, "TeleportCheck", len(args), "1")
                     self._teleport_check_sink.record_refusal(
-                        _teleport_check.CHECK_REFUSED_MARKER_ID_NOT_AN_INT)
+                        _teleport_check.CHECK_REFUSED_BAD_ARITY)
                     return STUB_DEFAULT
                 try:
+                    # Coerced WITHOUT this door's bound, so an out-of-field id
+                    # reaches the refusal that names it.  `_coerce_int` refuses
+                    # anything above MARKER_ID_MAX by returning None, which
+                    # arrived here as "not an int" and left
+                    # CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD unreachable from the
+                    # only live door there is (same finding).
                     pending = _teleport_check.open_check(
-                        _coerce_int(args[0], _teleport_check.MARKER_ID_MAX))
+                        _teleport_check.coerce_wire_marker_id(args[0]))
                 except _teleport_check.TeleportCheckError as exc:
                     # Refused BY NAME and counted, never a silent no-op: an
                     # unpinned marker id is the expected recurring event here
@@ -976,6 +1001,15 @@ class RealPlayerNamespace:
                     % (self._context.character_id, pending.marker_id,
                        pending.destination.scene_id, pending.confirm_id,
                        stored))
+                if stored:
+                    # The one console line this lane's token is FOR, printed
+                    # from the live door rather than from a test (pf-adversary,
+                    # round `ebh143`, D9: nothing outside tests/ called it, so
+                    # the token could not be fired at all).  Only for an order
+                    # the sink actually holds -- stored=0 is a refusal at a cap
+                    # and printing a PROMPT for it would name a window no
+                    # player will be asked about.
+                    self._log(_teleport_check.prompt_console_line(pending))
                 return stored
 
             return teleport_check

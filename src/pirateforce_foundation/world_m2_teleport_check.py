@@ -131,6 +131,7 @@ SEA_SCENE_SOURCE = "RE-303 s.4 SCENE_NAME n_SCENE_TYPE==8; cross-checked RE-238"
 CONFIRM_ID_MOVING_AHEAD = 21   # UI_MESSAGE 1132, scene type 8
 CONFIRM_ID_DOCKING = 22        # UI_MESSAGE 1133, every other scene type
 
+CHECK_REFUSED_BAD_ARITY = "CHECK_REFUSED_BAD_ARITY"
 CHECK_REFUSED_MARKER_ID_NOT_AN_INT = "CHECK_REFUSED_MARKER_ID_NOT_AN_INT"
 CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD = "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD"
 CHECK_REFUSED_MARKER_ROW_NOT_PINNED = "CHECK_REFUSED_MARKER_ROW_NOT_PINNED"
@@ -195,6 +196,37 @@ def _coerce_marker_id(marker_id: Any) -> int | None:
     if type(marker_id) is not int:
         return None
     return marker_id
+
+
+def coerce_wire_marker_id(value: Any) -> int | None:
+    """A Lua-side argument as an int, WITHOUT applying this door's bound.
+
+    The bound belongs to :func:`marker_destination`, which refuses it BY NAME
+    (``CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD``).  A caller that range-checks
+    first collapses both refusals into "not an int" and that name then names
+    nothing that can happen: measured by pf-adversary in round `ebh143` (D6)
+    at the only live door there is, where ``Player.TeleportCheck(70000)`` and
+    ``Player.TeleportCheck(0)`` -- the client's own "this scene names no
+    marker" sentinel -- were both counted as NOT_AN_INT.
+
+    ``bool`` is rejected with the ints (``True`` is an int and would resolve
+    row 1), a float is accepted only when it carries an exact integer because
+    that is how lupa hands every Lua number across, and NOTHING here is
+    clamped: this returns the number the caller meant or ``None`` for a value
+    that is not a number at all.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        as_int = int(value)
+        if float(as_int) != value:
+            return None
+        return as_int
+    if isinstance(value, int):
+        return int(value)
+    return None
 
 
 def _by_marker_id() -> "dict[int, Any]":
@@ -325,6 +357,19 @@ def decode_echo(legacy: Any, parsed: Any) -> int | None:
     caller's to print (:func:`echo_refusal_line`); returning the reason as a
     string instead would make the success path and the failure path the same
     type, which is how a marker id of 0 gets treated as a message.
+
+    WHICH CHECKS THIS ACTUALLY MAKES, and which it only inherits (pf-adversary,
+    round `ebh143`, D7 -- the claim was made in prose and pinned by nothing).
+    This function itself checks exactly one thing: that the decoded field is an
+    ``int``.  Vital class, nested version and the collection boundary are the
+    v141 parser's, raised out of it and swallowed here; the RuntimeRes v4
+    carrier and its trailing derived mask are ``parse_outer``'s, upstream of
+    the ``parsed`` this is handed -- and RE-292 forbids this lane from putting
+    a decoder of its own in that path, so inheriting them is the only correct
+    posture, not a shortcut.  What that adds up to is measured rather than
+    asserted in ``TheInboundDecoderRefusesEverythingButAnEcho``: an outbound
+    prompt frame and another vital class both come back ``None``, a real client
+    echo comes back as its marker id.
     """
     try:
         decoded = legacy.parse_teleport_check_vital(parsed)
@@ -481,7 +526,14 @@ def echo_console_line(pending: PendingCheck | None, echoed_marker_id: Any,
 
 
 def transport_console_line(pending: PendingCheck, frame_bytes: int) -> str:
-    """The line for the transport this server sends back for a good echo."""
+    """The line for the transport this server sends back for a good echo.
+
+    IT PRINTS THE INTENT THIS SERVER ACTED ON, NEVER WHAT THE CLIENT DID WITH
+    IT (pf-adversary, round `ebh143`, D9).  ``bytes_out`` counts bytes handed
+    to a send path; no byte of it comes back from the client, so this line is
+    not evidence that a player arrived anywhere.  The only thing that can say
+    that is a screen -- the attended ticket is what this lane opened for it.
+    """
     d = pending.destination
     return (
         "%s TRANSPORT marker=%d scene=%d xyz=%d,%d,%d bytes_out=%d"
