@@ -1262,8 +1262,10 @@
     {
       "key": "lupa_package",
       "module": "tests/test_script_lua_api_player.py",
-      "count": 7,
+      "count": 9,
       "tests": [
+        "RealPlayerLuaIntegrationTests::test_a_host_with_no_payout_store_refuses_out_loud",
+        "RealPlayerLuaIntegrationTests::test_add_exp_from_real_lua_reaches_the_hosts_payout_store",
         "RealPlayerLuaIntegrationTests::test_check_equip_item_from_lua_matches_the_real_q_kill1_2_call_shape",
         "RealPlayerLuaIntegrationTests::test_check_item_num_from_lua_matches_the_real_q_guildgather1_gate_shape",
         "RealPlayerLuaIntegrationTests::test_get_class_from_lua_reads_the_injected_context",
@@ -1272,7 +1274,17 @@
         "RealPlayerLuaIntegrationTests::test_mob_appear_from_lua_matches_the_real_q_kill5_delete_run_call_shape",
         "RealPlayerLuaIntegrationTests::test_the_real_q_day_watch_accept_check_gate_is_real_now"
       ],
-      "note": "This round (LANE-Q, session gqjas5). New module for the 2 Player.* names that became real this round (lua_api/player.py), the same three-level shape tests/test_script_lua_api_quest.py already used: RealPlayerNamespaceTests needs no Lua runtime at all (plain Python, a __getitem__ contract, and an injectable PlayerContext), so only RealPlayerLuaIntegrationTests, which drives real Lua through a live ScriptHost, is guarded by LUPA_PACKAGE. MEASURED, not predicted: `pip install lupa` in this cloud session (a manylinux wheel exists and installs cleanly here, unlike the Windows-wheel uncertainty earlier rounds recorded) then running this module directly reported these 3 tests passing, and tests/test_pytest_precondition_census.py's own AST walker confirms exactly these 3 are guarded, and 3 only. UPDATED round qbr5h8 (LANE-Q): CheckItemNum/GetItemNum/CheckEquipItem became real (lua_api/player.py, the inventory seam's read side), adding 3 more Lua-integration tests to RealPlayerLuaIntegrationTests, each reproducing one grepped real corpus call shape (GetItemNum from Quest/q_gather_new.lua:205, CheckItemNum from Quest/q_guildgather1.lua:41, CheckEquipItem from Quest/q_kill1_2.lua:14) -- 3 -> 6. MEASURED via this file's own guarded_tests AST walker against the post-round source, not counted by hand. UPDATED round x6gxzd (LANE-Q): Player.MobAppear became real (COO-DECISION 20260907_0043), adding one more Lua-integration test to RealPlayerLuaIntegrationTests reproducing the one grepped real corpus call shape not already gated behind an `if (Quest.VarN > 0)` guard in the vendored fixture (tests/fixtures/lua_spike/q_kill5.lua's own Delete_Run) -- 6 -> 7. MEASURED via this file's own guarded_tests AST walker against the post-round source, not counted by hand."
+      "note": "This round (LANE-Q, session gqjas5). New module for the 2 Player.* names that became real this round (lua_api/player.py), the same three-level shape tests/test_script_lua_api_quest.py already used: RealPlayerNamespaceTests needs no Lua runtime at all (plain Python, a __getitem__ contract, and an injectable PlayerContext), so only RealPlayerLuaIntegrationTests, which drives real Lua through a live ScriptHost, is guarded by LUPA_PACKAGE. MEASURED, not predicted: `pip install lupa` in this cloud session (a manylinux wheel exists and installs cleanly here, unlike the Windows-wheel uncertainty earlier rounds recorded) then running this module directly reported these 3 tests passing, and tests/test_pytest_precondition_census.py's own AST walker confirms exactly these 3 are guarded, and 3 only. UPDATED round qbr5h8 (LANE-Q): CheckItemNum/GetItemNum/CheckEquipItem became real (lua_api/player.py, the inventory seam's read side), adding 3 more Lua-integration tests to RealPlayerLuaIntegrationTests, each reproducing one grepped real corpus call shape (GetItemNum from Quest/q_gather_new.lua:205, CheckItemNum from Quest/q_guildgather1.lua:41, CheckEquipItem from Quest/q_kill1_2.lua:14) -- 3 -> 6. MEASURED via this file's own guarded_tests AST walker against the post-round source, not counted by hand. UPDATED round x6gxzd (LANE-Q): Player.MobAppear became real (COO-DECISION 20260907_0043), adding one more Lua-integration test to RealPlayerLuaIntegrationTests reproducing the one grepped real corpus call shape not already gated behind an `if (Quest.VarN > 0)` guard in the vendored fixture (tests/fixtures/lua_spike/q_kill5.lua's own Delete_Run) -- 6 -> 7. MEASURED via this file's own guarded_tests AST walker against the post-round source, not counted by hand. ROUND yfeauz: +2, the two tests that drive ScriptHost's new payout_store parameter through a live Lua state (Player.AddExp reaching the host's store, and the refusal when a host is built without one). MEASURED the same way, not predicted."
+    },
+    {
+      "key": "lupa_package",
+      "module": "tests/test_script_lua_api_reward.py",
+      "count": 2,
+      "tests": [
+        "HostWiringTests::test_a_criteria_call_from_real_lua_reaches_the_hosts_store",
+        "HostWiringTests::test_a_host_without_one_pays_nothing_and_says_so"
+      ],
+      "note": "Round yfeauz (LANE-Q). The rest of this module needs no Lua state -- it drives lua_api.reward directly -- but HostWiringTests drives ScriptHost's new payout_store parameter through a live Lua state to prove it reaches the Quest namespace, so that one class is guarded by LUPA_PACKAGE. MEASURED, not predicted: with lupa absent, pytest -rs reports exactly these 2 skips under this key in this module, and 2 only."
     },
     {
       "key": "lua_corpus_runnable",
