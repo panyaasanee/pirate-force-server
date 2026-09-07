@@ -386,6 +386,68 @@ _FAKE_ROWS = [
 ]
 
 
+@UI_WIRE_CENSUS_INPUTS.skip_unless_present()
+class WhereAgreesWithTheArtifactOnTheRealTreeTests(unittest.TestCase):
+    """The same invariant as ``WhereAndCensusCannotDisagreeTests``, but over
+    all 327 real names and the real `src/` tree instead of a fixture.
+
+    Guarded (needs the sibling catalog), so it does NOT run on
+    `gate-windows` -- that is why the unguarded class above exists and why it
+    varies file count, depth and name-set size by hand. This one is the
+    ground truth the fixture is modelled on: if a future change makes them
+    disagree only at scale, this catches it here even though the gate cannot.
+    Round `8btjto`, pf-adversary D-A on `#1013` (the check the reviewer ran
+    by hand and got 0 conflicts from)."""
+
+    def test_every_source_row_is_the_file_where_answers(self):
+        rows = census.build_rows()
+        checked = 0
+        for row in rows:
+            if row["tier"] != "SOURCE":
+                continue
+            location = census.source_hit_location(row["name"])
+            self.assertIsNotNone(
+                location,
+                f"{row['name']} is a SOURCE row but --where finds nothing",
+            )
+            self.assertEqual(
+                row["evidence"],
+                location[0],
+                f"--where sends a reader to a different file from the "
+                f"artifact for {row['name']}",
+            )
+            checked += 1
+        self.assertEqual(checked, EXPECT_SOURCE)
+
+    def test_no_non_source_name_gets_an_answer(self):
+        # The other half of the agreement: a name the artifact does NOT call
+        # SOURCE must have no counted occurrence for `--where` either.
+        #
+        # A miss makes `source_hit_location` walk and parse the WHOLE tree,
+        # so this samples rather than looping over all 297 non-SOURCE names:
+        # the full sweep ran for minutes, and a test nobody waits for is a
+        # test nobody runs. The one-pass equivalent over EVERY name is the
+        # assertion below, which costs a single walk.
+        rows = census.build_rows()
+        misses = [row["name"] for row in rows if row["tier"] != "SOURCE"]
+        self.assertEqual(len(misses), EXPECT_NAME_ONLY + EXPECT_UNTOUCHED)
+        for name in misses[:5] + misses[-5:]:
+            with self.subTest(name=name):
+                self.assertIsNone(census.source_hit_location(name))
+
+    def test_the_source_tier_is_exactly_the_set_with_a_counted_hit(self):
+        # One walk, every name: the tier assignment and the hit map must
+        # partition the catalog the same way.
+        rows = census.build_rows()
+        names = {row["name"] for row in rows}
+        hits = census._build_source_hits(
+            names, census._iter_py_files(census.SRC_DIR)
+        )
+        self.assertEqual(
+            {row["name"] for row in rows if row["tier"] == "SOURCE"},
+            set(hits),
+        )
+
 class MainExitCodeTests(unittest.TestCase):
     """The non-zero exit paths of ``main()``, with no sibling checkout."""
 
@@ -954,6 +1016,282 @@ class SourceHitLocationTests(unittest.TestCase):
         self.assertEqual(location, ("src/pirateforce_foundation/a_wire.py", 151))
 
 
+class CensusFileTextsTests(unittest.TestCase):
+    """``census_file_texts`` -- the ONE place this census spells a path and
+    reads a file. Round `8btjto` (pf-adversary D-A/D-H on `#1013`).
+
+    Before this generator existed, ``_build_source_hits`` and
+    ``source_hit_location`` each carried their own copy of those five lines
+    and nothing compared the copies: three one-line mutants in the second copy
+    sent ``--where`` to a DIFFERENT file from the one the artifact names, with
+    this whole test file still green. D-H measured the other half -- the
+    ``OSError`` skip and ``errors="replace"`` had never been executed by any
+    test at all (deleting both kept the suite green). Both run here.
+
+    Unguarded: synthetic tree in a temp directory, no `pf_bridge` sibling, so
+    this runs on `gate-windows`."""
+
+    def _root(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return Path(tmp.name)
+
+    def test_relpath_is_posix_spelled_under_a_windows_style_relative_to(self):
+        # Kills `str(path.relative_to(ROOT))`, which is PR #961's backslash
+        # bug -- it reappeared verbatim inside `source_hit_location` and no
+        # test noticed, because all three #961 regression tests point at
+        # `_build_source_hits`. There is now one function to point at.
+        real_relative_to = pathlib.Path.relative_to
+
+        def fake_relative_to(self, *args, **kwargs):
+            return pathlib.PureWindowsPath(
+                str(real_relative_to(self, *args, **kwargs))
+            )
+
+        root = self._root()
+        pkg = root / "src" / "pirateforce_foundation" / "gm"
+        pkg.mkdir(parents=True)
+        module = pkg / "command_capture.py"
+        module.write_text("X = 1\n", encoding="utf-8")
+        with mock.patch.object(census, "ROOT", root), mock.patch.object(
+            pathlib.Path, "relative_to", fake_relative_to
+        ):
+            got = list(census.census_file_texts([module]))
+        self.assertEqual(
+            got[0][0], "src/pirateforce_foundation/gm/command_capture.py"
+        )
+        self.assertNotIn("\\", got[0][0])
+
+    def test_an_unreadable_file_is_skipped_instead_of_killing_the_census(self):
+        # D-H: `except OSError: continue` had never run.
+        root = self._root()
+        pkg = root / "src" / "pirateforce_foundation"
+        pkg.mkdir(parents=True)
+        good = pkg / "b_good.py"
+        good.write_text('WIRE = "Channel_ProbeVital"\n', encoding="utf-8")
+
+        class _Unreadable:
+            def relative_to(self, _other):
+                return pathlib.PurePosixPath("src/pirateforce_foundation/a_bad.py")
+
+            def read_text(self, **_kwargs):
+                raise OSError(13, "Permission denied")
+
+        files = [_Unreadable(), good]
+        with mock.patch.object(census, "ROOT", root):
+            seen = [relpath for relpath, _ in census.census_file_texts(files)]
+            hits = census._build_source_hits({"Channel_ProbeVital"}, files)
+            location = census.source_hit_location("Channel_ProbeVital", files)
+        self.assertEqual(seen, ["src/pirateforce_foundation/b_good.py"])
+        # ... and the census still counts every file it CAN read.
+        self.assertEqual(hits["Channel_ProbeVital"],
+                         "src/pirateforce_foundation/b_good.py")
+        self.assertEqual(location[0], "src/pirateforce_foundation/b_good.py")
+
+    def test_an_undecodable_byte_does_not_hide_the_rest_of_the_file(self):
+        # D-H: `errors="replace"` had never run either. Without it this raises
+        # UnicodeDecodeError and the name on line 2 is never counted.
+        root = self._root()
+        pkg = root / "src" / "pirateforce_foundation"
+        pkg.mkdir(parents=True)
+        module = pkg / "runtime.py"
+        module.write_bytes(b'BAD = "\xff\xfe"\nWIRE = "Pets_ProbeVital"\n')
+        with mock.patch.object(census, "ROOT", root):
+            location = census.source_hit_location("Pets_ProbeVital", [module])
+        self.assertEqual(location, ("src/pirateforce_foundation/runtime.py", 2))
+
+    def test_the_given_order_is_preserved_not_re_sorted(self):
+        # The ordering policy belongs to `sort_py_files`; this generator must
+        # not add a second, quieter one.
+        root = self._root()
+        pkg = root / "src" / "pirateforce_foundation"
+        pkg.mkdir(parents=True)
+        names = ["z.py", "a.py", "m.py"]
+        for name in names:
+            (pkg / name).write_text("X = 1\n", encoding="utf-8")
+        with mock.patch.object(census, "ROOT", root):
+            got = [relpath for relpath, _ in
+                   census.census_file_texts([pkg / n for n in names])]
+        self.assertEqual([p.rsplit("/", 1)[1] for p in got], names)
+
+
+class WhereAndCensusCannotDisagreeTests(unittest.TestCase):
+    """``--where`` and the artifact's `evidence` column must name the SAME
+    file -- checked on a tree shaped like the real one. Round `8btjto`,
+    pf-adversary D-A/D-B on `#1013`, and D8 of the `#1005` report.
+
+    The two tests round `jx6r5p` wrote for this invariant could not fail: one
+    fed a single file and a single name (no order to get wrong, no name to be
+    a substring of another), the other fed two files that were already in
+    census order. D-B measured the same monoculture across the whole unguarded
+    half of this file -- 1-2 files, a one-name set, never a subpackage, and
+    always the one vital name `Community_ProbeOnlyVital` -- while the real
+    call site passes several hundred files and 327 names, and 4 of the 30
+    SOURCE rows live under `gm/`.
+
+    Every axis that was fixed is varied here:
+
+    * SEVEN files, not one or two;
+    * a subpackage (`gm/`) and a sub-subpackage (`gm/deep/`) -- no fixture had
+      ever built one, though `gm/command_capture.py` is the file whose drift
+      started this line of work;
+    * NINE names across six prefixes, not one `Community_` name;
+    * two names where one is a strict prefix of the other, spelled in
+      different files (breaks a `name in token` substring test);
+    * a file whose BASENAME order differs from its posix PATH order
+      (`b_wire.py` before `gm/a_wire.py`) (breaks a re-sort on `p.name`);
+    * a docstring-only name and a comment-only spelling, so the exclusions are
+      live on this fixture rather than dormant.
+
+    Unguarded: temp tree, no sibling, runs on `gate-windows`."""
+
+    NAMES = [
+        "Channel_ProbeVital",
+        "Channel_ProbeVitalEx",
+        "Community_ProbeOnlyVital",
+        "Pets_FeedProbeVital",
+        "GM_RunProbeVital",
+        "Activity_CheatProbeVital",
+        "NavigationEx_ProbeVital",
+        "ShowProbeMessageVital",
+        "Equipment_UnusedProbeVital",
+    ]
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        pkg = self.root / "src" / "pirateforce_foundation"
+        (pkg / "gm" / "deep").mkdir(parents=True)
+
+        def write(rel, text):
+            (pkg / rel).write_text(text, encoding="utf-8")
+
+        # `Channel_ProbeVitalEx` is spelled in the FIRST file in census order
+        # and `Channel_ProbeVital` only in a later one, so a substring
+        # membership test answers the first file for BOTH -- and disagrees
+        # with the artifact on the shorter name.
+        write("a_first.py", 'WIRE = "Channel_ProbeVitalEx"\n')
+        # `Equipment_UnusedProbeVital` appears only in this module docstring.
+        write(
+            "b_wire.py",
+            '"""Frames: Equipment_UnusedProbeVital 0x0001."""\n'
+            + "X = 1\n" * 3
+            + 'WIRE = "Pets_FeedProbeVital"\n'
+            + 'ALSO = "ShowProbeMessageVital"\n',
+        )
+        # basename `a_wire.py` sorts BEFORE `b_wire.py`; the posix path
+        # `.../gm/a_wire.py` sorts AFTER it. `Pets_FeedProbeVital` is in both.
+        write("gm/a_wire.py", 'WIRE = "Pets_FeedProbeVital"\n')
+        write(
+            "gm/command_capture.py",
+            '"""Handles GM_RunProbeVital and Activity_CheatProbeVital."""\n'
+            + "\n"
+            + "# GM_RunProbeVital is named in a full-line comment too.\n"
+            + "X = 1\n" * 20
+            + 'WIRE = "GM_RunProbeVital"\n'
+            + 'CHEAT = "Activity_CheatProbeVital"\n',
+        )
+        write("gm/deep/nested.py", 'WIRE = "NavigationEx_ProbeVital"\n')
+        write(
+            "m_wire.py",
+            'WIRE = "Channel_ProbeVital"\nZ = "Community_ProbeOnlyVital"\n',
+        )
+        write(
+            "z_last.py",
+            'WIRE = "Channel_ProbeVital"\nY = "NavigationEx_ProbeVital"\n',
+        )
+
+        self.files = census._iter_py_files(pkg)
+        self.assertEqual(len(self.files), 7)
+
+    def _hits(self):
+        with mock.patch.object(census, "ROOT", self.root):
+            return census._build_source_hits(set(self.NAMES), self.files)
+
+    def _where(self, name):
+        with mock.patch.object(census, "ROOT", self.root):
+            return census.source_hit_location(name, self.files)
+
+    def test_every_name_gets_the_same_file_from_both_paths(self):
+        # The invariant the artifact's reader depends on, over the whole name
+        # set rather than over one name in one file.
+        hits = self._hits()
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                location = self._where(name)
+                if name in hits:
+                    self.assertIsNotNone(location)
+                    self.assertEqual(hits[name], location[0])
+                else:
+                    self.assertIsNone(location)
+
+    def test_a_prefix_name_is_not_answered_by_the_longer_name_containing_it(self):
+        # Kills `if any(name in t for t in tokens)`.
+        self.assertEqual(
+            self._where("Channel_ProbeVital")[0],
+            "src/pirateforce_foundation/m_wire.py",
+        )
+        self.assertEqual(
+            self._where("Channel_ProbeVitalEx")[0],
+            "src/pirateforce_foundation/a_first.py",
+        )
+
+    def test_file_order_is_the_posix_path_not_the_basename(self):
+        # Kills a re-sort on `p.name` in either function: by basename,
+        # `gm/a_wire.py` would come first.
+        self.assertEqual(
+            self._where("Pets_FeedProbeVital")[0],
+            "src/pirateforce_foundation/b_wire.py",
+        )
+        self.assertEqual(
+            self._hits()["Pets_FeedProbeVital"],
+            "src/pirateforce_foundation/b_wire.py",
+        )
+
+    def test_first_hit_wins_and_a_later_file_never_overwrites_it(self):
+        # D8 of the `#1005` report: the "first hit wins" policy had no pin
+        # outside the guarded class, and a "last hit wins" mutant passed the
+        # whole file. `Channel_ProbeVital` is in `m_wire.py` and `z_last.py`;
+        # `NavigationEx_ProbeVital` is in `gm/deep/nested.py` and `z_last.py`.
+        self.assertEqual(
+            self._hits()["Channel_ProbeVital"],
+            "src/pirateforce_foundation/m_wire.py",
+        )
+        self.assertEqual(
+            self._hits()["NavigationEx_ProbeVital"],
+            "src/pirateforce_foundation/gm/deep/nested.py",
+        )
+        self.assertEqual(
+            self._where("NavigationEx_ProbeVital")[0],
+            "src/pirateforce_foundation/gm/deep/nested.py",
+        )
+
+    def test_a_subpackage_path_keeps_its_separators(self):
+        # 4 of the 30 real SOURCE rows live under `gm/`, but no fixture had
+        # ever built a subpackage, so `relpath.count("/") <= 2` mutants
+        # survived the whole file.
+        for name, expected in (
+            ("GM_RunProbeVital",
+             "src/pirateforce_foundation/gm/command_capture.py"),
+            ("NavigationEx_ProbeVital",
+             "src/pirateforce_foundation/gm/deep/nested.py"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(self._where(name)[0], expected)
+                self.assertEqual(self._hits()[name], expected)
+
+    def test_the_exclusions_are_live_on_this_fixture_not_dormant(self):
+        # If these stop being excluded, the agreement above stops meaning what
+        # it says -- the two functions would agree on a prose hit.
+        self.assertIsNone(self._where("Equipment_UnusedProbeVital"))
+        self.assertNotIn("Equipment_UnusedProbeVital", self._hits())
+        # `GM_RunProbeVital` is spelled in the module docstring (line 1) and
+        # again in a full-line comment (line 3); the line that counts is the
+        # assignment after 20 lines of padding -- 1 docstring + 1 blank + 1
+        # comment + 20 padding = line 24.
+        self.assertEqual(self._where("GM_RunProbeVital")[1], 24)
+
 class MainWhereFlagTests(unittest.TestCase):
     """``main(["--where", NAME])``'s contract: exit 0 and one `path:line` line
     on stdout, or exit 1 and a named reason on stderr -- and neither path may
@@ -1007,6 +1345,49 @@ class MainWhereFlagTests(unittest.TestCase):
         code, _, err = self._run("Community_NoSuchVital")
         self.assertEqual(code, 1)
         self.assertIn("NOT A SOURCE ROW", err)
+
+    def test_stdout_is_exactly_one_line_and_stderr_is_empty(self):
+        # pf-adversary D-G on `#1013`: the "one line on stdout" contract was
+        # only ever asserted through `out.strip()`, so a mutant printing a
+        # leading blank line, or an extra line on stderr, passed the whole
+        # file -- while a consumer written the documented way,
+        # `LINE=$(... --where X)`, gets a leading newline.
+        (self.pkg / "runtime.py").write_text(
+            "X = 1\n" * 40 + f'WIRE = "{self.NAME}"\n', encoding="utf-8"
+        )
+        code, out, err = self._run(self.NAME)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "src/pirateforce_foundation/runtime.py:41\n")
+        self.assertEqual(err, "")
+
+    def test_an_empty_name_exits_1_and_never_asks_for_the_sibling(self):
+        # pf-adversary D-F on `#1013`: `if args.where:` sent `--where ""`
+        # through to the full census, which exits 2 with
+        # `CENSUS ERROR ... needs a sibling pf_bridge` -- the one thing this
+        # mode promises it never needs. `build_rows` is mocked to raise in
+        # setUp, so reaching it at all fails loudly here.
+        (self.pkg / "runtime.py").write_text("X = 1\n", encoding="utf-8")
+        code, out, err = self._run("")
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("NOT A SOURCE ROW", err)
+        self.assertNotIn("CENSUS ERROR", err)
+
+    def test_the_failure_message_does_not_diagnose_a_cause_it_did_not_measure(self):
+        # pf-adversary D-D on `#1013`: for a MISSPELLED name -- the commonest
+        # reason a reader sees this message -- the old wording stated as fact
+        # that the docstring/comment rule excluded it. No token matched
+        # anywhere and no exclusion ever fired, so that sentence was false.
+        # The message may offer both possibilities; it may not pick one.
+        (self.pkg / "runtime.py").write_text(
+            f'WIRE = "{self.NAME}"\n', encoding="utf-8"
+        )
+        _code, _out, err = self._run("Community_ProbeOnlyVitalTypo")
+        self.assertIn("no occurrence that this census counts", err)
+        self.assertIn("spelled nowhere", err)
+        self.assertIn("or every occurrence is in a docstring", err)
+        # The tool cannot know which, and must say so rather than assert one.
+        self.assertIn("cannot tell you which", err)
 
 
 if __name__ == "__main__":
