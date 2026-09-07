@@ -268,7 +268,17 @@ registry vs. two hosts with no registry given not leaking into each
 other). `tests/test_script_host_spike.py`'s two assertions that assumed
 `Trigger` was still all-stub are updated to match.
 
-### API status table (126/160 stub, 34/160 real, as of round `6775u1`)
+### API status table (126/160 stub, 34/160 real, as of round `xlk7hl`)
+
+Six of the 126 stub rows now read `stub (amount real)`: the three
+`Quest.AddCriteria*` and three `Quest.AddLvCriteria*` names.  That is a
+THIRD status, deliberately, and it is not a softer word for `real` -- the
+grant still does nothing and still logs `LUA_API_STUB`, so the count above
+is unchanged at 34/160.  What changed is that each of them now also logs
+one `LUA_QUEST_CRITERIA` line naming the exact reward it WOULD have paid,
+resolved out of the game's own two tables, or the reason it refused to
+name one.  See "Round xlk7hl" below for where the number comes from and
+for the one mapping in it that is a labelled lane assumption, not a proof.
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -428,9 +438,9 @@ in `STILL_STUBBED`.
 | Quest | RewardItemSelect | 1335 | stub |
 | Quest | GetQuestFlag | 508 | real |
 | Quest | SetFlag | 417 | real |
-| Quest | AddCriteriaExp | 166 | stub |
-| Quest | AddCriteriaSkillPoint | 166 | stub |
-| Quest | AddCriteriaCash | 165 | stub |
+| Quest | AddCriteriaExp | 166 | stub (amount real) |
+| Quest | AddCriteriaSkillPoint | 166 | stub (amount real) |
+| Quest | AddCriteriaCash | 165 | stub (amount real) |
 | Quest | CheckMobKillCount | 138 | real |
 | Quest | MobKillCount | 128 | real |
 | Quest | PlayNPCMovie | 100 | stub |
@@ -438,9 +448,9 @@ in `STILL_STUBBED`.
 | Quest | GetFlag | 67 | real |
 | Quest | CanReportDailyQuest | 61 | real |
 | Quest | ReportDailyQuest | 61 | real |
-| Quest | AddLvCriteriaExp | 59 | stub |
-| Quest | AddLvCriteriaSkillPoint | 59 | stub |
-| Quest | AddLvCriteriaCash | 58 | stub |
+| Quest | AddLvCriteriaExp | 59 | stub (amount real) |
+| Quest | AddLvCriteriaSkillPoint | 59 | stub (amount real) |
+| Quest | AddLvCriteriaCash | 58 | stub (amount real) |
 | Quest | CountDownTime | 54 | stub |
 | Quest | GetWeekDay | 48 | stub |
 | Quest | GetMobKillCount | 20 | real |
@@ -2931,3 +2941,81 @@ The comment says what it means without the name, and says why.
   opposite direction from what `NOW.md` records.
 * `lua_api.trigger`: 8 of 17 real, measured from `REAL_METHODS`, correcting
   the stale "5/17" carried in `RE-273`'s body.
+
+
+## Round `xlk7hl` (2026-09-07) -- the READ half of the exp/level seam
+
+COO-DECISION `2026-09-07T05:46` split system item 5 (exp-level) in two and
+gave LANE-Q the read half only: "Q owns the read half through a Protocol;
+the write half waits for real columns -- do not keep a competing in-memory
+ledger, not even 'temporarily'".  This round is that read half.
+
+### What the six zero-argument reward names actually read
+
+`api_spec.tsv` gives all six an arity of exactly 0.  Zero arguments means
+the amount is not in the script, so it is in the tables.  It is:
+
+    CONSTDATA_TH__STANDARD_QUEST.tsv[level].<kind>
+      * QUESTDATA_TH__QUEST.tsv[quest].<kind multiplier>
+
+`CONSTDATA_TH__STANDARD_QUEST.tsv` is the standard per-level quest reward
+curve -- 255 rows keyed by level, columns `n_QUEST_CASH`/`n_QUEST_EXP`/
+`n_QUEST_SP`, rising monotonically (level 1 -> 90 exp, level 100 ->
+100,520).  "Criteria" in the API names is that curve.
+
+### This corrects LANE-Q's own previous round, which had it wrong
+
+Round `02mkqc`'s letter to LANE-DB named `n_LEVEL_EXP` and `f_EXP` as the
+two candidates for the AMOUNT.  Reading the values disproves both:
+
+* `f_EXP` has 11 distinct values in all 1544 rows and every one is a small
+  ratio (0.0, 0.1, 0.25, 0.3, 0.5, 1.0, 1.4, 1.5, 2.0, 3.0, 5.0; stored
+  float32-widened, e.g. `0.10000000149011612` literally on disk).  A
+  multiplier column, not an amount column.
+* `n_LEVEL_EXP` runs 1..120 and **all 1544 rows resolve to a curve row, 0
+  orphans**.  A level index, not an amount.
+
+Both facts are pinned by tests that need no bridge checkout, so a future
+change that re-points either column goes red instead of quietly paying
+wrong rewards (`test_f_exp_is_a_multiplier_not_an_amount`,
+`test_every_quest_rows_criteria_level_resolves_to_a_curve_row`).
+
+### The one assumption, labelled
+
+Which level each triple uses is NOT proven.  The 166 files calling the
+plain triple and the 59 calling the `Lv` triple are disjoint (0 overlap,
+measured), so the prefix is the only discriminator.  `LEVEL_SOURCE` reads
+`Lv` as "the player's level" and plain as "the level on the quest row", on
+two independent measurements:
+
+1. `n_LEVEL_EXP` differs from `n_LEVEL_QUEST` on 647/1039 rows behind the
+   plain triple (62%, actively tuned) but 32/174 behind the `Lv` triple
+   (18%, only 31 distinct values at all -- the column reads as unused).
+2. 53 of the 59 `Lv` files also call `Quest.ReportDailyQuest`, against 5 of
+   the 166 plain files.  A daily repeatable pays whoever repeats it.
+
+Neither is a proof, so `AddLvCriteria*` **refuses** (logs
+`refused=player_level_unknown`) when no player level is supplied rather
+than falling back to the quest row's level.  Falling back would pay a
+level-15 reward to a level-90 player on every daily in the game and nothing
+would look broken.  ASK-COO letter `20260907_0742` carries the question.
+
+Rounding is unverified too: `CriteriaAmount` carries both the exact product
+and its floor, and does not choose for whoever eventually grants.
+
+### Files
+
+* `lua_api/quest_criteria.py` -- loader, resolver, closed refusal set.
+* `lua_api/quest_criteria_curve.tsv` (255 rows) and
+  `lua_api/quest_criteria_rows.tsv` (1544 rows) -- vendored ASCII mirrors
+  in the shape `message_catalog.tsv` established, each carrying a
+  `# body_sha256:` of its own body so the Windows gate (no bridge checkout)
+  can still check the copy is internally honest.
+* `tools/pf_regen_lua_quest_criteria.py` -- `--check` exits 0 match / 1
+  drift / 2 INCONCLUSIVE (no bridge beside the repo), the three states
+  `pf_gate_preflight.py` already uses.
+* `script_host._host_side_error_types()` gains `QuestCriteriaError`, so a
+  corrupt mirror of OURS is logged `LUA_HOST ... discovered_at=<file>` and
+  never as up to 616 `LUA_SCRIPT <file> ERR` accusations against innocent
+  quest scripts (pf-adversary D11, round `7kxfe9`).
+* `tests/test_script_lua_api_quest_criteria.py` -- 38 tests.

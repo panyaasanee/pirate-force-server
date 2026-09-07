@@ -411,7 +411,8 @@ def _host_side_error_types():
     pf-adversary D11 (round 7kxfe9): every sweep body caught bare
     ``Exception`` and logged ``LUA_SCRIPT <file> ERR ...``, so a
     ``MessageCatalogError`` -- raised because OUR vendored
-    ``lua_api/message_catalog.tsv`` is missing or corrupt -- came out
+    ``lua_api/message_catalog.tsv`` (or, same shape, one of the two
+    ``lua_api/quest_criteria_*.tsv`` mirrors) is missing or corrupt -- came out
     wearing the name of whichever quest file happened to be loading when
     the catalog was first touched, and then again for the next one, and
     the next: one host defect printed as up to 616 accusations against
@@ -423,8 +424,9 @@ def _host_side_error_types():
     are rare; an import of an already-imported module is a dict lookup.
     """
     from .lua_api.message import MessageCatalogError
+    from .lua_api.quest_criteria import QuestCriteriaError
 
-    return (MessageCatalogError,)
+    return (MessageCatalogError, QuestCriteriaError)
 
 
 def _ascii_safe(exc: BaseException) -> str:
