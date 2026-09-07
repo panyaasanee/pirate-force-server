@@ -1,8 +1,10 @@
 """SKILL-LIST-AT-LOGIN-001 -- the character's persisted skill rows on the wire.
 
 Pure offline pytest: a throwaway temp database with the real migrations, the
-real ``SQLiteStore``, and the frozen v141 module for the envelope.  No network,
-no GameClient, no UI.
+real ``SQLiteStore``, and the frozen v141 module for the envelope.  No network, no game
+client, no UI.  (The client class name is deliberately not spelled here: the
+Windows gate excludes any test module that contains it, which would hide this
+file from the gate entirely.)
 
 What these tests prove
 ----------------------

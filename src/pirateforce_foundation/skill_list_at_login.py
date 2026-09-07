@@ -35,7 +35,7 @@ order, and this module honours it in the only way that is honest about today:
     wrong: what is real is the ROUTE.  The day a second writer exists, this
     route already carries it and the class-table route never could.
 
-🔴 THE REASON THIS IS NOT WIRED IN THIS ROUND
+THE REASON THIS IS NOT WIRED IN THIS ROUND (read this before using the module)
 ----------------------------------------------
 ``learn_skill_result_hypothesis``'s own docstring records, from GT-249 run on
 a real client on 2026-09-05: after its six-frame sweep landed, the client
