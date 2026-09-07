@@ -1,4 +1,15 @@
-"""LANE-DB round `o5zblc`: the HP pair the client actually displays.
+"""LANE-DB rounds `o5zblc` + `cgnzsd`: the HP pair the client displays.
+
+ROUND `cgnzsd` REWROTE THE GUARD after `pf-adversary` found the first draft
+INVERTED.  Three findings drove it and each has its own test class below:
+D1 the guard passed `0/0`, the value this repository has attended-measured
+as the symptom (`ZeroIsTheSymptomNotAnHonestValueTests`); D2 the trigger was
+x=9's PRESENCE, which would refuse every login this server sends
+(`TheTriggerIsTheArmedValueNotThePresenceTests`); D3 `-1/1` was attributed
+to the frame layer when it is a constructor fact
+(`TheTwoLayersAreNamedSeparatelyTests`).  D4 asked what this module adds
+over the fence that already ships, and the answer is measured rather than
+argued in `TheIncumbentFenceIsOnePredicateShortTests`.
 
 `NOW.md` (COO round `0445`) carries one line for this lane that is not the
 equip arm: a creation ticket for A/DB, "leaving 126 restores HP; BoatHealth
@@ -130,7 +141,7 @@ class TheGapsNameEveryDishonestRowTests(unittest.TestCase):
         gaps = sel.alternate_pair_gaps({})
         self.assertEqual([g.x for g in gaps], list(sel.ALTERNATE_PAIR))
         self.assertEqual(
-            {g.reason for g in gaps}, {sel.REASON_MISSING}
+            {g.reason for g in gaps}, {sel.REASON_ABSENT_READS_ZERO}
         )
 
     def test_the_construction_default_is_a_gap_not_a_value(self):
@@ -155,7 +166,7 @@ class TheGapsNameEveryDishonestRowTests(unittest.TestCase):
     def test_a_non_integer_is_a_gap_not_a_crash(self):
         values = {sel.ALTERNATE_PAIR[0]: "100", sel.ALTERNATE_PAIR[1]: 100}
         gaps = sel.alternate_pair_gaps(values)
-        self.assertEqual([g.reason for g in gaps], [sel.REASON_NOT_AN_INT])
+        self.assertEqual([g.reason for g in gaps], [sel.REASON_NOT_A_U32])
 
     def test_an_honest_pair_has_no_gaps(self):
         values = {sel.ALTERNATE_PAIR[0]: 87, sel.ALTERNATE_PAIR[1]: 100}
@@ -168,29 +179,40 @@ class TheGapsNameEveryDishonestRowTests(unittest.TestCase):
 
 
 class TheGuardHasTeethTests(unittest.TestCase):
-    def test_selector_without_an_honest_pair_is_refused(self):
+    def test_armed_selector_without_any_pair_is_refused(self):
         with self.assertRaises(sel.HpPairError) as caught:
-            sel.guard_alternate_pair({sel.SELECTOR_FIELD: 0})
+            sel.guard_alternate_pair({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
         message = str(caught.exception)
         self.assertIn(f"x={sel.SELECTOR_FIELD}", message)
-        self.assertIn("HP -1/1", message)
+        self.assertIn(sel.HP_PAIR_REFUSED_CONSOLE_TOKEN, message)
 
-    def test_selector_with_the_construction_default_is_refused(self):
+    def test_armed_selector_with_the_construction_default_is_refused(self):
         values = {
-            sel.SELECTOR_FIELD: 0,
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
             sel.ALTERNATE_PAIR[0]: sel.ALTERNATE_CONSTRUCTION_DEFAULTS[0],
             sel.ALTERNATE_PAIR[1]: 100,
         }
         with self.assertRaises(sel.HpPairError):
             sel.guard_alternate_pair(values)
 
-    def test_selector_with_an_honest_pair_passes(self):
+    def test_armed_selector_with_an_honest_pair_passes(self):
         values = {
-            sel.SELECTOR_FIELD: 0,
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
             sel.ALTERNATE_PAIR[0]: 87,
             sel.ALTERNATE_PAIR[1]: 100,
         }
         self.assertIsNone(sel.guard_alternate_pair(values))
+
+    def test_current_above_max_is_refused_even_though_both_rows_are_present(self):
+        """Two individually honest numbers can still be an impossible bar."""
+        values = {
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+            sel.ALTERNATE_PAIR[0]: 200,
+            sel.ALTERNATE_PAIR[1]: 100,
+        }
+        with self.assertRaises(sel.HpPairError) as caught:
+            sel.guard_alternate_pair(values)
+        self.assertIn(sel.REASON_CURRENT_ABOVE_MAX, str(caught.exception))
 
     def test_a_block_without_the_selector_is_not_this_guards_business(self):
         """The narrowness is the property: this module must not become a
@@ -201,6 +223,292 @@ class TheGuardHasTeethTests(unittest.TestCase):
             )
         )
         self.assertIsNone(sel.guard_alternate_pair({}))
+
+    def test_every_reason_string_is_reachable_from_the_guard(self):
+        """An unreachable reason is a reason nobody tested.  Each block below
+        must produce exactly the reason it is named for."""
+        armed = sel.SELECTOR_ARMED_VALUE
+        cases = {
+            sel.REASON_ABSENT_READS_ZERO: {sel.SELECTOR_FIELD: armed},
+            sel.REASON_ZERO: {
+                sel.SELECTOR_FIELD: armed,
+                sel.ALTERNATE_PAIR[0]: 0,
+                sel.ALTERNATE_PAIR[1]: 100,
+            },
+            sel.REASON_CONSTRUCTION_DEFAULT: {
+                sel.SELECTOR_FIELD: armed,
+                sel.ALTERNATE_PAIR[0]: sel.ALTERNATE_CONSTRUCTION_DEFAULTS[0],
+                sel.ALTERNATE_PAIR[1]: 100,
+            },
+            sel.REASON_NEGATIVE: {
+                sel.SELECTOR_FIELD: armed,
+                sel.ALTERNATE_PAIR[0]: 0xFFFFFF00,
+                sel.ALTERNATE_PAIR[1]: 100,
+            },
+            sel.REASON_NOT_A_U32: {
+                sel.SELECTOR_FIELD: armed,
+                sel.ALTERNATE_PAIR[0]: "87",
+                sel.ALTERNATE_PAIR[1]: 100,
+            },
+            sel.REASON_CURRENT_ABOVE_MAX: {
+                sel.SELECTOR_FIELD: armed,
+                sel.ALTERNATE_PAIR[0]: 200,
+                sel.ALTERNATE_PAIR[1]: 100,
+            },
+        }
+        self.assertEqual(set(cases), set(sel.ALL_REASONS))
+        for reason, values in cases.items():
+            with self.subTest(reason=reason):
+                reasons = [g.reason for g in sel.alternate_pair_gaps(values)]
+                self.assertIn(reason, reasons)
+
+    def test_a_bool_is_not_accepted_as_the_number_one(self):
+        """`True == 1` and 1 is x=53's construction default, so a bool must
+        be reported as a type gap, never quietly as the default."""
+        values = {
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+            sel.ALTERNATE_PAIR[0]: 87,
+            sel.ALTERNATE_PAIR[1]: True,
+        }
+        reasons = [g.reason for g in sel.alternate_pair_gaps(values)]
+        self.assertEqual(reasons, [sel.REASON_NOT_A_U32])
+
+    def test_a_float_row_is_a_type_gap_not_a_silent_pass(self):
+        """pf-adversary D10: floats walked through the first draft."""
+        values = {
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+            sel.ALTERNATE_PAIR[0]: 87.0,
+            sel.ALTERNATE_PAIR[1]: 100.0,
+        }
+        with self.assertRaises(sel.HpPairError):
+            sel.guard_alternate_pair(values)
+
+    def test_a_float_selector_key_still_arms_the_guard(self):
+        """`{9.0: 8}` resolves by numeric equality in a dict, so the guard
+        must not be escapable by handing it float keys.  Pinned rather than
+        assumed."""
+        values = {float(sel.SELECTOR_FIELD): sel.SELECTOR_ARMED_VALUE}
+        self.assertTrue(sel.selector_is_armed(values))
+        with self.assertRaises(sel.HpPairError):
+            sel.guard_alternate_pair(values)
+
+
+class ZeroIsTheSymptomNotAnHonestValueTests(unittest.TestCase):
+    """pf-adversary D1.  `gm/attr_wire.py:105` (`RE-222` Q0) and
+    `_refuse_selector_change`'s own docstring both say an unset mask bit is a
+    ZERO on this client and that a frame flipping the selector hands the HUD
+    `0/0`.  A guard against that symptom that PASSES `0/0` is not a weak
+    guard, it is the wrong one."""
+
+    def test_zero_zero_is_refused(self):
+        values = {
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+            sel.ALTERNATE_PAIR[0]: 0,
+            sel.ALTERNATE_PAIR[1]: 0,
+        }
+        with self.assertRaises(sel.HpPairError):
+            sel.guard_alternate_pair(values)
+
+    def test_both_rows_are_named_and_both_carry_the_frame_layer_reason(self):
+        values = {
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+            sel.ALTERNATE_PAIR[0]: 0,
+            sel.ALTERNATE_PAIR[1]: 0,
+        }
+        gaps = sel.alternate_pair_gaps(values)
+        self.assertEqual([g.x for g in gaps], list(sel.ALTERNATE_PAIR))
+        self.assertEqual(
+            {g.reason for g in gaps}, {sel.REASON_ZERO}
+        )
+
+    def test_one_zero_row_is_enough_to_refuse(self):
+        for index, x in enumerate(sel.ALTERNATE_PAIR):
+            with self.subTest(x=x):
+                values = {
+                    sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+                    sel.ALTERNATE_PAIR[0]: 87,
+                    sel.ALTERNATE_PAIR[1]: 100,
+                }
+                values[x] = 0
+                with self.assertRaises(sel.HpPairError):
+                    sel.guard_alternate_pair(values)
+
+    def test_the_repository_still_says_an_unset_bit_reads_as_zero(self):
+        """If LANE-GM ever retracts that sentence, this guard's premise is
+        gone and this test says so instead of the guard living on."""
+        wire_text = (SRC / "gm" / "attr_wire.py").read_text(encoding="utf-8")
+        self.assertIn("unset\nbit a ZERO on the client", wire_text)
+        self.assertIn("HP `0/0`", wire_text)
+
+
+class TheTriggerIsTheArmedValueNotThePresenceTests(unittest.TestCase):
+    """pf-adversary D2.  `LOGIN_SOURCED_ROWS` is `{9, 10, 11}` and x=52/x=53
+    are in no login shape this server composes, so a guard that fires on the
+    PRESENCE of x=9 refuses every login."""
+
+    def test_x9_is_in_the_login_sourced_rows(self):
+        self.assertIn(sel.SELECTOR_FIELD, attr_wire.LOGIN_SOURCED_ROWS)
+
+    def test_neither_alternate_row_is_in_any_login_shape(self):
+        for x in sel.ALTERNATE_PAIR:
+            with self.subTest(x=x):
+                self.assertNotIn(x, attr_wire.LOGIN_SOURCED_ROWS)
+                self.assertNotIn(x, attr_wire.CURRENT_SCENE_SOURCED_ROWS)
+
+    def test_a_login_shaped_block_is_not_refused(self):
+        """The regression the first draft would have shipped: x=9 present,
+        carrying an ordinary scene byte, no alternate pair."""
+        for scene_byte in (0, 1, 3, 126, 255):
+            if scene_byte == sel.SELECTOR_ARMED_VALUE:
+                continue
+            with self.subTest(scene_byte=scene_byte):
+                self.assertIsNone(
+                    sel.guard_alternate_pair({sel.SELECTOR_FIELD: scene_byte})
+                )
+
+    def test_only_the_armed_value_arms_the_guard(self):
+        self.assertTrue(
+            sel.selector_is_armed({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
+        )
+        self.assertFalse(
+            sel.selector_is_armed(
+                {sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE + 1}
+            )
+        )
+        self.assertFalse(sel.selector_is_armed({}))
+
+    def test_the_armed_value_is_imported_from_the_wire_module(self):
+        """pf-adversary D7: the first draft hardcoded 8 and no test read it.
+        Two doors with two copies of one comparand drift apart silently."""
+        self.assertEqual(
+            sel.SELECTOR_ARMED_VALUE, attr_wire.SELECTOR_COMPARED_VALUE
+        )
+        module_text = MODULE_FILE.read_text(encoding="utf-8")
+        self.assertIn(
+            "SELECTOR_ARMED_VALUE: int = attr_wire.SELECTOR_COMPARED_VALUE",
+            module_text,
+        )
+
+    def test_the_selector_row_agrees_with_the_wire_modules_own_constant(self):
+        """Derived by name here, typed by hand there -- if they ever
+        disagree, one of the two is stale and this says which."""
+        self.assertEqual(sel.SELECTOR_FIELD, attr_wire.SELECTOR_ROW_X)
+        self.assertEqual(set(sel.ALTERNATE_PAIR), set(attr_wire.ALT_HP_PAIR_ROWS))
+
+
+class TheTwoLayersAreNamedSeparatelyTests(unittest.TestCase):
+    """pf-adversary D3.  `-1/1` is what the client CONSTRUCTS when no frame
+    ever wrote those rows; `0/0` is what a FRAME produces when it arms the
+    selector with the rows unset.  The first draft printed the constructor
+    number as if the frame produced it."""
+
+    def test_every_reason_declares_its_layer(self):
+        for reason in sel.ALL_REASONS:
+            with self.subTest(reason=reason):
+                self.assertTrue(
+                    reason.startswith("frame_layer_")
+                    or reason.startswith("constructor_layer_"),
+                    reason,
+                )
+
+    def test_the_absent_row_reason_is_a_frame_layer_reason(self):
+        self.assertTrue(sel.REASON_ABSENT_READS_ZERO.startswith("frame_layer_"))
+        self.assertIn("zero", sel.REASON_ABSENT_READS_ZERO)
+
+    def test_the_construction_default_reason_is_a_constructor_layer_reason(self):
+        self.assertTrue(
+            sel.REASON_CONSTRUCTION_DEFAULT.startswith("constructor_layer_")
+        )
+
+    def test_the_refusal_message_names_both_layers_and_confuses_neither(self):
+        message = sel.refusal_message(
+            sel.alternate_pair_gaps({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
+        )
+        self.assertIn("frame layer", message)
+        self.assertIn("constructor layer", message)
+        self.assertIn("0/0", message)
+
+    def test_the_report_prints_both_branches_with_their_layers(self):
+        report = sel.HpPairReport(
+            character_id=7,
+            primary_current=100,
+            primary_max=120,
+            alternate_if_unset_current=-1,
+            alternate_if_unset_max=1,
+            alternate_pair_supplied=False,
+        )
+        block = sel.format_report(report)
+        self.assertIn("constructor layer", block)
+        self.assertIn("frame layer", block)
+        self.assertIn("100/120", block)
+
+
+class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
+    """pf-adversary D4 asked what this module adds over the fence that
+    already ships at `gm/attr_wire.py:992`.  Measured, not argued.  The
+    incumbent's clause is evaluated here from the wire module's own imported
+    constants, never retyped, so a change there changes this test."""
+
+    @staticmethod
+    def _incumbent_refuses(values):
+        return (
+            values.get(attr_wire.SELECTOR_ROW_X)
+            == attr_wire.SELECTOR_COMPARED_VALUE
+            and not attr_wire.ALT_HP_PAIR_ROWS <= set(values)
+        )
+
+    @staticmethod
+    def _this_module_refuses(values):
+        try:
+            sel.guard_alternate_pair(values)
+        except sel.HpPairError:
+            return True
+        return False
+
+    def test_the_incumbent_admits_a_frame_that_reads_zero_zero(self):
+        values = {
+            attr_wire.SELECTOR_ROW_X: attr_wire.SELECTOR_COMPARED_VALUE,
+            sel.ALTERNATE_PAIR[0]: 0,
+            sel.ALTERNATE_PAIR[1]: 0,
+        }
+        self.assertFalse(self._incumbent_refuses(values))
+        self.assertTrue(self._this_module_refuses(values))
+
+    def test_the_incumbent_admits_a_frame_that_echoes_the_construction_default(self):
+        values = {
+            attr_wire.SELECTOR_ROW_X: attr_wire.SELECTOR_COMPARED_VALUE,
+            sel.ALTERNATE_PAIR[0]: sel.ALTERNATE_CONSTRUCTION_DEFAULTS[0],
+            sel.ALTERNATE_PAIR[1]: sel.ALTERNATE_CONSTRUCTION_DEFAULTS[1],
+        }
+        self.assertFalse(self._incumbent_refuses(values))
+        self.assertTrue(self._this_module_refuses(values))
+
+    def test_this_module_never_admits_what_the_incumbent_refuses(self):
+        """The direction that matters: a strictly stronger door, never a
+        second permission gate that opens something the wire wall shut."""
+        armed = attr_wire.SELECTOR_COMPARED_VALUE
+        blocks = [
+            {attr_wire.SELECTOR_ROW_X: armed},
+            {attr_wire.SELECTOR_ROW_X: armed, sel.ALTERNATE_PAIR[0]: 5},
+            {attr_wire.SELECTOR_ROW_X: armed, sel.ALTERNATE_PAIR[1]: 5},
+            {attr_wire.SELECTOR_ROW_X: armed, sel.PRIMARY_PAIR[0]: 5},
+        ]
+        for values in blocks:
+            with self.subTest(values=sorted(values)):
+                if self._incumbent_refuses(values):
+                    self.assertTrue(self._this_module_refuses(values))
+
+    def test_the_two_doors_print_different_console_tokens(self):
+        self.assertNotEqual(
+            sel.HP_PAIR_REFUSED_CONSOLE_TOKEN,
+            attr_wire.SELECTOR_STANDDOWN_CONSOLE_TOKEN,
+        )
+
+    def test_this_module_is_not_wired_into_the_wire_module(self):
+        """Stated as a fact in the module docstring, so it must be true: the
+        call site is chief's to add, and this round only asks for it."""
+        wire_text = (SRC / "gm" / "attr_wire.py").read_text(encoding="utf-8")
+        self.assertNotIn("persistence_hp_pair_selector", wire_text)
 
 
 class TheModuleDoesNotDecodeCategoryEightTests(unittest.TestCase):
@@ -282,6 +590,40 @@ class TheLiveReportReadsARealStoreTests(unittest.TestCase):
             self.assertEqual(report.character_id, character_id)
             self.assertIsNotNone(report.primary_current)
             self.assertIsNotNone(report.primary_max)
+
+    def test_the_primary_pair_carries_the_stores_own_numbers(self):
+        """pf-adversary D7: `primary_current`/`primary_max` were replaceable
+        by a constant with the whole suite still green, because every test
+        only asserted `is not None`.  A fake store with distinct, arbitrary
+        numbers kills that mutant."""
+
+        class _FakeStore:
+            def __init__(self, values):
+                self.values = values
+                self.asked = []
+
+            def read_typed_attributes(self, character_id):
+                self.asked.append(character_id)
+                return dict(self.values)
+
+        for current, maximum in ((37, 41), (1, 999), (0, 0)):
+            with self.subTest(hp=(current, maximum)):
+                store = _FakeStore({"hp_current": current, "hp_max": maximum})
+                report = sel.live_hp_pair_report(store, 4242)
+                self.assertEqual(report.primary_current, current)
+                self.assertEqual(report.primary_max, maximum)
+                self.assertEqual(store.asked, [4242])
+                self.assertIn(f"{current}/{maximum}", sel.format_report(report))
+
+    def test_an_unseeded_primary_pair_is_none_not_zero(self):
+        class _EmptyStore:
+            def read_typed_attributes(self, character_id):
+                return {}
+
+        report = sel.live_hp_pair_report(_EmptyStore(), 1)
+        self.assertIsNone(report.primary_current)
+        self.assertIsNone(report.primary_max)
+        self.assertIn("unseeded", sel.format_report(report))
 
     def test_the_alternate_branch_is_reported_as_unsupplied(self):
         """Not a placeholder: no `characters` column maps to x=52 or x=53,
