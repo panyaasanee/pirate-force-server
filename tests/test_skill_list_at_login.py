@@ -27,8 +27,12 @@ exactly that, and ``production_allowed`` stays ``False`` until it answers.
 """
 from __future__ import annotations
 
+import ast
+import contextlib
 import hashlib
+import io
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -410,6 +414,224 @@ class TheLaneIsNotWiredAndSaysSoTests(unittest.TestCase):
             with self.subTest(line=line):
                 line.encode("ascii")
                 line.encode("cp874")
+
+
+class TheHeadlessTokenIsMeasuredNotSpelledTests(_Fixture):
+    """GT-307's ``HEADLESS_PROOF:`` command, pinned against its own database.
+
+    The ticket names one line and says in as many words that it "must read
+    from the real database, not from the class table".  Every test here
+    grants ids that no class in ``CHARCREATE_CLASS`` starts with, so a
+    version of this command that quietly fell back on the class table would
+    print different ids and go red rather than look right.
+    """
+
+    def _run(self, argv):
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = skill_list_at_login.main(argv)
+        return code, buffer.getvalue().strip()
+
+    def test_the_token_carries_the_rows_that_are_in_the_database(self):
+        character = self._with_skills((7, 8, 9))
+        code, line = self._run(
+            ["--character", str(character.id), "--db", str(self.path)]
+        )
+        self.assertEqual(0, code)
+        fields = dict(
+            token.split("=", 1) for token in line.split() if "=" in token
+        )
+        self.assertTrue(line.startswith("SKILL_LIST_AT_LOGIN "))
+        self.assertEqual(str(character.id), fields["cid"])
+        self.assertEqual("3", fields["rows"])
+        self.assertEqual("(7,8,9)", fields["ids"])
+        self.assertEqual("0", fields["trailing_u8"])
+        self.assertEqual(
+            str(skill_list_at_login.SKILL_LIST_TRAILING_BYTE),
+            fields["trailing_u8"],
+        )
+
+    def test_the_byte_count_is_the_frame_the_proven_encoder_composed(self):
+        character = self._with_skills((7, 8, 9))
+        _pc, frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, (7, 8, 9)
+        )
+        _code, line = self._run(
+            ["--character", str(character.id), "--db", str(self.path)]
+        )
+        self.assertIn("frame_bytes=%d" % len(frame), line.split())
+
+    def test_deleting_one_row_shortens_the_token_and_the_frame(self):
+        """GT-307 step (c), measured here so the attended run is a re-check.
+
+        This is the one step that tells "read the rows" apart from "read the
+        class table": the ids stay legal either way, only the count moves.
+        """
+        character = self._with_skills((7, 8, 9))
+        _code, before = self._run(
+            ["--character", str(character.id), "--db", str(self.path)]
+        )
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                "DELETE FROM character_skills WHERE character_id=? "
+                "AND skill_id=?",
+                (character.id, 9),
+            )
+        _code, after = self._run(
+            ["--character", str(character.id), "--db", str(self.path)]
+        )
+        self.assertIn("rows=3", before.split())
+        self.assertIn("rows=2", after.split())
+        self.assertIn("ids=(7,8)", after.split())
+        self.assertLess(
+            int(dict(t.split("=", 1) for t in after.split() if "=" in t)
+                ["frame_bytes"]),
+            int(dict(t.split("=", 1) for t in before.split() if "=" in t)
+                ["frame_bytes"]),
+        )
+
+    def test_a_character_with_no_rows_prints_one_refusal_line_and_exits_1(self):
+        character = self._character()
+        code, line = self._run(
+            ["--character", str(character.id), "--db", str(self.path)]
+        )
+        self.assertEqual(1, code)
+        self.assertTrue(line.startswith("SKILL_LIST_AT_LOGIN_REFUSED "))
+        self.assertIn(
+            "reason=%s" % skill_list_at_login.REFUSE_NO_SKILL_ROWS,
+            line.split(),
+        )
+        self.assertEqual(1, len(line.splitlines()))
+
+    def test_a_missing_database_is_refused_and_never_created(self):
+        """A proof command that can write to the canonical database is not one.
+
+        ``SQLiteStore`` would happily create the file, and an attended run
+        that mistypes the path would then get a green-looking empty database
+        instead of a refusal.
+        """
+        missing = Path(self.tmp.name) / "not_here.sqlite3"
+        code, line = self._run(["--character", "1", "--db", str(missing)])
+        self.assertEqual(1, code)
+        self.assertTrue(line.startswith("SKILL_LIST_AT_LOGIN_REFUSED "))
+        self.assertFalse(missing.exists())
+
+    def test_the_command_does_not_write_to_the_database_it_reads(self):
+        character = self._with_skills((7, 8, 9))
+        before = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self._run(["--character", str(character.id), "--db", str(self.path)])
+        self.assertEqual(
+            before, hashlib.sha256(self.path.read_bytes()).hexdigest()
+        )
+
+
+class SentByIsReadOffTheTreeTests(unittest.TestCase):
+    """``sent_by=`` is a measurement of ``runtime.py``, not a spelling.
+
+    pf-adversary killed the sibling module's ``callers_in_src=0`` for being a
+    zero inside a format string.  The same trap is one word away here: GT-307
+    asks for a line ending ``sent_by=runtime``, and printing that word
+    unconditionally would make the ticket's own proof unfalsifiable.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def test_a_runtime_that_names_the_entry_point_reads_as_runtime(self):
+        path = self.dir / "runtime.py"
+        path.write_text(
+            "frame = %s(legacy, store, cid)\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL,
+            encoding="utf-8",
+        )
+        self.assertEqual("runtime", skill_list_at_login.seam_carrier(path))
+
+    def test_a_runtime_without_the_entry_point_reads_as_module_only(self):
+        path = self.dir / "runtime.py"
+        path.write_text("class GameState:\n    pass\n", encoding="utf-8")
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(path))
+
+    def test_no_runtime_at_all_reads_as_unknown_not_as_runtime(self):
+        self.assertEqual(
+            "unknown", skill_list_at_login.seam_carrier(self.dir / "gone.py")
+        )
+
+    def test_the_shipped_tree_is_reported_truthfully_today(self):
+        runtime = SRC / "runtime.py"
+        expected = (
+            "runtime"
+            if skill_list_at_login.LOGIN_SEAM_SYMBOL
+            in runtime.read_text(encoding="utf-8")
+            else "module_only"
+        )
+        self.assertEqual(expected, skill_list_at_login.seam_carrier())
+
+    def test_the_token_line_survives_the_bridge_console(self):
+        line = skill_list_at_login.headless_token(1, (111, 40000), b"x" * 50,
+                                                  "module_only")
+        line.encode("ascii")
+        line.encode("cp874")
+
+
+class TheDatabaseLayerIsReachedOnlyByTheTwoFunctionsThatNeedItTests(
+    unittest.TestCase
+):
+    """``store`` and ``legacy_bridge`` are imported inside the functions.
+
+    WHY THIS IS AN AST PIN AND NOT A ``sys.modules`` PIN.  The obvious
+    stronger test -- boot a clean interpreter, import this module, assert
+    ``pirateforce_foundation.store`` is not in ``sys.modules`` -- CANNOT
+    pass and would not mean what it says if it did: the package's own
+    ``__init__.py`` imports ``SQLiteStore`` on line 3, so importing ANY
+    module in this package imports the store before this module's first
+    line runs.  Measured, not assumed: the assertion below re-reads that
+    ``__init__`` and fails if it ever stops being true, at which point the
+    ``sys.modules`` pin becomes the right one to write.
+
+    What is left to measure is this module's own top-level import list, and
+    it is worth measuring: the login seam imports this module to compose a
+    frame, and the two database names belong to the two functions that read
+    a database, not to everybody who wants bytes.
+    """
+
+    _DATABASE_NAMES = ("store", "legacy_bridge")
+
+    def _module_level_imports(self):
+        tree = ast.parse(
+            Path(skill_list_at_login.__file__).read_text(encoding="utf-8")
+        )
+        names = []
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                names.extend(alias.name.split(".")[-1] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                names.append((node.module or "").split(".")[-1])
+        return names
+
+    def test_the_package_init_still_imports_the_store(self):
+        text = (SRC / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("from .store import", text)
+
+    def test_no_database_name_is_imported_at_module_level(self):
+        names = self._module_level_imports()
+        for forbidden in self._DATABASE_NAMES:
+            with self.subTest(name=forbidden):
+                self.assertNotIn(forbidden, names)
+
+    def test_the_pin_can_see_a_module_level_import_when_there_is_one(self):
+        """The mutant, run here rather than trusted.
+
+        Without this, a rewrite that made ``_module_level_imports`` return
+        ``[]`` would keep the test above green forever.
+        """
+        tree = ast.parse("from .store import SQLiteStore\n")
+        node = tree.body[0]
+        self.assertEqual("store", (node.module or "").split(".")[-1])
+        self.assertIn(
+            "learn_skill_result_frame", self._module_level_imports()
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover
