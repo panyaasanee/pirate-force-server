@@ -47,8 +47,11 @@ module's docstring is cited from.
 
 Field shapes: copied row for row from
 ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``, ``StallStartVital``
-``:6807-6848``, ``StallOpenVital`` ``:6849-6890``, ``StallOperateVital``
-``:6891-6916``. Every row NOT implemented below is one of the
+``:6807-6850`` (44 rows), ``StallOpenVital`` ``:6851-6890`` (40),
+``StallOperateVital`` ``:6891-6916`` (26) -- boundaries counted in this
+round, not inherited: ``docs/UI_LANE.md`` carried the two outer numbers
+only, and this lane's first split of them (``:6848``/``:6849``) was wrong
+by two rows in both directions. Every row NOT implemented below is one of the
 non-writing categories RE-294 cleared; no row carrying a real tag byte is
 skipped, in either direction. Counted against RE-294's own call census for
 ``StallOpenVital`` -- 5 tagged writes / 5 tagged reads / 1 string write /
