@@ -1491,11 +1491,22 @@ class TheTwoPinsPfAdversaryBrokeAtHeadTests(unittest.TestCase):
         for bits, x in widths.items():
             with self.subTest(x=x, bits=bits):
                 self.assertEqual(sel._row_width_bits(x), bits)
+        # NOT A SKIP, DELIBERATELY.  The first draft of this test guarded the
+        # single-width case with a unittest skip call, and the gate was right
+        # to refuse it: a skip here would be exactly the "close an adversary
+        # finding with a skip pin" that `NOW.md` `0945` bans, and this test
+        # exists to answer an adversary finding.  Measured instead --
+        # `gm/attr_wire.FIELDS` carries FOUR distinct unsigned widths today
+        # (u8 x8, u16 x18, u32 x12, u64 x6) -- so the branch was unreachable
+        # and the honest form is an assertion: the day LANE-GM collapses the
+        # table to one width, this goes red and someone re-reads the test
+        # rather than a skip quietly appearing in the census.
         self.assertGreaterEqual(
-            len(widths), 1, "the wire table has no unsigned row at all"
+            len(widths),
+            2,
+            "every unsigned row in FIELDS now has the same width, so this "
+            "test can no longer tell a table read from a hardcoded 'u32'",
         )
-        if len(widths) == 1:  # pragma: no cover - depends on LANE-GM's table
-            self.skipTest("every unsigned row in FIELDS is the same width")
 
         # F5's second half: an i32/f32 row must raise, not be coerced.  These
         # were the only two statements in the module the suite never executed.
