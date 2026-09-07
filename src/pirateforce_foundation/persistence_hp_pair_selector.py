@@ -61,7 +61,7 @@ So what is this module for, honestly stated:
 * `live_hp_pair_report` / `format_report` are a read-only measurement of what
   each branch of the client's selector would display for one real character.
   That is what `GT-291` needs a token from, and it needs no caller in `gm/`.
-* `guard_alternate_pair` is a predicate WITHOUT A REACHABLE CALLER TODAY.  It
+* `guard_armed_block` is a predicate WITHOUT A REACHABLE CALLER TODAY.  It
   becomes live the day a login shape carries x=52/x=53 -- i.e. the day the
   (b'') set in `gm/login_mask` grows to include them -- and not before.  Its
   branches are tested against hand-built blocks, and only
@@ -151,7 +151,34 @@ ALTERNATE_CONSTRUCTION_DEFAULTS: tuple[object, object] = (
     CLIENT_CONSTRUCTION_DEFAULTS[ALTERNATE_PAIR[1]].value,
 )
 
-_U32_MODULUS = 1 << 32
+#: The rows this module reads a NUMBER out of.  The selector row x=9 is not
+#: here: nothing converts it, it is only ever compared.
+_NUMERIC_ROWS: tuple[int, ...] = PRIMARY_PAIR + ALTERNATE_PAIR
+
+
+def _row_width_bits(x: int) -> int:
+    """The width `gm/attr_wire.FIELDS` records for row `x`, in bits.
+
+    pf-adversary round `2v18x3`, D-D.  This module's whole discipline is
+    "derive the indices, never type them", and the WIDTH was the one number
+    that got away: `1 << 32` was typed in, while the width lives in
+    `attr_wire.FIELDS[x][5]` and is never read.  Measured failure that
+    justified the change: re-measure x=53 as `u16` in LANE-GM's table and
+    `as_signed_row_value(53, 0xFFFF)` returned `65535`, so a block putting
+    `100/-1` on the HUD was PASSED, with the whole suite green and this
+    module's entire `-1` narrative off by 65536.
+    """
+    for row in attr_wire.FIELDS:
+        if row[0] == x:
+            kind = row[5]
+            if not (isinstance(kind, str) and kind.startswith("u")):
+                raise HpPairError(f"x={x} is not an unsigned row: {kind!r}")
+            return int(kind[1:])
+    raise HpPairError(f"x={x} is not a row of gm/attr_wire.FIELDS")
+
+
+def _row_modulus(x: int) -> int:
+    return 1 << _row_width_bits(x)
 
 #: [FRAME LAYER] the row is not in the block, so its mask bit is unset and
 #: the client's full-object-copy apply reads it as ZERO (`RE-222` Q0).
@@ -163,7 +190,7 @@ REASON_ABSENT_READS_ZERO = "frame_layer_row_absent_unset_mask_bit_reads_zero"
 #: SCOPE, because the flat sentence would be false (pf-adversary `cgnzsd`,
 #: D8): `gm/attr_wire.py:211-213` says that for a character OUTSIDE a
 #: category-8 context the honest `alt_hp_current/alt_hp_max` is plausibly
-#: `0/0`.  This is a gap only where `guard_alternate_pair` looks at it -- in
+#: `0/0`.  This is a gap only where `guard_armed_block` looks at it -- in
 #: a block whose selector is armed, which is exactly the context where 0/0 is
 #: `GT-218`'s symptom rather than an honest pair.  Callers of
 #: `alternate_pair_gaps` on an unarmed block are reading a predicate outside
@@ -185,10 +212,16 @@ REASON_NEGATIVE = "frame_layer_row_displays_as_negative"
 REASON_NOT_A_U32 = "frame_layer_row_is_not_a_u32"
 #: [FRAME LAYER] current exceeds max, which no HP bar can draw honestly.
 REASON_CURRENT_ABOVE_MAX = "frame_layer_current_above_max"
+#: [FRAME LAYER] the pair's MAX row is zero, so the bar has no length to
+#: draw.  Separate from `REASON_ZERO` because it is the only zero the PRIMARY
+#: pair treats as a gap, and an operator reading a console line needs to know
+#: which row of the pair carried it.
+REASON_MAX_IS_ZERO = "frame_layer_max_row_is_zero"
 
 #: Every reason string, so a caller can assert it handled all of them and a
 #: new reason added later cannot slip past an exhaustive match unnoticed.
-ALL_REASONS: frozenset[str] = frozenset(
+#: The reasons `alternate_pair_gaps` can return.
+ALTERNATE_REASONS: frozenset[str] = frozenset(
     {
         REASON_ABSENT_READS_ZERO,
         REASON_ZERO,
@@ -198,6 +231,21 @@ ALL_REASONS: frozenset[str] = frozenset(
         REASON_CURRENT_ABOVE_MAX,
     }
 )
+#: The reasons `primary_pair_gaps` can return.  NOT the same set, and the
+#: difference is the whole point of round `2v18x3`: `REASON_ZERO` is absent
+#: because a zero `hp_current` is a DEAD CHARACTER, and
+#: `REASON_CONSTRUCTION_DEFAULT` is absent because the client constructs no
+#: default for a pair this server owns columns for.
+PRIMARY_REASONS: frozenset[str] = frozenset(
+    {
+        REASON_ABSENT_READS_ZERO,
+        REASON_MAX_IS_ZERO,
+        REASON_NEGATIVE,
+        REASON_NOT_A_U32,
+        REASON_CURRENT_ABOVE_MAX,
+    }
+)
+ALL_REASONS: frozenset[str] = ALTERNATE_REASONS | PRIMARY_REASONS
 
 #: Console token for the refusal, in the shape the bridge console greps for.
 #: Distinct from LANE-GM's `GM_ATTR_SELECTOR_STANDDOWN` on purpose: two doors
@@ -205,8 +253,14 @@ ALL_REASONS: frozenset[str] = frozenset(
 HP_PAIR_REFUSED_CONSOLE_TOKEN = "DB_HP_PAIR_DISHONEST"
 
 
-def as_signed_u32(value: object) -> int:
-    """The number the HUD prints for a u32 row, or raise.
+def as_signed_row_value(x: int, value: object) -> int:
+    """The number the HUD prints for row `x`, or raise.
+
+    RENAMED from `as_signed_u32` and given the row (pf-adversary `2v18x3`
+    D-D): the old name asserted a width this module was not reading.  The
+    width now comes from `gm/attr_wire.FIELDS[x][5]`, so the day LANE-GM
+    re-measures one of these rows this function follows the table instead of
+    quietly printing a number 65536 too large.
 
     0xFFFFFFFF is what the corpus records and `-1` is what a HUD prints for
     it; this is the one function that turns one into the other, so no other
@@ -217,15 +271,16 @@ def as_signed_u32(value: object) -> int:
     here would be reported under the wrong reason.
     """
     if isinstance(value, bool) or not isinstance(value, int):
-        raise HpPairError(f"not a u32 value: {value!r}")
-    if not 0 <= value < _U32_MODULUS:
-        raise HpPairError(f"outside u32: {value!r}")
-    return value - _U32_MODULUS if value >= (_U32_MODULUS >> 1) else value
+        raise HpPairError(f"not an unsigned value: {value!r}")
+    modulus = _row_modulus(x)
+    if not 0 <= value < modulus:
+        raise HpPairError(f"outside the width of x={x}: {value!r}")
+    return value - modulus if value >= (modulus >> 1) else value
 
 
 @dataclass(frozen=True)
 class PairGap:
-    """One reason an alternate-pair row is not honest."""
+    """One reason a row of an HP pair is not honest."""
 
     x: int
     field_name: str
@@ -252,7 +307,7 @@ def _row_gap(x: int, index: int, values: dict[int, object]) -> PairGap | None:
         return PairGap(x, _field_name(x), REASON_ABSENT_READS_ZERO)
     value = values[x]
     try:
-        shown = as_signed_u32(value)
+        shown = as_signed_row_value(x, value)
     except HpPairError:
         return PairGap(x, _field_name(x), REASON_NOT_A_U32)
     if value == ALTERNATE_CONSTRUCTION_DEFAULTS[index]:
@@ -274,7 +329,7 @@ def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
     where they came from.
 
     SCOPE.  This predicate is written for a block whose selector is ARMED,
-    which is the only context `guard_alternate_pair` calls it in.  Outside
+    which is the only context `guard_armed_block` calls it in.  Outside
     that context `0/0` can be an honest alternate pair
     (`gm/attr_wire.py:211-213`), so a caller applying this to an unarmed
     block is using it outside the range it is true in.
@@ -302,8 +357,12 @@ def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
         if gap is not None
     ]
     if not gaps:
-        current = as_signed_u32(values[ALTERNATE_PAIR[0]])
-        maximum = as_signed_u32(values[ALTERNATE_PAIR[1]])
+        current = as_signed_row_value(
+            ALTERNATE_PAIR[0], values[ALTERNATE_PAIR[0]]
+        )
+        maximum = as_signed_row_value(
+            ALTERNATE_PAIR[1], values[ALTERNATE_PAIR[1]]
+        )
         # `>` not `>=`: current EQUAL to max is a character at full HP,
         # the commonest honest state there is.  pf-adversary `cgnzsd` D6
         # mutated this to `>=` and no test went red; the test named
@@ -317,6 +376,83 @@ def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
                 )
             )
     return tuple(gaps)
+
+
+def _pair_owned_by_this_server(pair: tuple[int, int]) -> bool:
+    """True when every row of `pair` has a column of `characters` behind it.
+
+    DERIVED FROM `SERVER_OWNED_FIELDS`, never written down as a pair of
+    booleans, so the day a column appears for x=52/x=53 this predicate moves
+    with the schema instead of having to be remembered.
+    """
+    return set(pair) <= _server_owned_field_indices()
+
+
+def primary_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
+    """Every reason `values` would show a dishonest PRIMARY HP pair.
+
+    WHY THIS EXISTS -- pf-adversary round `cgnzsd` D11, and the answer round
+    `2v18x3` owes it.  The finding: `{9: 8, 3: 0, 4: 0, 52: 87, 53: 100}`
+    walked through the guard, even though the client reads the PRIMARY pair
+    whenever `0x430E10(x9)` does NOT return 8 -- and that pair is `0/0` here.
+    The module checked one branch of a two-branch selector while stating in
+    its own docstring that it cannot evaluate which branch is taken.
+    Refusing only the branch you happened to look at is not a conservative
+    guard, it is a bet.  So an ARMED block now has to be honest on BOTH
+    pairs, and the reason is the module's own admitted blindness rather than
+    caution for its own sake.
+
+    THE TWO PAIRS DO NOT GET THE SAME RULE, AND THE DIFFERENCE IS MEASURED.
+    For the alternate pair a zero can only be an unset mask bit or a lie:
+    `persistence_attr_compose.SERVER_OWNED_FIELDS` has no column for
+    x=52/x=53, so no zero there was ever read from anything.  For the primary
+    pair BOTH rows are server-owned, so `hp_current == 0` with a positive
+    `hp_max` is the commonest honest state a server has to be able to state
+    at all: a DEAD CHARACTER.  A guard that refused that would refuse the one
+    HP value M4 exists to put on a screen.  `_pair_owned_by_this_server`
+    derives the split from the schema; nothing here types it in.
+
+    So the primary pair is dishonest when, and only when: a row is absent
+    (unset mask bit reads zero, `RE-222` Q0), a row is not a u32, `hp_max` is
+    zero (a bar with no length), a row prints negative, or current exceeds
+    max.
+    """
+    current_x, max_x = PRIMARY_PAIR
+    gaps: list[PairGap] = []
+    numbers: dict[int, int] = {}
+    for x in PRIMARY_PAIR:
+        if x not in values:
+            gaps.append(PairGap(x, _field_name(x), REASON_ABSENT_READS_ZERO))
+            continue
+        try:
+            numbers[x] = as_signed_row_value(x, values[x])
+        except HpPairError:
+            gaps.append(PairGap(x, _field_name(x), REASON_NOT_A_U32))
+    if len(numbers) != len(PRIMARY_PAIR):
+        return tuple(gaps)
+    if numbers[max_x] == 0:
+        gaps.append(PairGap(max_x, _field_name(max_x), REASON_MAX_IS_ZERO))
+    for x in PRIMARY_PAIR:
+        if numbers[x] < 0:
+            gaps.append(PairGap(x, _field_name(x), REASON_NEGATIVE))
+    # `>` not `>=`: current EQUAL to max is a character at full HP, the same
+    # honest state `alternate_pair_gaps` had to learn in round `cgnzsd`.
+    if numbers[current_x] > numbers[max_x]:
+        gaps.append(
+            PairGap(current_x, _field_name(current_x), REASON_CURRENT_ABOVE_MAX)
+        )
+    return tuple(gaps)
+
+
+def armed_block_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
+    """Both branches of the selector, in the order the client could take them.
+
+    The alternate pair first because that is the branch the armed value is
+    named for; the primary pair second because it is the branch taken when
+    `0x430E10` returns anything else.  A caller that wants only one branch
+    still has `alternate_pair_gaps` / `primary_pair_gaps`.
+    """
+    return alternate_pair_gaps(values) + primary_pair_gaps(values)
 
 
 def selector_is_armed(values: dict[int, object]) -> bool:
@@ -338,7 +474,7 @@ def refusal_message(gaps: tuple[PairGap, ...]) -> str:
     return (
         f"{HP_PAIR_REFUSED_CONSOLE_TOKEN} "
         f"selector x={SELECTOR_FIELD} ({_field_name(SELECTOR_FIELD)}) carries "
-        f"{SELECTOR_ARMED_VALUE} but {len(gaps)} alternate-pair row(s) are "
+        f"{SELECTOR_ARMED_VALUE} but {len(gaps)} HP-pair row(s) are "
         f"not honest -- {listed}; if 0x430E10 returns {SELECTOR_ARMED_VALUE} "
         "for this character the client reads that pair, and an unset or zero "
         "row reads as HP 0/0 on the frame layer (RE-222 Q0, quoted at "
@@ -347,18 +483,26 @@ def refusal_message(gaps: tuple[PairGap, ...]) -> str:
     )
 
 
-def guard_alternate_pair(values: dict[int, object]) -> None:
-    """Refuse a block that arms the selector without arming the pair it picks.
+def guard_armed_block(values: dict[int, object]) -> None:
+    """Refuse a block that arms the selector while EITHER HP pair is a lie.
+
+    RENAMED from `guard_armed_block` in round `2v18x3`, in the same commit
+    that widened it (D11), because the old name was about to become a lie of
+    its own: a narrow name left over a widened door is how the next reader
+    wires the weaker half by accident.  Nothing outside this module and its
+    own tests referenced the old name -- measured, 0 hits across both
+    repositories -- so no compatibility alias is left behind to rot.
 
     A block whose x=9 does not carry `SELECTOR_ARMED_VALUE` -- which is every
     login shape this server composes today -- is none of this function's
-    business and passes.  This module does not decide whether a send is
+    business and passes.  Widening WHAT is checked did not widen WHEN it
+    fires.  This module does not decide whether a send is
     allowed; it decides that a send which the incumbent fence would let
     through must still not carry a pair the server never honestly set.
     """
     if not selector_is_armed(values):
         return
-    gaps = alternate_pair_gaps(values)
+    gaps = armed_block_gaps(values)
     if not gaps:
         return
     raise HpPairError(refusal_message(gaps))
@@ -404,10 +548,12 @@ def live_hp_pair_report(store, character_id: int) -> HpPairReport:
         character_id=character_id,
         primary_current=typed.get("hp_current"),
         primary_max=typed.get("hp_max"),
-        alternate_if_unset_current=as_signed_u32(
-            ALTERNATE_CONSTRUCTION_DEFAULTS[0]
+        alternate_if_unset_current=as_signed_row_value(
+            ALTERNATE_PAIR[0], ALTERNATE_CONSTRUCTION_DEFAULTS[0]
         ),
-        alternate_if_unset_max=as_signed_u32(ALTERNATE_CONSTRUCTION_DEFAULTS[1]),
+        alternate_if_unset_max=as_signed_row_value(
+            ALTERNATE_PAIR[1], ALTERNATE_CONSTRUCTION_DEFAULTS[1]
+        ),
         # Derived from `SERVER_OWNED_FIELDS`, never written as `False`.
         # pf-adversary `cgnzsd` D6 replaced this expression with the literal
         # `False` and the whole suite stayed green; `test_the_supplied_flag_

@@ -642,6 +642,12 @@
 # claim "it still matches the source" a command.
 !/tools/pf_regen_lua_message_catalog.py
 
+# LANE-Q round xlk7hl - same reason, the other pair of vendored mirrors:
+# lua_api/quest_criteria_{curve,rows}.tsv are copies of the game's own
+# CONSTDATA_TH__STANDARD_QUEST.tsv and QUESTDATA_TH__QUEST.tsv reward
+# columns, and this is the command that re-derives and --checks them.
+!/tools/pf_regen_lua_quest_criteria.py
+
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content
 /.claude/worktrees/

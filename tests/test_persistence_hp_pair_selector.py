@@ -120,25 +120,29 @@ class TheMinusOneIsTheCorpusValueTests(unittest.TestCase):
 
     def test_the_current_default_prints_as_minus_one(self):
         self.assertEqual(
-            sel.as_signed_u32(sel.ALTERNATE_CONSTRUCTION_DEFAULTS[0]), -1
+            sel.as_signed_row_value(
+                sel.ALTERNATE_PAIR[0], sel.ALTERNATE_CONSTRUCTION_DEFAULTS[0]
+            ), -1
         )
 
     def test_the_max_default_prints_as_one(self):
         self.assertEqual(
-            sel.as_signed_u32(sel.ALTERNATE_CONSTRUCTION_DEFAULTS[1]), 1
+            sel.as_signed_row_value(
+                sel.ALTERNATE_PAIR[1], sel.ALTERNATE_CONSTRUCTION_DEFAULTS[1]
+            ), 1
         )
 
     def test_signed_conversion_is_a_conversion_not_a_clamp(self):
-        self.assertEqual(sel.as_signed_u32(0), 0)
-        self.assertEqual(sel.as_signed_u32(100), 100)
-        self.assertEqual(sel.as_signed_u32(0x7FFFFFFF), 0x7FFFFFFF)
-        self.assertEqual(sel.as_signed_u32(0x80000000), -(1 << 31))
+        self.assertEqual(sel.as_signed_row_value(52, 0), 0)
+        self.assertEqual(sel.as_signed_row_value(52, 100), 100)
+        self.assertEqual(sel.as_signed_row_value(52, 0x7FFFFFFF), 0x7FFFFFFF)
+        self.assertEqual(sel.as_signed_row_value(52, 0x80000000), -(1 << 31))
 
     def test_non_u32_values_raise(self):
         for bad in (None, "100", 1.5, True, -1, 1 << 32):
             with self.subTest(bad=bad):
                 with self.assertRaises(sel.HpPairError):
-                    sel.as_signed_u32(bad)
+                    sel.as_signed_row_value(52, bad)
 
 
 class TheGapsNameEveryDishonestRowTests(unittest.TestCase):
@@ -186,7 +190,7 @@ class TheGapsNameEveryDishonestRowTests(unittest.TestCase):
 class TheGuardHasTeethTests(unittest.TestCase):
     def test_armed_selector_without_any_pair_is_refused(self):
         with self.assertRaises(sel.HpPairError) as caught:
-            sel.guard_alternate_pair({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
+            sel.guard_armed_block({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
         message = str(caught.exception)
         self.assertIn(f"x={sel.SELECTOR_FIELD}", message)
         self.assertIn(sel.HP_PAIR_REFUSED_CONSOLE_TOKEN, message)
@@ -198,15 +202,20 @@ class TheGuardHasTeethTests(unittest.TestCase):
             sel.ALTERNATE_PAIR[1]: 100,
         }
         with self.assertRaises(sel.HpPairError):
-            sel.guard_alternate_pair(values)
+            sel.guard_armed_block(values)
 
     def test_armed_selector_with_an_honest_pair_passes(self):
         values = {
             sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
             sel.ALTERNATE_PAIR[0]: 87,
             sel.ALTERNATE_PAIR[1]: 100,
+            # An armed block is judged on BOTH branches from round `2v18x3`
+            # on (D11), so a block probing the alternate one has to carry an
+            # honest primary pair or it is refused for the other branch.
+            sel.PRIMARY_PAIR[0]: 87,
+            sel.PRIMARY_PAIR[1]: 100,
         }
-        self.assertIsNone(sel.guard_alternate_pair(values))
+        self.assertIsNone(sel.guard_armed_block(values))
 
     def test_current_above_max_is_refused_even_though_both_rows_are_present(self):
         """Two individually honest numbers can still be an impossible bar."""
@@ -216,18 +225,18 @@ class TheGuardHasTeethTests(unittest.TestCase):
             sel.ALTERNATE_PAIR[1]: 100,
         }
         with self.assertRaises(sel.HpPairError) as caught:
-            sel.guard_alternate_pair(values)
+            sel.guard_armed_block(values)
         self.assertIn(sel.REASON_CURRENT_ABOVE_MAX, str(caught.exception))
 
     def test_a_block_without_the_selector_is_not_this_guards_business(self):
         """The narrowness is the property: this module must not become a
         second, quieter permission gate over blocks that never touch x=9."""
         self.assertIsNone(
-            sel.guard_alternate_pair(
+            sel.guard_armed_block(
                 {sel.PRIMARY_PAIR[0]: 100, sel.PRIMARY_PAIR[1]: 100}
             )
         )
-        self.assertIsNone(sel.guard_alternate_pair({}))
+        self.assertIsNone(sel.guard_armed_block({}))
 
     def test_every_reason_string_is_reachable_from_a_hand_built_block(self):
         """Each block below must produce the reason it is named for.
@@ -266,11 +275,49 @@ class TheGuardHasTeethTests(unittest.TestCase):
                 sel.ALTERNATE_PAIR[1]: 100,
             },
         }
-        self.assertEqual(set(cases), set(sel.ALL_REASONS))
+        self.assertEqual(set(cases), set(sel.ALTERNATE_REASONS))
         for reason, values in cases.items():
             with self.subTest(reason=reason):
                 reasons = [g.reason for g in sel.alternate_pair_gaps(values)]
                 self.assertIn(reason, reasons)
+
+    def test_the_rows_this_module_reads_are_u32_in_the_wire_table(self):
+        """pf-adversary round `2v18x3`, D-D, second half.  Deriving the width
+        stops a re-measurement being silently MIS-PRINTED, and the u16
+        experiment now ends in `frame_layer_row_displays_as_negative` instead
+        of a passed `100/-1`.  What derivation cannot fix is the PROSE: this
+        module's whole narrative is `0xFFFFFFFF <-> -1`, a u32 fact stated in
+        the docstring, in `ALTERNATE_CONSTRUCTION_DEFAULTS` and in `GT-291`'s
+        ticket.  So the day a width moves, this says so out loud rather than
+        leaving four documents quietly wrong."""
+        for x in sel.PRIMARY_PAIR + sel.ALTERNATE_PAIR:
+            with self.subTest(x=x):
+                self.assertEqual(sel._row_width_bits(x), 32)
+
+    def test_the_max_rows_construction_default_of_one_is_pinned(self):
+        """pf-adversary round `2v18x3`, M06.  Mutating
+        `ALTERNATE_CONSTRUCTION_DEFAULTS[index]` to `[0]` flipped
+        `{9:8, 52:1, 53:1}` from REFUSE to PASS and no test noticed: every
+        existing case exercised index 0's `0xFFFFFFFF` and nothing pinned
+        index 1's `1`.  That is exactly the KNOWN CONSERVATISM the module
+        docstring spends seven lines defending, left unpinned."""
+        gaps = sel.alternate_pair_gaps(
+            {sel.ALTERNATE_PAIR[0]: 87, sel.ALTERNATE_PAIR[1]: 1}
+        )
+        self.assertEqual(
+            [(g.x, g.reason) for g in gaps],
+            [(sel.ALTERNATE_PAIR[1], sel.REASON_CONSTRUCTION_DEFAULT)],
+        )
+        with self.assertRaises(sel.HpPairError):
+            sel.guard_armed_block(
+                {
+                    sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+                    sel.ALTERNATE_PAIR[0]: 1,
+                    sel.ALTERNATE_PAIR[1]: 1,
+                    sel.PRIMARY_PAIR[0]: 87,
+                    sel.PRIMARY_PAIR[1]: 100,
+                }
+            )
 
     def test_a_bool_is_not_accepted_as_the_number_one(self):
         """`True == 1` and 1 is x=53's construction default, so a bool must
@@ -291,7 +338,7 @@ class TheGuardHasTeethTests(unittest.TestCase):
             sel.ALTERNATE_PAIR[1]: 100.0,
         }
         with self.assertRaises(sel.HpPairError):
-            sel.guard_alternate_pair(values)
+            sel.guard_armed_block(values)
 
     def test_a_float_selector_key_still_arms_the_guard(self):
         """`{9.0: 8}` resolves by numeric equality in a dict, so the guard
@@ -300,7 +347,7 @@ class TheGuardHasTeethTests(unittest.TestCase):
         values = {float(sel.SELECTOR_FIELD): sel.SELECTOR_ARMED_VALUE}
         self.assertTrue(sel.selector_is_armed(values))
         with self.assertRaises(sel.HpPairError):
-            sel.guard_alternate_pair(values)
+            sel.guard_armed_block(values)
 
 
 class TheMutantsPfAdversaryFoundAliveTests(unittest.TestCase):
@@ -314,9 +361,11 @@ class TheMutantsPfAdversaryFoundAliveTests(unittest.TestCase):
             sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
             sel.ALTERNATE_PAIR[0]: 87,
             sel.ALTERNATE_PAIR[1]: 87,
+            sel.PRIMARY_PAIR[0]: 87,
+            sel.PRIMARY_PAIR[1]: 87,
         }
         self.assertEqual(sel.alternate_pair_gaps(values), ())
-        self.assertIsNone(sel.guard_alternate_pair(values))
+        self.assertIsNone(sel.guard_armed_block(values))
 
     def test_the_supplied_flag_follows_the_server_owned_set(self):
         """Mutant: `alternate_pair_supplied=bool(...)` -> `=False`.  The
@@ -378,7 +427,7 @@ class ZeroIsTheSymptomNotAnHonestValueTests(unittest.TestCase):
             sel.ALTERNATE_PAIR[1]: 0,
         }
         with self.assertRaises(sel.HpPairError):
-            sel.guard_alternate_pair(values)
+            sel.guard_armed_block(values)
 
     def test_both_rows_are_named_and_both_carry_the_frame_layer_reason(self):
         values = {
@@ -402,7 +451,7 @@ class ZeroIsTheSymptomNotAnHonestValueTests(unittest.TestCase):
                 }
                 values[x] = 0
                 with self.assertRaises(sel.HpPairError):
-                    sel.guard_alternate_pair(values)
+                    sel.guard_armed_block(values)
 
     def test_the_repository_still_says_an_unset_bit_reads_as_zero(self):
         """If LANE-GM ever retracts that sentence, this guard's premise is
@@ -431,14 +480,50 @@ class TheTriggerIsTheArmedValueNotThePresenceTests(unittest.TestCase):
 
     def test_a_login_shaped_block_is_not_refused(self):
         """The regression the first draft would have shipped: x=9 present,
-        carrying an ordinary scene byte, no alternate pair."""
-        for scene_byte in (0, 1, 3, 126, 255):
-            if scene_byte == sel.SELECTOR_ARMED_VALUE:
-                continue
+        carrying an ordinary scene byte, no alternate pair.
+
+        pf-adversary round `2v18x3` D-B: this loop used to `continue` past
+        any byte equal to `SELECTOR_ARMED_VALUE`.  Measured, that line had
+        NEVER executed (nothing in the sample equals 8) -- and the moment
+        LANE-GM's comparand drifted onto a sampled byte the test skipped
+        itself silently, re-arming D2 with the suite reporting green and the
+        subtest count dropping 49 -> 48 as the only trace.  A test may not
+        decide in silence that it has nothing to prove: the sample is now
+        DERIVED so it can never contain the armed value, and both the
+        derivation and the count are asserted."""
+        sample = tuple(
+            byte
+            for byte in (0, 1, 3, 126, 255)
+            if byte != sel.SELECTOR_ARMED_VALUE
+        )
+        # If the comparand ever lands on a sampled byte the sample shrinks;
+        # this says so out loud instead of quietly proving less.
+        self.assertEqual(
+            len(sample),
+            5,
+            "SELECTOR_ARMED_VALUE now collides with a sampled scene byte -- "
+            "pick different bytes rather than letting the sample shrink",
+        )
+        for scene_byte in sample:
             with self.subTest(scene_byte=scene_byte):
                 self.assertIsNone(
-                    sel.guard_alternate_pair({sel.SELECTOR_FIELD: scene_byte})
+                    sel.guard_armed_block({sel.SELECTOR_FIELD: scene_byte})
                 )
+
+    def test_the_armed_value_is_what_lane_gm_compares_against(self):
+        """pf-adversary round `2v18x3`, D-A.  The module's docstring promises
+        that if LANE-GM changes its comparand "this module follows in the
+        same commit OR ITS TESTS GO RED".  Measured, the second half was
+        false: setting `attr_wire.SELECTOR_COMPARED_VALUE = 3` left this
+        file at `68 passed` and only LANE-GM's own suite noticed.  It did not
+        follow-or-go-red, it followed silently -- and a comparand landing on
+        an ordinary scene byte is D2 verbatim.  This is the red."""
+        self.assertEqual(sel.SELECTOR_ARMED_VALUE, 8)
+        self.assertEqual(attr_wire.SELECTOR_COMPARED_VALUE, 8)
+        # The value is not free to be any byte: it must not collide with a
+        # scene byte an ordinary login can carry, or every such login is
+        # refused.
+        self.assertNotIn(sel.SELECTOR_ARMED_VALUE, (0, 1, 3, 126, 255))
 
     def test_only_the_armed_value_arms_the_guard(self):
         self.assertTrue(
@@ -547,7 +632,7 @@ class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
     @staticmethod
     def _this_module_refuses(values):
         try:
-            sel.guard_alternate_pair(values)
+            sel.guard_armed_block(values)
         except sel.HpPairError:
             return True
         return False
@@ -632,6 +717,33 @@ class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
         text = MODULE_FILE.read_text(encoding="utf-8")
         self.assertIn("WHO CALLS THIS PREDICATE TODAY: NOBODY", text)
         self.assertIn("WITHDRAWN", text)
+
+    def test_the_no_caller_claim_is_checked_against_the_tree_not_the_prose(self):
+        """pf-adversary round `2v18x3`, Cat-6.4: the test above verifies that
+        a SENTENCE exists, not that the sentence is TRUE.  The day someone
+        wires this module up it stays green while the docstring lies.  This
+        is the check that acts: it walks the shipped tree and fails on a real
+        import, naming it.
+
+        Scoped to this repository on purpose -- reading `pf_bridge` from a
+        server test is the out-of-repo citation round `cgnzsd` removed (D6),
+        and a markdown mention over there is not a caller anyway."""
+        importers = []
+        for path in sorted((ROOT / "src").rglob("*.py")) + sorted(
+            (ROOT / "tests").rglob("*.py")
+        ):
+            if path == MODULE_FILE or path == Path(__file__).resolve():
+                continue
+            body = path.read_text(encoding="utf-8", errors="replace")
+            if "persistence_hp_pair_selector" in body:
+                importers.append(str(path.relative_to(ROOT)))
+        self.assertEqual(
+            importers,
+            [],
+            "the module now HAS a caller, so its docstring's "
+            "'WHO CALLS THIS PREDICATE TODAY: NOBODY' is false: " 
+            + ", ".join(importers),
+        )
 
 
 class TheModuleDoesNotDecodeCategoryEightTests(unittest.TestCase):
@@ -852,3 +964,91 @@ class TheLiveReportReadsARealStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
+    """pf-adversary round `cgnzsd` D11, and round `2v18x3`'s answer to it.
+
+    The module says in its own docstring that nothing in this repository can
+    evaluate `0x430E10`, so when the selector is armed it cannot know which
+    of the two HP pairs the client reads.  Checking only the alternate pair
+    was therefore a bet on a branch, not a conservative guard.
+    """
+
+    D11_BLOCK = {9: 8, 3: 0, 4: 0, 52: 87, 53: 100}
+
+    def test_the_d11_block_is_refused(self):
+        with self.assertRaises(sel.HpPairError) as caught:
+            sel.guard_armed_block(dict(self.D11_BLOCK))
+        self.assertIn(sel.REASON_MAX_IS_ZERO, str(caught.exception))
+
+    def test_the_alternate_only_predicate_still_passes_it(self):
+        """The finding was real and stays measurable: the narrow predicate
+        has no complaint about this block.  If this ever goes red the widened
+        guard has stopped being wider than the one it replaced."""
+        self.assertEqual(sel.alternate_pair_gaps(dict(self.D11_BLOCK)), ())
+
+    def test_a_dead_character_is_honest_on_the_primary_pair(self):
+        """`hp_current == 0` with a positive `hp_max` is the one HP value M4
+        exists to put on a screen.  A guard that refused it would be worse
+        than the hole it closed."""
+        self.assertEqual(sel.primary_pair_gaps({3: 0, 4: 100}), ())
+        sel.guard_armed_block({9: 8, 3: 0, 4: 100, 52: 87, 53: 100})
+
+    def test_the_two_pairs_get_different_rules_because_of_the_schema(self):
+        """The split is derived from `SERVER_OWNED_FIELDS`, not typed in.
+        Zero is a gap on the alternate pair because no column can ever have
+        produced it; it is not a gap on `hp_current` because one can."""
+        self.assertTrue(sel._pair_owned_by_this_server(sel.PRIMARY_PAIR))
+        self.assertFalse(sel._pair_owned_by_this_server(sel.ALTERNATE_PAIR))
+        self.assertTrue(sel.alternate_pair_gaps({52: 0, 53: 100}))
+        self.assertEqual(sel.primary_pair_gaps({3: 0, 4: 100}), ())
+
+    def test_every_primary_gap_reason_is_reachable(self):
+        cases = {
+            sel.REASON_ABSENT_READS_ZERO: {4: 100},
+            sel.REASON_NOT_A_U32: {3: "x", 4: 100},
+            sel.REASON_MAX_IS_ZERO: {3: 0, 4: 0},
+            sel.REASON_NEGATIVE: {3: 0xFFFFFFFF, 4: 100},
+            sel.REASON_CURRENT_ABOVE_MAX: {3: 200, 4: 100},
+        }
+        self.assertEqual(set(cases), set(sel.PRIMARY_REASONS))
+        for reason, values in cases.items():
+            with self.subTest(reason=reason):
+                reasons = [g.reason for g in sel.primary_pair_gaps(values)]
+                self.assertIn(reason, reasons)
+
+    def test_every_reason_a_primary_gap_can_carry_is_declared(self):
+        """A reason string invented here but missing from `ALL_REASONS` would
+        walk past any caller doing an exhaustive match."""
+        for values in (
+            {4: 100}, {3: "x", 4: 100}, {3: 0, 4: 0},
+            {3: 0xFFFFFFFF, 4: 100}, {3: 200, 4: 100},
+        ):
+            for gap in sel.primary_pair_gaps(values):
+                with self.subTest(values=values, reason=gap.reason):
+                    self.assertIn(gap.reason, sel.ALL_REASONS)
+
+    def test_armed_block_gaps_is_the_union_of_the_two_predicates(self):
+        for values in (
+            dict(self.D11_BLOCK),
+            {9: 8, 3: 0, 4: 0, 52: 0, 53: 0},
+            {9: 8, 3: 50, 4: 100, 52: 50, 53: 100},
+        ):
+            with self.subTest(values=values):
+                self.assertEqual(
+                    sel.armed_block_gaps(values),
+                    sel.alternate_pair_gaps(values)
+                    + sel.primary_pair_gaps(values),
+                )
+
+    def test_an_unarmed_block_is_still_none_of_the_guards_business(self):
+        """Widening the guard must not widen WHEN it fires: every login this
+        server composes carries x=9 without the armed value."""
+        sel.guard_armed_block({9: 3, 3: 0, 4: 0})
+        sel.guard_armed_block({3: 0, 4: 0})
+
+    def test_the_old_name_is_gone_rather_than_aliased(self):
+        """A narrow name left over a widened door is how the next reader
+        wires the weaker half by accident."""
+        self.assertFalse(hasattr(sel, "guard_alternate_pair"))

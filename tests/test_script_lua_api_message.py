@@ -804,8 +804,12 @@ class HostSideFailureDoesNotWearTheScriptsNameTests(unittest.TestCase):
         return script_host
 
     def test_the_catalog_error_is_on_the_host_side_list(self):
-        self.assertIn(message.MessageCatalogError,
-                      self._script_host()._host_side_error_types())
+        # `issubclass`, not `in`: round xlk7hl replaced the hand-maintained
+        # tuple of per-file error classes with one base class every vendored
+        # loader raises, because the tuple had no completeness test and the
+        # next mirror to exist would have been blamed on a script.
+        self.assertTrue(issubclass(message.MessageCatalogError,
+                                   self._script_host()._host_side_error_types()))
 
     def test_a_host_error_logs_LUA_HOST_and_never_LUA_SCRIPT(self):
         host = self._script_host()

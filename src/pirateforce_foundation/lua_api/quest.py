@@ -152,6 +152,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from . import quest_criteria
+
 try:
     from typing import Protocol
 except ImportError:  # pragma: no cover - stdlib since Python 3.8, this project's floor
@@ -617,6 +619,38 @@ def _log_counter(log: Callable[[str], None], api_name: str, context: "QuestConte
         % (api_name, context.character_id, quest_id, counter_name, value))
 
 
+#: The six reward names whose AMOUNT is a pure table read (the "read
+#: half" of the exp/level seam, COO-DECISION 2026-09-07T05:46).  They stay
+#: in :data:`STILL_STUBBED` because the GRANT still has nowhere to go --
+#: LANE-DB's per-character exp column is asked for and not landed -- but a
+#: stub that cannot even say what it would have paid teaches nobody
+#: anything, so each of these logs one extra line naming the number it
+#: resolved out of the game's own tables, or the reason it refused.
+CRITERIA_METHODS = frozenset(quest_criteria.LEVEL_SOURCE)
+
+
+def _log_criteria(log: Callable[[str], None], api_name: str,
+                  context: "QuestContext") -> None:
+    """One ``LUA_QUEST_CRITERIA`` line: the resolved reward, or the refusal.
+
+    Never raises for a resolution failure -- a quest id with no row, or an
+    ``AddLvCriteria*`` name with no player level, is a REFUSAL with a name
+    from a closed set, not an error.  A :class:`quest_criteria.
+    QuestCriteriaError` (our vendored mirror missing or corrupt) is left to
+    propagate on purpose: ``script_host`` reports that one as ``LUA_HOST``,
+    against this repository, instead of ``LUA_SCRIPT`` against whichever
+    quest file happened to be running (pf-adversary D11).
+    """
+    amount, reason = quest_criteria.resolve_for_api(
+        api_name, context.quest_id, player_level=None)
+    if amount is None:
+        log("LUA_QUEST_CRITERIA Quest.%s quest=%d refused=%s"
+            % (api_name, context.quest_id, reason))
+        return
+    log("LUA_QUEST_CRITERIA Quest.%s quest=%d %s"
+        % (api_name, context.quest_id, amount.log_fields()))
+
+
 #: The 10 names real this round: the clock (round 4jsydv/s2fxf6 lineage)
 #: plus the 9 flag/counter/daily-stamp names COO-DECISION `20260906_1846`
 #: named. See the module docstring for why `CheckWishQuest` -- also in that
@@ -896,8 +930,10 @@ class RealQuestNamespace:
         if name in self._stub_methods:
             qualified = "Quest.%s" % name
 
-            def stub(*_args, _qualified=qualified):
+            def stub(*_args, _qualified=qualified, _name=name):
                 self.calls.append(_qualified)
+                if _name in CRITERIA_METHODS:
+                    _log_criteria(self._log, _name, self._context)
                 self._log("LUA_API_STUB %s" % _qualified)
                 return STUB_DEFAULT
 
