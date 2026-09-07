@@ -47,6 +47,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import channel_message_hypothesis  # noqa: E402
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
 from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
@@ -81,6 +82,10 @@ def make_chat_payload(message: str, speaker: str = "") -> bytes:
 
 
 
+#: THE ONE DEFINITION.  ~~A byte-identical copy in
+#: `tests/test_gm_chat_no_bytes_line.py`~~ -- struck LANE-GM round `2rk98y`
+#: (pf-adversary round `0w9jhq`, D8: one pin, two copies, guaranteed to
+#: drift).  That file imports this name now.
 def assert_staged_warp_notice_only(case, action):
     """The action a STAGED warp returns: its sentence, never a warp frame.
 
@@ -91,18 +96,76 @@ def assert_staged_warp_notice_only(case, action):
     the owner read the old silence off her own screen as "nothing happened"
     (`PANYA-DECISION 20260903_1800`, round R307).
 
-    WHAT THE PIN STILL HAS TO SAY IS UNCHANGED, and this helper says exactly
-    that and no more: no TELEPORT frame went out for this command.  The label
-    is asserted rather than the mere presence of an action, because a warp
-    FRAME returned here would also be "not None" -- and the label is the one
-    field `runtime.py`'s `_GM_WARP_LABELS` resync and the `TELEPORT`-substring
-    move-authority rule read.
+    ~~"the label is the one field anybody reads, so the label is what this
+    pins"~~ -- STRUCK LANE-GM round `2rk98y`.  pf-adversary (round `0w9jhq`)
+    measured what a label-only pin cannot see, on the real module, with the
+    whole suite green:
+
+      * D1 -- `(label, FRAME, PC, delay)`, the tuple's own two byte fields
+        SWAPPED.  v141 writes `out_frame`, so the server would put the 56-byte
+        pc on the wire in place of the 66-byte packet: the GM sees nothing and
+        the console still says the sentence went out.  The old body check was
+        `assertIn(<utf-16-le>, action[2])`, which is TRUE OF BOTH members, so
+        it could not tell them apart.
+      * D2 -- `delay` 0.0 -> 3.0.  v141 sleeps before `sendall`, so every
+        staged `/warp` would freeze that connection's send queue for three
+        seconds, the GM's own frame last in the queue.  Nothing read `delay`.
+      * D5 -- the sentence replaced by `WARP DONE!!!` (also 12 printable
+        ASCII, so `say_wire`'s own length pin holds): a claim that the GM was
+        MOVED, shipped by the one command in this lane that moves nobody.
+
+    So this reads the bytes, in the shape the sibling notice already uses --
+    `tests/test_gm_speed_denied_notice.py::assertIsTheDeniedNotice` -- and the
+    two now say the same thing about their own frames.  It still says
+    everything it used to: no TELEPORT frame went out, and the label is the
+    one field `runtime.py`'s `_GM_WARP_LABELS` resync and the
+    `TELEPORT`-substring move-authority rule read.
+
+    Returns the decoded message so a caller can assert more.
     """
-    case.assertIsNotNone(action)
-    case.assertEqual(
-        action[0], chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL
+    case.assertIsNotNone(
+        action,
+        "a staged /warp returned no action at all, so the screen is silent "
+        "again -- PANYA-DECISION 20260903_1800",
     )
-    case.assertNotIn("TELEPORT", action[0])
+    case.assertEqual(len(action), 4)
+    label, pc, frame, delay = action
+    case.assertEqual(label, chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL)
+    case.assertNotIn("TELEPORT", label)
+    # D2.  Read off the tuple, not off a constant: v141 sleeps this many
+    # seconds before `sendall` on the connection that typed the command.
+    case.assertEqual(delay, 0.0)
+    # D1, half one: the channel id, read out of the bytes.  0x9F2C GMGlobal
+    # in particular is LOCKED by COO-DECISION 20260829_0041.
+    case.assertEqual(
+        pc[16:18],
+        (0xAC52).to_bytes(2, "little"),
+        "the staged-warp notice was composed on channel 0x%04X, not 0xAC52 "
+        "LocalTalk" % int.from_bytes(pc[16:18], "little"),
+    )
+    offset = channel_message_hypothesis.CHANNEL_MESSAGE_PC_PAYLOAD_OFFSET
+    payload = pc[
+        offset:
+        len(pc)
+        - (channel_message_hypothesis.CHANNEL_MESSAGE_PC_OVERHEAD - offset)
+    ]
+    decoded = channel_message_hypothesis.decode_channel_message(
+        say_wire.LOCAL_TALK_CHANNEL_ID, payload
+    )
+    # D5, both sides: the sentence in the bytes, and the constant the module
+    # ships, pinned against the same literal -- the sibling's move
+    # (`assertEqual(say_wire.SPEED_DENIED_NOTICE_TEXT, "SPEED DENIED")`).
+    case.assertEqual(decoded.body, "STAGED RELOG")
+    case.assertEqual(say_wire.WARP_STAGED_NOTICE_TEXT, "STAGED RELOG")
+    case.assertEqual(len(decoded.body), 12)
+    case.assertTrue(decoded.body.isascii())
+    case.assertEqual(decoded.speaker, "")
+    # D1, half two: the frame really carries that pc, so a green decode can
+    # never be of bytes that never got framed -- and a swapped tuple fails
+    # here even if it survived everything above.
+    case.assertEqual(frame[len(frame) - len(pc):], pc)
+    case.assertGreater(len(frame), len(pc))
+    return decoded
 
 
 class FakePosition:
@@ -3025,6 +3088,222 @@ class StagedReadbackCommandTests(_Case):
             + staged_readback.STATUS_NOTHING_STAGED,
             session.events,
         )
+
+
+class StagedWarpRuntimeLabelWiringTests(_Case):
+    """The half of the pin round `0w9jhq` CLAIMED and did not have.
+
+    That round's docstrings, `docs/GM_LANE.md` and its round file all said
+    `StagedWarpNoticeTests` pinned "both halves" -- the `TELEPORT` substring
+    rule AND the `_GM_WARP_LABELS` resync in `runtime.py`.  It pinned one:
+    no test in this repository read `runtime.py` for this label at all, and
+    pf-adversary (round `0w9jhq`, D3) ADDED the label to
+    `runtime.py`'s `_GM_WARP_LABELS` tuple with the entire suite still green.
+
+    WHAT THAT MUTANT COSTS, in the game rather than in the suite: the resync
+    behind `_GM_WARP_LABELS` writes `selected.position.scene_id` to the
+    warp's DESTINATION and arms `gm_warp_position_pending`.  A STAGED warp
+    moves nobody -- the scene arrives after a relog -- so the server would
+    believe the GM is standing in a scene her client has never drawn, and
+    her next ordinary step would be read as "the warp landed".
+
+    The move is `OneOfTwoWiringTests`': read the real `runtime.py` as text.
+    `runtime.py` is chief's file, so a lane that cannot edit it can still
+    refuse the day it changes underneath.
+    """
+
+    RUNTIME = ROOT / "src/pirateforce_foundation/runtime.py"
+    LABELS_NAME = "_GM_WARP_LABELS"
+
+    def runtime_source(self):
+        return self.RUNTIME.read_text(encoding="utf-8")
+
+    def warp_labels_block(self, source):
+        """The text of the `_GM_WARP_LABELS = (...)` tuple, or fail loudly.
+
+        Sliced rather than imported: `runtime.py` builds this tuple inside a
+        function body, so there is no attribute to read, and a scan of the
+        whole file would be answered by this test's own error strings.
+        """
+        start = source.find(f"{self.LABELS_NAME} = (")
+        self.assertNotEqual(
+            start,
+            -1,
+            f"{self.LABELS_NAME} is gone from runtime.py. It is chief's "
+            "file and this lane may not edit it -- report a CORE-REQUEST "
+            "rather than deleting this test.",
+        )
+        end = source.find(")", start)
+        self.assertNotEqual(end, -1, "unterminated tuple")
+        return source[start:end]
+
+    def test_the_staged_notice_label_is_not_in_the_runtime_warp_resync(self):
+        block = self.warp_labels_block(self.runtime_source())
+        self.assertNotIn(
+            chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL,
+            block,
+            "runtime.py's %s now lists the STAGED-warp notice label. That "
+            "resync writes selected.position.scene_id to the warp's "
+            "destination and arms gm_warp_position_pending -- for a command "
+            "that moved nobody and sent no teleport. The GM's next ordinary "
+            "step would be counted as the warp landing."
+            % self.LABELS_NAME,
+        )
+
+    def test_the_labels_the_resync_does_carry_are_still_teleport_labels(self):
+        # "never neither": a mutant that empties the tuple would pass the
+        # test above for the wrong reason, and a real teleport would then
+        # stop resyncing.
+        block = self.warp_labels_block(self.runtime_source())
+        self.assertIn("TELEPORT", block, block)
+
+
+class StagedWarpConsoleSaysWhetherItSpokeTests(_Case):
+    """`notice=sent|none` on the staged line -- a positive word on both arms.
+
+    pf-adversary (round `0w9jhq`, D4): when the sentence failed to compose,
+    the console was the success case MINUS ONE LINE, so an operator had to
+    separate "the sentence reached my screen" from "nothing reached my
+    screen" by noticing an ABSENCE. The three event strings that named the
+    failure were deletable with the suite green, because nothing anyone
+    reads carried the answer. This lane had already been told to stop
+    shipping that shape once, for `/staged` (`composed=yes|no`).
+    """
+
+    def staged_line(self, err):
+        lines = [
+            line
+            for line in err.getvalue().splitlines()
+            if line.startswith(chat_command_action.STAGED_CONSOLE_TOKEN)
+        ]
+        self.assertEqual(len(lines), 1, err.getvalue())
+        return lines[0]
+
+    def test_a_staged_warp_whose_sentence_went_out_says_notice_sent(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            action = self.act(session, "/warp 278")
+        assert_staged_warp_notice_only(self, action)
+        line = self.staged_line(err)
+        self.assertIn(
+            f"notice={chat_command_action.STAGED_NOTICE_SENT_WORD} ", line
+        )
+        self.assertNotIn(
+            f"notice={chat_command_action.STAGED_NOTICE_NONE_WORD} ", line
+        )
+        # The stage itself is untouched by the courtesy, which is the
+        # property the whole notice design stands on.
+        self.assertEqual({self.GM_ACCOUNT: 278}, self.staged_login_scenes())
+
+    def test_a_staged_warp_whose_sentence_died_says_notice_none_and_still_stages(self):
+        session = FakeSession(position=FakePosition(scene_id=1))
+        err = io.StringIO()
+        with mock.patch.object(
+            say_wire,
+            "make_local_talk_notice_frame",
+            side_effect=say_wire.NoticeWireError("composed nothing"),
+        ), contextlib.redirect_stderr(err):
+            action = self.act(session, "/warp 278")
+        # The command is the product; the sentence is the courtesy.
+        self.assertIsNone(action)
+        self.assertEqual({self.GM_ACCOUNT: 278}, self.staged_login_scenes())
+        line = self.staged_line(err)
+        self.assertIn(
+            f"notice={chat_command_action.STAGED_NOTICE_NONE_WORD} ", line
+        )
+        self.assertNotIn(
+            f"notice={chat_command_action.STAGED_NOTICE_SENT_WORD} ", line
+        )
+        self.assertIn(
+            chat_command_action.EVENT_WARP_NOTICE_FAILED_PREFIX
+            + "NoticeWireError",
+            session.events,
+        )
+
+    def test_the_two_arms_differ_by_that_word_and_not_by_a_missing_line(self):
+        # The point of D4 restated as a test: the operator must never have to
+        # read an absence. Both boots print the SAME set of tokens.
+        def tokens_of(**patch):
+            session = FakeSession(position=FakePosition(scene_id=1))
+            err = io.StringIO()
+            with contextlib.ExitStack() as stack:
+                if patch:
+                    stack.enter_context(
+                        mock.patch.object(say_wire, **patch)
+                    )
+                stack.enter_context(contextlib.redirect_stderr(err))
+                self.act(session, "/warp 278")
+            return sorted(
+                line.split(" ", 1)[0]
+                for line in err.getvalue().splitlines()
+                if line.strip()
+            ), err.getvalue()
+
+        spoke, spoke_text = tokens_of()
+        silent, silent_text = tokens_of(
+            attribute="make_local_talk_notice_frame",
+            side_effect=say_wire.NoticeWireError("composed nothing"),
+        )
+        self.assertIn(chat_command_action.STAGED_CONSOLE_TOKEN, spoke)
+        self.assertIn(chat_command_action.STAGED_CONSOLE_TOKEN, silent)
+        # `GM_CHAT_NOTICE_SENT` is the one line that legitimately differs --
+        # it is a claim about bytes, and on the silent arm there are none.
+        self.assertEqual(
+            [t for t in spoke if t != chat_command_action.NOTICE_CONSOLE_TOKEN],
+            silent,
+            (spoke_text, silent_text),
+        )
+
+
+class NoticeLabelCountTests(_Case):
+    """The docstring says how many labels are notices; this makes it true.
+
+    pf-adversary (round `0w9jhq`, D7): `make_gm_chat_command_action` said
+    "Two of the labels" while there were six. A number typed into prose
+    drifts silently and no reader can tell -- so the prose is now READ, and
+    the day a seventh notice lands this test names the docstring that has to
+    move with it.
+    """
+
+    WORDS = {
+        2: "Two",
+        3: "Three",
+        4: "Four",
+        5: "Five",
+        6: "SIX",
+        7: "Seven",
+        8: "Eight",
+    }
+
+    def notice_labels(self):
+        return sorted(
+            name
+            for name in dir(chat_command_action)
+            if name.endswith("_NOTICE_ACTION_LABEL")
+        )
+
+    def test_the_docstring_number_matches_the_labels_the_module_ships(self):
+        labels = self.notice_labels()
+        self.assertGreaterEqual(len(labels), 2, labels)
+        word = self.WORDS.get(len(labels))
+        self.assertIsNotNone(word, f"add {len(labels)} to WORDS")
+        doc = chat_command_action.make_gm_chat_command_action.__doc__
+        self.assertIn(
+            f"{word} of the labels this can return",
+            doc,
+            "the module ships %d notice labels (%s) and its entry point's "
+            "docstring names a different number. Update the sentence in the "
+            "same commit as the label." % (len(labels), ", ".join(labels)),
+        )
+
+    def test_every_notice_label_is_a_distinct_shipped_string(self):
+        values = [getattr(chat_command_action, n) for n in self.notice_labels()]
+        self.assertEqual(len(values), len(set(values)), values)
+        for value in values:
+            with self.subTest(value=value):
+                self.assertTrue(value.startswith("LANE_GM_CHAT_"), value)
+                self.assertNotIn("TELEPORT", value)
 
 
 if __name__ == "__main__":  # pragma: no cover
