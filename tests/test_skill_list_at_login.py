@@ -36,6 +36,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -990,6 +991,76 @@ class AHookCanWireThisWithoutRuntimeChangingTests(unittest.TestCase):
         """
         self.assertEqual("module_only", skill_list_at_login.seam_carrier())
 
+
+class TheRouteRefusesAFrameThatWouldLockWalkingTests(_Fixture):
+    """R323C's byte, checked on the bytes rather than on the constant.
+
+    The pins this module already had compared
+    ``SKILL_LIST_TRAILING_BYTE`` with the value decoded back out of a frame
+    composed FROM that same constant -- both sides move together, so editing
+    the constant to 1 left every one of them green while the route composed
+    the frame R323C measured as locking the player's movement for the whole
+    session.  These tests drive the constant to the locking value and require
+    the ROUTE to refuse, which is a property of ``src/``, not of a test file.
+    """
+
+    def test_the_ordinary_route_carries_the_walkable_trailing_zero(self):
+        # Decoded, not indexed: the frame's LAST byte is an outer `00` that is
+        # zero whatever the walk-lock byte says, so `frame[-1] == 0` would
+        # pass on a locking frame.  That is the exact reading mistake this
+        # class exists to stop, so its own happy-path test may not make it.
+        pc, _frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, (111, 40000, 99, 110),
+        )
+        size = (
+            LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE
+            + LEARN_SKILL_RESULT_RECORD_WIRE_SIZE * 4
+        )
+        start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
+        _records, trailing = decode_learn_skill_result_payload(
+            pc[start:start + size]
+        )
+        self.assertEqual(0, trailing)
+
+    def test_a_locking_trailing_byte_is_refused_by_name_not_composed(self):
+        # The mutant this file could not previously kill: one integer.
+        with mock.patch.object(
+            skill_list_at_login, "SKILL_LIST_TRAILING_BYTE", 1,
+        ):
+            with self.assertRaises(SkillListAtLoginError) as caught:
+                skill_list_at_login.make_skill_list_response(
+                    self.legacy, (111, 40000, 99, 110),
+                )
+        self.assertEqual(
+            skill_list_at_login.REFUSE_TRAILING_BYTE_LOCKS_WALKING,
+            caught.exception.reason,
+        )
+
+    def test_the_login_entry_point_refuses_it_too_not_only_the_composer(self):
+        # `login_skill_list_response` is the one function the CORE-REQUEST
+        # asks runtime.py to call, so the guard has to hold on THAT path.
+        character = self._with_skills((111, 40000, 99, 110))
+        with mock.patch.object(
+            skill_list_at_login, "SKILL_LIST_TRAILING_BYTE", 1,
+        ):
+            with self.assertRaises(SkillListAtLoginError) as caught:
+                skill_list_at_login.login_skill_list_response(
+                    self.legacy, self.store, character.id,
+                )
+        self.assertEqual(
+            skill_list_at_login.REFUSE_TRAILING_BYTE_LOCKS_WALKING,
+            caught.exception.reason,
+        )
+
+    def test_the_refusal_reason_names_the_byte_it_saw(self):
+        with mock.patch.object(
+            skill_list_at_login, "SKILL_LIST_TRAILING_BYTE", 1,
+        ):
+            with self.assertRaises(SkillListAtLoginError) as caught:
+                skill_list_at_login.make_skill_list_response(
+                    self.legacy, (99,),
+                )
+        self.assertIn("0x01", str(caught.exception))
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

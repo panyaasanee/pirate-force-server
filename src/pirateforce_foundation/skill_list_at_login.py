@@ -85,7 +85,11 @@ from __future__ import annotations
 from typing import Any
 
 from .learn_skill_result_frame import (
+    LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE,
+    LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET,
+    LEARN_SKILL_RESULT_RECORD_WIRE_SIZE,
     LearnSkillResultRecord,
+    decode_learn_skill_result_payload,
     make_learn_skill_result_response,
 )
 
@@ -126,6 +130,13 @@ REFUSE_TOO_MANY_UNMEASURED = "record_count_is_above_any_observed_acceptance"
 #: refusal string beside it says this command never creates one.  A separate
 #: reason, so an operator whose --db is a stub reads which of the two it was.
 REFUSE_NOT_A_DATABASE = "path_is_not_an_sqlite_database"
+#: R323C measured this one, on a real client, on 2026-09-07: the frame this
+#: module composes locks the player's movement for the WHOLE session when its
+#: trailing u8 is 1, and does not when it is 0 (`KA1A-R323C-RESULTS-GT276-PASS
+#: -trailing-u8-1-locks-walking-not-record-count`).  Sent at LOGIN a locking
+#: frame has no in-game escape at all -- the only measured way out of the lock
+#: is a relogin, and a relogin composes the same frame again.
+REFUSE_TRAILING_BYTE_LOCKS_WALKING = "composed_frame_does_not_end_in_the_walkable_zero"
 
 
 class SkillListAtLoginError(RuntimeError):
@@ -278,7 +289,7 @@ def make_skill_list_response(
     """
     records = skill_list_records(skill_ids)
     try:
-        return make_learn_skill_result_response(
+        pc, frame = make_learn_skill_result_response(
             legacy, records, SKILL_LIST_TRAILING_BYTE,
         )
     except ValueError as error:
@@ -286,6 +297,52 @@ def make_skill_list_response(
             REFUSE_SKILL_ID_OUTSIDE_U32,
             "the proven encoder refused these skill ids: %s" % (error,),
         ) from error
+    # MEASURED BY DECODING THE COMPOSED PAYLOAD, not by reading
+    # SKILL_LIST_TRAILING_BYTE back, and that difference is the whole point.
+    # Every pin this module had on the walk-lock byte compared the constant
+    # with a value decoded out of a frame composed FROM that same constant:
+    # both sides move together, so editing the constant to 1 left all of them
+    # green while this route composed the frame R323C measured as locking the
+    # player's movement for the rest of the session.  Sent at LOGIN that lock
+    # has no in-game exit -- the only measured escape is a relogin, and a
+    # relogin arrives back at this function -- so the check belongs in the
+    # route, where a caller cannot get past it by editing one integer, and
+    # not only in a test.
+    #
+    # It decodes rather than indexing a byte position: the trailing u8 is NOT
+    # the last byte of the frame (the composed frame ends in an outer
+    # `0B 00` after it), and a hard-coded negative index would be a fifth
+    # copy of a wire layout this module does not own.  The three names below
+    # are the OWNER module's published sizes, imported as values the same way
+    # SKILL_LIST_TRAILING_BYTE is -- the decoder refuses a payload with a byte
+    # left over after the trailing u8, so it has to be handed exactly the
+    # slice, and these are the only numbers that say where it ends.
+    payload_size = (
+        LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE
+        + LEARN_SKILL_RESULT_RECORD_WIRE_SIZE * len(records)
+    )
+    payload_start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
+    try:
+        _records, trailing = decode_learn_skill_result_payload(
+            pc[payload_start:payload_start + payload_size]
+        )
+    except Exception as error:      # noqa: BLE001 - a payload this module
+        # just composed and cannot read back is not a frame to send.
+        raise SkillListAtLoginError(
+            REFUSE_TRAILING_BYTE_LOCKS_WALKING,
+            "the composed payload could not be decoded back, so the byte "
+            "R323C measured as the walk lock could not be checked: %s"
+            % (error,),
+        ) from error
+    if trailing != 0:
+        raise SkillListAtLoginError(
+            REFUSE_TRAILING_BYTE_LOCKS_WALKING,
+            "the composed payload carries trailing 0x%02X, and R323C "
+            "measured that a non-zero trailing byte locks the player's "
+            "movement for the whole session with no in-game way out of it"
+            % (trailing,),
+        )
+    return pc, frame
 
 
 def login_skill_list_response(
