@@ -1,12 +1,22 @@
 """LANE-CS: what the on-screen damage number becomes once the dispatcher
 sends the CHARACTER'S OWN level instead of the pinned constant.
 
-WHY THIS EXISTS.  `runtime.py:5093` hands every hit the same attacker record,
-`MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()` (`runtime.py:311`),
-so every class at every level prints exactly the same number on the practice
-dummy.  CORE-REQUEST row 032 (`CHIEF_CONTINUATION.md`, registered by chief
-2026-09-07T08:08+07:00) asks for one variable to move: the attacker's
-`level`, read from the character row instead of the pin.  Chief's own letter
+WHY THIS EXISTS.  `runtime.py` hands every hit the same attacker record --
+the module-level `MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()`,
+handed to the bare-hit path as `attacker=MOB_COMBAT_DEFAULT_ATTACKER` -- so
+every class at every level prints exactly the same number on the practice
+dummy.  CORE-REQUEST row 032 asks for one variable to move: the attacker's `level`,
+read from the character row instead of the pin.  D10: THE ROW IS NOT IN THIS
+REPOSITORY AND THAT IS WHY IT IS ADDRESSED BY PATH.  `grep -rn "CORE-REQUEST
+row 032"` over this tree finds only this module and its test file citing each
+other; the row itself lives in the bridge repository, at
+`pf_bridge/CHIEF_CONTINUATION.md` under the heading line that begins "032
+CORE-REQUEST", registered by chief 2026-09-07T08:08+07:00, and the letter it
+was opened from is
+`pf_bridge/notes_to_chief/20260907_0618_LANE-CS-CORE-REQUEST-attacker-level-from-the-real-character.md`.
+A reader who cannot open those two files cannot check ANY sentence below that
+begins "row 032 says", which is worth saying out loud rather than leaving a
+citation that looks local.  Chief's own letter
 asks LANE-CS for the numbers that change when it lands, so that the new pin
 and the wiring go in ONE commit rather than costing a round to ask for
 afterwards (`COO-DECISION 20260907_0445` point 4 condition 1).
@@ -20,10 +30,22 @@ through `damage_town_target.unclamped_hit_damage`, which is the same function
 `tests/test_damage_town_target.py` already pins against R322C.  Those four
 R322C numbers are NOT one layer of evidence: the per-hit 891 is what an owner
 photographed on the client, while the 192779 -> 189215 hp pair came off the
-SERVER console (`damage_town_target.py:8-13` names both origins; `:128` is the
-provenance comment above the constants, which is NOT where the split is
-stated -- T1-F, and the wrong line number is how a reader concludes the split
-was never written down).  This module
+SERVER console.  `damage_town_target.py` states that split in its own module
+docstring, in the sentence beginning "the owner photographed"; the comment
+block above its `R322C_OBSERVED_*` constants records their provenance and is
+NOT where the split is stated.
+
+    D9, AND IT IS THE THIRD VERSION OF THIS SENTENCE.  The first cited
+    `:128`, which was wrong.  T1-F "fixed" it to `:8-13`, which was a line
+    number for a docstring that had already moved once -- the same defect
+    with a different number, and no test anywhere could tell.  A line number
+    into another file is a pin that nothing pins.  The reference is a QUOTED
+    PHRASE now, and `tests/test_damage_level_projection.py` greps the named
+    file for it, so a future edit that moves or deletes the sentence turns
+    this file red instead of leaving a citation that reads authoritative and
+    points at nothing.
+
+This module
 inherits that split; it does not merge the two layers, and no claim here rests
 on the console pair standing in for something seen on screen.  Nothing here is
 a production caller and nothing here is reachable from a frame.
@@ -82,8 +104,9 @@ explicitly "this character's level, the pinned STR", not "this character".
 
 WHAT THIS MODULE DOES NOT IMPLEMENT, SAID HERE BECAUSE SILENCE READ AS
 COVERAGE (T1-H).  CORE-REQUEST row 032 has a THIRD condition beside the two
-above: if the character's level cannot be read, the dispatcher must fall back
-to the pin AND announce a NAMED event -- never a silent 0.  Nothing in this
+above, quoted here rather than pointed at (D10 -- see the addressing note at
+the top): "a level that cannot be read must fall back to the pin together
+with a NAMED event, never a silent 0".  Nothing in this
 module does that, and nothing in this module can: the read happens in
 `runtime.py`, which is a CORE-REQUEST seam and not this lane's to write.  This
 module is the projection table the request asks for alongside that change, so
@@ -92,6 +115,7 @@ here would otherwise be entitled to assume the third was handled.
 """
 from __future__ import annotations
 
+import collections.abc
 import dataclasses
 from typing import Any
 
@@ -102,6 +126,7 @@ __all__ = [
     "LevelProjectionError",
     "LevelOutOfRangeError",
     "PinWillNotAssembleError",
+    "NotTheTypedMobRecordError",
     "NotThePracticeDummyError",
     "UnorderedLevelRequestError",
     "ProjectedRow",
@@ -150,6 +175,31 @@ class NotThePracticeDummyError(LevelProjectionError):
     """
 
 
+class NotTheTypedMobRecordError(LevelProjectionError):
+    """The `mob` argument is not a record the shipped combat path will take.
+
+    D3.  T1-A closed the leak on the PIN side of this module and left the
+    MOB side open: `mob_combat.mob_defender` refuses anything that is not a
+    typed `FieldMob` with `MobCombatContractError`, a class a caller reading
+    THIS module's hierarchy has no reason to catch, and that refusal reached
+    every public entry point unrenamed.  Measured, not argued: before this,
+    `damage_at_level(7, SimpleNamespace(template_id=916, max_hp=198125,
+    level=100))` came out of five entry points as `MobCombatContractError`
+    while `except LevelProjectionError` -- the sentence the hierarchy invites
+    -- caught nothing.  A duck-typed stand-in with the right `template_id`
+    walked straight past :class:`NotThePracticeDummyError`, which only ever
+    looked at that one attribute.
+
+    Kept apart from :class:`NotThePracticeDummyError` on purpose, and checked
+    BEFORE it: "this is not a roster record at all" and "this is a roster
+    record for the wrong monster" are different mistakes, and collapsing them
+    into one message is how a caller who handed in a `SimpleNamespace` goes
+    looking for the wrong template id.  Checking it first is also what keeps
+    `mob_defender`'s own type refusal on a path something walks -- adding the
+    template gate for T1-E had left that sentence true of no reachable call.
+    """
+
+
 class UnorderedLevelRequestError(LevelProjectionError):
     """`project_levels` was handed a container that has no order to keep.
 
@@ -192,6 +242,17 @@ def _shipped_pin() -> Combatant:
     point raised that class and `except LevelProjectionError` -- the sentence
     the hierarchy invites -- caught nothing.
 
+    D4, PAID HERE: the first version of this wrapper opened with `except
+    LevelProjectionError: raise` -- "already ours; keep its name".  Nothing
+    inside `mob_combat` has ever heard of `LevelProjectionError`, so that
+    branch was a sentence, not a path: it was the same defect (a branch no
+    caller can walk, added in the commit that fixed a different one) that
+    T1-C had just been raised about, reintroduced two functions away.
+    Deleting it changes no behaviour -- measured: the file's suite is
+    unchanged at `50 passed` with the two lines gone -- which is the point.
+    A guard that cannot fire is not a cheap guard, it is a false statement
+    about what the code does.
+
     Renaming it here is also what makes :class:`PinWillNotAssembleError`
     reachable from shipped code.  Before this, the only path into it ran
     through a test that replaced `mob_combat.pin_attacker` with a lambda
@@ -200,8 +261,6 @@ def _shipped_pin() -> Combatant:
     """
     try:
         return mob_combat.pin_attacker()
-    except LevelProjectionError:                  # already ours; keep its name
-        raise
     except Exception as exc:                      # noqa: BLE001 - re-raised
         raise PinWillNotAssembleError(
             "the shipped pin will not build at all (%s: %s); no level was "
@@ -299,17 +358,50 @@ def require_only_level_differs(projected: Combatant) -> None:
                 "projection moved %s as well as level" % (field.name,))
 
 
+def _typed_defender(mob: Any) -> Combatant:
+    """`damage_town_target.town_target_defender(mob)` with its refusal renamed.
+
+    D3.  This is the MOB-side twin of :func:`_shipped_pin`, and it exists for
+    the same reason: the refusal that reaches a caller has to be one this
+    module's hierarchy names.  It is also the only call that puts
+    `mob_combat.mob_defender`'s "must be the typed FieldMob record" door back
+    on a walked path -- see :class:`NotTheTypedMobRecordError`.
+
+    Only `MobCombatContractError` is renamed, and nothing else is caught: a
+    bare `except Exception` here would be the branch-nobody-walks defect this
+    file has now been raised about twice (T1-C, D4).
+    """
+    try:
+        return damage_town_target.town_target_defender(mob)
+    except mob_combat.MobCombatContractError as exc:
+        raise NotTheTypedMobRecordError(
+            "this projection can only be computed for a record the shipped "
+            "combat path accepts; %s" % (exc,)
+        ) from exc
+
+
 def damage_at_level(level: int, mob: Any) -> int:
     """One unclamped hit on `mob` from a character of `level`.
 
-    `mob` must be a Training Iron Man row (`field_mobs.TOWN_TARGET_N_ID`).
-    `mob_combat.mob_defender` refuses anything that is not a typed `FieldMob`,
-    but it has no opinion about WHICH monster, so a `replace(dummy,
-    template_id=31)` used to come back with a perfectly ordinary number -- see
+    `mob` must be a Training Iron Man row (`field_mobs.TOWN_TARGET_N_ID`),
+    and it is checked in two steps because there are two different mistakes.
+
+    FIRST, is it a roster record at all?  `mob_combat.mob_defender` decides
+    that, and :func:`_typed_defender` is how its answer reaches the caller
+    under a name from this module's own hierarchy (D3 --
+    :class:`NotTheTypedMobRecordError`).  Asking it first is also what keeps
+    that door walked: the template check below reads one attribute, so before
+    D3 a `SimpleNamespace(template_id=916, ...)` sailed past it and the
+    refusal that eventually fired came from a class this module never names.
+
+    SECOND, is it the RIGHT roster record?  `mob_defender` has no opinion
+    about WHICH monster, so a `replace(dummy, template_id=31)` used to come
+    back with a perfectly ordinary number -- see
     :class:`NotThePracticeDummyError`.  The template check is here rather than
     inside the formula because the formula is general and this projection is
     not: every sentence in this module is about the dummy.
     """
+    _typed_defender(mob)
     template = getattr(mob, "template_id", None)
     if template != field_mobs.TOWN_TARGET_N_ID:
         raise NotThePracticeDummyError(
@@ -410,11 +502,39 @@ def project_levels(mob: Any, levels: Any) -> tuple[ProjectedRow, ...]:
     function promises "the order given", and a `set` or a `dict` never gave
     one -- `tuple()` invented it.  A `str` is refused too: it iterates, so it
     would otherwise be read one character at a time.
+
+    D6: THE CHECK IS A WHITELIST NOW, BECAUSE THE BLACKLIST WAS A LIST OF
+    THREE TYPES AND NOT A TEST FOR ORDER.  `isinstance(levels, (set,
+    frozenset, dict, str, bytes))` named the three unordered containers
+    somebody thought of.  Measured, not argued: `dict.keys()` (a view, not a
+    `dict`), a generator over a set, and any subclass of
+    `collections.abc.Set` all walked through it, and the table then vouched
+    for "the order given" for a request that never had one.  Enumerating the
+    unordered types cannot work -- anyone can write a new one -- so the
+    question asked is the positive one: is this a `Sequence`, the protocol
+    that MEANS "indexed, and the index is the order"?  `list`, `tuple` and
+    `range` are; views, sets, generators and iterators are not.  `str`,
+    `bytes` and `bytearray` are Sequences and are still refused by name,
+    for the reason above: they would be read one element at a time and every
+    element is the wrong type.
+
+    A generator is refused even when it happens to wrap a list.  That is
+    deliberate and it is the cost of the rule: this function cannot see what
+    a generator is walking, so it cannot tell the honest one from the one
+    over a set, and guessing is what the whole class exists to stop.
+    Callers with a generator write `tuple(...)` and say so.
     """
-    if isinstance(levels, (set, frozenset, dict, str, bytes)):
+    if isinstance(levels, (str, bytes, bytearray)):
         raise UnorderedLevelRequestError(
-            "project_levels keeps the order it was given, so it will not take "
-            "a %s; hand it a list or a tuple" % (type(levels).__name__,))
+            "project_levels takes levels, and a %s would be read one element "
+            "at a time; hand it a list or a tuple"
+            % (type(levels).__name__,))
+    if not isinstance(levels, collections.abc.Sequence):
+        raise UnorderedLevelRequestError(
+            "project_levels keeps the order it was given, so it will only "
+            "take a Sequence (an indexed container, where the index IS the "
+            "order); a %s does not promise one -- hand it a list or a tuple"
+            % (type(levels).__name__,))
     wanted = tuple(levels)
     if not wanted:
         raise LevelProjectionError("project_levels needs at least one level")

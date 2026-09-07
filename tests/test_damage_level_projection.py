@@ -16,6 +16,7 @@ hit count in it silently wrong.  A derivation cannot anchor itself; one end of
 it has to be nailed to something that does not move when the source does.
 """
 
+import ast
 import math
 import pathlib
 import sys
@@ -48,6 +49,63 @@ PINNED_DUMMY_TEMPLATE_ID = 916
 LEVEL_PROBE_SPAN = 4096
 
 
+
+def _ABOVE_CEILING_PROBES(ceiling):
+    """Sampled levels above `ceiling`, spread over decades -- see step 3."""
+    return (ceiling + 1, 2 * ceiling, 5 * ceiling, 10 * ceiling,
+            100 * ceiling, 1000 * ceiling, 2 ** 31 - 1)
+
+
+def _declared_level_bounds():
+    """The `[minimum, maximum]` `Combatant.__post_init__` declares for `level`.
+
+    Read out of the shipped source with `ast` rather than out of a refusal
+    message, because a message is formatted by the same code that would have
+    to be wrong for this to matter.  The body is required to be nothing but
+    `_require_int` calls so that "this call is the accepted set" is a checked
+    statement and not an assumption -- see :func:`_combatant_max_level` step 1.
+    """
+    source = (ROOT / "src" / "pirateforce_foundation" / "mob_combat.py")
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    post_init = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "Combatant":
+            for item in node.body:
+                if (isinstance(item, ast.FunctionDef)
+                        and item.name == "__post_init__"):
+                    post_init = item
+    assert post_init is not None, (
+        "`Combatant.__post_init__` is not in the shipped source; this file "
+        "reads the level gate out of it")
+    found = []
+    for statement in post_init.body:
+        assert isinstance(statement, ast.Expr), (
+            "`Combatant.__post_init__` gained a statement that is not a bare "
+            "call (%s).  This file asserts the level gate is one "
+            "`_require_int` call; a second gate would make every sweep here "
+            "cover a subset of what the record accepts." % (
+                type(statement).__name__,))
+        call = statement.value
+        assert (isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Name)
+                and call.func.id == "_require_int"), (
+            "`Combatant.__post_init__` calls something other than "
+            "`_require_int`; see the assertion above for why that matters")
+        target = call.args[0]
+        if (isinstance(target, ast.Attribute) and target.attr == "level"):
+            bounds = call.args[2], call.args[3]
+            for bound in bounds:
+                assert isinstance(bound, ast.Constant) and isinstance(
+                    bound.value, int), (
+                    "the level bounds in `Combatant.__post_init__` are not "
+                    "plain int literals any more; this file cannot read them")
+            found.append((bounds[0].value, bounds[1].value))
+    assert len(found) == 1, (
+        "`Combatant.__post_init__` has %d range checks on `level`, not one; "
+        "the accepted set is no longer a single interval" % (len(found),))
+    return found[0]
+
+
 def _combatant_max_level():
     """The highest level the shipped `Combatant` accepts, MEASURED.
 
@@ -65,6 +123,39 @@ def _combatant_max_level():
     and then asserts the shape it was assuming: `[1, N]` with no holes.  Cheap
     at this size (a `Combatant` is three range checks), and the assertion is
     what makes the returned number mean "ceiling" rather than "first gap".
+
+    D5, AND THE SCAN ALONE DID NOT CLOSE IT.  Adversary showed the scan
+    version still measuring 1000 and the full suite still green with
+    `Combatant.__post_init__` patched to accept `[1, 1000] u [5000, 6000]`:
+    the second band sits ABOVE `LEVEL_PROBE_SPAN`, so `max(band)` never sees
+    it, the holes check only looks inside `[1, top]`, and `top <
+    LEVEL_PROBE_SPAN` reads as "the ceiling is inside the span" when what it
+    actually says is "nothing in the span above `top` is accepted".  No
+    amount of probing a bounded window can rule out an island outside it, so
+    this stops probing for the answer and asks the record where its gate is:
+
+      1. READ THE GATE.  `Combatant.__post_init__` is parsed out of the
+         shipped source and its body is required to be nothing but
+         `_require_int` calls, exactly one of which is about `level`, with
+         both bounds as plain int literals.  That call IS the accepted set --
+         `_require_int` refuses everything outside `[minimum, maximum]` --
+         so an island can only exist if the body is not that shape, which is
+         the assertion that fires.
+      2. CONFIRM IT BY MEASUREMENT.  `lo - 1` and `hi + 1` refused, `lo` and
+         `hi` accepted, and no holes anywhere in `[lo, hi]`.  A declaration
+         nothing checks is a comment; a measurement with no declaration
+         cannot see past its own window.  Both, or neither means anything.
+      3. SAMPLE ABOVE IT.  Decades above `hi` are asserted refused, which is
+         the cheap net for a gate that passes step 1 but is monkeypatched at
+         run time -- the exact shape adversary used.  `5 * hi` catches the
+         `[5000, 6000]` island on today's bounds.
+
+    NONCLAIM: step 3 is a sample, not a proof.  An island that clears every
+    sampled point AND leaves the source shape in step 1 untouched would still
+    pass, and there is no way to rule that out from a test.  What the three
+    steps together buy is that such an island can no longer be built by
+    monkeypatching `__post_init__` (step 1 or 3 fires) or by editing the
+    range check in place (step 1 fires).
     """
     def accepted(level):
         try:
@@ -73,20 +164,38 @@ def _combatant_max_level():
             return False
         return True
 
-    band = frozenset(l for l in range(1, LEVEL_PROBE_SPAN + 1) if accepted(l))
-    assert band, "the shipped Combatant accepts no level in the probe span"
-    assert 1 in band, "the shipped Combatant refuses level 1"
-    top = max(band)
-    assert top < LEVEL_PROBE_SPAN, (
-        "the shipped Combatant accepts %d, the top of this file's probe span; "
-        "widen LEVEL_PROBE_SPAN -- the ceiling is not inside it" % (top,))
-    holes = sorted(set(range(1, top + 1)) - band)
+    lo, hi = _declared_level_bounds()
+    assert accepted(lo), (
+        "`Combatant.__post_init__` declares levels [%d, %d] but refuses its "
+        "own lower bound %d" % (lo, hi, lo))
+    assert accepted(hi), (
+        "`Combatant.__post_init__` declares levels [%d, %d] but refuses its "
+        "own upper bound %d" % (lo, hi, hi))
+    assert not accepted(lo - 1), (
+        "`Combatant` declares [%d, %d] and still accepts %d; the declared "
+        "gate is not the gate" % (lo, hi, lo - 1))
+    assert not accepted(hi + 1), (
+        "`Combatant` declares [%d, %d] and still accepts %d; the declared "
+        "gate is not the gate" % (lo, hi, hi + 1))
+    assert hi <= LEVEL_PROBE_SPAN, (
+        "the shipped Combatant declares a ceiling of %d, above this file's "
+        "probe span; widen LEVEL_PROBE_SPAN" % (hi,))
+    band = frozenset(l for l in range(lo, hi + 1) if accepted(l))
+    holes = sorted(set(range(lo, hi + 1)) - band)
     assert not holes, (
-        "the shipped Combatant's accepted levels are not the interval [1, %d]:"
-        " it refuses %r (first %d shown).  Every sweep in this file assumes an"
-        " interval; fix the sweeps, do not delete this assertion."
-        % (top, holes[:8], min(len(holes), 8)))
-    return top
+        "the shipped Combatant's accepted levels are not the interval [%d, "
+        "%d]: it refuses %r (first %d shown).  Every sweep in this file "
+        "assumes an interval; fix the sweeps, do not delete this assertion."
+        % (lo, hi, holes[:8], min(len(holes), 8)))
+    islands = [probe for probe in _ABOVE_CEILING_PROBES(hi) if accepted(probe)]
+    assert not islands, (
+        "the shipped Combatant declares a ceiling of %d and still accepts %r;"
+        " an accepted level above the declared gate means every sweep in this"
+        " file covers a subset of what the record takes" % (hi, islands))
+    assert lo == 1, (
+        "this file's sweeps start at 1; the shipped Combatant's floor is %d"
+        % (lo,))
+    return hi
 
 
 COMBATANT_MAX_LEVEL = _combatant_max_level()
