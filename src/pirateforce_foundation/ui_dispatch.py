@@ -64,6 +64,7 @@ anything.  It moves exactly one thing: whether a return value is
 structurally possible.  Everything after that is a separate PR with its
 own evidence and its own GT ticket.
 """
+import math
 import numbers
 import sys
 
@@ -192,11 +193,22 @@ def _actions_are_well_formed(actions):
     The convention, shipped in every dispatch return in ``runtime.py`` and
     documented in ``logout_dialog_open_hypothesis.py``, is
     ``(label, pc, frame, delay)``: a non-empty ``str`` label, an ``int``
-    packet counter, ``bytes`` to write, and a non-negative real delay in
-    seconds.  ``bool`` is rejected where an int is wanted (it is an int in
-    Python and never a real packet counter), and ``str``/``bytearray`` are
-    NOT accepted as ``bytes``: a str would be encoded by somebody else's
-    guess of a codec, and a bytearray is mutable after this check.
+    packet counter, non-empty ``bytes`` to write, and a delay in seconds
+    that is real, finite and not negative.  ``bool`` is rejected where an
+    int is wanted (it is an int in Python and never a real packet
+    counter), and ``str``/``bytearray`` are NOT accepted as ``bytes``: a
+    str would be encoded by somebody else's guess of a codec, and a
+    bytearray is mutable after this check.
+
+    ``inf`` and ``nan`` are refused for the same reason as a negative
+    delay and are NOT covered by ``delay >= 0`` alone: ``nan`` fails that
+    comparison but ``inf`` passes it, and an action queued at ``inf``
+    seconds is a frame the player waits forever for -- indistinguishable
+    on the client from the server having answered nothing, with a slot
+    held open behind it.  An empty ``frame`` is refused on the same
+    principle: an action exists to put bytes on a socket, and one that
+    carries none is a lane bug that would otherwise ship as a silent
+    no-op wearing a success token.
     """
     if type(actions) not in (list, tuple):
         return False
@@ -208,11 +220,11 @@ def _actions_are_well_formed(actions):
             return False
         if not isinstance(pc, int) or isinstance(pc, bool):
             return False
-        if not isinstance(frame, bytes):
+        if not isinstance(frame, bytes) or not frame:
             return False
         if isinstance(delay, bool) or not isinstance(delay, numbers.Real):
             return False
-        if not delay >= 0:
+        if not delay >= 0 or not math.isfinite(delay):
             return False
     return True
 

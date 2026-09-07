@@ -309,6 +309,8 @@ class GateAndFailClosedTests(_RegistryIsolation):
             ("delay is a bool", [("L", 1, b"\x01", True)]),
             ("delay is a str", [("L", 1, b"\x01", "0")]),
             ("delay is nan", [("L", 1, b"\x01", float("nan"))]),
+            ("delay is inf", [("L", 1, b"\x01", float("inf"))]),
+            ("frame is empty", [("L", 1, b"", 0.0)]),
             ("one good one bad", [self.ACTION, ("L", 1, "bad", 0.0)]),
         ]
         for label, value in bad_values:
