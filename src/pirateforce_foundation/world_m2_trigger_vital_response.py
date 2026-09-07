@@ -237,9 +237,18 @@ THE SEAM, NAMED HONESTLY (for chief, one round out)
 -----------------------------------------------------
 ``runtime.py``'s TRIGGER_VITAL branch -- the one whose body spells
 ``lane_hooks.fire("vital_inbound_trigger_vital", ...)``, which is how to
-find it, because every LINE NUMBER this docstring used to carry had rotted
-by the time anyone came back to check (all four were re-measured and all
-four pointed at unrelated statements) -- always does:
+find it, because the LINE NUMBERS this docstring used to carry had rotted
+by the time anyone came back to check.  CORRECTED, BECAUSE THE FIRST
+VERSION OF THIS SENTENCE OVERCLAIMED AND pf-adversary MEASURED IT: there
+were FIVE such pins, not four, and the fifth (`_gm_warp_target_unknown_
+reason`, cited far below) was NOT stale -- the citation this round deleted
+as rotten was the one citation that still pointed at its subject.  The
+four that had rotted all rotted the SAME way: they were exact when written
+and every one of them drifted by +2 from one upstream two-line insertion.
+So "pointing at unrelated statements" is what they do NOW; "four unrelated
+rots" is not what happened, and the difference matters because a uniform
+drift is what a line pin always does eventually, not an accident somebody
+caused.  The branch always does:
 
     self.rx_frames += 1
     lane_hooks.fire("vital_inbound_trigger_vital", session=self,
@@ -701,8 +710,20 @@ def _position_is_inside_a_committed_extent(x: float, y: float, z: float) -> bool
     ``(x0, y0, z0, x1, y1, z1)`` with each low bound <= its high bound; a
     row written the other way round simply never contains anything, which
     is the fail-closed direction.
+
+    A row of the WRONG ARITY is skipped, not unpacked.  That hazard was
+    named only for reversed bounds until pf-adversary measured the other
+    one: a five-field typo raised ``ValueError: not enough values to
+    unpack`` straight out of ``candidate_for_trigger_id``, whose caller is
+    promised a named refusal and never an exception.  `RE-289`'s answer is
+    expected to arrive as hand-transcribed floats, so a typo in this table
+    is the likely failure, not the exotic one -- and skipping the row is
+    the same fail-closed direction reversed bounds already take.
     """
-    for x0, y0, z0, x1, y1, z1 in ISLAND_EXTENT_BOXES.values():
+    for box in ISLAND_EXTENT_BOXES.values():
+        if type(box) is not tuple or len(box) != 6:
+            continue
+        x0, y0, z0, x1, y1, z1 = box
         if x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1:
             return True
     return False
@@ -727,17 +748,35 @@ def _tier3_contact_reason(island_contact: object) -> str | None:
       2. the reading is missing, or is not EXACTLY an
          ``IslandContactEvidence``, or its fields are not exactly the types
          they are annotated as.  ``type(...) is`` throughout, NOT
-         ``isinstance``: this is the same call the file spends sixty lines
-         explaining in ``_is_a_wire_int``, and the first version of this
+         ``isinstance``: this is the same POSTURE the file spends sixty
+         lines explaining in ``_is_a_wire_int``, though deliberately not
+         the same predicate -- coordinates admit ``float`` and that one
+         does not, so the file has two type tests on purpose and the claim
+         that ``_is_a_wire_int`` is its "ONE answer" is scoped to the wire
+         INTEGERS of tiers 1 and 2 (pf-adversary read it as a claim about
+         the whole file, which is how it was written; corrected here), and the first version of this
          function got it wrong in the round written to fix it -- a
          ``str`` subclass whose ``__ne__`` raised made step 3 raise, and an
          ``IslandContactEvidence`` SUBCLASS overriding ``discriminator``
          with a property walked straight through.  Both were measured by
          pf-adversary against this round's own draft.
       3. the reading names a DIFFERENT measurement than the one this module
-         is currently enforcing.  Reached only once step 2 has established
-         both sides are exact ``str``, so ``!=`` here cannot dispatch to
-         anything a caller wrote.
+         is currently enforcing.  Reached only once BOTH sides are exact
+         ``str``, so ``!=`` here cannot dispatch to anything a caller wrote.
+         THE WORD "BOTH" IS THE FIX, AND IT COST A THIRD SIGHTING OF THE
+         SAME BUG.  Step 2 established it for the READING only; step 1 was
+         still spelled ``isinstance(ISLAND_CONTACT_DISCRIMINATOR, str)``,
+         so a ``str`` SUBCLASS assigned to the module constant reached step
+         3 -- and Python tries the RIGHT operand's ``__ne__`` first when its
+         type subclasses the left's, so that subclass's ``__ne__`` ran and
+         could raise, falsifying this function's "never raises" promise
+         from the side the two previous fixes never looked at.  Measured by
+         pf-adversary against THIS round's committed head, having been
+         measured twice before against two earlier drafts of the same
+         function.  Step 1 is ``type(...) is not str`` now.  Not
+         wire-reachable today (the constant is ``None``); armed for the
+         round that answers `RE-289`, where a "named measurement" is
+         exactly the shape a ``str`` subclass would arrive in.
       4. ``ISLAND_EXTENT_BOXES`` is empty -- NOBODY HAS COMMITTED AN EXTENT
          YET.  `RE-289` is numbered and open.  A discriminator NAME without
          a table behind it decides nothing, and this is the refusal that
@@ -753,7 +792,7 @@ def _tier3_contact_reason(island_contact: object) -> str | None:
     from hostile field types, not only by non-readings that die at step 2.
     """
     if (
-        not isinstance(ISLAND_CONTACT_DISCRIMINATOR, str)
+        type(ISLAND_CONTACT_DISCRIMINATOR) is not str
         or not ISLAND_CONTACT_DISCRIMINATOR.strip()
     ):
         return CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED
