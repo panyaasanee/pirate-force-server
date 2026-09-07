@@ -868,6 +868,77 @@ class DeferredRegistrationTests(RoundThreeFindingsTests):
                 )
         del functools
 
+    def test_a_class_registered_as_the_answerer_names_its_own_module(self):
+        """Self-review of round `lkswyp`, found after the first push.
+
+        A CLASS is callable: registering one and letting ``answer()``
+        call it builds an instance, so its code lives on ``__init__`` /
+        ``__call__`` ON the class.  ``type(a_class)`` is the METACLASS,
+        which names nobody, so before this the only witness for a class
+        was ``SomeClass.__module__`` -- the writable attribute the whole
+        fix exists to stop relying on.  Forged here, exactly as the
+        wrapper subtests forge theirs.
+        """
+        flusher = self._lane_module(
+            "lane_ui_zz_test_flusher_cls", self.FLUSHER_SOURCE, allowed=True
+        )
+        closed = self._lane_module(
+            "lane_ui_zz_test_class_answerer",
+            "class Answerer:\n"
+            "    def __init__(self, session=None, vital_id=None,"
+            " payload=None):\n"
+            "        self.actions = []\n"
+            "    def __iter__(self):\n"
+            "        return iter(self.actions)\n"
+            "made = Answerer\n",
+            allowed=False,
+        )
+        closed.made.__module__ = flusher.__name__
+        self.assertNotEqual(closed.made.__module__, closed.__name__)
+        flusher.PENDING.append((PARTY_INVITE_VITAL_ID, closed.made))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(flusher.flush(), [True])
+        self.assertIn(
+            closed.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+            "a class hid its author from the gate",
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
+
+    def test_the_identity_walk_names_a_fresh_callable_every_time(self):
+        """Two hundred fresh instances, collections forced between them.
+
+        WHAT THIS DOES NOT PROVE, SAID FIRST.  ``seen`` is an identity
+        set and ``getattr(type(x), "__call__")`` builds a NEW object per
+        access, so dropping the last reference to one lets CPython hand
+        its address to the next object built in the same walk, which
+        would then be skipped as "already seen".  ``_defining_module_
+        names`` keeps an ``alive`` list for that reason -- and a mutant
+        deleting that list SURVIVES this test.  So this is a smoke test
+        of the walk, not a proof of the keep-alive: the failure it
+        guards against is rare and load-dependent, and no test in this
+        file has reproduced it.  The fix is kept as cheap insurance and
+        is reported as an unkilled mutant, not as a paid finding.
+        """
+        import gc
+
+        class Answerer:
+            def __call__(self, session=None, vital_id=None, payload=None):
+                return []
+
+        missed = []
+        for i in range(200):
+            gc.collect() if i % 25 == 0 else None
+            names = ui_dispatch._defining_module_names(Answerer())
+            if names != (__name__,):
+                missed.append((i, names))
+        self.assertEqual(missed, [], "the identity walk lost a name")
+
     def test_an_attribute_that_raises_cannot_break_registration(self):
         """The unwrap chain runs answerer-controlled descriptors.
 

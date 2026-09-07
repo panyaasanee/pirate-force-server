@@ -196,7 +196,7 @@ def _module_name_of_namespace(namespace):
 # for a stack frame.  A file cannot point it at another module the way it
 # can assign ``fn.__module__``.
 _UNWRAP_ATTRS = ("__func__", "func", "__wrapped__")
-_UNWRAP_BUDGET = 8
+_UNWRAP_BUDGET = 12
 
 
 def _defining_module_names(fn):
@@ -242,6 +242,20 @@ def _defining_module_names(fn):
     """
     names = []
     seen = set()
+    # HOLD A REFERENCE TO EVERY OBJECT WHOSE id() IS IN ``seen``.
+    # ``seen`` is an identity set, and ``getattr(type(x), "__call__")``
+    # builds a NEW object on every access: pop the only reference to one
+    # and CPython is free to hand its address to the next object built
+    # here, which would then be skipped as "already seen" and its module
+    # left out of the gate.  That direction is a LOOSER gate, never a
+    # forged one, but it is still a name this function promised to find.
+    # Keeping the objects alive for the length of the walk makes ids
+    # unique for as long as they are used as keys.  NO TEST HAS
+    # REPRODUCED THE LOSS: a mutant deleting this list survives the
+    # suite, and it is reported as a survivor rather than counted as a
+    # paid finding.  It is kept because the cost is one list and the
+    # failure it prevents is load-dependent and silent.
+    alive = []
     pending = [fn]
     budget = _UNWRAP_BUDGET
     while pending and budget > 0:
@@ -251,6 +265,7 @@ def _defining_module_names(fn):
             if id(target) in seen:
                 continue
             seen.add(id(target))
+            alive.append(target)
             namespace = getattr(target, "__globals__", None)
             if isinstance(namespace, dict):
                 names.append(_module_name_of_namespace(namespace))
@@ -262,7 +277,19 @@ def _defining_module_names(fn):
                 nxt = getattr(target, attr, None)
                 if nxt is not None and callable(nxt):
                     pending.append(nxt)
-            if not isinstance(target, type):
+            if isinstance(target, type):
+                # A CLASS REGISTERED AS THE ANSWERER.  Calling it builds
+                # an instance, so its code is ``__init__``/``__call__``
+                # ON the class -- ``type(target).__call__`` below would
+                # ask the METACLASS, which is ``type`` and names nobody.
+                # Without this the only witness for a class is
+                # ``SomeClass.__module__``, which is the writable
+                # attribute this whole function exists to stop relying on.
+                for attr in ("__init__", "__call__"):
+                    nxt = getattr(target, attr, None)
+                    if getattr(nxt, "__globals__", None) is not None:
+                        pending.append(nxt)
+            else:
                 call = getattr(type(target), "__call__", None)
                 if getattr(call, "__globals__", None) is not None:
                     pending.append(call)
