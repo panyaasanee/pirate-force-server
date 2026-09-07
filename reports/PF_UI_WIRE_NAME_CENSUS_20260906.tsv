@@ -132,7 +132,7 @@ id	name	family	is_client_req	tier	evidence
 0x4DDA	CStartCooldownVital	(unprefixed)	0	NAME-ONLY	pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x515F	UpdateNPCAppearVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x51A2	CollectionObj_UpdateCollectionObjBagVital	CollectionObj_	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv+docs/UI_LANE.md
-0x51E9	GM_RunGMCommandVital	GM_	0	SOURCE	src/pirateforce_foundation/gm/command_capture.py
+0x51E9	GM_RunGMCommandVital	GM_	0	SOURCE	src/pirateforce_foundation/gm/arrival_ledger.py
 0x52D4	ServerAddedInfoVital	(unprefixed)	0	NAME-ONLY	pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x532C	AddEmbedSlotVitalReq	(unprefixed)	1	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x5354	AddEmbedSlotVitalRes	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
@@ -173,7 +173,7 @@ id	name	family	is_client_req	tier	evidence
 0x6764	InstanceStatisticVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x6853	ItemSynthesisStopVital	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x6936	CHitParadeResetVital_JP	CHitParadeResetVital_	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
-0x6CEC	Activity_CheatCodeVital	Activity_	0	SOURCE	src/pirateforce_foundation/gm/command_capture.py
+0x6CEC	Activity_CheatCodeVital	Activity_	0	SOURCE	src/pirateforce_foundation/gm/arrival_ledger.py
 0x6D09	GSSS_GuildEventVitalReq	GSSS_	1	NAME-ONLY	pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x6D23	ItemBindingLockVitalRes	(unprefixed)	0	NAME-ONLY	docs/PF_VITAL_NAMES.json+pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
 0x6D37	GSSS_GuildEventVitalRes	GSSS_	0	NAME-ONLY	pf_bridge/external/PF_PROTOCOL_REGISTRY.tsv+pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
