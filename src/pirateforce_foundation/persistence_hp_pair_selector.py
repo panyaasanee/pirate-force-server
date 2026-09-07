@@ -34,32 +34,40 @@ invented here:
   `0x430E10` and it is that function's RESULT that is compared with 8.
   Nothing in this repository can evaluate `0x430E10`.
 
-WHAT THIS MODULE ADDS OVER THE FENCE THAT ALREADY SHIPS -- the question the
-first draft was asked and did not answer.  `make_update_attr_frame`
-(`gm/attr_wire.py:992`) already refuses
+WHO CALLS THIS PREDICATE TODAY: NOBODY, AND THAT IS MEASURED, NOT AN
+OVERSIGHT.  Round `cgnzsd`'s first draft claimed this module was "one
+predicate short" of the fence at `gm/attr_wire.py:992` -- that the fence is a
+MEMBERSHIP test (`not ALT_HP_PAIR_ROWS <= set(values)`) which would admit
+`{9: 8, 52: 0, 53: 0}`.  pf-adversary refuted it in the same round and this
+lane re-measured the refutation before accepting it:
 
-    values.get(SELECTOR_ROW_X) == SELECTOR_COMPARED_VALUE
-    and not ALT_HP_PAIR_ROWS <= set(values)
+    login_mask.admitted_field_x_sets(legacy)
+      -> [[1, 2, 3, 4, 7, 9, 10, 13, 24], [1, 2, 3, 4, 7, 9, 10, 11, 13, 24]]
+    any admitted shape containing x=52 or x=53 -> False
 
-with its own console token `GM_ATTR_SELECTOR_STANDDOWN`.  That is a
-MEMBERSHIP test: it asks whether the two rows are in the block, never what
-they carry.  Measured on this tree (`test_incumbent_fence_admits_what_this_
-module_refuses` runs the incumbent's own clause, imported, not retyped):
+`make_update_attr_frame` refuses at `gm/attr_wire.py:955` any block whose key
+set does not EQUAL one of those two shapes, 37 lines BEFORE the fence at 992.
+So no block carrying x=52/x=53 can reach that fence at all, the membership
+clause there is always true, and the fence reduces to `values.get(9) == 8`
+alone -- which `gm/attr_wire.py:989-990` and `_refuse_selector_change`'s own
+docstring (`:1568`) already say in as many words, and the first draft cited
+992 without reading 989.  Wired at that call site, this predicate would
+refuse EXACTLY the blocks the incumbent already refuses, on every input the
+wall admits.  The CORE-REQUEST asking for that call site was WITHDRAWN in the
+same round it was written.
 
-    {9: 8}                        -> incumbent refuses   (this module too)
-    {9: 8, 52: 0, 53: 0}          -> incumbent ADMITS    -> HUD reads 0/0
-    {9: 8, 52: 0xFFFFFFFF, 53: 1} -> incumbent ADMITS    -> HUD reads -1/1
+So what is this module for, honestly stated:
 
-So the shipping fence is exactly one predicate short: presence, not honesty.
-This module is that predicate.  It is NOT a second permission gate -- it
-never admits anything the incumbent refuses, and there is a test pinning
-that direction (`test_this_module_never_admits_what_the_incumbent_refuses`).
-
-WIRING: none yet, deliberately.  The call site is one line inside
-`make_update_attr_frame`, which is LANE-GM/chief territory, not LANE-DB's.
-This round sends a CORE-REQUEST for that one line instead of reaching into
-another lane's file.  Until it is wired this module is a predicate plus a
-read-only report, and this docstring must not say otherwise.
+* `live_hp_pair_report` / `format_report` are a read-only measurement of what
+  each branch of the client's selector would display for one real character.
+  That is what `GT-291` needs a token from, and it needs no caller in `gm/`.
+* `guard_alternate_pair` is a predicate WITHOUT A REACHABLE CALLER TODAY.  It
+  becomes live the day a login shape carries x=52/x=53 -- i.e. the day the
+  (b'') set in `gm/login_mask` grows to include them -- and not before.  Its
+  branches are tested against hand-built blocks, and only
+  `REASON_ABSENT_READS_ZERO` is reachable from a block this server can
+  actually compose.  That is written here so nobody reads the test names as
+  production coverage.
 
 WHAT THIS MODULE DOES NOT CLAIM:
 
@@ -72,9 +80,10 @@ WHAT THIS MODULE DOES NOT CLAIM:
   this repository's own byte-exact sweep RETRACTED that name.
 * It does NOT send anything or touch any pre-existing function.
 
-Provenance labels naming files that live in the `pf_bridge` repository (not
-in this one, so a clone of this repository cannot open them) are marked
-`[pf_bridge]` where they appear, per pf-adversary D6.
+Every citation in this module names a file this repository ships, so a clone
+can open all of them (pf-adversary D6).  Ticket ids (`GT-218`, `RE-222`,
+`RE-286`) are ids, not paths, and the sentences they support are quoted from
+`gm/attr_wire.py` here rather than from the bridge repository.
 """
 
 from __future__ import annotations
@@ -147,13 +156,28 @@ _U32_MODULUS = 1 << 32
 #: [FRAME LAYER] the row is not in the block, so its mask bit is unset and
 #: the client's full-object-copy apply reads it as ZERO (`RE-222` Q0).
 REASON_ABSENT_READS_ZERO = "frame_layer_row_absent_unset_mask_bit_reads_zero"
-#: [FRAME LAYER] the row IS in the block and carries zero, which is the same
-#: number an unset bit produces and is never an honest HP.
+#: [FRAME LAYER] the row IS in the block and carries zero -- the same number
+#: an unset bit produces, so a reader cannot tell "the server said 0" from
+#: "the server said nothing".
+#:
+#: SCOPE, because the flat sentence would be false (pf-adversary `cgnzsd`,
+#: D8): `gm/attr_wire.py:211-213` says that for a character OUTSIDE a
+#: category-8 context the honest `alt_hp_current/alt_hp_max` is plausibly
+#: `0/0`.  This is a gap only where `guard_alternate_pair` looks at it -- in
+#: a block whose selector is armed, which is exactly the context where 0/0 is
+#: `GT-218`'s symptom rather than an honest pair.  Callers of
+#: `alternate_pair_gaps` on an unarmed block are reading a predicate outside
+#: the scope it is true in.
 REASON_ZERO = "frame_layer_row_carries_zero"
-#: [CONSTRUCTOR LAYER] the row carries the value the client would have held
-#: anyway if no frame had written it -- sending it changes nothing and hides
-#: that nothing was sent.
-REASON_CONSTRUCTION_DEFAULT = "constructor_layer_row_carries_client_construction_default"
+#: [FRAME LAYER, carrying a CONSTRUCTOR-LAYER value] a frame is actively
+#: transmitting the number the client would have held anyway if no frame had
+#: written the row.  The EVENT is frame layer -- a frame did write it -- and
+#: the VALUE is the constructor default, so the reason name says frame layer
+#: and the word `construction_default` names the value (pf-adversary round
+#: `cgnzsd`, D7: the first spelling labelled the event by the value's layer,
+#: so an operator filtering the console for `frame_layer_` missed the one
+#: refusal where the server was actively transmitting -1).
+REASON_CONSTRUCTION_DEFAULT = "frame_layer_row_transmits_client_construction_default"
 #: [FRAME LAYER] the row decodes to a negative number on a HUD that prints
 #: this row signed.
 REASON_NEGATIVE = "frame_layer_row_displays_as_negative"
@@ -249,6 +273,12 @@ def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
     character's real HP -- this function is handed values, it does not know
     where they came from.
 
+    SCOPE.  This predicate is written for a block whose selector is ARMED,
+    which is the only context `guard_alternate_pair` calls it in.  Outside
+    that context `0/0` can be an honest alternate pair
+    (`gm/attr_wire.py:211-213`), so a caller applying this to an unarmed
+    block is using it outside the range it is true in.
+
     ZERO IS A GAP, and that is the whole correction of round `cgnzsd`.  The
     first draft refused the construction default and negatives and had no
     opinion about zero, which inverted the guard with respect to this
@@ -274,6 +304,10 @@ def alternate_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
     if not gaps:
         current = as_signed_u32(values[ALTERNATE_PAIR[0]])
         maximum = as_signed_u32(values[ALTERNATE_PAIR[1]])
+        # `>` not `>=`: current EQUAL to max is a character at full HP,
+        # the commonest honest state there is.  pf-adversary `cgnzsd` D6
+        # mutated this to `>=` and no test went red; the test named
+        # `test_full_hp_is_honest` is that mutant's headstone.
         if current > maximum:
             gaps.append(
                 PairGap(
@@ -374,6 +408,10 @@ def live_hp_pair_report(store, character_id: int) -> HpPairReport:
             ALTERNATE_CONSTRUCTION_DEFAULTS[0]
         ),
         alternate_if_unset_max=as_signed_u32(ALTERNATE_CONSTRUCTION_DEFAULTS[1]),
+        # Derived from `SERVER_OWNED_FIELDS`, never written as `False`.
+        # pf-adversary `cgnzsd` D6 replaced this expression with the literal
+        # `False` and the whole suite stayed green; `test_the_supplied_flag_
+        # follows_the_server_owned_set` is what kills that mutant now.
         alternate_pair_supplied=bool(server_owned_alternate),
     )
 

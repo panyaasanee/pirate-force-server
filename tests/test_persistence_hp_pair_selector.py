@@ -11,11 +11,12 @@ to the frame layer when it is a constructor fact
 over the fence that already ships, and the answer is measured rather than
 argued in `TheIncumbentFenceIsOnePredicateShortTests`.
 
-`NOW.md` (COO round `0445`) carries one line for this lane that is not the
-equip arm: a creation ticket for A/DB, "leaving 126 restores HP; BoatHealth
-must not be -1".  The owner's observation behind it
-(`notes_to_chief/20260907_0123_KA1A-R322B-RESULTS-*.md`) is that the self
-panel showed HP **-1/1** at sea and STILL showed HP -1 after landing.
+The owner's attended observation this lane was pointed at (`GT-218`'s
+family, recorded in the bridge repository which a clone of THIS repository
+cannot open, so it is cited by ticket id and not by path): the self panel
+showed HP **-1/1** at sea and STILL showed HP -1 after landing.  Everything
+this file asserts about the mechanism is quoted from `gm/attr_wire.py` and
+`persistence_attr_compose.py`, both of which ship here.
 
 WHAT THIS FILE PROVES (wire/DB layer only -- nothing here is on a screen):
 
@@ -33,9 +34,11 @@ WHAT THIS FILE PROVES (wire/DB layer only -- nothing here is on a screen):
 5. `live_hp_pair_report` reads a real migrated store through LANE-DB's own
    `read_typed_attributes`, writes nothing, and reports an unseeded HP as
    `None` rather than 0.
-6. Nothing in the module or this file claims scene 126 is category 8, or
-   names any scene that takes the alternate pair.  `SELECTOR_NOTE_R301`
-   says the mapping is not decoded; a test greps for the overclaim.
+6. Neither file names a scene id in a sentence about the selector, and
+   neither claims any scene takes the alternate pair.
+   `SELECTOR_NOTE_R301` says the mapping is not decoded; a sentence-scoped
+   detector, pinned against the five sentences that defeated its previous
+   version, scans both files for the overclaim.
 
 WHAT THIS FILE DOES NOT PROVE.  It does not evaluate `0x430E10` -- nothing
 in this repository can.  It does not claim the alternate branch is what the
@@ -55,6 +58,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import persistence_attr_compose as compose  # noqa: E402,E501
 from pirateforce_foundation import persistence_hp_pair_selector as sel  # noqa: E402,E501
 from pirateforce_foundation.gm import attr_wire  # noqa: E402
+from pirateforce_foundation.gm import login_mask  # noqa: E402
+from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -224,9 +229,14 @@ class TheGuardHasTeethTests(unittest.TestCase):
         )
         self.assertIsNone(sel.guard_alternate_pair({}))
 
-    def test_every_reason_string_is_reachable_from_the_guard(self):
-        """An unreachable reason is a reason nobody tested.  Each block below
-        must produce exactly the reason it is named for."""
+    def test_every_reason_string_is_reachable_from_a_hand_built_block(self):
+        """Each block below must produce the reason it is named for.
+
+        THE NAME IS DELIBERATELY NARROW (pf-adversary `cgnzsd`, D3).  Only
+        `REASON_ABSENT_READS_ZERO` is reachable from a block
+        `make_update_attr_frame` can admit -- the other five need a block
+        carrying x=52/x=53, which no login shape does.  This proves the
+        branches work, not that production can take them."""
         armed = sel.SELECTOR_ARMED_VALUE
         cases = {
             sel.REASON_ABSENT_READS_ZERO: {sel.SELECTOR_FIELD: armed},
@@ -293,6 +303,67 @@ class TheGuardHasTeethTests(unittest.TestCase):
             sel.guard_alternate_pair(values)
 
 
+class TheMutantsPfAdversaryFoundAliveTests(unittest.TestCase):
+    """Round `cgnzsd`'s second pf-adversary pass (D6) applied 29 mutants and
+    four survived the whole suite.  One test each, named for its mutant."""
+
+    def test_full_hp_is_honest(self):
+        """Mutant: `current > maximum` -> `>=`.  It survived because nothing
+        exercised `current == max`, the commonest honest HP state there is."""
+        values = {
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+            sel.ALTERNATE_PAIR[0]: 87,
+            sel.ALTERNATE_PAIR[1]: 87,
+        }
+        self.assertEqual(sel.alternate_pair_gaps(values), ())
+        self.assertIsNone(sel.guard_alternate_pair(values))
+
+    def test_the_supplied_flag_follows_the_server_owned_set(self):
+        """Mutant: `alternate_pair_supplied=bool(...)` -> `=False`.  The
+        docstring claims the flag is DERIVED; this holds it to that."""
+
+        class _Store:
+            def read_typed_attributes(self, character_id):
+                return {"hp_current": 10, "hp_max": 20}
+
+        original = compose.SERVER_OWNED_FIELDS
+        try:
+            self.assertFalse(sel.live_hp_pair_report(_Store(), 1).alternate_pair_supplied)
+            compose.SERVER_OWNED_FIELDS = frozenset(
+                set(original) | set(sel.ALTERNATE_PAIR)
+            )
+            self.assertTrue(sel.live_hp_pair_report(_Store(), 1).alternate_pair_supplied)
+        finally:
+            compose.SERVER_OWNED_FIELDS = original
+        self.assertFalse(sel.live_hp_pair_report(_Store(), 1).alternate_pair_supplied)
+
+    def test_the_console_token_literal_is_pinned(self):
+        """Mutant: rename the token.  A log-grepper watching for this exact
+        string breaks silently when it changes, so the string is the
+        contract, not merely 'different from LANE-GM's'."""
+        self.assertEqual(sel.HP_PAIR_REFUSED_CONSOLE_TOKEN, "DB_HP_PAIR_DISHONEST")
+
+    def test_an_unknown_row_raises_instead_of_inventing_a_name(self):
+        """Mutant: `_field_name`'s raise -> `return f"x{x}"`.  It survived
+        because the only test comparing names compared the function with
+        itself.  `attr_wire.FIELDS` is 0-based and dense, so a row index one
+        past the end is unknown by construction."""
+        unknown = max(row[0] for row in attr_wire.FIELDS) + 1
+        with self.assertRaises(sel.HpPairError):
+            sel._field_name(unknown)
+
+    def test_the_field_names_match_the_wire_table_not_this_module(self):
+        """The tautology the mutant hid behind: compare against
+        `attr_wire.FIELDS` directly, never against `_field_name` itself."""
+        by_x = {row[0]: row[6] for row in attr_wire.FIELDS}
+        gaps = sel.alternate_pair_gaps(
+            {sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE}
+        )
+        self.assertEqual(
+            [g.field_name for g in gaps], [by_x[x] for x in sel.ALTERNATE_PAIR]
+        )
+
+
 class ZeroIsTheSymptomNotAnHonestValueTests(unittest.TestCase):
     """pf-adversary D1.  `gm/attr_wire.py:105` (`RE-222` Q0) and
     `_refuse_selector_change`'s own docstring both say an unset mask bit is a
@@ -337,7 +408,10 @@ class ZeroIsTheSymptomNotAnHonestValueTests(unittest.TestCase):
         """If LANE-GM ever retracts that sentence, this guard's premise is
         gone and this test says so instead of the guard living on."""
         wire_text = (SRC / "gm" / "attr_wire.py").read_text(encoding="utf-8")
-        self.assertIn("unset\nbit a ZERO on the client", wire_text)
+        # Substrings that fit on ONE source line, so LANE-GM re-wrapping a
+        # paragraph does not turn LANE-DB's suite red with a message naming
+        # LANE-DB (pf-adversary `cgnzsd`, D9).
+        self.assertIn("a ZERO on the client", wire_text)
         self.assertIn("HP `0/0`", wire_text)
 
 
@@ -403,22 +477,35 @@ class TheTwoLayersAreNamedSeparatelyTests(unittest.TestCase):
     number as if the frame produced it."""
 
     def test_every_reason_declares_its_layer(self):
+        """Every reason names the layer of the EVENT it reports.  All six are
+        frame-layer events today: something a frame did or failed to do.  The
+        constructor layer appears in `format_report`, which describes a state
+        no frame caused, and nowhere else."""
         for reason in sel.ALL_REASONS:
             with self.subTest(reason=reason):
-                self.assertTrue(
-                    reason.startswith("frame_layer_")
-                    or reason.startswith("constructor_layer_"),
-                    reason,
-                )
+                self.assertTrue(reason.startswith("frame_layer_"), reason)
 
     def test_the_absent_row_reason_is_a_frame_layer_reason(self):
         self.assertTrue(sel.REASON_ABSENT_READS_ZERO.startswith("frame_layer_"))
         self.assertIn("zero", sel.REASON_ABSENT_READS_ZERO)
 
-    def test_the_construction_default_reason_is_a_constructor_layer_reason(self):
+    def test_the_construction_default_reason_is_a_frame_layer_event(self):
+        """pf-adversary `cgnzsd` D7: a frame that puts 0xFFFFFFFF on the wire
+        is a FRAME-layer lie whose VALUE happens to be the constructor
+        default.  Labelling the event `constructor_layer_` hid it from an
+        operator filtering the console for `frame_layer_`."""
         self.assertTrue(
-            sel.REASON_CONSTRUCTION_DEFAULT.startswith("constructor_layer_")
+            sel.REASON_CONSTRUCTION_DEFAULT.startswith("frame_layer_")
         )
+        self.assertIn("construction_default", sel.REASON_CONSTRUCTION_DEFAULT)
+        gaps = sel.alternate_pair_gaps(
+            {
+                sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+                sel.ALTERNATE_PAIR[0]: sel.ALTERNATE_CONSTRUCTION_DEFAULTS[0],
+                sel.ALTERNATE_PAIR[1]: 100,
+            }
+        )
+        self.assertEqual([g.reason for g in gaps], [sel.REASON_CONSTRUCTION_DEFAULT])
 
     def test_the_refusal_message_names_both_layers_and_confuses_neither(self):
         message = sel.refusal_message(
@@ -504,60 +591,148 @@ class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
             attr_wire.SELECTOR_STANDDOWN_CONSOLE_TOKEN,
         )
 
-    def test_this_module_is_not_wired_into_the_wire_module(self):
-        """Stated as a fact in the module docstring, so it must be true: the
-        call site is chief's to add, and this round only asks for it."""
-        wire_text = (SRC / "gm" / "attr_wire.py").read_text(encoding="utf-8")
-        self.assertNotIn("persistence_hp_pair_selector", wire_text)
+    def test_no_block_carrying_the_alternate_pair_can_reach_that_fence(self):
+        """pf-adversary `cgnzsd` D1, re-measured by this lane and ACCEPTED.
+
+        `make_update_attr_frame` refuses at `gm/attr_wire.py:955` any block
+        whose key set does not EQUAL an admitted login shape, 37 lines before
+        the fence at 992.  Neither admitted shape carries x=52/x=53, so the
+        membership clause at 992 is always true and the incumbent reduces to
+        `values.get(9) == 8` alone -- which `gm/attr_wire.py:989-990` already
+        says.  The first draft of this round cited 992 without reading 989
+        and claimed a hole that cannot be reached.  This test is that
+        correction, pinned to LANE-GM's own function so it cannot rot."""
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        shapes = login_mask.admitted_field_x_sets(legacy)
+        self.assertTrue(shapes)
+        for shape in shapes:
+            with self.subTest(shape=list(shape)):
+                self.assertFalse(set(shape) & set(sel.ALTERNATE_PAIR))
+                self.assertIn(attr_wire.SELECTOR_ROW_X, shape)
+
+    def test_wiring_this_module_at_that_fence_would_add_nothing(self):
+        """The consequence of the test above, measured over the whole domain
+        that can reach the fence: both admitted shapes x every byte x=9 can
+        carry.  This is why the round's own CORE-REQUEST was withdrawn."""
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        shapes = login_mask.admitted_field_x_sets(legacy)
+        disagreements = []
+        for shape in shapes:
+            for selector_byte in range(256):
+                values = {x: 1 for x in shape}
+                values[attr_wire.SELECTOR_ROW_X] = selector_byte
+                if self._incumbent_refuses(values) != self._this_module_refuses(
+                    values
+                ):
+                    disagreements.append((sorted(shape), selector_byte))
+        self.assertEqual(disagreements, [])
+
+    def test_the_module_says_out_loud_that_it_has_no_caller(self):
+        """The claim that keeps this module honest while it waits for one."""
+        text = MODULE_FILE.read_text(encoding="utf-8")
+        self.assertIn("WHO CALLS THIS PREDICATE TODAY: NOBODY", text)
+        self.assertIn("WITHDRAWN", text)
 
 
 class TheModuleDoesNotDecodeCategoryEightTests(unittest.TestCase):
     """`SELECTOR_NOTE_R301`: "WHAT CATEGORY 8 IS: not decoded".  An earlier
     draft of that very note had to strike out a sentence telling a tester
     which scene to visit.  This test is that lesson, applied to this lane's
-    own file."""
+    own files.
 
-    _FORBIDDEN = (
-        re.compile(r"scene\s*126\s*(is|=|==)", re.IGNORECASE),
-        re.compile(r"126\s*(is|=|==)\s*category", re.IGNORECASE),
-        re.compile(r"category\s*8\s*(is|means)\s+(the\s+)?(sea|boat|ocean|water)",
-                   re.IGNORECASE),
+    REWRITTEN IN ROUND `cgnzsd` (pf-adversary D4).  The first detector matched
+    three verb patterns and excused any hit with the word `not`/`no`/`never`
+    anywhere in the preceding 60 characters, whatever that word negated.  Five
+    of five realistic evasions walked through it, and its single control was
+    the one sentence engineered to match, so the gate read green.
+
+    THE RULE NOW, and its honest limits.  A SENTENCE is forbidden when it
+    names a scene number AND one of the selector's subjects (category, the
+    alternate pair, x=52/x=53, `0x430E10`), unless that same sentence carries
+    an explicit disclaimer phrase.  Proximity is gone; the excuse must be in
+    the sentence that makes the claim.  This is still a smoke alarm and not a
+    proof -- English can express the claim without a number, and this does
+    not read English.  It is pinned against a corpus of the five sentences
+    that defeated the previous version, and it scans BOTH files, because the
+    previous one scanned only the module."""
+
+    _SCENE_NUMBER = re.compile(r"\bscene\s*\d+\b|\b126\b", re.IGNORECASE)
+    _SELECTOR_SUBJECT = re.compile(
+        r"category|alternate\s+(hp\s+)?pair|x=5[23]|0x430E10", re.IGNORECASE
+    )
+    _DISCLAIMER = re.compile(
+        r"does\s+not\s+claim|not\s+decoded|is\s+undecoded|"
+        r"no\s+function\s+(here|in\s+this\s+module)\s+computes",
+        re.IGNORECASE,
     )
 
+    # BEGIN CONTROL CORPUS -- excluded from the scan by `_scannable`, because
+    # these sentences are the thing being detected, not claims of this file.
+    _EVASIONS_THAT_MUST_BE_CAUGHT = (
+        "Scene 126 takes the alternate pair; category 8 covers open water.",
+        "There is no doubt about this now: scene 126 is category 8.",
+        "The mapping was measured. It is not a guess -- scene 126 is category 8.",
+        "Testers should visit scene 126 to hit the alternate HP pair.",
+        "0x430E10(126) returns 8, so 126 selects x=52/x=53.",
+    )
+    # END CONTROL CORPUS
+
+    _SENTENCE = re.compile(r"[^.!?\n]+")
+
+    @classmethod
+    def _offending_sentences(cls, text):
+        found = []
+        for match in cls._SENTENCE.finditer(text):
+            sentence = match.group(0)
+            if not cls._SCENE_NUMBER.search(sentence):
+                continue
+            if not cls._SELECTOR_SUBJECT.search(sentence):
+                continue
+            if cls._DISCLAIMER.search(sentence):
+                continue
+            found.append(sentence.strip())
+        return found
+
     @staticmethod
-    def _affirmative_hits(text, pattern):
-        """Matches that are NOT inside an explicit denial.
+    def _scannable(path):
+        """A file's own text minus the control corpus delimited above."""
+        text = path.read_text(encoding="utf-8")
+        begin = text.find("# BEGIN CONTROL CORPUS")
+        stop = text.find("# END CONTROL CORPUS")
+        if begin == -1 or stop == -1:
+            return text
+        return text[:begin] + text[stop:]
 
-        The module states the forbidden claim in order to disown it ("It
-        does NOT claim scene 126 is category 8"), so a raw search would
-        forbid the disclaimer and permit nothing else.  A hit counts only
-        when no denial word stands in the 60 characters before it."""
-        denial = re.compile(r"\b(not|never|no)\b", re.IGNORECASE)
-        hits = []
-        for match in pattern.finditer(text):
-            window = text[max(0, match.start() - 60):match.start()]
-            if not denial.search(window):
-                hits.append(match.group(0))
-        return hits
+    def test_neither_file_maps_a_scene_to_the_category(self):
+        for path in (MODULE_FILE, Path(__file__).resolve()):
+            with self.subTest(path=path.name):
+                self.assertEqual(self._offending_sentences(self._scannable(path)), [])
 
-    def test_the_module_never_maps_a_scene_to_the_category(self):
-        text = MODULE_FILE.read_text(encoding="utf-8")
-        for pattern in self._FORBIDDEN:
-            with self.subTest(pattern=pattern.pattern):
-                self.assertEqual(self._affirmative_hits(text, pattern), [])
+    def test_the_detector_catches_every_sentence_that_defeated_the_last_one(self):
+        """Control.  Without this the rule could be widened until it permits
+        everything, which is exactly how the previous version died."""
+        for sentence in self._EVASIONS_THAT_MUST_BE_CAUGHT:
+            with self.subTest(sentence=sentence):
+                self.assertNotEqual(self._offending_sentences(sentence), [])
 
-    def test_the_detector_still_catches_an_undenied_claim(self):
-        """Control: without this, the denial window could be widened until
-        the detector permits everything."""
-        for pattern in self._FORBIDDEN:
-            with self.subTest(pattern=pattern.pattern):
-                self.assertNotEqual(
-                    self._affirmative_hits(
-                        "scene 126 is category 8, and category 8 is the sea.",
-                        pattern,
-                    ),
-                    [],
-                )
+    def test_the_detector_still_lets_an_explicit_disclaimer_through(self):
+        """The other direction: a rule that forbids the disclaimer too would
+        make the module unable to say what it does not claim."""
+        self.assertEqual(
+            self._offending_sentences(
+                "It does not claim scene 126 is category 8."
+            ),
+            [],
+        )
+
+    def test_the_control_corpus_is_actually_excluded_from_the_scan(self):
+        """If the exclusion silently stopped working the suite would go red
+        on its own controls; if it silently swallowed the whole file the scan
+        would pass on anything.  Both directions pinned here."""
+        own = Path(__file__).resolve()
+        scanned = self._scannable(own)
+        self.assertNotIn(self._EVASIONS_THAT_MUST_BE_CAUGHT[0], scanned)
+        self.assertIn("def test_neither_file_maps_a_scene_to_the_category", scanned)
 
     def test_the_module_says_the_comparison_is_on_the_result(self):
         text = MODULE_FILE.read_text(encoding="utf-8")
