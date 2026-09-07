@@ -1540,8 +1540,9 @@
     {
       "key": "lupa_package",
       "module": "tests/test_world_m2_teleport_check_host_door.py",
-      "count": 7,
+      "count": 8,
       "tests": [
+        "TheHostHandsTheTravelOrderOutTests::test_a_host_with_no_character_bound_refuses_instead_of_recording",
         "TheHostHandsTheTravelOrderOutTests::test_a_load_script_file_host_carries_the_sink_through_too",
         "TheHostHandsTheTravelOrderOutTests::test_a_script_calling_teleport_check_lands_in_the_hosts_own_sink",
         "TheHostHandsTheTravelOrderOutTests::test_a_script_passing_a_bad_id_is_refused_by_name_not_by_a_raise",
@@ -1550,7 +1551,7 @@
         "TheHostHandsTheTravelOrderOutTests::test_the_sink_the_caller_supplied_is_the_one_that_is_written_to",
         "TheHostHandsTheTravelOrderOutTests::test_two_hosts_never_share_one_sink"
       ],
-      "note": "round ew9416 (LANE-A). New module: the M2 travel order's door out of the Lua namespace (pf-adversary D2 of round ebh143). Every test here drives a live ScriptHost, so the whole class carries ONE key and each of the 7 methods carries the class decorator -- no stacked second precondition, which is the drift shape COO-DECISION 20260906_0550 traced to a red gate. The module reads no sibling checkout (no fixture, no gamedata): the namespace-level behaviour that needs no Lua is pinned in tests/test_world_m2_teleport_check.py instead, which stays unguarded. MEASURED, not predicted: the module was collected with lupa absent and reported exactly these 7 skips, and 7 only."
+      "note": "round ew9416 (LANE-A). New module: the M2 travel order's door out of the Lua namespace (pf-adversary D2 of round ebh143). Every test here drives a live ScriptHost, so the whole class carries ONE key and each of the 7 methods carries the class decorator -- no stacked second precondition, which is the drift shape COO-DECISION 20260906_0550 traced to a red gate. The module reads no sibling checkout (no fixture, no gamedata): the namespace-level behaviour that needs no Lua is pinned in tests/test_world_m2_teleport_check.py instead, which stays unguarded. MEASURED, not predicted: the module was collected with lupa absent and reported exactly these 8 skips, and 8 only. Round ew9416 added the eighth (a host with no player_context refuses to file an order at all, chief letter 20260908_0432 D6) and made the module collectable on its own, which is the command this note tells a reader to rehearse with."
     }
   ],
   "windows_gate_excluded_modules": {

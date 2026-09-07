@@ -118,6 +118,12 @@ TELEPORT_CHECK_FIELD_TAG = 0x0F
 #: relabelled as a field bound it is not).
 MARKER_ID_MIN = 1
 MARKER_ID_MAX = 0xFFFF
+#: The value the comment above is about, named so the two refusals can be
+#: told apart in code as well as in prose.  ``MARKER_ID_MIN`` stays 1
+#: because 1 is still the lowest id this door will resolve; what changed
+#: in round `ew9416` is that reaching it with 0 is no longer reported as
+#: an id the FIELD could not carry.
+MARKER_ID_ABSENT_SENTINEL = 0
 
 #: ``n_SCENE_TYPE == 8`` -- open sea.  RE-303 counted the type-8 rows in
 #: ``CONSTDATA_TH__SCENE_NAME.tsv`` and got exactly {126, 127, 128, 304, 305},
@@ -134,6 +140,25 @@ CONFIRM_ID_DOCKING = 22        # UI_MESSAGE 1133, every other scene type
 CHECK_REFUSED_BAD_ARITY = "CHECK_REFUSED_BAD_ARITY"
 CHECK_REFUSED_MARKER_ID_NOT_AN_INT = "CHECK_REFUSED_MARKER_ID_NOT_AN_INT"
 CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD = "CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD"
+#: ``0`` is INSIDE the u16 the wire carries and outside this door, so it
+#: gets a name of its own rather than borrowing the field refusal.  The
+#: same mistake D6 fixed for arity was still live here: a reader of a run
+#: tally saw "an id the wire could not carry" for the client's own "this
+#: scene names no marker" sentinel, whose fix is in the CALLER that looked
+#: a marker up and got nothing, not in the number it passed
+#: (pf-adversary, round `ew9416`, D-A2).  The only script in the shipped
+#: corpus that calls this name (``t_telchk_lv.lua``) passes an unbound
+#: ``Trigger.Var1``, which is exactly this case.
+CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL = (
+    "CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL")
+#: An order recorded against a character the CONNECTION never proved can
+#: never be consumed: the dispatch branch takes with the id the socket
+#: proved (``foundation.selected.id``), so an order filed under the script
+#: context default 0 opens a window and then refuses its own echo -- the
+#: "window that goes nowhere" of R307, produced by this chain itself
+#: (chief letter `20260908_0432`, D6).  Refused BY NAME here so the
+#: misconfiguration is a counted refusal instead of a dead window.
+CHECK_REFUSED_NO_CHARACTER_BOUND = "CHECK_REFUSED_NO_CHARACTER_BOUND"
 CHECK_REFUSED_MARKER_ROW_NOT_PINNED = "CHECK_REFUSED_MARKER_ROW_NOT_PINNED"
 ECHO_REFUSED_NOTHING_PENDING = "ECHO_REFUSED_NOTHING_PENDING"
 ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER = "ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER"
@@ -206,8 +231,15 @@ def coerce_wire_marker_id(value: Any) -> int | None:
     first collapses both refusals into "not an int" and that name then names
     nothing that can happen: measured by pf-adversary in round `ebh143` (D6)
     at the only live door there is, where ``Player.TeleportCheck(70000)`` and
-    ``Player.TeleportCheck(0)`` -- the client's own "this scene names no
-    marker" sentinel -- were both counted as NOT_AN_INT.
+    ``Player.TeleportCheck(-1)`` were counted as NOT_AN_INT.  THE NARROWER
+    SENTENCE IS THE TRUE ONE (pf-adversary, round `ew9416`, D-A2, re-measured
+    against `origin/main` before it was accepted): ``_coerce_int``'s floor is
+    0, so ``Player.TeleportCheck(0)`` -- the client's own "this scene names no
+    marker" sentinel -- always did reach a named refusal.  It reached the
+    FIELD refusal, which was the wrong name for it; it now reaches
+    ``CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL``.  What was unreachable from
+    a live call was the field refusal for ids ABOVE the ceiling and for
+    NEGATIVE ids, and that is what this function fixed.
 
     ``bool`` is rejected with the ints (``True`` is an int and would resolve
     row 1), a float is accepted only when it carries an exact integer because
@@ -294,11 +326,17 @@ def marker_destination(marker_id: Any) -> MarkerDestination:
     if coerced is None:
         raise TeleportCheckError(
             "%s marker_id=%r" % (CHECK_REFUSED_MARKER_ID_NOT_AN_INT, marker_id))
-    if not (MARKER_ID_MIN <= coerced <= MARKER_ID_MAX):
+    if coerced == MARKER_ID_ABSENT_SENTINEL:
+        raise TeleportCheckError(
+            "%s marker_id=0 (the SCENE_NAME sentinel for \"this scene names no "
+            "marker\"; the wire carries 0 perfectly well, so fix the lookup "
+            "that produced it, not the field)"
+            % CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL)
+    if not (0 <= coerced <= MARKER_ID_MAX):
         raise TeleportCheckError(
             "%s marker_id=%d field=u16 range=%d..%d"
             % (CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD, coerced,
-               MARKER_ID_MIN, MARKER_ID_MAX))
+               0, MARKER_ID_MAX))
     arrival = _by_marker_id().get(coerced)
     if arrival is None:
         raise TeleportCheckError(
@@ -505,14 +543,44 @@ def encode_transport(legacy: Any, pending: PendingCheck) -> tuple[bytes, bytes]:
 
 
 def prompt_console_line(pending: PendingCheck) -> str:
-    """ASCII only (the bridge console is cp874): what was sent, and what the
-    client is expected to draw for it."""
+    """ASCII only (the bridge console is cp874): what this server RECORDED.
+
+    IT IS NOT A SEND RECEIPT, AND IT NO LONGER READS LIKE ONE.  This line is
+    printed by the Lua-layer door the moment ``Player.TeleportCheck`` files an
+    order; ``encode_prompt`` is not called on this path and no byte reaches a
+    socket from it.  The previous wording (``PROMPT`` + "what was sent") was
+    byte-for-byte the line ``GT-309`` named as the proof that the server SENT
+    ``0x4477``, so an attended ticket could have boarded the capture bus on a
+    token that proves only that a script asked (pf-adversary, round `ew9416`,
+    D-A1).  The verb now says which half fired, and ``sent=0`` says the other
+    half did not: what a send looks like is :func:`prompt_sent_console_line`,
+    which only the code path holding the bytes may print.
+    """
     d = pending.destination
     return (
-        "%s PROMPT marker=%d scene=%d xyz=%d,%d,%d dir=%d"
-        " confirm_predicted=%d window_expected=%d"
+        "%s ORDER_RECORDED marker=%d scene=%d xyz=%d,%d,%d dir=%d"
+        " confirm_predicted=%d window_expected=%d sent=0"
         % (TOKEN, pending.marker_id, d.scene_id, d.x, d.y, d.z, d.direction,
            pending.confirm_id, int(pending.window_expected)))
+
+
+def prompt_sent_console_line(pending: PendingCheck, frame_bytes: int) -> str:
+    """The line for a ``TeleportCheckVital`` this server HANDED TO A SEND PATH.
+
+    ONLY THE CALLER THAT HOLDS THE BYTES MAY PRINT THIS.  ``frame_bytes`` is
+    the length of the frame :func:`encode_prompt` built and the caller queued;
+    printing it from anywhere else re-creates exactly the confusion D-A1 found.
+    It still is not proof that a window was DRAWN -- nothing comes back from a
+    client on this path, and only a screen can say that -- but it is the honest
+    server-side half of ``GT-309``'s first proof line, and the drain at the end
+    of ``dispatch()`` (chief, letter `20260908_0432`) is the one caller.
+    """
+    d = pending.destination
+    return (
+        "%s PROMPT_SENT marker=%d scene=%d xyz=%d,%d,%d dir=%d"
+        " confirm_predicted=%d window_expected=%d bytes_out=%d"
+        % (TOKEN, pending.marker_id, d.scene_id, d.x, d.y, d.z, d.direction,
+           pending.confirm_id, int(pending.window_expected), frame_bytes))
 
 
 def echo_console_line(pending: PendingCheck | None, echoed_marker_id: Any,
@@ -564,6 +632,33 @@ ORDER_CAP = 64
 ORDER_REFUSED_AT_CAP = "ORDER_REFUSED_AT_CAP"
 
 
+def sink_stored_count(returned: Any) -> int | None:
+    """What a recorder's ``record()`` answered, or ``None`` for "it did not".
+
+    ``InMemoryTeleportCheckSink.record`` returns ``1``/``0``, and this module
+    made that return value LOAD-BEARING when the live door started printing a
+    console line only for an order the sink actually holds.  The shape check in
+    ``lua_api.player`` can see that ``record`` is callable and cannot see what
+    it returns, so the most obvious recorder anyone would write -- a method
+    with no ``return`` -- came back ``None`` and killed the door with
+    ``TypeError: %d format: a real number is required`` AFTER the order was
+    already recorded: an exception out of a Lua closure, for a window that had
+    in fact been opened (pf-adversary, round `ew9416`, D-A5).
+
+    So the contract is stated here and enforced nowhere else: a recorder that
+    answers with anything but an ``int`` is treated as HAVING RECORDED but not
+    having counted -- ``None`` -- which the caller reports as ``stored=unknown``
+    rather than crashing or silently swallowing the order.  ``bool`` is not an
+    ``int`` for this purpose: ``True`` would print as ``stored=1`` and hide a
+    recorder that answers with a flag.
+    """
+    if isinstance(returned, bool):
+        return None
+    if type(returned) is not int:
+        return None
+    return returned
+
+
 class InMemoryTeleportCheckSink:
     """The default recorder, fresh and private per namespace.
 
@@ -580,7 +675,13 @@ class InMemoryTeleportCheckSink:
         self.refusals: list[str] = []
 
     def record(self, character_id: int, pending: PendingCheck) -> int:
-        """``1`` when the order was stored, ``0`` when the cap refused it."""
+        """``1`` when the order was stored, ``0`` when the cap refused it.
+
+        THE RETURN VALUE IS PART OF THE SHAPE, not a convenience: the live door
+        prints its console line only for a stored order, so a recorder that
+        answers nothing is answering "I did not count", which
+        :func:`sink_stored_count` turns into ``stored=unknown`` (D-A5).
+        """
         if len(self.orders) >= ORDER_CAP:
             self.refusals.append(ORDER_REFUSED_AT_CAP)
             return 0

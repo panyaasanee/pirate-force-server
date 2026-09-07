@@ -724,9 +724,15 @@ def _log_bad_value(log: Callable[[str], None], api_name: str, **raw_args) -> Non
     prior real closure here either has no failure mode past arity
     (``GetLv``/``GetClass``) or already degrades to a plain 0/False result
     without a distinct bad-value log line, per its own docstring).
+
+    ASCII ONLY, and that is why it is ``ascii()`` rather than ``%r``: the value
+    printed here comes straight off a Lua stack, the bridge console is cp874,
+    and a script that passes a character outside that page killed the line that
+    was reporting the script's own mistake (pf-adversary, round `ew9416`).
     """
     log("LUA_PLAYER_BAD_VALUE Player.%s %s" % (
-        api_name, " ".join("%s=%r" % (k, v) for k, v in raw_args.items())))
+        api_name,
+        " ".join("%s=%s" % (k, ascii(v)) for k, v in raw_args.items())))
 
 
 class RealPlayerNamespace:
@@ -777,7 +783,10 @@ class RealPlayerNamespace:
                 if not callable(getattr(teleport_check_sink, required, None)):
                     raise TypeError(
                         "teleport_check_sink must have a callable %s(); %r "
-                        "does not" % (required, type(teleport_check_sink)))
+                        "does not (record(character_id, pending) must also "
+                        "RETURN 1 stored / 0 capped -- a recorder that returns "
+                        "nothing is read as stored=unknown, never as a crash)"
+                        % (required, type(teleport_check_sink)))
         self._teleport_check_sink = (
             teleport_check_sink if teleport_check_sink is not None
             else _teleport_check.InMemoryTeleportCheckSink())
@@ -973,10 +982,14 @@ class RealPlayerNamespace:
                 try:
                     # Coerced WITHOUT this door's bound, so an out-of-field id
                     # reaches the refusal that names it.  `_coerce_int` refuses
-                    # anything above MARKER_ID_MAX by returning None, which
-                    # arrived here as "not an int" and left
-                    # CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD unreachable from the
-                    # only live door there is (same finding).
+                    # anything ABOVE MARKER_ID_MAX and anything NEGATIVE by
+                    # returning None, which arrived here as "not an int" and
+                    # left CHECK_REFUSED_MARKER_ID_OUT_OF_FIELD unreachable for
+                    # those two shapes.  It was NOT unreachable for 0: that
+                    # floor was already 0, so the sentinel reached the field
+                    # refusal under the wrong name, and now reaches
+                    # CHECK_REFUSED_MARKER_ID_IS_ABSENT_SENTINEL
+                    # (pf-adversary, round `ew9416`, D-A2).
                     pending = _teleport_check.open_check(
                         _teleport_check.coerce_wire_marker_id(args[0]))
                 except _teleport_check.TeleportCheckError as exc:
@@ -991,26 +1004,56 @@ class RealPlayerNamespace:
                                    marker_id=args[0])
                     self._teleport_check_sink.record_refusal(reason)
                     return STUB_DEFAULT
-                stored = self._teleport_check_sink.record(
-                    self._context.character_id, pending)
+                character_id = self._context.character_id
+                if type(character_id) is not int or character_id <= 0:
+                    # The recorded id and the CONSUMED id must be the same
+                    # domain.  The dispatch branch takes an echo with the id
+                    # the socket proved (`foundation.selected.id`), so an order
+                    # filed under this namespace's context DEFAULT (0, from
+                    # lua_api.player.DEFAULT_CONTEXT, which mirrors quest's)
+                    # opens a window whose echo
+                    # can never find it -- R307's "window that goes nowhere",
+                    # produced by this chain itself (chief letter
+                    # `20260908_0432`, D6).  A caller that wants live orders
+                    # builds the host with a player_context carrying the id the
+                    # CONNECTION proved; until it does, this refuses BY NAME
+                    # and the tally says so, instead of filling a sink with
+                    # orders nobody can consume.
+                    _log_bad_value(self._log, "TeleportCheck",
+                                   character_id=character_id)
+                    self._teleport_check_sink.record_refusal(
+                        _teleport_check.CHECK_REFUSED_NO_CHARACTER_BOUND)
+                    return STUB_DEFAULT
+                returned = self._teleport_check_sink.record(
+                    character_id, pending)
+                # A recorder that answers nothing is not a crash: see
+                # world_m2_teleport_check.sink_stored_count (pf-adversary,
+                # round `ew9416`, D-A5 -- the plain recorder anyone would write
+                # killed this door with a TypeError AFTER recording the order).
+                stored = _teleport_check.sink_stored_count(returned)
                 self._log(
                     "LUA_PLAYER_REAL Player.TeleportCheck character=%d "
-                    "marker_id=%d scene=%d confirm_predicted=%d stored=%d "
+                    "marker_id=%d scene=%d confirm_predicted=%d stored=%s "
                     "(recorded only, no frame sent; stored=0 means the sink "
-                    "refused it at a cap)"
-                    % (self._context.character_id, pending.marker_id,
+                    "refused it at a cap, stored=unknown means the sink did "
+                    "not answer)"
+                    % (character_id, pending.marker_id,
                        pending.destination.scene_id, pending.confirm_id,
-                       stored))
-                if stored:
+                       "unknown" if stored is None else stored))
+                if stored != 0:
                     # The one console line this lane's token is FOR, printed
                     # from the live door rather than from a test (pf-adversary,
                     # round `ebh143`, D9: nothing outside tests/ called it, so
-                    # the token could not be fired at all).  Only for an order
-                    # the sink actually holds -- stored=0 is a refusal at a cap
-                    # and printing a PROMPT for it would name a window no
-                    # player will be asked about.
+                    # the token could not be fired at all).  It says
+                    # ORDER_RECORDED and sent=0 because that is all that
+                    # happened here -- the send half is chief's drain, and it
+                    # prints prompt_sent_console_line (D-A1).  Not printed for
+                    # stored=0, which is a refusal at a cap and would name a
+                    # window no player will be asked about; PRINTED for an
+                    # unknown count, because the order is in the sink either
+                    # way and a silent live order is the worse failure.
                     self._log(_teleport_check.prompt_console_line(pending))
-                return stored
+                return returned
 
             return teleport_check
 

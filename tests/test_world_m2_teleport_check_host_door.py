@@ -14,18 +14,38 @@ tests/test_world_m2_teleport_check.py), and this module reads no sibling
 checkout.
 """
 import unittest
+from pathlib import Path
+import sys
 
-from pf_preconditions import LUPA_PACKAGE
+# Collectable ON ITS OWN, not only beside a module that already inserted the
+# path (pf-adversary, round `ew9416`): `pytest tests/test_world_m2_teleport_
+# check_host_door.py` died in collection with ModuleNotFoundError, which is
+# exactly the command a reader is told to run to rehearse this module's skip
+# pin.  Same two lines tests/test_world_m2_teleport_check.py carries.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from pirateforce_foundation import script_host
-from pirateforce_foundation import world_m2_teleport_check as tc
-from pirateforce_foundation.lua_api import player as lua_player
+from pf_preconditions import LUPA_PACKAGE  # noqa: E402
+
+from pirateforce_foundation import script_host  # noqa: E402
+from pirateforce_foundation import world_m2_teleport_check as tc  # noqa: E402
+from pirateforce_foundation.lua_api import player as lua_player  # noqa: E402
 
 
 PINNED_MARKER_ID = 1
 
+#: The id chief measured on a live connection (`foundation.selected.id` == 2,
+#: letter `20260908_0432`).  EVERY HOST HERE BINDS ONE, because the door
+#: refuses to file an order under the script context default of 0: the
+#: dispatch branch takes an echo with the id the socket proved, so an order
+#: recorded under 0 opens a window whose own echo can never find it.
+PROVEN_CHARACTER_ID = 2
 
-def _host(log=None, **kwargs):
+
+def _host(log=None, character_id=PROVEN_CHARACTER_ID, **kwargs):
+    if character_id is not None and "player_context" not in kwargs:
+        kwargs["player_context"] = lua_player.PlayerContext(
+            character_id=character_id)
     return script_host.ScriptHost(log=log or (lambda _m: None), **kwargs)
 
 
@@ -85,7 +105,9 @@ class TheHostHandsTheTravelOrderOutTests(unittest.TestCase):
             path.write_text(
                 "function Go() Player.TeleportCheck(%d) end" % PINNED_MARKER_ID)
             host = script_host.load_script_file(
-                path, log=lambda _m: None, teleport_check_sink=supplied)
+                path, log=lambda _m: None, teleport_check_sink=supplied,
+                player_context=lua_player.PlayerContext(
+                    character_id=PROVEN_CHARACTER_ID))
             host.call("Go")
         self.assertIs(host.teleport_check_sink, supplied)
         self.assertEqual(len(supplied.orders), 1)
@@ -99,10 +121,32 @@ class TheHostHandsTheTravelOrderOutTests(unittest.TestCase):
         host.load("function Go() Player.TeleportCheck(%d) end" % PINNED_MARKER_ID)
         host.call("Go")
         prompts = [line for line in lines
-                   if line.startswith(tc.TOKEN + " PROMPT")]
+                   if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
         self.assertEqual(len(prompts), 1)
         self.assertIn("marker=%d" % PINNED_MARKER_ID, prompts[0])
+        self.assertIn(" sent=0", prompts[0])
+        # NOT a send receipt: this path never calls encode_prompt, and the old
+        # verb was the line GT-309 named as proof that the server SENT
+        # 0x4477 (pf-adversary, round `ew9416`, D-A1).
+        self.assertEqual([line for line in lines
+                          if line.startswith(tc.TOKEN + " PROMPT")], [])
         prompts[0].encode("ascii")
+
+    def test_a_host_with_no_character_bound_refuses_instead_of_recording(self):
+        # What a production caller that forgot the player_context gets: a
+        # counted refusal by name, not a sink full of orders whose echoes can
+        # never find them (chief letter `20260908_0432`, D6).  This is the
+        # shape of the one line the dispatch call site has to get right.
+        lines = []
+        host = _host(log=lines.append, character_id=None)
+        host.load("function Go() return Player.TeleportCheck(%d) end"
+                  % PINNED_MARKER_ID)
+        self.assertEqual(host.call("Go"), lua_player.STUB_DEFAULT)
+        self.assertEqual(host.teleport_check_sink.orders, [])
+        self.assertEqual(host.teleport_check_sink.refusals,
+                         [tc.CHECK_REFUSED_NO_CHARACTER_BOUND])
+        self.assertEqual([line for line in lines
+                          if line.startswith(tc.TOKEN)], [])
 
     def test_a_script_passing_a_bad_id_is_refused_by_name_not_by_a_raise(self):
         # A raise out of a Lua closure names the script, not the caller that
