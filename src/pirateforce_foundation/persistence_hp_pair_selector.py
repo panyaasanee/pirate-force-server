@@ -69,6 +69,19 @@ So what is this module for, honestly stated:
   actually compose.  That is written here so nobody reads the test names as
   production coverage.
 
+  WHO IS OBLIGED THE DAY IT BECOMES REACHABLE, AND WHICH CHECK GOES RED.
+  Round `2v18x3` handed pf-adversary's question forward unanswered: the
+  sentence above is a promise, and until round `m1dmhd` the only thing
+  enforcing it was a test that grepped for the sentence.  A promise checked
+  by grepping for itself is not a check.  It is now
+  `TheGateBecomesObligatoryTheDayItIsReachableTests` in this module's suite,
+  which computes reachability from `gm/login_mask.admitted_field_x_sets` and
+  from this lane's own `SERVER_OWNED_FIELDS` -- both of them the source of
+  truth rather than a copy -- and goes RED the first time either one admits
+  x=52/x=53 while `guard_armed_block` still has no caller in the tree.  The
+  obligation lands on whoever makes that change, in the commit that makes
+  it, because that is the commit whose suite turns red.
+
 WHAT THIS MODULE DOES NOT CLAIM:
 
 * It does NOT claim any scene id takes the alternate pair, 126 included.

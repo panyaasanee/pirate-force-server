@@ -1221,6 +1221,101 @@ class TheDebtRound2v18x3LeftUnpaidTests(unittest.TestCase):
             sel.guard_armed_block({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
 
 
+class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
+    """Round `m1dmhd`.  The question pf-adversary left on the table in round
+    `2v18x3`, which that round wrote down and handed forward without an
+    answer:
+
+        the day `admitted_field_x_sets` grows to include x=52/x=53, WHO holds
+        the obligation that this gate gets a call site in the same commit,
+        and WHICH CHECK GOES RED?
+
+    Round `2v18x3`'s honest answer was "a sentence in the docstring, verified
+    by grepping for that sentence".  That is not a check -- a sentence cannot
+    fail to be true of itself.  This class is the answer instead.
+
+    Reachability is computed from the two sources of truth, never copied:
+    `gm/login_mask.admitted_field_x_sets` (LANE-GM's wall -- what the server
+    is allowed to compose) and `persistence_attr_compose.SERVER_OWNED_FIELDS`
+    (this lane's own schema -- what the server could put in it).  The
+    obligation therefore lands on whoever moves either one, in the commit that
+    moves it, because that is the commit whose suite turns red."""
+
+    def _reachable(self):
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        shapes = login_mask.admitted_field_x_sets(legacy)
+        alternate = set(sel.ALTERNATE_PAIR)
+        return {
+            "admitted_by_a_login_shape": sorted(
+                x for shape in shapes for x in shape if x in alternate
+            ),
+            "backed_by_a_server_column": sorted(
+                alternate & set(compose.SERVER_OWNED_FIELDS)
+            ),
+            "shapes_examined": len(shapes),
+        }
+
+    def _callers(self):
+        found = []
+        for path in sorted((ROOT / "src").rglob("*.py")) + sorted(
+            (ROOT / "tests").rglob("*.py")
+        ):
+            if path == MODULE_FILE or path == Path(__file__).resolve():
+                continue
+            if "persistence_hp_pair_selector" in path.read_text(
+                encoding="utf-8", errors="replace"
+            ):
+                found.append(str(path.relative_to(ROOT)))
+        return found
+
+    def test_the_reachability_inputs_are_actually_read(self):
+        """Guards this class against becoming vacuous: a reachability probe
+        that silently examined zero login shapes would make the obligation
+        below unfalsifiable while looking green."""
+        facts = self._reachable()
+        self.assertGreaterEqual(facts["shapes_examined"], 1)
+        self.assertTrue(set(compose.SERVER_OWNED_FIELDS))
+        self.assertEqual(len(sel.ALTERNATE_PAIR), 2)
+
+    def test_an_unreachable_gate_may_have_no_caller_but_a_reachable_one_may_not(
+        self,
+    ):
+        """THE OBLIGATION ITSELF.  Passes today because the alternate pair is
+        reachable by neither route; goes red the first time either route
+        opens while the gate is still unwired.
+
+        This is deliberately not written as "assert nothing is reachable":
+        the point is not to freeze the schema, it is that opening the route
+        and wiring the gate must land together."""
+        facts = self._reachable()
+        reachable = (
+            facts["admitted_by_a_login_shape"]
+            or facts["backed_by_a_server_column"]
+        )
+        callers = self._callers()
+        if reachable and not callers:
+            self.fail(
+                "x=52/x=53 became reachable "
+                f"(admitted by a login shape: {facts['admitted_by_a_login_shape']}; "
+                f"backed by a server column: {facts['backed_by_a_server_column']}) "
+                "while `guard_armed_block` still has no caller in this tree. "
+                "The commit that opened the route owes the call site: a block "
+                "arming the selector can now carry an alternate pair the "
+                "server never honestly set, which is GT-218's symptom on the "
+                "HUD. Wire `guard_armed_block` at the composer, or close the "
+                "route again."
+            )
+
+    def test_todays_answer_to_that_question_is_recorded_as_measured(self):
+        """The state this round measured, so a future reader can tell whether
+        the obligation above has already fired or has simply never been
+        tested by events."""
+        facts = self._reachable()
+        self.assertEqual(facts["admitted_by_a_login_shape"], [])
+        self.assertEqual(facts["backed_by_a_server_column"], [])
+        self.assertEqual(self._callers(), [])
+
+
 class TheThreeTautologiesTests(unittest.TestCase):
     """Round `m1dmhd`.  Three assertions in this file could not fail, because
     each compared a value against the very expression that produced it.  They
