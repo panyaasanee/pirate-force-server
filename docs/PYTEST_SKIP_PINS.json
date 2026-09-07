@@ -1426,6 +1426,20 @@
         "OutfitRuleMeasuredTests::test_the_re_pinned_control_actually_catches_a_moved_row"
       ],
       "note": "round nxcwdn (LANE-B): the owner ruling of 2026-09-07 (PANYA 1313 / COO-DECISION 20260907_1346) took s_OUTFIT out of the hostility decision, and these four are the half of that change that can only be MEASURED against the client's own CONSTDATA/TEXTDATA dumps on the bridge clone. Two of them re-derive the ruling's own premise rather than repeating it (the 40 bg0002 placements it gains fell to the outfit half and to nothing else, asked row by row); the other two are the bg0001 control COO-DECISION 20260907_1346 requires to be RE-PINNED in the same commit rather than closed, skipped or xfailed -- verify_frozen still reproduces v141's 115 rows, verify_frozen_any adds the superset claim over 146, and the fourth moves a derived row by a metre and demands the control notice, so it is a control that has been seen to fail. PINNED LATE, AND SAYING SO: the tests landed in 3a5c4da and this entry did not, which made tools/pf_pytest_precondition_census.py the gate's only red step -- the exact defect shape the bg0002 entry above already records pf-adversary catching three times (rounds ctflxc, 2vxlx2, and that round's own first draft). This is the fourth, caught by pf-adversary on the nxcwdn diff after the round had already unlocked, and repaired on the round's own branch rather than handed to the next round with a red gate attached."
+    },
+    {
+      "key": "lupa_package",
+      "module": "tests/test_script_host_mirror_health.py",
+      "count": 6,
+      "tests": [
+        "ADegradedHostIsStillBuiltAndStillASandboxTests::test_the_host_is_built_degraded_with_no_namespaces",
+        "ADegradedHostIsStillBuiltAndStillASandboxTests::test_a_degraded_host_still_blocks_every_sandbox_door",
+        "ADegradedHostIsStillBuiltAndStillASandboxTests::test_a_degraded_host_refuses_to_load_or_call_naming_the_tally",
+        "ADegradedHostIsStillBuiltAndStillASandboxTests::test_a_healthy_host_is_not_degraded_and_counts_nothing",
+        "ASweepOverABrokenMirrorBlamesUsNotTheScriptsTests::test_the_innocent_script_lands_in_host_failed_not_failed",
+        "ASweepOverABrokenMirrorBlamesUsNotTheScriptsTests::test_a_host_built_with_no_health_records_into_the_published_one"
+      ],
+      "note": "round 95aw54 (LANE-Q), the mirror-failure counter COO-DECISION 20260907_1441 item 3 asked for. Ten of this module's tests need no Lua runtime at all -- MirrorHealth, guard_mirrors and MirrorUnavailable are plain Python, and pinning the counter on the cloud runner (which has no lupa wheel) is the point -- so only the two classes that build a real ScriptHost or drive load_corpus are guarded by LUPA_PACKAGE, each method carrying the class decorator. MEASURED, not predicted, in this round's cloud session (no lupa installed): `pytest tests/test_script_host_mirror_health.py -q -rs` reported exactly these skips under precondition:lupa_package and no others (11 passed, 6 skipped). ADDED because pf-adversary D2 this round ran tools/pf_pytest_precondition_census.py against the first draft and got UNPINNED for this module: every other lupa-guarded module was pinned and this one was not."
     }
   ],
   "windows_gate_excluded_modules": {

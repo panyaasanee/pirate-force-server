@@ -43,9 +43,11 @@ needs that particular script's functions callable.
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 try:
     import lupa
@@ -61,6 +63,7 @@ from .lua_api import trigger as lua_api_trigger
 from .lua_api import instance as lua_api_instance
 from .lua_api import player as lua_api_player
 from .lua_api import message as lua_api_message
+from .lua_api.vendored import VendoredDataError
 
 #: Lua standard-library names the game's scripts must never reach
 #: (prompts/LANE-Q.md: "sandbox: an script access io/os/require/load of Lua
@@ -198,6 +201,175 @@ class LoadReport:
         return [r.path for r in self.failed]
 
 
+class MirrorUnavailable(VendoredDataError):
+    """This host was built while one of our own vendored mirrors was broken.
+
+    A :class:`ScriptHost` built over a broken mirror carries no API
+    namespaces at all, so running any script through it would fail on the
+    first ``Quest.``/``Player.`` index with a Lua type error -- and that
+    error, raised out of a sweep, would be logged ``LUA_SCRIPT <quest file>
+    ERR ...``: one defect of OURS billed to up to 616 innocent scripts,
+    which is exactly the shape ``_host_side_error_types`` exists to stop
+    (pf-adversary D11, round ``7kxfe9``).  So a degraded host refuses to
+    load or call anything, and it refuses with a subclass of
+    ``VendoredDataError``: every sweep in this module already classifies
+    that as ours and logs ``LUA_HOST``.
+
+    Boot still survives -- COO-DECISION ``20260907_1441`` chose fail-soft,
+    "the server must come up even when quests are dead" -- because the
+    refusal happens per script, not at construction.
+    """
+
+
+@dataclass(frozen=True)
+class MirrorFailureTally:
+    """What a reader can learn about mirror health WITHOUT opening a log.
+
+    COO-DECISION ``20260907_1441`` (answering
+    ``pf_bridge/notes_to_chief/20260907_1344_LANE-Q-ASK-COO-who-reads-host-
+    failed-at-boot.md``): fail-soft is right, but "a log nobody reads" is
+    not an answer, so the host must keep at least the count, the last
+    error and a stamp in readable state.
+    """
+
+    #: How many times a vendored mirror read has failed in this process.
+    failures: int
+    #: ``<ExceptionType>: <message>`` of the most recent failure, ASCII-safe
+    #: (the bridge console is cp874), or ``None`` if there has been none.
+    last_error: Optional[str]
+    #: ISO-8601 UTC stamp of the most recent failure, or ``None``.
+    last_failed_at: Optional[str]
+
+    def log_fields(self) -> str:
+        """One ASCII field group, quoted so a reader can split on spaces."""
+        return ('mirror_failures=%d last_failed_at="%s" last_error="%s"'
+                % (self.failures, self.last_failed_at or "",
+                   self.last_error or ""))
+
+
+class MirrorHealth:
+    """The counter behind :class:`MirrorFailureTally`, safe to share.
+
+    Process-wide by default (:data:`MIRROR_HEALTH`) because the thing being
+    counted is process-wide: ``lua_api/api_spec.tsv`` is read once per
+    :class:`ScriptHost` construction, and a checkout whose mirror is broken
+    breaks every host in the process, not one of them.  A caller that wants
+    an isolated tally -- every test here does -- passes its own instance.
+
+    WHAT THE LOCK IS AND IS NOT, MEASURED (same posture ``lua_api/spec.py``
+    takes about its own ``_LOCK``).  The 16-thread test in this lane's
+    tests does NOT kill a no-lock mutant: with ``self._failures = 1``
+    replaced for ``+= 1`` two tests go red, but simply deleting the lock
+    leaves all ten green, because CPython does not interleave this
+    particular body often enough to lose a count in one run.  So the lock
+    is [PROPOSED] protection against a caller with more contention than any
+    test here produces -- it also keeps ``failures``, ``last_error`` and
+    ``last_failed_at`` from being read half-updated, which no test here
+    produces either -- and not a guard some test proves is load-bearing.
+
+    ``clock`` returns a :class:`datetime`; an aware one is converted to UTC,
+    a naive one is taken as UTC already (a test injecting a fixed clock is
+    the only caller that passes one).  It is called with the lock held: it
+    is one function call, this module never re-enters it, and reading it
+    outside the lock would let two threads write the tally's count and its
+    stamp in opposite orders.
+    """
+
+    def __init__(self, clock: Optional[Callable[[], datetime]] = None):
+        self._lock = threading.Lock()
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._failures = 0
+        self._last_error: Optional[str] = None
+        self._last_failed_at: Optional[str] = None
+
+    def record(self, exc: BaseException) -> MirrorFailureTally:
+        """Count one failed mirror read; return the tally after counting."""
+        # BOTH halves escaped, not just the message (pf-adversary D10, this
+        # round): a VendoredDataError subclass whose CLASS NAME carries a
+        # character outside cp874 would otherwise reach `print` unescaped
+        # and kill the sweep mid-report.
+        message = "%s: %s" % (
+            type(exc).__name__.encode("ascii", "backslashreplace").decode("ascii"),
+            _ascii_safe(exc))
+        with self._lock:
+            now = self._clock()
+            if now.tzinfo is not None:
+                now = now.astimezone(timezone.utc)
+            self._failures += 1
+            self._last_error = message
+            self._last_failed_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            return MirrorFailureTally(
+                self._failures, self._last_error, self._last_failed_at)
+
+    def tally(self) -> MirrorFailureTally:
+        """The current state, as one immutable value."""
+        with self._lock:
+            return MirrorFailureTally(
+                self._failures, self._last_error, self._last_failed_at)
+
+
+#: The process-wide tally every :class:`ScriptHost` records into unless its
+#: caller hands it one of its own.  Deliberately a module-level object and
+#: not four module-level globals: a future health check reads ONE name and
+#: gets a consistent snapshot, rather than three that can disagree.
+#:
+#: NOTHING IN THIS REPOSITORY READS THIS YET, AND THAT IS SAID OUT LOUD
+#: RATHER THAN IMPLIED.  ``grep -rn "def .*health\|/health" --include=*.py
+#: src/`` returns two lines, both in ``world_scene_registry.py``
+#: (``def remembers_health``, a scene predicate) -- no health-check
+#: endpoint of any kind (pf-adversary D11, this round: the earlier wording
+#: here said the grep "finds none", which is not what it prints).
+#: COO-DECISION ``20260907_1441`` item 4 forbids this lane from inventing
+#: one.  What this closes is the half inside this lane's own walls: the
+#: state EXISTS and is readable in one attribute, so the day a health check
+#: does exist it is a one-line read instead of a log parser.
+MIRROR_HEALTH = MirrorHealth()
+
+
+def guard_mirrors(build: Callable[[], Any], log: Callable[[str], None],
+                  health: Optional[MirrorHealth] = None,
+                  discovered_at: str = "ScriptHost construction") -> Any:
+    """Run ``build``; on a broken vendored mirror count it, log it, return
+    ``None``.
+
+    ``build`` is a callable rather than a value so the guard covers
+    everything a construction does rather than one read it knows the name
+    of.  WHAT IT COVERS TODAY, MEASURED (pf-adversary D3/D4, this round --
+    an earlier draft of this docstring claimed more): exactly ONE of the
+    four mirrors under ``lua_api/``, ``api_spec.tsv``, because that is the
+    only one a construction reads.  ``message_catalog.tsv`` and the two
+    ``quest_criteria_*.tsv`` are read inside the namespaces' own call
+    closures, so a broken copy of any of them builds a host fine and
+    raises at CALL time, where this counter never sees it.  Those three
+    are named in ``docs/SCRIPT_LANE.md`` as the next round's first job,
+    not covered here and not implied to be.
+
+    Returns ``(value, None)`` when ``build`` succeeds and ``(None, tally)``
+    when it does not, so a caller can both say it is degraded and carry
+    THIS failure's cause rather than reading a process-wide counter later
+    (pf-adversary D7, this round).
+
+    THE PREFIX IS ``LUA_MIRROR_DEGRADED`` AND NOT ``LUA_HOST_DEGRADED``,
+    for a measured reason (pf-adversary D1, this round).  A sweep's
+    contract, pinned since round ``7kxfe9`` in
+    ``tests/test_script_lua_corpus.py``, is that ONE broken file of ours
+    produces exactly ONE ``LUA_HOST`` line per script it stopped, ending
+    in that script's name.  A second line whose prefix merely STARTS WITH
+    ``LUA_HOST`` breaks that count -- measured: three such lines per
+    script, 1848 over the real 616-file corpus.  So the machine-readable
+    line gets a prefix of its own, and the ``LUA_HOST`` line stays the
+    sweep's, written once, against the file the failure stopped.
+    """
+    health = MIRROR_HEALTH if health is None else health
+    try:
+        return build(), None
+    except _host_side_error_types() as exc:
+        tally = health.record(exc)
+        log("LUA_MIRROR_DEGRADED %s discovered_at=\"%s\""
+            % (tally.log_fields(), discovered_at))
+        return None, tally
+
+
 def _require_lupa() -> None:
     if lupa is None:
         raise RuntimeError(
@@ -258,6 +430,18 @@ class ScriptHost:
     :class:`lua_api.player.InMemoryPlayerMobAppearStore` per host, the same
     posture ``quest_store`` takes for its own default. Every other
     namespace is unchanged: a plain ``ApiNamespaceStub``.
+
+    DEGRADED HOSTS (COO-DECISION ``20260907_1441``).  Every construction
+    reads at least one vendored mirror of ours (``lua_api/api_spec.tsv``,
+    and the message catalog while ``Player``/``Trigger`` build).  If one is
+    broken this constructor no longer raises: it records the failure in
+    ``mirror_health`` (readable without a log, which is the whole point of
+    the decision), logs ``LUA_HOST``/``LUA_HOST_DEGRADED``, and builds a
+    host with ``degraded`` True and NO namespaces, which then refuses to
+    ``load``/``call`` anything with :class:`MirrorUnavailable` rather than
+    letting Lua blame the next quest file for our own broken file.  The
+    sandbox is unaffected: ``BLOCKED_GLOBALS`` are nil on a degraded host
+    exactly as on a healthy one.
     """
 
     def __init__(self, log: Optional[Callable[[str], None]] = None, *,
@@ -270,9 +454,14 @@ class ScriptHost:
                  quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
                  player_context: "Optional[lua_api_player.PlayerContext]" = None,
                  player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
-                 message_sink: "Optional[lua_api_message.MessageSink]" = None):
+                 message_sink: "Optional[lua_api_message.MessageSink]" = None,
+                 mirror_health: Optional[MirrorHealth] = None):
         _require_lupa()
         self.log = log or default_logger
+        #: Where this host records a broken vendored mirror, readable
+        #: without opening a log (COO-DECISION 20260907_1441).  Defaults to
+        #: the process-wide :data:`MIRROR_HEALTH`; a test hands its own.
+        self.mirror_health = MIRROR_HEALTH if mirror_health is None else mirror_health
         self.runtime = lupa.LuaRuntime(
             unpack_returned_tuples=True,
             # Both default to True in lupa and both hand a script a way out
@@ -316,42 +505,93 @@ class ScriptHost:
         # else's guard -- reported to COO in round `6775u1`'s letter.)
         message_sink = (
             message_sink if message_sink is not None else lua_api_message.InMemoryMessageSink())
-        self.namespaces: dict = {}
+        def build_all() -> dict:
+            # Built into a LOCAL dict and only installed as Lua globals
+            # once every namespace is built.  NO MIRROR THAT EXISTS TODAY
+            # CAN BREAK HALFWAY THROUGH THIS LOOP (pf-adversary D4, this
+            # round, correcting an earlier claim here): the census is read
+            # by the `for` header, before the first namespace is built, and
+            # the other three mirrors are not read during a build at all.
+            # The local dict is kept anyway, for the mirror read inside a
+            # build_namespace that does not exist yet -- a half-built host
+            # reads, to a script and to a log, as a working host with half
+            # its API missing.  All or none.
+            built: dict = {}
+            for namespace, methods in lua_api_spec.NAMESPACE_METHODS.items():
+                if namespace == "Trigger":
+                    stub = lua_api_trigger.build_namespace(
+                        methods, self.log,
+                        context=trigger_context, registry=trigger_registry,
+                        quest_context=quest_context, quest_store=quest_store,
+                        sink=message_sink)
+                elif namespace == "Instance":
+                    stub = lua_api_instance.build_namespace(
+                        methods, self.log,
+                        context=instance_context, registry=instance_registry)
+                elif namespace == "Quest":
+                    stub = lua_api_quest.build_namespace(
+                        methods, self.log, clock=quest_clock,
+                        context=quest_context, store=quest_store)
+                elif namespace == "Player":
+                    stub = lua_api_player.build_namespace(
+                        methods, self.log, context=player_context, store=player_store,
+                        sink=message_sink)
+                else:
+                    stub = ApiNamespaceStub(namespace, methods, self.log)
+                built[namespace] = stub
+            return built
+
+        built, failure = guard_mirrors(build_all, self.log, self.mirror_health)
+        #: THIS host's own failure, snapshotted at construction rather than
+        #: read live off a shared counter (pf-adversary D7, this round): a
+        #: host degraded by a missing census must not later describe itself
+        #: with some other host's error.
+        self.mirror_failure: Optional[MirrorFailureTally] = failure
+        #: True when a vendored mirror of OURS was broken while this host
+        #: was built.  The host still exists (fail-soft, COO-DECISION
+        #: 20260907_1441) but carries no API namespaces, so it refuses to
+        #: load or call a script rather than blaming one -- see
+        #: :class:`MirrorUnavailable`.
+        self.degraded: bool = built is None
+        self.namespaces: dict = {} if built is None else built
         g = self.runtime.globals()
-        for namespace, methods in lua_api_spec.NAMESPACE_METHODS.items():
-            if namespace == "Trigger":
-                stub = lua_api_trigger.build_namespace(
-                    methods, self.log,
-                    context=trigger_context, registry=trigger_registry,
-                    quest_context=quest_context, quest_store=quest_store,
-                    sink=message_sink)
-            elif namespace == "Instance":
-                stub = lua_api_instance.build_namespace(
-                    methods, self.log,
-                    context=instance_context, registry=instance_registry)
-            elif namespace == "Quest":
-                stub = lua_api_quest.build_namespace(
-                    methods, self.log, clock=quest_clock,
-                    context=quest_context, store=quest_store)
-            elif namespace == "Player":
-                stub = lua_api_player.build_namespace(
-                    methods, self.log, context=player_context, store=player_store,
-                    sink=message_sink)
-            else:
-                stub = ApiNamespaceStub(namespace, methods, self.log)
-            self.namespaces[namespace] = stub
+        for namespace, stub in self.namespaces.items():
             g[namespace] = stub
+        # Set LAST and unconditionally: a degraded host is still a SANDBOX.
+        # Nothing above this line may leave io/os/require/load/python
+        # reachable, and a mirror failure is not an excuse to.
         for name in BLOCKED_GLOBALS:
             g[name] = None
 
+    def _refuse_if_degraded(self, what: str) -> None:
+        """A degraded host says whose defect this is, before Lua can.
+
+        The cause quoted is THIS host's own (``mirror_failure``), never the
+        shared counter's latest, so the ``LUA_HOST`` line a sweep writes
+        for this refusal names the file that actually broke it.
+        """
+        if self.degraded:
+            cause = ("no failure recorded" if self.mirror_failure is None
+                     else self.mirror_failure.last_error)
+            raise MirrorUnavailable(
+                "%s refused: this host was built with a broken vendored "
+                "mirror and carries no API namespaces (%s)" % (what, cause))
+
     def load(self, source: str) -> None:
         """Compile and run a script's top-level chunk (its function defs)."""
+        self._refuse_if_degraded("load")
         self.runtime.execute(source)
 
     def has_function(self, function_name: str) -> bool:
+        # Guarded like load/call (pf-adversary D9, this round): unguarded,
+        # a degraded host answers False and the caller that is coming --
+        # a live dispatch doing has_function() then call() -- would file
+        # OUR broken mirror as "this script defines no entry point".
+        self._refuse_if_degraded("has_function")
         return self.runtime.globals()[function_name] is not None
 
     def call(self, function_name: str, *args):
+        self._refuse_if_degraded("call")
         fn = self.runtime.globals()[function_name]
         if fn is None:
             raise LookupError("script defines no function named %r" % function_name)
