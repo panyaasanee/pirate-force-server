@@ -281,6 +281,19 @@ class TheGuardHasTeethTests(unittest.TestCase):
                 reasons = [g.reason for g in sel.alternate_pair_gaps(values)]
                 self.assertIn(reason, reasons)
 
+    def test_the_rows_this_module_reads_are_u32_in_the_wire_table(self):
+        """pf-adversary round `2v18x3`, D-D, second half.  Deriving the width
+        stops a re-measurement being silently MIS-PRINTED, and the u16
+        experiment now ends in `frame_layer_row_displays_as_negative` instead
+        of a passed `100/-1`.  What derivation cannot fix is the PROSE: this
+        module's whole narrative is `0xFFFFFFFF <-> -1`, a u32 fact stated in
+        the docstring, in `ALTERNATE_CONSTRUCTION_DEFAULTS` and in `GT-291`'s
+        ticket.  So the day a width moves, this says so out loud rather than
+        leaving four documents quietly wrong."""
+        for x in sel.PRIMARY_PAIR + sel.ALTERNATE_PAIR:
+            with self.subTest(x=x):
+                self.assertEqual(sel._row_width_bits(x), 32)
+
     def test_the_max_rows_construction_default_of_one_is_pinned(self):
         """pf-adversary round `2v18x3`, M06.  Mutating
         `ALTERNATE_CONSTRUCTION_DEFAULTS[index]` to `[0]` flipped
