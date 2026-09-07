@@ -759,7 +759,21 @@ SINK_FINGERPRINT_UNNAMED = "unnamed"
 #: A sink this process cannot hold a weak reference to cannot be told apart
 #: from the next object that lands on its address, so it gets a fingerprint
 #: that says exactly that instead of a sequence number that would be a lie.
+#:
+#: IT CARRIES A COUNTER SO IT CAN NEVER COMPARE EQUAL TO ITSELF.  The first
+#: draft printed the bare word, and two different recorders of one
+#: ``__slots__`` class then produced the SAME fingerprint on both halves of
+#: the line -- so the "these two halves name one object" rule this whole
+#: mechanism exists for passed on the exact failure it is looking for
+#: (pf-adversary, round `v721gm`, D2).  "I cannot identify this object" must
+#: never read as "these are the same object".
 SINK_FINGERPRINT_UNPINNED_SUFFIX = "unpinned"
+
+#: What the drain half says for a recorder the claim door REFUSES.  Told apart
+#: from ``unclaimed`` because they are different repairs: one needs somebody to
+#: claim the sink, the other needs a ``__weakref__`` slot before anybody can
+#: (pf-adversary, round `v721gm`, D2).
+DRAIN_CLAIM_UNCLAIMABLE = "unclaimable"
 
 #: A claim is printed on a space-delimited console line, in cp874, next to a
 #: token an attended ticket greps for.  So it is one printable-ASCII word,
@@ -772,6 +786,17 @@ CLAIM_REFUSED_NOT_A_STRING = "CLAIM_REFUSED_NOT_A_STRING"
 CLAIM_REFUSED_EMPTY = "CLAIM_REFUSED_EMPTY"
 CLAIM_REFUSED_TOO_LONG = "CLAIM_REFUSED_TOO_LONG"
 CLAIM_REFUSED_NOT_PRINTABLE_ASCII = "CLAIM_REFUSED_NOT_PRINTABLE_ASCII"
+#: ``=`` and ``@`` are the two STRUCTURAL characters of the console line: a
+#: claim carrying them can grow a second ``drain=`` inside the first field, and
+#: a parser taking the first match reads a claim nobody made (pf-adversary,
+#: round `v721gm`, D5).
+CLAIM_REFUSED_STRUCTURAL_CHARACTER = "CLAIM_REFUSED_STRUCTURAL_CHARACTER"
+#: A claim that spells one of this module's own verdict words turns a correctly
+#: wired session into a wiring bug report: a drain that claims ``unknown``
+#: prints the word documented as "this line does not know its sink", and a sink
+#: claimed ``unclaimed`` is indistinguishable from one nobody claimed
+#: (pf-adversary, round `v721gm`, D4).
+CLAIM_REFUSED_RESERVED_WORD = "CLAIM_REFUSED_RESERVED_WORD"
 CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE = (
     "CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE")
 
@@ -809,6 +834,20 @@ _SINK_REGISTRY: "dict[int, _SinkEntry]" = {}
 _SINK_SEQUENCE = 0
 
 
+def _next_sequence() -> int:
+    """The next number no object in this process has ever worn.
+
+    Monotonic and never recycled, so two lines printed minutes apart can be
+    compared: an ADDRESS would be reused the moment the first object died and
+    the reader would have no way to know (pf-adversary, round `v721gm`, D7,
+    which killed the mutant that printed ``id(sink)`` instead).
+    """
+    global _SINK_SEQUENCE
+    with _SINK_REGISTRY_LOCK:
+        _SINK_SEQUENCE += 1
+        return _SINK_SEQUENCE
+
+
 def _forget_sink(key: int, dead_ref) -> None:
     """Drop a dead recorder's entry, and ONLY if it is still that entry.
 
@@ -826,7 +865,6 @@ def _forget_sink(key: int, dead_ref) -> None:
 
 def _entry_for(sink: Any, create: bool) -> "_SinkEntry | None":
     """This recorder's entry, minting one when asked and when possible."""
-    global _SINK_SEQUENCE
     key = id(sink)
     with _SINK_REGISTRY_LOCK:
         entry = _SINK_REGISTRY.get(key)
@@ -843,8 +881,7 @@ def _entry_for(sink: Any, create: bool) -> "_SinkEntry | None":
             ref = weakref.ref(sink, lambda dead, key=key: _forget_sink(key, dead))
         except TypeError:
             return None
-        _SINK_SEQUENCE += 1
-        entry = _SinkEntry(ref, _SINK_SEQUENCE)
+        entry = _SinkEntry(ref, _next_sequence())
         _SINK_REGISTRY[key] = entry
         return entry
 
@@ -858,10 +895,18 @@ def _sink_type_name(sink: Any) -> str:
     ``ascii()`` was introduced for one round ago.
     """
     try:
-        name = type(sink).__name__
+        # str() INSIDE the try: a metaclass may answer __name__ with a
+        # non-string, and the comprehension below then raised out of the
+        # composer AFTER record() had stored the order -- the D-A5 shape
+        # again, one round later (pf-adversary, round `v721gm`, D11).
+        name = str(type(sink).__name__)
     except Exception:
         return "sink"
-    cleaned = "".join(ch for ch in name if 33 <= ord(ch) <= 126)
+    # `=` and `@` are dropped, not kept: they are this line's own structure,
+    # and a class named `Rec@1 drain=dispatch` otherwise grows a second
+    # drain= field inside the sink word (pf-adversary, round `v721gm`, D5).
+    cleaned = "".join(ch for ch in name
+                      if 33 <= ord(ch) <= 126 and ch not in "=@")
     return cleaned[:40] or "sink"
 
 
@@ -883,9 +928,17 @@ def sink_fingerprint(sink: Any) -> str:
     """
     entry = _entry_for(sink, create=True)
     if entry is None:
-        return "%s@%s" % (_sink_type_name(sink),
-                          SINK_FINGERPRINT_UNPINNED_SUFFIX)
+        return "%s@%s-%d" % (_sink_type_name(sink),
+                             SINK_FINGERPRINT_UNPINNED_SUFFIX,
+                             _next_sequence())
     return "%s@%d" % (_sink_type_name(sink), entry.sequence)
+
+
+#: The words this module prints as VERDICTS.  A claim may not be one of them:
+#: see :data:`CLAIM_REFUSED_RESERVED_WORD`.
+DRAIN_CLAIM_RESERVED_WORDS = (
+    DRAIN_CLAIM_UNCLAIMED, DRAIN_CLAIM_UNKNOWN, DRAIN_CLAIM_UNCLAIMABLE,
+    SINK_FINGERPRINT_UNNAMED, SINK_FINGERPRINT_UNPINNED_SUFFIX)
 
 
 def claim_sink_for_drain(sink: Any, claim: Any) -> str:
@@ -926,6 +979,14 @@ def claim_sink_for_drain(sink: Any, claim: Any) -> str:
         raise SinkClaimError(
             "%s claim=%s: no spaces, no control bytes, no cp874 gambles"
             % (CLAIM_REFUSED_NOT_PRINTABLE_ASCII, ascii(claim)))
+    if any(ch in "=@" for ch in claim):
+        raise SinkClaimError(
+            "%s claim=%s: '=' and '@' are this line's own structure"
+            % (CLAIM_REFUSED_STRUCTURAL_CHARACTER, ascii(claim)))
+    if claim in DRAIN_CLAIM_RESERVED_WORDS:
+        raise SinkClaimError(
+            "%s claim=%s: that word is a verdict of this module, not a name"
+            % (CLAIM_REFUSED_RESERVED_WORD, ascii(claim)))
     entry = _entry_for(sink, create=True)
     if entry is None:
         raise SinkClaimError(
@@ -937,6 +998,41 @@ def claim_sink_for_drain(sink: Any, claim: Any) -> str:
     with _SINK_REGISTRY_LOCK:
         entry.claim = claim
     return claim
+
+
+def try_claim_sink_for_drain(sink: Any, claim: Any) -> str | None:
+    """:func:`claim_sink_for_drain`, but ``None`` instead of a raise.
+
+    FOR THE SOCKET PATH, AND ONLY BECAUSE OF WHERE THAT PATH LIVES.  The drain
+    this claim is for runs inside ``dispatch()``, whose listener has a ``try:``
+    with no ``except``: a raise there does not fail a claim, it kills the
+    accept loop for every session on the process.  And the most ordinary way to
+    reach it is not a typo -- ``ScriptHost.teleport_check_sink`` answers
+    ``None`` for a degraded host, which the house rule says must fail SOFT, so
+    a claim that raised would turn a survivable mirror failure into a dead
+    server (pf-adversary, round `v721gm`, D6).
+
+    Returns the claim on success and the refusal NAME on failure, so the caller
+    logs a word instead of losing a thread.
+    """
+    try:
+        return claim_sink_for_drain(sink, claim)
+    except SinkClaimError:
+        return None
+
+
+def claim_refusal_reason(sink: Any, claim: Any) -> str | None:
+    """The refusal name a claim would earn, or ``None`` when it would be taken.
+
+    Split out from :func:`try_claim_sink_for_drain` so the socket path can log
+    WHICH repair it needs -- ``CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE`` and
+    ``CLAIM_REFUSED_RESERVED_WORD`` are two different one-line fixes.
+    """
+    try:
+        claim_sink_for_drain(sink, claim)
+    except SinkClaimError as exc:
+        return str(exc).split(" ", 1)[0]
+    return None
 
 
 def sink_drain_claim(sink: Any) -> str | None:
@@ -952,20 +1048,83 @@ def sink_drain_claim(sink: Any) -> str | None:
         return entry.claim
 
 
+def sink_is_wired(sink: Any) -> bool:
+    """Whether this recorder's ``record`` is something other than the default's.
+
+    A MEASUREMENT, NOT A PROMISE, and it is here because the claim is the
+    other way round.  The recorder a live connection hands ``ScriptHost`` is
+    an ``InMemoryTeleportCheckSink`` subclass whose ``record()`` also queues
+    the send (chief, letter `20260908_0432`); the inert default that every
+    unwired host builds for itself is this module's own class, unchanged.  So
+    "is this the recorder nobody wired?" can be answered by looking at the
+    object rather than by believing a word somebody wrote on it
+    (pf-adversary, round `v721gm`, D3/D12).
+
+    WHAT IT DOES NOT SAY: that the wired recorder's queue is ever drained.
+    ``taken`` is the number that says that, and only draining moves it.
+    """
+    try:
+        return type(sink).record is not InMemoryTeleportCheckSink.record
+    except Exception:
+        return True
+
+
+def sink_taken_count(sink: Any) -> int | None:
+    """How many orders were REMOVED from this recorder, or ``None``.
+
+    ``InMemoryTeleportCheckSink.take`` is the only thing that moves it, and
+    ``take`` is what a drain calls, so ``taken=0`` on a session that has been
+    filing orders for a while is R307's window-that-goes-nowhere stated as a
+    number instead of as a promise about the future (pf-adversary, round
+    `v721gm`: the claim proves only that somebody wrote a string).
+    """
+    try:
+        value = sink.taken
+    except Exception:
+        return None
+    if isinstance(value, bool) or type(value) is not int:
+        return None
+    return value
+
+
 def sink_console_fields(sink: Any) -> str:
-    """The ``sink=... drain=...`` half of a console line, one shape always.
+    """The ``sink=... drain=... wired=... taken=...`` half of a console line.
 
     ``sink is None`` means the caller did not say which recorder it used, and
     that reads ``sink=unnamed drain=unknown`` -- not ``unclaimed``, which is a
     measured fact about a named object.
+
+    ``drain=unclaimable`` is a third case and not a fourth spelling of the
+    first two: the claim door REFUSES this object (no weak reference can hold
+    it), so nobody can ever claim it and the repair is a ``__slots__`` line,
+    not a wiring call.
+
+    ``wired`` and ``taken`` are the two fields nothing can assert into: they
+    are read off the object each time the line is printed.
     """
     if sink is None:
-        return ("sink=%s drain=%s"
+        return ("sink=%s drain=%s wired=? taken=?"
                 % (SINK_FINGERPRINT_UNNAMED, DRAIN_CLAIM_UNKNOWN))
     claim = sink_drain_claim(sink)
-    return ("sink=%s drain=%s"
-            % (sink_fingerprint(sink),
-               DRAIN_CLAIM_UNCLAIMED if claim is None else claim))
+    if claim is not None:
+        drain = claim
+    elif _entry_for(sink, create=False) is None and not _can_be_claimed(sink):
+        drain = DRAIN_CLAIM_UNCLAIMABLE
+    else:
+        drain = DRAIN_CLAIM_UNCLAIMED
+    taken = sink_taken_count(sink)
+    return ("sink=%s drain=%s wired=%d taken=%s"
+            % (sink_fingerprint(sink), drain, int(sink_is_wired(sink)),
+               "?" if taken is None else taken))
+
+
+def _can_be_claimed(sink: Any) -> bool:
+    """Whether a weak reference can hold this recorder at all."""
+    try:
+        weakref.ref(sink)
+    except TypeError:
+        return False
+    return True
 
 
 def sink_stored_count(returned: Any) -> int | None:
@@ -1009,11 +1168,16 @@ class InMemoryTeleportCheckSink:
     #: (:func:`claim_sink_for_drain` refuses it by name), because this
     #: module would have no way to notice the object dying and would hand
     #: its claim to whatever is allocated at that address next.
-    __slots__ = ("orders", "refusals", "__weakref__")
+    __slots__ = ("orders", "refusals", "taken", "__weakref__")
 
     def __init__(self) -> None:
         self.orders: list[TeleportCheckOrder] = []
         self.refusals: list[str] = []
+        #: Orders REMOVED by :meth:`take`, which is what a drain calls.  Only
+        #: the act of draining moves it, which is what makes it worth printing
+        #: next to a claim that only proves somebody made a promise
+        #: (pf-adversary, round `v721gm`, D3).
+        self.taken = 0
 
     def record(self, character_id: int, pending: PendingCheck) -> int:
         """``1`` when the order was stored, ``0`` when the cap refused it.
@@ -1043,4 +1207,6 @@ class InMemoryTeleportCheckSink:
         if index is None:
             self.refusals.append(ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER)
             return None
-        return self.orders.pop(index)
+        order = self.orders.pop(index)
+        self.taken += 1
+        return order

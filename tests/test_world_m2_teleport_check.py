@@ -702,6 +702,7 @@ class TheLuaNameIsRealNow(unittest.TestCase):
             "LANE_A_M2_TELEPORT_CHECK ORDER_RECORDED marker=17 scene=126"
             " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
             " sent=0 sink=InMemoryTeleportCheckSink@%s drain=unclaimed"
+            " wired=0 taken=0"
             % sequence
         ])
 
@@ -715,7 +716,7 @@ class TheLuaNameIsRealNow(unittest.TestCase):
             line,
             "LANE_A_M2_TELEPORT_CHECK PROMPT_SENT marker=17 scene=126"
             " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
-            " bytes_out=44 sink=unnamed drain=unknown")
+            " bytes_out=44 sink=unnamed drain=unknown wired=? taken=?")
         line.encode("ascii")
         # A sender that says WHICH recorder it drained gets the word the
         # ORDER_RECORDED line of the same order carries, and that is the whole
@@ -728,7 +729,7 @@ class TheLuaNameIsRealNow(unittest.TestCase):
             sent,
             "LANE_A_M2_TELEPORT_CHECK PROMPT_SENT marker=17 scene=126"
             " xyz=3050,232,90 dir=6 confirm_predicted=21 window_expected=1"
-            " bytes_out=44 sink=%s drain=dispatch-drain"
+            " bytes_out=44 sink=%s drain=dispatch-drain wired=0 taken=0"
             % tc.sink_fingerprint(sink))
         recorded = tc.prompt_console_line(pending, sink)
         self.assertEqual(
@@ -976,7 +977,7 @@ class TheDoorSaysWhichRecorderItFiledInto(unittest.TestCase):
         self.assertIsNone(tc.sink_drain_claim(sink))
         self.assertEqual(
             tc.sink_console_fields(sink),
-            "sink=InMemoryTeleportCheckSink@%s drain=unclaimed"
+            "sink=InMemoryTeleportCheckSink@%s drain=unclaimed wired=0 taken=0"
             % tc.sink_fingerprint(sink).split("@")[1])
 
     def test_a_line_that_was_not_told_its_recorder_says_unknown(self):
@@ -985,7 +986,7 @@ class TheDoorSaysWhichRecorderItFiledInto(unittest.TestCase):
         # named object.  A reader who cannot tell them apart fixes the wrong
         # half of the wiring.
         self.assertEqual(tc.sink_console_fields(None),
-                         "sink=unnamed drain=unknown")
+                         "sink=unnamed drain=unknown wired=? taken=?")
         self.assertNotEqual(tc.sink_console_fields(None),
                             tc.sink_console_fields(
                                 tc.InMemoryTeleportCheckSink()))
@@ -1126,6 +1127,114 @@ class TheDoorSaysWhichRecorderItFiledInto(unittest.TestCase):
         self.assertIsNone(tc.sink_drain_claim(sink))
         self.assertEqual(tc.DRAIN_CLAIM_MAX_LEN, 40)
 
+    def test_a_fingerprint_is_never_the_objects_address(self):
+        # The docstring's own central claim, which nothing pinned: a mutant
+        # printing id(sink) survived the whole file (pf-adversary, round
+        # `v721gm`, D7).  An address is recycled; a reader comparing two lines
+        # minutes apart cannot know that, so the number must not be one.
+        sink = tc.InMemoryTeleportCheckSink()
+        self.assertNotEqual(tc.sink_fingerprint(sink).split("@")[1],
+                            str(id(sink)))
+
+    def test_a_sequence_number_is_never_handed_to_a_second_object(self):
+        # The other half of D7: a counter derived from the registry's SIZE
+        # (rather than a monotonic one) hands a dead recorder's number to the
+        # next one, and the two lines match across the death.
+        import gc
+
+        first = tc.InMemoryTeleportCheckSink()
+        first_fingerprint = tc.sink_fingerprint(first)
+        del first
+        gc.collect()
+        second = tc.InMemoryTeleportCheckSink()
+        self.assertNotEqual(tc.sink_fingerprint(second), first_fingerprint)
+        self.assertGreater(int(tc.sink_fingerprint(second).split("@")[1]),
+                           int(first_fingerprint.split("@")[1]))
+
+    def test_a_claim_may_not_spell_one_of_this_modules_verdicts(self):
+        # A drain that claims "unknown" prints the word documented as "this
+        # line does not know its sink", and the reader files a wiring bug
+        # against a correctly wired session (pf-adversary, round `v721gm`, D4).
+        sink = tc.InMemoryTeleportCheckSink()
+        for word in tc.DRAIN_CLAIM_RESERVED_WORDS:
+            with self.subTest(word=word):
+                self.assertEqual(tc.claim_refusal_reason(sink, word),
+                                 tc.CLAIM_REFUSED_RESERVED_WORD)
+        self.assertIn("unclaimed", tc.DRAIN_CLAIM_RESERVED_WORDS)
+        self.assertIn("unknown", tc.DRAIN_CLAIM_RESERVED_WORDS)
+        self.assertIsNone(tc.sink_drain_claim(sink))
+
+    def test_a_claim_cannot_grow_a_second_drain_field_inside_the_first(self):
+        # `=` and `@` are the line's own structure.  A parser taking the first
+        # `drain=` match must not be able to read a claim nobody made
+        # (pf-adversary, round `v721gm`, D5).
+        import re
+
+        sink = tc.InMemoryTeleportCheckSink()
+        self.assertEqual(tc.claim_refusal_reason(sink, "sink=X@9"),
+                         tc.CLAIM_REFUSED_STRUCTURAL_CHARACTER)
+        # ...and neither can a CLASS NAME, which no caller of this module
+        # chooses either.
+        cls = type("Rec@1 drain=dispatch", (), {"__slots__": ("__weakref__",)})
+        line = tc.prompt_console_line(tc.open_check(17), cls())
+        self.assertEqual(len(re.findall(r"drain=", line)), 1)
+        self.assertEqual(re.search(r"drain=(\S+)", line).group(1), "unclaimed")
+
+    def test_the_claim_door_never_raises_on_the_socket_path(self):
+        # dispatch()'s listener has a `try:` with no `except`: a raise there
+        # kills the accept loop for every session.  And the most ordinary way
+        # to reach it is a degraded host, whose sink accessor answers None and
+        # which the house rule says must fail SOFT (pf-adversary, `v721gm`, D6).
+        self.assertIsNone(tc.try_claim_sink_for_drain(None, "dispatch-drain"))
+        self.assertEqual(tc.claim_refusal_reason(None, "dispatch-drain"),
+                         tc.CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE)
+        sink = tc.InMemoryTeleportCheckSink()
+        self.assertEqual(tc.try_claim_sink_for_drain(sink, "dispatch-drain"),
+                         "dispatch-drain")
+        self.assertIsNone(tc.claim_refusal_reason(sink, "dispatch-drain"))
+
+    def test_taken_counts_the_one_act_a_claim_cannot_fake(self):
+        # A claim proves that somebody wrote a string.  `taken` moves only when
+        # an order is actually removed, which is what a drain does -- so
+        # `taken=0` on a session that has been filing orders is R307's window
+        # that goes nowhere, as a number (pf-adversary, round `v721gm`, D3).
+        sink = tc.InMemoryTeleportCheckSink()
+        namespace = lua_player.build_namespace(
+            frozenset(lua_player.REAL_METHODS) | set(lua_player.STILL_STUBBED),
+            lambda _m: None,
+            context=lua_player.PlayerContext(character_id=2),
+            teleport_check_sink=sink)
+        self.assertEqual(namespace["TeleportCheck"](1), 1)
+        self.assertEqual(tc.sink_taken_count(sink), 0)
+        self.assertIn(" taken=0", tc.sink_console_fields(sink))
+        self.assertIsNotNone(sink.take(2, 1))
+        self.assertEqual(tc.sink_taken_count(sink), 1)
+        self.assertIn(" taken=1", tc.sink_console_fields(sink))
+        # A refused take moves nothing: only a removal counts.
+        self.assertIsNone(sink.take(2, 1))
+        self.assertEqual(tc.sink_taken_count(sink), 1)
+
+    def test_wired_is_read_off_the_object_not_asserted_onto_it(self):
+        # The inert default nobody wired, versus the recorder a live
+        # connection hands the host (an InMemoryTeleportCheckSink whose
+        # record() also queues the send, chief letter `20260908_0432`).
+        default = tc.InMemoryTeleportCheckSink()
+        self.assertFalse(tc.sink_is_wired(default))
+
+        class SendingSink(tc.InMemoryTeleportCheckSink):
+            __slots__ = ()
+
+            def record(self, character_id, pending):
+                return super().record(character_id, pending)
+
+        self.assertTrue(tc.sink_is_wired(SendingSink()))
+        self.assertIn(" wired=1", tc.sink_console_fields(SendingSink()))
+        self.assertIn(" wired=0", tc.sink_console_fields(default))
+        # A claim cannot move it: the whole point is that this field is a
+        # measurement of the object and not a promise written onto it.
+        tc.claim_sink_for_drain(default, "dispatch-drain")
+        self.assertIn(" wired=0", tc.sink_console_fields(default))
+
     def test_a_recorder_no_weak_reference_can_hold_is_refused_by_name(self):
         class NoWeakref:
             __slots__ = ("orders",)
@@ -1142,8 +1251,15 @@ class TheDoorSaysWhichRecorderItFiledInto(unittest.TestCase):
             str(caught.exception))
         # ...and the console line still comes out, saying the one true thing:
         # this module cannot tell this object from the next one at its address.
-        self.assertEqual(tc.sink_console_fields(sink),
-                         "sink=NoWeakref@unpinned drain=unclaimed")
+        # `unclaimable`, not `unclaimed`: nobody CAN claim this object, and
+        # the repair is a __slots__ line rather than a wiring call
+        # (pf-adversary, round `v721gm`, D2).  And the fingerprint carries a
+        # counter, so two un-pinnable recorders never read as one object.
+        fields = tc.sink_console_fields(sink)
+        self.assertRegex(
+            fields,
+            r"^sink=NoWeakref@unpinned-\d+ drain=unclaimable wired=1 taken=\?$")
+        self.assertNotEqual(fields, tc.sink_console_fields(NoWeakref()))
 
     def test_the_default_recorder_can_be_claimed_at_all(self):
         # `__weakref__` in InMemoryTeleportCheckSink.__slots__ is what makes
@@ -1156,7 +1272,8 @@ class TheDoorSaysWhichRecorderItFiledInto(unittest.TestCase):
         cls = type("\u0e01\u0e25\u0e48\u0e2d\u0e07", (), {"__slots__": ()})
         line = tc.sink_console_fields(cls())
         line.encode("ascii")
-        self.assertEqual(line, "sink=sink@unpinned drain=unclaimed")
+        self.assertRegex(
+            line, r"^sink=sink@unpinned-\d+ drain=unclaimable wired=1 taken=\?$")
 
     def test_the_live_door_prints_the_claim_its_own_sink_carries(self):
         sink = tc.InMemoryTeleportCheckSink()

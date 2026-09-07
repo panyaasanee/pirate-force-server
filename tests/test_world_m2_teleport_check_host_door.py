@@ -161,8 +161,12 @@ class TheHostHandsTheTravelOrderOutTests(unittest.TestCase):
                    if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
         self.assertEqual(len(prompts), 1)
         self.assertTrue(prompts[0].endswith(
-            " sink=%s drain=unclaimed"
+            " sink=%s drain=unclaimed wired=0 taken=0"
             % tc.sink_fingerprint(host.teleport_check_sink)), prompts[0])
+        # `wired=0` is the fact under the word: this host built the inert
+        # default for itself, so nothing on this connection queues a send --
+        # measured off the object, not claimed (pf-adversary, `v721gm`, D3).
+        self.assertFalse(tc.sink_is_wired(host.teleport_check_sink))
         prompts[0].encode("ascii")
 
     def test_a_drain_that_claims_the_hosts_sink_is_named_on_its_console(self):
