@@ -857,8 +857,12 @@ def negative_identity_for(label: str) -> int:
 #: ALL-NOID) silently renumbers every later board -- so the attended sheet
 #: written for one boot describes a different actor in the next.  Measured:
 #: N-ENM0 moved from 28313 to 28323 between the two boots before this existed.
-#: Screen POSITION is still packed by drawn ordinal, so an absent row leaves
-#: no hole in the line; only the identity is pinned to the label.
+#: ~~Screen POSITION is still packed by drawn ordinal, so an absent row leaves
+#: no hole in the line; only the identity is pinned to the label.~~
+#: [STRUCK, round p9x1mh, 2026-09-08: that was the other half of the same
+#: defect and pf-adversary round ``ubmvj1`` D7 named it.  Position is a
+#: function of the label now too -- see :func:`all_row_standing_slot` -- and an
+#: absent row DOES leave a hole in the line, on purpose.]
 ALL_ROW_ORDER = (
     "N-BASE", "M-BASE",
     "N-LVL", "N-HP", "N-SPD", "N-TPL", "N-PRE",
@@ -881,6 +885,52 @@ def all_row_placement_index(label: str) -> int:
             "would be numbered by draw order and move between boots"
         ) from None
     return SWEEP_PLACEMENT_BASE + slot * SWEEP_PLACEMENT_STRIDE
+
+
+#: The labels that keep a ground spot, in the order they stand in on the map.
+#: ``ALL_ROW_ORDER`` minus the four rows :data:`ALL_SET_UNCOMPOSABLE` says this
+#: lane cannot build at all: those four can never stand anywhere, so reserving
+#: ground for them would only push the boards that DO compose onto a third
+#: line, and the owner approved two (PANYA 2350 item 1).  Everything that can
+#: compose in ANY boot keeps its spot in EVERY boot -- including the two rows
+#: that need a viewer identity, which is the whole point.
+ALL_ROW_STANDING_ORDER = tuple(
+    label for label in ALL_ROW_ORDER
+    if label not in {label for label, _ in ALL_SET_UNCOMPOSABLE}
+)
+
+
+def all_row_standing_slot(label: str) -> int:
+    """The 0-based ground spot ``label`` stands in, in every boot of this set.
+
+    Raises rather than falling back to a draw counter: a row with no reserved
+    spot is exactly the shape that moved the boards, and a silent fallback
+    would put it back.
+    """
+    try:
+        return ALL_ROW_STANDING_ORDER.index(label)
+    except ValueError:
+        raise NameColourSweepError(
+            f"{label!r} has no reserved ground spot -- it is either absent "
+            "from ALL_ROW_ORDER or listed in ALL_SET_UNCOMPOSABLE, and a row "
+            "positioned by draw order moves between boots"
+        ) from None
+
+
+#: THE NAME CHIEF LEFT FOR THIS LANE TO TAKE BACK (chief R396 letter
+#: ``20260908_0204``, "the words ALL / ALL-NOID are your lane's").  His file
+#: reads this tuple FIRST and falls back to its own
+#: ``runtime.NAME_COLOUR_SWEEP_EMPTY_WORLD_SETS`` only while this one does not
+#: exist, so declaring it here is what moves the vocabulary home -- no round of
+#: his in between.  These are the two sets whose question is unanswerable in a
+#: populated town: :func:`rows_inside_the_readability_floor` measures boards
+#: standing inside :data:`ROW_CLEARANCE_FROM_REAL_NPCS` of a real Port Royal
+#: NPC, and a tester cannot tell a sweep board's nameplate from a townsman's
+#: when they overlap.
+#:
+#: Sets 1 and 2 are deliberately NOT here: they ride in the ordinary town and
+#: chief's letter pins that they still do, byte for byte.
+SWEEP_SETS_WANTING_AN_EMPTY_WORLD = ("ALL", "ALL-NOID")
 
 
 #: The identity x template rows ka1-A's addendum 2 (2026-09-08T00:57+07:00)
@@ -1041,8 +1091,28 @@ def _all_row_z() -> float:
     )
 
 
-def _all_row_xyz(ordinal: int, z: float) -> tuple[float, float, float]:
-    line, column = divmod(ordinal, ALL_ROWS_PER_LINE)
+def _all_row_xyz(label: str, z: float) -> tuple[float, float, float]:
+    """The ground spot reserved for ``label``, and for no other row.
+
+    pf-adversary round ``ubmvj1`` D7: this used to take the DRAW ORDINAL -- a
+    counter bumped once per row that actually composed -- so the boards moved
+    whenever the composed set changed.  Two boots of the same sweep already
+    differ that way on ``main``: ``viewer_identity=`` (chief's
+    ``pirate-force-server#1099``) makes ``N-LNKP`` compose at slot 12 and
+    pushes every one of the eleven boards after it one spot along, and
+    ``ALL-NOID`` drops the identity groups and pulls them all back again.  The
+    attended tester reads a printed label sheet against boards on a screen; a
+    sheet made on a headless dry run of one of those boots names the wrong
+    board in the other, and a board that answers a different question than its
+    label says is indistinguishable from a wrong ANSWER.
+
+    So the spot is a function of the LABEL alone, over the standing order
+    below.  A row that does not compose leaves its spot EMPTY rather than
+    closing the gap -- which is itself readable: the tester sees the sheet's
+    slot with nothing standing in it and reports "not composed", the same
+    thing :func:`all_set_uncomposable_rows` says on the console.
+    """
+    line, column = divmod(all_row_standing_slot(label), ALL_ROWS_PER_LINE)
     return (
         ALL_ROW_X0 + ALL_ROW_DX * column,
         ALL_ROW_Y + ALL_ROW_Y_SPLIT * line,
@@ -1152,13 +1222,11 @@ def _all_set(
     mob = _mob_prototype()
     z = _all_row_z()
     rows: list[SweepActor] = []
-    ordinal = 0
     skipped = {label for label, _ in ALL_SET_UNCOMPOSABLE}
     if viewer_identity is None:
         skipped.update(ALL_SET_NEEDS_VIEWER_IDENTITY)
 
     def npc(label: str, group: str, body_for) -> None:
-        nonlocal ordinal
         if label in skipped or (
             not include_identity_rows and group in ALL_IDENTITY_GROUPS
         ):
@@ -1168,13 +1236,11 @@ def _all_set(
         rows.append(_entry(
             legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
             actor_identity=identity, npc_attr=body_for(identity, label),
-            **dict(zip(("x", "y", "z"), _all_row_xyz(ordinal, z))),
+            **dict(zip(("x", "y", "z"), _all_row_xyz(label, z))),
         ))
-        ordinal += 1
 
     def npc_fixed_identity(label: str, group: str, identity: int, body_for) -> None:
         """A row whose whole question IS its identity, so it keeps that one."""
-        nonlocal ordinal
         if label in skipped or (
             not include_identity_rows and group in ALL_IDENTITY_GROUPS
         ):
@@ -1182,9 +1248,8 @@ def _all_set(
         rows.append(_entry(
             legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
             actor_identity=identity, npc_attr=body_for(identity, label),
-            **dict(zip(("x", "y", "z"), _all_row_xyz(ordinal, z))),
+            **dict(zip(("x", "y", "z"), _all_row_xyz(label, z))),
         ))
-        ordinal += 1
 
     def mob_row(
         label: str,
@@ -1195,7 +1260,6 @@ def _all_set(
         prototype=None,
         **overrides: Any,
     ) -> None:
-        nonlocal ordinal
         if label in skipped or (
             not include_identity_rows and group in ALL_IDENTITY_GROUPS
         ):
@@ -1223,9 +1287,8 @@ def _all_set(
         rows.append(_entry(
             legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
             actor_identity=variant.actor_identity, npc_attr=body,
-            **dict(zip(("x", "y", "z"), _all_row_xyz(ordinal, z))),
+            **dict(zip(("x", "y", "z"), _all_row_xyz(label, z))),
         ))
-        ordinal += 1
 
     # Controls (COO-ORDER 2342 item 2).
     npc("N-BASE", "control", lambda i, l: _npc_plain_body(legacy, i, l))
