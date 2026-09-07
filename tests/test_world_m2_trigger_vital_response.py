@@ -911,6 +911,113 @@ class ThreeMutantsPfAdversaryWalkedThroughTests(M2RegistryIsolation):
         self.assertIsNone(trigger_response.ISLAND_CONTACT_DISCRIMINATOR)
 
 
+class TheCrosswalkIsMeasuredNotAssertedTests(M2RegistryIsolation):
+    """The SECOND measurement the module has been demanding for three rounds:
+    the boxes came out of `Bg3001.tgr`, the points came off the wire and the
+    screen in `GT-228`/R308, neither derived from the other, and they agree.
+
+    This class does not let the module grade its own homework. Every number
+    is re-derived here from the two committed tables, and the containment is
+    recomputed rather than read out of a stored answer."""
+
+    def bridge(self):
+        """The bridge checkout, AFTER the caller has run the precondition.
+
+        Duplicated from `TheTableCitesItsLetterTests` rather than shared,
+        for the reason that class already states: `tests/test_pytest_
+        precondition_census.py` counts guards by reading each test method's
+        SOURCE, so a `require()` one call deeper counts as zero and the pin
+        file then disagrees with the census.
+        """
+        import os
+
+        env = os.environ.get("PF_BRIDGE_DIR")
+        if env and Path(env).is_dir():
+            return Path(env)
+        return BRIDGE_SIBLING.paths[0]
+
+    def _inside(self, box, x, y, z):
+        x0, y0, z0, x1, y1, z1 = box
+        return x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1
+
+    def test_every_observation_lands_in_the_box_of_its_own_wire_id(self):
+        boxes = trigger_response.ISLAND_EXTENT_BOXES
+        observations = trigger_response.M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS
+        # The claim is BOTH halves: in its own ordinal's box, and in no
+        # other. Only the second half rules out boxes so large they contain
+        # everything, which is the failure mode `RE-289` was written to
+        # detect in the first place.
+        for label, wire_id, x, y, z in observations:
+            containing = sorted(
+                ordinal
+                for ordinal, box in boxes.items()
+                if self._inside(box, x, y, z)
+            )
+            with self.subTest(observation=label):
+                self.assertEqual(containing, [wire_id])
+
+    def test_the_crosswalk_covers_both_ids_and_all_thirteen_points(self):
+        # A mutant that empties the table, or keeps only the rows of one
+        # island, passes the containment test above vacuously.
+        observations = trigger_response.M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS
+        self.assertEqual(len(observations), 13)
+        self.assertEqual(
+            sorted({wire_id for _, wire_id, _, _, _ in observations}), [2, 3]
+        )
+        # Three independent SOURCES, not thirteen readings of one thing: the
+        # frame's own trigger position, the ship position in the same frame,
+        # and what the HUD showed the observer. If a later round trims this
+        # to one source the crosswalk stops being a crosswalk.
+        labels = [label for label, _, _, _, _ in observations]
+        self.assertTrue(any(name.endswith("trigger") for name in labels))
+        self.assertTrue(any(name.endswith("ship") for name in labels))
+        self.assertTrue(any(name.startswith("HUD") for name in labels))
+
+    def test_the_crosswalk_would_notice_if_the_two_islands_were_swapped(self):
+        # THE KILLER FOR "the boxes are so big they contain everything".
+        # Relabel each observation with the OTHER island's id and the whole
+        # table must fail, every row of it. Measured, not asserted: this
+        # test failed to be worth writing until it was run, because a table
+        # of scene-wide boxes passes the test above just as happily.
+        boxes = trigger_response.ISLAND_EXTENT_BOXES
+        swap = {2: 3, 3: 2}
+        for label, wire_id, x, y, z in (
+            trigger_response.M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS
+        ):
+            with self.subTest(observation=label):
+                self.assertFalse(self._inside(boxes[swap[wire_id]], x, y, z))
+
+    def test_the_letter_behind_the_crosswalk_is_on_the_bridge(self):
+        # COO-DECISION `20260907_0945` item 3, applied to this table the
+        # same way it is applied to the extent table: a table with no letter
+        # behind it is a tier-3 refusal, not a pass with a warning. Skipped
+        # rather than failed where the bridge is not a sibling, which is the
+        # shape every other bridge-reading test in this repo uses.
+        BRIDGE_SIBLING.require(self)
+        letter = (
+            self.bridge()
+            / "notes_to_chief"
+            / trigger_response.M2_WIRE_ORDINAL_CROSSWALK_LETTER
+        )
+        self.assertTrue(letter.is_file(), letter)
+        text = letter.read_text(encoding="utf-8", errors="replace")
+        # Not merely that the file exists -- that it carries the numbers
+        # this module copied out of it. Two spot values, one per island,
+        # spelled as the letter spells them.
+        self.assertIn("-4451.6", text)
+        self.assertIn("-1720.4", text)
+        self.assertIn("OBSERVER_CONFIRMED", text)
+
+    def test_the_discriminator_is_still_unnamed_after_all_of_this(self):
+        # THE POINT OF THE WHOLE ROUND, PINNED. Delivering the second
+        # measurement is not the same act as deciding to act on it. Three
+        # documents route that decision through a crosswalk ticket and this
+        # lane does not get to shortcut them because the evidence came in
+        # early. If a later round fills the name, this test is the line it
+        # has to walk up to and delete on purpose.
+        self.assertIsNone(trigger_response.ISLAND_CONTACT_DISCRIMINATOR)
+
+
 class FieldOrderIsTheContractTests(M2RegistryIsolation):
     """pf-adversary D3: `CandidateFrame`'s field ORDER was unpinned --
     swapping `va` and `vital_id` in the NamedTuple left 42 tests passing,
@@ -978,22 +1085,72 @@ class FieldOrderIsTheContractTests(M2RegistryIsolation):
         # behaviour and not from the source text: each parameter must
         # actually be LOADED in the body. A docstring or comment naming it
         # produces no instruction; a dropped forward produces no load.
+        # pf-adversary D3 AGAINST THE FIRST VERSION OF THIS TEST: checking
+        # that each name is LOADED proves PRESENCE, not POSITION. Swapping
+        # `current_scene_id` and `wire_trigger_id` in the delegation left
+        # the whole file green -- and on a simulated next round (a named
+        # discriminator, a cited frame in a slot, a real in-box reading) the
+        # swapped module answers `None` for every input forever, i.e. M2
+        # silently never ships, with 84 tests passing. So the ORDER of the
+        # loads is checked too, not just the set.
+        #
+        # pf-adversary D5, same review: the loop was two hand-typed names
+        # with no non-vacuity assertion, so narrowing it to `()` dropped
+        # seven subtests and stayed green. The functions are DISCOVERED now
+        # and the discovery is pinned, the way the seam pin already does it.
         import dis
         import inspect
 
-        for function in (
-            trigger_response.candidate_for_trigger_id,
-            trigger_response._candidate_for_trigger_id,
-        ):
+        delegations = {
+            "candidate_for_trigger_id": trigger_response.candidate_for_trigger_id,
+            "_candidate_for_trigger_id": trigger_response._candidate_for_trigger_id,
+            # D4: `registered_count` lost ALL behavioural coverage in the
+            # split -- six tests moved to the private twin and none replaced
+            # them, so `def registered_count(): return 0` passed the file.
+            # It cannot be caught behaviourally (the production count really
+            # is 0), so it is caught here: the public one must load its twin.
+            "registered_count": trigger_response.registered_count,
+            "_registered_count": trigger_response._registered_count,
+        }
+        self.assertEqual(len(delegations), 4)
+
+        for name, function in delegations.items():
             code = function.__code__
-            loaded = {
+            loads = [
                 instruction.argval
                 for instruction in dis.get_instructions(code)
                 if instruction.opname in ("LOAD_FAST", "LOAD_FAST_BORROW")
-            }
-            for name in inspect.signature(function).parameters:
-                with self.subTest(function=function.__name__, parameter=name):
-                    self.assertIn(name, loaded)
+            ]
+            parameters = list(inspect.signature(function).parameters)
+            for parameter in parameters:
+                with self.subTest(function=name, parameter=parameter):
+                    self.assertIn(parameter, loads)
+            # ORDER, not just membership: the parameters this function
+            # forwards must appear in the body in the order it declares
+            # them. A transposition reverses two of these.
+            # FIRST occurrence of each, because a parameter may legitimately
+            # be read more than once (`wire_trigger_id` is used again for
+            # the table lookup); it is the order they are first reached in
+            # that a transposition reverses.
+            first_use = []
+            for one in loads:
+                if one in parameters and one not in first_use:
+                    first_use.append(one)
+            with self.subTest(function=name, check="order"):
+                self.assertEqual(
+                    [one for one in parameters if one in first_use], first_use
+                )
+
+        # The two public functions must be delegating, not reimplementing:
+        # each names its own private twin in its body.
+        self.assertIn(
+            "_candidate_for_trigger_id",
+            trigger_response.candidate_for_trigger_id.__code__.co_names,
+        )
+        self.assertIn(
+            "_registered_count",
+            trigger_response.registered_count.__code__.co_names,
+        )
 
     def test_the_public_lookup_has_exactly_three_parameters(self):
         # The other half of what the deleted `*` was holding: nothing may be
@@ -1828,6 +1985,58 @@ class Tier3StateIsReadOnlyToImportersTests(M2RegistryIsolation):
         self.assertIn("registered_count", checked)
         self.assertIn("answer_guard_reason", checked)
         self.assertIn("scene_guard_reason", checked)
+
+    def test_the_freeze_covers_every_function_this_module_defines(self):
+        """pf-adversary D1, CRITICAL, against this round's own fix, and D6,
+        which is why D1 could be written at all.
+
+        Closing C6 minted `_candidate_for_trigger_id` and `_registered_count`
+        and left both OUT of `__FROZEN`, while the frozen public pair do
+        nothing but delegate to them. One assignment --
+        `module._candidate_for_trigger_id = lambda *a, **k: forged` -- then
+        made the frozen public function hand a forged frame to a caller with
+        no scene, no reading and no measured discriminator. Strictly worse
+        than the C6 this round was sent to close.
+
+        It was invisible because `__FROZEN` was pinned by three hand-typed
+        names and nothing else: removing `_table_for` from the set, removing
+        `candidate_for_trigger_id`, and ADDING the two twins (that is, the
+        fix itself) were all green. A hand-typed pin cannot notice a name
+        that was never typed.
+
+        So the set is DERIVED here. Every function this module defines must
+        be frozen. The next twin is covered before anyone remembers to
+        think about it."""
+        import types
+
+        defined = {
+            name
+            for name, value in vars(trigger_response).items()
+            if isinstance(value, types.FunctionType)
+            and value.__module__ == trigger_response.__name__
+        }
+        # Non-vacuity: the derivation itself is pinned, or a mutant that
+        # narrows it to nothing passes.
+        self.assertIn("answer_guard_reason", defined)
+        self.assertIn("_candidate_for_trigger_id", defined)
+        self.assertIn("_registered_count", defined)
+        self.assertGreaterEqual(len(defined), 10)
+
+        frozen = set(type(trigger_response)._FrozenTier3Module__FROZEN)
+        self.assertEqual(sorted(defined - frozen), [])
+
+    def test_the_new_crosswalk_table_is_frozen_like_every_other_tier3_table(self):
+        # Same round, same lesson one layer over: the crosswalk table is
+        # data a discriminator would be judged against tomorrow, which is
+        # the argument that froze `_ISLAND_EXTENT_BOXES`.
+        for name in (
+            "M2_WIRE_ORDINAL_CROSSWALK_LETTER",
+            "M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS",
+            "M2_WIRE_ORDINAL_CROSSWALK_UNDECODED_FRAMES",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(AttributeError):
+                    setattr(trigger_response, name, "anything at all")
 
     def test_the_reload_hole_is_named_and_not_pretended_away(self):
         # `importlib.reload` re-executes the module body, which writes the
