@@ -1,8 +1,14 @@
 """LANE-Q round `8ou0zg`: the write half of the quest reward seam.
 
 WHAT THESE TESTS ARE FOR.  `lua_api.reward` is the one place a resolved
-quest reward can reach a character row, and today it REFUSES on the real
-store.  A refusal is only worth anything if it is the refusal we meant, so
+quest reward can reach a character row.  It used to refuse on the real
+store because the store had no atomic add; LANE-DB shipped
+`SQLiteStore.add_typed_attribute` (on `main` as of 2026-09-07) and the
+payout it now performs is proven from that lane's side, in
+`tests/test_store_add_typed_attribute.py::QuestRewardReachesARealRowTests`.
+What is pinned HERE is every way `pay` REFUSES -- a store without the
+method, no character, nothing to pay, a negative amount, a raising store.
+A refusal is only worth anything if it is the refusal we meant, so
 these tests pin the shape of the refusal, not just its existence: which
 column would have been written, what number was not paid, and -- the one
 that matters most -- that nothing on the way there ever reads a balance.

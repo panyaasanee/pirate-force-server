@@ -137,6 +137,7 @@ client, and a scene bucket is a record of intent, not a broadcast.
 
 from __future__ import annotations
 
+from . import vendored
 from .vendored import VendoredDataError
 
 import csv
@@ -310,14 +311,26 @@ def catalog() -> Mapping[int, Tuple[int, int, str]]:
     global _CATALOG_CACHE
     with _CATALOG_LOCK:
         if _CATALOG_CACHE is None:
-            try:
-                _CATALOG_CACHE = _read_catalog(_CATALOG_PATH)
-            except MessageCatalogError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - re-raised by name
-                raise MessageCatalogError(
-                    "cannot read the vendored message catalog %s: %r"
-                    % (_CATALOG_PATH, exc)) from exc
+            def _read():
+                try:
+                    return _read_catalog(_CATALOG_PATH)
+                except MessageCatalogError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - re-raised by name
+                    raise MessageCatalogError(
+                        "cannot read the vendored message catalog %s: %r"
+                        % (_CATALOG_PATH, exc)) from exc
+
+            # COUNTED WHERE A READER CAN SEE IT, then re-raised unchanged
+            # (pf-adversary D3/D6, round `95aw54`).  This mirror is read
+            # lazily, inside a namespace closure, long after any ScriptHost
+            # was built, so `script_host.guard_mirrors` -- which runs at
+            # construction -- could never see it break.  `read_mirror`
+            # records the outcome under this mirror's own key and changes
+            # nothing else: the exception still travels to the caller that
+            # already turns it into a `LUA_HOST` line.
+            _CATALOG_CACHE = vendored.read_mirror(
+                vendored.MIRROR_MESSAGE_CATALOG, _read)
         return _CATALOG_CACHE
 
 
