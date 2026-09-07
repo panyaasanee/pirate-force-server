@@ -1585,6 +1585,60 @@ class GmCommandCaptureTests(unittest.TestCase):
         # satisfies both assertions above at once.
         self.assertGreater(command_capture._UNLINK_ATTEMPTS, 1)
 
+    def test_the_stuck_line_reports_the_bytes_this_call_actually_attempted(self):
+        # D1 (pf-adversary, round `i3evov`): the three tests named "names the
+        # ... bytes" assert `assertIn("attempted_bytes=")` and
+        # `assertNotIn("attempted_bytes=0")`, so they prove the number is not
+        # ZERO and say nothing about the VALUE. Measured there: replacing
+        # `attempted_bytes={attempted_bytes}` with a literal `attempted_bytes=99`
+        # left this file at 60 passed. That is M42's defect one field to the
+        # left, in the same printf, and the field's own docstring says the
+        # number exists to "identify the CALL".
+        #
+        # The oracle is deliberately NOT a constant typed into this test, and
+        # not `_estimate_capture_file_bytes` either -- both would move together
+        # with the composition they are supposed to check. It is the SIZE OF
+        # THE FILE A SUCCEEDING CAPTURE OF THE SAME INPUT WRITES, measured
+        # here with nothing mocked: on the success path the whole `file_body`
+        # reaches disk, so that size is `len(file_body)` observed from the
+        # outside.
+        sizes = {}
+        for label, payload in (("small", b"x"), ("large", b"y" * 4096)):
+            root = self.root / f"truth_{label}"
+            path = capture_raw_gm_command(
+                payload, "panya", capture_root=root, now_ts=0,
+            )
+            sizes[label] = Path(path).stat().st_size
+
+        self.assertGreater(
+            sizes["large"],
+            sizes["small"],
+            "the two payloads must produce different file sizes, or a literal "
+            "satisfies both assertions below at once",
+        )
+
+        for label, payload in (("small", b"x"), ("large", b"y" * 4096)):
+            with self.subTest(payload=label):
+                stderr = io.StringIO()
+                with mock.patch.object(
+                    command_capture.os, "write",
+                    side_effect=OSError("simulated ENOSPC"),
+                ), mock.patch.object(
+                    command_capture.os, "unlink",
+                    side_effect=OSError("simulated Windows sharing violation"),
+                ), mock.patch.object(
+                    command_capture.time, "sleep",
+                ), contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(CaptureFileNotVerifiedRemoved):
+                        capture_raw_gm_command(
+                            payload, "panya",
+                            capture_root=self.root / f"stuck_{label}",
+                            now_ts=0,
+                        )
+                printed = stderr.getvalue().splitlines()
+                self.assertEqual(len(printed), 1, printed)
+                self.assertIn(f"attempted_bytes={sizes[label]} ", printed[0])
+
 
 if __name__ == "__main__":
     unittest.main()
