@@ -384,8 +384,13 @@ jobs:
               claude/*) : ;;
               *) echo "  head '${HEAD_REF}' is not a claude/ branch - skipped"; continue ;;
             esac
+            # The verdict this line reaches is the ONLY record of what the
+            # body looked like at read time.  Print it either way: `updated_at`
+            # equals `merged_at` on a merged PR, so REST cannot tell a body
+            # edited AFTER the merge from a body that already carried the
+            # marker (pirate-force-server#922, chief round lafdux/R385).
             case "$BODY" in
-              *"$PF_MARKER"*) : ;;
+              *"$PF_MARKER"*) echo "  body read at $(date -u +%Y-%m-%dT%H:%M:%SZ) HAS marker '${PF_MARKER}'" ;;
               *) echo "  body has no marker '${PF_MARKER}' - skipped, ON PURPOSE"; continue ;;
             esac
             # The verdict has to be about the commit that would actually merge.
@@ -620,7 +625,8 @@ jobs:
             [ "$HEAD_REPO" = "$REPO" ]   || { echo "  fork - skipped"; continue; }
             [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || { echo "  base is not ${DEFAULT_BRANCH} - skipped"; continue; }
             case "$HEAD_REF" in claude/*) : ;; *) echo "  not a claude/ branch - skipped"; continue ;; esac
-            case "$BODY" in *"$PF_MARKER"*) : ;; *) echo "  body has no marker '${PF_MARKER}' - skipped, ON PURPOSE (a human must add it; see #86 2026-08-27)"; continue ;; esac
+            # Print the marker verdict either way - see the same note in `decide`.
+            case "$BODY" in *"$PF_MARKER"*) echo "  body read at $(date -u +%Y-%m-%dT%H:%M:%SZ) HAS marker '${PF_MARKER}'" ;; *) echo "  body has no marker '${PF_MARKER}' - skipped, ON PURPOSE (a human must add it; see #86 2026-08-27)"; continue ;; esac
             # Verdict for THIS head only.  Any live PULL_REQUEST-triggered run
             # = decide will handle it; do not race.  ONLY 'pull_request' runs
             # count here -- same reason as the EVENT gate in the `decide` job
@@ -765,7 +771,13 @@ jobs:
                 continue
                 ;;
             esac
-            case "$BODY" in *"$PF_MARKER"*) : ;; *) continue ;; esac
+            # Print the marker verdict either way - see the same note in `decide`.
+            # This is the sweep that runs on a schedule, so it is the one that
+            # leaves a record for a pull request no `pull_request` run touched.
+            case "$BODY" in
+              *"$PF_MARKER"*) echo "--- #${PR} ${HEAD_REF}: body read at $(date -u +%Y-%m-%dT%H:%M:%SZ) HAS marker '${PF_MARKER}'" ;;
+              *) echo "--- #${PR} ${HEAD_REF}: body read at $(date -u +%Y-%m-%dT%H:%M:%SZ) has NO marker - left alone"; continue ;;
+            esac
 
             # A `date` that cannot parse the timestamp must not kill the loop and
             # leave every later pull request unreaped.  Default to age 0: the
