@@ -115,9 +115,9 @@ choice.
   ANOTHER LANE'S TABLE AT RUN TIME IS.  The same ruling rejected the other
   two options in those words -- (b) breaks this lane's no-number-without-a-
   source rule, (c) "wakes T1-E back up in the shape of a parameter".  It
-  also directed that the rule be written into `AGENTS.md` §7 by chief, not
+  also directed that the rule be written into `AGENTS.md` section 7 by chief, not
   by this lane, so nothing below edits that file.  Until it appears there,
-  §7 is not the citation for this; this decision letter is.
+  section 7 is not the citation for this; this decision letter is.
 
   * What `damage_town_target` refused was LOOKING THE ROW UP -- reading the
     default roster to find the dummy itself.  That is a dispatch: the module
