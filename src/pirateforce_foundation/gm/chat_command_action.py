@@ -6300,6 +6300,24 @@ def _staged_action(
       against when the login actually happens, rather than a fresh read of a
       file that can move under it.
 
+    THE FOURTH ARGUMENT IS NOT PASSED, and that is a choice with a reason
+    rather than a half-applied fix.  `read_staged_scene` also takes
+    `standalone_config_path`, and `_make_action` has no such argument to
+    give it, so it defaults -- which is exactly what the login does:
+    `runtime.py`'s call to `consume_login_scene_override` passes only the
+    token and the registry snapshot, leaving all three config paths at their
+    defaults.  Handing this one a path nobody else uses would ADD a
+    disagreement.
+
+    WHAT IS STILL NOT CLOSED, said rather than implied: a listener booted
+    with a non-default `login_scene_config_path` reads back the file
+    `_stage_action` wrote (which is the property that matters for `staged`
+    reporting `warp`), while `runtime.py`'s login reads the default one.
+    The writer and the readback agree; the login is the odd one out, and it
+    is the odd one out for every command in this lane that stages, not just
+    for this readback.  Fixing it means the login taking the same path
+    argument, which is `runtime.py` and not this lane's zone.
+
     THE ACCOUNT IS `token`, the authenticated `.token` this module already
     used to authorize the command, never a field of the payload -- `staged`
     has no arguments at all, so there is nothing else it COULD read.
