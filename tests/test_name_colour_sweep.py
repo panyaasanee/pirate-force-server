@@ -41,6 +41,7 @@ from pirateforce_foundation import (
     world_bg3008_identity,
     world_bg4001_identity,
 )
+from pirateforce_foundation import npc_attr_body_diff as bodydiff
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import NPC_STYLE_ACTOR_TYPE
 
@@ -686,6 +687,126 @@ class CandidateIsAnExperimentThatCanBeReadTests(unittest.TestCase):
             self.assertAlmostEqual(xs[0], 150.0)
             for near, far in zip(xs, xs[1:]):
                 self.assertAlmostEqual(far - near, 150.0)
+
+
+@BRIDGE_GAMEDATA.skip_unless_present()
+class NameColourSweepSet3DiffFieldTests(unittest.TestCase):
+    """Set 3 asks the diff's own question, one field at a time.
+
+    Every assertion here re-derives the field list from the two prototype
+    bodies through ``npc_attr_body_diff`` rather than repeating a list a
+    reader could quietly edit: if a prototype gains or loses a field, these
+    tests change their own expectations and the coverage test below goes red
+    until a row or a written-down reason exists for it.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.rows = name_colour_sweep.sweep_actors(
+            cls.legacy, env={"PF_NAME_COLOUR_SWEEP": name_colour_sweep.SET_DIFF_FIELDS},
+        )
+        cls.by_label = {row.label: row for row in cls.rows}
+        cls.mob = name_colour_sweep._mob_prototype()
+
+    #: What each candidate is allowed to move, and nothing else.  The mask is
+    #: listed with the field that owns the bit, because a spliced field moves
+    #: the presence mask by construction.
+    EXPECTED = {
+        "N-LVL": {"level", "basic_field_mask"},
+        "N-HP": {"current_hp", "max_hp"},
+        "N-SPD": {"movement_speed"},
+        "N-TPL": {"template_id"},
+        "N-PRE": {"visual_preset"},
+    }
+    #: Fields of the N-BASE/M-BASE diff that deliberately get no row, with the
+    #: reason in :func:`name_colour_sweep._diff_field_set`'s docstring.
+    NOT_SWEPT_HERE = {
+        "actor_identity",   # the sweep's own synthetic identity
+        "basic_name",       # the sweep's own label
+        "basic_field_mask", # a consequence of level/faction, not a field
+        "faction",          # set 1's whole question, already ticketed
+    }
+    #: The two fields the INSTRUMENT moves on every row by construction: each
+    #: row needs its own actor identity (nothing else keeps two rows from
+    #: overwriting each other on the client) and its own nameboard label
+    #: (that is what the tester reads).  Comparing them between rows would
+    #: only ever re-measure the sweep's own bookkeeping.
+    INSTRUMENT_ARTEFACTS = frozenset({"actor_identity", "basic_name"})
+
+    def _moved(self, left: bytes, right: bytes) -> set:
+        return {
+            delta.spec.key
+            for delta in bodydiff.diff(left, right)
+            if delta.spec.key not in self.INSTRUMENT_ARTEFACTS
+        }
+
+    def test_the_row_is_the_two_controls_plus_one_row_per_candidate(self) -> None:
+        self.assertEqual(
+            [row.label for row in self.rows],
+            ["N-BASE", "N-LVL", "N-HP", "N-SPD", "N-TPL", "N-PRE", "M-BASE"],
+        )
+
+    def test_the_controls_are_the_same_two_bodies_set_2_already_graded(self) -> None:
+        set2 = {
+            row.label: row
+            for row in name_colour_sweep.sweep_actors(
+                self.legacy,
+                env={"PF_NAME_COLOUR_SWEEP": name_colour_sweep.SET_ACTOR_TYPE_AND_SKIN},
+            )
+        }
+        for label in ("N-BASE", "M-BASE"):
+            self.assertEqual(
+                self._moved(set2[label].npc_attr, self.by_label[label].npc_attr),
+                set(),
+                "%s moved; the attended grader's two anchors are no longer the "
+                "bodies GT-288 set 2 was graded on" % label,
+            )
+
+    def test_each_candidate_moves_exactly_the_fields_it_declares(self) -> None:
+        base = self.by_label["N-BASE"].npc_attr
+        for label, expected in self.EXPECTED.items():
+            with self.subTest(label=label):
+                self.assertEqual(
+                    self._moved(base, self.by_label[label].npc_attr), expected,
+                )
+
+    def test_each_candidate_carries_the_monster_s_own_value_not_a_constant(self) -> None:
+        wanted = {
+            "N-LVL": ("level", self.mob.level),
+            "N-HP": ("current_hp", self.mob.max_hp),
+            "N-SPD": ("movement_speed", float(self.mob.speed_walk)),
+            "N-TPL": ("template_id", self.mob.template_id),
+            "N-PRE": ("visual_preset", self.mob.visual_preset),
+        }
+        for label, (key, value) in wanted.items():
+            with self.subTest(label=label):
+                walked = {f.key: f for f in bodydiff.walk(self.by_label[label].npc_attr)}
+                self.assertEqual(walked[key].value, value)
+
+    def test_every_field_the_two_prototypes_differ_in_is_swept_or_excused(self) -> None:
+        deltas = bodydiff.diff(
+            self.by_label["N-BASE"].npc_attr, self.by_label["M-BASE"].npc_attr,
+        )
+        differing = {delta.spec.key for delta in deltas}
+        swept = set().union(*self.EXPECTED.values())
+        uncovered = differing - swept - self.NOT_SWEPT_HERE
+        self.assertEqual(
+            uncovered, set(),
+            "the prototypes now differ in a field no row asks about and no "
+            "written reason excuses: %s" % sorted(uncovered),
+        )
+        # And the other direction: no row claims a field the prototypes agree
+        # about, which would put a dead candidate on the attended screen.
+        self.assertEqual(swept - differing, set())
+
+    def test_the_identities_are_distinct_so_no_row_overwrites_another(self) -> None:
+        identities = [row.actor_identity for row in self.rows]
+        self.assertEqual(len(identities), len(set(identities)))
+
+    def test_the_candidates_stay_npc_typed_because_set_2_ruled_that_out(self) -> None:
+        for row in self.rows:
+            self.assertEqual(row.actor_type, NPC_STYLE_ACTOR_TYPE)
 
 
 if __name__ == "__main__":

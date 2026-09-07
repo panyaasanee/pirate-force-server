@@ -135,7 +135,16 @@ SWEEP_ENV = "PF_NAME_COLOUR_SWEEP"
 
 SET_FACTION = "1"
 SET_ACTOR_TYPE_AND_SKIN = "2"
-KNOWN_SETS = (SET_FACTION, SET_ACTOR_TYPE_AND_SKIN)
+#: Set 3 (COO-ORDER 2026-09-07T20:50+07:00, after GT-288 set 2 eliminated
+#: actor_type and the skin): one row per field in which the NPC prototype's
+#: body and the monster prototype's body actually differ, each row carrying
+#: the MONSTER's value of exactly ONE of them on an otherwise untouched NPC.
+#: The field list is not hand-written here -- it is what
+#: ``npc_attr_body_diff.diff(N-BASE, M-BASE)`` returns, and
+#: ``tests/test_name_colour_sweep_set3.py`` re-derives it from the two bodies
+#: rather than trusting this comment.
+SET_DIFF_FIELDS = "3"
+KNOWN_SETS = (SET_FACTION, SET_ACTOR_TYPE_AND_SKIN, SET_DIFF_FIELDS)
 
 # Reserved placement-index band for this experiment ONLY.  Never a real
 # placement index (see module docstring "SYNTHETIC IDENTITIES").
@@ -337,17 +346,29 @@ def _npc_plain_body(
     label: str,
     *,
     visual_preset: str = NPC_BASE_VISUAL_PRESET,
+    template_id: int = NPC_BASE_TEMPLATE_ID,
+    current_hp: int = NPC_BASE_HP,
+    max_hp: int = NPC_BASE_HP,
+    movement_speed: float = 0.0,
 ) -> bytes:
-    """``legacy.make_npc_attr`` with no splice at all -- the GT-131 shape."""
+    """``legacy.make_npc_attr`` with no splice at all -- the GT-131 shape.
+
+    Every keyword defaults to the prototype's own committed value, so a
+    caller that passes none gets ``N-BASE`` byte for byte (pinned by
+    ``tests/test_name_colour_sweep_set3.py``).  The keywords exist for set 3,
+    where each row moves EXACTLY ONE of them to the monster prototype's
+    value; they are all already parameters of the frozen ``make_npc_attr``,
+    so no row here splices anything the town does not send today.
+    """
     return legacy.make_npc_attr(
-        NPC_BASE_TEMPLATE_ID,
+        template_id,
         actor_identity,
         SCENE_ID,
         SCENE_SEQUENCE,
         visual_preset,
-        NPC_BASE_HP,
-        NPC_BASE_HP,
-        movement_speed=0.0,
+        current_hp,
+        max_hp,
+        movement_speed=movement_speed,
         basic_name=label,
     )
 
@@ -488,6 +509,127 @@ def _actor_type_and_skin_set(legacy: Any) -> tuple[SweepActor, ...]:
     return tuple(rows)
 
 
+def _npc_level_body(legacy: Any, actor_identity: int, label: str, level: int) -> bytes:
+    """The NPC plain body plus EXACTLY the level splice, nothing else.
+
+    Bit 0x0002, tag ``field_mobs.LEVEL_TAG``, spliced at its own
+    ascending-mask-bit position -- right after the mask and the name, before
+    the HP pair -- which is where ``field_mobs.hostile_npc_attr`` puts it in
+    the monster body this row is being compared against.  Everything
+    load-bearing here (the bit, the tag, the splice arithmetic) is that
+    function's, reused rather than re-derived, the same way
+    :func:`_npc_faction_body` reuses the faction splice.
+    """
+    field_mobs._require_int(level, "level", 1, 0xFFFF)
+    baseline = _npc_plain_body(legacy, actor_identity, label)
+    mask_at = field_mobs._basic_mask_offset(legacy, baseline, actor_identity)
+    mask = int.from_bytes(baseline[mask_at:mask_at + 2], "little")
+    if mask & field_mobs.BASIC_BIT_LEVEL:
+        raise NameColourSweepError(
+            "NPC plain body already sets the level bit; the splice below "
+            "would double the field"
+        )
+    if not mask & field_mobs.BASIC_BIT_NAME:
+        raise NameColourSweepError(
+            "the level splice point is measured from the name field; a "
+            "nameless body would put it somewhere else"
+        )
+    name_bytes = bytes(legacy.wstr_tag(label))
+    level_at = mask_at + 2 + len(name_bytes)
+    if baseline[mask_at + 2:level_at] != name_bytes:
+        raise NameColourSweepError("frozen make_npc_attr name position drift")
+    composed = (
+        baseline[:mask_at]
+        + int(mask | field_mobs.BASIC_BIT_LEVEL).to_bytes(2, "little")
+        + baseline[mask_at + 2:level_at]
+        + bytes(legacy.u16tag(field_mobs.LEVEL_TAG, level))
+        + baseline[level_at:]
+    )
+    if len(composed) != len(baseline) + field_mobs.LEVEL_SPLICE_BYTES:
+        raise NameColourSweepError("NPC level splice length drift")
+    return composed
+
+
+def _diff_field_set(legacy: Any) -> tuple[SweepActor, ...]:
+    """One NPC row per field the two prototypes' bodies disagree about.
+
+    WHAT THE TESTER READS OFF THE SCREEN.  Seven nameboards in a line.  The
+    two ends are the controls GT-288 set 2 already drew and the owner already
+    graded -- ``N-BASE`` green, ``M-BASE`` pink.  The five between them are
+    the NPC prototype with EXACTLY ONE of the monster's field values on it.
+    Whichever of those five is pink names the field the client's name-colour
+    selector reads; if all five stay green, the answer is not a field in this
+    diff and the letter says which candidate is next.
+
+    WHY THESE FIVE AND NOT THE OTHER FIVE ROWS OF THE DIFF.
+    ``npc_attr_body_diff.diff`` returns ten fields for these two bodies.
+    Excluded, each for a reason that is not "it seemed unlikely":
+
+    * ``actor_identity`` and ``basic_name`` differ only because the sweep
+      gives every row its own synthetic identity and its own label.  They are
+      artefacts of the instrument, not of the prototypes.
+    * ``basic_field_mask`` is not an independent field: it is the presence
+      mask, and it differs precisely BECAUSE ``level`` and ``faction``
+      differ.  Each row below moves it by exactly the bit its own field owns.
+    * ``faction`` is set 1's whole question (``N-F07``/``N-F12``/``N-F999``),
+      already composed, already ticketed, and COO-ORDER 2026-09-07T20:50 puts
+      set 1 on the bus BEFORE this set.  Repeating it here would spend a boot
+      re-asking a question already queued.
+
+    ``current_hp`` and ``max_hp`` move together in ONE row: they are one
+    concept (the monster's HP), the client reads them as a pair
+    (``make_npc_attr``'s own V64 note), and an NPC with 198,125 current HP and
+    100 max HP is a body no production path composes.  That is a deliberate
+    departure from one-field-per-row, and it is here rather than hidden.
+    """
+    anchor = _spawn_anchor(legacy)
+    mob = _mob_prototype()
+    rows: list[SweepActor] = []
+    ordinal = 0
+
+    def npc_row(label: str, body_for) -> None:
+        nonlocal ordinal
+        placement_index = SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+        identity = 0x2000 + placement_index + 1
+        x, y, z = _row_xyz(anchor, ordinal)
+        rows.append(_entry(
+            legacy, label=label, actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
+            actor_identity=identity, npc_attr=body_for(identity, label),
+            x=x, y=y, z=z,
+        ))
+        ordinal += 1
+
+    npc_row("N-BASE", lambda identity, label: _npc_plain_body(legacy, identity, label))
+    npc_row("N-LVL", lambda identity, label: _npc_level_body(
+        legacy, identity, label, mob.level,
+    ))
+    npc_row("N-HP", lambda identity, label: _npc_plain_body(
+        legacy, identity, label, current_hp=mob.max_hp, max_hp=mob.max_hp,
+    ))
+    npc_row("N-SPD", lambda identity, label: _npc_plain_body(
+        legacy, identity, label, movement_speed=float(mob.speed_walk),
+    ))
+    npc_row("N-TPL", lambda identity, label: _npc_plain_body(
+        legacy, identity, label, template_id=mob.template_id,
+    ))
+    npc_row("N-PRE", lambda identity, label: _npc_plain_body(
+        legacy, identity, label, visual_preset=mob.visual_preset,
+    ))
+
+    placement_index = SWEEP_PLACEMENT_BASE + ordinal * SWEEP_PLACEMENT_STRIDE
+    variant = replace(mob, placement_index=placement_index, display_name="M-BASE")
+    x, y, z = _row_xyz(anchor, ordinal)
+    rows.append(_entry(
+        legacy, label="M-BASE", actor_type=field_mobs.NPC_STYLE_ACTOR_TYPE,
+        actor_identity=variant.actor_identity,
+        npc_attr=field_mobs.hostile_npc_attr(
+            legacy, variant, faction=field_mobs.FIELD_MOB_FACTION,
+        ),
+        x=x, y=y, z=z,
+    ))
+    return tuple(rows)
+
+
 def sweep_actors(legacy: Any, env: dict | None = None) -> tuple[SweepActor, ...]:
     """The labelled dummy row for the armed set, or ``()`` if unarmed.
 
@@ -499,6 +641,8 @@ def sweep_actors(legacy: Any, env: dict | None = None) -> tuple[SweepActor, ...]
         return _faction_set(legacy)
     if value == SET_ACTOR_TYPE_AND_SKIN:
         return _actor_type_and_skin_set(legacy)
+    if value == SET_DIFF_FIELDS:
+        return _diff_field_set(legacy)
     return ()
 
 
