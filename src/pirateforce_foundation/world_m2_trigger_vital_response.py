@@ -448,31 +448,37 @@ SCENE_REFUSED_NOT_THE_SEA_SCENE = "SCENE_REFUSED_NOT_THE_SEA_SCENE"
 # situations, so the id alone is "an unsafe classifier if anyone uses it to
 # decide the world".
 #
-# IT IS NO LONGER `None`.  `RE-289` answered on 2026-09-07T09:55+07:00 (the
-# letter is named in `RE289_RESULT_LETTER` below): the two ordinals this
-# lane asked about exist in `Bg3001.tgr` as POINT BOXES -- squares under 11%
-# of the scene frame on both axes -- and not as scene-wide regions.  So the
-# fact tier 3 was waiting for is "is this session's position inside one of
-# the boxes that measurement produced", and the name below says exactly
-# that and nothing wider.
+# `RE-289` ANSWERED ON 2026-09-07T09:55+07:00 AND THIS IS STILL `None`.
+# THAT IS THE POINT OF THIS COMMENT.  The letter's ordinals 2 and 3 are
+# POINT BOXES (squares under 11% of the scene frame on both axes), not
+# scene-wide regions, so a measured extent now exists and is committed in
+# `ISLAND_EXTENT_BOXES` below.  What does NOT exist is the right to name it
+# here, and three separate documents say so in the same words:
 #
-# WHAT THE NAME DOES NOT CLAIM (both are `RE-289`'s own nonclaims, and this
-# module is the place they have to survive):
-#   * NOT "the boxes are islands".  What was measured is a trigger box that
-#     coincides with a `BGFX0041` effect marker.  Calling that an island is
-#     an interpretation; the name says `POINT_BOX_CONTAINMENT`, so a later
-#     round cannot read an island claim out of a constant.
-#   * NOT "the `.tgr` ordinal is the wire trigger id".  See
-#     `ISLAND_EXTENT_BOX_ORDINALS` for the crosswalk that is still open, and
-#     note that this table is consulted BY VALUE ONLY -- its keys never meet
-#     a wire id.
+#   * this file, four screens up: "a SECOND, separate measurement has to tie
+#     that box to the wire before `ISLAND_CONTACT_DISCRIMINATOR` may name
+#     it.  A round that fills this slot from the `.tgr` table alone has
+#     skipped that step."
+#   * `pf_bridge/tickets/RE-289.md`, section "what this ticket does NOT
+#     ask", item 1 -- written by THIS LANE when it drafted the ticket: the
+#     result of this ticket is not enough to fill the discriminator, and the
+#     crosswalk is a separate ticket.
+#   * `RE-289`'s own nonclaim (1): the `.tgr` ordinal is not shown to be the
+#     wire trigger id, "so the crosswalk ticket is still needed".
 #
-# Setting this to a string is a claim that such a fact was measured and is
-# enforced at the call site.  Since `0945` it is also enforced by the house:
-# only an RE result letter whose git handwriting is checkable may say an
-# extent was measured; a lane round COPIES numbers, it does not certify
-# them.  This assignment copies `RE-289`.
-ISLAND_CONTACT_DISCRIMINATOR: str = "RE-289_BG3001_TGR_POINT_BOX_CONTAINMENT"
+# `COO-DECISION 20260907_0945` authorised three things -- the freeze, tests
+# that stop writing module state, and a per-row citation with a
+# letter-exists check.  It did not waive the crosswalk, and its closing
+# sentence runs the other way: "a table with no letter behind it is a tier-3
+# refusal, not a pass with a warning."
+#
+# So the round that consumed `RE-289` committed the TABLE and left the NAME
+# alone.  Filling it is one line, the day the crosswalk ticket answers.
+# pf-adversary measured what that one line does on this tree: with it set,
+# `answer_guard_reason(126, 3, reading_at_ordinal_3)` returns `None` and a
+# forged `registry=` reaches the caller.  That is the state this constant
+# exists to withhold until somebody has measured the right to grant it.
+ISLAND_CONTACT_DISCRIMINATOR: str | None = None
 
 # The letter this module copied its numbers out of, and its sha256 as
 # published on `origin/main` of the bridge at the moment of the copy.  Both
@@ -500,7 +506,17 @@ CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED = "CONTACT_REFUSED_NO_EVIDENCE_SUPPLIED"
 CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR = (
     "CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR"
 )
-CONTACT_REFUSED_OPEN_WATER = "CONTACT_REFUSED_OPEN_WATER"
+# NOT `CONTACT_REFUSED_OPEN_WATER`, which is what this constant was called
+# until pf-adversary pointed out that the module cannot know it.  Every miss
+# reaches this name: a session really in open water, but also a half-width
+# truth, a transposed digit, a row skipped for bad arity, an ordinal the
+# table left out, a berth 129 units off.  A later round reading
+# "OPEN_WATER" concludes the `.tgr` route is dead; reading this one, it
+# looks at the table.  Same split, same reason, as
+# `SCENE_REFUSED_NOT_AN_INT` vs `SCENE_REFUSED_NOT_THE_SEA_SCENE`.
+CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT = (
+    "CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT"
+)
 
 
 # THE KEYS OF THE EXTENT TABLE ARE `.tgr` FILE ORDINALS, NOT WIRE TRIGGER
@@ -512,27 +528,81 @@ CONTACT_REFUSED_OPEN_WATER = "CONTACT_REFUSED_OPEN_WATER"
 # containment test iterates `.values()` and NEVER indexes by a wire id.  If
 # a later round wants a per-id box it needs the crosswalk ticket first, not
 # a `[wire_trigger_id]` on this table.
-ISLAND_EXTENT_BOX_ORDINALS = (2, 3)
+ISLAND_EXTENT_BOX_ORDINALS = (1, 2, 3)
 
 # HOW A ROW WAS DERIVED FROM THE LETTER, once, here, so the arithmetic is
 # auditable instead of being three transcribed numbers:
 #
 #     x0 = pos_x - extent_x / 2      x1 = pos_x + extent_x / 2
 #
-# i.e. `extent` is read as the box's FULL WIDTH.  THE LETTER DOES NOT SAY
-# WHETHER IT IS FULL WIDTH OR HALF WIDTH.  Full width is the smaller box and
-# therefore the fail-closed reading: if the truth is half width, this table
-# refuses sessions that were really in contact (a miss, which shows up as
-# "the trigger did nothing"), whereas the other guess would accept sessions
-# in open water (a false island, which is the failure M2 must never have).
-# `RE-289`'s own percentages are computed as `extent / 18750` on both axes,
-# which is consistent with either reading and so does not settle it.
+# i.e. `pos` is read as the box's CENTRE and `extent` as its FULL WIDTH.
+# THE LETTER SAYS NEITHER, and both halves are guesses this table has to
+# name rather than bury:
+#
+#   * FULL vs HALF WIDTH.  Full width is the smaller box, so on this axis
+#     the guess is fail-closed: if the truth is half width the table refuses
+#     sessions that really were in contact (a miss), where the other guess
+#     would accept sessions in open water (a false island).  The strongest
+#     argument for full width is the letter's own arithmetic: under half
+#     width, ordinal 2's footprint is 21.3% of the frame and ordinal 1's is
+#     32%, so the letter's "< 20% on both axes, PASS both" verdict would
+#     contradict itself.
+#   * CENTRE vs MIN CORNER.  pf-adversary found this one and it is NOT
+#     fail-closed: if `pos` is the min corner, ordinal 2's true box is
+#     x[-5426.19, -3426.19] and the box below is not a subset of it -- a
+#     session at (-6000, 5500, 86) would be inside a committed box and
+#     outside the real trigger volume, which is the false island the other
+#     paragraph promises never to produce.
+#   * Z IS THE WEAKEST OF THE THREE.  The band below is [-163.99, 336.01],
+#     which spans 250 units of water no ship is under; the scene's own z
+#     range is [86.0, 393.7] and the `.tgr`'s is [86.0, 224.5].  If
+#     `extent_z` is measured UPWARD from a floor anchor (consistent with
+#     every record's `pos.z` being the scene minimum, 86.0), the true band
+#     is [86.01, 586.01] and a session at the water surface is refused by
+#     one hundredth of a unit.
+#
+# NONE OF THE THREE DECIDES ANYTHING TODAY, because
+# `ISLAND_CONTACT_DISCRIMINATOR` is `None` and tier 3 refuses before it ever
+# reaches this table.  They are the reason the ticket body sent to LANE-K
+# asks about anchor and units, and the reason that ticket has to answer
+# before the name above is filled in.
+# A SECOND SOURCE THIS LANE ALREADY OWNS, and did not open before
+# choosing: `world_m2_sea_destination.py` records scene 126's berths from
+# `CONSTDATA_TH__MARKER.tsv`, and MARKER[17] (3050, 232, 90) and MARKER[18]
+# (-5072, 4000, 90) both sit at their square's x, both fall OUTSIDE the
+# full-width box in -y, and both fall inside the half-width one.  Two points
+# is not proof -- an arrival berth need not sit inside a departure volume --
+# but it leans against the reading below and belongs in the ticket.
 # [assumption of LANE-A - pending COO confirmation] -- the question is in
 # `notes_to_chief/20260907_1022_LANE-A-TO-K-re-ticket-body-tgr-extent-is-
 # full-or-half-width.md`; reverting is doubling the six numbers below.
 ISLAND_EXTENT_BOX_SOURCE = "RE-289 Bg3001.tgr block[0x34] +0x0E pos, +0x1A extent"
 
+# WHICH ROWS EARN A PLACE, AND ON WHAT MEASUREMENT.  The rule is the
+# TICKET'S OWN BAR applied to every record the letter returned: a
+# `TELCHK_LV` box whose extent is under 20% of the scene frame ON BOTH AXES.
+# `RE-289` returned exactly three of those -- ordinals 1, 2 and 3 -- and all
+# three are here.
+#
+# THE FIRST DRAFT OF THIS TABLE HELD ONLY 2 AND 3, and pf-adversary named
+# what that was: ordinal 1 (16.0% / 14.4%, and the CLOSEST of the three to
+# its `BGFX0041` marker at 9.2 units) was excluded because "the M2 pass
+# criteria name islands 2 and 3" -- and those criteria name WIRE ids 2 and
+# 3 (R318: id 2 Prison Exile, id 3 Spice Paradise).  Selecting the rows by
+# number-matching a wire id IS the ordinal-to-wire crosswalk, performed in
+# the one file that says it performs none, and it would have told a ship
+# standing at the letter's strongest island candidate that it was in open
+# water.  Selection by the measurement's own shape does not do that.
+#
+# WHAT IS DELIBERATELY NOT IN THE TABLE: ordinals 6/7/8 and 68/69/70, which
+# are 37.2% on ONE axis and sit on the map border.  `RE-289` reads them as
+# edge walls, and they fail the both-axes bar the other three pass.  They
+# are the rows that would turn "touching an island" into "sailing near the
+# edge of the map", which is the exact confusion `RE-234` item (3) reported.
 _ISLAND_EXTENT_BOXES: dict[int, tuple[float, float, float, float, float, float]] = {
+    # ordinal 1: TELCHK_LV [01], pos (3098.2, 2207.5, 86.0),
+    # extent (3000, 2700, 500) -- 16.0% / 14.4% of the scene frame.
+    1: (1598.2, 857.5, -164.0, 4598.2, 3557.5, 336.0),
     # ordinal 2: TELCHK_LV [02], pos (-5426.19, 5129.33, 86.01),
     # extent (2000, 2000, 500) -- 10.6% / 10.6% of the scene frame.
     2: (-6426.19, 4129.33, -163.99, -4426.19, 6129.33, 336.01),
@@ -541,18 +611,17 @@ _ISLAND_EXTENT_BOXES: dict[int, tuple[float, float, float, float, float, float]]
     3: (-2816.55, -7037.92, -163.98, -1016.55, -5237.92, 336.02),
 }
 
-# WHAT IS DELIBERATELY NOT IN THE TABLE, so that a later round reads a
-# decision here instead of a gap:
-#   * ordinal 1 (3000 x 2700 at 3098.2, 2207.5) is the third square box and
-#     also passes the ticket's "< 20% on both axes" bar.  It is left out
-#     because the ticket asked about ordinals 2 and 3 and the M2 pass
-#     criteria name islands 2 and 3; adding a box nobody asked for widens
-#     what the server will call contact.
-#   * ordinals 6/7/8 and 68/69/70 are 37.2% on one axis and sit on the map
-#     border.  `RE-289` reads them as edge walls.  They are the rows that
-#     would turn "touching an island" into "sailing near the edge of the
-#     map", which is the exact confusion `RE-234` item (3) reported.
+# EVERY ROW CITES THE LETTER AND CARRIES ITS RAW MEASUREMENT, in a form a
+# test re-parses and re-derives (COO-DECISION `20260907_0945` item 3).
+# pf-adversary measured why the machine-readable half matters: a single
+# transposed digit typed into BOTH the box and the test's own centre
+# constant left all 81 tests green while the citation twenty lines below
+# still read the correct number.  Double entry that shares a source is
+# single entry, so the numbers below are the ones the test re-derives from
+# and the box is what it checks against.
 ISLAND_EXTENT_BOX_CITATIONS: dict[int, str] = {
+    1: "RE-289 (%s) ordinal 1 TELCHK_LV[01] pos 3098.2,2207.5,86.0 "
+       "extent 3000x2700x500" % RE289_RESULT_LETTER_SHA256,
     2: "RE-289 (%s) ordinal 2 TELCHK_LV[02] pos -5426.19,5129.33,86.01 "
        "extent 2000x2000x500" % RE289_RESULT_LETTER_SHA256,
     3: "RE-289 (%s) ordinal 3 TELCHK_LV[03] pos -1916.55,-6137.92,86.02 "
@@ -570,6 +639,13 @@ ISLAND_EXTENT_BOXES: "Mapping[int, tuple[float, float, float, float, float, floa
     MappingProxyType(_ISLAND_EXTENT_BOXES)
 )
 CONTACT_REFUSED_NO_EXTENT_TABLE = "CONTACT_REFUSED_NO_EXTENT_TABLE"
+
+# The `boxes` seam gets the same named raise `registry` has, for the reason
+# pf-adversary gave: the file spent a constant and twelve lines of docstring
+# teaching that lesson for one test-only parameter and then added a second
+# one without it.  `_tier3_contact_reason(reading, boxes=[1, 2])` used to
+# die with `AttributeError: 'list' object has no attribute 'values'`.
+EXTENT_TABLE_REFUSED_NOT_A_MAPPING = "EXTENT_TABLE_REFUSED_NOT_A_MAPPING"
 
 
 class IslandContactEvidence(NamedTuple):
@@ -679,8 +755,13 @@ __CANDIDATES: dict[int, CandidateFrame | None] = {
 # hand the client bytes nobody cited, which is the guessed frame item 4(b)
 # forbids.  The writable dict is name-mangled (`_world_m2_trigger_vital_
 # response__CANDIDATES` in `vars(module)`) so that an importer reaching for
-# it has to spell out that it is doing so; that is a speed bump, not a lock,
-# and the nonclaim at the bottom of this file says so.
+# it has to spell out that it is doing so.
+#
+# THAT SENTENCE WAS WRONG AND pf-adversary RAN IT: a module-level
+# `__NAME` is NOT mangled -- mangling happens only inside a class body -- so
+# `vars(module)` holds the plain `__CANDIDATES` and `getattr(module,
+# "__CANDIDATES")[2] = forged` worked.  The writable dict is in `__FROZEN`
+# now, which is a real refusal rather than a speed bump that was not there.
 _CANDIDATES: "Mapping[int, CandidateFrame | None]" = MappingProxyType(__CANDIDATES)
 
 
@@ -981,12 +1062,14 @@ def _tier3_contact_reason(
     if island_contact.discriminator != measured:
         return CONTACT_REFUSED_EVIDENCE_OF_ANOTHER_DISCRIMINATOR
     table = ISLAND_EXTENT_BOXES if boxes is None else boxes
+    if not isinstance(table, Mapping):
+        raise TypeError(EXTENT_TABLE_REFUSED_NOT_A_MAPPING)
     if not table:
         return CONTACT_REFUSED_NO_EXTENT_TABLE
     if not _position_is_inside_a_committed_extent(
         island_contact.x, island_contact.y, island_contact.z, table
     ):
-        return CONTACT_REFUSED_OPEN_WATER
+        return CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT
     return None
 
 
@@ -1203,9 +1286,21 @@ class _FrozenTier3Module(ModuleType):
     WHAT IT DOES NOT STOP, stated here rather than left for the next round
     to discover: `module.__dict__["ISLAND_CONTACT_DISCRIMINATOR"] = ...` and
     `vars(module)[...] = ...` write the module dict directly and bypass
-    every ``__setattr__`` Python has; so does re-executing the module body
-    through ``importlib.reload``.  Nothing in a Python process can prevent
-    those.  The freeze converts an ACCIDENT (an ordinary assignment, which
+    every ``__setattr__`` Python has; so do
+    ``object.__setattr__(module, name, value)`` and
+    ``ModuleType.__setattr__(module, name, value)``, which reach past this
+    subclass by naming the base explicitly (both added after pf-adversary
+    named them as the two spellings a determined author actually reaches
+    for); and so does re-executing the module body through
+    ``importlib.reload``.  Nothing in a Python process can prevent those.
+
+    WHAT IT ALSO DOES NOT STOP, and this one is a real gap rather than a
+    Python limit: ``candidate_for_trigger_id(..., registry=...)`` is a
+    PUBLIC keyword that supplies the whole registry, so freezing
+    ``_CANDIDATES`` protects the copy a caller need not use.  It is
+    unreachable today because tier 3 refuses on an unmeasured
+    discriminator, and it is the first thing to close in the round that
+    fills one in.  The freeze converts an ACCIDENT (an ordinary assignment, which
     is what the repro used and what a hurried round would write) into a
     named error, and leaves the deliberate act visible in a diff as a line
     no honest caller has a reason to contain.  That distinction is the whole
@@ -1213,15 +1308,64 @@ class _FrozenTier3Module(ModuleType):
     stop a DECISION being taken silently, not to stop a determined author.
     """
 
+    # THE SET GREW AFTER pf-adversary MEASURED THE FIRST ONE.  It held the
+    # three names of the repro and nothing else, and four one-line
+    # assignments walked around it:
+    #   * `module.__class__ = types.ModuleType` -- un-freeze, then write.
+    #   * `module._tier3_contact_reason = lambda *a, **k: None` -- the
+    #     module's functions call each other through module globals, so
+    #     rebinding ANY of them defeats the guard without touching the data.
+    #     Seven names each did it on their own.
+    #   * `module._ISLAND_EXTENT_BOXES[99] = a box the size of the world` --
+    #     the proxy was over a dict that was itself a public attribute.
+    #   * `module.ISLAND_EXTENT_BOX_CITATIONS[...] = ...` -- the table the
+    #     citation gate reads.
+    # Data alone was never the boundary; the boundary is "everything tier 3
+    # decides with".
     __FROZEN = frozenset(
         {
+            "__class__",
             "ISLAND_CONTACT_DISCRIMINATOR",
             "ISLAND_EXTENT_BOXES",
+            "_ISLAND_EXTENT_BOXES",
+            "ISLAND_EXTENT_BOX_CITATIONS",
+            "ISLAND_EXTENT_BOX_ORDINALS",
+            "RE289_RESULT_LETTER",
+            "RE289_RESULT_LETTER_SHA256",
             "_CANDIDATES",
+            "__CANDIDATES",
+            "TIER3_STATE_IS_READ_ONLY",
+            "_is_a_wire_int",
+            "_trigger_id_guard_reason",
+            "scene_guard_reason",
+            "_position_is_inside_a_committed_extent",
+            "_tier3_contact_reason",
+            "answer_guard_reason",
+            "_tier2_id_is_a_candidate",
+            "_table_for",
+            "candidate_for_trigger_id",
+            "registered_count",
         }
     )
 
+    @staticmethod
+    def _is_the_same_freeze(value: object) -> bool:
+        """``True`` for the class this module installs on itself, INCLUDING
+        the fresh one a reload builds.
+
+        `importlib.reload` re-executes the body, which ends by assigning
+        `__class__` again -- with a NEW class object, so an identity test
+        against the closure's own class would make every reload raise. The
+        test is "does the incoming class carry this same freeze", spelled
+        through the mangled attribute name, which a reload reproduces and an
+        attacker's `types.ModuleType` does not have.
+        """
+        return getattr(value, "_FrozenTier3Module__FROZEN", None) is not None
+
     def __setattr__(self, name: str, value: object) -> None:
+        if name == "__class__" and _FrozenTier3Module._is_the_same_freeze(value):
+            ModuleType.__setattr__(self, name, value)
+            return
         if name in _FrozenTier3Module.__FROZEN:
             raise AttributeError(TIER3_STATE_IS_READ_ONLY % (name,))
         ModuleType.__setattr__(self, name, value)
