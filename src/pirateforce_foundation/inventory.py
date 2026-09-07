@@ -91,9 +91,9 @@ def _item_content_signature(item: ItemAttrState) -> tuple[int, ...]:
 
 
 #: Every bag a character can be BORN holding.  One tuple, read by all three
-#: content gates below and -- through them -- by ``bag_admission`` and by
-#: ``store.apply_v111_stack_merge``, so widening the set is one edit and no
-#: gate can be left behind.  COO-DECISION 20260907_2342 made this lane the
+#: content gates below and -- through them -- by the gate-2 admission module
+#: and by ``store.apply_v111_stack_merge``, so widening the set is one edit
+#: and no gate can be left behind.  COO-DECISION 20260907_2342 made this lane the
 #: owner of that widening.
 #:
 #: Today it holds ONE bag, which is the same bag it held when the gates
@@ -232,10 +232,10 @@ def is_unmoved_baseline(value: Any) -> bool:
     """Return whether a state is one of the production-neutral snapshots.
 
     "The two snapshots" was true while every character was born holding the
-    same bag.  It is now every starting bag and its merged counterpart --
-    ``bag_admission.GOLDEN_BACKPACKS`` is built from the same two tuples, so
-    the two gates cannot drift apart the way the AST guard in
-    ``test_bag_admission`` used to watch for.
+    same bag.  It is now every starting bag and its merged counterpart.  The
+    gate-2 admission module builds its goldens from these same two tuples
+    rather than keeping a second copy, so the two gates cannot drift apart
+    the way the ``ast`` guard over this function's source used to watch for.
     """
     return value in STARTING_BACKPACKS or value in MERGED_V111_BACKPACKS
 

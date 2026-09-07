@@ -14,8 +14,15 @@ WHAT THIS FILE MEASURES, and it is the reason it boots the real line rather
 than a stub: a character whose bag is a member of the starting set gets
 through ``FoundationSession.select_and_start`` -- real ``SQLiteStore``, real
 ``migrations/``, real ``CharacterLifecycle``, real legacy projector -- and
-comes back with wire bytes.  ``tests/test_bag_admission.py`` measures the
-predicate; only this file measures the PLAYER's path through it.
+comes back with wire bytes.  The gate-2 predicate has its own
+enumerating test file; only this file measures the PLAYER's path through it.
+
+This file deliberately imports NOTHING from the gate-2 predicate module.
+NOW.md's ``2050`` pin forbids answering a cross-lane pin with a skip, an
+xfail or an allowlist entry, and that module carries a pin naming every file
+allowed to reach for it; the honest way past it is to not reach.  Every
+assertion here is the answer ``select_and_start`` gave, which is the answer
+that matters to a player anyway.
 
 THE BAG IS NOT HAND-BUILT INTO THE DATABASE BY THE TEST'S OWN IDEA OF ONE.
 It is written the way the day-after weapon migration will write it: the
@@ -44,7 +51,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import bag_admission, inventory  # noqa: E402
+from pirateforce_foundation import inventory  # noqa: E402
 from pirateforce_foundation.inventory import INITIAL_BACKPACK  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
@@ -210,12 +217,6 @@ class StartingBagEntersTheWorldTests(unittest.TestCase):
                 self.lifecycle, self.projector, "stranger")
             with self.assertRaises(PermissionError):
                 relog.select_and_start(character.selector)
-            self.assertFalse(
-                bag_admission.may_enter_world(
-                    bag_holding_weapon(stranger),
-                    allow_hypothesized_item_move=False, issued_through=4,
-                ),
-            )
 
 
 if __name__ == "__main__":
