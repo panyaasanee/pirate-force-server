@@ -10981,3 +10981,78 @@ false RED เป็นไปได้ · false green ไม่ได้ในร
   รูปเลขเดิมทุกอินพุต ⇒ `warp_executor` · `chat_command_action` · audit log ไม่รู้ว่ามีรูปใหม่เกิดขึ้น
 - ไม่ได้อ้างว่าเคยมีไคลเอนต์จริงส่งข้อความนี้เข้ามาทาง `0x51E9` — layout ของ `GM_RunGMCommandVital`
   ยังเป็นของสาย RE เหมือนเดิม
+
+## Command `staged` (rounds `qpauwp` and `h7bwnl`) -- the readback, and the four sentences
+
+### What an operator at the client gains
+A cross-scene `/warp` moves nobody: it stages the account's NEXT LOGIN scene
+and sends no frame. Until `staged` existed, the only way to learn which scene
+that login would open was to open `config/gm_login_scene.json` next to the
+game and read it. `staged` takes no arguments, writes nothing, and answers on
+the same local-talk notice channel as `LV SET RELOG` / `SPEED DENIED` /
+`TYPO REFUSED`.
+
+```
+staged  ->  SCENE 000123   a scene is staged; the digits are the scene_id
+staged  ->  NO STAGE SET   this account has no entry in EITHER map
+staged  ->  STAGE BARRED   a map parses, and this process will not admit a row
+staged  ->  STAGE NOREAD   a map could not be read at all
+```
+
+All four bodies are exactly `say_wire.NOTICE_TEXT_EXACT_LENGTH` printable
+ASCII characters -- a MEASURED length (GT-006/GT-009), so the sentences were
+found inside it rather than written freely.
+
+### It asks the LOGIN's question, not the file's
+`gm/staged_readback.py::read_staged_scene` calls
+`login_scene_override.get_login_scene_override` -- the same lookup
+`login_scene_consume.consume_login_scene_override` makes at login, minus the
+claim that spends the entry -- and is handed `_make_action`'s own gm-accounts
+path, login-scene path and `scene_registry` boot snapshot. Round `qpauwp`
+read `gm_login_scene.json` directly and pf-adversary measured the screen
+contradicting the login three ways (D1/D2/D3): a standalone-map account read
+`NO STAGE SET` and then logged in to scene 2; a registry edited after boot
+moved the screen's answer and not the login's; and one inadmissible row
+belonging to ANOTHER account turned the answer into "unreadable" for a file
+that parses perfectly.
+
+`BARRED` and `NOREAD` are two sentences because they are two remedies:
+restart the server (or fix lane A's registry) versus edit the config file.
+Folding them is the misdiagnosis `LoginSceneRefusedError` exists to end.
+
+### Reading the console half in an attended run
+Two lines, and the RULE for reading them together:
+
+```
+GM_CHAT_STAGED_READBACK account='<acct>' composed=yes|no notice='<body>' <detail>
+GM_CHAT_NO_BYTES_SENT   account='<acct>' command=staged why=<blocker> ...
+```
+
+`composed=` says the body became a frame -- which is all that is decided
+where that line is printed. `_make_action` runs AFTER it and still drops the
+action when the audit row cannot be written, so **`composed=yes` with no
+`GM_CHAT_NO_BYTES_SENT` line beside it for the same command** is what means
+the sentence reached the caller. `composed=yes` WITH one means it did not.
+Round `h7bwnl` shipped `frame=yes` here first and pf-adversary measured it
+claiming delivery for a notice the operator never saw (D1).
+
+The scene NAME is on the console line only: `Prison Exile Island` does not fit
+in twelve characters, and a truncated island name is a worse answer than an id
+the operator can type straight back into `warp`.
+
+### Nonclaims
+`SCENE 000123` on screen says the lookup returns 123. It does NOT say a
+character will stand there: the login still claims the entry and resolves an
+entry point, and either can fail. It is not evidence for M2 and not evidence
+for any GT ticket -- GM tooling is how this project REACHES a testable state,
+never proof that the state is right.
+
+`staged` WRITES nothing, which is not the same as "changes nothing at all":
+the loader prints `GM_LOGIN_SCENE_CONFIG_REFUSED` to stderr for every row the
+running process would refuse, including rows belonging to other accounts.
+
+Still open, and outside this lane's zone: a listener booted with a
+non-default `login_scene_config_path` or `gm_accounts_config_path` reads back
+the files the chat commands were given, while `runtime.py`'s login leaves all
+three at their defaults. The writer and the readback agree; the login is the
+odd one out, for every staging command in this lane.

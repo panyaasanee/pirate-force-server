@@ -1833,5 +1833,163 @@ class EveryFlagExplainsItself(unittest.TestCase):
         self.assertIn("OVERWRITTEN", text)
 
 
+class TheArtifactHasNoEvidenceColumn(unittest.TestCase):
+    """COO-DECISION `20260907_2241` item (e), round `53yj9g`.
+
+    The artifact used to carry a sixth column naming the FILE a `SOURCE` row
+    was found in.  Any lane adding an ordinary `.py` file under
+    `src/pirateforce_foundation/` could move that string, which turned this
+    census red on `main` for a change that has nothing to do with whether a
+    wire name is in the code -- and only LANE-UI could clear it.  The tier is
+    the answer this census commits to; `--where NAME` re-derives the file.
+    """
+
+    def test_header_is_five_columns_and_names_no_evidence(self):
+        self.assertEqual(
+            census.ARTIFACT_HEADER, "id\tname\tfamily\tis_client_req\ttier")
+        self.assertNotIn("evidence", census.ARTIFACT_HEADER)
+
+    def test_every_rendered_row_has_exactly_five_fields(self):
+        rendered = census.render_tsv(_FAKE_ROWS)
+        lines = rendered.splitlines()
+        self.assertEqual(lines[0], census.ARTIFACT_HEADER)
+        self.assertEqual(len(lines), 1 + len(_FAKE_ROWS))
+        for line in lines[1:]:
+            self.assertEqual(len(line.split("\t")), 5, line)
+            self.assertNotIn(
+                "src/pirateforce_foundation", line,
+                "a file path is back in the artifact",
+            )
+
+    def test_build_rows_still_carries_evidence_in_memory(self):
+        # --where and the artifact must not be able to disagree, and the test
+        # that pins that (WhereAgreesWithTheArtifactOnTheRealTreeTests)
+        # compares `row["evidence"]` against `source_hit_location`.  Dropping
+        # the COLUMN must not drop the in-memory field that check reads.
+        #
+        # pf-adversary D2 of round `53yj9g`: the first version of this test
+        # asserted over `_FAKE_ROWS`, a hand-written literal -- it could not
+        # fail, and on a checkout with no `pf_bridge` sibling (the shape
+        # `gate-windows` builds) deleting the field from `build_rows` left
+        # the whole file green.  It drives the real derivation now, against
+        # a synthetic catalog and a synthetic `src/`, so it runs on the gate.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src" / "pirateforce_foundation"
+            src.mkdir(parents=True)
+            (src / "ui_probe_wire.py").write_text(
+                "SEEN = 1\nPARTY_INVITE_VITAL_ID = 0x37B1\n"
+                "def go():\n    return PartyInviteVital\n",
+                encoding="utf-8",
+            )
+            catalog = root / "VITAL_REGISTRY.tsv"
+            catalog.write_text(
+                "# master catalog\n"
+                "# id\tname\n"
+                "0x37B1\tPartyInviteVital\n"
+                "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(census, "ROOT", root), \
+                    mock.patch.object(census, "SRC_DIR", src):
+                census._CENSUS_INPUT_CACHE.clear()
+                try:
+                    rows = census.build_rows(catalog)
+                finally:
+                    census._CENSUS_INPUT_CACHE.clear()
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertIn("evidence", row)
+        source = [row for row in rows if row["tier"] == "SOURCE"]
+        self.assertEqual(len(source), 1, rows)
+        self.assertTrue(source[0]["evidence"].endswith("ui_probe_wire.py"),
+                        source[0]["evidence"])
+
+
+class EmitCanMigrateItsOwnArtifactHeader(unittest.TestCase):
+    """The D2 guard must stop the catalog, not a column change.
+
+    MEASURED THIS ROUND, before this test existed: with the guard comparing
+    the file on disk against the CURRENT `ARTIFACT_HEADER` only, the very
+    commit that changes the header cannot re-emit its own artifact --
+    `--emit` printed `refusing to write the census over
+    reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv: that file is not this
+    tool's artifact` and exited 2, because the committed file still carried
+    the header the previous commit emitted.  The only way past it is to
+    delete the artifact by hand first, i.e. exactly the destructive habit
+    the guard exists to prevent, learned on the file it is guarding.
+    """
+
+    def _catalog(self, tmp: str) -> Path:
+        catalog = Path(tmp) / "VITAL_REGISTRY.tsv"
+        catalog.write_text(
+            "# master catalog\n"
+            "# id\tname\n"
+            "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\n",
+            encoding="utf-8",
+        )
+        return catalog
+
+    def test_emit_rewrites_an_artifact_carrying_the_previous_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = self._catalog(tmp)
+            artifact = Path(tmp) / "previous_version.tsv"
+            artifact.write_text(
+                "id\tname\tfamily\tis_client_req\ttier\tevidence\n"
+                "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\t"
+                "Winemaking_\t0\tNAME-ONLY\tdocs/PF_VITAL_NAMES.json\n",
+                encoding="utf-8",
+            )
+            out = io.StringIO()
+            with mock.patch.object(sys, "stdout", out):
+                code = census.main([
+                    "--emit", "--tsv", str(catalog),
+                    "--artifact", str(artifact),
+                ])
+            written = artifact.read_text(encoding="utf-8")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            census.first_uncommented_line(written), census.ARTIFACT_HEADER)
+        # pf-adversary D4: the rows do not move in a header migration, and
+        # the line must not say they did.
+        self.assertIn(
+            "CENSUS EMIT: no rows changed (header or formatting only)",
+            out.getvalue())
+
+    def test_the_previous_header_is_still_refused_as_a_catalog(self):
+        # Same tuple, the other direction: `--tsv <an old artifact>` must
+        # still be named as the mistake it is, not parsed as a catalog.
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "previous_version.tsv"
+            artifact.write_text(
+                "id\tname\tfamily\tis_client_req\ttier\tevidence\n"
+                "0x0AEA\tWinemaking_UpdateLearnedFormulaVital\t"
+                "Winemaking_\t0\tUNTOUCHED\t-\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(census.CensusError):
+                census.load_names(artifact)
+
+    def test_a_file_that_is_no_version_of_this_artifact_is_still_refused(self):
+        # The widened tuple must not widen what --emit will destroy: a plain
+        # TSV whose first uncommented line is neither header keeps its bytes.
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = self._catalog(tmp)
+            stranger = Path(tmp) / "someone_elses_report.tsv"
+            stranger.write_text(
+                "name\tvalue\n0x0AEA\t1\n", encoding="utf-8")
+            before = stranger.read_bytes()
+            err = io.StringIO()
+            with mock.patch.object(sys, "stderr", err):
+                code = census.main([
+                    "--emit", "--tsv", str(catalog),
+                    "--artifact", str(stranger),
+                ])
+            after = stranger.read_bytes()
+        self.assertEqual(code, 2)
+        self.assertEqual(before, after)
+        self.assertIn("refusing to write", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
