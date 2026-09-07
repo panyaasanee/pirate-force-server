@@ -113,8 +113,12 @@ choice.
   lane: READING ONE PUBLIC CONSTANT TO COMPARE AN ARGUMENT AGAINST IS NOT
   TRESPASS (fill in the census with the reason); LOOKING A ROW UP OUT OF
   ANOTHER LANE'S TABLE AT RUN TIME IS.  The same ruling rejected the other
-  two options in those words -- (b) breaks this lane's no-number-without-a-
-  source rule, (c) "wakes T1-E back up in the shape of a parameter".  It
+  two options for these reasons -- (b) breaks this lane's no-number-without-
+  a-source rule, (c) wakes T1-E back up in the shape of a parameter.  BOTH
+  ARE TRANSLATIONS, NOT QUOTATIONS: the letter is written in Thai, and
+  putting a translation in quotation marks is a citation nobody can check --
+  the defect this same file corrects sixty lines below about row 032, and
+  ADVERSARY D7 caught it being committed again here.  It
   also directed that the rule be written into `AGENTS.md` section 7 by chief, not
   by this lane, so nothing below edits that file.  Until it appears there,
   section 7 is not the citation for this; this decision letter is.
@@ -159,8 +163,9 @@ rather than leaving to a reader:
 
   CONFIRMED, AND THE RECONCILIATION IS NOW FORBIDDEN RATHER THAN MERELY
   UNWISE.  `COO-DECISION 20260907_1744` item 2 made this lane's answer
-  official and added the standing instruction that NOBODY may "make the two
-  numbers agree" in a later round: collapsing them into one number requires
+  official and added the standing instruction that NOBODY may make the two
+  numbers agree in a later round (a translation, not a quotation -- see D7
+  above): collapsing them into one number requires
   a per-scene hp for this dummy to exist first, and building that is
   LANE-DB's and LANE-A's work, not this lane's.  A round that finds these
   two columns disagreeing has found the two connections, not a bug.
@@ -575,6 +580,18 @@ def _room(mob: Any, current_hp: Any = None) -> int:
     ceiling = _require_hp_int(mob.max_hp, "max_hp")
     start = ceiling if current_hp is None else _require_hp_int(
         current_hp, "current_hp")
+    if ceiling <= mob_combat.HP_FLOOR:
+        # ADVERSARY D13: with `max_hp=-5` the message below said "current_hp
+        # -5 is outside [0, -5]" for a caller who passed no `current_hp` at
+        # all -- the wrong argument named, which is the same "diagnose
+        # correctly" failure S6 was about.  A record whose ceiling is at or
+        # under the floor is the record's problem, and it is named as such.
+        # ADVERSARY D8 is NOT closed by this line: an absurdly LARGE `max_hp`
+        # is still answered, and this lane has no oracle of its own for the
+        # upper bound -- recorded as open in the round file.
+        raise HpWillNotReadAsAnIntError(
+            "max_hp %r is at or below the floor %r, so there is no room for "
+            "this projection to count" % (ceiling, mob_combat.HP_FLOOR))
     if not mob_combat.HP_FLOOR <= start <= ceiling:
         raise LevelProjectionError(
             "current_hp %r is outside [%r, %r] for this mob"
@@ -662,12 +679,17 @@ def _indexed_in_iteration_order(levels: Any) -> tuple:
     try:
         length = len(levels)
         indexed = tuple(levels[position] for position in range(length))
-    except (TypeError, IndexError, KeyError) as exc:
+        walked = tuple(levels)
+    except (TypeError, IndexError, KeyError, OverflowError) as exc:
+        # ADVERSARY D5: `range(0, 2 ** 70)` is a real Sequence, so it reached
+        # here and `len()` raised a raw `OverflowError` -- the same leak S3
+        # had just closed one function away, reopened by a builtin again.
+        # `tuple(levels)` was outside this block for the same reason.
         raise UnorderedLevelRequestError(
             "project_levels keeps the order it was given, so it reads the "
             "request by index; a %s says it is a Sequence but will not be "
-            "indexed (%s)" % (type(levels).__name__, exc)) from exc
-    walked = tuple(levels)
+            "read that way (%s: %s)"
+            % (type(levels).__name__, type(exc).__name__, exc)) from exc
     if indexed != walked:
         raise UnorderedLevelRequestError(
             "project_levels keeps the order it was given, and a %s gives two "

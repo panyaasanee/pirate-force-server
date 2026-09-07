@@ -7,9 +7,13 @@ pinned attacker, and the practice-dummy row out of the shipped roster.
 
 THE EXCEPTIONS, NAMED, BECAUSE AN EARLIER VERSION OF THIS PARAGRAPH SAID
 "every" AND WAS WRONG.  `TheDummyItselfIsPinnedHere` transcribes the dummy's
-`max_hp`, `level` and `template_id`, and `TheColumnThatWentToChiefIsPinned`
-transcribes the eleven numbers that were actually sent.  Both are transcribed
-ON PURPOSE, and the first one is a fix, not an oversight: the hit-count
+`max_hp`, `level` and `template_id`; `TheColumnThatWentToChiefIsPinned`
+transcribes the eight rows the `0910` letter sent (32 numbers, of which the 16
+in the first two columns are the ones that actually left this lane -- the word
+"eleven" stood here and matched nothing, ADVERSARY S7/D6); and
+`AnHpThisModuleCannotCountFromIsRefused` transcribes 223 and 217, the two
+counts the D8 paragraph is about.  All are transcribed ON PURPOSE, and the
+first is a fix, not an oversight: the hit-count
 assertions have `mob.max_hp` on BOTH sides, so before this pin existed,
 moving `max_hp` from 198125 to 99999 left this file reporting green with every
 hit count in it silently wrong.  A derivation cannot anchor itself; one end of
@@ -148,10 +152,21 @@ def _join_source_to_running_gate(post_init, source):
         "%s runs from %s, not from the shipped source %s that this file "
         "parses -- the two oracles are not the same gate (S1)"
         % (where, code.co_filename, source))
-    assert code.co_firstlineno == post_init.lineno, (
+    # ADVERSARY D2: `ast.FunctionDef.lineno` EXCLUDES DECORATORS AND
+    # `co_firstlineno` INCLUDES THEM.  One `@_traced` on the validation hook
+    # -- the ordinary shape for a validator -- fired this assertion with a
+    # diagnosis that was flatly wrong (the reader WAS on the right gate), at
+    # collection time, taking every test in the file with it.  The
+    # declaration spans from the first decorator to the `def`, and the code
+    # object has to start inside that span.
+    declared_from = min(
+        [post_init.lineno]
+        + [node.lineno for node in post_init.decorator_list])
+    assert declared_from <= code.co_firstlineno <= post_init.lineno, (
         "%s runs code starting at line %d while the source this file parsed "
-        "declares it at line %d; the reader is not looking at the gate the "
-        "record runs (S1)" % (where, code.co_firstlineno, post_init.lineno))
+        "declares it at lines %d-%d; the reader is not looking at the gate "
+        "the record runs (S1)"
+        % (where, code.co_firstlineno, declared_from, post_init.lineno))
 
 
 def _gate_out_of(post_init):
@@ -229,8 +244,16 @@ def _require_int_is_that_interval(label, lo, hi):
             return False
         return True
 
-    inside = (lo, lo + 1, (lo + hi) // 2, hi - 1, hi)
-    outside = (lo - 1, hi + 1) + _ABOVE_CEILING_PROBES(hi)
+    # ADVERSARY D1: THIS WAS FIVE SAMPLED POINTS AND IT INHERITED THE EXACT
+    # BLIND SPOT IT WAS WRITTEN TO CLOSE.  With `[1500, 1600]` written into
+    # `_require_int` itself -- depending on nothing but its four arguments,
+    # so the nonclaim above did not cover it -- the whole file stayed green,
+    # because 1500 is in neither list.  It scans the window now, exactly as
+    # step 2 scans the record: same cost, no sampled gap below the span.
+    inside = tuple(range(lo, hi + 1))
+    outside = (tuple(range(max(0, lo - 8), lo))
+               + tuple(range(hi + 1, LEVEL_PROBE_SPAN + 1))
+               + _ABOVE_CEILING_PROBES(hi))
     wrong = [value for value in inside if not accepted(value)]
     assert not wrong, (
         "`mob_combat._require_int(value, %r, %d, %d)` refuses %r, which is "
@@ -239,7 +262,8 @@ def _require_int_is_that_interval(label, lo, hi):
     assert not leaked, (
         "`mob_combat._require_int(value, %r, %d, %d)` accepts %r, which is "
         "outside the band it was handed; the gate the record declares is not "
-        "the gate `_require_int` enforces (S1)" % (label, lo, hi, leaked))
+        "the gate `_require_int` enforces (S1)"
+        % (label, lo, hi, leaked[:8]))
     for value in (True, 1.0, "1", None):
         assert not accepted(value), (
             "`mob_combat._require_int` accepts %r as a plain int" % (value,))
@@ -298,21 +322,31 @@ def _combatant_max_level():
          not touch); five lines added to `mob_combat._require_int` itself
          (step 1 checks that `__post_init__` CALLS it, never what it does);
          and a decoy `class Combatant` inside an uncalled function (the old
-         reader kept the LAST `ast.walk` match).  All three are closed by
-         asking three questions instead of trusting: `_declared_level_gate`
-         requires exactly ONE `Combatant` in the file and requires the
-         `ast.FunctionDef` it read to be the code object the record RUNS
-         (`co_filename` and `co_firstlineno`), and
+         reader kept the LAST `ast.walk` match).  Three questions replace
+         the trusting: `_declared_level_gate` requires exactly ONE
+         `Combatant` in the file and requires the `ast.FunctionDef` it read
+         to be the code object the record RUNS (`co_filename`, and
+         `co_firstlineno` inside the declaration's own span -- decorators
+         included, ADVERSARY D2), and
          :func:`_require_int_is_that_interval` measures `_require_int` under
          the label the gate passes it.
 
+    A FIRST VERSION OF THIS PARAGRAPH SAID "ALL THREE ARE CLOSED" AND WAS
+    MEASURED FALSE IN THE SAME ROUND.  Step 4's probe was five sampled points
+    inside the band and nine outside, so `[1500, 1600]` written into
+    `_require_int` itself -- depending on nothing but its four arguments,
+    which the nonclaim below did NOT cover -- left the whole file green while
+    `project_levels(mob, (1550,))` answered a row.  The probe scans the
+    window now, at the same cost as step 2, so there is no sampled gap below
+    `LEVEL_PROBE_SPAN` for an island to sit in.
+
     WHAT IS STILL NOT CLOSED, STATED RATHER THAN IMPLIED.  A `_require_int`
-    that answers on something other than its four arguments -- inspecting its
-    caller, or a global mode flag -- would pass step 4's probe and could then
-    let `__post_init__` accept a level the probe never asks about above the
-    span.  Nothing in this repository is written that way and no reader would
-    do it by accident, but it is the remaining shape, and it is the reason
-    step 2's full scan and step 3's decades stay: they are the half that does
+    that answers on WHO CALLED IT (or on a global mode flag) passes step 4,
+    because step 4 calls it directly -- it is caught only by step 2's scan,
+    which instantiates the record, and there is a test that fires exactly
+    that shape.  Above `LEVEL_PROBE_SPAN` both layers are back to sampled
+    decades, so an island there that no decade lands in is the remaining
+    hole.  That is why steps 2 and 3 both stay: they are the half that does
     not care why a level is accepted.
     """
     def accepted(level):
@@ -719,7 +753,8 @@ class TheColumnThatWentToChiefIsPinned(unittest.TestCase):
     chief" having never left this lane in any letter, while 3, 10, 30 and 50,
     which did leave, were pinned nowhere.  A class named for a letter was
     guarding a different set of numbers than the letter carried, and the word
-    "eleven" in this docstring matched neither.  Sixteen numbers left (eight
+    "eleven" in the file docstring matched neither, and is gone from there
+    too.  Sixteen numbers left (eight
     levels, two columns each).
 
     THE FOURTH COLUMN IS THIS FILE'S, NOT THE LETTER'S, AND THAT IS THE
@@ -1260,20 +1295,67 @@ class TheCeilingIsTheRecordsOwnAndNotTheProbeWindows(unittest.TestCase):
                               str(caught.exception))
 
     def test_the_reader_and_the_record_are_the_same_gate(self):
-        """The join itself, asserted rather than left to the islands."""
-        code = mob_combat.Combatant.__post_init__.__code__
+        """The join itself, asked of the helper rather than re-implemented.
+
+        ADVERSARY D4: an earlier version copied the two comparisons inline,
+        so deleting the helper's own `co_firstlineno` assertion changed
+        nothing anywhere -- the advertised join was dead code with a green
+        test beside it.  It calls the helper now.
+        """
         source = ROOT / "src" / "pirateforce_foundation" / "mob_combat.py"
-        self.assertEqual(pathlib.Path(code.co_filename), source)
         tree = ast.parse(source.read_text(encoding="utf-8"))
-        classes = [node for node in ast.walk(tree)
-                   if isinstance(node, ast.ClassDef)
-                   and node.name == "Combatant"]
-        self.assertEqual(len(classes), 1)
-        picked = [item for item in classes[0].body
-                  if isinstance(item, ast.FunctionDef)
-                  and item.name == "__post_init__"]
-        self.assertEqual(len(picked), 1)
-        self.assertEqual(code.co_firstlineno, picked[0].lineno)
+        post_init = _the_only_post_init(tree)
+        self.assertIsNone(_join_source_to_running_gate(post_init, source))
+        code = mob_combat.Combatant.__post_init__.__code__
+        self.assertEqual(pathlib.Path(code.co_filename), source)
+        declared_from = min(
+            [post_init.lineno]
+            + [node.lineno for node in post_init.decorator_list])
+        self.assertLessEqual(declared_from, code.co_firstlineno)
+        self.assertLessEqual(code.co_firstlineno, post_init.lineno)
+
+    def test_the_join_fires_when_the_running_gate_is_somewhere_else(self):
+        """D4's other half: the `co_firstlineno` arm, walked.
+
+        A function compiled from a fixture carries the shipped file's name
+        and a line number nowhere near the gate -- the one thing
+        `co_filename` on its own cannot see.
+        """
+        source = ROOT / "src" / "pirateforce_foundation" / "mob_combat.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        post_init = _the_only_post_init(tree)
+        namespace = {}
+        exec(compile("def __post_init__(self):\n    pass\n",
+                     str(source), "exec"), namespace)
+        self._with_post_init(namespace["__post_init__"])
+        with self.assertRaises(AssertionError) as caught:
+            _join_source_to_running_gate(post_init, source)
+        self.assertIn("runs code starting at line", str(caught.exception))
+
+    def test_a_decorated_gate_does_not_take_the_file_down_either(self):
+        """ADVERSARY D2, measured on a compiled fixture rather than argued:
+        `ast` lineno excludes decorators and `co_firstlineno` includes them,
+        so one `@_traced` fired the join with a wrong diagnosis at collection
+        time.  The span rule the join uses accepts both numbers."""
+        namespace = {}
+        source = ("def _traced(fn):\n"
+                  "    return fn\n"
+                  "\n"
+                  "@_traced\n"
+                  "def __post_init__(self):\n"
+                  "    pass\n")
+        exec(compile(source, "fixture.py", "exec"), namespace)
+        picked = [node for node in ast.parse(source).body
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == "__post_init__"][0]
+        running = namespace["__post_init__"].__code__.co_firstlineno
+        self.assertNotEqual(
+            running, picked.lineno,
+            "the fixture no longer reproduces the decorator offset")
+        declared_from = min(
+            [picked.lineno] + [node.lineno for node in picked.decorator_list])
+        self.assertLessEqual(declared_from, running)
+        self.assertLessEqual(running, picked.lineno)
 
     def test_a_decoy_combatant_class_is_refused_rather_than_preferred(self):
         """S1's third island: `ast.walk` used to keep the LAST match.
@@ -1385,15 +1467,9 @@ class TheCeilingIsTheRecordsOwnAndNotTheProbeWindows(unittest.TestCase):
             _combatant_max_level()
         self.assertIn("not from the shipped source", str(caught.exception))
 
-    def test_the_full_scan_still_fires_where_the_sampled_probes_miss(self):
-        """Step 2 is not dead code now that step 4 exists, and here is why.
-
-        Step 4 probes `_require_int` at five points inside the band (both
-        edges, both neighbours of an edge, the midpoint), so a hole at 137 is
-        invisible to it.  The full scan of `[lo, hi]` is what notices, on a
-        record whose `__post_init__` is still the shipped function at the
-        shipped line -- the join passes and the scan has to carry it.
-        """
+    def test_a_hole_written_into_require_int_is_caught_by_the_window_scan(
+            self):
+        """ADVERSARY D1 closed both ways: the probe scans, so 137 is seen."""
         original = mob_combat._require_int
 
         def holed(value, label, minimum, maximum):
@@ -1408,8 +1484,33 @@ class TheCeilingIsTheRecordsOwnAndNotTheProbeWindows(unittest.TestCase):
         with self.assertRaises(AssertionError) as caught:
             _combatant_max_level()
         message = str(caught.exception)
-        self.assertIn("not the interval", message)
+        self.assertIn("refuses", message)
         self.assertIn("137", message)
+
+    def test_the_full_scan_is_what_catches_a_caller_dependent_gate(self):
+        """Step 2 is not dead code, and this is the case that needs it.
+
+        ADVERSARY D4 asked what step 2 buys once step 4 exists.  This is the
+        answer, and it is exactly the nonclaim the helper states: a
+        `_require_int` that answers on WHO CALLED IT passes step 4's probe
+        (which calls it directly) and is caught only by instantiating the
+        record.
+        """
+        original = mob_combat._require_int
+
+        def two_faced(value, label, minimum, maximum):
+            caller = sys._getframe(1).f_code.co_name
+            if (caller == "__post_init__" and label == "level"
+                    and 100 < value < 200):
+                raise mob_combat.MobCombatContractError(
+                    mob_combat.REFUSE_VALUE_OUT_OF_RANGE, "hole")
+            return original(value, label, minimum, maximum)
+
+        mob_combat._require_int = two_faced
+        self.addCleanup(setattr, mob_combat, "_require_int", original)
+        with self.assertRaises(AssertionError) as caught:
+            _combatant_max_level()
+        self.assertIn("not the interval", str(caught.exception))
 
 
 class TheOrderCheckAsksForOrderAndNotForAListOfTypes(unittest.TestCase):
@@ -1576,15 +1677,37 @@ class AnHpThisModuleCannotCountFromIsRefused(unittest.TestCase):
         with self.assertRaises(projection.LevelProjectionError):
             projection.project_levels(mob, (7,))
 
-    def test_no_entry_point_leaks_a_raw_builtin_refusal(self):
+    def test_no_hp_reading_entry_point_leaks_a_raw_builtin_refusal(self):
         """D3 closed this on the record side; `int()` reopened it one line
-        lower.  A caller under `except LevelProjectionError` catches these."""
+        lower.  A caller under `except LevelProjectionError` catches these.
+
+        ADVERSARY D9: THE NAME SAID "no entry point" AND THE LIST IS FIVE.
+        It is the five that read hp, which is what this class is about; the
+        four that do not are `attacker_at_level`, `damage_at_level`,
+        `require_only_level_differs` and `unchecked_attributes`.  The last of
+        those STILL LEAKS -- `unchecked_attributes(object())` raises a raw
+        `TypeError` out of `dataclasses.fields` -- and that is recorded as
+        open in this round's file rather than hidden behind a name that
+        promised nine."""
         for bad in ("198125", None, [198125], object()):
             mob = dataclasses.replace(town_target_mob(), max_hp=bad)
             for name, call in self._entry_points(mob).items():
                 with self.subTest(max_hp=repr(bad), entry=name):
                     with self.assertRaises(projection.LevelProjectionError):
                         call()
+
+    def test_a_ceiling_at_or_under_the_floor_is_refused_by_name(self):
+        """ADVERSARY D8/D13: `max_hp=0` answered `hits_to_fell=0`, and
+        `max_hp=-5` blamed a `current_hp` the caller never passed."""
+        for ceiling in (0, -5):
+            mob = dataclasses.replace(town_target_mob(), max_hp=ceiling)
+            with self.subTest(max_hp=ceiling):
+                with self.assertRaises(
+                        projection.HpWillNotReadAsAnIntError) as caught:
+                    projection.project_levels(mob, (7,))
+                message = str(caught.exception)
+                self.assertIn("max_hp", message)
+                self.assertNotIn("current_hp", message)
 
     def test_a_boolean_hp_is_refused_on_both_sides(self):
         mob = town_target_mob()
@@ -1661,7 +1784,7 @@ class TheOrderCheckMeasuresOrderInsteadOfTrustingRegistration(
         with self.assertRaises(
                 projection.UnorderedLevelRequestError) as caught:
             projection.project_levels(mob, _RegisteredButNotIndexed({7}))
-        self.assertIn("will not be indexed", str(caught.exception))
+        self.assertIn("will not be read that way", str(caught.exception))
 
     def test_a_mapping_registered_as_a_sequence_is_refused_by_index(self):
         """The `KeyError` arm of the index walk, walked rather than written.
@@ -1681,7 +1804,7 @@ class TheOrderCheckMeasuresOrderInsteadOfTrustingRegistration(
         with self.assertRaises(
                 projection.UnorderedLevelRequestError) as caught:
             projection.project_levels(mob, _RegisteredMapping({"a": 7}))
-        self.assertIn("will not be indexed", str(caught.exception))
+        self.assertIn("will not be read that way", str(caught.exception))
 
     def test_a_container_whose_index_order_is_not_its_walk_order(self):
         """The other half of "the order given": one object, two orders."""
