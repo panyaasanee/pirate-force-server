@@ -286,16 +286,56 @@ the product is taken in `Decimal`.  All 12 distinct multipliers in the
 mirror are exactly float32 (tested), which is the evidence the recovery
 reads a float32 column rather than inventing precision.
 
-Rounding itself is now **floor at exactly one place** --
+Rounding itself is **at exactly one place** --
 `quest_criteria.ROUNDING_MODE` / `round_amount()`, with a test asserting
-the module contains exactly one `to_integral_value` -- per COO-DECISION
-`20260907_0845`.  That letter chose floor as an INTERIM and forbids
-writing "the client floors" anywhere as a fact; the RE ticket body sent to
-LANE-K this round (`notes_to_chief/20260907_0905_LANE-Q-TO-K-re-body-how-
-the-client-rounds-and-where-Lv-reads-level.md`) is what would make it
-measured.  The same letter re-labelled the level-source mapping from a
-lane assumption to `[COO-ASSUMPTION 0845 - NOT A PROOF]`; the refusal when
-a player level is unknown stays, and may not be softened into a fallback.
+the module contains exactly one `to_integral_value`.
+
+#### RE-295 answered both of those questions, and half of the paragraph above is now wrong (round `na0ftg`)
+
+`notes_to_chief/20260907_1425_RE-295-RESULT-multiply-is-double-truncate-
+and-Lv-reads-player-level.md` read the six instructions the client
+actually executes at `0x00608D10`:
+
+```
+movss    xmm0,[esi+0x3c]   ; f_EXP as float32
+cvtsi2ss xmm1,[esp+0x14]   ; the curve base, int -> SINGLE
+cvtss2sd xmm1,xmm1         ; base widened to double
+cvtps2pd xmm0,xmm0         ; multiplier widened to double
+mulsd    xmm1,xmm0         ; the multiply is at DOUBLE
+cvttsd2si esi,xmm1         ; and the cast TRUNCATES
+```
+
+1. **The width of the multiply was the thing round `wn088m` got wrong**,
+   exactly as its own docstring warned it might.  The decimal recovery
+   reproduces a SINGLE-precision product; the client multiplies at double
+   with both operands widened from float32.  So `quest_criteria.resolve()`
+   now pays `client_product()` (five of those instructions) through
+   `round_amount()` (the sixth), and **the 14 resolutions round `wn088m`
+   moved up by one move back down** -- re-measured this round, same 14
+   cells, same eight quests 2170-2177, same 3632 of 1181160 player-level
+   products.  Quest 2170 pays **22119**, not 22120: the client
+   short-changes its own table by one and this server matches the client,
+   not the table.  `CriteriaAmount.exact` keeps the table's 22120 and
+   `log_fields()` prints it as `authored=` so the gap is visible.
+2. **`ROUNDING_MODE` is `ROUND_DOWN`, not `ROUND_FLOOR`** -- `cvttsd2si`
+   truncates toward zero and ignores the FPU mode.  Identical to floor on
+   every product a mirror cell can make (all operands `>= 0`, measured);
+   different only below zero, which only the public `resolve()` reaches.
+   Nothing in the tree says "the client floors" any more; it says what the
+   instruction does, with the VA beside it.
+3. **`Lv` is the player's level, measured.**  `AddLvCriteriaSkillPoint`
+   (`0x006092B0`) reads `global 0x01032EC4` -> `+0x348` -> u16 at `+0x5E`;
+   the plain `AddCriteriaSkillPoint` (`0x00608E60`) reads a u16 off the
+   quest row at `+0x1A`.  `[COO-ASSUMPTION 0845 - NOT A PROOF]` comes off
+   `LEVEL_SOURCE`.  The refusal stays and is now the client's behaviour
+   too: at `0x00609308` the client jumps straight out when there is no
+   player object -- it pays nothing rather than falling back.
+
+**Not measured, and not to be read as measured:** the `cvtsi2ss` step is
+the identity on every shipped base (max 14252800 < 2^24), so the pin for
+it uses a hand-made base; and `cvttsd2si`'s "integer indefinite"
+(`0x80000000`) for an out-of-range product is NOT reproduced -- no shipped
+`(row, level, kind)` product comes near int32.
 
 Six of the 126 stub rows now read `stub (+reward line)`: the three
 `Quest.AddCriteria*` and three `Quest.AddLvCriteria*` names.  That is a
@@ -3090,13 +3130,15 @@ Five findings landed inside the round and are fixed in the same PR:
 
 Carried to the next round, named rather than hidden:
 
-* `gamedata/PF_GAMEDATA_LUA_API.tsv` records `AddLvCriteriaExp` as
-  **`UNRESOLVED` -- the one of the six with no binding found in the client
-  at all**, and it is exactly the name whose level source this round is
-  assuming.  The other five carry a `delegate_va`; disassembling
-  `0x00608D10` (plain) against `0x006092B0` (`Lv`) and reading which
-  structure offset each loads is the disproof the ASK-COO letter asks for,
-  and it is an RE ticket, not a round of grepping.  (Layer warning for
+* ~~`gamedata/PF_GAMEDATA_LUA_API.tsv` records `AddLvCriteriaExp` as
+  `UNRESOLVED`~~ -- **ANSWERED by RE-295 (round `na0ftg`)**: registration
+  `0x00609990`, delegate `0x00609140`, same player-level read as its two
+  siblings.  The TSV row is stale, not the binding: the index generator
+  expects `mov [esp+0x34], <delegate>` after the pushes and this call site
+  emits `mov [esp+0x18], ...` before them.  The mirror is the bridge's
+  file, so the correction went out as a letter to chief this round rather
+  than as an edit from this lane.  `GiveLvCriteriaPercentageEXP` really is
+  absent from this build (0 `.rdata` occurrences, either encoding).  (Layer warning for
   whoever writes it: `delegate_body6` is six bytes of SEH prologue shared
   by unrelated names -- it is not a calling-convention signature.)
 * `run_corpus_entry_points` still files an innocent script in `call_failed`
@@ -3539,3 +3581,37 @@ about rather than discover.
   the failure mode this project wants, and what reads the bucket at boot if
   it is the second, is a ruling this lane cannot make for itself.
 
+
+### pf-adversary on round `na0ftg`, paid in the same round
+
+The adversary returned BEFORE push this round, so its findings are fixed
+here rather than carried:
+
+* **D2** `_plain()` called `Decimal.quantize`, which raises
+  `InvalidOperation` past the decimal context's 28 digits -- inside the
+  log formatter, which runs AFTER the grant. Rebuilt without `quantize`
+  and made total (specials included).
+* **D3** `authored=` printed whenever the two Decimals differed at all:
+  185 shipped occurrences, only 14 of them a different PAID INTEGER. The
+  condition is now `round_amount(exact) != amount`, pinned by a test that
+  counts both numbers off the mirrors.
+* **D4/D5** `cvtsi2ss` reads a SIGNED DWORD. A base outside int32 is now
+  refused (the client would wrap it and pay a negative reward, which
+  nobody has observed), a non-int base is refused by name instead of
+  leaking `TypeError`, and the message names the int32 boundary rather
+  than a float32 one 12 orders of magnitude away.
+* **D6** the non-finite guard was `isinstance(multiplier, float)`, so a
+  `Decimal` walked past it into `decimal.InvalidOperation`. It now coerces
+  through `float()` and refuses text by name.
+* **D7** `f_EXP` holds **11** distinct multipliers, not 12: the 12 is the
+  union of the three multiplier columns (`f_CASH` adds 0.85 and holds 3;
+  `f_SP` holds 6). Round `wn088m` "corrected" 11 to 12 by counting the
+  other set.
+* **D8** the multiplier memo was keyed by the float, and `-0.0 == 0.0`,
+  so one negative-zero resolution poisoned every later zero-multiplier
+  log line with `mult=-0`. Keyed by the float32 bits now.
+* **D1** was about commit hygiene -- the first commit of the round changed
+  the module without its tests, so that SHA alone was red. The round's
+  commits were squashed before push; no red commit reaches the branch.
+
+Not fixed, and named instead: nothing. All eight are closed above.
