@@ -310,6 +310,79 @@ class Bg0002RegenerateAndDiffTest(unittest.TestCase):
         roster = tool.hostile_roster(sources)
         self.assertNotIn(27, {row["template_id"] for row in roster})
 
+    #: R322B, attended 2026-09-07: the console this scene printed on the
+    #: owner's machine was ``MOB_CENSUS_HOSTILITY scene_id=2 roster=12
+    #: backed=12 refused=8``, and on screen a Desert Eagle stood with a GREEN
+    #: name beside a PINK Fighting Fish.  The owner's question was "why is
+    #: only the fish attackable".  This is the answer, as data: six Mob-Sets
+    #: whose leader passes the rank+combat-AI half of the selection rule and
+    #: is refused by the outfit half alone.  Mob-Set number -> (placements in
+    #: this scene, resolved n_ID, displayed name).  Every value re-derived
+    #: from live gamedata by the test below; the table is here so a reader
+    #: sees the size of the gap without running anything.
+    OUTFIT_AMBIGUOUS_HOSTILE_SETS = {
+        27: (4, 27, "Mountain Deer"),
+        28: (6, 28, "Drunk wolf pirates"),
+        29: (7, 29, "Lion pirates"),
+        30: (11, 30, "Desert Eagle"),
+        32: (3, 32, "Rock turtle"),
+        33: (9, 33, "Sediment Wolf"),
+    }
+
+    def test_the_r322b_gap_is_the_outfit_half_and_nothing_else(self) -> None:
+        """WHAT THE OWNER SAW, stated as an executable number.
+
+        Forty placements in this scene carry a leader whose MOBS row has BOTH
+        a rank and a combat AI -- the whole hostility predicate -- and every
+        one of them is refused because that row's ``s_OUTFIT`` is a ``;``
+        list.  Twelve placements pass both halves, and twelve is exactly what
+        the server's own census printed on the owner's machine.
+
+        This test exists because the instruction this gap generated ("17 rows
+        vs a 12-mob roster, regenerate from the real roster") describes a
+        DIFFERENT defect: the 17-vs-12 difference is five Orc Chief rows that
+        only the setnum reading produces, and deleting them would not make
+        one Desert Eagle attackable.  Whoever acts on either number should
+        have both in front of them, re-derived rather than quoted.
+        """
+        tool = _load_tool()
+        sources = tool.Sources(GAMEDATA, EXPECTED_SCENE)
+        # Counted here, from the same placements file the generator reads,
+        # rather than through a private helper that may be renamed.
+        counts = {}
+        for item in sources.placements:
+            raw = (item.get("name") or "").split()
+            if not raw or not raw[0].startswith("MOBSET_"):
+                continue
+            counts[int(raw[0].split("_")[1])] = counts.get(
+                int(raw[0].split("_")[1]), 0) + 1
+
+        refused_placements = 0
+        for set_number, (expected_n, expected_id, expected_name) in sorted(
+                self.OUTFIT_AMBIGUOUS_HOSTILE_SETS.items()):
+            with self.subTest(mob_set=set_number):
+                resolved = sources.resolve(
+                    set_number, tool.IDENTITY_RULE_CLINE)
+                self.assertEqual(resolved, expected_id)
+                mob = sources.mobs.get(str(expected_id))
+                self.assertIsNotNone(mob)
+                # Passes the hostility predicate outright.
+                self.assertTrue(tool._nonzero(mob, "n_RANK"))
+                self.assertTrue(tool._nonzero(mob, "n_AI_COMBAT"))
+                # And is refused by the OTHER half, alone.
+                self.assertIn(";", (mob.get("s_OUTFIT") or "").strip())
+                self.assertEqual(counts.get(set_number), expected_n)
+                refused_placements += expected_n
+        self.assertEqual(
+            refused_placements, 40,
+            "the outfit-ambiguity gap in this scene changed size; re-read it "
+            "before changing any number that quotes it",
+        )
+        # The complement: what the rule does ship, and the number the game's
+        # own census printed.
+        roster = tool.hostile_roster(sources)
+        self.assertEqual(len(roster), EXPECTED_HOSTILE_COUNT)
+
 
 if __name__ == "__main__":
     unittest.main()

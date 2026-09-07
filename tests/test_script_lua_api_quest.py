@@ -115,11 +115,33 @@ class RealQuestNamespaceTests(unittest.TestCase):
         self.assertEqual(calls, ["LUA_API_STUB Quest.GetWeekDay"])
 
     def test_every_still_stubbed_name_is_reachable_and_logs_its_own_line(self):
+        """Every stubbed name still SAYS it is stubbed, in the same words.
+
+        The six reward names gained a second line this round (the read half
+        of the exp/level seam resolves what they WOULD have paid, see
+        ``quest.CRITERIA_METHODS`` and
+        ``tests/test_script_lua_api_quest_criteria.py``).  That extra line
+        is additive: the ``LUA_API_STUB`` line is unchanged and is still
+        the last thing each of them logs, so nothing reading the console
+        for "which names are not real yet" reads differently.
+        """
         for name in quest.STILL_STUBBED:
             with self.subTest(method=name):
                 ns, calls = self._namespace()
                 ns[name]()
-                self.assertEqual(calls, ["LUA_API_STUB Quest.%s" % name])
+                self.assertEqual(calls[-1], "LUA_API_STUB Quest.%s" % name)
+                extra = calls[:-1]
+                if name in quest.CRITERIA_METHODS:
+                    self.assertEqual(len(extra), 1)
+                    self.assertTrue(extra[0].startswith(
+                        "LUA_QUEST_CRITERIA Quest.%s " % name))
+                else:
+                    self.assertEqual(extra, [])
+
+    def test_the_criteria_names_are_the_only_stubs_with_a_second_line(self):
+        self.assertEqual(quest.CRITERIA_METHODS - set(quest.STILL_STUBBED),
+                         set())
+        self.assertEqual(len(quest.CRITERIA_METHODS), 6)
 
     def test_still_stubbed_plus_real_accounts_for_all_25_names(self):
         from pirateforce_foundation.lua_api import spec as api_spec
