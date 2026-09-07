@@ -86,16 +86,26 @@ re-measured ones (round ``gkxzei``, after pf-adversary):
   is ``archive/GAME_TEST_QUEUE_ARCHIVE_20260827_closed.md:971``, which
   points at the in-repo disassembly nonclaim 4 above now cites. Saying
   "only" is what turned a two-hop lookup into a false nonclaim.
-* ``CLIENT_RE_QUEUE.md:1688`` = ``RE-294`` (the first draft said
-  ``:1587``, inherited from ``docs/UI_LANE.md`` and never re-derived;
-  ``:1587`` is an unrelated ticket). Its header still reads ``OPEN``:
-  folding the result and flipping that header is LANE-K's, asked for in
-  ``notes_to_chief/20260907_1358_LANE-UI-TO-K-re294-consumed-please-fold.md``.
-* ``GAME_TEST_QUEUE.md:5988`` -> ``GT-262`` is still ``READY`` in the
-  queue. The first draft called it "cancelled", which describes this
-  lane's own cancel LETTER (``20260907_0456_LANE-UI-TO-K-gt262-cancel-
-  with-reason.md``), not the queue it was sent to. Sending is not
-  landing.
+* ``RE-294``: both line pins this file has carried are now stale, and
+  the second of them is stale in the OPPOSITE direction from the first,
+  which is why neither is restated with a number here.  RE-RE-MEASURED
+  round ``splep7``, on ``pf_bridge`` at that round's ``origin/main``:
+  ``CLIENT_RE_QUEUE.md`` is 1051 lines (so the ``:1688`` this file used
+  to cite cannot exist), and ``RE-294`` appears at ``:892`` struck
+  through, reading ``PASS / DONE``, folded by LANE-K round ``spppsd`` at
+  2026-09-07T14:22+07:00 -- i.e. the "its header still reads OPEN" this
+  file used to assert had ALREADY been false for about eleven hours when
+  that sentence was written.  Grep by ticket name, never by line number:
+  ``grep -n "RE-294" pf_bridge/CLIENT_RE_QUEUE.md``.  (pf-adversary D8,
+  round ``splep7``.)
+* ``GT-262`` LANDED as cancelled, and this file's own self-correction is
+  what is false now.  RE-MEASURED round ``splep7``: the ticket sits at
+  ``GAME_TEST_QUEUE.md:5403`` carrying "CANCELLED by the ticket owner
+  LANE-UI round ``fvp9ke`` ... placed by LANE-K round ``rlapyk``
+  2026-09-07T06:11+07:00".  The earlier paragraph here ("still READY ...
+  sending is not landing") was right about the principle and wrong about
+  this ticket, and stayed in the file after the queue moved.  Same rule
+  as above: ``grep -n "GT-262" pf_bridge/GAME_TEST_QUEUE.md``.
 * ``grep -rn "Stall" src/pirateforce_foundation/`` before this file:
   0 hits (verified). Outside ``src/`` the same repo does carry Stall
   evidence -- ``reports/``, ``tools/``, ``docs/FUNCTIONAL_COVERAGE.json``
@@ -327,6 +337,81 @@ def _read_members(
     return tuple(members), offset
 
 
+def _window(buf: bytes, offset: int, length: int) -> bytes:
+    """Return exactly ``buf[offset:offset + length]`` or fail closed.
+
+    WHY THIS EXISTS (pirate-force-server PR #1045, the reviewer's own
+    counter-proposal, carried over from LANE-UI round ``53yj9g``'s "next
+    round" list) -- and, first, WHAT IT DOES NOT FIX, because the first
+    draft of this docstring got that backwards and pf-adversary (D1/D2,
+    round ``splep7``) measured it.
+
+    The three whole-buffer decoders below answer one question -- "do
+    these bytes parse as this class?" -- about the WHOLE object they are
+    handed, so a caller holding an envelope has to slice the payload out
+    by hand first.  A wrong slice is silent in BOTH directions at
+    member-record granularity, not just the long one:
+
+      * too LONG by a whole number of complete 22-byte member records ->
+        decodes as that many EXTRA members (one record, two records, N);
+      * too SHORT by a whole number of complete member records ->
+        decodes as that many FEWER members.
+
+    Both are properties of the surplus/shortfall CONTENT, not of its
+    length, so no caller can defend against either by checking lengths.
+    Only a wrong slice that does not land on a record boundary fails
+    closed.  This applies to ``StallStartVital`` and ``StallOperateVital``
+    (their tails are a member-record loop); ``StallOpenVital`` has no
+    member tail, so for it any surplus or shortfall fails closed.
+
+    So this function does NOT make a mis-declared window safe -- a caller
+    that declares ``length`` short or long by a whole record still gets a
+    silently wrong object, and there is a test in the suite that measures
+    exactly that rather than a sentence claiming otherwise.  What it
+    changes is WHERE the boundary is decided: the caller declares
+    ``offset`` and ``length`` once, in two arguments this module can
+    check for range, instead of the boundary being an implicit property
+    of a slice made somewhere else.  Nothing here derives the end of a
+    vital body from the bytes; whoever wires this will still have to get
+    that end from the framing layer, and until they can, this parameter
+    is a question passed upward, not an answer (pf-adversary D7).
+
+    Also NOT delivered, stated because #1045's reviewer asked for it by
+    name: the ``wire.require_exhausted`` calls in the three ``_exact``
+    bodies stay DEAD for the two member-tail classes.  The member loop
+    still consumes to the end of the (now windowed) payload, so deleting
+    those two calls leaves the suite green -- measured, pf-adversary D6.
+    They are defence in depth against a future edit, exactly as the
+    ``_read_members`` docstring already says, and this commit did not
+    revive them.
+
+    Fail-closed on every out-of-range window (negative offset, negative
+    length, or a window running past the end of ``buf``), raising the same
+    ``WireDecodeError`` every other reader in this module raises, so the
+    ``decode_*`` wrappers turn it into ``None`` exactly like any other
+    parse failure and no caller has to learn a second error shape.
+    """
+
+    if not isinstance(offset, int) or not isinstance(length, int):
+        # The module family's stated property is "None on any malformed
+        # input"; without this, a float or None ``length`` left a bare
+        # TypeError through the public surface instead (pf-adversary D9).
+        raise wire.WireDecodeError(
+            "window bounds must be int: offset=%r length=%r"
+            % (type(offset).__name__, type(length).__name__)
+        )
+    if offset < 0:
+        raise wire.WireDecodeError("negative window offset: %d" % offset)
+    if length < 0:
+        raise wire.WireDecodeError("negative window length: %d" % length)
+    if offset + length > len(buf):
+        raise wire.WireDecodeError(
+            "window runs past the buffer: offset=%d length=%d len=%d"
+            % (offset, length, len(buf))
+        )
+    return buf[offset:offset + length]
+
+
 def encode_stall_open_payload(fields: StallOpenFields) -> bytes:
     out = bytearray()
     out += wire.u64tag(_TAG_U64, fields.field1_u64)
@@ -338,7 +423,37 @@ def encode_stall_open_payload(fields: StallOpenFields) -> bytes:
     return bytes(out)
 
 
+def decode_stall_open_payload_at(
+    buf: bytes, offset: int, length: int
+) -> StallOpenFields | None:
+    """Decode one ``StallOpenVital`` payload from an explicit window.
+
+    Consumes the declared window exactly: a window that is one byte short
+    fails closed on the truncated field, and a window with any surplus
+    fails closed on ``require_exhausted``.  ``None`` on every failure,
+    never a partial object.
+    """
+
+    try:
+        payload = _window(buf, offset, length)
+    except wire.WireDecodeError:
+        return None
+    return _decode_stall_open_exact(payload)
+
+
 def decode_stall_open_payload(payload: bytes) -> StallOpenFields | None:
+    """Whole-buffer form: the window is the whole buffer.
+
+    Defined in terms of :func:`decode_stall_open_payload_at` on purpose --
+    one parse, two entry points, so the two can never drift apart the way
+    two copied bodies can (the shape pf-adversary flagged as D-A in round
+    ``jx6r5p`` for a different pair of functions in this lane).
+    """
+
+    return decode_stall_open_payload_at(payload, 0, len(payload))
+
+
+def _decode_stall_open_exact(payload: bytes) -> StallOpenFields | None:
     try:
         field1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         field2, offset = wire.read_u16tag(payload, offset, _TAG_U16)
@@ -364,7 +479,33 @@ def encode_stall_start_payload(fields: StallStartFields) -> bytes:
     return bytes(out)
 
 
+def decode_stall_start_payload_at(
+    buf: bytes, offset: int, length: int
+) -> StallStartFields | None:
+    """Decode one ``StallStartVital`` payload from an explicit window.
+
+    This is the class the over-slicing asymmetry described on
+    :func:`_window` actually bites: the trailing member-record loop reads
+    until the buffer ends, so under the whole-buffer entry point a surplus
+    that happens to be a complete 22-byte member record is indistinguish-
+    able from a real extra member.  Here the loop ends where the CALLER
+    said the payload ends, so the same surplus is simply not read.
+    """
+
+    try:
+        payload = _window(buf, offset, length)
+    except wire.WireDecodeError:
+        return None
+    return _decode_stall_start_exact(payload)
+
+
 def decode_stall_start_payload(payload: bytes) -> StallStartFields | None:
+    """Whole-buffer form -- see :func:`decode_stall_open_payload`."""
+
+    return decode_stall_start_payload_at(payload, 0, len(payload))
+
+
+def _decode_stall_start_exact(payload: bytes) -> StallStartFields | None:
     try:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_U8_A)
         field2, offset = wire.read_u16tag(payload, offset, _TAG_U16)
@@ -390,7 +531,31 @@ def encode_stall_operate_payload(fields: StallOperateFields) -> bytes:
     return bytes(out)
 
 
+def decode_stall_operate_payload_at(
+    buf: bytes, offset: int, length: int
+) -> StallOperateFields | None:
+    """Decode one ``StallOperateVital`` payload from an explicit window.
+
+    Same member-record tail as :func:`decode_stall_start_payload_at`, and
+    the same reason for existing.
+    """
+
+    try:
+        payload = _window(buf, offset, length)
+    except wire.WireDecodeError:
+        return None
+    return _decode_stall_operate_exact(payload)
+
+
 def decode_stall_operate_payload(payload: bytes) -> StallOperateFields | None:
+    """Whole-buffer form -- see :func:`decode_stall_open_payload`."""
+
+    return decode_stall_operate_payload_at(payload, 0, len(payload))
+
+
+def _decode_stall_operate_exact(
+    payload: bytes,
+) -> StallOperateFields | None:
     try:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_U8_A)
         field2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
