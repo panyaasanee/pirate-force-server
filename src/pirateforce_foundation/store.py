@@ -395,8 +395,26 @@ class UnmeasuredSkillPointsError(RuntimeError):
     """
 
 
+class InsufficientTypedAttributeError(RuntimeError):
+    """`spend_typed_attribute` refused: the balance does not cover `amount`.
+
+    A SEPARATE TYPE FROM `InsufficientSkillPointsError` ON PURPOSE, and the
+    separation is the thing LANE-Q asked for by name
+    (`pf_bridge/notes_to_chief/20260907_1942_LANE-Q-TO-DB-add-typed-
+    attribute-needs-a-spend-door.md`, contract 3 of 4): a caller that
+    catches the wrong refusal is a caller that decides a quest was paid
+    when it was not.  `spend_skill_points` is one column's door and keeps
+    its own type; this one serves every typed column and names the column
+    in its message, because the caller's next move differs per column.
+
+    NOT CLAMPED, NOT ALLOWED NEGATIVE.  The balance stays exactly where it
+    was: this is raised inside the same transaction the read ran in, before
+    any `UPDATE`, so nothing is written when it is raised.
+    """
+
+
 class UnmeasuredTypedAttributeError(RuntimeError):
-    """`add_typed_attribute` refused: the row's column is NULL.
+    """`add_typed_attribute`/`spend_typed_attribute` refused: column is NULL.
 
     Same rule as `UnmeasuredSkillPointsError` and the same decision behind
     it (`COO-DECISION 20260901_1059`): a NULL column is "nobody has measured
@@ -3802,6 +3820,168 @@ class SQLiteStore:
                     "than treating it as 0 (COO-DECISION 20260901_1059)"
                 )
             after = typed_attrs.validate(column, current + delta)
+            updated = db.execute(
+                f"UPDATE characters SET {column}=?,updated_at=? "  # noqa: S608
+                f"WHERE id=? AND deleted_at IS NULL AND {column}=?",
+                (after, _now(), character_id, current),
+            ).rowcount
+            if updated != 1:
+                raise KeyError(character_id)
+            read_back = db.execute(
+                f"SELECT {column} FROM characters WHERE id=?",  # noqa: S608
+                (character_id,),
+            ).fetchone()
+        return read_back[column]
+
+    def spend_typed_attribute(
+        self, character_id: int, column: str, amount: int
+    ) -> int:
+        """Subtract `amount` from one typed column, returning the value AFTER.
+
+        `LANE-Q pf_bridge/notes_to_chief/20260907_1942_LANE-Q-TO-DB-add-
+        typed-attribute-needs-a-spend-door.md`, whose four contracts this
+        method is written against one for one.  THE DOOR THAT EXISTS
+        BECAUSE THE CORPUS SUBTRACTS: two shipped quest scripts pay money
+        OUT rather than in -- `gamedata/lua/Quest/q_ship.lua:50`
+        (`Player.AddCash(-Quest.Var3)`) and `q_boat_health.lua:21`
+        (`Player.AddCash(Quest.Var2 * -1)`), the "buy the ship" and "repair
+        the ship" quests.  Until this method exists LANE-Q keeps
+        `Player.AddCash` stubbed on purpose, because opening only the
+        adding half would hand the player a free ship, and a free ship is
+        worse than a stub.
+
+        WHY IT IS NOT `add_typed_attribute(delta=-n)`.  That method's own
+        docstring refuses negatives and says why: a subtracting door has to
+        answer "what happens at the floor", and an answer bolted onto the
+        adding door would make one method with two refusal shapes.  So the
+        floor rule lives here, in its own method, with its own exception
+        type, exactly as `spend_skill_points` does for its one column.
+
+        THE FOUR CONTRACTS, EACH POINTING AT THE LINE THAT KEEPS IT:
+
+        1. ONE `BEGIN IMMEDIATE`, with the read and the `UPDATE` inside it.
+           SQLite's write lock is taken BEFORE the balance is read, so no
+           other connection can move the same column between this method's
+           read and its write.  Two sessions share one process
+           (`NOW.md` "shared world"), so a read-modify-write across two
+           connections would silently eat the other writer -- the defect
+           `pf-adversary D14` (round `wn088m`) named in LANE-Q's zone.
+        2. NULL REFUSES BY COLUMN NAME, never a guessed zero
+           (`UnmeasuredTypedAttributeError`, `COO-DECISION 20260901_1059`).
+           This is not a formality here: `read_typed_attributes` DROPS a
+           NULL column, so a caller doing its own arithmetic reaches for
+           `.get(column, 0)` and spends against a balance nobody measured.
+        3. A BALANCE THAT DOES NOT COVER `amount` RAISES
+           `InsufficientTypedAttributeError` -- a type of its own, not
+           `InsufficientSkillPointsError`, so a caller cannot catch the
+           wrong one and read "not paid" as "paid".  NOT CLAMPED: the row
+           keeps the value it had, and nothing goes negative.
+        4. THE VALUE AFTER THE SUBTRACTION IS RETURNED, read back inside
+           the same transaction, so it is the row's value and not this
+           method's arithmetic.
+
+        `amount` IS A MAGNITUDE, ALWAYS `>= 0`.  The sign lives in the
+        method name, not in the number: a caller that flips a sign by
+        accident must get a `ValueError`, not a silent addition.  LANE-Q
+        passes the magnitude and keeps the corpus's minus sign in its own
+        module, where the script that wrote it can be cited.
+
+        THE RESULT IS VALIDATED, NOT CLAMPED, on the way out too:
+        `persistence_typed_attrs.validate` decides whether the value AFTER
+        the subtraction is storable for that column's wire kind.  Today
+        every typed column is unsigned, so `validate` would refuse a
+        negative anyway -- contract 3 is checked FIRST and separately
+        regardless, because a caller must be able to tell "you cannot
+        afford this" from "this column cannot hold that number", and
+        because a signed column added later must not silently turn an
+        overdraft into a stored negative.
+
+        RETRY IS SAFE FOR EVERY EXCEPTION NAMED HERE, for the same reason
+        `add_typed_attribute` states: read, `UPDATE` and read-back all run
+        inside one `BEGIN IMMEDIATE`, and `connect()` rolls back on any
+        exception before re-raising, so a raise means nothing was
+        committed.
+
+        Raises `TypeError` for a non-int/bool `character_id` or `amount` or
+        a non-str `column`, `ValueError` for a negative `amount` or for
+        either integer outside SQLite's representable `INTEGER` range,
+        `TypedAttrError` for an unknown column or an unstorable result,
+        `UnmeasuredTypedAttributeError` for a NULL column,
+        `InsufficientTypedAttributeError` when the balance does not cover
+        `amount`, `KeyError` for a character that does not exist or has
+        been soft-deleted, and `WriteLockTimeout` instead of a raw
+        `sqlite3.OperationalError` when the write lock cannot be taken.
+        Nothing is written when anything is refused.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if not isinstance(column, str):
+            raise TypeError("column must be a str")
+        if isinstance(amount, bool) or not isinstance(amount, int):
+            raise TypeError("amount must be an int")
+        if amount < 0:
+            raise ValueError(
+                f"amount must be >= 0, got {amount!r} -- this door only "
+                "subtracts and the sign is in its name; pass the magnitude "
+                "and keep the corpus's minus sign at the call site"
+            )
+        if not _fits_sqlite_integer(amount):
+            raise ValueError(
+                f"amount {amount!r} is outside SQLite's representable "
+                "INTEGER range"
+            )
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+
+        from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
+
+        if column not in typed_attrs.TYPED_COLUMNS:
+            raise typed_attrs.TypedAttrError(
+                f"{column!r} is not a typed attribute column "
+                f"(built: {sorted(typed_attrs.TYPED_COLUMNS)})"
+            )
+
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s {column} spend within connect()'s "
+                    f"busy_timeout: {error}"
+                ) from error
+            vitals.verify_schema(db)
+            # `column` is interpolated for the same measurable reason
+            # `add_typed_attribute` states: SQLite cannot bind an
+            # identifier, and this name came from `TYPED_COLUMNS`, whose
+            # builder refuses any name that does not match
+            # `^[a-z][a-z0-9_]*$`.  A caller's string never reaches SQL.
+            row = db.execute(
+                f"SELECT {column} FROM characters "  # noqa: S608
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            current = row[column]
+            if current is None:
+                raise UnmeasuredTypedAttributeError(
+                    f"character {character_id} has no {column} value yet "
+                    "(NULL) -- refusing to spend against an unmeasured "
+                    "value rather than treating it as 0 (COO-DECISION "
+                    "20260901_1059)"
+                )
+            if current < amount:
+                raise InsufficientTypedAttributeError(
+                    f"character {character_id} has {column}={current}, "
+                    f"which does not cover a spend of {amount} -- refusing "
+                    "rather than clamping to the floor or storing a "
+                    "negative balance"
+                )
+            after = typed_attrs.validate(column, current - amount)
             updated = db.execute(
                 f"UPDATE characters SET {column}=?,updated_at=? "  # noqa: S608
                 f"WHERE id=? AND deleted_at IS NULL AND {column}=?",
