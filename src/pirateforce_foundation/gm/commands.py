@@ -110,6 +110,23 @@ COMMAND_USAGE = {
     # `gm/attr_wire.build_named_field_update` -- see that module's docstring
     # for why the two are not interchangeable doors.
     "speed": "speed <value>",
+    # A LANE-GM TOOLING COMMAND, like `gmprobe` and unlike the six above: it
+    # changes nothing at all.  `staged` reads back what a previous
+    # cross-scene `/warp` wrote into `config/gm_login_scene.json` for THIS
+    # account and answers it on screen -- see `gm/staged_readback.py`'s
+    # module docstring for why a staged warp was the one durable effect this
+    # lane produced with no on-screen sentence of its own.  Appended LAST for
+    # the third time, for the reason both comments above give: growing the
+    # tuple by one at the end is a smaller drift than reordering anything
+    # already pinned ahead of it.
+    #
+    # NO ARGUMENTS, and that is a property rather than a convenience: a
+    # command with no arguments has no typed token to echo, resolve, or
+    # spell into a message, so the whole class of hazards the `warp <scene
+    # name>` form had to close (pf-adversary round `osxc85`, D1/D2) cannot
+    # exist here.  The identity whose staging is read is the session's
+    # authenticated `.token`, never anything in the payload.
+    "staged": "staged",
 }
 
 COMMAND_NAMES = tuple(COMMAND_USAGE)
@@ -397,6 +414,17 @@ def parse_gm_command(text: str) -> GmCommand:
         # merely happens to parse there.
         _require_number(args[0], "value")
         return GmCommand(name, tuple(args), stripped)
+
+    if name == "staged":
+        # NO ARGUMENTS AT ALL -- and the check is `rest.split()`, not
+        # `rest`, so `staged   ` (trailing spaces, which a chat client sends
+        # more often than not) is the same command as `staged`.  Anything
+        # else is a parse refusal carrying the table's own sentence, so a
+        # GM who typed `staged 123` reading the answer learns the command
+        # takes nothing, rather than watching their argument be ignored.
+        if rest.split():
+            raise GmCommandParseError(COMMAND_USAGE["staged"])
+        return GmCommand(name, (), stripped)
 
     if name == "gmprobe":
         args = rest.split()
