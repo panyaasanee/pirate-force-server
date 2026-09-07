@@ -38,6 +38,7 @@ queued and not run.
 """
 from __future__ import annotations
 
+import ast
 import dataclasses
 from dataclasses import replace
 import hashlib
@@ -92,13 +93,16 @@ from pirateforce_foundation.skill_attr_hypothesis import (  # noqa: E402
     SKILL_ATTR_RECORD_OPAQUE_U32_TAG,
     SKILL_ATTR_RECORD_WIRE_SIZE,
     SKILL_ATTR_REJECTIONS,
+    SKILL_ATTR_RECORD_PROBE,
     SKILL_ATTR_SCENARIO_ID,
     SKILL_ATTR_SPACING_SECONDS,
+    SKILL_ATTR_STARTING_SKILL_CLASS_ID,
     SKILL_ATTR_STEP_ORDER,
     SKILL_ATTR_STEP_RECORDS,
     UPDATE_ATTR_VITAL_ID,
     UPDATE_ATTR_VITAL_VERSION,
     SkillAttrRecord,
+    _require_step_plan,
     decode_skill_attr,
     encode_skill_attr,
     load_skill_attr_hypothesis_scenario,
@@ -116,7 +120,7 @@ SRC_ROOT = ROOT / "src" / "pirateforce_foundation"
 SWEEP_EVENT = "skill_attr_hypothesis_attr_sweep_sent"
 IDENTITY_EVENT = "skill_attr_hypothesis_identity_not_pinned_no_reply"
 
-# GOLDEN byte-exact pins for the two sweep variants, computed by running the
+# GOLDEN byte-exact pins for the sweep variants, computed by running the
 # encoder over the pinned probe identity and frozen here as full hex.  Every
 # byte is accounted for by the RE-061 wire order plus the frozen v141
 # envelope; a change to ANY byte of either frame must fail this file.
@@ -129,6 +133,13 @@ GOLDEN_PC_HEX = {
         "129D6E140000000008040B02120100129A300B0012010012611614190000000B"
         "0132010001100000000012010012010012000014000000000B00"
     ),
+    # 126F00 / 12409C / 126300 / 126E00 are the four record keys 111 /
+    # 40000 / 99 / 110 -- class 1's committed starting kit, in table order.
+    "COUNT4_STARTING_SKILLS_CLASS1": (
+        "129D6E140000000008040B02120100129A300B00120100126116143A0000000B"
+        "01320100011000000000120400126F00120000140000000012409C1200001400"
+        "0000001263001200001400000000126E0012000014000000000B00"
+    ),
 }
 GOLDEN_FRAME_HEX = {
     "COUNT0_EMPTY": (
@@ -139,6 +150,12 @@ GOLDEN_FRAME_HEX = {
         "AC3E255F3C0000003AE4129D6E140000000008040B02120100129A300B001201"
         "0012611614190000000B01320100011000000000120100120100120000140000"
         "00000B00"
+    ),
+    "COUNT4_STARTING_SKILLS_CLASS1": (
+        "AC3E255F5E0000005BF05A129D6E140000000008040B02120100129A300B0012"
+        "0100126116143A0000000B01320100011000000000120400126F001200001400"
+        "00000012409C12000014000000001263001200001400000000126E0012000014"
+        "000000000B00"
     ),
 }
 
@@ -508,7 +525,8 @@ class FailClosedTests(_LegacyCase):
                 make_skill_attr_response(self.legacy, lo, hi, records)
 
     def test_an_unknown_step_index_is_refused(self):
-        for index in (-1, 2, 99, True, None, "0", 1.0):
+        for index in (-1, len(SKILL_ATTR_STEP_ORDER),
+                      len(SKILL_ATTR_STEP_ORDER) + 97, True, None, "0", 1.0):
             with self.assertRaises(ValueError) as raised:
                 make_skill_attr_step_response(self.legacy, index)
             self.assertIn("unknown_step_label", str(raised.exception))
@@ -610,7 +628,7 @@ class ComposedResponseTests(_LegacyCase):
         self.assertEqual(
             [len(SKILL_ATTR_STEP_RECORDS[label])
              for label in SKILL_ATTR_STEP_ORDER],
-            [0, 1],
+            [0, 1, 4],
         )
         self.assertEqual(
             SKILL_ATTR_STEP_RECORDS["COUNT1_KEY1"],
@@ -955,11 +973,11 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(selected.identity_lo, SKILL_ATTR_PROBE_IDENTITY_LO)
         self.assertEqual(selected.identity_hi, SKILL_ATTR_PROBE_IDENTITY_HI)
 
-    def test_one_request_sweeps_the_two_steps_in_the_pinned_order(self):
+    def test_one_request_sweeps_every_step_in_the_pinned_order(self):
         state = self._state("skillattr01")
         session_id = state.foundation.session_id
         actions = state.dispatch(self._trigger())
-        self.assertEqual(len(actions), 2)
+        self.assertEqual(len(actions), len(SKILL_ATTR_STEP_ORDER))
         self.assertEqual(
             [action[0] for action in actions],
             [
@@ -976,6 +994,7 @@ class DispatchTests(unittest.TestCase):
             [
                 "HYP_PF_035_SKILL_ATTR_COUNT0_EMPTY",
                 "HYP_PF_035_SKILL_ATTR_COUNT1_KEY1",
+                "HYP_PF_035_SKILL_ATTR_COUNT4_STARTING_SKILLS_CLASS1",
             ],
         )
         self.assertEqual(state.skill_attr_sweep_count, 1)
@@ -1070,7 +1089,8 @@ class DispatchTests(unittest.TestCase):
         delays = [action[3] for action in actions]
         self.assertEqual(
             delays,
-            [SKILL_ATTR_FIRST_DELAY_SECONDS, SKILL_ATTR_SPACING_SECONDS],
+            [SKILL_ATTR_FIRST_DELAY_SECONDS]
+            + [SKILL_ATTR_SPACING_SECONDS] * (len(SKILL_ATTR_STEP_ORDER) - 1),
         )
         self.assertEqual(
             delays[0], self.pinned["dispatch"]["first_frame_delay_seconds"],
@@ -1090,11 +1110,14 @@ class DispatchTests(unittest.TestCase):
 
     # ----- repeatability ---------------------------------------------------
 
-    def test_two_requests_give_four_frames_with_no_accumulated_state(self):
+    def test_two_requests_give_two_full_sweeps_with_no_accumulated_state(self):
         state = self._state("skillattr-repeat")
         first = state.dispatch(self._trigger("probe1"))
         second = state.dispatch(self._trigger("probe1"))
-        self.assertEqual([len(first), len(second)], [2, 2])
+        self.assertEqual(
+            [len(first), len(second)],
+            [len(SKILL_ATTR_STEP_ORDER)] * 2,
+        )
         self.assertEqual(first, second)
         self.assertEqual(state.skill_attr_sweep_count, 2)
         self.assertEqual(state.events.count(SWEEP_EVENT), 2)
@@ -1211,7 +1234,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(state.skill_attr_sweep_count, 0)
         state.foundation.selected = original
         actions = state.dispatch(self._trigger())
-        self.assertEqual(len(actions), 2)
+        self.assertEqual(len(actions), len(SKILL_ATTR_STEP_ORDER))
         self.assertEqual(state.skill_attr_sweep_count, 1)
         self.assertEqual(state.events.count(SWEEP_EVENT), 1)
 
@@ -1303,6 +1326,129 @@ class DispatchTests(unittest.TestCase):
                     self.legacy, self.lifecycle, self.projector,
                     skill_attr_hypothesis_scenario=bad,
                 )
+
+
+class StartingKitStepTests(unittest.TestCase):
+    """The third step must BE the committed table, not a copy of it.
+
+    LANE-CS's charter says the source of truth for every number is a
+    committed gamedata table and that a test must die on its own if that
+    table moves.  These are that test.  The step exists to make one
+    hypothesis falsifiable at an already-open skill window -- "do the ids
+    the server actually granted this character show up" -- so if the ids
+    stop being the granted ones, the question the sweep asks silently
+    changes and the answer stops meaning anything.
+    """
+
+    def test_the_step_keys_are_the_committed_class_1_starting_kit(self):
+        from pirateforce_foundation import class_catalog
+
+        derived = class_catalog.starting_skill_ids(
+            SKILL_ATTR_STARTING_SKILL_CLASS_ID)
+        self.assertEqual(
+            tuple(record.key for record in
+                  SKILL_ATTR_STEP_RECORDS["COUNT4_STARTING_SKILLS_CLASS1"]),
+            derived,
+        )
+        # And the literal, so that a table edit is LOUD here rather than
+        # quietly re-deriving to something else: these four ids are what
+        # the running server printed for the pinned probe character
+        # (CHARACTER_STARTING_SKILLS cid=1 written skill_ids=...).
+        self.assertEqual(derived, (111, 40000, 99, 110))
+        self.assertEqual(SKILL_ATTR_STARTING_SKILL_CLASS_ID, 1)
+
+    def test_the_step_invents_no_value_in_either_opaque_field(self):
+        for record in SKILL_ATTR_STEP_RECORDS[
+                "COUNT4_STARTING_SKILLS_CLASS1"]:
+            self.assertEqual((record.opaque_u16, record.opaque_u32), (0, 0))
+            self.assertIs(type(record), SkillAttrRecord)
+
+    def test_the_step_is_tellable_apart_from_the_arbitrary_probe(self):
+        keys = {record.key for record in
+                SKILL_ATTR_STEP_RECORDS["COUNT4_STARTING_SKILLS_CLASS1"]}
+        self.assertNotIn(SKILL_ATTR_RECORD_PROBE.key, keys)
+        self.assertEqual(len(keys), 4)
+
+    def test_the_module_reads_the_table_and_types_no_skill_id_of_its_own(self):
+        # A mutant that replaces the derivation with the same four numbers
+        # typed out passes every OTHER test in this file -- the bytes and
+        # the pins are identical until the day the table moves, which is
+        # exactly the day the pins are supposed to speak.  So the source
+        # itself is the assertion: the call must be there, and no id may
+        # appear as a literal anywhere outside a comment or a docstring.
+        source = (
+            ROOT / "src" / "pirateforce_foundation"
+            / "skill_attr_hypothesis.py"
+        ).read_text(encoding="utf-8")
+        module = ast.parse(source)
+        self.assertIn("class_catalog.starting_skill_ids(",
+                      ast.unparse(module))
+        # Every integer the module actually EVALUATES, not a substring of a
+        # VA or a sha digest: none of them may be one of the four ids.
+        evaluated = [
+            node.value for node in ast.walk(module)
+            if isinstance(node, ast.Constant) and type(node.value) is int
+        ]
+        self.assertTrue(evaluated)
+        for skill_id in (111, 40000, 99, 110):
+            self.assertNotIn(skill_id, evaluated, skill_id)
+
+    def test_a_hand_typed_kit_is_refused_by_the_plan_guard(self):
+        original = SKILL_ATTR_STEP_RECORDS["COUNT4_STARTING_SKILLS_CLASS1"]
+        for tampered in (
+            tuple(reversed(original)),
+            original[:-1],
+            original[:-1] + (SkillAttrRecord(original[-1].key, 1, 0),),
+            original[:-1] + (SkillAttrRecord(original[-1].key + 1, 0, 0),),
+        ):
+            SKILL_ATTR_STEP_RECORDS[
+                "COUNT4_STARTING_SKILLS_CLASS1"] = tampered
+            try:
+                with self.assertRaises(RuntimeError) as raised:
+                    _require_step_plan()
+                self.assertIn("HYP-PF-035", str(raised.exception))
+            finally:
+                SKILL_ATTR_STEP_RECORDS[
+                    "COUNT4_STARTING_SKILLS_CLASS1"] = original
+        _require_step_plan()
+
+    def test_the_scenario_file_carries_the_derived_kit_not_a_second_copy(self):
+        from pirateforce_foundation import class_catalog
+
+        data = json.loads(SCENARIO_PATH.read_text(encoding="utf-8"))
+        records = data["dispatch"]["step_records"][
+            "COUNT4_STARTING_SKILLS_CLASS1"]
+        self.assertEqual(
+            [record["key"] for record in records],
+            list(class_catalog.starting_skill_ids(
+                SKILL_ATTR_STARTING_SKILL_CLASS_ID)),
+        )
+        for record in records:
+            self.assertEqual((record["opaque_u16"], record["opaque_u32"]),
+                             (0, 0))
+        self.assertIs(data["test_only"], True)
+        self.assertIs(data["production_allowed"], False)
+
+    def test_the_first_two_steps_are_untouched_by_the_third(self):
+        # GT-059's and GT-064's frames must stay reproducible byte for byte:
+        # the third step is appended, never inserted.
+        self.assertEqual(
+            SKILL_ATTR_STEP_ORDER[:2], ("COUNT0_EMPTY", "COUNT1_KEY1"))
+        self.assertEqual(SKILL_ATTR_STEP_RECORDS["COUNT0_EMPTY"], ())
+        self.assertEqual(
+            SKILL_ATTR_STEP_RECORDS["COUNT1_KEY1"],
+            (SkillAttrRecord(1, 0, 0),),
+        )
+        self.assertEqual(
+            GOLDEN_PC_HEX["COUNT0_EMPTY"],
+            "129D6E140000000008040B02120100129A300B00120100126116140E000000"
+            "0B013201000110000000001200000B00",
+        )
+
+    def test_the_flag_is_still_off_this_step_does_not_promote_the_module(self):
+        import pirateforce_foundation.skill_attr_hypothesis as module
+
+        self.assertIs(module.production_allowed, False)
 
 
 if __name__ == "__main__":

@@ -12,16 +12,39 @@
   "dispatch": {
     "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
     "trigger_classifier": "classify_chat_input_attempt",
-    "frames_per_accepted_request": 2,
+    "frames_per_accepted_request": 3,
     "step_order": [
       "COUNT0_EMPTY",
-      "COUNT1_KEY1"
+      "COUNT1_KEY1",
+      "COUNT4_STARTING_SKILLS_CLASS1"
     ],
     "step_records": {
       "COUNT0_EMPTY": [],
       "COUNT1_KEY1": [
         {
           "key": 1,
+          "opaque_u16": 0,
+          "opaque_u32": 0
+        }
+      ],
+      "COUNT4_STARTING_SKILLS_CLASS1": [
+        {
+          "key": 111,
+          "opaque_u16": 0,
+          "opaque_u32": 0
+        },
+        {
+          "key": 40000,
+          "opaque_u16": 0,
+          "opaque_u32": 0
+        },
+        {
+          "key": 99,
+          "opaque_u16": 0,
+          "opaque_u32": 0
+        },
+        {
+          "key": 110,
           "opaque_u16": 0,
           "opaque_u32": 0
         }
@@ -36,7 +59,8 @@
     "action_label_prefix": "HYP_PF_035_SKILL_ATTR_",
     "action_labels": [
       "HYP_PF_035_SKILL_ATTR_COUNT0_EMPTY",
-      "HYP_PF_035_SKILL_ATTR_COUNT1_KEY1"
+      "HYP_PF_035_SKILL_ATTR_COUNT1_KEY1",
+      "HYP_PF_035_SKILL_ATTR_COUNT4_STARTING_SKILLS_CLASS1"
     ],
     "one_shot": false,
     "socket_action": "none"
@@ -97,6 +121,16 @@
         "pc_sha256": "46330301695F235D4B84A4A79BA20AD4D021886BCBDF95D80960E9DFBA449E6A",
         "frame_size": 68,
         "frame_sha256": "489331F80430F700638BA660B1D1292CCBC9BB7AB62160FD7A6E8D4AE0B1722E"
+      },
+      "COUNT4_STARTING_SKILLS_CLASS1": {
+        "body_size": 58,
+        "body_sha256": "A247B8660180F8F9100A50C1B38FC586B4E74E60C879110A07602EAA4079F14E",
+        "payload_size": 69,
+        "payload_sha256": "BA602F243A6AD8BE019C77143064A734692EF46CD7C9F3F8058D915C98052266",
+        "pc_size": 91,
+        "pc_sha256": "E438491E936E0326AB35E0FA909506D41E8300B9966D458B9AD81E684B0E1B54",
+        "frame_size": 102,
+        "frame_sha256": "2AF1DC107817E609BABB49919758EDD83ED478641E9181C4FD147AA78F56995B"
       }
     }
   },

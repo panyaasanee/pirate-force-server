@@ -72,6 +72,26 @@ NONCLAIMS -- read these before using one symbol from this file
   * The record ``key`` is named for its position as the map key the ordered
     record tree at object +0x2C is keyed on; no key VALUE is claimed
     meaningful, and the sweep's key=1 is an arbitrary probe value.
+  * [round z8o8ma, 2026-09-07] A THIRD step,
+    ``COUNT4_STARTING_SKILLS_CLASS1``, now carries one record per skill id
+    the SERVER ITSELF grants the pinned probe character at creation, read
+    from ``class_catalog.starting_skill_ids(1)`` and never typed here.
+    What that does and does not buy:
+      - It removes the one stated blocker in this module's own untested
+        question below.  The two-step sweep could not tell "content
+        populated" from "arbitrary garbage rendered" because key=1 is not a
+        skill id.  These four ARE the ids `store.grant_starting_skills`
+        writes for this character, so a watcher at an already-open window
+        can name what should appear.  It does NOT make the window open, and
+        nothing here claims a record renders.
+      - It is still NOT a claim that ``key`` means "skill id".  The step is
+        built to make that hypothesis FALSIFIABLE at an open window; the
+        wire field keeps its position-and-width name everywhere in code.
+      - The two opaque fields stay 0 in every record of the new step, for
+        the same reason they are unnamed: this lane will not invent a level
+        or a cooldown to fill a field it cannot read.
+      - The first two steps' records, bytes and pins are UNCHANGED, so
+        GT-059's and GT-064's frames are still reproducible byte for byte.
   * The per-vital u8 version byte in the collection envelope is OUR DESIGN
     (0, the value every other vital lane in this tree sends absent a proven
     pin); no capture or static pin fixes it for this delivery.
@@ -162,6 +182,8 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+
+from . import class_catalog
 
 
 SKILL_ATTR_CHECKPOINT = "SKILL-ATTR-001"
@@ -299,10 +321,34 @@ SKILL_ATTR_SCENARIO_ID = "skill_attr_hypothesis_attr_sweep"
 #     reads?
 #   * COUNT1_KEY1: one record, key=1, opaque_u16=0, opaque_u32=0 --
 #     arbitrary pinned probe bytes, NOT claimed meaningful.
+#   * COUNT4_STARTING_SKILLS_CLASS1: one record per skill id the server
+#     ITSELF grants the pinned probe character at creation, keys DERIVED
+#     from the committed table and never typed here -- see the block below.
 SKILL_ATTR_RECORD_PROBE = SkillAttrRecord(1, 0, 0)
+
+# The class id the pinned probe identity is actually created as.  Not a
+# free choice: `store.grant_starting_skills` writes class 1's kit for the
+# first character of a fresh store, and the arming run of
+# `skill_learn_step_headless.py` on main `6b5b6b8` prints it --
+# `CHARACTER_CLASS_ID cid=1 written class_id=1` followed by
+# `CHARACTER_STARTING_SKILLS cid=1 written skill_ids=(111, 40000, 99, 110)`.
+# The tuple below is READ from `class_catalog` (pinned to committed
+# `CONSTDATA_TH__CHARCREATE_CLASS.tsv` by its own `SOURCE_SHA256`), so if
+# that table moves, these keys move with it and every sha pin below goes
+# red rather than silently shipping stale ids.
+SKILL_ATTR_STARTING_SKILL_CLASS_ID = 1
+SKILL_ATTR_STARTING_SKILL_IDS = class_catalog.starting_skill_ids(
+    SKILL_ATTR_STARTING_SKILL_CLASS_ID
+)
+SKILL_ATTR_RECORDS_STARTING_SKILLS = tuple(
+    SkillAttrRecord(int(skill_id), 0, 0)
+    for skill_id in SKILL_ATTR_STARTING_SKILL_IDS
+)
+
 SKILL_ATTR_STEPS = (
     ("COUNT0_EMPTY", ()),
     ("COUNT1_KEY1", (SKILL_ATTR_RECORD_PROBE,)),
+    ("COUNT4_STARTING_SKILLS_CLASS1", SKILL_ATTR_RECORDS_STARTING_SKILLS),
 )
 SKILL_ATTR_STEP_ORDER = tuple(label for label, _records in SKILL_ATTR_STEPS)
 SKILL_ATTR_STEP_RECORDS = {
@@ -339,6 +385,9 @@ SKILL_ATTR_PROBE_BODY_SHA256 = {
     "COUNT1_KEY1": (
         "9AA0F18736C239528B4CB2D61197A46EB570907A19316AE019C2C86E38B5D8CD"
     ),
+    "COUNT4_STARTING_SKILLS_CLASS1": (
+        "A247B8660180F8F9100A50C1B38FC586B4E74E60C879110A07602EAA4079F14E"
+    ),
 }
 SKILL_ATTR_PROBE_PAYLOAD_SHA256 = {
     "COUNT0_EMPTY": (
@@ -346,6 +395,9 @@ SKILL_ATTR_PROBE_PAYLOAD_SHA256 = {
     ),
     "COUNT1_KEY1": (
         "6EA7986777BE67BE884E5846A45D0BAFC20FD0CBE2B34D75283381ECF705EF16"
+    ),
+    "COUNT4_STARTING_SKILLS_CLASS1": (
+        "BA602F243A6AD8BE019C77143064A734692EF46CD7C9F3F8058D915C98052266"
     ),
 }
 SKILL_ATTR_PROBE_PC_SHA256 = {
@@ -355,6 +407,9 @@ SKILL_ATTR_PROBE_PC_SHA256 = {
     "COUNT1_KEY1": (
         "46330301695F235D4B84A4A79BA20AD4D021886BCBDF95D80960E9DFBA449E6A"
     ),
+    "COUNT4_STARTING_SKILLS_CLASS1": (
+        "E438491E936E0326AB35E0FA909506D41E8300B9966D458B9AD81E684B0E1B54"
+    ),
 }
 SKILL_ATTR_PROBE_FRAME_SHA256 = {
     "COUNT0_EMPTY": (
@@ -363,22 +418,29 @@ SKILL_ATTR_PROBE_FRAME_SHA256 = {
     "COUNT1_KEY1": (
         "489331F80430F700638BA660B1D1292CCBC9BB7AB62160FD7A6E8D4AE0B1722E"
     ),
+    "COUNT4_STARTING_SKILLS_CLASS1": (
+        "2AF1DC107817E609BABB49919758EDD83ED478641E9181C4FD147AA78F56995B"
+    ),
 }
 SKILL_ATTR_PROBE_BODY_SIZE = {
     "COUNT0_EMPTY": 14,
     "COUNT1_KEY1": 25,
+    "COUNT4_STARTING_SKILLS_CLASS1": 58,
 }
 SKILL_ATTR_PROBE_PAYLOAD_SIZE = {
     "COUNT0_EMPTY": 25,
     "COUNT1_KEY1": 36,
+    "COUNT4_STARTING_SKILLS_CLASS1": 69,
 }
 SKILL_ATTR_PROBE_PC_SIZE = {
     "COUNT0_EMPTY": 47,
     "COUNT1_KEY1": 58,
+    "COUNT4_STARTING_SKILLS_CLASS1": 91,
 }
 SKILL_ATTR_PROBE_FRAME_SIZE = {
     "COUNT0_EMPTY": 57,
     "COUNT1_KEY1": 68,
+    "COUNT4_STARTING_SKILLS_CLASS1": 102,
 }
 
 
@@ -391,10 +453,10 @@ def _require_step_plan() -> None:
         len(SKILL_ATTR_STEP_RECORDS[label])
         for label in SKILL_ATTR_STEP_ORDER
     }
-    if counts != {0, 1}:
+    if counts != {0, 1, len(SKILL_ATTR_STARTING_SKILL_IDS)}:
         raise RuntimeError(
-            "HYP-PF-035 the sweep must keep exactly the count 0 and count 1 "
-            "variants"
+            "HYP-PF-035 the sweep must keep exactly the count 0, count 1 and "
+            "starting-kit variants"
         )
     for label in SKILL_ATTR_STEP_ORDER:
         for record in SKILL_ATTR_STEP_RECORDS[label]:
@@ -404,6 +466,25 @@ def _require_step_plan() -> None:
         raise RuntimeError(
             "HYP-PF-035 the one-record variant must stay the arbitrary "
             "pinned probe record key=1 opaque_u16=0 opaque_u32=0"
+        )
+    # The starting-kit step's keys must BE the committed table's ids, in the
+    # table's own order, and must carry no invented value in either opaque
+    # field.  This is the whole point of the step: if a future edit types
+    # ids in by hand, or reorders them, or starts calling one of the opaque
+    # fields a level, the sweep stops being a question about real skills and
+    # this refuses to compose.
+    expected_starting = tuple(
+        SkillAttrRecord(int(skill_id), 0, 0)
+        for skill_id in class_catalog.starting_skill_ids(
+            SKILL_ATTR_STARTING_SKILL_CLASS_ID
+        )
+    )
+    if SKILL_ATTR_STEP_RECORDS["COUNT4_STARTING_SKILLS_CLASS1"] != (
+        expected_starting
+    ):
+        raise RuntimeError(
+            "HYP-PF-035 the starting-kit variant must be exactly the "
+            "committed class-catalog kit, in table order, opaque fields 0"
         )
 
 
