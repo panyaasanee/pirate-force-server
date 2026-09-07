@@ -191,7 +191,7 @@ class TheGapsNameEveryDishonestRowTests(unittest.TestCase):
 class TheGuardHasTeethTests(unittest.TestCase):
     def test_armed_selector_without_any_pair_is_refused(self):
         with self.assertRaises(sel.HpPairError) as caught:
-            sel.guard_armed_block({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
+            sel.guard_block({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
         message = str(caught.exception)
         self.assertIn(f"x={sel.SELECTOR_FIELD}", message)
         self.assertIn(sel.HP_PAIR_REFUSED_CONSOLE_TOKEN, message)
@@ -203,7 +203,7 @@ class TheGuardHasTeethTests(unittest.TestCase):
             sel.ALTERNATE_PAIR[1]: 100,
         }
         with self.assertRaises(sel.HpPairError):
-            sel.guard_armed_block(values)
+            sel.guard_block(values)
 
     def test_armed_selector_with_an_honest_pair_passes(self):
         values = {
@@ -216,7 +216,7 @@ class TheGuardHasTeethTests(unittest.TestCase):
             sel.PRIMARY_PAIR[0]: 87,
             sel.PRIMARY_PAIR[1]: 100,
         }
-        self.assertIsNone(sel.guard_armed_block(values))
+        self.assertIsNone(sel.guard_block(values))
 
     def test_current_above_max_is_refused_even_though_both_rows_are_present(self):
         """Two individually honest numbers can still be an impossible bar."""
@@ -226,18 +226,18 @@ class TheGuardHasTeethTests(unittest.TestCase):
             sel.ALTERNATE_PAIR[1]: 100,
         }
         with self.assertRaises(sel.HpPairError) as caught:
-            sel.guard_armed_block(values)
+            sel.guard_block(values)
         self.assertIn(sel.REASON_CURRENT_ABOVE_MAX, str(caught.exception))
 
     def test_a_block_without_the_selector_is_not_this_guards_business(self):
         """The narrowness is the property: this module must not become a
         second, quieter permission gate over blocks that never touch x=9."""
         self.assertIsNone(
-            sel.guard_armed_block(
+            sel.guard_block(
                 {sel.PRIMARY_PAIR[0]: 100, sel.PRIMARY_PAIR[1]: 100}
             )
         )
-        self.assertIsNone(sel.guard_armed_block({}))
+        self.assertIsNone(sel.guard_block({}))
 
     def test_every_reason_string_is_reachable_from_a_hand_built_block(self):
         """Each block below must produce the reason it is named for.
@@ -317,7 +317,7 @@ class TheGuardHasTeethTests(unittest.TestCase):
             [(sel.ALTERNATE_PAIR[1], sel.REASON_CONSTRUCTION_DEFAULT)],
         )
         with self.assertRaises(sel.HpPairError):
-            sel.guard_armed_block(
+            sel.guard_block(
                 {
                     sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
                     sel.ALTERNATE_PAIR[0]: 1,
@@ -346,7 +346,7 @@ class TheGuardHasTeethTests(unittest.TestCase):
             sel.ALTERNATE_PAIR[1]: 100.0,
         }
         with self.assertRaises(sel.HpPairError):
-            sel.guard_armed_block(values)
+            sel.guard_block(values)
 
     def test_a_float_selector_key_still_arms_the_guard(self):
         """`{9.0: 8}` resolves by numeric equality in a dict, so the guard
@@ -355,7 +355,7 @@ class TheGuardHasTeethTests(unittest.TestCase):
         values = {float(sel.SELECTOR_FIELD): sel.SELECTOR_ARMED_VALUE}
         self.assertTrue(sel.selector_is_armed(values))
         with self.assertRaises(sel.HpPairError):
-            sel.guard_armed_block(values)
+            sel.guard_block(values)
 
 
 class TheMutantsPfAdversaryFoundAliveTests(unittest.TestCase):
@@ -373,7 +373,7 @@ class TheMutantsPfAdversaryFoundAliveTests(unittest.TestCase):
             sel.PRIMARY_PAIR[1]: 87,
         }
         self.assertEqual(sel.alternate_pair_gaps(values), ())
-        self.assertIsNone(sel.guard_armed_block(values))
+        self.assertIsNone(sel.guard_block(values))
 
     def test_the_supplied_flag_follows_the_server_owned_set(self):
         """Mutant: `alternate_pair_supplied=bool(...)` -> `=False`.  The
@@ -435,7 +435,7 @@ class ZeroIsTheSymptomNotAnHonestValueTests(unittest.TestCase):
             sel.ALTERNATE_PAIR[1]: 0,
         }
         with self.assertRaises(sel.HpPairError):
-            sel.guard_armed_block(values)
+            sel.guard_block(values)
 
     def test_both_rows_are_named_and_both_carry_the_frame_layer_reason(self):
         values = {
@@ -459,7 +459,7 @@ class ZeroIsTheSymptomNotAnHonestValueTests(unittest.TestCase):
                 }
                 values[x] = 0
                 with self.assertRaises(sel.HpPairError):
-                    sel.guard_armed_block(values)
+                    sel.guard_block(values)
 
     def test_the_repository_still_says_an_unset_bit_reads_as_zero(self):
         """If LANE-GM ever retracts that sentence, this guard's premise is
@@ -515,7 +515,7 @@ class TheTriggerIsTheArmedValueNotThePresenceTests(unittest.TestCase):
         for scene_byte in sample:
             with self.subTest(scene_byte=scene_byte):
                 self.assertIsNone(
-                    sel.guard_armed_block({sel.SELECTOR_FIELD: scene_byte})
+                    sel.guard_block({sel.SELECTOR_FIELD: scene_byte})
                 )
 
     def test_the_armed_value_is_what_lane_gm_compares_against(self):
@@ -604,9 +604,8 @@ class TheTwoLayersAreNamedSeparatelyTests(unittest.TestCase):
         self.assertEqual([g.reason for g in gaps], [sel.REASON_CONSTRUCTION_DEFAULT])
 
     def test_the_refusal_message_names_both_layers_and_confuses_neither(self):
-        message = sel.refusal_message(
-            sel.alternate_pair_gaps({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
-        )
+        armed = {sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE}
+        message = sel.refusal_message(armed, sel.alternate_pair_gaps(armed))
         self.assertIn("frame layer", message)
         self.assertIn("constructor layer", message)
         self.assertIn("0/0", message)
@@ -643,7 +642,7 @@ class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
     @staticmethod
     def _this_module_refuses(values):
         try:
-            sel.guard_armed_block(values)
+            sel.guard_block(values)
         except sel.HpPairError:
             return True
         return False
@@ -986,7 +985,7 @@ class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
 
     def test_the_d11_block_is_refused(self):
         with self.assertRaises(sel.HpPairError) as caught:
-            sel.guard_armed_block(dict(self.D11_BLOCK))
+            sel.guard_block(dict(self.D11_BLOCK))
         self.assertIn(sel.REASON_MAX_IS_ZERO, str(caught.exception))
 
     def test_the_alternate_only_predicate_still_passes_it(self):
@@ -1000,7 +999,7 @@ class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
         exists to put on a screen.  A guard that refused it would be worse
         than the hole it closed."""
         self.assertEqual(sel.primary_pair_gaps({3: 0, 4: 100}), ())
-        sel.guard_armed_block({9: 8, 3: 0, 4: 100, 52: 87, 53: 100})
+        sel.guard_block({9: 8, 3: 0, 4: 100, 52: 87, 53: 100})
 
     def test_the_two_pairs_get_different_rules_because_of_the_schema(self):
         """The split is derived from `SERVER_OWNED_FIELDS`, not typed in.
@@ -1049,16 +1048,53 @@ class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
                     + sel.primary_pair_gaps(values),
                 )
 
-    def test_an_unarmed_block_is_still_none_of_the_guards_business(self):
-        """Widening the guard must not widen WHEN it fires: every login this
-        server composes carries x=9 without the armed value."""
-        sel.guard_armed_block({9: 3, 3: 0, 4: 0})
-        sel.guard_armed_block({3: 0, 4: 0})
+    def test_an_unarmed_block_that_never_mentions_hp_is_not_the_guards_business(
+        self,
+    ):
+        """The half of the old WHEN rule that survives `COO-DECISION
+        20260907_1141`: a block saying nothing about either pair says nothing
+        this door can call dishonest."""
+        sel.guard_block({9: 3})
+        sel.guard_block({9: 3, 1: 5, 2: 6})
+        sel.guard_block({})
+
+    def test_an_unarmed_block_that_lies_about_the_primary_pair_is_refused(self):
+        """`COO-DECISION 20260907_1141` item 1, and the reason it was written.
+
+        The owner reported `-1/1` on the panel, which is the PRIMARY pair --
+        the branch the client reads whenever `0x430E10(x9)` does not return
+        `SELECTOR_ARMED_VALUE`.  `primary_pair_gaps` caught that block from
+        the day it existed; the door never called it, because it returned
+        early on x=9 != 8.  These two blocks are the ones the decision names
+        by hand, and the second is the owner's own symptom.
+        """
+        for values in ({9: 3, 3: 0, 4: 0}, {3: 0xFFFFFFFF, 4: 1}):
+            with self.subTest(values=values):
+                with self.assertRaises(sel.HpPairError):
+                    sel.guard_block(values)
+
+    def test_the_refusal_of_an_unarmed_block_does_not_talk_about_the_selector(
+        self,
+    ):
+        """A widened door printing the old armed sentence would be a false
+        statement on the owner's console, which is the class of debt this
+        round is paying, not adding to."""
+        with self.assertRaises(sel.HpPairError) as caught:
+            sel.guard_block({3: 0xFFFFFFFF, 4: 1})
+        message = str(caught.exception)
+        self.assertIn(f"does not carry {sel.SELECTOR_ARMED_VALUE}", message)
+        self.assertIn(
+            f"x={sel.PRIMARY_PAIR[0]}/x={sel.PRIMARY_PAIR[1]}", message
+        )
+        self.assertNotIn("the client reads the alternate pair", message)
 
     def test_the_old_name_is_gone_rather_than_aliased(self):
         """A narrow name left over a widened door is how the next reader
-        wires the weaker half by accident."""
+        wires the weaker half by accident.  Both retired names, because
+        round `coqzj0` widened WHEN the door fires and `guard_armed_block`
+        became the narrow name that time."""
         self.assertFalse(hasattr(sel, "guard_alternate_pair"))
+        self.assertFalse(hasattr(sel, "guard_armed_block"))
 
 
 class TheDebtRound2v18x3LeftUnpaidTests(unittest.TestCase):
@@ -1191,7 +1227,7 @@ class TheDebtRound2v18x3LeftUnpaidTests(unittest.TestCase):
 
             shown < -1 applied, block {9:8, 3:50, 4:100, 52:87, 53:0xFFFFFFFF}
             alternate_pair_gaps -> [(52, 'frame_layer_current_above_max')]
-            guard_armed_block   -> REFUSED
+            guard_block   -> REFUSED
 
         `current > max` is 87 > -1, so the pair is still caught fifteen lines
         further down INSIDE THE VERY FUNCTION being reasoned about.  Round
@@ -1237,17 +1273,17 @@ class TheDebtRound2v18x3LeftUnpaidTests(unittest.TestCase):
             ],
         )
         with self.assertRaises(sel.HpPairError):
-            sel.guard_armed_block(block)
+            sel.guard_block(block)
 
     def test_the_error_this_gate_raises_is_catchable_as_a_value_error(self):
         """`HpPairError` had no test of its own.  Its BASE is the contract:
-        `guard_armed_block` is meant to be catchable by a caller that only
+        `guard_block` is meant to be catchable by a caller that only
         knows it is validating values, and a future edit making this inherit
         from `Exception` would slip past every existing test while silently
         escaping every `except ValueError` in the tree."""
         self.assertTrue(issubclass(sel.HpPairError, ValueError))
         with self.assertRaises(ValueError):
-            sel.guard_armed_block({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
+            sel.guard_block({sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE})
 
 
 class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
@@ -1285,7 +1321,7 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
         }
 
     #: The gate itself.  A file "calls" this module when it invokes this.
-    GATE = "guard_armed_block"
+    GATE = "guard_block"
 
     def _callers(self):
         """Files containing a real CALL to the gate.
@@ -1301,8 +1337,8 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
         the name.
 
         So this walks the AST and counts CALL NODES whose callee is
-        `guard_armed_block`, by either spelling (`sel.guard_armed_block(...)`
-        after an import of the module, or a bare `guard_armed_block(...)`
+        `guard_block`, by either spelling (`sel.guard_block(...)`
+        after an import of the module, or a bare `guard_block(...)`
         after a from-import).  A mention, an `__all__` entry, a docstring and
         an import with no call all correctly count as NOT a caller."""
         found = []
@@ -1354,11 +1390,11 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
 
             not_callers = (
                 "# see persistence_hp_pair_selector for the refusal gate\n",
-                '"""persistence_hp_pair_selector.guard_armed_block"""\n',
+                '"""persistence_hp_pair_selector.guard_block"""\n',
                 "from pirateforce_foundation import "
                 "persistence_hp_pair_selector\n",
-                "GATE_NAME = 'guard_armed_block'\n",
-                "__all__ = ['guard_armed_block']\n",
+                "GATE_NAME = 'guard_block'\n",
+                "__all__ = ['guard_block']\n",
             )
             for source in not_callers:
                 with self.subTest(source=source.strip()[:40]):
@@ -1367,10 +1403,10 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
             callers = (
                 "from pirateforce_foundation import "
                 "persistence_hp_pair_selector as sel\n"
-                "sel.guard_armed_block({})\n",
+                "sel.guard_block({})\n",
                 "from pirateforce_foundation.persistence_hp_pair_selector "
-                "import guard_armed_block\n"
-                "guard_armed_block({})\n",
+                "import guard_block\n"
+                "guard_block({})\n",
             )
             for source in callers:
                 with self.subTest(source=source.strip()[-30:]):
@@ -1441,11 +1477,11 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
                 "x=52/x=53 became reachable "
                 f"(admitted by a login shape: {facts['admitted_by_a_login_shape']}; "
                 f"backed by a server column: {facts['backed_by_a_server_column']}) "
-                "while `guard_armed_block` still has no caller in this tree. "
+                "while `guard_block` still has no caller in this tree. "
                 "The commit that opened the route owes the call site: a block "
                 "arming the selector can now carry an alternate pair the "
                 "server never honestly set, which is GT-218's symptom on the "
-                "HUD. Wire `guard_armed_block` at the composer, or close the "
+                "HUD. Wire `guard_block` at the composer, or close the "
                 "route again."
             )
 
@@ -1775,6 +1811,26 @@ class OneRuleChosenBySchemaTests(unittest.TestCase):
                 call = body[0].value
                 self.assertIsInstance(call, ast.Call)
                 self.assertEqual(getattr(call.func, "id", None), "pair_gaps")
+                # pf-adversary `35b941` D2 (HIGH): shape alone is not enough.
+                # `return pair_gaps(ALTERNATE_PAIR, values if ... else {...})`
+                # is one `return pair_gaps(...)` and a back door that fakes a
+                # clean pair, and it was GREEN under the check above.  The
+                # arguments are the rest of the sentence: a bare pair name and
+                # the parameter, handed through untouched.
+                self.assertEqual(len(call.args), 2, "a view reshaped the call")
+                self.assertEqual(call.keywords, [])
+                self.assertIsInstance(call.args[0], ast.Name)
+                self.assertEqual(
+                    call.args[0].id,
+                    {
+                        "alternate_pair_gaps": "ALTERNATE_PAIR",
+                        "primary_pair_gaps": "PRIMARY_PAIR",
+                    }[name],
+                )
+                self.assertIsInstance(
+                    call.args[1], ast.Name, "a view rewrote the values it passes"
+                )
+                self.assertEqual(call.args[1].id, "values")
 
     def test_the_day_a_column_ships_the_rules_move_with_the_schema(self):
         """The known conservatism retires ITSELF.
@@ -1801,6 +1857,64 @@ class OneRuleChosenBySchemaTests(unittest.TestCase):
                 sel.REASON_CONSTRUCTION_DEFAULT, sel.alternate_reasons()
             )
         self.assertTrue(sel.alternate_pair_gaps(honest_one))
+
+    def test_half_a_pair_of_columns_does_not_make_the_pair_server_owned(self):
+        """pf-adversary `35b941` D1 (HIGH): ALL, not ANY, and it was unpinned.
+
+        `_pair_owned_by_this_server` is `set(pair) <= owned`.  Four mutants
+        of that one line -- `&`, `any(...)`, `pair[0] in ...`,
+        `pair[1] in ...` -- all left the suite GREEN, because every fixture
+        in this file owned BOTH alternate rows or NEITHER.  The day
+        `alt_hp_current` ships alone, those mutants turn the pair "owned",
+        the construction-default and zero rules retire early, and a `0` on
+        the row that still has no column sails through as a dead character
+        when it is an unset mask bit reading zero -- `GT-218`'s symptom.
+
+        This file already swept the half-supplied cases, but it swept them
+        for `live_hp_pair_report`, which does not call this helper.  Round
+        `35b941` moved the ALL-vs-ANY question from a flag in a report to the
+        rule that decides a REFUSAL and left the half-pair rows behind.
+        """
+        both = {sel.ALTERNATE_PAIR[0]: 0, sel.ALTERNATE_PAIR[1]: 1}
+        for half in (sel.ALTERNATE_PAIR[0],), (sel.ALTERNATE_PAIR[1],):
+            with self.subTest(owned_columns=list(half)):
+                with self._owning(*half):
+                    self.assertFalse(sel._pair_owned_by_this_server(sel.ALTERNATE_PAIR))
+                    # The unowned rules are still the ones in force, so the
+                    # construction default and the zero are both still gaps.
+                    self.assertEqual(
+                        sorted(g.reason for g in sel.alternate_pair_gaps(both)),
+                        sorted(
+                            (
+                                sel.REASON_ZERO,
+                                sel.REASON_CONSTRUCTION_DEFAULT,
+                            )
+                        ),
+                    )
+                    self.assertIn(sel.REASON_ZERO, sel.alternate_reasons())
+                    self.assertNotIn(sel.REASON_MAX_IS_ZERO, sel.alternate_reasons())
+        with self._owning(*sel.ALTERNATE_PAIR):
+            self.assertTrue(sel._pair_owned_by_this_server(sel.ALTERNATE_PAIR))
+            self.assertEqual(sel.alternate_pair_gaps(both), ())
+
+    def test_a_half_owned_pair_still_refuses_the_block_at_the_door(self):
+        """The same mutants, measured where they would actually cost: the
+        door.  A block that is honest only if the pair counts as owned must
+        still be refused while one of its two columns is missing."""
+        armed_half_supplied = {
+            sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
+            sel.PRIMARY_PAIR[0]: 50,
+            sel.PRIMARY_PAIR[1]: 100,
+            sel.ALTERNATE_PAIR[0]: 0,
+            sel.ALTERNATE_PAIR[1]: 100,
+        }
+        for half in (sel.ALTERNATE_PAIR[0],), (sel.ALTERNATE_PAIR[1],):
+            with self.subTest(owned_columns=list(half)):
+                with self._owning(*half):
+                    with self.assertRaises(sel.HpPairError):
+                        sel.guard_block(armed_half_supplied)
+        with self._owning(*sel.ALTERNATE_PAIR):
+            self.assertIsNone(sel.guard_block(armed_half_supplied))
 
     def test_a_zero_max_row_is_blamed_on_the_max_row_of_whichever_pair(self):
         """`x == pair[1]` is the whole of "which row is the maximum".
