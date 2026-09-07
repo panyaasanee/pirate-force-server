@@ -2796,6 +2796,54 @@ class Tier2AndTier3HaveToAgreeOnWhichIslandTests(M2RegistryIsolation):
                     (),
                 )
 
+    def test_a_row_of_the_wrong_arity_is_skipped_in_both_directions(self):
+        # pf-adversary D3: `len(box) == 6` -> `>= 6` SURVIVED. The
+        # docstring justifies the arity check with a FIVE-field typo, and
+        # only the short direction was ever tested -- so a hand-typed table
+        # that gained a field, which is exactly as likely as one that lost
+        # one, reached the unpack and raised `ValueError` out of a function
+        # whose contract is "a named refusal, never an exception".
+        box = (0.0, 0.0, 0.0, 10.0, 10.0, 10.0)
+        for row in ((0.0, 0.0, 0.0, 10.0, 10.0), box + (10.0,), ()):
+            with self.subTest(fields=len(row)):
+                self.assertFalse(trigger_response._is_a_readable_row(row))
+                self.assertEqual(
+                    trigger_response._ordinals_containing_position(
+                        5.0, 5.0, 5.0, {2: row}
+                    ),
+                    (),
+                )
+                # And through tier 3, which is where the raise would have
+                # escaped: a malformed row is a refusal WITH A NAME.
+                self.assertEqual(
+                    self.tier3((5.0, 5.0, 5.0), 2, boxes={2: row}),
+                    trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+                )
+
+    def test_a_tuple_subclass_is_not_a_readable_row(self):
+        # pf-adversary D4: `type(box) is tuple` -> `isinstance` SURVIVED.
+        # Fourth sighting of this mutant in a file that spends sixty lines
+        # on the lesson in `_is_a_wire_int`; the KEY side is pinned twice
+        # and the VALUE side was pinned nowhere. A subclass gets to answer
+        # `__len__` and `__getitem__` itself, so admitting one hands the
+        # unpack to the caller's code.
+        class Liar(tuple):
+            def __len__(self):
+                return 6
+
+        row = Liar((0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 99.0))
+        self.assertFalse(trigger_response._is_a_readable_row(row))
+        self.assertEqual(
+            trigger_response._ordinals_containing_position(
+                5.0, 5.0, 5.0, {2: row}
+            ),
+            (),
+        )
+        self.assertEqual(
+            self.tier3((5.0, 5.0, 5.0), 2, boxes={2: row}),
+            trigger_response.CONTACT_REFUSED_NO_EXTENT_FOR_THIS_TRIGGER_ID,
+        )
+
     def test_the_bounds_are_inclusive_on_all_twelve_half_axes(self):
         # pf-adversary C8, closed here because this round is already inside
         # the geometry: `<=` -> `<` survived every test in the file, so the
@@ -2803,16 +2851,73 @@ class Tier2AndTier3HaveToAgreeOnWhichIslandTests(M2RegistryIsolation):
         # was decided by nothing. A ship exactly on a bound is INSIDE --
         # the same direction the just-outside test one class down asserts
         # from the other side.
+        #
+        # TWELVE HALF-AXES MEANS TWELVE ASSERTIONS, AND UNTIL `p7rob4` THIS
+        # NAME LIED ABOUT WHAT IT MEASURED.  The first version walked the
+        # six bounds and asserted ONE direction only (on the bound => not
+        # refused).  A one-sided test cannot tell an inclusive bound from
+        # NO BOUND AT ALL, and pf-adversary's D2 measured exactly that:
+        # deleting `z0 <= z and z <= z1` from
+        # `_ordinals_containing_position` left the whole file green, so a
+        # ship one kilometre above Prison Exile was certified as moored
+        # there.  x and y were pinned by other tests in this file; z was
+        # pinned by nothing on either side, because every observation in
+        # `M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` sits at z 86.0 or 186.0
+        # and every box spans about [-164, +336] -- no point in the file
+        # has ever made a z comparison answer False.
+        #
+        # So each of the six bounds is now asserted from BOTH sides: ON the
+        # bound is inside (inclusivity, C8), and one step PAST it is
+        # refused by name (the bound exists at all, D2).  The step is large
+        # enough to survive float representation at these magnitudes and
+        # small enough that the point cannot land in another island's box
+        # -- ordinals 1, 2 and 3 are thousands of units apart in x and y.
         box = trigger_response.ISLAND_EXTENT_BOXES[2]
         x0, y0, z0, x1, y1, z1 = box
         centre = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+        outward = (-1.0, -1.0, -1.0, 1.0, 1.0, 1.0)
+        step = 0.5
+        asserted = 0
         for axis, bound in enumerate((x0, y0, z0, x1, y1, z1)):
-            with self.subTest(axis=axis, bound=bound):
+            with self.subTest(axis=axis, bound=bound, side="on"):
                 point = list(centre)
                 point[axis % 3] = bound
                 self.assertIsNone(
                     self.tier3(tuple(point), 2),
                     "a position exactly on a bound of ordinal 2 was refused",
+                )
+                asserted += 1
+            with self.subTest(axis=axis, bound=bound, side="past"):
+                point = list(centre)
+                point[axis % 3] = bound + outward[axis] * step
+                self.assertEqual(
+                    self.tier3(tuple(point), 2),
+                    trigger_response.
+                    CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
+                    "a position past a bound of ordinal 2 was let through",
+                )
+                asserted += 1
+        # The name of this test is a count. If a later round walks fewer
+        # bounds or drops a side, this line goes red instead of the name
+        # quietly becoming false again.
+        self.assertEqual(asserted, 12)
+
+    def test_a_ship_high_above_an_island_is_not_moored_at_it(self):
+        # D2 IN THE PLAYER'S WORDS, kept separate from the half-axis sweep
+        # because this is the failure that was actually measured, not a
+        # boundary argument: with the z term deleted,
+        # `answer_guard_reason(126, 2, reading@(centre x, centre y,
+        # z=1_000_000.0))` returned `None` -- a pass. The sweep above would
+        # catch it too, but a mutant that keeps a HALF of the z comparison
+        # is caught by the sweep and this one states the whole point.
+        box = trigger_response.ISLAND_EXTENT_BOXES[2]
+        x0, y0, _z0, x1, y1, _z1 = box
+        for z in (1_000_000.0, -1_000_000.0):
+            with self.subTest(z=z):
+                self.assertEqual(
+                    self.tier3(((x0 + x1) / 2, (y0 + y1) / 2, z), 2),
+                    trigger_response.
+                    CONTACT_REFUSED_OUTSIDE_EVERY_COMMITTED_EXTENT,
                 )
 
     def test_the_crosswalk_this_change_rests_on_re_derives_from_the_tables(self):

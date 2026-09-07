@@ -390,11 +390,16 @@ paragraph above as "the ticket is unnecessary": knowing WHICH island a given
 wire id refers to -- i.e. the destination -- is a per-id fact and still has
 no measurement behind it.  This module does not answer that question today
 and must not start by indexing the extent table.
-[assumption of LANE-A - pending COO confirmation]: the ask is
+The ask was
 `notes_to_chief/20260907_1022_LANE-A-ASK-COO-containment-discriminator-does-
-not-need-the-ordinal-crosswalk.md`.  Reverting is one line -- put
-``ISLAND_CONTACT_DISCRIMINATOR`` back to ``None`` -- and costs no caller,
-because item 4(b) still leaves both candidate slots empty and nothing in
+not-need-the-ordinal-crosswalk.md`, and it is no longer an open assumption:
+`RE-298` supplied the crosswalk observation that licenses indexing the
+extent table BY THE WIRE ID, which is what
+`M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` records.  What stays true is the
+paragraph above it: the DESTINATION a wire id names is still unmeasured,
+and this module still does not answer that.  Reverting remains one line --
+put ``ISLAND_CONTACT_DISCRIMINATOR`` back to ``None`` -- and still costs no
+caller, because item 4(b) leaves both candidate slots empty and nothing in
 `src/` imports this module.
 """
 from __future__ import annotations
@@ -852,15 +857,25 @@ ISLAND_EXTENT_BOX_CITATIONS: dict[int, str] = {
 # the screen by ka1-A with Panya at the client -- and neither was derived
 # from the other.  That is the independence the slot was asking for.
 #
-# WHAT IS STILL NOT DONE, DELIBERATELY:  `ISLAND_CONTACT_DISCRIMINATOR` IS
-# STILL `None` twenty lines up.  Naming it is a DECISION, not a
-# measurement, and three documents (this file, `tickets/RE-289.md`, and
-# `RE-289`'s own nonclaim) route that decision through a crosswalk ticket.
-# This round delivers the evidence that ticket was going to ask for and
-# leaves the naming to COO and to the round that answers, which is the same
-# posture the previous round took when it committed the table and left the
-# name alone.  The letter to COO is
-# `notes_to_chief/20260907_1152_LANE-A-ASK-COO-*`.
+# WHAT THIS PARAGRAPH SAID UNTIL `p7rob4`, AND WHY IT IS NOW HISTORY:
+# it read "`ISLAND_CONTACT_DISCRIMINATOR` IS STILL `None` twenty lines up",
+# and it was true on the day it was written.  It is not true now -- line
+# 509 names it, `RE-298 Bg3001.tgr ordinal box contains the ship position`
+# -- and two other paragraphs in this file (at the constant itself and in
+# `_tier3_contact_reason`) had already been updated to say so, leaving the
+# file contradicting itself for three rounds.  pf-adversary D8 caught it
+# three times before a round paid it; the second half of the finding was
+# that "twenty lines up" was never right either, the constant sits 346
+# lines above this comment.  A comment that names a distance ages worse
+# than one that names a symbol, so this one names the symbol.
+#
+# The decision the old paragraph was deferring HAS been taken: naming the
+# discriminator is a decision, not a measurement, and it was routed through
+# the crosswalk ticket exactly as written -- `RE-298` answered it, and the
+# evidence that licenses the name is the table above plus
+# `M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS`.  The letter that asked is
+# `notes_to_chief/20260907_1152_LANE-A-ASK-COO-*`.  What is still not done
+# is downstream of the name, not the name: no frame reaches the client yet.
 #
 # AND ONE PREMISE THIS PROJECT HAS BEEN REPEATING IS REFUTED BY ITS OWN
 # PRIMARY SOURCE.  `RE-234` item (3), quoted in `CLIENT_RE_QUEUE.md`, in
@@ -1900,7 +1915,11 @@ def registered_count() -> int:
 # THE MODULE FREEZE -- COO-DECISION `20260907_0945` item 1.
 # ---------------------------------------------------------------------------
 # WHICH BOUNDARY IS THIS FREEZE?  DISCIPLINE, NOT SECURITY.
-# [assumption of LANE-A - awaiting COO confirmation]
+# CONFIRMED BY COO-DECISION `20260907_1744`, which upheld reading (b) and
+# made both consequences below BINDING, not this lane's assumption.  The
+# `[assumption of LANE-A]` tag that stood here for five rounds is gone
+# because the decision arrived, and that decision added a third rule which
+# is now item 3.
 #
 # pf-adversary asked the question that the last four rounds of this file
 # were avoiding: "who is the importer this freeze protects against, and
@@ -1935,9 +1954,21 @@ def registered_count() -> int:
 #      A round that spends itself chasing those instead of covering a name
 #      a tier reads has the priority backwards.
 #
-# If COO decides the boundary is something else, item 2 above is what
-# changes, and `pf_bridge/notes_to_chief/20260907_*_LANE-A-ASK-COO-*` is
-# the letter that asks.
+#   3. NO ROUND OF THIS LANE MAY SPEND ITSELF CLOSING PROCESS-LEVEL DOORS
+#      IN THIS FILE AGAIN (COO-DECISION `1744`, the part that binds beyond
+#      the answer).  A pf-adversary finding of that shape -- `gc.get_referents`,
+#      `module.__class__ = ...`, overwriting `__CANDIDATES` -- is answered
+#      with one line, "process level, not a critical bug, per decision
+#      `1744`", and the round moves to its next job.  It does not open a
+#      round.  What the freeze buys is item 1 and only item 1, and item 1
+#      is worth paying for because it has already been breached: `""`
+#      unlocked all three tiers on `550a36d` and `#993`.
+#
+# The letter that asked is
+# `pf_bridge/notes_to_chief/20260907_1622_LANE-A-ASK-COO-what-boundary-is-the-
+# tier3-freeze.md`; the answer is
+# `notes_to_chief/20260907_1744_COO-DECISION-a1622-freeze-is-a-discipline-line-
+# LANE-A.md`.
 class _FrozenTier3Module(ModuleType):
     """The class this module's own object is given at import time, so that
     ``world_m2_trigger_vital_response.ISLAND_CONTACT_DISCRIMINATOR = "x"``
@@ -2035,14 +2066,30 @@ class _FrozenTier3Module(ModuleType):
             "_trigger_id_guard_reason",
             "scene_guard_reason",
             "_position_is_inside_a_committed_extent",
-            # SAME D1 SHAPE, THIS ROUND'S TWO NEW FUNCTIONS.  Closing C1
-            # minted `_ordinals_containing_position` (which owns the
-            # geometry the name above used to own) and `_ordinal_is_in_table`
-            # (which decides whether the id has a box at all).  Either one
+            # SAME D1 SHAPE, THE THREE FUNCTIONS `yw28ea` MINTED.  Closing
+            # C1 minted `_ordinals_containing_position` (which owns the
+            # geometry the name above used to own), `_readable_extent_for`
+            # (which returns the box of one id, or `None` when that id has
+            # no readable row) and `_is_a_readable_row` (which decides
+            # whether a row may be unpacked at all).  Any one of them
             # rebound is tier 3 deciding whatever the caller wants: the
-            # first can return every ordinal, the second can return `True`
-            # for anything.  They go in the set in the SAME commit that
-            # creates them, which is what D1 cost the lane a round to learn.
+            # first can return every ordinal, the second can hand back a
+            # box the table never held, the third can wave any object
+            # through to be unpacked.
+            #
+            # THIS COMMENT WAS WRONG TWICE AND `p7rob4` IS FIXING IT, NOT
+            # THE CODE (pf-adversary D7 and D1 against `yw28ea`).  It said
+            # TWO functions and named `_ordinal_is_in_table`, a name that
+            # was renamed to `_readable_extent_for` in the same commit and
+            # has zero hits in this file -- a comment describing an earlier
+            # draft of its own commit.  And it claimed these names "go in
+            # the set in the SAME commit that creates them", which
+            # `git show 4014f72` refutes about these very functions: that
+            # commit minted them OUTSIDE this set, went red on its own
+            # suite, and left the D1 hole genuinely open until `e748577`.
+            # The rule is right and the sentence was a boast: what the lane
+            # actually learned from D1 is that the set is checked by a
+            # test, not by the author remembering.
             "_ordinals_containing_position",
             "_readable_extent_for",
             "_is_a_readable_row",
