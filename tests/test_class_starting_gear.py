@@ -30,11 +30,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import class_catalog, class_starting_gear
+from pirateforce_foundation import bag_admission, class_catalog, class_starting_gear
 from pirateforce_foundation.inventory import (
     INITIAL_BACKPACK,
     make_backpack_attr,
     require_backpack_shape,
+    require_known_backpack,
 )
 from pirateforce_foundation.legacy_bridge import load_legacy
 
@@ -109,6 +110,33 @@ class TableSourcedTests(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     class_starting_gear.starting_backpack_state(value)
 
+    def test_a_non_int_is_refused_by_its_own_term_of_the_guard(self):
+        """The guard's two terms are separately reachable (pf-adversary D7).
+
+        bool is refused by the first term and only by it; a string is
+        refused by the second and only by it.  The earlier `type() is not
+        int or isinstance(bool)` form had a term nothing could reach, so a
+        mutant that deleted the bool half stayed green.
+        """
+        for value in ("1", 1.0, None, (1,)):
+            with self.subTest(value=value):
+                with self.assertRaises(TypeError):
+                    class_starting_gear.starting_backpack_state(value)
+
+    def test_an_int_subclass_is_still_a_class_id(self):
+        """The seam's own resolver is annotated `int | None`; an IntEnum
+        must not be refused for being a subclass (pf-adversary D7).
+        """
+        import enum
+
+        class _ClassId(enum.IntEnum):
+            GLADIATOR = 1
+
+        self.assertIs(
+            class_starting_gear.starting_backpack_state(_ClassId.GLADIATOR),
+            INITIAL_BACKPACK,
+        )
+
 
 class ClassOneIsUntouchedTests(unittest.TestCase):
     @classmethod
@@ -166,10 +194,14 @@ class ClassOneIsUntouchedTests(unittest.TestCase):
                     differing = sum(
                         1 for a, b in zip(wire, base_wire) if a != b
                     )
-                    # One u32 template field, four bytes wide, and nothing
-                    # else: the identity list, the two counts and the masks
-                    # are byte-for-byte the ones V141 already ships.
-                    self.assertLessEqual(differing, 4)
+                    # ONE byte, measured, not "at most four" (pf-adversary
+                    # D8: an assertLessEqual also passes at 0, so a module
+                    # that handed back the Gladiator bag for every class
+                    # would have satisfied the earlier form).  The four
+                    # weapon ids differ from 2200002 in one byte each; the
+                    # identity list, both counts and the masks are the ones
+                    # V141 already ships.
+                    self.assertEqual(differing, 1)
 
 
 class DerivedNotCountedTests(unittest.TestCase):
@@ -188,6 +220,43 @@ class DerivedNotCountedTests(unittest.TestCase):
         finally:
             class_catalog.starting_hand_slots = original
         self.assertEqual(class_starting_gear._weapon_row_index(), 3)
+
+    def test_the_shipping_path_re_derives_and_does_not_read_a_global(self):
+        """pf-adversary D2: both `WEAPON_ROW_INDEX = 3` and `= len(...) - 1`
+        passed the earlier suite, because `starting_backpack_state` read the
+        global while only the helper was tested.  Moving the global alone
+        must now change nothing.
+        """
+        original = class_starting_gear.WEAPON_ROW_INDEX
+        try:
+            class_starting_gear.WEAPON_ROW_INDEX = 0
+            state = class_starting_gear.starting_backpack_state(2)
+            changed = [
+                index
+                for index, (new, old) in enumerate(
+                    zip(state.items, INITIAL_BACKPACK.items)
+                )
+                if new != old
+            ]
+            self.assertEqual(changed, [original])
+        finally:
+            class_starting_gear.WEAPON_ROW_INDEX = original
+
+    def test_a_weapon_id_that_lands_on_another_row_refuses(self):
+        """pf-adversary D2: "exactly one hit" cannot tell a weapon row from a
+        cask row.  With class 1's table weapon drifted to the cask template
+        (which is also in the bag exactly once), the earlier derivation
+        returned the CASK row and composed a Sniper carrying a rifle in the
+        cask slot with the Gladiator sword still in the weapon slot.
+        """
+        original = class_catalog.starting_hand_slots
+        cask = INITIAL_BACKPACK.items[1].template_id
+        try:
+            class_catalog.starting_hand_slots = lambda class_id: (cask, 0)
+            with self.assertRaises(class_starting_gear.ClassStartingGearError):
+                class_starting_gear._weapon_row_index()
+        finally:
+            class_catalog.starting_hand_slots = original
 
     def test_an_ambiguous_weapon_id_refuses_rather_than_picking_one(self):
         original = class_catalog.starting_hand_slots
@@ -229,7 +298,23 @@ class NotWiredYetTests(unittest.TestCase):
         """
         importers = []
         mentions = []
-        for path in sorted((ROOT / "src").rglob("*.py")):
+        roots = [
+            ROOT / "src",
+            ROOT / "tools",
+            ROOT / "migrations",
+            ROOT / "scenarios",
+            ROOT / "current",
+        ]
+        # pf-adversary D9: `src/` alone is narrower than the precedent
+        # `persistence_class_id.py`'s own isolation pin records; a caller
+        # under tools/ or scenarios/ was invisible.
+        paths = [
+            path
+            for root in roots
+            if root.exists()
+            for path in root.rglob("*.py")
+        ]
+        for path in sorted(paths):
             if path == SOURCE_PATH:
                 continue
             text = path.read_text(encoding="utf-8")
@@ -286,6 +371,11 @@ class NotWiredYetTests(unittest.TestCase):
                     docstrings.add(id(body[0].value))
         table = _table_hand_slots()
         ids = {value for pair in table.values() for value in pair if value}
+        # pf-adversary D6: the earlier set held only the six hand-slot ids,
+        # so a literal 2600001 (the potion, in the bag twice) or 2400901
+        # (the cask) could be spelled in the module and this pin stayed
+        # green.  Every id the starting bag carries counts.
+        ids |= {item.template_id for item in INITIAL_BACKPACK.items}
         spelled = sorted(
             node.value
             for node in ast.walk(tree)
@@ -318,6 +408,41 @@ class ConsoleTokenTests(unittest.TestCase):
                 )
                 self.assertIn("rhand=%d" % rhand, result.stdout.decode("ascii"))
         self.assertIn("wired_callers=0", lines[-1])
+        # The zero is now counted, not spelled (pf-adversary D3): the same
+        # function the token calls must return the same number this test
+        # measures for itself.
+        self.assertEqual(class_starting_gear.count_production_importers(), 0)
+
+    def test_the_token_reports_a_real_importer_when_one_exists(self):
+        """The number must be able to be something other than zero.
+
+        pf-adversary D3 dropped a genuine importer into the package and the
+        token still printed `wired_callers=0`, because the zero lived in the
+        format string.  This writes such a module, runs the SAME console
+        entry the operator runs, and removes it again -- a literal zero
+        cannot pass.
+        """
+        intruder = (
+            ROOT / "src" / "pirateforce_foundation" / "_class_starting_gear_probe.py"
+        )
+        self.assertFalse(intruder.exists())
+        intruder.write_text(
+            "from . import class_starting_gear\n"
+            "STATE = class_starting_gear.starting_backpack_state(1)\n",
+            encoding="ascii",
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pirateforce_foundation.class_starting_gear"],
+                cwd=str(ROOT),
+                env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"},
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("wired_callers=1", result.stdout.decode("ascii"))
+        finally:
+            intruder.unlink()
+        self.assertEqual(class_starting_gear.count_production_importers(), 0)
 
     def test_the_token_says_which_class_is_the_untouched_one(self):
         self.assertIn("same_object_as_v141=YES", class_starting_gear.describe(1))
@@ -328,6 +453,54 @@ class ConsoleTokenTests(unittest.TestCase):
                 self.assertIn(
                     "same_object_as_v141=NO", class_starting_gear.describe(class_id)
                 )
+
+
+class Gate2RefusesEveryClassButOneTodayTests(unittest.TestCase):
+    """The wall this round did NOT clear, pinned so nobody wires past it.
+
+    ``pf-adversary`` (round ``e8pss9``, D1) booted a real store, real
+    migrations, real ``lifecycle`` and ``FoundationSession.select_and_start``
+    with a Sniper whose bag was written exactly as the proposed ``store.py``
+    seam would write it, and measured::
+
+        BAG_ADMISSION verdict=refused golden=initial acquired=0
+                      reason=golden_item_moved_or_altered
+        SELECT_AND_START_RAISED PermissionError
+
+    ``runtime.py`` answers that branch with
+    ``foundation_start_game_rejected_no_reply`` and NO frame, so the client
+    would sit on "connecting" forever.  ``INITIAL_BACKPACK`` is four goldens
+    at once -- the V141 encoder pin (which stays green), gate 2's admission
+    golden, ``require_known_backpack``'s allowlist and
+    ``apply_v111_stack_merge``'s pre-state -- and three of the four still
+    spell "carries the Gladiator sword" as part of "is a legal bag".
+
+    These tests pass BECAUSE the refusal is real.  The day someone answers
+    "what is a legal Paladin bag", they go red and must be rewritten by the
+    person who answered -- that is the point of pinning a wall rather than
+    describing it.
+    """
+
+    def test_class_1_is_admitted_and_every_other_class_is_refused(self):
+        for class_id in class_catalog.CLASS_IDS:
+            with self.subTest(class_id=class_id):
+                state = class_starting_gear.starting_backpack_state(class_id)
+                verdict = bag_admission.may_enter_world(
+                    state,
+                    allow_hypothesized_item_move=False,
+                    issued_through=max(item.identity for item in state.items),
+                )
+                self.assertIs(verdict, class_id == 1)
+
+    def test_the_governed_item_gates_refuse_them_too(self):
+        """Not one gate to widen: three sites, measured (pf-adversary D5)."""
+        for class_id in class_catalog.CLASS_IDS:
+            if class_id == 1:
+                continue
+            with self.subTest(class_id=class_id):
+                state = class_starting_gear.starting_backpack_state(class_id)
+                with self.assertRaises(ValueError):
+                    require_known_backpack(state)
 
 
 if __name__ == "__main__":
