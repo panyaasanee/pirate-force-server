@@ -558,7 +558,21 @@ def live_hp_pair_report(store, character_id: int) -> HpPairReport:
         # pf-adversary `cgnzsd` D6 replaced this expression with the literal
         # `False` and the whole suite stayed green; `test_the_supplied_flag_
         # follows_the_server_owned_set` is what kills that mutant now.
-        alternate_pair_supplied=bool(server_owned_alternate),
+        #
+        # ALL OF THE PAIR, NOT ANY OF IT (pf-adversary `2v18x3` M27, answered
+        # in round `m1dmhd`).  `bool(...)` turned true as soon as ONE of
+        # x=52 / x=53 gained a column, and half a supplied pair is not a
+        # supplied pair: the client reads BOTH rows, so the row still without
+        # a column arrives as an unset mask bit -- zero (`RE-222` Q0) -- and
+        # the branch shows `87/0`.  That is the very lie `alternate_pair_gaps`
+        # refuses, so calling it "supplied" would have `branch_would_lie()`
+        # answer False about a branch that does lie.  The two spellings are
+        # indistinguishable today (neither row has a column) and part company
+        # only on the day this lane ships the FIRST of the two columns --
+        # exactly the day nobody would be re-reading this line.
+        alternate_pair_supplied=(
+            len(server_owned_alternate) == len(ALTERNATE_PAIR)
+        ),
     )
 
 
