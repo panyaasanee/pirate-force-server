@@ -56,8 +56,8 @@ THE HONEST HALF: LEVEL IS REAL, ABILITY STR IS STILL PINNED.
 row and refuses -- by name, fail-closed -- when that row cannot answer.  It
 does NOT derive `ability_str` from the character's class, and it does not
 pretend to: `RE-229` closed the only question that would allow it as
-CLOSED BOUNDED-NEGATIVE (`persistence_standard_status.py` quotes the finding:
-"no field or consumer anywhere in the committed corpus crosswalks
+CLOSED BOUNDED-NEGATIVE (LANE-DB's committed progression-table scaffold
+quotes the finding: "no field or consumer anywhere in the committed corpus crosswalks
 `CHARCREATE_CLASS.s_SCORE`'s six components to the five wire `ActorAttr`
 ability fields").  Until an RE ticket reopens that, STR stays the one value
 this project has watched land on a screen, imported from `mob_combat`, and
@@ -80,18 +80,45 @@ from dataclasses import dataclass
 
 from . import class_catalog
 from . import mob_combat
-from .persistence_standard_status import (
-    STANDARD_STATUS_MAX_LEVEL,
-    STANDARD_STATUS_MIN_LEVEL,
-    StandardStatusError,
-    standard_status_row,
-)
+
+# [LANE-CS -- import withdrawn on COO-DECISION 20260907_2050, not lost]
+# Round `hhmvit` imported LANE-DB's committed progression-table scaffold here
+# to ask the one
+# question that module exists to answer: is this character's level a level the
+# client's own committed progression table actually carries?  That import made
+# that module's own `NoProductionCallerTests` -- LANE-DB's declaration that it
+# is still a scaffold and not wiring -- go red,
+# and round `hhmvit` answered by ALLOWLISTING one name inside that pin.  COO
+# named that for what it was and forbade it: the pin belongs to its owner
+# (LANE-DB), who retires it in a LANE-DB ticket, and until then the CALLER
+# withdraws.  So the import is gone from this module and the allowlist entry is
+# gone from LANE-DB's test in the same commit.
+#
+# The module's IDENTIFIER is deliberately not spelled anywhere in this file.
+# That is not coyness: the guard this withdrawal restores greps this file for
+# that literal string, so writing it in a comment would keep the pin red for a
+# mention rather than a call, and the obvious "fix" for that would be a second
+# allowlist.  Its own test file names it in full.
+#
+# WHAT THIS COSTS, STATED PLAINLY: a level that lands inside the numeric span
+# but is MISSING FROM THE TABLE is no longer refused -- only the `Combatant`
+# bounds below are left, and they are a range comparison, which is exactly the
+# weaker check the withdrawn one was chosen over.  Nothing silently substitutes
+# a dummy; the refusal reason simply says less than it did.
+# On the round LANE-DB's retirement lands on main, restoring the import is this
+# lane's FIRST job (<=30 minutes, COO-DECISION 20260907_2050 item 4), together
+# with mutant M2 (a range comparison in place of a real row read) going red again.
 
 #: Refusal reasons.  Every one of them names the row, not the caller: this
 #: module is fail-closed on purpose, because the alternative -- quietly
 #: substituting the pinned dummy when a character row cannot answer -- is
 #: exactly the bug this module exists to end, and it would be invisible.
 REFUSE_LEVEL_NOT_AN_INT = "level_is_not_an_int"
+#: [withdrawn with the import above] While the import is withdrawn this reason
+#: no longer means "the committed table does not carry this level"; it means
+#: only "outside the range the combatant record accepts".  The STRING is kept
+#: byte-identical so a caller already branching on it does not break on a
+#: change that is a temporary retreat, not a contract change.
 REFUSE_LEVEL_OFF_TABLE = "level_is_outside_the_committed_table"
 REFUSE_CLASS_ID_NOT_AN_INT = "class_id_is_not_an_int"
 REFUSE_CLASS_ID_UNKNOWN = "class_id_is_not_a_selectable_class"
@@ -111,6 +138,13 @@ REFUSE_ABILITY_STR_OUT_OF_RANGE = "ability_str_is_outside_the_combatant_range"
 #: duplication; a test asserts the two still agree by walking `Combatant`.
 ABILITY_STR_MIN = 0
 ABILITY_STR_MAX = 100000
+
+#: The bounds `mob_combat.Combatant.__post_init__` enforces on `level`, mirrored
+#: for the same reason and with the same duplication warning as the pair above.
+#: These are the ONLY level bounds left while the progression-table import is
+#: withdrawn (see the block at the top of this file).
+LEVEL_MIN = 1
+LEVEL_MAX = 1000
 
 #: The STR this project has actually watched, imported rather than restated.
 #: Re-exported under a name that says WHY it is still a pin, so a reader of a
@@ -177,13 +211,14 @@ def profile_for_character(
 ) -> mob_combat.Combatant:
     """The ``Combatant`` this character swings as, or a named refusal.
 
-    ``row.level`` is checked against the committed ``STANDARD_STATUS`` table
-    rather than against ``Combatant``'s own ``1..1000`` guard: the table is
-    the client's, tops out at ``STANDARD_STATUS_MAX_LEVEL``, and a level the
-    client's own progression table does not carry is not a level this server
-    should be swinging at.  The check is a real read of the row (it calls
-    ``standard_status_row``) and not a range comparison, so a level that
-    lands inside the span but is missing from the table still refuses.
+    ``row.level`` USED TO BE checked against the committed progression table
+    LANE-DB carries -- a real read of the row, so a level inside the span but
+    missing from the table still refused.  That import is WITHDRAWN (COO-DECISION
+    20260907_2050; the block at the top of this module says why and what it
+    costs), so what is left is ``Combatant``'s own ``LEVEL_MIN..LEVEL_MAX``
+    range comparison and nothing more.  This paragraph is written in the past
+    tense on purpose: a reader must not be able to take the old sentence for
+    a description of what runs today.
 
     ``ability_str`` defaults to the pin and is a parameter rather than a
     constant read inside so that the day ``RE-229`` reopens, the caller that
@@ -200,20 +235,15 @@ def profile_for_character(
             % (row.class_id, class_catalog.CLASS_COUNT, class_catalog.CLASS_IDS),
         )
     level = _require_int(row.level, "level", REFUSE_LEVEL_NOT_AN_INT)
-    try:
-        standard_status_row(level)
-    except StandardStatusError as error:
+    if not LEVEL_MIN <= level <= LEVEL_MAX:
         raise ClassAttackerProfileError(
             REFUSE_LEVEL_OFF_TABLE,
-            "level %d is not carried by the committed progression table "
-            "%d..%d (%s)"
-            % (
-                level,
-                STANDARD_STATUS_MIN_LEVEL,
-                STANDARD_STATUS_MAX_LEVEL,
-                error,
-            ),
-        ) from error
+            "level %d is outside the range the combatant record accepts, "
+            "%d..%d -- NOTE this is a range comparison, not a read of the "
+            "client's progression table; the table read is withdrawn, see "
+            "the block at the top of this module"
+            % (level, LEVEL_MIN, LEVEL_MAX),
+        )
     strength = _require_int(
         ability_str, "ability str", REFUSE_ABILITY_STR_NOT_AN_INT
     )
@@ -290,7 +320,7 @@ def _headless_summary() -> tuple[str, ...]:
     lines: list[str] = []
     for class_id in class_catalog.CLASS_IDS:
         row = CharacterBattleRow(
-            class_id=class_id, level=STANDARD_STATUS_MIN_LEVEL
+            class_id=class_id, level=LEVEL_MIN
         )
         lines.extend(describe_profile_change(row)[:1])
     pin = pinned_profile()
@@ -301,7 +331,7 @@ def _headless_summary() -> tuple[str, ...]:
     lines.append(
         "CLASS_ATTACKER_PROFILE_SUMMARY classes=%d birth_level=%d "
         "callers_in_src=0 RESULT=ARMED"
-        % (class_catalog.CLASS_COUNT, STANDARD_STATUS_MIN_LEVEL)
+        % (class_catalog.CLASS_COUNT, LEVEL_MIN)
     )
     return tuple(lines)
 

@@ -116,9 +116,13 @@ class RowsThatCannotAnswerAreRefusedByNameTests(unittest.TestCase):
             self._refusal(0, 1).reason,
         )
 
-    def test_levels_off_the_committed_table_are_refused(self):
-        below = persistence_standard_status.STANDARD_STATUS_MIN_LEVEL - 1
-        above = persistence_standard_status.STANDARD_STATUS_MAX_LEVEL + 1
+    def test_levels_outside_the_combatant_range_are_refused(self):
+        # RENAMED, round `b2cnxe`: the committed progression table is no
+        # longer read (COO-DECISION 20260907_2050 withdrew the import), so the
+        # only bound left is the combatant record's own range.  The old name
+        # would have gone on claiming a table read that no longer happens.
+        below = class_attacker_profile.LEVEL_MIN - 1
+        above = class_attacker_profile.LEVEL_MAX + 1
         for level in (below, above, -1, 10 ** 9):
             with self.subTest(level=level):
                 self.assertEqual(
@@ -126,22 +130,45 @@ class RowsThatCannotAnswerAreRefusedByNameTests(unittest.TestCase):
                     self._refusal(1, level).reason,
                 )
 
-    def test_a_level_missing_from_the_table_is_refused_even_inside_the_span(
-        self,
-    ):
-        # The check is a real row read, not a range comparison: prove it by
-        # removing a row the span still covers.
-        rows = dict(persistence_standard_status.STANDARD_STATUS_ROWS)
-        victim = 9
-        self.assertIn(victim, rows)
-        del rows[victim]
-        with mock.patch.object(
-            persistence_standard_status, "STANDARD_STATUS_ROWS", rows
-        ):
-            self.assertEqual(
-                class_attacker_profile.REFUSE_LEVEL_OFF_TABLE,
-                self._refusal(1, victim).reason,
-            )
+    def test_a_level_the_client_table_does_not_carry_is_ACCEPTED_today(self):
+        """The hole the withdrawn import leaves, pinned rather than described.
+
+        Round `hhmvit` asserted the opposite here: a real row read refused a
+        level the client's own progression table does not carry even when the
+        numeric span still covered it.  `COO-DECISION 20260907_2050` withdrew
+        that import (the caller retreats; only LANE-DB retires its own pin),
+        so this server will now happily build an attacker at a level no
+        client progression row exists for.  That is a REGRESSION in the
+        module's answer, and it is pinned here in the direction it actually
+        runs so that nobody reads the old test name and believes the check is
+        still there.
+
+        DELETE THIS TEST in the same commit that restores the import
+        (COO-DECISION 20260907_2050 item 4) -- it is written to go red the
+        moment the real check comes back, which is exactly when it should.
+        """
+        top = persistence_standard_status.STANDARD_STATUS_MAX_LEVEL
+        off_the_table = top + 1
+        self.assertLessEqual(off_the_table, class_attacker_profile.LEVEL_MAX)
+        profile = class_attacker_profile.profile_for_character(
+            _row(1, off_the_table)
+        )
+        self.assertEqual(off_the_table, profile.level)
+
+    def test_the_withdrawn_import_is_actually_absent_from_the_source(self):
+        """`grep`, not prose: the module must not import the DB scaffold.
+
+        The pin in `tests/test_persistence_standard_status.py` greps the
+        production tree for this module name and is LANE-DB's to retire.
+        Round `hhmvit` kept its import and allowlisted itself inside that pin;
+        this test is the other half of undoing that, and it fails from THIS
+        side too, so the withdrawal cannot be quietly reverted by editing only
+        LANE-DB's file.
+        """
+        source = Path(class_attacker_profile.__file__).read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("persistence_standard_status", source)
 
     def test_a_bool_is_not_a_level_and_is_not_a_class_id(self):
         # `True == 1` and 1 IS a selectable class id, so a coercing check
@@ -280,17 +307,15 @@ class TheRefusalContractDoesNotLeakTests(unittest.TestCase):
                 ability_con=0,
             )
 
-    def test_a_table_read_failure_is_not_relabelled_as_a_bad_level(self):
-        # pf-adversary D5: `except Exception` reported an unreadable table as
-        # "your level is outside the table" -- wrong reason, and the message
-        # said level 7 is not carried when it is.  The arm is narrow now, so
-        # a foreign failure propagates instead of being mislabelled.
-        boom = OSError("[Errno 5] Input/output error: standard_status.tsv")
-        with mock.patch.object(
-            class_attacker_profile, "standard_status_row", side_effect=boom
-        ):
-            with self.assertRaises(OSError):
-                class_attacker_profile.profile_for_character(_row(1, 7))
+    def test_no_table_read_can_fail_because_there_is_no_table_read(self):
+        # Round `hhmvit` (pf-adversary D5) pinned that an unreadable
+        # progression table propagated as itself instead of being relabelled
+        # "your level is outside the table".  With the import withdrawn there
+        # is no read to fail, so the D5 pin is re-aimed at the fact that makes
+        # it moot rather than deleted: the symbol is gone from the module.
+        self.assertFalse(
+            hasattr(class_attacker_profile, "standard_status_row")
+        )
 
 
 class TheRowCannotBeBuiltInTheWrongOrderTests(unittest.TestCase):
