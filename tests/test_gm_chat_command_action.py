@@ -60,6 +60,7 @@ from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.gm import warp_target_record  # noqa: E402
 from pirateforce_foundation.gm.commands import GmCommand  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation import world_scene_travel  # noqa: E402
 
 # A value that is NOT the real one -- RE-129 has not answered.  Tests that
 # need the gate open patch this in explicitly so no test can accidentally
@@ -2349,10 +2350,20 @@ class ContractTests(_Case):
 
 
 class StagedReadbackModuleTests(unittest.TestCase):
-    """`gm/staged_readback.py` alone: the three bodies and the four statuses.
+    """`gm/staged_readback.py` alone: the four bodies and the five statuses.
 
-    Appended to this file rather than shipped as a new test module, so the
-    gate's skip census does not move for a round that adds no skip.
+    Appended to this file rather than shipped as a new test module.  NOT
+    "so the skip census does not move" -- that reason was wrong and is
+    corrected here (pf-adversary round `qpauwp`, D8): the census counts
+    SKIPPED tests, and a module that skips nothing adds nothing to it.  The
+    real reason is that the readback and the command that carries it are
+    read together, and the file that holds one should hold the other.
+
+    EVERY TEST SUPPLIES ALL THREE CONFIG PATHS, because the module now asks
+    the same lookup the login asks and that lookup reads three files.  A test
+    that left one at its default would be measuring this repository's own
+    `config/` directory, and would pass or fail on what somebody committed
+    there rather than on what the module does.
     """
 
     def setUp(self):
@@ -2360,11 +2371,32 @@ class StagedReadbackModuleTests(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.path = Path(self._tmp.name) / "config" / "gm_login_scene.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.accounts_path = Path(self._tmp.name) / "config" / "gm_accounts.json"
+        self.standalone_path = (
+            Path(self._tmp.name) / "config" / "gm_login_scene_standalone.json"
+        )
+        self.write_accounts(["GM_ONE", "GM_TWO"])
 
     def write_map(self, mapping):
         self.path.write_text(
             json.dumps({"gm_login_scene": mapping}), encoding="utf-8"
         )
+
+    def write_standalone(self, mapping):
+        self.standalone_path.write_text(
+            json.dumps({"standalone_login_scene": mapping}), encoding="utf-8"
+        )
+
+    def write_accounts(self, names):
+        self.accounts_path.write_text(
+            json.dumps({"gm_accounts": list(names)}), encoding="utf-8"
+        )
+
+    def read(self, account="GM_ONE", **kwargs):
+        kwargs.setdefault("gm_accounts_config_path", str(self.accounts_path))
+        kwargs.setdefault("login_scene_config_path", str(self.path))
+        kwargs.setdefault("standalone_config_path", str(self.standalone_path))
+        return staged_readback.read_staged_scene(account, **kwargs)
 
     def test_every_body_is_exactly_what_the_notice_wire_accepts(self):
         """The property that makes this command safe to ship at all: the wire
@@ -2374,6 +2406,7 @@ class StagedReadbackModuleTests(unittest.TestCase):
         bodies = [
             staged_readback.NOTICE_NOTHING_STAGED,
             staged_readback.NOTICE_UNREADABLE,
+            staged_readback.NOTICE_REFUSED,
         ]
         # Every id the six-digit form can render, at both ends and in the
         # middle -- not one sample.
@@ -2390,9 +2423,7 @@ class StagedReadbackModuleTests(unittest.TestCase):
 
     def test_a_staged_scene_is_read_back_with_its_id_and_its_name(self):
         self.write_map({"GM_ONE": 2})
-        result = staged_readback.read_staged_scene(
-            "GM_ONE", config_path=str(self.path)
-        )
+        result = self.read()
         self.assertEqual(staged_readback.STATUS_STAGED, result.status)
         self.assertEqual(2, result.scene_id)
         self.assertEqual("SCENE 000002", result.notice_text)
@@ -2408,17 +2439,13 @@ class StagedReadbackModuleTests(unittest.TestCase):
         for _ in range(3):
             self.assertEqual(
                 staged_readback.STATUS_STAGED,
-                staged_readback.read_staged_scene(
-                    "GM_ONE", config_path=str(self.path)
-                ).status,
+                self.read().status,
             )
         self.assertEqual(before, self.path.read_bytes())
 
     def test_another_accounts_staging_is_never_this_accounts_answer(self):
         self.write_map({"GM_TWO": 2})
-        result = staged_readback.read_staged_scene(
-            "GM_ONE", config_path=str(self.path)
-        )
+        result = self.read()
         self.assertEqual(staged_readback.STATUS_NOTHING_STAGED, result.status)
         self.assertIsNone(result.scene_id)
         self.assertEqual("NO STAGE SET", result.notice_text)
@@ -2427,9 +2454,7 @@ class StagedReadbackModuleTests(unittest.TestCase):
         self.assertNotIn("GM_TWO", result.console_detail)
 
     def test_a_missing_file_is_nothing_staged_not_a_failure(self):
-        result = staged_readback.read_staged_scene(
-            "GM_ONE", config_path=str(self.path)
-        )
+        result = self.read()
         self.assertEqual(staged_readback.STATUS_NOTHING_STAGED, result.status)
 
     def test_a_malformed_config_is_an_answer_not_an_exception(self):
@@ -2437,9 +2462,7 @@ class StagedReadbackModuleTests(unittest.TestCase):
         unreviewed scene); a readback that let that reach the listener thread
         would turn a courtesy into `gm_chat_action_unexpected_*`."""
         self.path.write_text("{not json", encoding="utf-8")
-        result = staged_readback.read_staged_scene(
-            "GM_ONE", config_path=str(self.path)
-        )
+        result = self.read()
         self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
         self.assertEqual("STAGE NOREAD", result.notice_text)
 
@@ -2453,12 +2476,10 @@ class StagedReadbackModuleTests(unittest.TestCase):
 
         with mock.patch.object(
             staged_readback,
-            "load_login_scene_overrides",
+            "get_login_scene_override",
             side_effect=Boom(message),
         ):
-            result = staged_readback.read_staged_scene(
-                "GM_ONE", config_path=str(self.path)
-            )
+            result = self.read()
         self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
         self.assertIn("Boom", result.console_detail)
         self.assertNotIn("secret path", result.console_detail)
@@ -2467,9 +2488,7 @@ class StagedReadbackModuleTests(unittest.TestCase):
     def test_a_non_str_account_is_refused_rather_than_looked_up(self):
         for account in (b"GM_ONE", None, 17, ["GM_ONE"]):
             with self.subTest(account=account):
-                result = staged_readback.read_staged_scene(
-                    account, config_path=str(self.path)
-                )
+                result = self.read(account)
                 self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
                 self.assertEqual("STAGE NOREAD", result.notice_text)
 
@@ -2481,9 +2500,7 @@ class StagedReadbackModuleTests(unittest.TestCase):
             __hash__ = str.__hash__
 
         self.write_map({"GM_TWO": 2})
-        result = staged_readback.read_staged_scene(
-            Sneaky("GM_ONE"), config_path=str(self.path)
-        )
+        result = self.read(Sneaky("GM_ONE"))
         self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
 
     def test_an_id_too_wide_for_the_body_is_named_not_rendered(self):
@@ -2491,12 +2508,10 @@ class StagedReadbackModuleTests(unittest.TestCase):
         still an answer rather than a body of the wrong width."""
         with mock.patch.object(
             staged_readback,
-            "load_login_scene_overrides",
-            return_value={"GM_ONE": staged_readback.MAX_NOTICE_SCENE_ID + 1},
+            "get_login_scene_override",
+            return_value=staged_readback.MAX_NOTICE_SCENE_ID + 1,
         ):
-            result = staged_readback.read_staged_scene(
-                "GM_ONE", config_path=str(self.path)
-            )
+            result = self.read()
         self.assertEqual(staged_readback.STATUS_ID_OUT_OF_RANGE, result.status)
         self.assertEqual("STAGE NOREAD", result.notice_text)
         self.assertEqual(
@@ -2508,12 +2523,10 @@ class StagedReadbackModuleTests(unittest.TestCase):
             with self.subTest(value=value):
                 with mock.patch.object(
                     staged_readback,
-                    "load_login_scene_overrides",
-                    return_value={"GM_ONE": value},
+                    "get_login_scene_override",
+                    return_value=value,
                 ):
-                    result = staged_readback.read_staged_scene(
-                        "GM_ONE", config_path=str(self.path)
-                    )
+                    result = self.read()
                 if value is None:
                     # `None` is indistinguishable from "no entry" by a dict
                     # lookup, and both mean the same thing on screen.
@@ -2531,14 +2544,105 @@ class StagedReadbackModuleTests(unittest.TestCase):
     def test_an_id_with_no_catalog_row_is_named_on_the_console(self):
         with mock.patch.object(
             staged_readback,
-            "load_login_scene_overrides",
-            return_value={"GM_ONE": 999999},
+            "get_login_scene_override",
+            return_value=999999,
         ):
-            result = staged_readback.read_staged_scene(
-                "GM_ONE", config_path=str(self.path)
-            )
+            result = self.read()
         self.assertEqual(staged_readback.STATUS_STAGED, result.status)
         self.assertIn(staged_readback.CONSOLE_UNNAMED_SCENE, result.console_detail)
+
+    def test_a_standalone_only_account_is_read_back_not_called_unstaged(self):
+        """D1, MEASURED (pf-adversary round `qpauwp`).  The login path asks
+        TWO maps.  Reading only `gm_login_scene.json` told an operator whose
+        staging lives in `gm_login_scene_standalone.json` that nothing was
+        staged, while their next login really did open the scene -- the
+        screen contradicting the login is worse than no screen at all."""
+        self.write_accounts([])  # not a GM account at all: path 2 only
+        self.write_standalone({"GM_ONE": 2})
+        result = self.read()
+        self.assertEqual(staged_readback.STATUS_STAGED, result.status)
+        self.assertEqual(2, result.scene_id)
+        self.assertEqual("SCENE 000002", result.notice_text)
+
+    def test_the_gm_map_answers_only_for_an_account_the_allowlist_lists(self):
+        """The other half of D1, and the half a naive both-maps fix gets
+        wrong: a name typed into `gm_login_scene.json` by hand grants
+        NOTHING unless `gm_accounts.json` lists it, because that is what
+        `get_login_scene_override` does at login.  The screen has to inherit
+        the refusal, not just the grant."""
+        self.write_accounts([])
+        self.write_map({"GM_ONE": 2})
+        self.assertEqual(
+            staged_readback.STATUS_NOTHING_STAGED, self.read().status
+        )
+        self.write_accounts(["GM_ONE"])
+        self.assertEqual(staged_readback.STATUS_STAGED, self.read().status)
+
+    def test_the_answer_is_for_the_callers_registry_not_a_fresh_read(self):
+        """D2, MEASURED.  The process that will place the character judges
+        the config against the registry snapshot it took at boot; a readback
+        that read the registry file fresh answers a different question and
+        disagrees with the login whenever lane A's file has moved since.
+        Measured here in the direction no gate at the call site can reach:
+        the snapshot is NARROWER than the disk."""
+        registry_json = json.loads(
+            Path("scenarios/world_scene_registry_001.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        registry_json["destinations"] = [
+            row for row in registry_json["destinations"] if row["n_id"] != 2
+        ]
+        narrowed = Path(self._tmp.name) / "narrowed_registry.json"
+        narrowed.write_text(json.dumps(registry_json), encoding="utf-8")
+        snapshot = world_scene_travel.load_scene_registry(narrowed)
+
+        self.write_map({"GM_ONE": 2})
+        # The fresh read still admits scene 2, so the two answers differ --
+        # which is the whole point: one of them is the login's.
+        self.assertEqual(staged_readback.STATUS_STAGED, self.read().status)
+        with_snapshot = self.read(scene_registry=snapshot)
+        self.assertEqual(staged_readback.STATUS_REFUSED, with_snapshot.status)
+        self.assertEqual("STAGE BARRED", with_snapshot.notice_text)
+
+    def test_another_accounts_bad_row_is_barred_and_never_unreadable(self):
+        """D3, MEASURED.  The loader holds the whole file to one rule, so one
+        inadmissible row belonging to somebody else refuses this read too --
+        that part matches the login and stays.  What must not happen is
+        calling a file that parses perfectly "could not be read": the two
+        faults have two different remedies (restart / fix lane A's registry,
+        versus edit the file), which is the entire reason
+        `LoginSceneRefusedError` exists."""
+        self.write_map({"GM_TWO": 17, "GM_ONE": 2})
+        result = self.read()
+        self.assertEqual(staged_readback.STATUS_REFUSED, result.status)
+        self.assertEqual("STAGE BARRED", result.notice_text)
+        self.assertNotEqual(
+            staged_readback.NOTICE_UNREADABLE, result.notice_text
+        )
+        # The console half still says which id the file was refused over,
+        # and still carries no account name.
+        self.assertIn("17", result.console_detail)
+        self.assertNotIn("GM_TWO", result.console_detail)
+
+    def test_a_malformed_file_is_still_unreadable_not_barred(self):
+        """The other side of the D3 pin.  A fix that answered `STAGE BARRED`
+        for everything would have swapped one misdiagnosis for another, and
+        both tests have to hold at once for either to mean anything."""
+        self.path.write_text("{not json", encoding="utf-8")
+        result = self.read()
+        self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
+        self.assertEqual("STAGE NOREAD", result.notice_text)
+
+    def test_an_empty_account_name_is_answered_not_looked_up(self):
+        """`consume_login_scene_override` raises `ValueError` for an empty
+        name, so no empty name can ever be granted a scene.  Reporting the
+        lookup's own `None` would print `NO STAGE SET`, which reads as "your
+        file has no line for you"."""
+        self.write_map({"": 2})
+        result = self.read("")
+        self.assertEqual(staged_readback.STATUS_UNREADABLE, result.status)
+        self.assertIn("account_name_empty", result.console_detail)
 
     def test_every_status_it_can_return_is_in_its_own_vocabulary(self):
         self.assertEqual(
@@ -2546,6 +2650,7 @@ class StagedReadbackModuleTests(unittest.TestCase):
                 staged_readback.STATUS_STAGED,
                 staged_readback.STATUS_NOTHING_STAGED,
                 staged_readback.STATUS_UNREADABLE,
+                staged_readback.STATUS_REFUSED,
                 staged_readback.STATUS_ID_OUT_OF_RANGE,
             },
             set(staged_readback.STATUSES),
@@ -2618,18 +2723,92 @@ class StagedReadbackCommandTests(_Case):
         )
         self.assertIn("SCENE 000002".encode("utf-16-le"), bytes(action[2]))
 
-    def test_the_audit_pair_says_composed_and_never_queued(self):
+    def test_the_audit_row_has_its_own_word_and_never_queued(self):
         """`staged` is a notice: `is_notice` keeps CORE-REQUEST-GM-040's
         `queued` row off it, because that row means this command's own frame
-        reached runtime."""
+        reached runtime.
+
+        AND THEREFORE IT MAY NOT SAY `composed`.  Every other user of that
+        word writes a `queued` row after it, so `composed` with no `queued`
+        is the audit file's signature for "a frame was built and nothing
+        sent it" -- which this command, working perfectly, would wear
+        forever (pf-adversary round `qpauwp`, D6).  Both halves are pinned:
+        the word it does say, and the word it must not."""
         self.act(FakeSession(position=FakePosition(scene_id=2, z=30.0)), "/staged")
         records = [r for r in self.log_records() if r.get("command") == "staged"]
         self.assertTrue(records)
         outcomes = [r.get("outcome") for r in records if r.get("record") == "outcome"]
-        self.assertEqual([commands.OUTCOME_COMPOSED], outcomes)
+        self.assertEqual([commands.OUTCOME_STAGED_READBACK_ANSWERED], outcomes)
+        self.assertNotIn(commands.OUTCOME_COMPOSED, outcomes)
+        self.assertIn(
+            commands.OUTCOME_STAGED_READBACK_ANSWERED, commands.AUDIT_OUTCOMES
+        )
         self.assertNotIn(
             commands.OUTCOME_QUEUED,
             [r.get("outcome") for r in records],
+        )
+
+    def test_the_console_line_says_whether_the_frame_exists(self):
+        """D4, MEASURED (pf-adversary round `qpauwp`).  Printed BEFORE the
+        compose, the line said `notice='SCENE 000278'` whether or not any
+        frame was built, so nothing anywhere separated "the operator read it
+        off their screen" from "the operator saw nothing" -- and a mutant
+        that moved the print above a failing compose passed the whole suite.
+        Both arms are pinned here, so the ordering cannot drift back."""
+        self.act(FakeSession(position=FakePosition(scene_id=2)), "/warp 278")
+        good = io.StringIO()
+        with contextlib.redirect_stderr(good):
+            self.act(FakeSession(position=FakePosition(scene_id=2)), "/staged")
+        self.assertIn("frame=yes", good.getvalue())
+
+        self.act(FakeSession(position=FakePosition(scene_id=2)), "/warp 278")
+        bad = io.StringIO()
+        with mock.patch.object(
+            chat_command_action.say_wire,
+            "make_local_talk_notice_frame",
+            side_effect=RuntimeError("no wire"),
+        ):
+            with contextlib.redirect_stderr(bad):
+                self.act(
+                    FakeSession(position=FakePosition(scene_id=2)), "/staged"
+                )
+        printed = bad.getvalue()
+        self.assertIn(chat_command_action.STAGED_READBACK_CONSOLE_TOKEN, printed)
+        self.assertIn("frame=no", printed)
+        self.assertNotIn("frame=yes", printed)
+
+    def test_an_account_name_the_console_cannot_encode_keeps_the_line(self):
+        """D10, MEASURED.  `account={token!r}` was the one field on this line
+        not folded, so a `--token` outside the bridge console's cp874 took
+        the WHOLE line out -- and this is the line an attended run greps."""
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="cp874", errors="strict")
+        session = FakeSession(position=FakePosition(scene_id=2))
+        chat_command_action._print_staged_readback_line(
+            session,
+            "GM_\u4e2d\u6587",
+            "staged_readback nothing_staged",
+            staged_readback.NOTICE_NOTHING_STAGED,
+            delivered=True,
+        )  # smoke: the default stream path still works
+        with contextlib.redirect_stderr(stream):
+            chat_command_action._print_staged_readback_line(
+                session,
+                "GM_\u4e2d\u6587",
+                "staged_readback nothing_staged",
+                staged_readback.NOTICE_NOTHING_STAGED,
+                delivered=True,
+            )
+            stream.flush()
+        written = stream.buffer.getvalue().decode("cp874")
+        self.assertIn(chat_command_action.STAGED_READBACK_CONSOLE_TOKEN, written)
+        self.assertIn("NO STAGE SET", written)
+        # And nothing was noted as a console write failure.
+        self.assertFalse(
+            [
+                event
+                for event in session.events
+                if chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX in event
+            ]
         )
 
     def test_the_console_line_carries_the_body_and_the_island_name(self):

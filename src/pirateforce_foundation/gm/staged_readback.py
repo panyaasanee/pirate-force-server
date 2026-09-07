@@ -12,9 +12,31 @@ not where the person typing the command is looking.  An attended tester at
 the client had exactly one way to find out which scene their next login would
 open in -- open the JSON file next to the game and read it.
 
-`staged` is that readback as a command.  It changes NOTHING: it reads the map
-this lane already writes, for THIS account only, and answers on the same
-local-talk notice channel the three sentences above use.
+`staged` is that readback as a command.  It WRITES NOTHING -- no file, no
+row, no frame but its own sentence -- and it answers for THIS account only,
+on the same local-talk notice channel the three sentences above use.  Not
+"changes nothing at all": the loader it calls prints
+`GM_LOGIN_SCENE_CONFIG_REFUSED` to stderr for every row of the file the
+running process would refuse, including rows belonging to OTHER accounts, so
+typing `staged` can put lines on the server console.  That is the loader's
+own fail-loud rule and this command does not get to switch it off; what this
+docstring must not do is call the command silent when it is not (pf-adversary
+round `qpauwp`, D7).
+
+IT ASKS THE SAME QUESTION THE LOGIN ASKS, and that is the whole design.  The
+first version of this module read `gm_login_scene.json` directly, and
+pf-adversary measured the screen giving the wrong answer three ways (round
+`qpauwp`, D1/D2/D3): an account staged through
+`gm_login_scene_standalone.json` was told `NO STAGE SET` while its next login
+really did open scene 2; a registry file edited after boot moved the screen's
+answer and not the login's, in both directions; and one inadmissible row
+belonging to somebody else turned the whole answer into `STAGE NOREAD` on a
+file that reads perfectly.  So this module now calls
+`login_scene_override.get_login_scene_override` -- the function the login
+path's own `consume_login_scene_override` calls to decide the scene, minus
+the claim that spends it -- and passes the caller's `scene_registry`
+snapshot straight into it.  The screen and the login now disagree only where
+the disk changes between the two moments, which no design can close.
 
 THE THREE ANSWERS, and why each is the length it is.  A notice body is
 exactly 12 printable ASCII characters (`gm/say_wire.py::
@@ -23,8 +45,16 @@ rule), so these sentences were found inside that length rather than written
 freely, the same way `TYPO REFUSED` and `LV SET RELOG` were:
 
     SCENE 000123   a scene is staged; the digits are the scene_id
-    NO STAGE SET   this account has no entry in the map
-    STAGE NOREAD   the map could not be read at all
+    NO STAGE SET   this account has no entry in either map
+    STAGE BARRED   a map parses, and this process will not admit a row in it
+    STAGE NOREAD   a map could not be read at all
+
+`STAGE BARRED` and `STAGE NOREAD` are two sentences because they are two
+faults with two different remedies -- restart the server (or fix lane A's
+registry) versus edit the config file -- and `LoginSceneRefusedError`
+(`gm/login_scene_override.py`) exists precisely so a caller can tell them
+apart.  Folding both into "could not be read" is the misdiagnosis that class
+was created to end: it sends an operator to grep a file that is correct.
 
 EVERY CHARACTER COMES OUT OF THIS MODULE OR OUT OF AN INTEGER, never out of
 anything a client typed.  `staged` takes no arguments at all, so there is no
@@ -54,14 +84,18 @@ import os
 from dataclasses import dataclass
 
 from . import scene_catalog
-from .login_scene_override import load_login_scene_overrides
+from .login_scene_override import (
+    LoginSceneRefusedError,
+    get_login_scene_override,
+)
 
-# The one place these three bodies are spelled.  Their length is asserted by
-# `tests/test_gm_staged_readback.py` against `say_wire.NOTICE_TEXT_EXACT_LENGTH`
+# The one place these four bodies are spelled.  Their length is asserted by
+# `tests/test_gm_chat_command_action.py` against `say_wire.NOTICE_TEXT_EXACT_LENGTH`
 # itself, so a round that moves the pinned length moves these with it instead
 # of shipping a body the wire will refuse.
 NOTICE_NOTHING_STAGED = "NO STAGE SET"
 NOTICE_UNREADABLE = "STAGE NOREAD"
+NOTICE_REFUSED = "STAGE BARRED"
 
 # `SCENE ` + six digits.  Six, not "as many as the id needs": a fixed width
 # keeps the body at the pinned length for every id the loader can return, and
@@ -74,6 +108,11 @@ MAX_NOTICE_SCENE_ID = 10 ** NOTICE_SCENE_ID_DIGITS - 1
 STATUS_STAGED = "staged"
 STATUS_NOTHING_STAGED = "nothing_staged"
 STATUS_UNREADABLE = "config_unreadable"
+# The file parsed and this process will not admit one of its rows.  A
+# SEPARATE status from `STATUS_UNREADABLE` for the reason the module
+# docstring gives: two faults, two remedies, and one word for both sends the
+# operator to the wrong one.
+STATUS_REFUSED = "scene_not_admissible"
 # A staged id that cannot be rendered in six digits.  Unreachable through the
 # loader today (every id it returns is a row of the committed catalog, whose
 # largest is three digits) and still a named status rather than a crash: this
@@ -85,6 +124,7 @@ STATUSES = (
     STATUS_STAGED,
     STATUS_NOTHING_STAGED,
     STATUS_UNREADABLE,
+    STATUS_REFUSED,
     STATUS_ID_OUT_OF_RANGE,
 )
 
@@ -121,33 +161,61 @@ def _scene_name_for(scene_id: int) -> str:
 def read_staged_scene(
     account_name: object,
     *,
-    config_path: str | os.PathLike | None = None,
+    gm_accounts_config_path: str | os.PathLike | None = None,
+    login_scene_config_path: str | os.PathLike | None = None,
+    standalone_config_path: str | os.PathLike | None = None,
+    scene_registry=None,
 ) -> StagedReadback:
-    """What `config/gm_login_scene.json` says THIS account's next login opens.
+    """What THIS account's next login is staged to open, asked the login's way.
+
+    ONE QUESTION, ASKED ONCE.  `get_login_scene_override` is the same call
+    `login_scene_consume.consume_login_scene_override` makes to decide the
+    scene, so this function inherits every rule that decides a real login:
+    the GM-gated map is consulted only for an account `gm/accounts.py`
+    actually lists, the standalone map answers for accounts that are not GM
+    at all, and both are judged by their own admission rule.  Re-deriving any
+    of that here is how the first version of this module ended up telling an
+    operator `NO STAGE SET` about a login that opened scene 2.
 
     READ ONLY, and the distinction is a race rather than a style preference:
     `login_scene_stage.claim_login_scene` TAKES the entry off disk under a
     lock because a login must spend it exactly once.  This function must
     never do that -- an operator asking "what is staged" would otherwise
     consume the staging they were about to use, and the bug would look like
-    a warp that silently did not happen.  It calls the loader, reads one key
-    and returns.
+    a warp that silently did not happen.  `get_login_scene_override` is the
+    LOOK half of that pair by construction (see its docstring), which is why
+    the answer comes from there and not from `consume_login_scene_override`
+    with a flag.
 
-    `account_name` is the session's authenticated `.token`, the same
-    identity `_stage_action` writes under.  It is never read from a payload
-    and never compared case-insensitively: the map's keys are whatever
+    `scene_registry` IS THE CALLER'S, NOT A FRESH READ.  Whoever is going to
+    grant the scene judges the config against the registry snapshot it took
+    at boot (`CORE-REQUEST-GM-036`); a readback that read the registry file
+    fresh would answer a different question and disagree with the login in
+    both directions -- narrower on disk gives `STAGE NOREAD` for a login that
+    works, wider gives `SCENE 000002` for a login that gets nothing.
+    Measured both ways by pf-adversary (round `qpauwp`, D2), which also
+    priced the fresh read at one registry parse per row in the map, on the
+    listener thread.  `None` keeps a bare caller on the fresh read, the
+    behaviour every test in this lane was written against.
+
+    `account_name` is the session's `.token`, the same identity
+    `_stage_action` writes under.  It is never read from a payload and never
+    compared case-insensitively: the map's keys are whatever
     `stage_login_scene` wrote, so the lookup is exact or it is nothing.
+    (`.token` is the process's own `--token` value rather than a per-
+    connection identity -- this lane settled that already; the point here is
+    only that it is not client-supplied text.)
 
-    FAILS TO AN ANSWER, NEVER TO AN EXCEPTION.  A malformed or unreadable
-    config makes the loader raise (its own fail-loud rule, which is right
-    for a login that would otherwise send an operator's typo to an
-    unreviewed scene), and raising HERE would turn a courtesy readback into
+    FAILS TO AN ANSWER, NEVER TO AN EXCEPTION.  A config the process cannot
+    use makes the loader raise (its own fail-loud rule, which is right for a
+    login that would otherwise send an operator's typo to an unreviewed
+    scene), and raising HERE would turn a courtesy readback into
     `gm_chat_action_unexpected_*` on the listener thread -- this lane's
     standing rule is that a diagnostic may never alter dispatch.  So every
-    exception becomes `STATUS_UNREADABLE`, and the console detail names the
-    exception TYPE only: an arbitrary message can carry bytes the cp874
-    console cannot print, which is the same reason `_typo_refused_notice`
-    records a type name rather than a message.
+    exception becomes an ANSWER, and the console detail names the exception
+    TYPE only: an arbitrary message can carry bytes the cp874 console cannot
+    print, which is the same reason `_typo_refused_notice` records a type
+    name rather than a message.
     """
     if type(account_name) is not str:
         # Exact type, not `isinstance`: a `str` subclass can lie through
@@ -158,9 +226,41 @@ def read_staged_scene(
             NOTICE_UNREADABLE,
             "staged_readback account_name_not_a_str",
         )
+    if not account_name:
+        # The login path refuses an empty name outright
+        # (`consume_login_scene_override` raises `ValueError`), so no empty
+        # name can ever be granted a scene.  Answering the lookup's own
+        # `None` here would print `NO STAGE SET`, which reads as "your file
+        # has no line for you" rather than "this session has no name".
+        return StagedReadback(
+            STATUS_UNREADABLE,
+            None,
+            NOTICE_UNREADABLE,
+            "staged_readback account_name_empty",
+        )
     try:
-        overrides = load_login_scene_overrides(config_path)
-        staged = overrides.get(account_name)
+        staged = get_login_scene_override(
+            account_name,
+            gm_accounts_config_path,
+            login_scene_config_path,
+            standalone_config_path,
+            scene_registry=scene_registry,
+        )
+    except LoginSceneRefusedError as refused:
+        # CAUGHT BEFORE `Exception` BECAUSE IT IS ONE -- a `ValueError`
+        # subclass, so the order of these two arms is the whole distinction
+        # and not a formality.  `refused.scene_id` is the row's id and may
+        # belong to ANOTHER account: the loader holds the whole file to one
+        # rule, so somebody else's inadmissible line refuses this read too.
+        # That is the login's behaviour as well, which is why the screen
+        # reports it instead of hiding it -- but it is reported as "barred",
+        # never as "unreadable" (pf-adversary round `qpauwp`, D3).
+        return StagedReadback(
+            STATUS_REFUSED,
+            refused.scene_id,
+            NOTICE_REFUSED,
+            f"staged_readback scene_not_admissible row_scene={refused.scene_id}",
+        )
     except Exception as error:  # noqa: BLE001 - see the docstring
         return StagedReadback(
             STATUS_UNREADABLE,
@@ -176,9 +276,9 @@ def read_staged_scene(
             "staged_readback nothing_staged",
         )
     if type(staged) is not int or isinstance(staged, bool):
-        # The loader promises `dict[str, int]`; a caller-supplied loader
-        # double or a future widening that breaks the promise must not reach
-        # `%06d` with something that formats into a body of the wrong width.
+        # The lookup promises `int | None`; a caller-supplied loader double
+        # or a future widening that breaks the promise must not reach `%06d`
+        # with something that formats into a body of the wrong width.
         return StagedReadback(
             STATUS_UNREADABLE,
             None,

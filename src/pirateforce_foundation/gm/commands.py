@@ -293,11 +293,27 @@ OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED = "staged_login_scene_coords_ignored"
 # the gameplay command did not execute, a row was written.
 OUTCOME_LV_ROW_WRITTEN = "lv_row_written"
 
+# `staged` (`gm/staged_readback.py`).  NOT `composed`, and the difference is
+# what a reader of the audit file concludes rather than a nicety.  Everywhere
+# else in this vocabulary `composed` marks a GAMEPLAY frame that the caller
+# then puts on the wire, and the row that follows it is `queued`; a row of
+# `composed` with no `queued` after it therefore reads, correctly for every
+# other command, as "the frame was built and nothing sent it".  `staged`
+# composes a NOTICE -- `is_notice=True`, so no `queued` row is ever written
+# for it -- and borrowing `composed` minted exactly that never-sent
+# signature for a command that worked (pf-adversary round `qpauwp`, D6).
+# Its own word says what happened and claims no more: the readback was
+# answered, a notice frame carrying the answer went back to the caller, and
+# nothing durable moved anywhere.  `executed` stays False for the same
+# reason it does for the two outcomes above -- no gameplay command ran.
+OUTCOME_STAGED_READBACK_ANSWERED = "staged_readback_answered"
+
 AUDIT_OUTCOMES = (
     OUTCOME_COMPOSED,
     OUTCOME_STAGED_LOGIN_SCENE,
     OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
     OUTCOME_LV_ROW_WRITTEN,
+    OUTCOME_STAGED_READBACK_ANSWERED,
 )
 AUDIT_OUTCOME_PREFIXES = (OUTCOME_WITHHELD_PREFIX, OUTCOME_REFUSED_PREFIX)
 
