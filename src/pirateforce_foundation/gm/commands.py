@@ -500,6 +500,47 @@ def _is_int_literal(value: str) -> bool:
     return True
 
 
+#: The name form's query is the ONE string in this grammar whose accepted set
+#: is not the shipped table but the casefold-and-whitespace pre-image of it,
+#: which is infinite and entirely client-chosen.  pf-adversary (round
+#: `nqgmam`, D2) measured what that widening bought: `warp pri<U+017F>on
+#: exile i<U+017F>land` resolved to scene 2, and `warp Port<U+3000>Royal` to
+#: scene 1, because `casefold()` is many-to-one and `str.split()` splits on
+#: every `str.isspace()` character -- eleven of the first group and eight of
+#: the second have NO cp874 mapping, and none of them is Unicode category
+#: `Cf`, so the chat layer's format-character filter does not see them.
+#: Before the name form existed every one of those lines was a parse error,
+#: and a refused command never reaches the audit writer; after it, they were
+#: reaching `raw` on disk.
+#:
+#: So the query is held to the same bar the shipped names already meet: a
+#: character the bridge console can encode, and not a control or separator
+#: pretending to be one.  This excludes NO shipped name -- all 330 encode to
+#: cp874 and none carries a control character, both pinned in
+#: `test_gm_scene_catalog.py` -- and it does not touch the numeric form,
+#: which never reaches this branch.
+QUERY_CONSOLE_CODEC = "cp874"
+
+
+def _query_is_console_safe(rest: str) -> bool:
+    """True when every character of `rest` could survive the console codec.
+
+    ASCII space and tab are allowed through even though neither is
+    `printable`: they are what `str.split()` was already folding, they encode
+    in `QUERY_CONSOLE_CODEC`, and rejecting them would narrow a form that
+    works today.  Everything else must be `isprintable()` AND encodable --
+    the second check is the one that catches the homoglyphs, which are
+    printable and still have no byte in this codec.
+    """
+    if any(not character.isprintable() and character not in " \t" for character in rest):
+        return False
+    try:
+        rest.encode(QUERY_CONSOLE_CODEC)
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _did_you_mean(rest: str) -> str:
     """`; did you mean ...` for a near miss, or `""` when there is none.
 
@@ -557,6 +598,13 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     strictly less echoing than the `_require_int` path this branch replaced,
     which put the raw token in its message.)
     """
+    if not _query_is_console_safe(rest):
+        # Echoes nothing typed, for the reason this whole branch exists.
+        raise GmCommandParseError(
+            "a scene name may only use characters the console can print "
+            f"({QUERY_CONSOLE_CODEC}); "
+            f'use {COMMAND_USAGE["warp"]!r}'
+        )
     matches = scene_catalog.resolve_gm_scene_name(rest)
     if not matches:
         raise GmCommandParseError(

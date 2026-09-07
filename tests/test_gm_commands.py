@@ -686,5 +686,100 @@ class WarpNameNearMissTests(unittest.TestCase):
         self.assertNotIn("did you mean", message)
 
 
+class WarpNameQueryIsHeldToTheConsoleCodecTests(unittest.TestCase):
+    """pf-adversary round `nqgmam` D2: the query is the client-chosen side."""
+
+    def _message(self, text):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(text)
+        return str(caught.exception)
+
+    def test_a_homoglyph_no_longer_resolves_to_a_real_scene(self):
+        # `casefold()` is many-to-one: U+017F folds to 's', so this used to
+        # come back as scene 2 and put a character with no cp874 byte into
+        # the audit record's `raw`. Before the name form existed the same
+        # line was a parse error and never reached the audit writer at all.
+        self.assertIn("console can print", self._message("warp pri\u017fon exile i\u017fland"))
+
+    def test_separators_and_controls_that_str_split_accepted_are_refused(self):
+        # `str.split()` splits on every `str.isspace()` character, and none
+        # of these is Unicode category Cf, so the chat layer's format filter
+        # does not see them either.
+        for text in (
+            "warp Prison\u2028Exile\u2029Island",
+            "warp \x0bPort\x0cRoyal",
+            "warp Port\x1cRoyal",
+            "warp Port\u3000Royal",
+            "warp Port\x85Royal",
+        ):
+            with self.subTest(text=text):
+                self.assertIn("console can print", self._message(text))
+
+    def test_the_guard_excludes_no_shipped_name(self):
+        # The bar is the one all 330 shipped names already meet, so closing
+        # this must cost nothing that worked. Every name in the table still
+        # parses (ambiguous ones raise the ambiguity error, never the codec
+        # error -- which is the assertion that keeps this from passing by
+        # refusing everything).
+        for scene_id, name in scene_catalog.SCENE_ID_TO_GM_NAME.items():
+            if not name.strip():
+                continue
+            with self.subTest(scene_id=scene_id):
+                try:
+                    resolved = parse_gm_command("warp %s" % name)
+                except GmCommandParseError as error:
+                    self.assertIn("that name is on", str(error))
+                    continue
+                self.assertEqual(resolved.name, "warp")
+                self.assertIn(scene_id, scene_catalog.resolve_gm_scene_name(name))
+
+    def test_ascii_space_and_tab_still_separate_a_name(self):
+        self.assertEqual(parse_gm_command("warp Port\tRoyal").args, ("1",))
+        self.assertEqual(parse_gm_command("warp  Port   Royal ").args, ("1",))
+
+    def test_the_codec_refusal_echoes_nothing_typed_and_keeps_the_way_out(self):
+        message = self._message("warp \u017fZqxjvwZ")
+        self.assertNotIn("Zqxjvw", message)
+        self.assertIn("warp <scene_id>", message)
+        message.encode("cp874")
+
+    def test_the_numeric_form_never_reaches_the_guard(self):
+        # The guard sits inside the name branch only. A numeric first token
+        # is decided before it, so the id form cannot be narrowed by this.
+        for text, args in (("warp 2", ("2",)), ("warp -1", ("-1",)),
+                           ("warp 007 5 6", ("007", "5", "6"))):
+            with self.subTest(text=text):
+                self.assertEqual(parse_gm_command(text).args, args)
+
+
+class WarpUnknownNameMessageContentTests(unittest.TestCase):
+    """pf-adversary round `nqgmam` D1: this branch's message had no witness."""
+
+    def _message(self, text):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(text)
+        return str(caught.exception)
+
+    def test_the_two_counts_it_prints_are_the_two_it_means(self):
+        # Mutant M21 swapped GM_NAME_COUNT for SCENE_COUNT and survived,
+        # printing "330 names over 330 scenes" to an operator. The two
+        # numbers differ, so pinning both catches the swap.
+        message = self._message("warp qqqqqqqq")
+        self.assertNotEqual(scene_catalog.GM_NAME_COUNT, scene_catalog.SCENE_COUNT)
+        self.assertIn(
+            "(%d names over %d scenes)"
+            % (scene_catalog.GM_NAME_COUNT, scene_catalog.SCENE_COUNT),
+            message,
+        )
+
+    def test_the_way_out_survives_on_the_unknown_branch_too(self):
+        # Mutants M24 and M27 (drop the usage clause; replace the whole body
+        # with "no") survived because only the AMBIGUOUS branch's way-out was
+        # pinned.
+        message = self._message("warp qqqqqqqq")
+        self.assertIn("no GM scene carries that name", message)
+        self.assertIn("warp <scene_id>", message)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -296,5 +296,71 @@ class NearMissSuggestionTests(unittest.TestCase):
             scene_catalog.suggest_gm_scene_names(2)
 
 
+class WitnessesPfAdversaryNqgmamAskedFor(unittest.TestCase):
+    """Three properties that were true but had no test that could see them."""
+
+    def test_the_table_really_has_rows_before_the_sweeps_above_mean_anything(self):
+        # D7. `test_every_name_in_the_table_survives_the_console_encoding`
+        # and the whole-table round trip are both loops with no assertion of
+        # their own: on an empty `_ROWS` they iterate zero times and pass.
+        # This is the assertion that makes those two sweeps mean something.
+        self.assertEqual(len(scene_catalog._ROWS), 330)
+        self.assertEqual(len(scene_catalog.SCENE_ID_TO_GM_NAME), 330)
+
+    def test_the_comment_s_own_counts_are_the_table_s_counts(self):
+        # D5. The design paragraph above `_fold_gm_scene_name` said 294
+        # distinct names and seven repeated names; both counted the empty
+        # name as a name. Re-derived here so the paragraph cannot drift back.
+        named = [gm for _id, _scene, gm in scene_catalog._ROWS if gm.strip()]
+        self.assertEqual(len(set(named)), 293)
+        self.assertEqual(scene_catalog.GM_NAME_COUNT, 293)
+        repeated = [
+            key
+            for key, ids in scene_catalog._GM_NAME_TO_SCENE_IDS.items()
+            if len(ids) > 1
+        ]
+        self.assertEqual(len(repeated), 6)
+        self.assertEqual(len(scene_catalog._ROWS) - len(named), 4)
+
+    def test_casefold_and_lower_agree_on_every_character_the_guard_admits(self):
+        # D3/M18, answered rather than papered over. pf-adversary found that
+        # swapping `casefold()` for `lower()` in `_fold_gm_scene_name` cannot
+        # be seen by any test -- and after `gm/commands.py`'s console-codec
+        # guard that is no longer a missing witness but a THEOREM: the two
+        # differ only on characters (U+00DF, U+017F, U+1E9E, U+212A,
+        # U+FB00-06, the Greek final sigma) that cp874 cannot encode, and the
+        # guard refuses those before the fold is reached. cp874 is ASCII plus
+        # Thai, and Thai is caseless.
+        #
+        # So this is the mutant's obituary, not its witness: if the guard's
+        # codec is ever widened to one where the two disagree, this test goes
+        # red and the choice has to be made deliberately.
+        for code_point in range(0x110000):
+            character = chr(code_point)
+            try:
+                character.encode("cp874")
+            except (UnicodeEncodeError, UnicodeError):
+                continue
+            self.assertEqual(character.casefold(), character.lower(), hex(code_point))
+
+    def test_ascending_order_is_the_code_s_doing_and_not_the_file_s(self):
+        # D3/M10. `resolve_gm_scene_name` promises ascending ids and
+        # `sorted()` is the only thing enforcing it -- but the shipped file
+        # happens to be in ascending id order, so a test that reads the real
+        # table is satisfied by the fixture and `tuple(sorted(ids))` can be
+        # cut to `tuple(ids)` invisibly. Build the index from rows in
+        # DESCENDING id order: now only the code can produce ascending.
+        descending = list(reversed(scene_catalog._ROWS))
+        self.assertGreater(descending[0][0], descending[-1][0])
+        with mock.patch.object(scene_catalog, "_ROWS", descending):
+            rebuilt = scene_catalog._build_name_index()
+        hidden = rebuilt[scene_catalog._fold_gm_scene_name("Hidden Island")]
+        self.assertEqual(len(hidden), 20)
+        self.assertEqual(list(hidden), sorted(hidden))
+        self.assertEqual(
+            hidden, scene_catalog._GM_NAME_TO_SCENE_IDS["hidden island"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

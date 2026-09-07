@@ -81,9 +81,14 @@ def is_known_scene_id(scene_id: int) -> bool:
 # direction, and `gm/commands.py`'s `warp` grammar is its only caller today.
 #
 # THE TABLE IS NOT A FUNCTION.  Measured on the pinned file: 330 rows,
-# 294 distinct GM names.  Seven names repeat -- `Hidden Island` alone is on
+# 293 distinct GM names.  SIX names repeat -- `Hidden Island` alone is on
 # 20 scene ids and `Poseidon Island` on 10 -- and FOUR rows carry an empty
-# name (ids 13, 137, 138, 141).  So this returns ALL matching ids and lets
+# name (ids 13, 137, 138, 141).  (Corrected by pf-adversary round `nqgmam`
+# D5: this paragraph said 294 and seven, which is 293 and six plus the
+# empty name counted as a name -- the same mistake twice, in the very
+# paragraph whose point is that the empty name is excluded.  `GM_NAME_COUNT`
+# is 293 and is what the operator-facing refusal prints.)  So this returns
+# ALL matching ids and lets
 # the caller decide; a "first match wins" resolver would have silently sent
 # a GM to one of twenty Hidden Islands, and an empty query would have
 # matched four scenes at once.  An empty (or whitespace-only) query matches
