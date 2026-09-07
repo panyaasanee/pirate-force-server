@@ -52,7 +52,12 @@ returned a well-formed action list" answers ``[]``:
   every frame, the same direct-route gate ``runtime.py`` reads before it
   calls ``gm/chat_command_action.py`` (COO-DECISION 20260829_0041 (b)).
   Call time, not registration time, because ``_discover()`` withdraws
-  hooks and cannot reach a registry it does not own;
+  hooks and cannot reach a registry it does not own.  "The answerer's
+  module" is every lane module that took part: the registrar, the lane
+  frames under it, and -- since round 4's D-A -- the module the answerer
+  was DEFINED in, resolved through ``__globals__`` by identity rather
+  than read off the writable ``__module__``, so a registration deferred
+  through a table an allowed lane flushes still names its real author;
 * the answerer raised ``Exception`` -- caught, named on stderr, dropped;
 * the answerer returned anything this module cannot prove is a list of
   ``(label, pc, frame, delay)`` tuples in this project's shipped dispatch
@@ -183,6 +188,89 @@ def _module_name_of_namespace(namespace):
     return found[0]
 
 
+# EVERY ATTRIBUTE THAT NAMES A MODULE IS WRITABLE; ``__globals__`` IS NOT.
+# ``function.__globals__`` is a read-only attribute of the function
+# object, and the dict it returns IS the defining module's namespace, so
+# ``_module_name_of_namespace`` turns it into the ``sys.modules`` key the
+# import machinery set -- the same identity route this file already uses
+# for a stack frame.  A file cannot point it at another module the way it
+# can assign ``fn.__module__``.
+_UNWRAP_ATTRS = ("__func__", "func", "__wrapped__")
+_UNWRAP_BUDGET = 8
+
+
+def _defining_module_names(fn):
+    """Modules ``fn``'s CODE lives in, resolved by identity. Never raises.
+
+    THE WITNESS ``__module__`` COULD NOT BE (pf-adversary round 4, D-A).
+    ``_gating_module_names`` collects the lane frames on the registration
+    stack, which is the right answer when the lane that decided to wire
+    ``fn`` is the lane that called ``register_answerer``.  It is not the
+    only shape.  Measured, with three ordinary files: a
+    ``production_allowed = False`` lane appends ``(vital_id, fn)`` to a
+    table owned by a ``production_allowed = True`` lane, which flushes
+    the table in its own ``register_answerer`` loop later.  At that call
+    NO frame belongs to the closed lane -- it returned long ago -- so the
+    stack walk finds only the allowed flusher, and the ONLY thing left
+    naming the real author was ``fn.__module__``, which round 2's D5
+    already measured is one assignment away from naming anyone.  One line
+    in the closed lane (``fn.__module__ = "<the allowed lane>"``) and its
+    bytes left ``state.dispatch()`` under a green token.
+
+    So the author is resolved by identity instead: ``__globals__`` for a
+    function, and the ordinary wrappers unwrapped first -- a
+    ``functools.partial`` (``func``), a ``functools.wraps`` chain
+    (``__wrapped__``), and a callable INSTANCE, whose code lives on
+    ``type(fn).__call__``.  ``__func__`` is in that list for shapes that
+    do not delegate; a BOUND METHOD is not one of them -- it forwards
+    ``__globals__`` to its function on its own, measured by a mutant that
+    dropped ``__func__`` and left the whole suite green.  It is kept
+    because dropping it is a claim about every method-like object, not
+    just the one that was tested.  Names found this way are
+    ADDED to the gate, never substituted for it, so the direction of a
+    lie is unchanged from the rest of this file: a forged name can only
+    ever close the gate on its own registration.
+
+    NONCLAIM, STATED HERE BECAUSE IT IS THE HONEST EDGE.  A callable
+    built with a globals dict that is no module's namespace --
+    ``types.FunctionType(code, {})`` -- resolves to nothing here, and the
+    gate then holds only the registrar and whatever ``__module__`` says.
+    That shape is not "the most ordinary factoring there is"; it is a
+    file already running arbitrary code inside ``lane_hooks`` and
+    deliberately hiding.  ``production_allowed`` is a REVIEW boundary,
+    not a sandbox, and this file does not claim to be one.
+    """
+    names = []
+    seen = set()
+    pending = [fn]
+    budget = _UNWRAP_BUDGET
+    while pending and budget > 0:
+        budget -= 1
+        target = pending.pop()
+        try:
+            if id(target) in seen:
+                continue
+            seen.add(id(target))
+            namespace = getattr(target, "__globals__", None)
+            if isinstance(namespace, dict):
+                names.append(_module_name_of_namespace(namespace))
+                continue
+            for attr in _UNWRAP_ATTRS:
+                # A property on an attacker-shaped object runs here; the
+                # whole body is inside the try for that reason, and an
+                # attribute that raises simply contributes no name.
+                nxt = getattr(target, attr, None)
+                if nxt is not None and callable(nxt):
+                    pending.append(nxt)
+            if not isinstance(target, type):
+                call = getattr(type(target), "__call__", None)
+                if getattr(call, "__globals__", None) is not None:
+                    pending.append(call)
+        except Exception:
+            continue
+    return tuple(name for name in names if name)
+
+
 def _gating_module_names(fn):
     """EVERY lane module the gate must clear for this registration.
 
@@ -244,6 +332,12 @@ def _gating_module_names(fn):
             break
         add(_module_name_of_namespace(frame.f_globals))
         depth += 1
+    # THE AUTHOR, BY IDENTITY, BEFORE THE AUTHOR BY ATTRIBUTE (D-A).
+    # ``_defining_module_names`` is the witness a deferred registration
+    # cannot shake off; ``__module__`` stays because it can still only
+    # ADD a module the gate must clear.
+    for defining in _defining_module_names(fn):
+        add(defining)
     add(getattr(fn, "__module__", None))
     return tuple(names)
 
