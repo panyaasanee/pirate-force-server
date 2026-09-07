@@ -25,7 +25,11 @@ from pirateforce_foundation.gm.command_capture import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from pf_gm_capture_mocks import close_that_really_closes_then_fails  # noqa: E402
+from pf_gm_capture_mocks import (  # noqa: E402
+    Cp874Stream,
+    close_that_really_closes_then_fails,
+    descriptors_opened_by,
+)
 
 
 @contextlib.contextmanager
@@ -935,10 +939,13 @@ class GmCommandCaptureTests(unittest.TestCase):
         # exact defect `console_safe`'s docstring records as already paid
         # for once. A StringIO has no `.encoding`, so this test uses a
         # stream that says cp874, which is what the bridge forces.
-        class _Cp874Stream(io.StringIO):
-            encoding = "cp874"
-
-        stream = _Cp874Stream()
+        #
+        # It used to define that stream INLINE as a StringIO subclass that
+        # only set `encoding` and never raised -- a fake that exercises the
+        # fold while still accepting whatever the fold missed. The shared
+        # `Cp874Stream` raises like the real console does, which is what
+        # made mutant M09 (the sibling test below) visible at all.
+        stream = Cp874Stream()
         printed = self._stuck_line_for(account="ทดสอบ", stream=stream)
         self.assertIn('account="ทดสอบ"', printed)
         self.assertNotIn("\\u0e17", printed)
@@ -1453,6 +1460,109 @@ class GmCommandCaptureTests(unittest.TestCase):
                 capture_raw_gm_command(b"x", "panya", capture_root=self.root, now_ts=0)
         leftover = list(Path(self.root).glob("*"))
         self.assertEqual(len(leftover), 1, leftover)
+
+    # ----- pf-adversary (round `wxh2tw`, M09/M37/M39/M42): four mutants ----
+    # ----- that walked through this file untouched. Each test below is ----
+    # ----- named for the mutant it kills, and was written by running -------
+    # ----- that mutant first and watching this file stay green (56 passed) -
+
+    def test_a_write_failure_leaves_no_descriptor_open(self):
+        # M37, measured: deleting `os.close(fd)` from the `except OSError as
+        # write_error` branch left this whole file at 56 passed. Every
+        # cleanup test here asks the DIRECTORY whether the file is gone,
+        # and on POSIX `unlink` succeeds with the descriptor still open, so
+        # `leftover == []` is true either way. On Windows the leaked handle
+        # locks the capture file for the life of the process -- the
+        # platform was the only thing enforcing this line.
+        #
+        # `os.close` is deliberately NOT mocked here: the point is that the
+        # real descriptor is really gone, not that a mock was called.
+        with descriptors_opened_by(command_capture) as opened:
+            with mock.patch.object(
+                command_capture.os, "write", side_effect=OSError("simulated ENOSPC"),
+            ), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(OSError):
+                    capture_raw_gm_command(
+                        b"x", "panya", capture_root=self.root, now_ts=0,
+                    )
+        self.assertEqual(len(opened), 1, opened)
+        with self.assertRaises(OSError):
+            os.fstat(opened[0])  # EBADF: nothing still holds the file open
+
+    def test_a_non_oserror_from_the_write_loop_leaves_no_descriptor_open(self):
+        # M39, the twin of M37 on the shutdown branch, and the one the
+        # existing `..._still_closes_and_cleans_up` test is NAMED after
+        # while only ever checking `leftover == []`. Same measurement:
+        # deleting `os.close(fd)` from the `except BaseException` branch
+        # left this file at 56 passed.
+        with descriptors_opened_by(command_capture) as opened:
+            with mock.patch.object(
+                command_capture.os, "write", side_effect=MemoryError("simulated"),
+            ), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(MemoryError):
+                    capture_raw_gm_command(
+                        b"x", "panya", capture_root=self.root, now_ts=0,
+                    )
+        self.assertEqual(len(opened), 1, opened)
+        with self.assertRaises(OSError):
+            os.fstat(opened[0])
+
+    def test_an_account_name_cp874_cannot_carry_still_yields_a_stuck_line(self):
+        # M09, measured: deleting the `console_safe(...)` wrapper from the
+        # ACCOUNT field of the stuck-file line left this file green, while
+        # its twin M10 on the `path` field died. The reason is the streams:
+        # every account-name test here used `io.StringIO`, which has no
+        # `encoding`, so `console_safe` folded to ASCII by default and the
+        # fold was never the thing being tested.
+        #
+        # The bridge console is `cp874`, which carries Thai (already pinned
+        # above) and cannot carry CJK. Without the fold, `print` raises
+        # `UnicodeEncodeError` inside the guard and the operator gets NO
+        # LINE AT ALL for a stuck capture file -- the exact defect
+        # `console_safe`'s own docstring records as already paid for once.
+        stream = Cp874Stream()
+        self._stuck_line_for(account="\u738b\u5c0f\u660e", stream=stream)
+        printed = stream.getvalue().splitlines()
+        self.assertEqual(
+            len(printed), 1,
+            "a CJK account name on a cp874 console must still produce the "
+            "stuck-file line, folded to what the console can carry",
+        )
+        self.assertIn(command_capture._UNLINK_STUCK_CONSOLE_TOKEN, printed[0])
+        self.assertIn("account=", printed[0])
+        self.assertNotIn("\u738b", printed[0])  # folded, not carried
+
+    def test_the_stuck_line_reports_the_attempts_this_call_actually_made(self):
+        # M42, measured: replacing `attempts={attempts}` with a literal `3`
+        # left this file green, because every test that read this line came
+        # in through the retrying path where 3 is also the true answer. The
+        # shutdown path passes `retry=False` and makes exactly ONE attempt
+        # (`_best_effort_unlink`'s own docstring: it must not sleep there),
+        # so an operator reading `attempts=3` after a Ctrl-C is told the
+        # cleanup tried three times when it tried once.
+        retrying = self._stuck_line_for(account="panya").splitlines()
+        self.assertEqual(len(retrying), 1, retrying)
+        self.assertIn(f"attempts={command_capture._UNLINK_ATTEMPTS}", retrying[0])
+
+        shutdown = io.StringIO()
+        with mock.patch.object(
+            command_capture.os, "write", side_effect=SystemExit(3),
+        ), mock.patch.object(
+            command_capture.os, "unlink",
+            side_effect=OSError("simulated Windows sharing violation"),
+        ), mock.patch.object(
+            command_capture.time, "sleep",
+        ), contextlib.redirect_stderr(shutdown):
+            with self.assertRaises(SystemExit):
+                capture_raw_gm_command(
+                    b"x", "panya", capture_root=self.root, now_ts=0,
+                )
+        printed = shutdown.getvalue().splitlines()
+        self.assertEqual(len(printed), 1, printed)
+        self.assertIn("attempts=1", printed[0])
+        # The two paths must not print the same number, or a literal
+        # satisfies both assertions above at once.
+        self.assertGreater(command_capture._UNLINK_ATTEMPTS, 1)
 
 
 if __name__ == "__main__":
