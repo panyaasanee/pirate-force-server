@@ -41,6 +41,13 @@ Scope of this file, stated plainly so it cannot be over-claimed later:
 lane's own committed catalog) only to flag a scene_id that has no known GM
 name -- it is a hint for the log, not a hard rule, because a scene_id
 missing from the catalog is not proof that warping there is invalid.
+
+``warp <scene name>`` is the one place that rule is deliberately asymmetric.
+A NUMBER is a wire value and stands on its own, so an id the catalog has
+never heard of is still parsed and still warped -- unchanged.  A NAME has no
+meaning at all except through that table, so for the name form the catalog
+IS the authority and an unknown name is a parse error.  The asymmetry is the
+point: it takes nothing away from the numeric form an operator already has.
 """
 from __future__ import annotations
 
@@ -70,7 +77,7 @@ from . import scene_catalog
 # `test_gm_chat_command_parse_way_out.py::TheDescriberItselfTests::
 # test_the_vocabulary_order_is_pinned_because_a_human_reads_it`.
 COMMAND_USAGE = {
-    "warp": "warp <scene_id> [x y]",
+    "warp": "warp <scene_id> [x y] | warp <scene name>",
     "npc": "npc on|off <mob_id>",
     "item": "item <id> <n>",
     "lv": "lv <n>",
@@ -313,6 +320,7 @@ def parse_gm_command(text: str) -> GmCommand:
 
     Grammar (owner's spec, notes_to_chief 20260826_1630 section GM-003):
       warp <scene_id> [x y]
+      warp <scene name>          (no x/y -- see _parse_warp_named)
       npc on|off <mob_id>
       item <id> <n>
       lv <n>
@@ -331,6 +339,8 @@ def parse_gm_command(text: str) -> GmCommand:
 
     if name == "warp":
         args = rest.split()
+        if args and not _is_int_literal(args[0]):
+            return _parse_warp_named(rest, stripped)
         if len(args) not in (1, 3):
             raise GmCommandParseError(COMMAND_USAGE["warp"])
         _require_int(args[0], "scene_id")
@@ -465,6 +475,71 @@ def usage_hint_for(body: str) -> str:
         # about the line that prompted it.
         return " | ".join(COMMAND_USAGE.values())
     return usage
+
+
+# How many scene ids an ambiguous name is allowed to print before the line
+# stops being readable.  `Hidden Island` is on twenty scenes in the client's
+# own table, and a way-out line that dumps twenty numbers is a way-out line
+# nobody reads.
+MAX_AMBIGUOUS_SCENE_IDS_SHOWN = 6
+
+
+def _is_int_literal(value: str) -> bool:
+    """True when `_require_int` would accept `value`.
+
+    Spelled against `int()` itself, not against `str.isdigit()` or a regex:
+    the numeric form must keep accepting exactly what it accepted before
+    this branch existed (`-1`, `+7`, `007`, and the underscore form `1_0`
+    that `int` takes), or a name form added for convenience would have
+    quietly narrowed the id form an operator already relies on.
+    """
+    try:
+        int(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
+    """`warp <scene name>` -> the same GmCommand `warp <scene_id>` produces.
+
+    Resolution happens HERE, at parse time, and the result is a plain
+    numeric `args` -- so every module downstream (`warp_executor`,
+    `chat_command_action`, the audit log, `describe_warp_target`) sees the
+    id form it already handles and learns nothing new.  `raw` keeps what the
+    operator actually typed, which is what the audit record is for.
+
+    NO x/y IN THIS FORM, on purpose.  52 of the table's 330 GM names end in
+    a digit (`Navy Prison2`, `Atlantic Ocean1`, `Deep Sea Temple ...  2`),
+    so "the last two tokens are coordinates" cannot be told apart from "the
+    name ends in numbers" by any rule that is right in both directions.
+    Rather than guess, `warp Navy Prison2 10 20` is refused and the way-out
+    line names the id form, which carries x/y with no ambiguity at all.
+
+    NO ECHO OF THE TYPED TEXT in any message raised here.  These lines reach
+    a cp874 console, the operator can already see what they typed, and a
+    message that repeats arbitrary client-supplied text is one unlucky
+    character away from killing the console it is trying to help.  (This is
+    strictly less echoing than the `_require_int` path this branch replaced,
+    which put the raw token in its message.)
+    """
+    matches = scene_catalog.resolve_gm_scene_name(rest)
+    if not matches:
+        raise GmCommandParseError(
+            "no GM scene carries that name in the catalog "
+            f"({scene_catalog.GM_NAME_COUNT} names over "
+            f"{scene_catalog.SCENE_COUNT} scenes); "
+            f'use {COMMAND_USAGE["warp"]!r}'
+        )
+    if len(matches) > 1:
+        shown = ", ".join(str(i) for i in matches[:MAX_AMBIGUOUS_SCENE_IDS_SHOWN])
+        if len(matches) > MAX_AMBIGUOUS_SCENE_IDS_SHOWN:
+            shown += ", ..."
+        raise GmCommandParseError(
+            f"that name is on {len(matches)} scenes ({shown}); "
+            "retype it as warp <scene_id> to say which one"
+        )
+    return GmCommand("warp", (str(matches[0]),), stripped)
 
 
 def _require_int(value: str, label: str) -> None:
