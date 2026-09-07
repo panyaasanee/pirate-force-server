@@ -327,8 +327,12 @@ def source_hit_location(name, py_files=None):
 def _build_source_hits(names, py_files):
     """One pass over every file in ``py_files`` (sorted, so deterministic):
     for every identifier token on a line that is neither a full-line comment
-    nor part of a docstring, record the FIRST ``"relpath:line"`` it is seen
-    at, for every name in ``names`` that is still unresolved.
+    nor part of a docstring, record the ``"relpath"`` of the FIRST line it is
+    seen at, for every name in ``names`` that is still unresolved.
+
+    The FILE, not ``"relpath:line"`` -- this sentence still said `:line` for a
+    round after the value stopped carrying it (round `jx6r5p`). Use
+    ``source_hit_location()`` / ``--where`` when the line itself is wanted.
 
     TWO kinds of line are skipped, for the same reason -- both are this
     codebase's own prose about the game, not references to it:
