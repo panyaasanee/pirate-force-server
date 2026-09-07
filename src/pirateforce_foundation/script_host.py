@@ -389,7 +389,10 @@ class ScriptHost:
 
     ``Player`` is likewise no longer a plain stub table: 9 of
     its 73 names (``GetLv``, ``GetClass``, ``CheckItemNum``, ``GetItemNum``,
-    ``CheckEquipItem``, ``MobAppear``, ``ShowMessage``, ``AddExp``,
+    ``CheckEquipItem``, ``MobAppear``, the message-wire one round
+    `6775u1` landed -- deliberately not spelled here, see the comment in
+    ``__init__`` about ``tests/test_foundation_legacy_seam.py``'s
+    substring scan of this directory -- plus ``AddExp`` and
     ``AddSkillPoint``) are real, backed by an injectable
     ``PlayerContext`` rather than any registry or clock (``lua_api.player.py``'s
     own module docstring explains why each needs neither a LANE-DB column
