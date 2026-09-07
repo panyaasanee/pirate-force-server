@@ -17,9 +17,13 @@ it has to be nailed to something that does not move when the source does.
 """
 
 import ast
+import collections.abc
+import dataclasses
 import math
 import pathlib
+import re
 import sys
+import types
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -48,6 +52,22 @@ PINNED_DUMMY_TEMPLATE_ID = 916
 # widened instead of quietly measuring the wrong ceiling.
 LEVEL_PROBE_SPAN = 4096
 
+
+
+class _ASetSubclass(collections.abc.Set):
+    """An unordered container the type blacklist never listed (D6)."""
+
+    def __init__(self, values):
+        self._values = frozenset(values)
+
+    def __contains__(self, value):
+        return value in self._values
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
 
 
 def _ABOVE_CEILING_PROBES(ceiling):
@@ -900,6 +920,275 @@ class ItAnswersOnlyForTheDummyAndOnlyForAnOrderedRequest(unittest.TestCase):
     def test_an_ordered_request_of_the_same_levels_is_answered(self):
         rows = projection.project_levels(town_target_mob(), [100, 1, 7])
         self.assertEqual(tuple(row.level for row in rows), (100, 1, 7))
+
+
+class TheMobArgumentIsThisModulesRefusalToo(unittest.TestCase):
+    """D3: the `mob` half of the T1-A leak, and both of its doors.
+
+    T1-A renamed the refusals that come out of the PIN.  The refusals that
+    come out of the MOB kept `mob_combat`'s own class name, so a caller who
+    wrote the sentence this module's hierarchy invites -- `except
+    projection.LevelProjectionError` -- caught nothing for the commonest
+    mistake there is: handing in something that is not a roster record.
+    """
+
+    def _entry_points(self, mob):
+        """Every public name in `__all__` that takes a `mob`, called."""
+        return {
+            "damage_at_level":
+                lambda: projection.damage_at_level(7, mob),
+            "hits_to_fell_at_level":
+                lambda: projection.hits_to_fell_at_level(7, mob),
+            "hits_to_fell_from_hp":
+                lambda: projection.hits_to_fell_from_hp(7, mob, 192779),
+            "final_hit_damage_at_level":
+                lambda: projection.final_hit_damage_at_level(7, mob),
+            "project_levels":
+                lambda: projection.project_levels(mob, (7,)),
+            "production_pin_row":
+                lambda: projection.production_pin_row(mob),
+        }
+
+    def test_a_duck_typed_stand_in_is_refused_by_this_modules_hierarchy(self):
+        """The exact object adversary walked through the template gate."""
+        dummy = town_target_mob()
+        impostor = types.SimpleNamespace(
+            template_id=dummy.template_id,
+            max_hp=dummy.max_hp,
+            level=dummy.level,
+        )
+        for name, call in self._entry_points(impostor).items():
+            with self.subTest(entry_point=name):
+                with self.assertRaises(
+                        projection.NotTheTypedMobRecordError) as caught:
+                    call()
+                # And it is still catchable as the base refusal, which is the
+                # sentence that used to catch nothing here.
+                self.assertIsInstance(
+                    caught.exception, projection.LevelProjectionError)
+
+    def test_the_two_mob_doors_do_not_report_each_others_mistake(self):
+        """Not-a-record and wrong-record are different names (D3).
+
+        Collapsing them is how a caller who handed in a `SimpleNamespace`
+        goes looking for the wrong template id.
+        """
+        dummy = town_target_mob()
+        wrong_monster = dataclasses.replace(dummy, template_id=31)
+        not_a_record = types.SimpleNamespace(
+            template_id=dummy.template_id, max_hp=dummy.max_hp,
+            level=dummy.level)
+        with self.assertRaises(projection.NotThePracticeDummyError):
+            projection.damage_at_level(7, wrong_monster)
+        with self.assertRaises(projection.NotTheTypedMobRecordError):
+            projection.damage_at_level(7, not_a_record)
+
+    def test_the_deeper_type_door_is_on_a_path_something_walks(self):
+        """The second half of D3.
+
+        Adding the template gate for T1-E left `mob_combat.mob_defender`'s
+        "must be the typed FieldMob record" refusal true of no reachable
+        call from this module: the gate read one attribute and refused first.
+        This asserts the deeper door is the one that fires, by NAME, for a
+        stand-in the template gate would have waved through.
+        """
+        dummy = town_target_mob()
+        impostor = types.SimpleNamespace(
+            template_id=dummy.template_id, max_hp=dummy.max_hp,
+            level=dummy.level)
+        with self.assertRaises(
+                projection.NotTheTypedMobRecordError) as caught:
+            projection.damage_at_level(7, impostor)
+        self.assertIsInstance(
+            caught.exception.__cause__, mob_combat.MobCombatContractError)
+        self.assertEqual(
+            caught.exception.__cause__.reason,
+            mob_combat.REFUSE_TYPE_NOT_TYPED_RECORD)
+
+
+class NothingDeeperKnowsThisModulesRefusals(unittest.TestCase):
+    """D4: the deleted branch was dead, and this is what keeps it dead.
+
+    `_shipped_pin` opened with `except LevelProjectionError: raise` and a
+    comment saying "already ours; keep its name".  `mob_combat` has never
+    heard of `LevelProjectionError`, so the branch was a sentence about a
+    path nothing walks -- the same defect T1-C had just been raised about,
+    reintroduced two functions away in the commit that fixed it.
+
+    Deleting it is not something a behaviour test can pin (that is the whole
+    point of it being dead).  What CAN be pinned is the fact that made it
+    dead, so the day someone couples the two modules the other way round,
+    this goes red instead of the branch quietly becoming necessary again.
+    """
+
+    def test_mob_combat_raises_nothing_from_this_modules_hierarchy(self):
+        source = (ROOT / "src" / "pirateforce_foundation"
+                  / "mob_combat.py").read_text(encoding="utf-8")
+        self.assertNotIn("LevelProjectionError", source)
+        self.assertNotIn("damage_level_projection", source)
+
+
+class TheCeilingIsTheRecordsOwnAndNotTheProbeWindows(unittest.TestCase):
+    """D5: an accepted island above the probe span used to be invisible."""
+
+    def test_the_declared_bounds_are_the_ones_the_record_enforces(self):
+        lo, hi = _declared_level_bounds()
+        self.assertEqual(lo, 1)
+        self.assertEqual(hi, COMBATANT_MAX_LEVEL)
+
+    def _with_post_init(self, replacement):
+        original = mob_combat.Combatant.__post_init__
+        mob_combat.Combatant.__post_init__ = replacement
+        self.addCleanup(
+            setattr, mob_combat.Combatant, "__post_init__", original)
+
+    def test_an_accepted_island_above_the_ceiling_is_caught(self):
+        """Adversary's construction, run against the new helper.
+
+        `[1, 1000] u [5000, 6000]` left the previous helper measuring 1000
+        and the whole suite green.  The sampled probes include `5 * hi`, so
+        it is now named.
+        """
+        lo, hi = _declared_level_bounds()
+
+        def islanded(self_):
+            if lo <= self_.level <= hi or 5 * hi <= self_.level <= 6 * hi:
+                return
+            raise ValueError("level")
+
+        self._with_post_init(islanded)
+        with self.assertRaises(AssertionError) as caught:
+            _combatant_max_level()
+        self.assertIn("above the declared gate", str(caught.exception))
+
+    def test_a_second_gate_in_the_body_is_caught_before_any_probing(self):
+        """Step 1: the accepted set is ONE range check, and that is checked."""
+        source = (ROOT / "src" / "pirateforce_foundation"
+                  / "mob_combat.py").read_text(encoding="utf-8")
+        self.assertIn('_require_int(self.level, "level", 1, 1000)', source)
+
+    def test_a_hole_inside_the_declared_band_is_still_caught(self):
+        lo, hi = _declared_level_bounds()
+
+        def holed(self_):
+            if lo <= self_.level <= hi and not (100 < self_.level < 200):
+                return
+            raise ValueError("level")
+
+        self._with_post_init(holed)
+        with self.assertRaises(AssertionError) as caught:
+            _combatant_max_level()
+        self.assertIn("not the interval", str(caught.exception))
+
+
+class TheOrderCheckAsksForOrderAndNotForAListOfTypes(unittest.TestCase):
+    """D6: the blacklist was three types somebody thought of."""
+
+    def test_the_three_containers_that_walked_through_the_blacklist(self):
+        mob = town_target_mob()
+        cases = {
+            "dict_keys": {1: None, 7: None}.keys(),
+            "generator": (level for level in {1, 7, 100}),
+            "abc_Set_subclass": _ASetSubclass({1, 7}),
+        }
+        for kind, unordered in cases.items():
+            with self.subTest(kind=kind):
+                with self.assertRaises(projection.UnorderedLevelRequestError):
+                    projection.project_levels(mob, unordered)
+
+    def test_the_ordered_containers_are_all_still_answered(self):
+        mob = town_target_mob()
+        for ordered in ([7], (7,), range(7, 8)):
+            with self.subTest(kind=type(ordered).__name__):
+                rows = projection.project_levels(mob, ordered)
+                self.assertEqual(tuple(row.level for row in rows), (7,))
+
+    def test_a_string_says_why_it_is_refused_and_it_is_not_about_order(self):
+        with self.assertRaises(projection.UnorderedLevelRequestError) as one:
+            projection.project_levels(town_target_mob(), "7")
+        self.assertIn("one element at a time", str(one.exception))
+        with self.assertRaises(projection.UnorderedLevelRequestError) as two:
+            projection.project_levels(town_target_mob(), {1, 7})
+        self.assertIn("Sequence", str(two.exception))
+
+
+class EveryCrossFileCitationIsAPhraseAndTheFileReallySaysIt(
+        unittest.TestCase):
+    """D9: a line number into another file is a pin that nothing pins.
+
+    `:128` was wrong; T1-F "fixed" it to `:8-13`, a line number for a
+    docstring that had already moved once, and nothing could tell.  The
+    citations are quoted phrases now and this is the test that makes them
+    cost something.
+    """
+
+    MODULE = (ROOT / "src" / "pirateforce_foundation"
+              / "damage_level_projection.py")
+
+    def test_the_module_cites_no_line_number_in_another_file(self):
+        text = self.MODULE.read_text(encoding="utf-8")
+        offenders = re.findall(r"[A-Za-z_][A-Za-z0-9_]*\.py:\d+", text)
+        self.assertEqual(
+            offenders, [],
+            "cross-file line-number citations are back: %r.  Cite a quoted "
+            "phrase and assert it here instead." % (offenders,))
+
+    def test_the_quoted_phrases_are_in_the_files_they_are_attributed_to(self):
+        cited = {
+            "damage_town_target.py": [
+                "the owner photographed",
+                "R322C_OBSERVED_",
+                # D8's answer is anchored to the file that owns it, so the
+                # day that sentence is edited or deleted, the projection
+                # module's claim about WHOSE hp 192779 is goes red with it.
+                "ONE connection's combat ledger",
+            ],
+            "mob_combat.py": [
+                "pin_attacker",
+                "HP_FLOOR",
+                "apply_hit",
+            ],
+        }
+        module_text = self.MODULE.read_text(encoding="utf-8")
+        for filename, phrases in cited.items():
+            target = (ROOT / "src" / "pirateforce_foundation" / filename)
+            body = target.read_text(encoding="utf-8")
+            for phrase in phrases:
+                with self.subTest(file=filename, phrase=phrase):
+                    self.assertIn(phrase, module_text)
+                    self.assertIn(phrase, body)
+
+
+class TheRequestThisModuleAnswersIsAddressedAndNotJustNamed(
+        unittest.TestCase):
+    """D10: `CORE-REQUEST row 032` is not openable from this repository.
+
+    `grep -rn "CORE-REQUEST row 032"` over this tree finds only this module
+    and this file citing each other.  A reader who cannot open the row cannot
+    check any sentence that begins "row 032 says".  The row lives in the
+    BRIDGE repository, so the module addresses it by path -- and this test
+    deliberately does NOT go and read that path: `pf_gate_preflight` runs
+    this suite with no `pf_bridge` beside it, and a test that needs the
+    sibling repository present is a test that is red on the gate machine.
+    """
+
+    def test_the_module_addresses_the_row_by_repository_path(self):
+        text = ((ROOT / "src" / "pirateforce_foundation"
+                 / "damage_level_projection.py")
+                .read_text(encoding="utf-8"))
+        self.assertIn("pf_bridge/CHIEF_CONTINUATION.md", text)
+        self.assertIn(
+            "pf_bridge/notes_to_chief/20260907_0618_LANE-CS-CORE-REQUEST"
+            "-attacker-level-from-the-real-character.md", text)
+
+    def test_the_third_condition_is_quoted_and_not_pointed_at(self):
+        text = ((ROOT / "src" / "pirateforce_foundation"
+                 / "damage_level_projection.py")
+                .read_text(encoding="utf-8"))
+        self.assertIn(
+            "fall back to the pin together\nwith a NAMED event, never a "
+            "silent 0", text)
+
 
 
 if __name__ == "__main__":

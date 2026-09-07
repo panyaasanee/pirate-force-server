@@ -94,6 +94,54 @@ is a dummy nobody has touched.  R322C started at 192779 and takes 217 swings,
 not 223.  :func:`hits_to_fell_from_hp` is the same count from a stated hp, so
 the watched run and the full-bar table can never be quoted for each other.
 
+THE ONE IMPORT FROM ANOTHER LANE'S MODULE, AND WHY IT STAYS (D7).  This file
+names `field_mobs.TOWN_TARGET_N_ID`, which puts it in the textual importer
+list `tests/test_field_mobs.py` pins -- LANE-B's file, widened by LANE-CS in
+round `623ivx`.  pf-adversary was right that this needs deciding rather than
+explaining, and right that `damage_town_target.py`'s own docstring calls a
+move of that shape "trespassing to save one function call".  DECIDED: the
+import stays, and here is the difference from the move that sentence refused,
+because leaving the two files contradicting each other is worse than either
+choice.
+
+  * What `damage_town_target` refused was LOOKING THE ROW UP -- reading the
+    default roster to find the dummy itself.  That is a dispatch: the module
+    would decide WHICH monster it is about, out of another lane's table, at
+    call time.  It takes the row as an argument instead, and still does.
+  * What this module does is read ONE public integer constant to compare an
+    argument against.  The caller still hands in the row.  It reads no
+    roster, and `runtime.py`/`app.py` were grepped for it with zero hits.
+
+  * The alternatives were weighed and are both worse.  Re-typing `916` here
+    breaks the rule this lane is under -- no number without a source.  Taking
+    the id as a caller-supplied argument hands the caller the power to say
+    `subject_template_id=31`, which is EXACTLY the defect T1-E was raised
+    about, dressed as a parameter.
+  * And it is the mechanism that file offers on purpose: LANE-A's
+    `world_scene_registry.py` and five LANE-B modules are in the same list by
+    the same "WIDENED AGAIN" comment form.  Being in a textual importer
+    census is not trespass; the census exists to be added to with a stated
+    reason, which round `623ivx` did, and told LANE-B by letter.
+
+WHOSE HP IS 192779, AND THEREFORE WHOSE COUNT IS 217 (D8).  Answered, not
+deferred: it is ONE CONNECTION'S.  `damage_town_target.py`'s own docstring
+says so in the sentence naming it as the dummy's hp inside
+ONE connection's combat ledger -- `runtime.py` opens that ledger per
+connection,
+so a second player standing in the same scene at that instant would have
+seen 198125.  Two consequences this module now carries in its own text
+rather than leaving to a reader:
+
+  * `hits_to_fell_from_hp(level, mob, 192779) == 217` is a statement about
+    the connection R322C was watching, NOT about the dummy in the scene.
+  * `hits_to_fell_at_level` (from `max_hp`) is not "the shared truth" either.
+    It is the count for a connection whose ledger has just opened.  There is
+    no per-scene hp for this dummy today to be the third answer.
+
+  So neither column may be quoted as "how many hits the dummy takes"
+  full stop, and the difference between them (223 vs 217) is not a
+  discrepancy to be reconciled -- it is two connections.
+
 WHAT IS OPEN.  `ability_str` stays at the pin for every row here, because
 CORE-REQUEST row 032 moves the level half only.  A character's real STR is
 `RE-293`'s question, and `COO-DECISION 20260907_1441` closed it as a DESIGN
@@ -443,6 +491,13 @@ def hits_to_fell_at_level(level: int, mob: Any) -> int:
     "From full" is load-bearing, not decoration: R322C did not start from
     full.  :func:`hits_to_fell_from_hp` is the same count from a stated hp,
     and on this dummy it answers 217 from 192779 where this one answers 223.
+
+    D8: NEITHER NUMBER IS "THE DUMMY'S".  Both are per-CONNECTION, because
+    the ledger the hp comes out of is per connection -- see the module
+    docstring.  This one is the count for a connection whose ledger has just
+    opened; 217 is the count for the one R322C watched.  A letter that
+    quotes either as "how many hits Training Iron Man takes" has dropped the
+    only qualifier that makes it true.
     """
     return hits_to_fell_from_hp(level, mob, None)
 
