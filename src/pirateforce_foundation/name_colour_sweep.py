@@ -188,22 +188,42 @@ FACTION_CANDIDATES = (7, 12, 999)
 # a local player already built the factory returns NULL and there is no
 # object in the manager at all, nothing to exempt and nothing to survive.
 #
-# NONCLAIM, and it is the open question of this candidate: report line 53
+# WHY 5 IS IN, and the nonclaim that used to stand here is WITHDRAWN --
+# RE-290 RESULT, 2026-09-07T10:27+07:00 (pf_bridge notes_to_chief/
+# 20260907_1027_RE-290-RESULT-cavatarnpc-builds-the-same-nameboardnpc-as-
+# cnetnpc.md), the ticket this lane opened in round b08g3z.  Report line 53
 # names 5 CAvatarNPC, line 105 places it as a CHILD of CNetNPC (4, what we
 # emit today), lines 168/170 show 4 and 5 sharing the +0x74/+0x78 name
 # GETTERS off actor+0x358, and line 62 shows both gated the same way by the
-# factory flag [this+0x6D] -- so 5 is a real flip of the envelope's class
-# under a controlled comparison.  But the name BOARD is built by vtable
-# +0x7C (report section 4, lines 175-177) and the report pins +0x7C for
-# CNetActor (0x456580) and CNetNPC (0x45C560) ONLY.  CAvatarNPC has its own
-# vtable (0xF0DFF8) and NOTHING committed in either repository carries its
-# +0x7C.  Report line 292 says so itself: whether CAvatarNPC is reachable
-# from a server-side stream "was not traced".  So: 5 is strictly better than
-# 3 (3 is proven to build no object; 5 is not proven to draw no board) and
-# it is NOT proven to draw one.  RE ticket body for the one dword that
-# settles it -- [0xF0DFF8 + 0x7C] vs 0x45C560 -- went to LANE-K in round
-# b08g3z; until it comes back, an AT5 row showing no nameplate is a known
-# possible outcome of set 2 and must not be recorded as a colour FAIL.
+# factory flag [this+0x6D].  What was missing was the name BOARD: the board
+# is built by vtable +0x7C and the report pinned +0x7C for CNetActor
+# (0x456580) and CNetNPC (0x45C560) ONLY, so an AT5 row showing no nameplate
+# had to be allowed as a possible outcome of set 2.  RE-290 read the dword:
+#
+#     [0xF0DFF8 + 0x7C] = 0x0045C560
+#
+# -- byte for byte the CNetNPC creator, cross-checked at the target's own
+# prologue (push 0xC0 = sizeof NameBoardNPC, against push 0x78 =
+# NameBoardPlayer at CNetActor's 0x456580).  CAvatarNPC therefore builds the
+# SAME NameBoardNPC.  An AT5 row has a nameplate to colour, so an AT5 row
+# showing no nameplate is a FAIL of this experiment, not an expected
+# outcome, and the escape clause the old text handed the attended tester is
+# gone.
+#
+# THE NARROW GREP RE-290 ASKED THIS LANE TO RUN BEFORE CONSUMING IT (its
+# "limitations" section: the runner hit the round's minute line before it
+# could tell which of six files matched which word).  Run in round mhr9y6
+# over the six named files under pf_bridge notes_to_chief/
+# reference_codex_attr/ (PF_MONSTER_PRESENTATION.tsv does not exist in
+# either repository; the other five do): every case-insensitive hit on
+# "cavatarnpc" and "f0dff8" is ZERO, and every hit on "45c560" outside the
+# span_sha256 column is the SAME single row, PF_MONSTER_COLOR_GATE.tsv
+# MCG-IMG-044 NAMEBOARD_CONTROLLER_BIND, whose span_start_va is 0x0045C560
+# for CNetNPC.  So the house had this value already, for the OTHER class,
+# and RE-290's read agrees with it -- which is the "same value, treat as
+# re-confirmation" branch the letter itself named.  The bulk case-insensitive
+# hits on "45c560" in all five files are substrings of sha256 digests, not
+# addresses.
 NPC_ATTR_BINDING_ACTOR_TYPES = frozenset({4, 5})
 
 #: The committed artifact :data:`NPC_ATTR_BINDING_ACTOR_TYPES` is derived

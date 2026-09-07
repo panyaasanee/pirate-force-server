@@ -252,6 +252,258 @@ class NameColourSweepOneFieldPerCandidateTests(unittest.TestCase):
 
 
 @BRIDGE_GAMEDATA.skip_unless_present()
+class NameColourSweepEntryByteReadbackTests(unittest.TestCase):
+    """Round mhr9y6: the fields are read back OUT OF THE ENTRY BYTES.
+
+    WHY THIS CLASS EXISTS.  pf-adversary, round occzj8, finding D1
+    (CRITICAL) and finding D4 (eight surviving mutants).  Everything this
+    module ships for GT-288 set 2 was asserted against the ``SweepActor``
+    DECLARATION -- ``actor.actor_type``, ``actor.label`` -- and nothing ever
+    opened the bytes ``sweep_entries`` actually hands ``runtime.py``.  The
+    measured consequence: pinning the encoder to a constant
+    (``legacy.make_remote_actor_entry(4, ...)`` at what is now
+    :func:`name_colour_sweep.sweep_entries`) left the whole repository green,
+    13242 passed, AND left the armed console line identical character for
+    character -- ``NAME_COLOUR_SWEEP_ARMED actors=6 census_actors=108
+    wire=114`` counts ROWS, and the field set 2 exists to flip is the one
+    field nobody read back.  A build with the experiment disarmed was
+    indistinguishable from a build with it armed, by test and by console.
+
+    Every assertion below therefore starts from ``sweep_entries`` output and
+    compares against a value composed with ``current/pf_login_game_server_
+    v141.py``'s OWN tag encoders -- chief's frozen file, not this lane's --
+    so the comparator is never the function under test.  That is the
+    difference from ``test_actor_type_candidate_body_is_unaffected_by_
+    actor_type`` above, which builds its expectation with the same helper it
+    is checking (pf-adversary occzj8 D4 named that too, and it is the reason
+    the matrix test here reads a preset out of the wire instead).
+
+    NONCLAIM: nothing here says a client draws any of it.  These are wire
+    bytes on this machine.  What a nameplate does with actor_type 5 is
+    RE-290's answer and GT-288 set 2's attended reading, not this file's.
+    """
+
+    #: ``make_remote_actor_entry``'s first field, ``current/pf_login_game_
+    #: server_v141.py`` line 1252: "tag0B u8 actor type, tag32 qword
+    #: identity, ...".  Pinned by ``test_the_entry_serializer_still_leads_
+    #: with_the_actor_type_tag`` rather than trusted, because every other
+    #: test in this class reads the first two bytes as if it were true.
+    ACTOR_TYPE_TAG = 0x0B
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def _armed(self):
+        """``{label: (actor, entry)}`` for set 2, rows paired to their bytes.
+
+        ``sweep_actors`` and ``sweep_entries`` are separate calls over the
+        same generator, so the pairing is asserted, not assumed.
+        """
+        env = {"PF_NAME_COLOUR_SWEEP": "2"}
+        actors = name_colour_sweep.sweep_actors(self.legacy, env=env)
+        entries = name_colour_sweep.sweep_entries(self.legacy, env=env)
+        self.assertEqual(len(actors), len(entries))
+        self.assertEqual(len(actors), 6, "set 2 is six rows")
+        return {a.label: (a, e) for a, e in zip(actors, entries)}
+
+    def test_the_entry_serializer_still_leads_with_the_actor_type_tag(self) -> None:
+        # The wire assumption the rest of this class rests on, taken from
+        # the serializer itself with an actor_type this module never emits.
+        entry = self.legacy.make_remote_actor_entry(7, 1, [])
+        self.assertEqual(entry[:2], bytes([self.ACTOR_TYPE_TAG, 7]))
+        self.assertEqual(
+            entry[:2], bytes(self.legacy.u8tag(self.ACTOR_TYPE_TAG, 7)),
+        )
+
+    def test_every_entry_carries_the_actor_type_the_row_declares(self) -> None:
+        """pf-adversary occzj8 D1: the mutant this kills.
+
+        Pin ``sweep_entries``' ``actor.actor_type`` argument to any constant
+        and this goes red on the rows whose declaration no longer matches
+        the byte -- which is the whole experiment, since set 2's AT5 rows
+        are the flip.
+        """
+        seen = {}
+        for label, (actor, entry) in self._armed().items():
+            with self.subTest(label=label):
+                self.assertEqual(
+                    entry[:2],
+                    bytes(self.legacy.u8tag(
+                        self.ACTOR_TYPE_TAG, actor.actor_type)),
+                    "%s declares actor_type %d and the entry does not carry "
+                    "it" % (label, actor.actor_type),
+                )
+                seen[label] = entry[1]
+        # ...and the flip is really on the wire: two distinct values, and
+        # both of them are values NPCAttr is known to bind to.
+        self.assertEqual(
+            set(seen.values()),
+            {field_mobs.NPC_STYLE_ACTOR_TYPE,
+             name_colour_sweep.ACTOR_TYPE_CANDIDATE},
+        )
+        for label, value in seen.items():
+            self.assertIn(
+                value, name_colour_sweep.NPC_ATTR_BINDING_ACTOR_TYPES, label)
+
+    def test_every_entry_carries_the_label_the_row_declares(self) -> None:
+        """The nameplate text is the only thing an attended tester reads.
+
+        pf-adversary occzj8 D4 mutant S2 (``basic_name`` -> "DUMMY")
+        survived the whole suite: the labels were asserted unique and ASCII
+        as PYTHON strings, never as bytes inside what is sent.
+        """
+        for label, (actor, entry) in self._armed().items():
+            with self.subTest(label=label):
+                encoded = label.encode("utf-16-le")
+                self.assertIn(encoded, actor.npc_attr)
+                self.assertIn(encoded, entry)
+                self.assertEqual(
+                    entry.count(encoded), 1,
+                    "%s appears %d times in its own entry" % (
+                        label, entry.count(encoded)),
+                )
+
+    def test_every_entry_carries_its_body_and_a_full_movement_mask(self) -> None:
+        """S8 (movement mask -> 0) survived too.
+
+        A zero mask is not a cosmetic difference: the row is placed by the
+        movement attr, so a masked-out position is a dummy the tester cannot
+        walk to.  Checked by composing both masks with the legacy encoder
+        and asserting which one is in the entry.
+        """
+        from pirateforce_foundation.population import (
+            FULL_MOVEMENT_MASK, MOVEMENT_ATTR_ID, NPC_ATTR_ID,
+        )
+        for label, (actor, entry) in self._armed().items():
+            with self.subTest(label=label):
+                self.assertIn(actor.npc_attr, entry)
+                self.assertIn(
+                    bytes(self.legacy.u16tag(0x12, NPC_ATTR_ID)), entry)
+                self.assertIn(
+                    bytes(self.legacy.u16tag(0x12, MOVEMENT_ATTR_ID)), entry)
+                full = self.legacy.make_remote_movement_attr(
+                    actor.actor_identity, actor.x, actor.y, actor.z, 0.0,
+                    mask=FULL_MOVEMENT_MASK,
+                )
+                self.assertIn(full, entry)
+                empty = self.legacy.make_remote_movement_attr(
+                    actor.actor_identity, actor.x, actor.y, actor.z, 0.0,
+                    mask=0,
+                )
+                self.assertNotIn(empty, entry)
+
+    def test_set_2_is_a_one_field_matrix_on_both_families(self) -> None:
+        """The design of set 2, held on BOTH families.
+
+        pf-adversary occzj8 D4, the finding under the eight mutants: "differs
+        from its own BASE by exactly one field" was only ever pinned on the
+        NPC side.  ``M-BASE`` was never compared with ``M-SKIN`` or
+        ``M-AT5`` by anything, so mutants that gave the mob rows a second
+        difference (S3, S5, S6) or moved the flip onto the wrong row all
+        survived.
+
+        Each row reduces to ``(actor_type from the entry bytes, which of the
+        three known presets its body carries)`` and each candidate must
+        differ from the BASE OF ITS OWN FAMILY in exactly one of the two.
+        """
+        presets = {
+            "npc_base": name_colour_sweep.NPC_BASE_VISUAL_PRESET,
+            "skin": name_colour_sweep.SKIN_CANDIDATE_VISUAL_PRESET,
+            "mob_base": name_colour_sweep._mob_prototype().visual_preset,
+        }
+        self.assertEqual(
+            len(set(presets.values())), 3,
+            "the three presets must be distinguishable in the wire body",
+        )
+        candidate = name_colour_sweep.ACTOR_TYPE_CANDIDATE
+        plain = field_mobs.NPC_STYLE_ACTOR_TYPE
+        expected = {
+            "N-BASE": (plain, "npc_base"),
+            "N-AT%d" % candidate: (candidate, "npc_base"),
+            "N-SKIN": (plain, "skin"),
+            "M-BASE": (plain, "mob_base"),
+            "M-AT%d" % candidate: (candidate, "mob_base"),
+            "M-SKIN": (plain, "skin"),
+        }
+        armed = self._armed()
+        self.assertEqual(set(armed), set(expected))
+        observed = {}
+        for label, (actor, entry) in armed.items():
+            carried = [
+                name for name, text in presets.items()
+                if text.encode("utf-16-le") in actor.npc_attr
+            ]
+            self.assertEqual(
+                len(carried), 1,
+                "%s carries presets %r, a row must carry exactly one" % (
+                    label, carried),
+            )
+            observed[label] = (entry[1], carried[0])
+        self.assertEqual(observed, expected)
+        # ...and, stated as the property rather than as the table: one axis
+        # moves per candidate, on each family, against that family's base.
+        for base_label, candidates in (
+            ("N-BASE", ("N-AT%d" % candidate, "N-SKIN")),
+            ("M-BASE", ("M-AT%d" % candidate, "M-SKIN")),
+        ):
+            for label in candidates:
+                with self.subTest(base=base_label, candidate=label):
+                    moved = [
+                        axis for axis, (was, now) in enumerate(
+                            zip(observed[base_label], observed[label]))
+                        if was != now
+                    ]
+                    self.assertEqual(
+                        len(moved), 1,
+                        "%s vs %s moved axes %r; set 2 is a one-field "
+                        "comparison" % (base_label, label, moved),
+                    )
+
+    def test_no_row_in_set_2_moves_the_faction_field(self) -> None:
+        """S6 (``M-SKIN`` also gets faction 7) survived the suite.
+
+        Set 1 is the faction experiment; set 2 must hold faction still or
+        the two experiments are confounded on the same screen.  Bounded
+        check, and it is a nonclaim about anything wider: it asks whether
+        the exact ``FACTION_TAG`` u32 encoding of some OTHER small value is
+        present, not whether the body is faction-free in general.
+        """
+        armed = self._armed()
+        for label in ("M-BASE", "M-AT%d" % name_colour_sweep.ACTOR_TYPE_CANDIDATE,
+                      "M-SKIN"):
+            actor = armed[label][0]
+            with self.subTest(label=label):
+                self.assertIn(
+                    bytes(self.legacy.u32tag(
+                        field_mobs.FACTION_TAG, field_mobs.FIELD_MOB_FACTION)),
+                    actor.npc_attr,
+                )
+                for other in range(1, 16):
+                    if other == field_mobs.FIELD_MOB_FACTION:
+                        continue
+                    self.assertNotIn(
+                        bytes(self.legacy.u32tag(
+                            field_mobs.FACTION_TAG, other)),
+                        actor.npc_attr,
+                        "%s carries faction %d as well" % (label, other),
+                    )
+        for label in ("N-BASE", "N-AT%d" % name_colour_sweep.ACTOR_TYPE_CANDIDATE,
+                      "N-SKIN"):
+            actor = armed[label][0]
+            with self.subTest(label=label):
+                mask_at = field_mobs._basic_mask_offset(
+                    self.legacy, actor.npc_attr, actor.actor_identity)
+                mask = int.from_bytes(
+                    actor.npc_attr[mask_at:mask_at + 2], "little")
+                self.assertFalse(
+                    mask & field_mobs.BASIC_BIT_FACTION,
+                    "%s set the faction bit; set 2 is not the faction "
+                    "experiment" % (label,),
+                )
+
+
+@BRIDGE_GAMEDATA.skip_unless_present()
 class NameColourSweepLabelAndFrameTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
