@@ -1,1 +1,1 @@
-{"sha":"442fce4f36f95d2f89edc4cd3d559b3828189116","conclusion":"success","event":"push","ref":"refs/heads/claude/zealous-hawking-6b1o1r","run_id":"34133936437","utc":"2026-09-07T15:08:56Z"}
+{"sha":"442fce4f36f95d2f89edc4cd3d559b3828189116","conclusion":"failure","event":"pull_request","ref":"refs/pull/1072/merge","run_id":"34133942348","utc":"2026-09-07T15:34:44Z"}
