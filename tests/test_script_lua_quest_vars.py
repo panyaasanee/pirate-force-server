@@ -297,25 +297,29 @@ class NamespaceTests(unittest.TestCase):
             context=quest.QuestContext(character_id=7, quest_id=quest_id))
         return namespace, lines
 
-    def test_the_charge_a_script_reads_is_the_one_the_designer_typed(self):
-        """`Player.AddCash(Quest.Var4)` in q_class.lua:60, end to end.
+    def test_the_join_still_reads_the_charge_the_designer_typed(self):
+        """`quest_var` -- the UNGATED join -- still answers -15000.
 
-        Yesterday this expression evaluated to 0 and the class change was
-        free.  It is now -15000, which `lua_api.player._coerce_signed_int`
-        accepts (its i32 ceiling was the guard that refused the raw cell)
-        and routes to the subtracting door.
+        Round `joa0u6` built this and round `l0rbyx` did not take it away:
+        the cell is still decoded, the table still says the column is
+        signed, and `quest_vars.quest_var` still returns the number.  What
+        changed is who is allowed to SPEND it (see
+        `TheHalfTransactionGateTests`): the namespace now asks
+        `quest_rewards` first, and that is where the refusal lives.
+        Asserting the join here keeps the two facts apart -- a gate that
+        was silently deleting the value would pass a test written only
+        against the namespace.
         """
-        namespace, lines = self._namespace(CHARGE_QUEST_ID)
-        self.assertEqual(namespace["Var4"], CHARGE_SIGNED)
-        self.assertIn("LUA_QUEST_VAR Quest.Var4 quest=3200 value=-15000",
-                      lines)
+        value, reason = qv.quest_var(CHARGE_QUEST_ID, 4)
+        self.assertIsNone(reason)
+        self.assertEqual(value, CHARGE_SIGNED)
 
     def test_the_value_survives_the_money_door_that_used_to_refuse_it(self):
         """The tie between this round and round `2euu94`'s i32 ceiling."""
         from pirateforce_foundation.lua_api import player as lua_player
-        namespace, _lines = self._namespace(CHARGE_QUEST_ID)
+        value, _reason = qv.quest_var(CHARGE_QUEST_ID, 4)
         self.assertEqual(
-            lua_player._coerce_signed_int(namespace["Var4"],
+            lua_player._coerce_signed_int(value,
                                           lua_player._MAX_SIGNED_STAT_MAGNITUDE),
             CHARGE_SIGNED)
         self.assertIsNone(
@@ -378,13 +382,29 @@ class NamespaceTests(unittest.TestCase):
         """
         namespace, lines = self._namespace(CHARGE_QUEST_ID)
         for _ in range(100):
-            self.assertEqual(namespace["Var4"], CHARGE_SIGNED)
             self.assertEqual(namespace["Var2"], 1)
+            self.assertEqual(namespace["Var5"], 3201)
         self.assertEqual(len(lines), 2)
         self.assertEqual(sorted(lines), [
             "LUA_QUEST_VAR Quest.Var2 quest=3200 value=1",
-            "LUA_QUEST_VAR Quest.Var4 quest=3200 value=-15000",
+            "LUA_QUEST_VAR Quest.Var5 quest=3200 value=3201",
         ])
+
+    def test_a_gated_column_is_also_said_once_however_often_it_is_read(self):
+        """The same cap on the refusal the half-transaction gate produces.
+
+        Var4 of quest 3200 is the take side of a group whose give side is
+        not implemented, so it never resolves -- and a hundred reads of it
+        must still be ONE line, for the reason above.  Written as its own
+        test rather than folded into the one above because it exercises a
+        different code path (`quest_rewards`, not `quest_vars`) and a
+        single test covering both would go green if either lost its cap.
+        """
+        namespace, lines = self._namespace(CHARGE_QUEST_ID)
+        for _ in range(100):
+            self.assertEqual(namespace["Var4"], quest.STUB_DEFAULT)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("LUA_QUEST_GROUP_REFUSED n_VARI_4 quest=3200", lines[0])
 
 
 @BRIDGE_GAMEDATA.skip_unless_present()
@@ -593,27 +613,83 @@ class TheShippedScriptChargesARealRowTests(unittest.TestCase):
     def _cash(self):
         return self.store.read_typed_attributes(self.character.id)["cash"]
 
-    def test_the_class_change_now_costs_the_player_fifteen_thousand(self):
-        """20000 -> 5000 (the charge) -> 5070 (the quest's own reward).
+    def test_the_class_change_takes_nothing_while_it_can_give_nothing(self):
+        """20000 -> 20070, and NOT 5070.  The whole point of the round.
 
-        `Report_Run` charges Var4 and THEN calls `Quest.AddCriteriaCash()`,
-        which pays this quest's 70 out of the criteria curve, so the row
-        ends at 5070 and not 5000.  Both halves are asserted, separately,
-        because collapsing them into one number is how a wrong charge hides
-        behind a right total: the console line pins the charge itself at
-        exactly 15000 with the balance it left behind.
+        Round `joa0u6` made `Report_Run` take 15,000 off this row for real.
+        The SAME entry point, four lines later, is supposed to hand over
+        items 2480010/2480011/2480012 through `Player.AddItem`, which is
+        still a stub -- so the state that round reached was "charged and
+        given nothing", which COO-DECISION `20260908_0242` item 4 names as
+        worse than either end.  The gate closes the whole group: no charge,
+        no items, and -- pf-adversary D1 of this round, MEASURED -- not
+        the three criteria payouts either.  Refusing the charge while
+        `AddCriteriaExp/SkillPoint/Cash` kept paying moved the player from
+        -14,930 to +70 cash plus 19,350 exp and 6,450 skill points, every
+        run: a gate that gives money away is not a gate.  A transaction is
+        not a set of columns, so a give that reads no cell is a member of
+        the group addressed by its API name.
+
+        Both halves are asserted separately, on purpose: the console line
+        proves WHICH column was refused and the row proves the money did
+        not move.  A total on its own would let a wrong charge hide behind
+        a right balance.
         """
         lines = self._run_report(CHARGE_QUEST_ID)
-        self.assertIn("LUA_PLAYER_CHARGE Player.AddCash character=%d "
-                      "column=cash charged=15000 balance_after=5000"
-                      % self.character.id, lines)
-        self.assertEqual(self._cash(), 5070)
+        self.assertNotIn(
+            "LUA_PLAYER_CHARGE Player.AddCash character=%d column=cash "
+            "charged=15000 balance_after=5000" % self.character.id, lines)
+        self.assertTrue(
+            [line for line in lines
+             if line.startswith("LUA_QUEST_GROUP_REFUSED n_VARI_4 quest=3200 "
+                                "group=Q_CLASS.Report_Run")],
+            "the refusal has to name the column, the row and the group")
+        self.assertEqual(self._cash(), 20000,
+                         "not 5070 (the charge landed) and not 20070 (the "
+                         "charge refused while the curve still paid): the "
+                         "whole transaction stands still")
 
-    def test_the_console_says_which_row_the_number_came_from(self):
-        """The other evidence layer, read on its own terms."""
+    def test_the_console_names_the_api_the_whole_group_is_waiting_on(self):
+        """The other evidence layer, read on its own terms.
+
+        The reader of this line is whoever has to decide to go and build
+        the missing half, so it names it: `Player.AddItem`.
+        """
         lines = self._run_report(CHARGE_QUEST_ID)
-        self.assertIn("LUA_QUEST_VAR Quest.Var4 quest=%d value=%d"
-                      % (CHARGE_QUEST_ID, CHARGE_SIGNED), lines)
+        refusals = [line for line in lines
+                    if line.startswith("LUA_QUEST_GROUP_REFUSED")]
+        self.assertEqual(
+            len(refusals), 4, refusals)
+        self.assertEqual(
+            sorted(line.split()[1] for line in refusals),
+            ["Quest.AddCriteriaCash", "Quest.AddCriteriaExp",
+             "Quest.AddCriteriaSkillPoint", "n_VARI_4"],
+            "one line per member the run actually reached: the charge and "
+            "the three curve payouts")
+        for line in refusals:
+            self.assertIn("blocked_on=Player.AddItem,", line)
+            self.assertIn("call_site=Quest/q_class.lua:", line)
+        self.assertFalse([line for line in lines
+                          if line.startswith("LUA_QUEST_PAYOUT")],
+                         "nothing may be paid out of the curve either")
+
+    def test_the_reward_names_the_script_tests_are_refused_not_zeroed(self):
+        """`if (Quest.RewardItem1 > 0)` must be false, and say why.
+
+        The failure mode this test exists to catch is the quiet one: the
+        cells land, the branch fires, `Player.AddItem` logs `LUA_API_STUB`
+        and the item goes nowhere.  Under the gate the name refuses INSTEAD
+        of answering 2480010, and the log says which group is holding it.
+        """
+        lines = self._run_report(CHARGE_QUEST_ID)
+        refusals = [line for line in lines
+                    if line.startswith("LUA_QUEST_REWARD_BAD_VALUE "
+                                       "Quest.RewardItem1 ")]
+        self.assertEqual(len(refusals), 1, refusals)
+        self.assertIn("refused=transaction_group_give_side_not_implemented",
+                      refusals[0])
+        self.assertNotIn("LUA_API_STUB Player.AddItem", lines,
+                         "the give branch must not even be entered")
 
     def test_the_same_script_under_an_unbound_quest_still_charges_nothing(self):
         """The mutant that says this test is measuring the join, not luck.
