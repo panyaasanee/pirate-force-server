@@ -353,7 +353,20 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
                     % (fn.namespace, fn.method)
                 )
                 host.call("Probe")
-                self.assertEqual(calls, ["LUA_API_STUB %s" % fn.qualified_name])
+                # The six Quest.Add*Criteria* stubs log one extra line first
+                # (round xlk7hl: the read half of the exp/level seam resolves
+                # what they WOULD pay, or names why it refused).  The stub
+                # line itself is unchanged and is still the last thing they
+                # log, which is what this reachability probe is about.
+                self.assertEqual(calls[-1],
+                                 "LUA_API_STUB %s" % fn.qualified_name)
+                if (fn.namespace == "Quest"
+                        and fn.method in lua_api_quest.CRITERIA_METHODS):
+                    self.assertEqual(len(calls), 2)
+                    self.assertTrue(calls[0].startswith(
+                        "LUA_QUEST_CRITERIA %s " % fn.qualified_name))
+                else:
+                    self.assertEqual(len(calls), 1)
 
     def test_the_8_real_trigger_names_are_excluded_above_not_forgotten(self):
         # A regression guard on the exclusion itself: if REAL_METHODS ever
