@@ -557,5 +557,128 @@ class AllSetRowsTests(unittest.TestCase):
             )
 
 
+class BoardsStandWhereTheirLabelSaysTests(unittest.TestCase):
+    """pf-adversary round ``ubmvj1`` D7: the ground spot belongs to the LABEL.
+
+    The attended tester holds a printed sheet -- label, question, prediction --
+    and reads it against boards on a screen.  Before this, a board's spot came
+    from a counter bumped once per row that composed, so the sheet was only
+    valid for the exact boot it was printed from.  Measured on this tree by
+    replaying the old rule over the same three boots:
+
+        ALL vs ALL + viewer_identity : 10 labels changed spot
+          M-ENM1 M-T001 N-ENM0 N-ENM1 N-ENM2 N-ENM6 N-ENM12 N-ENMFF
+          N-HP0 N-IDNEG-ENM1
+        ALL vs ALL-NOID              :  9 labels changed spot (the same, less
+                                        N-IDNEG-ENM1, which ALL-NOID drops)
+
+    The first pair is not hypothetical: chief's ``pirate-force-server#1099``
+    passes ``viewer_identity=`` at the call site, so the day it lands is the
+    day the boot the sheet was printed from stops existing.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def _spots(self, env, **kwargs):
+        return {
+            actor.label: (actor.x, actor.y, actor.z)
+            for actor in name_colour_sweep.sweep_actors(
+                self.legacy, env, **kwargs)
+        }
+
+    def test_no_board_moves_when_the_viewer_identity_arrives(self) -> None:
+        without = self._spots(ALL_ENV)
+        with_viewer = self._spots(ALL_ENV, viewer_identity=VIEWER)
+        self.assertEqual(len(without), 22)
+        self.assertEqual(len(with_viewer), 24)
+        for label, spot in without.items():
+            self.assertEqual(spot, with_viewer[label], label)
+        # ...and the two that arrive stand in the spots reserved for them,
+        # rather than on the end of the line.
+        arrived = set(with_viewer) - set(without)
+        self.assertEqual(
+            arrived, set(name_colour_sweep.all_set_rows_needing_viewer_identity()))
+
+    def test_no_board_moves_when_the_identity_families_are_dropped(self) -> None:
+        every = self._spots(ALL_ENV, viewer_identity=VIEWER)
+        noid = self._spots(NOID_ENV, viewer_identity=VIEWER)
+        self.assertLess(len(noid), len(every))
+        for label, spot in noid.items():
+            self.assertEqual(spot, every[label], label)
+
+    def test_a_spot_is_read_from_the_standing_order_and_nowhere_else(self) -> None:
+        order = name_colour_sweep.ALL_ROW_STANDING_ORDER
+        self.assertEqual(len(order), len(set(order)))
+        uncomposable = {label for label, _ in name_colour_sweep.ALL_SET_UNCOMPOSABLE}
+        self.assertEqual(
+            order,
+            tuple(l for l in name_colour_sweep.ALL_ROW_ORDER if l not in uncomposable),
+        )
+        for actor in name_colour_sweep.sweep_actors(
+                self.legacy, ALL_ENV, viewer_identity=VIEWER):
+            slot = name_colour_sweep.all_row_standing_slot(actor.label)
+            line, column = divmod(slot, name_colour_sweep.ALL_ROWS_PER_LINE)
+            self.assertEqual(
+                (actor.x, actor.y),
+                (name_colour_sweep.ALL_ROW_X0
+                 + name_colour_sweep.ALL_ROW_DX * column,
+                 name_colour_sweep.ALL_ROW_Y
+                 + name_colour_sweep.ALL_ROW_Y_SPLIT * line),
+                actor.label,
+            )
+
+    def test_the_boards_still_fit_the_two_lines_the_owner_approved(self) -> None:
+        slots = len(name_colour_sweep.ALL_ROW_STANDING_ORDER)
+        self.assertEqual(slots, 24)
+        self.assertLessEqual(
+            (slots - 1) // name_colour_sweep.ALL_ROWS_PER_LINE, 1,
+            "reserving a spot for a row that can never compose would push the "
+            "boards onto a third line, which PANYA 2350 item 1 did not approve",
+        )
+
+    def test_a_row_with_no_reserved_spot_is_refused_not_counted(self) -> None:
+        for label in ("N-NOPE", "") + tuple(
+                l for l, _ in name_colour_sweep.ALL_SET_UNCOMPOSABLE):
+            with self.subTest(label=label):
+                with self.assertRaises(name_colour_sweep.NameColourSweepError):
+                    name_colour_sweep.all_row_standing_slot(label)
+
+    def test_the_readability_floor_names_the_same_boards_in_both_boots(self) -> None:
+        """The town-overlap ticket is printed once and read in either boot."""
+        self.assertEqual(
+            name_colour_sweep.rows_inside_the_readability_floor(self.legacy),
+            name_colour_sweep.rows_inside_the_readability_floor(
+                self.legacy, viewer_identity=VIEWER),
+        )
+
+
+class TheEmptyWorldVocabularyIsThisLanesTests(unittest.TestCase):
+    """chief R396's letter ``20260908_0204``: the words are LANE-B's.
+
+    His file reads ``name_colour_sweep.SWEEP_SETS_WANTING_AN_EMPTY_WORLD``
+    first and falls back to its own copy only while this one does not exist.
+    """
+
+    def test_the_two_sets_that_want_an_empty_world_are_named_here(self) -> None:
+        self.assertEqual(
+            name_colour_sweep.SWEEP_SETS_WANTING_AN_EMPTY_WORLD,
+            (name_colour_sweep.SET_ALL, name_colour_sweep.SET_ALL_NOID),
+        )
+
+    def test_sets_one_and_two_keep_riding_in_the_ordinary_town(self) -> None:
+        for value in name_colour_sweep.SWEEP_SETS_WANTING_AN_EMPTY_WORLD:
+            self.assertIsNone(
+                name_colour_sweep.unrecognised_env_value(
+                    {"PF_NAME_COLOUR_SWEEP": value}),
+                value,
+            )
+        for value in ("1", "2"):
+            self.assertNotIn(
+                value, name_colour_sweep.SWEEP_SETS_WANTING_AN_EMPTY_WORLD)
+
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
