@@ -92,7 +92,12 @@ class LaneWithheldReportedTests(unittest.TestCase):
         report = mch.census_backing_report(BG0002_SCENE_ID, ())
         self.assertEqual(report["withheld"], ())
         self.assertEqual(report["withheld_count"], 0)
-        self.assertTrue(report["refused"])
+        # ROUND najn72, pf-adversary D3: ~~assertTrue(report["refused"])~~.
+        # The scene still has a RULING (8 placements wide) but the ruling
+        # removes nothing now, and this card is about the withheld half, so
+        # it reads the field that still says the ruling exists.
+        self.assertEqual(report["refused"], ())
+        self.assertTrue(report["refused_ruled"])
 
     def test_an_unknown_scene_id_still_answers_both_keys(self):
         """``scene`` is ``None`` there, and the keys must not vanish."""
@@ -340,11 +345,25 @@ class CensusHostilityTests(unittest.TestCase):
         # simply no longer produces them: byte-identical console line,
         # identical pins.  The day the ruling stops mattering must look
         # different from every other day.
+        # ROUND najn72, pf-adversary D3: THAT DAY ARRIVED AND THE FIELD DID
+        # NOT FIRE, because it was the owner's LITERAL LIST and never the
+        # intersection -- so it printed refused=8 on a tree where the filter
+        # removes nothing.  ``refused`` is the effect now and
+        # ``refused_ruled`` is the ruling's own width, and this card holds
+        # BOTH plus the fact that they disagree, which is the whole point
+        # the paragraph above was reaching for.
         report = mch.census_backing_report(
             BG0002_SCENE_ID, self.generation.actor_identities,
         )
-        self.assertEqual(report["refused"], OWNER_REFUSED)
-        self.assertEqual(report["refused_count"], len(OWNER_REFUSED))
+        self.assertEqual(report["refused"], ())
+        self.assertEqual(report["refused_count"], 0)
+        self.assertEqual(report["refused_ruled"], OWNER_REFUSED)
+        self.assertEqual(
+            report["refused_ruled_count"], len(OWNER_REFUSED))
+        self.assertNotEqual(
+            report["refused"], report["refused_ruled"],
+            "the owner's ruling and its effect agree again -- a placement "
+            "it names is back in the generated table")
         # ...and it is a real join, not a constant: bg0001 has no ruling.
         bg0001 = mch.census_backing_report(world_population.SCENE_ID, ())
         self.assertEqual(bg0001["refused"], ())
@@ -598,7 +617,14 @@ class CensusHostilityTests(unittest.TestCase):
         self.assertEqual(
             line,
             "MOB_CENSUS_HOSTILITY scene_id=2 scene=Bg0002 roster=52 "
-            "backed=52 unbacked=none refused=8 override=not_reported "
+            # ROUND najn72, pf-adversary D3: ~~refused=8~~ -> refused=0.
+            # The field counted the owner's RULING, not its EFFECT, and the
+            # day those stopped agreeing is this one -- the crosswalk
+            # resolves no body for any of the eight, so the filter removes
+            # nothing.  ``refused_ruled_count`` carries the ruling's own
+            # width (still 8) so nothing is lost; the console says what is
+            # HAPPENING.
+            "backed=52 unbacked=none refused=0 override=not_reported "
             "ledger=not_reported withheld=0",
         )
 

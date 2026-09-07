@@ -284,9 +284,33 @@ def census_backing_report(
     unbacked = tuple(sorted(i for i in roster_ids if i not in census_set))
     backed = tuple(sorted(i for i in roster_ids if i in census_set))
     scene = field_mobs.scene_for_scene_id(scene_id)
-    refused = (
+    # ROUND najn72, pf-adversary D3: ``refused`` was the owner's LITERAL
+    # LIST, never intersected with the table it filters -- so it counted a
+    # ruling, not an effect.  The day the two stopped agreeing arrived with
+    # the Bg0002 re-mining (NOW.md `1313`, tick 20260908_0025): the
+    # crosswalk resolves no named body for any of the eight placements the
+    # owner refused, so the filter now removes ZERO rows while this field
+    # went on printing ``refused=8``.  A boot line that says the owner's
+    # do-not-place ruling is holding eight placements out of scene 2, when
+    # it is holding none, is exactly the sentence this module's own
+    # docstring warned would look identical on the day it stopped being
+    # true.
+    # ``refused`` is now the intersection -- the placements the filter
+    # ACTUALLY removes -- and the ruling's own width is carried beside it
+    # as ``refused_ruled`` so nothing is lost and the two can be compared.
+    declared_refusals = (
         field_mobs.owner_refused_placements(scene) if scene else ()
     )
+    table_indices = set()
+    if scene:
+        module = field_mobs._SCENE_TABLE_MODULES.get(scene)
+        if module is not None:
+            table_indices = {
+                mob.placement_index
+                for mob in field_mobs._parse_hostile_placements(module)
+            }
+    refused = tuple(
+        index for index in declared_refusals if index in table_indices)
     # ROUND j5v7mu: the roster is filtered by TWO lists now, so a report
     # that names only the owner's would say "refused_count=0" for a scene
     # whose roster is a row short (Bg0015 today).  ``roster_count`` is
@@ -307,6 +331,8 @@ def census_backing_report(
         "vacuous": not roster_ids,
         "refused": refused,
         "refused_count": len(refused),
+        "refused_ruled": declared_refusals,
+        "refused_ruled_count": len(declared_refusals),
         "withheld": withheld,
         "withheld_count": len(withheld),
     }
