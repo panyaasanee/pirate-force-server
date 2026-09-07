@@ -127,9 +127,14 @@ class SkillListAtLoginError(RuntimeError):
     """This character's skill list cannot be put on the wire, by name.
 
     Carries the machine-readable ``reason`` (one of the ``REFUSE_*``
-    constants) beside the human sentence, the same shape
-    ``class_attacker_profile.ClassAttackerProfileError`` uses, so a caller
-    branches on a constant and never on a message.
+    constants) beside the human sentence -- the shape this lane's other
+    fail-closed modules already use -- so a caller branches on a constant and
+    never on a message.
+
+    (The sibling module is not named here on purpose: its own
+    ``callers_in_src`` token is measured by a test that greps this package for
+    its name, so a mention in a docstring would read as a caller and make that
+    token false.  Same reason the progression-table module is not named in it.)
     """
 
     def __init__(self, reason: str, message: str) -> None:
