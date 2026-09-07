@@ -440,6 +440,129 @@ class MemberCountFieldIsAReportNotARuleTests(unittest.TestCase):
         self.assertEqual(len(low.members), 2)
 
 
+class WhoGuaranteesThePayloadBoundaryTests(unittest.TestCase):
+    """Round ``rgmulk``, answering the design question pf-adversary left
+    open on round ``gkxzei``: nothing in a frame delimits the member list,
+    so the CALLER's slice is the member count.
+
+    The sibling class above pins the two cuts that were already known (a
+    cut at the prefix boundary decodes as zero members; a cut inside a
+    record fails closed). What was never measured is the cut a real
+    dispatch caller is most likely to get wrong: a slice that is short or
+    long by a WHOLE record. Those decode successfully and silently with
+    the wrong member count, which is why ``_read_members`` now carries the
+    precondition in writing. Measured here with real bytes so the claim in
+    that docstring cannot drift away from the code.
+    """
+
+    def _record_len(self, encode, empty, one):
+        return len(encode(one)) - len(encode(empty))
+
+    def test_a_slice_short_by_one_whole_record_decodes_silently(self):
+        for encode, decode, empty, three in (
+            (
+                sw.encode_stall_start_payload,
+                sw.decode_stall_start_payload,
+                _start_fields(members=()),
+                _start_fields(
+                    field5_u16=3, members=(MEMBER_A, MEMBER_B, MEMBER_A)
+                ),
+            ),
+            (
+                sw.encode_stall_operate_payload,
+                sw.decode_stall_operate_payload,
+                _operate_fields(members=()),
+                _operate_fields(members=(MEMBER_A, MEMBER_B, MEMBER_A)),
+            ),
+        ):
+            with self.subTest(encoder=encode.__name__):
+                one = (
+                    _start_fields(members=(MEMBER_A,))
+                    if "start" in encode.__name__
+                    else _operate_fields(members=(MEMBER_A,))
+                )
+                record_len = self._record_len(encode, empty, one)
+                self.assertEqual(record_len, 22)
+                payload = encode(three)
+                decoded = decode(payload[:-record_len])
+                self.assertIsNotNone(decoded)
+                self.assertEqual(len(decoded.members), 2)
+
+    def test_a_slice_long_by_one_whole_record_decodes_silently(self):
+        three = _start_fields(
+            field5_u16=3, members=(MEMBER_A, MEMBER_B, MEMBER_A)
+        )
+        four = _start_fields(
+            field5_u16=3,
+            members=(MEMBER_A, MEMBER_B, MEMBER_A, MEMBER_B),
+        )
+        payload = sw.encode_stall_start_payload(three)
+        extra = sw.encode_stall_start_payload(four)[len(payload):]
+        self.assertEqual(len(extra), 22)
+        decoded = sw.decode_stall_start_payload(payload + extra)
+        self.assertIsNotNone(decoded)
+        self.assertEqual(len(decoded.members), 4)
+        self.assertEqual(decoded.field5_u16, 3)
+
+    def test_a_slice_wrong_by_anything_but_a_record_fails_closed(self):
+        """The other half of the sentence: only record-aligned caller
+        errors are silent. One byte either way is rejected, which is what
+        makes the silent case worth naming separately."""
+
+        payload = sw.encode_stall_start_payload(
+            _start_fields(field5_u16=2, members=(MEMBER_A, MEMBER_B))
+        )
+        self.assertIsNone(sw.decode_stall_start_payload(payload[:-1]))
+        self.assertIsNone(sw.decode_stall_start_payload(payload + b"\x00"))
+
+    def test_the_only_in_frame_detector_covers_start_and_not_operate(self):
+        """``member_count_field_agrees`` would catch both silent cases on
+        ``StallStartVital`` -- it is a report a caller may consult, still
+        not a rule (nonclaim 2). ``StallOperateVital`` has no detector at
+        all: its field5 is a presence flag, so the report refuses it.
+        """
+
+        three = _start_fields(
+            field5_u16=3, members=(MEMBER_A, MEMBER_B, MEMBER_A)
+        )
+        payload = sw.encode_stall_start_payload(three)
+        record_len = 22
+        self.assertTrue(sw.member_count_field_agrees(three))
+        short = sw.decode_stall_start_payload(payload[:-record_len])
+        self.assertFalse(sw.member_count_field_agrees(short))
+        extra = payload[-record_len:]
+        long_decoded = sw.decode_stall_start_payload(payload + extra)
+        self.assertFalse(sw.member_count_field_agrees(long_decoded))
+        operate = sw.decode_stall_operate_payload(
+            sw.encode_stall_operate_payload(
+                _operate_fields(members=(MEMBER_A, MEMBER_B))
+            )
+        )
+        with self.assertRaises(AttributeError):
+            sw.member_count_field_agrees(operate)
+
+    def test_no_caller_outside_tests_hands_bytes_to_these_decoders(self):
+        """The "nobody guarantees it today" half of the answer, measured
+        rather than asserted in prose: if a dispatch caller ever lands,
+        this test goes red and whoever wrote it must state which boundary
+        it establishes (and update ``_read_members``' note).
+        """
+
+        root = Path(__file__).resolve().parents[1]
+        hits = []
+        for folder in ("src", "tools"):
+            for path in sorted((root / folder).rglob("*.py")):
+                if path.name == "ui_stall_wire.py":
+                    continue
+                text = path.read_text(encoding="utf-8", errors="replace")
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    if "decode_stall_" in line:
+                        hits.append(
+                            "%s:%d" % (path.relative_to(root), lineno)
+                        )
+        self.assertEqual(hits, [])
+
+
 class MemberReaderIsWhatRejectsTrailingBytesTests(unittest.TestCase):
     """`require_exhausted` cannot fire in the two member-bearing decoders
     (the loop only exits when the buffer is exactly spent), so deleting it

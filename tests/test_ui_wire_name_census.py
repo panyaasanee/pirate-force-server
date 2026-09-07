@@ -639,7 +639,7 @@ class CoverageDocMatchesCommittedArtifactTests(unittest.TestCase):
         # `docs/UI_LANE.md` repeats the headline for readers who never open
         # the coverage page. It had no binding at all (same finding).
         #
-        # 🔴 Note for whoever edits that file: it is ALSO one of the four
+        # WARNING for whoever edits that file: it is ALSO one of the four
         # NAME-ONLY sources the census reads, so writing or deleting a vital
         # NAME there moves tiers. Only digits are bound here, and digits are
         # not vital names, so this assertion cannot feed itself.

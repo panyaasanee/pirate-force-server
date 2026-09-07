@@ -318,6 +318,35 @@ def _read_members(
     here. ``MemberReaderIsWhatRejectsTrailingBytesTests`` pins that, so
     the two decoders' trailing-byte tests cannot silently start passing
     for a different reason than their names say.
+
+    WHO GUARANTEES ``payload``'S BOUNDARY (round ``rgmulk``, answering the
+    design question pf-adversary left open on round ``gkxzei``): today,
+    NOBODY -- and that is a statement about callers, not about this loop.
+    Measured this round: ``grep -rn "decode_stall_" src/ tools/`` finds no
+    caller outside ``tests/``, so no dispatch site has yet been asked to
+    cut a frame for these two decoders. When one is written, this is its
+    contract, in one sentence:
+
+        ``payload`` MUST be exactly one frame body, because for these two
+        classes the buffer end IS the member count.
+
+    The consequence is not defence in depth, it is a silent wrong answer:
+    a caller that slices short or long by a WHOLE record (22 bytes) gets a
+    successful decode carrying one member too few or too many, with no
+    exception anywhere -- ``RE-292`` says the class serializer reads a
+    STREAM, so the frame's own bytes carry no end marker to catch it. Only
+    a slice that lands mid-record, or off by anything that is not a
+    multiple of 22, fails closed. ``WhoGuaranteesThePayloadBoundaryTests``
+    pins both halves of that sentence with real bytes.
+
+    The only in-frame cross-check that exists is
+    ``member_count_field_agrees()``, and it covers ``StallStartVital``
+    ONLY (``StallOperateVital``'s field5 is a presence flag, not a count --
+    see that function's docstring). It reads a field this lane has NOT
+    proven to be a count (nonclaim 2), so it stays a report a caller may
+    consult, not a rule this module enforces: turning it into a rejection
+    would be acting on an unproven reading. For ``StallOperateVital``
+    there is no in-frame detector at all.
     """
 
     members: list[StallMemberRecord] = []
@@ -365,6 +394,16 @@ def encode_stall_start_payload(fields: StallStartFields) -> bytes:
 
 
 def decode_stall_start_payload(payload: bytes) -> StallStartFields | None:
+    """Decode one StallStartVital body.
+
+    PRECONDITION: ``payload`` is exactly one frame body. The
+    member list is delimited by the end of the buffer and by
+    nothing else, so a caller that slices short or long by a whole
+    member record gets a successful decode with the wrong member
+    count and no error -- see ``_read_members``' "WHO GUARANTEES"
+    note. Returns ``None`` when the bytes do not parse.
+    """
+
     try:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_U8_A)
         field2, offset = wire.read_u16tag(payload, offset, _TAG_U16)
@@ -391,6 +430,16 @@ def encode_stall_operate_payload(fields: StallOperateFields) -> bytes:
 
 
 def decode_stall_operate_payload(payload: bytes) -> StallOperateFields | None:
+    """Decode one StallOperateVital body.
+
+    PRECONDITION: ``payload`` is exactly one frame body. The
+    member list is delimited by the end of the buffer and by
+    nothing else, so a caller that slices short or long by a whole
+    member record gets a successful decode with the wrong member
+    count and no error -- see ``_read_members``' "WHO GUARANTEES"
+    note. Returns ``None`` when the bytes do not parse.
+    """
+
     try:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_U8_A)
         field2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
