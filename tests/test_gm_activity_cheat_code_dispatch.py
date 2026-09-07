@@ -514,5 +514,83 @@ class ActivityCheatCodeLaneHookTests(unittest.TestCase):
         )
 
 
+class OpcodeWiringSentencesTests(unittest.TestCase):
+    """The prose about 0x6CEC and the call site must move together.
+
+    Chief's round R390 added the `runtime.py` call site for 0x6CEC and
+    three sentences in this lane's own files went on saying it did not
+    exist -- one of them (`handle_activity_cheat_code_vital`'s docstring)
+    ending "a round file or ticket that says otherwise is wrong".  Chief
+    found them a round later by measurement, not by reading
+    (`20260907_1918_FROM_CHIEF_R391b`).  A lane grepping "is 0x6CEC wired
+    yet" would have been told the wrong answer with confidence and could
+    have landed a second sink for the same id.
+
+    This test is the thing that notices next time, and it notices in BOTH
+    directions: it reads whether the call site exists and requires the
+    prose to match, so removing the call site without restoring the "not
+    wired" wording fails here too.
+    """
+
+    HOOK_POINT = "vital_inbound_activity_cheat_code"
+    #: Sentences that are only true while nothing fires the hook point.
+    UNWIRED_CLAIMS = (
+        "0x6CEC), NOT wired",
+        "Nothing calls it: there is no `runtime.py` call site for 0x6CEC",
+        "COSTS A NON-GM PLAYER: nothing.",
+    )
+    #: ...and the sentence that is only true while something does.
+    WIRED_CLAIM = "BOTH ARE WIRED"
+
+    def _read(self, *parts):
+        return (ROOT.joinpath(*parts)).read_text(encoding="utf-8")
+
+    def _lane_prose(self):
+        return (
+            self._read("src", "pirateforce_foundation", "gm", "dispatch.py")
+            + self._read(
+                "src", "pirateforce_foundation", "lane_hooks",
+                "lane_gm_activity_cheat_code.py",
+            )
+        )
+
+    def test_the_runtime_call_site_and_the_lane_prose_agree(self):
+        runtime_src = self._read(
+            "src", "pirateforce_foundation", "runtime.py",
+        )
+        # `fire()` takes the point name as a literal at the call site, so
+        # its presence in runtime.py is the wiring, not a proxy for it.
+        fired = f'"{self.HOOK_POINT}"' in runtime_src
+        prose = self._lane_prose()
+        if fired:
+            for claim in self.UNWIRED_CLAIMS:
+                self.assertNotIn(
+                    claim, prose,
+                    "runtime.py fires %s, so this sentence is false: %r"
+                    % (self.HOOK_POINT, claim),
+                )
+            self.assertIn(
+                self.WIRED_CLAIM, prose,
+                "runtime.py fires %s and no lane file says so" % self.HOOK_POINT,
+            )
+        else:
+            self.assertNotIn(
+                self.WIRED_CLAIM, prose,
+                "nothing fires %s any more, so the lane must stop saying "
+                "the opcode is wired" % self.HOOK_POINT,
+            )
+
+    def test_the_hook_module_still_registers_the_point_this_test_reads(self):
+        # Without this, renaming the hook point turns the test above into a
+        # green loop over a name nobody uses.
+        self.assertIn(
+            self.HOOK_POINT,
+            self._read(
+                "src", "pirateforce_foundation", "lane_hooks",
+                "lane_gm_activity_cheat_code.py",
+            ),
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

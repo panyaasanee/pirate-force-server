@@ -1,8 +1,16 @@
 """Inbound dispatch entry points for the GM-surface vitals (client->server).
 
-TWO OPCODES SINCE ROUND `eu2g1d`: GM_RunGMCommandVital (0x51E9), wired,
-and Activity_CheatCodeVital (0x6CEC), NOT wired -- see
-`handle_activity_cheat_code_vital`.  Both run the same gate chain
+TWO OPCODES SINCE ROUND `eu2g1d`: GM_RunGMCommandVital (0x51E9) and
+Activity_CheatCodeVital (0x6CEC).  BOTH ARE WIRED as of chief's round R390,
+which granted CORE-REQUEST-GM-062: `runtime.py` fires
+`vital_inbound_activity_cheat_code`, and
+`lane_hooks/lane_gm_activity_cheat_code.py` turns that into a call of
+`handle_activity_cheat_code_vital` below.  This paragraph said "NOT wired"
+for one round after that landed; chief measured the stale sentence and
+wrote it up (pf_bridge `notes_to_chief/20260907_1918_FROM_CHIEF_R391b`),
+and `tests/test_gm_activity_cheat_code_dispatch.py` now fails if either
+half of the pair -- the call site or this sentence -- moves without the
+other.  Both run the same gate chain
 (`_authorize_and_capture`) and share one per-account rate limit and one
 per-account capture quota.  The original text, written when there was one:
 
@@ -691,12 +699,29 @@ def handle_activity_cheat_code_vital(
     something this server threw away" -- a false negative that costs an
     attended booking and is unrecoverable after the fact.
 
-    THIS FUNCTION ALONE DOES NOT CLOSE THAT (pf-adversary, round `eu2g1d`,
-    D3).  Nothing calls it: there is no `runtime.py` call site for 0x6CEC
-    and no lane_hooks point, so it is reachable from tests only.  It makes
-    the two outcomes distinguishable ONLY ONCE chief wires the call site
-    CORE-REQUEST-GM-062 asks for.  Until then the folder is as empty as it
-    was, and a round file or ticket that says otherwise is wrong.
+    THIS FUNCTION IS REACHED FROM THE WIRE SINCE CHIEF'S ROUND R390.
+    The paragraph here used to read "Nothing calls it: there is no
+    `runtime.py` call site for 0x6CEC and no lane_hooks point, so it is
+    reachable from tests only" -- true when it was written (pf-adversary,
+    round `eu2g1d`, D3), false the moment CORE-REQUEST-GM-062 was granted,
+    and left standing for a round.  It ended "a round file or ticket that
+    says otherwise is wrong", so a lane grepping for whether 0x6CEC is
+    wired would have been told the wrong answer with confidence, and could
+    have added a second sink for the same id.  The call site is
+    `runtime.py`'s `lane_hooks.fire("vital_inbound_activity_cheat_code")`.
+
+    WHAT AN UNAUTHENTICATED PEER STILL COSTS THROUGH THAT DOOR is measured,
+    not assumed, and it is not zero: chief's round R391 fired 2000 frames
+    from a session that never logged in and got 2000 `session.events`
+    entries back (`lane_gm_activity_cheat_code.py` has neither the dedup
+    nor the per-session ceiling `lane_gm_unknown_vital_counter.py` has),
+    about 101.8 bytes retained per frame under `tracemalloc`, and one
+    `Path.is_file()` on `config/gm_accounts.json` per frame because
+    `is_gm_account` runs before `_rate_limit_allows`.  THE CEILING IS NOT
+    THIS LANE'S TO ADD: `NOW.md` (COO round `1941`) assigns it to chief's
+    own `fire()` ticket, letter `20260907_1918`.  What this function does
+    guarantee for such a peer is unchanged and still true: no file is
+    written, no reply frame is sent, and nothing decodes a meaning.
 
     AND IT CLOSES THE AMBIGUITY FOR ONE OPCODE, NOT FOR THE FOLDER
     (pf-adversary, D10).  `CheatVital` (0x162E) is also client->server,
