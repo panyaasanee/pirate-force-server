@@ -19,20 +19,47 @@ is untouched by this file, and ``COO-DECISION 20260904_0942`` ("item 4
 means existing defaults only, ``1607`` stands, no migration") still governs
 every one of the 17 columns that decision left ``NULL``.  This module
 writes NOTHING -- no migration, no ``store.py`` call, no character row --
-and changes no existing seed value.
+and changes no existing seed value.  That is still true today, and it is
+the half of this paragraph that has NOT changed: being read by somebody
+does not give this module a write.
 
-IT NOW HAS A CALLER, AND THE SENTENCE THAT SAID OTHERWISE IS RETIRED HERE.
-Every round from the one that added this file until LANE-DB round
-``6n7pam`` could say "no caller anywhere in this repository", and its test
-file pinned exactly that.  ``persistence_experience`` is the first one:
-it reads ``standard_status_row(level + 1).exp_currentlv`` to find the
-experience a character needs for its next level -- the same number the
-client's own XP bar divides by, which is the one proven fact about this
-table named two paragraphs down.  The pin retires in the same commit
-(``tests/test_persistence_standard_status.py::TheFirstCallerTests``), by
-this module's owner, which is the only way ``COO-DECISION 20260907_2050``
-allows a scaffold pin to go.  What is still true unchanged: this module
-writes nothing, and reading a row remains the whole of what it does.
+WHO READS IT: NOBODY, AND THAT SENTENCE HAS BEEN TRUE, FALSE AND TRUE
+AGAIN INSIDE ONE DAY.  LANE-CS's class-attacker-profile module (round
+``hhmvit``) became the first production caller; ``COO-ORDER 20260907_2050``
+(``pf_bridge/notes_to_chief/20260907_2050_COO-ORDER-cs2010-retire-the-
+scaffold-pin-for-its-first-caller-LANE-DB.md``) ordered the owner of this
+module -- this lane -- to retire the "no caller" premise for it, rather
+than let LANE-CS allowlist a name inside a LANE-DB pin, because the
+declaration "scaffold, not wiring" belongs to the module's owner.  Before
+this lane's next round reached the order, LANE-CS WITHDREW the import
+(main, round ``b2cnxe``), so the premise is true again and retiring it now
+would name a caller that does not exist.
+
+THE NAME IS DELIBERATELY NOT SPELLED OUT AS A LITERAL STRING HERE, for the
+same measured reason this docstring gives below for LANE-B's encoder and
+``persistence_class_id.py`` gives for its own sibling: that module's
+``CallersInSrcTokenIsMeasuredTests`` scans every
+``src/pirateforce_foundation/**/*.py`` file for its filename as a
+SUBSTRING, so prose naming it here would be counted as an importer and
+turn a guard red on a sentence.  ``tests/test_persistence_standard_
+status.py`` carries the full name, in the constant its assertion reads,
+and is where the caller list is actually measured.
+
+AND TODAY THE PREMISE RETIRES FOR REAL, IN THIS MODULE'S OWNER'S OWN
+ROUND, WHICH IS THE ONLY WAY ``2050`` ALLOWS IT TO GO.  LANE-DB round
+``6n7pam`` wrote a sibling module that turns a character's experience into
+a LEVEL, and it needs exactly one thing from this table: the row for
+``level + 1``, whose ``n_EXP_CURRENTLV`` is the number the client's own XP
+bar divides by -- the single proven fact about this table, named below.
+That module is this one's first production caller and the "no caller"
+sentence is not written anywhere in this file any more.  The pin retires
+in the same commit
+(``tests/test_persistence_standard_status.py::TheFirstCallerTests``),
+which no longer asserts an empty caller set: it names that one caller,
+still fails on any undeclared second one, and adds a MECHANISM test that
+bends a row in memory and measures the caller's answer moving with it --
+so an import that never reads a row cannot pass for a caller.  What has
+not changed is the first paragraph: this module still writes nothing.
 
 WHAT THIS MODULE DOES DO.  ``CONSTDATA_TH__STANDARD_STATUS.tsv`` is a
 plain, already-committed gamedata table -- ``class_catalog.py``'s own

@@ -10,6 +10,7 @@ grade the accessor itself: it must load the real committed table, its
 sha256 guard must fire on a corrupted copy (not silently pass), and its
 lookup must be fail-closed for a level the table does not carry.
 """
+import ast
 import dataclasses
 import hashlib
 import sys
@@ -187,39 +188,98 @@ class SourceHashGuardTests(unittest.TestCase):
             standard_status_module._load_rows()
 
 
-class TheFirstCallerTests(unittest.TestCase):
-    """The scaffold pin is RETIRED here, by the module's owner, in the
-    round that gave it its first caller -- which is the only way
-    `COO-DECISION 20260907_2050` allows it to go.
+class SoleProductionCallerTests(unittest.TestCase):
+    #: The caller this pin EXPECTS to see.  It stopped being empty in
+    #: LANE-DB round `6n7pam`: `persistence_experience` turns a character's
+    #: experience into a LEVEL and needs exactly one thing from this table,
+    #: the row for `level + 1`, whose `n_EXP_CURRENTLV` is the number the
+    #: client's own XP bar divides by.  Written as a repository-relative
+    #: posix path so the assertion below reads as the caller LIST it is,
+    #: not as a count -- and never moved into the `mine` set, because a
+    #: name the loop skips is a name nobody measures.
+    EXPECTED_CALLERS: list = [
+        "src/pirateforce_foundation/persistence_experience.py",
+    ]
 
-    WHAT WAS HERE.  `NoProductionCallerTests` asserted that no production
-    module, migration or scenario named this module: the OWNER's
-    declaration that it was a scaffold.  Round `hhmvit` (LANE-CS) tried to
-    keep it green with an allowlist entry, `2050` refused the allowlist,
-    and the CALLER withdrew instead -- correctly, because retiring a pin is
-    not a caller's decision.
+    def test_the_declared_caller_is_the_only_production_caller(self):
+        """The scaffold premise RETIRES here, in the module owner's own
+        round, which is the only way `COO-ORDER 20260907_2050` allows it.
 
-    WHY IT RETIRES NOW.  LANE-DB round `6n7pam` wrote
-    `persistence_experience`, which reads `standard_status_row(level + 1)`
-    to find the experience a character needs for the next level.  That is
-    the scaffold's whole purpose arriving: the module docstring's "no
-    caller anywhere in this repository" sentence stops being true in the
-    same commit as this test, and both are edited together.
+        THE HISTORY, KEPT BECAUSE IT IS WHY THIS TEST LOOKS LIKE THIS.
+        Round `hhmvit` (LANE-CS) made `class_attacker_profile.py` the first
+        caller and kept this pin green with an allowlist entry in the
+        `mine` set.  `2050` refused the allowlist: this pin is its OWNER's
+        declaration that the module is a scaffold, so only LANE-DB retires
+        it, in a LANE-DB ticket, with the docstring rewritten and a test
+        naming the caller.  LANE-CS withdrew the import instead (main,
+        round `b2cnxe`), and round `dcz2sv` -- this lane, arriving with the
+        order -- found the premise true again and left it standing rather
+        than pin a caller that did not exist.
 
-    WHAT REPLACES IT, AND WHY IT IS NOT AN ALLOWLIST WEARING A NEW NAME.
-    Two tests, and the first one is a MECHANISM, not a spelling:
-    `test_the_caller_reads_this_table_live` corrupts one row in memory and
-    measures that the caller's answer changes.  A caller that had copied
-    the numbers out of the table, or that named the module in an import it
-    never used, stays green under the old guard and goes red under this
-    one.  The second test keeps the census the old guard was worth having
-    for: it still walks the same roots and suffixes, and it still fails on
-    a caller nobody declared -- what changed is that the expected set is
-    `{persistence_experience.py}` instead of empty.  A second lane wiring
-    itself to this table still trips it, and still has to say so."""
+        WHY IT RETIRES NOW AND NOT THEN.  Round `6n7pam` wrote the caller
+        itself: `persistence_experience`, in this lane's own write zone.
+        The name in `EXPECTED_CALLERS` is a module that exists in the same
+        commit as this line, not one this lane is waiting for.
+
+        WHAT DID NOT CHANGE.  Same roots, same suffixes, same
+        `tests/`+`reports/` gap inherited on purpose from
+        `test_world_avatar_attr.py::NoOtherCallerTests`.  A second lane
+        wiring itself to this table still turns this red and still has to
+        declare itself."""
+        needle = "persistence_standard_status"
+        mine = {
+            (ROOT / "src" / "pirateforce_foundation"
+             / "persistence_standard_status.py").resolve(),
+            Path(__file__).resolve(),
+        }
+        roots = [
+            ROOT / "src" / "pirateforce_foundation",
+            ROOT / "current",
+            ROOT / "tools",
+            ROOT / "migrations",
+            ROOT / "scenarios",
+        ]
+        offenders = []
+        for root in roots:
+            if not root.exists():
+                continue
+            for path in sorted(root.rglob("*")):
+                if not path.is_file() or path.resolve() in mine:
+                    continue
+                if path.suffix not in {".py", ".json", ".sql"}:
+                    continue
+                text = path.read_text(encoding="utf-8", errors="replace")
+                if needle in text:
+                    offenders.append(path.relative_to(ROOT).as_posix())
+        self.assertEqual(offenders, self.EXPECTED_CALLERS)
+
+    def test_the_sole_caller_exists_and_really_imports_this_module(self):
+        """The test round `dcz2sv` wrote and could not land, back in the
+        commit that moves `EXPECTED_CALLERS` off `[]`, exactly as that
+        round said it would be: an AST walk, so a caller that keeps the
+        name in a comment but drops the import cannot pass for one."""
+        imported = []
+        for name in self.EXPECTED_CALLERS:
+            path = ROOT / name
+            self.assertTrue(path.is_file(), name)
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    if (node.module or "").endswith(
+                            "persistence_standard_status"):
+                        imported.append(name)
+                        break
+                if isinstance(node, ast.Import):
+                    if any(alias.name.endswith("persistence_standard_status")
+                           for alias in node.names):
+                        imported.append(name)
+                        break
+        self.assertEqual(imported, self.EXPECTED_CALLERS)
 
     def test_the_caller_reads_this_table_live(self):
-        """The one caller's threshold moves when the table under it moves."""
+        """Stronger than the import: the caller's answer MOVES when the
+        table under it moves.  A caller that had copied the numbers out of
+        the table would pass both tests above and fail this one."""
         from pirateforce_foundation import persistence_experience as exp
 
         level = 7
@@ -239,39 +299,26 @@ class TheFirstCallerTests(unittest.TestCase):
             )
         self.assertEqual(exp.threshold_for_next_level(level), untouched)
 
-    def test_the_declared_caller_set_is_exactly_the_one_this_round_added(self):
-        """The census the retired guard was worth having: an undeclared
-        caller still fails here.  Same roots, same suffixes, same
-        `tests/`+`reports/` gap inherited from
-        `test_world_avatar_attr.py::NoOtherCallerTests` -- only the
-        expected set changed, from empty to the one named caller."""
-        needle = "persistence_standard_status"
-        mine = {
-            (ROOT / "src" / "pirateforce_foundation"
-             / "persistence_standard_status.py").resolve(),
-            Path(__file__).resolve(),
-        }
-        declared = ["src/pirateforce_foundation/persistence_experience.py"]
-        roots = [
-            ROOT / "src" / "pirateforce_foundation",
-            ROOT / "current",
-            ROOT / "tools",
-            ROOT / "migrations",
-            ROOT / "scenarios",
+    def test_this_module_still_writes_nothing(self):
+        """`COO-ORDER 20260907_2050` item 2: being READ by somebody did not
+        give this module a WRITE.  Measured, not asserted in prose: no
+        migration names it, and it reaches no `store` write door.
+        """
+        module = (ROOT / "src" / "pirateforce_foundation"
+                  / "persistence_standard_status.py")
+        source = module.read_text(encoding="utf-8")
+        for forbidden in ("import store", "from .store", "from pirateforce_foundation.store",
+                          "INSERT ", "UPDATE ", "DELETE "):
+            self.assertNotIn(forbidden, source, forbidden)
+        migrations = ROOT / "migrations"
+        naming = [
+            path.name for path in sorted(migrations.glob("*.sql"))
+            if "persistence_standard_status" in path.read_text(
+                encoding="utf-8", errors="replace")
         ]
-        callers = []
-        for root in roots:
-            if not root.exists():
-                continue
-            for path in sorted(root.rglob("*")):
-                if not path.is_file() or path.resolve() in mine:
-                    continue
-                if path.suffix not in {".py", ".json", ".sql"}:
-                    continue
-                text = path.read_text(encoding="utf-8", errors="replace")
-                if needle in text:
-                    callers.append(path.relative_to(ROOT).as_posix())
-        self.assertEqual(callers, declared)
+        self.assertEqual(naming, [])
+
+
 
 
 if __name__ == "__main__":
