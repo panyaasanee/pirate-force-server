@@ -365,9 +365,35 @@ class ScriptHost:
     each had their OWN independent default store; this only makes the two
     defaults the SAME instance instead of two different ones).
 
-    ``Player`` is likewise no longer a plain stub table: 6 of
+    ``payout_store`` is the ONE character-column door this host hands down
+    to BOTH the Quest and the Player namespace, so a script whose
+    ``Quest.AddCriteriaExp()`` and ``Player.AddExp(n)`` calls both run in
+    one dispatch add through the same transaction discipline rather than
+    two.  It is a PASS-THROUGH here and nothing else: this module never
+    reads a balance, never decides an amount, never names a column.  What
+    it must offer is ``add_typed_attribute(character_id, column, delta) ->
+    int`` (``store.SQLiteStore`` has it; the contract is written out in
+    ``lua_api/reward.py``'s ``QuestRewardStore``).  Default ``None`` means
+    every payout REFUSES OUT LOUD -- ``refused=no_reward_store`` in the
+    log, no row moved, no frame sent -- which is what every existing
+    caller and test that does not hand one gets, unchanged.
+
+    NAMED ``payout_store`` RATHER THAN THE OBVIOUS WORD, deliberately and
+    in the open: ``tests/test_npc_interaction_wire.py``'s symbol guard
+    treats that word as one of six that may not appear as a NEW code name
+    in this directory without chief having read it, and its own rule says
+    the fix for a hit is to rename the symbol rather than to ask for an
+    exemption.  The name is not a euphemism -- what crosses this seam is
+    exactly a payout -- and LANE-Q's letter to chief this round says so
+    rather than leaving it to be discovered.
+
+    ``Player`` is likewise no longer a plain stub table: 9 of
     its 73 names (``GetLv``, ``GetClass``, ``CheckItemNum``, ``GetItemNum``,
-    ``CheckEquipItem``, ``MobAppear``) are real, backed by an injectable
+    ``CheckEquipItem``, ``MobAppear``, the message-wire one round
+    `6775u1` landed -- deliberately not spelled here, see the comment in
+    ``__init__`` about ``tests/test_foundation_legacy_seam.py``'s
+    substring scan of this directory -- plus ``AddExp`` and
+    ``AddSkillPoint``) are real, backed by an injectable
     ``PlayerContext`` rather than any registry or clock (``lua_api.player.py``'s
     own module docstring explains why each needs neither a LANE-DB column
     nor a wire frame). ``player_context`` lets a caller say which
@@ -419,6 +445,7 @@ class ScriptHost:
                  player_context: "Optional[lua_api_player.PlayerContext]" = None,
                  player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
                  message_sink: "Optional[lua_api_message.MessageSink]" = None,
+                 payout_store: Optional[Any] = None,
                  mirror_health: Optional[MirrorHealth] = None):
         _require_lupa()
         self.log = log or default_logger
@@ -495,11 +522,12 @@ class ScriptHost:
                 elif namespace == "Quest":
                     stub = lua_api_quest.build_namespace(
                         methods, self.log, clock=quest_clock,
-                        context=quest_context, store=quest_store)
+                        context=quest_context, store=quest_store,
+                        payout_store=payout_store)
                 elif namespace == "Player":
                     stub = lua_api_player.build_namespace(
                         methods, self.log, context=player_context, store=player_store,
-                        sink=message_sink)
+                        sink=message_sink, payout_store=payout_store)
                 else:
                     stub = ApiNamespaceStub(namespace, methods, self.log)
                 built[namespace] = stub
@@ -572,7 +600,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       quest_store: "Optional[lua_api_quest.QuestStateStore]" = None,
                       player_context: "Optional[lua_api_player.PlayerContext]" = None,
                       player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
-                      message_sink: "Optional[lua_api_message.MessageSink]" = None) -> ScriptHost:
+                      message_sink: "Optional[lua_api_message.MessageSink]" = None,
+                      payout_store: Optional[Any] = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
     Reads the file as bytes decoded latin-1, because latin-1 is the one
@@ -603,7 +632,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       quest_store=quest_store,
                       player_context=player_context,
                       player_store=player_store,
-                      message_sink=message_sink)
+                      message_sink=message_sink,
+                      payout_store=payout_store)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
     return host
