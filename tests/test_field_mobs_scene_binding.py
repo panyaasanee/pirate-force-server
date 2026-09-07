@@ -442,15 +442,30 @@ class Bg0002CensusAndRosterOverlapTest(unittest.TestCase):
         self.assertEqual(
             sorted(self.today & self.census), [0x2068, 0x206A])
 
-    def test_the_binding_removes_those_two_and_adds_twelve(self):
+    def test_the_binding_removes_those_two_and_adds_fifty_two(self):
+        # ROUND najn72: ~~..._and_adds_twelve~~ -> fifty-two.  Scene 2 was
+        # re-mined through the crosswalk with the owner's outfit rule
+        # (NOW.md `1313`, tick 20260908_0025).
         self.assertEqual(self.bound & self.today & self.census, set())
-        self.assertEqual(len(self.bound & self.census), 12)
+        self.assertEqual(len(self.bound & self.census), 52)
 
-    def test_the_binding_leaves_most_of_the_scene_unhittable(self):
-        # Not a defect of this reader -- this lane ships no roster row for
+    def test_the_binding_leaves_less_than_half_the_scene_unhittable(self):
+        # ~~Not a defect of this reader -- this lane ships no roster row for
         # those 85 bodies -- but it is the number that stops "the scene is
-        # fixed" from being said.
-        self.assertEqual(len(self.census - self.bound), 85)
+        # fixed" from being said.~~
+        # ROUND najn72: ~~85~~ -> 45, and the sentence around it changes with
+        # it.  The 40 bodies that moved are the ones the owner's outfit rule
+        # readmitted: they were census scenery with no roster row, and they
+        # are monsters now.  It is still the number that stops "the scene is
+        # fixed" from being said -- 45 of the 97 bodies in Prison Exile are
+        # still un-hittable, and this lane still ships no roster row for
+        # them -- but it is no longer most of the scene.
+        self.assertEqual(len(self.census - self.bound), 45)
+        self.assertEqual(len(self.census), 97)
+        self.assertLess(
+            len(self.census - self.bound), len(self.bound & self.census),
+            "more of scene 2 is scenery than is monster again -- the "
+            "re-mining has been reverted or the census grew")
 
     def test_no_ledger_row_names_a_body_the_census_never_sends(self):
         # ~~The other direction, equally worth seeing: the roster carries
