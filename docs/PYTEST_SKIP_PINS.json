@@ -873,7 +873,7 @@
     {
       "key": "client_image",
       "module": "tests/test_stats_progression_static.py",
-      "count": 22,
+      "count": 23,
       "tests": [
         "StatsProgressionStatic::test_abilitydepoly_has_exactly_one_fixed_producer",
         "StatsProgressionStatic::test_abilitydepolyall_wire_order_is_str_con_dex_int_per",
@@ -895,6 +895,7 @@
         "StatsProgressionStatic::test_serializer_chain_follows_the_class_chain",
         "StatsProgressionStatic::test_skill_verbs_and_update_transport",
         "StatsProgressionStatic::test_static_data_schema_declares_exactly_five_primary_attributes",
+        "StatsProgressionStatic::test_the_potential_loader_reads_the_key_first_in_the_image",
         "StatsProgressionStatic::test_type_nodes_name_the_classes_and_encode_the_hierarchy",
         "StatsProgressionStatic::test_vtables_carry_cohort_const_getid_sizeof_and_serializer"
       ],
@@ -1405,6 +1406,14 @@
         "OneScriptHostSharesOneMessageSinkTests::test_two_hosts_do_not_share_the_default_sink"
       ],
       "note": "round 7kxfe9 (LANE-Q), fixing a hole round 6775u1 opened in its own module. These three tests build a real ScriptHost, which raises RuntimeError('lupa is not installed') without the package - so on a lupa-free machine the module went RED instead of skipping, while that module's own header claimed every test in it ran with or without the Lua runtime. MEASURED before the fix in this round's cloud session (`pip uninstall -y lupa` then pytest -rs over this module and test_script_lua_corpus.py): 3 failed, 51 passed, 9 skipped, the three failures being exactly these tests. MEASURED after: 3 skips under this key here, 0 with lupa reinstalled."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_stats_progression_static.py",
+      "count": 1,
+      "tests": [
+        "StatsProgressionStatic::test_the_shipped_potential_table_agrees_with_the_bind_list"
+      ]
     }
   ],
   "windows_gate_excluded_modules": {
