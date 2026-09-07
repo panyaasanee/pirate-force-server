@@ -38,6 +38,9 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
+from pirateforce_foundation.logout_hypothesis import (  # noqa: E402
+    make_return_select_server_response,
+)
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import (  # noqa: E402
     _FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS,
@@ -87,18 +90,36 @@ class _RegistryIsolation(unittest.TestCase):
     """
 
     def setUp(self):
-        self.addCleanup(ui_dispatch.clear_answerers)
-        ui_dispatch.clear_answerers()
+        # SAVE AND RESTORE, NOT CLEAR (pf-adversary D9). The draft called
+        # clear_answerers() in setUp and again as cleanup, which empties a
+        # PROCESS-GLOBAL dict: measured, a lane test whose module registers
+        # an answerer at import passed alone and failed when this file ran
+        # first in the same interpreter. Harmless only while the registry
+        # ships empty -- which is the round this file was written, and not
+        # the round after.
+        saved = dict(ui_dispatch._ANSWERERS)
 
-    def allow(self, fn):
-        """Open the production gate for `fn`'s module, then close it.
+        def _restore():
+            ui_dispatch._ANSWERERS.clear()
+            ui_dispatch._ANSWERERS.update(saved)
+
+        self.addCleanup(_restore)
+        ui_dispatch._ANSWERERS.clear()
+
+    def allow(self, fn=None):
+        """Open the production gate for THIS test module, then close it.
+
+        The gate keys on the module that CALLED register_answerer (see
+        ui_dispatch._registering_module_name), which for this file is this
+        file. `fn` is accepted and ignored so the call sites read the way
+        they did before the D5 fix.
 
         Drives the REAL `lane_hooks.module_production_allowed()` by giving
         it the snapshot entry `_discover()` would have made for a lane
         module, rather than monkeypatching the gate away -- a mocked gate
         would prove nothing about the function the call site actually asks.
         """
-        qualified = f"{lane_hooks.__name__}.{fn.__module__}"
+        qualified = f"{lane_hooks.__name__}.{__name__}"
         lane_hooks._PRODUCTION_ALLOWED[qualified] = True
         self.addCleanup(
             lane_hooks._PRODUCTION_ALLOWED.pop, qualified, None,
@@ -179,7 +200,7 @@ class RegistrationTests(_RegistryIsolation):
             ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
         )
 
-    def test_a_second_registration_loses_and_the_first_keeps_the_id(self):
+    def test_a_live_incumbent_keeps_the_id_against_a_second_registration(self):
         # The winner of a double registration must not depend on
         # pkgutil.iter_modules filename order: the frame-answering path is
         # not a place for a silent last-writer-wins.
@@ -189,6 +210,7 @@ class RegistrationTests(_RegistryIsolation):
         def second(session=None, vital_id=None, payload=None):
             return []
 
+        self.allow()
         self.assertTrue(
             ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, first)
         )
@@ -203,9 +225,40 @@ class RegistrationTests(_RegistryIsolation):
         )
         self.assertIs(fn, first)
 
+    def test_a_gated_incumbent_yields_the_id_instead_of_squatting_it(self):
+        # pf-adversary D6. _discover() withdraws a not-production-allowed
+        # module's HOOKS and cannot reach this registry, and imports run in
+        # filename order -- so without this, a lane_ui_aaa_*.py with the
+        # flag OFF would hold a vital against a lane_ui_zzz_*.py with the
+        # flag ON, and the vital would answer [] forever.
+        def gated(session=None, vital_id=None, payload=None):
+            return []
+
+        def live(session=None, vital_id=None, payload=None):
+            return []
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(
+                ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, gated)
+            )
+        module_name, _fn = ui_dispatch.registered_answerer(
+            PARTY_INVITE_VITAL_ID
+        )
+        self.assertFalse(lane_hooks.module_production_allowed(module_name))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertTrue(
+                ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, live)
+            )
+        self.assertIn("UI_DISPATCH_REGISTER_REPLACED", stderr.getvalue())
+        _module_name, fn = ui_dispatch.registered_answerer(
+            PARTY_INVITE_VITAL_ID
+        )
+        self.assertIs(fn, live)
+
 
 class GateAndFailClosedTests(_RegistryIsolation):
-    ACTION = ("UI_TEST_ACTION", 7, b"\x01\x02", 0.0)
+    ACTION = ("UI_TEST_ACTION", b"\x07\x07", b"\x01\x02", 0.0)
 
     def _register_returning(self, value):
         def answerer(session=None, vital_id=None, payload=None):
@@ -303,22 +356,36 @@ class GateAndFailClosedTests(_RegistryIsolation):
             ("an int", 5),
             ("a dict", {"frame": b""}),
             ("a generator", (a for a in ())),
-            ("wrong arity 3", [("L", 1, b"\x01")]),
-            ("wrong arity 5", [("L", 1, b"\x01", 0.0, 0)]),
-            ("empty label", [("", 1, b"\x01", 0.0)]),
-            ("label not str", [(1, 1, b"\x01", 0.0)]),
-            ("pc is a bool", [("L", True, b"\x01", 0.0)]),
-            ("pc is a str", [("L", "1", b"\x01", 0.0)]),
-            ("frame is a str", [("L", 1, "\x01", 0.0)]),
-            ("frame is a bytearray", [("L", 1, bytearray(b"\x01"), 0.0)]),
-            ("frame is None", [("L", 1, None, 0.0)]),
-            ("delay is negative", [("L", 1, b"\x01", -0.5)]),
-            ("delay is a bool", [("L", 1, b"\x01", True)]),
-            ("delay is a str", [("L", 1, b"\x01", "0")]),
-            ("delay is nan", [("L", 1, b"\x01", float("nan"))]),
-            ("delay is inf", [("L", 1, b"\x01", float("inf"))]),
-            ("frame is empty", [("L", 1, b"", 0.0)]),
-            ("one good one bad", [self.ACTION, ("L", 1, "bad", 0.0)]),
+            ("wrong arity 3", [("UI_L", b"\x01", b"\x01")]),
+            ("wrong arity 5", [("UI_L", b"\x01", b"\x01", 0.0, 0)]),
+            ("empty label", [("", b"\x01", b"\x01", 0.0)]),
+            ("label not str", [(1, b"\x01", b"\x01", 0.0)]),
+            # D2: another subsystem's label must never reach the action
+            # list -- _gm_warp_note_position_pending matches on it.
+            ("another lane's label",
+             [("GM_WARP_POSITION_PENDING", b"\x01", b"\x01", 0.0)]),
+            ("no UI_ prefix", [("PARTY_INVITE_OK", b"\x01", b"\x01", 0.0)]),
+            # D12: the v141 sender writes `SENT <label>` into the evidence
+            # file attended rounds grep.
+            ("newline in label",
+             [("UI_OK\nSENT forged=1", b"\x01", b"\x01", 0.0)]),
+            ("nul in label", [("UI_OK\x00", b"\x01", b"\x01", 0.0)]),
+            ("pc is an int", [("UI_L", 1, b"\x01", 0.0)]),
+            ("pc is a bool", [("UI_L", True, b"\x01", 0.0)]),
+            ("pc is a str", [("UI_L", "1", b"\x01", 0.0)]),
+            ("pc is None", [("UI_L", None, b"\x01", 0.0)]),
+            ("frame is a str", [("UI_L", b"\x01", "\x01", 0.0)]),
+            ("frame is a bytearray",
+             [("UI_L", b"\x01", bytearray(b"\x01"), 0.0)]),
+            ("frame is None", [("UI_L", b"\x01", None, 0.0)]),
+            ("delay is negative", [("UI_L", b"\x01", b"\x01", -0.5)]),
+            ("delay is a bool", [("UI_L", b"\x01", b"\x01", True)]),
+            ("delay is a str", [("UI_L", b"\x01", b"\x01", "0")]),
+            ("delay is nan", [("UI_L", b"\x01", b"\x01", float("nan"))]),
+            ("delay is inf", [("UI_L", b"\x01", b"\x01", float("inf"))]),
+            ("frame is empty", [("UI_L", b"\x01", b"", 0.0)]),
+            ("one good one bad",
+             [self.ACTION, ("UI_L", b"\x01", "bad", 0.0)]),
         ]
         for label, value in bad_values:
             with self.subTest(shape=label):
@@ -359,7 +426,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
                 object(), PARTY_INVITE_VITAL_ID, b""
             )
         self.assertIsNot(actions, owned)
-        actions.append(("EXTRA", 1, b"", 0.0))
+        actions.append(("UI_EXTRA", b"\x01", b"\x02", 0.0))
         self.assertEqual(len(owned), 1)
 
 
@@ -390,10 +457,17 @@ class SeamIsRealTests(unittest.TestCase):
         self.assertIn("return ui_dispatch.answer(", body)
         self.assertIn("self, nested_id, bytes(parsed.nested_payload))", body)
 
-    def test_the_seam_is_three_added_lines_and_no_more(self):
-        # COO route (b) allows "at most three lines in runtime.py". This
-        # counts them where they are, so the budget is a measurement and
-        # not a sentence in a PR body.
+    def test_the_seam_names_ui_dispatch_on_exactly_two_lines(self):
+        # RENAMED, and its claim narrowed, on pf-adversary D8: the old name
+        # said "three added lines and no more", and a mutant that inserted
+        # 24 lines of dead helpers into runtime.py -- naming ui_dispatch
+        # nowhere -- SURVIVED it. A substring census is not a line budget.
+        # What this test really pins is the SHAPE of the seam: the import,
+        # the call that opens it, and its argument line. The three-added-
+        # lines budget COO route (b) grants is a property of the DIFF
+        # (`git diff origin/main..HEAD --numstat -- runtime.py` -> `3	1`)
+        # and belongs to the reviewer, which is what it now says out loud
+        # rather than pretending to measure.
         source = RUNTIME_PY.read_text(encoding="utf-8").split("\n")
         naming = [n for n, line in enumerate(source) if "ui_dispatch" in line]
         # Two lines name the module: the import, and the `return` that
@@ -410,6 +484,251 @@ class SeamIsRealTests(unittest.TestCase):
             source[naming[1] + 1].strip(),
             "self, nested_id, bytes(parsed.nested_payload))",
         )
+
+
+class TheConventionIsTheRealDispatchersTests(_RegistryIsolation):
+    """pf-adversary D1: validate what the dispatcher REALLY returns.
+
+    The draft's validator demanded `pc` be an `int`. Every action this
+    server actually sends carries `pc` as `bytes`, so the validator
+    admitted exactly one shape -- the hand-written tuple in this file --
+    and refused all five real ones. A hand-written fixture cannot catch
+    that, so this class drives real actions out of the real dispatcher and
+    feeds them back through the validator.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.legacy = _legacy()
+
+    def test_a_real_dispatch_return_passes_the_validator(self):
+        pc, frame = make_return_select_server_response(self.legacy)
+        self.assertIsInstance(pc, bytes)
+        self.assertTrue(
+            ui_dispatch._actions_are_well_formed(
+                [("UI_REAL_SHAPE", pc, frame, 0.0)]
+            )
+        )
+
+    def test_an_int_pc_is_refused_because_the_sender_calls_len_on_it(self):
+        # pf_login_game_server_v141.py does len(out_pc)/hexdump(out_pc) in
+        # a connection loop whose try has only a finally -- and it does it
+        # AFTER sendall(out_frame). An int there is a thread death with the
+        # bytes already on the wire.
+        _pc, frame = make_return_select_server_response(self.legacy)
+        self.assertFalse(
+            ui_dispatch._actions_are_well_formed([("UI_INT_PC", 7, frame, 0.0)])
+        )
+
+
+class ValidationOrderTests(_RegistryIsolation):
+    """pf-adversary D3 and D4: the order the guard does things in."""
+
+    def test_a_batch_cannot_be_rewritten_while_it_is_being_validated(self):
+        # D3: validation runs the answerer's own code (a numbers.Real
+        # subclass's comparisons), so the draft -- which validated the live
+        # list and copied it afterwards -- shipped a str-where-bytes-must-be
+        # and a delay of -99.0 under a green UI_DISPATCH_ANSWERED token.
+        import numbers as _numbers
+
+        smuggled = ("UI_SNUCK_PAST", b"\x01", "a str, not bytes", -99.0)
+
+        class Sneaky(_numbers.Real):
+            def __init__(self, holder):
+                self.holder = holder
+
+            def __ge__(self, other):
+                self.holder[:] = [smuggled]
+                return True
+
+            def __float__(self):
+                return 0.0
+
+            # numbers.Real's abstract surface, unused by this test.
+            def __abs__(self): return 0.0
+            def __add__(self, o): return 0.0
+            def __ceil__(self): return 0
+            def __eq__(self, o): return False
+            def __floor__(self): return 0
+            def __floordiv__(self, o): return 0.0
+            def __hash__(self): return 0
+            def __le__(self, o): return True
+            def __lt__(self, o): return False
+            def __mod__(self, o): return 0.0
+            def __mul__(self, o): return 0.0
+            def __neg__(self): return 0.0
+            def __pos__(self): return 0.0
+            def __pow__(self, o): return 0.0
+            def __radd__(self, o): return 0.0
+            def __rfloordiv__(self, o): return 0.0
+            def __rmod__(self, o): return 0.0
+            def __rmul__(self, o): return 0.0
+            def __round__(self, n=None): return 0
+            def __rpow__(self, o): return 0.0
+            def __rtruediv__(self, o): return 0.0
+            def __truediv__(self, o): return 0.0
+            def __trunc__(self): return 0
+
+        holder = []
+        holder.append(("UI_LOOKS_FINE", b"\x01", b"\x02", Sneaky(holder)))
+
+        def answerer(session=None, vital_id=None, payload=None):
+            return holder
+
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        self.allow()
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            actions = ui_dispatch.answer(
+                object(), PARTY_INVITE_VITAL_ID, b""
+            )
+        # What ships is the SNAPSHOT the guard checked, not whatever the
+        # lane rewrote the list to afterwards. The smuggled tuple -- a str
+        # where bytes must be, delay -99.0 -- never reaches the caller.
+        self.assertNotIn(smuggled, actions)
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0][0], "UI_LOOKS_FINE")
+        self.assertEqual(actions[0][2], b"\x02")
+        # And the lane really did rewrite the list it handed over, so this
+        # test would fail on the draft rather than pass for lack of a try.
+        self.assertEqual(holder, [smuggled])
+
+    def test_an_exception_from_inside_the_validator_does_not_escape(self):
+        # D4: __float__ raising is the answerer's code running INSIDE the
+        # check. It used to escape answer(), escape dispatch(), and reach a
+        # connection loop with no except.
+        import numbers as _numbers
+
+        class Exploding(_numbers.Real):
+            def __ge__(self, other):
+                raise ValueError("lane bug inside a comparison")
+
+            def __float__(self):
+                raise ValueError("lane bug inside __float__")
+
+            def __abs__(self): return 0.0
+            def __add__(self, o): return 0.0
+            def __ceil__(self): return 0
+            def __eq__(self, o): return False
+            def __floor__(self): return 0
+            def __floordiv__(self, o): return 0.0
+            def __hash__(self): return 0
+            def __le__(self, o): return True
+            def __lt__(self, o): return False
+            def __mod__(self, o): return 0.0
+            def __mul__(self, o): return 0.0
+            def __neg__(self): return 0.0
+            def __pos__(self): return 0.0
+            def __pow__(self, o): return 0.0
+            def __radd__(self, o): return 0.0
+            def __rfloordiv__(self, o): return 0.0
+            def __rmod__(self, o): return 0.0
+            def __rmul__(self, o): return 0.0
+            def __round__(self, n=None): return 0
+            def __rpow__(self, o): return 0.0
+            def __rtruediv__(self, o): return 0.0
+            def __truediv__(self, o): return 0.0
+            def __trunc__(self): return 0
+
+        def answerer(session=None, vital_id=None, payload=None):
+            return [("UI_OK", b"\x01", b"\x02", Exploding())]
+
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        self.allow()
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn("UI_DISPATCH_ANSWER_ERR", stderr.getvalue())
+
+
+class GateIsKeyedOnTheRegistrarTests(_RegistryIsolation):
+    """pf-adversary D5: functools.wraps must not carry the gate with it."""
+
+    def test_the_gate_reads_the_registering_module_not_fn_dunder_module(self):
+        import functools
+
+        from pirateforce_foundation.lane_hooks import lane_gm_run_command
+
+        def _inner(session=None, vital_id=None, payload=None):
+            return [("UI_WRAPS_BYPASS", b"\x02", b"\xee", 0.0)]
+
+        # Borrow an ALLOWED module's name the way functools.wraps does.
+        _inner.__module__ = lane_gm_run_command.__name__
+        self.assertTrue(
+            lane_hooks.module_production_allowed(_inner.__module__)
+        )
+        wrapper = functools.wraps(_inner)(
+            lambda session=None, vital_id=None, payload=None: _inner(
+                session=session, vital_id=vital_id, payload=payload
+            )
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, wrapper)
+        module_name, _fn = ui_dispatch.registered_answerer(
+            PARTY_INVITE_VITAL_ID
+        )
+        # Registered under THIS module, which is not production-allowed.
+        self.assertEqual(module_name, __name__)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
+
+    def test_the_gate_is_read_on_every_frame_not_cached(self):
+        # D5/N12: the docstring says "call time, not registration time"
+        # twice and a caching mutant survived. Close the gate between two
+        # answers on the same registration.
+        def answerer(session=None, vital_id=None, payload=None):
+            return [("UI_LIVE", b"\x01", b"\x02", 0.0)]
+
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        self.allow()
+        with contextlib.redirect_stderr(io.StringIO()):
+            first = ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b"")
+        self.assertEqual(len(first), 1)
+        qualified = f"{lane_hooks.__name__}.{__name__}"
+        lane_hooks._PRODUCTION_ALLOWED[qualified] = False
+        with contextlib.redirect_stderr(io.StringIO()):
+            second = ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b"")
+        self.assertEqual(second, [])
+
+
+class ConsoleTokensSurviveCp874Tests(unittest.TestCase):
+    """pf-adversary D7: a guarded print that writes nothing is not evidence."""
+
+    def test_a_non_cp874_character_still_produces_a_token(self):
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp874", errors="strict")
+        try:
+            sys.stderr, real = stream, sys.stderr
+            ui_dispatch._say("UI_DISPATCH_ANSWER_ERR id=0x37B1 \u4f60")
+        finally:
+            sys.stderr = real
+        stream.flush()
+        self.assertIn(b"UI_DISPATCH_ANSWER_ERR", raw.getvalue())
+
+    def test_a_broken_stderr_does_not_raise(self):
+        class Broken:
+            def write(self, _text):
+                raise OSError(9, "Bad file descriptor")
+
+            def flush(self):
+                raise OSError(9, "Bad file descriptor")
+
+        try:
+            sys.stderr, real = Broken(), sys.stderr
+            ui_dispatch._say("UI_DISPATCH_ANSWER_ERR id=0x37B1")
+        finally:
+            sys.stderr = real
+
+    def test_a_non_integer_vital_id_renders_without_raising(self):
+        # D12: _hex's fallback branch had never executed.
+        self.assertEqual(ui_dispatch._hex("not-an-int"), "'not-an-int'")
+        self.assertEqual(ui_dispatch._hex(0x37B1), "0x37B1")
 
 
 class EndToEndThroughTheRealDispatcherTests(_RegistryIsolation):
@@ -473,7 +792,7 @@ class EndToEndThroughTheRealDispatcherTests(_RegistryIsolation):
 
         def answerer(session=None, vital_id=None, payload=None):
             seen.append(payload)
-            return [("UI_TEST_PARTY_INVITE_REPLY", 3, b"\x11\x22", 0.0)]
+            return [("UI_TEST_PARTY_INVITE_REPLY", b"\x03", b"\x11\x22", 0.0)]
 
         ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
         self.allow(answerer)
@@ -484,7 +803,7 @@ class EndToEndThroughTheRealDispatcherTests(_RegistryIsolation):
                 _synthetic_pc(self.legacy, PARTY_INVITE_VITAL_ID, b"\x00\x01")
             ))
         self.assertEqual(
-            actions, [("UI_TEST_PARTY_INVITE_REPLY", 3, b"\x11\x22", 0.0)],
+            actions, [("UI_TEST_PARTY_INVITE_REPLY", b"\x03", b"\x11\x22", 0.0)],
         )
         # The report-only hook above the call still ran, and the frame is
         # still counted: this seam replaced a `return []`, not the branch.

@@ -70,12 +70,13 @@ import sys
 
 from . import lane_hooks
 
-# This module composes no frame and reads no store row of its own: with an
-# empty registry it is a function that returns []. The flag that decides
-# whether anything runs is the ANSWERER's, read per frame in answer().
-production_allowed = True
-
-MODULE_NAME = "ui_dispatch"
+# NO ``production_allowed`` FLAG HERE, ON PURPOSE (pf-adversary D11).
+# The draft carried one set to True and a MODULE_NAME beside it; nothing
+# in the tree read either (``_discover()`` only reads the flag on
+# ``lane_hooks/lane_*.py``, which this module is not), so the line read
+# like an owner-approved kill switch and was inert -- setting it False
+# left all tests green.  The flag that decides whether anything runs is
+# the ANSWERER's, read per frame in answer().
 
 # The eight ids runtime.py's own guard admits.
 #
@@ -113,17 +114,47 @@ _ANSWERERS = {}
 
 
 def _say(line):
-    """Print one token on stderr, never raising if stderr itself is gone.
+    """Print one token on stderr: ASCII-folded first, then guarded.
 
-    Same guarded-print shape and same stream choice as ``lane_hooks``:
-    stdout on this project's boot path is read by attended rounds looking
-    for game tokens, and a server started as ``python app.py 2>log`` on a
-    full volume must not die inside a diagnostic.
+    BOTH halves, because pf-adversary (D7) measured that the guard alone
+    is worse than useless here: the bridge console runs cp874, and a
+    single non-cp874 character in an interpolated value -- ``%r`` of an
+    exception a lane module raised, a module name -- made every one of
+    this module's refusal tokens write ZERO bytes.  The refusal still
+    happened; the evidence that it happened was swallowed by the very
+    ``except: pass`` meant to keep it alive, and this module's whole
+    fail-closed argument rests on "named on stderr".  So the fold comes
+    first, exactly as ``lane_hooks._console_safe`` does it (reused, not
+    re-implemented), and the guard stays for the case that function
+    cannot help with: a stderr that is gone or full.
+
+    Stream choice is ``lane_hooks``'s: stdout on the boot path is read by
+    attended rounds looking for game tokens.
     """
     try:
-        print(line, file=sys.stderr)
+        print(lane_hooks._console_safe(line), file=sys.stderr)
     except Exception:  # pragma: no cover - stderr itself is broken
         pass
+
+
+def _registering_module_name():
+    """The module that CALLED ``register_answerer``, for the gate to read.
+
+    NOT ``fn.__module__`` (pf-adversary D5).  ``__module__`` names where
+    a function OBJECT was defined, not who decided to wire it, and it is
+    a plain mutable attribute: ``functools.wraps`` copies it off the
+    wrapped function, and a closure built by a factory that lives in an
+    allowed module carries that module's name no matter which lane called
+    the factory.  Both were measured opening the production gate for a
+    ``production_allowed = False`` lane's decision.  The caller's own
+    module cannot be borrowed that way -- it is the frame that ran the
+    registration.
+    """
+    try:
+        frame = sys._getframe(2)
+    except Exception:  # pragma: no cover - no Python frame above us
+        return "<unknown>"
+    return frame.f_globals.get("__name__") or "<unknown>"
 
 
 def register_answerer(vital_id, fn):
@@ -144,6 +175,7 @@ def register_answerer(vital_id, fn):
     reach this registry, and the flag is a snapshot taken at import.  The
     gate therefore lives in ``answer()``, on every frame.
     """
+    module_name = _registering_module_name()
     if vital_id not in ANSWERABLE_VITAL_IDS:
         _say(
             "UI_DISPATCH_REGISTER_REFUSED id=%s reason=not_routed_here"
@@ -157,12 +189,25 @@ def register_answerer(vital_id, fn):
         )
         return False
     if vital_id in _ANSWERERS:
+        incumbent = _ANSWERERS[vital_id][0]
+        # FIRST WINS -- BUT ONLY IF THE FIRST CAN ACTUALLY ANSWER
+        # (pf-adversary D6).  ``_discover()`` withdraws the HOOKS of a
+        # module without ``production_allowed`` and cannot reach this
+        # registry, and ``pkgutil.iter_modules`` imports in filename
+        # order, so a ``lane_ui_aaa_*.py`` with the flag off would take
+        # the id from a ``lane_ui_zzz_*.py`` that has it on -- and the
+        # vital would answer [] forever while printing UI_DISPATCH_GATED
+        # on every frame.  A gated incumbent therefore yields the slot.
+        if lane_hooks.module_production_allowed(incumbent):
+            _say(
+                "UI_DISPATCH_REGISTER_REFUSED id=%s reason=already_taken by=%s"
+                % (_hex(vital_id), incumbent)
+            )
+            return False
         _say(
-            "UI_DISPATCH_REGISTER_REFUSED id=%s reason=already_taken by=%s"
-            % (_hex(vital_id), _ANSWERERS[vital_id][0])
+            "UI_DISPATCH_REGISTER_REPLACED id=%s gated=%s by=%s"
+            % (_hex(vital_id), incumbent, module_name)
         )
-        return False
-    module_name = getattr(fn, "__module__", "") or "<unknown>"
     _ANSWERERS[vital_id] = (module_name, fn)
     _say(
         "UI_DISPATCH_ANSWERER id=%s module=%s"
@@ -181,6 +226,36 @@ def clear_answerers():
     _ANSWERERS.clear()
 
 
+LABEL_PREFIX = "UI_"
+
+
+def _label_is_this_lanes_own(label):
+    """May this label go into the dispatcher's action list?
+
+    Yes only for a non-empty ``str`` that starts with ``UI_`` and carries
+    no control characters.
+
+    THE PREFIX IS NOT TIDINESS (pf-adversary D2).  ``dispatch()`` feeds
+    whatever came back into ``_move_authority_note_server_moves`` and
+    ``_gm_warp_note_position_pending``, and both of those match on the
+    LABEL.  Measured on an ordinary logged-in non-GM session: an answerer
+    returning ``chat_command_action.WARP_ACTION_LABEL`` on a party-invite
+    frame flipped ``gm_warp_position_pending`` to ``True`` -- a player
+    clicking "invite to party" arming the GM warp-confirm window, with no
+    GM, no ``/warp`` and no chat frame anywhere.  A lane that cannot
+    spell another subsystem's label cannot reach that flag by accident.
+
+    THE CONTROL-CHARACTER RULE (D12).  The v141 sender writes
+    ``SENT <label> ...`` into the evidence file attended rounds grep; a
+    newline inside a label forges a line in that artifact.
+    """
+    if not isinstance(label, str) or not label:
+        return False
+    if not label.startswith(LABEL_PREFIX):
+        return False
+    return all(ch.isprintable() for ch in label)
+
+
 def _hex(vital_id):
     """``0x37B1`` for an int, a bounded repr for anything else."""
     if isinstance(vital_id, int) and not isinstance(vital_id, bool):
@@ -193,11 +268,30 @@ def _actions_are_well_formed(actions):
 
     The convention, shipped in every dispatch return in ``runtime.py`` and
     documented in ``logout_dialog_open_hypothesis.py``, is
-    ``(label, pc, frame, delay)``: a non-empty ``str`` label, an ``int``
-    packet counter, non-empty ``bytes`` to write, and a delay in seconds
-    that is real, finite and not negative.  ``bool`` is rejected where an
-    int is wanted (it is an int in Python and never a real packet
-    counter), and ``str``/``bytearray`` are NOT accepted as ``bytes``: a
+    ``(label, pc, frame, delay)``: a label this lane may use (see
+    ``_label_is_this_lanes_own``), the packet-content ``bytes`` ``pc``,
+    non-empty ``bytes`` ``frame`` to write, and a delay in seconds that
+    is real, finite and not negative.
+
+    🔴 ``pc`` IS ``bytes``, AND THE FIRST DRAFT OF THIS FUNCTION SAID
+    ``int``.  pf-adversary (D1) drove the real login/create/start-game
+    sequence and passed every action the dispatcher actually returns
+    through this validator: ``LOGIN_VERIFY_ACK_ONCE``,
+    ``FOUNDATION_CHARACTER_LIST_ONCE``, ``FOUNDATION_CREATE_COMMITTED``,
+    ``FOUNDATION_SELECTED_START_GAME``,
+    ``V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE`` -- ALL FIVE carry
+    ``pc`` of type ``bytes`` and all five were REFUSED, while the only
+    shape the draft admitted was the hand-written tuple in its own test
+    file.  The consumer settles it: ``pf_login_game_server_v141.py``
+    calls ``len(out_pc)`` and ``hexdump(out_pc)`` on it, so an ``int``
+    there raises ``TypeError`` in a connection loop whose ``try`` has
+    only a ``finally`` -- AFTER ``sendall(out_frame)`` already put the
+    bytes on the wire.  A validator that admits only the crashing shape
+    and refuses every correct one is not "fail-closed", it is closed, and
+    the docstring cited a file (``logout_dialog_open_hypothesis.py``)
+    whose own return refutes the sentence citing it.
+
+    ``str``/``bytearray`` are NOT accepted where ``bytes`` is wanted: a
     str would be encoded by somebody else's guess of a codec, and a
     bytearray is mutable after this check.
 
@@ -217,9 +311,9 @@ def _actions_are_well_formed(actions):
         if type(action) not in (list, tuple) or len(action) != 4:
             return False
         label, pc, frame, delay = action
-        if not isinstance(label, str) or not label:
+        if not _label_is_this_lanes_own(label):
             return False
-        if not isinstance(pc, int) or isinstance(pc, bool):
+        if not isinstance(pc, bytes):
             return False
         if not isinstance(frame, bytes) or not frame:
             return False
@@ -255,15 +349,33 @@ def answer(session, vital_id, payload):
         return []
     try:
         actions = fn(session=session, vital_id=vital_id, payload=payload)
+        if actions is None:
+            return []
+        # SNAPSHOT FIRST, VALIDATE THE SNAPSHOT (pf-adversary D3).  The
+        # draft validated the answerer's LIVE list and copied it after.
+        # Validation runs the answerer's own code -- ``delay >= 0`` and
+        # ``math.isfinite`` on a ``numbers.Real`` subclass this function
+        # explicitly opts into -- so a lane could rewrite the list from
+        # inside a comparison and ship what it liked: measured, a ``str``
+        # where ``bytes`` must be and a delay of ``-99.0`` both went out
+        # under a green ``UI_DISPATCH_ANSWERED`` token.  Copying first
+        # means the thing checked and the thing returned are one object.
+        if type(actions) in (list, tuple):
+            actions = list(actions)
+        # AND THE CHECK ITSELF IS INSIDE THIS try (pf-adversary D4).  It
+        # was outside, so an answerer supplying a ``Real`` whose
+        # ``__float__`` raises escaped answer(), escaped dispatch(), and
+        # reached a connection loop whose try has only a finally -- which
+        # is exactly what the "an answerer that raises is caught" sentence
+        # promised could not happen.
+        well_formed = _actions_are_well_formed(actions)
     except Exception as exc:
         _say(
             "UI_DISPATCH_ANSWER_ERR id=%s module=%s %r"
             % (_hex(vital_id), module_name, exc)
         )
         return []
-    if actions is None:
-        return []
-    if not _actions_are_well_formed(actions):
+    if not well_formed:
         _say(
             "UI_DISPATCH_ANSWER_REFUSED id=%s module=%s reason=malformed"
             % (_hex(vital_id), module_name)
@@ -273,4 +385,4 @@ def answer(session, vital_id, payload):
         "UI_DISPATCH_ANSWERED id=%s module=%s actions=%d"
         % (_hex(vital_id), module_name, len(actions))
     )
-    return list(actions)
+    return actions
