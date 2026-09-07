@@ -390,12 +390,32 @@ paragraph above as "the ticket is unnecessary": knowing WHICH island a given
 wire id refers to -- i.e. the destination -- is a per-id fact and still has
 no measurement behind it.  This module does not answer that question today
 and must not start by indexing the extent table.
-[assumption of LANE-A - pending COO confirmation]: the ask is
+The ask was
 `notes_to_chief/20260907_1022_LANE-A-ASK-COO-containment-discriminator-does-
-not-need-the-ordinal-crosswalk.md`.  Reverting is one line -- put
-``ISLAND_CONTACT_DISCRIMINATOR`` back to ``None`` -- and costs no caller,
-because item 4(b) still leaves both candidate slots empty and nothing in
-`src/` imports this module.
+not-need-the-ordinal-crosswalk.md`, and it is no longer an open assumption.
+THE PERMIT IS ``COO-DECISION 20260907_1441`` ITEM 4, NOT ``RE-298``:
+`RE-298` supplied the crosswalk observation -- recorded in
+`M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS` -- and `COO-DECISION 20260907_1245`
+section 1 says in red that the observation arriving does NOT by itself grant
+the right to fill the name.  Evidence and authority are different layers and
+this paragraph used to collapse them (pf-adversary D5).  What stays true is the
+paragraph above it: the DESTINATION a wire id names is still unmeasured,
+and this module still does not answer that.  Reverting remains one line --
+put ``ISLAND_CONTACT_DISCRIMINATOR`` back to ``None`` -- and costs no
+caller a frame, because item 4(b) leaves both candidate slots empty.
+
+THIS MODULE HAS A PRODUCTION IMPORTER SINCE ROUND `p7rob4`, AND THE
+SENTENCE THAT SAID IT DOES NOT IS GONE FROM BOTH PLACES IT APPEARED.
+``lane_hooks/lane_a_island_trigger_log.py`` imports ``answer_guard_reason``
+and ``IslandContactEvidence`` (lazily, inside ``guard_verdict_line`` --
+that module imports ``M2_OBSERVED_ISLAND_TRIGGER_IDS`` back out of the
+hook, and a top-level import here closes the cycle and kills both lanes'
+hooks at boot) and PRINTS the verdict for every inbound ``0x1FB2`` frame.
+Reverting the discriminator would therefore change what that console line
+says -- from a possible ``verdict=PASS`` back to
+``CONTACT_REFUSED_ISLAND_VS_OPEN_WATER_UNMEASURED`` on every frame -- and
+nothing else.  NO FRAME IS COMPOSED OR SENT by that importer: the hook is
+report-only by construction and its own tests assert ``actions == []``.
 """
 from __future__ import annotations
 
@@ -852,15 +872,32 @@ ISLAND_EXTENT_BOX_CITATIONS: dict[int, str] = {
 # the screen by ka1-A with Panya at the client -- and neither was derived
 # from the other.  That is the independence the slot was asking for.
 #
-# WHAT IS STILL NOT DONE, DELIBERATELY:  `ISLAND_CONTACT_DISCRIMINATOR` IS
-# STILL `None` twenty lines up.  Naming it is a DECISION, not a
-# measurement, and three documents (this file, `tickets/RE-289.md`, and
-# `RE-289`'s own nonclaim) route that decision through a crosswalk ticket.
-# This round delivers the evidence that ticket was going to ask for and
-# leaves the naming to COO and to the round that answers, which is the same
-# posture the previous round took when it committed the table and left the
-# name alone.  The letter to COO is
-# `notes_to_chief/20260907_1152_LANE-A-ASK-COO-*`.
+# WHAT THIS PARAGRAPH SAID UNTIL `p7rob4`, AND WHY IT IS NOW HISTORY:
+# it read "`ISLAND_CONTACT_DISCRIMINATOR` IS STILL `None` twenty lines up",
+# and it was true on the day it was written.  It is not true now -- the
+# constant is assigned `RE-298 Bg3001.tgr ordinal box contains the ship
+# position` -- and two other paragraphs in this file (at the constant
+# itself and in `_tier3_contact_reason`) had already been updated to say
+# so, leaving the file contradicting itself for three rounds.
+# pf-adversary D8 caught it three times before a round paid it.
+#
+# AND THE FIRST FIX OF IT REPEATED THE DEFECT INSIDE THE SENTENCE THAT
+# ANNOUNCED THE FIX.  The replacement written earlier this round said the
+# constant was at "line 509" and, one sentence later, that "a comment that
+# names a distance ages worse than one that names a symbol, so this one
+# names the symbol" -- while naming a line number.  It was already wrong
+# when committed (514, because the same commit added five lines above it)
+# and is wrong again now.  pf-adversary D2 of THIS round measured both.
+# So this paragraph now names ONLY the symbol: search
+# `^ISLAND_CONTACT_DISCRIMINATOR`.  No line number, no distance in lines.
+#
+# The decision the old paragraph was deferring HAS been taken: naming the
+# discriminator is a decision, not a measurement, and it was routed through
+# the crosswalk ticket exactly as written -- `RE-298` answered it, and the
+# evidence that licenses the name is the table above plus
+# `M2_WIRE_ORDINAL_CROSSWALK_OBSERVATIONS`.  The letter that asked is
+# `notes_to_chief/20260907_1152_LANE-A-ASK-COO-*`.  What is still not done
+# is downstream of the name, not the name: no frame reaches the client yet.
 #
 # AND ONE PREMISE THIS PROJECT HAS BEEN REPEATING IS REFUTED BY ITS OWN
 # PRIMARY SOURCE.  `RE-234` item (3), quoted in `CLIENT_RE_QUEUE.md`, in
@@ -1842,11 +1879,21 @@ def candidate_for_trigger_id(
     function and from ``_registered_count`` -- see those two for the
     posture and for which of them validates unconditionally.
 
-    No production call site passes anything to any of this: repo-wide grep
-    for this module's name finds importers only in its own test file.  That
-    claim rests on "nothing in `src/` imports this module", not on a keyword
-    spelling -- and since this round it no longer has to, because there is
-    no keyword left to spell.
+    ONE PRODUCTION CALL SITE PASSES TO THIS, SINCE ROUND `p7rob4`, AND THE
+    SENTENCE HERE USED TO SAY THERE WERE NONE.  Repo-wide grep for this
+    module's name now finds its own test file AND
+    ``lane_hooks/lane_a_island_trigger_log.py``, which calls
+    ``answer_guard_reason`` on every inbound ``0x1FB2`` frame and prints
+    the verdict on stderr as ``LANE_A_M2_GUARD ... verdict=...``.  What
+    that importer does NOT do is send: it composes no frame, queues no
+    bytes and touches no session state, and its tests assert
+    ``actions == []`` through the real dispatcher.  So the OLD claim
+    ("nothing in `src/` imports this module") is retired, and what stands
+    in its place is narrower and still true: NOTHING IN `src/` TURNS THIS
+    MODULE'S ANSWER INTO A FRAME.  That is the line `PANYA 1910` draws,
+    and the RE ticket asking which inbound vital opens the captain-report
+    window (`pf_bridge/notes_to_chief/20260907_1932_LANE-A-TO-K-re-body-*`)
+    is what has to land before it can move.
     """
     return _candidate_for_trigger_id(
         current_scene_id, wire_trigger_id, island_contact
@@ -1900,7 +1947,15 @@ def registered_count() -> int:
 # THE MODULE FREEZE -- COO-DECISION `20260907_0945` item 1.
 # ---------------------------------------------------------------------------
 # WHICH BOUNDARY IS THIS FREEZE?  DISCIPLINE, NOT SECURITY.
-# [assumption of LANE-A - awaiting COO confirmation]
+# CONFIRMED BY COO-DECISION `20260907_1744`, which upheld reading (b) and
+# made both consequences below BINDING, not this lane's assumption.  The
+# `[assumption of LANE-A]` tag that stood here is gone because the
+# decision arrived, and that decision added a third rule which is now
+# item 3.  (The first version of this line said "for five rounds".
+# pf-adversary D6 re-derived it: the tag exists in the tree of exactly two
+# LANE-A rounds, `fr81hi` (#1054, which added it) and `yw28ea` (#1058).
+# A count of rounds nobody can re-derive from the repository is the same
+# defect as a stale line number, so this sentence no longer carries one.)
 #
 # pf-adversary asked the question that the last four rounds of this file
 # were avoiding: "who is the importer this freeze protects against, and
@@ -1923,7 +1978,10 @@ def registered_count() -> int:
 # happened here: `""` was measured unlocking all three tiers on `550a36d`
 # and on `#993`.
 #
-# TWO CONSEQUENCES, BOTH BINDING ON LATER ROUNDS:
+# THREE CONSEQUENCES, ALL BINDING ON LATER ROUNDS.  (This header said TWO
+# over three items for the length of one round: item 3 was added with the
+# count left alone -- the exact D7 shape this same commit was paying.
+# pf-adversary D3 of round `p7rob4` measured it.)
 #   1. SCOPE FOLLOWS THE TIERS, NOT THE ATTACKER.  The set below must
 #      contain every name a tier READS while deciding -- which is why a
 #      test now derives that list from the tiers' own syntax instead of
@@ -1935,9 +1993,36 @@ def registered_count() -> int:
 #      A round that spends itself chasing those instead of covering a name
 #      a tier reads has the priority backwards.
 #
-# If COO decides the boundary is something else, item 2 above is what
-# changes, and `pf_bridge/notes_to_chief/20260907_*_LANE-A-ASK-COO-*` is
-# the letter that asks.
+#   3. NO ROUND OF THIS LANE MAY SPEND ITSELF CLOSING PROCESS-LEVEL DOORS
+#      IN THIS FILE AGAIN (COO-DECISION `1744`, the part that binds beyond
+#      the answer).  A pf-adversary finding of that shape -- `gc.get_referents`,
+#      `module.__class__ = ...`, overwriting `__CANDIDATES` -- is answered
+#      with one line, "process level, not a critical bug, per decision
+#      `1744`", and the round moves to its next job.  It does not open a
+#      round.  What the freeze buys is item 1 and only item 1, and item 1
+#      is worth paying for because it has already been breached: `""`
+#      unlocked all three tiers on `550a36d` and `#993`.
+#
+# The letter that asked is
+# `pf_bridge/notes_to_chief/20260907_1622_LANE-A-ASK-COO-what-boundary-is-the-
+# tier3-freeze.md`; the answer is
+# `notes_to_chief/20260907_1744_COO-DECISION-a1622-freeze-is-a-discipline-line-
+# LANE-A.md`.
+#
+# THE DECISION THAT LICENSED NAMING `ISLAND_CONTACT_DISCRIMINATOR` IS
+# `COO-DECISION 20260907_1441` ITEM 4, AND UNTIL ROUND `p7rob4` THIS FILE
+# NEVER CITED IT.  That matters twice.  First, because `RE-298` is
+# evidence, not authority: `COO-DECISION 20260907_1245` section 1 says in
+# red that the crosswalk being answered does NOT by itself grant the right
+# to fill the name, and any sentence in this file reading "`RE-298`
+# licenses it" is repeating the reading that decision refused -- the
+# permit is `1441` item 4, which cites `RE-298` as its grounds.  Second,
+# because `1441` attached a condition this lane did not meet: fill the
+# name AND remove the docstring prohibition IN THE SAME COMMIT.  The name
+# was filled at `8ce0c44`; the prohibition text was still being corrected
+# rounds later.  Recorded here rather than quietly fixed, because a
+# condition missed and unlogged is how the next one gets missed too.
+# (pf-adversary D5 of round `p7rob4` found both.)
 class _FrozenTier3Module(ModuleType):
     """The class this module's own object is given at import time, so that
     ``world_m2_trigger_vital_response.ISLAND_CONTACT_DISCRIMINATOR = "x"``
@@ -2035,14 +2120,42 @@ class _FrozenTier3Module(ModuleType):
             "_trigger_id_guard_reason",
             "scene_guard_reason",
             "_position_is_inside_a_committed_extent",
-            # SAME D1 SHAPE, THIS ROUND'S TWO NEW FUNCTIONS.  Closing C1
-            # minted `_ordinals_containing_position` (which owns the
-            # geometry the name above used to own) and `_ordinal_is_in_table`
-            # (which decides whether the id has a box at all).  Either one
+            # SAME D1 SHAPE, THE THREE FUNCTIONS `yw28ea` MINTED.  Closing
+            # C1 minted `_ordinals_containing_position` (which owns the
+            # geometry the name above used to own), `_readable_extent_for`
+            # (which returns the box of one id, or `None` when that id has
+            # no readable row) and `_is_a_readable_row` (which decides
+            # whether a row may be unpacked at all).  Any one of them
             # rebound is tier 3 deciding whatever the caller wants: the
-            # first can return every ordinal, the second can return `True`
-            # for anything.  They go in the set in the SAME commit that
-            # creates them, which is what D1 cost the lane a round to learn.
+            # first can return every ordinal, the second can hand back a
+            # box the table never held, the third can wave any object
+            # through to be unpacked.
+            #
+            # THIS COMMENT WAS WRONG TWICE AND `p7rob4` IS FIXING IT, NOT
+            # THE CODE (pf-adversary D7 and D1 against `yw28ea`).  It said
+            # TWO functions and named `_ordinal_is_in_table`, a name that
+            # was renamed to `_readable_extent_for` in the same commit and
+            # survives nowhere in this file except the two sentences
+            # discussing it -- a comment describing an earlier draft of its
+            # own commit.  (The first version of THIS sentence said "zero
+            # hits", which its own existence refuted: pf-adversary D3.)  And it claimed these names "go in
+            # the set in the SAME commit that creates them", which
+            # `git show 4014f72` refutes about these very functions: that
+            # commit minted `_ordinals_containing_position` OUTSIDE this
+            # set, went red on its own suite (45 failed, including
+            # `test_every_name_a_tier_reads_is_frozen`), and left the D1
+            # hole open until `e748577`.
+            #
+            # PRECISELY, BECAUSE THE FIRST DRAFT OF THIS CORRECTION
+            # OVERSTATED ITSELF IN THE OTHER DIRECTION (pf-adversary D7 of
+            # round `p7rob4`): `4014f72` never contained
+            # `_readable_extent_for` or `_is_a_readable_row` at all.  Both
+            # were minted at `e748577`, WHICH ADDED ALL THREE NAMES TO THIS
+            # SET IN THAT SAME COMMIT.  So the "same commit" rule held for
+            # two of the three functions and was broken for one.  What the
+            # lane actually learned from D1 stands either way: the set is
+            # kept honest by a test that walks the tiers' own syntax, not
+            # by the author remembering -- and that test is what went red.
             "_ordinals_containing_position",
             "_readable_extent_for",
             "_is_a_readable_row",

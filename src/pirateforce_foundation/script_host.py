@@ -20,10 +20,16 @@ to ``nil`` on every runtime this module creates.  One measured consequence:
 ``gamedata/lua/utility.lua`` calls ``os.time()`` at its own top level to
 seed the RNG, so loading it under this sandbox produces one caught
 ``LUA_SCRIPT ... ERR`` (see ``docs/SCRIPT_LANE.md`` "known findings") -- the
-fail-closed behaviour working as specified, not a bug in this host.  A
-future round can widen the sandbox to a narrow, safe clock/RNG seed
-function instead of blocking ``os`` outright; the spike does not do that
-widening itself, to keep this round's diff to what the charter asked for.
+fail-closed behaviour working as specified, not a bug in this host.  That
+file is the engine's own startup prelude rather than a quest, and the
+narrow widening this paragraph used to name as future work landed in round
+``q6nytd``: ``lua_api/prelude.py`` runs it with an ``os`` that is a Lua
+table carrying exactly one key, ``time``, for the duration of that chunk
+and no longer.  A caller opts in by passing ``prelude=``; nothing here
+turns it on by itself, and a script's own chunk still meets a state where
+every name on ``BLOCKED_GLOBALS`` is nil.  Loading ``utility.lua`` as if it
+were a SCRIPT still fails exactly as before, which is why the corpus
+census's pinned failure list did not move.
 
 FAIL-CLOSED.  A script that fails to parse, or that raises while its
 top-level chunk runs, is logged and skipped -- never allowed to raise out
@@ -61,6 +67,7 @@ from .lua_api import trigger as lua_api_trigger
 from .lua_api import instance as lua_api_instance
 from .lua_api import player as lua_api_player
 from .lua_api import message as lua_api_message
+from .lua_api import prelude as lua_api_prelude
 # RE-EXPORTED, NOT DECORATIVE: `MIRROR_HEALTH`, `MirrorHealth` and
 # `MirrorFailureTally` were defined in THIS module until round `h20x7g`
 # moved them one directory down, so every existing caller and test still
@@ -446,6 +453,7 @@ class ScriptHost:
                  player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
                  message_sink: "Optional[lua_api_message.MessageSink]" = None,
                  payout_store: Optional[Any] = None,
+                 prelude: "Optional[lua_api_prelude.Prelude]" = None,
                  mirror_health: Optional[MirrorHealth] = None):
         _require_lupa()
         self.log = log or default_logger
@@ -554,6 +562,24 @@ class ScriptHost:
         # reachable, and a mirror failure is not an excuse to.
         for name in BLOCKED_GLOBALS:
             g[name] = None
+        #: Whether THIS host ran the game's own startup prelude, and how it
+        #: went: None = the caller handed none (every caller that existed
+        #: before `lua_api/prelude.py` did), True = it ran, False = it
+        #: raised and was logged.  Three states, not a bool, because "no
+        #: prelude was asked for" and "the prelude failed" are different
+        #: facts and a caller reading one as the other would blame the
+        #: wrong thing.  Run AFTER the BLOCKED_GLOBALS loop above on
+        #: purpose: `run_prelude` installs its one-key `os` shim on top of
+        #: an already-sandboxed state and re-nils every blocked name in its
+        #: own `finally`, so the invariant that loop establishes is the
+        #: invariant a script's chunk still meets.  A degraded host runs no
+        #: prelude: it carries no API namespaces and refuses load/call
+        #: anyway, so running one would only add a log line about a host
+        #: nobody can use.
+        self.prelude_ok: Optional[bool] = None
+        if prelude is not None and not self.degraded:
+            self.prelude_ok = lua_api_prelude.run_prelude(
+                self.runtime, prelude, self.log, BLOCKED_GLOBALS)
 
     def _refuse_if_degraded(self, what: str) -> None:
         """A degraded host says whose defect this is, before Lua can.
@@ -601,7 +627,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       player_context: "Optional[lua_api_player.PlayerContext]" = None,
                       player_store: "Optional[lua_api_player.PlayerMobAppearStore]" = None,
                       message_sink: "Optional[lua_api_message.MessageSink]" = None,
-                      payout_store: Optional[Any] = None) -> ScriptHost:
+                      payout_store: Optional[Any] = None,
+                      prelude: "Optional[lua_api_prelude.Prelude]" = None) -> ScriptHost:
     """Load one ``.lua`` file into a fresh sandboxed :class:`ScriptHost`.
 
     Reads the file as bytes decoded latin-1, because latin-1 is the one
@@ -633,7 +660,8 @@ def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,
                       player_context=player_context,
                       player_store=player_store,
                       message_sink=message_sink,
-                      payout_store=payout_store)
+                      payout_store=payout_store,
+                      prelude=prelude)
     source = Path(path).read_bytes().decode("latin-1")
     host.load(source)
     return host
@@ -702,7 +730,58 @@ def _log_host_side(log: Callable[[str], None], rel: str,
     return message
 
 
-def load_corpus(root, log: Optional[Callable[[str], None]] = None) -> LoadReport:
+class _ShippedPrelude:
+    """Sentinel default for the corpus sweeps' ``prelude=`` parameter.
+
+    THREE STATES, NOT TWO, AND THAT IS THE WHOLE REASON THIS OBJECT EXISTS.
+    Before round ``e5epdj`` the sweeps took ``prelude=None`` and ran no
+    prelude, so "the caller wants yesterday's behaviour" and "the caller
+    said nothing" were the same value and a default could not be flipped
+    without taking the explicit opt-out away with it.  Now:
+
+    * :data:`SHIPPED_PRELUDE` (the default) -- read ``utility.lua`` from
+      the sweep's OWN ``root`` and run it.  A root that ships no such file,
+      or ships different bytes, logs ``LUA_PRELUDE ABSENT``/``REFUSED`` and
+      the sweep continues with no prelude: this is the supported shape for
+      every fixture root in the test suite, which is why flipping the
+      default did not have to touch one of them.
+    * ``None`` -- explicitly no prelude.  Yesterday's behaviour, still
+      reachable, still tested.
+    * a :class:`~.lua_api.prelude.Prelude` -- use exactly that one.  What
+      the census tests pass, because they need a FIXED seed (see
+      ``tests/test_script_lua_corpus.py::CENSUS_PRELUDE_SEED``).
+
+    Not a bare ``object()``: a reader who prints the default in a traceback
+    or a help() should see a name that says what it means.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "SHIPPED_PRELUDE"
+
+
+#: See :class:`_ShippedPrelude`.  The sweeps' default.
+SHIPPED_PRELUDE = _ShippedPrelude()
+
+
+def _resolve_prelude(root, prelude, log):
+    """Turn a sweep's ``prelude=`` argument into a ``Prelude`` or ``None``.
+
+    One function so the two sweeps cannot drift apart on the question, and
+    so the ``read_prelude`` call happens ONCE per sweep rather than once
+    per file -- 616 reads of the same 450 bytes would be waste, and 616
+    DIFFERENT seeds would be a behaviour change nobody asked for (each host
+    would get its own stream; see :class:`~.lua_api.prelude.Prelude` on why
+    the seed's ownership is still an open question either way).
+    """
+    if prelude is SHIPPED_PRELUDE:
+        return lua_api_prelude.read_prelude(root, log=log)
+    return prelude
+
+
+def load_corpus(root, log: Optional[Callable[[str], None]] = None, *,
+                prelude: Any = SHIPPED_PRELUDE) -> LoadReport:
     """Load every ``*.lua`` file under ``root`` into its own sandboxed host.
 
     Fail-closed, per the LANE-Q charter: a script that fails to parse or
@@ -715,12 +794,13 @@ def load_corpus(root, log: Optional[Callable[[str], None]] = None) -> LoadReport
     """
     log = log or default_logger
     root = Path(root)
+    prelude = _resolve_prelude(root, prelude, log)
     report = LoadReport()
     for path in sorted(root.rglob("*.lua")):
         report.total += 1
         rel = path.relative_to(root).as_posix()
         try:
-            load_script_file(path, log=log)
+            load_script_file(path, log=log, prelude=prelude)
         except _host_side_error_types() as exc:  # our defect, not the script's
             _log_host_side(log, rel, exc)
             report.host_failed.append(rel)
@@ -905,7 +985,8 @@ class CorpusEntryPointReport:
 
 
 def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *,
-                             quest_clock: "Optional[lua_api_quest.Clock]" = None) -> CorpusEntryPointReport:
+                             quest_clock: "Optional[lua_api_quest.Clock]" = None,
+                             prelude: Any = SHIPPED_PRELUDE) -> CorpusEntryPointReport:
     """Load every ``*.lua`` file under ``root`` AND call the standard entry
     points it defines, tallying every ``LUA_API_STUB``/``LUA_TRIGGER_REAL``
     call each one made along the way.
@@ -976,12 +1057,14 @@ def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *
     """
     log = log or default_logger
     root = Path(root)
+    prelude = _resolve_prelude(root, prelude, log)
     report = CorpusEntryPointReport()
     for path in sorted(root.rglob("*.lua")):
         report.total += 1
         rel = path.relative_to(root).as_posix()
         try:
-            host = load_script_file(path, log=log, quest_clock=quest_clock)
+            host = load_script_file(path, log=log, quest_clock=quest_clock,
+                                    prelude=prelude)
         except _host_side_error_types() as exc:  # our defect, not the script's
             _log_host_side(log, rel, exc)
             report.host_failed.append(rel)

@@ -19,8 +19,33 @@ is untouched by this file, and ``COO-DECISION 20260904_0942`` ("item 4
 means existing defaults only, ``1607`` stands, no migration") still governs
 every one of the 17 columns that decision left ``NULL``.  This module
 writes NOTHING -- no migration, no ``store.py`` call, no character row --
-and changes no existing seed value.  It has no caller anywhere in this
-repository as of the round that added it.
+and changes no existing seed value.  That is still true today, and it is
+the half of this paragraph that has NOT changed: being read by somebody
+does not give this module a write.
+
+WHO READS IT: NOBODY, AND THAT SENTENCE HAS BEEN TRUE, FALSE AND TRUE
+AGAIN INSIDE ONE DAY.  LANE-CS's class-attacker-profile module (round
+``hhmvit``) became the first production caller; ``COO-ORDER 20260907_2050``
+(``pf_bridge/notes_to_chief/20260907_2050_COO-ORDER-cs2010-retire-the-
+scaffold-pin-for-its-first-caller-LANE-DB.md``) ordered the owner of this
+module -- this lane -- to retire the "no caller" premise for it, rather
+than let LANE-CS allowlist a name inside a LANE-DB pin, because the
+declaration "scaffold, not wiring" belongs to the module's owner.  Before
+this lane's next round reached the order, LANE-CS WITHDREW the import
+(main, round ``b2cnxe``), so the premise is true again and retiring it now
+would name a caller that does not exist.
+
+THE NAME IS DELIBERATELY NOT SPELLED OUT AS A LITERAL STRING HERE, for the
+same measured reason this docstring gives below for LANE-B's encoder and
+``persistence_class_id.py`` gives for its own sibling: that module's
+``CallersInSrcTokenIsMeasuredTests`` scans every
+``src/pirateforce_foundation/**/*.py`` file for its filename as a
+SUBSTRING, so prose naming it here would be counted as an importer and
+turn a guard red on a sentence.  ``tests/test_persistence_standard_
+status.py`` carries the full name, in the constant its assertion reads,
+and is where the caller list is actually measured: empty today, that one
+name on the day the import returns, and never in the set that test's loop
+skips.
 
 WHAT THIS MODULE DOES DO.  ``CONSTDATA_TH__STANDARD_STATUS.tsv`` is a
 plain, already-committed gamedata table -- ``class_catalog.py``'s own

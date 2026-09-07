@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -206,3 +207,101 @@ class EquipItemTests(_StoreFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EquipItemNowaitTests(_StoreFixture):
+    """`equip_item_nowait` -- the door a hook on a player's own dispatch
+    thread may call, added for `pf-adversary` finding `D6` on
+    `pirate-force-server#1064`: the same write on `equip_item` stalls that
+    thread for `connect()`'s full 5,000 ms when the lock is held.
+    """
+
+    def test_it_writes_the_same_row_the_canonical_door_writes(self):
+        character = self._make_character()
+        self.store.equip_item_nowait(character.id, 3, 4, 2200002)
+        self.assertEqual(
+            self.store.list_equipped_items(character.id),
+            ((3, 4, 2200002),),
+        )
+
+    def test_it_returns_the_id_of_the_row_that_is_actually_there(self):
+        character = self._make_character()
+        rowid = self.store.equip_item_nowait(character.id, 3, 4, 2200002)
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT id,item_identity FROM character_equipment "
+                "WHERE character_id=?", (character.id,)).fetchone()
+        # The id is read back inside the writing transaction, so a caller
+        # printing "wrote" cannot be describing a call that returned while
+        # the row did not land (`D9`).
+        self.assertEqual(rowid, int(row["id"]))
+        self.assertEqual(int(row["item_identity"]), 4)
+
+    def test_the_same_slot_twice_replaces_rather_than_accumulates(self):
+        character = self._make_character()
+        first = self.store.equip_item_nowait(character.id, 3, 4, 2200002)
+        second = self.store.equip_item_nowait(character.id, 3, 9, 2200005)
+        self.assertNotEqual(first, second)
+        self.assertEqual(
+            self.store.list_equipped_items(character.id),
+            ((3, 9, 2200005),),
+        )
+
+    def test_a_held_lock_is_refused_fast_instead_of_stalling_the_thread(self):
+        character = self._make_character()
+        holder = sqlite3.connect(self.path)
+        holder.execute("PRAGMA busy_timeout=0")
+        holder.execute("BEGIN IMMEDIATE")
+        try:
+            started = time.monotonic()
+            with self.assertRaises(WriteLockTimeout):
+                self.store.equip_item_nowait(character.id, 3, 4, 2200002)
+            waited = time.monotonic() - started
+        finally:
+            holder.rollback()
+            holder.close()
+        # The number that matters is not "fast" in the abstract: it is
+        # "nowhere near `connect()`'s 5,000 ms", which is the stall D6
+        # measured (5.01 s).  A generous ceiling keeps this from being a
+        # timing flake on a loaded CI runner while still dying if the
+        # pragma stops being applied at all.
+        self.assertLess(waited, 2.5, "the short lock budget was not applied")
+        self.assertEqual(self.store.list_equipped_items(character.id), ())
+
+    def test_the_canonical_door_is_untouched_and_still_waits(self):
+        # The extraction of `_check_equip_arguments` is only allowed
+        # because `equip_item`'s behaviour did not change: it must NOT have
+        # inherited the short budget.
+        source = (ROOT / "src" / "pirateforce_foundation" / "store.py")
+        text = source.read_text(encoding="utf-8")
+        body = text[text.index("    def equip_item("):
+                    text.index("    def equip_item_nowait(")]
+        self.assertNotIn("PRAGMA busy_timeout", body)
+        self.assertIn("EQUIP_LOCK_BUSY_TIMEOUT_MS", text)
+
+    def test_the_two_doors_refuse_the_same_arguments_the_same_way(self):
+        """The extraction pin: one checker, two doors, identical refusals.
+
+        A second inline copy of the bounds inside `equip_item_nowait` is
+        the duplicated predicate `D7` charged this lane for; this test is
+        what makes the shared checker a fact instead of a comment.
+        """
+        character = self._make_character()
+        cases = (
+            (("x", 3, 4, 2200002), TypeError),
+            ((character.id, True, 4, 2200002), TypeError),
+            ((character.id, 256, 4, 2200002), ValueError),
+            ((character.id, -1, 4, 2200002), ValueError),
+            ((character.id, 3, -1, 2200002), ValueError),
+            ((character.id, 3, 4, 0x100000000), ValueError),
+            ((character.id + 9999, 3, 4, 2200002), KeyError),
+        )
+        for args, expected in cases:
+            with self.subTest(args=args):
+                with self.assertRaises(expected) as canonical:
+                    self.store.equip_item(*args)
+                with self.assertRaises(expected) as short:
+                    self.store.equip_item_nowait(*args)
+                self.assertEqual(str(canonical.exception),
+                                 str(short.exception))
+        self.assertEqual(self.store.list_equipped_items(character.id), ())
