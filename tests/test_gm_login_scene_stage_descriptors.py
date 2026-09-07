@@ -202,12 +202,16 @@ def read_fd_table():
     """Every descriptor this process holds, as `{fd: target}`, or None off POSIX.
 
     The descriptor `os.listdir` itself uses to read the directory appears in
-    its own listing; it points at `/proc/<pid>/fd` and is dropped here, so two
-    reads taken around a call cancel it out.  `TheReaderItselfTests` pins that
-    drop against the source, because deleting it is invisible whenever the two
-    reads happen to be handed the same fd number (pf-adversary, round
-    `fx4p76`, D3).  An fd that vanishes between the listing and the `readlink`
-    is that same descriptor being closed under us.
+    its OWN listing.  An earlier version of this function dropped it by target
+    (`/proc/<pid>/fd`), and pf-adversary (round `fx4p76`, D3) measured that
+    deleting those two lines changed nothing.  Measured here rather than
+    defended: `os.listdir` closes that descriptor before it returns, so by the
+    time `readlink` asks about the number it is already gone -- three trials,
+    every one of them `ENOENT` for exactly one name and no `/proc/<pid>/fd`
+    target resolved at all.  The `OSError` arm below is therefore what drops
+    it, the filter was dead code, and dead code in a fence reads as protection
+    that is not there.  `TheReaderItselfTests` pins the arm that really does
+    the work.
     """
     try:
         names = os.listdir(FD_TABLE)
@@ -222,8 +226,6 @@ def read_fd_table():
         try:
             target = os.readlink(f"{FD_TABLE}/{name}")
         except OSError:
-            continue
-        if target.startswith("/proc/") and target.endswith("/fd"):
             continue
         table[number] = target
     return table
@@ -724,34 +726,66 @@ class TheLeakDetectorItselfWorksTests(_DescriptorCase):
 class TheReaderItselfTests(unittest.TestCase):
     """`read_fd_table` reads what it claims to and drops what it claims to.
 
-    pf-adversary (round `fx4p76`, D3): deleting the two lines that drop the
-    reader's own directory descriptor left this file at `8 passed`, because two
-    reads taken moments apart are usually handed the same fd number.  This
-    asserts the drop against a single read, where it is deterministic.
+    pf-adversary (round `fx4p76`, D3): deleting the two lines that dropped the
+    reader's own directory descriptor by target left this file at `8 passed`.
+    The answer is not a cleverer pin for those lines -- it is that they were
+    dead.  `os.listdir` has already closed that descriptor when `readlink` runs
+    (measured: one name per read, always `ENOENT`), so the `OSError` arm drops
+    it and the filter never fired.  The lines are gone; these cases pin what
+    replaced them.
     """
 
     def setUp(self):
         if not sys.platform.startswith("linux"):
             self.skipTest("the fd table is read from /proc, which is Linux-only")
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.tmp = pathlib.Path(holder.name)
 
-    def test_the_reader_drops_the_descriptor_it_used_to_read_the_table(self):
+    def test_the_listing_names_a_descriptor_that_is_gone_before_it_is_resolved(self):
+        """The reader's own dirfd, and the arm that actually drops it.
+
+        Without the `try`/`except OSError` around `readlink`, this is not a
+        silent mis-count: every call raises and the whole file errors out.
+        """
+        names = os.listdir(FD_TABLE)
+        vanished = []
+        for name in names:
+            try:
+                os.readlink(f"{FD_TABLE}/{name}")
+            except OSError as exc:
+                vanished.append((name, exc.errno))
+        self.assertEqual(
+            len(vanished),
+            1,
+            "exactly one name in the listing -- the descriptor `os.listdir` "
+            f"used to read it -- should be gone by `readlink`; got {vanished!r}",
+        )
+        self.assertEqual(vanished[0][1], errno.ENOENT)
+
+    def test_the_reader_reports_no_descriptor_pointing_at_the_fd_directory(self):
+        """CHARACTERISATION, not a pin: nothing here can make this red.
+
+        Said plainly because the version of this file that round `fx4p76`
+        shipped presented an assertion of exactly this shape as if it guarded
+        the filter it was written for.  It does not: the entry never reaches
+        the table on any code path, with or without a filter.  It is kept to
+        record the fact the docstring above rests on.
+        """
         table = read_fd_table()
         self.assertIsNotNone(table, f"{FD_TABLE} is unreadable on a Linux host")
-        self_referential = {
-            number: target
-            for number, target in table.items()
-            if target.startswith("/proc/") and target.endswith("/fd")
-        }
         self.assertEqual(
-            self_referential,
+            {
+                number: target
+                for number, target in table.items()
+                if target.startswith("/proc/") and target.endswith("/fd")
+            },
             {},
-            "`read_fd_table` reported its own directory descriptor: two reads "
-            "around a call then differ whenever the OS hands out a different "
-            "number, which is a false leak report",
         )
 
-    def test_the_reader_sees_a_descriptor_that_is_actually_open(self):
-        handle, name = tempfile.mkstemp(dir=str(self.tmp_dir()), prefix=".probe.")
+    def test_the_reader_resolves_a_descriptor_that_is_actually_open(self):
+        """A reader that returns a constant must not look like a clean table."""
+        handle, name = tempfile.mkstemp(dir=str(self.tmp), prefix=".probe.")
         self.addCleanup(os.unlink, name)
         self.addCleanup(os.close, handle)
         table = read_fd_table()
@@ -762,11 +796,6 @@ class TheReaderItselfTests(unittest.TestCase):
             "the reader did not report an open descriptor, so an empty table "
             "would be indistinguishable from a clean one",
         )
-
-    def tmp_dir(self):
-        holder = tempfile.TemporaryDirectory()
-        self.addCleanup(holder.cleanup)
-        return holder.name
 
 
 class TheFenceCoversEverySiteTests(unittest.TestCase):
