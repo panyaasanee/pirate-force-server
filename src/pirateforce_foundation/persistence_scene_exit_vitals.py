@@ -200,10 +200,17 @@ def resolve_for_scene_exit(store, character_id: int, scene_id: int) -> SceneExit
 def console_line(resolved: SceneExitVitals) -> str:
     """One ASCII line for a headless boot.  Never more than one line.
 
-    The refusal spelling shouts (`!!`) for the same reason
-    `persistence_login_vitals` does: an operator scrolling a boot log has to
-    see a refusal without reading it, and a refusal that looks like a success
-    is how a gap survives an attended run.
+    The refusal spelling shouts (`!!`) for the same reason this lane's login
+    console line does: an operator scrolling a boot log has to see a refusal
+    without reading it, and a refusal that looks like a success is how a gap
+    survives an attended run.  That module is deliberately described rather
+    than NAMED here -- its own suite pins the set of files that mention it,
+    because it may be reached from exactly ONE seam under `src/`
+    (`COO-DECISION 20260903_0447`), and that pin is a substring scan which a
+    bare mention in prose would trip.  MEASURED: naming it here turned
+    `TheModuleOwnsNoConstantsTests::test_the_module_has_at_most_one_seam_and_
+    it_is_the_login_one` red in this round's first full-suite run.  The pin is
+    right and this file is the one that moves: nothing here imports it.
     """
     stated = (
         ",".join(f"x{x}={value}" for x, value in sorted(resolved.rows.items()))

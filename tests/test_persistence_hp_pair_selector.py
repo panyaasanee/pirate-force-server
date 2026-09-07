@@ -69,6 +69,13 @@ MIGRATIONS = ROOT / "migrations"
 SRC = ROOT / "src" / "pirateforce_foundation"
 MODULE_FILE = SRC / "persistence_hp_pair_selector.py"
 
+#: The module's one production caller, and its test file.  Round `5vzis0`
+#: put it there (`GT-301`, the scene-exit HP restate); before that round the
+#: pins below read `[]`.  Named here once so the two tests that walk the tree
+#: cannot drift apart from each other.
+THE_ONE_CALLER = "src/pirateforce_foundation/persistence_scene_exit_vitals.py"
+THE_ONE_CALLERS_TEST = "tests/test_persistence_scene_exit_vitals.py"
+
 
 def _build_wire(selector):
     return b"wire", b"avatar", 0x30000001 + selector, 0
@@ -722,11 +729,20 @@ class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
                     disagreements.append((sorted(shape), selector_byte))
         self.assertEqual(disagreements, [])
 
-    def test_the_module_says_out_loud_that_it_has_no_caller(self):
-        """The claim that keeps this module honest while it waits for one."""
+    def test_the_module_says_out_loud_who_calls_it(self):
+        """FLIPPED IN ROUND `5vzis0`, in the commit that made the old form
+        false, per the house rule "a pin that goes red because the docstring
+        moved is flipped in the same ticket, never skipped".  It used to pin
+        the sentence "WHO CALLS THIS PREDICATE TODAY: NOBODY"; the module now
+        has exactly one caller, so the sentence that keeps it honest is the
+        one that NAMES the caller.  This still checks prose only -- the check
+        that acts on the tree is the next test."""
         text = MODULE_FILE.read_text(encoding="utf-8")
-        self.assertIn("WHO CALLS THIS PREDICATE TODAY: NOBODY", text)
-        self.assertIn("WITHDRAWN", text)
+        self.assertIn(
+            "WHO CALLS THIS PREDICATE TODAY: `persistence_scene_exit_vitals`",
+            text,
+        )
+        self.assertNotIn("WHO CALLS THIS PREDICATE TODAY: NOBODY", text)
 
     def test_the_no_caller_claim_is_checked_against_the_tree_not_the_prose(self):
         """pf-adversary round `2v18x3`, Cat-6.4: the test above verifies that
@@ -749,10 +765,14 @@ class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
                 importers.append(str(path.relative_to(ROOT)))
         self.assertEqual(
             importers,
-            [],
-            "the module now HAS a caller, so its docstring's "
-            "'WHO CALLS THIS PREDICATE TODAY: NOBODY' is false: " 
-            + ", ".join(importers),
+            [THE_ONE_CALLER, THE_ONE_CALLERS_TEST],
+            "the set of files naming this module moved.  It is pinned rather "
+            "than merely counted: this module is a door, and a door with two "
+            "independent callers is two doors that will drift.  Whoever adds "
+            "or removes one updates this pin and the module's own "
+            "'WHO CALLS THIS PREDICATE TODAY' paragraph in the same commit, "
+            "which is the whole point of this test walking the tree instead "
+            "of grepping for a sentence.  Found: " + ", ".join(importers),
         )
 
 
@@ -1513,7 +1533,14 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
         facts = self._reachable()
         self.assertEqual(facts["admitted_by_a_login_shape"], [])
         self.assertEqual(facts["backed_by_a_server_column"], [])
-        self.assertEqual(self._callers(), [])
+        # ROUND `5vzis0`: was `[]`.  The gate is still not REACHABLE by either
+        # route -- both lines above are unchanged -- but it is now WIRED, so
+        # the obligation the class above states can no longer fire for want
+        # of a caller.  Recorded as measured rather than relaxed: the day a
+        # route opens, `test_an_unreachable_gate_may_have_no_caller_but_a_
+        # reachable_one_may_not` finds a caller and stays green, which is
+        # exactly the state that pairing was written to reach.
+        self.assertEqual(self._callers(), [THE_ONE_CALLER])
 
 
 class TheTwoPinsPfAdversaryBrokeAtHeadTests(unittest.TestCase):
