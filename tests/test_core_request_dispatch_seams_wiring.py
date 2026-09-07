@@ -8,7 +8,9 @@ them: each seam has its own test, and removing one seam from
 ``runtime.py`` reddens a DIFFERENT test class here.
 
   * ``ActivityCheatCodeSeamTests``   -- CORE-REQUEST-GM-062 (0x6CEC)
-  * ``UnclaimedVitalSeamTests``      -- CORE-REQUEST-GM-063 (unknown id)
+  * ``UnclaimedVitalSeamWithdrawnTests`` -- CORE-REQUEST-GM-063, landed
+    by R390 and withdrawn by R391 (the detector could not answer the
+    question its own hook point asks); the withdrawal is pinned here
   * ``ItemOperateOp5SeamTests``      -- CORE-REQUEST LANE-DB 20260906_1452
 
 The lane-side modules are proved offline by their owners
@@ -210,49 +212,54 @@ class ActivityCheatCodeSeamTests(_SeamCase):
         )
 
 
-class UnclaimedVitalSeamTests(_SeamCase):
-    """CORE-REQUEST-GM-063: a frame no reader claimed is counted once."""
+class UnclaimedVitalSeamWithdrawnTests(_SeamCase):
+    """CORE-REQUEST-GM-063 was landed by R390 and WITHDRAWN by R391.
+
+    This class replaces the three pins R390 wrote for the detector, and it
+    is deliberately not a deletion.  The detector could be re-landed in the
+    same shape by anyone who reads only the letter, so what is pinned here
+    is the withdrawal itself: from `dispatch()` nothing fires the GM-063
+    point, and the hook module says so about itself.  Both halves come back
+    out together on the day a call site exists that can answer the question
+    the point asks -- which branch, if any, read this id.
+    """
 
     POINT = "vital_inbound_unknown_id"
 
-    def test_an_id_no_branch_reads_reaches_the_hook_once(self):
+    def test_an_id_no_branch_reads_does_not_reach_the_hook(self):
+        # The exact frame R390's own pin drove: an id with no branch
+        # anywhere in the chain.  It still produces no actions -- the
+        # withdrawal changed no dispatch behaviour -- but it no longer
+        # reports itself, because the detector could not tell this frame
+        # apart from the ten ids that DO have a branch and answer nothing.
         state = self._login_and_start("unknownid")
         self._warm_runtime_ack(state)
         seen = self._capture(self.POINT)
         actions = self._send(state, 0xABCD, b"")
         self.assertEqual(actions, [])
-        self.assertEqual(len(seen), 1)
-        self.assertEqual(seen[0]["vital_id"], 0xABCD)
-        self.assertIs(seen[0]["session"], state)
+        self.assertEqual(seen, [])
 
-    def test_the_shipped_hook_records_the_id_in_hex_once_per_session(self):
-        # End to end through the real hook, and its dedup contract with it:
-        # the same id twice is one line, not two.
+    def test_no_hex_line_is_written_for_it_either(self):
+        # End to end through the real hook: with no call site, the console
+        # line an attended round would have read is not written at all.
+        # Silence is the correct state -- a wrong id is worse than none.
         state = self._login_and_start("unknownreal")
         self._warm_runtime_ack(state)
         self._send(state, 0xABCD, b"")
-        self._send(state, 0xABCD, b"")
         self.assertEqual(
-            [e for e in state.events if e == "unknown_vital_id_0xABCD"],
-            ["unknown_vital_id_0xABCD"],
+            [e for e in state.events if e.startswith("unknown_vital_id_")],
+            [],
         )
 
-    def test_a_claimed_frame_is_not_reported_unknown(self):
-        # 0x6CEC is claimed by the GM-062 branch above -- it bumps
-        # rx_frames and its hook appends an event -- so the unclaimed
-        # detector must stay silent on it.  This is the finding the seam
-        # exists to avoid: a wrong id in a P-3 capture.
-        state = self._login_and_start("claimedframe")
-        self._warm_runtime_ack(state)
-        seen = self._capture(self.POINT)
-        self._send(state, ACTIVITY_CHEAT_CODE_VITAL_ID, b"")
-        self.assertEqual(seen, [])
-
-    def test_the_module_no_longer_declares_the_point_never_fired(self):
+    def test_the_module_declares_the_point_never_fired_again(self):
+        # The relation pin in tests/test_lane_gm_unknown_vital_counter.py
+        # owns the general rule (declared if and only if nothing fires it).
+        # This asserts the concrete end state R391 ships, so that removing
+        # the declaration without landing a call site reds here too.
         from pirateforce_foundation.lane_hooks import (
             lane_gm_unknown_vital_counter as counter,
         )
-        self.assertNotIn(
+        self.assertIn(
             self.POINT, getattr(counter, "registered_but_not_fired", ()),
         )
 
