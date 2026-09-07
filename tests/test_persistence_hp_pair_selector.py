@@ -47,6 +47,8 @@ set nothing, the HUD shows -1/1.  It has not run against the canonical
 database.
 """
 import ast
+import os
+import pathlib
 import re
 import sys
 import tempfile
@@ -75,6 +77,25 @@ MODULE_FILE = SRC / "persistence_hp_pair_selector.py"
 #: cannot drift apart from each other.
 THE_ONE_CALLER = "src/pirateforce_foundation/persistence_scene_exit_vitals.py"
 THE_ONE_CALLERS_TEST = "tests/test_persistence_scene_exit_vitals.py"
+
+
+def _repo_relative(path, root=None):
+    """Spell `path` relative to the repository root the way the pins do.
+
+    Round `fi5p5c`.  The two tree-walking pins below compare what they find
+    against the two constants above, which are written with FORWARD slashes
+    because that is how every path in this project's prose is written.  Both
+    pins used to build their side with `str(path.relative_to(ROOT))`, which
+    on Windows spells the same file `src\\pirateforce_foundation\\...`.
+    That is invisible on a Linux clone -- and it is what closed
+    `pirate-force-server#1048`: the Windows gate went RED on `pytest_subset`
+    while the same tree measured `13517 passed, 0 failed` in the cloud.  Both
+    pins were `[]` before round `5vzis0` put a caller on the gate, so no
+    separator ever reached the comparison until that round named one.
+
+    `as_posix()` is the whole fix, and it belongs in ONE place so the two
+    pins cannot drift apart on the next platform difference."""
+    return path.relative_to(ROOT if root is None else root).as_posix()
 
 
 def _build_wire(selector):
@@ -762,7 +783,7 @@ class TheIncumbentFenceIsOnePredicateShortTests(unittest.TestCase):
                 continue
             body = path.read_text(encoding="utf-8", errors="replace")
             if "persistence_hp_pair_selector" in body:
-                importers.append(str(path.relative_to(ROOT)))
+                importers.append(_repo_relative(path))
         self.assertEqual(
             importers,
             [THE_ONE_CALLER, THE_ONE_CALLERS_TEST],
@@ -1404,7 +1425,7 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
                     else func.id if isinstance(func, ast.Name) else None
                 )
                 if name == self.GATE:
-                    found.append(str(path.relative_to(ROOT)))
+                    found.append(_repo_relative(path))
                     break
         return found
 
@@ -2033,6 +2054,79 @@ class OneRuleChosenBySchemaTests(unittest.TestCase):
             )
             self.assertIn(sel.REASON_ZERO, sel.primary_reasons())
 
+
+
+class ThePinsSpellPathsTheSameWayOnEveryPlatformTests(unittest.TestCase):
+    """Round `fi5p5c`, and the reason `pirate-force-server#1048` was closed.
+
+    The two pins that walk the tree compare what they find against
+    `THE_ONE_CALLER` / `THE_ONE_CALLERS_TEST`, which are forward-slashed.
+    A Linux clone spells `str(path.relative_to(ROOT))` with forward slashes
+    too, so the defect was invisible to every run this project can make in
+    the cloud, and only the Windows gate could see it -- which is the most
+    expensive place to find anything.
+
+    These tests are the cheap place.  They do not need Windows: a
+    `PureWindowsPath` reproduces the exact spelling the gate produced, on
+    this machine, in milliseconds."""
+
+    def test_a_windows_shaped_path_still_arrives_forward_slashed(self):
+        root = pathlib.PureWindowsPath(r"D:\a\pirate-force-server")
+        caller = root / "src" / "pirateforce_foundation" / (
+            "persistence_scene_exit_vitals.py"
+        )
+        self.assertEqual(_repo_relative(caller, root), THE_ONE_CALLER)
+        # `os.fspath` on a `PureWindowsPath` gives the spelling Windows
+        # itself would give, so this fixture is not merely a string with
+        # forward slashes wearing a Windows name.
+        self.assertEqual(os.fspath(caller.relative_to(root)).count("\\"), 2)
+
+    def test_the_same_helper_answers_for_the_test_file_pin(self):
+        root = pathlib.PureWindowsPath(r"D:\a\pirate-force-server")
+        test_file = root / "tests" / "test_persistence_scene_exit_vitals.py"
+        self.assertEqual(_repo_relative(test_file, root), THE_ONE_CALLERS_TEST)
+
+    def test_a_posix_root_is_unchanged_by_the_helper(self):
+        """The fix must not move the answer on the platform that was green."""
+        self.assertEqual(
+            _repo_relative(SRC / "persistence_scene_exit_vitals.py"),
+            THE_ONE_CALLER,
+        )
+
+    def test_no_pin_in_this_file_builds_a_repo_relative_path_by_hand(self):
+        """The spelling that went red, pinned out of this file for good.
+
+        A behaviour test cannot catch a THIRD pin added later that hand-rolls
+        `str(<something>.relative_to(...))` again: that pin would be green
+        here and red on the gate, one more round spent.  So this walks this
+        file's own AST for the shape rather than grepping for the text -- the
+        text appears in `_repo_relative`'s docstring on purpose, where it
+        explains the defect, and a grep cannot tell prose from code."""
+        tree = ast.parse(
+            pathlib.Path(__file__).resolve().read_text(encoding="utf-8")
+        )
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (isinstance(node.func, ast.Name) and node.func.id == "str"):
+                continue
+            for arg in node.args:
+                if (
+                    isinstance(arg, ast.Call)
+                    and isinstance(arg.func, ast.Attribute)
+                    and arg.func.attr == "relative_to"
+                ):
+                    offenders.append(node.lineno)
+        self.assertEqual(
+            offenders,
+            [],
+            "a repo-relative path is spelled with `_repo_relative`, never "
+            "`str(x.relative_to(y))`, because the second spelling uses a "
+            "backslash on Windows and every pin in this file is written with "
+            "forward slashes.  Offending line(s): "
+            + ", ".join(str(n) for n in offenders),
+        )
 
 
 if __name__ == "__main__":
