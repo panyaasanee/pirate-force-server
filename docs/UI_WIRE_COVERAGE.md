@@ -88,9 +88,17 @@ pinned test catching it first.
 ## Full per-name table
 
 See `reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv` (327 rows, tab-separated:
-`id`, `name`, `family`, `is_client_req`, `tier`, `evidence`).
+`id`, `name`, `family`, `is_client_req`, `tier`).
 
-🔴 `evidence` for a `SOURCE` row is a FILE, not `file:line` (changed round
+🔴 There is no `evidence` column any more (round `53yj9g`, COO-DECISION
+`pf_bridge/notes_to_chief/20260907_2241_COO-DECISION-ui2155-drop-the-evidence-column-fix-the-emit-guard-first-LANE-UI.md`
+item (e)): the artifact used to name the FILE each `SOURCE` row was found in,
+which meant any lane adding an ordinary file could move that string and turn
+this census red on `main` while only LANE-UI could clear it. Ask
+`python3 tools/pf_ui_wire_name_census.py --where <NAME>` (or `--where-all`)
+for the file and line instead; it re-derives them from the same walk the
+census counts with. The headline numbers did not move when the column went.
+Before that, the column carried a FILE and not a `file:line` (changed round
 `o50gly`; the headline did not move -- 30/286/11 before and after, and all 30
 changed rows kept id, name, family, flag and tier byte for byte). It used to
 carry the line number, and that made this artifact drift -- and
@@ -173,9 +181,10 @@ removed) as every lane's normal work lands.
    not" above.
 2. `NAME-ONLY` does not mean "known wire shape" for every row in that tier --
    a name can appear in `PF_PROTOCOL_REGISTRY.tsv` (a VA table for static RE)
-   without `PF_SERIALIZER_FIELDS.tsv` (proven layout) covering it. Check the
-   `evidence` column, not just the tier, before opening or skipping an RE
-   ticket for a specific name.
+   without `PF_SERIALIZER_FIELDS.tsv` (proven layout) covering it. Ask
+   `--where <NAME>` (and read the function-map files themselves), not just
+   the tier, before opening or skipping an RE ticket for a specific name --
+   the artifact no longer carries which source named a row.
 3. `UNTOUCHED` does not mean "unbuildable" -- it means nobody has referenced
    the identifier in code or in one of the four function-map files yet;
    some of the 11 may already be answerable from `PF_SERIALIZER_FIELDS.tsv`
@@ -200,8 +209,9 @@ removed) as every lane's normal work lands.
    sends them silently back to UNTOUCHED and turns the pinned test red with
    no code change to point at. This actually fired, in the small, in round
    `mg3nr4`: rewriting one sentence of `UI_LANE.md` removed the last mention
-   of `ShowMessageVital` and the artifact's evidence column for `0x36D2`
-   changed in the same commit. If you edit that file, re-run
+   of `ShowMessageVital` and the artifact's tier for `0x36D2` changed in the
+   same commit (that round it was the evidence column, dropped in round
+   `53yj9g`; the tier itself moves for the same reason and is still committed). If you edit that file, re-run
    `--emit` before you commit. (pf-adversary D5.)
 6. This is not a substitute for the per-function status table in
    `docs/UI_LANE.md` ("layout known / needs RE / needs capture / done") --
