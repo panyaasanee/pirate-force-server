@@ -106,6 +106,23 @@ import stays, and here is the difference from the move that sentence refused,
 because leaving the two files contradicting each other is worse than either
 choice.
 
+  RULED BY THE COO, NOT BY THIS LANE ALONE.  `COO-DECISION 20260907_1744`
+  (`pf_bridge/notes_to_chief/20260907_1744_COO-DECISION-cs1658-trespass-line-
+  and-two-connections-LANE-CS.md`, answering this lane's letter `1658`)
+  upheld option (a) and raised the line below to a house rule for every
+  lane: READING ONE PUBLIC CONSTANT TO COMPARE AN ARGUMENT AGAINST IS NOT
+  TRESPASS (fill in the census with the reason); LOOKING A ROW UP OUT OF
+  ANOTHER LANE'S TABLE AT RUN TIME IS.  The same ruling rejected the other
+  two options for these reasons -- (b) breaks this lane's no-number-without-
+  a-source rule, (c) wakes T1-E back up in the shape of a parameter.  BOTH
+  ARE TRANSLATIONS, NOT QUOTATIONS: the letter is written in Thai, and
+  putting a translation in quotation marks is a citation nobody can check --
+  the defect this same file corrects sixty lines below about row 032, and
+  ADVERSARY D7 caught it being committed again here.  It
+  also directed that the rule be written into `AGENTS.md` section 7 by chief, not
+  by this lane, so nothing below edits that file.  Until it appears there,
+  section 7 is not the citation for this; this decision letter is.
+
   * What `damage_town_target` refused was LOOKING THE ROW UP -- reading the
     default roster to find the dummy itself.  That is a dispatch: the module
     would decide WHICH monster it is about, out of another lane's table, at
@@ -143,6 +160,15 @@ rather than leaving to a reader:
   So neither column may be quoted as "how many hits the dummy takes"
   full stop, and the difference between them (223 vs 217) is not a
   discrepancy to be reconciled -- it is two connections.
+
+  CONFIRMED, AND THE RECONCILIATION IS NOW FORBIDDEN RATHER THAN MERELY
+  UNWISE.  `COO-DECISION 20260907_1744` item 2 made this lane's answer
+  official and added the standing instruction that NOBODY may make the two
+  numbers agree in a later round (a translation, not a quotation -- see D7
+  above): collapsing them into one number requires
+  a per-scene hp for this dummy to exist first, and building that is
+  LANE-DB's and LANE-A's work, not this lane's.  A round that finds these
+  two columns disagreeing has found the two connections, not a bug.
 
 WHAT IS OPEN.  `ability_str` stays at the pin for every row here, because
 CORE-REQUEST row 032 moves the level half only.  A character's real STR is
@@ -196,6 +222,7 @@ __all__ = [
     "NotTheTypedMobRecordError",
     "NotThePracticeDummyError",
     "UnorderedLevelRequestError",
+    "HpWillNotReadAsAnIntError",
     "ProjectedRow",
     "attacker_at_level",
     "unchecked_attributes",
@@ -273,6 +300,29 @@ class UnorderedLevelRequestError(LevelProjectionError):
     T1-E: a `set` or a `dict` went through `tuple(levels)`, which invented an
     order, and `TheTableKeepsTheOrderItWasAsked` then vouched for "the order
     given" for a request that never had one.
+    """
+
+
+class HpWillNotReadAsAnIntError(LevelProjectionError):
+    """An hp this projection was asked to count from is not a plain int.
+
+    S4/D3-second-half.  `_room` used to open with `int(mob.max_hp)`, which
+    does two bad things at once and did both silently:
+
+      * `max_hp=1.5` was TRUNCATED to 1, so `hits_to_fell` came back as **1**
+        and `ProjectedRow(level=7, ..., hits_to_fell=1, final_hit_damage=1)`
+        was a full, ordinary-looking row computed for a dummy nobody could
+        have measured.  That is the defect :class:`NotThePracticeDummyError`
+        was raised about, in its own words: "a number computed for a monster
+        nobody pinned is worse than a refusal because it reads exactly like a
+        number that was."
+      * `max_hp="198125"` or `max_hp=None` raised a raw `ValueError` /
+        `TypeError` out of five public entry points -- the leak D3 closed on
+        the record side, reopened one line lower by a builtin.
+
+    Both are one question ("is this hp a plain int?") and it is asked here,
+    with `type(...) is not int`, which also refuses `True`.  The refusal is
+    this module's own so a caller under `except LevelProjectionError` sees it.
     """
 
 
@@ -488,6 +538,22 @@ def damage_at_level(level: int, mob: Any) -> int:
     return damage_town_target.unclamped_hit_damage(attacker, mob)
 
 
+def _require_hp_int(value: Any, label: str) -> int:
+    """`value` if it is a plain int, else this module's own refusal (S3).
+
+    `type(value) is not int` rather than `isinstance`, for the reason
+    `mob_combat._require_int` gives on the line it copies: `True` is an
+    `int` by inheritance and an hp of `True` is a caller mistake, not an hp
+    of 1.  A `float` is refused rather than truncated -- truncating is how
+    `max_hp=1.5` used to answer.
+    """
+    if type(value) is not int:
+        raise HpWillNotReadAsAnIntError(
+            "%s must be a plain int for this projection to count from; got "
+            "%r (%s)" % (label, value, type(value).__name__))
+    return value
+
+
 def _room(mob: Any, current_hp: Any = None) -> int:
     """The hp between `current_hp` (default: FULL) and the floor.
 
@@ -496,14 +562,40 @@ def _room(mob: Any, current_hp: Any = None) -> int:
     at 192779, not at 198125.  Callers who mean the watched run say so with
     `current_hp`; the default is documented as "full" everywhere it reaches a
     public name, so the two can never be quoted for each other.
+
+    BOTH HP NUMBERS ARE ASKED THE SAME QUESTION NOW (S3).  `int(mob.max_hp)`
+    was doing the ceiling's type check by coercion, which is not a check:
+    `max_hp=1.5` truncated to 1 and the module ANSWERED (`hits_to_fell=1`),
+    and `max_hp=None` came out as a raw `TypeError`.  The caller's hp was
+    already refused by type; the record's now is too, through
+    :class:`HpWillNotReadAsAnIntError`, and the coercion is gone -- there is
+    no `int()` left in this function for a mutant to delete.
+
+    `mob.max_hp` is read directly rather than through a `getattr` default,
+    because every path here goes through :func:`damage_at_level` first and a
+    record that reached it is a typed `FieldMob` with that field.  A default
+    would be a branch nothing can walk, which is the defect T1-C and D4 were
+    both raised about in this same file.
     """
-    start = int(mob.max_hp) if current_hp is None else current_hp
-    if type(start) is not int or type(start) is bool:
-        raise LevelProjectionError("current_hp must be an int")
-    if not mob_combat.HP_FLOOR <= start <= int(mob.max_hp):
+    ceiling = _require_hp_int(mob.max_hp, "max_hp")
+    start = ceiling if current_hp is None else _require_hp_int(
+        current_hp, "current_hp")
+    if ceiling <= mob_combat.HP_FLOOR:
+        # ADVERSARY D13: with `max_hp=-5` the message below said "current_hp
+        # -5 is outside [0, -5]" for a caller who passed no `current_hp` at
+        # all -- the wrong argument named, which is the same "diagnose
+        # correctly" failure S6 was about.  A record whose ceiling is at or
+        # under the floor is the record's problem, and it is named as such.
+        # ADVERSARY D8 is NOT closed by this line: an absurdly LARGE `max_hp`
+        # is still answered, and this lane has no oracle of its own for the
+        # upper bound -- recorded as open in the round file.
+        raise HpWillNotReadAsAnIntError(
+            "max_hp %r is at or below the floor %r, so there is no room for "
+            "this projection to count" % (ceiling, mob_combat.HP_FLOOR))
+    if not mob_combat.HP_FLOOR <= start <= ceiling:
         raise LevelProjectionError(
             "current_hp %r is outside [%r, %r] for this mob"
-            % (start, mob_combat.HP_FLOOR, int(mob.max_hp)))
+            % (start, mob_combat.HP_FLOOR, ceiling))
     return start - mob_combat.HP_FLOOR
 
 
@@ -573,6 +665,39 @@ def final_hit_damage_at_level(
     return damage_town_target.applied_damage(attacker, mob, hp_before_last)
 
 
+def _indexed_in_iteration_order(levels: Any) -> tuple:
+    """`tuple(levels)`, but only once the index order IS that order (S4).
+
+    `isinstance(x, collections.abc.Sequence)` is true of anything somebody
+    called `Sequence.register()` on, whether or not it has `__getitem__`.
+    This asks the object instead: length, then every index from `0` to
+    `len - 1`, then that the result equals what iterating gives.  A
+    registered `frozenset` fails at the first index; a container whose
+    `__iter__` disagrees with its `__getitem__` fails the comparison, which
+    is the only way "the order given" can be a single thing.
+    """
+    try:
+        length = len(levels)
+        indexed = tuple(levels[position] for position in range(length))
+        walked = tuple(levels)
+    except (TypeError, IndexError, KeyError, OverflowError) as exc:
+        # ADVERSARY D5: `range(0, 2 ** 70)` is a real Sequence, so it reached
+        # here and `len()` raised a raw `OverflowError` -- the same leak S3
+        # had just closed one function away, reopened by a builtin again.
+        # `tuple(levels)` was outside this block for the same reason.
+        raise UnorderedLevelRequestError(
+            "project_levels keeps the order it was given, so it reads the "
+            "request by index; a %s says it is a Sequence but will not be "
+            "read that way (%s: %s)"
+            % (type(levels).__name__, type(exc).__name__, exc)) from exc
+    if indexed != walked:
+        raise UnorderedLevelRequestError(
+            "project_levels keeps the order it was given, and a %s gives two "
+            "different orders: by index %r, by iteration %r"
+            % (type(levels).__name__, indexed, walked))
+    return indexed
+
+
 def project_levels(mob: Any, levels: Any) -> tuple[ProjectedRow, ...]:
     """The projection table for `levels`, in the order given, from FULL hp.
 
@@ -605,11 +730,45 @@ def project_levels(mob: Any, levels: Any) -> tuple[ProjectedRow, ...]:
     a generator is walking, so it cannot tell the honest one from the one
     over a set, and guessing is what the whole class exists to stop.
     Callers with a generator write `tuple(...)` and say so.
+
+    S4: `isinstance(levels, Sequence)` IS A REGISTRATION, NOT A PROOF, AND
+    THE BYTES BLACKLIST STILL CARRIED WEIGHT.  Adversary measured both holes
+    on the version above:
+
+      * `memoryview(b'\\x07d')` walked through and was read byte by byte as
+        `[7, 100]`, while the IDENTICAL `bytes` object was refused by name.
+        A three-name list cannot be the test for "would be read one element
+        at a time"; the buffer protocol is, so anything `memoryview()`
+        accepts is refused here -- `bytes`, `bytearray`, `memoryview`,
+        `array.array`, `mmap`, and whatever is written next.  `str` stays
+        by name because it is the one that is NOT a buffer.
+      * `Sequence.register(frozenset)` makes `isinstance` say yes to a
+        container with no `__getitem__` at all.  Registration is a claim by
+        whoever wrote the `register()` call.  So the order is MEASURED here:
+        walking the indices `0..len-1` must reproduce iteration exactly.  A
+        container that cannot be indexed raises on the first index and is
+        refused; one whose index order differs from its iteration order is
+        refused by name, because "the order given" would then mean two
+        different things in one call.
+
+    The cost is stated rather than hidden: an `array.array('l', [1, 2, 3])`
+    is an ordered container of ints and is refused anyway, because this
+    function will not try to tell a buffer of levels from a buffer of bytes.
+    `tuple(...)` is one call and says which one the caller meant.
     """
-    if isinstance(levels, (str, bytes, bytearray)):
+    if isinstance(levels, str):
         raise UnorderedLevelRequestError(
-            "project_levels takes levels, and a %s would be read one element "
-            "at a time; hand it a list or a tuple"
+            "project_levels takes levels, and a str would be read one "
+            "element at a time -- one character per level; hand it a list "
+            "or a tuple")
+    try:
+        memoryview(levels)
+    except TypeError:
+        pass
+    else:
+        raise UnorderedLevelRequestError(
+            "project_levels takes levels, and a %s is a buffer that would be "
+            "read one element at a time; hand it a list or a tuple"
             % (type(levels).__name__,))
     if not isinstance(levels, collections.abc.Sequence):
         raise UnorderedLevelRequestError(
@@ -617,7 +776,7 @@ def project_levels(mob: Any, levels: Any) -> tuple[ProjectedRow, ...]:
             "take a Sequence (an indexed container, where the index IS the "
             "order); a %s does not promise one -- hand it a list or a tuple"
             % (type(levels).__name__,))
-    wanted = tuple(levels)
+    wanted = _indexed_in_iteration_order(levels)
     if not wanted:
         raise LevelProjectionError("project_levels needs at least one level")
     return tuple(

@@ -113,10 +113,15 @@ production_allowed = True
 # CORE-REQUEST-GM-063, chief's one edit at the end of runtime.py's inbound
 # vital dispatch chain (after every existing branch, GM's own two
 # included): a frame whose nested_id matched nothing above it.
-# DECLARATION REMOVED by the commit that added the call site
-# (CORE-REQUEST, chief round R390): the point IS fired now, and a
-# stale `registered_but_not_fired` is its own audit finding
-# (gm/lane_gate_name_audit.py FINDING_STALE_NEVER_FIRED_DECLARATION).
+# DECLARATION RESTORED, chief round R391.  R390 removed it because it had
+# just landed a call site in `runtime.py`'s dispatch(); `pf-adversary`
+# refuted that call site on the shape (it could not tell "no branch read
+# this id" from "a branch read it and returned nothing"), so R391 took it
+# back out of `main`.  Nothing fires this point again, and the audit scan
+# in gm/lane_gate_name_audit.py must see this line or it reds on a
+# registered point with no call site.  The line comes off again on the day
+# a call site lands that can answer the question the point asks.
+registered_but_not_fired = ("vital_inbound_unknown_id",)
 
 
 #: How many DISTINCT unknown ids one connection may record before this hook

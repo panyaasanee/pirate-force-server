@@ -354,20 +354,6 @@ CLIENT_CONFIRMED_SCENE_FIELD = "client_confirmed_scene"
 # server.  It has not -- we have never provisioned the survey record that
 # makes the window pop (RE-227 nonclaim 6, COO-DECISION 20260904_0747).
 NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID = 0xC723
-
-
-# CORE-REQUEST-GM-063.  The ONE event a frame no reader claimed is allowed
-# to have left behind before the unclaimed-id point fires (see the call site
-# in dispatch()).  Composed from `vital_walk`'s own registered reason rather
-# than typed out, so the day that reason is renamed this constant follows it
-# instead of quietly matching nothing; the reason is asserted to be a
-# registered one at import, which is the same refusal `vital_walk` makes at
-# its own call sites ("a reason can never be invented at a call site").
-_UNCLAIMED_VITAL_REASON = "unknown_vital_id"
-assert _UNCLAIMED_VITAL_REASON in vital_walk.VITAL_WALK_REFUSAL_REASONS
-UNCLAIMED_VITAL_ONLY_EVENT = "vital_walk_refused_%s" % (
-    _UNCLAIMED_VITAL_REASON,
-)
 NAVIGATIONEX_ENTER_INSTANCE_VITAL_NAME = "NavigationEx_EnterInstanceVital"
 
 
@@ -6751,61 +6737,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # nothing, and a lock that survived that would fire the token on
             # the next frame the tester walked by hand.
             warp_frame = self._gm_warp_open_confirm_window(parsed)
-            # CORE-REQUEST-GM-063 (pf_bridge/notes_to_chief/20260906_1215),
-            # branch two of the three COO-DECISION 20260907_1141 item 1
-            # allows in one PR.  Read three counters across the call below;
-            # nothing else here changes.
-            #
-            # WHY HERE AND NOT WHERE THE LETTER ASKED.  The letter asks for
-            # the fire() "at the very end of the nested_id dispatch chain,
-            # before the `return []` at that point".  There is no such
-            # point: `_dispatch_with_lanes` is ~5,000 lines with early
-            # returns throughout and ONE final return, and that final
-            # return is also where TargetPos and every other frame the lane
-            # tail composes an answer for arrives.  Firing there would have
-            # recorded ids that DO have a branch -- a wrong id in a P-3
-            # capture, which the hook module's own docstring says is the
-            # one failure it must not commit.
-            #
-            # WHAT IS MEASURED INSTEAD, and it is a measurement, not a
-            # guess: this frame produced no action, and the only event it
-            # left behind (if any) is `vital_walk`'s own
-            # `unknown_vital_id` refusal.  That is "no reader claimed it"
-            # in the only sense this file can observe from one place.
-            #
-            # TWO THINGS THE LETTER DID NOT KNOW, both measured here.
-            # (1) `rx_frames` is bumped on generic paths a frame passes
-            # through whatever happens to it, so requiring it unchanged
-            # made this detector fire on nothing at all.  (2) `vital_walk`
-            # ALREADY records one event per unknown-id frame
-            # (`_vital_walk_note_refusal`, reason `unknown_vital_id` --
-            # the letter's grep for a pre-dispatch capture line missed it
-            # because it is a post-walk refusal, not a print before
-            # dispatch).  Requiring "no new event" therefore also fired on
-            # nothing.  Allowing exactly that one refusal, and nothing
-            # else, is what makes the point reachable -- and it is the
-            # right allowance, because that event IS the existing record
-            # that no table claimed the id.  It
-            # UNDER-reports by construction (a branch that returns [] after
-            # recording an event is invisible here, correctly), and
-            # under-reporting is silence, which the hook module prefers by
-            # name.  The hook dedups per session per id, so a frame class
-            # arriving in a flood costs one line, not one per frame.
-            #
-            # NOT CLAIMED: that an id reaching the hook has no branch in
-            # the chain.  What is claimed is exactly the sentence above --
-            # the dispatcher did nothing observable with this frame.
-            _unclaimed_events = len(self.events)
+            # CORE-REQUEST-GM-063 IS WITHDRAWN FROM THIS LINE, chief
+            # round R391.  R390 put an unclaimed-frame detector here and
+            # `pf-adversary` refuted it on the shape, not on the wording:
+            # from one place in dispatch() the only facts available are
+            # "the call returned no actions" and "which events it left",
+            # and neither answers the question the hook point asks, which
+            # is whether any branch in the ~5,000-line chain read this id.
+            # Measured on the merged head: the detector called 65,483 of
+            # 65,536 ids unclaimed, named ten ids that DO have a branch,
+            # and on a batch frame recorded an id other than the one the
+            # branch had read.  A report-only point that prints a wrong id
+            # into the console an attended round reads is not report-only,
+            # so it comes out of `main` rather than waiting for a rule.
+            # The hook module keeps its `registered_but_not_fired`
+            # declaration until a call site exists that can answer the
+            # question; who owns that record -- the ten branches or the
+            # detector -- is the open letter
+            # pf_bridge/notes_to_chief/20260907_1816_LANE-E-ASK-COO-*.
             actions = self._dispatch_with_lanes(parsed)
-            if not actions and all(
-                event == UNCLAIMED_VITAL_ONLY_EVENT
-                for event in self.events[_unclaimed_events:]
-            ):
-                lane_hooks.fire(
-                    "vital_inbound_unknown_id",
-                    session=self,
-                    vital_id=parsed.nested_id,
-                )
             # COO-DECISION 20260901_0145 / lane_hooks.lane_b_mob_ai_tick's own
             # LANE_B_MOB_AI_TICK_WIRING (round iok5z1 named this exact block,
             # this round pastes it): the one direct-call site
