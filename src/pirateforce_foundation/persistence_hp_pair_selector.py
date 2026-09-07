@@ -34,8 +34,16 @@ invented here:
   `0x430E10` and it is that function's RESULT that is compared with 8.
   Nothing in this repository can evaluate `0x430E10`.
 
-WHO CALLS THIS PREDICATE TODAY: NOBODY, AND THAT IS MEASURED, NOT AN
-OVERSIGHT.  Round `cgnzsd`'s first draft claimed this module was "one
+WHO CALLS THIS PREDICATE TODAY: `persistence_scene_exit_vitals`, AND ONLY
+IT.  That sentence read "NOBODY, AND THAT IS MEASURED, NOT AN OVERSIGHT"
+from the round that built this module until round `5vzis0`, which put the
+first caller on it -- the scene-exit restate for `GT-301`, which hands this
+door the pair it composed from a character's row before that pair can leave
+the module.  The tripwire in this module's own suite that walks the tree
+rather than the prose is what forced this paragraph to be rewritten in the
+commit that made it false, and it now pins the caller by name: a SECOND
+caller turns it red too, because one door with two independent callers is
+two doors that will drift.  Round `cgnzsd`'s first draft claimed this module was "one
 predicate short" of the fence at `gm/attr_wire.py:992` -- that the fence is a
 MEMBERSHIP test (`not ALT_HP_PAIR_ROWS <= set(values)`) which would admit
 `{9: 8, 52: 0, 53: 0}`.  pf-adversary refuted it in the same round and this
@@ -71,8 +79,9 @@ So what is this module for, honestly stated:
 * `live_hp_pair_report` / `format_report` are a read-only measurement of what
   each branch of the client's selector would display for one real character.
   That is what `GT-291` needs a token from, and it needs no caller in `gm/`.
-* `guard_block` is a predicate WITH NO CALL SITE TODAY, and what it is a
-  door FOR is narrower than the name of the symptom it was built after --
+* `guard_block` has ONE CALL SITE, `persistence_scene_exit_vitals.
+  resolve_for_scene_exit`, and what it is a door FOR is narrower than the
+  name of the symptom it was built after --
   `COO-DECISION 20260907_1141` item 2, and the correction that decision
   ordered in the round that measured it.
 
