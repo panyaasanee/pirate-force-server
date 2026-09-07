@@ -510,5 +510,105 @@ class Gate2RefusesEveryClassButOneTodayTests(unittest.TestCase):
                     require_known_backpack(state)
 
 
+class TheSetOfFiveIsTheGoldenNowTests(unittest.TestCase):
+    """`starting_backpack_states()` -- the collection COO-DECISION 2342 named.
+
+    LANE-DB will change gates 2/3/4 from `== INITIAL_BACKPACK` to
+    `in starting_backpack_states()`.  These tests are what that lane is
+    entitled to rely on, so each one states a property of the SET, not of
+    this module's internals.
+    """
+
+    def test_the_set_is_one_bag_per_class_in_class_id_order(self):
+        states = class_starting_gear.starting_backpack_states()
+        self.assertIsInstance(states, tuple)
+        self.assertEqual(len(class_catalog.CLASS_IDS), len(states))
+        for class_id, state in zip(class_catalog.CLASS_IDS, states):
+            with self.subTest(class_id=class_id):
+                self.assertEqual(
+                    class_starting_gear.starting_backpack_state(class_id),
+                    state,
+                )
+
+    def test_the_committed_bag_is_a_member_by_identity_not_by_copy(self):
+        # An old character's untouched bag must be admitted by the object the
+        # tree already ships, which is the entire reason COO chose the set
+        # over a per-class golden.  `assertIn` alone would pass on an equal
+        # copy, so identity is checked on its own.
+        states = class_starting_gear.starting_backpack_states()
+        self.assertIn(INITIAL_BACKPACK, states)
+        self.assertTrue(any(state is INITIAL_BACKPACK for state in states))
+
+    def test_every_bag_differs_from_the_committed_one_in_one_field_only(self):
+        """The property COO-DECISION 2342 asked to be pinned, stated exactly.
+
+        Not "one field somewhere": the weapon row's `template_id` and
+        nothing else.  Walked field by field over every row, so a change to
+        quantity, slot, identity, mask or row count is a failure here even
+        if the template ids still look right.
+        """
+        fields = (
+            "identity", "template_id", "quantity", "slot",
+            "raw_u8_38", "raw_u8_39", "detail_present",
+        )
+        seen_templates = []
+        for class_id, state in zip(
+            class_catalog.CLASS_IDS,
+            class_starting_gear.starting_backpack_states(),
+        ):
+            with self.subTest(class_id=class_id):
+                self.assertEqual(
+                    INITIAL_BACKPACK.base_mask, state.base_mask,
+                )
+                self.assertEqual(
+                    INITIAL_BACKPACK.base_identity, state.base_identity,
+                )
+                self.assertEqual(
+                    INITIAL_BACKPACK.range_mask, state.range_mask,
+                )
+                self.assertEqual(
+                    len(INITIAL_BACKPACK.items), len(state.items),
+                )
+                differing = []
+                for row, (before, after) in enumerate(
+                    zip(INITIAL_BACKPACK.items, state.items)
+                ):
+                    for field in fields:
+                        if getattr(before, field) != getattr(after, field):
+                            differing.append((row, field))
+                if class_id == 1:
+                    self.assertEqual([], differing)
+                else:
+                    self.assertEqual(
+                        [(class_starting_gear.WEAPON_ROW_INDEX,
+                          "template_id")],
+                        differing,
+                    )
+                seen_templates.append(
+                    state.items[
+                        class_starting_gear.WEAPON_ROW_INDEX
+                    ].template_id
+                )
+        # Five classes, five different weapons: if two entries collapsed onto
+        # one template the set would still satisfy every check above while
+        # quietly handing two classes the same sword.
+        self.assertEqual(len(seen_templates), len(set(seen_templates)))
+
+    def test_the_set_is_pure_and_rebuilt_every_call(self):
+        first = class_starting_gear.starting_backpack_states()
+        second = class_starting_gear.starting_backpack_states()
+        self.assertEqual(first, second)
+        # Equal, and no shared mutable cache the DB gates could be handed a
+        # mutated view of: the tuple itself is a fresh object each call.
+        self.assertIsNot(first, second)
+
+    def test_the_set_still_has_no_production_importer(self):
+        # COO-DECISION 2342 step 1: "no caller until DB wires it".  Measured,
+        # not promised.
+        self.assertEqual(0, class_starting_gear.count_production_importers())
+        self.assertFalse(class_starting_gear.production_allowed)
+
+
+
 if __name__ == "__main__":
     unittest.main()
