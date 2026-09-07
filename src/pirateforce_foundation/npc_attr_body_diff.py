@@ -55,6 +55,7 @@ field after it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import struct
 
 from .gm import name_color_gate
 
@@ -266,8 +267,6 @@ def _read(body: bytes, at: int, spec: FieldSpec) -> tuple[object, bytes, int]:
     raw = body[at:at + width]
     at += width
     if tag == 0x2A:
-        import struct
-
         return struct.unpack("<f", raw)[0], raw, at
     return int.from_bytes(raw, "little"), raw, at
 
