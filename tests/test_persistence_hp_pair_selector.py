@@ -46,6 +46,7 @@ owner hit; it claims only that IF that branch is taken and the server has
 set nothing, the HUD shows -1/1.  It has not run against the canonical
 database.
 """
+import ast
 import re
 import sys
 import tempfile
@@ -964,10 +965,6 @@ class TheLiveReportReadsARealStoreTests(unittest.TestCase):
             self.assertIn("0x430E10 is not evaluated here", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheGuardLooksAtBothBranchesOfTheSelectorTests(unittest.TestCase):
     """pf-adversary round `cgnzsd` D11, and round `2v18x3`'s answer to it.
 
@@ -1178,17 +1175,30 @@ class TheDebtRound2v18x3LeftUnpaidTests(unittest.TestCase):
         """MEASURED MUTANT (M01): `if shown < 0:` -> `if shown < -1:` in
         `_row_gap` left `81 passed`.
 
-        Round `2v18x3` recorded this one as "does not flip a verdict, only
-        the reason an operator reads".  RE-MEASURED THIS ROUND, THAT IS WRONG
-        and it is the worst of the nine: `0xFFFFFFFF` on x=52 is caught one
-        branch earlier as the CONSTRUCTION DEFAULT, which is where that
-        reading came from -- but x=53's construction default is `1`, not
-        `0xFFFFFFFF`, so nothing catches it earlier there.  Under the mutant
-        the block below PASSES the gate and the HUD shows `87/-1`.
+        WHAT THIS ROUND GOT WRONG ABOUT IT, CORRECTED IN THE SAME ROUND BY
+        pf-adversary (F7).  This docstring first said round `2v18x3`'s reading
+        -- "does not flip a verdict, only the reason an operator reads" -- was
+        wrong, and that under the mutant the block below PASSES the gate
+        showing `87/-1`.  MEASURED, THAT CLAIM IS FALSE:
 
-        `0xFFFFFF00` (the value the reachability test uses) prints as -256 and
-        stays caught by `< -1`, which is why the existing coverage missed
-        this: the sample never included the boundary itself."""
+            shown < -1 applied, block {9:8, 3:50, 4:100, 52:87, 53:0xFFFFFFFF}
+            alternate_pair_gaps -> [(52, 'frame_layer_current_above_max')]
+            guard_armed_block   -> REFUSED
+
+        `current > max` is 87 > -1, so the pair is still caught fifteen lines
+        further down INSIDE THE VERY FUNCTION being reasoned about.  Round
+        `2v18x3` had it right; this round overturned it by reading `_row_gap`
+        and stopping at the branch it was looking at -- the same mistake, in
+        the same module, that D11 was raised about.  The correction is left in
+        full rather than tidied away.
+
+        WHY THE TEST IS KEPT ANYWAY.  It still kills the mutant, and it kills
+        it on the thing that actually changes: the REASON an operator reads.
+        Under the mutant the refusal blames x=52 for exceeding a maximum,
+        when what is wrong is that x=53 is displaying -1; an operator handed
+        the first reason looks at the wrong row.  `0xFFFFFF00` (the value the
+        reachability test uses) prints as -256 and stays caught by `< -1`, so
+        the boundary itself had no coverage before this."""
         block = {
             sel.SELECTOR_FIELD: sel.SELECTOR_ARMED_VALUE,
             sel.PRIMARY_PAIR[0]: 50,
@@ -1255,18 +1265,129 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
             "shapes_examined": len(shapes),
         }
 
+    #: The gate itself.  A file "calls" this module when it invokes this.
+    GATE = "guard_armed_block"
+
     def _callers(self):
+        """Files containing a real CALL to the gate.
+
+        pf-adversary round `m1dmhd`, F1.  The first version of this asked
+        whether the string `persistence_hp_pair_selector` appeared anywhere in
+        the file, and was therefore discharged by a COMMENT: adversary opened
+        the reachability route, added the one line
+        `# see persistence_hp_pair_selector for the HP-pair refusal gate` to
+        an unrelated module, and the obligation below went green with the gate
+        at zero call sites.  A name in a comment is not a caller -- that is
+        `AGENTS.md` section 7's own WIRED rule (b): pin the thing that acts, never
+        the name.
+
+        So this walks the AST and counts CALL NODES whose callee is
+        `guard_armed_block`, by either spelling (`sel.guard_armed_block(...)`
+        after an import of the module, or a bare `guard_armed_block(...)`
+        after a from-import).  A mention, an `__all__` entry, a docstring and
+        an import with no call all correctly count as NOT a caller."""
         found = []
         for path in sorted((ROOT / "src").rglob("*.py")) + sorted(
             (ROOT / "tests").rglob("*.py")
         ):
             if path == MODULE_FILE or path == Path(__file__).resolve():
                 continue
-            if "persistence_hp_pair_selector" in path.read_text(
-                encoding="utf-8", errors="replace"
-            ):
-                found.append(str(path.relative_to(ROOT)))
+            try:
+                tree = ast.parse(
+                    path.read_text(encoding="utf-8", errors="replace")
+                )
+            except SyntaxError:  # pragma: no cover - not our file to fix
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = (
+                    func.attr
+                    if isinstance(func, ast.Attribute)
+                    else func.id if isinstance(func, ast.Name) else None
+                )
+                if name == self.GATE:
+                    found.append(str(path.relative_to(ROOT)))
+                    break
         return found
+
+    def test_a_mere_mention_of_this_module_is_not_a_caller(self):
+        """The escape hatch F1 walked through, closed and held closed.
+
+        Both halves matter: a comment must NOT count, and a real call MUST.
+        Written against parsed source rather than this repository's files so
+        it keeps testing the detector after the tree moves."""
+        with tempfile.TemporaryDirectory() as directory:
+            probe = Path(directory) / "probe.py"
+
+            def _calls(source):
+                probe.write_text(source, encoding="utf-8")
+                tree = ast.parse(probe.read_text(encoding="utf-8"))
+                return any(
+                    isinstance(n, ast.Call)
+                    and (
+                        getattr(n.func, "attr", None) == self.GATE
+                        or getattr(n.func, "id", None) == self.GATE
+                    )
+                    for n in ast.walk(tree)
+                )
+
+            not_callers = (
+                "# see persistence_hp_pair_selector for the refusal gate\n",
+                '"""persistence_hp_pair_selector.guard_armed_block"""\n',
+                "from pirateforce_foundation import "
+                "persistence_hp_pair_selector\n",
+                "GATE_NAME = 'guard_armed_block'\n",
+                "__all__ = ['guard_armed_block']\n",
+            )
+            for source in not_callers:
+                with self.subTest(source=source.strip()[:40]):
+                    self.assertFalse(_calls(source))
+
+            callers = (
+                "from pirateforce_foundation import "
+                "persistence_hp_pair_selector as sel\n"
+                "sel.guard_armed_block({})\n",
+                "from pirateforce_foundation.persistence_hp_pair_selector "
+                "import guard_armed_block\n"
+                "guard_armed_block({})\n",
+            )
+            for source in callers:
+                with self.subTest(source=source.strip()[-30:]):
+                    self.assertTrue(_calls(source))
+
+    def test_the_schema_helper_is_not_wired_and_the_docstring_says_so(self):
+        """pf-adversary round `m1dmhd`, F3.  `primary_pair_gaps`' docstring
+        claimed `_pair_owned_by_this_server` "derives the split from the
+        schema".  Measured: zero call nodes -- the split is two hand-written
+        functions and the helper is read only by tests.
+
+        This pins the true state, in the direction that matters both ways: if
+        someone wires the helper up, the docstring's correction becomes stale
+        and this goes red asking for it to be rewritten; if someone
+        re-introduces the old claim while the helper is still dead, the second
+        half goes red."""
+        tree = ast.parse(MODULE_FILE.read_text(encoding="utf-8"))
+        call_nodes = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "_pair_owned_by_this_server"
+        ]
+        self.assertEqual(
+            len(call_nodes),
+            0,
+            "the schema helper now HAS a call site, so the split really is "
+            "derived: rewrite `primary_pair_gaps`' docstring, which currently "
+            "says in as many words that it is hand-written",
+        )
+        text = MODULE_FILE.read_text(encoding="utf-8")
+        self.assertIn("the split is HAND-WRITTEN", text)
+        self.assertNotIn(
+            "derives the split from the schema; nothing here types it in",
+            text,
+        )
 
     def test_the_reachability_inputs_are_actually_read(self):
         """Guards this class against becoming vacuous: a reachability probe
@@ -1314,6 +1435,75 @@ class TheGateBecomesObligatoryTheDayItIsReachableTests(unittest.TestCase):
         self.assertEqual(facts["admitted_by_a_login_shape"], [])
         self.assertEqual(facts["backed_by_a_server_column"], [])
         self.assertEqual(self._callers(), [])
+
+
+class TheTwoPinsPfAdversaryBrokeAtHeadTests(unittest.TestCase):
+    """Round `m1dmhd`, pf-adversary F4 and F5: two mutants that survived
+    everything this file had, INCLUDING what this round added, found by
+    running the tool against the round's own head rather than its parent."""
+
+    def test_all_reasons_cannot_quietly_lose_a_set(self):
+        """F4.  `ALL_REASONS = PRIMARY_REASONS` SURVIVED (`94 passed`).  The
+        constant's own comment promises "a caller can assert it handled all of
+        them"; under that mutant a caller doing an exhaustive match silently
+        stops handling `REASON_ZERO` -- `GT-218`'s `0/0`, the symptom this
+        whole module exists for -- and `REASON_CONSTRUCTION_DEFAULT`, the
+        `-1/1`.
+
+        Adding an undeclared reason was already killed in both directions;
+        REMOVING a whole set was not, because `ALL_REASONS` was only ever
+        asserted to be a superset of whatever a hand-built block produced."""
+        self.assertEqual(
+            sel.ALL_REASONS, sel.ALTERNATE_REASONS | sel.PRIMARY_REASONS
+        )
+        for reason in (sel.REASON_ZERO, sel.REASON_CONSTRUCTION_DEFAULT):
+            with self.subTest(reason=reason):
+                self.assertIn(reason, sel.ALTERNATE_REASONS)
+                self.assertIn(reason, sel.ALL_REASONS)
+                self.assertNotIn(reason, sel.PRIMARY_REASONS)
+        self.assertIn(sel.REASON_MAX_IS_ZERO, sel.PRIMARY_REASONS)
+        self.assertNotIn(sel.REASON_MAX_IS_ZERO, sel.ALTERNATE_REASONS)
+        # Neither set may be absorbed into the other, in either direction.
+        self.assertNotEqual(sel.ALL_REASONS, sel.PRIMARY_REASONS)
+        self.assertNotEqual(sel.ALL_REASONS, sel.ALTERNATE_REASONS)
+
+    def test_the_width_is_read_from_the_table_not_asserted_to_be_32(self):
+        """F5.  `kind = row[5]` -> `kind = "u32"` inside `_row_width_bits`
+        SURVIVED: the D-D derivation -- this round's predecessor's whole
+        point -- could be reverted to a hardcode with the suite green,
+        because the only test looking at it asserts `_row_width_bits(x) == 32`,
+        which a hardcoded "u32" satisfies perfectly.
+
+        The check that cannot be satisfied by a hardcode is a row whose width
+        is NOT 32: `_row_width_bits` must report what the table says for any
+        row, and must refuse a row that is not unsigned at all.  Both are
+        derived from `attr_wire.FIELDS` -- if LANE-GM ships no non-u32
+        unsigned row one day, the first half is skipped, not faked."""
+        widths = {}
+        non_unsigned = None
+        for row in attr_wire.FIELDS:
+            kind = row[5]
+            if isinstance(kind, str) and kind.startswith("u"):
+                widths.setdefault(int(kind[1:]), row[0])
+            elif non_unsigned is None:
+                non_unsigned = row[0]
+
+        for bits, x in widths.items():
+            with self.subTest(x=x, bits=bits):
+                self.assertEqual(sel._row_width_bits(x), bits)
+        self.assertGreaterEqual(
+            len(widths), 1, "the wire table has no unsigned row at all"
+        )
+        if len(widths) == 1:  # pragma: no cover - depends on LANE-GM's table
+            self.skipTest("every unsigned row in FIELDS is the same width")
+
+        # F5's second half: an i32/f32 row must raise, not be coerced.  These
+        # were the only two statements in the module the suite never executed.
+        if non_unsigned is not None:
+            with self.assertRaises(sel.HpPairError):
+                sel._row_width_bits(non_unsigned)
+        with self.assertRaises(sel.HpPairError):
+            sel._row_width_bits(max(row[0] for row in attr_wire.FIELDS) + 1)
 
 
 class TheThreeTautologiesTests(unittest.TestCase):
@@ -1399,15 +1589,32 @@ class TheThreeTautologiesTests(unittest.TestCase):
 
 class TheCrossLaneLineNumbersAreCheckedTests(unittest.TestCase):
     """Round `m1dmhd`, pf-adversary `2v18x3` D-F.  This module cites
-    `gm/attr_wire.py` by LINE NUMBER in ten places.  Every one of them was
-    correct on the day it was written and nothing re-checked them, so the
-    first time LANE-GM inserts a paragraph they all quietly become citations
-    of the wrong lines -- in a module whose entire authority is that its
-    claims are traceable.
+    `gm/attr_wire.py` by LINE NUMBER.  Every citation was correct on the day
+    it was written and nothing re-checked any of them, so the first time
+    LANE-GM inserts a paragraph they all quietly become citations of the
+    wrong lines -- in a module whose entire authority is that its claims are
+    traceable.
 
     The set of citations is DERIVED from the module text, so a new citation
     cannot be added without an anchor for it; the anchors are what each
-    citation is relied upon to say."""
+    citation is relied upon to say.  (The count is deliberately not written
+    down here: a number in this docstring would be one more unchecked claim
+    of exactly the kind this class exists to catch.)
+
+    TWO SPELLINGS, BECAUSE THE FIRST VERSION ONLY CAUGHT ONE (pf-adversary
+    round `m1dmhd`, F6).  It matched `gm/attr_wire.py:NNN` and missed the
+    BARE form -- a backticked `` `:1568` `` leaning on a filename named in an
+    earlier clause.  That was not hypothetical: the one citation in the module
+    that was actually WRONG was written that way, and this class could not
+    see it.  It cited line 1568 as `_refuse_selector_change`'s docstring; 1568
+    is code, belonging to a different fence entirely.  The module no longer
+    carries a bare citation, and the pattern below now refuses to let one back
+    in unanchored."""
+
+    #: `gm/attr_wire.py:NNN[-NNN]`, or a bare backticked `` `:NNN[-NNN]` ``.
+    CITATION_RE = re.compile(
+        r"gm/attr_wire\.py:\d+(?:-\d+)?|(?<=`):\d+(?:-\d+)?(?=`)"
+    )
 
     #: citation -> a substring that must still be inside the cited span.
     ANCHORS = {
@@ -1421,20 +1628,34 @@ class TheCrossLaneLineNumbersAreCheckedTests(unittest.TestCase):
 
     def _citations(self):
         text = MODULE_FILE.read_text(encoding="utf-8")
-        return sorted(set(re.findall(r"gm/attr_wire\.py:\d+(?:-\d+)?", text)))
+        return sorted(set(self.CITATION_RE.findall(text)))
 
     def test_every_citation_in_the_module_has_an_anchor(self):
-        """The derived half: adding a line-number citation without saying what
-        it is relied upon to say fails here, so this pin cannot rot by
-        omission."""
+        """The derived half: adding a line-number citation -- in EITHER
+        spelling -- without saying what it is relied upon to say fails here,
+        so this pin cannot rot by omission."""
         self.assertEqual(self._citations(), sorted(self.ANCHORS))
+
+    def test_a_bare_citation_cannot_slip_in_unanchored(self):
+        """F6's escape hatch, held closed.  Proves the pattern sees the bare
+        form, without waiting for someone to write one into the module."""
+        self.assertEqual(
+            sorted(
+                self.CITATION_RE.findall(
+                    "the fence at `gm/attr_wire.py:992`, and its docstring "
+                    "(`:1568`) says so"
+                )
+            ),
+            [":1568", "gm/attr_wire.py:992"],
+        )
+        self.assertNotIn(":1568", self.ANCHORS)
 
     def test_every_cited_span_still_contains_what_it_is_cited_for(self):
         lines = (
             (SRC / "gm" / "attr_wire.py").read_text(encoding="utf-8").splitlines()
         )
         for citation in self._citations():
-            span = citation.split(":")[1]
+            span = citation.rsplit(":", 1)[1]
             first = int(span.split("-")[0])
             last = int(span.split("-")[-1])
             with self.subTest(citation=citation):
@@ -1479,3 +1700,7 @@ class TheTwoSignedConvertersAgreeTests(unittest.TestCase):
                         theirs = "reject"
                     self.assertEqual(ours, theirs)
         self.assertEqual(checked, 60)
+
+
+if __name__ == "__main__":
+    unittest.main()

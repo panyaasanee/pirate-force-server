@@ -49,12 +49,22 @@ lane re-measured the refutation before accepting it:
 set does not EQUAL one of those two shapes, 37 lines BEFORE the fence at 992.
 So no block carrying x=52/x=53 can reach that fence at all, the membership
 clause there is always true, and the fence reduces to `values.get(9) == 8`
-alone -- which `gm/attr_wire.py:989-990` and `_refuse_selector_change`'s own
-docstring (`:1568`) already say in as many words, and the first draft cited
-992 without reading 989.  Wired at that call site, this predicate would
-refuse EXACTLY the blocks the incumbent already refuses, on every input the
-wall admits.  The CORE-REQUEST asking for that call site was WITHDRAWN in the
-same round it was written.
+alone -- which `gm/attr_wire.py:989-990` already says in as many words, and
+the first draft cited 992 without reading 989.
+
+(A bare citation to `_refuse_selector_change`'s docstring, at line 1568,
+stood here until round `m1dmhd`, when pf-adversary F6 measured it: 1568 is
+not that docstring, it is CODE -- `ALT_HP_PAIR_ROWS <= set(rows)` -- belonging
+to a DIFFERENT fence, the one triggered by `current_scene == login_scene`
+rather than by `values.get(9) == 8`.  The sentence attributed to it a
+conclusion about a comparison that line has nothing to do with.  It is
+removed rather than renumbered: the claim above stands on 989-990 alone,
+which was measured and anchored.)
+
+Wired at that call site, this predicate would refuse EXACTLY the blocks the
+incumbent already refuses, on every input the wall admits.  The
+CORE-REQUEST asking for that call site was WITHDRAWN in the same round it
+was written.
 
 So what is this module for, honestly stated:
 
@@ -422,8 +432,30 @@ def primary_pair_gaps(values: dict[int, object]) -> tuple[PairGap, ...]:
     pair BOTH rows are server-owned, so `hp_current == 0` with a positive
     `hp_max` is the commonest honest state a server has to be able to state
     at all: a DEAD CHARACTER.  A guard that refused that would refuse the one
-    HP value M4 exists to put on a screen.  `_pair_owned_by_this_server`
-    derives the split from the schema; nothing here types it in.
+    HP value M4 exists to put on a screen.
+
+    WHAT THIS DOCSTRING CLAIMED UNTIL ROUND `m1dmhd`, AND WHY IT WAS FALSE
+    (pf-adversary F3).  It said "`_pair_owned_by_this_server` derives the
+    split from the schema; nothing here types it in."  Measured: that helper
+    has ZERO call nodes in this module -- the split is two hand-written
+    functions, and the helper is read only by a test that asserts it agrees
+    with them.  Two facts agreeing is consistency, not derivation.  Typing the
+    split INTO the helper (`return pair == PRIMARY_PAIR`) -- the very thing
+    the sentence forbade -- survived the whole suite.
+
+    So, stated honestly: the split is HAND-WRITTEN, and it is correct only for
+    as long as the schema stays where it is.  The consequence is a real
+    refusal of an honest block, not a tidiness complaint: the day a
+    `characters.alt_hp_max` column ships and a live character's `alt_hp_max`
+    is legitimately `1`, `alternate_pair_gaps` refuses it as
+    `REASON_CONSTRUCTION_DEFAULT`, because that reason exists only for a pair
+    no column stands behind.
+
+    That day is the day the two functions must merge into one rule chosen by
+    `_pair_owned_by_this_server`, and it is guarded rather than remembered:
+    `TheGateBecomesObligatoryTheDayItIsReachableTests` goes red the moment
+    `SERVER_OWNED_FIELDS` gains x=52/x=53, which is exactly that day.  The
+    restructure is this lane's next round's first work.
 
     So the primary pair is dishonest when, and only when: a row is absent
     (unset mask bit reads zero, `RE-222` Q0), a row is not a u32, `hp_max` is
