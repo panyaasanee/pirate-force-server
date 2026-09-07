@@ -137,8 +137,26 @@ GIVE_UNCONDITIONAL_APIS = (
 #: nobody classified them -- is not describing the transaction the script
 #: performs.  Both are stubs today, so both make their group unpayable,
 #: which is the point: the charge cannot run ahead of the delivery.
+#: ROUND ``yzdgx1`` ADDS ``Player.AddPpClass`` (pf-adversary D2 against
+#: round ``kkuqzo``'s own commit).  It is the SAME SHAPE as the two above
+#: -- a stubbed ``Player.*`` call whose argument is a ``Quest.VarN``, in
+#: the same entry point as the charge, on the line ABOVE it:
+#:
+#:     q_class.lua:59    Player.AddPpClass(Quest.Var2)   <- the class change
+#:     q_class.lua:60    Player.AddCash(Quest.Var4)      <- the 15,000 charge
+#:
+#: and it was left out of the flagship group this whole module was built
+#: around.  What that would have cost, in the state the module's own
+#: ``test_the_group_opens_by_itself_the_day_additem_becomes_real``
+#: describes: the day ``Player.AddItem`` and the four ``Quest.*Criteria*``
+#: names go real, ``Q_CLASS.Report_Run`` becomes payable, the player is
+#: charged 15,000, receives the reward items -- and
+#: ``Player.AddPpClass(Quest.Var2)`` no-ops, so THE CLASS NEVER CHANGES.
+#: That is COO-DECISION ``20260908_0242`` item 4's half transaction on the
+#: exact script item 4 was written for.  Its second call site
+#: (``q_class2.lua:56``) is read the same way.
 GIVE_ARGUMENT_APIS = (
-    "Player.BoatHealth", "Player.ChangeShip",
+    "Player.AddPpClass", "Player.BoatHealth", "Player.ChangeShip",
 )
 
 #: The TAKE-side kind the SIGNEDNESS table carries.  A take whose MINUS
@@ -159,8 +177,15 @@ TAKE_KIND = KIND_MONEY
 #: ``Player.AddCash`` has 6 call sites in 306 quest scripts and they come
 #: in THREE shapes, not one --
 #:
-#:   * ``Player.AddCash(Quest.Var4)``      q_class.lua:60, q_guild_boss2.lua:59
-#:     -- the cell itself is negative, so the signedness table sees it;
+#:   * a BARE ``Player.AddCash(Quest.VarN)`` -- six of these across the
+#:     corpus, not the four an earlier draft of this comment listed
+#:     (pf-adversary D7, round `yzdgx1`, which also caught it naming
+#:     ``Var4`` at ``q_guild_boss2.lua:59``, where the corpus says
+#:     ``Var8``): ``q_class.lua:60`` and ``q_class2.lua:58``
+#:     (``Quest.Var4``), ``q_guild_boss2.lua:59`` and
+#:     ``q_guildgather1.lua:60`` (``Quest.Var8``).  Where the cell itself
+#:     is negative the signedness table sees it (``Q_CLASS n_VARI_4`` =
+#:     4294952296); where it is 0 nothing moves either way;
 #:   * ``Player.AddCash(-Quest.Var3)``     q_ship.lua:50
 #:   * ``Player.AddCash(Quest.Var2 * -1)`` q_boat_health.lua:21
 #:     -- the cell is POSITIVE and the SCRIPT negates it, so the signedness

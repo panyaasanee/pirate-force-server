@@ -7,9 +7,10 @@ different reasons and on different machines:
   1. THE MIRRORS PARSE (gate-runnable, no bridge checkout).  Shape, digest
      header, and the refusals a corrupt mirror has to produce -- including
      the one this table exists for: a group with only one side.
-  2. THE TABLE SAYS WHAT IT SAYS (gate-runnable).  Two groups, both keyed
-     on the entry point that performs both halves, every member carrying a
-     ``file:line``.
+  2. THE TABLE SAYS WHAT IT SAYS (gate-runnable).  THREE groups (this
+     sentence said "two" for two rounds after the third arrived --
+     pf-adversary D7, round `yzdgx1`), each keyed on the entry point that
+     performs both halves, every member carrying a ``file:line``.
   3. THE GATE BEHAVES (gate-runnable).  The q_class row is refused whole;
      the q_guild_boss2 row -- same script shape, no reward cells -- is NOT,
      which is the negative result that says the gate reads the ROW; and
@@ -275,8 +276,24 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
                     self.assertEqual(names, ["Player.BoatHealth"])
                     continue
                 self.assertEqual(sorted(qr.GIVE_ID_COLUMNS), columns)
-                self.assertEqual(len(names), 3, names)
-                for name in names:
+                # THE THREE CURVE PAYOUTS, PLUS -- for `q_class` only --
+                # the thing the charge BUYS.  Round `yzdgx1`
+                # (pf-adversary D2) read `Player.AddPpClass(Quest.Var2)`
+                # at `q_class.lua:59` as a give for exactly the reason
+                # `Player.BoatHealth` is one: a stubbed delivery on the
+                # line above the charge, taking a `Quest.VarN`.  Branched
+                # rather than loosened for the same reason the purchase
+                # group above is -- `q_guild_boss2`, which buys nothing,
+                # must still hold at three or this assertion says nothing.
+                purchases = [name for name in names
+                             if not name.startswith("Quest.Add")]
+                if script == "q_class":
+                    self.assertEqual(purchases, ["Player.AddPpClass"])
+                else:
+                    self.assertEqual(purchases, [], script)
+                criteria = [name for name in names if name not in purchases]
+                self.assertEqual(len(criteria), 3, names)
+                for name in criteria:
                     self.assertTrue(name.startswith("Quest.Add"), name)
                     self.assertIn("Criteria", name)
 
@@ -409,8 +426,14 @@ class TheGateBehavesTests(unittest.TestCase):
                              "column-only table gates it and not 8061")
 
     def test_a_reward_row_with_no_take_side_resolves_straight_through(self):
-        """204 of the 209 scripts couple nothing; they must not pay for
-        the two that do."""
+        """206 of the 209 scripts couple nothing; they must not pay for
+        the three that do.
+
+        RE-DERIVED round `yzdgx1` (pf-adversary D7): this said "204 ...
+        the two" and was wrong in both halves -- `load_groups()` has
+        THREE scripts in it (`q_boat_health`, `q_class`,
+        `q_guild_boss2`), and 209 - 3 = 206.
+        """
         namespace, lines = self._namespace(FREE_REWARD_QUEST_ID)
         self.assertEqual(namespace["RewardItem1"], FREE_REWARD_ITEMS[0])
         self.assertEqual(namespace["RewardItem2"], FREE_REWARD_ITEMS[1])
@@ -418,17 +441,49 @@ class TheGateBehavesTests(unittest.TestCase):
         self.assertIn("LUA_QUEST_REWARD Quest.RewardItem1 quest=%d value=%d"
                       % (FREE_REWARD_QUEST_ID, FREE_REWARD_ITEMS[0]), lines)
 
-    def test_the_group_opens_by_itself_the_day_additem_becomes_real(self):
-        """The mutant that proves the gate is reading REALNESS, not a date.
+    def test_additem_alone_is_not_enough_because_the_class_change_is_a_give(self):
+        """ROUND `yzdgx1`, pf-adversary D2 against round `kkuqzo`.
 
-        Nothing else changes: same mirror, same table, same row.  The only
-        edit is `Player.AddItem` joining `player.REAL_METHODS`, and both
-        halves come back at once -- the charge AND the item ids.  That is
-        what "opened together" has to mean, and it is why the blocking
-        API is named in the log rather than described in a comment.
+        Before `Player.AddPpClass` was a member, THIS EXACT PATCH SET
+        opened the group: the player was charged 15,000, received the
+        reward items, and `Player.AddPpClass(Quest.Var2)` -- the class
+        change the 15,000 buys, `q_class.lua:59`, one line ABOVE the
+        charge -- silently no-opped.  A half transaction on the flagship
+        script, produced by the module built to prevent it.
+
+        So this is the same mutant, kept as a NEGATIVE now: realness is
+        still what the gate reads, and the group correctly stays shut
+        while ANY give member is a stub.
         """
         with mock.patch.object(lua_player, "REAL_METHODS",
                                lua_player.REAL_METHODS | {"AddItem"}), \
+                mock.patch.object(
+                    quest, "REAL_METHODS",
+                    quest.REAL_METHODS | {"RewardItemSelect",
+                                          "AddCriteriaExp",
+                                          "AddCriteriaSkillPoint",
+                                          "AddCriteriaCash"}):
+            namespace, lines = self._namespace(GATED_QUEST_ID)
+            self.assertEqual(namespace["Var4"], quest.STUB_DEFAULT)
+            refusals = [line for line in lines
+                        if line.startswith("LUA_QUEST_GROUP_REFUSED")]
+            self.assertTrue(refusals, lines)
+            self.assertTrue(any("blocked_on=Player.AddPpClass" in line
+                                for line in refusals), refusals)
+
+    def test_the_group_opens_by_itself_the_day_every_give_becomes_real(self):
+        """The mutant that proves the gate is reading REALNESS, not a date.
+
+        Nothing else changes: same mirror, same table, same row.  The only
+        edit is every give-side API of the group joining its namespace's
+        `REAL_METHODS`, and both halves come back at once -- the charge
+        AND the item ids.  That is what "opened together" has to mean, and
+        it is why the blocking API is named in the log rather than
+        described in a comment.
+        """
+        with mock.patch.object(lua_player, "REAL_METHODS",
+                               lua_player.REAL_METHODS | {"AddItem",
+                                                          "AddPpClass"}), \
                 mock.patch.object(
                     quest, "REAL_METHODS",
                     quest.REAL_METHODS | {"RewardItemSelect",
@@ -500,12 +555,16 @@ class TheGateBehavesTests(unittest.TestCase):
                         len(answered), 1,
                         "quest %d opened half of %s.%s"
                         % (quest_id, script, group.group))
-        self.assertEqual(checked, 164,
-                         "9 reward rows x 16 members + 4 rows x 1 member "
-                         "for the q_boat_health purchase group; if this "
-                         "number "
-                         "moves, a group or a row appeared and the "
-                         "assertion above has to be read again")
+        self.assertEqual(checked, 169,
+                         "RE-DERIVED round `yzdgx1` (pf-adversary D7 "
+                         "against round `kkuqzo`, which left a wrong "
+                         "arithmetic string on the one assertion whose "
+                         "job is to be re-read): 5 Q_CLASS rows x 17 "
+                         "members (16 + Player.AddPpClass, new this "
+                         "round) + 5 Q_GUILD_BOSS2 rows x 16 + 2 "
+                         "Q_BOAT_HEALTH rows x 2 = 85 + 80 + 4 = 169. If "
+                         "this number moves, a group or a row appeared "
+                         "and the assertion above has to be read again")
 
 
 def _lua_name_for(source_column: str) -> str:
