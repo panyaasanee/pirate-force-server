@@ -39,10 +39,12 @@ assertion so the check cannot be simplified back into it.
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from pathlib import Path
 import random
 import sys
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -717,7 +719,7 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
         # GOLDEN_PLUS_ACQUIRED with nothing acquired (pf-adversary built
         # exactly that).  The invariant lives in inventory.py, outside this
         # lane's write zone, so this is where it is pinned.
-        for index, golden in enumerate(bag_admission.GOLDEN_BACKPACKS):
+        for index, golden in enumerate(bag_admission.golden_backpacks()):
             identities = [row.identity for row in golden.items]
             self.assertEqual(
                 identities, sorted(identities),
@@ -725,7 +727,7 @@ class ForgedAndDegenerateBagsTests(unittest.TestCase):
                 "the removed no-acquired branch's unreachability rests on",
             )
         checked = 0
-        for golden in bag_admission.GOLDEN_BACKPACKS:
+        for golden in bag_admission.golden_backpacks():
             for permutation in itertools.permutations(golden.items):
                 candidate = BackpackState(
                     golden.base_mask, golden.base_identity,
@@ -891,51 +893,209 @@ class ContractTests(unittest.TestCase):
             bag_admission.MAX_SLOT_QUANTITY, mob_pickup.MAX_SLOT_QUANTITY,
         )
 
-    def test_the_goldens_are_exactly_the_ones_is_unmoved_baseline_compares_against(self):
-        """Both directions, and the reverse one needs the source, not a call.
+    def test_the_two_gates_move_together_when_the_starting_set_moves(self):
+        """The replacement for the ``ast`` guard, and a stronger claim.
 
-        The first draft asserted only ``GOLDEN_BACKPACKS -> baseline``, which
-        cannot see a THIRD baseline being added to ``is_unmoved_baseline``:
-        pf-adversary added one and this test stayed green while
-        ``may_enter_world`` refused a bag today's gate admits -- i.e. this
-        module silently became stricter than the gate it claims to reproduce.
-        No call can enumerate that tuple, and ``inventory.py`` is outside this
-        lane's write zone, so the reverse direction is asserted against the
-        function's own source.
+        The old guard read ``is_unmoved_baseline``'s source and required the
+        names in its comparison tuple to be exactly the ones this module
+        lists, because this module held a SECOND copy of that list and a
+        subset assertion cannot see a third baseline added to only one of
+        them (pf-adversary added one and watched the test stay green while
+        ``may_enter_world`` refused a bag the gate admits).
+
+        There is no second copy now -- both read
+        ``inventory.STARTING_BACKPACKS`` -- so the honest guard is not "the
+        two lists spell the same names" but "MOVE the set and BOTH answers
+        move".  That is a claim about the mechanism, and it fails for a
+        module that re-froze the goldens at import, or copied them out, or
+        imported them by value: three ways of drifting that reading the
+        source could never see.
         """
-        for index, golden in enumerate(bag_admission.GOLDEN_BACKPACKS):
-            with self.subTest(golden=index):
-                self.assertTrue(is_unmoved_baseline(golden))
+        extra = replace(
+            INITIAL_BACKPACK,
+            items=tuple(
+                replace(row, template_id=2200003) if row.identity == 4 else row
+                for row in INITIAL_BACKPACK.items
+            ),
+        )
+        self.assertNotEqual(extra, INITIAL_BACKPACK)
+        # Refused by BOTH gates before the set moves: without this the test
+        # would pass against a gate that admitted the bag all along.
+        self.assertFalse(is_unmoved_baseline(extra))
+        self.assertFalse(
+            bag_admission.may_enter_world(
+                extra, allow_hypothesized_item_move=False, issued_through=4,
+            ),
+        )
 
-        source = Path(inventory.__file__).read_text(encoding="utf-8")
-        tree = ast.parse(source)
+        with mock.patch.object(
+            inventory, "STARTING_BACKPACKS",
+            inventory.STARTING_BACKPACKS + (extra,),
+        ):
+            self.assertTrue(is_unmoved_baseline(extra))
+            self.assertIn(extra, bag_admission.golden_backpacks())
+            self.assertTrue(
+                bag_admission.may_enter_world(
+                    extra, allow_hypothesized_item_move=False,
+                    issued_through=4,
+                ),
+            )
+            self.assertEqual(
+                len(bag_admission.golden_names()),
+                len(bag_admission.golden_backpacks()),
+            )
+
+        # And back: the set is the only thing that decided any of it.
+        self.assertFalse(is_unmoved_baseline(extra))
+        self.assertFalse(
+            bag_admission.may_enter_world(
+                extra, allow_hypothesized_item_move=False, issued_through=4,
+            ),
+        )
+
+    def test_is_unmoved_baseline_compares_against_the_two_shared_tuples_only(self):
+        """The ``ast`` guard, restored -- because the mechanism test is
+        strictly WEAKER in the one direction the original scar came from.
+
+        pf-adversary measured it: add a THIRD baseline to
+        ``is_unmoved_baseline`` as a separate hardcoded term
+        (``or value in (HYPOTHESIZED_V111_SLOT2_BACKPACK,)``) and the
+        mechanism test below survives, because it only asks whether a bag IT
+        invented follows the set.  The old source guard caught that shape and
+        was deleted for it.  Both now run: the mechanism test catches goldens
+        re-frozen at import or copied by value (which no source guard can
+        see), and this one catches a baseline that was never in the set
+        (which no mechanism test can see).
+
+        What it requires is narrower than the old guard, and deliberately so:
+        not "these exact two names in this order", which was a second copy of
+        a list, but "this function reads the two SHARED sources and nothing
+        else".
+        """
         function = next(
-            node for node in ast.walk(tree)
+            node for node in ast.walk(
+                ast.parse(Path(inventory.__file__).read_text(encoding="utf-8")))
             if isinstance(node, ast.FunctionDef)
             and node.name == "is_unmoved_baseline"
         )
-        compared = [
-            element.id
-            for node in ast.walk(function)
-            if isinstance(node, ast.Compare)
-            for comparator in node.comparators
-            if isinstance(comparator, ast.Tuple)
-            for element in comparator.elts
-            if isinstance(element, ast.Name)
-        ]
+        # The BODY only: the signature's annotations (Any, bool) are not
+        # things the gate reads.
+        body = [node for statement in function.body for node in ast.walk(statement)]
+        read = sorted({
+            node.id for node in body if isinstance(node, ast.Name)
+        })
         self.assertEqual(
-            compared, ["INITIAL_BACKPACK", "MERGED_V111_BACKPACK"],
-            "inventory.is_unmoved_baseline no longer compares against exactly "
-            "the two snapshots bag_admission.GOLDEN_BACKPACKS lists, in that "
-            "order.  Update GOLDEN_BACKPACKS in the same commit, or this "
-            "module is a different gate from the one it claims to reproduce.",
+            read, ["STARTING_BACKPACKS", "merged_v111_states", "value"],
+            "inventory.is_unmoved_baseline reads something other than the two "
+            "tuples the admission module builds its goldens from.  A baseline "
+            "that is not in the starting set makes this module a DIFFERENT "
+            "gate from the one it claims to reproduce, and no test that moves "
+            "the set can see it.",
+        )
+
+    def test_the_golden_names_stay_aligned_when_the_set_is_five(self):
+        """The naming rule at n>1, which nothing measured.
+
+        Swapping the two ``for`` clauses in ``golden_names`` -- giving
+        ``initial, merged_v111, initial_1, ...`` -- survived the whole suite
+        (pf-adversary), because every name assertion ran at n=1 where the two
+        spellings agree.  What it would ship: a class-1 character on an
+        UNMERGED starting bag printing ``golden=merged_v111``, a greppable
+        token naming the wrong snapshot.
+        """
+        bags = tuple(
+            replace(
+                INITIAL_BACKPACK,
+                items=tuple(
+                    replace(row, template_id=template) if row.identity == 4
+                    else row
+                    for row in INITIAL_BACKPACK.items
+                ),
+            )
+            for template in (2200002, 2200003, 2200006, 2200005, 2200008)
+        )
+        with mock.patch.object(inventory, "STARTING_BACKPACKS", bags):
+            self.assertEqual(
+                bag_admission.golden_names(),
+                (
+                    "initial", "initial_1", "initial_2", "initial_3",
+                    "initial_4", "merged_v111", "merged_v111_1",
+                    "merged_v111_2", "merged_v111_3", "merged_v111_4",
+                ),
+            )
+            # Alignment is the claim, not the spelling: every golden's own
+            # name must come back from the index classify hands out.
+            for index, golden in enumerate(bag_admission.golden_backpacks()):
+                with self.subTest(golden=index):
+                    admission = bag_admission.classify(
+                        golden, issued_through=4)
+                    self.assertTrue(admission.admissible)
+                    self.assertEqual(
+                        bag_admission.golden_name(admission.golden_index),
+                        bag_admission.golden_names()[index],
+                    )
+
+    def test_a_starting_bag_with_no_merge_rows_does_not_kill_the_import(self):
+        """pf-adversary's D3, pinned where it can be seen.
+
+        Deriving the merged half at import time meant one three-item bag in
+        LANE-CS's table took down ``import pirateforce_foundation.session``
+        for every class -- nobody logs in at all, rather than one gate
+        refusing one bag.  A bag that cannot merge simply has no merged
+        counterpart, and omitting it narrows nothing.
+        """
+        scout = replace(
+            INITIAL_BACKPACK,
+            items=tuple(
+                row for row in INITIAL_BACKPACK.items if row.identity != 3
+            ),
+        )
+        self.assertFalse(inventory.can_merge_v111(scout))
+        with mock.patch.object(
+            inventory, "STARTING_BACKPACKS",
+            inventory.STARTING_BACKPACKS + (scout,),
+        ):
+            self.assertEqual(
+                len(inventory.merged_v111_states()),
+                len(inventory.STARTING_BACKPACKS) - 1,
+            )
+            self.assertTrue(is_unmoved_baseline(scout))
+            self.assertIn(scout, bag_admission.golden_backpacks())
+            self.assertEqual(
+                len(bag_admission.golden_names()),
+                len(bag_admission.golden_backpacks()),
+            )
+            self.assertTrue(
+                bag_admission.may_enter_world(
+                    scout, allow_hypothesized_item_move=False,
+                    issued_through=4,
+                ),
+            )
+
+    def test_every_golden_is_a_baseline_and_the_counts_agree(self):
+        """The direction the old guard could assert with a call, kept."""
+        for index, golden in enumerate(bag_admission.golden_backpacks()):
+            with self.subTest(golden=index):
+                self.assertTrue(is_unmoved_baseline(golden))
+        self.assertEqual(
+            len(bag_admission.golden_names()),
+            len(bag_admission.golden_backpacks()),
+        )
+
+    def test_the_console_token_names_have_not_moved_for_todays_set(self):
+        """``golden=initial``/``golden=merged_v111`` are greppable history.
+
+        Attended runs and letters already grep these two words.  The naming
+        rule has to keep answering them for the bag that has always been
+        index 0, or every existing grep quietly stops matching on the day the
+        set grows.
+        """
+        self.assertEqual(
+            bag_admission.golden_names()[:1], ("initial",),
         )
         self.assertEqual(
-            len(compared), len(bag_admission.GOLDEN_BACKPACKS),
-        )
-        self.assertEqual(
-            len(bag_admission.GOLDEN_NAMES),
-            len(bag_admission.GOLDEN_BACKPACKS),
+            bag_admission.golden_name(len(inventory.STARTING_BACKPACKS)),
+            "merged_v111",
         )
 
     def test_the_console_line_is_one_greppable_token(self):
