@@ -56,9 +56,12 @@ non-writing categories RE-294 cleared; no row carrying a real tag byte is
 skipped, in either direction. Counted against RE-294's own call census for
 ``StallOpenVital`` -- 5 tagged writes / 5 tagged reads / 1 string write /
 1 string read -- the tagged rows this module encodes are exactly 5 + 1 in
-each direction, which is the strongest independent check available on this
-class without a capture. (See the nonclaims for the class where that
-cross-check does NOT line up.)
+each direction. That is a consistency check worth having, but it is NOT
+independent evidence: both sides are the static-image layer, derived from
+the same binary, and the letter's own census is produced by the tool whose
+function-boundary heuristic RE-294's nonclaim 3 declares unreliable in this
+address neighbourhood (nonclaim 3 below shows it triple-counting a sibling
+class). No client-observable layer exists for any of this.
 
 Tag legend (each width taken from the table's own ``len`` column, not
 guessed): ``0x08`` = u8, ``0x0B`` = u8, ``0x0F`` = u16, ``0x14`` = u32,
@@ -69,17 +72,35 @@ u32 LE byte length + UTF-16LE (``ui_social_wire.wstring_tag``; the stale
 ``notes_to_chief/reference_codex_attr/PF_A2_STRING_WIRE_TAG_DELTA.tsv``
 base rows 6809/6831/6853/6873/6893/6903 -- ``CHANGED``).
 
-Grepped first, per ``AGENTS.md`` section 7's mandatory search, before
-writing a line: ``Stall`` in ``pf_bridge/external/`` -> the three registry/
-priority/validation tables and the serializer rows above; in
-``pf_bridge/archive/`` -> ``...R77.md:64`` only, which names
-``0x0076A630`` as ``StallOperateVital``'s serializer and agrees with the
-registry column (RE-294 says the two sources do not conflict -- the
-``direct_call_not_proven_serializer`` label meant "unproven", not
-"disproven"). ``CLIENT_RE_QUEUE.md:1587`` = ``RE-294`` itself, now
-answered. ``GAME_TEST_QUEUE.md``: no live Stall entry (``GT-262`` was
-cancelled, ``20260907_0456_LANE-UI-TO-K-gt262-cancel-with-reason.md``).
-``grep -rn "Stall" src/pirateforce_foundation/`` before this file: 0 hits.
+Grepped first, per ``AGENTS.md`` section 7's mandatory search. The first
+draft of this paragraph got two of its four claims wrong; these are the
+re-measured ones (round ``gkxzei``, after pf-adversary):
+
+* ``Stall`` in ``pf_bridge/external/`` -> the registry/priority/validation
+  tables plus the serializer rows above. Two neighbouring ``Stall*``
+  messages there are NOT vitals of this group and are not implemented:
+  ``StallModule_Client`` (rows 6801-6806) and ``StallActorAttr``
+  (6917-6918).
+* ``grep -rn "Stall" pf_bridge/archive/`` -> **7 hits in 5 files**, not
+  "``...R77.md:64`` only" as the first draft said. The one that mattered
+  is ``archive/GAME_TEST_QUEUE_ARCHIVE_20260827_closed.md:971``, which
+  points at the in-repo disassembly nonclaim 4 above now cites. Saying
+  "only" is what turned a two-hop lookup into a false nonclaim.
+* ``CLIENT_RE_QUEUE.md:1688`` = ``RE-294`` (the first draft said
+  ``:1587``, inherited from ``docs/UI_LANE.md`` and never re-derived;
+  ``:1587`` is an unrelated ticket). Its header still reads ``OPEN``:
+  folding the result and flipping that header is LANE-K's, asked for in
+  ``notes_to_chief/20260907_1358_LANE-UI-TO-K-re294-consumed-please-fold.md``.
+* ``GAME_TEST_QUEUE.md:5988`` -> ``GT-262`` is still ``READY`` in the
+  queue. The first draft called it "cancelled", which describes this
+  lane's own cancel LETTER (``20260907_0456_LANE-UI-TO-K-gt262-cancel-
+  with-reason.md``), not the queue it was sent to. Sending is not
+  landing.
+* ``grep -rn "Stall" src/pirateforce_foundation/`` before this file:
+  0 hits (verified). Outside ``src/`` the same repo does carry Stall
+  evidence -- ``reports/``, ``tools/``, ``docs/FUNCTIONAL_COVERAGE.json``
+  -- which the first draft never searched, and which is where nonclaim
+  4's correction came from.
 
 Scope, in ``CORE-REQUEST 1120``'s own words and identical to every sibling
 module in this batch: "รับเฟรม (decode) + ตอบ ack/error frame ที่วางเปล่า
@@ -106,22 +127,55 @@ nonclaims -- what this module does NOT prove
    round-trips unchanged, and ``member_count_field_agrees`` reports the
    disagreement without deciding anything. The same shape appears in
    ``StallOpenVital`` W9/R13 with no loop after it.
-3. **``StallOperateVital``'s primitive census does not reconcile.**
-   RE-294 reports "primitive 13/13/3/3" for ``0x0076A630`` while the
-   serializer table lists 4 tagged + 1 string row per direction for that
-   class (and the function's own span, ``0x0076A630``-``0x0076A738``, is
-   264 bytes). The two numbers are not made to agree here, and this
-   module follows the TABLE, which is the house layout source of truth.
-   The letter's own nonclaim 3 says its function-boundary heuristic
-   overshot into a neighbouring constructor on the sibling class, which
-   is one candidate explanation and is NOT asserted to be the answer.
-   Question sent to COO in round ``gkxzei``'s letter.
-4. **``StallOperateVital``'s per-field layout is NOT R77's.** RE-294
-   explicitly declines to confirm R77's ``u8 0x08@+0x14, qword 0x32@+0x18,
-   u32 0x14@+0x20, string@+0x24`` ordering ("อย่าเพิ่งเอาเลย์เอาต์ของ
-   R77 ไปใช้"). This module orders the fields by the table's own ``order``
-   column, which puts the string third and the ``0x14`` fourth -- the
-   file offsets agree with that order (``0x00369A65`` < ``0x00369A74``).
+3. **RE-294's ``13/13/3/3`` for ``0x0076A630`` is a census of all THREE
+   serializers, not of that one.** This started as a "does not
+   reconcile" nonclaim and a question to COO; pf-adversary reconciled it
+   from committed artifacts in the same round, and this lane re-measured
+   the arithmetic itself before accepting it. Counting the table's own
+   real-tag rows, per direction, excluding the four member rows that
+   belong to ``0x00766C00``:
+
+       StallOperateVital   4 tagged + 1 string
+       StallStartVital     4 tagged + 1 string
+       StallOpenVital      5 tagged + 1 string
+       sum                13 tagged + 3 strings, per direction
+
+   and the table carries exactly 4 ``SUBCALL:0x00766C00`` rows in total
+   (rows 6822, 6838, 6896, 6912) -- which is the letter's "called 4
+   times". Five of the letter's numbers land on one hypothesis with no
+   remainder: the RE runner's ``ret``-then-``int3`` boundary finder ran
+   from ``0x0076A630`` through the whole neighbourhood instead of
+   stopping at ``0x0076A738``. The table's own ``span_end`` column shows
+   the same overshoot already happened to a sibling -- ``StallStartVital``
+   is recorded as ``0x0076A740``-``0x0076AC12``, which swallows
+   ``StallOpenVital``'s ``0x0076A960``-``0x0076AC12`` entirely -- and
+   RE-294's nonclaim 3 confesses it at that address. So the table's
+   4 + 1 for this class is right, this module follows it, and NO further
+   RE ticket is needed. (The withdrawn question is kept in
+   ``pf_bridge/notes_to_chief/20260907_1358_LANE-UI-ASK-COO-re294-operate-primitive-count-does-not-reconcile.md``,
+   marked withdrawn, so the record shows what was asked and why it was
+   dropped.)
+4. **``StallOperateVital``'s field order is confirmed in THIS repository,
+   which an earlier draft of this nonclaim wrongly called unconfirmed.**
+   RE-294 declines to confirm R77's enumeration, and this module orders
+   fields by the table's ``order`` column (string third, ``0x14`` fourth;
+   file offsets agree, ``0x00369A65`` < ``0x00369A74``). What the first
+   draft missed -- found by pf-adversary, re-read here before accepting --
+   is that the instruction-level disassembly RE-294 says it did not do is
+   already committed at
+   ``reports/PF_USE_DROP_SELL001_ITEM_OPERATE_USE_DROP_SELL_STATIC_20260818.md:160-166``:
+   ``0x0076a63f`` ``push 8`` @+0x14, ``0x0076a652`` ``push 0x32`` @+0x18,
+   ``0x0076a65f`` ``call 0x89a810`` string @+0x24, ``0x0076a66c``
+   ``push 0x14`` @+0x20, ``0x0076a68b`` ``push 0xb`` -- ascending address
+   order, identical to what ``encode_stall_operate_payload`` emits. It is
+   a live guard, not stale prose: ``tools/pf_use_drop_sell_static.py:286``,
+   ``:302``, ``:568-581`` assert those exact bytes, and the span sha256
+   there is character-for-character the one on the table's own rows
+   (``3d1138e7...dbd501``). Both are the static-image layer -- two
+   independently produced static artifacts agreeing, NOT a
+   client-observable confirmation. R77's own prose enumeration is sorted
+   by offset, not by wire order, which is why it must not be copied
+   directly.
 5. **No client has ever seen a byte of this.** Static only: there is a
    wire/DB layer here and NO client-observable layer. Nothing below is
    evidence that a stall opens on screen.
@@ -252,6 +306,18 @@ def _read_members(
     trailing byte that does not start a complete record raises, so a
     truncated or padded payload fails closed rather than decoding to a
     short member list.
+
+
+    NOTE (pf-adversary, round ``gkxzei``, re-measured here): because this
+    loop runs until the buffer is exactly exhausted, the
+    ``wire.require_exhausted`` call that follows it in
+    ``decode_stall_start_payload`` / ``decode_stall_operate_payload`` can
+    never fire -- it is defence in depth against a future edit, NOT the
+    thing that rejects trailing bytes. What rejects them is this loop:
+    trailing garbage is read as the start of another record and raises
+    here. ``MemberReaderIsWhatRejectsTrailingBytesTests`` pins that, so
+    the two decoders' trailing-byte tests cannot silently start passing
+    for a different reason than their names say.
     """
 
     members: list[StallMemberRecord] = []
@@ -338,24 +404,28 @@ def decode_stall_operate_payload(payload: bytes) -> StallOperateFields | None:
     return StallOperateFields(field1, field2, field3, field4, field5, members)
 
 
-def member_count_field_agrees(
-    fields: StallStartFields | StallOperateFields,
-) -> bool:
-    """Report whether the trailing prefix u16 equals the member count.
+def member_count_field_agrees(fields: StallStartFields) -> bool:
+    """Report whether ``StallStartVital``'s trailing prefix u16 equals the
+    member count.
 
     A REPORT, not a rule: nothing in this module calls it, no encoder or
-    decoder consults it, and neither direction is rejected when it returns
+    decoder consults it, and nothing is rejected when it returns
     ``False``. It exists so a caller that wants to act on the "field5 is
-    the member count" reading can see the disagreement, while the reading
-    itself stays unproven (nonclaim 2). ``StallOperateFields``' field5 is
-    a u8 under a different tag and is included here for the same
-    report-only purpose, not because the two classes are claimed to use
-    the field the same way.
+    the member count" reading can see a disagreement, while the reading
+    itself stays unproven (nonclaim 2).
+
+    ``StallOperateFields`` is deliberately NOT accepted here, though a
+    first draft of this function did accept it. Its field5 is the ``0x0B``
+    byte at ``STACK@0x0076A630+0x14`` (``push 0x0B`` at ``0x0076A68B``),
+    and three committed artifacts read that byte as a PRESENCE flag, not
+    a count: ``tools/pf_use_drop_sell_static.py:572-574``,
+    ``reports/PF_USE_DROP_SELL001_...20260818.md:164``, and ``RE-292``,
+    which measures the same tag/offset shape as a presence pair written
+    from ``[this+0x14] != 0``. Reporting it as a count would have called
+    every legitimate two-or-more-member frame a disagreement, and every
+    empty one an agreement by coincidence. Found by pf-adversary, round
+    ``gkxzei``; the three sources were re-read here before the argument
+    type was narrowed.
     """
 
-    declared = (
-        fields.field5_u16
-        if isinstance(fields, StallStartFields)
-        else fields.field5_u8
-    )
-    return declared == len(fields.members)
+    return fields.field5_u16 == len(fields.members)

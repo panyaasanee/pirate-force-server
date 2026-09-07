@@ -338,14 +338,21 @@ class TruncationAtTheMemberBoundaryIsIndistinguishableTests(unittest.TestCase):
     """
 
     def test_a_cut_at_the_prefix_boundary_decodes_as_zero_members(self):
-        for encode, empty, one in (
+        """A first draft of this test compared two ENCODER outputs and
+        never called a decoder -- pf-adversary killed it with a
+        ``return None`` mutant that this class passed. It now asserts the
+        decoded value, which is the behaviour the class is named for."""
+
+        for encode, decode, empty, one in (
             (
                 sw.encode_stall_start_payload,
+                sw.decode_stall_start_payload,
                 _start_fields(),
                 _start_fields(members=(MEMBER_A,)),
             ),
             (
                 sw.encode_stall_operate_payload,
+                sw.decode_stall_operate_payload,
                 _operate_fields(),
                 _operate_fields(members=(MEMBER_A,)),
             ),
@@ -354,6 +361,10 @@ class TruncationAtTheMemberBoundaryIsIndistinguishableTests(unittest.TestCase):
                 prefix_len = len(encode(empty))
                 cut = encode(one)[:prefix_len]
                 self.assertEqual(cut, encode(empty))
+                decoded = decode(cut)
+                self.assertIsNotNone(decoded)
+                self.assertEqual(decoded, empty)
+                self.assertEqual(decoded.members, ())
 
     def test_any_cut_inside_a_member_record_fails_closed(self):
         payload = sw.encode_stall_operate_payload(
@@ -380,13 +391,18 @@ class MemberCountFieldIsAReportNotARuleTests(unittest.TestCase):
         self.assertEqual(decoded.field5_u16, 99)
         self.assertEqual(len(decoded.members), 1)
 
-    def test_the_operate_class_disagrees_the_same_way(self):
+    def test_the_operate_class_round_trips_a_disagreement_too(self):
+        """The operate class keeps the same round-trip guarantee, but its
+        field5 is a PRESENCE flag (see member_count_field_agrees' own
+        docstring), so the report deliberately does not accept it."""
+
         fields = _operate_fields(field5_u8=5, members=(MEMBER_B,))
         decoded = sw.decode_stall_operate_payload(
             sw.encode_stall_operate_payload(fields)
         )
         self.assertEqual(decoded, fields)
-        self.assertFalse(sw.member_count_field_agrees(decoded))
+        with self.assertRaises(AttributeError):
+            sw.member_count_field_agrees(decoded)
 
     def test_the_report_reads_the_right_field_per_class(self):
         self.assertTrue(
@@ -401,12 +417,7 @@ class MemberCountFieldIsAReportNotARuleTests(unittest.TestCase):
         )
         self.assertTrue(
             sw.member_count_field_agrees(
-                _operate_fields(field5_u8=1, members=(MEMBER_A,))
-            )
-        )
-        self.assertFalse(
-            sw.member_count_field_agrees(
-                _operate_fields(field5_u8=0, members=(MEMBER_A,))
+                _start_fields(field5_u16=0, members=())
             )
         )
 
@@ -427,6 +438,51 @@ class MemberCountFieldIsAReportNotARuleTests(unittest.TestCase):
         )
         self.assertEqual(low.members, high.members)
         self.assertEqual(len(low.members), 2)
+
+
+class MemberReaderIsWhatRejectsTrailingBytesTests(unittest.TestCase):
+    """`require_exhausted` cannot fire in the two member-bearing decoders
+    (the loop only exits when the buffer is exactly spent), so deleting it
+    changes nothing -- pf-adversary proved that with two surviving
+    mutants. The property those decoders actually rely on is that the
+    member reader REJECTS a partial trailing record. That is what these
+    tests pin, at the reader itself, so a future edit that bounds the loop
+    by ``offset + 22 <= len(payload)`` (a mutant that survives the whole
+    file today) goes red here."""
+
+    def test_the_reader_raises_on_any_partial_trailing_record(self):
+        record = sw._encode_member(MEMBER_A)
+        self.assertEqual(len(record), 22)
+        for keep in range(1, 22):
+            with self.subTest(trailing_bytes=keep):
+                with self.assertRaises(sw.wire.WireDecodeError):
+                    sw._read_members(record + record[:keep], 0)
+
+    def test_the_reader_consumes_whole_records_exactly(self):
+        buf = sw._encode_member(MEMBER_A) + sw._encode_member(MEMBER_B)
+        members, offset = sw._read_members(buf, 0)
+        self.assertEqual(members, (MEMBER_A, MEMBER_B))
+        self.assertEqual(offset, len(buf))
+
+
+class U8MaskingTests(unittest.TestCase):
+    """The two u8 encoders mask with ``& 0xFF``; nothing asserted what that
+    does until pf-adversary showed the mask could be deleted with the file
+    still green. Pinning current behaviour (truncate, do not raise) rather
+    than changing it -- every sibling module in this lane masks the same
+    way, so a change here is a house-wide decision, not this round's."""
+
+    def test_an_over_wide_u8_truncates_rather_than_raising(self):
+        payload = sw.encode_stall_start_payload(_start_fields(field1_u8=0x1FF))
+        self.assertEqual(payload[:2], b"\x08\xff")
+        self.assertEqual(
+            sw.decode_stall_start_payload(payload).field1_u8, 0xFF
+        )
+
+    def test_the_operate_presence_byte_masks_the_same_way(self):
+        payload = sw.encode_stall_operate_payload(_operate_fields(field5_u8=0x101))
+        decoded = sw.decode_stall_operate_payload(payload)
+        self.assertEqual(decoded.field5_u8, 0x01)
 
 
 class ValueRangeTests(unittest.TestCase):
