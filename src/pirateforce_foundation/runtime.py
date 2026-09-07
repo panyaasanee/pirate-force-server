@@ -6967,7 +6967,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
 
         def _dispatch_teleport_check_echo(self, parsed):
             """The player pressed OK on the captain report -- LANE-A #1101's
-            call site (2).
+            call site (2).  ``None`` means "not this seam's frame".
 
             v141 counts this inbound id (`teleport_check_echo_capture_count`)
             and answers it with nothing, which is why R307 saw a window that
@@ -6992,27 +6992,36 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             console line and an empty action list: this is a dispatch branch,
             where a raise costs the session (`decode_echo`'s own docstring).
             """
-            self.rx_frames += 1
             echoed = world_m2_teleport_check.decode_echo(legacy, parsed)
             if echoed is None:
-                print(world_m2_teleport_check.echo_console_line(
-                    None, None,
-                    world_m2_teleport_check.ECHO_REFUSED_UNDECODABLE,
-                ))
-                return []
+                # v141 has its own name for an undecodable frame of this
+                # class ("v131_teleport_check_parse_error_no_reply"); this
+                # seam has no order it could belong to either way.
+                return None
             character_id = current_character_id(self)
             if type(character_id) is not int:
                 # No character selected, or an id this connection cannot
                 # read: either way there is no player this order could
                 # belong to, and guessing one would move somebody's ship.
-                print(world_m2_teleport_check.echo_console_line(
-                    None, echoed,
-                    world_m2_teleport_check.ECHO_REFUSED_NOTHING_PENDING,
-                ))
-                return []
+                return None
             sink = self.teleport_check_sink()
+            if world_m2_teleport_check.resolve_echo(
+                    sink.orders, character_id, echoed) is None:
+                # Nothing this connection recorded answers this echo, so the
+                # frame is not this seam's to answer.  Asked WITHOUT
+                # consuming (resolve_echo, not take) precisely because the
+                # frame goes on to the inherited route: a refusal counted
+                # here would be a refusal of a frame this seam never owned,
+                # and take()'s own bookkeeping would say this player replayed
+                # something they never had.
+                return None
+            self.rx_frames += 1
             order = sink.take(character_id, echoed)
             if order is None:
+                # Unreachable through this file (resolve_echo just agreed
+                # there is one, on the same list, with no yield in between),
+                # and still not an exception: a dispatch branch that raises
+                # costs the session.
                 print(world_m2_teleport_check.echo_console_line(
                     None, echoed,
                     world_m2_teleport_check.ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER,
@@ -9013,7 +9022,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # the value is MARKER.n_ID, and that OK echoes it back
                 # unmodified -- so the reply is a read of that letter, not a
                 # guessed opcode.
-                return self._dispatch_teleport_check_echo(parsed)
+                #
+                # AND UNLIKE THEM, IT MUST NOT SWALLOW THE ID.  v141's own
+                # dispatch already reads this class: the frozen V131 echo
+                # capture and the exact V136 marker-1 confirm that emits
+                # V137_ISOLATED_COMPOSITIONAL_MARKER1_TELEPORTVITAL_
+                # TRANSPORT_PROBE_ONCE both live there
+                # (current/pf_login_game_server_v141.py:4052), and that
+                # route is artifact layer 2 -- the comparison that says this
+                # rewrite has not wandered off, not code to replace.  A
+                # branch that returned here unconditionally deleted it:
+                # measured, tests/test_teleport_transport_wire.py's three
+                # emission tests went red on exactly that.  So the helper
+                # answers ONLY an echo that consumes an order THIS
+                # connection recorded, and returns None for everything else,
+                # which falls through to the inherited route untouched.
+                answered = self._dispatch_teleport_check_echo(parsed)
+                if answered is not None:
+                    return answered
             if nested_id in _FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS:
                 # CORE-REQUEST of pf_bridge/notes_to_chief/20260904_1120
                 # (LANE-UI).  Same shape as TRIGGER_VITAL and

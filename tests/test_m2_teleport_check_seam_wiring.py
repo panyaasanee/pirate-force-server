@@ -224,30 +224,66 @@ class EchoCallSiteTests(_SeamCase):
         self._record(state)
         self._tick(state)
         self.assertEqual(len(self._of(self._echo(state), TRANSPORT_ACTION)), 1)
-        self.assertEqual(self._echo(state), [])
-        self.assertEqual(self._echo(state), [])
+        self.assertEqual(self._of(self._echo(state), TRANSPORT_ACTION), [])
+        self.assertEqual(self._of(self._echo(state), TRANSPORT_ACTION), [])
 
-    def test_an_echo_nobody_ordered_is_refused(self):
+    def test_an_echo_nobody_ordered_is_not_this_seams_frame(self):
+        # NOT "is refused": v141's own dispatch reads this class too (the
+        # frozen V131 echo capture and the V136 marker-1 confirm probe), so
+        # an echo this connection never ordered has to reach that route
+        # untouched.  This seam therefore answers nothing AND counts nothing
+        # -- a refusal recorded here would be bookkeeping about a frame it
+        # does not own.
         state = self._login_and_start("m2unasked")
-        self.assertEqual(self._echo(state), [])
-        self.assertIn(
-            tc.ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER,
-            state.teleport_check_sink().refusals,
+        self.assertEqual(self._of(self._echo(state), TRANSPORT_ACTION), [])
+        self.assertEqual(state.teleport_check_sink().refusals, [])
+
+    def test_an_unordered_echo_still_reaches_the_frozen_v141_route(self):
+        # The measurement behind the fall-through: tests/
+        # test_teleport_transport_wire.py's three emission tests went red
+        # when this branch returned unconditionally.  v141 counts the echo
+        # it recognises on its own state, so a non-zero counter here proves
+        # the frame was still delivered to it.
+        state = self._login_and_start("m2frozen")
+        before = state.teleport_check_echo_capture_count
+        self._echo(state, 1)
+        self.assertEqual(
+            state.teleport_check_echo_capture_count, before,
+            "this synthetic echo is not v141's exact scene1 echo; what is "
+            "pinned is that reaching it costs nothing here",
         )
+        self.assertEqual(state.teleport_check_sink().refusals, [])
+
+    def test_an_echo_frame_is_counted_exactly_once_on_either_route(self):
+        # MEASURED, not assumed: the fall-through route counts the frame
+        # further down (3 -> 4 on a login that answered nothing), and the
+        # seam's own branch counts it and returns before that.  What must
+        # hold either way is ONE count per frame -- a seam that counted
+        # before deciding whether the frame is its own would double-count
+        # every echo that belongs to the inherited route.
+        unanswered = self._login_and_start("m2countA")
+        before = unanswered.rx_frames
+        self._echo(unanswered)
+        self.assertEqual(unanswered.rx_frames, before + 1)
+
+        answered = self._login_and_start("m2countB")
+        self._record(answered)
+        self._tick(answered)
+        before = answered.rx_frames
+        self.assertEqual(len(self._of(self._echo(answered), TRANSPORT_ACTION)), 1)
+        self.assertEqual(answered.rx_frames, before + 1)
 
     def test_an_echo_for_another_marker_leaves_the_order_alone(self):
         state = self._login_and_start("m2othermarker")
         self._record(state)
         self._tick(state)
-        self.assertEqual(self._echo(state, 343), [])
+        self.assertEqual(self._of(self._echo(state, 343), TRANSPORT_ACTION), [])
         self.assertEqual(len(state.teleport_check_sink().orders), 1)
+        # AND it was not this seam's frame: having SOME order open is not
+        # having THIS one, so the echo goes to the inherited route with no
+        # refusal counted against the player who never sent a bad echo.
+        self.assertEqual(state.teleport_check_sink().refusals, [])
         self.assertEqual(len(self._of(self._echo(state), TRANSPORT_ACTION)), 1)
-
-    def test_the_frame_is_counted_like_its_neighbours(self):
-        state = self._login_and_start("m2count")
-        before = state.rx_frames
-        self._echo(state)
-        self.assertEqual(state.rx_frames, before + 1)
 
 
 class TwoSessionsTests(_SeamCase):
@@ -261,6 +297,7 @@ class TwoSessionsTests(_SeamCase):
         # The second connection never recorded anything, and echoing the
         # same marker id must not reach the first connection's order.
         self.assertEqual(self._of(self._echo(second), TRANSPORT_ACTION), [])
+        self.assertEqual(second.teleport_check_sink().refusals, [])
         self.assertEqual(len(first.teleport_check_sink().orders), 1)
         self.assertEqual(len(self._of(self._echo(first), TRANSPORT_ACTION)), 1)
 
