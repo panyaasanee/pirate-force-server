@@ -648,6 +648,7 @@ TABLE_LITERALS = {
     0xF14F24: "n_HPMAX",
     0xF14EEC: "n_STAMINAMAX",
     0xF14B94: "POTENTIAL",
+    0xF0C958: "n_ID",              # RE-293: the POTENTIAL row KEY, read first
     0xF14B84: "n_LEVEL",
     0xF14B70: "n_STRENGH",          # sic - the binary spells it without the T
     0xF14B50: "n_CONSTITUTION",
@@ -655,7 +656,26 @@ TABLE_LITERALS = {
     0xF14B24: "n_INTELLECT",
     0xF14B08: "n_PERCEPTION",
 }
-POTENTIAL_BINDS = [0x4A449D, 0x4A44C5, 0x4A44E5, 0x4A4502, 0x4A4522, 0x4A4542]
+# POTENTIAL row loader, from RE-293 (static, client image, 2026-09-07).
+# One table row -> one 32-byte record.  The loader reads n_ID FIRST and uses it
+# as the row KEY; n_LEVEL is a STORED COLUMN of the record, not part of the key
+# and not one of the five primary attributes.  The pre-RE-293 form of this list
+# had six entries: it dropped the key bind entirely and its first entry
+# (0x4A449D = n_LEVEL) was read as if it were a stat.
+# (bind site VA, column-name literal VA, column name, record offset, role)
+POTENTIAL_BINDS = [
+    (0x4A43BE, 0xF0C958, "n_ID",           None, "key"),
+    (0x4A449D, 0xF14B84, "n_LEVEL",        0x08, "column"),
+    (0x4A44C5, 0xF14B70, "n_STRENGH",      0x0C, "stat"),
+    (0x4A44E5, 0xF14B50, "n_CONSTITUTION", 0x10, "stat"),
+    (0x4A4502, 0xF14B3C, "n_AGILITY",      0x14, "stat"),
+    (0x4A4522, 0xF14B24, "n_INTELLECT",    0x18, "stat"),
+    (0x4A4542, 0xF14B08, "n_PERCEPTION",   0x1C, "stat"),
+]
+POTENTIAL_LOADER = (0x4A4371, 0x4A4576)   # whole per-row loop
+POTENTIAL_ROW_ALLOC = 0x4A43E4            # push 0x20 ; call 0x00B37980
+POTENTIAL_ROW_BYTES = 0x20
+POTENTIAL_EMPTY_SKIP = (0x4A43A0, 0x4A459C)   # jle taken when the table has 0 rows
 
 # Char_Info2 widget binder: (range, expected name -> slot after the shift)
 CHARINFO_BINDER = (0x583F00, 0x5856A0)
@@ -1277,6 +1297,33 @@ check("the client's static-data schema declares exactly five primary attributes 
       and wstr(0xF14B94) == "POTENTIAL"
       and all(data.count(struct.pack('<I', va)) >= 1 for va in
               (0xF14B70, 0xF14B50, 0xF14B3C, 0xF14B24, 0xF14B08)))
+
+# RE-293: the POTENTIAL loader, key-first.  POTENTIAL_BINDS used to be a bare
+# list of six VAs that nothing read; these three guards are what make it a
+# claim the tool can be wrong about.
+pot_bad = []
+for site, lit, col, off, role in POTENTIAL_BINDS:
+    want = "68" + struct.pack('<I', lit).hex()      # push <column-name literal>
+    if not bytes_at(site, want):
+        pot_bad.append((col, "bind", hex(site)))
+    if wstr(lit) != col:
+        pot_bad.append((col, "literal", hex(lit)))
+check("the POTENTIAL loader binds seven columns and the FIRST one it reads is "
+      "n_ID at 0x4A43BE - that is the row KEY, so a row is keyed by n_ID alone "
+      "and NOT by class x level; n_LEVEL at 0x4A449D is a stored column",
+      not pot_bad and POTENTIAL_BINDS[0][2] == "n_ID"
+      and POTENTIAL_BINDS[0][4] == "key", str(pot_bad))
+check("one POTENTIAL row is one %d-byte record: the loop allocates 0x20 at "
+      "0x4A43E4 and the six stored columns land at +0x08..+0x1C, four bytes "
+      "apart, all inside that record" % POTENTIAL_ROW_BYTES,
+      bytes_at(POTENTIAL_ROW_ALLOC, "6a20")
+      and [b[3] for b in POTENTIAL_BINDS[1:]] == list(range(0x08, 0x20, 4))
+      and all(b[3] < POTENTIAL_ROW_BYTES for b in POTENTIAL_BINDS[1:]))
+check("the loader has a SILENT exit for an empty table (jle 0x4A43A0 -> "
+      "0x4A459C, no log, no error) - so on a build where POTENTIAL ships with "
+      "zero rows nothing on screen can have come from this table",
+      dmap(POTENTIAL_EMPTY_SKIP[0], 8).get(POTENTIAL_EMPTY_SKIP[0])
+      == ('jle', hex(POTENTIAL_EMPTY_SKIP[1])))
 check("STANDARD_STATUS also declares n_POINT_ABILITY (the per-level allocation-point "
       "grant) and n_EXP_CURRENTLV side by side - the two progression curves",
       wstr(0xF14BE0) == "n_POINT_ABILITY" and bytes_at(0x4A4123, "68e04bf100")

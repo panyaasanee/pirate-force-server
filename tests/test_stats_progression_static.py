@@ -295,10 +295,26 @@ EVENT_CALL_SITES = {0x460EC0: 0x460F94, 0x4612A0: 0x461374, 0x4613D0: 0x4614A4}
 TABLE_LITERALS = {
     0xF152AC: "STANDARD_STATUS", 0xF14C00: "n_EXP_CURRENTLV",
     0xF14BE0: "n_POINT_ABILITY", 0xF14F24: "n_HPMAX", 0xF14EEC: "n_STAMINAMAX",
-    0xF14B94: "POTENTIAL", 0xF14B84: "n_LEVEL", 0xF14B70: "n_STRENGH",
+    0xF14B94: "POTENTIAL", 0xF0C958: "n_ID",
+    0xF14B84: "n_LEVEL", 0xF14B70: "n_STRENGH",
     0xF14B50: "n_CONSTITUTION", 0xF14B3C: "n_AGILITY", 0xF14B24: "n_INTELLECT",
     0xF14B08: "n_PERCEPTION",
 }
+# RE-293 (static, client image, 2026-09-07): the POTENTIAL row loader.
+# (bind site VA, column-name literal VA, column name, record offset, role)
+POTENTIAL_BINDS = [
+    (0x4A43BE, 0xF0C958, "n_ID",           None, "key"),
+    (0x4A449D, 0xF14B84, "n_LEVEL",        0x08, "column"),
+    (0x4A44C5, 0xF14B70, "n_STRENGH",      0x0C, "stat"),
+    (0x4A44E5, 0xF14B50, "n_CONSTITUTION", 0x10, "stat"),
+    (0x4A4502, 0xF14B3C, "n_AGILITY",      0x14, "stat"),
+    (0x4A4522, 0xF14B24, "n_INTELLECT",    0x18, "stat"),
+    (0x4A4542, 0xF14B08, "n_PERCEPTION",   0x1C, "stat"),
+]
+POTENTIAL_ROW_ALLOC = 0x4A43E4
+POTENTIAL_ROW_BYTES = 0x20
+POTENTIAL_EMPTY_SKIP = (0x4A43A0, 0x4A459C)
+
 CHARINFO_BINDER = (0x583F00, 0x5856A0)
 CHARINFO_EXPECT = {
     "LABEL_STR": 0x84, "LABEL_CON": 0x88, "LABEL_DEX": 0x8C,
@@ -812,6 +828,71 @@ class StatsProgressionStatic(unittest.TestCase):
         self.assertEqual(
             [self.img.wstr(v) for v in (0xF14B70, 0xF14B50, 0xF14B3C, 0xF14B24, 0xF14B08)],
             ["n_STRENGH", "n_CONSTITUTION", "n_AGILITY", "n_INTELLECT", "n_PERCEPTION"])
+
+    # -- 19b -----------------------------------------------------------------
+    def test_potential_is_keyed_by_n_id_and_n_level_is_not_a_stat(self):
+        """RE-293. This one runs WITHOUT the client image on purpose.
+
+        It cannot look at a single byte, so it is not evidence that the loader
+        does this - RE-293 is.  What it does is refuse the two specific wrong
+        shapes the pre-RE-293 constant had: a list with the key missing, and a
+        list whose first entry is treated as one of the five attributes.  The
+        byte-level half is test 19c, which only runs where the image exists.
+        """
+        self.assertEqual(len(POTENTIAL_BINDS), 7)
+        site, lit, col, off, role = POTENTIAL_BINDS[0]
+        self.assertEqual((col, off, role), ("n_ID", None, "key"))
+        self.assertEqual(site, 0x4A43BE)
+        self.assertEqual(lit, 0xF0C958)
+        # the key is read before every stored column
+        self.assertTrue(all(site < b[0] for b in POTENTIAL_BINDS[1:]))
+        stored = POTENTIAL_BINDS[1:]
+        self.assertEqual([b[2] for b in stored],
+                         ["n_LEVEL", "n_STRENGH", "n_CONSTITUTION",
+                          "n_AGILITY", "n_INTELLECT", "n_PERCEPTION"])
+        # n_LEVEL is a stored column, NOT one of the five primary attributes
+        self.assertEqual(stored[0][4], "column")
+        self.assertEqual([b[2] for b in stored if b[4] == "stat"],
+                         ["n_STRENGH", "n_CONSTITUTION", "n_AGILITY",
+                          "n_INTELLECT", "n_PERCEPTION"])
+        # contiguous four-byte slots inside one 32-byte record
+        self.assertEqual([b[3] for b in stored], list(range(0x08, 0x20, 4)))
+        self.assertTrue(all(b[3] < POTENTIAL_ROW_BYTES for b in stored))
+        # bind sites and column literals are each used once
+        self.assertEqual(len({b[0] for b in POTENTIAL_BINDS}), 7)
+        self.assertEqual(len({b[1] for b in POTENTIAL_BINDS}), 7)
+        for b in POTENTIAL_BINDS:
+            self.assertEqual(TABLE_LITERALS[b[1]], b[2])
+        # twin binding: the tool carries the same seven rows, not six VAs
+        tool = ROOT / "tools" / "pf_stats_progression_static.py"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tool_tree = ast.parse(tool.read_text(encoding="utf-8"))
+        tool_binds = None
+        for node in ast.walk(tool_tree):
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "POTENTIAL_BINDS"
+                for t in node.targets
+            ):
+                tool_binds = ast.literal_eval(node.value)
+        self.assertIsNotNone(
+            tool_binds,
+            "tools/pf_stats_progression_static.py lost POTENTIAL_BINDS")
+        self.assertEqual([tuple(b) for b in tool_binds], POTENTIAL_BINDS)
+
+    # -- 19c -----------------------------------------------------------------
+    @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
+    def test_the_potential_loader_reads_the_key_first_in_the_image(self):
+        for site, lit, col, off, role in POTENTIAL_BINDS:
+            self.assertTrue(
+                self.img.bytes_at(site, "68" + struct.pack("<I", lit).hex()),
+                f"{col} bind {hex(site)}")
+            self.assertEqual(self.img.wstr(lit), col, hex(lit))
+        self.assertTrue(self.img.bytes_at(POTENTIAL_ROW_ALLOC, "6a20"))
+        self.assertEqual(
+            self.img.dmap(POTENTIAL_EMPTY_SKIP[0], 8).get(POTENTIAL_EMPTY_SKIP[0]),
+            ("jle", hex(POTENTIAL_EMPTY_SKIP[1])))
 
     # -- 20 ------------------------------------------------------------------
     @CLIENT_IMAGE.skip_unless_present()  # see tests/pf_preconditions.py
