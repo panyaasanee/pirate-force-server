@@ -1,1 +1,1 @@
-{"sha":"dd1a169045904b1f5c9f9f4c83f5fc32e14f2c99","conclusion":"success","event":"push","ref":"refs/heads/claude/nice-ramanujan-ebh143","run_id":"34155105394","utc":"2026-09-07T19:45:43Z"}
+{"sha":"dd1a169045904b1f5c9f9f4c83f5fc32e14f2c99","conclusion":"success","event":"pull_request","ref":"refs/pull/1101/merge","run_id":"34155177837","utc":"2026-09-07T19:51:16Z"}
