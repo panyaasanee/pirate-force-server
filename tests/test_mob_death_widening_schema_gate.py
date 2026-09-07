@@ -124,10 +124,48 @@ def _schema_date_match(key):
     return _TRAILING_DATE_RE.search(key)
 
 
-def _letter_candidates_for(pf_bridge_dir, date_match):
-    """A ``notes_to_chief/`` file stamped with this key's own date, naming
-    ``COO-DECISION`` and ``widen`` in its filename (COO-DECISION b1712 item
-    1's letter requirement).
+# ---------------------------------------------------------------------------
+# THE CENTRAL DOOR, COO-DECISION 20260907_1141 (``pf_bridge`` notes_to_chief/
+# 20260907_1141_COO-DECISION-a1022-name-tokens-central-door-LANE-B.md),
+# answering LANE-A's 1022 letter.
+#
+# WHAT THE DOOR IS.  ``_letter_exists_for`` answers ONE question: is there a
+# COO-AUTHORED file in the bridge repository whose FILENAME carries this
+# stamp and these tokens?  Until this commit the tokens were welded into the
+# candidate filter as ``"COO-DECISION" in name and "widen" in name``, so the
+# door could only certify widen-death-scope rulings.  The house already had
+# three doors of this shape -- two in this lane, one in LANE-A's -- and LANE-A
+# cannot edit a LANE-B file, so a fourth copy was the only thing left to
+# write.  The decision puts the shared one HERE because two of the three are
+# this lane's.
+#
+# THE DEFAULT IS TODAY'S BEHAVIOUR, EXACTLY.  That is the point of the
+# default and it is also the check: every test in this file had to stay green
+# without one line changing, and did.
+#
+# WHO MAY IMPORT IT.  Any lane's test file, by importing this module -- LANE-A
+# for RE-letter keys, this lane's
+# ``tests/test_mob_death_withheld_scene_deny_list.py`` (collapsed onto it in
+# this same commit).  Pass the tokens your own key's filename convention
+# uses; pass nothing and you get the widen-death-scope door.
+#
+# WHAT IT DOES NOT ANSWER, and no caller may read it as if it did: this
+# function never opens the letter.  It says a COO-authored FILE with that
+# name exists.  Whether the letter's TEXT grants what your key claims -- the
+# scene, the template, the sha, the citation -- is the calling lane's
+# question and this door cannot be made to answer it (pf-adversary round
+# abibfm D1 measured exactly that hole: a key that borrows a real letter's
+# minute passes this door while asking for something the letter withheld).
+DEFAULT_LETTER_NAME_TOKENS = ("COO-DECISION", "widen")
+
+
+def _letter_candidates_for(pf_bridge_dir, date_match,
+                           name_tokens=DEFAULT_LETTER_NAME_TOKENS):
+    """A ``notes_to_chief/`` file stamped with this key's own date and naming
+    every token in ``name_tokens`` in its filename -- by default
+    ``COO-DECISION`` and ``widen``, which is COO-DECISION b1712 item 1's
+    letter requirement and the only behaviour this function had before
+    COO-DECISION 20260907_1141 parameterised it (see THE CENTRAL DOOR above).
 
     SEARCHED RECURSIVELY, THE ARCHIVE INCLUDED -- COO-DECISION
     2026-09-07T05:46+07:00 item 2, answering this lane's 0512 letter.  The
@@ -181,7 +219,9 @@ def _letter_candidates_for(pf_bridge_dir, date_match):
             continue
         if not entry.is_file():
             continue
-        if name.startswith(stamp) and "COO-DECISION" in name and "widen" in name:
+        if not name.startswith(stamp):
+            continue
+        if all(token in name for token in name_tokens):
             found.append(entry)
     return sorted(found)
 
@@ -314,11 +354,26 @@ def _shallow_boundary(bridge_dir):
     exists, and it resolves through worktrees and submodules -- where ``.git``
     is a FILE -- without this function knowing anything about either layout.
 
-    PROVABLE OR NOTHING (COO-DECISION 0945 item 1): the carve-out needs a sha
-    git actually lists as a graft.  "I could not find the file" derives
-    nothing and returns ``set()``, which lands on the RED path, because a
-    carve-out that can be reached by a failed lookup is a carve-out anyone
-    can reach by breaking a lookup.
+    WHAT THE CARVE-OUT ACTUALLY RESTS ON, stated at its real strength.  The
+    rule is COO-DECISION 0945 item 1: the carve-out needs a sha git lists as
+    a graft.  "I could not find the file" derives nothing and returns
+    ``set()``, which lands on the RED path, because a carve-out reachable by
+    a failed lookup is a carve-out anyone can reach by breaking a lookup.
+
+    THIS DOCSTRING USED TO SAY "PROVABLE OR NOTHING" AND THAT WAS TOO STRONG
+    (pf-adversary, round abibfm D3, MEASURED, withdrawn by this lane in the
+    round after).  ``--git-path shallow`` resolves to a path git does not
+    track and does not sign: write your own commit's sha into ``.git/shallow``
+    of a FULL clone -- or into the ``.git/shallow`` of a repository this one
+    sits inside -- and ``--is-shallow-repository`` answers "true", the sha
+    matches, and a candidate that had been adjudicated MISSING is downgraded
+    to the WARN path with ``git status`` staying empty.  So the honest claim
+    is: this asks GIT rather than guessing at the layout, and it is proof
+    against a wrong LAYOUT, not against a local file an author of the tree
+    chose to write.  Anyone reading this as "the WARN path cannot be forged"
+    is reading more than the code does.  Closing that is a separate design --
+    it needs a graft whose commit has no visible parent, not merely a sha in
+    a list -- and it is this lane's own next item, not a claim to make here.
     """
     rc, out, unanswerable = _git(
         bridge_dir, ["rev-parse", "--is-shallow-repository"])
@@ -463,7 +518,8 @@ def _swept_origin(bridge_dir, relative):
     return sha, _ascii(subject)
 
 
-def _letter_exists_for(pf_bridge_dir, date_match):
+def _letter_exists_for(pf_bridge_dir, date_match,
+                       name_tokens=DEFAULT_LETTER_NAME_TOKENS):
     """``(verdict, detail)``: does a COO-AUTHORED letter back this key?
 
     Four outcomes, per COO-DECISION b0749 item 3 -- "the gate must not fall
@@ -490,14 +546,16 @@ def _letter_exists_for(pf_bridge_dir, date_match):
     graft and non-graft reasons is red, not a warning: the carve-out is for a
     tree that provably cannot answer, not for one that answered badly once.
     """
-    candidates = _letter_candidates_for(pf_bridge_dir, date_match)
+    candidates = _letter_candidates_for(
+        pf_bridge_dir, date_match, name_tokens=name_tokens)
     if not candidates:
         year, month, day, hour, minute = date_match.groups()
         return _MISSING, (
-            "no .md file stamped %s%s%s_%s%s naming COO-DECISION + widen "
+            "no .md file stamped %s%s%s_%s%s naming %s "
             "exists anywhere under %s or %s (both searched recursively; a "
             ".CONSUMED.txt stub does not count)"
             % (year, month, day, hour, minute,
+               _ascii(" + ".join(name_tokens)),
                _ascii(pf_bridge_dir / "notes_to_chief"),
                _ascii(pf_bridge_dir / "archive"))
         )
@@ -930,6 +988,18 @@ class LetterFinderReachesTheWholeMailboxTests(unittest.TestCase):
 # 20260907_0945_COO-DECISION-b0902-graft-is-warn-and-copies-not-moves-LANE-B.md
 # answering 20260907_0902_LANE-B-ASK-COO-shallow-clone-is-the-third-
 # unverifiable.md.
+#
+# AND THE "CI CHECKS ZERO LETTERS" PARAGRAPH IS RULED TOO, not this lane's
+# opinion: COO-DECISION 20260907_1141 (``pf_bridge`` notes_to_chief/
+# 20260907_1141_COO-DECISION-b1046-letter-gate-runs-nowhere-in-ci-LANE-B.md)
+# item 1 keeps it and lifts this lane's provisional tag off it -- "a comment
+# that tells the truth is worth more than a door everybody believes in".  The
+# fix is chief's, ordered in the same round: ``gate-windows`` gains a bridge
+# checkout WITH ``fetch-depth: 0``, without which every key would land on the
+# graft WARN above and the added step would buy nothing.  This lane is
+# forbidden to add that step itself, and item 3 -- making the SERVER depend
+# on the bridge repository at runtime -- is refused permanently.  When
+# chief's step lands, the paragraph above stops being true and comes out.
 
 
 def _run_git(cwd, *args):

@@ -52,6 +52,11 @@ from pirateforce_foundation import mob_death  # noqa: E402
 
 from pf_preconditions import BRIDGE_SIBLING  # noqa: E402
 
+# The shared letter door (COO-DECISION 20260907_1141).  Imported as a
+# module, not "from ... import": these are private names of another test
+# file and the qualified spelling keeps that visible at every call site.
+import test_mob_death_widening_schema_gate as schema_gate  # noqa: E402
+
 
 def stand_in(*, template_id, scene, placement_index=9411,
              display_name="STAND-IN"):
@@ -199,9 +204,21 @@ class Bg3001IsNotKillableYetTests(unittest.TestCase):
     def test_every_deny_list_row_cites_a_letter_that_exists(self):
         """A row's citation is checkable, or the row is an assertion.
 
-        Same lookup shape ``tests/test_mob_death_widening_schema_gate.py``
-        uses for ruling keys: the stamp in the citation must name a real file
-        in ``pf_bridge/notes_to_chief``.
+        COLLAPSED ONTO THE CENTRAL DOOR, COO-DECISION 20260907_1141: this was
+        the house's SECOND hand-written copy of the same lookup, and it was
+        the weakest of the three -- one level of ``notes_to_chief`` only, no
+        ``.md`` rule, no ``.CONSUMED.txt`` rule, and no authorship check at
+        all, so a ``.CONSUMED.txt`` stub this lane writes itself satisfied it
+        and a letter LANE-K had swept into ``archive/`` turned it red.  It now
+        calls ``_letter_exists_for`` with ``name_tokens=("COO-DECISION",)``:
+        a deny-list citation names a withheld SCENE, not a widening, so the
+        second default token does not apply to these rows -- which is the
+        whole reason the parameter exists.
+
+        Deliberately NOT collapsed: the citation's TEXT.  The door answers
+        "COO wrote a file with that name", never "that letter withholds this
+        scene".  Reading the text is this lane's own question and is not made
+        easier by the door.
         """
         import os
         import re
@@ -211,7 +228,6 @@ class Bg3001IsNotKillableYetTests(unittest.TestCase):
         else:
             BRIDGE_SIBLING.require(self)
             pf_bridge_dir = BRIDGE_SIBLING.paths[0]
-        notes = pf_bridge_dir / "notes_to_chief"
         self.assertTrue(mob_death.WITHHELD_SCENE_LETTERS, "deny-list is empty")
         for scene, citation in mob_death.WITHHELD_SCENE_LETTERS.items():
             with self.subTest(scene=scene):
@@ -220,14 +236,26 @@ class Bg3001IsNotKillableYetTests(unittest.TestCase):
                     citation)
                 self.assertIsNotNone(
                     found, "row %r cites no dated letter" % (scene,))
-                year, month, day, hour, minute = found.groups()
-                stamp = "%s%s%s_%s%s" % (year, month, day, hour, minute)
-                self.assertTrue(
-                    any(entry.name.startswith(stamp)
-                        and "COO-DECISION" in entry.name
-                        for entry in notes.iterdir()),
-                    "row %r cites %s and no such COO-DECISION letter is "
-                    "filed" % (scene, stamp),
+                verdict, detail = schema_gate._letter_exists_for(
+                    pf_bridge_dir, found, name_tokens=("COO-DECISION",))
+                action, text = schema_gate._action_for(
+                    "deny-list row %s" % (scene,), verdict, detail)
+                if action == schema_gate._WARN:
+                    # COO-DECISION 0945 item 1, the one carve-out, and the
+                    # reason this asserts on the ACTION and not on the
+                    # verdict: on a shallow clone -- which is every cloud
+                    # round of this house -- git names the graft commit as
+                    # the adding commit for EVERY file, so a red here would
+                    # be a red about the checkout, not about the row.  It is
+                    # printed rather than swallowed because a WARN nobody
+                    # ever sees is the same as no gate (pf-adversary abibfm
+                    # D2: pytest without -s eats this line).
+                    print("DENY_LIST_LETTER_WARN scene=%s %s"
+                          % (scene, text[:160]))
+                self.assertNotEqual(
+                    action, schema_gate._FAIL,
+                    "row %r cites %s and the shared letter gate answered "
+                    "%s: %s" % (scene, citation, verdict, text),
                 )
 
 
