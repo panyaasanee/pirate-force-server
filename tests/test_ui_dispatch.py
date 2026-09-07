@@ -383,6 +383,148 @@ class RoundThreeFindingsTests(_RegistryIsolation):
             )
         self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
 
+    def test_a_gated_lane_calling_the_helper_itself_is_caught_by_the_walk(
+        self,
+    ):
+        """pf-adversary round 4, D-C.
+
+        The D1 test above calls ``helper.wire(...)`` from THIS test
+        method, so the gated lane never has a frame on the registration
+        stack and the only thing catching it is ``fn.__module__`` -- the
+        attribute the fix's own docstring says is not trusted alone.
+        Deleting the whole stack walk left that test green (mutant M1).
+
+        Here the gated lane calls the helper itself, and the answerer is
+        wrapped by the helper so ``fn.__module__`` names the ALLOWED
+        module.  Only the stack walk can catch this one.
+        """
+        helper = self._lane_module(
+            "lane_ui_zz_test_wrapping_helper",
+            "from pirateforce_foundation import ui_dispatch\n"
+            "def wire(vital_id, fn):\n"
+            "    def logged(session=None, vital_id=None, payload=None):\n"
+            "        return fn(session=session, vital_id=vital_id,"
+            " payload=payload)\n"
+            "    return ui_dispatch.register_answerer(vital_id, logged)\n",
+            allowed=True,
+        )
+        gated = self._lane_module(
+            "lane_ui_zz_test_gated_caller",
+            "from pirateforce_foundation.lane_hooks import"
+            " lane_ui_zz_test_wrapping_helper as helper\n"
+            "def answerer(session=None, vital_id=None, payload=None):\n"
+            "    return [('UI_UNREVIEWED_REPLY', b'\\x03',"
+            " b'\\x11\\x22', 0.0)]\n"
+            "def install(vital_id):\n"
+            "    return helper.wire(vital_id, answerer)\n",
+            allowed=False,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(gated.install(PARTY_INVITE_VITAL_ID))
+        # fn.__module__ names the ALLOWED helper -- the attribute half of
+        # the gate cannot see the gated lane at all.
+        _module_name, fn = ui_dispatch.registered_answerer(
+            PARTY_INVITE_VITAL_ID
+        )
+        self.assertEqual(fn.__module__, helper.__name__)
+        self.assertIn(
+            gated.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
+        self.assertIn(gated.__name__, stderr.getvalue())
+
+    def test_a_helper_in_a_non_lane_file_is_not_treated_as_a_lane(self):
+        """pf-adversary round 4, D-E.
+
+        ``_discover()`` imports only ``lane_*`` stems, so a helper
+        factored into ``lane_hooks/ui_answer_impl.py`` can never have a
+        production flag read from it -- and the prefix-only test put it
+        in the gate anyway, closing a correct allowed lane forever with a
+        reason naming a switch nobody had been asked about.
+        """
+        impl = self._lane_module(
+            "ui_answer_impl_zz_test",
+            "def answerer(session=None, vital_id=None, payload=None):\n"
+            "    return [('UI_GOOD_REPLY', b'\\x01', b'\\x02', 0.0)]\n",
+            allowed=False,
+        )
+        good = self._lane_module(
+            "lane_ui_zz_test_good",
+            "from pirateforce_foundation import ui_dispatch\n"
+            "from pirateforce_foundation.lane_hooks import"
+            " ui_answer_impl_zz_test as impl\n"
+            "def install(vital_id):\n"
+            "    return ui_dispatch.register_answerer("
+            "vital_id, impl.answerer)\n",
+            allowed=True,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(good.install(PARTY_INVITE_VITAL_ID))
+        self.assertNotIn(
+            impl.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""),
+                [("UI_GOOD_REPLY", b"\x01", b"\x02", 0.0)],
+            )
+
+    def test_an_incumbent_yields_when_any_module_in_its_gate_is_closed(self):
+        """pf-adversary round 4, D-D.
+
+        ``answer()`` gates on ``(module_name,) + gating``; the yield rule
+        asked only about ``module_name``, so an incumbent whose registrar
+        was allowed but whose gate carried a closed module squatted the
+        vital against a correct lane and printed ``UI_DISPATCH_GATED`` on
+        every frame -- the exact symptom the yield rule exists for.
+        """
+        impl = self._lane_module(
+            "lane_ui_zz_test_closed_impl",
+            "def answerer(session=None, vital_id=None, payload=None):\n"
+            "    return []\n",
+            allowed=False,
+        )
+        incumbent = self._lane_module(
+            "lane_ui_aaa_test_incumbent",
+            "from pirateforce_foundation import ui_dispatch\n"
+            "from pirateforce_foundation.lane_hooks import"
+            " lane_ui_zz_test_closed_impl as impl\n"
+            "def install(vital_id):\n"
+            "    return ui_dispatch.register_answerer("
+            "vital_id, impl.answerer)\n",
+            allowed=True,
+        )
+        challenger = self._lane_module(
+            "lane_ui_zzz_test_correct",
+            "from pirateforce_foundation import ui_dispatch\n"
+            "def answerer(session=None, vital_id=None, payload=None):\n"
+            "    return []\n"
+            "def install(vital_id):\n"
+            "    return ui_dispatch.register_answerer(vital_id, answerer)\n",
+            allowed=True,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(incumbent.install(PARTY_INVITE_VITAL_ID))
+        self.assertIn(
+            impl.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertTrue(challenger.install(PARTY_INVITE_VITAL_ID))
+        self.assertIn("UI_DISPATCH_REGISTER_REPLACED", stderr.getvalue())
+        _module_name, fn = ui_dispatch.registered_answerer(
+            PARTY_INVITE_VITAL_ID
+        )
+        self.assertIs(fn, challenger.answerer)
+
     # ---- D8 -----------------------------------------------------------
 
     def test_an_allowed_challenger_takes_the_id_from_a_gated_incumbent(self):
@@ -476,6 +618,12 @@ class RoundThreeFindingsTests(_RegistryIsolation):
             "ui_lower", "UI_", "UI_" + "A" * 65, "UI_A-B", "UI_A=B",
             "UI_A B", "UI_A.B", "UI_A\tB", "UI_A\nB", "UI_A/B",
             "UI_PARTY_TELEPORT_A", "XX_UI_A", "", "UI_A\x00",
+            # pf-adversary round 4, D-G: wait_for_pf_stage.py matches by
+            # substring inside a line and one of its needles is a bare
+            # all-caps token, so an otherwise well-formed label made
+            # `wait_for_pf_stage <log> connected` report REACHED.
+            "UI_PARTY_GAME_CONNECTED_ACK",
+            "UI_ACK_RUNTIME_RES_ACK_FIRST_REQ",
         ):
             with self.subTest(bad=label):
                 self.assertFalse(
@@ -548,15 +696,18 @@ class GateAndFailClosedTests(_RegistryIsolation):
         self.assertIn("UI_DISPATCH_ACCEPTED", stderr.getvalue())
         self.assertNotIn("UI_DISPATCH_ANSWERED", stderr.getvalue())
 
-    def test_the_answerer_gets_a_sealed_session_not_the_session(self):
-        """pf-adversary round 3, D2.
+    def test_the_answerer_gets_a_snapshot_that_holds_no_session(self):
+        """pf-adversary round 3 D2, and round 4 D-B.
 
-        The answerer used to be handed ``session`` itself and could write
-        to it -- measured, an answerer returning ``[]`` armed
-        ``gm_warp_position_pending`` through the real dispatcher while
-        this module printed a green token.  It now gets a view whose
-        read allowlist is empty and whose writes raise.
+        D2: the answerer used to be handed the live session and could
+        write to it while returning ``[]`` under a green token.  D-B: the
+        first fix wrapped the session in a proxy, and five one-liners
+        walked past the proxy to the object it was holding.  So it holds
+        nothing now -- the escape routes have to come back empty, not be
+        refused, which is why they are asserted one by one here.
         """
+        import gc
+
         seen = []
 
         def answerer(session=None, vital_id=None, payload=None):
@@ -574,19 +725,33 @@ class GateAndFailClosedTests(_RegistryIsolation):
         with contextlib.redirect_stderr(io.StringIO()):
             ui_dispatch.answer(session, PARTY_INVITE_VITAL_ID, b"\xAA\xBB")
         self.assertEqual(len(seen), 1)
-        view = seen[0][0]
-        self.assertIsNot(view, session)
+        snapshot = seen[0][0]
+        self.assertIsNot(snapshot, session)
         self.assertEqual(seen[0][1], PARTY_INVITE_VITAL_ID)
         self.assertEqual(seen[0][2], b"\xAA\xBB")
-        # Reads outside the allowlist fail, and the allowlist is empty.
+        # The allowlist is empty, so the snapshot is empty.
         self.assertEqual(ui_dispatch._SESSION_VIEW_FIELDS, ())
-        with self.assertRaises(AttributeError):
-            view.gm_warp_position_pending
-        # Writes fail whether or not the name is in the allowlist.
-        with self.assertRaises(TypeError):
-            view.gm_warp_position_pending = True
-        with self.assertRaises(TypeError):
-            del view.gm_warp_position_pending
+        self.assertEqual(tuple(snapshot), ())
+        with self.assertRaises(KeyError):
+            snapshot.field("gm_warp_position_pending")
+        # THE FIVE ROUTES THAT DEFEATED THE PROXY (round 4, D-B). None of
+        # them may reach the session, and none of them may reach anything
+        # that does.
+        reachable = [snapshot]
+        reachable.extend(gc.get_referents(snapshot))
+        reachable.append(type(snapshot))
+        reachable.extend(
+            getattr(snapshot, "__reduce_ex__")(2)[1:]
+        )
+        for found in reachable:
+            with self.subTest(route=type(found).__name__):
+                self.assertIsNot(found, session)
+        self.assertFalse(
+            any(
+                obj is session
+                for obj in gc.get_referents(snapshot)
+            )
+        )
         self.assertFalse(session.gm_warp_position_pending)
 
     def test_an_answerer_cannot_arm_the_gm_warp_window_through_the_session(
@@ -608,8 +773,11 @@ class GateAndFailClosedTests(_RegistryIsolation):
         session = Session()
 
         def answerer(session=None, vital_id=None, payload=None):
-            session.gm_warp_position_pending = True
-            session.move_authority_grace_remaining = 99
+            # The round-4 D-B escape, which defeated the proxy fix:
+            # go around the attribute protocol entirely.
+            real = object.__getattribute__(session, "_session")
+            real.gm_warp_position_pending = True
+            real.move_authority_grace_remaining = 99
             return []
 
         ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)

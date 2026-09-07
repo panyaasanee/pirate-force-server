@@ -217,9 +217,24 @@ def _gating_module_names(fn):
     names = []
 
     def add(name):
-        if isinstance(name, str) and name.startswith(_LANE_PACKAGE):
-            if name not in names:
-                names.append(name)
+        # THE SAME RULE ``_discover()`` USES, NOT JUST THE PACKAGE PREFIX
+        # (pf-adversary round 4, D-E).  ``_discover()`` imports only files
+        # whose stem starts with ``lane_``, so a helper factored out into
+        # ``lane_hooks/ui_answer_impl.py`` is never given a
+        # ``_PRODUCTION_ALLOWED`` entry -- and the prefix-only test still
+        # put it in the gate, which then reported
+        # ``reason=not_production_allowed`` about a switch nobody had ever
+        # asked for.  Measured: a correct ``production_allowed = True``
+        # lane whose answerer lived in such a file was gated forever, and
+        # writing the flag INTO that file did not help, because nothing
+        # imports it.  A module discovery cannot reach is not a lane whose
+        # flag can be read, so it is not a lane this gate can judge.
+        if not isinstance(name, str) or not name.startswith(_LANE_PACKAGE):
+            return
+        if not name[len(_LANE_PACKAGE):].startswith("lane_"):
+            return
+        if name not in names:
+            names.append(name)
 
     depth = 2
     while True:
@@ -298,7 +313,21 @@ def register_answerer(vital_id, fn):
         # on every frame.  A gated incumbent therefore yields the slot.
         from . import lane_hooks  # noqa: PLC0415 - see the header comment
 
-        if lane_hooks.module_production_allowed(incumbent):
+        # THE WHOLE INCUMBENT GATE, NOT THE REGISTRAR NAME ALONE
+        # (pf-adversary round 4, D-D).  ``answer()`` gates on
+        # ``(module_name,) + gating``; this branch asked only about
+        # ``module_name``, so the two went out of sync the moment ``gating``
+        # existed.  Measured: an incumbent whose registrar was allowed but
+        # whose gate carried a closed module held the vital against a
+        # correct, self-contained ``production_allowed = True`` lane --
+        # ``REGISTER_REFUSED ... already_taken`` followed by
+        # ``UI_DISPATCH_GATED`` on every frame, which is verbatim the
+        # symptom the yield rule was written for.
+        incumbent_gate = (incumbent,) + tuple(_ANSWERERS[vital_id][1])
+        if all(
+            lane_hooks.module_production_allowed(name)
+            for name in incumbent_gate
+        ):
             _say(
                 "UI_DISPATCH_REGISTER_REFUSED id=%s reason=already_taken by=%s"
                 % (_hex(vital_id), incumbent)
@@ -390,33 +419,58 @@ def clear_answerers():
 _SESSION_VIEW_FIELDS = ()
 
 
-class _SealedSession:
-    """The session as an answerer sees it: an allowlist, and no writes."""
+class _SessionSnapshot(tuple):
+    """The allowlisted session fields, COPIED OUT. Holds no session.
 
-    __slots__ = ("_session",)
+    THE WRAPPER WAS ONE LINE DEEP (pf-adversary round 4, D-B).  The first
+    version of this was a ``_SealedSession`` proxy keeping the real object
+    in a ``__slots__`` member and refusing attribute access by name.  Five
+    one-liners walked straight past it -- ``object.__getattribute__(view,
+    "_session")``, ``type(view)._session.__get__(view)``,
+    ``view.__class__._session.__get__(view)``,
+    ``view.__reduce_ex__(2)[2][1]["_session"]``,
+    ``gc.get_referents(view)[0]`` -- and the D2 attack reproduced
+    verbatim through the real ``answer()``: an answerer returning ``[]``
+    armed ``gm_warp_position_pending`` and reopened the grace window under
+    a green token, with the fix installed.  ``__getattr__`` is not a
+    boundary; in Python a reference IS reach.
 
-    def __init__(self, session):
-        object.__setattr__(self, "_session", session)
+    So nothing is wrapped.  This is a ``tuple`` of the values named by
+    ``_SESSION_VIEW_FIELDS``, read once by ``answer()`` and copied in --
+    today the empty tuple, because no answerer exists yet and nothing has
+    argued for a field.  There is no ``_session``, no closure over one,
+    and no descriptor that reaches one, so the routes above return this
+    object's own emptiness.  ``tuple`` also settles the write half for
+    free: there is no mutation to refuse.
 
-    def __getattr__(self, name):
-        if name in _SESSION_VIEW_FIELDS:
-            return getattr(object.__getattribute__(self, "_session"), name)
-        raise AttributeError(
-            "ui_dispatch seals the session: %r is not in"
+    THIS TUPLE IS THE DECISION POINT.  Widening ``_SESSION_VIEW_FIELDS``
+    is a reviewed edit to this file naming the answerer that needs the
+    field and why -- and note what it costs, honestly: a field whose
+    VALUE is itself a mutable runtime object hands that object over, so
+    the reviewer's question is never "may this lane read it" alone but
+    "what can this lane do with what reading it returns".  Scalars only,
+    until someone argues otherwise on a specific frame.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, session):
+        return super().__new__(
+            cls,
+            ((name, getattr(session, name, None))
+             for name in _SESSION_VIEW_FIELDS),
+        )
+
+    def field(self, name):
+        """The snapshot value for ``name``, or raise ``KeyError``."""
+        for key, value in self:
+            if key == name:
+                return value
+        raise KeyError(
+            "ui_dispatch snapshots the session: %r is not in"
             " _SESSION_VIEW_FIELDS. Widening that tuple is a reviewed"
-            " edit to ui_dispatch.py (pf-adversary round 3, D2)." % (name,)
-        )
-
-    def __setattr__(self, name, value):
-        raise TypeError(
-            "ui_dispatch seals the session: an answerer may not write %r"
-            % (name,)
-        )
-
-    def __delattr__(self, name):
-        raise TypeError(
-            "ui_dispatch seals the session: an answerer may not delete %r"
-            % (name,)
+            " edit to ui_dispatch.py (pf-adversary round 3 D2, round 4"
+            " D-B)." % (name,)
         )
 
 
@@ -428,7 +482,19 @@ _LABEL_GRAMMAR = re.compile(r"\AUI_[A-Z0-9_]{1,64}\Z")
 #   runtime.py's move-authority server-moves note -- "TELEPORT" in label
 #   pf_login_game_server_v141.py -- startswith of two refresh prefixes,
 #   already unreachable behind LABEL_PREFIX, listed for the next reader
-_FOREIGN_LABEL_SUBSTRINGS = ("TELEPORT", "LOCAL_REFRESH_")
+# ``wait_for_pf_stage.py``'s OWN NEEDLE TABLE, folded in (pf-adversary
+# round 4, D-G).  The D3 paragraph below cites that tool by line number
+# for matching SUBSTRINGS inside a line, and then this list did not carry
+# its needles: ``UI_PARTY_GAME_CONNECTED_ACK`` satisfies the grammar and
+# made ``wait_for_pf_stage <log> connected`` report REACHED.  Only the
+# bare ``[A-Z0-9_]`` needles can be reached at all (the rest carry ``=``
+# or lower case, which the grammar refuses), so those are what is listed.
+_FOREIGN_LABEL_SUBSTRINGS = (
+    "TELEPORT",
+    "LOCAL_REFRESH_",
+    "GAME_CONNECTED",
+    "RUNTIME_RES_ACK_FIRST_REQ",
+)
 
 
 def _label_is_this_lanes_own(label):
@@ -489,7 +555,16 @@ def _label_is_this_lanes_own(label):
     # case, digits and underscore, 1..64 of them.  No space, no ``=``, no
     # non-ASCII, no control character, and nothing a future consumer's
     # separator can hide in.
-    if not isinstance(label, str) or not label:
+    # ``type()``, NOT ``isinstance()`` (pf-adversary round 4, D-H, and
+    # this file's own R7 lesson two checks below).  A ``str`` subclass
+    # overriding ``__contains__`` to return ``False`` carries the real
+    # text ``UI_PARTY_INVITE_TELEPORT_A`` past the foreign-substring list.
+    # It buys no reach at any consumer found today -- ``runtime.py``'s
+    # ``"TELEPORT" in action[0]`` calls the same lying ``__contains__``
+    # and also says no -- but a validator that can be lied to is not one
+    # to leave standing on the argument that the lie happens to be
+    # symmetric at every consumer that exists this week.
+    if type(label) is not str or not label:
         return False
     if not _LABEL_GRAMMAR.match(label):
         return False
@@ -632,7 +707,7 @@ def answer(session, vital_id, payload):
             return []
     try:
         actions = fn(
-            session=_SealedSession(session),
+            session=_SessionSnapshot(session),
             vital_id=vital_id,
             payload=payload,
         )
