@@ -121,15 +121,20 @@ class BuildRowsTests(unittest.TestCase):
         for row in rows:
             self.assertIn(row["tier"], ("SOURCE", "NAME-ONLY", "UNTOUCHED"))
 
-    def test_source_tier_evidence_is_a_real_path_and_line(self):
+    def test_source_tier_evidence_is_a_real_path_with_no_line_number(self):
+        # Was `test_source_tier_evidence_is_a_real_path_and_line` until round
+        # `o50gly`, which removed the line number from the artifact because it
+        # made main go red on other lanes' unrelated edits -- see
+        # `_build_source_hits`. The path half is asserted exactly as before;
+        # the new half is that the line number is GONE, so that a future
+        # re-introduction is a red test rather than a fresh drift treadmill.
         rows = census.build_rows()
         checked = 0
         for row in rows:
             if row["tier"] != "SOURCE":
                 continue
-            path_part, _, line_part = row["evidence"].rpartition(":")
-            self.assertTrue(line_part.isdigit(), row["evidence"])
-            self.assertTrue((ROOT / path_part).is_file(), row["evidence"])
+            self.assertNotIn(":", row["evidence"], row["evidence"])
+            self.assertTrue((ROOT / row["evidence"]).is_file(), row["evidence"])
             checked += 1
         self.assertGreater(checked, 0)
 
@@ -234,7 +239,7 @@ class SourceHitPathSafetyTests(unittest.TestCase):
         self.assertIn("SOME_VITAL_ID", hits)
         self.assertEqual(
             hits["SOME_VITAL_ID"],
-            "src/pirateforce_foundation/ui_probe_wire.py:1",
+            "src/pirateforce_foundation/ui_probe_wire.py",
             "evidence must be a posix path even when relative_to() returns a "
             "Windows-flavoured path -- str(relpath) instead of "
             "relpath.as_posix() is what closed PR #961 once already",
@@ -368,7 +373,7 @@ _FAKE_ROWS = [
         "family": "Community",
         "is_client_req": "1",
         "tier": "SOURCE",
-        "evidence": "src/pirateforce_foundation/ui_community_social_wire.py:1",
+        "evidence": "src/pirateforce_foundation/ui_community_social_wire.py",
     },
     {
         "id": "0x1002",
@@ -609,7 +614,7 @@ class ProseStringNamesAreNotSourceTests(unittest.TestCase):
         # WITHOUT removing genuine references, or it would zero the census.
         hits = self._hits(f'"""Doc."""\n\nWIRE_NAME = "{self.NAME}"\n')
         self.assertEqual(
-            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:3"
+            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py"
         )
 
     def test_a_second_bare_string_is_prose_too_not_only_the_first(self):
@@ -630,15 +635,15 @@ class ProseStringNamesAreNotSourceTests(unittest.TestCase):
         # string values. Over-excluding here would zero the census.
         self.assertEqual(
             self._hits(f'"""Doc."""\n\nWIRE_NAME = "{self.NAME}"\n')[self.NAME],
-            "src/pirateforce_foundation/ui_probe_wire.py:3",
+            "src/pirateforce_foundation/ui_probe_wire.py",
         )
         self.assertEqual(
             self._hits(f'"""Doc."""\n\nregister("{self.NAME}")\n')[self.NAME],
-            "src/pirateforce_foundation/ui_probe_wire.py:3",
+            "src/pirateforce_foundation/ui_probe_wire.py",
         )
         self.assertEqual(
             self._hits(f'"""Doc."""\n\nNAMES = ["{self.NAME}"]\n')[self.NAME],
-            "src/pirateforce_foundation/ui_probe_wire.py:3",
+            "src/pirateforce_foundation/ui_probe_wire.py",
         )
 
     def test_a_method_docstring_inside_a_class_is_prose(self):
@@ -714,7 +719,7 @@ class ProseStringNamesAreNotSourceTests(unittest.TestCase):
         source = f'"""line one\nline two\nline three\n"""\nWIRE = "{self.NAME}"\n'
         hits = self._hits(source)
         self.assertEqual(
-            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:5"
+            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py"
         )
 
     def test_a_file_that_does_not_parse_falls_back_to_comment_skipping_only(self):
@@ -724,7 +729,7 @@ class ProseStringNamesAreNotSourceTests(unittest.TestCase):
         # disappearing.
         hits = self._hits(f'def broken(\nWIRE = "{self.NAME}"\n')
         self.assertEqual(
-            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py:2"
+            hits[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py"
         )
         self.assertEqual(census.prose_string_line_numbers("def broken(\n"), frozenset())
 
@@ -735,6 +740,86 @@ class ProseStringNamesAreNotSourceTests(unittest.TestCase):
         self.assertEqual(
             census.prose_string_line_numbers('"""a\nb\nc"""\nX = 1\n'), frozenset({1, 2, 3})
         )
+
+
+class EvidenceIsInsensitiveToUnrelatedEditsTests(unittest.TestCase):
+    """Round `o50gly`. The committed artifact used to carry `file:line` for
+    every SOURCE row, so ANY lane adding lines above a cited hit rewrote this
+    lane's artifact and turned `test_committed_artifact_matches_a_fresh_
+    rederive` red on main with no census-relevant change anywhere.
+
+    That is not hypothetical: it is how main was red at the start of this
+    round. On `6b5b6b8`, LANE-GM's growth of `gm/command_capture.py` moved
+    `GM_RunGMCommandVital` from line 750 to 800 and `Activity_CheatCodeVital`
+    from 803 to 853 -- same file, same tier, same 30/286/11 counts -- and the
+    drift test failed. The files this census cites most (`runtime.py`, 9 rows;
+    the `gm/` catalogs; `delete_actor.py`) belong to OTHER lanes, so the red
+    recurs on their schedule and only this lane can clear it.
+
+    Unguarded on purpose, like the class above: it drives
+    ``_build_source_hits`` over a synthetic tree in a temp directory, so it
+    needs no ``pf_bridge`` sibling and actually runs on `gate-windows`."""
+
+    NAME = "Community_ProbeOnlyVital"
+
+    def _hits(self, source):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pkg = root / "src" / "pirateforce_foundation"
+            pkg.mkdir(parents=True)
+            module = pkg / "ui_probe_wire.py"
+            module.write_text(source, encoding="utf-8")
+            with mock.patch.object(census, "ROOT", root):
+                return census._build_source_hits({self.NAME}, [module])
+
+    def test_padding_above_the_hit_does_not_change_the_evidence(self):
+        # The exact shape of the main-red: unrelated code grows above the
+        # cited name. Evidence must be byte-identical, or the artifact drifts
+        # for a reason that has nothing to do with the census.
+        near = self._hits(f'WIRE = "{self.NAME}"\n')
+        far = self._hits("X = 1\n" * 50 + f'WIRE = "{self.NAME}"\n')
+        self.assertEqual(near, far)
+        self.assertEqual(near[self.NAME], "src/pirateforce_foundation/ui_probe_wire.py")
+
+    def test_padding_above_the_hit_does_not_change_a_rendered_row(self):
+        # Same property one layer up, at the artifact text the drift test
+        # compares -- so a future change that re-introduces a line number
+        # anywhere between the hit and the TSV is red here too.
+        def render(source):
+            hits = self._hits(source)
+            return census.render_tsv(
+                [
+                    {
+                        "id": "0x0001",
+                        "name": self.NAME,
+                        "family": "Community_",
+                        "is_client_req": "0",
+                        "tier": "SOURCE",
+                        "evidence": hits[self.NAME],
+                    }
+                ]
+            )
+
+        self.assertEqual(
+            render(f'WIRE = "{self.NAME}"\n'),
+            render('"""Docstring that grew."""\n\n' + "X = 1\n" * 30 + f'WIRE = "{self.NAME}"\n'),
+        )
+
+    def test_a_move_to_a_DIFFERENT_file_still_changes_the_evidence(self):
+        # The other half: dropping the line number must not make evidence
+        # blind. A name that moves between files is a real census change and
+        # still has to rewrite the artifact.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pkg = root / "src" / "pirateforce_foundation"
+            pkg.mkdir(parents=True)
+            first = pkg / "ui_probe_wire.py"
+            second = pkg / "ui_other_wire.py"
+            first.write_text("X = 1\n", encoding="utf-8")
+            second.write_text(f'WIRE = "{self.NAME}"\n', encoding="utf-8")
+            with mock.patch.object(census, "ROOT", root):
+                hits = census._build_source_hits({self.NAME}, [first, second])
+        self.assertEqual(hits[self.NAME], "src/pirateforce_foundation/ui_other_wire.py")
 
 
 if __name__ == "__main__":

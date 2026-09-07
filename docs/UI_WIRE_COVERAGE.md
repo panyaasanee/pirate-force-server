@@ -90,6 +90,20 @@ pinned test catching it first.
 See `reports/PF_UI_WIRE_NAME_CENSUS_20260906.tsv` (327 rows, tab-separated:
 `id`, `name`, `family`, `is_client_req`, `tier`, `evidence`).
 
+🔴 `evidence` for a `SOURCE` row is a FILE, not `file:line` (changed round
+`o50gly`; the headline did not move -- 30/286/11 before and after, and all 30
+changed rows kept id, name, family, flag and tier byte for byte). It used to
+carry the line number, and that made this artifact drift -- and
+`test_committed_artifact_matches_a_fresh_rederive` go RED on `main` -- whenever
+any lane added lines ABOVE a cited hit, with nothing about the census changing.
+Measured at the start of round `o50gly` on `6b5b6b8`: LANE-GM grew
+`gm/command_capture.py` by 50 lines, `GM_RunGMCommandVital` moved 750 -> 800 and
+`Activity_CheatCodeVital` 803 -> 853, same file and same tier for both, and
+`main` was red. The files this census cites most (`runtime.py`, 9 rows; the
+`gm/` catalogs; `delete_actor.py`) belong to OTHER lanes, so that red recurs on
+their schedule and only this lane can clear it. To get the line back:
+`grep -n "<name>" <file>`.
+
 ## Scoreboard
 
 Every UI PR from this round onward carries a permanent scoreboard row,

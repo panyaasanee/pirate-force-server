@@ -38,8 +38,10 @@ still counted; that remains a known, disclosed gap.
 TIERS
 -----
   SOURCE     the identifier appears in a `.py` file under
-             `src/pirateforce_foundation/` -- evidence = `path:line` of the
-             first hit.
+             `src/pirateforce_foundation/` -- evidence = the `path` of the
+             file holding the first hit. Deliberately NOT `path:line`: see
+             `_build_source_hits` for the measurement that removed the line
+             number, and grep the row's own `name` in that file to get it.
   NAME-ONLY  not in SOURCE, but the identifier appears in at least one of the
              project's three function-map files (`prompts/COMMON_LANE_ROUND.md`
              section "แผนที่โปรโตคอลของเกม"): `docs/PF_VITAL_NAMES.json`
@@ -316,7 +318,24 @@ def _build_source_hits(names, py_files):
                 continue
             for token in _IDENT_TOKEN.findall(line):
                 if token in remaining:
-                    hits[token] = f"{relpath}:{lineno}"
+                    # The FILE, not `file:line` (round `o50gly`). The line
+                    # number was in the committed artifact until this round,
+                    # and it made the artifact drift -- so
+                    # `test_committed_artifact_matches_a_fresh_rederive` went
+                    # red on main -- whenever ANY lane added lines above a hit
+                    # in a file this census cites, with nothing about the
+                    # census changing. Measured on `6b5b6b8`: LANE-GM grew
+                    # `gm/command_capture.py` by 50 lines, and main went red
+                    # with exactly two rows moved, `0x51E9` 750 -> 800 and
+                    # `0x6CEC` 803 -> 853, both still SOURCE, both still in
+                    # the same file. The hot files here (`runtime.py`, 9 rows;
+                    # `gm/` catalogs; `delete_actor.py`) belong to other
+                    # lanes, so that red is unbounded and only this lane can
+                    # clear it. The line number is also the one part of the
+                    # row nothing else needs: `grep -n "<name>" <file>`
+                    # re-derives it in one command, and the tier -- which is
+                    # what n/327 counts -- does not depend on it.
+                    hits[token] = relpath
                     remaining.discard(token)
     return hits
 
