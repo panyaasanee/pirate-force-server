@@ -63,6 +63,25 @@ pending COO, and the ``Lv`` triple's resolver REFUSES (returns ``None``,
 never a number) when the caller cannot supply a player level, rather than
 falling back to the quest row's level and quietly paying the wrong amount.
 
+WHAT THIS DOES NOT YET REACH, stated before anything else it claims.
+Against the shipped corpus today EVERY one of the 225 criteria call sites
+resolves ``refused=no_quest_row``, measured on real files, because nothing
+supplies a quest id: these functions take no arguments precisely because
+the ENGINE knows which quest instance dispatched the script, and this
+server has no such dispatch, so ``quest.DEFAULT_CONTEXT`` is ``quest_id=0``
+and the lowest id in the mirror is 12.  The read half is complete, tested
+and inert until a dispatcher exists.  Relatedly, ``s_LUASCRIPT`` is
+one-to-many (``q_con1`` is the script of 160 quest rows carrying 86
+distinct ``(level, multiplier)`` pairs), so the amount can never be
+resolved from the ``.lua`` file alone -- another way of saying the same
+missing piece.
+
+ONE MORE THING THE ASSUMPTION ABOVE SHOULD BE READ AGAINST:
+``gamedata/PF_GAMEDATA_LUA_API.tsv`` records ``AddLvCriteriaExp`` as
+``UNRESOLVED`` -- the one of the six names with no binding found in the
+client at all -- and it is exactly the name whose level source is being
+assumed here.  The other five carry a ``delegate_va``.
+
 ROUNDING IS ALSO NOT KNOWN, so it is not hidden.  ``curve * multiplier``
 is a float; whether the client floors, rounds or keeps a fraction is not
 in any committed artifact.  :class:`CriteriaAmount` carries BOTH the exact
@@ -87,7 +106,9 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
+
+from .vendored import VendoredDataError
 
 #: Column headers of the vendored curve mirror, in order.
 CURVE_COLUMNS = ("level", "cash", "exp", "skill_point")
@@ -134,8 +155,10 @@ API_KIND: Dict[str, str] = {
     "AddLvCriteriaSkillPoint": KIND_SKILL_POINT,
 }
 
-#: Levels the curve is defined for.  Read from the mirror, not asserted
-#: here; this pair only bounds what a caller may ask for before the lookup.
+#: Levels a caller may ask for.  Checked before the lookup for a PLAYER
+#: level (a level outside this pair is a caller bug worth naming, not a
+#: reward of nothing); the curve mirror is still the authority on which
+#: levels actually have a row, and `resolve` returns None for the rest.
 MIN_LEVEL = 1
 MAX_LEVEL = 255
 
@@ -146,11 +169,12 @@ REFUSE_NO_QUEST_ROW = "no_quest_row"
 REFUSE_NO_PLAYER_LEVEL = "player_level_unknown"
 REFUSE_LEVEL_OUT_OF_RANGE = "level_out_of_range"
 REFUSE_UNKNOWN_API = "unknown_api"
+REFUSE_BAD_PLAYER_LEVEL = "bad_player_level"
 
 BODY_DIGEST_PREFIX = "# body_sha256: "
 
 
-class QuestCriteriaError(RuntimeError):
+class QuestCriteriaError(VendoredDataError):
     """A vendored mirror in THIS repository is missing or corrupt.
 
     Deliberately not a subclass of anything a script can trigger: it means
@@ -340,6 +364,32 @@ def reset_caches() -> None:
     _ROWS_CACHE = None
 
 
+def _coerce_player_level(value: Any) -> Optional[int]:
+    """A player level, or ``None`` for anything that is not one.
+
+    `type(...) is bool` FIRST, the order `lua_api.message` already uses:
+    bool IS int in Python, so ``True`` would otherwise index the curve at
+    level 1 and pay a level-90 player the newbie reward with nothing
+    looking broken (pf-adversary, round xlk7hl).
+
+    A whole-number float IS accepted -- lupa hands every Lua number across
+    as a float, and this house already settled that question the same way
+    for ``Quest.CheckOpenTime`` (``900.0`` is 900).  ``30.5`` is not a
+    level and is refused rather than truncated.
+    """
+    if type(value) is bool:
+        return None
+    if isinstance(value, float):
+        if value != int(value):
+            return None
+        value = int(value)
+    if not isinstance(value, int):
+        return None
+    if not MIN_LEVEL <= value <= MAX_LEVEL:
+        return None
+    return value
+
+
 def resolve(kind: str, level: int, multiplier: float) -> Optional[CriteriaAmount]:
     """``curve[level].<kind> * multiplier``, or ``None`` if ``level`` has no row.
 
@@ -377,7 +427,9 @@ def resolve_for_api(api_name: str, quest_id: int,
     if LEVEL_SOURCE[api_name] == LEVEL_SOURCE_PLAYER:
         if player_level is None:
             return None, REFUSE_NO_PLAYER_LEVEL
-        level = player_level
+        level = _coerce_player_level(player_level)
+        if level is None:
+            return None, REFUSE_BAD_PLAYER_LEVEL
     else:
         level = row.criteria_level
     kind = API_KIND[api_name]

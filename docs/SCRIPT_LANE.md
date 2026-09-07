@@ -270,15 +270,25 @@ other). `tests/test_script_host_spike.py`'s two assertions that assumed
 
 ### API status table (126/160 stub, 34/160 real, as of round `xlk7hl`)
 
-Six of the 126 stub rows now read `stub (amount real)`: the three
+Six of the 126 stub rows now read `stub (+reward line)`: the three
 `Quest.AddCriteria*` and three `Quest.AddLvCriteria*` names.  That is a
 THIRD status, deliberately, and it is not a softer word for `real` -- the
 grant still does nothing and still logs `LUA_API_STUB`, so the count above
 is unchanged at 34/160.  What changed is that each of them now also logs
-one `LUA_QUEST_CRITERIA` line naming the exact reward it WOULD have paid,
-resolved out of the game's own two tables, or the reason it refused to
-name one.  See "Round xlk7hl" below for where the number comes from and
-for the one mapping in it that is a labelled lane assumption, not a proof.
+one `LUA_QUEST_CRITERIA` line: the exact reward it WOULD have paid,
+resolved out of the game's own two tables, or the reason it refused.
+
+🔴 **Read that as "+reward line", not "amount real", because against the
+shipped corpus TODAY the line is always a refusal.**  Measured, not
+assumed (pf-adversary, this round): 12 real corpus files, 36 criteria call
+sites, **36 of 36 `refused=no_quest_row`**, and the same holds for all 225
+criteria call sites in all 616 files.  The reason is one number: nothing
+supplies a quest id.  `Quest.AddCriteriaExp()` takes no arguments because
+the ENGINE knows which quest instance dispatched the script; this server
+has no such dispatch, so `QuestContext` defaults to `quest_id=0` and the
+mirror's lowest id is 12.  The read half is therefore complete and tested
+and reaches nobody until a dispatcher exists -- which is the honest state,
+and the next thing this lane needs.
 
 Read from `src/pirateforce_foundation/lua_api/api_spec.tsv`; call_count is
 the corpus-wide call-site count from the 2026-08-24 census
@@ -438,9 +448,9 @@ in `STILL_STUBBED`.
 | Quest | RewardItemSelect | 1335 | stub |
 | Quest | GetQuestFlag | 508 | real |
 | Quest | SetFlag | 417 | real |
-| Quest | AddCriteriaExp | 166 | stub (amount real) |
-| Quest | AddCriteriaSkillPoint | 166 | stub (amount real) |
-| Quest | AddCriteriaCash | 165 | stub (amount real) |
+| Quest | AddCriteriaExp | 166 | stub (+reward line) |
+| Quest | AddCriteriaSkillPoint | 166 | stub (+reward line) |
+| Quest | AddCriteriaCash | 165 | stub (+reward line) |
 | Quest | CheckMobKillCount | 138 | real |
 | Quest | MobKillCount | 128 | real |
 | Quest | PlayNPCMovie | 100 | stub |
@@ -448,9 +458,9 @@ in `STILL_STUBBED`.
 | Quest | GetFlag | 67 | real |
 | Quest | CanReportDailyQuest | 61 | real |
 | Quest | ReportDailyQuest | 61 | real |
-| Quest | AddLvCriteriaExp | 59 | stub (amount real) |
-| Quest | AddLvCriteriaSkillPoint | 59 | stub (amount real) |
-| Quest | AddLvCriteriaCash | 58 | stub (amount real) |
+| Quest | AddLvCriteriaExp | 59 | stub (+reward line) |
+| Quest | AddLvCriteriaSkillPoint | 59 | stub (+reward line) |
+| Quest | AddLvCriteriaCash | 58 | stub (+reward line) |
 | Quest | CountDownTime | 54 | stub |
 | Quest | GetWeekDay | 48 | stub |
 | Quest | GetMobKillCount | 20 | real |
@@ -3019,3 +3029,64 @@ and its floor, and does not choose for whoever eventually grants.
   never as up to 616 `LUA_SCRIPT <file> ERR` accusations against innocent
   quest scripts (pf-adversary D11, round `7kxfe9`).
 * `tests/test_script_lua_api_quest_criteria.py` -- 38 tests.
+
+
+### Round `xlk7hl` addendum -- what pf-adversary found in this round's own work
+
+Five findings landed inside the round and are fixed in the same PR:
+
+1. **The mirrored columns were tied to the source FILE and not to the
+   source COLUMN.**  `# source_sha256` / `# source_rows` / `# body_sha256`
+   / `--check` all verify "the mirror equals what the tool produced from
+   that file"; none verified the tool read the right column.  Re-pointing
+   the regenerator from `n_LEVEL_EXP` to the adjacent `n_LEVEL_QUEST`
+   (same 1..120 domain, same prefix) changed 647 of 1039 rewards and left
+   all 38 tests green -- mutation-proven.  `test_each_mirrored_column_came
+   _from_the_source_column_it_names` now reads both source tables BY COLUMN
+   NAME and compares cell by cell; the same mutation now fails 729 subtests.
+2. **`player_level=True` paid the level-1 reward.**  `bool` is `int` in
+   Python, so `curve[True]` is level 1: a level-90 player would have been
+   paid the newbie amount with nothing looking broken.  There is now a
+   `bad_player_level` refusal, and whole-number floats are accepted the way
+   this house already settled it for `Quest.CheckOpenTime` (`900.0` is 900).
+3. **`_host_side_error_types()` was a hand-maintained tuple with no
+   completeness test** -- the next vendored mirror would have raised an
+   unlisted error and been blamed on a quest script again, through the door
+   D11's own fix left open.  Every `lua_api` loader now raises a subclass of
+   `lua_api.vendored.VendoredDataError` and the classification is complete
+   by construction.
+4. **`test_the_six_names_are_exactly_the_zero_arity_reward_names` never
+   read an arity column**, although zero-arity is the premise the whole
+   design rests on.  It does now.
+5. **`docs` said `amount real`** for six names that refuse on 100% of real
+   call sites.  Corrected above.
+
+Carried to the next round, named rather than hidden:
+
+* `gamedata/PF_GAMEDATA_LUA_API.tsv` records `AddLvCriteriaExp` as
+  **`UNRESOLVED` -- the one of the six with no binding found in the client
+  at all**, and it is exactly the name whose level source this round is
+  assuming.  The other five carry a `delegate_va`; disassembling
+  `0x00608D10` (plain) against `0x006092B0` (`Lv`) and reading which
+  structure offset each loads is the disproof the ASK-COO letter asks for,
+  and it is an RE ticket, not a round of grepping.  (Layer warning for
+  whoever writes it: `delegate_body6` is six bytes of SEH prologue shared
+  by unrelated names -- it is not a calling-convention signature.)
+* `run_corpus_entry_points` still files an innocent script in `call_failed`
+  and duplicates it in `host_failed` once per entry point, so the
+  616-accusation shape D11 fixed in the log survives in the structured
+  report.  The `except` clauses in both sweeps are also untested: deleting
+  them keeps the suite green.
+* `lua_api/spec.py` still reads `api_spec.tsv` at import time under
+  `encoding="ascii"` with a bare `assert` -- the exact shape D11 fixed for
+  its sibling, and it kills the boot before any fail-closed machinery runs.
+* The D10 guard's `ast.Attribute` branch is dead code, and an aliased
+  import (`from .message import message_text as mt`) or `catalog()[id][2]`
+  evades it entirely.  `refusals()` is still never called outside tests.
+* `int(raw)` is one short on 11 (quest, kind) pairs, all of them the
+  float32-widened `1.4` multiplier.  Neither value the module offers is
+  `round()`, which is the only one that recovers the designer's integer.
+* `s_LUASCRIPT` is one-to-many: `q_con1` is the script of 160 quest rows
+  carrying 86 distinct `(level, multiplier)` pairs.  So no per-file test
+  can ever tie a resolved amount to an observed reward -- only a live quest
+  instance can, which is the same missing dispatcher as above.

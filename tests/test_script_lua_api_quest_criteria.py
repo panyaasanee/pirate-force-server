@@ -200,7 +200,15 @@ class CorruptMirrorTests(unittest.TestCase):
     def test_script_host_calls_this_error_ours_not_the_scripts(self):
         # pf-adversary D11: a broken file of OURS must not print as up to
         # 616 accusations against innocent quest scripts.
-        self.assertIn(qc.QuestCriteriaError, script_host._host_side_error_types())
+        types = script_host._host_side_error_types()
+        self.assertTrue(issubclass(qc.QuestCriteriaError, types))
+        # And by construction, not by anyone remembering a list: the next
+        # vendored mirror inherits the classification (pf-adversary, this
+        # round -- the previous hand-maintained tuple had no completeness
+        # test, which is the same door D11 was raised to close).
+        from pirateforce_foundation.lua_api.vendored import VendoredDataError
+        self.assertEqual(types, (VendoredDataError,))
+        self.assertTrue(issubclass(qc.QuestCriteriaError, VendoredDataError))
 
 
 class ResolveTests(unittest.TestCase):
@@ -266,22 +274,72 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(qc.resolve_for_api("SetFlag", 26)[1],
                          qc.REFUSE_UNKNOWN_API)
 
-    def test_a_player_level_off_the_curve_refuses_instead_of_paying(self):
+    def test_a_quest_row_level_off_the_curve_refuses_instead_of_paying(self):
+        """`REFUSE_LEVEL_OUT_OF_RANGE` is the QUEST-ROW side of the check.
+
+        A player level outside 1..255 is refused earlier and by name
+        (`bad_player_level`, added this round), so the only way to reach
+        this reason is a quest row whose own `criteria_level` has no curve
+        entry -- which no shipped row does today
+        (`test_every_quest_rows_criteria_level_resolves_to_a_curve_row`),
+        so it is exercised here against a synthetic row rather than left
+        as a branch nothing runs.
+        """
+        rows = dict(qc.load_reward_rows())
+        broken = qc.QuestRewardRow(quest_id=999999, criteria_level=100000,
+                                   cash_multiplier=1.0, exp_multiplier=1.0,
+                                   sp_multiplier=1.0)
+        rows[broken.quest_id] = broken
+        original = qc._ROWS_CACHE
+        qc._ROWS_CACHE = rows
+        try:
+            self.assertEqual(
+                qc.resolve_for_api("AddCriteriaExp", broken.quest_id)[1],
+                qc.REFUSE_LEVEL_OUT_OF_RANGE)
+        finally:
+            qc._ROWS_CACHE = original
+
+    def test_a_boolean_player_level_is_refused_not_read_as_level_1(self):
+        """`True` is an `int` in Python, and `curve[True]` is level 1.
+
+        Without this guard an `AddLvCriteria*` grant handed a truthy
+        sentinel pays a level-90 player the level-1 reward and nothing
+        looks broken (pf-adversary, round xlk7hl).
+        """
         row = next(iter(qc.load_reward_rows().values()))
-        self.assertEqual(
-            qc.resolve_for_api("AddLvCriteriaExp", row.quest_id,
-                               player_level=99999)[1],
-            qc.REFUSE_LEVEL_OUT_OF_RANGE)
+        amount, reason = qc.resolve_for_api(
+            "AddLvCriteriaExp", row.quest_id, player_level=True)
+        self.assertIsNone(amount)
+        self.assertEqual(reason, qc.REFUSE_BAD_PLAYER_LEVEL)
+
+    def test_a_lua_style_whole_number_float_level_is_accepted(self):
+        # lupa hands every Lua number across as a float; this house already
+        # settled the same question for Quest.CheckOpenTime (900.0 is 900).
+        row = next(iter(qc.load_reward_rows().values()))
+        amount, reason = qc.resolve_for_api(
+            "AddLvCriteriaExp", row.quest_id, player_level=30.0)
+        self.assertIsNone(reason)
+        self.assertEqual(amount.level, 30)
+
+    def test_a_fractional_or_out_of_range_or_non_numeric_level_is_refused(self):
+        row = next(iter(qc.load_reward_rows().values()))
+        for bad in (30.5, -1, 0, 10 ** 9, "30", object()):
+            with self.subTest(level=repr(bad)):
+                amount, reason = qc.resolve_for_api(
+                    "AddLvCriteriaExp", row.quest_id, player_level=bad)
+                self.assertIsNone(amount)
+                self.assertEqual(reason, qc.REFUSE_BAD_PLAYER_LEVEL)
 
     def test_every_refusal_reason_comes_from_the_declared_closed_set(self):
         # pf-adversary D7 shape: a reason assembled from runtime data is an
         # unbounded key for anything downstream that counts reasons.
         declared = {qc.REFUSE_NO_QUEST_ROW, qc.REFUSE_NO_PLAYER_LEVEL,
-                    qc.REFUSE_LEVEL_OUT_OF_RANGE, qc.REFUSE_UNKNOWN_API}
+                    qc.REFUSE_LEVEL_OUT_OF_RANGE, qc.REFUSE_UNKNOWN_API,
+                    qc.REFUSE_BAD_PLAYER_LEVEL}
         seen = set()
         for api in list(qc.LEVEL_SOURCE) + ["SetFlag", ""]:
             for quest_id in (-1, 0, 26, 10 ** 9):
-                for level in (None, 0, 30, 10 ** 9):
+                for level in (None, 0, 30, 30.0, 30.5, True, "30", 10 ** 9):
                     reason = qc.resolve_for_api(api, quest_id, level)[1]
                     if reason is not None:
                         seen.add(reason)
@@ -294,6 +352,16 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(len(qc.LEVEL_SOURCE), 6)
         quest_methods = api_spec.NAMESPACE_METHODS["Quest"]
         self.assertEqual(set(qc.LEVEL_SOURCE) - set(quest_methods), set())
+        # And ACTUALLY check the arity this test is named after: "no
+        # arguments means the amount is in the tables" is the premise the
+        # whole module rests on, and the previous version of this test
+        # never read an arity column at all (pf-adversary, round xlk7hl).
+        by_name = {fn.method: fn for fn in api_spec.API_FUNCTIONS
+                   if fn.namespace == "Quest"}
+        for name in qc.LEVEL_SOURCE:
+            with self.subTest(method=name):
+                self.assertEqual(by_name[name].arity_min, 0)
+                self.assertEqual(by_name[name].arity_max, 0)
 
     def test_lv_and_plain_split_three_and_three_one_kind_each(self):
         by_source = {qc.LEVEL_SOURCE_QUEST: set(), qc.LEVEL_SOURCE_PLAYER: set()}
@@ -364,6 +432,47 @@ class VendoredMirrorMatchesTheRealTableTests(unittest.TestCase):
             cwd=str(REPO_ROOT), capture_output=True, text=True)
         self.assertEqual(result.returncode, 0,
                          "%s%s" % (result.stdout, result.stderr))
+
+    def test_each_mirrored_column_came_from_the_source_column_it_names(self):
+        """The one tie the rest of this module could not make.
+
+        Every other check here -- `# source_sha256`, `# source_rows`,
+        `# body_sha256`, even `--check` -- verifies "the mirror equals what
+        the tool produced from that FILE".  None of them verifies the tool
+        read the right COLUMN, and `n_LEVEL_QUEST` sits next to
+        `n_LEVEL_EXP` with the same 1..120 domain, so re-pointing the
+        regenerator at it changed 647 of 1039 rewards and left all 38 tests
+        green (pf-adversary, round xlk7hl, mutation-proven).  This reads
+        both source tables BY COLUMN NAME and compares cell by cell.
+        """
+        import csv
+        tables = SIBLING / "pf_bridge" / "gamedata" / "tables"
+        with (tables / "QUESTDATA_TH__QUEST.tsv").open(
+                encoding="utf-8", newline="") as handle:
+            source = {int(r["n_ID"]): r for r in csv.DictReader(
+                handle, delimiter="\t")}
+        rows = qc.load_reward_rows()
+        self.assertEqual(set(rows), set(source))
+        for quest_id, row in rows.items():
+            raw = source[quest_id]
+            with self.subTest(quest=quest_id):
+                self.assertEqual(row.criteria_level, int(raw["n_LEVEL_EXP"]))
+                self.assertEqual(row.exp_multiplier, float(raw["f_EXP"]))
+                self.assertEqual(row.cash_multiplier, float(raw["f_CASH"]))
+                self.assertEqual(row.sp_multiplier, float(raw["f_SP"]))
+
+        with (tables / "CONSTDATA_TH__STANDARD_QUEST.tsv").open(
+                encoding="utf-8", newline="") as handle:
+            curve_source = {int(r["n_ID"]): r for r in csv.DictReader(
+                handle, delimiter="\t")}
+        curve = qc.load_curve()
+        self.assertEqual(set(curve), set(curve_source))
+        for level, entry in curve.items():
+            raw = curve_source[level]
+            with self.subTest(level=level):
+                self.assertEqual(entry.exp, int(raw["n_QUEST_EXP"]))
+                self.assertEqual(entry.cash, int(raw["n_QUEST_CASH"]))
+                self.assertEqual(entry.skill_point, int(raw["n_QUEST_SP"]))
 
     @BRIDGE_LUA_SCRIPTS.skip_unless_present()
     def test_the_two_triples_of_call_sites_are_disjoint_in_the_corpus(self):
