@@ -1,1 +1,1 @@
-{"sha":"a33710a54d059e6dd3bb9c4cd6e72b62c4656e17","conclusion":"failure","event":"push","ref":"refs/heads/claude/dreamy-archimedes-9r1ang","run_id":"34086716241","utc":"2026-09-07T05:51:39Z"}
+{"sha":"a33710a54d059e6dd3bb9c4cd6e72b62c4656e17","conclusion":"failure","event":"pull_request","ref":"refs/pull/1026/merge","run_id":"34086718298","utc":"2026-09-07T05:58:40Z"}
