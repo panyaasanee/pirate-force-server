@@ -535,7 +535,19 @@ class EntryPointRun:
     #: entry-point name -> ascii-safe exception message, keyed structurally
     #: (not a concatenated string a caller would have to substring-match to
     #: recover which of possibly several called names actually failed).
+    #:
+    #: THE SCRIPT'S OWN FAILURES ONLY.  A failure raised by a defect in THIS
+    #: repository goes in :attr:`host_errors` instead, never here, so a
+    #: caller that pins "which quest entry points are known to fail" (see
+    #: ``KNOWN_ENTRY_POINT_CALL_FAILURES`` in
+    #: ``tests/test_script_lua_corpus.py``) cannot have our own broken
+    #: vendored data quietly added to its pin as if a shipped script had a
+    #: bug (pf-adversary D12, round 8ou0zg).
     errors: dict = field(default_factory=dict)
+    #: entry-point name -> ascii-safe message, for failures classified as
+    #: OURS by :func:`_host_side_error_types`.  Kept beside ``errors``
+    #: rather than merged into it for the reason ``errors`` gives.
+    host_errors: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -586,10 +598,27 @@ class CorpusEntryPointReport:
     #: Same meaning as :attr:`LoadReport.host_failed` -- paths where a defect
     #: in THIS repository surfaced, kept out of ``load_failed``/``call_failed``
     #: so a sweep never reports our own broken data as broken quests.
+    #:
+    #: ONE ENTRY PER FILE, NOT PER ENTRY POINT (pf-adversary D12, round
+    #: 8ou0zg).  A file defines up to len(STANDARD_ENTRY_POINTS) == 8 of
+    #: them, and a broken vendored mirror fails EVERY one it reaches: the
+    #: first shape of this loop appended the same path once per failing
+    #: entry point, so three affected files could be reported as up to 24
+    #: "host failures" -- a count nobody could reconcile against a corpus
+    #: of files.  The number in this list is now a file count, which is
+    #: what its name says and what ``LoadReport.host_failed`` (one load
+    #: per file, so never able to double-count) always meant.
     host_failed: list = field(default_factory=list)
     no_entry_point: list = field(default_factory=list)
     ran: list = field(default_factory=list)
+    #: Runs where THE SCRIPT failed.  A run whose only failures were ours
+    #: is in :attr:`host_failed_runs` instead; a run with both is in both.
     call_failed: list = field(default_factory=list)
+    #: Runs carrying at least one host-side (our defect) entry-point
+    #: failure, so the detail is not lost by keeping those runs out of
+    #: ``call_failed``.  Same runs whose paths appear in ``host_failed``,
+    #: except for load-time host failures, which never produce a run.
+    host_failed_runs: list = field(default_factory=list)
     total_stub_calls: int = 0
     stub_call_counts: dict = field(default_factory=dict)
     total_real_calls: int = 0
@@ -685,17 +714,23 @@ def run_corpus_entry_points(root, log: Optional[Callable[[str], None]] = None, *
                     # as round 7kxfe9's docstring vs. the n/327 census.)
                     message = _log_host_side(log, "%s entry=%s" % (rel, name), exc)
                     run.ok = False
-                    run.errors[name] = message
-                    report.host_failed.append(rel)
+                    run.host_errors[name] = message
                 except Exception as exc:  # noqa: BLE001 - fail-closed, one script must not sink the corpus
                     message = _ascii_safe(exc)
                     log("LUA_SCRIPT %s ERR entry=%s %s" % (rel, name, message))
                     run.ok = False
                     run.errors[name] = message
-            if run.ok:
-                report.ran.append(run)
-            else:
+            # Bucket the FILE once, by what kind of failure it had.  Both
+            # kinds at once puts it in both buckets; neither leaves it in
+            # ``ran``.  See CorpusEntryPointReport.host_failed for why this
+            # is per file rather than per entry point.
+            if run.host_errors:
+                report.host_failed.append(rel)
+                report.host_failed_runs.append(run)
+            if run.errors:
                 report.call_failed.append(run)
+            elif not run.host_errors:
+                report.ran.append(run)
 
         for namespace in host.namespaces.values():
             calls = getattr(namespace, "calls", None)

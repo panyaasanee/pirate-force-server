@@ -14,9 +14,29 @@ TSV, so a re-vendor is a diff, not a retype.  If the count drifts (a new
 game script pass finds more callers, or a rescan changes an arity), this
 file's own count assertions in ``tests/test_script_lua_api_spec.py`` will
 say so on the very next run, on any machine, without a sibling checkout.
+
+LOADED ON FIRST USE, NOT AT IMPORT (pf-adversary finding 13, round
+``8ou0zg``, paid in round ``oghyca``).  The parse used to run at this
+module's own import, which had one consequence no amount of care inside
+:func:`_load` could repair: ``script_host`` imports this module, so a
+corrupt ``api_spec.tsv`` made ``import script_host`` itself raise, before
+any of that module's fail-closed sweeps -- or
+``script_host._host_side_error_types()``, whose whole job is to keep a
+defect of OURS from being logged against a shipped quest script -- existed
+to see it.  The one mirror every ``ScriptHost`` construction depends on was
+the one mirror whose failure could never be classified.
+
+Now the parse happens on first ATTRIBUTE ACCESS instead, so it lands inside
+``load_script_file``'s own try, gets the ``LUA_HOST ... discovered_at=<file>``
+line, and is counted in the sweep's ``host_failed`` bucket like every other
+mirror of ours (measured end to end:
+``BrokenApiSpecIsOursNotTheScriptsTests``, ``tests/test_script_lua_corpus.py``).
+Call sites are unchanged: the module-level names below still read as
+plain attributes, resolved through PEP 562 ``__getattr__``.
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,16 +89,18 @@ def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
     class, so that wherever this error IS catchable it is classified as a
     corrupt mirror of ours rather than a broken quest file.
 
-    [CORRECTED - pf-adversary, this round] An earlier draft of this
-    docstring claimed ``script_host`` would report it as ``LUA_HOST``.  It
-    would not, and cannot: ``_load()`` runs at IMPORT time, so a corrupt
-    ``api_spec.tsv`` makes ``import script_host`` itself raise, before
-    ``_host_side_error_types()`` exists to classify anything.  The base
-    class still earns its place -- it is the right type, and it is
-    catchable by anything that imports this module lazily -- but the
-    boot-time case is a hard failure at import, which for a file vendored
-    into this repository is the correct outcome and not a claim about log
-    lines.
+    WHERE THIS IS CAUGHT (round ``oghyca``).  Round ``wn088m`` corrected an
+    earlier draft of this docstring that claimed ``script_host`` reports
+    this as ``LUA_HOST``: at the time it could not, because this function
+    ran at IMPORT time and took ``import script_host`` down with it before
+    ``_host_side_error_types()`` existed to classify anything.  That is no
+    longer the shape -- see this module's own docstring -- so the claim is
+    true again, and this time it is a measured one rather than a hopeful
+    one: ``tests/test_script_lua_corpus.py``'s
+    ``BrokenApiSpecIsOursNotTheScriptsTests`` runs a real sweep over a
+    one-file corpus with this file pointed at a missing path and asserts
+    the ``LUA_HOST`` line, the ``host_failed`` bucket, and the ABSENCE of
+    any ``LUA_SCRIPT`` line naming the innocent script.
     """
     try:
         text = path.read_text(encoding="ascii")
@@ -126,19 +148,60 @@ def _load(path: Path = _SPEC_PATH) -> tuple[ApiFunction, ...]:
     return tuple(out)
 
 
-#: Every row of the frozen census, in file order (namespace, then method).
-API_FUNCTIONS: tuple[ApiFunction, ...] = _load()
+_LOCK = threading.RLock()
+_CACHE: dict = {}
 
-#: namespace -> frozenset of its method names, e.g. NAMESPACE_METHODS["Quest"].
-NAMESPACE_METHODS: dict[str, frozenset[str]] = {}
-for _fn in API_FUNCTIONS:
-    NAMESPACE_METHODS.setdefault(_fn.namespace, set()).add(_fn.method)
-NAMESPACE_METHODS = {k: frozenset(v) for k, v in NAMESPACE_METHODS.items()}
 
-#: The 8 namespace names the game's scripts index as Lua globals.
-NAMESPACES: tuple[str, ...] = tuple(sorted(NAMESPACE_METHODS))
+def _tables() -> dict:
+    """Parse the census once, then hand back the same tables forever.
 
-#: qualified name ("Quest.SetFlag") -> ApiFunction, for lookup by call site.
-BY_QUALIFIED_NAME: dict[str, ApiFunction] = {
-    fn.qualified_name: fn for fn in API_FUNCTIONS
-}
+    Locked because a corpus sweep and the future live dispatch both reach
+    this from whichever thread touched a script first; the unlocked first
+    read is what keeps the steady state off the lock.  ``_CACHE`` is a dict
+    rather than four module globals so a test can point ``_SPEC_PATH``
+    somewhere else and call ``_CACHE.clear()`` in one line, with no chance
+    of clearing three of four.
+    """
+    tables = _CACHE.get("tables")
+    if tables is not None:
+        return tables
+    with _LOCK:
+        tables = _CACHE.get("tables")
+        if tables is None:
+            functions = _load(_SPEC_PATH)
+            methods: dict = {}
+            for fn in functions:
+                methods.setdefault(fn.namespace, set()).add(fn.method)
+            #: namespace -> frozenset of its method names, e.g. ["Quest"].
+            namespace_methods = {k: frozenset(v) for k, v in methods.items()}
+            tables = {
+                # Every row of the frozen census, in file order.
+                "API_FUNCTIONS": functions,
+                "NAMESPACE_METHODS": namespace_methods,
+                # The 8 namespace names the scripts index as Lua globals.
+                "NAMESPACES": tuple(sorted(namespace_methods)),
+                # qualified name ("Quest.SetFlag") -> ApiFunction.
+                "BY_QUALIFIED_NAME": {
+                    fn.qualified_name: fn for fn in functions},
+            }
+            _CACHE["tables"] = tables
+    return tables
+
+
+#: The module-level names this module has always exposed.  Listed rather
+#: than inferred, so a typo at a call site still raises AttributeError
+#: there instead of quietly parsing the census and then failing on a dict
+#: lookup with a different name in the message.
+_LAZY_NAMES = (
+    "API_FUNCTIONS", "NAMESPACE_METHODS", "NAMESPACES", "BY_QUALIFIED_NAME",
+)
+
+
+def __getattr__(name: str):
+    if name in _LAZY_NAMES:
+        return _tables()[name]
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
+
+
+def __dir__() -> list:
+    return sorted(list(globals()) + list(_LAZY_NAMES))

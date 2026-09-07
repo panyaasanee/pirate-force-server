@@ -78,8 +78,61 @@ class ApiSpecMatchesTheCharterTests(unittest.TestCase):
             self.fail("api_spec.tsv is not ASCII-only: %s" % exc)
 
 
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
+class TheCensusIsNotReadAtImportTimeTests(unittest.TestCase):
+    """`import script_host` must survive a corrupt census (finding 13).
+
+    The refusals above are only half the fix.  Until round `oghyca` the
+    parse ran at spec's own import, so every one of them raised out of
+    `import pirateforce_foundation.script_host` itself: that module's
+    fail-closed sweeps were dead before their own try/except could run, and
+    `_host_side_error_types()` -- the thing that keeps a defect of ours off
+    an innocent quest file's name -- never got to see the one mirror every
+    ScriptHost construction reads.  The end-to-end half (the LUA_HOST line
+    and the host_failed bucket) is in tests/test_script_lua_corpus.py,
+    which needs the Lua runtime; this test needs none.
+
+    A child interpreter because import happens once per process: this
+    module has already imported both by the time any test here runs.
+    """
+
+    def test_script_host_imports_with_a_broken_census_and_fails_only_on_use(self):
+        # Same locals-only style as the -O tests below: this module's own
+        # header keeps its import list to what every test needs.
+        import subprocess
+        import sys
+
+        src_root = Path(spec.__file__).resolve().parents[2]
+        code = (
+            "import sys, pathlib\n"
+            "sys.path.insert(0, %r)\n"
+            "from pirateforce_foundation.lua_api import spec, vendored\n"
+            "spec._SPEC_PATH = pathlib.Path('no_such_api_spec.tsv')\n"
+            "spec._CACHE.clear()\n"
+            "import pirateforce_foundation.script_host as sh\n"
+            "print('IMPORTED')\n"
+            "try:\n"
+            "    sh.lua_api_spec.NAMESPACE_METHODS\n"
+            "except vendored.VendoredDataError:\n"
+            "    print('LAZY')\n"
+            % str(src_root))
+        done = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.split(), ["IMPORTED", "LAZY"])
+
+    def test_every_public_name_still_reads_as_a_plain_attribute(self):
+        # PEP 562 resolution is an implementation detail; call sites (and
+        # dir(), which the census tooling walks) must not have to know.
+        for name in spec._LAZY_NAMES:
+            self.assertIn(name, dir(spec))
+            self.assertIsNotNone(getattr(spec, name))
+        with self.assertRaises(AttributeError):
+            spec.API_FUNCTIONS_TYPO
+
+    def test_the_tables_are_parsed_once_and_shared(self):
+        self.assertIs(spec.API_FUNCTIONS, spec.API_FUNCTIONS)
+        self.assertIs(spec.BY_QUALIFIED_NAME["Quest.SetFlag"],
+                      spec.BY_QUALIFIED_NAME["Quest.SetFlag"])
 
 
 class LoaderRefusesInsteadOfAssertingTests(unittest.TestCase):
@@ -219,3 +272,7 @@ class LoaderRefusesInsteadOfAssertingTests(unittest.TestCase):
         self.assertEqual(
             [node for node in ast.walk(tree) if isinstance(node, ast.Assert)],
             [], "python -O deletes assert statements; _load must raise")
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()
