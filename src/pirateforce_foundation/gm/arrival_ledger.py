@@ -280,6 +280,21 @@ def format_arrival_line(
     line = (
         f"{LEDGER_LINE_TOKEN} "
         f"ts={_format_timestamp(now_ts)} "
+        # THE PID IS ON EVERY LINE, not only on the process header
+        # (pf-adversary, round `6b1o1r`, the closing question).  Without
+        # it, attribution is positional -- "lines after a header belong to
+        # that header's process" -- and this file is append-only across
+        # runs and shared by every process using the same relative capture
+        # root.  An operator who boots the server, runs `pytest` in a
+        # second terminal, and then presses EXECUTE gets the real arrival
+        # appended after the pytest header, so the positional rule
+        # attributes their own frame to pytest.  Measured, not imagined:
+        # the full suite on this tree wrote real GM_VITAL_ARRIVED lines
+        # into this repository's own ledger from three test files.  With
+        # the pid on the line, "presence means the frame reached this
+        # lane" survives contact with a shared file, because the reader
+        # can ask WHICH PROCESS.
+        f"pid={os.getpid()} "
         f"id={rendered_id} "
         f"name={name} "
         f"account={_sanitize_field(account_name, MAX_ACCOUNT_LENGTH, _UNNAMED_ACCOUNT)} "
@@ -468,6 +483,7 @@ def record_arrival(
                 full_line = (
                     f"{LEDGER_FULL_TOKEN} "
                     f"ts={_format_timestamp(now_ts)} "
+                    f"pid={os.getpid()} "
                     f"account={safe_account if key != OVERFLOW_BUCKET_KEY else 'overflow'} "
                     f"budget={budget} "
                     f"further_arrivals_of_this_account_are_not_recorded"

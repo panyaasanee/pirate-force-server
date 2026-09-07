@@ -10805,17 +10805,34 @@ Three tokens to grep, all pinned by `tests/test_gm_arrival_ledger.py`:
 
 ```
 GM_VITAL_LEDGER_OPENED ts=... pid=... path=<absolute path of the ledger dir>
-GM_VITAL_ARRIVED ts=... id=0x51E9 name=GM_RunGMCommandVital account=... len=3 authorized=no outcome=refused_not_gm_account
-GM_VITAL_LEDGER_FULL ts=... account=... budget=24 further_arrivals_of_this_account_are_not_recorded
+GM_VITAL_ARRIVED ts=... pid=... id=0x51E9 name=GM_RunGMCommandVital account=... len=3 authorized=no outcome=refused_not_gm_account
+GM_VITAL_LEDGER_FULL ts=... pid=... account=... budget=24 further_arrivals_of_this_account_are_not_recorded
 ```
+
+EVERY LINE CARRIES ITS OWN pid, not just the header (round `6b1o1r`,
+pf-adversary).  The header alone would make attribution POSITIONAL --
+"lines after a header belong to that header's process" -- and this file is
+append-only and shared by every process that resolves to the same ledger
+root.  Boot the server, run `pytest` in a second terminal, then press the
+GM button: the real arrival is appended AFTER pytest's header, and the
+positional rule blames pytest for the tester's own frame.  Measured, not
+imagined: a full suite run wrote real `GM_VITAL_ARRIVED` lines into this
+repository's own working copy from three test files, invisible to
+`git status` because `.gitignore` hides `**/capture*/`.  **When you grade
+an attended boot, filter by the pid of the server you booted.**
 
 `GM_VITAL_LEDGER_OPENED` is written once per process AND printed to the
 console once, and it carries the absolute path: a server whose working
 directory is not the one the reader is looking under produces exactly the
 "no folder ever appeared" that R322B reported, and nothing else in this
-package rules that out.  The pid is what separates this boot's lines from
-the previous boot's and from a `pytest` run that used the same relative
-root -- the file is append-only across runs.
+package rules that out.  The header's own pid names the process that
+opened this root; the per-line pids are what actually separate this boot's
+lines from the previous boot's and from a `pytest` run that used the same
+relative root -- the file is append-only across runs.  One header is
+written PER LEDGER ROOT per process, not one per process: a process that
+touches two roots used to leave the second one headerless while the
+console line named the first, which is the "directory the reader is not
+looking under" failure wearing a different coat.
 
 `outcome=` is `captured`, `refused_<reason>`, or `raised_<ExcName>`.
 `authorized=` is `yes`, `no`, or `unknown` (the chain raised, so whether

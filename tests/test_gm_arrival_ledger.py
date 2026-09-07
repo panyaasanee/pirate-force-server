@@ -450,6 +450,31 @@ class ArrivalLedgerFileTests(unittest.TestCase):
         else:
             self.assertTrue(self.ledger_path.is_file())
 
+    def test_every_line_carries_the_pid_that_wrote_it(self):
+        # pf-adversary (round `6b1o1r`) closed its report with the question
+        # this answers: with the pid only on the header, attribution is
+        # POSITIONAL, and this file is append-only and shared by every
+        # process using the same relative capture root.  Boot the server,
+        # run pytest in another terminal, then press EXECUTE: the real
+        # arrival lands after pytest's header and the positional rule
+        # blames pytest for the tester's own frame.
+        self._record()
+        with mock.patch.object(arrival_ledger.os, "getpid", return_value=4242):
+            self._record(account="other")
+        lines = self._lines()
+        self.assertIn(f"pid={os.getpid()}", lines[0])
+        self.assertIn("pid=4242", lines[1])
+        # ...and the budget-exhaustion announcement too: it is the line a
+        # reader meets when the evidence they wanted is missing.
+        for _ in range(arrival_ledger.MAX_LINES_PER_ACCOUNT + 2):
+            self._record(account="flood")
+        full = [
+            line for line in self._all_lines()
+            if line.startswith(arrival_ledger.LEDGER_FULL_TOKEN)
+        ]
+        self.assertTrue(full)
+        self.assertIn(f"pid={os.getpid()}", full[0])
+
     def test_each_ledger_root_this_process_touches_gets_its_own_header(self):
         # pf-adversary (round `6b1o1r`, finding 1): the announcement flag
         # was ONE process-global boolean while the header is per
