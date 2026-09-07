@@ -1,1 +1,1 @@
-{"sha":"1fcda5cd465edb47e190cedaa46e1a060a06e57c","conclusion":"failure","event":"push","ref":"refs/heads/claude/beautiful-tesla-e8pss9","run_id":"34143340857","utc":"2026-09-07T16:53:20Z"}
+{"sha":"1fcda5cd465edb47e190cedaa46e1a060a06e57c","conclusion":"failure","event":"pull_request","ref":"refs/pull/1085/merge","run_id":"34143372588","utc":"2026-09-07T17:01:14Z"}
