@@ -522,13 +522,21 @@ class ExplicitWindowDecodeTests(unittest.TestCase):
     caller declares, not the one a slice happened to make.
 
     Written for the counter-proposal that closed
-    ``pirate-force-server#1045``: the whole-buffer decoders answer a
+    ``pirate-force-server#1045``.  The whole-buffer decoders answer a
     question about the whole object they are handed, so the caller owns
-    the slice, and a wrong slice fails ASYMMETRICALLY -- short always
-    raises, long only raises when the surplus is not itself a complete
-    member record.  These tests measure that asymmetry on real bytes
-    first (so the reason the window form exists is a fact in the suite,
-    not a sentence in a docstring), then pin the window form against it.
+    the slice -- and a wrong slice is SILENT IN BOTH DIRECTIONS at
+    member-record granularity: N whole records too many decode as N
+    extra members, N whole records too few as N fewer.  A first draft of
+    this class asserted the short half "always fails closed"; that was
+    false, pf-adversary measured it (D1/D2, round ``splep7``), and the
+    two tests below now measure both halves on real bytes instead.
+
+    So these tests do NOT claim the window form makes a mis-declared
+    boundary safe.  What they pin is narrower and true: the window form
+    reads exactly the window the caller declared, and every window the
+    caller could not have meant (out of range, negative, non-integer)
+    fails closed as ``None`` rather than raising through the public
+    surface.
     """
 
     CASES = (
@@ -571,15 +579,38 @@ class ExplicitWindowDecodeTests(unittest.TestCase):
         for name, fields, encode, decode, decode_at in self.CASES[1:]:
             with self.subTest(name):
                 payload = encode(fields)
-                over = payload + sw._encode_member(MEMBER_B)
-                decoded = decode(over)
-                self.assertIsNotNone(decoded)
-                self.assertNotEqual(decoded, fields)
-                self.assertEqual(
-                    len(decoded.members), len(fields.members) + 1
+                for extra in (1, 2, 3):
+                    over = payload + sw._encode_member(MEMBER_B) * extra
+                    decoded = decode(over)
+                    self.assertIsNotNone(decoded)
+                    self.assertNotEqual(decoded, fields)
+                    # N whole records -> N extra members, not "one".
+                    self.assertEqual(
+                        len(decoded.members), len(fields.members) + extra
+                    )
+                    # ... and the window form does not read the surplus.
+                    self.assertEqual(decode_at(over, 0, len(payload)), fields)
+
+    def test_under_slicing_by_a_whole_record_is_silent_in_BOTH_forms(self):
+        """The half the first draft of this lane's own docstring got
+        backwards (pf-adversary D1).  A shortfall of a whole member
+        record decodes as one FEWER member -- and the window form does
+        not fix that either, because a declared length short by a record
+        is a boundary the caller got wrong, not one this module can
+        detect.  Kept as a measured negative result, not a promise."""
+
+        for name, fields, encode, decode, decode_at in self.CASES[1:]:
+            with self.subTest(name):
+                rich = fields.__class__(
+                    **{**fields.__dict__, "members": (MEMBER_A, MEMBER_B)}
                 )
-                # ... and the window form does not read the surplus.
-                self.assertEqual(decode_at(over, 0, len(payload)), fields)
+                payload = encode(rich)
+                short = len(payload) - 22
+                for got in (decode(payload[:short]),
+                            decode_at(payload, 0, short)):
+                    self.assertIsNotNone(got)
+                    self.assertNotEqual(got, rich)
+                    self.assertEqual(len(got.members), 1)
 
     def test_over_slicing_that_is_not_a_whole_record_fails_closed_either_way(self):
         for name, fields, encode, decode, decode_at in self.CASES:
@@ -611,18 +642,59 @@ class ExplicitWindowDecodeTests(unittest.TestCase):
                 )
 
     def test_out_of_range_windows_fail_closed(self):
-        payload = sw.encode_stall_open_payload(_open_fields())
-        for offset, length in (
-            (-1, len(payload)),
-            (0, -1),
-            (0, len(payload) + 1),
-            (len(payload), 1),
-            (1, len(payload)),
-        ):
-            with self.subTest(offset=offset, length=length):
-                self.assertIsNone(
-                    sw.decode_stall_open_payload_at(payload, offset, length)
-                )
+        """All THREE decoders, not just ``open``.  Before pf-adversary D3
+        this covered one of the three, so an ``_at`` body that let
+        ``WireDecodeError`` escape the public surface for the other two
+        survived the whole file."""
+
+        for name, fields, encode, decode, decode_at in self.CASES:
+            payload = encode(fields)
+            for offset, length in (
+                (-1, len(payload)),
+                (0, -1),
+                (0, len(payload) + 1),
+                (len(payload), 1),
+                (1, len(payload)),
+                (-len(payload), len(payload)),
+            ):
+                with self.subTest(name, offset=offset, length=length):
+                    self.assertIsNone(decode_at(payload, offset, length))
+
+    def test_negative_bounds_are_rejected_not_reinterpreted(self):
+        """pf-adversary D4: the previous negative-window subtests passed
+        for an unrelated reason -- on an exact-length payload, Python's
+        own negative-slice semantics happened to produce a buffer that
+        failed to decode anyway, so deleting either guard left the suite
+        green.  These fixtures carry a trailing byte (and a longer buffer
+        than the window), so a MISSING guard decodes SUCCESSFULLY into a
+        window nobody declared, and the assertion reaches the line it
+        names."""
+
+        for name, fields, encode, decode, decode_at in self.CASES:
+            payload = encode(fields)
+            with self.subTest(name, guard="negative length"):
+                # Without `length < 0`: buf[0:-1] is the payload minus its
+                # last byte -- which, with a byte appended, is exactly the
+                # payload, and decodes.
+                self.assertIsNone(decode_at(payload + b"\x99", 0, -1))
+            with self.subTest(name, guard="negative offset"):
+                # Without `offset < 0`: a negative offset re-anchors the
+                # window from the END of the buffer and decodes.
+                buf = payload + b"ZZ"
+                self.assertIsNone(decode_at(buf, -len(buf), len(payload)))
+
+    def test_non_integer_bounds_fail_closed_like_every_other_bad_input(self):
+        """pf-adversary D9: this module family promises ``None`` on
+        malformed input; a float or ``None`` bound used to raise
+        ``TypeError`` straight through the public surface."""
+
+        for name, fields, encode, decode, decode_at in self.CASES:
+            payload = encode(fields)
+            for offset, length in (
+                (0, 1.5), (None, 3), (0, None), ("0", 3), (0, "3"),
+            ):
+                with self.subTest(name, offset=offset, length=length):
+                    self.assertIsNone(decode_at(payload, offset, length))
 
     def test_an_empty_window_fails_closed_and_never_raises(self):
         for name, fields, encode, decode, decode_at in self.CASES:
