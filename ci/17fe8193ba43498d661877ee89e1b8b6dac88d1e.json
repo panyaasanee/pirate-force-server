@@ -1,1 +1,1 @@
-{"sha":"17fe8193ba43498d661877ee89e1b8b6dac88d1e","conclusion":"failure","event":"push","ref":"refs/heads/claude/beautiful-tesla-jqeid1","run_id":"34156102167","utc":"2026-09-07T20:08:54Z"}
+{"sha":"17fe8193ba43498d661877ee89e1b8b6dac88d1e","conclusion":"failure","event":"pull_request","ref":"refs/pull/1103/merge","run_id":"34156908531","utc":"2026-09-07T20:17:17Z"}
