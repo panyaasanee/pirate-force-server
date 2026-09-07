@@ -59,6 +59,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import accounts as gm_accounts
+from . import arrival_ledger
 from .activity_cheat_code_wire import ACTIVITY_CHEAT_CODE_VITAL_ID
 from .command_capture import (
     DEFAULT_CAPTURE_ROOT,
@@ -488,6 +489,78 @@ def _authorize_and_capture(
     capture_root: str | Path,
     now_ts: float | None,
     capture_fn,
+    vital_id: int,
+) -> GmDispatchOutcome:
+    """Run the gate chain, and record the arrival either way.
+
+    EVERY EXIT OF THE CHAIN WRITES EXACTLY ONE LEDGER LINE, including the
+    exits that raise.  That is the whole point: GT-279 / P-3 cannot tell
+    "the client never sent 0x51E9" from "it did and this lane refused it"
+    when both look like an empty capture folder, and the branch that
+    produces the empty folder in the field is the ordinary one --
+    ``REFUSAL_NOT_GM`` for an attended account that is not in
+    ``gm_accounts.json`` (see ``gm/arrival_ledger.py`` for the four worlds
+    an empty folder collapses together, and for what a MISSING line does
+    and does not prove).
+
+    THE LEDGER IS NOT INSIDE THE GATE CHAIN, IT WRAPS IT.  Putting the
+    record after the chain, in one place, is what keeps the security
+    property the chain exists for readable: the order
+    authorize -> rate limit -> payload size -> quota -> write is still one
+    unbroken block below, with no logging statement between two checks for
+    someone to accidentally reorder around.
+
+    A LEDGER PROBLEM NEVER BECOMES A DISPATCH PROBLEM.
+    ``record_arrival`` swallows OSError itself and returns None; nothing
+    here inspects its result, so a full disk costs the line and not the
+    connection.
+    """
+    try:
+        outcome = _run_gate_chain(
+            account_name,
+            raw_payload,
+            config_path=config_path,
+            capture_root=capture_root,
+            now_ts=now_ts,
+            capture_fn=capture_fn,
+        )
+    except BaseException as error:
+        # The two argument-validation raises at the top of the chain land
+        # here (a non-str account_name, a non-bytes payload), and so would
+        # any exception a future check adds.  An arrival that blew up is
+        # still an arrival, and it is the single hardest case to diagnose
+        # from an empty folder, so it gets a line naming the exception type
+        # -- and then the exception continues on its way unchanged.
+        arrival_ledger.record_arrival(
+            vital_id,
+            account_name,
+            len(raw_payload) if isinstance(raw_payload, (bytes, bytearray)) else None,
+            f"raised_{type(error).__name__}",
+            authorized=False,
+            capture_root=capture_root,
+            now_ts=now_ts,
+        )
+        raise
+    arrival_ledger.record_arrival(
+        vital_id,
+        account_name,
+        len(raw_payload),
+        "captured" if outcome.captured_path is not None else f"refused_{outcome.refusal_reason}",
+        authorized=outcome.authorized,
+        capture_root=capture_root,
+        now_ts=now_ts,
+    )
+    return outcome
+
+
+def _run_gate_chain(
+    account_name: str,
+    raw_payload: bytes,
+    *,
+    config_path: str | None,
+    capture_root: str | Path,
+    now_ts: float | None,
+    capture_fn,
 ) -> GmDispatchOutcome:
     """The gate chain both inbound entry points below run, in one place.
 
@@ -649,6 +722,7 @@ def handle_activity_cheat_code_vital(
         capture_root=capture_root,
         now_ts=now_ts,
         capture_fn=capture_raw_activity_cheat_code,
+        vital_id=ACTIVITY_CHEAT_CODE_VITAL_ID,
     )
 
 
@@ -682,4 +756,5 @@ def handle_gm_run_command_vital(
         capture_root=capture_root,
         now_ts=now_ts,
         capture_fn=capture_raw_gm_command,
+        vital_id=GM_RUN_GM_COMMAND_VITAL_ID,
     )
