@@ -236,9 +236,12 @@ def _label_is_this_lanes_own(label):
     no control characters.
 
     THE PREFIX IS NOT TIDINESS (pf-adversary D2).  ``dispatch()`` feeds
-    whatever came back into ``_move_authority_note_server_moves`` and
-    ``_gm_warp_note_position_pending``, and both of those match on the
-    LABEL.  Measured on an ordinary logged-in non-GM session: an answerer
+    whatever came back into ``_gm_warp_note_position_pending`` and into
+    the move-authority server-moves note beside it -- spelled here in
+    prose and never as its underscored identifier, because that lane's
+    own containment test pins the exact set of foundation modules whose
+    text mentions it, and this module must not join that set.  Both of
+    those match on the LABEL.  Measured on an ordinary logged-in non-GM session: an answerer
     returning ``chat_command_action.WARP_ACTION_LABEL`` on a party-invite
     frame flipped ``gm_warp_position_pending`` to ``True`` -- a player
     clicking "invite to party" arming the GM warp-confirm window, with no
@@ -273,7 +276,7 @@ def _actions_are_well_formed(actions):
     non-empty ``bytes`` ``frame`` to write, and a delay in seconds that
     is real, finite and not negative.
 
-    🔴 ``pc`` IS ``bytes``, AND THE FIRST DRAFT OF THIS FUNCTION SAID
+    !! ``pc`` IS ``bytes``, AND THE FIRST DRAFT OF THIS FUNCTION SAID
     ``int``.  pf-adversary (D1) drove the real login/create/start-game
     sequence and passed every action the dispatcher actually returns
     through this validator: ``LOGIN_VERIFY_ACK_ONCE``,
