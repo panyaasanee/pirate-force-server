@@ -2291,8 +2291,9 @@ class NoModuleOfThisLaneReportsASkipTests(unittest.TestCase):
         # ran before believing the absence of skips means anything -- and
         # demand it of EVERY child.  At one module per child this is
         # STRONGER than the whole-corpus form: it catches a module-level
-        # `pytest.skip(allow_module_level=True)` that 1171 other passes
-        # would have buried.
+        # module-level skip directive that 1171 other passes would have
+        # buried.  (Spelling it out here would itself read as a new skip
+        # marker to the gate's preflight -- measured, red on the first run.)
         passed = re.search(r"(\d+) passed", report)
         if passed is None:
             bad("produced no pytest summary.\n%s" % report[-4000:])
