@@ -104,6 +104,25 @@ has run this file under it (pf-adversary, round `fx4p76`, D4's correction).
 The fd-table read is POSIX-only.  On a host without `/proc/self/fd` the
 property assertion cannot run, and rather than pass quietly this file FAILS if
 that happens on Linux -- a fence going silent must never look like a green.
+`test_a_table_that_could_not_be_read_fails_the_assertion_on_linux` is what
+makes that sentence a measurement instead of a promise.
+
+ON WINDOWS THE PROPERTY IS NOT MEASURED AT ALL, and this file will not pretend
+otherwise (pf-adversary, round `da16dj`, D-2).  `read_fd_table` returns None
+there, `assert_no_descriptor_leaked` takes its early return, and all of its
+call sites become no-ops -- on `gate-windows.yml`, which is the gate this
+project treats as authoritative and the only platform where the bug this file
+exists for is fatal.  What IS covered on Windows is the CONSEQUENCE rather than
+the descriptor: `test_a_rename_that_fails_removes_the_temp_file_and_raises`,
+`test_a_rename_that_fails_while_restoring_leaves_the_file_as_it_was` and
+`test_a_stage_whose_rename_fails_restores_and_leaks_nothing` inject the
+`PermissionError` that an open handle causes there and assert the module
+refuses cleanly, removes its temp file and leaves the operator's file alone.
+That is a real property and it runs on every platform; it is NOT the same as
+counting descriptors, and nobody should read it as such.  The open question --
+what measures the descriptor property itself on Windows -- is asked of COO in
+`notes_to_chief/20260907_1219_LANE-GM-ASK-COO-what-measures-descriptors-on-windows.md`
+and is not answered here.
 
 The stand-ins here patch the MODULE ATTRIBUTE (`login_scene_stage.os`), not the
 `os` module itself.  That is the difference from `descriptors_opened_by`, which
@@ -143,6 +162,7 @@ OPENING_ATTRIBUTES = {
 # The same functions reached by a bare name.  `open` is here because it is a
 # builtin nobody has to import.
 OPENING_BARE_NAMES = {"open"}
+OPENING_MODULES = {"os", "io", "tempfile"}
 CLOSING_SITE = "os.close(fd)"
 
 # Scenes the committed catalog knows, matching `test_gm_login_scene_stage.py`.
@@ -158,16 +178,30 @@ def opening_call_sites(source: str):
     Parsed, not grepped, for two reasons pf-adversary measured on the regex
     this replaces (round `fx4p76`): a comment or docstring spelling
     `tempfile.mkstemp(` made the site count red for free (D4), and four of five
-    real spellings walked past it (D1).  Aliases introduced by `from ... import
-    ... as ...` and by `name = os.open` are followed, so renaming the import is
-    not a way through.
+    real spellings walked past it (D1).
+
+    WHAT IT FOLLOWS, and what it does not.  It follows `from os import open as
+    _x`, `import os as _o`, `_o = os` and `_x = os.open`.  It is measured BLIND
+    to `getattr(os, "open")`, `os.pipe`, `os.dup`, `os.dup2`, `os.memfd_create`,
+    `select.epoll`, `socket.socket`, `pathlib.Path(p).open`, `path.open`,
+    `codecs.open`, `dbm.open`, `io.FileIO`, `io.open_code`, `builtins.open`,
+    `subprocess.Popen(stdout=PIPE)`, and any call through a class or instance
+    attribute (pf-adversary, round `da16dj`, D-4: 25 of 30 spellings tried).
+    `TheFenceCoversEverySiteTests` pins that blindness as a list, so widening
+    this function is a deliberate edit rather than a silent one.  This is the
+    reason the file calls it a TRIPWIRE: the fence is the fd-table window.
 
     Returns `[(line, spelling)]` sorted by line.
     """
     tree = ast.parse(source)
     aliased: dict[str, str] = {}
+    modules: dict[str, str] = {}
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module in {"os", "io", "tempfile"}:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in OPENING_MODULES:
+                    modules[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module in OPENING_MODULES:
             for alias in node.names:
                 if (node.module, alias.name) in OPENING_ATTRIBUTES:
                     aliased[alias.asname or alias.name] = (
@@ -175,21 +209,26 @@ def opening_call_sites(source: str):
                     )
         elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Attribute):
             value = node.value
-            if (
-                isinstance(value.value, ast.Name)
-                and (value.value.id, value.attr) in OPENING_ATTRIBUTES
-            ):
+            if isinstance(value.value, ast.Name):
+                module = modules.get(value.value.id, value.value.id)
+                if (module, value.attr) in OPENING_ATTRIBUTES:
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            aliased[target.id] = f"{module}.{value.attr}"
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Name):
+            if node.value.id in OPENING_MODULES:
                 for target in node.targets:
                     if isinstance(target, ast.Name):
-                        aliased[target.id] = f"{value.value.id}.{value.attr}"
+                        modules[target.id] = node.value.id
     sites = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-            if (func.value.id, func.attr) in OPENING_ATTRIBUTES:
-                sites.append((node.lineno, f"{func.value.id}.{func.attr}"))
+            module = modules.get(func.value.id, func.value.id)
+            if (module, func.attr) in OPENING_ATTRIBUTES:
+                sites.append((node.lineno, f"{module}.{func.attr}"))
         elif isinstance(func, ast.Name):
             if func.id in OPENING_BARE_NAMES:
                 sites.append((node.lineno, func.id))
@@ -512,12 +551,15 @@ class RestoreReleasesItsDescriptorTests(_DescriptorCase):
         self.assert_every_descriptor_released()
 
     def test_a_short_write_while_restoring_is_swallowed_and_changes_nothing(self):
-        """`raise OSError("short write restoring ...")` -- never executed before.
+        """The short-write arm of `_restore_bytes` -- never executed before.
 
         The raise is caught by this function's own `except OSError: return`,
         which is the design: a restore must not raise over the refusal that
-        called it.  What must NOT happen is the operator's file being left
-        half-written, and that is what this measures.
+        called it.  So its MESSAGE is unobservable here and this case does not
+        pin it -- pf-adversary (round `da16dj`, D-8) measured that rewording it
+        keeps this file green, and that is a consequence of the swallow, not a
+        gap to paper over with a source-text pin.  What must NOT happen is the
+        operator's file being left half-written, and that is what this measures.
         """
         path = self.tmp / "gm_login_scene.json"
         path.write_bytes(b"replaced by a refusal\n")
@@ -603,11 +645,16 @@ class TheOperatorFacingCallsLeakNothingTests(_DescriptorCase):
             json.dumps({"gm_accounts": [GM_ACCOUNT]}), encoding="utf-8"
         )
         self.config_path = self.tmp / "config" / "gm_login_scene.json"
-        # One call before the window: the first stage in a process populates
-        # whatever the scene registry and the accounts reader cache. A cache
-        # that held a descriptor open forever would still be caught -- by
-        # `test_five_stages_in_one_window_do_not_grow_the_fd_table`, which
-        # counts across repeated calls including this one.
+        # One call before the window, so `claim` and `restore` have an entry
+        # to work on.
+        # KNOWN HOLE, measured, not argued away (pf-adversary, round
+        # `da16dj`, D-1): a descriptor opened ONCE PER PROCESS -- the realistic
+        # shape, an `lru_cache`d reader that keeps its handle -- is in `before`
+        # for every window here and cancels out. A leak guarded by
+        # `if not _held:` inserted into `_write_entry_locked` keeps this file
+        # at green; the same leak on every call turns four of these cases red.
+        # An earlier version of this comment claimed the five-stage case below
+        # covered it. It does not: its window wraps the loop, not this line.
         self.stage(TEST_STAGE)
 
     def stage(self, scene_id):
@@ -657,6 +704,39 @@ class TheOperatorFacingCallsLeakNothingTests(_DescriptorCase):
 
         self.assertEqual(claimed, TEST_STAGE, "the fixture stopped claiming")
         self.assert_no_descriptor_leaked()
+
+    def test_a_stage_whose_rename_fails_restores_and_leaks_nothing(self):
+        """The only case here that reaches `_restore_bytes` from a public call.
+
+        pf-adversary (round `da16dj`, D-3): every other case in this class
+        walks the success path, so `restore_login_scene(account, None)` reaches
+        `_atomic_write_json` and NEVER `_restore_bytes` -- the class docstring's
+        "end to end" was true of one path only.  This one injects the Windows
+        failure the whole file is about (`os.replace` refusing) into the public
+        call, which sends `_write_entry_locked` down its `REASON_WRITE_FAILED`
+        arm and through `_restore_bytes` on the way out.
+
+        It is the one case here that installs the stand-ins; two temp files are
+        opened on this path, so only the PROPERTY assertion applies.
+        """
+        self.install(replace_error=PermissionError(errno.EACCES, "injected"))
+
+        with self.watching_the_fd_table():
+            result = self.stage(PORT_ROYAL)
+
+        self.assertFalse(result.staged, "a failed rename must not report staged")
+        self.assert_no_descriptor_leaked()
+        self.assertGreaterEqual(
+            len(self.opened),
+            2,
+            "this case is meant to walk BOTH _atomic_write_json and "
+            f"_restore_bytes; it opened {self.opened!r}",
+        )
+        self.assertEqual(
+            sorted(self.closed),
+            sorted(self.opened),
+            "every descriptor opened on the refusal path must be closed",
+        )
 
     def test_five_stages_in_one_window_do_not_grow_the_fd_table(self):
         """The shape pf-adversary's probe was measured in: five stages, one window.
@@ -714,6 +794,21 @@ class TheLeakDetectorItselfWorksTests(_DescriptorCase):
         # No `assertRaises`: a clean window must not be reported as a leak, or
         # the fence would be a false red on every path.
         self.assert_no_descriptor_leaked()
+
+    def test_a_table_that_could_not_be_read_fails_the_assertion_on_linux(self):
+        """The `None` arm's Linux guard, which nothing pinned until `da16dj`.
+
+        pf-adversary (round `da16dj`, D-5): deleting the `assertFalse(...)`
+        from that arm and leaving a bare `return` kept this file at
+        `24 passed`, so the docstring sentence "a fence going silent must never
+        look like a green" was itself an unmeasured claim.
+        """
+        if not sys.platform.startswith("linux"):
+            return
+        self.leaked = None
+        with self.assertRaises(AssertionError) as raised:
+            self.assert_no_descriptor_leaked()
+        self.assertIn("unreadable on a Linux host", str(raised.exception))
 
     def test_a_case_that_forgot_the_window_fails_the_assertion(self):
         """The sentinel arm: never watching must not read as never leaking."""
@@ -842,9 +937,10 @@ class TheFenceCoversEverySiteTests(unittest.TestCase):
     def test_the_scanner_is_not_a_spelling_and_ignores_comments(self):
         """The five spellings that walked past the regex, plus the free red.
 
-        pf-adversary (round `fx4p76`, D1 and D4) measured all six of these
-        against the regex this replaces: four opened a descriptor it never saw,
-        and the sixth -- a comment -- made the file red for nothing.
+        pf-adversary (round `fx4p76`, D1 and D4) measured these against the
+        regex this replaces: four of the six CALLS opened a descriptor it never
+        saw, and the comment and the docstring -- neither of them a call --
+        made the file red for nothing.
         """
         source = (
             "import io\n"
@@ -875,16 +971,53 @@ class TheFenceCoversEverySiteTests(unittest.TestCase):
             ],
         )
 
-    def test_the_scanner_does_not_count_a_call_that_opens_nothing(self):
-        """`mkdtemp` returns a name, not a descriptor; `path.open` is not `os`."""
+    def test_the_scanner_does_not_count_mkdtemp_which_opens_nothing(self):
+        """`mkdtemp` returns a name, not a descriptor. `os.fdopen` wraps one."""
         source = (
+            "import os\n"
             "import tempfile\n"
-            "def f(path):\n"
+            "def f(path, fd):\n"
             "    a = tempfile.mkdtemp(dir=path)\n"
-            "    b = path.open()\n"
+            "    b = os.fdopen(fd, 'wb')\n"
             "    return a, b\n"
         )
         self.assertEqual(opening_call_sites(source), [])
+
+    def test_the_spellings_this_scanner_is_measured_blind_to(self):
+        """Recorded as a list, not defended (pf-adversary, round `da16dj`, D-4).
+
+        An earlier version of the case above said `path.open()` "opens
+        nothing".  That was false -- `pathlib.Path.open` hands back a real
+        descriptor; the scanner simply cannot see it.  Every spelling here
+        opens one and is missed.  If you widen `opening_call_sites`, this list
+        goes red and you shorten it on purpose, which is the only way a known
+        hole stops being a forgotten one.
+        """
+        blind = (
+            "getattr(os, 'open')(p, 0)",
+            "os.pipe()",
+            "os.dup(3)",
+            "os.dup2(3, 4)",
+            "select.epoll()",
+            "socket.socket()",
+            "pathlib.Path(p).open()",
+            "p.open()",
+            "codecs.open(p)",
+            "io.FileIO(p)",
+        )
+        for spelling in blind:
+            source = (
+                "import codecs\n"
+                "import io\n"
+                "import os\n"
+                "import pathlib\n"
+                "import select\n"
+                "import socket\n"
+                "def f(p):\n"
+                f"    return {spelling}\n"
+            )
+            with self.subTest(spelling=spelling):
+                self.assertEqual(opening_call_sites(source), [])
 
     def test_the_four_literal_close_statements_are_still_there(self):
         """MECHANISM PIN. A correct refactor may legitimately change this.
