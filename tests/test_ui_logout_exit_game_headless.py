@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import tempfile
 import sys
 import unittest
 from unittest import mock
@@ -181,6 +182,101 @@ class ServerSentTokenTests(unittest.TestCase):
             )
         self.assertFalse(outcome.handled)
         self.assertEqual(outcome.reason, "repository_failure_OSError")
+
+
+class TokenNamesTheTreeItCameFromTests(unittest.TestCase):
+    """pf-adversary F7 of round `uw3bxb`: the token named no commit.
+
+    ka1-A re-runs this proof immediately before an attended boot and culls
+    the ticket when the token does not reproduce (PANYA `20260907_0159`).
+    Without these two fields, two tokens minted from different trees are the
+    same string, and the ticket cannot be told which one it quotes.
+    """
+
+    def test_every_token_line_carries_head_and_code_before_the_result(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            code = H.main([])
+        self.assertEqual(code, 0)
+        lines = [
+            line for line in out.getvalue().splitlines()
+            if line.startswith(H.TOKEN_PREFIX)
+        ]
+        self.assertEqual(len(lines), 3, lines)
+        for line in lines:
+            self.assertIn(" head=", line)
+            self.assertIn(" code=", line)
+            self.assertLess(
+                line.index("code="), line.index("RESULT="),
+                "the stamp must precede RESULT so a grep for the verdict "
+                "keeps working unchanged: " + line,
+            )
+
+    def test_the_stamp_is_ascii_and_shaped_for_a_cp874_console(self):
+        stamp = H.stamp()
+        stamp.encode("ascii")  # raises on anything the bridge cannot print
+        head, _, rest = stamp.partition(" ")
+        self.assertTrue(head.startswith("head="), stamp)
+        self.assertTrue(rest.startswith("code="), stamp)
+        self.assertEqual(len(rest[len("code="):]), 12, stamp)
+
+    def test_code_fingerprint_is_over_the_file_bytes_not_the_module(self):
+        # The digest has to move when the code under test moves.  Drive it
+        # against a fake tree so this is a measurement, not a re-statement.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "src" / "pirateforce_foundation"
+            package.mkdir(parents=True)
+            for name in H._FINGERPRINTED_FILES:
+                (package / name).write_text("first\n", encoding="utf-8")
+            with mock.patch.object(H, "ROOT", root):
+                before = H.code_fingerprint()
+                (package / "ui_logout_exit_game.py").write_text(
+                    "second\n", encoding="utf-8")
+                after = H.code_fingerprint()
+                (package / "ui_logout_exit_game.py").unlink()
+                missing = H.code_fingerprint()
+        self.assertNotEqual(before, after)
+        self.assertNotEqual(after, missing)
+        self.assertEqual(len(before), 12)
+
+    def test_head_commit_never_raises_and_says_unknown_without_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(H, "ROOT", Path(tmp)):
+                self.assertEqual(H.head_commit(), "unknown")
+                # A stamp is still printable when git is not there at all --
+                # the proof runs on plain checkouts and must not die on one.
+                self.assertIn("head=unknown", H.stamp())
+
+    def test_head_commit_reads_a_ref_a_detached_head_and_packed_refs(self):
+        sha = "0123456789abcdef0123456789abcdef01234567"
+        for label, build in (
+            ("ref", lambda git: (
+                (git / "refs" / "heads").mkdir(parents=True),
+                (git / "HEAD").write_text(
+                    "ref: refs/heads/main\n", encoding="utf-8"),
+                (git / "refs" / "heads" / "main").write_text(
+                    sha + "\n", encoding="utf-8"),
+            )),
+            ("detached", lambda git: (
+                (git / "HEAD").write_text(sha + "\n", encoding="utf-8"),
+            )),
+            ("packed", lambda git: (
+                (git / "HEAD").write_text(
+                    "ref: refs/heads/main\n", encoding="utf-8"),
+                (git / "packed-refs").write_text(
+                    "# pack-refs with: peeled\n"
+                    + sha + " refs/heads/main\n",
+                    encoding="utf-8"),
+            )),
+        ):
+            with self.subTest(shape=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    git = Path(tmp) / ".git"
+                    git.mkdir()
+                    build(git)
+                    with mock.patch.object(H, "ROOT", Path(tmp)):
+                        self.assertEqual(H.head_commit(), sha[:12])
 
 
 if __name__ == "__main__":
