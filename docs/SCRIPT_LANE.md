@@ -151,11 +151,14 @@ headless to completion with no error, and prove the loader can load all
     `math.randomseed`), which the sandbox correctly blocks per the
     charter's own instruction ("sandbox: an script must never reach
     io/os/require/load").  This is the fail-closed behaviour working
-    exactly as specified, not a defect in this host.  Follow-up for a
-    later round, NOT done this round (scope discipline): give the host a
-    narrow, safe clock/RNG-seed function instead of blocking `os` outright,
-    so `utility.lua`'s one legitimate use case stops needing the sandbox
-    widened wholesale.
+    exactly as specified, not a defect in this host.  DONE, round
+    `q6nytd`: `lua_api/prelude.py` runs this file as what it is -- the
+    engine's own startup PRELUDE, not a quest -- with an `os` that is a Lua
+    table carrying exactly one key, `time`, for the duration of that chunk
+    and no longer.  It stays on this list anyway, and that is the point:
+    loading `utility.lua` as if it were a SCRIPT still fails on `os.time()`
+    exactly as before, because the prelude seam is a separate, opt-in
+    entrance and `load_corpus` passes no prelude by default.
   - These four-plus-one are pinned by name in
     `test_script_lua_corpus.py::KNOWN_LOAD_FAILURES` -- a new failure OR an
     old one silently disappearing both go red, per this project's
@@ -683,16 +686,40 @@ neither visible from `load_corpus`'s load-only check (pinned in
   `check_1 * check_2 * check_3` on a nil raises. Read straight from the
   source (`grep -n "check_1" gamedata/lua/Quest/q_gather_anticlass.lua`);
   not a guess about Lua semantics.
-- 13 files (`t_ge2tm_rat.lua` and 12 more matching `*rat*.lua`) call a bare
-  global `rate(dicevalue)` that is defined in a DIFFERENT file,
-  `utility.lua` -- this host gives every script its OWN Lua state
-  (deliberate, `script_host.py`'s own module docstring: stops 616 files
-  sharing one global table from overwriting each other's same-named entry
-  points), so a name defined in one file is never visible from another.
-  `utility.lua` is itself one of the 5 `KNOWN_LOAD_FAILURES` (calls
-  `os.time()` at its own top level, sandbox-blocked), so even a
-  shared-preload design would not make `rate` real without also widening
-  the `os` sandbox (named as unfinished follow-up by round `s2fxf6`).
+- 17 files call a bare global `rate(dicevalue)` that is defined in a
+  DIFFERENT file, `utility.lua`.  RE-MEASURED, round `q6nytd` -- the "13
+  files matching `*rat*.lua`" this paragraph used to claim was low and the
+  shape of the pattern was wrong: `grep -rlE '(^|[^A-Za-z_])rate[[:space:]]
+  *\(' --include=*.lua gamedata/lua` returns 18 paths, of which one is
+  `utility.lua` itself (it DEFINES `rate`), leaving 17 callers over 34 call
+  sites; **two** of them (`t_escaphk_sp.lua`, `t_getmorpopmo_q1.lua`) do
+  not match `*rat*.lua` at all.  (A first draft of this correction said
+  "four", adding `t_getm&cat_himd_q1_rat.lua` and
+  `t_indani_l_cat_pt_rat.lua`, which both contain `rat` and both match --
+  pf-adversary D10, this round: a stale number replaced by a new wrong one
+  in the same commit.)  The 17 are pinned by name in
+  `tests/test_script_lua_prelude.py::RATE_CALLERS`.
+  This host gives every script its OWN Lua state (deliberate,
+  `script_host.py`'s own module docstring: stops 616 files sharing one
+  global table from overwriting each other's same-named entry points), so a
+  name defined in one file is never visible from another -- which is why
+  the answer is a PRELUDE run into each host's own state rather than one
+  shared global environment.  Round `q6nytd` built that
+  (`lua_api/prelude.py`), and it is off by default: a caller passes
+  `prelude=read_prelude(root)` and **13** of those 17 stop dying on a nil
+  `rate`; a caller that passes nothing gets the host of yesterday, byte for
+  byte, which is what keeps the census pins below honest.
+  🔴 13, not 17, and the number was already in this repo before anyone ran
+  a sweep: `KNOWN_ENTRY_POINT_CALL_FAILURES` pins exactly those 13.  The
+  other four never reach `rate` -- `t_escaphk_sp.lua` returns on an empty
+  backpack, `t_getm&cat_himd_q1_rat.lua` and `t_getmorpopmo_q1.lua` return
+  on `0 >= 0`, and `t_opnplc_rat_lv&buf.lua` returns because
+  `Player.CheckBuff` stubs to 0 and **0 is truthy in Lua**.  And the 13 that
+  do run still fail every roll: `Trigger.VarN` is `STUB_DEFAULT` = 0, so
+  every one of the 34 sites evaluates `rate(0)` and takes the false branch
+  (measured by pf-adversary, round `q6nytd`: the whole prelude is worth
+  +22 API calls out of 5449, and `Player.AddExp`/`AddSkillPoint` stay at
+  ZERO reached call sites because theirs sit behind `not rate(...)`).
 
 ### Nonclaims
 
