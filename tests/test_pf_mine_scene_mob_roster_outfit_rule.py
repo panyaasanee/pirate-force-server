@@ -151,9 +151,18 @@ class OutfitRuleShapeTests(unittest.TestCase):
         self.assertEqual(field_mob_tables_bg0002.IDENTITY_RULE, "setnum")
 
 
-@BRIDGE_GAMEDATA.skip_unless_present()
 class OutfitRuleMeasuredTests(unittest.TestCase):
-    """Checks that need the bridge clone's gamedata beside this repo."""
+    """Checks that need the bridge clone's gamedata beside this repo.
+
+    GUARDED PER METHOD, NOT ON THE CLASS, and the two are not
+    interchangeable.  ``NOW.md`` 1041 rules that the guard belongs on the
+    method (``require(self)``) rather than anywhere class-scoped, and
+    ``tools/pf_pytest_precondition_census.py`` counts BOTH forms, so a class
+    decorator on top of these four calls reads as eight guarded tests and
+    puts a duplicate name in ``docs/PYTEST_SKIP_PINS.json`` -- a shape no
+    other one of that file's 95 entries has.  Round nxcwdn shipped the
+    decorator as well and the gate closed the PR for it.
+    """
 
     def test_the_owner_rule_gains_bg0002_the_forty_rows_it_refused(self):
         BRIDGE_GAMEDATA.require(self)
