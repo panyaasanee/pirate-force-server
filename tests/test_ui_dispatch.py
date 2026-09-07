@@ -44,6 +44,13 @@ from pirateforce_foundation.runtime import (  # noqa: E402
     PARTY_INVITE_VITAL_ID,
     make_state_class,
 )
+
+# ui_dispatch spells its eight ids as literals rather than importing them
+# (see its own comment: two of the imported names are on
+# tests/test_npc_interaction_wire.py's symbol guard list, and the fix for a
+# red run there is to change the symbol, not to buy an exemption). The
+# equality test below is what makes that safe, so it is the load-bearing
+# test in this file, not a formality.
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"

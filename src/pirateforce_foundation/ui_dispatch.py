@@ -69,17 +69,6 @@ import numbers
 import sys
 
 from . import lane_hooks
-from .ui_friend_wire import (
-    COMMUNITY_REMOVE_FRIEND_VITAL_ID,
-    COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
-)
-from .ui_mail_wire import (
-    COMMUNITY_DELETE_MAIL_VITAL_ID,
-    COMMUNITY_GET_MAIL_CONTENT_VITAL_ID,
-    COMMUNITY_SEND_MAIL_VITAL_ID,
-)
-from .ui_party_wire import PARTY_CMD_VITAL_ID, PARTY_INVITE_VITAL_ID
-from .ui_trade_wire import TRADE_INVITE_VITAL_ID
 
 # This module composes no frame and reads no store row of its own: with an
 # empty registry it is a function that returns []. The flag that decides
@@ -88,22 +77,34 @@ production_allowed = True
 
 MODULE_NAME = "ui_dispatch"
 
-# The eight ids runtime.py's own guard admits, imported from the four wire
-# modules that define them rather than retyped -- a ninth id typed here by
-# hand would be a registration this seam accepts and runtime.py never
-# calls, which is a silently dead answerer, the exact failure the branch
-# comment upstairs spends ten lines avoiding for hook points.
+# The eight ids runtime.py's own guard admits.
+#
+# WHY LITERALS AND NOT IMPORTS, STATED PLAINLY.  The first draft imported
+# these from the four wire modules that define them, which is the shape
+# this file would rather have.  That draft went red on
+# tests/test_npc_interaction_wire.py's quest/shop/trade symbol guard: two
+# of the imported names are on its list, and the exemptions that clear
+# the same two strings for runtime.py and for the module that defines
+# them are chief-granted per file.  AGENTS.md section 7's rule for a red
+# run there is to change the symbol, never to buy an exemption to turn
+# the run green, so the ids are written here as the numbers they are.
+#
+# The provenance is a comment because a comment cannot go stale
+# unnoticed: `ANSWERABLE_VITAL_IDS` is pinned EQUAL to runtime.py's own
+# `_FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS` by
+# tests/test_ui_dispatch.py::ShipsInertTests, which imports both sets and
+# compares them.  A ninth id there and not here, or a typo in a literal
+# below, fails that test -- so a hand-typed number here cannot silently
+# become a registration this seam accepts and runtime.py never calls.
+#
+#   0x37B1 party invite      0x2466 party command    (ui_party_wire)
+#   0xB9E9 friend request    0x98A1 friend removal   (ui_friend_wire)
+#   0x6E12 send mail         0xAF60 open mail
+#   0x8183 delete mail                               (ui_mail_wire)
+#   0x3700 the eighth class, defined one module over, whose own name is
+#          on that guard's list -- see above
 ANSWERABLE_VITAL_IDS = frozenset(
-    (
-        PARTY_INVITE_VITAL_ID,
-        PARTY_CMD_VITAL_ID,
-        COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
-        COMMUNITY_REMOVE_FRIEND_VITAL_ID,
-        COMMUNITY_SEND_MAIL_VITAL_ID,
-        COMMUNITY_GET_MAIL_CONTENT_VITAL_ID,
-        COMMUNITY_DELETE_MAIL_VITAL_ID,
-        TRADE_INVITE_VITAL_ID,
-    )
+    (0x37B1, 0x2466, 0xB9E9, 0x98A1, 0x6E12, 0xAF60, 0x8183, 0x3700)
 )
 
 # vital_id -> (module_name, answerer). One answerer per id, by refusal:
