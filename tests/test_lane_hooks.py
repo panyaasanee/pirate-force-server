@@ -311,6 +311,264 @@ class LaneHooksFireTests(unittest.TestCase):
         self.assertEqual(out.getvalue(), "")
 
 
+class _CeilingSession:
+    """A weak-referenceable, hashable stand-in for a v141 session.
+
+    Deliberately NOT a dataclass and NOT slotted: the real session object
+    fire() is handed is an ordinary runtime.py instance, and this class
+    only has to be the two things the budget table needs of it (hashable,
+    weak-referenceable).  The slotted / unhashable shapes get their own
+    tests below, where failing OPEN is the asserted behaviour.
+    """
+
+
+class LaneHooksFireCeilingTests(unittest.TestCase):
+    """COO-DECISION e1918: the admission rule for a report-only point lives
+    in fire(), and LANE_HOOK_FIRED prints AFTER the ceiling decides.
+
+    The cost being bounded (chief letter 20260907_1918) is paid by a peer
+    that has not logged in: one console line, one syscall and one retained
+    event per inbound frame, unbounded, at every report-only point.  These
+    tests hold the bound itself, not the number 256 -- every one of them
+    reads lane_hooks.FIRE_CEILING_PER_SESSION_POINT rather than restating
+    it, so the pin survives the owner re-tuning the constant.
+    """
+
+    POINT = "test_only_lane_hooks_ceiling_point_never_used_in_production"
+    OTHER_POINT = "test_only_lane_hooks_ceiling_point_two_never_in_production"
+
+    def setUp(self):
+        for point in (self.POINT, self.OTHER_POINT):
+            lane_hooks._HOOKS.pop(point, None)
+            self.addCleanup(lane_hooks._HOOKS.pop, point, None)
+        self.ceiling = lane_hooks.FIRE_CEILING_PER_SESSION_POINT
+        self.calls = []
+
+        @lane_hooks.hook(self.POINT)
+        def _count(session=None, **_ignored):
+            self.calls.append(session)
+
+    def _fire(self, session, times, point=None):
+        """Fire `times` times with stdout/stderr captured; return stderr."""
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            for _ in range(times):
+                lane_hooks.fire(point or self.POINT, session=session)
+        self.assertEqual(out.getvalue(), "", "nothing may reach stdout")
+        return err.getvalue()
+
+    def test_every_fire_under_the_ceiling_runs_and_announces(self):
+        session = _CeilingSession()
+        err = self._fire(session, self.ceiling)
+        self.assertEqual(len(self.calls), self.ceiling)
+        self.assertEqual(err.count("LANE_HOOK_FIRED"), self.ceiling)
+        self.assertNotIn("LANE_HOOK_SUPPRESSED", err)
+
+    def test_the_crossing_call_prints_one_counted_line_and_runs_nothing(self):
+        session = _CeilingSession()
+        self._fire(session, self.ceiling)
+        err = self._fire(session, 1)
+        self.assertEqual(
+            len(self.calls), self.ceiling,
+            "the crossing call must not reach the hook",
+        )
+        self.assertNotIn("LANE_HOOK_FIRED", err)
+        self.assertEqual(
+            err.strip(),
+            f"LANE_HOOK_SUPPRESSED point={self.POINT} n={self.ceiling}",
+        )
+
+    def test_past_the_ceiling_a_flood_is_silent_and_runs_nothing(self):
+        """The property the letter is about: cost stops growing.
+
+        1e6 frames is the measured attack shape; 20x the ceiling is the
+        same property at test speed.
+        """
+        session = _CeilingSession()
+        self._fire(session, self.ceiling + 1)
+        err = self._fire(session, 20 * self.ceiling)
+        self.assertEqual(len(self.calls), self.ceiling)
+        self.assertEqual(err, "")
+
+    def test_one_suppression_line_total_no_matter_how_long_the_flood(self):
+        session = _CeilingSession()
+        err = self._fire(session, 5 * self.ceiling)
+        self.assertEqual(err.count("LANE_HOOK_SUPPRESSED"), 1)
+        self.assertEqual(err.count("LANE_HOOK_FIRED"), self.ceiling)
+
+    def test_the_budget_is_per_point_not_per_session(self):
+        other_calls = []
+
+        @lane_hooks.hook(self.OTHER_POINT)
+        def _other(session=None, **_ignored):
+            other_calls.append(session)
+
+        session = _CeilingSession()
+        self._fire(session, self.ceiling + 1)
+        err = self._fire(session, 1, point=self.OTHER_POINT)
+        self.assertEqual(
+            other_calls, [session],
+            "a spent budget at one point must not spend another point's",
+        )
+        self.assertIn("LANE_HOOK_FIRED", err)
+
+    def test_the_budget_is_per_session_not_process_wide(self):
+        spent, fresh = _CeilingSession(), _CeilingSession()
+        self._fire(spent, self.ceiling + 1)
+        err = self._fire(fresh, 1)
+        self.assertIn(
+            "LANE_HOOK_FIRED", err,
+            "a second connection must not inherit the first's spent budget",
+        )
+        self.assertEqual(self.calls[-1], fresh)
+
+    def test_a_call_with_no_session_is_not_capped(self):
+        """Today's behaviour, preserved on purpose.
+
+        Every production call site passes session=self, but tests and tools
+        call fire() without one; capping those on a process-wide bucket
+        would silence an unrelated caller after the ceiling, which is a
+        worse failure than the cost this change removes.  Stated as a
+        nonclaim in fire()'s own docstring, and pinned here so it cannot
+        change silently.
+        """
+        err = self._fire(None, self.ceiling + 5)
+        self.assertEqual(len(self.calls), self.ceiling + 5)
+        self.assertNotIn("LANE_HOOK_SUPPRESSED", err)
+
+    def test_a_session_that_cannot_be_a_weak_key_fails_open(self):
+        class _Slotted:
+            __slots__ = ()
+
+        session = _Slotted()
+        # Must not raise, and must not lose the lane its hook.
+        err = self._fire(session, 3)
+        self.assertEqual(len(self.calls), 3)
+        self.assertNotIn("LANE_HOOK_SUPPRESSED", err)
+
+    def test_an_unhashable_session_fails_open_instead_of_raising(self):
+        class _Unhashable:
+            __hash__ = None
+
+        err = self._fire(_Unhashable(), 3)
+        self.assertEqual(len(self.calls), 3)
+        self.assertNotIn("LANE_HOOK_SUPPRESSED", err)
+
+    def test_a_session_whose_hash_raises_fails_open(self):
+        class _AngryHash:
+            def __hash__(self):
+                raise RuntimeError("this session's __hash__ is buggy")
+
+        err = self._fire(_AngryHash(), 3)
+        self.assertEqual(len(self.calls), 3)
+        self.assertNotIn("LANE_HOOK_SUPPRESSED", err)
+
+    def test_a_point_with_no_hooks_spends_no_budget(self):
+        """Otherwise a point nobody listens to would be the only thing
+        keeping a flooding session's budget dict alive -- the same leak the
+        ceiling exists to remove, one layer down."""
+        session = _CeilingSession()
+        empty = "no_hook_has_ever_registered_for_this_point"
+        self._fire(session, 10 * self.ceiling, point=empty)
+        self.assertNotIn(empty, lane_hooks._FIRE_COUNTS.get(session, {}))
+        err = self._fire(session, 1)
+        self.assertIn("LANE_HOOK_FIRED", err)
+
+    def test_a_dead_session_takes_its_budget_with_it(self):
+        import gc
+
+        session = _CeilingSession()
+        self._fire(session, 1)
+        self.assertIn(session, lane_hooks._FIRE_COUNTS)
+        # The recording hook keeps every session it saw; that reference is
+        # the test's, not the package's, and it has to go first or this
+        # measures the test harness instead of the budget table.
+        self.calls.clear()
+        del session
+        gc.collect()
+        self.assertEqual(
+            [s for s in lane_hooks._FIRE_COUNTS.keys()
+             if isinstance(s, _CeilingSession)],
+            [],
+            "the budget table must not outlive the connection it prices",
+        )
+
+    def test_a_suppression_print_that_raises_never_escapes_fire(self):
+        """stderr itself can fail: `python app.py 2>log` on a full volume,
+        or `2>&1 | tee` whose reader exited.  The scar this file already
+        carries for the announcement print (an OSError there unwound
+        state.dispatch() into v141's game_listener and took the accept loop
+        with it) applies unchanged to the new print."""
+        import io
+        from contextlib import redirect_stderr
+
+        class _DeadStderr(io.StringIO):
+            def write(self, _text):
+                raise OSError(9, "Bad file descriptor")
+
+        session = _CeilingSession()
+        self._fire(session, self.ceiling)
+        with redirect_stderr(_DeadStderr()):
+            lane_hooks.fire(self.POINT, session=session)  # must not raise
+        self.assertEqual(len(self.calls), self.ceiling)
+
+    def test_concurrent_fires_on_one_pair_never_exceed_the_ceiling(self):
+        """v141 runs one listener thread per connection and every one of
+        them calls fire(); a read-modify-write of the budget outside a lock
+        would let two threads both read ceiling-1 and both run."""
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        session = _CeilingSession()
+        start = threading.Event()
+        threads = []
+        per_thread = 40
+        thread_count = 12
+        self.assertGreater(
+            per_thread * thread_count, self.ceiling,
+            "the test must actually cross the ceiling",
+        )
+
+        def _worker():
+            start.wait(timeout=5)
+            for _ in range(per_thread):
+                lane_hooks.fire(self.POINT, session=session)
+
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            for _ in range(thread_count):
+                thread = threading.Thread(target=_worker)
+                thread.start()
+                threads.append(thread)
+            start.set()
+            for thread in threads:
+                thread.join(timeout=30)
+
+        self.assertFalse(any(t.is_alive() for t in threads))
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(len(self.calls), self.ceiling)
+        self.assertEqual(err.getvalue().count("LANE_HOOK_SUPPRESSED"), 1)
+        self.assertEqual(
+            err.getvalue().count("LANE_HOOK_FIRED"), self.ceiling,
+        )
+
+    def test_the_ceiling_is_a_constant_in_code_not_an_environment_read(self):
+        """COO-DECISION e1918: it must not be closable from outside the
+        process.  Neither the decision function nor fire() may reach the
+        environment for it."""
+        import inspect
+
+        for fn in (lane_hooks._admit, lane_hooks.fire):
+            source = inspect.getsource(fn)
+            self.assertNotIn("environ", source)
+            self.assertNotIn("getenv", source)
+        self.assertIsInstance(lane_hooks.FIRE_CEILING_PER_SESSION_POINT, int)
+        self.assertGreater(lane_hooks.FIRE_CEILING_PER_SESSION_POINT, 0)
+
+
 class SceneCensusComposerRegistryTests(unittest.TestCase):
     """The census composer table (CORE-REQUEST LANE-A 20260829_1845): a
     VALUE-RETURNING registry, so it is not a fire() point -- one composer

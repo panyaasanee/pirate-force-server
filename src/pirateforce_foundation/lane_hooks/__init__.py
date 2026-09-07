@@ -135,6 +135,42 @@ _SCENE_CENSUS_COMPOSERS: dict[int, "SceneCensusComposer"] = {}
 # ``module_production_allowed()`` reports it closed.  See that function.
 _PRODUCTION_ALLOWED: dict[str, bool] = {}
 _DISCOVERED = False
+#: How many times ONE ``(session, point)`` pair may announce and run its
+#: hooks before ``fire()`` stops paying for it.  COO-DECISION e1918
+#: (pf_bridge/notes_to_chief/20260907_1941_COO-DECISION-e1918-the-report-
+#: only-cap-lives-in-fire-LANE-E.md): the admission rule for a report-only
+#: point belongs to ``fire()``, not to the hook and not to the call site.
+#:
+#: A constant in code on purpose, NOT an env var and not a scenario flag --
+#: the same letter rules that this ceiling must not be closable from
+#: outside the process, because the cost it bounds is paid by a peer that
+#: has not logged in yet and therefore proves nothing about itself.
+#:
+#: Measured price this replaces (chief R391, letter 20260907_1918): the
+#: 0x6CEC unknown-id point printed one line and appended one event per
+#: inbound frame with no ceiling at all -- 2000 frames before login is 2000
+#: lines, 2000 events retained for the life of the session and 2000
+#: syscalls, about 97 MiB per 1e6 frames on one connection.  With this
+#: ceiling the same 1e6 frames cost 256 lines and one suppression line.
+#:
+#: 256 is chosen to sit far above what any attended ticket counts (those
+#: read a handful of LANE_HOOK_FIRED lines for one deliberate action) and
+#: far below the unbounded number an unauthenticated peer can force.  It is
+#: NOT a claim that 256 of anything is a meaningful gameplay limit.
+FIRE_CEILING_PER_SESSION_POINT = 256
+
+#: session object -> {point: fires charged}.  Weak keys: a session that has
+#: gone away takes its budget with it, so this never becomes a per-
+#: connection leak of its own (which would be the same defect as the one
+#: the ceiling exists to remove, moved one layer down).
+_FIRE_COUNTS: "weakref.WeakKeyDictionary[Any, dict[str, int]]" = (
+    weakref.WeakKeyDictionary()
+)
+#: v141's listener is one thread per connection and ``fire()`` is called
+#: from all of them, so read-modify-write of a budget is taken under a lock
+#: -- ``_LIVE_SESSION_LOCK`` below is the same lesson for the session
+#: registry.
+_FIRE_COUNTS_LOCK = threading.Lock()
 
 
 def hook(point: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
@@ -201,6 +237,59 @@ def _console_safe(text: str) -> str:
     return text.encode("ascii", "backslashreplace").decode("ascii")
 
 
+def _admit(session: object, point: str) -> tuple[bool, int | None]:
+    """Charge one fire of ``point`` to ``session`` and say what may happen.
+
+    Returns ``(admit, announce_ceiling)``:
+
+    * ``(True, None)`` -- under the ceiling; announce and run the hooks.
+    * ``(False, n)`` -- this is the ONE call that crossed the ceiling, so
+      ``fire()`` prints exactly one ``LANE_HOOK_SUPPRESSED`` line naming
+      ``n`` for this ``(session, point)`` and runs nothing.
+    * ``(False, None)`` -- already past it; nothing is printed and nothing
+      runs.  This is the state a flooding peer stays in, and it costs one
+      dict lookup per frame.
+
+    Uncapped, deliberately, in two cases -- both of which restore exactly
+    today's behaviour rather than losing a hook:
+
+    * ``session is None`` (no session was passed).  Every production call
+      site passes ``session=self``; grepped 2026-09-07 over ``src/`` and
+      ``current/``: 17 ``lane_hooks.fire(`` calls, all in
+      ``runtime.py``, all with ``session=self``.  That is a measurement of
+      today's tree, not a guarantee about a future call site.
+    * the session cannot be a weak-key (unhashable, or ``__weakref__``-less
+      -- e.g. a test double built from ``object()`` subclasses with
+      ``__slots__``).  Failing OPEN here is on purpose: this ceiling exists
+      to bound a cost, and a bug in the ceiling itself must not be able to
+      silence a lane's hook, which for
+      ``lane_q_trigger_vital_dispatch`` is the only report the Lua host
+      makes.  The fail-CLOSED direction stays where the module docstring
+      puts it -- around the hook's own exceptions.
+    """
+    if session is None:
+        return True, None
+    try:
+        with _FIRE_COUNTS_LOCK:
+            counts = _FIRE_COUNTS.get(session)
+            if counts is None:
+                counts = {}
+                _FIRE_COUNTS[session] = counts
+            charged = counts.get(point, 0)
+            if charged < FIRE_CEILING_PER_SESSION_POINT:
+                counts[point] = charged + 1
+                return True, None
+            if charged == FIRE_CEILING_PER_SESSION_POINT:
+                # One past the ceiling is the crossing call, and the only
+                # one that prints.  The increment is what makes it "only
+                # one" -- every later call reads a strictly larger number.
+                counts[point] = charged + 1
+                return False, FIRE_CEILING_PER_SESSION_POINT
+            return False, None
+    except Exception:  # noqa: BLE001 - see the fail-open note in the docstring
+        return True, None
+
+
 def fire(point: str, **kwargs: object) -> None:
     """Run every hook registered for ``point``, in registration order.
 
@@ -211,8 +300,35 @@ def fire(point: str, **kwargs: object) -> None:
     docstring -- report on the wire/queue/self.events, not a return value,
     so a broken hook can be dropped without touching a chief-owned
     return-value contract).
+
+    Priced: one ``(session, point)`` pair may be charged
+    ``FIRE_CEILING_PER_SESSION_POINT`` fires.  Past that this function
+    prints one ``LANE_HOOK_SUPPRESSED point=<point> n=<ceiling>`` line for
+    that pair and returns without announcing or running anything.  The
+    ``LANE_HOOK_FIRED`` announcement is deliberately AFTER the ceiling's
+    decision -- printing it first, unconditionally, is what made every
+    report-only point a per-frame amplifier for a peer that has not logged
+    in (COO-DECISION e1918; it was a bug, not a design).
+
+    A point with no hooks registered is charged nothing and prints nothing,
+    exactly as before -- otherwise a ceiling on a point nobody listens to
+    would be the only thing keeping that session's budget dict alive.
     """
-    for module_name, fn in _HOOKS.get(point, ()):
+    hooks = _HOOKS.get(point, ())
+    if not hooks:
+        return
+    admit, announce_ceiling = _admit(kwargs.get("session"), point)
+    if not admit:
+        if announce_ceiling is not None:
+            try:
+                print(
+                    f"LANE_HOOK_SUPPRESSED point={point} n={announce_ceiling}",
+                    file=sys.stderr,
+                )
+            except Exception:  # noqa: BLE001 - same reason as the announcement below
+                pass
+        return
+    for module_name, fn in hooks:
         # Both prints are guarded, because writing to stderr is itself an
         # I/O operation that can fail.  pf-adversary measured this round:
         # with sys.stderr raising OSError(9) -- a server started as
