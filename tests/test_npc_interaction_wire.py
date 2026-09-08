@@ -924,6 +924,12 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             "_quest_counter_row",
             "_quest_flag_row",
             "_quest_key",
+            # `_quest_live` is the shared "is this character live" check the
+            # three write doors and the two read doors call -- one
+            # implementation so the two sides cannot drift, which is how
+            # pf-adversary D9 happened.  It reads `characters`, never a
+            # quest table.
+            "_quest_live",
             "_quest_number",
             "get_quest_counter",
             "get_quest_flag",
