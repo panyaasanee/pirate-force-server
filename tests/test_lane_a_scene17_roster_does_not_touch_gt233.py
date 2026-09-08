@@ -26,16 +26,18 @@ values below were captured from the working tree before any file this round
 edits was touched) is the only thing that can say "not one byte moved".
 
 CONDITION (d) ALSO ASKS ABOUT THE CROSSING-HANDOFF THIS ROUND TOUCHES, EVEN
-THOUGH IT NEVER RUN THROUGH THE SAME COMPOSER.  Scene 17 is registered in
+THOUGH IT NEVER RUN THROUGH THE SAME COMPOSER.  ~~Scene 17 is registered in
 ``world_scene_travel.CENSUS_SOURCES`` this round, but deliberately NOT in
-``world_population_handoff.ROSTER_COMPOSERS`` - see that module's own
-``PENDING_CROSSING_SAFETY_REVIEW`` comment for the runtime.py invariant this
-lane will not flip without chief's review.  So the Columbus crossing
-(``columbus_quest_dispatch.dispatch_columbus_quest3021``, the flagless
-default path GT-106 already walked) still composes and QUEUES the exact
-same 27-byte CLEAR it did before this round - pinned below too, because
-that queueing is real (``runtime.py``'s ``crossing_handoff_dispatched=True``,
-wired chief round R250/65etwo) and not merely a report line.
+``world_population_handoff.ROSTER_COMPOSERS`` ... So the Columbus crossing
+still composes and QUEUES the exact same 27-byte CLEAR it did before this
+round.~~  REGISTERED, chief round R405/y8fm7z, which is the review that
+withholding waited for: the crossing composes and QUEUES scene 17's own
+7-actor census now (``runtime.py``'s ``crossing_handoff_dispatched=True``
+was already real, wired chief round R250/65etwo, and that is why the flip
+had to be reviewed rather than assumed inert).  What this file still pins on
+that path is the FAILURE half - the clear a crossing falls back to when the
+roster cannot be composed is byte-for-byte the clear it used to send
+unconditionally - and, unchanged, that none of it perturbs GT-233's bytes.
 """
 from __future__ import annotations
 
@@ -120,13 +122,16 @@ BG3001_EXPECTED = {
     "frame_sha256": "ceb738b356b5aea89e3f1e6d119814e4e56d18d81e6f29d70ed3b4e94e795d93",
 }
 
-# The scene-17 crossing handoff as it read before this round and as it must
-# still read after: STILL the same 27-byte CLEAR frame
-# (``world_m2_crossing_handoff``'s own docstring figure) - see
-# PENDING_CROSSING_SAFETY_REVIEW's own docstring for why it is not yet a
-# census.  ``pc`` is read from the seam's own header-size constant rather
-# than a second literal, so a change to the wire header shape moves both
-# sides together; ``frame`` is the framed figure the docstring quotes.
+# ~~The scene-17 crossing handoff as it read before this round and as it must
+# still read after: STILL the same 27-byte CLEAR frame.~~  SUPERSEDED chief
+# round R405/y8fm7z: the composer is registered, so the crossing composes a
+# CENSUS and these two figures now describe the FALLBACK - what the crossing
+# composes when the roster cannot be built - which is the same clear, by
+# design (``handoff_for_arrival``).  ``pc`` is read from the seam's own
+# header-size constant rather than a second literal, so a change to the wire
+# header shape moves both sides together; ``frame`` is the framed figure the
+# docstring quotes.  The census figures are pinned in
+# ``tests/test_world_m2_crossing_handoff.py``, with the roster.
 CROSSING_HANDOFF_EXPECTED_PC_BYTES = world_population_handoff.WIRE_HEADER_BYTES
 CROSSING_HANDOFF_EXPECTED_FRAME_BYTES = 27
 
@@ -142,11 +147,17 @@ class ThisRoundsModulesAreActuallyLoaded(unittest.TestCase):
         self.assertEqual(len(world_bg1001_identity.shippable_placements()), 7)
 
     def test_scene_17_is_registered_where_this_round_put_it(self):
+        """RELEASED chief round R405/y8fm7z - this pin was written to be
+        released by exactly that review, and releasing it is not the same as
+        deleting it: the source must now be in ROSTER_COMPOSERS and out of
+        PENDING_CROSSING_SAFETY_REVIEW, so a later round that puts it back
+        without a reason is caught by the same test that used to hold it
+        out."""
         self.assertEqual(
             world_scene_travel.CENSUS_SOURCES.get(17), "bg1001_roster")
-        self.assertIn(
+        self.assertNotIn(
             "bg1001_roster", world_population_handoff.PENDING_CROSSING_SAFETY_REVIEW)
-        self.assertNotIn("bg1001_roster", world_population_handoff.ROSTER_COMPOSERS)
+        self.assertIn("bg1001_roster", world_population_handoff.ROSTER_COMPOSERS)
 
 
 class GT233BytesUnchangedTests(unittest.TestCase):
@@ -210,20 +221,42 @@ class Bg3001CensusUnchangedTests(unittest.TestCase):
 
 
 class ScenesSeventeenCrossingHandoffUnchangedTests(unittest.TestCase):
-    """The one thing on scene 17's OWN default path that is already live
-    and queued (``runtime.py``'s ``crossing_handoff_dispatched=True``) must
-    still be the same 27-byte CLEAR it was before this round - see
-    ``world_population_handoff.PENDING_CROSSING_SAFETY_REVIEW``."""
+    """~~The one thing on scene 17's OWN default path that is already live
+    and queued must still be the same 27-byte CLEAR it was before this
+    round.~~  CHANGED ON PURPOSE, chief round R405/y8fm7z: it is a census
+    now.  What this class still pins is the half that must NOT change - the
+    clear this crossing falls back to when the roster cannot be composed is
+    byte-for-byte the clear it used to send unconditionally, so the failure
+    path is the old behaviour exactly and not a new third shape."""
 
-    def test_the_columbus_crossing_still_composes_the_same_clear(self):
+    def test_a_roster_that_cannot_compose_falls_back_to_the_old_clear(self):
+        import dataclasses
+
         entry = columbus_quest_dispatch.resolve_columbus_arrival(
             emit=lambda line: None)
-        handoff = crossing.crossing_handoff(legacy, entry)
+        composers = world_population_handoff.ROSTER_COMPOSERS
+        real = composers["bg1001_roster"]
+
+        def refuses(*args, **kwargs):
+            raise ValueError("this roster cannot be built on this boot")
+
+        composers["bg1001_roster"] = dataclasses.replace(real, build=refuses)
+        try:
+            handoff = crossing.crossing_handoff(legacy, entry)
+        finally:
+            composers["bg1001_roster"] = real
         self.assertEqual(handoff.kind, world_population_handoff.KIND_CLEAR)
         self.assertEqual(handoff.actor_count, 0)
+        self.assertTrue(handoff.sends_a_frame)
         self.assertEqual(len(handoff.pc), CROSSING_HANDOFF_EXPECTED_PC_BYTES)
         self.assertEqual(len(handoff.frame), CROSSING_HANDOFF_EXPECTED_FRAME_BYTES)
         self.assertEqual(handoff.frame, legacy.frame_pc(handoff.pc))
+        # BY MESSAGE, this file's own inherited rule: a clear that arrives
+        # for the ordinary "no composer" reason and a clear that arrives
+        # because a roster refused are the same bytes and must not be the
+        # same line on a console.
+        self.assertIn("cleared_instead:", handoff.reason)
+        self.assertIn("this roster cannot be built on this boot", handoff.reason)
 
 
 if __name__ == "__main__":

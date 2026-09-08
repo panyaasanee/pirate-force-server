@@ -261,6 +261,7 @@ from . import world_population_bg0009
 from . import world_population_bg0010
 from . import world_population_bg0011
 from . import world_population_bg0015
+from . import world_population_bg1001
 from . import world_population_bg3001
 from . import world_population_bg3007
 from . import world_population_bg3008
@@ -669,19 +670,52 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         generation_type=world_population_bg3008.Bg3008PopulationGeneration,
         full_roster_count=world_population_bg3008.DEFAULT_ACTOR_COUNT,
     ),
-    # DELIBERATELY NOT ADDED, round ``vwekfq`` (LANE-A): scene 17's identity
-    # and census pair (``world_bg1001_identity`` / ``world_population_
-    # bg1001``) exist and are registered in ``world_scene_travel.
-    # CENSUS_SOURCES`` as ``"bg1001_roster"``, but NOT here - see the struck
-    # ``SCENES_INTENTIONALLY_UNPOPULATED[17]`` comment above for exactly why:
-    # ``runtime.py``'s Columbus crossing call site hardcodes
-    # ``crossing_handoff_dispatched=True`` on the documented assumption that
-    # this seam always answers scene 17 with a KIND_CLEAR.  Adding an entry
-    # here would flip that to KIND_CENSUS and start sending a real,
-    # never-attended-tested roster to a live client on every crossing -
-    # exactly the runtime.py-invariant question this lane cannot resolve by
-    # itself.  This round's CORE-REQUEST asks chief to review that call site
-    # and decide whether/how to re-enable it once this entry is safe to add.
+    # ~~DELIBERATELY NOT ADDED, round ``vwekfq`` (LANE-A)~~ - ADDED chief
+    # round R405/y8fm7z, which is the CORE-REQUEST that withholding asked
+    # for.  The struck text is kept because the reason it gave was RIGHT and
+    # only half-complete, and a reader who deletes it loses the half that
+    # still holds.  What the review measured, on a headless boot of the real
+    # frozen encoder at the real Columbus arrival entry:
+    #
+    #   1. THE RUNTIME CALL SITE IS ALREADY GENERIC.  ``runtime.py``'s
+    #      Columbus branch reads ``sends_a_frame``, ``dispatch_slot``,
+    #      ``reapply_ms``, ``membership_reset``, ``kind`` and ``scene_id``
+    #      BACK OFF the composed handoff and hardcodes none of them;
+    #      ``crossing_handoff_dispatched=True`` is a CONSOLE field
+    #      (``dispatched=YES``) inside ``columbus_quest_dispatch``, not a
+    #      claim about the kind.  Measured before/after this entry:
+    #      clear pc=17B frame=27B slot=before_teleport reapply=None ->
+    #      census pc=1377B frame=1390B slot=after_teleport reapply=3000,
+    #      7 actors, membership (6, 1, 2, 3, 4, 0, 5); composing it twice
+    #      (the console line composes one, the runtime block composes the
+    #      one it queues) returns byte-identical pairs - this roster reads
+    #      frozen tables and holds no clock, counter or RNG.
+    #   2. WHAT THE WITHHOLDING WAS ACTUALLY RIGHT ABOUT, and it is NOT the
+    #      call site: registering a composer converts this scene's
+    #      GUARANTEED clear into a POSSIBLE ``KIND_UNAVAILABLE``.  Measured
+    #      by making the builder raise: kind=unavailable, sends_a_frame=
+    #      False, pc=0B - no frame at all, so the client keeps the 115
+    #      actors of Port Royal standing on open water, which is strictly
+    #      worse than the empty sea it has today.  That is the hazard, and
+    #      this entry does not ship without the fix for it:
+    #      ``handoff_for_arrival`` now falls a failed roster back to the
+    #      CLEAR for that scene rather than letting it out to
+    #      ``handoff_on_crossing``'s frameless UNAVAILABLE.
+    #   3. WHAT IS STILL UNSEEN, said plainly: no human has watched a client
+    #      render scene 17 with anybody in it.  ``GT-106`` walked it empty
+    #      (2026-08-27) and that is the whole of the attended record.  This
+    #      entry makes the bytes real; the attended entry chief filed in the
+    #      same round is what turns them into a sighting.
+    "bg1001_roster": _SceneComposer(
+        source="bg1001_roster",
+        build=world_population_bg1001.build_bg1001_population,
+        full_roster_count_source=world_population_bg1001.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg1001.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg1001.dispatch_report,
+        generation_type=world_population_bg1001.Bg1001PopulationGeneration,
+        full_roster_count=world_population_bg1001.DEFAULT_ACTOR_COUNT,
+    ),
 }
 
 
@@ -733,9 +767,20 @@ LOGIN_OWNED_SOURCES: dict[str, str] = {
 # ``runtime.py``).  Kept as its own table, not folded into
 # ``LOGIN_OWNED_SOURCES``, so the reason a reader finds here is the true one
 # and not a borrowed one.
-PENDING_CROSSING_SAFETY_REVIEW: dict[str, str] = {
-    "bg1001_roster": "core_request_vwekfq_runtime_crossing_dispatch_assumes_clear",
-}
+#
+# EMPTY SINCE chief round R405/y8fm7z, AND THE TABLE STAYS.  Its one entry
+# ("bg1001_roster") was the review it was created to wait for, and that review
+# is answered in ``ROSTER_COMPOSERS`` above - with the hazard it found (a
+# registered composer turns a guaranteed CLEAR into a possible frameless
+# UNAVAILABLE) fixed in ``handoff_for_arrival`` rather than argued away.  The
+# table is kept rather than deleted for the reason its own second paragraph
+# gives: the next lane that finishes a roster whose call site it cannot audit
+# needs a place to park it that a reader can tell from an oversight, and
+# rebuilding this table under pressure is how the parking place gets skipped.
+# An empty dict here means "nothing is waiting", never "nobody thought to
+# wait" - and ``test_world_population_handoff`` reads it as the seam's own
+# answer either way.
+PENDING_CROSSING_SAFETY_REVIEW: dict[str, str] = {}
 
 
 # SCENES THAT ARRIVE EMPTY ON PURPOSE, WITH THE REASON EACH ONE DOES.
@@ -1269,6 +1314,15 @@ def handoff_for_arrival(
         # ROUND 80x5ba (LANE-A, M2).  The scene names a composer this lane has
         # finished, so it gets that composer's roster instead of an empty
         # collection.  The bg0001 branch below is untouched, byte for byte.
+        #
+        # STRICT, AND DELIBERATELY STILL STRICT (chief round R405/y8fm7z).
+        # A first draft of that round's fallback sat HERE and turned every
+        # composer refusal into a quiet clear - which also disarmed the
+        # ``_require_pair`` and ``encoder or reader drift`` guards inside
+        # ``_roster_handoff``, whose whole job is to raise.  Measured: three
+        # refusal tests in ``test_world_population_handoff`` went green
+        # asserting nothing.  The fallback belongs on the FRAME path, where
+        # not raising is already the contract - see ``handoff_on_crossing``.
         return _roster_handoff(
             legacy, scene, arrival_anchor, ROSTER_COMPOSERS[source],
             actor_count=actor_count,
@@ -1388,6 +1442,54 @@ def handoff_on_crossing(
             scene = _require_scene_id(scene_id)
         except BaseException:  # noqa: BLE001 - the scene id is what failed
             scene = 0
+        # A SCENE WE CAN NAME GETS AN EMPTY MAP, NOT NO FRAME AT ALL.  Chief
+        # round R405/y8fm7z, and it is the fix that let scene 17's roster be
+        # registered at all.  MEASURED, not reasoned: with a builder made to
+        # raise, the Columbus crossing came back ``kind=unavailable
+        # sends_a_frame=False pc=0B`` - and UNAVAILABLE carries no bytes, so
+        # the client keeps the collection of the scene it just LEFT standing
+        # in the scene it just arrived in.  For that crossing that is 115
+        # Port Royal actors on open water: the exact state this module's
+        # docstring says it exists to end, re-created by the safety net.
+        # ``_roster_handoff``'s own comment already ruled on the trade -
+        # "a CLEAR - an empty map, strictly safer than a stale town" - and
+        # this is that ruling applied to the path it had never been applied
+        # to.  Every composer registered here inherits it, not only bg1001.
+        #
+        # WHY THE SCENE ID IS THE DISCRIMINATOR AND NOT THE EXCEPTION TYPE.
+        # UNAVAILABLE stays exactly right when the scene ITSELF is what could
+        # not be read - ``world_m2_crossing_handoff`` routes an unreadable
+        # entry here on purpose, by handing over a string where an int
+        # belongs - because there is no scene to compose a clear FOR.  So the
+        # test is the one already computed above: ``scene`` is 0 when
+        # ``_require_scene_id`` refused, and a real scene otherwise.
+        #
+        # THE CLEAR IS COMPOSED INSIDE ITS OWN TRY.  A legacy module too
+        # broken to build 27 bytes must not turn this last-resort branch into
+        # the raise the whole function promises never to happen.
+        if scene:
+            try:
+                cleared_pc, cleared_frame = build_clear_generation(legacy)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - fall through to UNAVAILABLE
+                cleared_pc = cleared_frame = None
+            if cleared_pc and cleared_frame:
+                return SceneHandoff(
+                    scene_id=scene,
+                    kind=KIND_CLEAR,
+                    reason=(
+                        f"scene_{scene}_population_not_composed_cleared_"
+                        f"instead:{reason}:{detail}"
+                    ),
+                    label=LABEL_CLEAR.format(scene),
+                    actor_count=0,
+                    pc=cleared_pc,
+                    frame=cleared_frame,
+                    reapply_ms=CLEAR_REAPPLY_MS,
+                    dispatch_slot=SLOT_BEFORE_TELEPORT,
+                    generation=None,
+                )
         return SceneHandoff(
             scene_id=scene,
             kind=KIND_UNAVAILABLE,
