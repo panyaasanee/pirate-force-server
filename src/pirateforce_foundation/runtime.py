@@ -309,24 +309,46 @@ def selected_actor_identity(selected):
     ``((hi & 0xFFFFFFFF) << 32) | (lo & 0xFFFFFFFF)``.  That expression is
     the WIRE value -- exactly the unsigned qword ``v141.qwordtag`` (line
     1131) puts on the socket -- and it is NOT the identity a caller means:
-    the monster half of the same circuit stopped reading it that way in R4
-    beat 0, where every inbound identity now goes through
+    the monster half of the same circuit stopped reading it that way at the
+    combat door in R4 beat 0, where the inbound target goes through
     ``mob_identity_sign.decode_wire_identity`` before anything compares it.
+    NOT "every inbound identity", and pf-adversary (R406, D6) was right to
+    strike that word out of the first draft of this docstring: of the five
+    inbound parse points ``decode_wire_identity``'s own docstring names,
+    only ``parse_action_vital``'s target is decoded at HEAD --
+    ``extract_choose_npc_identities``, ``parse_quest_operate_vital`` and
+    ``parse_choose_npc`` are still compared raw.  That is beat 0's
+    remaining debt, not this function's, and it is written down here so
+    nobody reads the sentence above as a claim that it is paid.
     Two readings of one field is the exact defect that beat 0 was booted to
     remove, so the player half reads the field the same way: compose the
     wire qword, then hand it to the SAME decoder the monster half calls.
 
-    MEASURED, NOT PREDICTED -- this changes no value in production today.
+    DERIVED (not measured end to end at all nine sites -- the label the
+    first draft used was too strong; pf-adversary R406, D9): this
+    changes no value in production today.
     ``lifecycle.py`` mints ``hi = 0`` and ``lo = 0x10000000 + account_id *
     0x10000 + selector + 1`` (refusing anything past ``0xFFFFFFFF``), so
     every identity a live server has ever composed sits in
     ``[0x10000001, 0xFFFFFFFF]``: positive, far under ``2 ** 63``, returned
     unchanged by the decoder.  What the seam buys is that the sentence
     "one dispenser for the whole circuit" becomes true as written rather
-    than true by luck, so the day ``hi`` stops being zero the player half
-    does not silently become an unsigned 64-bit number while the monster
-    half is a signed one -- the comparison ``target == performer`` at the
-    combat door is between the two.
+    than true by luck.
+
+    WHAT IT DOES NOT BUY, MEASURED BY pf-adversary (R406, D2) WITH A
+    CONTROL, because the first draft of this docstring sold it: it does
+    NOT make "the day ``hi`` stops being zero" work.  Mint a character
+    with the top bit of ``hi`` set and the server still dies on that
+    session's first combat frame -- before this change at
+    ``mob_combat.check_attack_cadence`` (``value_out_of_range``), after it
+    at ``mob_viewer_link`` (``REFUSE_VIEWER_IDENTITY_NOT_POSITIVE``) --
+    because the CONSUMERS of a player identity still demand an unsigned,
+    positive one (``mob_viewer_link`` line ~186, ``action_ack`` line
+    ~114).  Reading signed is half a circuit; the other half is
+    ``encode_wire_identity`` at those consumers, and it is not in this
+    ticket.  Until it is, ``lifecycle.refuse_unmintable_identity`` keeps
+    the honest contract by refusing to mint a non-positive identity at
+    all, so no session is ever born that dies on its first frame.
 
     THE ZERO GUARD IS NOT DECORATION.  ``mob_identity_sign
     .IDENTITY_NOT_DRAWN`` is 0, the one identity the client throws away
@@ -357,6 +379,24 @@ def selected_actor_identity(selected):
             raise mob_identity_sign.MobIdentitySignError(
                 f"selected character's {part_name} is {part!r}, not an int; "
                 "this session has no composable actor identity"
+            )
+        # R406 pf-adversary D4, and the standard is the tree's own: the
+        # three composers that predate this one
+        # (hostile_hp_link_hypothesis, damage_hp_link_hypothesis,
+        # npc_hp_link_hypothesis) all range-check each half BEFORE the
+        # mask.  Without this, the mask is silent data loss in both
+        # directions, measured: ``identity_hi = -1`` composed to a
+        # NEGATIVE identity -- the monster band -- and was returned as if
+        # it were a real player, and ``identity_hi = 2 ** 32`` and
+        # ``identity_hi = 0`` composed to the SAME identity, so two
+        # different rows in the characters table became one actor.  The
+        # columns are plain ``INTEGER NOT NULL`` with no CHECK, so nothing
+        # below this line would have noticed either.
+        if not 0 <= part <= 0xFFFFFFFF:
+            raise mob_identity_sign.MobIdentitySignError(
+                f"selected character's {part_name} is {part}, outside the "
+                "unsigned 32-bit column it is stored in; refusing to mask "
+                "it into a different actor"
             )
     wire = ((identity_hi & 0xFFFFFFFF) << 32) | (identity_lo & 0xFFFFFFFF)
     identity = mob_identity_sign.decode_wire_identity(wire)
@@ -4073,9 +4113,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
                 return []
             selected = self.foundation.selected
-            selected_identity = (
-                (int(selected.identity_hi) << 32) | int(selected.identity_lo)
-            )
+            # R406 pf-adversary D1: this was the TENTH hand-composed player
+            # identity in this file and the round that claimed "one
+            # dispenser" missed it, because it is spelled differently --
+            # ``int()`` instead of a mask, no decode, no fence.  The grep
+            # token that was supposed to catch it only matched the OTHER
+            # spelling.  Converted here, and the pin in
+            # tests/test_player_identity_one_dispenser.py now walks the AST
+            # instead of counting a string, so an eleventh spelling cannot
+            # hide the same way.
+            selected_identity = selected_actor_identity(selected)
             try:
                 actions = build_remote_player_sweep(
                     legacy, remote_player_probes, remote_player_unlock,
@@ -9832,12 +9879,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # the lane_b_mob_ai_tick call site above composes them
                 # (runtime.py, the TARGET_POS_VITAL branch).
                 # R4 player half: composed by the one dispenser, whose
-                # refusals ARE the two conditions this branch used to spell
-                # inline (a missing selected, and a part that is not an
-                # int).  The soft ``None`` is kept exactly as it was -- this
-                # path arms without an identity rather than refusing to
-                # arm -- but it is now one exception type to catch instead
-                # of a guess between TypeError and AttributeError.
+                # refusals cover the two conditions this branch used to
+                # spell inline (a missing selected, and a part that is not
+                # an int) and two it did not (a part outside its column,
+                # and a composed identity of 0).  This path still ARMS
+                # WITHOUT an identity rather than refusing to arm.
+                #
+                # NOT "exactly as it was", and pf-adversary (R406, D8)
+                # caught the first draft saying so: a pair of literal
+                # zeroes used to compose to ``identity = 0`` and now yields
+                # ``None``.  Zero is the identity the client never draws,
+                # so passing it on as a viewer was never right; ``None``
+                # is what this call site already means by "nobody is
+                # looking".  Unreachable from any live writer either way
+                # (``lo`` starts at ``0x10000001``), and named rather than
+                # glossed.
                 selected = getattr(foundation, "selected", None)
                 identity = None
                 if selected is not None:

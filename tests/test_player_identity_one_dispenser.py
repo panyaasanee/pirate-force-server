@@ -28,6 +28,7 @@ and the verdict comes back out of production dispatch.
 """
 from __future__ import annotations
 
+import ast
 import dataclasses
 import sys
 import tempfile
@@ -101,6 +102,32 @@ class TheDispenserAgreesWithTheMonsterHalfTests(unittest.TestCase):
                 ):
                     runtime.selected_actor_identity(_Selected(hi, lo))
 
+    def test_a_half_outside_its_column_is_refused_not_masked(self):
+        """pf-adversary R406, D4: the mask was silent data loss both ways.
+
+        Without a range check, ``identity_hi = -1`` composed to a NEGATIVE
+        identity -- the monster band -- and came back as if it were a real
+        player, and ``identity_hi = 0`` and ``identity_hi = 2 ** 32``
+        composed to the SAME identity, so two different rows of the
+        characters table became one actor.  The columns are plain
+        ``INTEGER NOT NULL`` with no CHECK, so nothing else would notice.
+        The three composers that predate this one all range-check each
+        half first; the official dispenser must not be the loose one.
+        """
+        for hi, lo in ((-1, 0x10000001), (2**32, 1), (2**32 + 5, 1),
+                       (0, 2**32), (0, -1)):
+            with self.subTest(hi=hi, lo=lo):
+                with self.assertRaises(
+                    mob_identity_sign.MobIdentitySignError
+                ) as box:
+                    runtime.selected_actor_identity(_Selected(hi, lo))
+                # the message must name the fault it FOUND, not the last
+                # refusal in the function: a reader sent after
+                # "IDENTITY_NOT_DRAWN" goes looking for a zero in the
+                # database that is not there
+                self.assertIn("outside the unsigned 32-bit column",
+                              str(box.exception))
+
     def test_a_missing_attribute_is_the_same_refusal(self):
         with self.assertRaises(mob_identity_sign.MobIdentitySignError):
             runtime.selected_actor_identity(object())
@@ -115,30 +142,81 @@ class _Selected:
 
 
 class NoCallSiteSpellsItByHandTests(unittest.TestCase):
-    """COO's closing token, read off the file instead of asserted in prose.
+    """COO's closing token -- and the FIRST version of it did not hold.
 
-    ``git grep "0xFFFFFFFF) << 32"`` in ``runtime.py`` must not turn up a
-    player-identity composition any more.  The two hits that remain are the
-    dispenser's own line and the sentence in its docstring naming the idiom
-    it replaced, and this test pins BOTH of them to that function's body so
-    a tenth call site cannot be added back under the same shape.
+    pf-adversary (R406, finding D1) killed the original shape of this test.
+    It counted the string ``0xFFFFFFFF) << 32`` and compared the file's
+    count to the dispenser's, which pins ONE SPELLING rather than the
+    property.  A tenth composition was sitting at ``runtime.py`` line ~4076
+    the whole time, spelled ``(int(hi) << 32) | int(lo)`` -- no mask, no
+    decode, no fence -- and the token could not see it.  Measured, not
+    argued: adding an eleventh function in that spelling left the old test
+    green.
+
+    So the pin asks the AST instead: is there any ``x << 32`` anywhere in
+    ``runtime.py``, outside the dispenser, whose operands reach an
+    ``identity_hi``?  That is the SHAPE of composing a player identity by
+    hand, and it does not care how the caller spells the mask.
     """
 
-    def test_the_idiom_lives_only_inside_the_dispenser(self):
+    @staticmethod
+    def _runtime_tree():
         source = (
             ROOT / "src" / "pirateforce_foundation" / "runtime.py"
         ).read_text(encoding="utf-8")
-        start = source.index("def selected_actor_identity(")
-        end = source.index("\ndef ", start + 1)
-        dispenser = source[start:end]
-        needle = "0xFFFFFFFF) << 32"
-        self.assertEqual(
-            source.count(needle), dispenser.count(needle),
-            "a player identity is composed by hand outside "
-            "selected_actor_identity(); the whole point of R4's player half "
-            "is that there is one dispenser",
+        return source, ast.parse(source)
+
+    @staticmethod
+    def _mentions_identity_hi(node):
+        for child in ast.walk(node):
+            if isinstance(child, ast.Attribute) and child.attr == "identity_hi":
+                return True
+            if isinstance(child, ast.Name) and child.id == "identity_hi":
+                return True
+        return False
+
+    def test_no_shift_by_32_over_an_identity_outside_the_dispenser(self):
+        source, tree = self._runtime_tree()
+        dispenser = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "selected_actor_identity"
         )
-        self.assertGreater(dispenser.count(needle), 0)
+        inside = {id(n) for n in ast.walk(dispenser)}
+        offenders = []
+        for node in ast.walk(tree):
+            if id(node) in inside:
+                continue
+            if not isinstance(node, ast.BinOp):
+                continue
+            if not isinstance(node.op, ast.LShift):
+                continue
+            right = node.right
+            if not (isinstance(right, ast.Constant) and right.value == 32):
+                continue
+            if self._mentions_identity_hi(node):
+                offenders.append(node.lineno)
+        self.assertEqual(
+            offenders, [],
+            "runtime.py composes a player identity by hand at line(s) %r; "
+            "the whole point of R4's player half is that there is one "
+            "dispenser, and pf-adversary D1 showed a string-count token "
+            "cannot see a different spelling" % (offenders,),
+        )
+
+    def test_the_dispenser_itself_still_does_the_composing(self):
+        """The other half: the shape must exist somewhere, or nothing works."""
+        _source, tree = self._runtime_tree()
+        dispenser = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "selected_actor_identity"
+        )
+        shifts = [
+            node for node in ast.walk(dispenser)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.LShift)
+        ]
+        self.assertEqual(len(shifts), 1)
 
 
 class TheRealDispatcherAgreesWithItselfTests(unittest.TestCase):
@@ -235,11 +313,21 @@ class TheRealDispatcherAgreesWithItselfTests(unittest.TestCase):
         the door decodes them to a negative identity (beat 0).  With the
         player half hand-composed, the performer stayed the unsigned
         ``0x8000000000000001``, the two were unequal, and the self-target
-        refusal DID NOT FIRE -- the swing fell through to the membership
-        gate and was refused for an unrelated reason instead.  A player
-        cannot attack himself either way today, but the two halves of the
-        circuit disagreeing about who "himself" is is the whole defect
-        ``1420`` names, and the event stream is where it shows.
+        refusal DID NOT FIRE.
+
+        WHICH GATE CATCHES IT INSTEAD, MEASURED RATHER THAN ASSUMED
+        (pf-adversary R406, finding D5): the first draft of this docstring
+        said "the membership gate", and the mutant says otherwise -- the
+        membership gate PASSES, because ``_swing`` announces that very
+        target, and the swing falls through to the field-mob gate, which
+        answers ``mob_combat_target_not_a_field_mob_no_reply``.  The
+        second assertion below names that event, so it is a discriminator;
+        naming the membership event made it an assertion that was true in
+        both worlds and measured nothing.
+
+        A player cannot attack himself either way today.  What differs is
+        WHY he is refused, and two halves of one circuit disagreeing about
+        who "himself" is is the defect ``1420`` names.
         """
         state = self._state("r406-self", hi=TOP_BIT_HI, lo=TOP_BIT_LO)
         actions = self._swing(
@@ -250,7 +338,7 @@ class TheRealDispatcherAgreesWithItselfTests(unittest.TestCase):
             "the refusal that fired instead was %r" % (state.events[-3:],),
         )
         self.assertNotIn(
-            "mob_combat_target_not_announced_no_reply", state.events)
+            "mob_combat_target_not_a_field_mob_no_reply", state.events)
 
     def test_the_ordinary_positive_player_is_untouched_by_the_move(self):
         """Nothing production mints changes value -- measured, not assumed."""
@@ -261,13 +349,20 @@ class TheRealDispatcherAgreesWithItselfTests(unittest.TestCase):
             "mob_combat_target_not_positive_or_self_no_reply", state.events)
 
 
-class TheMintGuardsTheValueTheClientNeverDrawsTests(unittest.TestCase):
+class TheMintRefusesWhatTheCircuitCannotCarryTests(unittest.TestCase):
     """"guard the value 0" at the only place in the tree that mints a pair.
 
-    REACH, SAID PLAINLY: ``lo`` starts at ``0x10000001``, so no account id
-    or selector reaches zero and this fence cannot fire on a live server.
-    What is measured here is that it is WIRED into the mint path and that it
-    fails CLOSED -- no half-born character row survives the refusal.
+    THE FIRST VERSION OF THIS FENCE WAS DEAD, AND pf-adversary (R406, D3)
+    measured it dead: it asked only ``identity_is_drawn`` -- "is the
+    composed value 0" -- and ``lo`` starts at ``0x10000001``, so the answer
+    is "no" for EVERY ``hi``.  The one minter its comment claimed to fence
+    against (``hi != 0``) walked straight through, and the adversary then
+    drove that character all the way to a live combat frame, where it
+    killed the connection thread on ``REFUSE_VIEWER_IDENTITY_NOT_POSITIVE``.
+
+    So the fence now asks what the circuit actually requires -- a POSITIVE
+    identity -- and the rule lives in a module-level function that can be
+    measured without patching anything.
     """
 
     def setUp(self):
@@ -287,21 +382,51 @@ class TheMintGuardsTheValueTheClientNeverDrawsTests(unittest.TestCase):
         )
         self.account_id = self.store.ensure_account("r406-mint")
 
-    def _create(self, name="test01"):
+    def _create(self):
         wire = self.legacy.get_preset_actor_wire()
         return self.lifecycle.create(
             self.account_id, lifecycle_module.read_name(wire), wire,
         )
+
+    # -- the rule itself, no mocks, no patching ---------------------------
+
+    def test_the_pair_the_live_minter_produces_is_accepted(self):
+        self.assertEqual(
+            lifecycle_module.refuse_unmintable_identity(0x10000001, 0),
+            0x10000001,
+        )
+
+    def test_the_next_minter_the_old_fence_let_through_is_refused(self):
+        """The exact pair pf-adversary booted a character with."""
+        with self.assertRaises(ValueError) as box:
+            lifecycle_module.refuse_unmintable_identity(TOP_BIT_LO, TOP_BIT_HI)
+        self.assertIn("positive", str(box.exception))
+        # and the message names the real numbers, not a generic refusal
+        self.assertIn(str(TOP_BIT_IDENTITY), str(box.exception))
+
+    def test_zero_is_refused_too(self):
+        with self.assertRaises(ValueError):
+            lifecycle_module.refuse_unmintable_identity(0, 0)
+
+    def test_the_largest_positive_pair_is_still_accepted(self):
+        """The fence refuses non-positive, not "large" -- checked, not assumed."""
+        self.assertEqual(
+            lifecycle_module.refuse_unmintable_identity(0xFFFFFFFF, 0x7FFFFFFF),
+            2**63 - 1,
+        )
+
+    # -- and it is actually ON the mint path, failing closed --------------
 
     def test_the_live_minter_still_births_a_character(self):
         character = self._create()
         self.assertEqual(character.identity_hi, 0)
         self.assertGreaterEqual(character.identity_lo, 0x10000001)
 
-    def test_an_undrawable_identity_is_refused_and_writes_no_row(self):
+    def test_a_refused_identity_writes_no_row(self):
         before = len(self.store.list_characters(self.account_id))
         with mock.patch.object(
-            mob_identity_sign, "identity_is_drawn", return_value=False,
+            lifecycle_module, "refuse_unmintable_identity",
+            side_effect=ValueError("refused for the test"),
         ):
             with self.assertRaises(ValueError):
                 self._create()
