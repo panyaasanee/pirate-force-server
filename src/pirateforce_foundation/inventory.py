@@ -78,7 +78,9 @@ HYPOTHESIZED_V111_SLOT2_BACKPACK = BackpackState(
 #: identity 3 vacates when the V111 merge folds it away.  Named rather than
 #: spelled 2 at the call site so ``hypothesized_v111_slot2_state`` and the
 #: constant below cannot drift apart silently; pinned against
-#: ``HYPOTHESIZED_V111_SLOT2_BACKPACK`` in ``tests/test_inventory_starting_set.py``.
+#: ``HYPOTHESIZED_V111_SLOT2_BACKPACK`` by
+#: ``tests/test_starting_bag_gates.py::
+#: test_the_slot2_move_derives_the_golden_it_used_to_compare_against``.
 V111_SLOT2_DESTINATION = 2
 
 V111_MERGE_REQUEST_PC = bytes.fromhex(
@@ -137,8 +139,11 @@ def merged_v111_state(before: BackpackState) -> BackpackState:
     starting set grow: the day a class is born holding a different weapon, its
     merged bag differs from ``MERGED_V111_BACKPACK`` in exactly that row, and
     a constant post-state check would reject a merge it had just performed --
-    leaving the row already written.  Pinned against the measured constant by
-    ``test_inventory_starting_set``.
+    leaving the row already written.  Pinned against the measured constant
+    end to end by ``tests/test_starting_bag_gates.py::
+    test_the_stack_merge_follows_the_set_from_inventory_alone`` (there is no
+    ``test_inventory_starting_set`` module; this docstring named one for
+    three rounds and `git grep` returns nothing for it).
 
     Raises ``ValueError`` if the rows the merge needs are not both present,
     or if the summed stack leaves the u16 range ``require_backpack_shape``
