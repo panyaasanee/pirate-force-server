@@ -34,6 +34,7 @@ from . import world_face_frame
 from . import world_logout_button_notice
 from . import world_m2_crossing_handoff
 from . import world_m2_provisioning_trial
+from . import world_m2_teleport_check
 from . import world_population
 from . import world_population_bg0002
 from . import world_population_handoff
@@ -531,6 +532,173 @@ COMPOSABLE_SCENARIO_LANE_SETS = frozenset({
         "item_operate_res_hypothesis_scenario",
     }),
 })
+
+
+#: Refusal names this seam owns.  They are spelled HERE and not in
+#: `world_m2_teleport_check` because that module is LANE-A's: these two name
+#: a failure of the SOCKET half (an encoder that raised inside dispatch),
+#: which is chief's half of the seam.  Both are recorded through the sink's
+#: own `record_refusal`, so a run counts them next to the lane's own names.
+PROMPT_REFUSED_ENCODER_RAISED = "CHECK_REFUSED_PROMPT_ENCODER_RAISED"
+TRANSPORT_REFUSED_ENCODER_RAISED = "ECHO_REFUSED_TRANSPORT_ENCODER_RAISED"
+
+#: Two refusals of the RECORDING door, kept apart because their fixes are
+#: different -- the same posture `marker_destination` takes for its own pair.
+#: A row whose `pending` is the wrong TYPE is a caller that handed this seam
+#: something it never built; a row whose character id is not an int is a
+#: caller that knows the shape and got the owner wrong.  Neither may be
+#: stored: see `_SessionTeleportCheckSink.record`.
+ORDER_REFUSED_PENDING_NOT_A_PENDING_CHECK = (
+    "CHECK_REFUSED_ORDER_PENDING_NOT_A_PENDING_CHECK")
+ORDER_REFUSED_CHARACTER_ID_NOT_AN_INT = (
+    "CHECK_REFUSED_ORDER_CHARACTER_ID_NOT_AN_INT")
+
+
+def _teleport_check_say(build, *args) -> None:
+    """Build one console line and print it, and NEVER raise into dispatch().
+
+    pf-adversary D2 of pirate-force-server#1109, MEASURED against the frozen
+    listener: `game_listener` wraps `state.dispatch()` in a `try:` with no
+    `except` (only a `finally`), so ANY exception on this path kills the
+    accept loop for every session on the process -- over a log line.  `print`
+    to a closed stdout raises `ValueError` and to a broken pipe
+    `BrokenPipeError`; `ground_empty_trial._say` and `action_ack._say` wrap
+    theirs for exactly this reason and this is the same wrapper.
+
+    THE BUILDER IS INSIDE THE TRY, not only the print.  The lines this seam
+    prints are built by `world_m2_teleport_check`'s own formatters from a
+    `PendingCheck` a caller supplied -- `echo_console_line` is even called
+    with `pending=None` on one path -- so the string can fail to exist before
+    there is anything to hand `print`.  A wrapper that guarded only the
+    `print` would leave that half of D2 unpaid.
+    """
+    try:
+        line = build(*args)
+    except Exception:  # noqa: BLE001 - a log line never kills the listener
+        return
+    if line is None:
+        return
+    try:
+        print(line)
+    except Exception:  # noqa: BLE001 - see above
+        pass
+
+
+class _SessionTeleportCheckSink(
+        world_m2_teleport_check.InMemoryTeleportCheckSink):
+    """The connection's travel-order recorder, plus the queue of orders that
+    have not been put on the wire yet.
+
+    WHY A SUBCLASS RATHER THAN A SECOND LIST ON THE SESSION.  LANE-A's module
+    draws the line at "recorded, not sent": a quest closure records an order
+    and the half that owns the socket sends it (`TeleportCheckOrder`'s own
+    docstring).  That handover needs somewhere to hold "recorded but not yet
+    sent", and it must be the SAME object the recording side writes into --
+    a separate list on the session would only be filled by call sites this
+    file can see, so an order recorded through any other door (the
+    `ScriptHost` sink parameter LANE-A is adding, a test, a later lane) would
+    be stored and never prompted, and the log would say `stored=1` with no
+    window on any screen.  Overriding `record()` puts the queue behind the
+    one method every door has to call.
+
+    `orders` is NOT this queue.  An order stays in `orders` after its prompt
+    goes out, because the echo that answers it is what consumes it
+    (`sink.take`); `unsent` is drained by the send and holds each order
+    exactly once, so a client that never echoes leaves one row in `orders`
+    until the cap refuses new ones out loud, and no repeated prompt.
+
+    NOT CLAIMED: that the cap is ever reached in a real session.  This class
+    adds no cap of its own -- a refused record stores nothing and therefore
+    queues nothing, which is the one behaviour a caller could get wrong by
+    queueing first and asking later.
+    """
+
+    __slots__ = ("unsent", "answered", "post_ack_noted", "no_selected_noted")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.unsent: list = []
+        #: Every ``(character_id, marker_id)`` THIS SEAM has already answered
+        #: with a transport frame on this connection.  Not a statistic: it is
+        #: the whole of pf-adversary D1's fix -- see
+        #: `_dispatch_teleport_check_echo`, which refuses a SECOND echo of a
+        #: pair in here rather than handing it to the frozen route.
+        #:
+        #: BOUNDED, and stated rather than hoped: an entry is added only when
+        #: a recorded order was consumed, and the marker id is the single u16
+        #: field of the frame, so the set holds at most one entry per marker
+        #: id per character this connection has selected.  NOT CLAIMED: that
+        #: it is small under a script that records and echoes tens of
+        #: thousands of distinct markers on one connection -- it is bounded,
+        #: not tiny, and no letter has measured a real session's shape.
+        self.answered: set = set()
+        #: One event per closed session, not one per late frame.
+        self.post_ack_noted: bool = False
+        #: The same bound, for a connection that never selected a character.
+        self.no_selected_noted: bool = False
+
+    def record(self, character_id, pending):
+        """Store one travel order, or refuse it BY NAME and store nothing.
+
+        pf-adversary G2 of pirate-force-server#1109, MEASURED, and the reason
+        this override does more than hold a queue.  This class advertises
+        itself as THE door other lanes hand travel orders to -- that is what
+        `teleport_check_sink` is public for -- and the door validated
+        nothing.  A row whose `pending` was not a `PendingCheck` was stored,
+        counted as stored, and then killed the process on an UNRELATED LATER
+        FRAME: `resolve_echo` walks every row in `orders` reading
+        `order.pending.marker_id`, so the next inbound TeleportCheckVital of
+        ANY marker id raised `AttributeError` out of `resolve_echo`, out of
+        `_dispatch_teleport_check_echo`, out of `dispatch()`, into
+        `game_listener`'s `try:` that has no `except`
+        (current/pf_login_game_server_v141.py:7440) -- and the accept loop
+        died for every session on the process.
+
+        REFUSED AT THE DOOR, NOT SURVIVED FURTHER IN, and D3's own guard is
+        why that distinction is not cosmetic.  A check inside the drain would
+        leave the bad row sitting in `orders` where the echo path still walks
+        it, while the drain's log said the row had been handled -- exactly
+        the shape that made the process die on a frame with nothing to do
+        with the bad row.  Nothing is stored here, so nothing can be reached.
+
+        `type(...) is not` RATHER THAN `isinstance`.  A subclass of
+        `PendingCheck` is a tuple this file did not build, and
+        `encode_transport` reads `pending.destination` raw without
+        re-resolving it through `marker_destination` the way `encode_prompt`
+        does -- F3 measured three hand-built destination shapes raising out
+        of it.  The narrow test is the one that matches what this door
+        promises: the type LANE-A's `open_check` returns.
+
+        THE CHARACTER ID IS CHECKED FOR A DIFFERENT REASON and is not a
+        crash: `resolve_echo` already refuses a non-int owner, so such a row
+        is merely unconsumable -- it occupies one of the `ORDER_CAP` 64 slots
+        for the life of the connection and no echo can ever clear it.  A
+        recorder that accepts an order nobody can redeem, and answers `1` for
+        it, is lying to its caller.  `bool` falls on the refusing side with
+        the non-ints for the reason `_coerce_marker_id` gives: `True` is a
+        valid Python int and a catastrophic id.
+
+        NOT CLAIMED: that either shape has ever been recorded by a real
+        caller.  There is no production caller of this door yet -- that is
+        the `ScriptHost` sink parameter LANE-A still owes -- so both refusals
+        are written before the first caller exists, which is the only time
+        they are cheap.
+
+        Returns the recorder's own contract, `1` stored / `0` refused, so a
+        caller that already handles the `ORDER_CAP` refusal handles these.
+        """
+        if type(pending) is not world_m2_teleport_check.PendingCheck:
+            self.record_refusal(ORDER_REFUSED_PENDING_NOT_A_PENDING_CHECK)
+            return 0
+        if type(character_id) is not int:
+            self.record_refusal(ORDER_REFUSED_CHARACTER_ID_NOT_AN_INT)
+            return 0
+        stored = super().record(character_id, pending)
+        if stored:
+            self.unsent.append(world_m2_teleport_check.TeleportCheckOrder(
+                character_id, pending,
+            ))
+        return stored
 
 
 class _EventEchoList(list):
@@ -6842,7 +7010,369 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self._move_authority_note_server_moves(actions)
             self._gm_warp_close_confirm_window(warp_frame)
             self._gm_warp_note_position_pending(actions)
+            # LANE-A #1101 call site (1).  Last, so a prompt recorded by
+            # anything this frame ran rides out on this same frame rather
+            # than waiting for the next one.
+            self._teleport_check_drain_prompts(actions)
             return actions
+
+        def teleport_check_sink(self):
+            """This connection's travel-order recorder, built on first use.
+
+            THE DOOR, NAMED SO SOMETHING CAN BE HANDED IT.  LANE-A's #1101
+            body and its pf-adversary finding D2 both end on the same
+            sentence: the orders a quest script records land in a private
+            attribute nothing outside the namespace can reach, because
+            `ScriptHost` has no sink parameter yet.  That parameter is
+            LANE-A's edit in LANE-Q's file; THIS is the object it is meant to
+            be given, one per connection, so that two players in one scene
+            cannot consume each other's travel orders even before that edit
+            exists.  Public (no leading underscore) for the same reason.
+
+            Built lazily rather than in the session constructor because this
+            class is `legacy.GameSessionState`'s subclass and every attribute
+            added to its construction path is a line the v141 snapshot
+            comparison has to carry; a getattr default costs nothing on the
+            sessions that never travel.
+            """
+            sink = getattr(self, "_teleport_check_sink", None)
+            if sink is None:
+                sink = _SessionTeleportCheckSink()
+                self._teleport_check_sink = sink
+            return sink
+
+        def _teleport_check_drain_prompts(self, actions) -> None:
+            """Put a `TeleportCheckVital` on the wire for each order recorded
+            since the last frame -- LANE-A #1101's call site (1).
+
+            WHEN A SESSION SHOULD BE ASKED is the recorder's decision, not
+            this file's: whoever records an order has already decided the
+            player should be asked, and this drains that decision onto the
+            socket at the first opportunity the connection gives us.  There
+            is no other opportunity -- this server writes to a client only
+            while answering one of its frames -- so the prompt rides out on
+            the next frame the client sends, which for a moving player is the
+            TargetPos it is already sending continuously.
+
+            EACH ORDER IS PROMPTED ONCE.  The queue is drained, never read:
+            an order the client ignores is not re-sent, because a second
+            prompt for the same marker would let ONE echo consume the newest
+            of two identical orders (`resolve_echo`'s rule 3) and leave the
+            other one stuck in `orders` for good.
+
+            NEVER COSTS THE FRAME IT RIDES ON.  `encode_prompt` resolves the
+            marker row and can raise `TeleportCheckError` for an id no
+            committed row pins; that is the recorder's mistake, and it is
+            counted by name and dropped here rather than allowed out of
+            `dispatch()`, where it would cost the session that merely walked
+            past.
+            """
+            sink = self.teleport_check_sink()
+            if not sink.unsent:
+                return
+            # pf-adversary D3 of #1109, MEASURED: this drain runs at the tail
+            # of dispatch(), AFTER `_dispatch_with_lanes` has returned, so
+            # the two `logout_acknowledged` guards inside it -- which count a
+            # late frame and answer nothing so "no other lane can write
+            # through a closed session" -- could not see it.  A prompt went
+            # out on a frame the event trail says got no reply.  The lease is
+            # closed here, so the orders are LEFT QUEUED rather than dropped:
+            # nothing on a dead connection is owed a window, and a drain that
+            # emptied the queue would also erase the evidence of what was
+            # owed.  The same guard covers a connection with no character
+            # selected, which is this file's standing house rule (see the
+            # UIA notice's own FAIL-CLOSED block): an unauthenticated
+            # connection must not make this server compose bytes.
+            if getattr(self, "logout_acknowledged", False):
+                # ONE event, not one per late frame: pf-adversary F7 measured
+                # 20 post-ack frames leaving 20 rows in `state.events` of a
+                # session whose guards exist to stop lanes writing through a
+                # closed connection.  The queue is left alone rather than
+                # emptied for the same reason -- emptying it is a write on
+                # that closed session, and nothing outside this seam ever
+                # reads the queue anyway (F7's second half: there is no
+                # exporter, so calling the leftover rows "evidence" would be
+                # a claim about a reader that does not exist).
+                if not sink.post_ack_noted:
+                    sink.post_ack_noted = True
+                    self.events.append(
+                        "lane_a_m2_teleport_check_post_ack_no_prompt")
+                return
+            if self.foundation.selected is None:
+                # ONE event per connection, not one per frame -- the same
+                # bound F7 put on the post-ack notice just above, and for the
+                # same measured reason.  An unauthenticated connection may
+                # send frames indefinitely, so a row appended per frame is a
+                # list this server grows on behalf of a caller that has
+                # proved nothing.  The queue is left alone (the orders are
+                # still owed if a character is ever selected); only the
+                # notice is capped.
+                if not sink.no_selected_noted:
+                    sink.no_selected_noted = True
+                    self.events.append(
+                        "lane_a_m2_teleport_check_no_selected_no_prompt")
+                return
+            # ONE ORDER AT A TIME, popped as it is handled -- pf-adversary D2,
+            # second half.  The first draft moved the whole queue into a local
+            # and emptied `unsent` before the loop, so anything raising on the
+            # first order silently stranded the rest: never prompted, never
+            # counted, still redeemable by an echo, with no line anywhere
+            # saying so.  Popping as we go means a raise leaves every
+            # unhandled order exactly where the next frame will find it.
+            while sink.unsent:
+                order = sink.unsent.pop(0)
+                try:
+                    prompt_pc, prompt_frame = (
+                        world_m2_teleport_check.encode_prompt(
+                            legacy, order.pending.marker_id,
+                        )
+                    )
+                except world_m2_teleport_check.TeleportCheckError:
+                    sink.record_refusal(
+                        world_m2_teleport_check.CHECK_REFUSED_MARKER_ROW_NOT_PINNED
+                    )
+                    continue
+                except Exception:  # noqa: BLE001 - pf-adversary F3
+                    # NAMED ERRORS ARE NOT THE WHOLE PATH.  The first draft
+                    # caught `TeleportCheckError` only, and a round of its own
+                    # tests then PINNED an unnamed error escaping `dispatch()`
+                    # as intended -- in the file written to answer a finding
+                    # whose whole point is that nothing here may raise into a
+                    # listener with no `except`.  A recorder is a door other
+                    # lanes will open; a door that can kill every session on
+                    # the process over one bad row is not a door.
+                    sink.record_refusal(PROMPT_REFUSED_ENCODER_RAISED)
+                    continue
+                actions.append((
+                    "LANE_A_M2_TELEPORT_CHECK_PROMPT", prompt_pc,
+                    prompt_frame, 0.0,
+                ))
+                _teleport_check_say(
+                    world_m2_teleport_check.prompt_console_line, order.pending,
+                )
+
+        def _dispatch_teleport_check_echo(self, parsed):
+            """The player pressed OK on the captain report -- LANE-A #1101's
+            call site (2).  ``None`` means "not this seam's frame".
+
+            v141 counts this inbound id (`teleport_check_echo_capture_count`)
+            and answers it with nothing, which is why R307 saw a window that
+            led nowhere.  The answer is the transport frame for the marker
+            row the echo names, and every step of picking it belongs to the
+            module that measured it: `decode_echo` for the one u16 the frame
+            carries, `sink.take` for WHICH recorded order this echo consumes
+            (this character's, this marker id, newest first, removed as it is
+            returned), `accept_echo` for whether the pair may proceed at all,
+            and `encode_transport` for the bytes.  This file decides nothing
+            about travel; it owns the socket.
+
+            CONSUMED ONCE, WHICH IS WHY `take` COMES BEFORE `accept_echo`.
+            A client that echoes twice -- or a replayed frame -- finds no
+            order the second time and is refused by name, instead of being
+            given a second free journey.  Ordering it the other way would
+            leave the accept path reading a pending record it has not
+            removed.
+
+            REFUSALS ARE PRINTED, NOT RAISED.  An undecodable frame, an echo
+            for an order nobody recorded, and an id mismatch are all one
+            console line and an empty action list: this is a dispatch branch,
+            where a raise costs the session (`decode_echo`'s own docstring).
+            """
+            echoed = world_m2_teleport_check.decode_echo(legacy, parsed)
+            if echoed is None:
+                # v141 has its own name for an undecodable frame of this
+                # class ("v131_teleport_check_parse_error_no_reply"); this
+                # seam has no order it could belong to either way.
+                return None
+            character_id = current_character_id(self)
+            if type(character_id) is not int:
+                # No character selected, or an id this connection cannot
+                # read: either way there is no player this order could
+                # belong to, and guessing one would move somebody's ship.
+                return None
+            sink = self.teleport_check_sink()
+            if world_m2_teleport_check.resolve_echo(
+                    sink.orders, character_id, echoed) is None:
+                # Nothing this connection recorded answers this echo.  THE
+                # ONE FRAME THIS SEAM STILL OWNS HERE IS A REPLAY OF ITS OWN
+                # ANSWER -- pf-adversary D1 of #1109, the finding that kept
+                # this pull request in draft.
+                #
+                # MEASURED on the real dispatcher: one recorded order for
+                # marker 1, the exact V136 confirm bytes sent TWICE, and the
+                # first draft paid out TWO travel frames.  The seam consumed
+                # the order on echo #1; echo #2 found nothing, fell through,
+                # and v141's route -- whose one-shot latch was still unfired
+                # because the seam had answered instead of it -- paid the
+                # V137 transport probe.  A replay bought a second journey,
+                # which could not happen before this branch existed.  Trading
+                # one defect for another is not a fix.
+                #
+                # So: an echo naming a pair THIS SEAM HAS ALREADY ANSWERED
+                # is refused by name here instead of being handed to the
+                # frozen route.  Nothing else changes -- every other echo,
+                # including one for a marker this connection never recorded
+                # and including v141's own marker 1 after this seam has moved
+                # the player somewhere else, still reaches v141 untouched.
+                #
+                # A BROADER RULE WAS TRIED AND MEASURED WRONG.  Keying this on
+                # "has this seam ever transported" (a counter, not a memo)
+                # made the seam swallow EVERY later frame of this class on the
+                # connection: pf-adversary F1 measured v141's V137 probe and
+                # both of its unconditional capture events going dark for the
+                # rest of the session on a connection whose seam order was for
+                # marker 17, which has nothing to do with marker 1.  That is
+                # exactly what the call site's own capitalised rule below
+                # forbids -- it swallowed the id, just later.  The layer-2
+                # comparison (tests/test_teleport_transport_wire.py) stayed
+                # green through it because no test there ever lets the seam
+                # send a transport at all.
+                #
+                # WHY A COUNTER ON THIS CONNECTION AND NOT v141's OWN LATCH.
+                # Setting `v137_marker1_transport_sent` from here would have
+                # been one line and is WRONG: that attribute is read a second
+                # time, at the V138 ready -> V140 population branch
+                # (current/pf_login_game_server_v141.py:3734), as "this
+                # connection is at marker 1".  Writing it would hand a
+                # population snapshot to a connection v141 never transported.
+                # One flag, two meanings, so this seam keeps its own.
+                if (character_id, echoed) in sink.answered:
+                    self.rx_frames += 1
+                    sink.record_refusal(
+                        world_m2_teleport_check
+                        .ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER
+                    )
+                    _teleport_check_say(
+                        world_m2_teleport_check.echo_console_line,
+                        None, echoed,
+                        world_m2_teleport_check
+                        .ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER,
+                    )
+                    return []
+                # Asked WITHOUT consuming (resolve_echo, not take) precisely
+                # because the frame goes on to the inherited route: a refusal
+                # counted here would be a refusal of a frame this seam never
+                # owned, and take()'s own bookkeeping would say this player
+                # replayed something they never had.
+                return None
+            self.rx_frames += 1
+            order = sink.take(character_id, echoed)
+            if order is None:
+                # Unreachable through this file (resolve_echo just agreed
+                # there is one, on the same list, with no yield in between),
+                # and still not an exception: a dispatch branch that raises
+                # costs the session.
+                _teleport_check_say(
+                    world_m2_teleport_check.echo_console_line,
+                    None, echoed,
+                    world_m2_teleport_check.ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER,
+                )
+                return []
+            refusal = world_m2_teleport_check.accept_echo(order.pending, echoed)
+            if refusal is not None:
+                sink.record_refusal(refusal)
+                _teleport_check_say(
+                    world_m2_teleport_check.echo_console_line,
+                    order.pending, echoed, refusal,
+                )
+                return []
+            _teleport_check_say(
+                world_m2_teleport_check.echo_console_line,
+                order.pending, echoed, None,
+            )
+            try:
+                transport_pc, transport_frame = (
+                    world_m2_teleport_check.encode_transport(
+                        legacy, order.pending)
+                )
+            except Exception:  # noqa: BLE001 - pf-adversary F3
+                # `encode_transport` reads `pending.destination` raw -- it
+                # does NOT re-resolve through `marker_destination` the way
+                # `encode_prompt` does, so unlike the prompt path it has no
+                # guarantee the row is well formed.  MEASURED: three shapes
+                # of a hand-built destination raise OverflowError / TypeError
+                # out of here, AFTER the player has already been asked.  The
+                # order is gone by now (`take` popped it) and nothing reached
+                # the socket, so nothing is recorded as answered.
+                sink.record_refusal(TRANSPORT_REFUSED_ENCODER_RAISED)
+                _teleport_check_say(
+                    world_m2_teleport_check.echo_console_line,
+                    order.pending, echoed, TRANSPORT_REFUSED_ENCODER_RAISED,
+                )
+                return []
+            # Recorded AFTER the bytes exist and before they leave: a memo
+            # entry written earlier would say this player travelled on a
+            # frame that never reached the socket, and would then refuse the
+            # honest retry.
+            sink.answered.add((character_id, echoed))
+            # NO SCENE RELABEL HERE, AND THAT IS A DECISION, NOT AN
+            # OVERSIGHT -- see `_teleport_check_scene_relabel_is_refused`
+            # below for the measurement that removed the one this branch
+            # carried for part of round R399.
+            _teleport_check_say(
+                world_m2_teleport_check.transport_console_line,
+                order.pending, len(transport_frame),
+            )
+            return [(
+                "LANE_A_M2_TELEPORT_CHECK_TRANSPORT", transport_pc,
+                transport_frame, 0.0,
+            )]
+
+        #: WHY THIS SEAM DOES NOT NAME THE SCENE IT SENT THE PLAYER TO.
+        #:
+        #: pf-adversary G1 of pirate-force-server#1109 is real and is NOT
+        #: paid here: this seam moves a player across scenes and
+        #: `selected.position.scene_id` keeps naming the departure, so the
+        #: first ordinary TargetPos after a journey writes the destination's
+        #: coordinates under the departure's scene id.  A relabel modelled on
+        #: `_gm_warp_resync_selected_scene` was written, measured, and TAKEN
+        #: BACK OUT in round R399, because pf-adversary measured that it
+        #: turns a recoverable bug into an unrecoverable one:
+        #:
+        #: ALL THREE DECREED M2 ARRIVAL SCENES ARE BARRED AT LOGIN.  Markers
+        #: 17, 343 and 345 resolve to scenes 126, 304 and 305, and
+        #: `scenarios/world_scene_registry_001.json` pins
+        #: `login_entry_allowed: false` on every one of them (re-derived
+        #: independently this round through
+        #: `gm.warp_scene_persist.login_would_accept`, which answers False
+        #: for all three and True for scene 1).  With the relabel in place,
+        #: MEASURED end to end: the durable row becomes
+        #: `Position(scene_id=126, ...)`, and the next login answers
+        #: StartGame with NOTHING -- the scene-not-allowed-at-login refusal
+        #: that `world_scene_refusal_notice` composes (its token is spelled
+        #: THERE and not here: that module is its single producer and a test
+        #: pins the literal out of this file), the matching
+        #: `..._refused_no_reply` event, and an empty action list.  Only a
+        #: login can rewrite `character_positions`, and that login can no
+        #: longer happen: the character is permanently unplayable.
+        #: `gm/warp_scene_persist.py` already states the rule this seam
+        #: broke -- "refusing to write is strictly better than bricking the
+        #: character".
+        #:
+        #: TWO MORE MEASURED COSTS OF THAT RELABEL, either of which would
+        #: block it on its own: a well-formed `PendingCheck` carrying a
+        #: destination nobody resolved put an arbitrary scene id straight
+        #: into `Position` (and an out-of-range one raised out of
+        #: `is_position_persist_allowed` on the next ordinary walk frame --
+        #: G2's own damage, arriving through the door G2 closed); and the
+        #: relabel copied `_gm_warp_resync_selected_scene`'s first paragraph
+        #: without the KA1A-ROOTCAUSE block sixty lines below it that clears
+        #: `world_census_sent`, `last_target_pos` and the announced combat
+        #: membership -- so the destination's census never fired, its roster
+        #: never announced, and every field-mob ActionVital in the arrival
+        #: scene was refused for the rest of the session.
+        #:
+        #: WHAT ACTUALLY DECIDES THIS, and it is not chief's to decide alone:
+        #: WHERE DOES A PLAYER STAND WHEN THEY LOG BACK IN FROM THE SEA?
+        #: Every option this seam has is wrong in some direction until that
+        #: is owned -- leave the label (silent position corruption), write it
+        #: (the brick above), or relabel in memory while withholding the
+        #: durable write like the login-scene-override VISIT branch does
+        #: (safe, and the likely answer, but then a player who logs out at
+        #: sea reappears in port and M2 still cannot prove an arrival).
+        #: Put to COO and LANE-A in the R399 letters.  The pin that stops the
+        #: next reader re-adding the naive relabel is
+        #: `SelectedSceneIsNotRelabelledTests` in the seam's test file.
 
         def _gm_warp_open_confirm_window(self, parsed) -> bool:
             """CORE-REQUEST-GM-030: this frame is the warp's TargetPos or none is.
@@ -8804,6 +9334,38 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     payload=bytes(parsed.nested_payload),
                 )
                 return []
+            if nested_id == legacy.TELEPORT_CHECK_VITAL:
+                # LANE-A pirate-force-server#1101's second call site, asked
+                # for word for word in that PR's body and granted by
+                # COO-DECISION 20260908_0242 item 2 once
+                # world_m2_teleport_check.py was on main (it is:
+                # dd1a169, merged 2026-09-07T19:51Z).
+                #
+                # UNLIKE THE THREE BRANCHES ABOVE, THIS ONE ANSWERS.  They
+                # count a frame and fire a report-only hook because nobody
+                # has measured what a reply would mean; here RE-303 measured
+                # the whole handshake -- the id, the single u16 field, that
+                # the value is MARKER.n_ID, and that OK echoes it back
+                # unmodified -- so the reply is a read of that letter, not a
+                # guessed opcode.
+                #
+                # AND UNLIKE THEM, IT MUST NOT SWALLOW THE ID.  v141's own
+                # dispatch already reads this class: the frozen V131 echo
+                # capture and the exact V136 marker-1 confirm that emits
+                # V137_ISOLATED_COMPOSITIONAL_MARKER1_TELEPORTVITAL_
+                # TRANSPORT_PROBE_ONCE both live there
+                # (current/pf_login_game_server_v141.py:4052), and that
+                # route is artifact layer 2 -- the comparison that says this
+                # rewrite has not wandered off, not code to replace.  A
+                # branch that returned here unconditionally deleted it:
+                # measured, tests/test_teleport_transport_wire.py's three
+                # emission tests went red on exactly that.  So the helper
+                # answers ONLY an echo that consumes an order THIS
+                # connection recorded, and returns None for everything else,
+                # which falls through to the inherited route untouched.
+                answered = self._dispatch_teleport_check_echo(parsed)
+                if answered is not None:
+                    return answered
             if nested_id in _FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS:
                 # CORE-REQUEST of pf_bridge/notes_to_chief/20260904_1120
                 # (LANE-UI).  Same shape as TRIGGER_VITAL and
