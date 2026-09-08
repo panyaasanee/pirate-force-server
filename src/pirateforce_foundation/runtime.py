@@ -12,6 +12,7 @@ import time
 from . import columbus_quest_dispatch
 from . import diag_multi_object_wiring
 from . import field_mobs
+from . import inventory
 from . import m2_survey_trial
 from . import mob_ai_control
 from . import mob_census_hostility
@@ -90,7 +91,6 @@ from .gm import warp_send_watch
 from .model import Position
 from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
-    MERGED_V111_BACKPACK,
     is_exact_merge_request,
     make_item_merge_delta_response,
     make_item_move_delta_response,
@@ -2091,8 +2091,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not applied:
                 self.events.append("foundation_v111_merge_replay_no_reply")
                 return []
-            if self.foundation.backpack != MERGED_V111_BACKPACK:
-                raise RuntimeError("committed V111 Backpack state mismatch")
+            if self.foundation.backpack not in inventory.merged_v111_states():
+                # The row is already written -- the repository call above
+                # committed before this line ran.  Raising here would leave
+                # dispatch() with an exception AFTER the write, which is the
+                # one shape CORE-REQUEST 20260908_0206 asked to remove: the
+                # bytes are dropped, the counter does not move, and the
+                # connection survives to say so.
+                self.events.append(
+                    "foundation_v111_merge_committed_unknown_state_no_reply"
+                )
+                return []
             self.stack_merge_count += 1
             self.events.append(
                 "foundation_v111_merge_committed_before_response"
@@ -2117,7 +2126,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not self.teleport_sent or not self.runtime_ack_sent:
                 self.events.append("item_move_capture_wrong_sequence_no_reply")
                 return []
-            if self.foundation.backpack != MERGED_V111_BACKPACK:
+            if self.foundation.backpack not in inventory.merged_v111_states():
                 self.events.append("item_move_capture_wrong_current_state_no_reply")
                 return []
             if self.item_move_capture_count:
@@ -2172,7 +2181,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if self.foundation.backpack == HYPOTHESIZED_V111_SLOT2_BACKPACK:
                 self.events.append("item_move_hypothesis_replay_no_reply")
                 return []
-            if self.foundation.backpack != MERGED_V111_BACKPACK:
+            if self.foundation.backpack not in inventory.merged_v111_states():
                 self.events.append("item_move_hypothesis_wrong_current_state_no_reply")
                 return []
 

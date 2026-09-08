@@ -399,7 +399,7 @@ encoders this lane does not own), then the rest of `Quest.*` (15 names:
 `CountDownTime`/reward-and-grant names still need a LANE-DB column or a
 `Player.*` grant seam this lane does not own yet, `GetWeekDay`/
 `CheckWishQuest` on undocumented enums/cross-lane guild state -- see
-"Round 7v7yn2" below), then the rest of `Player.*` (62 names, grouped by
+"Round 7v7yn2" below), then the rest of `Player.*` (61 names, grouped by
 blocker in `lua_api/player.py`'s own `STILL_STUBBED` -- item/equipment
 WRITE state (the inventory seam's write side, blocked on `RE-280`), a
 stat-grant write seam, other per-character stat reads, skill/buff state,
@@ -4447,3 +4447,89 @@ while its reward cannot be paid instead of completing and paying nothing.
 No frame goes out, no NPC dispatches a quest, and the corpus sweep pins
 are unchanged (2593 stub / 2878 real) because no API changed status --
 this round moves no name into `REAL_METHODS`.
+
+## Round `l8ayrt` (2026-09-08) -- quest progress gets somewhere durable to live
+
+PANYA's order of ~15:20 (`pf_bridge/notes_to_chief/20260908_1520_KA1A-PANYA-
+ORDER-COO-unblock-gt186-gt308-and-quest-flag-store-first.md` section 3)
+reordered this lane: the quest-flag store comes BEFORE any further charge
+function, because four rounds of "the server can now take something from
+the player" (`Player.GetCash`, `Player.AddCash(Var2 * -1)`,
+`Player.Addmoralized(-VarN)`, the `Player.RemoveItem` take side) sit on a
+quest that CANNOT REMEMBER WHAT STEP THE PLAYER REACHED.  A charge on top
+of amnesia is a charge that can be collected twice.
+
+### What was measured first (and contradicts the order's own premise, in the lane's favour and against it)
+
+The order says `QuestStateStore` "is a bare Protocol with no real
+implementation".  Half true as of today's `main`:
+
+  * The Protocol IS there, AND so is `InMemoryQuestStateStore` -- process
+    memory, gone on relog.  So the missing thing is not "an
+    implementation", it is A DURABLE ONE.
+  * The order assigns the DB half to LANE-DB, "using the contract already
+    designed in `20260905_2212_LANE-DB-TO-LANE-Q-*`, do not redesign".
+    THAT CONTRACT'S DOORS ARE NOT ON `main`:
+
+        grep -n "def set_quest_flag" src/pirateforce_foundation/store.py  -> 0
+        ls src/pirateforce_foundation/persistence_quest_state.py          -> missing
+        ls migrations/ | grep -i quest                                    -> 0
+
+    and the migration number that letter reserved (`014_character_quest_
+    state.sql`) is taken on `main` by `014_character_skills_learned_
+    source.sql`.  LANE-DB's round-`qul9wo` pull request never landed.  A
+    letter went to COO and LANE-DB with those three commands in it.
+
+### What this round built (the LANE-Q half, in full)
+
+`lua_api/quest_state_store.py`: `StoreBackedQuestStateStore`, a
+`QuestStateStore` written against LANE-DB's five contracted doors, and
+`quest_state_store_for(store, log)`, the factory that hands one back or
+returns `None` **while logging `LUA_QUEST_STATE_VOLATILE` naming every
+missing door**.
+
+The refusal posture is the point.  A store refusal -- unknown or
+soft-deleted character (`KeyError`), an id outside u16 (`ValueError`), a
+write-lock timeout (`store.WriteLockTimeout`, caught as its
+`sqlite3.Error` family so `lua_api` never has to import `store`), or a row
+whose shape drifted from the contract -- is OURS.  It is logged
+`LUA_QUEST_STATE_REFUSED` with a closed set of ASCII reasons and answered
+"no progress recorded"; it never re-enters the Lua call stack where the
+sweep would write `LUA_SCRIPT <file> ERR` and blame the script for a
+server-side fact.  Anything outside those families propagates: a
+`TypeError` from a mis-wired adapter is a bug in this file and is not
+swallowed (`test_a_bug_in_this_lane_is_not_swallowed_as_a_store_refusal`).
+
+`quest.DEFAULT_CONTEXT`'s character id 0 never reaches a store at all --
+real character ids start at 1 -- so the inert default context stays inert
+instead of earning a `KeyError` per call site.
+
+`InMemoryQuestStateStore` gained one line: `durable = False`.  Its durable
+counterpart says `True`.  That pair is what lets a caller tell "progress
+survives a relog" from "progress evaporates" without isinstance-ing across
+modules, and it is why the fallback can now be LOUD instead of silent.
+
+### The count on line 400, recounted rather than accepted
+
+COO-DECISION `20260908_1541` said that line reads 63 and should read 62,
+and told this lane to COUNT IT rather than believe either number.
+Counted:
+
+    len(spec.NAMESPACE_METHODS["Player"])  -> 73
+    len(player.REAL_METHODS)               -> 12
+    len(player.STILL_STUBBED)              -> 61
+
+73 - 12 = 61, and `STILL_STUBBED` independently carries 61 keys.  The line
+already read 62 (someone moved 63 -> 62 already); **it now reads 61**, and
+a one-line note went to LANE-A saying the number it measured has moved
+again.
+
+### Not claimed
+
+No name moved into `REAL_METHODS`.  No row is written anywhere today,
+because the doors this adapter calls do not exist on `main` yet -- what
+exists is the half of the wiring this lane owns, proven against a fake
+that implements LANE-DB's letter method-for-method, plus the alarm that
+stops a memory-only host from looking like a persistent one.  Nothing is
+on a screen; no player relogged and found a quest where they left it.
+The corpus sweep pins are unchanged (2593 stub / 2878 real).
