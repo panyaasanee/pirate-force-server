@@ -234,6 +234,45 @@ LV_REFUSED_NOTICE_TEXT = "LV NO CHANGE"
 # told to relog is the failure this sentence exists to end.
 WARP_STAGED_NOTICE_TEXT = "STAGED RELOG"
 
+# THE SIXTH THROUGH NINTH SENTENCES, `/job`'s and `/skill all`'s (PANYA-ORDER
+# 2026-09-08, sections 2.1-2.2), found inside the same pinned 12 characters as
+# the five above for the same reason: the LENGTH is the measured property of
+# this codec, the wording is this lane's own.
+#
+# `JOB OK RELOG` carries the two facts a tester acts on, exactly as
+# `LV SET RELOG` and `STAGED RELOG` do: the class row IS written, and the
+# client keeps drawing the OLD class until the next login, because the only
+# place `class_id` reaches a client is the login actor (`legacy_bridge.
+# start_game`, `u32tag(0x19, class_id)`) and the frame that would change it
+# live is the sparse `UpdateAttrVital` `GT-193`/`GT-218` measured killing a
+# client.  The owner's order says to tell her to relog rather than let her
+# grade the command broken; twelve characters is where that is said.
+JOB_SET_NOTICE_TEXT = "JOB OK RELOG"
+
+# `JOB NOCHANGE` covers EVERY refusal of `/job` that is not a typo, the same
+# way `LV NO CHANGE` does for `/lv`: not one of the five class ids, no
+# selected character, the canonical-DB gate, a store that refused the write.
+# One word for all of them on purpose -- the screen says "nothing was
+# written", and WHICH refusal it was is on the server console and in the
+# audit row, where a class id and an exception type can be read without
+# being squeezed into 12 characters.
+JOB_REFUSED_NOTICE_TEXT = "JOB NOCHANGE"
+
+# `SKILLS GIVEN` is `/skill all`'s accepted sentence.  It says GIVEN, never
+# "learned": the rows are granted by a GM tool with no skill points spent and
+# no level consulted, and a sentence saying "learned" would be this lane
+# claiming the learn path works, which is the claim sentence 3 of
+# `prompts/LANE-GM.md` forbids.  It deliberately carries NO COUNT -- the
+# count is on the `GM_SKILL_ALL` console line, which has room to be exact,
+# and a twelve-character screen sentence that rounded it would be worse than
+# one that does not try.
+SKILL_ALL_NOTICE_TEXT = "SKILLS GIVEN"
+
+# `SKILL NOTSET` is its refusal, and it says NOTSET rather than "failed" for
+# the reason every refusal sentence here does: the tester's next action
+# depends on knowing nothing was written, not on knowing something broke.
+SKILL_REFUSED_NOTICE_TEXT = "SKILL NOTSET"
+
 NOTICE_TEXT_EXACT_LENGTH = 12
 
 # Every captured GT-006 frame on this shared serializer has carried an empty
