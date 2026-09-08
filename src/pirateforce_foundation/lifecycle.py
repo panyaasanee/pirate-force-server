@@ -1,4 +1,5 @@
 from .actor_wire import bind_actor_and_avatar_identity, read_name
+from . import mob_identity_sign
 from .model import Position
 from .world_scene_travel import is_position_persist_allowed, load_scene_registry
 import hashlib
@@ -249,6 +250,42 @@ class CharacterLifecycle:
             if lo > 0xFFFFFFFF:
                 raise OverflowError("server character identity exhausted")
             hi = 0
+            # R4 player half, the minting end (PANYA ``20260908_1420``:
+            # "one dispenser for the whole circuit, and guard the value 0";
+            # COO-DECISION ``20260908_1642`` named this call site with
+            # ``runtime.py``).  The pair minted here is what every reader
+            # downstream composes into ONE identity, so the sentence
+            # "the composed identity is a real, drawable actor" is checked
+            # HERE, at the only place in the tree that mints one, instead of
+            # nine times over at the readers.
+            #
+            # UNREACHABLE TODAY, AND SAID SO PLAINLY: ``lo`` starts at
+            # ``0x10000001`` and ``hi`` is zero, so the composed identity is
+            # in ``[0x10000001, 0xFFFFFFFF]`` -- positive, drawable, and far
+            # under ``2 ** 63``.  Stubbing this refusal out kills no other
+            # test in the tree.  It is a fence for the next minter, not a
+            # repair of this one: ``mob_identity_sign.IDENTITY_NOT_DRAWN``
+            # is the one identity the client throws away before drawing,
+            # and a character born with it would be invisible to its own
+            # player with nothing on any wire to say why.
+            #
+            # NO DECODE HERE, AND THAT IS MEASURED, NOT SLOPPINESS: the
+            # first draft of this fence ran the composed qword through
+            # ``decode_wire_identity`` first, to look like the reader half.
+            # A mutant that deleted the decode killed no test -- correctly,
+            # because ``identity_is_drawn`` asks one question ("is it
+            # zero?") and the composed wire is zero exactly when the signed
+            # identity is.  A line that cannot fail is a line that claims
+            # work it does not do, so it is gone; the SIGN matters at the
+            # readers, where the number is compared to other identities,
+            # and this end only mints.
+            if not mob_identity_sign.identity_is_drawn(
+                ((hi & 0xFFFFFFFF) << 32) | (lo & 0xFFFFFFFF)
+            ):
+                raise ValueError(
+                    "refusing to mint a character identity the client never "
+                    f"draws (identity_lo={lo}, identity_hi={hi})"
+                )
             wire, avatar_wire = bind_actor_and_avatar_identity(
                 submitted_wire, lo, hi, selector, self.avatar_extractor
             )
