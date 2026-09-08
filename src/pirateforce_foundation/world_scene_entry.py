@@ -202,6 +202,34 @@ RELOCATED_OUTSIDE_GROUND = "stored_xy_outside_pinned_ground_extent"
 # _require_finite_float` refuses NaN/Inf); the login path was the one that
 # did not have it, which is the path that matters most.
 RELOCATED_ROW_NOT_FINITE = "stored_xy_not_a_finite_number"
+
+# THE RETURN TICKET, AND WHY IT OVERWRITES A ROW THE OWNER SAID TO KEEP.
+# PANYA-DECISION 20260908_1218 is that a login puts a character back where it
+# logged out, in every scene.  COO-DECISION 20260908_1943 (Q2) reads the limit
+# of that rule out loud: 1218 says stand where you stood, it does not say a
+# character may enter a scene and never leave it again.  A scene an in-game
+# dispatch site can send a player INTO, and that no dispatch site in this tree
+# can send them back OUT of, turns a character into a brick the moment the
+# durable row starts persisting there - which is what 1218 itself switched on.
+# So a login that lands on such a row is walked home instead, loudly, and this
+# is one of the three sanctioned overwrites named in that decision (the other
+# two are the measured-envelope eject below and a GM command).  It is NOT a
+# closed door: the crossing that puts a player there still runs, in the same
+# session, unchanged.
+#
+# THE DECISION IS TAKEN IN ``world_m2_return_leg.login_entry``, NOT IN
+# ``resolve_entry`` BELOW, and the reason is measured rather than tidy: with
+# the swap inside ``resolve_entry``, 11 cases of
+# ``tests/test_world_scene_registry_login_door.py`` go red, because that file
+# is where 1218 itself is pinned ("a login resolves at the scene the row
+# names") and scene 17 is the only destination carrying a measured ground box,
+# so three of those cases are built on it and cannot be moved elsewhere.
+# Which SCENE a login resolves at is a second decision layered on the first,
+# not a clause inside it.  This constant lives here, next to the other
+# relocation reasons, because it names the same kind of thing they do; it is
+# deliberately NOT in ``RELOCATION_REASONS``, which is the set
+# ``resolve_entry`` itself can produce and this is not one of them.
+RELOCATED_ONE_WAY_SCENE_RETURN_TICKET = "login_row_in_a_scene_with_no_way_out"
 RELOCATION_REASONS = (
     RELOCATED_NO_GROUND_EVIDENCE,
     RELOCATED_OUTSIDE_GROUND,
@@ -976,6 +1004,52 @@ def relocation_console_line(entry: SceneEntry) -> str:
     return _relocated_line(
         entry.destination, entry.stored, entry.position,
         entry.relocation_reason,
+    )
+
+
+# SCENES THIS TREE CAN SEND A CHARACTER BACK OUT OF.  Empty, and measured
+# rather than assumed: ``world_scene_entry``'s own docstring, ``return_ticket``
+# and ``world_m2_return_leg`` all record the same negative - no server in this
+# project has ever SENT a scene transition, so no scene has a way out yet.  The
+# day one is built, its destination scene id goes in here and the ticket in
+# ``world_m2_return_leg`` stops firing for it without another edit anywhere.
+_SCENES_WITH_A_MEASURED_WAY_OUT: frozenset[int] = frozenset()
+
+
+def one_way_scene_ids() -> frozenset[int]:
+    """Scenes a player can reach in game and cannot leave again.
+
+    DERIVED, NOT LISTED.  The entry half comes from the dispatch site that
+    actually runs - Columbus quest 3021, whose destination constant is the one
+    this module reads - so a second crossing built by any lane enters this set
+    the moment its dispatch site names a destination, and nobody has to
+    remember to update a literal here.  The exit half is
+    ``_SCENES_WITH_A_MEASURED_WAY_OUT`` above.
+
+    The import is local because ``columbus_quest_dispatch`` imports this
+    module: at module scope it would be a cycle, and this question is only
+    asked on a login.
+
+    NOT CLAIMED: that this is every scene a character can end up standing in.
+    A GM warp can put a character anywhere, and the way back out of a GM warp
+    is a GM command - the third sanctioned overwrite, and not this one.
+    """
+    from . import columbus_quest_dispatch
+
+    reachable = frozenset({columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID})
+    return reachable - _SCENES_WITH_A_MEASURED_WAY_OUT
+
+
+def return_ticket_line(stored: Position, home: Position) -> str:
+    return (
+        "WORLD_SCENE_RETURN_TICKET scene_id={0} reason={1} "
+        "stored=({2:.3f},{3:.3f},{4:.3f}) used=({5:.3f},{6:.3f},{7:.3f}) "
+        "home_scene={8}"
+        .format(
+            stored.scene_id, RELOCATED_ONE_WAY_SCENE_RETURN_TICKET,
+            stored.x, stored.y, stored.z, home.x, home.y, home.z,
+            home.scene_id,
+        )
     )
 
 

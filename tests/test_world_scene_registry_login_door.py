@@ -163,7 +163,16 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
         path (no spawn, out of range, an unpinned row) fails this file too.
         """
         for destination in self.destinations:
-            if destination.spawn is None:
+            # NARROWED round `umv5w2` (pf-adversary D2 of round `sbqohw`).
+            # This walk used to say `if destination.spawn is None: continue`
+            # - the "a destination with a spawn is a login destination" rule
+            # D7 named, left in the three cases that actually make the call
+            # while only the two flag-reading cases were narrowed.  Measured
+            # then: pinning 997 shut turned this file red in 2 cases, 278 in
+            # 3, so an owner answering the ASK-COO letter with "997 keeps no
+            # login door" could not land the answer without editing here.
+            # The predicate is now the one the rest of the file uses.
+            if destination.n_id not in world_scene_travel.CENSUS_SOURCES:
                 continue
             with self.subTest(scene=destination.n_id):
                 entry = world_scene_entry.resolve_entry(
@@ -192,7 +201,8 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
         offset = 50.0
         kept = 0
         for destination in self.destinations:
-            if destination.spawn is None:
+            # Same narrowing as the case above (pf-adversary D2).
+            if destination.n_id not in world_scene_travel.CENSUS_SOURCES:
                 continue
             with self.subTest(scene=destination.n_id):
                 spawn = _spawn_position(destination)

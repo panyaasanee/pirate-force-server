@@ -2379,19 +2379,17 @@ class Scene126CensusOwesNothingToTheGmSanctionTable(unittest.TestCase):
             "SANCTIONED_BARRED_SCENES grew rows - same defect, other "
             "direction.")
 
-    def test_the_table_this_tripwire_watches_is_the_one_gm_still_ships(self):
-        """Green because the row is still there; a NOTE, not a demand.
-
-        If LANE-GM retires the row tomorrow this case goes red and the reader
-        deletes it - the tripwire above is the part that has to survive that
-        day, and it does not name 126 in any table of its own.
-        """
-        from pirateforce_foundation.gm import login_scene_admission
-        self.assertIn(
-            self.SCENE_126, login_scene_admission.SANCTIONED_BARRED_SCENES,
-            "LANE-GM retired the scene-126 sanction row (letter 20260908_"
-            "1805 said it would, on its first round after the door-opening "
-            "commit reaches main). Delete this case; keep the one above.")
+    # THE CASE THAT SAT HERE IS DELETED, round `umv5w2` (pf-adversary D4 of
+    # round `sbqohw`).  It re-added `assertIn(126, SANCTIONED_BARRED_SCENES)`,
+    # byte for byte the assertion commit `74a9bd0` had just deleted from this
+    # file for the stated reason that it "had stopped measuring the coupling
+    # and started demanding another lane keep a row it is documented to
+    # retire".  LANE-GM has that retirement scheduled (letter 20260908_1805),
+    # so the case would have turned this lane's own test file red on LANE-GM's
+    # commit - the exact bill COO-DECISION 20260908_1742 item 4 forbids a lane
+    # to hand the house.  Calling it "a NOTE, not a demand" in a docstring
+    # does not change what a red build is.  The tripwire above is the part
+    # that has to survive that day, and it names no other lane's table.
 
 
 if __name__ == "__main__":
