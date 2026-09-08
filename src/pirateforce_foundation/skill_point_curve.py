@@ -258,7 +258,7 @@ PROVENANCE_LABELS = (PROVENANCE_MEASURED, PROVENANCE_ASSUMPTION)
 #: an RE behind it has to edit this line, where the decision reference is, and
 #: not just the export.
 #:
-#: 🔴 pf-adversary D5, round `30piru`, PAID in round `ixbs2f` and worth
+#: READ THIS FIRST -- pf-adversary D5, round `30piru`, PAID in round `ixbs2f` and worth
 #: reading before trusting the gate below.  Its question was exact: "what in
 #: this repo goes red if a round changes BOTH integers to 5 in one commit and
 #: fixes up the two test literals?"  The honest answer at the time was
