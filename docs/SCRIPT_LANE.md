@@ -4284,6 +4284,135 @@ namespace to know which entry point is running, so that a refusal can be
 scoped to the group that made it.  That is a change to
 `QuestContext`/`script_host`, and it is the next round's first job.
 
+## Round `0ldyk7`: D8 paid -- the refusal now knows which entry point is running
+
+Two halves, and shipping only the first would have been WORSE THAN
+SHIPPING NEITHER.  That is the whole design note.
+
+**HALF ONE: scoping.**  `QuestContext` gained an `entry_point` field
+(`quest_rewards.UNKNOWN_ENTRY_POINT`, the empty string, when nobody said),
+`ScriptHost.call` swaps it in for the duration of one call and restores it
+in a `finally` (`RealQuestNamespace.entering`, a context manager so the
+restore cannot be forgotten), and `unpayable_group_for` skips any
+unpayable group the running entry point does not own.  A named entry point
+is refused only its own transaction's cells; every other top-level
+function of the same script reads the REAL table value again.
+
+**UNKNOWN IS FAIL-CLOSED, and that is the safety of the whole thing.**  An
+unnamed entry point refuses every unpayable group the row has -- byte for
+byte the old behaviour.  The tempting alternative (unknown scopes to
+nothing, so refuses nothing) turns every caller that forgets to say which
+entry point it is running into a caller that silently disarms the gate,
+which is the state COO `20260908_0242` item 4 forbids outright.
+
+**HALF TWO: the owning entry point is refused WHOLE, before its first
+statement.**  `ScriptHost.call` asks `lua_api.quest.entry_point_refusal`
+first and raises `EntryPointRefused` (a new exception that is deliberately
+neither a `VendoredDataError` nor a bare script error: nothing is broken --
+the server has simply not implemented one side of this transaction).
+
+**WHY THE DECISION LIVES IN `lua_api/quest.py` AND NOT IN
+`script_host.py`.**  Not tidiness -- the full suite said so.
+`tests/test_npc_interaction_wire.py`'s `QuestAndShopStateGuardTests`
+refuses new quest/reward-shaped symbols in
+`src/pirateforce_foundation/*.py`, and the first draft of this round put
+four of them there (`quest_rewards`, `lua_api_quest_rewards`, `quest_id`,
+`quest_namespace`).  That allowlist is chief-granted through a
+CORE-REQUEST and is not this lane's to widen, and the guard is RIGHT: a
+Lua host that starts deciding quest outcomes in Python is exactly what
+`prompts/LANE-Q.md` forbids.  So the decision moved down beside the table
+it reads and returns an `EntryPointRefusal` carrying both finished
+sentences; `ScriptHost.call` logs one and raises the other and spells
+nothing itself.
+
+Why half one alone is a regression, measured on `Q_BOAT_HEALTH` (quest
+3189, whose single group belongs to `Accept_Run` and is blocked on the
+still-stubbed `Player.BoatHealth`):
+
+| | `Quest.Var2` reads | `Accept_Run` line 18 `GetCash() >= Var2` | what the player gets |
+|---|---|---|---|
+| before this round | `-1` | TRUE for a broke player | `Player.AddCash(Var2 * -1)` = `AddCash(1)`, REAL: **the player is CREDITED 1 cash**, told "repaired" (`ShowMessage(824)`, REAL) and the boat is not repaired (`BoatHealth` is a stub), then `Quest.SetFlag` (REAL) moves |
+| scoping alone | `100` in `Accept_Run` too? no -- `Accept_Run` OWNS the group, so still `-1` | unchanged | unchanged; but every `Report_Check` of the 57 gather scripts would start answering "yes, you may report" to a player who really holds the items, and their `Report_Run` would then set the completion flag and pay nothing: **the quest burned** |
+| both halves | `100` in `Accept_Check`/`Report_*`/`Delete_Run`; `Accept_Run` never runs | never evaluated | nothing happens, and one line says why: `LUA_QUEST_ENTRY_REFUSED script=Q_BOAT_HEALTH entry=Accept_Run quest=3189 blocked_on=Player.BoatHealth` |
+
+Refusing BEFORE the entry point starts is also the difference between this
+and the `nil` cell of round `ad7t6n`, which raised at
+`q_gender_equip1.lua:25` after a real `Quest.SetFlag(Quest.Active)` and
+before four real `Player.MobAppear` writes.  Nothing runs here, so nothing
+can half-run.
+
+**WHAT THIS DOES NOT DO, said plainly.**  No name moved into
+`REAL_METHODS`; `Player.RemoveItem`/`AddItem`/`BoatHealth` are all still
+stubs, so nothing is taken from or given to anybody today.  There is still
+NO DISPATCHER binding a live NPC interaction to a quest script, so no
+player has yet seen either the refusal or the corrected cell: the only
+caller that runs entry points today is the corpus sweep, and
+`run_corpus_entry_points` passes no `quest_context` at all, so every host
+it builds is bound to quest 0, which has no row and no group.  **The gate
+cannot fire there, and the sweep's numbers are unchanged** -- stated as a
+test (`test_an_unbound_quest_refuses_no_entry_point`), not trusted as a
+comment.  When the dispatcher arrives it MUST catch `EntryPointRefused`
+and turn it into a refusal the player sees; letting it escape is still
+fail-closed (nothing ran) but reads as a crash.
+
+**THE CENSUS THE SCOPING STANDS ON**, pinned in
+`test_every_group_in_the_mirror_is_owned_by_a_known_entry_point`: today's
+mirror holds 61 groups over 61 scripts -- one each -- **60 owned by
+`Report_Run` and one by `Accept_Run`** (`Q_BOAT_HEALTH`).  No column
+belongs to two groups under different entry points, so scoping changes
+WHICH GROUP is selected for nobody; what it changes is which entry points
+are subject to a selected group's refusal, which is 87 of the 88 item
+take-cell CALL SITES (168 members over those 88 sites -- a `RemoveItem`
+site carries an id cell and a count cell; this repository called the 88 a
+member count in three places, pf-adversary D5).
+
+## Round `0ldyk7`, what pf-adversary took off this round's claims
+
+Ordered by what it cost.  Four of these were this round's own errors,
+found before the push, and are already corrected in the files named.
+
+* **The tree was RED and the failure was this round's** (D1).  The first
+  draft put the decision in `script_host.py`, which turned
+  `QuestAndShopStateGuardTests` red on four new symbols.  Fixed by moving
+  it, not by asking for an exemption -- see the section above.
+* **The acting half had no test that runs on a cloud clone** (D2).
+  Deleting the `raise` from `ScriptHost.call` -- so the gate reports and
+  does not act -- left the whole suite green here, because the only tests
+  of the acting half were `lupa`-guarded.  Closed by
+  `test_the_host_call_ACTS_on_the_refusal_and_does_not_merely_log_it`,
+  which drives the real `ScriptHost.call` unbound against a stand-in whose
+  runtime raises if it is ever reached.  The mutant now dies.
+* **A test of this round's own negative result was VACUOUS** (D3).
+  `test_a_row_whose_groups_are_all_payable_refuses_no_entry_point`
+  searched the shipped table for a row whose groups are all payable; there
+  are ZERO today (every group blocks on a stub), so the list was empty and
+  the loop body never ran.  Deleting `not state.payable` from
+  `unpayable_group_of_entry_point` left the suite green.  Rewritten to
+  drive the condition by making the APIs real under `mock.patch`; the
+  mutant now dies.
+* **Three numbers were wrong** (D4, D5, D6), all corrected in
+  `quest_rewards.py`: the `q_boat_health.lua:18` guard is inside
+  `Accept_Run`, which OWNS the group, so scoping does not free it (the
+  entry-point refusal does, by stopping the function); its cell is 100,
+  not the 15,000 that belongs to `Q_CLASS`; the 88 is call sites, not
+  members; and the `CheckItemNum` census is 54 scripts, not 57.
+* **`REFUSED_CELL` is now unreachable through `ScriptHost.call`** (D7),
+  measured over all 66,048 (row, entry point, column) triples: there is
+  not one where the cell gate fires and the entry-point gate does not.
+  The one live path left is `UNKNOWN_ENTRY_POINT`.  Written into the
+  constant's own docstring, because the paragraphs above it still read as
+  though `-1` were guarding live traffic.
+
+Carried as debt, not paid this round: `EntryPointRefused` is caught by
+nobody, and a future caller that passes a context into the corpus sweep
+would have it logged as `LUA_SCRIPT <file> ERR` -- blaming the script for
+our refusal, the exact shape of the old D11 (D9); the gate decides from
+the ROW and never compares against the chunk actually loaded (D10);
+`_EntryPointScope` is the first mutable per-call state on a namespace, so
+a dispatcher that caches one host per script would have two sessions
+overwrite each other's scope (D11); `enclosing_function` can write the
+string `"None"` into the mirror (D12).
+
 ## Round `ad7t6n`, second finding: the take side's own realness was never checked
 
 pf-adversary D2, and the highest thing it raised.  `group_state`

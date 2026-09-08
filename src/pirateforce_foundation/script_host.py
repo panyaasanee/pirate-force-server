@@ -221,6 +221,36 @@ class LoadReport:
         return [r.path for r in self.failed]
 
 
+class EntryPointRefused(Exception):
+    """A Lua entry point was NOT RUN because its transaction cannot be honoured.
+
+    NOT AN ERROR, and deliberately not a subclass of ``VendoredDataError``:
+    nothing is broken here -- not this repository (which is what
+    ``_host_side_error_types`` classifies) and not the script (which is
+    what a bare ``Exception`` out of ``call`` would accuse).  The script is
+    correct and the table is correct; the SERVER has not implemented one
+    side of the transaction the entry point performs, and the honest answer
+    to "run this" is "no", not a run that does half of it.
+
+    A dispatcher that binds a live NPC interaction to a quest script MUST
+    catch this and turn it into a refusal the player sees ("you cannot
+    report this quest yet"), never into a completed interaction.  Letting
+    it escape as an error is still fail-closed -- the entry point did not
+    run, no flag moved, no cell was taken -- so an unprepared caller is
+    left in the safe state, merely a confusing one.
+
+    The corpus sweep cannot raise it: it binds no context at all (it never
+    passes one), so the decision is asked about row 0, which has no script
+    and therefore no group.  The sweep's numbers are untouched by this
+    gate, which is stated in a test rather than trusted here.
+
+    WHO DECIDES, AND WHY NOT HERE.  ``lua_api.quest.entry_point_refusal``
+    reads the table and writes both sentences; this module only asks and
+    obeys.  See that function's own docstring for why the decision may not
+    live in this file.
+    """
+
+
 class MirrorUnavailable(VendoredDataError):
     """This host was built while one of our own vendored mirrors was broken.
 
@@ -627,11 +657,43 @@ class ScriptHost:
         return self.runtime.globals()[function_name] is not None
 
     def call(self, function_name: str, *args):
+        """Run one Lua entry point, WITH the whole-transaction gate in front.
+
+        The gate fires HERE, at the call, and not inside a namespace,
+        because the thing it refuses is the ENTRY POINT, not a cell.  A
+        cell-level refusal can only reach a script that has already started
+        running, which is how both earlier attempts failed: ``nil`` raised
+        at ``q_gender_equip1.lua:25`` after a real ``Quest.SetFlag`` and
+        before four real ``Player.MobAppear`` writes (pf-adversary D3,
+        round ``ad7t6n``), and ``-1`` let ``Report_Run`` set the completion
+        flag and then pay nothing.  Refused here, not one statement of the
+        entry point has run, so there is no half of it to be left behind.
+
+        WHAT IS DECIDED WHERE: `lua_api.quest.entry_point_refusal` reads
+        the shipped table and returns the two sentences; this method logs
+        one and raises the other.  That split is deliberate -- see that
+        function's docstring.
+        """
         self._refuse_if_degraded("call")
+        namespace = self.namespaces.get("Quest")
+        refusal = lua_api_quest.entry_point_refusal(namespace, function_name)
+        if refusal is not None:
+            self.log(refusal.log_line)
+            raise EntryPointRefused(refusal.message)
         fn = self.runtime.globals()[function_name]
         if fn is None:
             raise LookupError("script defines no function named %r" % function_name)
-        return fn(*args)
+        # NAMED FOR THE DURATION OF THE CALL, restored after (see
+        # `lua_api.quest.RealQuestNamespace.entering`).  Outside a call the
+        # namespace is back to UNKNOWN_ENTRY_POINT, which refuses
+        # conservatively -- a host someone reads cells off of without going
+        # through `call` gets yesterday's fail-closed answer, not an open
+        # gate.
+        entering = getattr(namespace, "entering", None)
+        if entering is None:
+            return fn(*args)
+        with entering(function_name):
+            return fn(*args)
 
 
 def load_script_file(path: Path, log: Optional[Callable[[str], None]] = None, *,

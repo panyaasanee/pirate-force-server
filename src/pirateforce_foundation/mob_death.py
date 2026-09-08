@@ -187,6 +187,7 @@ import struct
 import sys
 from typing import Any
 
+from . import mob_identity_sign
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
 from . import field_mob_tables_bg0003
@@ -2078,10 +2079,26 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
 
 
 def _require_identity(value: Any, label: str) -> int:
-    identity = _require_int(value, label, 0, 0xFFFFFFFFFFFFFFFF)
-    if identity <= 0:
+    """Refuse an identity no inbound frame or roster row can legitimately carry.
+
+    R4 beat 0 (COO-DECISION 20260908 14:41), paying pf-adversary finding D5
+    of round ``gadxq5``.  This test used to read ``identity <= 0`` over an
+    UNSIGNED band, which got both halves wrong the moment the monster band
+    went negative: a real monster at ``-2`` was refused, while the
+    UNDECODED wire value of that same monster (``18446744073709551614``,
+    what ``struct.unpack('<Q', ...)`` hands back at every inbound parse
+    point in the frozen v141 file) sailed straight through and opened a
+    ledger against an actor that does not exist.  The band is now the
+    signed field the wire actually carries, and the single shared predicate
+    in ``mob_identity_sign`` decides -- so a caller that forgot to run
+    ``mob_identity_sign.decode_wire_identity`` on an inbound value is
+    refused HERE, loudly, instead of quietly missing.
+    """
+    identity = _require_int(value, label, -(2 ** 63), 2 ** 63 - 1)
+    if not mob_identity_sign.is_targetable_identity(identity):
         raise MobDeathContractError(
-            REFUSE_IDENTITY_NOT_POSITIVE, "%s must be positive" % label)
+            REFUSE_IDENTITY_NOT_POSITIVE,
+            "%s must be a drawable identity in the signed wire band" % label)
     return identity
 
 

@@ -242,6 +242,7 @@ import threading
 import time as _time
 from typing import Any
 
+from . import mob_identity_sign
 from . import field_drop_tables
 from . import world_scene_folder
 from .field_mobs import FieldMob
@@ -1381,12 +1382,37 @@ MAX_IDENTITY = 0xFFFFFFFFFFFFFFFF
 #: negative identity is refused by name below, not by range.
 MAX_IDENTITY_MAGNITUDE = MAX_IDENTITY
 
+#: The band an inbound identity may occupy once it has been decoded by
+#: ``mob_identity_sign.decode_wire_identity``.  ``MAX_IDENTITY`` above is the
+#: WIRE width (what the eight bytes can hold); these two are the MEANINGS
+#: those bytes can carry.  Anything above ``MAX_SIGNED_IDENTITY`` reaching a
+#: guard is an undecoded wire value, not a big actor.
+MIN_SIGNED_IDENTITY = -(2 ** 63)
+MAX_SIGNED_IDENTITY = 2 ** 63 - 1
+
 
 def _require_identity(value: Any, label: str) -> int:
-    identity = _require_int(value, label, 0, MAX_IDENTITY)
-    if identity <= 0:
+    """Refuse an identity no inbound frame or roster row can legitimately carry.
+
+    R4 beat 0 (COO-DECISION 20260908 14:41), paying pf-adversary finding D5
+    of round ``gadxq5``.  This test used to read ``identity <= 0`` over an
+    UNSIGNED band, which got both halves wrong the moment the monster band
+    went negative: a real monster at ``-2`` was refused, while the
+    UNDECODED wire value of that same monster (``18446744073709551614``,
+    what ``struct.unpack('<Q', ...)`` hands back at every inbound parse
+    point in the frozen v141 file) sailed straight through and opened a
+    ledger against an actor that does not exist.  The band is now the
+    signed field the wire actually carries, and the single shared predicate
+    in ``mob_identity_sign`` decides -- so a caller that forgot to run
+    ``mob_identity_sign.decode_wire_identity`` on an inbound value is
+    refused HERE, loudly, instead of quietly missing.
+    """
+    identity = _require_int(value, label, MIN_SIGNED_IDENTITY,
+                            MAX_SIGNED_IDENTITY)
+    if not mob_identity_sign.is_targetable_identity(identity):
         raise MobLootContractError(
-            REFUSE_IDENTITY_NOT_POSITIVE, "%s must be positive" % label)
+            REFUSE_IDENTITY_NOT_POSITIVE,
+            "%s must be a drawable identity in the signed wire band" % label)
     return identity
 
 

@@ -148,6 +148,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Tuple
 
+from . import mob_identity_sign
 from . import mob_aggro
 from . import mob_ai_control
 from . import mob_combat
@@ -202,7 +203,22 @@ class SchedulerStepResult:
     intent_target_identity: int | None
 
     def __post_init__(self) -> None:
-        if type(self.actor_identity) is not int or self.actor_identity <= 0:
+        # R4 beat 0, pf-adversary finding D2 of round 39vp7o: this guard was
+        # MISSED by the same round's own sweep of "the four guards D5 named",
+        # and it is the worst place to miss one.  ``actor_identity`` here is a
+        # MONSTER's, and this object is built on the walk tick
+        # (``lane_b_mob_ai_tick.maybe_tick`` off TARGET_POS_VITAL), which has
+        # no try/except above it in ``runtime.dispatch`` and none in the
+        # listener either -- so an identity this refused would not fail one
+        # player's frame, it would take the listener thread down for every
+        # player on the server.  Same band as every other guard now: the
+        # signed field the wire carries, minus the identity the client never
+        # draws.
+        if type(self.actor_identity) is not int or type(
+            self.actor_identity
+        ) is bool or not mob_identity_sign.is_targetable_identity(
+            self.actor_identity
+        ):
             raise MobAiSchedulerError(
                 REFUSE_IDENTITY_NOT_POSITIVE,
                 "actor_identity=%r" % (self.actor_identity,))

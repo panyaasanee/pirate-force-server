@@ -20,6 +20,7 @@ from . import mob_combat
 from . import mob_combat_membership
 from . import mob_death
 from . import mob_drop_presence
+from . import mob_identity_sign
 from . import mob_ground_persistence
 from . import mob_loot
 from . import mob_pickup
@@ -5329,8 +5330,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 ((selected.identity_hi & 0xFFFFFFFF) << 32)
                 | (selected.identity_lo & 0xFFFFFFFF)
             )
-            target = fields.get("field_qword_20")
-            if type(target) is not int or target <= 0 or target == performer:
+            # R4 beat 0 (COO-DECISION 20260908 14:41), paying pf-adversary
+            # finding D4 of round ``gadxq5``: ``legacy.parse_action_vital``
+            # reads this field with ``struct.unpack('<Q', ...)``, so the
+            # monster band -- which the OUTBOUND half already masks to two's
+            # complement (``mob_identity_sign.encode_wire_identity``, and
+            # ``v141.qwordtag`` line 1131 before it) -- arrives here as a
+            # huge unsigned number.  Decoded HERE, once, before anything
+            # compares it: ``target_is_field_mob`` a few lines below is a
+            # plain ``==`` against ``mob.actor_identity``, so an undecoded
+            # ``18446744073709551614`` matches no roster row and the player
+            # who clicked the monster gets silence -- no event, no ledger,
+            # no damage.  The old ``target <= 0`` test cannot survive the
+            # move either: it was a stand-in for "not a real actor" while
+            # every actor was positive, and it throws away EVERY hit on a
+            # negative-band monster.  What is actually untargetable is the
+            # one identity the client refuses to draw, plus anything outside
+            # the signed field the wire can carry.
+            target_wire = fields.get("field_qword_20")
+            if type(target_wire) is not int:
+                self.events.append(
+                    "mob_combat_target_not_positive_or_self_no_reply"
+                )
+                return []
+            try:
+                target = mob_identity_sign.decode_wire_identity(target_wire)
+            except mob_identity_sign.MobIdentitySignError:
+                self.events.append(
+                    "mob_combat_target_not_positive_or_self_no_reply"
+                )
+                return []
+            if (
+                not mob_identity_sign.is_targetable_identity(target)
+                or target == performer
+            ):
                 self.events.append(
                     "mob_combat_target_not_positive_or_self_no_reply"
                 )
