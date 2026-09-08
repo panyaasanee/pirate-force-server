@@ -784,8 +784,15 @@ class SentByIsReadOffTheTreeTests(unittest.TestCase):
         )
 
     def test_the_token_line_survives_the_bridge_console(self):
-        line = skill_list_at_login.headless_token(1, (111, 40000), b"x" * 50,
-                                                  "module_only", 0)
+        # The pc is COMPOSED, not faked: `headless_token` measures the row
+        # count off it (round `jty60h`, pf-adversary D3), so a byte string
+        # standing in for a frame can no longer produce a token at all.
+        legacy = load_legacy(LEGACY_PATH)
+        pc, frame = skill_list_at_login.make_skill_list_response(
+            legacy, (111, 40000),
+        )
+        line = skill_list_at_login.headless_token(1, (111, 40000), frame,
+                                                  "module_only", 0, pc=pc)
         line.encode("ascii")
         line.encode("cp874")
 
@@ -1059,7 +1066,7 @@ class TheTokenReportsTheByteTheFrameCarriesTests(_Fixture):
         self.assertEqual(0, skill_list_at_login.SKILL_LIST_TRAILING_BYTE)
         line = skill_list_at_login.headless_token(
             1, (99,), frame, "module_only",
-            skill_list_at_login.measured_trailing_byte(pc, 1),
+            skill_list_at_login.measured_trailing_byte(pc, 1), pc=pc,
         )
         self.assertIn("trailing_u8=1", line)
 
@@ -1505,6 +1512,108 @@ class TheLoginPathActuallySendsItTests(unittest.TestCase):
         self.assertNotIn(
             "login_skill_list_response", frames,
             "the seam was reached after all: %r" % (frames,),
+        )
+
+
+class TheTokenMeasuresTheWireAndTheCapIsPinnedTests(unittest.TestCase):
+    """pf-adversary round `jty60h`, findings D3 and D4, paid here.
+
+    Both findings are about the same failure shape: a number that an
+    operator pastes into a ticket, or that a COO decision rests its whole
+    weight on, with nothing in the repository that turns red when it stops
+    being true.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+
+    def test_the_token_refuses_when_the_wire_and_the_row_disagree(self):
+        """D3: the mutant that composes a shorter frame than it reports.
+
+        The store's list and the composed pc are two separate answers to
+        "how many skills does this character have"; before this round the
+        token printed the first one and never looked at the second, so a
+        seam that composed four records and appended nothing, or composed a
+        one-record frame off a stale list, produced a healthy-looking
+        ``rows=4`` line.  There is no assertion here that ``rows`` equals a
+        constant -- that would be the same defect one layer up.
+        """
+        pc, frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, (111,),
+        )
+        with self.assertRaises(skill_list_at_login.SkillListAtLoginError) as caught:
+            skill_list_at_login.headless_token(
+                1, (111, 40000, 99, 110), frame, "runtime", 0, pc=pc,
+            )
+        self.assertEqual(
+            skill_list_at_login.REFUSE_PAYLOAD_UNREADABLE,
+            caught.exception.reason,
+        )
+        self.assertIn("1 records", str(caught.exception))
+        self.assertIn("4 skill ids", str(caught.exception))
+
+    def test_the_row_count_in_the_token_is_read_out_of_the_composed_bytes(self):
+        """D3: and it really is the wire that answers, not the argument.
+
+        The pc is mutated in place at the count field's own offset, so the
+        list handed in stays four ids long while the bytes say three.  A
+        token built from ``len(skill_ids)`` cannot notice.
+        """
+        pc, frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, (111, 40000, 99, 110),
+        )
+        self.assertEqual(4, skill_list_at_login.measured_record_count(pc))
+        start = skill_list_at_login.LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
+        shortened = bytearray(pc)
+        shortened[start + 1:start + 3] = (3).to_bytes(2, "little")
+        with self.assertRaises(skill_list_at_login.SkillListAtLoginError):
+            skill_list_at_login.headless_token(
+                1, (111, 40000, 99, 110), frame, "runtime", 0,
+                pc=bytes(shortened),
+            )
+
+    def test_a_byte_string_that_never_was_a_frame_cannot_answer(self):
+        """D3: the count field is decoded, not merely read."""
+        for pretender in (b"", b"x" * 50, bytes(64)):
+            with self.assertRaises(skill_list_at_login.SkillListAtLoginError):
+                skill_list_at_login.measured_record_count(pretender)
+
+    def test_the_observed_cap_of_four_is_pinned_to_what_was_observed(self):
+        """D4: ``OBSERVED_ACCEPTED_RECORD_COUNT`` had no pin at all.
+
+        ``COO-DECISION 20260908_1742`` ("the cap of four stands") rests its
+        whole ruling on this constant, and pf-adversary raised it to 255
+        with the suite still green.  The pin is not a taste: four is
+        ``GT-249``'s ``COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0``, the largest
+        count a real client has ever been measured accepting, and raising it
+        is an attended result's job.  The behaviour is pinned beside the
+        value, so deleting the equality alone does not free the cap.
+        """
+        self.assertEqual(4, skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT)
+        rows = (111, 40000, 99, 110)
+        pc, _frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, rows,
+        )
+        self.assertEqual(4, skill_list_at_login.measured_record_count(pc))
+        with self.assertRaises(skill_list_at_login.SkillListAtLoginError) as caught:
+            skill_list_at_login.make_skill_list_response(
+                self.legacy, rows + (112,),
+            )
+        self.assertEqual(
+            skill_list_at_login.REFUSE_TOO_MANY_UNMEASURED,
+            caught.exception.reason,
+        )
+
+    def test_the_cap_is_below_the_wire_field_it_lives_in(self):
+        """D4: and it is a policy floor, not the u16 the serializer allows.
+
+        A round that raises the cap to the wire maximum has not measured
+        anything; this keeps the two numbers from quietly becoming one.
+        """
+        self.assertLess(
+            skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT,
+            skill_list_at_login.WIRE_MAX_RECORDS,
         )
 
 
