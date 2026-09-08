@@ -7114,13 +7114,85 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "world_m2_crossing_mob_combat_membership_"
                             f"cleared_{handoff.scene_id}"
                         )
-                        self.population_indices = reset.population_indices
-                        self.population_refresh_anchor = (
-                            reset.population_refresh_anchor
+                        # ~~UNCONDITIONALLY~~ -- GATED ON A CHOOSENPC
+                        # RESPONDER, chief round R405/y8fm7z, and it is the
+                        # third writer of these three fields adopting the
+                        # condition the other two already had.
+                        #
+                        # WHAT THE UNCONDITIONAL WRITE COST, MEASURED
+                        # (pf-adversary, this round, D1, reproduced end to
+                        # end on this branch).  While this crossing composed
+                        # a CLEAR, ``reset.population_indices`` was always
+                        # ``None`` and this line was inert.  The moment the
+                        # same crossing composes scene 17's CENSUS it writes
+                        # a REAL membership - and ``population_indices`` is a
+                        # placement-index space with NO SCENE IN IT (this
+                        # file says so at :6528).  No lane_hooks ChooseNPC
+                        # responder is registered for scene 17, so one click
+                        # on any of the seven actors this crossing just put
+                        # on the client falls through to the frozen handler
+                        # at ``v141:4396-4416``, which loops the WHOLE
+                        # membership through ``PORT_ROYAL_UNAMBIGUOUS_
+                        # PLACEMENTS`` - 115 rows that do not contain index
+                        # 2, which bg1001's membership does.  ``KeyError: 2``
+                        # out of a listener whose only ``try`` is a
+                        # ``try/finally`` with no ``except`` (v141:7440,
+                        # pinned by interlock X07) = ``ManagedThread`` calls
+                        # ``request_stop`` = EVERY connected player is
+                        # dropped, by one click, every time.  And had index 2
+                        # existed, the answer would have been a full replace
+                        # collection of Port Royal's actors at Port Royal
+                        # coordinates delivered into the sea - the "one
+                        # ChooseNPC recomposes the old town into the new map"
+                        # hazard ``handoff_report``'s own docstring names.
+                        #
+                        # THE CONDITION IS NOT INVENTED HERE.  ``lane_hooks/
+                        # lane_a_scene_census._membership_if_answerable``
+                        # hands back a membership only for a scene with a
+                        # REGISTERED and PRODUCTION-ALLOWED responder, and
+                        # the travel-gate crossing 5,000 lines below withholds
+                        # on the same ground (its ``home_census`` branch,
+                        # :12352-12395) and emits the same token.  This site
+                        # was the one that answered "always"; three writers,
+                        # one field, and the field's resolver believes it is
+                        # always Port Royal.
+                        #
+                        # WHAT THE PLAYER STILL GETS: the census FRAME is
+                        # queued either way - the seven actors are on the
+                        # client exactly as before this gate.  What is
+                        # withheld is the SERVER-SIDE bookkeeping that the
+                        # frozen ChooseNPC handler cannot survive.  So this
+                        # costs the round nothing it was delivering and
+                        # removes the thing it was not.
+                        responder = lane_hooks.scene_choose_npc_responder(
+                            handoff.scene_id
                         )
-                        self.world_census_indices = (
-                            reset.population_indices
+                        membership_answerable = (
+                            responder is not None
+                            and lane_hooks.module_production_allowed(
+                                responder.module
+                            )
                         )
+                        if membership_answerable:
+                            self.population_indices = reset.population_indices
+                            self.population_refresh_anchor = (
+                                reset.population_refresh_anchor
+                            )
+                            self.world_census_indices = (
+                                reset.population_indices
+                            )
+                        else:
+                            self.population_indices = None
+                            self.population_refresh_anchor = None
+                            self.world_census_indices = None
+                            if (
+                                handoff.kind
+                                == world_population_handoff.KIND_CENSUS
+                            ):
+                                self.events.append(
+                                    "world_pop_handoff_membership_withheld_"
+                                    f"scene_{handoff.scene_id}"
+                                )
                         self.events.append(
                             "core_request_014_columbus_scene17_teleport_sent"
                         )

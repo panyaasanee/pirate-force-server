@@ -957,5 +957,161 @@ class DispatchContractTests(_Case):
         self.assertIn("failed=", skill_all_command.console_line(result, 1))
 
 
+class TheFixesOfRoundNkb608Tests(_Case):
+    """One case per pf-adversary finding round `nkb608` measured live.
+
+    Every one of these ran GREEN against the defect it names before the fix,
+    which is why they exist: the round that shipped the defects had 49 cases
+    over these two modules and none of them called the functions the way an
+    operator can.
+    """
+
+    def test_every_exit_of_grant_all_builds_a_whole_record(self):
+        # D-A (CRITICAL): two exits passed FIVE positional arguments into a
+        # six-field record, so both raised `TypeError` on the listener thread
+        # -- the escape this lane forbids -- and neither line had ever run,
+        # because no case called `grant_all` with anything but a valid id and
+        # a store that has the door.
+        class _Bare:
+            pass
+
+        for store, character_id, expected in (
+            (FakeStore(), 0, skill_all_command.REFUSED_NO_CHARACTER),
+            (FakeStore(), None, skill_all_command.REFUSED_NO_CHARACTER),
+            (FakeStore(), True, skill_all_command.REFUSED_NO_CHARACTER),
+            (_Bare(), 1, skill_all_command.REFUSED_NO_STORE),
+        ):
+            with self.subTest(refusal=expected):
+                result = skill_all_command.grant_all(store, character_id)
+                self.assertEqual(result.refusal, expected)
+                self.assertTrue(result.counts_are_complete)
+                self.assertEqual(
+                    (result.granted, result.already, result.failed), (0, 0, 0)
+                )
+
+    def test_a_character_with_no_row_is_named_as_such_not_as_a_dead_store(self):
+        # D-K: `KeyError` from the real store's reader means "no such
+        # character", and folding it into "the store cannot be read" sent the
+        # operator to look at the wrong thing.
+        class _NoRowStore(FakeStore):
+            def list_character_skills(self, character_id):
+                raise KeyError(character_id)
+
+        result = skill_all_command.grant_all(_NoRowStore(), 1)
+        self.assertEqual(result.refusal, skill_all_command.REFUSED_ROW_MISSING)
+
+        class _DeadReaderStore(FakeStore):
+            def list_character_skills(self, character_id):
+                raise RuntimeError("the table is locked")
+
+        self.assertEqual(
+            skill_all_command.grant_all(_DeadReaderStore(), 1).refusal,
+            skill_all_command.REFUSED_CANNOT_READ_CURRENT_SKILLS,
+        )
+
+    def test_a_restore_that_did_not_take_is_not_reported_as_put_back(self):
+        # D-D: `write_typed_attributes` returning without raising is not the
+        # same fact as the column holding the value again, and the suffix is
+        # read by a human deciding whether the row is safe to walk away from.
+        class _SilentNoOpStore(FakeStore):
+            """Takes the write, raises nothing, and changes no column."""
+
+            def write_typed_attributes(self, character_id, values):
+                self.writes.append((character_id, dict(values)))
+                return dict(self.stored)
+
+        # The row is carrying the class the GM asked for; the restore is
+        # asked to put 2 back and the store quietly declines.
+        store = _SilentNoOpStore()
+        store.stored["class_id"] = 16
+        self.assertEqual(
+            job_command._repair(store, 1, 2), job_command.REPAIR_FAILED_SUFFIX
+        )
+        self.assertEqual(store.stored["class_id"], 16)
+        # The control: a store that really does take it answers `put back`,
+        # so the case above is measuring the read-back and not the store.
+        working = FakeStore()
+        working.stored["class_id"] = 16
+        self.assertEqual(
+            job_command._repair(working, 1, 2), job_command.REPAIRED_SUFFIX
+        )
+
+    def test_a_row_that_had_no_class_says_it_is_still_carrying_the_new_one(self):
+        # D-C: the common case -- a row whose `class_id` is NULL -- had
+        # nothing to put back, and the empty suffix reported the most
+        # dangerous of the three states as though nothing had happened.
+        self.assertEqual(
+            job_command._repair(FakeStore(), 1, None),
+            job_command.NO_PREVIOUS_SUFFIX,
+        )
+        self.assertNotEqual(job_command.NO_PREVIOUS_SUFFIX, "")
+        # And the operator gets a sentence for it rather than the bare
+        # reason's silence about durability.
+        reason = (
+            job_command.REFUSED_LOGIN_WOULD_NOT_SEND
+            + job_command.NO_PREVIOUS_SUFFIX
+        )
+        sentence = chat_command_action._JOB_BLOCKERS[reason]
+        self.assertIn("no class to put back", sentence)
+        self.assertIn("still carries the new one", sentence)
+        # And it fits the console cap, which the first wording of this
+        # sentence did not (254 > 240, caught by
+        # `tests/test_gm_chat_no_bytes_line.py`).
+        self.assertLessEqual(
+            len(sentence), chat_command_action.MAX_CONSOLE_HINT_LENGTH
+        )
+
+    def test_a_refusal_that_left_rows_behind_offers_an_undo_that_says_kept(self):
+        # D-B: `_make_action` reads a MISSING undo as "the effect was dropped
+        # with the audit row", so a refusal holding rows on disk printed a
+        # count and then denied it one line later.
+        kept = job_command.REFUSED_READBACK_MISMATCH + job_command.REPAIR_FAILED_SUFFIX
+        gone = job_command.REFUSED_READBACK_MISMATCH + job_command.REPAIRED_SUFFIX
+        nothing = job_command.REFUSED_NOT_A_CLASS_ID
+
+        class _R:
+            def __init__(self, refusal):
+                self.refusal = refusal
+
+        self.assertIsNotNone(chat_command_action._job_refusal_undo(_R(kept)))
+        self.assertIs(
+            chat_command_action._job_refusal_undo(_R(kept))(), False
+        )
+        self.assertIsNotNone(
+            chat_command_action._job_refusal_undo(
+                _R(
+                    job_command.REFUSED_LOGIN_WOULD_NOT_SEND
+                    + job_command.NO_PREVIOUS_SUFFIX
+                )
+            )
+        )
+        # A refusal that put the old value back, and one that never wrote,
+        # keep NO undo: for those two "dropped with the audit row" is true.
+        self.assertIsNone(chat_command_action._job_refusal_undo(_R(gone)))
+        self.assertIsNone(chat_command_action._job_refusal_undo(_R(nothing)))
+
+    def test_the_test_files_the_docstrings_cite_are_files_that_exist(self):
+        # D-G: three docstrings named `tests/test_gm_job_command.py` and
+        # `tests/test_gm_skill_all_command.py`, neither of which has ever
+        # existed -- and one of them is the named guarantee that the usage
+        # literal cannot drift from `class_catalog.CLASS_IDS`.
+        import re
+
+        sources = [
+            ROOT / "src/pirateforce_foundation/gm/job_command.py",
+            ROOT / "src/pirateforce_foundation/gm/skill_all_command.py",
+            ROOT / "src/pirateforce_foundation/gm/commands.py",
+            ROOT / "src/pirateforce_foundation/gm/sandbox_readback.py",
+        ]
+        for source in sources:
+            text = source.read_text(encoding="utf-8")
+            for cited in set(re.findall(r"tests/test_[a-z0-9_]+\.py", text)):
+                with self.subTest(source=source.name, cited=cited):
+                    self.assertTrue(
+                        (ROOT / cited).is_file(),
+                        f"{source.name} cites {cited}, which does not exist",
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()

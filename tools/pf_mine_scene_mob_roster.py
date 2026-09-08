@@ -100,8 +100,45 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.util
 from pathlib import Path
 import sys
+
+
+# THE WIRE RULE IS NOT DEFINED IN THIS FILE.  COO-DECISION 2026-09-08T17:42
+# (LANE-B) rules that what this generator writes into ``visual_preset`` is
+# always a SINGLE BASENAME, because RE-296 result 2 measured the client
+# pushing a literal index 0 to its tokeniser -- the first token is the only
+# one any consumer can reach.  The function that says what "first token"
+# means is the one the SERVER runs at the wire edge, and it is loaded here by
+# path rather than copied, so this generator and the running server can never
+# disagree about it.  (This script is standalone by design and imports
+# nothing else from the package; the loaded module is import-free for exactly
+# this reason.)
+_AVATAR_RULE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "src" / "pirateforce_foundation" / "mob_avatar_basename.py"
+)
+
+
+def _load_avatar_rule():
+    spec = importlib.util.spec_from_file_location(
+        "pf_mob_avatar_basename_for_miner", _AVATAR_RULE_PATH
+    )
+    if spec is None or spec.loader is None:
+        # Not MineError: that class is defined further down this file and
+        # this loader runs at import time, before it exists.
+        raise RuntimeError(
+            "cannot load the wire rule from %s" % _AVATAR_RULE_PATH
+        )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_AVATAR_RULE = _load_avatar_rule()
+avatar_basename = _AVATAR_RULE.avatar_basename
+has_separator = _AVATAR_RULE.has_separator
 
 
 PLACEMENT_COLUMNS = ("index", "template_ids", "x", "y", "z")
@@ -608,7 +645,12 @@ def _roster_row(sources: Sources, item: tuple) -> dict:
         "template_id": n_id,
         "set_number": set_number,
         "x": x, "y": y, "z": z,
-        "visual_preset": outfit,
+        # The wire column and the raw column are DIFFERENT columns from here
+        # down.  ``visual_preset`` is what the server hands the client, so it
+        # is the single basename; ``outfit_cell`` is the table cell it came
+        # from, carried for a reader and put on the wire by nothing.
+        "visual_preset": avatar_basename(outfit),
+        "outfit_cell": outfit,
         "display_name": sources.display_name(n_id),
         "level": level,
         "level_max": _int(mob, "n_LEVEL_MAX", where),
@@ -1070,7 +1112,7 @@ CONTROL_FINDINGS = %(controls)s
 # The scene file's own Mob-Set number per placement, so a reader can redo the
 # resolution by hand: SET_NUMBER_FOR_PLACEMENT[i] -> CLINE -> template_id.
 SET_NUMBER_FOR_PLACEMENT = %(set_numbers)s
-
+%(outfit_cell_block)s
 # (placement_index, template_id, x, y, z, visual_preset, display_name, level,
 #  rank, ai_wander, ai_combat, speed_walk, max_hp, drops_normal,
 #  drops_equipment, drops_specially)
@@ -1179,6 +1221,39 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
                              (IDENTITY_RULE_SETNUM, pending))
         for item in sorted(items, key=lambda row: row["placement_index"])
     )
+    # ROUND db4o73.  The raw cell is emitted ONLY for the placements whose
+    # cell is not already the basename -- i.e. only where the two columns say
+    # different things.  That is not tidiness: ten scene modules mined under
+    # ``unambiguous`` carry no list cell at all, and their byte-for-byte
+    # regenerate tests compare the WHOLE file, so an unconditional new block
+    # would turn one scene's correction into ten stale modules.  A module with
+    # no OUTFIT_CELL_FOR_PLACEMENT has nothing to say here: every one of its
+    # cells IS its basename.
+    outfit_cells = {
+        item["placement_index"]: item["outfit_cell"]
+        for item in sorted(roster + town + pending,
+                           key=lambda row: row["placement_index"])
+        if item.get("outfit_cell") is not None
+        and item["outfit_cell"] != item["visual_preset"]
+    }
+    outfit_cell_block = ""
+    if outfit_cells:
+        outfit_cell_block = (
+            "\n# The s_OUTFIT CELL each placement's basename was taken from, "
+            "for the rows\n"
+            "# where the two differ.  NOTHING PUTS THIS ON THE WIRE "
+            "(COO-DECISION\n"
+            "# 2026-09-08T17:42: one basename, always).  Carried so a "
+            "reader can see the\n"
+            "# variant list the table holds without any consumer being "
+            "able to send it.\n"
+            "OUTFIT_CELL_FOR_PLACEMENT = %s\n" % (
+                "{\n%s}" % "".join(
+                    "    %d: %s,\n" % (index, ascii(cell))
+                    for index, cell in outfit_cells.items()
+                ),
+            )
+        )
     withdrawn_rows = "".join(
         "    (%d, %d, %s, %d, %s),\n"
         % (item["placement_index"], item["was_template_id"],
@@ -1333,17 +1408,24 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
             "# an enemy is n_RANK plus n_AI_COMBAT and nothing else.  A row\n"
             "# whose s_OUTFIT is a variant list is carried here; a module with\n"
             "# no OUTFIT_RULE line was mined under the older rule that\n"
-            "# refused those rows.  visual_preset below is the RAW cell,\n"
-            "# separators included: RE-296 (2026-09-07T14:50) measured that\n"
-            "# the client tokenises it on ';', TAB and SPACE and keeps EVERY\n"
-            "# token, and left open who picks one.  Do not read this column\n"
-            "# as 'the avatar'.\n"
+            "# refused those rows.  visual_preset below is the SINGLE\n"
+            "# BASENAME this lane sends, never the raw cell: COO-DECISION\n"
+            "# 2026-09-08T17:42 rules that what goes on the wire is always\n"
+            "# one basename.  The raw cell is kept beside it in\n"
+            "# OUTFIT_CELL_FOR_PLACEMENT, which nothing sends.  WHAT IS\n"
+            "# MEASURED, stated narrowly (pf-adversary D3/D4, round\n"
+            "# db4o73): RE-296 result 2 read the client tokenising ITS OWN\n"
+            "# MOBS.s_OUTFIT row and taking index 0.  That is NOT a\n"
+            "# measurement of what the client does with the wstr THIS\n"
+            "# server writes at NPCAttr+0x7C - 8 of 13 .avt xrefs are still\n"
+            "# unwalked - so no row below is a claim that a body draws.\n"
             "OUTFIT_RULE = %r\n" % (outfit_rule,)
         ),
         "digests": _ascii_dict(digests),
         "census": _ascii_dict(census),
         "controls": _ascii_dict(controls or {}),
         "set_numbers": set_numbers,
+        "outfit_cell_block": outfit_cell_block,
         "digest_block": digest_block,
         "census_block": census_block,
         "rows": _rows(roster),

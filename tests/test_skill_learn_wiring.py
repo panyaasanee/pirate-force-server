@@ -207,5 +207,58 @@ class LearnSkillSpendTests(_StoreFixture):
         self.assertEqual(self.store.get_skill_points(character.id), 0)
 
 
+
+class TheLevelGateOnTheLivePathTests(_StoreFixture):
+    """LANE-CS round `jty60h`: the spend path asks the second question too.
+
+    Before this round `learn_skill_spend` asked only "can she pay", and
+    knew 8 skill ids.  The client's own `CONSTDATA_TH__SKILL_CONTEXT` table
+    declares 2165, each with its own `n_LEVEL_LEARN`.  These tests drive the
+    REAL store, so the level they gate on is the level a login would read.
+    """
+
+    #: `n_LEVEL_LEARN = 40`, `f_SP_LEVE1 = 1.0` -- an ordinary row far
+    #: outside the starting kit (`tests/test_skill_context_census.py` pins
+    #: both numbers against the committed copy).
+    LEVEL_FORTY_SKILL_ID = 2950
+
+    def test_a_low_level_character_is_refused_and_nothing_is_spent(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(
+            character.id, {"skill_points": 99, "level": 39}
+        )
+        with self.assertRaises(SkillLearnValidatorError) as caught:
+            learn_skill_spend(
+                self.store, character.id, self.LEVEL_FORTY_SKILL_ID
+            )
+        self.assertIn("character_level_below_n_level_learn",
+                      str(caught.exception))
+        self.assertEqual(self.store.get_skill_points(character.id), 99)
+
+    def test_the_same_skill_at_the_declared_level_spends(self):
+        """The eight-id ceiling, gone: this id raised KeyError yesterday."""
+        character = self._make_character()
+        self.store.write_typed_attributes(
+            character.id, {"skill_points": 99, "level": 40}
+        )
+        remaining = learn_skill_spend(
+            self.store, character.id, self.LEVEL_FORTY_SKILL_ID
+        )
+        self.assertEqual(98, remaining)
+        self.assertEqual(98, self.store.get_skill_points(character.id))
+
+    def test_an_id_the_client_table_does_not_declare_still_raises_key_error(
+        self,
+    ):
+        """The contract that did not change, pinned so it cannot drift."""
+        character = self._make_character()
+        self.store.write_typed_attributes(
+            character.id, {"skill_points": 99, "level": 99}
+        )
+        with self.assertRaises(KeyError):
+            learn_skill_spend(self.store, character.id, 424242)
+        self.assertEqual(self.store.get_skill_points(character.id), 99)
+
+
 if __name__ == "__main__":
     unittest.main()

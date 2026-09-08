@@ -572,21 +572,103 @@ def repository_root() -> "Any":
     return Path(__file__).resolve().parents[2]
 
 
+def _seam_call_scopes(tree: "Any") -> "Any":
+    """Every call to ``LOGIN_SEAM_SYMBOL``, with the def chain around it.
+
+    Returns one tuple per call node: the enclosing ``FunctionDef`` chain,
+    OUTERMOST FIRST, empty when the call sits at module level (which runs at
+    import).  ``ClassDef`` is deliberately not part of the chain -- a method
+    is reached through an instance, and the name a caller spells is the
+    method's, which is what the reachability rule below looks for.
+    """
+    import ast
+
+    sites = []
+
+    def walk(node: "Any", stack: "Any") -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.Call):
+                func = child.func
+                name = getattr(func, "attr", getattr(func, "id", ""))
+                if name == LOGIN_SEAM_SYMBOL:
+                    sites.append(tuple(stack))
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                walk(child, stack + [child])
+            else:
+                walk(child, stack)
+
+    walk(tree, [])
+    return tuple(sites)
+
+
+def _named_outside_its_own_body(tree: "Any", func_node: "Any") -> bool:
+    """True when this module spells ``func_node``'s name somewhere else.
+
+    "Somewhere else" excludes the def's ENTIRE own subtree, so a function
+    that only calls itself does not vouch for itself.  Both spellings count:
+    a bare ``Name`` (``helper()``) and an ``Attribute`` (``self.helper()``),
+    because the seam's carrier in ``runtime.py`` is reached the second way.
+    """
+    import ast
+
+    own = {id(node) for node in ast.walk(func_node)}
+    target = func_node.name
+    for node in ast.walk(tree):
+        if id(node) in own:
+            continue
+        if isinstance(node, ast.Name) and node.id == target:
+            return True
+        if isinstance(node, ast.Attribute) and node.attr == target:
+            return True
+    return False
+
+
 def _calls_the_seam(tree: "Any") -> bool:
-    """True when this parsed module CALLS ``LOGIN_SEAM_SYMBOL`` somewhere.
+    """True when this module calls ``LOGIN_SEAM_SYMBOL`` FROM REACHABLE CODE.
 
     Split out of ``seam_carrier`` when the search widened from one file to
     the auto-imported hook package: two copies of an AST walk is how the two
     halves of one answer drift apart.
-    """
-    import ast
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            name = getattr(func, "attr", getattr(func, "id", ""))
-            if name == LOGIN_SEAM_SYMBOL:
-                return True
+    REACHABILITY IS THE POINT, AND IT IS WHY THIS IS NOT A PLAIN WALK
+    (pf-adversary D7, round ``ixbs2f``, paid here).  The first version asked
+    only "is there a call node anywhere in this file".  A mutant that deletes
+    the ONE line on the login path -- ``skill_list_action =
+    self._skill_list_login_action(legacy)`` -- while leaving the method it
+    called in place still answered ``runtime``: the call node inside the now
+    dead method is still a call node.  A server that sends nothing at login
+    would print ``sent_by=runtime ... RESULT=ARMED`` in the very token an
+    operator pastes as ``HEADLESS_PROOF:`` for GT-307.  The suite caught that
+    mutant on eight tests, but the token line -- the one artifact that
+    travels alone, into a ticket, away from the suite -- did not.
+
+    THE RULE, stated so a reader can check it against the code.  A call
+    counts when every enclosing def, except the OUTERMOST one, has its name
+    spelled somewhere else in the same module.  The exception for the
+    outermost def is not a loophole being papered over: a module-level def is
+    exactly what another file imports and calls (``runtime.py``'s own
+    ``make_state_class`` is called from ``app.py`` and appears nowhere in
+    ``runtime.py`` outside its own body), so demanding an in-file caller for
+    it would answer ``module_only`` on the tree that ships today.
+
+    WHAT THIS STILL CANNOT SEE, said rather than implied.  A name spelled in
+    dead code of another function vouches for the carrier just as well as a
+    live call does -- this is an in-file NAME check, not an execution proof,
+    and no static check in this file claims to be one.  Nothing here reads
+    ``app.py`` to confirm the outermost def is really imported.  What it does
+    buy is the property the token needs: deleting the login-path call, and
+    nothing else, flips the token to ``module_only``.
+    """
+    for chain in _seam_call_scopes(tree):
+        if not chain:
+            # Module level: it runs at import, so there is nobody to name it.
+            return True
+        # chain[0] is the outermost def -- see the docstring for why it is
+        # exempt.  Everything nested inside it has to be named to count.
+        if all(
+            _named_outside_its_own_body(tree, node) for node in chain[1:]
+        ):
+            return True
     return False
 
 

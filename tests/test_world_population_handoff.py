@@ -471,10 +471,15 @@ class HandoffTests(unittest.TestCase):
             with self.assertRaises(ValueError) as caught:
                 handoff_for_arrival(self.legacy, 14, self.anchor)
             self.assertIn("does not match its own pc", str(caught.exception))
-            self.assertEqual(
-                handoff_on_crossing(self.legacy, 14, self.anchor).kind,
-                KIND_UNAVAILABLE,
-            )
+            # ~~KIND_UNAVAILABLE~~ -- KIND_CLEAR since chief round
+            # R405/y8fm7z: the frame path now falls a nameable scene back to
+            # the empty map rather than to no frame at all (an UNAVAILABLE
+            # leaves the OLD scene's actors standing in the new one).  The
+            # strict raise just above is untouched, and it is what still
+            # gives this guard its teeth.
+            refused = handoff_on_crossing(self.legacy, 14, self.anchor)
+            self.assertEqual(refused.kind, KIND_CLEAR)
+            self.assertIn("cleared_instead", refused.reason)
         finally:
             handoff_mod.ROSTER_COMPOSERS.clear()
             handoff_mod.ROSTER_COMPOSERS.update(original)
@@ -601,21 +606,24 @@ class HandoffTests(unittest.TestCase):
                 self.assertIs(
                     type(built.generation), composer.generation_type)
 
-    def test_the_pending_safety_review_source_still_answers_clear(self):
-        """round `vwekfq` (LANE-A): scene 17's real identity/census pair is
-        registered in CENSUS_SOURCES but deliberately withheld from
-        ROSTER_COMPOSERS pending a runtime.py safety review - see
-        PENDING_CROSSING_SAFETY_REVIEW's own docstring.  Pinned here so a
-        later round that adds ``"bg1001_roster"`` to ROSTER_COMPOSERS
-        without also removing it from this table trips
-        ``test_the_two_tables_that_add_a_scene_must_agree``'s own
-        ``composed & ruled_out`` check instead of silently going stale."""
+    def test_the_safety_review_finished_and_the_table_it_used_is_empty(self):
+        """~~round `vwekfq` (LANE-A): scene 17 ... deliberately withheld from
+        ROSTER_COMPOSERS pending a runtime.py safety review.~~  The review
+        ran in chief round R405/y8fm7z and this pin is released the way it
+        was written to be: the source moved INTO ROSTER_COMPOSERS and OUT of
+        the waiting table, in one edit, which is exactly the pairing
+        ``test_the_two_tables_that_add_a_scene_must_agree`` polices.
+
+        THE EMPTY TABLE IS ASSERTED, NOT IGNORED.  An empty
+        PENDING_CROSSING_SAFETY_REVIEW is the seam saying "nothing is
+        waiting"; the day a lane parks a source there again, this assertion
+        is the one that makes them look at whether chief has answered it."""
         import pirateforce_foundation.world_population_handoff as handoff_mod
-        self.assertIn("bg1001_roster", handoff_mod.PENDING_CROSSING_SAFETY_REVIEW)
-        self.assertNotIn("bg1001_roster", handoff_mod.ROSTER_COMPOSERS)
+        self.assertEqual(handoff_mod.PENDING_CROSSING_SAFETY_REVIEW, {})
+        self.assertIn("bg1001_roster", handoff_mod.ROSTER_COMPOSERS)
         handoff = handoff_for_arrival(self.legacy, 17, self.anchor)
-        self.assertEqual(handoff.kind, KIND_CLEAR)
-        self.assertIn("has_no_crossing_handoff_yet", handoff.reason)
+        self.assertEqual(handoff.kind, KIND_CENSUS)
+        self.assertIn("repopulated_from_bg1001_roster", handoff.reason)
 
     def test_a_login_owned_source_is_refused_by_name_not_by_omission(self):
         """COO-DECISION 20260829_2245, carried out in round ucaybn.
@@ -780,10 +788,14 @@ class HandoffTests(unittest.TestCase):
                 handoff_for_arrival(self.legacy, 14, self.anchor)
             self.assertIn("encoder or reader drift", str(caught.exception))
             # And it is the strict path that raises: the frame path still
-            # refuses instead of killing the connection.
+            # refuses instead of killing the connection.  ~~UNAVAILABLE~~ ->
+            # CLEAR since chief round R405/y8fm7z, and it SENDS: a scene the
+            # seam can name gets the empty map rather than nothing, because
+            # nothing leaves the old scene's actors standing in the new one.
             refused = handoff_on_crossing(self.legacy, 14, self.anchor)
-            self.assertEqual(refused.kind, KIND_UNAVAILABLE)
-            self.assertFalse(refused.sends_a_frame)
+            self.assertEqual(refused.kind, KIND_CLEAR)
+            self.assertTrue(refused.sends_a_frame)
+            self.assertIn("cleared_instead", refused.reason)
         finally:
             handoff_mod.ROSTER_COMPOSERS.clear()
             handoff_mod.ROSTER_COMPOSERS.update(original)
@@ -814,10 +826,15 @@ class HandoffTests(unittest.TestCase):
             with self.assertRaises(Exception) as caught:
                 handoff_for_arrival(self.legacy, 14, self.anchor)
             self.assertIn("scene", str(caught.exception).lower())
-            # And the frame path turns that raise into a refusal, not a crash.
+            # And the frame path turns that raise into a refusal, not a
+            # crash.  ~~UNAVAILABLE~~ -> CLEAR since chief round R405/y8fm7z
+            # (see the two tests above): scene 14 is nameable, so it gets the
+            # empty map instead of no frame, and Prison Exile's NPCs still
+            # never reach the volcano - which is the whole point of this test.
             refused = handoff_on_crossing(self.legacy, 14, self.anchor)
-            self.assertEqual(refused.kind, KIND_UNAVAILABLE)
-            self.assertFalse(refused.sends_a_frame)
+            self.assertEqual(refused.kind, KIND_CLEAR)
+            self.assertEqual(refused.actor_count, 0)
+            self.assertIn("cleared_instead", refused.reason)
         finally:
             handoff_mod.ROSTER_COMPOSERS.clear()
             handoff_mod.ROSTER_COMPOSERS.update(original)
@@ -910,40 +927,79 @@ class HandoffTests(unittest.TestCase):
     # ---- the frame path must never raise ---------------------------------
 
     def test_the_crossing_entry_point_does_not_raise_on_anything(self):
-        """The contract that the last round of this lane broke by omission."""
+        """The contract that the last round of this lane broke by omission.
+
+        SPLIT INTO TWO ANSWERS, chief round R405/y8fm7z.  "Never raises" is
+        unchanged and is still what every case below asserts.  What changed
+        is WHICH refusal a case gets, and the discriminator is whether the
+        seam can name the scene:
+
+          * the scene id itself is unreadable -> UNAVAILABLE, no bytes.  There
+            is no scene to compose an empty map FOR, and this is the shape
+            ``world_m2_crossing_handoff`` deliberately routes an unreadable
+            entry into.
+          * the scene is nameable and something else failed (the anchor, the
+            count, the composer) -> the CLEAR for that scene, because an
+            UNAVAILABLE sends nothing and the client then keeps the actors of
+            the scene it just LEFT standing in the scene it just arrived in -
+            measured at 115 on the Columbus crossing.
+          * ``legacy_none`` is the third case and it stays UNAVAILABLE: the
+            scene is nameable, but a legacy module that is ``None`` cannot
+            build the 27-byte clear either, so the fallback falls through -
+            which is the branch that keeps this function's promise absolute.
+        """
+        UNAVAILABLE, CLEARED = KIND_UNAVAILABLE, KIND_CLEAR
         cases = (
-            ("legacy_none", None, 278, self.anchor, {}),
-            ("scene_is_a_string", self.legacy, "278", self.anchor, {}),
-            ("scene_is_a_bool", self.legacy, True, self.anchor, {}),
-            ("scene_is_zero", self.legacy, 0, self.anchor, {}),
-            ("scene_out_of_range", self.legacy, 0x10000, self.anchor, {}),
-            ("scene_is_non_ascii", self.legacy, "日本", self.anchor, {}),
-            ("anchor_is_none", self.legacy, 1, None, {}),
-            ("anchor_is_short", self.legacy, 1, (1.0, 2.0), {}),
-            ("anchor_has_a_string", self.legacy, 1, (1.0, 2.0, "z"), {}),
-            ("anchor_is_non_ascii", self.legacy, 1, (1.0, 2.0, "位"), {}),
-            ("anchor_is_a_list", self.legacy, 1, [1.0, 2.0, 3.0], {}),
-            ("anchor_is_nan_free_but_huge", self.legacy, 1, (1e40, 0.0, 0.0), {}),
-            ("count_is_a_string", self.legacy, 1, self.anchor,
+            ("legacy_none", UNAVAILABLE, None, 278, self.anchor, {}),
+            ("scene_is_a_string", UNAVAILABLE, self.legacy, "278", self.anchor, {}),
+            ("scene_is_a_bool", UNAVAILABLE, self.legacy, True, self.anchor, {}),
+            ("scene_is_zero", UNAVAILABLE, self.legacy, 0, self.anchor, {}),
+            ("scene_out_of_range", UNAVAILABLE, self.legacy, 0x10000,
+             self.anchor, {}),
+            ("scene_is_non_ascii", UNAVAILABLE, self.legacy, "日本",
+             self.anchor, {}),
+            ("anchor_is_none", CLEARED, self.legacy, 1, None, {}),
+            ("anchor_is_short", CLEARED, self.legacy, 1, (1.0, 2.0), {}),
+            ("anchor_has_a_string", CLEARED, self.legacy, 1, (1.0, 2.0, "z"), {}),
+            ("anchor_is_non_ascii", CLEARED, self.legacy, 1,
+             (1.0, 2.0, "位"), {}),
+            ("anchor_is_a_list", CLEARED, self.legacy, 1, [1.0, 2.0, 3.0], {}),
+            ("anchor_is_nan_free_but_huge", CLEARED, self.legacy, 1,
+             (1e40, 0.0, 0.0), {}),
+            ("count_is_a_string", CLEARED, self.legacy, 1, self.anchor,
              {"actor_count": "three"}),
-            ("count_is_a_bool", self.legacy, 1, self.anchor,
+            ("count_is_a_bool", CLEARED, self.legacy, 1, self.anchor,
              {"actor_count": True}),
-            ("count_is_zero", self.legacy, 1, self.anchor, {"actor_count": 0}),
-            ("count_is_negative", self.legacy, 1, self.anchor,
+            ("count_is_zero", CLEARED, self.legacy, 1, self.anchor,
+             {"actor_count": 0}),
+            ("count_is_negative", CLEARED, self.legacy, 1, self.anchor,
              {"actor_count": -5}),
-            ("count_is_over_the_census", self.legacy, 1, self.anchor,
+            ("count_is_over_the_census", CLEARED, self.legacy, 1, self.anchor,
              {"actor_count": 10_000}),
         )
-        for name, legacy, scene, anchor, kwargs in cases:
+        for name, expected, legacy, scene, anchor, kwargs in cases:
             with self.subTest(case=name):
                 handoff = handoff_on_crossing(legacy, scene, anchor, **kwargs)
-                self.assertEqual(handoff.kind, KIND_UNAVAILABLE)
-                self.assertEqual(handoff.pc, b"")
-                self.assertEqual(handoff.frame, b"")
-                self.assertFalse(handoff.sends_a_frame)
-                self.assertEqual(handoff.dispatch_slot, SLOT_NOT_APPLICABLE)
-                self.assertEqual(handoff.label, LABEL_UNAVAILABLE)
-                self.assertTrue(handoff.reason.startswith("handoff_not_composed:"))
+                self.assertEqual(handoff.kind, expected)
+                if expected is UNAVAILABLE:
+                    self.assertEqual(handoff.pc, b"")
+                    self.assertEqual(handoff.frame, b"")
+                    self.assertFalse(handoff.sends_a_frame)
+                    self.assertEqual(
+                        handoff.dispatch_slot, SLOT_NOT_APPLICABLE)
+                    self.assertEqual(handoff.label, LABEL_UNAVAILABLE)
+                    self.assertTrue(
+                        handoff.reason.startswith("handoff_not_composed:"))
+                else:
+                    self.assertTrue(handoff.sends_a_frame)
+                    self.assertEqual(handoff.actor_count, 0)
+                    self.assertEqual(handoff.frame, self.legacy.frame_pc(handoff.pc))
+                    # BY MESSAGE: a clear that arrives because a scene has no
+                    # population and a clear that arrives because composing
+                    # one failed are the same bytes, and a console that
+                    # cannot tell them apart is a console that hides the
+                    # second one.
+                    self.assertIn("cleared_instead:", handoff.reason)
                 handoff_console_line(handoff).encode("ascii")
 
     def test_an_exception_whose_message_cannot_be_printed_is_still_printed(self):
