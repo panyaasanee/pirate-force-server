@@ -85,7 +85,7 @@ same deliberate gap ``lane_hooks`` documents and for the same reason.
 WHAT IS STILL OPEN, NAMED HERE BECAUSE A RESIDUAL NOBODY WRITES DOWN IS
 A RESIDUAL NOBODY CLOSES (pf-adversary round vy1m79, D3).  Every table
 in this file -- ``_ANSWERERS``, ``_SESSION_ANSWERS_SENT``, the
-``_process_answers_sent`` counter -- is module state, and a lane module
+``_PROCESS_ANSWERS_SENT`` -- is module state, and a lane module
 runs inside this process.  One line in a lane file,
 ``ui_dispatch._SESSION_ANSWERS_SENT.clear()``, hands every session a
 fresh allowance (measured: 500 answers under an allowance of 32), and
@@ -643,9 +643,30 @@ _SESSION_ANSWERS_SENT = {}
 # [LANE-UI assumption - awaiting COO confirmation] the NUMBER is this
 # lane's judgement (letter filed this round); that there must BE one is
 # pf-adversary's measurement, not a judgement.
+#
+# PER VITAL, AND THAT WORD IS THE WHOLE POINT (pf-adversary round m54yxh,
+# D1).  The counter behind this number was one integer for the process,
+# shared by every session AND every vital -- so the arithmetic above was
+# only true while ONE vital could be answered.  Measured on the round
+# that added the third answerer: what one player could draw from the
+# shared pot went 64 -> 96, the sessions needed to exhaust it went
+# 64 -> 43, and after exhaustion a bystander who had pressed nothing got
+# nothing back, permanently, until a restart.  Every future answerer on
+# this seam would have taken another slice, and each could have said
+# truthfully that its own per-session allowance changed nothing.  So the
+# ceiling is kept PER VITAL ID: adding an answerer no longer shrinks the
+# pot the shipped ones share, and the comment above can be re-derived at
+# HEAD instead of describing the shape the file had two rounds ago.
+# WHAT IT STILL IS NOT: a per-account bound (one account may hold several
+# sessions) and not a promise that a determined crowd cannot exhaust ONE
+# vital's pot -- a pot with a ceiling can always be emptied.  What it now
+# refuses to do is let a new button quietly cost the old ones.
 PROCESS_ANSWER_BUDGET = 4096
 
-_process_answers_sent = 0
+# vital_id -> answers sent for it since boot.  Never keyed by session:
+# that is _SESSION_ANSWERS_SENT's job, and this one has to survive the
+# session going away, which is the loop it exists to bound.
+_PROCESS_ANSWERS_SENT = {}
 
 
 def _drop_session_budget(key):
@@ -697,7 +718,8 @@ def _allowance_refusal(session, vital_id, count):
         return "session_budget_unbounded"
     if row[1].get(vital_id, 0) + count > SESSION_ANSWER_BUDGET:
         return "session_budget_spent"
-    if _process_answers_sent + count > PROCESS_ANSWER_BUDGET:
+    if (_PROCESS_ANSWERS_SENT.get(vital_id, 0) + count
+            > PROCESS_ANSWER_BUDGET):
         return "process_budget_spent"
     return ""
 
@@ -717,13 +739,14 @@ def _charge_session_answer(session, vital_id, count):
     what holds the cap at exactly ``SESSION_ANSWER_BUDGET`` under eight
     threads (measured by pf-adversary, round vy1m79).
     """
-    global _process_answers_sent
     refusal = _allowance_refusal(session, vital_id, count)
     if refusal:
         return refusal
     row = _SESSION_ANSWERS_SENT[id(session)]
     row[1][vital_id] = row[1].get(vital_id, 0) + count
-    _process_answers_sent += count
+    _PROCESS_ANSWERS_SENT[vital_id] = (
+        _PROCESS_ANSWERS_SENT.get(vital_id, 0) + count
+    )
     return ""
 
 
@@ -737,9 +760,8 @@ def reset_session_budgets_for_tests():
     clears the server's only storm guard for every session at once.  A
     test that wants a clean allowance asks this module for it.
     """
-    global _process_answers_sent
     _SESSION_ANSWERS_SENT.clear()
-    _process_answers_sent = 0
+    _PROCESS_ANSWERS_SENT.clear()
 
 
 
@@ -1058,6 +1080,12 @@ _OUTBOUND_FRAME_SHAPES = {
     # this lane's, it measured 43 bytes on this commit (the arming proof
     # prints it), and pinning a number this file does not own would turn
     # somebody else's envelope change into this button going silent.
+    # THE MEASUREMENT IS STILL TAKEN, ONE FILE OVER, AND THAT IS THE
+    # POINT (pf-adversary round m54yxh, D9): the test file asserts the
+    # frame is exactly 43 bytes, so an envelope change is caught -- as a
+    # RED TEST, which is a message to a person, instead of as a refusal,
+    # which is a dead button for a player.  The two places differ in
+    # where the breakage lands, and this row chooses the harmless one.
     "UI_PARTY_CMD_ANSWERED": _OutboundShape(
         vital_id=0x2466,
         versions=frozenset((0,)),

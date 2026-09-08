@@ -45,19 +45,29 @@ other length cannot leave under this label at all.  A class whose
 width cannot vary does not need room to spare, and headroom nobody
 needs is reach nobody reviewed.
 
-ONE BYTE THAT LEAVES IS NOT THE PLAYER'S, exactly as the two answerers
-beside this one record (pf-adversary round xqxadg, D3).  The reply is
-``make_runtime_vitals([(vital_id, version, payload)])``; only
-``payload`` is the client's.  ``version`` is the module constant
+ONE FIELD THIS MODULE CHOOSES IS NOT THE PLAYER'S, exactly as the two
+answerers beside this one record (pf-adversary round xqxadg, D3) -- and
+this paragraph used to say "one BYTE", which this round's own arming
+proof disproves (pf-adversary round m54yxh, D11): the frame is 43 bytes
+of which 11 are the player's, the other 32 being the envelope
+``make_runtime_vitals`` builds (outer header, the ``0x12``-tagged id,
+the ``0x0B`` version marker, the trailing pair).  The claim is about
+the vital triple this module fills in, not about the wire.  The reply is
+``make_runtime_vitals([(vital_id, version, payload)])``; of those three,
+only ``payload`` is the client's.  ``version`` is the module constant
 ``ui_party_wire.PARTY_CMD_VITAL_VERSION``, whose own header calls it an
 UNPROVEN DEFAULT, and the inbound version byte the client sent is
 parsed by ``runtime.py`` and NOT handed to ``ui_dispatch.answer()`` --
 so if a client ever sends anything but zero, the server answers with
 zero anyway.  ``RE-312`` RESULT-2 reads ``0x005F3EF4`` comparing that
 u8 against ``[obj+0x10]`` and logging ``0xE0000031`` on a mismatch, and
-nobody has read ``[obj+0x10]`` for this class either.  So the version
-byte is a REVIEWED guess pinned by the outbound registry, not a derived
-value, and closing it needs the inbound version passed to ``answer()``
+nobody has read ``[obj+0x10]`` for this class either.  RESULT-2's OWN
+VERDICT ON THAT MISMATCH, which this paragraph carried the evidence for
+and not the conclusion (pf-adversary round m54yxh, D12): the client
+logs the code and CARRIES ON -- a warning, not an error -- so a wrong
+version byte is not currently believed to drop the frame.  So the
+version byte is a REVIEWED guess pinned by the outbound registry, not a
+derived value, and closing it needs the inbound version passed to ``answer()``
 -- a ``runtime.py`` change, filed by the round before this one, not
 taken here.
 
@@ -93,10 +103,17 @@ LABEL = "UI_PARTY_CMD_ANSWERED"
 # THE WIDTH, DERIVED ONCE FROM THE ENCODER, NOT TYPED IN.  A literal
 # here would be a second copy of a number ``ui_party_wire`` already
 # owns, free to drift the moment that file gains a field; deriving it
-# from the encoder itself means this module and the wire module cannot
-# disagree.  ``ui_dispatch``'s reviewed shape keeps its own literal on
-# purpose -- that one is the REVIEW, and a review that reads the value
-# it is reviewing pins nothing -- and the test file compares the two.
+# from the encoder means the value this module enforces IS the wire
+# module's own.  ``ui_dispatch``'s reviewed shape keeps its own literal
+# on purpose -- that one is the REVIEW, and a review that reads the
+# value it is reviewing pins nothing -- and the guard below requires
+# the payload to match BOTH.
+#
+# ITS FIRST VERSION SAID "cannot disagree" AND WAS DEAD (pf-adversary
+# round m54yxh, D7): nothing read it, the guard compared against the
+# registry alone, and setting this to 999 left the button working.  A
+# constant that only a test reads is not a safety property, so it is
+# now on the path it claimed to protect.
 _PARTY_CMD_PAYLOAD_BYTES = len(
     wire.encode_party_cmd_payload(wire.PartyCmdFields(field1_u8=0, field2_u64=0))
 )
@@ -180,21 +197,38 @@ def answer_party_cmd(session=None, vital_id=0, payload=b"", **_ignored):
             " label=%.64s bytes_out=0" % (LABEL,)
         )
         return []
-    # FIXED WIDTH IS CHECKED AS FIXED WIDTH, NOT AS A CEILING.  For the
-    # two wstring classes ``len(reencoded) > budget`` is the whole
-    # question, because their payload grows with a name.  This class
-    # cannot vary: anything the encoder emits is exactly
-    # ``_PARTY_CMD_PAYLOAD_BYTES``, so a length that merely fits under a
-    # ceiling would be evidence of nothing.  Requiring EQUALITY is what
-    # makes the check able to fail: it fires if the wire module ever
-    # gains a field without this lane's review, and it fires if the
-    # reviewed shape and the encoder ever disagree, which a ``>`` test
-    # would pass in silence.
-    if len(reencoded) != shape.max_payload_bytes:
+    # FIXED WIDTH IS CHECKED AS FIXED WIDTH, NOT AS A CEILING -- AND THE
+    # FIRST VERSION OF THIS COMMENT ARGUED IT WRONGLY (pf-adversary round
+    # m54yxh, D5).  It said ``>`` "would pass in silence" a wire module
+    # that GAINS a field.  False: a gained field makes the encoder emit
+    # 12 or more, and ``12 > 11`` refuses that as surely as ``!=`` does.
+    # What ``>`` cannot see is the wire module LOSING a field, or this
+    # module and the reviewed row drifting apart in the permissive
+    # direction -- a short payload fits under any ceiling.  That is the
+    # half this check buys, and it is the half the test file drives.
+    #
+    # WHAT IT COSTS, SAID PLAINLY (D2, same pass).  ``!=`` is NOT
+    # "strictly safer" than ``>``: widening the reviewed row -- the one
+    # edit that is harmless everywhere else in that registry -- makes
+    # this button answer nothing at all.  That is the trade taken here
+    # on purpose: a class whose width cannot vary should have a row
+    # nobody can widen by accident, and the failure is LOUD (the arming
+    # proof turns FAIL and the suite goes red) rather than a silent
+    # widening of what may leave under a reviewed label.
+    #
+    # BOTH NUMBERS, NOT ONE (D7).  Comparing only against the registry
+    # would leave ``_PARTY_CMD_PAYLOAD_BYTES`` dead and its "these two
+    # cannot disagree" comment false -- measured: setting it to 999 left
+    # the button working.  The width the ENCODER produces and the width
+    # the ROW reviewed are two independent numbers, and this refuses
+    # unless the payload is both.
+    if (len(reencoded) != _PARTY_CMD_PAYLOAD_BYTES
+            or shape.max_payload_bytes != _PARTY_CMD_PAYLOAD_BYTES):
         _say(
             "UI_PARTY_CMD_REFUSED reason=not_the_reviewed_fixed_width"
-            " len=%d reviewed=%d bytes_out=0"
-            % (len(reencoded), shape.max_payload_bytes)
+            " len=%d encoder=%d reviewed=%d bytes_out=0"
+            % (len(reencoded), _PARTY_CMD_PAYLOAD_BYTES,
+               shape.max_payload_bytes)
         )
         return []
     # NO COUNTER HERE (pf-adversary D-B, round vy1m79).  The seam charges

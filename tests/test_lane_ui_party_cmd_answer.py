@@ -249,7 +249,7 @@ class RefusalTests(_AnswererRegistered):
 
     def test_the_reply_is_the_players_own_bytes(self):
         payload = _real_cmd_payload()
-        out, _ = self._call(
+        out, console = self._call(
             vital_id=wire.PARTY_CMD_VITAL_ID, payload=payload,
         )
         self.assertEqual(len(out), 1)
@@ -259,6 +259,17 @@ class RefusalTests(_AnswererRegistered):
         self.assertEqual(reply.vital_id, wire.PARTY_CMD_VITAL_ID)
         self.assertEqual(reply.version, wire.PARTY_CMD_VITAL_VERSION)
         self.assertEqual(reply.label, answerer_module.LABEL)
+        # THE DELAY IS A NUMBER SOMEBODY SLEEPS ON (pf-adversary round
+        # m54yxh, D8).  `current/pf_login_game_server_v141.py` sleeps
+        # `delay` in the CONNECTION THREAD before sending, and neither
+        # `_actions_are_well_formed` nor the outbound shape bounds it --
+        # so an edit here setting 30.0 stalls one player's socket for
+        # half a minute per press under a fully green suite.  Nothing
+        # else pinned it; this does.
+        self.assertEqual(reply.delay, 0.0)
+        # And the accept token is evidence an attended round reads off
+        # the console, so deleting it must not be free either.
+        self.assertIn("UI_PARTY_CMD_ANSWER len=11", console)
 
 
 class TheWidthIsFixedAndCheckedAsFixedTests(_AnswererRegistered):
@@ -358,7 +369,32 @@ class TheWidthIsFixedAndCheckedAsFixedTests(_AnswererRegistered):
         )
         self.assertEqual(out, [])
         self.assertIn("reason=not_the_reviewed_fixed_width", console)
-        self.assertIn("len=%d reviewed=11" % (len(short),), console)
+        self.assertIn(
+            "len=%d encoder=11 reviewed=11" % (len(short),), console,
+        )
+
+    def test_the_encoders_own_width_is_on_the_path_not_just_in_a_test(self):
+        """pf-adversary round m54yxh, D7 -- the constant used to be dead.
+
+        The guard compared the payload against the REGISTRY only, so
+        ``_PARTY_CMD_PAYLOAD_BYTES`` -- the number derived from the
+        encoder, whose comment claimed the module and the wire module
+        "cannot disagree" -- could be set to anything at all and the
+        button kept working.  It is now one of the two numbers the
+        payload has to match, so a module that disagrees with its own
+        wire module answers nothing.
+        """
+        saved = answerer_module._PARTY_CMD_PAYLOAD_BYTES
+        answerer_module._PARTY_CMD_PAYLOAD_BYTES = 999
+        self.addCleanup(
+            setattr, answerer_module, "_PARTY_CMD_PAYLOAD_BYTES", saved,
+        )
+        out, console = self._call(
+            vital_id=wire.PARTY_CMD_VITAL_ID, payload=_real_cmd_payload(),
+        )
+        self.assertEqual(out, [])
+        self.assertIn("reason=not_the_reviewed_fixed_width", console)
+        self.assertIn("encoder=999", console)
 
     def test_a_width_the_registry_disagrees_with_is_refused(self):
         """The other direction: the registry moves, the encoder does not.
@@ -380,6 +416,88 @@ class TheWidthIsFixedAndCheckedAsFixedTests(_AnswererRegistered):
         )
         self.assertEqual(out, [])
         self.assertIn("reason=not_the_reviewed_fixed_width", console)
+
+
+class TheProcessCeilingIsPerVitalTests(unittest.TestCase):
+    """pf-adversary round m54yxh, D1 -- the third answerer used to cost
+    the two shipped ones a third of the pot they share.
+
+    `SESSION_ANSWER_BUDGET` is per (session, vital), and the storm test
+    below proves it.  The ceiling ABOVE it was one integer for the whole
+    process, shared by every session AND every vital, so adding an
+    answerable vital raised what one player could draw from the shared
+    pot (measured: 64 -> 96) and lowered the number of sessions needed
+    to empty it (64 -> 43); after that a bystander who had pressed
+    nothing got nothing back until a restart.  The ceiling is per vital
+    id now, so a new button cannot spend an old one's allowance.
+
+    Driven against `_charge_session_answer` with a small ceiling rather
+    than through `state.dispatch()` 4,096 times: the property is about
+    the counter's KEY, and a test that takes four minutes to say so is a
+    test the next round deletes.
+    """
+
+    def setUp(self):
+        self._keep = []
+        ui_dispatch.reset_session_budgets_for_tests()
+        self.addCleanup(ui_dispatch.reset_session_budgets_for_tests)
+        self._saved_budget = ui_dispatch.PROCESS_ANSWER_BUDGET
+        ui_dispatch.PROCESS_ANSWER_BUDGET = 4
+        self.addCleanup(
+            setattr, ui_dispatch, "PROCESS_ANSWER_BUDGET",
+            self._saved_budget,
+        )
+
+    class _Session:
+        """A weak-referenceable stand-in.  A bare `object()` is not, and
+        the seam refuses a session it cannot key (`session_budget_
+        unbounded`) -- which would make every case below pass for the
+        wrong reason."""
+
+    def _session(self):
+        session = self._Session()
+        self._keep.append(session)   # the seam holds only a weak ref
+        return session
+
+    def _spend(self, vital_id, count):
+        """Spend `count` answers for `vital_id`, one session each, so the
+        per-SESSION allowance is never what refuses."""
+        return [
+            ui_dispatch._charge_session_answer(self._session(), vital_id, 1)
+            for _ in range(count)
+        ]
+
+    def test_emptying_one_vitals_pot_leaves_another_vitals_pot_full(self):
+        spent = self._spend(wire.PARTY_CMD_VITAL_ID, 5)
+        self.assertEqual(spent[:4], ["", "", "", ""])
+        self.assertEqual(spent[4], "process_budget_spent")
+        # The party invite button, on a session that has pressed nothing.
+        self.assertEqual(
+            ui_dispatch._charge_session_answer(
+                self._session(), wire.PARTY_INVITE_VITAL_ID, 1,
+            ),
+            "",
+        )
+
+    def test_the_counter_is_keyed_by_vital_and_not_by_session(self):
+        self._spend(wire.PARTY_CMD_VITAL_ID, 2)
+        self._spend(wire.PARTY_INVITE_VITAL_ID, 1)
+        self.assertEqual(
+            ui_dispatch._PROCESS_ANSWERS_SENT,
+            {wire.PARTY_CMD_VITAL_ID: 2, wire.PARTY_INVITE_VITAL_ID: 1},
+        )
+
+    def test_the_ceiling_still_bounds_a_client_that_reconnects(self):
+        # The property the process ceiling exists for (pf-adversary round
+        # vy1m79, D2) is not weakened by keying it per vital: fresh
+        # sessions on ONE vital still run out.
+        self.assertIn(
+            "process_budget_spent",
+            self._spend(wire.PARTY_CMD_VITAL_ID, 6),
+        )
+
+    def test_the_shipped_number_is_still_the_reviewed_one(self):
+        self.assertEqual(self._saved_budget, 4096)
 
 
 class TheReviewedRowsTests(unittest.TestCase):

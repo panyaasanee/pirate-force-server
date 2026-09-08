@@ -4,7 +4,7 @@ Run it and read one line:
 
     UI_PARTY_CMD_ANSWER_ARMED answered=1 label=UI_PARTY_CMD_ANSWERED
     payload_bytes=11 frame_bytes=43 frame_matches=1
-    echo_is_the_players_bytes=1 junk_refused=1 width_is_fixed=1
+    echo_is_the_players_bytes=1 junk_refused=1 width_is_enforced=1
     RESULT=PASS
 
 Same shape, same rules and the same reason as the two proofs beside it
@@ -18,13 +18,22 @@ with nothing, because a token that says PASS for everything is not
 evidence.
 
 ONE FIELD THIS CLASS'S PROOF HAS AND THE OTHER TWO DO NOT:
-``width_is_fixed``.  ``PartyCmdVital`` is ``u8 + u64`` with no string,
-so its payload cannot vary, and the reviewed outbound shape pins the
-EXACT width rather than a ceiling.  A ceiling that is never approached
-is a check that never fires, so this proof measures the property the
-pin rests on: both ends of both fields encode to the same length as the
-reviewed number, and a payload one byte longer is refused in the same
-boot.
+``width_is_enforced``.  ``PartyCmdVital`` is ``u8 + u64`` with no
+string, so its payload cannot vary, and the reviewed outbound shape
+pins the EXACT width rather than a ceiling.
+
+ITS FIRST VERSION WAS CALLED ``width_is_fixed`` AND COULD NOT FAIL
+(pf-adversary round m54yxh, D3).  It asked whether the encoder emits
+the reviewed number for four field extremes -- a fact about the encoder
+and a literal, true whether or not the answerer enforces anything, so
+deleting the whole width guard left this proof printing PASS with exit
+0.  A proof that cannot fail when the feature is removed is not
+evidence of the feature.  It now MEASURES THE ENFORCEMENT: inside the
+same boot it widens the reviewed row (the permissive edit, the one
+``!=`` exists to catch), presses the button again, and requires the
+answer to be nothing; then restores the row and requires the button to
+work again.  Delete the guard and this field reads 0 and the token says
+FAIL.
 
 WHAT IT SAYS.  On this commit, on a default boot, a party-command frame
 is ANSWERED, with the player's own bytes, in the envelope this project
@@ -88,15 +97,24 @@ def _synthetic_pc(legacy, nested_id: int, payload: bytes) -> bytes:
     )
 
 
-def _width_is_fixed() -> int:
-    """Does every field extreme encode to the reviewed width?
+def _width_is_enforced(press) -> int:
+    """Does the fixed-width guard actually refuse, on this boot?
 
-    The pin the answerer enforces says this payload cannot vary.  A
-    proof that only ever encodes one field pair would pass while the
-    class quietly grew a variable part, so both ends of both fields are
-    encoded here and compared against the REVIEWED number in
-    ``ui_dispatch`` -- not against each other, which would agree even if
-    both were wrong.
+    ``press`` sends one well-formed party command through the real
+    dispatcher and returns the actions.  Two halves, and BOTH have to
+    hold:
+
+    1. every field extreme encodes to the reviewed width (a fact about
+       the encoder and the reviewed literal -- necessary, and on its own
+       it was the whole of this check, which is why deleting the guard
+       used to leave this proof green);
+    2. with the reviewed row WIDENED by one byte, the same press answers
+       NOTHING, and with the row restored it answers again.  That is the
+       guard executing, on the live path, in this boot.
+
+    The row is restored in a ``finally``: a proof that leaves the
+    registry it borrowed in a different state than it found it would be
+    reporting on a server nobody is going to run.
     """
     shape = ui_dispatch.outbound_shape(LABEL)
     if shape is None:
@@ -108,7 +126,16 @@ def _width_is_fixed() -> int:
         for a in (0, 0xFF)
         for b in (0, (1 << 64) - 1)
     }
-    return int(widths == {shape.max_payload_bytes})
+    if widths != {shape.max_payload_bytes}:
+        return 0
+    try:
+        ui_dispatch._OUTBOUND_FRAME_SHAPES[LABEL] = shape._replace(
+            max_payload_bytes=shape.max_payload_bytes + 1
+        )
+        refused = press() == []
+    finally:
+        ui_dispatch._OUTBOUND_FRAME_SHAPES[LABEL] = shape
+    return int(refused and len(press()) == 1)
 
 
 def run() -> int:
@@ -142,11 +169,18 @@ def run() -> int:
         actions = state.dispatch(legacy.parse_outer(
             _synthetic_pc(legacy, wire.PARTY_CMD_VITAL_ID, payload)
         ))
-        # TWO NEGATIVE CONTROLS, NOT ONE.  The first is a payload that
-        # cannot decode at all; the second decodes field-for-field and
-        # then carries one unexplained trailing byte, which is the
-        # failure this class's fixed width exists to catch.  Both must
-        # answer with nothing in this same boot.
+        # TWO NEGATIVE CONTROLS, NOT ONE, AND THE SECOND IS NAMED FOR
+        # THE GUARD THAT REALLY REFUSES IT (pf-adversary round m54yxh,
+        # D6 -- this comment used to say the trailer "decodes
+        # field-for-field" and is caught by the fixed width, and the
+        # proof's own stderr says otherwise: ``reason=undecodable``).
+        # The first payload cannot decode at all; the second is a whole
+        # valid payload plus one unexplained byte, which
+        # ``require_exhausted`` refuses one guard before the round trip
+        # and two before the width check.  Both are evidence that a
+        # malformed press is answered with nothing -- not evidence about
+        # the width pin, which ``width_is_enforced`` below measures on
+        # its own.
         junk = state.dispatch(legacy.parse_outer(
             _synthetic_pc(legacy, wire.PARTY_CMD_VITAL_ID, b"\x00\x01\x99")
         ))
@@ -184,17 +218,28 @@ def run() -> int:
             and pc[slot + len(payload):] == probe_pc[slot + len(payload):]
         )
         junk_refused = int(junk == [] and trailer == [])
-        width_fixed = _width_is_fixed()
+
+        def _press():
+            return state.dispatch(legacy.parse_outer(
+                _synthetic_pc(legacy, wire.PARTY_CMD_VITAL_ID, payload)
+            ))
+
+        # AFTER the measurements above, never before: this call spends
+        # the session's allowance, and a proof that changed the state it
+        # is measuring would be reporting on a different boot than the
+        # one it described.  Three presses at most, against an allowance
+        # of 32.
+        width_enforced = _width_is_enforced(_press)
         ok = (
             answered == 1 and label == LABEL and frame_matches
-            and echo_exact and junk_refused and width_fixed
+            and echo_exact and junk_refused and width_enforced
         )
         print(
             "%s answered=%d label=%s payload_bytes=%d frame_bytes=%d"
             " frame_matches=%d echo_is_the_players_bytes=%d junk_refused=%d"
-            " width_is_fixed=%d RESULT=%s"
+            " width_is_enforced=%d RESULT=%s"
             % (TOKEN, answered, label, len(payload), len(frame),
-               frame_matches, echo_exact, junk_refused, width_fixed,
+               frame_matches, echo_exact, junk_refused, width_enforced,
                "PASS" if ok else "FAIL")
         )
         return 0 if ok else 1
