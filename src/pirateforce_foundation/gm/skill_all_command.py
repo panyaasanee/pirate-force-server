@@ -221,7 +221,7 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
 
     THE ORDER IS: read what is there -> grant the rest, one door call per
     id -> count.  Each call is independent: one id that raises does not stop
-    the others, because a tester with 147 of 148 skills has a usable sandbox
+    the others, because a tester with 136 of 137 skills has a usable sandbox
     and a tester with 0 has nothing.  The failures are COUNTED and named in
     the console line, never swallowed.
 
@@ -232,13 +232,25 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
     """
     if type(character_id) is not int or isinstance(character_id, bool) or character_id <= 0:
         return SkillGrant(
-            0, 0, 0, REFUSED_NO_CHARACTER,
+            # `True` for the same reason the sibling refusal twenty lines
+            # down passes it: nothing was attempted, so nothing FELL BACK to
+            # counting calls, and `granted_from=calls` must not appear on a
+            # line whose counts are three zeros.  The positional argument was
+            # MISSING here and at REFUSED_NO_STORE below until pf-adversary
+            # (round nboppe, D1) built the branch: `counts_are_complete` was
+            # added to this dataclass in the same commit that answered round
+            # wv0fpe, and five of the seven construction sites were updated.
+            # These two were the pair with no test that reaches them, so the
+            # suite proved the refusal WORD existed while the branch that
+            # returns it raised TypeError.
+            0, 0, 0, True, REFUSED_NO_CHARACTER,
             f"no usable selected character id on this connection ({character_id!r})",
         )
     granter = getattr(store, "grant_learned_skill", None)
     if granter is None:
         return SkillGrant(
-            0, 0, 0, REFUSED_NO_STORE,
+            # The second of the pair -- see REFUSED_NO_CHARACTER above.
+            0, 0, 0, True, REFUSED_NO_STORE,
             "this session's store has no grant_learned_skill door",
         )
     skill_ids = all_skill_ids()
