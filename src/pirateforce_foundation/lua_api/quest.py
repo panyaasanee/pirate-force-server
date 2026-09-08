@@ -427,6 +427,49 @@ class QuestStateStore(Protocol):
         record."""
         ...
 
+    def increment_quest_counter(self, character_id: int, quest_id: int,
+                                 counter_name: str, delta: int = 1) -> int:
+        """Add ``delta`` to a counter in ONE step; returns the value now
+        on record.
+
+        WHY THIS IS A SEAM METHOD AND NOT ``get`` FOLLOWED BY ``set``.
+        Kill progress is the one number in this seam that two independent
+        server events can move at the same instant -- two mobs of the same
+        template dying in the same tick.  Read-modify-write in the caller
+        loses one of them: both reads see 4, both writes store 5, and the
+        player killed six mobs to advance the counter by one.  For a
+        five-kill quest that is not a rounding error, it is a quest that
+        never completes and an NPC that stays on step 1 forever, which is
+        the exact failure PANYA's order of 2026-09-08 ~15:20 named when it
+        put this store ahead of everything else in this lane.
+
+        LANE-DB's contract already offers the atomic form
+        (``increment_quest_counter``, "read-modify-write-back in one
+        transaction", ``pf_bridge/notes_to_chief/20260905_2212_LANE-DB-TO-
+        LANE-Q-...``), so this is that door named on the seam rather than
+        a new design -- the same rule the rest of this Protocol follows.
+        The in-memory default implements it under its own lock; the
+        store-backed adapter hands it straight to the door.
+
+        DEFAULT ``delta=1`` because one mob died, which is what every
+        caller this seam is being built for means.  A caller that means
+        something else says so.
+        """
+        ...
+
+
+#: The seam's method names, READ OFF the Protocol rather than typed out a
+#: second time somewhere else.  A hand-kept list is a list that falls
+#: behind the day a method is added: the parity test that proves the
+#: durable adapter is substitutable for the in-memory default would keep
+#: passing while the newest method existed on only one of them, and the
+#: asymmetry would first show up in production.  Definition order is
+#: preserved (``vars`` on a class body, Python 3.7+).
+QUEST_STATE_STORE_METHODS: Tuple[str, ...] = tuple(
+    name for name, value in vars(QuestStateStore).items()
+    if not name.startswith("_") and callable(value)
+)
+
 
 @dataclass(frozen=True)
 class QuestContext:
@@ -559,6 +602,36 @@ class InMemoryQuestStateStore:
                 return rows.get(key, STUB_DEFAULT)
             rows[key] = counter_value
             return counter_value
+
+    def increment_quest_counter(self, character_id: int, quest_id: int,
+                                 counter_name: str, delta: int = 1) -> int:
+        """:meth:`QuestStateStore.increment_quest_counter`, under the same
+        lock every other write here takes.
+
+        ONE ``with self._lock`` BLOCK, not a call to ``get_quest_counter``
+        followed by a call to ``set_quest_counter``.  ``RLock`` is
+        reentrant, so the two-call version would not deadlock -- it would
+        do something worse: release the lock between the read and the
+        write and lose exactly the concurrent increment this method exists
+        to keep.  A cap refusal answers the same way ``set_quest_counter``
+        does (the value already on record, or ``STUB_DEFAULT`` when there
+        is none), never a value that was not stored.
+        """
+        with self._lock:
+            rows = self._counters.get(character_id)
+            if rows is None:
+                if len(self._counters) >= self._characters_cap:
+                    return self.get_quest_counter(
+                        character_id, quest_id, counter_name) or STUB_DEFAULT
+                rows = self._counters.setdefault(character_id, {})
+            key = (quest_id, counter_name)
+            if key not in rows and len(rows) >= self._counters_per_character_cap:
+                return rows.get(key, STUB_DEFAULT)
+            # Never set before is 0 + delta, per LANE-DB's contract for the
+            # same door: there is no earlier value to guess at, so this
+            # creates the fact rather than assuming one.
+            rows[key] = rows.get(key, 0) + delta
+            return rows[key]
 
 
 def is_quest_accepted(store: "QuestStateStore", character_id: int, quest_id: int) -> bool:

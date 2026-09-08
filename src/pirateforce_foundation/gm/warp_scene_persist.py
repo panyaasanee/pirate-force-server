@@ -697,7 +697,12 @@ def barred_login_scene_ids() -> tuple[int, ...]:
 def _barred_console_field() -> str:
     """`barred=` for the refusal line: the derived set, bounded, ASCII.
 
-    BOUNDED BECAUSE THE REGISTRY IS LANE A'S.  It holds 17 scenes today and
+    BOUNDED BECAUSE THE REGISTRY IS LANE A'S.  It holds 19 scenes today
+    (~~17~~ -- re-measured 2026-09-08 on main, LANE-GM round `nkb608`, with
+    `len(world_scene_travel.load_scene_registry().ids)`; the number in prose
+    had gone stale by two while nothing here changed, which is the drift a
+    counted sentence always has and the reason the FIELD below derives its
+    own) and
     nothing in this lane governs how many it holds tomorrow; a console line
     that grows with another lane's data file is a console line that will one
     day be cut in half by the bridge's own reader.  Past the ceiling the

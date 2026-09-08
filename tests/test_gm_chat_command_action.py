@@ -1927,6 +1927,19 @@ class EventNameContractTests(_Case):
         "EVENT_STAGED_READBACK_STATUS_PREFIX": (
             "gm_chat_action_staged_readback_status_"
         ),
+        # The `sandbox` readback's three, shaped like the three above them.
+        # The status word is the SHAPE of the answer (`job_and_skills`,
+        # `no_job`, ...), never a count -- an events list with a member per
+        # skill total would be unreadable at the one moment it is read.
+        "EVENT_SANDBOX_READBACK_NOTICE_COMPOSED": (
+            "gm_chat_action_sandbox_readback_composed"
+        ),
+        "EVENT_SANDBOX_READBACK_NOTICE_FAILED_PREFIX": (
+            "gm_chat_action_sandbox_readback_notice_failed_"
+        ),
+        "EVENT_SANDBOX_READBACK_STATUS_PREFIX": (
+            "gm_chat_action_sandbox_readback_status_"
+        ),
         "EVENT_SPEED_PERSIST_REFUSED_PREFIX": (
             "gm_chat_action_speed_persist_refused_"
         ),
@@ -2001,6 +2014,13 @@ class EventNameContractTests(_Case):
         # for all three answers -- see the label's own comment in the module.
         "STAGED_READBACK_NOTICE_ACTION_LABEL": (
             "LANE_GM_CHAT_STAGED_READBACK_LOCAL_TALK_NOTICE"
+        ),
+        # The `sandbox` readback's sentence (LANE-GM round `nkb608`).  Like
+        # the one above it this label moves nobody, so it carries no
+        # `TELEPORT` substring -- `runtime.py`'s
+        # `_move_authority_note_server_teleport` reads these as substrings.
+        "SANDBOX_READBACK_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_SANDBOX_READBACK_LOCAL_TALK_NOTICE"
         ),
         # The cross-scene `/warp`'s confirmation (LANE-GM round `0w9jhq`).
         # A staged warp moves nobody, so this label is deliberately absent
@@ -3395,6 +3415,7 @@ class NoticeLabelCountTests(_Case):
         8: "Eight",
         9: "Nine",
         10: "TEN",
+        11: "ELEVEN",
     }
 
     def notice_labels(self):

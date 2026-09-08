@@ -860,9 +860,20 @@ def _self_check() -> None:
         if cline_row_id < 1 or n_id < 1:
             raise Bg3001IdentityError(
                 "set %d carries no CLINE row or leader locator" % template_id)
-        if ";" in outfit or "|" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg3001IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
+        if "|" in outfit:
+            raise Bg3001IdentityError(
+                "set %d ships an unknown avatar separator" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg3001IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)

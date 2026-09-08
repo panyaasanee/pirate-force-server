@@ -80,7 +80,7 @@ RLO = "\u202e"
 # `TheUsageHintItselfTests` has no arity error to ask them for. One entry
 # today (`staged`, LANE-GM round `qpauwp`); every entry is paid for by
 # `TheCommandsThatTakeNoArgumentsTests`.
-NO_ARGUMENT_COMMANDS = ("staged",)
+NO_ARGUMENT_COMMANDS = ("staged", "sandbox")
 ZWSP = "\u200b"
 HEBREW = "\u05d0\u05d1\u05d2"
 CJK = "\u4e2d\u6587"
@@ -947,6 +947,9 @@ class TheUsageHintItselfTests(unittest.TestCase):
             # reordering anything already pinned ahead of it -- see
             # COMMAND_USAGE's own comment for each addition's placement
             # reasoning.
+            # `sandbox` appended after `skill` by LANE-GM round `nkb608`,
+            # the sixth addition to grow this tuple by one at the end and a
+            # TOOLING one like `gmprobe`/`staged` -- it writes nothing.
             # `staged` appended after `speed` by LANE-GM round `qpauwp`,
             # the third addition to grow this tuple by one at the end.
             # `job` and `skill` appended after `staged` by LANE-GM round
@@ -960,7 +963,7 @@ class TheUsageHintItselfTests(unittest.TestCase):
             # and "newest last" is the property that keeps it stable.
             (
                 "warp", "npc", "item", "lv", "spawn", "say", "gmprobe",
-                "speed", "staged", "job", "skill",
+                "speed", "staged", "job", "skill", "sandbox",
             ),
             tuple(gm_commands.COMMAND_USAGE),
         )

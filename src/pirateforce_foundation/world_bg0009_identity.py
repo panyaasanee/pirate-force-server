@@ -307,19 +307,19 @@ _RESOLVED_ROWS = (
     (21, 2620, 304, 'P_MALE_002_002_N', 'Dead Survivor', '', 98, 0, 186962, 2),
     (22, 2621, 305, 'M077_000_000_N', 'Angelina', 'Royal Princess', 98, 0, 186962, 2),
     (23, 2622, 306, 'M026_000_001_SP2', 'Skeleton Captain', '', 98, 0, 186962, 2),
-    (24, 2623, 307, 'M008_000_000_SP1', 'Blue Ocean soul', '', 93, 1, 160837, 1),
-    (25, 2624, 308, 'M002_002_000_SP1', 'Blue Tiger', '', 93, 1, 160837, 1),
-    (26, 2625, 309, 'M022_000_000_SP1', 'Harpy', '', 93, 1, 160837, 1),
-    (27, 2626, 310, 'M026_000_000_SP1', 'Skeleton Sseaman', '', 93, 1, 160837, 1),
-    (28, 2627, 311, 'M000_001_000_N', 'Exotic Demon Wolf', '', 93, 1, 160837, 1),
-    (29, 2628, 312, 'M019_000_002_SP1', 'Catwoman pirate', '', 93, 1, 160837, 1),
-    (30, 2629, 313, 'M010_000_001_SP1', 'Captain Golem', '', 93, 1, 160837, 1),
+    (24, 2623, 307, 'M008_000_000_SP1;M008_000_000_SP2', 'Blue Ocean soul', '', 93, 1, 160837, 1),
+    (25, 2624, 308, 'M002_002_000_SP1;M002_002_000_SP2', 'Blue Tiger', '', 93, 1, 160837, 1),
+    (26, 2625, 309, 'M022_000_000_SP1;M022_000_000_SP2', 'Harpy', '', 93, 1, 160837, 1),
+    (27, 2626, 310, 'M026_000_000_SP1;M026_000_000_SP2', 'Skeleton Sseaman', '', 93, 1, 160837, 1),
+    (28, 2627, 311, 'M000_001_000_N;M000_001_000_SP1', 'Exotic Demon Wolf', '', 93, 1, 160837, 1),
+    (29, 2628, 312, 'M019_000_002_SP1;M019_000_002_SP2', 'Catwoman pirate', '', 93, 1, 160837, 1),
+    (30, 2629, 313, 'M010_000_001_SP1;M010_000_001_SP2', 'Captain Golem', '', 93, 1, 160837, 1),
     (31, 2630, 314, 'M010_000_001_SP3', 'Captain Golem Rabia', '', 93, 1, 160837, 1),
-    (32, 2631, 315, 'M028_001_001_SP1', 'Red blood Bee', '', 93, 1, 160837, 1),
-    (33, 2632, 316, 'M004_000_003_SP1', 'End date Flower', '', 93, 1, 160837, 1),
+    (32, 2631, 315, 'M028_001_001_SP1;M028_001_001_SP2', 'Red blood Bee', '', 93, 1, 160837, 1),
+    (33, 2632, 316, 'M004_000_003_SP1;M004_000_003_SP2', 'End date Flower', '', 93, 1, 160837, 1),
     (34, 2633, 317, 'M004_000_003_SP3', 'Destroy Magic Flower', '', 93, 1, 160837, 1),
-    (35, 2634, 318, 'M008_000_002_SP1', 'Dark soul', '', 93, 1, 160837, 1),
-    (36, 2635, 319, 'M026_000_002_SP1', 'Skeleton Mate', '', 93, 1, 160837, 1),
+    (35, 2634, 318, 'M008_000_002_SP1;M008_000_002_SP2', 'Dark soul', '', 93, 1, 160837, 1),
+    (36, 2635, 319, 'M026_000_002_SP1;M026_000_002_SP2', 'Skeleton Mate', '', 93, 1, 160837, 1),
     (37, 2636, 320, 'M026_000_002_SP3', 'Skeleton Commander Corella', '', 93, 1, 160837, 1),
     (41, 2640, 546, 'M019_000_000_SP4', 'Black braid Edward', '', 93, 1, 160837, 8),
     (44, 2641, 549, 'M022_000_003_SP2', 'Bermuda Banshee', '', 93, 1, 160837, 8),
@@ -537,9 +537,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0009IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0009IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0009IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)

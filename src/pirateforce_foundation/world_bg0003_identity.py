@@ -297,16 +297,16 @@ _RESOLVED_ROWS = (
     (17, 1416, 52, 'M012_000_000_N', 'Plato', 'Atlantis Prime Minister', 35, 0, 7980, 2),
     (18, 1417, 53, 'M012_000_000_N', 'Plato', 'Wizards', 35, 0, 7980, 2),
     (19, 1418, 54, 'P_FEMALE_018_000_LORA', 'Laura', 'Treasure Hunter', 35, 0, 7980, 2),
-    (20, 1419, 55, 'M006_000_001_SP1', 'Sand dragon', '', 31, 1, 5636, 1),
-    (21, 1420, 56, 'M013_000_000_SP1', 'lenka', '', 32, 1, 6174, 1),
-    (22, 1421, 57, 'M004_000_000_SP1', 'Greenwood Magic Flower', '', 33, 1, 6750, 1),
-    (23, 1422, 58, 'M028_001_000_SP1', 'Thorn Hammer Bee', '', 35, 1, 7980, 1),
-    (24, 1423, 59, 'M002_000_002_SP1', 'Jungle Tiger', '', 36, 1, 8661, 1),
+    (20, 1419, 55, 'M006_000_001_SP1;M006_000_001_SP2', 'Sand dragon', '', 31, 1, 5636, 1),
+    (21, 1420, 56, 'M013_000_000_SP1;M013_000_000_SP2', 'lenka', '', 32, 1, 6174, 1),
+    (22, 1421, 57, 'M004_000_000_SP1;M004_000_000_SP2', 'Greenwood Magic Flower', '', 33, 1, 6750, 1),
+    (23, 1422, 58, 'M028_001_000_SP1;M028_001_000_SP2', 'Thorn Hammer Bee', '', 35, 1, 7980, 1),
+    (24, 1423, 59, 'M002_000_002_SP1;M002_000_002_SP2', 'Jungle Tiger', '', 36, 1, 8661, 1),
     (25, 1424, 60, 'M002_000_002_SP3', 'Jungle Big Tiger', '', 37, 1, 9382, 1),
     (26, 1425, 61, 'M004_000_002_SP1', 'Toxic Vine', '', 38, 1, 10149, 1),
     (27, 1426, 62, 'M014_000_000_N', 'Ancient Civilization Alert Weapon', '', 39, 1, 10962, 1),
-    (28, 1427, 63, 'M001_003_000_N', 'Green scales pirates', '', 41, 1, 12871, 1),
-    (29, 1428, 64, 'M003_001_000_SP1', 'Ward Kingkong', '', 42, 1, 13854, 1),
+    (28, 1427, 63, 'M001_003_000_N;M001_003_000_SP1', 'Green scales pirates', '', 41, 1, 12871, 1),
+    (29, 1428, 64, 'M003_001_000_SP1;M003_001_000_SP2', 'Ward Kingkong', '', 42, 1, 13854, 1),
     (30, 1429, 65, 'M003_001_000_SP3', 'Ward Apes', '', 43, 1, 14910, 1),
     (31, 1430, 232, 'MAP001_000_000', 'Mirage reel', '', 105, 0, 228055, 2),
     (32, 1431, 233, 'MAP001_000_000', 'Mirage reel', '', 105, 0, 228055, 2),
@@ -315,11 +315,11 @@ _RESOLVED_ROWS = (
     (35, 1434, 824, 'P_MALE_019_000_SEPHIROTH', 'Sai Feross', 'Treasure Hunters No.1', 40, 0, 11925, 2),
     (36, 1435, 825, 'P_MALE_019_000_SEPHIROTH', 'Sai Feross', 'Treasure Hunters No.2', 40, 0, 11925, 2),
     (37, 1445, 907, 'M000_000_001_SP1', 'Sediment Wolf', '', 32, 1, 6174, 1),
-    (38, 1446, 908, 'P_MALE_015_000_SINGLE', 'Jungle Fugitive', '', 33, 1, 6750, 1),
+    (38, 1446, 908, 'P_MALE_015_000_SINGLE;P_MALE_015_000_SINGLE2;P_MALE_015_000_SINGLE3;P_MALE_015_000_SINGLE4;P_MALE_015_000_SINGLE5;P_MALE_015_000_SINGLE6;P_MALE_015_000_SINGLE7;P_MALE_015_000_SINGLE8;P_MALE_015_000_SINGLE9', 'Jungle Fugitive', '', 33, 1, 6750, 1),
     (39, 1447, 915, 'P_FEMALE_002_000_LAN', 'Isla', 'Nautilus Leader', 20, 0, 1771, 2),
     (40, 1448, 919, 'MAP_OBJ_CRYSTAL', 'Energy Strength Crystal', '', 10, 0, 421, 2),
     (110, 1449, 927, 'M019_001_000_SP1', 'Loverage Nurse', '', 10, 0, 421, 2),
-    (111, 1450, 7042, 'M024_001_001_SP1', 'Penguin Searcher', 'Serious and responsible', 99, 0, 192488, 2),
+    (111, 1450, 7042, 'M024_001_001_SP1;M024_001_001_SP2', 'Penguin Searcher', 'Serious and responsible', 99, 0, 192488, 2),
 )
 
 IDENTITIES = {row[0]: SceneIdentity(*row) for row in _RESOLVED_ROWS}
@@ -543,9 +543,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0003IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0003IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0003IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)
