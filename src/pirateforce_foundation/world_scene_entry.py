@@ -198,10 +198,24 @@ RELOCATION_REASONS = (
 # of these are "kept"; they are not the same fact and an attended tester
 # reading the console must not have to guess which one held.
 KEPT_ROW_WITHIN_GROUND = "stored_xy_inside_pinned_ground_extent"
-KEPT_ROW_NOT_REFUTED = "login_row_not_refuted_by_measured_ground"
+# ~~KEPT_ROW_NOT_REFUTED = "login_row_not_refuted_by_measured_ground"~~ --
+# WITHDRAWN round 1v5i3h (LANE-A), pf-adversary D2 of round ioz8fd, which is
+# the sharpest kind of finding this project gets: the string was not merely
+# vague, it was FALSE on the one scene it was printed for.  Scene 17 carries
+# a measured placement box in the same JSON object, a stored row of
+# (999999, 999999) is outside it on any reading, and the console still said
+# no measured ground refuted the row -- because the decree veto in
+# ``_ground_evidence`` returned before the box was ever consulted.  One
+# token cannot carry "there is no measurement" and "there is one and the row
+# is inside it"; they are the two facts an attended tester most needs to
+# tell apart, so they are two tokens now and the login path actually
+# consults the box (see ``_measured_envelope_refutes``).
+KEPT_ROW_NO_MEASUREMENT = "login_row_no_measured_ground_exists_for_this_scene"
+KEPT_ROW_INSIDE_ENVELOPE = "login_row_inside_measured_placement_envelope"
 KEPT_ROW_BASES = (
     KEPT_ROW_WITHIN_GROUND,
-    KEPT_ROW_NOT_REFUTED,
+    KEPT_ROW_NO_MEASUREMENT,
+    KEPT_ROW_INSIDE_ENVELOPE,
 )
 
 # Why an arrival was refused outright.  One exception type, several reasons,
@@ -393,8 +407,66 @@ def _ground_refutes_stored_row(
         provenance is not None
         and provenance.startswith("PROVISIONAL-OWNER-DECREE")
     ):
-        return False
+        # The radius test proved nothing here (that is what the veto means),
+        # but "the test I ran proved nothing" is not "there is nothing to
+        # measure against" -- see ``_measured_envelope_refutes``, which is
+        # the same generosity re-centred on a point that WAS measured.
+        return _measured_envelope_refutes(target, stored.x, stored.y) is True
     return True
+
+
+def _measured_envelope_refutes(
+    target: SceneDestination, x: float, y: float
+) -> bool | None:
+    """Does the MEASURED placement box say this XY is not in this scene?
+
+    ``True`` outside, ``False`` inside, ``None`` when the scene has no
+    ground block to ask.
+
+    WHY THIS EXISTS (pf-adversary D2, round ioz8fd).  ``_ground_evidence``
+    centres ``ground_extent`` on ``target.spawn``, and refuses to do so when
+    that spawn is a PROVISIONAL-OWNER-DECREE, for the reason its own
+    docstring gives: a radius around an unmeasured point proves nothing.
+    That refusal is right.  What was wrong was what the login path then did
+    with it -- it reported that no measured ground existed, for a scene
+    whose ``ground`` block carries four measured numbers.  A BOX does not
+    need a spawn to be centred on, so a decreed spawn does not disqualify
+    it.
+
+    THE CENTRE IS MEASURED AND SO ARE THE SPANS.  This is the same test
+    ``_ground_evidence`` runs -- ``|x - centre| <= extent_x`` -- with the
+    centre moved from the decreed spawn to the midpoint of the measured
+    box.  Nothing here is invented: both the box and the spans come off the
+    same ``ground`` block, derived from that scene's own placements TSV with
+    its sha256 pinned beside it.  The spans stay FULL widths used as radii,
+    which makes the envelope about twice the box.  That generosity is
+    deliberate and is inherited, not new: it is exactly what every measured
+    scene already gets, and this function is only ever allowed to REFUTE a
+    stored row, so being generous means erring toward keeping the player
+    where the client said it was -- the direction PANYA-DECISION
+    20260908_1218 rules in.
+
+    WHAT IT DOES AND DOES NOT SETTLE.  Scene 17's headline row
+    (-149.0, -1250.3) sits 381 units below ``y_min`` and is INSIDE this
+    envelope, so the row that 1218 is about is still kept -- this is not a
+    re-closing of the third gate.  A row of (999999, 999999) is outside it
+    by three orders of magnitude and is refuted, which is the case D2 found
+    the console lying about.  NOT CLAIMED: that a row inside the envelope is
+    on walkable ground.  A ``.npc`` file carries NPC placements, not
+    terrain (every ``ground`` block says so in its own ``limit`` field), so
+    this can catch a row that is provably nowhere near the scene and can
+    never certify one that is.
+    """
+    box = target.ground_box
+    extent = target.ground_extent
+    if box is None or extent is None:
+        return None
+    x_min, x_max, y_min, y_max = box
+    extent_x, extent_y = extent
+    return not (
+        abs(x - (x_min + x_max) / 2.0) <= extent_x
+        and abs(y - (y_min + y_max) / 2.0) <= extent_y
+    )
 
 
 def _within_ground(target: SceneDestination, stored: Position) -> bool:
@@ -616,7 +688,10 @@ def resolve_entry(
             scene_id, scene_seq, row.x, row.y, row.z, row.heading,
         )
         reason = None
-        kept_basis = KEPT_ROW_NOT_REFUTED
+        kept_basis = (
+            KEPT_ROW_NO_MEASUREMENT if target.ground_extent is None
+            else KEPT_ROW_INSIDE_ENVELOPE
+        )
     else:
         position = world_scene_travel.entry_position(target, row.heading)
         reason = (
@@ -676,9 +751,33 @@ def resolve_entry(
         and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
     ):
         decree_tag = target.spawn_provenance.split(" ", 1)[0]
+        # ``from=`` ADDED round 1v5i3h (LANE-A), pf-adversary D1 of round
+        # ioz8fd.  The token above fires on the FINAL position matching the
+        # decreed pin, which is right (see the paragraph before it), but two
+        # very different arrivals produce that same match and, until this
+        # field, the same bytes on the console:
+        #
+        #   pinned_spawn  the stored row was thrown away and the arrival is
+        #                 the decree -- what the token was written for
+        #   stored_row    the character's OWN persisted row is being used and
+        #                 happens to equal the decreed point.  A durable row
+        #                 of (17, 0,0,0) does this: it is kept, it moves
+        #                 nothing, so the second line above is (correctly)
+        #                 not printed, and an attended tester reading the
+        #                 console saw a decreed arrival that never happened.
+        #                 A zero row is exactly what an uninitialised or
+        #                 half-written character row looks like, so this is
+        #                 the case a tester most needs to catch.
+        #
+        # It reads the same ``moved`` the two lines above read, so a change
+        # to one cannot silently disagree with the other.
         lines.append(
-            "SCENE_ENTRY scene={0} xyz={1:.3f},{2:.3f},{3:.3f} source={4}"
-            .format(target.n_id, position.x, position.y, position.z, decree_tag)
+            "SCENE_ENTRY scene={0} xyz={1:.3f},{2:.3f},{3:.3f} source={4} "
+            "from={5}"
+            .format(
+                target.n_id, position.x, position.y, position.z, decree_tag,
+                "pinned_spawn" if moved else "stored_row",
+            )
         )
 
     for line in lines:

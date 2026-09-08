@@ -570,6 +570,24 @@ class SceneDestination:
     spawn_provenance: str | None
     ground_z_spread: float | None
     ground_extent: tuple[float, float] | None
+    # The MEASURED placement box, ``(x_min, x_max, y_min, y_max)``, straight
+    # off the same ``ground`` block ``ground_extent`` is derived from.
+    #
+    # ADDED round 1v5i3h (LANE-A) to pay pf-adversary D2 of round ioz8fd.
+    # ``ground_extent`` is a pair of SPANS, and every reader of it centres
+    # those spans on ``spawn`` -- which is fine for a measured spawn and
+    # says nothing at all for a decreed one, so ``_ground_evidence``
+    # correctly refuses to run that test on scene 17.  The consequence
+    # nobody had noticed is that the login path then reported "no measured
+    # ground refutes this row" for a scene carrying the four numbers below,
+    # three fields away in the same JSON object.  A box does not need a
+    # spawn to be centred on, so with this field the login path can consult
+    # the measurement instead of reporting its absence.
+    #
+    # It is the PLACEMENT box, not terrain -- read the ``limit`` field of
+    # any ``ground`` block before using it as one.  ``world_scene_entry``
+    # is the only reader today and uses it only to refute, never to admit.
+    ground_box: tuple[float, float, float, float] | None
     save_flag: int
     entry_marker: int
     camera_type: int
@@ -1117,6 +1135,12 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
                 None if ground is None
                 else (_require_float(ground["extent_x"], "extent x"),
                       _require_float(ground["extent_y"], "extent y"))),
+            ground_box=(
+                None if ground is None
+                else (_require_float(ground["x_min"], "x min"),
+                      _require_float(ground["x_max"], "x max"),
+                      _require_float(ground["y_min"], "y min"),
+                      _require_float(ground["y_max"], "y max"))),
             save_flag=table_row["n_SAVE"],
             entry_marker=table_row["n_MARKER"],
             camera_type=table_row["n_CAMERA_TYPE"],

@@ -238,9 +238,22 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
         identical either way, so a tester could not tell a coordinate this
         project has evidence for from one it has only the player's word
         for.  COO-DECISION 20260904_1646 item 2 is the standing rule.
+
+        REWRITTEN ROUND 1v5i3h, pf-adversary D2 of round ioz8fd: the version
+        this replaces asserted ``basis=login_row_not_refuted_by_measured_
+        ground`` on THIS scene, and that string was false here.  Scene 17
+        carries a measured placement box; the row below is inside it; the
+        console now says which of the two it is, and the case that scene 17
+        HAS a measurement is pinned right beside the assertion so this can
+        never again go green by measuring a scene that has none.
         """
         sea = 17
         destination = self.registry[sea]
+        self.assertIsNotNone(
+            destination.ground_box,
+            "scene 17 lost its measured placement box: this case now proves "
+            "the wrong sentence, and _measured_envelope_refutes has nothing "
+            "left to refute a garbage row with")
         spawn = _spawn_position(destination)
         stored = Position(spawn.scene_id, spawn.scene_seq,
                           spawn.x - 149.0, spawn.y - 1250.3, 745.0)
@@ -250,9 +263,119 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
         kept_lines = [ln for ln in lines if "WORLD_SCENE_KEPT_ROW" in ln]
         self.assertEqual(len(kept_lines), 1, lines)
         self.assertIn(
-            "basis=%s" % world_scene_entry.KEPT_ROW_NOT_REFUTED, kept_lines[0])
+            "basis=%s" % world_scene_entry.KEPT_ROW_INSIDE_ENVELOPE,
+            kept_lines[0])
         self.assertEqual(entry.position.x, stored.x)
         self.assertEqual(entry.position.y, stored.y)
+
+    def test_a_scene_with_no_ground_block_says_so_instead_of_claiming_one(self):
+        """The other half of the token D2 split in two.
+
+        Scenes 14, 126, 304 and 305 have no ``ground`` block at all, so the
+        honest sentence about their kept rows is "there is nothing measured
+        here", which is a different fact from scene 17's "there is, and this
+        row is inside it".  Driven off the PROPERTY (no ground block) rather
+        than a list of scene ids, with a guard so an empty list cannot pass.
+        """
+        unmeasured = [
+            d for d in self.registry.destinations
+            if d.login_entry_allowed
+            and d.ground_extent is None
+            and d.spawn is not None
+            and d.n_id != world_scene_entry.HOME_SCENE_ID
+        ]
+        self.assertTrue(unmeasured, "no login scene lacks a ground block")
+        for destination in unmeasured:
+            with self.subTest(scene=destination.n_id):
+                spawn = _spawn_position(destination)
+                stored = Position(spawn.scene_id, spawn.scene_seq,
+                                  spawn.x + 50.0, spawn.y + 18.0, spawn.z)
+                lines = []
+                world_scene_entry.resolve_entry(
+                    stored, registry=self.registry, emit=lines.append,
+                    via_login=True)
+                kept = [ln for ln in lines if "WORLD_SCENE_KEPT_ROW" in ln]
+                self.assertEqual(len(kept), 1, lines)
+                self.assertIn(
+                    "basis=%s" % world_scene_entry.KEPT_ROW_NO_MEASUREMENT,
+                    kept[0])
+
+    def test_the_measured_box_refutes_a_row_the_decree_veto_could_not(self):
+        """pf-adversary D2 of round ioz8fd, the defect itself.
+
+        Scene 17 has a decreed spawn AND a measured placement box.  The
+        radius test is centred on the spawn, so the decree veto disqualifies
+        it - correctly - and round ioz8fd then read that veto as "nothing
+        measured refutes this row" and kept a stored row of
+        (999999, 999999, 999999) at sea.  The box was three fields away in
+        the same JSON object the whole time.
+        """
+        destination = self.registry[17]
+        self.assertTrue(
+            (destination.spawn_provenance or "").startswith(
+                "PROVISIONAL-OWNER-DECREE"),
+            "scene 17's spawn is no longer decreed, so this case is no "
+            "longer exercising the veto path it was written for")
+        spawn = _spawn_position(destination)
+        stored = Position(spawn.scene_id, spawn.scene_seq,
+                          999999.0, 999999.0, 999999.0)
+        entry = world_scene_entry.resolve_entry(
+            stored, registry=self.registry, emit=lambda line: None,
+            via_login=True)
+        self.assertTrue(entry.relocated)
+        self.assertEqual(
+            entry.relocation_reason,
+            world_scene_entry.RELOCATED_OUTSIDE_GROUND)
+        self.assertEqual(
+            (entry.position.x, entry.position.y, entry.position.z),
+            destination.spawn)
+
+    def test_the_decree_token_says_whether_the_row_or_the_pin_put_it_there(self):
+        """pf-adversary D1 of round ioz8fd: two arrivals, identical bytes.
+
+        A durable row of (17, 0,0,0) is kept - it is inside the envelope and
+        it moves nothing - and it happens to equal the decreed point, so the
+        second console line is correctly not printed and what a tester saw
+        was a decree token indistinguishable from a real decreed arrival.
+        A zero row is what an uninitialised character row looks like.
+        """
+        destination = self.registry[17]
+        decreed = _spawn_position(destination)
+        for stored, expected in (
+            (Position(decreed.scene_id, decreed.scene_seq,
+                      decreed.x, decreed.y, decreed.z), "from=stored_row"),
+            (Position(decreed.scene_id, decreed.scene_seq,
+                      999999.0, 999999.0, 999999.0), "from=pinned_spawn"),
+        ):
+            with self.subTest(expected=expected):
+                lines = []
+                world_scene_entry.resolve_entry(
+                    stored, registry=self.registry, emit=lines.append,
+                    via_login=True)
+                token = [ln for ln in lines if ln.startswith("SCENE_ENTRY ")]
+                self.assertEqual(len(token), 1, lines)
+                self.assertIn(expected, token[0])
+
+    def test_the_decree_token_does_not_fire_for_an_arrival_off_the_pin(self):
+        """The gate pf-adversary D1 measured as having NO coverage at all:
+        deleting ``position == target.spawn`` from the token's condition
+        survived every one of the 14,775 tests in the tree.  A kept row that
+        is not the decreed point must print no decree token - otherwise the
+        token means "this scene has a decree" rather than "this arrival used
+        it", and the owner's decision 20260827_1445 asked for the second.
+        """
+        destination = self.registry[17]
+        spawn = _spawn_position(destination)
+        stored = Position(spawn.scene_id, spawn.scene_seq,
+                          spawn.x - 149.0, spawn.y - 1250.3, 745.0)
+        lines = []
+        entry = world_scene_entry.resolve_entry(
+            stored, registry=self.registry, emit=lines.append, via_login=True)
+        self.assertNotEqual(
+            (entry.position.x, entry.position.y, entry.position.z),
+            destination.spawn)
+        self.assertEqual(
+            [ln for ln in lines if ln.startswith("SCENE_ENTRY ")], [], lines)
 
     def test_the_four_doors_1218_named_are_the_ones_that_opened(self):
         """History, pinned separately from the rule.

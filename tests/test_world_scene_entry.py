@@ -783,7 +783,20 @@ class ProvisionalDecreeTests(unittest.TestCase):
             (entry.position.x, entry.position.y, entry.position.z),
             self.DECREE_XYZ,
         )
-        self.assertIn(self.DECREE_TOKEN, sink.lines)
+        # ~~assertIn(self.DECREE_TOKEN, sink.lines)~~ - the token grew a
+        # ``from=`` field round 1v5i3h (pf-adversary D1 of round ioz8fd:
+        # a kept zero row and a real decreed arrival printed the same
+        # bytes).  Matched as a PREFIX so this case keeps testing what it
+        # is named for - that the token fires at all on this path - and
+        # ``test_the_decree_token_says_whether_the_row_or_the_pin_put_it_
+        # there`` in tests/test_world_scene_registry_login_door.py is what
+        # pins the new field's two values.
+        matching = [
+            line for line in sink.lines
+            if line.startswith(self.DECREE_TOKEN)
+        ]
+        self.assertEqual(len(matching), 1, sink.lines)
+        self.assertIn("from=pinned_spawn", matching[0])
 
     def test_the_token_never_fires_for_an_unrelated_destination(self):
         # Sanity check on the token's own gate: a destination with real

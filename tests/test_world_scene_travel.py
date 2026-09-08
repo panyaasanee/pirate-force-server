@@ -498,6 +498,7 @@ class SceneRegistryTests(unittest.TestCase):
             image_name="BgNull", native_placement_count=0, role="test_stage",
             status="never_sent_to_any_client_by_this_project", spawn=None,
             spawn_provenance=None, ground_z_spread=None, ground_extent=None,
+            ground_box=None,
             save_flag=0, entry_marker=0, camera_type=0, limit_height=0,
         )
         with self.assertRaises(ValueError):
