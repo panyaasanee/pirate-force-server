@@ -1174,10 +1174,13 @@ class SQLiteStore:
                 (item for item in before.items if item.identity == 1), None)
             if source is None:  # pragma: no cover - the line above raises first
                 raise RuntimeError("HYP-PF-008 pre-state lost identity 1")
-            # The WHERE clause is derived from that same row for the same
-            # reason: spelled as literals it matched only the first class's
-            # weapon and quantity, so `rowcount != 1` turned every other
-            # class's move into a rollback with no reply to the client.
+            # The WHERE clause is derived from that same row.  CORRECTION,
+            # pf-adversary measured it: the literals it replaces matched ALL
+            # FIVE of LANE-CS's bags, because their generator only rewrites
+            # identity 4 -- and `rowcount != 1` was never the failure path,
+            # since the pre-state door raised before the UPDATE.  What this
+            # buys is the bag whose identity-1 stack differs at all, which
+            # the committed table does not yet contain.
             # The DESTINATION stays spelled: slot 2 is not a per-class value,
             # it is what HYP-PF-008 IS, and docs/HYPOTHESIS_LEDGER.json pins
             # this exact statement as the hypothesis's own source_ref (that

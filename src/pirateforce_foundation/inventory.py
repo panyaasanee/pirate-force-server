@@ -227,8 +227,10 @@ def hypothesized_v111_slot2_state(merged: BackpackState) -> BackpackState:
     gate later: ``store.apply_hypothesized_v111_slot2_move`` compared its
     pre-state and its post-state against the single
     ``HYPOTHESIZED_V111_SLOT2_BACKPACK``/``MERGED_V111_BACKPACK`` pair, so
-    the day a class is born holding a different weapon the move it had just
-    performed failed its own post-state check and rolled back.  chief's
+    the day a class is born holding a different weapon its move was refused
+    outright -- by the PRE-state door, before any row was touched (an earlier
+    draft of this sentence said the move ran and was rolled back; pf-adversary
+    measured that it never ran).  chief's
     ``R404`` letter (``notes_to_chief/20260908_1703_FROM_CHIEF_R404-*``)
     named those two comparisons as the half of CORE-REQUEST ``0206`` that
     stayed in this lane's zone.
