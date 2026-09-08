@@ -2881,6 +2881,40 @@ def strike(
     )
 
 
+def _decoded_target_identity(value: Any) -> int:
+    """The one meaning of a target field, whichever door it came through.
+
+    pf-adversary finding D5 of round 39vp7o, on this round's OWN new code:
+    the first version of this decode required the field to be an UNDECODED
+    wire value in ``[0, 2**64)``, while ``_require_identity`` two lines later
+    accepted the signed band.  One field, two meanings, depending on which
+    caller filled the dict -- which is the exact defect beat 0 exists to
+    remove, reintroduced by the fix for it.  ``runtime.py`` hands over what
+    the frozen parser produced (always a wire value), but nothing stops a
+    caller from composing ``{"field_qword_20": mob.actor_identity}`` by hand,
+    and four places in the tree already do (``tests/test_mob_combat.py``
+    lines 632, 1528, 1782 and ``tests/test_diag_multi_object_wiring.py``).
+    Those are green today only because every identity is positive; at beat 2
+    they would every one of them come back
+    ``mob_combat_refused_value_out_of_range_no_reply`` -- a swing that
+    vanishes, again.
+
+    The two readings can be told apart without guessing, which is why this
+    is a decision and not a heuristic: a value below zero has already been
+    decoded (no wire value is ever negative), and over ``[0, 2**63)`` the
+    two readings are the SAME number.  Only ``[2**63, 2**64)`` is a wire
+    value that means something else, and that is exactly the range this
+    decodes.
+    """
+    _require_int(
+        value, "target identity",
+        -(2 ** 63), mob_identity_sign.WIRE_IDENTITY_MASK,
+    )
+    if value < 0:
+        return value
+    return mob_identity_sign.decode_wire_identity(value)
+
+
 def attack_from_observed_action(
     legacy: Any,
     aggro: Any,
@@ -2924,12 +2958,7 @@ def attack_from_observed_action(
     # order -- means this module reads the field through the same decoder
     # the composer wrote it with, and nowhere else.
     target = _require_identity(
-        mob_identity_sign.decode_wire_identity(
-            _require_int(
-                action_fields["field_qword_20"], "target identity",
-                0, mob_identity_sign.WIRE_IDENTITY_MASK,
-            )
-        ),
+        _decoded_target_identity(action_fields["field_qword_20"]),
         "target identity",
     )
     mobs = field_mobs.load_roster() if roster is None else roster

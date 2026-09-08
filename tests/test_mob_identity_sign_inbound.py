@@ -70,15 +70,19 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
-#: The identity the whole file swings at.  Negative on purpose: it is a
-#: value the monster band will hold after beat 2, and the exact value the
-#: unsigned read turns into a number no roster row can equal.
-BAND_IDENTITY = -2
+#: The identity the whole file swings at.  Taken from the REAL dispenser
+#: rather than written by hand: pf-adversary finding D6 of this round caught
+#: the first draft using ``-2``, which this module's own
+#: ``scene_and_placement_for`` refuses -- it sits inside
+#: ``SWEEP_RESERVED_IDENTITIES``, the head the band does not hand out, and it
+#: is the attended sweep's ``M-IDNEG`` row.  A test that names a value the
+#: band cannot hold does not measure the band.
+BAND_IDENTITY = mob_identity_sign.mob_wire_identity(
+    1, field_mobs.CONTROL_PLACEMENT_INDEX)
 
-#: What an unsigned read of that identity's own bytes produces.  Written out
-#: rather than computed so the number a reader has to recognise in a log is
-#: in the file.
-UNDECODED = 18446744073709551614
+#: What an unsigned read of that identity's own bytes produces -- the number
+#: a reader has to recognise in a log.
+UNDECODED = BAND_IDENTITY & mob_identity_sign.WIRE_IDENTITY_MASK
 
 
 def _legacy():
@@ -379,6 +383,60 @@ class ANegativeBandMonsterIsHitTests(unittest.TestCase):
         self.assertEqual(actions, [])
         self.assertIn(
             "mob_combat_target_not_positive_or_self_no_reply", state.events)
+
+
+class TheOrderingBlockerBeatOneMustAnswerTests(unittest.TestCase):
+    """The wall beat 1 walks into, pinned as a refusal rather than as prose.
+
+    pf-adversary findings D1 (critical) and D3 of round 39vp7o.  Beat 0's own
+    end-to-end test flips only ``CONTROL_PLACEMENT_INDEX``, which happens to
+    be the FIRST and smallest row of the roster, so the flipped identity
+    stays in ascending order and nothing notices.  Flip the whole roster and
+    the run does not merely fail a combat assertion -- the session cannot be
+    built at all:
+
+      * ``field_mobs.load_roster`` returns rows in PLACEMENT order;
+      * ``mob_identity_sign.mob_wire_identity`` DECREASES as the placement
+        index rises, where ``0x2000 + placement + 1`` increased;
+      * ``mob_combat.CombatLedger`` requires ascending identity order and
+        refuses -- on purpose, its own docstring says "REFUSED rather than
+        silently re-sorted" -- to sort for its caller;
+      * ``runtime.PersistentGameSessionState.__init__`` opens that ledger
+        off the boot roster, so the refusal lands on LOGIN.  Every player,
+        not one frame.
+
+    Today the four readers of "roster order" agree only because the old
+    formula rose with the placement index, and no file in the tree writes
+    that coincidence down as a contract.  The lane cannot pick the fix on
+    its own -- reordering ``load_roster`` changes the order actors go out on
+    the census wire, which is a screen question -- so this test pins the
+    collision where it is.  It goes RED the day somebody resolves it, which
+    is when this file should be rewritten to assert the new order.
+    """
+
+    def test_a_fully_flipped_roster_cannot_open_a_ledger_today(self):
+        rows = tuple(
+            mob_identity_sign.mob_wire_identity(1, mob.placement_index)
+            for mob in field_mobs.load_roster()
+        )
+        self.assertGreater(len(rows), 1)
+        # the dispenser descends where the old formula rose -- this is the
+        # whole collision, in one assertion
+        self.assertEqual(list(rows), sorted(rows, reverse=True))
+        self.assertNotEqual(list(rows), sorted(rows))
+
+    def test_the_ledger_refuses_that_order_rather_than_sorting_it(self):
+
+        def _identity(mob):
+            return mob_identity_sign.mob_wire_identity(1, mob.placement_index)
+
+        with mock.patch.object(
+            field_mobs.FieldMob, "actor_identity", property(_identity)
+        ):
+            roster = field_mobs.load_roster()
+            with self.assertRaises(mob_combat.MobCombatContractError) as box:
+                mob_combat.open_ledger(roster)
+        self.assertEqual(box.exception.reason, "ledger_not_sorted")
 
 
 if __name__ == "__main__":  # pragma: no cover
