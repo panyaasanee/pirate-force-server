@@ -55,6 +55,7 @@ from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from pirateforce_foundation.gm import warp_scene_persist  # noqa: E402
 from pirateforce_foundation.gm.warp_scene_persist import (  # noqa: E402
     login_would_accept,
 )
@@ -378,6 +379,32 @@ class DurableRowTwoOwnersTests(unittest.TestCase):
                 LOGIN_ACCEPTED_SCENE_ID,
                 self._f32(moved[0]), self._f32(moved[1]), self._f32(moved[2]),
             ),
+        )
+
+    def test_an_unreadable_fence_refuses_the_row(self):
+        """Fail closed: an unreadable fence is not consent to write.
+
+        Every other gate in runtime.py fails in this direction, and the
+        default matters -- a mutant that flipped it to True left the rest of
+        this file green.
+        """
+        state = self._login_and_start("dr_two_owners10")
+        x, y, z = self._memory(state)
+        self._arm_a_cross_scene_warp(state, LOGIN_ACCEPTED_SCENE_ID)
+        before = self._stored(state)
+
+        def _unreadable(_scene_id):
+            raise RuntimeError("registry unavailable")
+
+        with mock.patch.object(
+            warp_scene_persist, "login_would_accept", _unreadable,
+        ):
+            err = self._report(state, x + 3.0, y + 3.0, z)
+
+        self.assertEqual(self._stored(state), before)
+        self.assertEqual(
+            self._withheld_lines(err),
+            ["%s %d" % (WITHHELD_TOKEN, LOGIN_ACCEPTED_SCENE_ID)],
         )
 
     # ----- the session double that predates the keyword -------------------
