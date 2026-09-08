@@ -115,7 +115,7 @@ from .commands import (
     GmCommand,
     GmCommandArgsError,
     GmCommandParseError,
-    usage_hint_for,
+    refusal_hint_for,
     log_gm_command,
     new_audit_record_id,
     parse_gm_command,
@@ -327,6 +327,13 @@ class ChatCommandOutcome:
     pair -- see `gm/commands.py`'s AUDIT VOCABULARY block and
     `gm/chat_command_action.py`, which writes the `outcome` row.  A refusal
     wrote no row, so it carries no id; there is nothing to close.
+
+    A FOURTH SHAPE EXISTS since round `iu5xks` (pf-adversary D11): a
+    `COMMAND_USAGE` sentence FOLLOWED BY the `; did you mean ...` clause
+    `commands.refusal_hint_for` appends for a refused `warp <name>`.  Every
+    character of that clause still comes out of the sha-pinned scene table
+    and none out of the typed line; the enumeration below predates it and
+    is no longer exhaustive.
 
     `refusal_hint` is the operator-readable half of a refusal: what would
     have worked instead.  Set only for the refusals in
@@ -632,7 +639,15 @@ def handle_local_talk_chat(
             # `error` is deliberately NOT passed -- its message quotes what
             # was typed, and nothing typed may reach the console (see
             # `refusal_hint`'s contract and `usage_hint_for`'s docstring).
-            refusal_hint=usage_hint_for(command_body(text)),
+            #
+            # `refusal_hint_for`, not `usage_hint_for`, since round
+            # `iu5xks`: for `warp <name>` it appends the scene names the
+            # catalog search found, which is the one thing that search had
+            # never been allowed to tell anybody (pf-adversary round
+            # `pdf3gh`, D1).  The rule it is held to is unchanged -- every
+            # character still comes out of this lane's own pinned table and
+            # none out of `text`.  `error` is still not passed.
+            refusal_hint=refusal_hint_for(command_body(text)),
         )
 
     resolved_log_path = Path(
