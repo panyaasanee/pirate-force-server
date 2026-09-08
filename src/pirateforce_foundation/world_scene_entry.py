@@ -169,6 +169,7 @@ assumption.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from .model import Position
 from . import world_scene_travel
@@ -189,9 +190,22 @@ test_only = False
 # fired from the numbers afterwards.
 RELOCATED_NO_GROUND_EVIDENCE = "no_pinned_ground_for_scene"
 RELOCATED_OUTSIDE_GROUND = "stored_xy_outside_pinned_ground_extent"
+# ADDED round 1v5i3h (LANE-A), pf-adversary D2 of this round's own branch,
+# MEASURED: with the third gate open, a stored row of (14, inf, inf, 0) was
+# kept verbatim, and `teleport_fields` -> `make_login_teleport` -> f32tag
+# packs that as 0000807f onto the wire, on every login, forever - because no
+# login rewrites the row any more.  SQLite REAL round-trips +/-Inf, and
+# `runtime.py::_checkpoint_exact_target` unpacks the client's TargetPos with
+# no finite check, so the value gets in.  This project had already decided
+# such a check is required in two other places (`world_m2_return_leg.
+# remember_departure` refuses a non-finite row by name, `gm/warp_executor.
+# _require_finite_float` refuses NaN/Inf); the login path was the one that
+# did not have it, which is the path that matters most.
+RELOCATED_ROW_NOT_FINITE = "stored_xy_not_a_finite_number"
 RELOCATION_REASONS = (
     RELOCATED_NO_GROUND_EVIDENCE,
     RELOCATED_OUTSIDE_GROUND,
+    RELOCATED_ROW_NOT_FINITE,
 )
 
 # Why a stored position WAS the one used, for the same reader at 2am.  Both
@@ -415,6 +429,22 @@ def _ground_refutes_stored_row(
     return True
 
 
+def _row_is_finite(row: Position) -> bool:
+    """Is every coordinate of this stored row an actual number?
+
+    ``heading`` is deliberately not tested here: a bad heading points a
+    character the wrong way, which the next client report corrects, while a
+    bad coordinate is a place that does not exist and now survives every
+    login.  ``z`` IS tested even though no rule below reads it, because it
+    goes on the wire in the teleport frame exactly as stored.
+    """
+    return (
+        math.isfinite(row.x)
+        and math.isfinite(row.y)
+        and math.isfinite(row.z)
+    )
+
+
 def _measured_envelope_refutes(
     target: SceneDestination, x: float, y: float
 ) -> bool | None:
@@ -433,18 +463,33 @@ def _measured_envelope_refutes(
     need a spawn to be centred on, so a decreed spawn does not disqualify
     it.
 
-    THE CENTRE IS MEASURED AND SO ARE THE SPANS.  This is the same test
-    ``_ground_evidence`` runs -- ``|x - centre| <= extent_x`` -- with the
-    centre moved from the decreed spawn to the midpoint of the measured
-    box.  Nothing here is invented: both the box and the spans come off the
-    same ``ground`` block, derived from that scene's own placements TSV with
-    its sha256 pinned beside it.  The spans stay FULL widths used as radii,
-    which makes the envelope about twice the box.  That generosity is
-    deliberate and is inherited, not new: it is exactly what every measured
-    scene already gets, and this function is only ever allowed to REFUTE a
-    stored row, so being generous means erring toward keeping the player
-    where the client said it was -- the direction PANYA-DECISION
-    20260908_1218 rules in.
+    THE CENTRE AND THE SPANS ARE MEASURED.  THE SHAPE THEY MAKE IS
+    ``[PROPOSED]`` -- pf-adversary corrected an earlier draft of this
+    paragraph that said "nothing here is invented", and it was wrong twice
+    in one sentence:
+
+    1.  ``extent_x`` is the FULL width of the box, used here as a RADIUS, so
+        the accepted region is 2x the box on each axis and **4x its area**.
+        For scene 17 the box is x in [-971.3, 844.6] and the envelope is
+        x in [-1879.3, 1752.6].  The doubling is a choice, not a
+        measurement, and it is load-bearing: the row 1218 is about
+        (-149, -1250.3) sits 381 units OUTSIDE the measured box and is kept
+        only because of it.  A mutant that tightens the envelope to the real
+        box turns two cases red, which is the suite pinning the choice
+        rather than hiding it.
+    2.  It is not "what every measured scene already gets".  Scene 278's
+        test is centred on its SPAWN, this one on the box MIDPOINT, and for
+        278 those are 1816 units apart in x.  The two measured scenes get
+        two geometrically different tests, for the honest reason that one
+        has a measured spawn to centre on and the other does not.
+
+    WHY THE LOOSE SHAPE IS STILL THE RIGHT DIRECTION.  This function may
+    only ever REFUTE a stored row, never admit one, so a too-generous
+    envelope errs toward keeping the player where the client said it was --
+    the direction PANYA-DECISION 20260908_1218 rules in -- and a too-tight
+    one would relocate the very row 1218 is about.  What it buys is the case
+    it was built for: a row three orders of magnitude away is refuted by
+    measured data instead of being reported as unrefutable.
 
     WHAT IT DOES AND DOES NOT SETTLE.  Scene 17's headline row
     (-149.0, -1250.3) sits 381 units below ``y_min`` and is INSIDE this
@@ -500,11 +545,29 @@ def is_position_within_scene_ground(
     real teleport frames for an off-ground point today because nothing it
     calls exposes this check publicly - see
     ``notes_to_chief/20260901_2028_LANE-GM-TO-LANE-A-warp-coordinate-bound-needs-a-public-ground-check.md``).
-    Wraps the exact same rule ``resolve_entry`` uses to decide whether a
+    ~~Wraps the exact same rule ``resolve_entry`` uses to decide whether a
     stored row survives a login (``_ground_evidence``, shared with
-    ``_within_ground``) rather than a second, looser radius test - a caller
-    importing this gets the PROVISIONAL-OWNER-DECREE carve-out for free
-    instead of having to know it exists.
+    ``_within_ground``) rather than a second, looser radius test~~ --
+    STRUCK ROUND 1v5i3h, pf-adversary D5 of that round: since the login path
+    also consults ``_measured_envelope_refutes``, this wrapper IS the looser
+    reading's opposite number, and the two now DISAGREE on a real row::
+
+        is_position_within_scene_ground(17, -149.0, -1250.3)  -> False
+        resolve_entry(same row, via_login=True)               -> KEPT
+
+    A caller importing this still gets the PROVISIONAL-OWNER-DECREE
+    carve-out for free, and that is what it is for.  What it must NOT be
+    read as any more is a preview of what a login will do with the same XY.
+
+    THE LIVE BITE, NAMED SO THE NEXT ROUND CAN FIX IT RATHER THAN
+    REDISCOVER IT: ``gm/warp_executor._refuse_if_outside_ground`` early-
+    returns for a decree scene, so ``/warp 17 1800 0`` composes a frame and
+    ``warp_scene_persist`` writes the row -- and the next login now
+    RELOCATES that character to the decreed point.  That module's headline
+    contract ("a destination the next login would refuse is not persisted")
+    was written when the login had no coordinate-level refusal to see, and
+    it needs this function's third answer wired into it.  It is LANE-GM's
+    file; this lane owns the check it must call.
 
     THREE ANSWERS, NOT TWO.  ``True`` - this XY is inside the ground this
     scene has evidence for.  ``False`` - this scene HAS ground evidence and
@@ -668,6 +731,16 @@ def resolve_entry(
     if target.n_id == HOME_SCENE_ID:
         position = row
         reason = None
+    elif not _row_is_finite(row):
+        # Asked BEFORE any ground question, because every question below
+        # compares the row against a measurement and NaN loses every
+        # comparison silently: `abs(nan - centre) <= extent` is False, which
+        # reads as "outside" by luck rather than by decision, and +/-Inf is
+        # inside nothing but was kept by the login branch because nothing
+        # measured could refute it.  A row that is not a number is not a
+        # place, whoever is asking, so this arm is not gated on via_login.
+        position = world_scene_travel.entry_position(target, row.heading)
+        reason = RELOCATED_ROW_NOT_FINITE
     elif _within_ground(target, row):
         # The row is inside the only ground this scene has evidence for, so it
         # is a position this scene can account for.  Keep it, but keep it in

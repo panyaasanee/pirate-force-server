@@ -377,6 +377,53 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
         self.assertEqual(
             [ln for ln in lines if ln.startswith("SCENE_ENTRY ")], [], lines)
 
+    def test_a_row_that_is_not_a_number_is_not_a_place(self):
+        """pf-adversary D2 on this round's own branch, MEASURED there:
+        with the third gate open, `Position(14, inf, inf, 0)` was KEPT and
+        `teleport_fields` put 0000807f on the wire on every login forever,
+        because no login rewrites the row any more.  NaN is worse: it loses
+        every `<=` comparison silently, so it read as "outside" by luck
+        rather than by decision.
+
+        Walked over every login-openable destination, not a scene list, and
+        asserted on BOTH via_login paths: a row that is not a number is not
+        a place whoever is asking.
+        """
+        openable = [
+            d for d in self.registry.destinations
+            if d.login_entry_allowed
+            and d.spawn is not None
+            and d.n_id != world_scene_entry.HOME_SCENE_ID
+        ]
+        self.assertTrue(openable, "no scene is openable at login any more")
+        bad = (
+            (float("inf"), float("inf"), 0.0),
+            (float("-inf"), 0.0, 0.0),
+            (float("nan"), 0.0, 0.0),
+            (0.0, float("nan"), 0.0),
+            (0.0, 0.0, float("inf")),
+        )
+        for destination in openable:
+            for x, y, z in bad:
+                for via_login in (True, False):
+                    with self.subTest(scene=destination.n_id, xyz=(x, y, z),
+                                      via_login=via_login):
+                        spawn = _spawn_position(destination)
+                        entry = world_scene_entry.resolve_entry(
+                            Position(spawn.scene_id, spawn.scene_seq, x, y, z),
+                            registry=self.registry,
+                            emit=lambda line: None,
+                            via_login=via_login,
+                        )
+                        self.assertTrue(entry.relocated)
+                        self.assertEqual(
+                            entry.relocation_reason,
+                            world_scene_entry.RELOCATED_ROW_NOT_FINITE)
+                        self.assertEqual(
+                            (entry.position.x, entry.position.y,
+                             entry.position.z),
+                            destination.spawn)
+
     def test_every_kept_row_basis_is_one_this_module_declares(self):
         """pf-adversary D8 of round ioz8fd: ``KEPT_ROW_BASES`` had NO reader
         anywhere in the tree - not production, not a test - so it was a

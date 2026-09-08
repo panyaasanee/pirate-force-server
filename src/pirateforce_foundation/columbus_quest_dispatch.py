@@ -81,8 +81,13 @@ BOUNDED-NEGATIVE, NEITHER MEASURED.
   0) for this scene, tagged ``PROVISIONAL-OWNER-DECREE-20260827-1445`` in
   the registry's ``spawn.provenance`` field.  ``resolve_columbus_arrival``
   now SUCCEEDS instead of refusing, and ``world_scene_entry.resolve_entry``
-  prints a ``SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445``
-  token the moment that spawn is actually used, so a decreed landing is
+  prints a ``SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445
+  from=caller_row`` token (the ``from=`` field ADDED round 1v5i3h,
+  pf-adversary D1 of round ioz8fd -- and note that the GREPPABLE part of
+  the token is unchanged, so ``grep source=PROVISIONAL-OWNER-DECREE``
+  still matches a kept zero row as well as this arrival; ``from=`` is
+  what tells them apart and any grep that needs to must include it)
+  the moment that spawn is actually used, so a decreed landing is
   never mistaken for a measured one.  This is not a retraction of the
   paragraph above: no player-arrival row has been found in the placements
   table, the decree is the owner's own exception to the no-invented-
