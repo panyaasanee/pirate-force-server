@@ -144,8 +144,12 @@ class FakeStore:
 
         `/skill all` called this until `COO-DECISION 20260908_1943`; it
         writes `source='learned'`, which is a false sentence about a row an
-        operator was handed.  Any call lands in `self.learned_grants` and
-        `SkillProvenanceTests` asserts that list stays empty.
+        operator was handed.  Any call lands in `self.learned_grants`, and
+        `test_a_store_with_only_the_old_door_is_refused_not_fallen_back_to`
+        asserts that list stays empty -- pf-adversary (this round, D2)
+        measured that this docstring previously named a class that does not
+        exist, and that the one-line fallback it warns about survived the
+        whole suite green.
         """
         self.learned_grants.append((character_id, skill_id))
         if skill_id not in self.skills:
@@ -794,9 +798,11 @@ class SkillPersistenceTests(_RealStoreCase):
         with mock.patch.object(self.store, "connect", counting_connect):
             self.act(self.session, "/skill all")
         # One read of the row, one write transaction, and the audit/readback
-        # the dispatcher does around it -- a per-id loop would be at least
-        # `SKILL_COUNT` of them.
-        self.assertLess(len(opened), class_skill_curriculum.SKILL_COUNT, opened)
+        # the dispatcher does around it.  MEASURED: 2.  The ceiling was
+        # `SKILL_COUNT` until pf-adversary (this round, D4) pointed out that
+        # it let a batched loop of up to 136 transactions through the pin
+        # its own comment said was about ONE.
+        self.assertLessEqual(len(opened), 3, opened)
         self.assertEqual(
             set(self.reopened_skills()) >= set(
                 class_skill_curriculum.CURRICULUM_SKILL_IDS
@@ -810,9 +816,13 @@ class SkillPersistenceTests(_RealStoreCase):
         # new one writes a value legal only since 018.  On a file stopped at
         # 017 the CHECK rejects every row and `INSERT OR IGNORE` swallows it
         # in silence -- so the door rolls back and this command must REFUSE,
-        # not print a clean count over an empty table.  (A normal boot
-        # cannot be in this state: `app.py` runs `migrate_with_backup()`
-        # before it serves.  A hand-made `--db` copy can.)
+        # not print a clean count over an empty table.
+        # ~~"a normal boot cannot be in this state: `app.py` runs
+        # `migrate_with_backup()` before it serves"~~ -- STRUCK, MEASURED by
+        # pf-adversary this round (D1): `--db <file> --self-test-only`
+        # migrates (17 -> 19), `--db <file> --scene-load-scenario <s>` does
+        # NOT (17 -> 17).  So an ATTENDED boot can be in this state, which
+        # is why the refusal below has to be right rather than theoretical.
         old_db = self.tmp / "stopped_at_017.sqlite3"
         stunted = self.tmp / "migrations_through_017"
         stunted.mkdir()
@@ -1112,6 +1122,28 @@ class DispatchContractTests(_Case):
         self.assertTrue(result.ok)
         self.assertEqual(result.granted, len(every))
 
+    def test_a_store_with_only_the_old_door_is_refused_not_fallen_back_to(self):
+        # pf-adversary (this round, D2) built the one-line "compat
+        # fallback" a later round would reach for --
+        #     granter = getattr(store, "grant_gm_skills", None) or getattr(
+        #         store, "grant_learned_skill", None)
+        # -- and measured that the whole suite stayed green while
+        # `/skill all` went back to writing `source='learned'`.  Nothing
+        # reached the refusal with a store that HAS the old door: the only
+        # `REFUSED_NO_STORE` case used a bare object carrying neither.
+        class LearnedDoorOnlyStore(FakeStore):
+            """A store from before `grant_gm_skills` existed."""
+
+            grant_gm_skills = None
+
+        store = LearnedDoorOnlyStore()
+        result = skill_all_command.grant_all(store, 1)
+        self.assertEqual(result.refusal, skill_all_command.REFUSED_NO_STORE)
+        # THE HALF THAT KILLS THE FALLBACK: not one row was written through
+        # the door that would have written the wrong provenance.
+        self.assertEqual(store.learned_grants, [])
+        self.assertEqual(store.skills, [])
+
     def test_a_door_whose_answer_cannot_be_measured_says_where_the_number_came_from(self):
         # "derived" may not be reported as "measured".  A door that hands
         # back something this module cannot count still made a promise by
@@ -1130,6 +1162,29 @@ class DispatchContractTests(_Case):
         self.assertEqual(result.granted, class_skill_curriculum.SKILL_COUNT)
         line = skill_all_command.console_line(result, 1)
         self.assertIn("granted_from=door_contract", line)
+        # AND THE NUMBER, not only the marker.  pf-adversary (this round,
+        # D3) measured that a mutant printing `len(all_skill_ids())` here
+        # survived, so a character already holding every id could read
+        # `granted=137 already=137` -- 274 against a 137-id curriculum, on
+        # the line the owner's HEADLESS_PROOF block greps, which is
+        # pf-adversary `wv0fpe` D3 reintroduced word for word.  The
+        # degraded number is what the row was MISSING, so it falls as the
+        # row fills.
+        half = list(class_skill_curriculum.CURRICULUM_SKILL_IDS)[:40]
+        partly_held = SilentDoorStore()
+        partly_held.skills.extend(half)
+        second = skill_all_command.grant_all(partly_held, 1)
+        self.assertEqual(second.already, len(half))
+        self.assertEqual(
+            second.granted, class_skill_curriculum.SKILL_COUNT - len(half)
+        )
+        full = SilentDoorStore()
+        full.skills.extend(class_skill_curriculum.CURRICULUM_SKILL_IDS)
+        third = skill_all_command.grant_all(full, 1)
+        self.assertEqual(third.granted, 0)
+        self.assertEqual(
+            third.already, class_skill_curriculum.SKILL_COUNT
+        )
         # And the ordinary line does NOT carry it, or the field would be
         # noise rather than a warning.
         clean = skill_all_command.grant_all(FakeStore(), 1)

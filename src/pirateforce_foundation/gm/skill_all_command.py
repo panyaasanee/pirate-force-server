@@ -137,8 +137,8 @@ REFUSED_NOTHING_GRANTED = "no_skill_could_be_granted"
 #: gm_grant_source.sql` is EVERY id: the `CHECK` on `character_skills.source`
 #: rejects `'gm_grant'` and `INSERT OR IGNORE` swallows that as quietly as
 #: the UNIQUE conflict it is there for.  Named apart from
-#: `REFUSED_NOTHING_GRANTED` because the remedy is specific and cheap (boot
-#: the server once against that database so `app.py` applies 018) and the
+#: `REFUSED_NOTHING_GRANTED` because the thing to LOOK AT is specific --
+#: `schema_migrations` on the database this process opened -- and the
 #: generic reason would have sent the operator hunting a broken store.
 REFUSED_GRANT_ROLLED_BACK = "grant_transaction_rolled_back"
 #: The `before` read is MANDATORY, not best-effort, and that is a change of
@@ -410,11 +410,23 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
         # so on a database without `migrations/018_character_skills_gm_grant_
         # source.sql` every row of the grant is dropped on the floor; the
         # door's own read-back catches that and rolls back rather than
-        # returning normally.  It gets its own reason because its remedy is
-        # a specific one -- boot the server against that database once, so
-        # `app.py`'s `migrate_with_backup()` applies 018 -- and
-        # `REFUSED_NOTHING_GRANTED` would have sent the operator looking for
-        # a broken store instead.
+        # returning normally.  It gets its own reason because the thing to
+        # LOOK AT is specific -- `schema_migrations` on the database this
+        # process opened -- and `REFUSED_NOTHING_GRANTED` would have sent
+        # the operator looking for a broken store instead.
+        #
+        # ~~"the remedy is to boot the server against that database once, so
+        # `app.py`'s `migrate_with_backup()` applies 018"~~ -- STRUCK BEFORE
+        # IT SHIPPED, and struck by MEASUREMENT (pf-adversary, this round,
+        # D1): `app.py` reaches `migrate_with_backup()` on `--db <file>
+        # --self-test-only` (ledger 17 -> 19) but NOT when
+        # `--scene-load-scenario` is given as well (ledger 17 -> 17) --
+        # that flag sits in the outer branch condition and is absent from
+        # the inner one.  An operator told to reboot with the flags she
+        # already used would have gone round the same loop and read the
+        # same refusal; the sentence now names what to READ instead.  The
+        # branch itself is chief's -- LANE-DB asked about it in
+        # `pf_bridge/notes_to_chief/20260905_0254` and it is still open.
         return SkillGrant(
             0, already, outstanding, True, REFUSED_GRANT_ROLLED_BACK,
             f"the grant door rolled its whole transaction back: {error}",
