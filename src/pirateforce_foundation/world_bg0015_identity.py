@@ -409,21 +409,21 @@ _RESOLVED_ROWS = (
     (17, 3416, 337, 'M076_000_000_N', 'Sea Phantom', 110, 0, 260787, 2),
     (18, 3417, 338, 'M076_000_000_N', 'Sea Phantom', 110, 0, 260787, 2),
     (19, 3418, 339, 'M008_000_000_SP1', 'Lonely Soul', 110, 0, 260787, 2),
-    (20, 3419, 340, 'M005_001_000_SP1', 'Nightmare Claw beast', 105, 1, 228055, 1),
-    (21, 3420, 341, 'M011_000_001_SP1', 'Blood red eagle', 105, 1, 228055, 1),
-    (22, 3421, 342, 'M004_000_001_SP1', 'Fire magic', 105, 1, 228055, 1),
+    (20, 3419, 340, 'M005_001_000_SP1;M005_001_000_SP2', 'Nightmare Claw beast', 105, 1, 228055, 1),
+    (21, 3420, 341, 'M011_000_001_SP1;M011_000_001_SP2', 'Blood red eagle', 105, 1, 228055, 1),
+    (22, 3421, 342, 'M004_000_001_SP1;M004_000_001_SP2', 'Fire magic', 105, 1, 228055, 1),
     (23, 3422, 343, 'M020_000_000_N', 'Glaucoma', 105, 1, 228055, 1),
-    (24, 3423, 344, 'M022_000_001_SP1', 'Phosphor powder Banshee', 105, 1, 228055, 1),
+    (24, 3423, 344, 'M022_000_001_SP1;M022_000_001_SP2', 'Phosphor powder Banshee', 105, 1, 228055, 1),
     (25, 3424, 345, 'M022_000_001_SP3', 'Phosphor Fascinator', 105, 1, 228055, 1),
-    (26, 3425, 346, 'M005_000_002_SP1', 'Flame Mountains deer', 105, 1, 228055, 1),
-    (27, 3426, 347, 'M000_001_001_N', 'Red Flame Demon Wolf', 105, 1, 228055, 1),
+    (26, 3425, 346, 'M005_000_002_SP1;M005_000_002_SP2', 'Flame Mountains deer', 105, 1, 228055, 1),
+    (27, 3426, 347, 'M000_001_001_N;M000_001_001_SP1', 'Red Flame Demon Wolf', 105, 1, 228055, 1),
     (28, 3427, 348, 'M000_001_001_SP3', 'Crimson Sharp Teeth', 105, 1, 228055, 1),
-    (29, 3428, 349, 'M017_000_002_SP1', 'Hell Dragon Majin', 105, 1, 228055, 1),
+    (29, 3428, 349, 'M017_000_002_SP1;M017_000_002_SP2', 'Hell Dragon Majin', 105, 1, 228055, 1),
     (30, 3429, 350, 'M017_000_002_SP3', 'Arbiter Bells', 105, 1, 228055, 1),
-    (31, 3430, 351, 'M006_001_000_SP1', 'Earth Flame Dragon', 105, 1, 228055, 1),
-    (32, 3431, 352, 'M003_000_003_SP1', 'Hell King Kong', 105, 1, 228055, 1),
+    (31, 3430, 351, 'M006_001_000_SP1;M006_001_000_SP2', 'Earth Flame Dragon', 105, 1, 228055, 1),
+    (32, 3431, 352, 'M003_000_003_SP1;M003_000_003_SP2', 'Hell King Kong', 105, 1, 228055, 1),
     (33, 3432, 353, 'M003_000_003_SP3', 'Lava shakers', 105, 1, 228055, 1),
-    (34, 3433, 354, 'M023_001_000_SP1', 'Hell Ghoul', 105, 1, 228055, 1),
+    (34, 3433, 354, 'M023_001_000_SP1;M023_001_000_SP2', 'Hell Ghoul', 105, 1, 228055, 1),
     (35, 3434, 355, 'M023_001_000_SP3', 'Horror butcher Lasa', 105, 1, 228055, 1),
     (36, 3435, 465, 'M017_000_002_SP3', 'Baroque', 105, 0, 228055, 2),
     (109, 3444, 921, 'M077_000_000_N', 'Angelina', 98, 0, 186962, 2),
@@ -702,9 +702,16 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0015IdentityError(
                 'set %d carries no CLINE row locator' % template_id)
-        if ';' in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  PANYA `1313` rules that s_OUTFIT decides
+        # nothing about who an actor is, and `RE-296` measured the client
+        # tokenising the cell ITSELF and keeping every token, so the WHOLE
+        # cell is what this table now carries.  What is refused instead is a
+        # cell that cannot name an avatar at all: an empty token.
+        if any(not token for token in outfit.split(';')):
             raise Bg0015IdentityError(
-                'set %d ships a multi-variant outfit string' % template_id)
+                'set %d ships an empty avatar token' % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0015IdentityError(
                 'set %d has an empty or non-ASCII outfit' % template_id)

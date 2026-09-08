@@ -286,21 +286,21 @@ _RESOLVED_ROWS = (
     (22, 2021, 216, 'M051_000_001_N', 'Angelina', 'Rescued Princess', 80, 0, 104603, 2),
     (23, 2022, 217, 'P_FEMALE_012_000_VENONIKA', 'Veronica', 'Witch Apprentice', 80, 0, 104603, 2),
     (24, 2023, 218, 'P_MALE_015_000_SLAVE', 'Tired Worker', '', 80, 0, 104603, 2),
-    (25, 2024, 219, 'M001_003_001_N', 'Golden Axe pirates', '', 71, 1, 74566, 1),
-    (26, 2025, 220, 'M022_000_003_SP1', 'Bat Banshee', '', 72, 1, 77577, 1),
-    (27, 2026, 221, 'M001_001_000_N', 'Red Horn Pirates Group', '', 73, 1, 80671, 1),
+    (25, 2024, 219, 'M001_003_001_N;M001_003_001_SP1', 'Golden Axe pirates', '', 71, 1, 74566, 1),
+    (26, 2025, 220, 'M022_000_003_SP1;M022_000_003_SP2', 'Bat Banshee', '', 72, 1, 77577, 1),
+    (27, 2026, 221, 'M001_001_000_N;M001_001_000_SP1', 'Red Horn Pirates Group', '', 73, 1, 80671, 1),
     (28, 2027, 222, 'M001_001_000_SP3', 'Crull Two Horns', '', 73, 1, 80671, 1),
-    (29, 2028, 223, 'M017_000_003_SP1', 'Sea Dragon Warrior', '', 74, 1, 83844, 1),
-    (30, 2029, 224, 'M004_000_004_SP1', 'Charm Felvine', '', 75, 1, 87072, 1),
-    (31, 2030, 225, 'M002_000_001_SP1', 'Purple Flame Lion', '', 76, 1, 90417, 1),
+    (29, 2028, 223, 'M017_000_003_SP1;M017_000_003_SP2', 'Sea Dragon Warrior', '', 74, 1, 83844, 1),
+    (30, 2029, 224, 'M004_000_004_SP1;M004_000_004_SP2', 'Charm Felvine', '', 75, 1, 87072, 1),
+    (31, 2030, 225, 'M002_000_001_SP1;M002_000_001_SP2', 'Purple Flame Lion', '', 76, 1, 90417, 1),
     (32, 2031, 226, 'M002_000_001_SP3', 'Anger Lion', '', 77, 1, 93814, 1),
-    (33, 2032, 227, 'M025_000_000_SP1', 'Snail', '', 77, 1, 93814, 1),
-    (34, 2033, 228, 'M021_001_000_SP1', 'Phantom Demon Snake', '', 78, 1, 97367, 1),
-    (35, 2034, 229, 'M015_000_002_SP1', 'Jade magician', '', 79, 1, 100907, 1),
+    (33, 2032, 227, 'M025_000_000_SP1;M025_000_000_SP2', 'Snail', '', 77, 1, 93814, 1),
+    (34, 2033, 228, 'M021_001_000_SP1;M021_001_000_SP2', 'Phantom Demon Snake', '', 78, 1, 97367, 1),
+    (35, 2034, 229, 'M015_000_002_SP1;M015_000_002_SP2', 'Jade magician', '', 79, 1, 100907, 1),
     (36, 2035, 245, 'MAP001_000_000', 'Mirage reel', '', 105, 0, 228055, 2),
     (37, 2036, 753, 'P_FEMALE_007_002_GISEL', 'Giselle', 'Sea Princess Successor', 87, 0, 132902, 2),
     (38, 2037, 826, 'M009_000_000_N', 'Odyssey', 'Wrath Witch', 105, 0, 228055, 2),
-    (110, 2047, 7045, 'M024_001_001_SP1', 'Penguin Searcher', 'Serious and responsible', 99, 0, 192488, 2),
+    (110, 2047, 7045, 'M024_001_001_SP1;M024_001_001_SP2', 'Penguin Searcher', 'Serious and responsible', 99, 0, 192488, 2),
 )
 
 IDENTITIES = {row[0]: SceneIdentity(*row) for row in _RESOLVED_ROWS}
@@ -532,9 +532,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0006IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0006IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0006IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)

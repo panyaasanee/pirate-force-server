@@ -318,14 +318,14 @@ _RESOLVED_ROWS = (
     (11, 3010, 685, 'P_FEMALE_012_000_MELPOMENE', 'Melpomen', 'Holy Temple Priest', 104, 0, 221803, 2),
     (12, 3011, 686, 'P_MALE_012_000_N', 'Subjugation Magician', '', 104, 0, 221803, 2),
     (13, 3012, 687, 'P_FEMALE_952_000_SIREN', 'Siren', 'Creator', 104, 0, 221803, 2),
-    (14, 3013, 688, 'M025_002_000_SP1', 'Gentry Platypus', '', 99, 1, 192488, 1),
-    (15, 3014, 689, 'M024_001_000_SP1', 'Penguin Master Sergeant', '', 99, 1, 192488, 1),
-    (16, 3015, 690, 'M019_000_001_SP1', 'Seabed Crusader', '', 99, 1, 192488, 1),
-    (17, 3016, 691, 'M026_000_001_SP1', 'Skeleton Chiliarch', '', 99, 1, 192488, 1),
-    (18, 3017, 692, 'M016_000_000_SP1', 'Sewer Iron Man', '', 99, 1, 192488, 1),
+    (14, 3013, 688, 'M025_002_000_SP1;M025_002_000_SP2', 'Gentry Platypus', '', 99, 1, 192488, 1),
+    (15, 3014, 689, 'M024_001_000_SP1;M024_001_000_SP2', 'Penguin Master Sergeant', '', 99, 1, 192488, 1),
+    (16, 3015, 690, 'M019_000_001_SP1;M019_000_001_SP2', 'Seabed Crusader', '', 99, 1, 192488, 1),
+    (17, 3016, 691, 'M026_000_001_SP1;M026_000_001_SP2', 'Skeleton Chiliarch', '', 99, 1, 192488, 1),
+    (18, 3017, 692, 'M016_000_000_SP1;M016_000_000_SP2', 'Sewer Iron Man', '', 99, 1, 192488, 1),
     (19, 3018, 693, 'M018_000_000_N', 'Navy Two Tripods', '', 99, 1, 192488, 1),
-    (20, 3019, 694, 'M026_001_001_SP1', 'Skeleton Captain', '', 99, 1, 192488, 1),
-    (21, 3020, 695, 'M016_000_001_N', 'Steam Iron Man', '', 99, 1, 192488, 1),
+    (20, 3019, 694, 'M026_001_001_SP1;M026_001_001_SP2', 'Skeleton Captain', '', 99, 1, 192488, 1),
+    (21, 3020, 695, 'M016_000_001_N;M016_000_001_SP1', 'Steam Iron Man', '', 99, 1, 192488, 1),
     (22, 3021, 696, 'M018_000_002_N', 'Navy Tiger Mech', '', 99, 1, 192488, 1),
     (23, 3022, 697, 'M026_001_001_BOSS', 'Undead Besso', '', 99, 1, 192488, 1),
     (24, 3023, 669, 'M016_000_001_SP3', 'Steam Iron Giant', '', 99, 1, 192488, 1),
@@ -538,9 +538,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0011IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0011IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0011IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)

@@ -285,20 +285,20 @@ _RESOLVED_ROWS = (
     (19, 2418, 267, 'P_FEMALE_003_002_N', 'Wounded bounty hunter', '', 87, 0, 132902, 2),
     (20, 2419, 268, 'M077_000_000_N', 'Angelina', 'Chasing Love Pirate Princess', 87, 0, 132902, 2),
     (21, 2420, 269, 'M068_000_002_N', 'Local fisherman', '', 87, 0, 132902, 2),
-    (22, 2421, 270, 'M024_000_000_SP1', 'Penguin Corporal', '', 87, 1, 132902, 1),
-    (23, 2422, 271, 'M005_000_003_SP1', 'Polar deer', '', 87, 1, 132902, 1),
-    (24, 2423, 272, 'M025_000_002_SP1', 'Flash Snail', '', 87, 1, 132902, 1),
-    (25, 2424, 273, 'M003_000_001_SP1', 'Polar ape', '', 87, 1, 132902, 1),
+    (22, 2421, 270, 'M024_000_000_SP1;M024_000_000_SP2', 'Penguin Corporal', '', 87, 1, 132902, 1),
+    (23, 2422, 271, 'M005_000_003_SP1;M005_000_003_SP2', 'Polar deer', '', 87, 1, 132902, 1),
+    (24, 2423, 272, 'M025_000_002_SP1;M025_000_002_SP2', 'Flash Snail', '', 87, 1, 132902, 1),
+    (25, 2424, 273, 'M003_000_001_SP1;M003_000_001_SP2', 'Polar ape', '', 87, 1, 132902, 1),
     (26, 2425, 274, 'M003_000_001_SP3', 'Polar head', '', 87, 1, 132902, 1),
-    (27, 2426, 275, 'M013_001_001_SP1', 'Crystal Bibi', '', 87, 1, 132902, 1),
-    (28, 2427, 276, 'M006_001_002_SP1', 'Iceberg Turtle', '', 87, 1, 132902, 1),
+    (27, 2426, 275, 'M013_001_001_SP1;M013_001_001_SP2', 'Crystal Bibi', '', 87, 1, 132902, 1),
+    (28, 2427, 276, 'M006_001_002_SP1;M006_001_002_SP2', 'Iceberg Turtle', '', 87, 1, 132902, 1),
     (29, 2428, 277, 'M006_001_002_SP3', 'Polar Giant Turtle', '', 87, 1, 132902, 1),
-    (30, 2429, 278, 'M021_000_000_SP1', 'Blue Sea Snake', '', 87, 1, 132902, 1),
-    (31, 2430, 279, 'M024_001_002_SP1', 'Penguin Koro', '', 87, 1, 132902, 1),
+    (30, 2429, 278, 'M021_000_000_SP1;M021_000_000_SP2', 'Blue Sea Snake', '', 87, 1, 132902, 1),
+    (31, 2430, 279, 'M024_001_002_SP1;M024_001_002_SP2', 'Penguin Koro', '', 87, 1, 132902, 1),
     (32, 2431, 280, 'M010_000_000_SP1', 'Walrus general', '', 87, 1, 132902, 1),
     (33, 2432, 281, 'M010_000_000_SP3', 'Ice Carle Commander', '', 87, 1, 132902, 1),
-    (34, 2433, 282, 'M025_000_001_SP1', 'Deep Sea Snail', '', 87, 1, 132902, 1),
-    (35, 2434, 283, 'M000_000_002_SP1', 'Blind Hound', '', 87, 1, 132902, 1),
+    (34, 2433, 282, 'M025_000_001_SP1;M025_000_001_SP2', 'Deep Sea Snail', '', 87, 1, 132902, 1),
+    (35, 2434, 283, 'M000_000_002_SP1;M000_000_002_SP2', 'Blind Hound', '', 87, 1, 132902, 1),
     (36, 2435, 720, 'MAP001_000_000', 'Mirage reel', '', 105, 0, 228055, 2),
     (37, 2436, 721, 'MAP001_000_000', 'Mirage reel', '', 105, 0, 228055, 2),
     (38, 2437, 722, 'BULLETIN_BOARD', 'Task Board', '', 105, 0, 228055, 2),
@@ -533,9 +533,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0008IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0008IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0008IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)
