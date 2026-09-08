@@ -122,6 +122,17 @@ _GM_NAME_TO_SCENE_IDS: dict[str, tuple[int, ...]] = _build_name_index()
 
 GM_NAME_COUNT = len(_GM_NAME_TO_SCENE_IDS)
 
+#: The longest key `resolve_gm_scene_name` can ever match, in characters,
+#: derived from the pinned table rather than typed.  Measured today: 54, on
+#: a Thai name -- the table is `TEXTDATA_TH__*` and 37 of its rows are Thai,
+#: so this is a CHARACTER count and deliberately not a byte count.
+#:
+#: It exists so that `gm/commands.py` can bound the `warp <scene name>`
+#: query without a number somebody chose: no query that folds to something
+#: longer than this can match any scene, and a bound that moves with the
+#: table cannot go stale the way a literal would.
+LONGEST_GM_NAME_LENGTH = max(len(key) for key in _GM_NAME_TO_SCENE_IDS)
+
 
 def resolve_gm_scene_name(query: str) -> tuple[int, ...]:
     """Every scene id whose GM scene name folds to `query`, ascending.

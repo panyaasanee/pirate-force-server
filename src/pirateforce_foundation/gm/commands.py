@@ -77,7 +77,7 @@ from . import scene_catalog
 # `test_gm_chat_command_parse_way_out.py::TheDescriberItselfTests::
 # test_the_vocabulary_order_is_pinned_because_a_human_reads_it`.
 COMMAND_USAGE = {
-    "warp": "warp <scene_id> [x y] | warp <scene name>",
+    "warp": "warp <scene_id> [x y] | warp <scene name> [#n]",
     "npc": "npc on|off <mob_id>",
     "item": "item <id> <n>",
     "lv": "lv <n>",
@@ -363,7 +363,7 @@ def parse_gm_command(text: str) -> GmCommand:
 
     Grammar (owner's spec, notes_to_chief 20260826_1630 section GM-003):
       warp <scene_id> [x y]
-      warp <scene name>          (no x/y -- see _parse_warp_named)
+      warp <scene name> [#n]     (no x/y -- see _parse_warp_named)
       npc on|off <mob_id>
       item <id> <n>
       lv <n>
@@ -575,6 +575,53 @@ def _is_int_literal(value: str) -> bool:
 #: which never reaches this branch.
 QUERY_CONSOLE_CODEC = "cp874"
 
+#: The other half of "who owns the shape of this query", and the half the
+#: cp874 card left open.  pf-adversary (round `nqgmam`) asked what makes a
+#: query cp874-encodable, single-line AND BOUNDED IN LENGTH before it is
+#: written to `raw`; the codec card answered the first two and letter
+#: `20260908_0017` recorded the third as unanswered.  This is the answer.
+#:
+#: What was actually reachable, measured rather than asserted:
+#:  - `log_gm_command` writes `"raw": command.raw` into the ndjson audit
+#:    file, so whatever the parser accepts becomes a log LINE.  The quota
+#:    `chat_command.py` keeps (`MAX_COMMAND_LOG_BYTES`) counts bytes of file
+#:    and `is_command_log_writable` checks it BEFORE a write, so one
+#:    oversized line cannot be refused by it -- it can only make the next
+#:    line the last one.
+#:  - Through the chat path the damage was already bounded: `chat_command`
+#:    refuses a payload over `MAX_CHAT_PAYLOAD_LENGTH` (4096) before
+#:    `parse_gm_command` is ever called.  So this is not a hole a client
+#:    could drive a 200 KB line through today, and this module does not
+#:    claim it was.  `parse_gm_command` is a public entry point with its own
+#:    contract, called directly by tools and tests, and `say` has carried
+#:    its own cap here (`MAX_SAY_MESSAGE_LENGTH`) since long before the name
+#:    form existed -- the name form simply never grew one.
+#:
+#: DERIVED, NOT CHOSEN: twice the longest name in the pinned table.  The
+#: fold collapses whitespace runs, so the allowance is "every character of
+#: the longest matchable name may carry one extra space and the line still
+#: parses"; that is exactly 2x.  It moves when the table moves.
+#:
+#: It DOES narrow the accepted set -- `warp Port` + 200,000 spaces +
+#: `Royal` resolved to scene 1 before this and is refused now.  It excludes
+#: no shipped name (`test_gm_scene_catalog.py` walks all 330), and it does
+#: not touch the numeric form, which never reaches this branch.
+MAX_WARP_NAME_QUERY_LENGTH = 2 * scene_catalog.LONGEST_GM_NAME_LENGTH
+
+#: `Hidden Island` is on twenty scene ids in the client's own table, and the
+#: ambiguity refusal could only ever show the first `MAX_AMBIGUOUS_SCENE_
+#: IDS_SHOWN` of them -- so an operator who wanted the eleventh had no way
+#: to name it from the client at all.  `warp <scene name> #11` is that way:
+#: the n-th scene carrying that name, counting from 1 in the ascending id
+#: order `resolve_gm_scene_name` already returns.
+#:
+#: `#` is the separator because NO shipped name contains one (pinned in
+#: `test_gm_scene_catalog.py`), which is the same reason the numeric form
+#: could not be told apart from a name ending in digits: 52 names end in a
+#: digit, none contains a `#`.  So this selector is unambiguous where a
+#: trailing bare number would not have been.
+SCENE_SELECTOR_PREFIX = "#"
+
 
 def _query_is_console_safe(rest: str) -> bool:
     """True when every character of `rest` could survive the console codec.
@@ -645,6 +692,14 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     Rather than guess, `warp Navy Prison2 10 20` is refused and the way-out
     line names the id form, which carries x/y with no ambiguity at all.
 
+    `#n` PICKS AMONG REPEATS, and is the only reason an operator can reach
+    the eleventh `Hidden Island` from the client at all: six names in the
+    table are on more than one scene, and the ambiguity refusal can only
+    show the first `MAX_AMBIGUOUS_SCENE_IDS_SHOWN` ids.  `n` counts from 1
+    over `resolve_gm_scene_name`'s ascending id order, and an `n` outside
+    that range is refused with the range rather than clamped -- a clamped
+    selector sends a GM to a scene they did not ask for and says nothing.
+
     NO ECHO OF THE TYPED TEXT in any message raised here.  These lines reach
     a cp874 console, the operator can already see what they typed, and a
     message that repeats arbitrary client-supplied text is one unlucky
@@ -652,30 +707,88 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     strictly less echoing than the `_require_int` path this branch replaced,
     which put the raw token in its message.)
     """
-    if not _query_is_console_safe(rest):
+    # LENGTH FIRST, before anything walks the string.  Every check below
+    # this line is at least O(len(rest)) and `_did_you_mean` is difflib over
+    # the whole query, so the bound has to be the first thing read or it is
+    # not a bound on the work, only on the result.
+    if len(rest) > MAX_WARP_NAME_QUERY_LENGTH:
+        raise GmCommandParseError(
+            f"a scene name may be at most {MAX_WARP_NAME_QUERY_LENGTH} "
+            f"characters (got {len(rest)}); "
+            f'use {COMMAND_USAGE["warp"]!r}'
+        )
+    query, selector = _split_scene_selector(rest)
+    if not query:
+        raise GmCommandParseError(COMMAND_USAGE["warp"])
+    if not _query_is_console_safe(query):
         # Echoes nothing typed, for the reason this whole branch exists.
         raise GmCommandParseError(
             "a scene name may only use characters the console can print "
             f"({QUERY_CONSOLE_CODEC}); "
             f'use {COMMAND_USAGE["warp"]!r}'
         )
-    matches = scene_catalog.resolve_gm_scene_name(rest)
+    matches = scene_catalog.resolve_gm_scene_name(query)
     if not matches:
         raise GmCommandParseError(
             "no GM scene carries that name in the catalog "
             f"({scene_catalog.GM_NAME_COUNT} names over "
-            f"{scene_catalog.SCENE_COUNT} scenes){_did_you_mean(rest)}; "
+            f"{scene_catalog.SCENE_COUNT} scenes){_did_you_mean(query)}; "
             f'use {COMMAND_USAGE["warp"]!r}'
         )
+    if selector is not None:
+        if not 1 <= selector <= len(matches):
+            raise GmCommandParseError(
+                f"that name is on {len(matches)} "
+                f"{'scene' if len(matches) == 1 else 'scenes'}, so "
+                f"{SCENE_SELECTOR_PREFIX}{selector} names none of them; "
+                f"use {SCENE_SELECTOR_PREFIX}1 to "
+                f"{SCENE_SELECTOR_PREFIX}{len(matches)}"
+            )
+        return GmCommand("warp", (str(matches[selector - 1]),), stripped)
     if len(matches) > 1:
         shown = ", ".join(str(i) for i in matches[:MAX_AMBIGUOUS_SCENE_IDS_SHOWN])
         if len(matches) > MAX_AMBIGUOUS_SCENE_IDS_SHOWN:
             shown += ", ..."
         raise GmCommandParseError(
             f"that name is on {len(matches)} scenes ({shown}); "
-            "retype it as warp <scene_id> to say which one"
+            # No comma in this half: `test_an_ambiguous_name_refuses_and_
+            # names_the_way_out` counts commas to pin that the line is a
+            # way out and not a dump of twenty numbers, and a way-out
+            # sentence must not spend that budget on its own punctuation.
+            f"retype it as warp <scene_id> or as warp <scene name> "
+            f"{SCENE_SELECTOR_PREFIX}1 to "
+            f"{SCENE_SELECTOR_PREFIX}{len(matches)} to say which one"
         )
     return GmCommand("warp", (str(matches[0]),), stripped)
+
+
+def _split_scene_selector(rest: str) -> tuple[str, int | None]:
+    """Split `rest` into (name query, 1-based scene selector or None).
+
+    `warp Hidden Island #11` -> `("Hidden Island", 11)`.  A line with no
+    trailing `#n` token comes back unchanged with `None`, which is the shape
+    every caller of this grammar saw before the selector existed.
+
+    STRICTLY ASCII DIGITS, not `str.isdigit()` and not `int()`.  Thai digits
+    (U+0E50..U+0E59) are `isdigit()`, they ARE cp874-encodable so the codec
+    card does not stop them, and `int()` accepts them -- `#๑๑` would have
+    become 11.  `int()` also takes `+11`, `1_1` and surrounding whitespace.
+    A selector an operator cannot read back off their own screen is not a
+    selector, so the only accepted spelling is one or more ASCII digits, and
+    anything else stays part of the name and fails the catalog lookup with
+    the message that names the way out.
+    """
+    head, separator, tail = rest.rpartition(SCENE_SELECTOR_PREFIX)
+    if not separator:
+        return rest, None
+    if not (tail.isascii() and tail.isdigit()):
+        return rest, None
+    if head and not head[-1].isspace():
+        # `warp Scene#3` is not this grammar; a name is separated from its
+        # selector by whitespace or the `#` is part of whatever was typed.
+        # (No shipped name contains `#`, so this only ever refuses a typo.)
+        return rest, None
+    return head.strip(), int(tail)
 
 
 def _require_int(value: str, label: str) -> None:
