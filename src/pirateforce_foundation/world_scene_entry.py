@@ -715,6 +715,15 @@ def resolve_entry(
         moved
         or (position.x, position.y, position.z) != target.spawn
         or position.scene_seq != row.scene_seq
+        # ``or kept_basis is not None`` ADDED round 1v5i3h, pf-adversary D8
+        # of round ioz8fd: the three conditions above all ask "is the arrival
+        # different from the pin", and a row that a RULE decided to keep and
+        # that happens to sit exactly on the pin answers no to all three.  So
+        # the one line that says which rule kept the row was missing in the
+        # case it was written for, and the console for a kept (17, 0,0,0) was
+        # byte-identical to an arrival where the row had been thrown away
+        # (that is D1, from the other side).  A rule ran; it gets a line.
+        or kept_basis is not None
     ):
         lines.append(
             _relocated_line(target, row, position, reason) if moved
@@ -757,8 +766,14 @@ def resolve_entry(
         # very different arrivals produce that same match and, until this
         # field, the same bytes on the console:
         #
-        #   pinned_spawn  the stored row was thrown away and the arrival is
-        #                 the decree -- what the token was written for
+        #   pinned_spawn  the incoming row was thrown away and the arrival
+        #                 is the decree -- what the token was written for
+        #   caller_row    a via_login=False caller (Columbus) handed in a row
+        #                 that already IS the decreed point.  Not a
+        #                 character's persisted row and must not read as one
+        #                 -- the first draft of this field called it
+        #                 stored_row and made the sanctioned synthetic
+        #                 arrival look like a durable one.
         #   stored_row    the character's OWN persisted row is being used and
         #                 happens to equal the decreed point.  A durable row
         #                 of (17, 0,0,0) does this: it is kept, it moves
@@ -776,7 +791,8 @@ def resolve_entry(
             "from={5}"
             .format(
                 target.n_id, position.x, position.y, position.z, decree_tag,
-                "pinned_spawn" if moved else "stored_row",
+                "pinned_spawn" if moved
+                else ("stored_row" if via_login else "caller_row"),
             )
         )
 
@@ -828,10 +844,22 @@ def _kept_row_line(
     """The console line for an arrival that used the character's own row.
 
     ``basis`` says WHICH rule kept it - measured ground reached the point,
-    or 1218's "nothing measured refutes it" - because on the console those
-    two look identical and only one of them means this project has evidence
-    for the coordinate.  ``None`` renders as ``basis=unstated`` rather than
-    being dropped, so a caller that forgets is visible instead of silent.
+    the scene has no measurement to refute it, or a measured envelope
+    contains it - because on the console those look identical and only some
+    of them mean this project has evidence for the coordinate.  The values
+    are ``KEPT_ROW_BASES``, and ``test_every_kept_row_basis_is_one_this_
+    module_declares`` walks the registry to keep that tuple honest (it had
+    no reader at all until round 1v5i3h; pf-adversary D8).
+
+    ~~``None`` renders as ``basis=unstated`` rather than being dropped, so a
+    caller that forgets is visible instead of silent.~~ -- CORRECTED round
+    1v5i3h, same finding: ``None`` never came from a forgetful caller.  It
+    came from the RELOCATION branch, whose only caller is ``_relocated_line``
+    one line above this function in ``resolve_entry`` -- so ``unstated`` was
+    unreachable through this function and the sentence described a
+    protection that did not exist.  It renders as ``unstated`` anyway,
+    because the day a fourth branch is added the line should say it does not
+    know rather than silently pick one.
     """
     return (
         "WORLD_SCENE_KEPT_ROW scene_id={0} used=({1:.3f},{2:.3f},{3:.3f}) "

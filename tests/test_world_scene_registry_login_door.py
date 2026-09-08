@@ -377,6 +377,44 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
         self.assertEqual(
             [ln for ln in lines if ln.startswith("SCENE_ENTRY ")], [], lines)
 
+    def test_every_kept_row_basis_is_one_this_module_declares(self):
+        """pf-adversary D8 of round ioz8fd: ``KEPT_ROW_BASES`` had NO reader
+        anywhere in the tree - not production, not a test - so it was a
+        tuple that could drift from the strings actually printed without
+        anything noticing, which is the exact failure mode it was written to
+        prevent.  This is its reader: walk every login-openable destination,
+        keep a row in each, and require the basis on the console to be one of
+        the declared values.  A new branch that invents a fourth string, or a
+        token withdrawn from the tuple but not from the code, goes red here.
+        """
+        seen = set()
+        openable = [
+            d for d in self.registry.destinations
+            if d.login_entry_allowed
+            and d.spawn is not None
+            and d.n_id != world_scene_entry.HOME_SCENE_ID
+        ]
+        self.assertTrue(openable, "no scene is openable at login any more")
+        for destination in openable:
+            with self.subTest(scene=destination.n_id):
+                spawn = _spawn_position(destination)
+                stored = Position(spawn.scene_id, spawn.scene_seq,
+                                  spawn.x + 20.0, spawn.y + 7.0, spawn.z)
+                lines = []
+                entry = world_scene_entry.resolve_entry(
+                    stored, registry=self.registry, emit=lines.append,
+                    via_login=True)
+                if entry.relocated:
+                    continue
+                kept = [ln for ln in lines if "WORLD_SCENE_KEPT_ROW" in ln]
+                self.assertEqual(len(kept), 1, lines)
+                basis = kept[0].rsplit("basis=", 1)[1].strip()
+                self.assertIn(basis, world_scene_entry.KEPT_ROW_BASES)
+                seen.add(basis)
+        self.assertTrue(
+            seen, "every openable destination relocated its row: this case "
+            "measured nothing")
+
     def test_the_four_doors_1218_named_are_the_ones_that_opened(self):
         """History, pinned separately from the rule.
 

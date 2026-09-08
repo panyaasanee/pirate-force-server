@@ -146,17 +146,37 @@ class ConsoleTests(unittest.TestCase):
         resolve_entry(ATTENDED_HOME_ROW, emit=sink)
         self.assertEqual(len(sink.lines), 1)
 
-    def test_a_character_already_standing_on_a_pinned_spawn_prints_one_line(self):
-        # The rule takes the pinned-spawn branch here, and nothing moves.  A
-        # second line would cry wolf on every login forever, and the ticket's
-        # stop rule is a person believing that line.
+    def test_a_character_already_standing_on_a_pinned_spawn_says_which_rule(self):
+        """~~...prints_one_line~~ -- RENAMED AND INVERTED round 1v5i3h.
+
+        The old comment ("the rule takes the pinned-spawn branch here, and
+        nothing moves; a second line would cry wolf on every login forever")
+        described the tree before PANYA-DECISION 20260908_1218.  Since 1218
+        this arrival takes the KEPT-ROW branch: the character's own row is
+        used, and it merely coincides with the pin.  The two branches produce
+        the same coordinate and, until this round, the same single console
+        line -- which is pf-adversary D8 of round ioz8fd from one side and D1
+        from the other, because the row that most often coincides with a pin
+        is a zero row, and a zero row is what an uninitialised character
+        looks like.
+
+        THE COST, STATED: one extra line on a login where a character stands
+        bit-exactly on a non-home scene's pinned spawn.  The cry-wolf worry
+        the old comment raised was about HOME, where GT-078's graded boot is
+        still exactly one line (``test_a_normal_home_boot_prints_exactly_one_
+        line`` above, unchanged) because home never reaches this branch.
+        """
         scene2 = world_scene_travel.destination(2)
         sink = Sink()
         entry = resolve_entry(
             Position(2, 0, *scene2.spawn, 0.0), emit=sink)
         self.assertFalse(entry.relocated)
         self.assertIsNone(entry.relocation_reason)
-        self.assertEqual(len(sink.lines), 1)
+        self.assertEqual(len(sink.lines), 2, sink.lines)
+        self.assertIn("WORLD_SCENE_KEPT_ROW", sink.lines[1])
+        self.assertIn(
+            "basis=%s" % world_scene_entry.KEPT_ROW_NO_MEASUREMENT,
+            sink.lines[1])
 
     def test_a_non_callable_sink_is_refused(self):
         with self.assertRaises(ValueError):

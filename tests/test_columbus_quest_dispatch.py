@@ -273,8 +273,15 @@ class ResolveColumbusArrivalTests(unittest.TestCase):
             (0.0, 0.0, 0.0),
         )
         self.assertIn(
+            # ``from=caller_row`` ADDED to the token round 1v5i3h
+            # (pf-adversary D1 of round ioz8fd).  It is asserted EXACT here,
+            # and the value matters: this arrival is a synthetic row this
+            # module built at the decreed point, NOT a character's persisted
+            # one, and the first draft of the field labelled it stored_row -
+            # which would have made the one sanctioned synthetic door read on
+            # the console exactly like a durable row arriving at sea.
             "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
-            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445 from=caller_row",
             lines,
         )
 
@@ -407,8 +414,15 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
             (0.0, 0.0, 0.0),
         )
         self.assertIn(
+            # ``from=caller_row`` ADDED to the token round 1v5i3h
+            # (pf-adversary D1 of round ioz8fd).  It is asserted EXACT here,
+            # and the value matters: this arrival is a synthetic row this
+            # module built at the decreed point, NOT a character's persisted
+            # one, and the first draft of the field labelled it stored_row -
+            # which would have made the one sanctioned synthetic door read on
+            # the console exactly like a durable row arriving at sea.
             "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
-            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445 from=caller_row",
             lines,
         )
         # ROUND 2pdf6j MOVED THIS ASSERTION BY ONE AND KEPT IT EXACT.  The
