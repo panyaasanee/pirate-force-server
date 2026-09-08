@@ -1349,6 +1349,210 @@ class TheBootRegistryDecidesTheWarpTests(RealDatabaseTests):
         self.assertIn(warp_scene_persist.FAIL_CONSOLE_TOKEN, stream.getvalue())
 
 
+class TheBarredLoginSceneListTests(unittest.TestCase):
+    """Chief `R399` (round `jv0jk9`, pf-adversary `D7`).
+
+    The module docstring carried the barred set as prose and the prose was
+    two scenes short: it said `17 and 126` while `COO-DECISION 20260905_1748`
+    had already barred 304 and 305, which are two of the three islands M2
+    warps to.  These cases exist so the set can never be a hand-kept copy
+    again -- they read what the code DERIVES, and they go red when the
+    registry moves under it rather than when someone forgets to retype a
+    comment.
+    """
+
+    def setUp(self):
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests
+        )
+
+    def test_the_set_is_exactly_what_login_would_accept_refuses(self):
+        """DERIVED, and derived THROUGH `login_would_accept`.
+
+        Walks every pinned row -- not a sample -- and compares the lister
+        against the function that decides whether a row is written.  A lister
+        that re-derived `login_entry_allowed` on its own would pass every
+        other case in this class and fail this one the day lane A pins a
+        spawnless scene.
+        """
+        registry = world_scene_travel.load_scene_registry()
+        expected = tuple(
+            sorted(
+                scene_id
+                for scene_id in registry.ids
+                if not warp_scene_persist.login_would_accept(scene_id)
+            )
+        )
+        self.assertEqual(expected, warp_scene_persist.barred_login_scene_ids())
+        self.assertTrue(expected, "a registry with nothing barred proves nothing")
+
+    def test_the_set_moves_when_the_registry_moves(self):
+        """The whole point of `R399`: it must not be able to go stale.
+
+        Shut one more scene in a bent registry and the answer has to grow by
+        exactly that scene.  A hardcoded tuple passes the case above and dies
+        here.
+        """
+        before = warp_scene_persist.barred_login_scene_ids()
+        self.assertNotIn(DESTINATION_SCENE, before)
+        real = world_scene_travel.load_scene_registry()
+        shut = replace(
+            real,
+            destinations=tuple(
+                replace(t, login_entry_allowed=False)
+                if t.n_id == DESTINATION_SCENE else t
+                for t in real.destinations
+            ),
+        )
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        _install_quietly(shut)
+        self.assertEqual(
+            tuple(sorted(before + (DESTINATION_SCENE,))),
+            warp_scene_persist.barred_login_scene_ids(),
+        )
+
+    def test_a_scene_barred_only_by_a_missing_spawn_is_listed(self):
+        """The half `login_entry_allowed` alone cannot see.
+
+        `resolve_entry` refuses a pinned, login-allowed, spawnless scene with
+        `REFUSED_NO_PINNED_SPAWN` just as loudly as it refuses a shut one, so
+        a list that missed it would tell an operator a scene is fine when the
+        next login will not take it.  No shipped row is spawnless, so only a
+        bent registry can prove the lister asks the right question.
+        """
+        spawnless = 278
+        real = world_scene_travel.load_scene_registry()
+        self.assertTrue(
+            real[spawnless].login_entry_allowed,
+            "premise: this row is shut for the OTHER reason only",
+        )
+        bent = replace(
+            real,
+            destinations=tuple(
+                replace(t, spawn=None) if t.n_id == spawnless else t
+                for t in real.destinations
+            ),
+        )
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        _install_quietly(bent)
+        self.assertIn(spawnless, warp_scene_persist.barred_login_scene_ids())
+
+    def test_an_unreadable_registry_lists_nothing_instead_of_guessing(self):
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            _raises(OSError("no registry on this disk")),
+        ):
+            self.assertEqual((), warp_scene_persist.barred_login_scene_ids())
+            self.assertEqual("none", warp_scene_persist._barred_console_field())
+
+    def test_the_console_field_counts_what_it_does_not_name(self):
+        """The ceiling is a bound on ANOTHER lane's data file.
+
+        Bar every pinned scene and the field must still be one short line
+        that says how many it left out -- never a line that grows with
+        `world_scene_registry_001.json`.
+        """
+        real = world_scene_travel.load_scene_registry()
+        shut_everything = replace(
+            real,
+            destinations=tuple(
+                replace(t, login_entry_allowed=False) for t in real.destinations
+            ),
+        )
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        _install_quietly(shut_everything)
+        barred = warp_scene_persist.barred_login_scene_ids()
+        ceiling = warp_scene_persist.MAX_LOGIN_BARRED_SCENE_IDS_SHOWN
+        self.assertGreater(len(barred), ceiling, "premise: past the ceiling")
+        field = warp_scene_persist._barred_console_field()
+        self.assertTrue(field.isascii())
+        self.assertTrue(field.endswith(f",+{len(barred) - ceiling}"))
+        self.assertEqual(
+            ceiling,
+            len([part for part in field.split(",") if not part.startswith("+")]),
+        )
+
+
+class TheRefusalLineNamesTheBarredSetTests(RealDatabaseTests):
+    """`R399`, the operator-visible half: the LINE carries the answer.
+
+    Before this round a tester who hit `reason=login_would_refuse` had one
+    place to go and find out which scenes that covers -- the module docstring
+    -- and it had been wrong about M2's own islands for four days.
+    """
+
+    def test_the_line_names_the_barred_scenes_and_says_the_scene_is_pinned(self):
+        session = self._session("barred01")
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.persist_warp_scene(
+                session, _target(126, x=3050.0),
+            )
+        self.assertEqual(warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE, outcome)
+        line = _fail_line(stream.getvalue())
+        self.assertIn(" reason=login_would_refuse ", f"{line} ")
+        self.assertIn("pinned=yes", line)
+        self.assertIn(
+            f"barred={warp_scene_persist._barred_console_field()}", line,
+        )
+        self.assertIn("126", line.split("barred=", 1)[1])
+
+    def test_an_unpinned_scene_says_pinned_no_rather_than_hiding_in_the_set(self):
+        """`barred=` lists PINNED scenes; an unpinned one is a different fact.
+
+        Without `pinned=`, an operator reading `scene=999 ... barred=17,126,
+        304,305` would look for 999 in that list, not find it, and conclude
+        the line contradicts itself.
+        """
+        session = self._session("barred02")
+        unpinned = 0xFFF0
+        self.assertNotIn(
+            unpinned, world_scene_travel.load_scene_registry().ids,
+        )
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.persist_warp_scene(
+                session, _target(unpinned, x=3050.0),
+            )
+        self.assertEqual(warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE, outcome)
+        line = _fail_line(stream.getvalue())
+        self.assertIn("pinned=no", line)
+
+    def test_every_other_refusal_line_is_unchanged(self):
+        """The detail rides ONLY on the login refusal.
+
+        `COO-DECISION 20260904_1646` item 2's one-vocabulary rule: a reader
+        matching `reason=<word>` at the end of the line keeps working for
+        every outcome that did not ask for a field.
+        """
+        session = self._session("barred03")
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            warp_scene_persist.persist_warp_scene(session, "not a target at all")
+            outcome = warp_scene_persist.persist_warp_scene(
+                _Session(None), _target(DESTINATION_SCENE),
+            )
+        self.assertEqual(warp_scene_persist.OUTCOME_NO_SESSION_DOOR, outcome)
+        line = _fail_line(stream.getvalue())
+        self.assertTrue(
+            line.endswith(f"reason={warp_scene_persist.OUTCOME_NO_SESSION_DOOR}"),
+            line,
+        )
+        self.assertNotIn("barred=", line)
+
+
+def _fail_line(captured):
+    """The single `GM_WARP_SCENE_PERSIST_FAILED` line out of a capture."""
+    lines = [
+        line for line in captured.splitlines()
+        if line.startswith(warp_scene_persist.FAIL_CONSOLE_TOKEN)
+    ]
+    assert len(lines) == 1, f"expected one failure line, got {lines}"
+    return lines[0]
+
+
 def _target(scene_id, *, x=None, y=0.0, z=0.0):
     """A `WarpTarget` carrying the scene's own pinned spawn unless told otherwise."""
     if x is not None:

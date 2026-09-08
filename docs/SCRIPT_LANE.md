@@ -4151,3 +4151,61 @@ skipped, and the Windows gate has no corpus at all.  This is pf-adversary
   is the outcome this design chooses over a silent decode.
 - **`Player.CastSkillXYZ` is still a stub.**  Its three coordinates now
   resolve correctly; nothing consumes them yet.
+
+## Round `5a3x47` (2026-09-08) -- the take side stops being a money-only rule, and stops passing over what it cannot read
+
+pf-adversary D3 against round `kkuqzo` said the take scan was WRONG IN
+SILENCE, and the round that answered it found the silence was covering a
+charge nobody in this repository could see.
+
+**What was invisible.**  `take_sites` read one API, `Player.AddCash`, and
+walked past any argument it did not recognise without a word.  Measured
+over all 616 corpus files: `Player.Addmoralized(-Quest.VarN)` is the SAME
+SHAPE (ordinary cell, minus sign in the script, so the signedness table
+has nothing to say) at ELEVEN call sites in eleven scripts, ten of which
+the shipped quest table names on 72 rows.  The other ten call sites of the
+same name pass a bare `Quest.VarN` and are the REFUND in `Delete_Run` --
+the same API is the charge on one line and the give on another, which is
+why the shape and not the name decides.
+
+**What that produced.**  Two new transaction groups, both where the give
+is in the same entry point as the charge:
+
+| script | entry point | take | rows |
+|---|---|---|---|
+| `q_day_hunt` | `Report_Run` | `Player.Addmoralized(-Quest.Var4)` @55 | 2 |
+| `q_repeat_hunt` | `Report_Run` | `Player.Addmoralized(-Quest.Var4)` @54 | 1 |
+
+`quest_column_groups.tsv` 35 -> 67 rows, five scripts instead of three.
+Both groups are unpayable (`Player.AddItem` is a stub), so those rows'
+reward cells are now REFUSED with `transaction_group_give_side_not_
+implemented` instead of resolving into a give branch that drops the item
+on the floor.  The other nine morale charges are in `Accept_Run` with no
+give beside them: not a half transaction, and correctly not in the table.
+
+**Two holes closed as tool behaviour, not as four more regexes.**
+`arguments_of` used `line.find` ONCE, so a second call to the same API on
+one line was read by nothing at all; it is now `argument_lists_of` and
+every call on the line is read.  And an argument that reads a quest cell
+at a take-side position but is neither the bare read nor a classified
+negation now raises `UnclassifiedTakeSite` naming the line, instead of
+being skipped.  The four spellings pf-adversary listed
+(`-1 * Quest.VarN`, `-(Quest.VarN)`, `Quest.VarN * -2`, `0 - Quest.VarN`)
+appear NOWHERE in the corpus -- grepped -- so writing patterns for them
+would be this lane guessing at the game's style; the stop covers them, and
+each of the four is pinned as a refusal in a gate-runnable test.
+
+**D1 answered rather than deleted.**  `Player.ChangeShip` and the
+`-Quest.VarN` spelling exist for `q_ship.lua` alone, and the shipped table
+names `q_ship` on ZERO of its 1544 rows, so no mirror row depends on
+either and a mutant could delete both for free.  They are now asserted
+directly against the corpus file (`take_sites` finds the charge at :50,
+`give_sites` the delivery at :49) plus the zero-row fact that explains why
+no group exists.
+
+**Not claimed.**  `Player.Addmoralized` is STILL A STUB and morale has no
+`characters` column, so no player is charged morale today in either
+direction; what moved is that the server can now SEE the charge and
+refuses the row around it.  Nothing here gives an item, no frame goes out,
+and the corpus sweep pins are unchanged (2593 stub / 2878 real calls,
+re-run with lupa 2.8) because no API changed status.

@@ -1188,6 +1188,72 @@ def append_census_entries(
     return pc, frame
 
 
+def empty_rung(
+    legacy: Any, generation: WorldPopulationGeneration,
+) -> WorldPopulationGeneration:
+    """The same rung with NOBODY in it -- an empty collection, ready to append.
+
+    WHO ASKED AND WHY (CORE-REQUEST LANE-B, ``pf_bridge
+    notes_to_chief/20260908_0024`` item 2; COO-ORDER ``20260908_0042``).  The
+    name-colour sweep's ``ALL`` sets are read off a NAMEBOARD by a person at a
+    screen, and the anchor the owner chose sits inside Port Royal: LANE-B
+    measured the first sweep row 23.6 units from the live NPC ``Mutant Green
+    Eagle`` against a 200-unit reading ceiling, so a sweep composed on top of
+    the town gets graded against somebody else's actor.  Those sets need the
+    square to themselves.
+
+    HOW THE TOWN GOES AWAY, AND WHY THAT IS THIS FUNCTION AND NOT A SECOND
+    FRAME.  ``RE-092`` measured this client's remote-actor consumer as
+    replace-by-omission at COLLECTION scope.  A caller therefore empties a
+    scene by composing ONE collection that does not name the town -- which is
+    :func:`append_census_entries` over this rung -- and NOT by sending a
+    second frame carrying only the new bodies, which is the mistake the
+    docstring of :func:`sweep_entries` exists to prevent.  Same mechanism,
+    opposite intent: the append above avoids replace-by-omission, this rung
+    uses it on purpose.
+
+    THE INPUT IS NOT MODIFIED.  ``generation`` is what ``runtime.py`` hands
+    back to :func:`build_world_population` on every later recompose; a rung
+    with ``actor_count`` 0 stored there would make the NEXT compose disagree
+    with the census the client holds.  This returns a NEW object for one
+    compose and the caller keeps the original.
+
+    ``anchor``, ``scene_id``, ``undressable`` and ``undressable_positions``
+    are carried through unchanged: they describe where this rung was BUILT and
+    what its table could not dress, which is still true of a build that then
+    sent nobody.  Only the membership and the bytes go to empty.
+
+    RAISES whatever the encoder raises; there is no ``except`` here on
+    purpose, because the caller on the listener thread is the one that has to
+    decide whether an empty square it cannot build is worth losing the town
+    over (``v141:7440`` has no ``except`` above it).
+    """
+    if type(generation) is not WorldPopulationGeneration:
+        raise ValueError("empty_rung needs a WorldPopulationGeneration")
+    pc, frame = legacy.make_runtime_remote_actors([])
+    if frame != legacy.frame_pc(pc):
+        raise ValueError("empty rung frame drift")
+    if len(pc) != WIRE_HEADER_BYTES:
+        # The whole point of the rung is that append_census_entries can walk
+        # it: that walk starts at WIRE_HEADER_BYTES and demands the entry
+        # lengths account for the rest.  An encoder whose empty collection is
+        # longer than the header would fail that walk one call later, with an
+        # error naming the APPEND rather than this.
+        raise ValueError(
+            f"empty collection is {len(pc)} bytes, not the "
+            f"{WIRE_HEADER_BYTES}-byte header this rung has to be"
+        )
+    return replace(
+        generation,
+        actor_count=0,
+        indices=(),
+        actor_identities=(),
+        pc=pc,
+        frame=frame,
+        entry_bytes=(),
+    )
+
+
 def census_console_line(generation: WorldPopulationGeneration) -> str:
     """The single ASCII line a boot prints before the census goes on the wire.
 

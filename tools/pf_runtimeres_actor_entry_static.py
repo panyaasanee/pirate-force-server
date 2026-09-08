@@ -1053,8 +1053,15 @@ guard(SRC_ACTOR_ENTRY_SITES == 34,
 # a later collection replaces the actor set, so a second frame empties the
 # town down to whatever it carries).  A carrier, not a new entry builder,
 # so SRC_ACTOR_ENTRY_SITES does not move.
-guard(SRC_ACTOR_STREAM_SITES == 45,
-      "src/ sends the actor-entry carrier at exactly 45 call sites")
+# ROUND vx8irh (chief, R396): 45 -> 46, world_population's new empty_rung --
+# the rung with NOBODY in it, so a caller can compose ONE collection that
+# does not name the town and let RE-092's replace-by-omission empty the
+# square for the name-colour sweep's ALL sets (CORE-REQUEST LANE-B
+# 20260908_0024 item 2).  A carrier, not a new entry builder: it encodes an
+# EMPTY body list, so SRC_ACTOR_ENTRY_SITES and the module census do not move
+# (world_population.py was already in both).
+guard(SRC_ACTOR_STREAM_SITES == 46,
+      "src/ sends the actor-entry carrier at exactly 46 call sites")
 guard(SRC_MODULES_WITH_ACTOR_ENTRY == 33
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mob_hostile_bg0015.py",

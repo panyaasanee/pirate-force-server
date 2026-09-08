@@ -74,6 +74,7 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation import runtime  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -572,6 +573,536 @@ class AppendCensusEntriesTests(unittest.TestCase):
             world_population.append_census_entries(
                 self.legacy, generation, b"\x01\x02",
             )
+
+
+class SweepViewerAndEmptyWorldTests(unittest.TestCase):
+    """The two runtime.py call sites LANE-B asked chief for on 2026-09-08.
+
+    CORE-REQUEST ``pf_bridge notes_to_chief/20260908_0024``, relayed as
+    COO-ORDER ``20260908_0042`` topic 2:
+
+      1. the sweep is told WHO is looking (``viewer_identity=``), because the
+         three "(viewer, mob) pair" rows of the ALL set cannot be built
+         without it and the identity is a runtime fact the module cannot
+         reach;
+      2. the sets that must be read on an EMPTY square are composed alone,
+         so the census the tester grades a nameboard against is the sweep and
+         not Port Royal.
+
+    WHY THE MODULE IS STOOD IN FOR HERE, AND WHAT THAT DOES AND DOES NOT
+    PROVE.  When these tests were written both halves of the module -- the
+    ``viewer_identity`` keyword and the ``ALL``/``ALL-NOID`` values
+    themselves -- lived in LANE-B's own pull request and were NOT on this
+    tree.  THAT IS NO LONGER TRUE: they reached main on 2026-09-08 while this
+    branch waited, which is what two tests in this class measured when they
+    went red.  The stand-ins are kept anyway, because a signature contract is
+    what protects sets 1 and 2 on a tree where that module is reverted, and
+    the real module is now pinned beside them
+    (``test_the_module_on_this_tree_now_takes_the_keyword``,
+    ``test_a_real_all_boot_composes_the_sweep_alone_on_this_tree``).  Wiring on this side is therefore
+    proved against a stand-in whose SIGNATURE is the contract: that the call
+    site passes the keyword when it exists, does not when it does not, and
+    composes the collection the empty-world rule asks for.  It is NOT proof
+    that any row LANE-B builds is correct, that the client draws it, or what
+    colour a nameboard comes back -- those are the module's tests and an
+    attended ticket, in that order.
+
+    THE HARNESS IS BORROWED, NOT INHERITED.  Subclassing the wiring case
+    would have re-run every one of its tests a second time under a new name,
+    which inflates the suite and makes a failure report name the wrong class;
+    copying the five methods would let two copies of the same boot drift.  So
+    the methods are bound by name below and the class stays a plain TestCase.
+    """
+
+    setUp = NameColourSweepWiringTests.setUp
+    tearDown = NameColourSweepWiringTests.tearDown
+    _state = NameColourSweepWiringTests._state
+    _target_pos_pc = NameColourSweepWiringTests._target_pos_pc
+    _step = NameColourSweepWiringTests._step
+    _labelled = NameColourSweepWiringTests._labelled
+    _arrive_capturing = NameColourSweepWiringTests._arrive_capturing
+
+    def _real_entries(self):
+        """Valid entry bytes to hand back from a stand-in.
+
+        Taken from the module's own set 1 so the bytes going into
+        ``append_census_entries`` are the shape a real sweep produces -- a
+        stand-in returning invented bodies would prove the merge accepts
+        anything, which is the opposite of the point.
+        """
+        env = {name_colour_sweep.SWEEP_ENV: name_colour_sweep.SET_FACTION}
+        entries = name_colour_sweep.sweep_entries(self.legacy, env)
+        self.assertTrue(entries)
+        return entries
+
+    def _stub(self, entries, *, takes_viewer):
+        """A stand-in for ``sweep_entries`` that records how it was called."""
+        seen = []
+        if takes_viewer:
+            def stub(legacy, env=None, viewer_identity=None):
+                seen.append(viewer_identity)
+                return entries
+        else:
+            def stub(legacy, env=None):
+                seen.append("not-offered")
+                return entries
+        return stub, seen
+
+    def _boot(self, token, env_value, stub):
+        console = io.StringIO()
+        env = ({} if env_value is None
+               else {name_colour_sweep.SWEEP_ENV: env_value})
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(
+                name_colour_sweep, "sweep_entries", stub,
+            ):
+                with contextlib.redirect_stdout(console):
+                    state = self._state(token)
+                    actions = self._step(state)
+        return state, actions, console.getvalue()
+
+    # ----- item 1: who is looking -------------------------------------------
+
+    def test_the_viewer_identity_passed_is_the_selected_characters_qword(self):
+        """Not "a viewer was passed" -- WHICH viewer, read back off the
+        session independently of the expression the call site uses.
+        """
+        entries = self._real_entries()
+        stub, seen = self._stub(entries, takes_viewer=True)
+        state, _actions, _console = self._boot(
+            "sweep-viewer-1", name_colour_sweep.SET_FACTION, stub,
+        )
+        selected = state.foundation.selected
+        expected = (
+            (selected.identity_hi & 0xFFFFFFFF) << 32
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+        self.assertEqual(seen, [expected])
+        self.assertNotEqual(expected, 0)
+
+    def test_a_module_without_the_keyword_is_called_without_it(self):
+        """THE REGRESSION THIS ROUND IS MOST LIKELY TO CAUSE.  The keyword
+        reached main on 2026-09-08, so this is no longer a description of
+        THIS tree -- it is the revert guard.  On any tree where that module
+        is rolled back, a hard ``viewer_identity=`` would raise TypeError
+        into the refusal path and hand every armed boot of set 1 and set 2
+        an ordinary town instead of a sweep.  The stand-in is what keeps that
+        branch executed; the real module is pinned by
+        ``test_the_module_on_this_tree_now_takes_the_keyword``.
+        """
+        entries = self._real_entries()
+        stub, seen = self._stub(entries, takes_viewer=False)
+        _state, actions, console = self._boot(
+            "sweep-viewer-2", name_colour_sweep.SET_FACTION, stub,
+        )
+        self.assertEqual(seen, ["not-offered"])
+        self.assertNotIn("NAME_COLOUR_SWEEP_REFUSED", console)
+        self.assertIn("NAME_COLOUR_SWEEP_ARMED", console)
+        self.assertEqual(
+            len(self._labelled(actions, CENSUS_LABEL_PREFIX)), 2,
+        )
+
+    def test_the_module_on_this_tree_now_takes_the_keyword(self):
+        """THE DAY THE KEYWORD LANDED.  Until 2026-09-08 this test asserted
+        the opposite -- that the module on this tree had no such parameter --
+        and it was written to be the line that says the stand-in above has
+        stopped describing reality.  It said exactly that when LANE-B's
+        module reached main while this branch waited for review, so it is
+        rewritten to measure what is true now rather than deleted.
+
+        The revert direction is still covered:
+        ``test_a_module_without_the_keyword_is_called_without_it`` boots a
+        stand-in without the parameter and proves the call site drops the
+        keyword instead of raising TypeError into the refusal path.
+        """
+        import inspect as _inspect
+        self.assertIn(
+            "viewer_identity",
+            _inspect.signature(name_colour_sweep.sweep_entries).parameters,
+        )
+
+    def test_a_real_all_boot_composes_the_sweep_alone_on_this_tree(self):
+        """The same claim as ``test_an_all_boot_composes_the_sweep_alone``,
+        but with NO stand-in: the module that arms is the one on this tree,
+        which now knows ``ALL``.
+
+        This is the console line the attended boot of GT-288 set 3 is graded
+        on -- ``census_actors=0`` is the token that says Port Royal is not on
+        the wire underneath the sweep -- so it is pinned against the real
+        module and not against a signature contract.
+        """
+        _state, actions, console = self._arrive_capturing(
+            "sweep-empty-real-all", name_colour_sweep.SET_ALL,
+        )
+        self.assertIn("NAME_COLOUR_SWEEP_ARMED", console)
+        self.assertIn("census_actors=0", console)
+        self.assertNotIn("NAME_COLOUR_SWEEP_EMPTY_WORLD_REFUSED", console)
+        self.assertNotIn("NAME_COLOUR_SWEEP_UNARMED", console)
+
+    def test_the_call_site_is_reached_once_per_session_not_per_frame(self):
+        """A signature read plus a keyword must not turn one call into two:
+        the module's own dispatch contract is one compose per session.
+        """
+        entries = self._real_entries()
+        stub, seen = self._stub(entries, takes_viewer=True)
+        env = {name_colour_sweep.SWEEP_ENV: name_colour_sweep.SET_FACTION}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(
+                name_colour_sweep, "sweep_entries", stub,
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    state = self._state("sweep-viewer-3")
+                    self._step(state)
+                    self._step(state, xyz=(11.0, 21.0, 31.0))
+                    self._step(state, xyz=(12.0, 22.0, 32.0))
+        self.assertEqual(len(seen), 1, seen)
+
+    # ----- item 2: an empty square ------------------------------------------
+
+    def test_an_all_boot_composes_the_sweep_alone(self):
+        """The town is removed BY OMISSION (RE-092, replace-by-omission at
+        COLLECTION scope), which is why the count in the collection about to
+        go out has to equal the sweep and nothing else.  Read off the wire
+        bytes, not off the module's return value.
+        """
+        entries = self._real_entries()
+        for env_value in runtime.NAME_COLOUR_SWEEP_EMPTY_WORLD_SETS:
+            with self.subTest(env_value=env_value):
+                stub, _seen = self._stub(entries, takes_viewer=True)
+                state, actions, console = self._boot(
+                    f"sweep-empty-{env_value}", env_value, stub,
+                )
+                pc = self._labelled(actions, CENSUS_LABEL_PREFIX)[0][1]
+                start = world_population.WIRE_COUNT_TAG_OFFSET + 1
+                wire = int.from_bytes(pc[start:start + 2], "little")
+                self.assertEqual(wire, len(entries))
+                self.assertIn("census_actors=0 ", console)
+                self.assertIn(f"wire={wire} ", console)
+                # The rung handed back to every later recompose is the
+                # CENSUS's, untouched: a zero here would be refused by
+                # build_world_population on the next hit and RE-092 says a
+                # compose failure empties the town for real.
+                self.assertGreater(state.world_census_actor_count, 0)
+
+    def test_set_one_and_set_two_still_ride_inside_the_town(self):
+        """The other half of the same claim.  The empty square is for the
+        sets that ask for it and for nothing else; sets 1 and 2 are read
+        against the live NPCs on purpose (the ``N-BASE`` control).
+        """
+        entries = self._real_entries()
+        for env_value in (
+            name_colour_sweep.SET_FACTION,
+            name_colour_sweep.SET_ACTOR_TYPE_AND_SKIN,
+        ):
+            with self.subTest(env_value=env_value):
+                stub, _seen = self._stub(entries, takes_viewer=True)
+                state, actions, console = self._boot(
+                    f"sweep-town-{env_value}", env_value, stub,
+                )
+                pc = self._labelled(actions, CENSUS_LABEL_PREFIX)[0][1]
+                start = world_population.WIRE_COUNT_TAG_OFFSET + 1
+                wire = int.from_bytes(pc[start:start + 2], "little")
+                self.assertEqual(
+                    wire, state.world_census_actor_count + len(entries),
+                )
+                self.assertIn(
+                    f"census_actors={state.world_census_actor_count} ",
+                    console,
+                )
+
+    def test_the_console_number_is_the_rung_that_was_composed(self):
+        """``census_actors=`` may not describe a census the wire does not
+        carry.  Measured as the difference between the two boots rather than
+        as a constant, so it stays true when the town's size changes.
+        """
+        entries = self._real_entries()
+        stub, _seen = self._stub(entries, takes_viewer=True)
+        state, _actions, town = self._boot(
+            "sweep-line-town", name_colour_sweep.SET_FACTION, stub,
+        )
+        stub2, _seen2 = self._stub(entries, takes_viewer=True)
+        _state2, _actions2, empty = self._boot(
+            "sweep-line-empty",
+            runtime.NAME_COLOUR_SWEEP_EMPTY_WORLD_SETS[0],
+            stub2,
+        )
+        self.assertIn(
+            f"census_actors={state.world_census_actor_count} ", town,
+        )
+        self.assertIn("census_actors=0 ", empty)
+        self.assertNotIn("NAME_COLOUR_SWEEP_EMPTY_WORLD_REFUSED", town)
+        self.assertNotIn("NAME_COLOUR_SWEEP_EMPTY_WORLD_REFUSED", empty)
+
+    def test_an_empty_world_that_cannot_be_built_falls_back_to_the_town(self):
+        """Fail closed, and SAY SO.  A sweep read against Port Royal is a bad
+        result; a boot that silently pretends it emptied the square is worse,
+        because the tester cannot tell the two apart on the console.
+        """
+        entries = self._real_entries()
+        stub, _seen = self._stub(entries, takes_viewer=True)
+        env = {
+            name_colour_sweep.SWEEP_ENV:
+                runtime.NAME_COLOUR_SWEEP_EMPTY_WORLD_SETS[0],
+        }
+        console = io.StringIO()
+        real_make = self.legacy.make_runtime_remote_actors
+
+        def refuse(bodies):
+            if not bodies:
+                raise RuntimeError("no empty collection for you")
+            return real_make(bodies)
+
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(
+                name_colour_sweep, "sweep_entries", stub,
+            ):
+                with mock.patch.object(
+                    self.legacy, "make_runtime_remote_actors", refuse,
+                ):
+                    with contextlib.redirect_stdout(console):
+                        state = self._state("sweep-empty-refused")
+                        actions = self._step(state)
+        printed = console.getvalue()
+        self.assertIn("NAME_COLOUR_SWEEP_EMPTY_WORLD_REFUSED", printed)
+        self.assertIn(
+            f"census_actors={state.world_census_actor_count} ", printed,
+        )
+        pc = self._labelled(actions, CENSUS_LABEL_PREFIX)[0][1]
+        start = world_population.WIRE_COUNT_TAG_OFFSET + 1
+        self.assertEqual(
+            int.from_bytes(pc[start:start + 2], "little"),
+            state.world_census_actor_count + len(entries),
+        )
+        self.assertTrue(any(
+            event.startswith("name_colour_sweep_empty_world_refused_")
+            for event in state.events
+        ), list(state.events)[-6:])
+
+    def test_an_unarmed_boot_never_asks_the_empty_world_question(self):
+        """The predicate is read INSIDE the armed branch on purpose.  An
+        ``ALL`` that arms NOTHING must empty nothing -- the town has to
+        survive a boot the sweep refuses.
+
+        Until 2026-09-08 the unarmed boot came for free: the module on this
+        tree did not know ``ALL`` at all.  It knows it now, so the refusal is
+        staged instead of inherited -- a stand-in that hands back no bodies,
+        which is the same door an unknown value goes through.  Staging it is
+        the point: the branch under test is chief's, and it must hold for
+        every reason the module can decline, not only for the one that
+        happened to be true on the day it was written.
+        """
+        stub, _seen = self._stub((), takes_viewer=False)
+        _state, actions, console = self._boot(
+            "sweep-empty-unarmed",
+            runtime.NAME_COLOUR_SWEEP_EMPTY_WORLD_SETS[0],
+            stub,
+        )
+        # MEASURED, and it is why this assertion is not the one that was
+        # here before: a module that DECLINES a value it recognises prints
+        # nothing at all -- `NAME_COLOUR_SWEEP_UNARMED` names the different
+        # case of a value the module does not know (pinned by
+        # `test_an_unknown_env_value_says_so_on_the_console`).  What both
+        # cases owe the tester is the same, and it is what is asserted here:
+        # the town is still on the wire.
+        self.assertNotIn("NAME_COLOUR_SWEEP_ARMED", console)
+        self.assertNotIn("NAME_COLOUR_SWEEP_EMPTY_WORLD_REFUSED", console)
+        census = self._labelled(actions, CENSUS_LABEL_PREFIX)
+        self.assertEqual(len(census), 2, [a[0] for a in actions])
+        pc = census[0][1]
+        start = world_population.WIRE_COUNT_TAG_OFFSET + 1
+        self.assertGreater(
+            int.from_bytes(pc[start:start + 2], "little"), 0,
+        )
+
+
+class SweepEmptyWorldPredicateTests(unittest.TestCase):
+    """``runtime._sweep_wants_an_empty_world`` alone, without a boot."""
+
+    def test_the_two_sets_the_owner_named_answer_true(self):
+        for value in ("ALL", "ALL-NOID"):
+            with self.subTest(value=value):
+                self.assertTrue(runtime._sweep_wants_an_empty_world(
+                    {name_colour_sweep.SWEEP_ENV: value},
+                ))
+
+    def test_every_other_value_answers_false(self):
+        for value in ("", "1", "2", "all", "ALL ", "true", "ALL-NOID-X"):
+            with self.subTest(value=value):
+                self.assertFalse(runtime._sweep_wants_an_empty_world(
+                    {name_colour_sweep.SWEEP_ENV: value},
+                ))
+
+    def test_an_absent_variable_answers_false(self):
+        self.assertFalse(runtime._sweep_wants_an_empty_world({}))
+
+    def test_the_module_owns_the_list_the_day_it_declares_one(self):
+        """The two values are LANE-B's vocabulary, written here only because
+        the set that needs them is in LANE-B's unmerged pull request.  When
+        the module publishes its own tuple this file follows it, with no
+        chief round in between -- measured, not promised.
+        """
+        with mock.patch.object(
+            name_colour_sweep, "SWEEP_SETS_WANTING_AN_EMPTY_WORLD",
+            ("ONLY-THIS-ONE",), create=True,
+        ):
+            self.assertTrue(runtime._sweep_wants_an_empty_world(
+                {name_colour_sweep.SWEEP_ENV: "ONLY-THIS-ONE"},
+            ))
+            self.assertFalse(runtime._sweep_wants_an_empty_world(
+                {name_colour_sweep.SWEEP_ENV: "ALL"},
+            ))
+
+    def test_an_environment_that_raises_answers_false(self):
+        """Town-preserving on every failure: the predicate may not be the
+        reason a boot loses its census.
+        """
+        class Hostile:
+            def get(self, *_args, **_kwargs):
+                raise RuntimeError("no environment here")
+
+        self.assertFalse(runtime._sweep_wants_an_empty_world(Hostile()))
+
+    def test_a_module_list_that_cannot_be_iterated_cannot_kill_dispatch(self):
+        """pf-adversary round ``vx46m5`` D3, MEASURED before the fix: the
+        membership test sat AFTER the ``try``, so a module publishing
+        ``SWEEP_SETS_WANTING_AN_EMPTY_WORLD = None`` took ``tuple(names)``,
+        ``dispatch()`` and the listener thread down with it -- and
+        ``v141:7440`` has no ``except`` above that thread.
+
+        The call site is ``if _sweep_wants_an_empty_world():`` with no guard
+        of its own, so "this function does not raise" is the whole contract.
+        """
+        env = {name_colour_sweep.SWEEP_ENV: name_colour_sweep.SET_ALL}
+
+        class Hostile:
+            def __iter__(self):
+                raise RuntimeError("no")
+
+        for names in (None, 0, 3.5, Hostile(), object()):
+            with self.subTest(names=type(names).__name__):
+                with mock.patch.object(
+                    name_colour_sweep,
+                    "SWEEP_SETS_WANTING_AN_EMPTY_WORLD",
+                    names,
+                    create=True,
+                ):
+                    self.assertFalse(
+                        runtime._sweep_wants_an_empty_world(env),
+                    )
+
+    def test_a_module_that_publishes_one_bare_name_is_read_as_one_name(self):
+        """``("ALL-NOID")`` is a str, not a one-tuple -- the comma is the
+        tuple.  Spelling it through ``tuple()`` would split it into eight
+        letters and answer False FOR ITS OWN NAME, which is the silent
+        version of the failure: the sweep composes on top of Port Royal,
+        no refusal token is printed, and the attended nameboard is graded
+        against a live NPC 23.6 units away (pf-adversary round ``vx46m5``
+        D3).
+        """
+        with mock.patch.object(
+            name_colour_sweep,
+            "SWEEP_SETS_WANTING_AN_EMPTY_WORLD",
+            "ALL-NOID",
+            create=True,
+        ):
+            self.assertTrue(runtime._sweep_wants_an_empty_world(
+                {name_colour_sweep.SWEEP_ENV: "ALL-NOID"},
+            ))
+            # ...and it is ONE name, not eight letters and not a prefix
+            # match: the set that is not published stays False.
+            self.assertFalse(runtime._sweep_wants_an_empty_world(
+                {name_colour_sweep.SWEEP_ENV: "ALL"},
+            ))
+            self.assertFalse(runtime._sweep_wants_an_empty_world(
+                {name_colour_sweep.SWEEP_ENV: "A"},
+            ))
+
+
+class EmptyRungContractTests(unittest.TestCase):
+    """``world_population.empty_rung`` on its own.
+
+    pf-adversary round ``vx46m5`` D8 measured that this function had NO
+    direct test anywhere in the repo -- ``grep -rn empty_rung tests/ tools/``
+    returned two comment lines -- and that four of its guards were
+    mutation-invisible: the type guard, the frame-drift check, the
+    header-length check and the ``indices=()`` reset could each be deleted
+    with the whole wiring file still as green as it was.  An empty rung that
+    carried the town's 108 ``indices`` would have shipped.
+    """
+
+    def setUp(self):
+        self.legacy = _legacy()
+        self.generation = world_population.build_world_population(
+            self.legacy, (100.0, 200.0, 300.0), 3,
+            scene_id=world_population.SCENE_ID,
+        )
+        self.assertGreater(self.generation.actor_count, 0)
+
+    def test_the_rung_is_empty_in_every_member_that_names_a_body(self):
+        rung = world_population.empty_rung(self.legacy, self.generation)
+        self.assertEqual(rung.actor_count, 0)
+        self.assertEqual(rung.indices, ())
+        self.assertEqual(rung.actor_identities, ())
+        self.assertEqual(len(rung.pc), world_population.WIRE_HEADER_BYTES)
+
+    def test_the_original_generation_is_untouched(self):
+        before = self.generation.actor_count
+        indices = self.generation.indices
+        world_population.empty_rung(self.legacy, self.generation)
+        self.assertEqual(self.generation.actor_count, before)
+        self.assertEqual(self.generation.indices, indices)
+
+    def test_where_the_rung_was_built_is_carried_through(self):
+        rung = world_population.empty_rung(self.legacy, self.generation)
+        self.assertEqual(rung.scene_id, self.generation.scene_id)
+        self.assertEqual(rung.anchor, self.generation.anchor)
+        self.assertEqual(rung.undressable, self.generation.undressable)
+
+    def test_something_that_is_not_a_generation_is_refused(self):
+        for value in (None, 0, "generation", object(), {}):
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaises(ValueError):
+                    world_population.empty_rung(self.legacy, value)
+
+    def test_an_encoder_whose_empty_collection_is_not_the_header_is_refused(
+        self,
+    ):
+        """The rung exists to be WALKED by ``append_census_entries``, whose
+        walk starts at ``WIRE_HEADER_BYTES``.  A longer empty collection
+        fails that walk one call later with an error naming the append.
+        """
+        legacy = self.legacy
+        real = legacy.make_runtime_remote_actors
+
+        def longer(entries):
+            pc, _frame = real(entries)
+            pc = pc + b"\x00"
+            # The frame is rebuilt FROM the longer pc on purpose: otherwise
+            # the drift check above fires first and this test would pass
+            # while measuring the wrong guard (it did, once).
+            return pc, legacy.frame_pc(pc)
+
+        with mock.patch.object(
+            legacy, "make_runtime_remote_actors", longer,
+        ):
+            with self.assertRaises(ValueError) as caught:
+                world_population.empty_rung(legacy, self.generation)
+        self.assertIn("header", str(caught.exception))
+
+    def test_a_frame_that_does_not_match_its_own_pc_is_refused(self):
+        legacy = self.legacy
+        real = legacy.make_runtime_remote_actors
+
+        def drifted(entries):
+            pc, frame = real(entries)
+            return pc, frame + b"\x00"
+
+        with mock.patch.object(
+            legacy, "make_runtime_remote_actors", drifted,
+        ):
+            with self.assertRaises(ValueError) as caught:
+                world_population.empty_rung(legacy, self.generation)
+        self.assertIn("drift", str(caught.exception))
 
 
 if __name__ == "__main__":
