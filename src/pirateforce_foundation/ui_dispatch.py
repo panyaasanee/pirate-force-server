@@ -36,13 +36,16 @@ item 3, answering this lane's letter
 ``20260908_0031_LANE-UI-ASK-COO-eight-vitals-*``): the wiring lands
 inert, and the first real answer is a later, separate, reviewable change.
 
-That later change has happened -- twice.  ``lane_hooks``
-``lane_ui_party_invite_answer.py`` (round spdxy0) and
-``lane_ui_trade_invite_answer.py`` (round xqxadg) both ship
-``production_allowed = True``, so on a default flagless boot TWO of the
-eight ids answer with a real frame today and six still get ``[]``.  The
-line above stayed unedited for a whole round after that stopped being
-true, and pf-adversary (round xqxadg, D6) is what caught it: a header
+That later change has happened, and THIS PARAGRAPH DOES NOT SAY HOW MANY
+TIMES, on purpose.  Answerers ship in ``lane_hooks/lane_ui_*_answer.py``
+with ``production_allowed = True``, so on a default flagless boot the ids
+in ``_ANSWERER_OWNERS`` answer with a real frame and the rest still get
+``[]``; that table is the count, and it is right by construction.
+THE COUNT USED TO BE WRITTEN OUT HERE AND IT WAS WRONG THREE ROUNDS
+RUNNING -- "TWO ... and six" survived party_cmd landing (m54yxh) and then
+survived a round whose whole point, 190 lines below, was to stop
+hand-counting the very same table (pf-adversary round `ncejt8`, F7,
+caught it; round xqxadg's D6 caught the previous instance).  A header
 that describes the day a file landed, in the present tense, becomes a
 false statement about the system the first time somebody uses the file.
 Anything below that reads "ships empty" is history, not behaviour.

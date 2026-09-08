@@ -252,7 +252,18 @@ class RefusalTests(_AnswererRegistered):
             reply.version, wire.COMMUNITY_REMOVE_FRIEND_VITAL_VERSION,
         )
         self.assertEqual(reply.label, answerer_module.LABEL)
-        self.assertIn("UI_FRIEND_REMOVE_ANSWER len=20", console)
+        self.assertIn("UI_FRIEND_REMOVE_ACCEPTED len=20", console)
+        # F8: the token must NOT claim the wire.  Four gates and one
+        # sendall still stand between this line and a byte leaving.
+        self.assertNotIn("UI_FRIEND_REMOVE_ANSWER ", console)
+        # F2: `current/pf_login_game_server_v141.py` sleeps `delay` in
+        # the CONNECTION THREAD, so an edit setting 30.0 stalls one
+        # logged-in player's socket for half a minute per press, up to
+        # the per-session allowance, under an otherwise green suite.
+        # `_actions_are_well_formed` bounds it only to finite and >= 0
+        # and the outbound row does not bound it at all.  Nothing else
+        # pins it; this does.
+        self.assertEqual(reply.delay, 0.0)
 
 
 class TheWidthIsFixedAndCheckedAsFixedTests(_AnswererRegistered):
@@ -282,7 +293,9 @@ class TheWidthIsFixedAndCheckedAsFixedTests(_AnswererRegistered):
             shape.max_payload_bytes, len(_real_remove_payload()),
         )
 
-    def test_a_reencoding_that_is_too_LONG_is_refused(self):
+    def test_a_reencoding_that_is_too_LONG_dies_at_the_BYTE_EXACT_guard(
+        self,
+    ):
         payload = _real_remove_payload()
         real_encoder = wire.encode_remove_friend_payload
 
@@ -305,11 +318,52 @@ class TheWidthIsFixedAndCheckedAsFixedTests(_AnswererRegistered):
         self.assertIn("reason=not_byte_exact", stderr.getvalue())
 
     def test_a_width_the_registry_disagrees_with_is_refused(self):
-        """Move the reviewed number and the button goes silent, loudly."""
+        """Move the reviewed number EITHER WAY and the button goes
+        silent, loudly.
+
+        BOTH DIRECTIONS, and pf-adversary round `ncejt8` (F3) is why.
+        This test used to move the row to 19 only -- the one direction
+        where `!=` and `>` behave identically -- so the round's headline
+        claim ("equality, not a ceiling") was one no test could tell
+        apart from a ceiling.  512 is the distinguishing case: it is the
+        edit that is harmless everywhere else in that registry, and it
+        must still refuse here.
+
+        MEASURED: with both directions here, mutating the row clause's
+        `!=` to `>` fails the 19 case and to `<` fails the 512 case.
+        The other clause of the same `if` -- the one comparing
+        `len(reencoded)` -- stays unpinned on purpose, because it is
+        unreachable; the module header says so rather than letting this
+        docstring imply the whole guard is covered.
+        """
         real = ui_dispatch._OUTBOUND_FRAME_SHAPES[answerer_module.LABEL]
-        ui_dispatch._OUTBOUND_FRAME_SHAPES[answerer_module.LABEL] = (
-            real._replace(max_payload_bytes=19)
-        )
+        for width in (19, 512):
+            with self.subTest(row_width=width):
+                ui_dispatch._OUTBOUND_FRAME_SHAPES[answerer_module.LABEL] = (
+                    real._replace(max_payload_bytes=width)
+                )
+                try:
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stderr(stderr):
+                        out = answerer_module.answer_remove_friend(
+                            vital_id=wire.COMMUNITY_REMOVE_FRIEND_VITAL_ID,
+                            payload=_real_remove_payload(),
+                        )
+                finally:
+                    ui_dispatch._OUTBOUND_FRAME_SHAPES[
+                        answerer_module.LABEL
+                    ] = real
+                self.assertEqual(out, [])
+                self.assertIn(
+                    "reason=not_the_fixed_payload_width", stderr.getvalue(),
+                )
+
+    def test_the_modules_own_width_constant_is_not_dead(self):
+        """F4 / round m54yxh D7: comparing only against the registry
+        would leave this module's own number unread.  Move the constant
+        alone, with the row untouched, and the button must refuse."""
+        real = answerer_module._REMOVE_FRIEND_PAYLOAD_BYTES
+        answerer_module._REMOVE_FRIEND_PAYLOAD_BYTES = 999
         try:
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
@@ -318,20 +372,60 @@ class TheWidthIsFixedAndCheckedAsFixedTests(_AnswererRegistered):
                     payload=_real_remove_payload(),
                 )
         finally:
-            ui_dispatch._OUTBOUND_FRAME_SHAPES[answerer_module.LABEL] = real
+            answerer_module._REMOVE_FRIEND_PAYLOAD_BYTES = real
         self.assertEqual(out, [])
         self.assertIn("reason=not_the_fixed_payload_width", stderr.getvalue())
+
+    def test_the_width_is_structural_not_a_sample(self):
+        """F11: the invariant is masking plus fixed-width pack codes, so
+        it holds for ints the random sample can never reach."""
+        for triple in (
+            (-1, -1, -1),
+            (1 << 200, 1 << 200, 1 << 200),
+            (-(1 << 200), 0, 0),
+            (True, False, True),
+        ):
+            with self.subTest(triple=repr(triple)[:40]):
+                self.assertEqual(
+                    len(wire.encode_remove_friend_payload(
+                        wire.RemoveFriendFields(*triple)
+                    )),
+                    20,
+                )
+
+    def test_a_non_int_field_raises_rather_than_producing_a_short_payload(
+        self,
+    ):
+        """The honest other half of F11: the dataclass validates
+        nothing, so a non-int field is a raise, caught by the seam."""
+        for bad in (1.5, "a", None):
+            with self.subTest(kind=type(bad).__name__):
+                with self.assertRaises(Exception):
+                    wire.encode_remove_friend_payload(
+                        wire.RemoveFriendFields(bad, 0, 0)
+                    )
 
 
 class TheReviewedRowsTests(unittest.TestCase):
     """The two rows a lane cannot write for itself."""
 
     def test_the_owner_row_names_this_module_and_only_this_module(self):
+        """Both halves, because F13 measured that only the first was
+        asserted: this module could also have been named for another id
+        and the test stayed green."""
         self.assertEqual(
             ui_dispatch._ANSWERER_OWNERS[
                 wire.COMMUNITY_REMOVE_FRIEND_VITAL_ID
             ],
             answerer_module.__name__,
+        )
+        owned = [
+            vital_id
+            for vital_id, owner in ui_dispatch._ANSWERER_OWNERS.items()
+            if owner == answerer_module.__name__
+        ]
+        self.assertEqual(
+            owned, [wire.COMMUNITY_REMOVE_FRIEND_VITAL_ID],
         )
 
     def test_the_outbound_row_names_this_id_and_a_frame_bound_it_can_meet(

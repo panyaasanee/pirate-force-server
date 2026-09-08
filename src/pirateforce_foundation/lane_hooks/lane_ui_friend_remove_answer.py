@@ -1,11 +1,19 @@
 """LANE-UI: the fourth button on the production path the server answers.
 
-WHAT A PLAYER CAN DO THAT THEY COULD NOT BEFORE THIS MODULE.  Press
-"remove friend" in the shipped client UI and have the server answer the
-frame instead of dropping it.  ``Community_RemoveFriendVital``
-(``0x98A1``) is one of the eight ids ``runtime.py`` already routes into
-``ui_dispatch``; until this module it was one of the ids with no owner,
-so every press produced an empty action list and zero bytes back.
+WHAT CHANGES, STATED AT THE WIDTH THE EVIDENCE SUPPORTS.  A
+``Community_RemoveFriendVital`` (``0x98A1``) frame arriving from a
+logged-in session is answered instead of dropped: until this module it
+was one of the ids ``runtime.py`` routes into ``ui_dispatch`` with no
+owner, so it produced an empty action list and zero bytes back.
+
+!! AND NOT "the remove-friend button in the shipped client sends this"
+(pf-adversary round `ncejt8`, F9).  ``RE-312`` nonclaim 2 records
+``observed_frames = 0`` for all eight classes in BOTH directions and
+nonclaim 4 declines to claim packet direction, so nobody has watched a
+client send ``0x98A1`` at all.  The button-to-id link is the reading
+this lane is building on and it is NOT measured; the ticket that
+measures it is the one this module's row in
+``docs/FUNCTIONAL_COVERAGE.json`` is open on.
 
 WHY THIS ONE NEEDED NO NEW REVERSING.  ``RE-312`` RESULT-1 (pf_bridge
 ``notes_to_chief/20260908_1038_RE-312-RESULT-*``) measured all eight ids
@@ -24,19 +32,30 @@ BUILD_IMPACT 3 of that letter says the five ``Community_`` ids share one
 vtable entry and split INSIDE ``0x0063F9B0`` rather than at the table,
 so "this id has a handler" is measured while "the split inside that
 function reaches a body for THIS id" is not.  Nobody has read that
-function.  The consequence is bounded and is the same one the friend
-REQUEST answerer beside this file carries: if the split refuses
-``0x98A1``, the client ignores a frame it asked for, which is the state
-the player is already in today.  It is not a reason to send different
-bytes, and it IS a reason this module echoes rather than composes.
+function.  The consequence is bounded: if the split refuses ``0x98A1``, the client
+ignores a frame it asked for, which is the state the player is already
+in today.  It is not a reason to send different bytes, and it IS a
+reason this module echoes rather than composes.  (An earlier draft of
+this paragraph said "the same one the friend REQUEST answerer beside
+this file carries".  There is no such file in this repository --
+pf-adversary round `ncejt8`, F6: it exists only on an unmerged branch,
+and a reviewer cannot open the argument they are asked to lean on.)
 
 WHAT IT SENDS: THE PLAYER'S OWN BYTES.  ``ui_friend_wire`` decodes the
 payload, this module RE-ENCODES it, and refuses unless the result is
 byte-identical to what arrived.  No field is named and none can be:
-letter ``20260904_1120`` nonclaim (2) and ``RE-312`` nonclaim 5 both
-stand and ``proven_semantics`` is UNKNOWN.  "field2_u64 is the friend
-being removed" is the obvious reading and it is NOT written into this
-file, because nothing has measured it.
+letter ``20260904_1120`` nonclaim (2) stands, and the ``RE-312``
+nonclaim that covers THIS class is nonclaim **3** (nothing is claimed
+about what separates the five ``Community_*`` classes), not nonclaim 5.
+Nonclaim 5 is scoped to serializer ``0x00664550``, which RESULT-2 shows
+is the one PartyInviteVital and TradeInviteVital share; this class
+serialises at ``0x006E7B20``.  The party and trade answerers cite
+nonclaim 5 correctly and this file copied the citation without
+re-reading its scope (pf-adversary round `ncejt8`, F5).  The
+conservative conclusion is unchanged -- ``proven_semantics`` is UNKNOWN
+either way -- but the authority for it is now the right one.
+"field2_u64 is the friend being removed" is the obvious reading and it
+is NOT written into this file, because nothing has measured it.
 
 !! ONE BYTE THAT LEAVES IS NOT THE PLAYER'S, the same one the party and
 trade answerers name: ``version`` is the module constant
@@ -44,18 +63,65 @@ trade answerers name: ``version`` is the module constant
 header calls it an UNPROVEN DEFAULT, and the inbound version the client
 sent is parsed by ``runtime.py`` and NOT handed to
 ``ui_dispatch.answer()``.  So a client that sends anything but zero is
-answered with zero anyway.  Closing that needs the inbound version
-passed through the seam -- a ``runtime.py`` change, filed by the party
-answerer, not taken here.
+answered with zero anyway.
+!! AND THAT BYTE IS COMPARED BY THE CLIENT, which this file must say
+rather than leave to its neighbours (pf-adversary round `ncejt8`, F10):
+``RE-312`` RESULT-2 reads ``0x005F3EF4`` comparing the u8 after the id
+against ``[obj+0x10]`` and logging ``0xE0000031`` on a mismatch, and
+nobody has read ``[obj+0x10]`` for this class.  RESULT-2's own verdict
+is that the client LOGS and carries on -- a warning, not an error -- so
+the guess is bounded, and carrying the conclusion rather than only the
+evidence is what round m54yxh's D12 was about.  Closing it needs the
+inbound version passed through the seam, a ``runtime.py`` change this
+lane has not filed as its own letter (the party answerer's header calls
+it filed; no letter in ``notes_to_chief/`` matches, so treat it as
+UNFILED until one does).
 
 THIS PAYLOAD HAS NO STRING, SO IT HAS NO HEADROOM.  ``u64 + u64 + u8``
-under this lane's tag encoding is exactly 20 bytes for every field
-triple the type can hold -- measured over 4,000 random triples in
-``tests/test_lane_ui_friend_remove_answer.py``, including both u64
-extremes.  The reviewed row in ``ui_dispatch`` therefore states 20 and
-this module requires EQUALITY against it, the same choice
-``lane_ui_party_cmd_answer`` made for its fixed-width class: headroom
+under this lane's tag encoding is exactly 20 bytes for every INT triple,
+and the reason is structural rather than statistical (pf-adversary round
+`ncejt8`, F11: 4,000 random samples out of a 2**136 space is not "every"
+-- the guarantee is that the encoder masks with ``& 0xFFFF...`` / ``&
+0xFF`` and hands fixed-width ``struct.pack`` codes, so negative and
+oversized ints normalise instead of widening).  ``RemoveFriendFields``
+is an unvalidated dataclass, so a NON-int field raises inside the
+encoder instead of producing 20 bytes; that raise is caught by
+``ui_dispatch.answer()`` and costs the player nothing, and it is why
+this paragraph says "int triple" and not "anything the type can hold".
+
+BOTH NUMBERS, NOT ONE (round m54yxh, D7, and pf-adversary round
+`ncejt8`, F4 for repeating it).  ``_REMOVE_FRIEND_PAYLOAD_BYTES`` below
+is this module's own reviewed width and the ``ui_dispatch`` row is the
+seam's; the guard requires the re-encoding to equal the first AND the
+row to equal it too.  Comparing only against the registry would leave
+this module's constant dead -- measured on the sibling class: setting it
+to 999 left the button working.
+
+AND WHAT ``!=`` COSTS, not only what it buys.  ``!=`` is NOT strictly
+safer than ``>``: widening the reviewed row -- the one edit that is
+harmless everywhere else in that registry -- makes this button answer
+nothing at all rather than answer a wider frame.  That is the trade
+taken here on purpose, for the same reason as the sibling: headroom
 nobody needs is reach nobody reviewed.
+
+AND THE GUARD IS DEAD CODE TODAY, said as plainly as the round-trip
+guard below says it (pf-adversary round `ncejt8`, F3: this file declared
+one of two identical facts and presented the other as an active
+safeguard).  The decoder admits exactly one length -- 20 -- measured
+exhaustively over lengths 0..39 plus fuzz, and the byte-exact check
+above the width check has already required ``reencoded == payload``.  So
+no input the seam can deliver reaches the width refusal through the real
+decoder.  It stays for the decoder this project will have LATER.
+
+WHICH HALF OF THE GUARD IS PINNED, MEASURED, not asserted.  The ROW
+half is pinned in both directions: the test file moves the reviewed
+number to 19 and to 512 and requires a refusal each time, so mutating
+that clause's ``!=`` to ``>`` or to ``<`` turns the suite red (verified
+by running both mutants).  The LENGTH half is NOT pinned and cannot be,
+because it is unreachable: mutating ``len(reencoded) != ...`` to ``>``
+survives a green suite, and it survives because no input the decoder
+accepts has any other length.  Saying only the first half would be the
+kind of half-true this file has already been caught making.
 
 WHO CAN PRESS THIS BUTTON: SOMEBODY WHO LOGGED IN.  ``ui_dispatch
 .answer()`` refuses before any answerer runs unless the session holds a
@@ -74,6 +140,11 @@ from .. import ui_friend_wire as wire
 production_allowed = True
 
 LABEL = "UI_FRIEND_REMOVE_ANSWERED"
+
+# THIS MODULE'S OWN REVIEWED WIDTH, kept beside the answerer and checked
+# against the seam's row rather than read from it -- see the header's
+# "BOTH NUMBERS, NOT ONE".
+_REMOVE_FRIEND_PAYLOAD_BYTES = 20
 
 
 def _say(line: str) -> None:
@@ -141,16 +212,28 @@ def answer_remove_friend(session=None, vital_id=0, payload=b"", **_ignored):
             " label=%.64s bytes_out=0" % (LABEL,)
         )
         return []
-    # EQUALITY, NOT A CEILING -- see the header: every payload this class
-    # can produce is the same width, so anything else is not this class.
-    if len(reencoded) != shape.max_payload_bytes:
+    # EQUALITY AGAINST BOTH NUMBERS -- see the header.
+    if (len(reencoded) != _REMOVE_FRIEND_PAYLOAD_BYTES
+            or shape.max_payload_bytes != _REMOVE_FRIEND_PAYLOAD_BYTES):
         _say(
             "UI_FRIEND_REMOVE_REFUSED reason=not_the_fixed_payload_width"
-            " len=%d width=%d bytes_out=0"
-            % (len(reencoded), shape.max_payload_bytes)
+            " len=%d width=%d row=%d bytes_out=0"
+            % (len(reencoded), _REMOVE_FRIEND_PAYLOAD_BYTES,
+               shape.max_payload_bytes)
         )
         return []
-    _say("UI_FRIEND_REMOVE_ANSWER len=%d" % (len(reencoded),))
+    # ACCEPTED, NOT ANSWERED (pf-adversary round `ncejt8`, F8).  This
+    # line used to read `UI_FRIEND_REMOVE_ANSWER`, and it prints four
+    # gates and one `sendall` before any byte can leave: `_compose`,
+    # `_actions_are_well_formed`, `_outbound_shapes_are_registered` and
+    # the budget charge all run after this module returns, and a caller
+    # that reaches `answer()` without an envelope gets zero bytes out
+    # under a console line that said ANSWER.  The seam renamed its own
+    # token for exactly this reason; so does this one.  The attended
+    # round reading this console is told what this module decided, not
+    # what the wire did.
+    _say("UI_FRIEND_REMOVE_ACCEPTED len=%d bytes_out=pending"
+         % (len(reencoded),))
     return [
         ui_dispatch.VitalReply(
             label=LABEL,
