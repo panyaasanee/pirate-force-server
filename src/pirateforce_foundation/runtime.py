@@ -734,9 +734,25 @@ def _sweep_wants_an_empty_world(env=None) -> bool:
         value = (
             os.environ if env is None else env
         ).get(name_colour_sweep.SWEEP_ENV, "")
+        if isinstance(names, str):
+            # A module that writes `("ALL-NOID")` has written a str, not a
+            # one-tuple -- the comma is the tuple.  `tuple()` would spell it
+            # into eight letters and the answer would be False for its own
+            # name: the sweep would then compose on top of Port Royal with no
+            # refusal token, which is the bad attended result this whole path
+            # exists to prevent (pf-adversary, round vx46m5, D3).  One name is
+            # read as one name.
+            names = (names,)
+        return bool(value) and value in tuple(names)
     except Exception:  # noqa: BLE001
+        # THE MEMBERSHIP TEST IS INSIDE THIS try AND THAT IS THE POINT.  It
+        # used to sit after it, so a module publishing `None`, a number, or
+        # any object whose iteration raises took `tuple(names)` -- and with it
+        # `dispatch()` and the listener thread that has no `except` above it
+        # (v141:7440) -- down with it.  MEASURED on the real dispatcher before
+        # this line moved: `SWEEP_SETS_WANTING_AN_EMPTY_WORLD = None` plus
+        # `PF_NAME_COLOUR_SWEEP=ALL` raised TypeError out of dispatch.
         return False
-    return bool(value) and value in tuple(names)
 
 
 class _EventEchoList(list):
@@ -12727,12 +12743,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         #    rest of that scene's population is composed.
                         #    NONCLAIM: identical-per-session is NOT one shared
                         #    row registered in LANE-A's world registry.
-                        #    `sweep_entries` is a pure function of (anchor,
-                        #    env) and writes nothing to the registry, so two
-                        #    sessions each get their own copy that agrees.
-                        #    Enough for a read-only colour instrument with no
-                        #    combat state; NOT enough for anything killable,
-                        #    and nothing here may be reused for one.
+                        #    `sweep_entries` writes nothing to the registry,
+                        #    so two sessions each get their own copy.
+                        #    THE COPIES NO LONGER AGREE, AND THIS ROUND IS
+                        #    WHAT CHANGED THAT: the function's inputs are now
+                        #    (anchor, env, viewer_identity), and two sessions
+                        #    in bg0001 with an armed ALL set compose two
+                        #    collections whose N-LNKP and N-IDNEG-LNKP bodies
+                        #    differ -- MEASURED, two boots in one process,
+                        #    same 24 label-derived identities, different
+                        #    NPCAttr payloads (pf-adversary round vx46m5 D7).
+                        #    That is the POINT of the keyword (the row is a
+                        #    "(viewer, mob) pair" reading), not a defect, but
+                        #    the old sentence justified the sweep's place in
+                        #    the shared census by per-session agreement and
+                        #    that justification is gone: what carries it now
+                        #    is that these rows are a read-only colour
+                        #    instrument with no combat state and no registry
+                        #    row.  NOT enough for anything killable, and
+                        #    nothing here may be reused for one.
                         #
                         # 2. ONE COLLECTION, NOT TWO.  R380 queued this row as
                         #    its OWN make_runtime_remote_actors frame after the
@@ -12790,9 +12819,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         sweep_suffix = ""
                         # CORE-REQUEST LANE-B (pf_bridge
                         # notes_to_chief/20260908_0024) ITEM 1: WHO IS
-                        # LOOKING.  Three rows of the ALL set -- N-LNKP,
-                        # N-IDNEG-LNKP, N-ID0-LNKP, the "(viewer, mob) pair"
-                        # reading of NPCAttr+0x98 -- cannot be built without
+                        # LOOKING.  TWO rows of the ALL set -- N-LNKP and
+                        # N-IDNEG-LNKP, the "(viewer, mob) pair" reading of
+                        # NPCAttr+0x98 -- cannot be built without
                         # the identity of the session the census is being
                         # composed FOR, and that identity is a runtime fact
                         # the module has no way to reach.  Same qword idiom
@@ -12818,6 +12847,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # two sets that work TODAY.  One signature read, no
                         # retry: a call that fails and is silently repeated
                         # would run the module's side effects twice.
+                        #
+                        # THE KEYWORD LANDED ON 2026-09-08 (LANE-B, commit
+                        # b712762) while this call site waited for review, so
+                        # the branch taken on main today is the one WITH the
+                        # keyword.  The other branch is kept and still tested:
+                        # it is what protects sets 1 and 2 on a tree where
+                        # that module is reverted, which is the only reason it
+                        # was ever written.
+                        #
+                        # WHAT READING THE SIGNATURE DOES NOT BUY (measured,
+                        # pf-adversary round vx46m5 D5): a `functools.wraps`
+                        # wrapper that narrows the parameters reports the
+                        # WRAPPEE's signature, so the keyword would be offered
+                        # to a callable that cannot take it -- TypeError,
+                        # caught below, and an armed boot ships an ordinary
+                        # town.  No such wrapper exists on this tree; if one
+                        # is ever added the honest guard is a TypeError retry
+                        # at the call boundary, not a wider signature read.
                         try:
                             sweep_takes_viewer = "viewer_identity" in (
                                 inspect.signature(
