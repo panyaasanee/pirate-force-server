@@ -2520,5 +2520,279 @@ class EveryRefusalInComposeIsReachedTests(unittest.TestCase):
         self.assertEqual(len(action[2]), 1024)
 
 
+class AdoptAnswererTests(_RegistryIsolation):
+    """``adopt_answerer()`` -- the route where the LANE never registers.
+
+    ``NOW.md`` (COO ``1441`` item 1) forbids a lane calling
+    ``register_answerer()`` itself, and chief's letter ``20260908_1703``
+    approved the seam in ``lane_hooks._discover()`` that replaces it,
+    on the condition that every refusal is named on the console: the
+    seam calls this function, ignores the return value and walks on, so
+    a refusal nobody printed is a button that silently never answers.
+
+    Each test below drives the REAL function with a REAL module under
+    ``pirateforce_foundation.lane_hooks.`` -- the identity check reads
+    ``sys.modules``, so a fake name would prove nothing about it.
+    """
+
+    ADOPTED_SOURCE = (
+        "ANSWERS_VITAL_ID = %d\n"
+        "def answer_it(session=None, vital_id=0, payload=b'', **_ignored):\n"
+        "    return [('ADOPTED', b'pc', b'frame')]\n"
+        "ANSWERS_WITH = answer_it\n"
+    )
+
+    def _declaring_lane(self, stem, vital_id, allowed=True, source=None):
+        import types
+
+        qualified = f"{lane_hooks.__name__}.{stem}"
+        module = types.ModuleType(qualified)
+        module.__file__ = f"<{stem}>"
+        module.production_allowed = allowed
+        sys.modules[qualified] = module
+        self.addCleanup(sys.modules.pop, qualified, None)
+        if allowed:
+            lane_hooks._PRODUCTION_ALLOWED[qualified] = True
+            self.addCleanup(
+                lane_hooks._PRODUCTION_ALLOWED.pop, qualified, None,
+            )
+        exec(
+            compile(
+                self.ADOPTED_SOURCE % vital_id if source is None else source,
+                f"<{stem}>",
+                "exec",
+            ),
+            module.__dict__,
+        )
+        return module
+
+    def _adopt(self, module, vital_id):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            took = ui_dispatch.adopt_answerer(
+                module.__name__, vital_id, module,
+            )
+        return took, stderr.getvalue()
+
+    def test_the_reviewed_owner_declaration_is_adopted_and_named(self):
+        """The happy path, and the token names the LANE, not this file.
+
+        The registrar name is what ``answer()``'s gate judges, so a
+        declaration adopted under ``ui_dispatch``'s own name would be a
+        button gated forever -- ``module_production_allowed()`` answers
+        False for every module ``_discover()`` never imported.
+        """
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_ok", PARTY_INVITE_VITAL_ID,
+        )
+        self.review_owner(module.__name__, PARTY_INVITE_VITAL_ID)
+        took, console = self._adopt(module, PARTY_INVITE_VITAL_ID)
+        self.assertTrue(took)
+        self.assertIn("UI_DISPATCH_ANSWERER", console)
+        self.assertIn(module.__name__, console)
+        name, fn = ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+        self.assertEqual(name, module.__name__)
+        self.assertIs(fn, module.ANSWERS_WITH)
+        self.assertIn(
+            module.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+        )
+
+    def test_an_adopted_answerer_is_reached_on_a_real_frame(self):
+        """End to end: the per-frame gate clears and the lane's code RUNS.
+
+        Registration that reads back is not the claim that matters --
+        ``answer()`` re-checks the whole gate on every frame and returns
+        ``[]`` while printing ``UI_DISPATCH_GATED`` for a registrar name
+        it cannot clear, which is exactly what adopting under the wrong
+        name would produce.  The proof is therefore that the lane's own
+        function was ENTERED: the gate refuses before any answerer runs.
+        (What the returned action must then LOOK like is the outbound
+        shape registry's rule, measured in its own tests, and adoption
+        does not touch it.)
+        """
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_live",
+            PARTY_INVITE_VITAL_ID,
+            source=(
+                "ANSWERS_VITAL_ID = %d\n"
+                "REACHED = []\n"
+                "def answer_it(session=None, vital_id=0, payload=b'',"
+                " **_ignored):\n"
+                "    REACHED.append(payload)\n"
+                "    return []\n"
+                "ANSWERS_WITH = answer_it\n" % PARTY_INVITE_VITAL_ID
+            ),
+        )
+        self.review_owner(module.__name__, PARTY_INVITE_VITAL_ID)
+        self.assertTrue(self._adopt(module, PARTY_INVITE_VITAL_ID)[0])
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b"\x00")
+        self.assertEqual(module.REACHED, [b"\x00"])
+        self.assertNotIn("UI_DISPATCH_GATED", stderr.getvalue())
+
+    def test_a_lane_without_the_production_flag_is_still_gated(self):
+        """Adoption is not a way past ``answer()``'s per-frame gate."""
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_gated", PARTY_INVITE_VITAL_ID, allowed=False,
+        )
+        self.review_owner(module.__name__, PARTY_INVITE_VITAL_ID)
+        self.assertTrue(self._adopt(module, PARTY_INVITE_VITAL_ID)[0])
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), [],
+            )
+        self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
+
+    def test_an_id_with_no_reviewed_owner_is_refused_out_loud(self):
+        """Chief's added condition (letter 1703 section 4), measured.
+
+        ``_discover()`` does not read the return value, so silence here
+        would make a refused impostor and a lane that declared nothing
+        identical on the console.
+        """
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_unowned", PARTY_INVITE_VITAL_ID,
+        )
+        ui_dispatch._ANSWERER_OWNERS.pop(PARTY_INVITE_VITAL_ID, None)
+        took, console = self._adopt(module, PARTY_INVITE_VITAL_ID)
+        self.assertFalse(took)
+        self.assertIn("reason=no_reviewed_owner", console)
+        self.assertIn(module.__name__, console)
+        self.assertIsNone(
+            ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+        )
+
+    def test_a_lane_that_is_not_the_reviewed_owner_is_refused(self):
+        """The D9 rule holds on this route too: the table decides."""
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_thief", PARTY_INVITE_VITAL_ID,
+        )
+        self.review_owner(
+            lane_hooks.__name__ + ".lane_ui_party_invite_answer",
+            PARTY_INVITE_VITAL_ID,
+        )
+        took, console = self._adopt(module, PARTY_INVITE_VITAL_ID)
+        self.assertFalse(took)
+        self.assertIn("reason=not_the_reviewed_owner", console)
+        self.assertIsNone(
+            ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+        )
+
+    def test_an_id_the_module_never_declared_is_refused(self):
+        """A caller passing an id of its own cannot wire a lane to it.
+
+        ``_discover()`` reads ``ANSWERS_VITAL_ID`` off the module and
+        passes it in; re-reading it here means the module's own file is
+        the only place that decides which button it takes, whatever the
+        seam above hands over.
+        """
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_other_id", PARTY_INVITE_VITAL_ID,
+        )
+        other = sorted(ui_dispatch.ANSWERABLE_VITAL_IDS
+                       - {PARTY_INVITE_VITAL_ID})[0]
+        self.review_owner(module.__name__, other)
+        took, console = self._adopt(module, other)
+        self.assertFalse(took)
+        self.assertIn("reason=id_is_not_the_declared_one", console)
+        self.assertIsNone(ui_dispatch.registered_answerer(other))
+
+    def test_a_declaration_without_a_callable_is_refused(self):
+        """``ANSWERS_WITH`` is the whole declaration of WHOSE code runs."""
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_no_fn",
+            PARTY_INVITE_VITAL_ID,
+            source=(
+                "ANSWERS_VITAL_ID = %d\n"
+                "ANSWERS_WITH = 'not a function'\n"
+                % PARTY_INVITE_VITAL_ID
+            ),
+        )
+        self.review_owner(module.__name__, PARTY_INVITE_VITAL_ID)
+        took, console = self._adopt(module, PARTY_INVITE_VITAL_ID)
+        self.assertFalse(took)
+        self.assertIn("reason=no_declared_callable", console)
+        self.assertIsNone(
+            ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+        )
+
+    def test_a_name_that_is_not_that_module_is_refused(self):
+        """The NAME is what the gate will judge, so it must be the module's.
+
+        A name that resolves to something else -- or to nothing -- would
+        register this module's callable under a gate belonging to another
+        file.
+        """
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_identity", PARTY_INVITE_VITAL_ID,
+        )
+        borrowed = lane_hooks.__name__ + ".lane_ui_party_invite_answer"
+        self.review_owner(borrowed, PARTY_INVITE_VITAL_ID)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            took = ui_dispatch.adopt_answerer(
+                borrowed, PARTY_INVITE_VITAL_ID, module,
+            )
+        self.assertFalse(took)
+        self.assertIn("reason=name_is_not_that_module", stderr.getvalue())
+        self.assertIsNone(
+            ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+        )
+
+    def test_a_name_outside_the_lane_package_is_refused(self):
+        """Only files ``_discover()`` imports can be adopted."""
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            took = ui_dispatch.adopt_answerer(
+                ui_dispatch.__name__, PARTY_INVITE_VITAL_ID, ui_dispatch,
+            )
+        self.assertFalse(took)
+        self.assertIn("reason=not_a_discoverable_lane", stderr.getvalue())
+        self.assertIsNone(
+            ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+        )
+
+    def test_an_unrouted_id_is_refused_on_this_route_too(self):
+        """``runtime.py`` routes eight ids here; a ninth is not adoptable."""
+        module = self._declaring_lane("lane_ui_zz_adopt_unrouted", 0x0000)
+        self.review_owner(module.__name__, 0x0000)
+        took, console = self._adopt(module, 0x0000)
+        self.assertFalse(took)
+        self.assertIn("reason=not_routed_here", console)
+
+    def test_first_wins_still_holds_across_the_two_routes(self):
+        """A live incumbent keeps the id whichever door the second uses.
+
+        The two entry points share ``_install_answerer()`` precisely so
+        the answer to "who holds this id" cannot depend on which of them
+        asked.
+        """
+        def incumbent(session=None, vital_id=0, payload=b"", **_ignored):
+            return []
+
+        self.allow()
+        self.review_owner(
+            f"{lane_hooks.__name__}.{__name__}", PARTY_INVITE_VITAL_ID,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(
+                ui_dispatch.register_answerer(
+                    PARTY_INVITE_VITAL_ID, incumbent,
+                )
+            )
+        module = self._declaring_lane(
+            "lane_ui_zz_adopt_second", PARTY_INVITE_VITAL_ID,
+        )
+        self.review_owner(module.__name__, PARTY_INVITE_VITAL_ID)
+        took, console = self._adopt(module, PARTY_INVITE_VITAL_ID)
+        self.assertFalse(took)
+        self.assertIn("reason=already_taken", console)
+        _name, fn = ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+        self.assertIs(fn, incumbent)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

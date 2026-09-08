@@ -415,6 +415,27 @@ def register_answerer(vital_id, fn):
                 % (_hex(vital_id), module_name, owner or "-")
             )
             return False
+    return _install_answerer(module_name, gating, vital_id, fn)
+
+
+def _install_answerer(module_name, gating, vital_id, fn):
+    """Take the slot for ``vital_id``, or refuse and say why. Returns a bool.
+
+    THE WRITE ITSELF, SHARED BY THE TWO WAYS IN (round ly40b5).  Two
+    entry points now reach this registry -- ``register_answerer()``,
+    where a lane wires itself and the registrar is read off the stack,
+    and ``adopt_answerer()``, where ``lane_hooks._discover()`` wires a
+    lane that declared its id and the registrar is the name the import
+    machinery used.  What must NOT vary between them is the part that
+    decides who holds an id: first-wins, the gated-incumbent yield, the
+    single-statement store and the token that names the result.  Keeping
+    that in one function is what makes "the two routes cannot disagree"
+    a property of the file rather than a promise in a docstring.
+
+    The CALLER owns the checks that differ (who may register, and how
+    the registrar's name and gate were established); by the time this
+    runs, ``module_name`` and ``gating`` are settled facts.
+    """
     if vital_id in _ANSWERERS:
         incumbent = _ANSWERERS[vital_id][0]
         # FIRST WINS -- BUT ONLY IF THE FIRST CAN ACTUALLY ANSWER
@@ -464,6 +485,114 @@ def register_answerer(vital_id, fn):
         % (_hex(vital_id), module_name, ",".join(gating) or "-")
     )
     return True
+
+
+def adopt_answerer(qualified_name, vital_id, module):
+    """Wire the answerer a DISCOVERED lane module DECLARES, on its behalf.
+
+    WHY THIS EXISTS (``NOW.md``, COO ``1441`` item 1: "a lane may not
+    call ``register_answerer()``").  A lane that wires itself is a lane
+    whose registration is a side effect of ``import``, and the registrar
+    identity that decides the production gate is then read off the call
+    stack.  ``lane_hooks._discover()`` is the one function that imports
+    lane files, so it is the only place the registration can happen
+    without being an import side effect -- and there the registrar name
+    is not a guess at all: it is the ``sys.modules`` key the import
+    machinery just used.  ``CORE-REQUEST`` ``20260908_1553`` asked chief
+    for that seam; chief approved it (letter ``20260908_1703``) and
+    bound it to this function's shape:
+
+        vital_id = getattr(module, "ANSWERS_VITAL_ID", None)
+        adopt = getattr(ui_dispatch, "adopt_answerer", None)
+        if vital_id is not None and adopt is not None:
+            adopt(qualified_name, vital_id, module)
+
+    ``_discover()`` does not read the return value and does not
+    interpret anything, so every refusal here is NAMED ON STDERR
+    (chief's one added condition, letter section 4): a forged declaration
+    that was refused and a lane that has not declared anything must not
+    look the same on the console.
+
+    WHAT IT REFUSES, AND WHY EACH ONE IS FAIL-CLOSED.  The id must be
+    one ``runtime.py`` routes here; the declaring name must be a module
+    ``_discover()`` can reach; ``sys.modules[qualified_name]`` must BE
+    the module object handed over (the name is what the gate will judge,
+    so a name that does not resolve to this object is not a name this
+    function may register under); ``_ANSWERER_OWNERS`` must carry a
+    reviewed row for the id and it must name this module; the module's
+    own ``ANSWERS_VITAL_ID`` must be the id passed in (so a caller
+    passing a different id cannot wire a lane to a button it never
+    declared); and the callable must be declared explicitly as
+    ``ANSWERS_WITH``.
+
+    ``ANSWERS_WITH`` IS EXPLICIT ON PURPOSE.  The obvious alternative --
+    "find the single ``answer_*`` function in the module" -- makes which
+    bytes reach the wire depend on the set of helper names a lane file
+    happens to define, so an ordinary refactor could silently change the
+    answerer.  Two declaration lines in the lane cost nothing and leave
+    the choice in the lane's own diff.
+
+    Not checked here, deliberately: whether the lane is
+    production-allowed.  That flag is a snapshot ``_discover()`` takes
+    around this call, and the gate that reads it lives in ``answer()``,
+    on every frame, exactly as it does for ``register_answerer()``.
+    """
+    name = qualified_name if isinstance(qualified_name, str) else "-"
+    if vital_id not in ANSWERABLE_VITAL_IDS:
+        _say(
+            "UI_DISPATCH_ADOPT_REFUSED id=%s reason=not_routed_here by=%s"
+            % (_hex(vital_id), name)
+        )
+        return False
+    if not _is_discoverable_lane(name):
+        _say(
+            "UI_DISPATCH_ADOPT_REFUSED id=%s reason=not_a_discoverable_lane by=%s"
+            % (_hex(vital_id), name)
+        )
+        return False
+    if module is None or sys.modules.get(name) is not module:
+        _say(
+            "UI_DISPATCH_ADOPT_REFUSED id=%s reason=name_is_not_that_module by=%s"
+            % (_hex(vital_id), name)
+        )
+        return False
+    owner = _ANSWERER_OWNERS.get(vital_id)
+    if owner is None:
+        _say(
+            "UI_DISPATCH_ADOPT_REFUSED id=%s reason=no_reviewed_owner by=%s"
+            % (_hex(vital_id), name)
+        )
+        return False
+    if owner != name:
+        _say(
+            "UI_DISPATCH_ADOPT_REFUSED id=%s reason=not_the_reviewed_owner"
+            " by=%s owner=%s"
+            % (_hex(vital_id), name, owner)
+        )
+        return False
+    if getattr(module, "ANSWERS_VITAL_ID", None) != vital_id:
+        _say(
+            "UI_DISPATCH_ADOPT_REFUSED id=%s reason=id_is_not_the_declared_one by=%s"
+            % (_hex(vital_id), name)
+        )
+        return False
+    fn = getattr(module, "ANSWERS_WITH", None)
+    if not callable(fn):
+        _say(
+            "UI_DISPATCH_ADOPT_REFUSED id=%s reason=no_declared_callable by=%s"
+            % (_hex(vital_id), name)
+        )
+        return False
+    # THE DECLARING LANE IS ALWAYS IN THE GATE, whatever the stack says.
+    # ``_gating_module_names()`` walks frames, and on this route the
+    # frames belong to ``_discover()`` and to this file -- neither is a
+    # lane -- so without this the gate for a declared answerer could come
+    # back empty and ``answer()`` would fall back to judging the
+    # registrar name alone.  It still adds ``fn.__module__`` when that is
+    # a lane, which is how a module declaring ANOTHER lane's callable
+    # stays judged by both.
+    gating = tuple(dict.fromkeys((name,) + _gating_module_names(fn)))
+    return _install_answerer(name, gating, vital_id, fn)
 
 
 def registered_answerer(vital_id):

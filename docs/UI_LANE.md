@@ -237,3 +237,42 @@ clicked), `BLOCKED-ON-RE-<id>` / `BLOCKED-ON-<LANE>`.
   reported 157 compared, 30 unresolved and the same zero findings). Nothing
   about those six functions changed; what changed is that the tool now says it
   cannot see them.
+
+## Who registers an answerer -- the declarative seam (round `ly40b5`)
+
+`ui_dispatch.adopt_answerer(qualified_name, vital_id, module)` landed this
+round, in this lane's own file, and it is the route `NOW.md` (COO `1441`
+item 1) asks for: a lane may not call `register_answerer()` itself. A lane
+that adopts declares two module-level lines --
+
+    ANSWERS_VITAL_ID = 0x37B1
+    ANSWERS_WITH = answer_party_invite
+
+-- and registers nothing. `lane_hooks._discover()` is the one function that
+imports lane files, so it is the only place a registration can happen
+without being an import side effect; chief approved the hookup (letter
+`notes_to_chief/20260908_1703_FROM_CHIEF_R404-*`) and has it as queue item 1
+of the next chief round that touches `src/`. Until that call exists in
+`_discover()`, `adopt_answerer()` has no production caller: the three
+answerers still register themselves, and converting them is the round after
+the seam lands (converting first would unregister three working buttons).
+
+Every refusal is named on stderr as
+`UI_DISPATCH_ADOPT_REFUSED id=... reason=... by=...`, because `_discover()`
+does not read the return value: a silent refusal and a lane that declared
+nothing would be the same console line, which is chief's one added condition
+(letter section 4). The reasons are `not_routed_here`,
+`not_a_discoverable_lane`, `name_is_not_that_module`, `no_reviewed_owner`,
+`not_the_reviewed_owner`, `id_is_not_the_declared_one`, and
+`no_declared_callable`.
+
+**And the sentence chief asked for, written on the day it is still true, not
+the day it stops being true (letter section 5).** Until `_discover()` is the
+one writing `_ANSWERERS`, the ownership gate in `register_answerer()` closes
+only against an impostor that registers under SOMEBODY ELSE'S name: a lane
+file that declares `production_allowed = True` and registers an id under its
+OWN name is refused only because `_ANSWERER_OWNERS` has no row for it -- a
+reviewed row plus a stack the walk cannot see (round `m54yxh` D-A: a table a
+lane appends to and an allowed module flushes later) is still a route in.
+Reading that code today and concluding "impostors are closed" would be
+reading more than it says.
