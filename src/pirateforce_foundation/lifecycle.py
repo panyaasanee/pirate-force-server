@@ -356,7 +356,7 @@ class CharacterLifecycle:
     def soft_delete(self, session_id: str, selector: int) -> int:
         return self.store.soft_delete_character(session_id, selector)
 
-    def checkpoint(self, session_id, character, position):
+    def checkpoint(self, session_id, character, position, *, durable: bool = True):
         # CORE-REQUEST-018 / GT-106 (4).3: a character whose current scene is
         # pinned persist_position_allowed=False (today: scene 17, no return
         # path measured yet) must not have this checkpoint overwrite its
@@ -367,7 +367,16 @@ class CharacterLifecycle:
         # still verifies session/character ownership either way (pf-adversary
         # finding 1) -- a stale or hijacked session still raises here, only
         # the column write itself is skipped.
-        allowed = is_position_persist_allowed(position.scene_id, self._scene_registry)
+        #
+        # `durable=False` is the caller saying the same thing the registry
+        # says for scene 17, about a row the registry cannot judge: the scene
+        # half of this position is the server's unconfirmed guess, so the
+        # stored column must keep the last row it believed.  It can only ever
+        # SUBTRACT a write (an `and`, never an `or`), so no caller can talk
+        # this method into writing a row the registry pins shut.
+        allowed = durable and is_position_persist_allowed(
+            position.scene_id, self._scene_registry,
+        )
         self.store.save_position(session_id, character.id, position, write_position=allowed)
 
     def backpack(self, session_id, character):

@@ -4826,7 +4826,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # opens on one of two branches is still the D3 hole.
                 self._m2_note_arrival_if_confirmed(candidate)
             elif candidate != selected.position:
-                self.foundation.checkpoint(candidate)
+                self._checkpoint_unless_the_label_is_a_guess(candidate)
                 # CORE-REQUEST-GM-051 item 3.  The gate is the PERSISTENT
                 # flag, not the one-frame confirm window the first draft
                 # used (pf-adversary R328 D1 and D7): gm_warp_position_pending
@@ -4914,6 +4914,99 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # saying the reading was admitted, a counter saying it was, or
                 # a baseline pointing where no row points.
                 self._move_authority_record_admitted(verdict, target, stamp)
+
+        def _checkpoint_unless_the_label_is_a_guess(self, candidate) -> bool:
+            """CORE-REQUEST `1808` item 1: close the SOURCE of the two-owner row.
+
+            THE DEFECT, IN THE WORDS OF THE LANE THAT MEASURED IT.  The row
+            this method writes has two owners: ``x/y/z`` are what the CLIENT
+            just reported in ``TargetPosVital``, and ``scene_id`` comes from
+            ``selected.position.scene_id`` -- the SERVER's belief, which
+            ``_gm_warp_resync_selected_scene`` sets to a warp DESTINATION at
+            queue time and which stays wrong for the rest of the session when
+            the client never follows.  ``/warp 305`` that the client ignores,
+            plus one ordinary step, used to write ``(305, Port Royal's
+            coordinates)`` into ``character_positions`` -- permanently, since
+            PANYA `1218` made login accept the stored row wholesale instead of
+            bouncing it off a marker.  Scene 305 carries no ``ground`` block,
+            so nothing downstream can refute such a row either (measured this
+            round: ``is_position_persist_allowed`` is True for 304/305/126/278
+            /997 and False only for 14/17).
+
+            WHAT THIS GATE IS, AND WHY IT IS NOT A NEW PIECE OF STATE.  The
+            server already knows when its own scene label is a guess:
+            ``scene_label_is_server_guess`` is set the moment the label is
+            relabelled to a destination the client has not backed (the GM warp
+            resync and the M2 journey both set it) and is cleared only by the
+            client's own coordinates landing on the target, or by the M2
+            arrival path.  Until this round that flag governed only whether
+            ``client_confirmed_scene`` was allowed to advance -- the durable
+            write beneath it was unconditional, and the comment two blocks
+            down said so in as many words.  So the field that exists to say
+            "do not trust this label" was consulted for the bookkeeping and
+            ignored for the row that outlives the session.
+
+            WHY "WITHHOLD" AND NOT "WRITE THE LAST CONFIRMED SCENE" (COO
+            `1943` allowed either).  Writing ``client_confirmed_scene`` with
+            THIS frame's coordinates produces the same defect mirrored: on a
+            warp the client DID follow, the last confirmed scene is the
+            DEPARTURE scene, and the row would carry the departure label with
+            the destination's coordinates.  Neither half can describe the
+            other's geometry, so when they disagree the honest row is no new
+            row at all -- the last-known-good one is left standing, which is
+            the same answer ``lifecycle.checkpoint`` already gives for a scene
+            pinned ``persist_position_allowed: false``.
+
+            WHAT IT COSTS, NAMED RATHER THAN HIDDEN.  A warp or a journey the
+            client DOES follow clears the flag on the frame that confirms it,
+            and the confirming frame runs this method BEFORE the clear -- so
+            the first step after an arrival writes no durable row and the
+            second one does.  One step, not one session.  The in-memory row
+            still moves on every frame either way, so the census, the travel
+            gates and every reader in this file see the player where the
+            player is.
+
+            THE LEASE CHECK IS NOT COLLATERAL.  ``store.save_position``'s
+            ownership SELECT is this project's only detection signal for a
+            stale or stolen lease, and it runs whether or not the column is
+            written.  So the withheld branch still goes through
+            ``foundation.checkpoint``, asking it for a non-durable write,
+            rather than skipping the call the way the login-override branch
+            above does: an unconfirmed warp can last the whole session, and a
+            session that stops verifying its own lease for that long is a
+            worse trade than the row this gate is protecting.  A session
+            object whose ``checkpoint`` predates the keyword raises TypeError,
+            which is caught at the call boundary (the honest guard named in
+            this file's own signature-reading block) and degraded to the
+            in-memory move, with an event that says the lease went unchecked
+            rather than a silent one.
+
+            Returns True when a durable write was attempted.
+            """
+            if not getattr(self, "scene_label_is_server_guess", False):
+                self.foundation.checkpoint(candidate)
+                return True
+            try:
+                self.foundation.checkpoint(candidate, durable=False)
+            except TypeError:
+                self.foundation.selected = replace(
+                    self.foundation.selected, position=candidate,
+                )
+                self.events.append(
+                    "durable_row_withheld_lease_unchecked_scene_"
+                    f"{candidate.scene_id}"
+                )
+            else:
+                self.events.append(
+                    "durable_row_withheld_unconfirmed_scene_"
+                    f"{candidate.scene_id}"
+                )
+            print(
+                "DURABLE_ROW_WITHHELD_UNCONFIRMED_SCENE "
+                f"{candidate.scene_id}",
+                file=sys.stderr,
+            )
+            return False
 
         def _note_client_confirmed_scene(self, scene_id, why: str) -> None:
             """CORE-REQUEST-GM-051 item 3: record a scene the CLIENT backed.
