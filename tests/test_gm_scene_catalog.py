@@ -431,5 +431,101 @@ class TheTableFactsTheWarpGrammarLeansOnTests(unittest.TestCase):
                 self.assertNotIn("#", name)
 
 
+class TheFragmentSearchTests(unittest.TestCase):
+    """`suggest_gm_scene_names` answers a piece of a name, not only a typo.
+
+    difflib scores over the WHOLE name, so a fragment is mostly missing
+    name and scores below the ratio however right it is.  That left the
+    commonest way to half-remember a name -- its first word -- at the same
+    dead end the suggestion helper was written to remove.
+    """
+
+    def test_a_first_word_that_used_to_answer_nothing_now_names_scenes(self):
+        # Measured on the pinned table: difflib alone returns () for this
+        # query against all 293 keys.
+        self.assertEqual(
+            (("Atlantic Ocean1", 1), ("Atlantic-Dark Fog Sea", 1)),
+            scene_catalog.suggest_gm_scene_names("Atlantic"),
+        )
+
+    def test_the_measured_size_of_the_hole_this_closed(self):
+        """61 of 86 distinct first words answered nothing; now 6 do.
+
+        Written down rather than recomputed from the implementation (the
+        lesson of D2/D3 last round): these two numbers are what makes the
+        change worth its lines, and if the table is re-derived they must be
+        re-measured by a human, not followed silently.
+        """
+        first_words = sorted(
+            {
+                name.split(" ")[0]
+                for name in scene_catalog.SCENE_ID_TO_GM_NAME.values()
+                if name.split(" ")[0]
+            }
+        )
+        self.assertEqual(86, len(first_words))
+        unanswered = [
+            word for word in first_words if not scene_catalog.suggest_gm_scene_names(word)
+        ]
+        self.assertEqual(6, len(unanswered))
+
+    def test_a_close_match_is_never_displaced_by_a_fragment_hit(self):
+        # One dropped letter still answers with the name it is one letter
+        # away from, and answers with it FIRST.
+        suggestions = scene_catalog.suggest_gm_scene_names("Prison Exile Iland")
+        self.assertEqual(("Prison Exile Island", 1), suggestions[0])
+
+    def test_the_order_is_where_the_fragment_lands_then_alphabetical(self):
+        """Pinned as a literal, because the order IS the promise.
+
+        CORRECTED (pf-adversary round `pdf3gh`, D6): only the THIRD entry
+        comes from the new code.  `difflib.get_close_matches('island', ...)`
+        already returns `mad island` and `bear island` at this cutoff, and
+        difflib hits are placed ahead of containment hits, so this triple
+        pins the containment sort at one position, not three.  Sorting by
+        name alone would answer `Battle Island` (offset 7, alphabetically
+        first), not `Bear Island` as this docstring first said -- the
+        mutant does die on this assertion, for that reason rather than the
+        stated one.  Iterating the table's own dict order would answer
+        whatever the file happens to list first and would not be a promise
+        at all.  An operator who reads two different answers to the same
+        query stops reading the answer.
+        """
+        expected = (("Mad Island", 1), ("Bear Island", 1), ("Brave Island", 1))
+        self.assertEqual(expected, scene_catalog.suggest_gm_scene_names("island"))
+        self.assertEqual(expected, scene_catalog.suggest_gm_scene_names("ISLAND"))
+
+    def test_it_is_capped_at_the_same_three_a_way_out_line_can_carry(self):
+        for query in ("island", "a", "sea"):
+            with self.subTest(query=query):
+                self.assertLessEqual(
+                    len(scene_catalog.suggest_gm_scene_names(query)),
+                    scene_catalog.MAX_SUGGESTIONS,
+                )
+
+    def test_an_exact_hit_is_still_not_a_suggestion(self):
+        # Containment would match `Atlantic Ocean1` against itself; the
+        # early return for a key already in the table is what stops it.
+        self.assertEqual((), scene_catalog.suggest_gm_scene_names("Atlantic Ocean1"))
+        self.assertEqual((), scene_catalog.suggest_gm_scene_names("  atlantic   ocean1 "))
+
+    def test_a_query_that_is_neither_close_nor_contained_still_answers_nothing(self):
+        # The property the ratio was chosen for survives the fallback: a
+        # suggestion that is not in the table is worse than no suggestion.
+        for query in ("qqqqqqqq", "zzzz zzzz", "\u0e01\u0e01\u0e01\u0e01\u0e01\u0e01"):
+            with self.subTest(query=query):
+                self.assertEqual((), scene_catalog.suggest_gm_scene_names(query))
+
+    def test_every_character_it_returns_comes_out_of_the_table(self):
+        # The rule the whole helper rests on, re-checked on the path that
+        # is new: a fragment hit must not carry the operator's own text
+        # into a line bound for a cp874 console.
+        shipped = set(scene_catalog.SCENE_ID_TO_GM_NAME.values())
+        for query in ("island", "MARKER\u2028", "a", "Atlantic"):
+            with self.subTest(query=query):
+                for name, _count in scene_catalog.suggest_gm_scene_names(query):
+                    self.assertIn(name, shipped)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1015,5 +1015,176 @@ class WarpNameSelectorPicksAmongRepeatsTests(unittest.TestCase):
         self.assertEqual(parse_gm_command("warp 1_0").args, ("1_0",))
 
 
+class _LoudStr(str):
+    """A `str` that shouts if anything rewrites it.
+
+    `isinstance(x, str)` is True for a subclass, so `parse_gm_command`
+    accepts one -- and `len()` still works.  Any call to `strip` or `split`
+    on the line means the length check is no longer the first thing that
+    happens, which is precisely the defect this class exists to catch.
+    """
+
+    def strip(self, *args, **kwargs):  # noqa: D102 - see class docstring
+        raise AssertionError("strip() ran before the length cap")
+
+    def split(self, *args, **kwargs):  # noqa: D102 - see class docstring
+        raise AssertionError("split() ran before the length cap")
+
+
+class TheWholeLineCapTests(unittest.TestCase):
+    """pf-adversary round `53rdv8` D5: one verb was capped, eight were not."""
+
+    def test_a_verb_padded_with_a_whitespace_run_is_refused(self):
+        # Every one of these parsed before, and `stripped` -- the whole
+        # 200 KB -- became `command.raw`, which `log_gm_command` writes into
+        # the ndjson audit as one line.
+        padding = " " * 200_000
+        for line in (
+            f"speed{padding}1",
+            f"npc{padding}on 5",
+            f"item{padding}1 2",
+            f"lv{padding}9",
+            f"spawn{padding}7",
+            f"warp{padding}2",
+            f"gmprobe{padding}a",
+            f"staged{padding}",
+        ):
+            with self.subTest(verb=line.split(" ")[0]):
+                with self.assertRaises(GmCommandParseError) as raised:
+                    parse_gm_command(line)
+                self.assertIn("command line", str(raised.exception))
+
+    def test_the_refusal_names_the_cap_and_echoes_nothing_typed(self):
+        with self.assertRaises(GmCommandParseError) as raised:
+            parse_gm_command("say " + "\u0e01" * commands_module.MAX_COMMAND_LINE_LENGTH)
+        message = str(raised.exception)
+        self.assertIn(str(commands_module.MAX_COMMAND_LINE_LENGTH), message)
+        self.assertNotIn("\u0e01", message)
+        message.encode("cp874")  # the console this line reaches
+
+    def test_the_cap_is_read_before_strip_and_before_split(self):
+        """The bound has to be on the WORK, not only on the result.
+
+        `text.strip()` walks the line and `rest.split()` builds a list --
+        so a cap placed after either bounds what is stored and not what is
+        spent getting there.  `_LoudStr` fails the test if either runs.
+        """
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command(_LoudStr("x" * (commands_module.MAX_COMMAND_LINE_LENGTH + 1)))
+
+    def test_no_command_this_grammar_accepts_can_carry_a_longer_raw(self):
+        # `raw` is what the audit writes. The cap is on the line, and
+        # `stripped` is never longer than the line it came from.
+        for line in ("warp 2", "say " + "a" * MAX_SAY_MESSAGE_LENGTH, "staged   "):
+            with self.subTest(line=line[:12]):
+                self.assertLessEqual(
+                    len(parse_gm_command(line).raw),
+                    commands_module.MAX_COMMAND_LINE_LENGTH,
+                )
+
+    def test_the_measured_numbers_the_cap_is_built_from(self):
+        """Written down, not recomputed from the definition.
+
+        Recomputing `longest verb + 1 + max(say, warp)` here would pass for
+        any table at all -- that was D2/D3 last round.  These four literals
+        are the measurement; changing any constant they come from makes a
+        human re-read this test instead of watching a cap move on its own.
+        """
+        self.assertEqual(7, commands_module.LONGEST_COMMAND_NAME_LENGTH)  # `gmprobe`
+        self.assertEqual(480, MAX_SAY_MESSAGE_LENGTH)
+        self.assertEqual(108, commands_module.MAX_WARP_NAME_QUERY_LENGTH)
+        self.assertEqual(488, commands_module.MAX_COMMAND_LINE_LENGTH)
+
+    def test_the_longest_legitimate_line_still_parses_and_one_past_it_does_not(self):
+        # 484 characters: `say ` plus a message at `say`'s own ceiling. The
+        # cap leaves it four characters of the trailing space a chat client
+        # adds; everything else in the grammar is 370+ characters shorter.
+        longest_legitimate = "say " + "a" * MAX_SAY_MESSAGE_LENGTH
+        self.assertEqual(484, len(longest_legitimate))
+        self.assertEqual(
+            ("a" * MAX_SAY_MESSAGE_LENGTH,), parse_gm_command(longest_legitimate).args
+        )
+        self.assertEqual(
+            ("a" * MAX_SAY_MESSAGE_LENGTH,),
+            parse_gm_command(longest_legitimate + "    ").args,
+        )
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command("x" * (commands_module.MAX_COMMAND_LINE_LENGTH + 1))
+
+    def test_a_line_at_the_cap_is_accepted_and_one_over_it_is_not(self):
+        at_cap = "say " + "a" * (commands_module.MAX_COMMAND_LINE_LENGTH - 4)
+        self.assertEqual(commands_module.MAX_COMMAND_LINE_LENGTH, len(at_cap))
+        # Refused by `say`'s own cap, not by the line cap -- the two are
+        # different sentences and the boundary must say which one it hit.
+        with self.assertRaises(GmCommandParseError) as raised:
+            parse_gm_command(at_cap)
+        self.assertIn("say message", str(raised.exception))
+        with self.assertRaises(GmCommandParseError) as raised:
+            parse_gm_command(at_cap + "a")
+        self.assertIn("command line", str(raised.exception))
+
+
+class TheSceneSelectorSplitTests(unittest.TestCase):
+    """The rightmost `#n` wins, and the digits come back as typed."""
+
+    def test_the_selector_comes_back_as_the_digits_that_were_typed(self):
+        self.assertEqual(
+            ("Hidden Island ", "11"),
+            commands_module._split_scene_selector("Hidden Island #11"),
+        )
+        self.assertEqual(
+            ("Hidden Island ", "0000000000011"),
+            commands_module._split_scene_selector("Hidden Island #0000000000011"),
+        )
+
+    def test_the_last_selector_wins_which_no_printed_message_reveals(self):
+        """pf-adversary round `53rdv8` M9: `rpartition` -> `partition` survived.
+
+        Both spellings REFUSE `Hidden Island #1 #2` -- one because
+        `Hidden Island #1` is not in the catalog, the other because
+        `1 #2` is not digits -- so no assertion on a parse result can tell
+        them apart.  The rule lives on this function, so it is pinned on
+        this function.
+        """
+        self.assertEqual(
+            ("Hidden Island #1 ", "2"),
+            commands_module._split_scene_selector("Hidden Island #1 #2"),
+        )
+
+    def test_a_line_with_no_selector_comes_back_unchanged(self):
+        self.assertEqual(
+            ("Hidden Island", None),
+            commands_module._split_scene_selector("Hidden Island"),
+        )
+        self.assertEqual(
+            ("Scene#3", None), commands_module._split_scene_selector("Scene#3")
+        )
+
+
+class TheOutOfRangeSelectorEchoTests(unittest.TestCase):
+    """pf-adversary round `53rdv8` D9: it answered a question nobody asked."""
+
+    def test_an_out_of_range_selector_is_printed_as_typed(self):
+        with self.assertRaises(GmCommandParseError) as raised:
+            parse_gm_command("warp Bear Island #0000000000011")
+        message = str(raised.exception)
+        self.assertIn("#0000000000011", message)
+        # `#11` used to be what an operator who typed thirteen digits read
+        # back, which is not a line you can check against your own screen.
+        self.assertNotIn("#11 names", message)
+        message.encode("cp874")
+
+    def test_the_range_it_offers_is_still_the_table_s_own(self):
+        with self.assertRaises(GmCommandParseError) as raised:
+            parse_gm_command("warp Hidden Island #99")
+        self.assertIn("#1 to #20", str(raised.exception))
+
+    def test_a_selector_in_range_still_resolves_however_it_is_spelled(self):
+        self.assertEqual(
+            parse_gm_command("warp Hidden Island #0000000000011").args,
+            parse_gm_command("warp Hidden Island #11").args,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
