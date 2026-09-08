@@ -245,12 +245,24 @@ DIAG_PLACEMENT_BASE = 9000
 
 # MOUNTAIN DEER (MOBS n_ID 27) -- ADDENDUM 20:18's own pick for all five
 # GT-114/DIAG-001 objects, superseding the Jungle Big Tiger pick above.  NOT
-# a member of ANY generated roster: both field_mob_tables.py (bg0001) and
+# ~~a member of ANY generated roster: both field_mob_tables.py (bg0001) and
 # field_mob_tables_bg0002.py (Bg0002, mined for the first time this same
 # round) exclude it on the SAME ground -- CONSTDATA_TH__MOBS.tsv row 27's
 # s_OUTFIT is the two-variant list "M005_000_000_SP1;M005_000_000_SP2",
 # which fails tools/pf_mine_scene_mob_roster.py's own "single unambiguous
-# basename" selection rule (see that tool's docstring).  So
+# basename" selection rule (see that tool's docstring).~~  HALF STRUCK,
+# ROUND db4o73, and struck rather than deleted because the sentence is still
+# true of bg0001 and is why this body exists at all.  What made it false for
+# Bg0002 is the owner's ruling of 2026-09-07 (PANYA 1313): s_OUTFIT no
+# longer takes part in deciding who is an enemy, so the variant list stopped
+# excluding row 27 and Bg0002 now ships FOUR real placements of it (36, 37,
+# 38, 39, "Mountain Deer").  This module is not re-pointed at them: it is a
+# synthetic diagnostic that owns its own record, and a diagnostic that
+# started reading a live roster would move whenever that roster moved.
+# MEASURED and worth recording: the preset those four real placements ship
+# after round db4o73's rollback is "M005_000_000_SP1" -- the same token the
+# named choice below picked, so the two agree by measurement rather than by
+# coordination.  So
 # :func:`_control_body` cannot find it by searching a mined roster the way
 # it used to for template 60; it builds the record from the constants below
 # instead, hand-mined from the SAME committed tables at the SAME digests
@@ -276,11 +288,18 @@ DIAG_PLACEMENT_BASE = 9000
 # hand-copy a relayed number.
 #
 # s_OUTFIT carries TWO variants; this diagnostic body deterministically picks
-# the FIRST token (M005_000_000_SP1).  This project has no evidence for
+# the FIRST token (M005_000_000_SP1).  ~~This project has no evidence for
 # which variant a real spawn would use, so this is a NAMED CHOICE for a
 # synthetic diagnostic placement, not a discovery -- it does not need to
 # match a real spawn's rule, since Mountain Deer has never had a real
-# placement in this project's mined data at all.
+# placement in this project's mined data at all.~~  STRUCK, ROUND db4o73:
+# there IS evidence now, and it arrived from the client rather than from a
+# preference.  RE-296 result 2 (2026-09-07T20:53) read the consumer pushing
+# a literal index 0 at 0x0059AA52, so the first token is the only token any
+# consumer reaches; COO-DECISION 2026-09-08T17:42 makes that the rule for
+# everything this lane sends.  The choice below is no longer a named choice
+# -- it is what mob_avatar_basename.avatar_basename returns for this cell,
+# which is what every real placement of row 27 now ships too.
 DIAG_MOUNTAIN_DEER_TEMPLATE_ID = 27
 DIAG_MOUNTAIN_DEER_LEVEL = 17
 DIAG_MOUNTAIN_DEER_RANK = 1
