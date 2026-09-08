@@ -4,9 +4,13 @@ WHAT A PLAYER CAN DO THAT THEY COULD NOT BEFORE THIS MODULE.  Press
 "add friend" in the shipped client UI and have the server answer the
 frame instead of dropping it.  ``PartyInviteVital`` (``0x37B1``),
 ``TradeInviteVital`` (``0x3700``) and ``PartyCmdVital`` (``0x2466``)
-were answered in the three rounds before this one; the remaining five
-of the eight ``_FRIEND_MAIL_PARTY_TRADE_DISPATCH`` vitals still come
-back with an empty list.  This module takes the fourth,
+were answered in the three rounds before this one.  WITH this module
+four of the eight ``_FRIEND_MAIL_PARTY_TRADE_DISPATCH`` vitals answer
+and the remaining FOUR come back with an empty list -- this sentence
+said "the remaining five ... still", which was the count before this
+file existed and was false the moment it landed (pf-adversary round
+asw0n3, D9; ``docs/UI_LANE.md``, edited by the same commit, had it
+right).  This module takes the fourth,
 ``Community_RequestBeFriendVital`` (``0xB9E9``), and it is the first
 one this seam answers that is NOT in the party/trade family -- it is
 the first of the five ``CommunityModule_Client`` classes.
@@ -49,8 +53,12 @@ beside it: over every one of the 65,536 two-byte code units and
 200,000 random four-byte name payloads, 251,145 of which the decoder
 accepted, ZERO re-encoded to different bytes.  Strict UTF-16LE decode
 is injective, and ``read_untagged_wstring`` refuses the two shapes
-that would break it (odd byte length, unpaired surrogate) before the
-codec is reached.  So the refusal below is the same guard-for-a-later-
+that would break it -- an odd byte length BEFORE the codec runs, and an
+unpaired surrogate BY the codec, whose ``UnicodeDecodeError`` that
+helper catches and re-raises as ``WireDecodeError`` (pf-adversary round
+asw0n3, D10: this said "before the codec is reached" for both, which is
+backwards for the second, in a paragraph whose whole point is which
+guard catches what).  So the refusal below is the same guard-for-a-later-
 decoder the button beside it carries, it stays for the same reason,
 and the test file reaches it by making the encoder disagree -- so it
 cannot be deleted or inverted under a green suite.
@@ -72,16 +80,30 @@ payload)])``; of those three, only ``payload`` is the client's.
 header calls it an UNPROVEN DEFAULT, and the inbound version byte the
 client sent is parsed by ``runtime.py`` and NOT handed to
 ``ui_dispatch.answer()`` -- so if a client ever sends anything but
-zero, the server answers with zero anyway.  ``RE-312`` RESULT-2 read
-the equivalent comparison for the party family at ``0x005F3EF4`` and
-recorded that the client LOGS ``0xE0000031`` and carries on, a warning
-rather than a drop; that reading was taken on the party handler, and
-this file does not extend it to ``0x00645BF0`` -- nobody has
-disassembled the version compare on the Community handler.  So the
-version byte here is a REVIEWED guess pinned by the outbound registry,
-weaker than the party family's by exactly one disassembly, and closing
-it needs the inbound version passed to ``answer()`` -- a ``runtime.py``
-change, already filed, not taken here.
+zero, the server answers with zero anyway.
+
+CORRECTED IN THE SAME ROUND THAT WROTE IT (pf-adversary round asw0n3,
+D3).  The first draft of this paragraph said ``RE-312`` RESULT-2's
+reading of ``0x005F3EF4`` "was taken on the party handler", that
+"nobody has disassembled the version compare on the Community
+handler", and that this button's evidence is therefore "weaker than
+the party family's by exactly one disassembly".  ALL THREE ARE FALSE.
+RESULT-2 places ``0x005F3EF4`` inside ``0x005F3E20``, which that letter
+itself names as the GENERIC inbound frame decode loop out of
+``ShareCode/NetCode/VitalDataBase.cpp``; it runs BEFORE ``0x005F3840``
+dispatches to any handler's ``+0x1C`` slot, so it is SHARED and it
+already covers ``0xB9E9``.  There is no separate per-handler version
+compare on the Community side to disassemble, and this button's
+evidence on this point is IDENTICAL to the party family's, not one
+disassembly short of it.  What is genuinely unread is the same thing
+``lane_ui_party_cmd_answer`` records for its own class: the VALUE at
+``[obj+0x10]`` the shared loop compares against, which is per-class and
+nobody has read it for this class either.  RESULT-2's verdict on a
+mismatch carries over unchanged: the client logs ``0xE0000031`` and
+CARRIES ON -- a warning, not a drop.  So the version byte here is a
+REVIEWED guess pinned by the outbound registry, and closing it needs
+the inbound version passed to ``answer()`` -- a ``runtime.py`` change,
+already filed, not taken here.
 
 THIS BUTTON IS ALREADY WATCHED, AND THAT DOES NOT CHANGE.
 ``lane_ui_friend_wire_log`` has been decoding this exact class on the
@@ -222,12 +244,20 @@ def answer_request_be_friend(session=None, vital_id=0, payload=b"", **_ignored):
     ]
 
 
-# THE TWO NAMES THE ARMING RUNNER ASKS FOR, DECLARED HERE AND NOWHERE
-# ELSE.  The runner does not spell this class's name: it reads the
-# reviewed owner table, imports the lane that owns the id, and asks the
-# lane for its own token and its own sample frame.  Declaring them is
-# what puts this button on the arming proof an attended ticket carries,
-# and it is the whole cost of doing so -- no edit to the runner.
+# THE TWO NAMES THE ARMING RUNNER ASKS FOR, DECLARED AHEAD OF THE
+# RUNNER.  TENSE MATTERS HERE (pf-adversary round asw0n3, D4): at this
+# commit NOTHING in this repository reads either name -- the runner
+# that will is in `#1167` and is not on main -- so the sentences that
+# follow are about the day it lands, not about today.  When it does, it
+# will not spell this class's name: it reads the reviewed owner table,
+# imports the lane that owns the id, and asks the lane for its own
+# token and its own sample frame.  Declaring these two names is then
+# the whole cost of putting this button on the arming proof an attended
+# ticket carries -- no edit to the runner.  Measured, not assumed: with
+# that runner spliced in at this HEAD the button arms
+# (`UI_FRIEND_REQUEST_ANSWER_ARMED answered=1 frame_bytes=54
+# frame_matches=1 echo_is_the_players_bytes=1 junk_refused=1
+# RESULT=PASS`).
 ARMING_TOKEN = "UI_FRIEND_REQUEST_ANSWER_ARMED"
 
 
@@ -252,11 +282,36 @@ def arming_sample():
     )
 
 
+# THE ADOPT-SIDE CONTRACT, DECLARED TOO (pf-adversary round asw0n3,
+# D1).  ``NOW.md`` carries a standing red line -- the unit of trust for
+# an answerer is the FILE, and a lane must not call
+# ``register_answerer()`` (COO ``20260908_1642`` item 2, restating
+# ``1441``) -- and the replacement is this lane's own
+# ``ui_dispatch.adopt_answerer()``, whose lane-side contract is exactly
+# these two names.  The first draft of this file declared the ARMING
+# runner's two names and skipped these two, which is adopting a forward
+# contract from an unmerged branch for one runner and declining the
+# identical one for the runner COO put in red.  Two lines, so the
+# conversion round has three files to flip and not four.
+ANSWERS_VITAL_ID = wire.COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID
+ANSWERS_WITH = answer_request_be_friend
+
 # REGISTERED AT IMPORT, WHICH IS WHEN ``lane_hooks._discover()`` RUNS --
 # the same shape, and the same note, as the three answerers beside it.  A
 # refused registration is not an exception: the seam returns False and
 # names the reason on stderr, and this module then simply never answers,
 # which is the shipping state and not a crash in discovery.
+#
+# AND THIS CALL IS THE HALF OF D1 THAT IS **NOT** PAID, SAID PLAINLY
+# RATHER THAN QUIETLY.  ``_discover()`` does not call
+# ``adopt_answerer()`` yet -- that splice is chief's, queued as
+# CORE-REQUEST ``1553`` -- so deleting the line below today would not
+# make this button safer, it would make it silent, and this lane's own
+# letter records why converting before the splice "takes working
+# buttons away from players".  It therefore stays until the splice
+# lands, exactly as in the three answerers beside it, and the two
+# declarations above are what make removing all four one atomic round
+# instead of a fifth conversion.
 ui_dispatch.register_answerer(
     wire.COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID, answer_request_be_friend
 )

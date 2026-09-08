@@ -226,7 +226,25 @@ _ANSWERER_OWNERS = {
     # report-only hook (``lane_ui_friend_wire_log``).  Those are two
     # different questions: runtime.py fires the log hook and then calls
     # ``answer()``, so the log keeps printing what arrived and this row
-    # decides only who may put a byte back.
+    # is about who may put a byte back.
+    #
+    # AND WHAT "WHO MAY" MEANS IS THE OTHER WAY ROUND FROM HOW THIS
+    # COMMENT FIRST PUT IT (pf-adversary round asw0n3, D2).  BEFORE this
+    # row, ``_ANSWERER_OWNERS.get(0xB9E9)`` was ``None`` and NO lane
+    # module could take the id by any route -- measured.  AFTER it, the
+    # answer is "the module named here, OR anyone who can gate that
+    # module and write into its namespace": the adversary drove
+    # ``deadbeef`` out of the real ``state.dispatch()`` under this
+    # label using the gated-incumbent-yield route and the residual
+    # named at ``_install_answerer`` below, and a
+    # ``production_allowed = False`` file that does nothing but IMPORT
+    # the owner denies the button forever.  Those two mechanisms are the
+    # seam's, not this row's, and are recorded as open residuals in this
+    # file's own header -- what is new is that they now reach ``0xB9E9``,
+    # and that the owner module's public ``arming_sample()`` is the
+    # first reason another lane has ever had to import it.  Not fixed
+    # here; carried as this lane's first item next round rather than
+    # left for a reader to rediscover.
     0xB9E9: _LANE_PACKAGE + "lane_ui_friend_request_answer",
 }
 
