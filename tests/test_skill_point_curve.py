@@ -11,10 +11,167 @@ in round ``3f12wv``.
 """
 
 import hashlib
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+# Same line `test_class_starting_gear.py` carries.  Without it this file
+# only imports when some EARLIER test module in the same run happened to
+# put `src/` on the path, so `pytest tests/test_skill_point_curve.py` on
+# its own has never worked -- which is a poor way to hand a lane a file it
+# is meant to iterate on.
+sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import persistence_standard_status
 from pirateforce_foundation import skill_point_curve
+
+
+class TheRefusalsNobodyHadEverRunTests(unittest.TestCase):
+    """The three ``REFUSE_TABLE_*`` branches, driven for the first time.
+
+    pf-adversary finding D9 of round ``2o69yt``: ``_load_rows`` has three
+    raises that no test had ever reached, so the messages could have been
+    wrong, the constants unreachable, or the whole check inverted, and the
+    suite would not have noticed.  They are the only thing standing between
+    a corrupted vendored table and five classes being handed silently wrong
+    skill points, so "never executed" was not an acceptable state for them.
+
+    Each case stages a COPY of the package (the vendored table lives inside
+    it), damages the copy in exactly one way, and imports the module in a
+    real interpreter -- because these raise at IMPORT, which is the property
+    the module's own docstring sells and which an in-process patch could not
+    demonstrate.  Nothing under ``src/`` is touched.
+    """
+
+    def _staged(self, tmp):
+        package = Path(tmp) / "pirateforce_foundation"
+        shutil.copytree(
+            ROOT / "src" / "pirateforce_foundation",
+            package,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+        return package
+
+    def _import_it(self, tmp):
+        return subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from pirateforce_foundation import skill_point_curve",
+            ],
+            cwd=str(ROOT),
+            env={"PYTHONPATH": str(tmp), "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+        )
+
+    def _repin(self, package, table_bytes):
+        """Rewrite the copy's SOURCE_SHA256 to match `table_bytes`.
+
+        Without this every damaged table would trip REFUSE_TABLE_DRIFTED
+        first and the two MALFORMED branches would stay unreachable -- the
+        exact blindness D9 is about.
+        """
+        digest = hashlib.sha256(table_bytes).hexdigest()
+        source = (package / "skill_point_curve.py").read_text(encoding="utf-8")
+        self.assertIn(skill_point_curve.SOURCE_SHA256, source)
+        source = source.replace(skill_point_curve.SOURCE_SHA256, digest)
+        (package / "skill_point_curve.py").write_text(source, encoding="utf-8")
+
+    def test_a_drifted_table_refuses_at_import_and_names_the_two_digests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            package = self._staged(tmp)
+            table = package / "data" / "level_sp.tsv"
+            damaged = table.read_bytes() + b"121\t999\n"
+            table.write_bytes(damaged)
+            result = self._import_it(tmp)
+        self.assertNotEqual(result.returncode, 0)
+        stderr = result.stderr.decode("utf-8", "replace")
+        self.assertIn(skill_point_curve.REFUSE_TABLE_DRIFTED, stderr)
+        # Both digests, so an operator can tell "I edited the table" from
+        # "the pin is stale" without opening the file.
+        self.assertIn(skill_point_curve.SOURCE_SHA256, stderr)
+        self.assertIn(hashlib.sha256(damaged).hexdigest(), stderr)
+
+    def test_a_table_with_other_columns_refuses_as_malformed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            package = self._staged(tmp)
+            table = package / "data" / "level_sp.tsv"
+            damaged = table.read_bytes().replace(b"n_SP", b"n_EXP", 1)
+            self.assertNotEqual(damaged, table.read_bytes())
+            table.write_bytes(damaged)
+            self._repin(package, damaged)
+            result = self._import_it(tmp)
+        self.assertNotEqual(result.returncode, 0)
+        stderr = result.stderr.decode("utf-8", "replace")
+        self.assertIn(skill_point_curve.REFUSE_TABLE_MALFORMED, stderr)
+        self.assertIn("n_EXP", stderr)
+        # ...and NOT as a drift: the hash matched, so this is the second
+        # branch, not the first one wearing the second one's name.
+        self.assertNotIn(skill_point_curve.REFUSE_TABLE_DRIFTED, stderr)
+
+    def test_a_table_with_a_hole_in_the_levels_refuses_as_malformed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            package = self._staged(tmp)
+            table = package / "data" / "level_sp.tsv"
+            lines = table.read_bytes().split(b"\n")
+            # Drop one data row from the middle.  A gap, not a short table:
+            # a reader that only counted rows would still be fooled by
+            # renumbering, so the levels themselves must be what is checked.
+            kept = [line for line in lines if not line.startswith(b"60\t")]
+            self.assertEqual(len(kept), len(lines) - 1)
+            damaged = b"\n".join(kept)
+            table.write_bytes(damaged)
+            self._repin(package, damaged)
+            result = self._import_it(tmp)
+        self.assertNotEqual(result.returncode, 0)
+        stderr = result.stderr.decode("utf-8", "replace")
+        self.assertIn(skill_point_curve.REFUSE_TABLE_MALFORMED, stderr)
+        self.assertIn("119 rows", stderr)
+
+    def test_an_undamaged_copy_of_the_same_staging_imports_cleanly(self):
+        """The control.  Without it all three tests above could be passing
+        because the staging itself is broken -- a package copy that cannot
+        import at all would satisfy every assertion about a non-zero exit.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            self._staged(tmp)
+            result = self._import_it(tmp)
+        self.assertEqual(
+            result.returncode, 0, result.stderr.decode("utf-8", "replace")[-2000:]
+        )
+
+
+class TheRefusalTypeIsSwallowableTests(unittest.TestCase):
+    """Recorded, not fixed: pf-adversary D12 of round ``2o69yt``.
+
+    ``SkillPointCurveError`` derives from ``KeyError``, so a caller written
+    as ``try: ... except KeyError: return default`` swallows a refusal that
+    means "the committed table is corrupt" and hands back a default skill
+    point count instead.  The base class is not changed here because this
+    module has no production caller yet and the fix belongs in the same
+    commit as the first one -- but the shape is pinned so the day a caller
+    appears, this test is what it is read against.
+    """
+
+    def test_a_bare_except_keyerror_swallows_a_corrupt_table_refusal(self):
+        swallowed = False
+        try:
+            raise skill_point_curve.SkillPointCurveError(
+                skill_point_curve.REFUSE_TABLE_DRIFTED, "staged"
+            )
+        except KeyError:
+            swallowed = True
+        self.assertTrue(
+            swallowed,
+            "if this ever fails the base class changed; the caller-side "
+            "hazard D12 describes is gone and this test should be replaced "
+            "by one that pins the new base",
+        )
+        self.assertTrue(issubclass(skill_point_curve.SkillPointCurveError, KeyError))
 
 
 class CommittedCopyTests(unittest.TestCase):
