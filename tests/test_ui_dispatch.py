@@ -2270,6 +2270,28 @@ class TheAllowanceBelongsToTheSessionTests(_RegistryIsolation):
         gc.collect()
         self.assertNotIn(key, ui_dispatch._SESSION_ANSWERS_SENT)
 
+    def test_the_send_point_check_is_not_dead_code(self):
+        """Both reasons the charge can refuse, reached on the charge.
+
+        `answer()` reads the allowance before running the lane, so the
+        spent branch of `_charge_session_answer` is not reached THROUGH
+        `answer()` -- it is the second half of a read-then-charge pair,
+        and a branch nothing executes is a branch nobody can be sure
+        still works (the D-C lesson, applied to this round's own code
+        rather than waiting to be told).
+        """
+        session = _in_game()
+        for _ in range(32):
+            self.assertEqual(ui_dispatch._charge_session_answer(session), "")
+        self.assertEqual(
+            ui_dispatch._charge_session_answer(session),
+            "session_budget_spent",
+        )
+        self.assertEqual(
+            ui_dispatch._charge_session_answer(_UnweakreferenceableSession()),
+            "session_budget_unbounded",
+        )
+
     def test_the_table_does_not_keep_the_session_alive(self):
         self._register([self.GOOD])
         session = _in_game()
