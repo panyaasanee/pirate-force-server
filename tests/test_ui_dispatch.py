@@ -2794,5 +2794,59 @@ class AdoptAnswererTests(_RegistryIsolation):
         self.assertIs(fn, incumbent)
 
 
+class EveryAnsweredButtonHasARunnerTests(unittest.TestCase):
+    """An answerer nobody can measure cannot board the capture bus.
+
+    ``NOW.md`` (PANYA ``0159``) requires every attended ticket to carry a
+    ``HEADLESS_PROOF:`` token measured on ``main``, and the only way to
+    produce one for this seam is the arming runner.  Three answerers
+    landed over four rounds while the runner covered ONE of them, so two
+    working buttons had no line they could put in a ticket -- which is
+    how a boot gets spent discovering that two of its three questions
+    were unanswerable (``GT-178``'s R322C, the reason that rule exists).
+
+    This test is the standing guard on that gap: an id reviewed into
+    ``_ANSWERER_OWNERS`` whose lane is loaded must also be named by the
+    runner's source.
+    """
+
+    def test_the_runner_drives_every_reviewed_answerable_id(self):
+        from pirateforce_foundation import ui_party_invite_answer_headless
+
+        source = Path(
+            ui_party_invite_answer_headless.__file__
+        ).read_text(encoding="utf-8")
+        # Read off the SOURCE rather than by running it: a boot takes
+        # seconds, and the claim here is about which id constants the
+        # runner mentions, which the text settles.
+        named = {
+            node.attr
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Attribute)
+        }
+        wire_names = {}
+        for module in list(sys.modules.values()):
+            module_name = getattr(module, "__name__", "")
+            if not module_name.startswith("pirateforce_foundation.ui_"):
+                continue
+            for name, value in vars(module).items():
+                if isinstance(value, int) and name.endswith("_VITAL_ID"):
+                    wire_names.setdefault(value, set()).add(name)
+        missing = [
+            hex(vital_id)
+            for vital_id in sorted(ui_dispatch._ANSWERER_OWNERS)
+            if sys.modules.get(ui_dispatch._ANSWERER_OWNERS[vital_id])
+            is not None
+            and not wire_names.get(vital_id, set()) & named
+        ]
+        self.assertEqual(
+            missing,
+            [],
+            "these reviewed answerable ids have a loaded answerer lane but"
+            " are not named by the arming runner, so no ticket for them can"
+            " carry a HEADLESS_PROOF line",
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

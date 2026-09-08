@@ -53,6 +53,7 @@ if str(ROOT / "src") not in sys.path:  # pragma: no cover - script entry
     sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import ui_party_wire as wire
+from pirateforce_foundation import ui_trade_wire as trade_wire
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
@@ -62,6 +63,24 @@ from pirateforce_foundation.store import SQLiteStore
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 TOKEN = "UI_PARTY_INVITE_ANSWER_ARMED"
+
+# THE OTHER TWO BUTTONS ON THE SAME SEAM (round ly40b5).  This file used
+# to measure ``PartyInviteVital`` alone, and for four rounds that was all
+# there was to measure.  Two more answerers have landed since
+# (``TradeInviteVital`` round ``xqxadg``, ``PartyCmdVital`` round
+# ``m54yxh``) and neither had a runner, so neither could carry the
+# ``HEADLESS_PROOF:`` line ``NOW.md`` (PANYA ``0159``) demands -- three
+# working buttons and one provable one is a capture bus that boots to
+# find two of its three questions unanswerable.
+#
+# One boot drives all three: the per-session allowance is 32 answers and
+# this spends six, and a token that shares a login with the other two is
+# a STRONGER statement than three separate boots, not a weaker one --
+# it says the three answer in the same process, on the same session,
+# without taking each other's slot.
+TRADE_TOKEN = "UI_TRADE_INVITE_ANSWER_ARMED"
+PARTY_CMD_TOKEN = "UI_PARTY_CMD_ANSWER_ARMED"
+SUMMARY_TOKEN = "UI_SEAM_ANSWERS_ARMED_SUMMARY"
 
 
 def _synthetic_pc(legacy, nested_id: int, payload: bytes) -> bytes:
@@ -103,64 +122,112 @@ def run() -> int:
             legacy._synthetic_start_game_pc(character.selector)
         ))
 
-        payload = wire.encode_party_invite_payload(
-            wire.PartyInviteFields(
-                field1_u8=1, field2_u64=0x1122334455667788,
-                field3_wstring="Panya",
-            )
+        cases = (
+            (
+                TOKEN,
+                wire.PARTY_INVITE_VITAL_ID,
+                wire.PARTY_INVITE_VITAL_VERSION,
+                wire.encode_party_invite_payload(
+                    wire.PartyInviteFields(
+                        field1_u8=1, field2_u64=0x1122334455667788,
+                        field3_wstring="Panya",
+                    )
+                ),
+            ),
+            (
+                TRADE_TOKEN,
+                trade_wire.TRADE_INVITE_VITAL_ID,
+                trade_wire.TRADE_INVITE_VITAL_VERSION,
+                trade_wire.encode_trade_invite_payload(
+                    trade_wire.TradeInviteFields(
+                        field1_u8=1, field2_u64=0x1122334455667788,
+                        field3_wstring="Panya",
+                    )
+                ),
+            ),
+            (
+                PARTY_CMD_TOKEN,
+                wire.PARTY_CMD_VITAL_ID,
+                wire.PARTY_CMD_VITAL_VERSION,
+                wire.encode_party_cmd_payload(
+                    wire.PartyCmdFields(
+                        field1_u8=1, field2_u64=0x1122334455667788,
+                    )
+                ),
+            ),
         )
-        actions = state.dispatch(legacy.parse_outer(
-            _synthetic_pc(legacy, wire.PARTY_INVITE_VITAL_ID, payload)
-        ))
-        junk = state.dispatch(legacy.parse_outer(
-            _synthetic_pc(legacy, wire.PARTY_INVITE_VITAL_ID, b"\x00\x01\x99")
-        ))
 
-        answered = len(actions)
-        label = actions[0][0] if answered else "<none>"
-        pc = actions[0][1] if answered else b""
-        frame = actions[0][2] if answered else b""
-        expected_pc, expected_frame = legacy.make_runtime_vitals(
-            [(wire.PARTY_INVITE_VITAL_ID,
-              wire.PARTY_INVITE_VITAL_VERSION, payload)]
-        )
-        frame_matches = int(
-            bool(frame) and frame == expected_frame
-            and pc == expected_pc and frame == legacy.frame_pc(pc)
-        )
-        # ``in`` WAS A SUBSTRING TEST (pf-adversary round xqxadg, D10).
-        # The field is read as "the payload that went back is
-        # byte-identical to the one that came in", and containment does
-        # not say that: a reply of ``payload + b"\xAA"`` satisfied it
-        # while inventing a byte.  ``endswith`` is wrong too -- this
-        # envelope puts two bytes after the nested payload.  So the
-        # check is structural and does not lean on the comparison
-        # ``frame_matches`` already makes: build the SAME envelope
-        # around a marker payload of the same length, and require that
-        # the bytes in the payload slot are exactly the player's while
-        # every byte outside it is the envelope's own.
-        marker = b"\xEE" * len(payload)
-        probe_pc, _probe_frame = legacy.make_runtime_vitals(
-            [(wire.PARTY_INVITE_VITAL_ID, wire.PARTY_INVITE_VITAL_VERSION, marker)]
-        )
-        slot = probe_pc.find(marker)
-        echo_exact = int(
-            bool(pc)
-            and slot >= 0
-            and len(pc) == len(probe_pc)
-            and pc[slot:slot + len(payload)] == payload
-            and pc[:slot] == probe_pc[:slot]
-            and pc[slot + len(payload):] == probe_pc[slot + len(payload):]
-        )
-        junk_refused = int(junk == [])
-        ok = answered == 1 and frame_matches and echo_exact and junk_refused
+        failed = 0
+        for token, vital_id, version, payload in cases:
+            failed += _measure(legacy, state, token, vital_id, version, payload)
         print(
-            "%s answered=%d label=%s frame_bytes=%d frame_matches=%d"
-            " echo_is_the_players_bytes=%d junk_refused=%d RESULT=%s"
-            % (TOKEN, answered, label, len(frame), frame_matches,
-               echo_exact, junk_refused, "PASS" if ok else "FAIL")
+            "%s buttons=%d failed=%d RESULT=%s"
+            % (SUMMARY_TOKEN, len(cases), failed,
+               "PASS" if failed == 0 else "FAIL")
         )
-        return 0 if ok else 1
+        return 0 if failed == 0 else 1
+
+
+def _measure(legacy, state, token, vital_id, version, payload) -> int:
+    """Drive ONE button through the real dispatcher. 0 = PASS, 1 = FAIL.
+
+    The whole measurement, unchanged in substance from the single-button
+    version this file shipped for four rounds -- only the three constants
+    it used to read from module scope are parameters now, so the second
+    and third buttons cannot be measured by a weaker test than the first.
+    """
+    actions = state.dispatch(legacy.parse_outer(
+        _synthetic_pc(legacy, vital_id, payload)
+    ))
+    junk = state.dispatch(legacy.parse_outer(
+        _synthetic_pc(legacy, vital_id, b"\x00\x01\x99")
+    ))
+
+    answered = len(actions)
+    label = actions[0][0] if answered else "<none>"
+    pc = actions[0][1] if answered else b""
+    frame = actions[0][2] if answered else b""
+    expected_pc, expected_frame = legacy.make_runtime_vitals(
+        [(vital_id, version, payload)]
+    )
+    frame_matches = int(
+        bool(frame) and frame == expected_frame
+        and pc == expected_pc and frame == legacy.frame_pc(pc)
+    )
+    # ``in`` WAS A SUBSTRING TEST (pf-adversary round xqxadg, D10).
+    # The field is read as "the payload that went back is
+    # byte-identical to the one that came in", and containment does
+    # not say that: a reply of ``payload + b"\xAA"`` satisfied it
+    # while inventing a byte.  ``endswith`` is wrong too -- this
+    # envelope puts two bytes after the nested payload.  So the
+    # check is structural and does not lean on the comparison
+    # ``frame_matches`` already makes: build the SAME envelope
+    # around a marker payload of the same length, and require that
+    # the bytes in the payload slot are exactly the player's while
+    # every byte outside it is the envelope's own.
+    marker = b"\xEE" * len(payload)
+    probe_pc, _probe_frame = legacy.make_runtime_vitals(
+        [(vital_id, version, marker)]
+    )
+    slot = probe_pc.find(marker)
+    echo_exact = int(
+        bool(pc)
+        and slot >= 0
+        and len(pc) == len(probe_pc)
+        and pc[slot:slot + len(payload)] == payload
+        and pc[:slot] == probe_pc[:slot]
+        and pc[slot + len(payload):] == probe_pc[slot + len(payload):]
+    )
+    junk_refused = int(junk == [])
+    ok = answered == 1 and frame_matches and echo_exact and junk_refused
+    print(
+        "%s answered=%d label=%s frame_bytes=%d frame_matches=%d"
+        " echo_is_the_players_bytes=%d junk_refused=%d RESULT=%s"
+        % (token, answered, label, len(frame), frame_matches,
+           echo_exact, junk_refused, "PASS" if ok else "FAIL")
+    )
+    return 0 if ok else 1
+
 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - entry
