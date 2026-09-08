@@ -1080,21 +1080,26 @@ class SQLiteStore:
             db.execute("BEGIN IMMEDIATE")
             self._require_selected_session(db, sid, character_id)
             before = self._load_backpack(db, character_id)
-            # WAS ``before in inventory.merged_v111_states()`` / ``before not
-            # in inventory.STARTING_BACKPACKS`` -- membership, which asks "is
-            # this bag untouched".  A character who has picked ONE item up off
-            # a mob answers no to that question for the rest of their life, so
-            # the merge below refused them forever and the caller
-            # (runtime.py's V111 dispatch) swallows the refusal and sends
-            # nothing: the player clicks the stack and the client sits there.
-            # The two predicates ask the question the merge actually needs --
-            # "are the rows this transaction is about to touch still the ones
-            # a starting bag was born with" -- and an acquired row cannot
-            # change that answer because the merge never touches it.
-            # COO-DECISION 20260908_0542 section 4.
-            if inventory.starting_core_of(before) is None:
-                if inventory.settled_core_of(before) is not None:
-                    return None
+            # MEMBERSHIP, DELIBERATELY, AND THIS ROUND MEASURED WHY.
+            # COO-DECISION 20260908_0542 section 4 asked this lane to widen
+            # the door to "a starting bag PLUS acquired rows", and round
+            # 21lxm6 wrote that widening and then WITHDREW it.  pf-adversary
+            # ran the widened door on the real line: the merge COMMITS, and
+            # then runtime.py:1945 compares the committed bag against the
+            # single MERGED_V111_BACKPACK it imported and raises AFTER the
+            # write -- a bag with an acquired row can never equal it.  The
+            # frozen listener wraps state.dispatch in a try with a finally
+            # and NO except (current/pf_login_game_server_v141.py:7440,
+            # :7558, :7847), so that RuntimeError leaves the accept loop and
+            # every session on the process goes with it, having already lost
+            # the identity-3 row with no reply.  Refusing here loses the
+            # player their stack merge, which is bad; the widening loses them
+            # the item AND the server, which is worse.
+            # The widening lands the round CORE-REQUEST 20260908_0206 makes
+            # that comparison set-shaped.  Do not re-widen before it.
+            if before in inventory.merged_v111_states():
+                return None
+            if before not in inventory.STARTING_BACKPACKS:
                 raise ValueError("Backpack is outside the exact V111 pre-state")
             if not inventory.can_merge_v111(before):
                 # A starting bag with no identity 3, or with two different

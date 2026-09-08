@@ -269,24 +269,21 @@ def admission_blockers(
 
     post, _new_issued = carry_old_weapon_forward(bag, class_id, issued_through)
     blockers: list[str] = []
-    if inventory.starting_core_of(post) is None:
-        # store.apply_v111_stack_merge's pre-state door.  It no longer asks
-        # ``post in STARTING_BACKPACKS`` -- the extra row this migration adds
-        # would have failed that forever, which was the blocker this function
-        # reported until COO-DECISION 20260908_0542 section 4 -- it asks
-        # whether the bag still CARRIES a starting bag's own rows.  The
-        # carried-forward bag does not, because retargeting the weapon row is
-        # exactly the change the core check refuses, and the class's own bag
-        # is not in the set: ``STARTING_BACKPACKS`` still holds one member.
-        # So the blocker stands, with a different sentence and a different
-        # remedy -- widen the SET, not the door.  It clears itself the day
-        # ``inventory.STARTING_BACKPACKS`` holds LANE-CS's five, with no edit
-        # here, which is why the condition is asked rather than spelled.
+    if post not in inventory.STARTING_BACKPACKS:
+        # store.apply_v111_stack_merge's pre-state door.  A carried-forward
+        # bag has one row more than any starting bag, so it is outside that
+        # set for good, and the character LOSES THE STACK MERGE SILENTLY: the
+        # ValueError is caught upstream and no bytes go back to the client.
+        # ROUND 21lxm6 WIDENED THAT DOOR AND TOOK THE WIDENING BACK OUT:
+        # pf-adversary measured that the widened door commits the merge and
+        # then runtime.py:1945 raises after the write, out through a listener
+        # that has no except.  So this blocker STANDS, and its remedy is
+        # CORE-REQUEST 20260908_0206 (make that comparison set-shaped), not a
+        # change in this lane's door.
         blockers.append(
-            "store.apply_v111_stack_merge refuses a post-state bag whose "
-            "core is outside inventory.STARTING_BACKPACKS (%d member(s) "
-            "today): the character loses the V111 stack merge with no reply "
-            "to the client" % len(inventory.STARTING_BACKPACKS))
+            "store.apply_v111_stack_merge refuses a post-state bag that is "
+            "not itself a starting bag: the character loses the V111 stack "
+            "merge with no reply to the client")
     return tuple(blockers)
 
 
