@@ -111,7 +111,7 @@ until their wiring lands, and the round rules forbid pushing a red gate.
 The moment ``inventory`` imports this module the pin reads exactly one
 importer with no further edit.  Flagged ``[assumption of LANE-CS - awaiting
 COO confirmation]``; the letter is
-``pf_bridge/notes_to_chief/20260908_1352_LANE-CS-ASK-COO-exactly-one-
+``pf_bridge/notes_to_chief/20260908_1345_LANE-CS-ASK-COO-exactly-one-
 importer-would-leave-main-red-until-db-wires.md``.
 
 ``production_allowed`` is NOT part of that lift and stays ``False``: COO
