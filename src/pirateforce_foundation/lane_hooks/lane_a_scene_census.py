@@ -65,8 +65,16 @@ in outcome to the ``skipped_scene_<id>_not_home`` branch this replaced.
     Each arm names its own gate in its own docstring, and each is driven by
     a test that revokes that gate rather than reading it back.  What has NOT
     changed is the direction of every arm: all three fail closed, and none
-    of them opens a LOGIN door - ``login_entry_allowed`` is still false for
-    all three of those scenes.
+    of them opens a LOGIN door.  ~~``login_entry_allowed`` is still false for
+    all three of those scenes.~~ -- STRUCK ROUND 1v5i3h (pf-adversary D5 of
+    round ioz8fd).  It reads TRUE for all three today: PANYA-DECISION
+    20260908_1218 opened the ordinary login door for 17, 126, 304 and 305 and
+    LANE-A round 9lv3fa flipped the fields.  The half before the strike still
+    holds and is the load-bearing half - no ARM here opens a door; what
+    changed is that the door these three arms were built to work around is
+    open on its own, so the FIRST arm (the registry pin) now carries all
+    three of these scenes and arms 2 and 3 are no longer what stands between
+    a player and an empty ocean here.
 
 HOW A SCENE GETS ADDED.  ~~Two tables, and a scene needs a row in BOTH~~ --
 ~~SEVEN REGISTRATIONS~~ ~~NINE~~ TEN, counted round ``yob0a2`` by adding scene
@@ -443,12 +451,20 @@ _CONSOLE_LINES_OF = {
     # ADDED round vwekfq (2026-09-05, LANE-A): scene 17, the ship at sea.
     # Registered here AND in ``world_scene_travel.CENSUS_SOURCES`` in the
     # same commit, so neither table can be true without the other for even
-    # one round.  This scene's registry door stays exactly as it was
+    # one round.  ~~This scene's registry door stays exactly as it was
     # (``login_entry_allowed: false``, guarding the ordinary LOGIN path
     # only - see ``world_scene_travel``'s own comment on
     # ``SHIP_AT_SEA_SCENE_ID``), so THE ADMISSION CHECK above declines
     # every call this composer receives in production today, the same
-    # inert-until-opened shape scene 4's and scene 10's own rows carried.
+    # inert-until-opened shape scene 4's and scene 10's own rows carried.~~
+    # STRUCK ROUND 1v5i3h: PANYA-DECISION 20260908_1218 opened the ordinary
+    # login door for 17, 126, 304 and 305 and LANE-A round 9lv3fa flipped
+    # the fields, so THE ADMISSION CHECK's FIRST arm -- the registry pin --
+    # answers yes for this scene now and this composer is live for an
+    # ORDINARY player, not only for the caller named above.  pf-adversary
+    # D5 of round ioz8fd measured that happening while the struck sentence
+    # still described a shut door.
+    #
     "bg1001_roster": lambda generation: (
         (world_population_bg1001.census_console_line(generation),)
         + world_population_bg1001.actor_lines(generation)
@@ -459,12 +475,20 @@ _CONSOLE_LINES_OF = {
     # the destinations of a crossing at scene 126's map edge.  Registered
     # here AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit,
     # so neither table can be true without the other for even one round.
-    # UNLIKE scenes 4, 10 and 17, this one is NOT registered-but-inert: its
+    # ~~UNLIKE scenes 4, 10 and 17, this one is NOT registered-but-inert: its
     # registry row still reads ``login_entry_allowed: false``, but round
     # n4vqxc's pin made a bare GM ``/warp 304`` land here live, and THE
     # THIRD ADMISSION ARM below (``scene_arrival_was_decreed_and_is_gm_
     # reachable``) admits exactly that session - so this composer answers in
-    # production the day it lands, for a GM and for nobody else.
+    # production the day it lands, for a GM and for nobody else.~~
+    # STRUCK ROUND 1v5i3h: PANYA-DECISION 20260908_1218 opened the ordinary
+    # login door for 17, 126, 304 and 305 and LANE-A round 9lv3fa flipped
+    # the fields, so THE ADMISSION CHECK's FIRST arm -- the registry pin --
+    # answers yes for this scene now and this composer is live for an
+    # ORDINARY player, not only for the caller named above.  pf-adversary
+    # D5 of round ioz8fd measured that happening while the struck sentence
+    # still described a shut door.
+    #
     "bg3007_roster": lambda generation: (
         (world_population_bg3007.census_console_line(generation),)
         + world_population_bg3007.actor_lines(generation)
@@ -473,10 +497,18 @@ _CONSOLE_LINES_OF = {
     # ADDED round 9zj630 (2026-09-06, LANE-A): scene 305 (Bg3008, "Pale
     # Silver Sea"), the OTHER of those two seas.  Registered here AND in
     # ``world_scene_travel.CENSUS_SOURCES`` in the same commit, so neither
-    # table can be true without the other for even one round.  Same
+    # table can be true without the other for even one round.  ~~Same
     # not-inert shape as the row above and for the same measured reason: the
     # registry row still reads ``login_entry_allowed: false``, a bare GM
-    # ``/warp 305`` already lands here live (round n4vqxc's pin), and this
+    # ``/warp 305`` already lands here live (round n4vqxc's pin),~~
+    # STRUCK ROUND 1v5i3h: PANYA-DECISION 20260908_1218 opened the ordinary
+    # login door for 17, 126, 304 and 305 and LANE-A round 9lv3fa flipped
+    # the fields, so THE ADMISSION CHECK's FIRST arm -- the registry pin --
+    # answers yes for this scene now and this composer is live for an
+    # ORDINARY player, not only for the caller named above.  pf-adversary
+    # D5 of round ioz8fd measured that happening while the struck sentence
+    # still described a shut door.
+    # and this
     # scene has been named by THE THIRD ADMISSION ARM below since round
     # dyi95m - which is why it is the arm's docstring, not this comment,
     # that carries the reason 305 belongs to that arm rather than the
