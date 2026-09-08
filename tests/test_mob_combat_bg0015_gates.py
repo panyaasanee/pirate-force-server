@@ -283,7 +283,23 @@ class Bg0015MeasurementTests(unittest.TestCase):
         #   ~~15242~~ -> 15035 + (81 - 12) * 3 - 10 = 15232
         # The generation itself is untouched: this lane withholds a row from
         # what it SPLICES, it does not remove an actor from lane A's census.
-        self.assertEqual(len(generation.frame), 14879 + 81 * 3)
+        # ROUND 2a2jqp (LANE-B) moved this number, and it is re-pinned with
+        # the arithmetic rather than with what the run printed.  Under
+        # COO-DECISION 2026-09-08 13:41 (PANYA `1313`, `RE-296`) lane A's
+        # crosswalk ships the WHOLE s_OUTFIT cell, so 45 of this scene's 81
+        # census entries carry a longer avatar string: 765 more CHARACTERS in
+        # total, and ``npc_wire`` writes that field with ``wstr_tag`` (UTF-16,
+        # two bytes a character), so 1530 more bytes in the pc.  That pushes
+        # the pc past the 16384-byte boundary named above, where snappy's own
+        # length varint widens by one, hence the trailing + 1.
+        #   ~~15122~~ -> 14879 + 81 * 3 + 765 * 2 + 1 = 16653
+        # NOT a claim that a whole cell is correct ON THE WIRE: this lane
+        # asked the COO who picks a token before the frame is built (bridge
+        # letter 20260908_1656), and world_port_royal_identity -- the one
+        # scene a player has stood in -- deliberately still ships a single
+        # basename.
+        self.assertEqual(
+            len(generation.frame), 14879 + 81 * 3 + 765 * 2 + 1)
         carlos_delta = (
             len(field_mobs.hostile_actor_entry(
                 self.legacy,
@@ -292,8 +308,14 @@ class Bg0015MeasurementTests(unittest.TestCase):
             - generation.entry_bytes[
                 list(generation.actor_identities).index(0x2058)])
         self.assertEqual(carlos_delta, 10)
+        # ROUND 2a2jqp: the same 765 characters * 2 bytes + 1 varint byte,
+        # and for the same reason -- none of the 45 census entries that grew
+        # is one of the eleven this lane splices a hostile body over, so the
+        # whole delta survives the splice unchanged.
+        #   ~~15232~~ -> 15035 + (81 - 12) * 3 - carlos_delta + 765 * 2 + 1
         self.assertEqual(
-            len(spliced.frame), 15035 + (81 - 12) * 3 - carlos_delta)
+            len(spliced.frame),
+            15035 + (81 - 12) * 3 - carlos_delta + 765 * 2 + 1)
 
     # ---- the cross-check, and what it cannot do ----------------------
 

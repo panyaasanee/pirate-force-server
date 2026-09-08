@@ -55,7 +55,10 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
                 row = placement.identity
                 self.assertTrue(row.outfit)
                 self.assertTrue(row.outfit.isascii())
-                self.assertNotIn(";", row.outfit)
+                # ROUND 2a2jqp: a ';' is no longer a defect (the cell
+                # ships whole); an EMPTY token still is.
+                self.assertTrue(
+                    all(token for token in row.outfit.split(";")))
                 self.assertNotIn("|", row.outfit)
                 self.assertTrue(row.name)
                 self.assertTrue(row.name.isascii())
@@ -100,7 +103,7 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
         self.assertEqual(instance_count, 2)  # second instance of set 2
         self.assertNotIn(3, identity.IDENTITIES)
 
-    def test_the_multi_variant_outfits_ship_their_first_variant(self) -> None:
+    def test_the_multi_variant_outfits_ship_the_whole_cell(self) -> None:
         self.assertEqual(
             set(identity.MULTI_VARIANT_OUTFITS), {2881, 2883, 2884})
         by_leader = {row[2]: row for row in identity._RESOLVED_ROWS}
@@ -108,7 +111,9 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
             with self.subTest(leader=leader):
                 variants = raw.split(";")
                 self.assertGreaterEqual(len(variants), 2)
-                self.assertEqual(by_leader[leader][3], variants[0])
+                # ROUND 2a2jqp: ~~variants[0]~~ -> the whole cell
+                # (COO-DECISION 2026-09-08 13:41, PANYA `1313`, `RE-296`).
+                self.assertEqual(by_leader[leader][3], raw)
         # Set 1 (leader 2880) is the one shipped set with NO variant string.
         self.assertNotIn(2880, identity.MULTI_VARIANT_OUTFITS)
 
@@ -190,12 +195,35 @@ class TheSelfCheckRefusesADriftedTable(unittest.TestCase):
         self._refuses(_RESOLVED_ROWS=identity._RESOLVED_ROWS[:-1],
                       IDENTITIES=dict(list(identity.IDENTITIES.items())[:-1]))
 
-    def test_a_multi_variant_outfit_reaching_the_column_refuses(self) -> None:
+    def test_an_empty_avatar_token_reaching_the_column_refuses(self) -> None:
+        """ROUND 2a2jqp: ~~a ';' in the column was the defect~~.
+
+        The cell now ships WHOLE (COO-DECISION 2026-09-08 13:41 +07:00,
+        PANYA `1313`, `RE-296`: the client tokenises the cell itself and
+        keeps every token), so appending a second variant is no longer a
+        defect and this test would have kept its name while asserting
+        something else.  What is still a defect is a token that can name
+        no avatar file at all, and that is what is mutated in here.
+        """
         bad = list(identity._RESOLVED_ROWS)
         row = list(bad[0])
-        row[3] = row[3] + ";M999_000_000_N"
+        row[3] = row[3] + ";"
         bad[0] = tuple(row)
         self._refuses(_RESOLVED_ROWS=tuple(bad))
+
+    def test_a_whole_cell_in_the_column_is_accepted(self) -> None:
+        """The other half of the flip: the new shape must NOT refuse."""
+        good = list(identity._RESOLVED_ROWS)
+        row = list(good[0])
+        row[3] = row[3] + ";M999_000_000_N"
+        good[0] = tuple(row)
+        originals = identity._RESOLVED_ROWS
+        identity._RESOLVED_ROWS = tuple(good)
+        try:
+            identity._self_check()
+        finally:
+            identity._RESOLVED_ROWS = originals
+        identity._self_check()
 
     def test_a_multi_variant_leader_that_ships_the_wrong_half_refuses(
         self,

@@ -308,28 +308,28 @@ _RESOLVED_ROWS = (
     (11, 2810, 654, "M071_000_003_SP1", "Fleeing Woman", "", 104, 0, 221803, 2),
     (12, 2811, 655, "M026_000_000_SP3", "santino", "Skull Deputy chief", 104, 0, 221803, 2),
     (13, 2812, 656, "M019_000_001_SP3", "Seabed Crusader", "Fighting", 104, 0, 221803, 2),
-    (14, 2813, 657, "M026_000_000_SP1", "Skeleton Sseaman", "", 99, 1, 192488, 1),
-    (15, 2814, 658, "M026_000_002_SP1", "Skeleton Mate", "", 99, 1, 192488, 1),
-    (16, 2815, 659, "M026_000_001_SP1", "Skeleton Chiliarch", "", 99, 1, 192488, 1),
+    (14, 2813, 657, "M026_000_000_SP1;M026_000_000_SP2", "Skeleton Sseaman", "", 99, 1, 192488, 1),
+    (15, 2814, 658, "M026_000_002_SP1;M026_000_002_SP2", "Skeleton Mate", "", 99, 1, 192488, 1),
+    (16, 2815, 659, "M026_000_001_SP1;M026_000_001_SP2", "Skeleton Chiliarch", "", 99, 1, 192488, 1),
     (17, 2816, 660, "M026_000_001_SP3", "Skeleton Commander Lebiya", "", 99, 1, 192488, 1),
     (18, 2817, 661, "M000_001_000_SP2", "Exotic Demon Wolf", "", 99, 1, 192488, 1),
     (19, 2818, 662, "M000_001_000_SP3", "Abyss Demon Wolf", "", 99, 1, 192488, 1),
-    (20, 2819, 663, "M008_000_000_SP1", "Shipwreck Souls", "", 99, 1, 192488, 1),
-    (21, 2820, 664, "M024_000_000_SP1", "Penguin Corporal", "", 99, 1, 192488, 1),
-    (22, 2821, 665, "M024_000_001_SP1", "Penguin Sergeant", "", 99, 1, 192488, 1),
-    (23, 2822, 666, "M024_001_001_SP1", "Penguin Staff Sergeant", "", 99, 1, 192488, 1),
-    (24, 2823, 667, "M024_001_000_SP1", "Penguin Master Sergeant", "", 99, 1, 192488, 1),
+    (20, 2819, 663, "M008_000_000_SP1;M008_000_000_SP2", "Shipwreck Souls", "", 99, 1, 192488, 1),
+    (21, 2820, 664, "M024_000_000_SP1;M024_000_000_SP2", "Penguin Corporal", "", 99, 1, 192488, 1),
+    (22, 2821, 665, "M024_000_001_SP1;M024_000_001_SP2", "Penguin Sergeant", "", 99, 1, 192488, 1),
+    (23, 2822, 666, "M024_001_001_SP1;M024_001_001_SP2", "Penguin Staff Sergeant", "", 99, 1, 192488, 1),
+    (24, 2823, 667, "M024_001_000_SP1;M024_001_000_SP2", "Penguin Master Sergeant", "", 99, 1, 192488, 1),
     (25, 2824, 668, "M018_000_000_N", "Navy Two Tripods", "", 99, 1, 192488, 1),
-    (26, 2825, 670, "M025_000_001_N", "Deep Sea Slug", "", 99, 1, 192488, 1),
+    (26, 2825, 670, "M025_000_001_N;M025_000_001_SP1", "Deep Sea Slug", "", 99, 1, 192488, 1),
     (27, 2826, 671, "M020_000_001_SP1", "Crusty Bone Fish", "", 99, 1, 192488, 1),
-    (28, 2827, 672, "M016_000_000_SP1", "Sewer Iron Man", "", 99, 1, 192488, 1),
+    (28, 2827, 672, "M016_000_000_SP1;M016_000_000_SP2", "Sewer Iron Man", "", 99, 1, 192488, 1),
     (29, 2828, 673, "M021_000_000_SP3", "Seabed Wanderer", "", 99, 1, 192488, 1),
     (30, 2829, 835, "M055_000_000_N", "Columbus", "Ocean Transport Station", 104, 0, 221803, 2),
     (31, 2830, 836, "P_MALE_015_000_SLAVE", "Concentration camp prisoner", "", 104, 0, 221803, 2),
     (32, 2831, 837, "P_MALE_015_000_RICK", "Concentration camp prisoner", "", 104, 0, 221803, 2),
-    (33, 2832, 838, "M071_000_003_SP2", "Concentration camp prisoner", "", 104, 0, 221803, 2),
+    (33, 2832, 838, "M071_000_003_SP2;M071_000_003_SP1", "Concentration camp prisoner", "", 104, 0, 221803, 2),
     (34, 2833, 839, "M026_000_002_SP2", "Coma Guard", "", 104, 0, 221803, 7),
-    (35, 2834, 841, "M071_000_003_SP2", "Concentration camp prisoner", "", 104, 0, 221803, 2),
+    (35, 2834, 841, "M071_000_003_SP2;M071_000_003_SP1", "Concentration camp prisoner", "", 104, 0, 221803, 2),
 )
 
 IDENTITIES = {row[0]: SceneIdentity(*row) for row in _RESOLVED_ROWS}
@@ -591,9 +591,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0010IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0010IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0010IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)

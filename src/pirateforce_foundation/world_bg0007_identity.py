@@ -300,18 +300,18 @@ _RESOLVED_ROWS = (
     (22, 2221, 382, 'M023_000_000_SP1', 'wugawuga', 'Cannibalistic Baby', 86, 0, 128549, 2),
     (23, 2222, 383, 'M012_000_000_N', 'Plato', 'Delicious', 86, 0, 128549, 2),
     (24, 2223, 384, 'M023_000_002_SP3', 'Vuvuzela', 'Demon Fierce', 86, 0, 128549, 2),
-    (25, 2224, 385, 'M003_000_002_SP1', 'Wild ape', '', 81, 1, 108391, 1),
-    (26, 2225, 386, 'M006_000_002_SP1', 'Purple turtle', '', 81, 1, 108391, 1),
-    (27, 2226, 387, 'M005_000_004_SP1', 'Prairie deer', '', 81, 1, 108391, 1),
+    (25, 2224, 385, 'M003_000_002_SP1;M003_000_002_SP2', 'Wild ape', '', 81, 1, 108391, 1),
+    (26, 2225, 386, 'M006_000_002_SP1;M006_000_002_SP2', 'Purple turtle', '', 81, 1, 108391, 1),
+    (27, 2226, 387, 'M005_000_004_SP1;M005_000_004_SP2', 'Prairie deer', '', 81, 1, 108391, 1),
     (28, 2227, 388, 'M020_001_001_SP1', 'Ominous Bird', '', 81, 1, 108391, 1),
-    (29, 2228, 389, 'M002_001_000_SP1', 'Dark Roast Lion', '', 81, 1, 108391, 1),
+    (29, 2228, 389, 'M002_001_000_SP1;M002_001_000_SP2', 'Dark Roast Lion', '', 81, 1, 108391, 1),
     (30, 2229, 390, 'M002_001_000_SP3', 'Dark roar', '', 81, 1, 108391, 1),
-    (31, 2230, 391, 'M022_000_002_SP1', 'Curse Harpy', '', 81, 1, 108391, 1),
-    (32, 2231, 392, 'M023_000_000_SP1', 'Voodoo Troll', '', 81, 1, 108391, 1),
+    (31, 2230, 391, 'M022_000_002_SP1;M022_000_002_SP2', 'Curse Harpy', '', 81, 1, 108391, 1),
+    (32, 2231, 392, 'M023_000_000_SP1;M023_000_000_SP2', 'Voodoo Troll', '', 81, 1, 108391, 1),
     (33, 2232, 393, 'M023_000_000_SP3', 'Avarice Lerch', '', 81, 1, 108391, 1),
-    (34, 2233, 394, 'M003_001_001_SP1', 'Zombie baboon', '', 81, 1, 108391, 1),
+    (34, 2233, 394, 'M003_001_001_SP1;M003_001_001_SP2', 'Zombie baboon', '', 81, 1, 108391, 1),
     (35, 2234, 395, 'M014_000_001_N', 'Remain Alert Weapon', '', 81, 1, 108391, 1),
-    (36, 2235, 396, 'M023_001_002_SP1', 'Voodoo butcher', '', 81, 1, 108391, 1),
+    (36, 2235, 396, 'M023_001_002_SP1;M023_001_002_SP2', 'Voodoo butcher', '', 81, 1, 108391, 1),
     (37, 2236, 397, 'M023_001_002_SP3', 'Green Eye Minced', '', 81, 1, 108391, 1),
     (38, 2237, 718, 'MAP001_000_000', 'Mirage reel', '', 105, 0, 228055, 2),
     (39, 2238, 719, 'MAP001_000_000', 'Mirage reel', '', 105, 0, 228055, 2),
@@ -540,9 +540,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0007IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0007IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0007IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)
