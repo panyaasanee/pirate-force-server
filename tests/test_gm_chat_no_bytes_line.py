@@ -63,6 +63,15 @@ from pirateforce_foundation.gm import teleport_wire  # noqa: E402
 from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
+# ~~A byte-identical copy of this helper used to live in this file~~ -- struck
+# LANE-GM round `2rk98y` (pf-adversary round `0w9jhq`, D8).  Imported from its
+# one definition instead, the way `test_gm_warp_undo_confirm_window.py` imports
+# from `test_gm_warp_send_watch`, so a pin strengthened there is strengthened
+# here in the same commit and can never be strengthened in only one copy.
+from test_gm_chat_command_action import (  # noqa: E402
+    assert_staged_warp_notice_only,
+)
+
 # Not the real one -- RE-129's measured byte is 0, which is now the SHIPPED
 # constant (COO-DECISION 20260830_1645/1742).  This value only ever opens the
 # gate to some OTHER version for the audit-failure case, which needs a frame
@@ -84,29 +93,6 @@ def make_chat_payload(message: str, speaker: str = "") -> bytes:
     return bytes(out)
 
 
-
-def assert_staged_warp_notice_only(case, action):
-    """The action a STAGED warp returns: its sentence, never a warp frame.
-
-    ~~`self.assertIsNone(action)`~~ -- struck LANE-GM round `0w9jhq` at every
-    staged-warp call site in this file.  It was the right pin while a staged
-    `/warp` put NOTHING on the wire, and it stopped being right when the
-    command started answering `STAGED RELOG` on the local-talk notice channel:
-    the owner read the old silence off her own screen as "nothing happened"
-    (`PANYA-DECISION 20260903_1800`, round R307).
-
-    WHAT THE PIN STILL HAS TO SAY IS UNCHANGED, and this helper says exactly
-    that and no more: no TELEPORT frame went out for this command.  The label
-    is asserted rather than the mere presence of an action, because a warp
-    FRAME returned here would also be "not None" -- and the label is the one
-    field `runtime.py`'s `_GM_WARP_LABELS` resync and the `TELEPORT`-substring
-    move-authority rule read.
-    """
-    case.assertIsNotNone(action)
-    case.assertEqual(
-        action[0], chat_command_action.WARP_STAGED_NOTICE_ACTION_LABEL
-    )
-    case.assertNotIn("TELEPORT", action[0])
 
 
 class FakePosition:
@@ -985,6 +971,7 @@ class TheStagedWarpTests(_Case):
                 self.GM_ACCOUNT,
                 gm_commands.GmCommand("warp", ("278",), "/warp 278"),
                 chat_command_action.OUTCOME_STAGED_LOGIN_SCENE,
+                notice=True,
             )
         printed = err.getvalue()
         self.assertIn(
@@ -1056,6 +1043,7 @@ class TheStagedWarpTests(_Case):
                 self.GM_ACCOUNT,
                 object(),
                 chat_command_action.OUTCOME_STAGED_LOGIN_SCENE,
+                notice=True,
             )
         printed = err.getvalue()
         self.assertEqual(len(printed.splitlines()), 1, printed)
@@ -1586,6 +1574,7 @@ class TheConsoleEncodingTests(_Case):
                 "GM中文",
                 gm_commands.GmCommand("warp", ("278",), "/warp 278"),
                 chat_command_action.OUTCOME_STAGED_LOGIN_SCENE,
+                notice=True,
             )
             stream.flush()
         finally:
@@ -1715,6 +1704,7 @@ class TheGuardsOfTheNewPrinterItselfTests(_Case):
                     self.GM_ACCOUNT,
                     gm_commands.GmCommand("warp", ("278",), "/warp 278"),
                     chat_command_action.OUTCOME_STAGED_LOGIN_SCENE,
+                    notice=True,
                 )
         finally:
             sys.stderr = real

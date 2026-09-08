@@ -11083,12 +11083,52 @@ characters like every other sentence on this channel:
   `_GM_WARP_LABELS` resync nor the `TELEPORT`-substring move-authority rule.
   A staged warp moves nobody, and a label either list recognised would tell
   `runtime.py` a character had just been placed in a scene it is not in.
+  ~~"both halves are pinned"~~ -- STRUCK LANE-GM round `2rk98y`.  When round
+  `0w9jhq` wrote that sentence only the `TELEPORT` half was pinned; no test
+  in the repository read `runtime.py` for this label, and pf-adversary added
+  it to `_GM_WARP_LABELS` with the whole suite green (D3).  Both halves are
+  pinned now, the second by
+  `tests/test_gm_chat_command_action.py::StagedWarpRuntimeLabelWiringTests`,
+  which reads chief's file as text.
+  !! AND THE SAME SENTENCE WAS FALSE ONCE MORE BEFORE IT WAS TRUE, which is
+  worth more than the fix.  Round `2rk98y`'s FIRST draft of that test asserted
+  the absence of the label's VALUE, and `runtime.py` never spells a label
+  value -- every member of the tuple is an attribute reference, and the only
+  two `LANE_GM_CHAT_` strings in that whole file belong to an unrelated
+  console line.  The needle could not be in the haystack, so the assertion
+  could not go red, and the mutant survived the suite a second time
+  (pf-adversary round `2rk98y`, D-1).  The lesson is written into the test:
+  an absence assertion is worth exactly what its POSITIVE CONTROL is worth,
+  so `test_the_needle_would_be_found_if_it_were_there` looks for a label the
+  tuple really does carry, spelled the way the forbidden one would be, and
+  the block is sliced to a BALANCED paren rather than to the first `)` -- a
+  member added below an ordinary comment with a parenthetical fell outside
+  the window and read as clean (D-2).
 * A COURTESY MAY NEVER COST THE COMMAND.  The stage is on disk before the
   sentence is composed; a wire that refuses the notice leaves the warp staged
   and silent, named by `gm_chat_action_warp_notice_failed_<Type>`, never
   raised on the listener thread.
+* AND THE CONSOLE SAYS WHICH OF THE TWO HAPPENED, in a positive word on both
+  arms (round `2rk98y`, pf-adversary D4).  `GM_CHAT_STAGED_NEXT_LOGIN` now
+  carries `notice=sent` or `notice=none`.  Before it did, the failure boot
+  was the success boot MINUS ONE LINE, so the operator had to read an
+  ABSENCE -- the same reading failure R307 recorded, one layer up, shipped by
+  the command that exists because of it.  `staged` answers the same question
+  with `composed=yes|no`; these are the same fix in two vocabularies, and the
+  words differ because the facts do (`staged` knows only that it composed;
+  the warp route knows the caller's final answer about the bytes).
 
 NONCLAIM.  `STAGED RELOG` says a config entry was written.  It does not say
 the next login will grant that scene (the claim and `resolve_entry` still run
 at login), it is not evidence for M2, and it is not evidence for any GT
 ticket: GM tooling is how this project REACHES a testable state.
+
+NONCLAIM, THE LAYER (added round `2rk98y`, pf-adversary D6).  "Answers on
+screen" is a WIRE-LAYER fact and is written here as one: the notice is
+composed in-process, returned to the caller, and asserted from its own bytes.
+**Nobody has seen `STAGED RELOG` on a screen** -- the same sentence this
+document already carries twice about `SPEED DENIED`, and it stays true of
+this notice until an attended boot grades it.  The ticket that would change
+that is the one this lane sent to LANE-K in round `2rk98y`
+(`HEADLESS_PROOF:` measured on `main`); until a tester reports the pixels,
+every claim above is "the server handed these bytes to the send path".

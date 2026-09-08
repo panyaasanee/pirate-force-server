@@ -563,8 +563,13 @@ STAGED_READBACK_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_STAGED_READBACK_LOCAL_TALK_N
 # move-authority grace window on the `TELEPORT` substring.  A staged warp
 # moves NOBODY -- it writes a config entry -- so a label either list could
 # recognise would tell `runtime.py` that a character had just been placed in a
-# scene it is not in.  This label is in neither, on purpose, and
-# `StagedWarpNoticeTests` pins both halves.
+# scene it is not in.  This label is in neither, on purpose.
+# ~~`StagedWarpNoticeTests` pins both halves.~~ -- STRUCK round `2rk98y`.  It
+# pins the `TELEPORT` half only; the `_GM_WARP_LABELS` half is
+# `tests/test_gm_chat_command_action.py::StagedWarpRuntimeLabelWiringTests`,
+# which reads `runtime.py` as text and carries its own positive control (the
+# first draft of it searched for this VALUE, which that file never spells, so
+# it could not have gone red -- pf-adversary round `2rk98y`, D-1).
 WARP_STAGED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_WARP_STAGED_LOCAL_TALK_NOTICE"
 
 # The `characters` column LANE-DB's persistence entry point is keyed by for
@@ -697,6 +702,20 @@ WITHHELD_CONSOLE_TOKEN = "GM_CHAT_NO_BYTES_SENT"
 # cross scenes, so the cross-scene half stages the SCENE and nothing else).
 # That was invisible everywhere except the ndjson `outcome` word.
 STAGED_CONSOLE_TOKEN = "GM_CHAT_STAGED_NEXT_LOGIN"
+
+# THE TWO WORDS THE STAGED LINE USES FOR ITS OWN SENTENCE, and they are a
+# positive word on BOTH arms on purpose.  Before they existed, a staged
+# `/warp` whose `STAGED RELOG` notice failed to compose printed a console
+# that was the success case MINUS ONE LINE, so the operator had to separate
+# "the sentence reached my screen" from "nothing reached my screen" by
+# noticing an absence -- the exact reading failure `PANYA-DECISION
+# 20260903_1800` records for R307, and the one round `qpauwp` was already
+# told to stop shipping for `/staged` (which answers `composed=yes|no` for
+# the same reason).  pf-adversary round `0w9jhq`, D4: the three event
+# strings that named the failure were deletable with the suite green,
+# because no line anyone reads carried the answer.
+STAGED_NOTICE_SENT_WORD = "sent"
+STAGED_NOTICE_NONE_WORD = "none"
 
 # THE `next=` SENTENCE THIS TOKEN CARRIES, and it is six sentences (three
 # blockers x two tails, joined by `staged_next_step`) since
@@ -2117,7 +2136,10 @@ class _Verdict:
     # carries no such label -- it carried `action=None` when this note was
     # written, and since round `0w9jhq` it carries the NOTICE action
     # `WARP_STAGED_NOTICE_ACTION_LABEL`, which is in neither `_GM_WARP_LABELS`
-    # nor the `TELEPORT` substring rule (pinned by `StagedWarpNoticeTests`) --
+    # nor the `TELEPORT` substring rule (the first pinned by
+    # `StagedWarpRuntimeLabelWiringTests`, the second by
+    # `StagedWarpNoticeTests`; ~~"both by `StagedWarpNoticeTests`"~~ struck
+    # round `2rk98y`) --
     # so nothing can resync between `_warp_action`'s
     # read and a print-time read WITHIN one command; and when an EARLIER live
     # warp has already poisoned the field, `_warp_action`'s own read is
@@ -2567,14 +2589,27 @@ def make_gm_chat_command_action(
     list, exactly like `gm_state_action` -- or None, which means "this frame
     is not ours; behave exactly as the server did before this lane existed".
 
-    !! AN ACTION IS NOT ALWAYS A COMMAND.  Two of the labels this can return
-    are ON-SCREEN NOTICES about a command that did NOT run -- a refused
+    !! AN ACTION IS NOT ALWAYS A COMMAND.  SIX of the labels this can return
+    are ON-SCREEN NOTICES, and every one of them ends in
+    `_NOTICE_ACTION_LABEL` -- which is the only reason this sentence can be
+    checked rather than believed.  ~~"Two of the labels"~~ struck LANE-GM
+    round `2rk98y`: it was written when there were two, `/lv` made it four,
+    `staged` five and the staged `/warp` six, and it stayed at "two" through
+    all of them (pf-adversary round `0w9jhq`, D7).  A number typed into
+    prose drifts silently, so `tests/test_gm_chat_command_action.py`
+    ::NoticeLabelCountTests now reads THIS docstring and the module's own
+    labels and refuses the day they disagree.
+
+    Two of the six are about a command that did NOT run -- a refused
     `/speed` (`SPEED_DENIED_NOTICE_ACTION_LABEL`, COO-DECISION `0345`) and a
     MISTYPED command of any name (`TYPO_REFUSED_NOTICE_ACTION_LABEL`,
-    COO-DECISION `0647`).  The caller appends them the same way; nothing at
-    the call site changes.  It is said here because "an action came back"
-    stopped meaning "the command ran" the day the first notice landed, and a
-    reader of this docstring is exactly who would otherwise assume it.
+    COO-DECISION `0647`).  The other four report a command that DID run and
+    put no frame of its own on the wire (`/lv` set or refused, `staged`'s
+    readback, and the staged cross-scene `/warp`).  The caller appends them
+    the same way; nothing at the call site changes.  It is said here because
+    "an action came back" stopped meaning "the command ran" the day the
+    first notice landed, and a reader of this docstring is exactly who would
+    otherwise assume it.
 
     `scene_registry` -- OPTIONAL, AND THE ONE ARGUMENT WHOSE ABSENCE COSTS
     THE TESTER SOMETHING.  `/warp` decides whether a destination can be
@@ -4269,6 +4304,7 @@ def _print_staged_way_out(
     command: object,
     outcome: str,
     *,
+    notice: bool,
     same_scene: bool = False,
     basis: str = SAME_SCENE_BASIS_FIELD,
     blocker: str = STAGED_BLOCKER_NO_SPAWN,
@@ -4340,6 +4376,28 @@ def _print_staged_way_out(
     rather than inventing a blocker -- and `same_scene` defaults to the
     cross-scene tail so such a caller understates what it knows instead of
     telling a GM already standing in the scene that a relog will move her.
+
+    `notice` HAS NO DEFAULT, and that is the one exception to the paragraph
+    above, for the reason `_stage_action`'s `legacy` has none: every other
+    argument here has a shipped value that is TRUE of a caller who forgets
+    it, and this one does not.  A forgotten `notice=` would print the same
+    word on the boot where the sentence reached the screen and the boot
+    where it never composed -- which is precisely the silence this field
+    exists to end, arriving by omission.
+
+    IT IS FED FROM THE CALLER'S FINAL `notice_sent`, NOT FROM
+    `verdict.is_notice`, AND TODAY THAT IS A CHOICE OF SOURCE, NOT A
+    BEHAVIOUR.  `is_notice` says a sentence was ATTACHED; `notice_sent` says
+    one was returned.  They can differ only where an audit failure drops the
+    action -- and that branch sets `audited` False, while THIS printer is
+    reached under `audit_outcome in STAGED_OUTCOMES and audited`, so on every
+    path that reaches this line the two are equal (measured: swapping the
+    source leaves five GM test files at 370 passed -- an equivalent mutant,
+    pf-adversary round `2rk98y`, D-5).  The caller's answer is still the
+    right source, because it is the one `GM_CHAT_NOTICE_SENT` is keyed on
+    two lines up, so the two console lines cannot disagree if the reachable
+    set ever widens -- but no test pins that, and nothing here should be
+    read as saying the difference has ever been exercised.
     """
     stream = sys.stderr
     if stream is None:
@@ -4361,6 +4419,7 @@ def _print_staged_way_out(
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command=warp scene_id={scene_id} coordinates={coordinates} "
             f"basis={basis} "
+            f"notice={STAGED_NOTICE_SENT_WORD if notice else STAGED_NOTICE_NONE_WORD} "
             f"next='{next_step}'",
             file=stream,
         )
@@ -5005,6 +5064,11 @@ def _announce_console_outcome(
             token,
             command,
             verdict.audit_outcome,
+            # THE POSITIVE WORD, PASSED IN, NEVER RE-DERIVED HERE.  This is
+            # the caller's final answer -- the same `notice_sent` that
+            # decided whether `GM_CHAT_NOTICE_SENT` was printed above -- so
+            # the two lines can never disagree about one command.
+            notice=notice_sent,
             same_scene=verdict.staged_same_scene,
             basis=verdict.same_scene_basis,
             blocker=verdict.staged_blocker,
