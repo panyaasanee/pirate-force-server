@@ -1303,6 +1303,49 @@ class TheAuditWriterChecksTheSizeItWasPromisedTests(unittest.TestCase):
             )
         self.assertFalse(self.log_path.exists())
 
+    def test_a_hand_built_pile_of_small_args_is_refused_too(self):
+        # pf-adversary, this round, D2: a per-element cap is not a cap on
+        # the LINE. 100,000 args of 400 characters each passed every
+        # per-element check and wrote one 40,400,270-byte ndjson line.
+        with self.assertRaises(GmCommandArgsError):
+            log_gm_command(
+                GmCommand("say", tuple("A" * 400 for _ in range(2_000)), "say hi"),
+                "panya",
+                log_path=self.log_path,
+                now_ts=0,
+            )
+        self.assertFalse(self.log_path.exists())
+
+    def test_the_two_sibling_writers_are_guarded_as_well(self):
+        # pf-adversary, this round, D3: they write the same `raw` and
+        # `args` into the same file, from the same command object.
+        big = GmCommand("say", ("Y" * 200_000,), "say " + "Z" * 200_000)
+        with self.assertRaises(GmCommandArgsError):
+            commands_module.log_gm_command_outcome(
+                big, "panya", commands_module.OUTCOME_COMPOSED,
+                record_id="a" * 16, log_path=self.log_path, now_ts=0,
+            )
+        with self.assertRaises(GmCommandArgsError):
+            commands_module.log_gm_command_queued(
+                big, "panya", record_id="a" * 16,
+                log_path=self.log_path, now_ts=0,
+            )
+        self.assertFalse(self.log_path.exists())
+
+    def test_the_longest_line_the_grammar_carries_sits_on_the_boundary(self):
+        # pf-adversary, this round, D7: `>` -> `>=` survived the whole
+        # suite because no test sat on 488. The comment that said this
+        # line was refused was wrong: it parses, and its raw IS the cap.
+        line = "say" + " " * 5 + "a" * MAX_SAY_MESSAGE_LENGTH
+        self.assertEqual(commands_module.MAX_COMMAND_LINE_LENGTH, len(line))
+        command = parse_gm_command(line)
+        self.assertEqual(
+            commands_module.MAX_COMMAND_LINE_LENGTH, len(command.raw)
+        )
+        log_gm_command(command, "panya", log_path=self.log_path, now_ts=0)
+        row = json.loads(self.log_path.read_text(encoding="utf-8").strip())
+        self.assertEqual(line, row["raw"])
+
     def test_every_line_the_grammar_accepts_is_still_written(self):
         # The check re-asserts the parser's promise; it must not narrow it.
         # A `say` at its own ceiling is the longest line this grammar has.

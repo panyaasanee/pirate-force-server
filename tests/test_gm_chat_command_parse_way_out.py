@@ -205,7 +205,40 @@ class _Case(unittest.TestCase):
         allowed.add(chat_command.FORMAT_CHARACTER_REFUSAL_DETAIL)
         return allowed
 
-    def assert_only_this_lanes_text(self, sentence: str) -> None:
+    def expected_suggestion_clause(self, typed: str) -> str:
+        """Rebuild the clause from the TABLE, independently of the code.
+
+        Deliberately a second implementation of the same formatting rather
+        than a call into `_did_you_mean`: a pin that asks the function
+        whether it agrees with itself cannot see an echo appended to its
+        own output.  pf-adversary, round `iu5xks`, D1/D8 -- both a
+        `" (searched " + rest + ")"` and a three-character `"[q=isl]"`
+        appended inside `_did_you_mean` survived the whole suite, because
+        the assertion this replaces checked the SHAPE of the clause (a head
+        it recognised, and quoted names that resolve) instead of its
+        CHARACTERS.  This one is exact equality, so nothing can be added.
+        """
+        body = typed[1:] if typed.startswith("/") else typed
+        parts = body.strip().split(maxsplit=1)
+        if len(parts) != 2 or parts[0].lower() != "warp":
+            return ""
+        rest = parts[1].strip()
+        if len(rest) > gm_commands.MAX_WARP_NAME_QUERY_LENGTH:
+            return ""
+        query = rest.rpartition("#")[0].strip() or rest
+        suggestions = scene_catalog.suggest_gm_scene_names(query)
+        if not suggestions:
+            return ""
+        shown = []
+        for name, id_count in suggestions:
+            if id_count == 1:
+                scene_id = scene_catalog.resolve_gm_scene_name(name)[0]
+                shown.append(f"{name!r} (scene {scene_id})")
+            else:
+                shown.append(f"{name!r} (on {id_count} scenes)")
+        return "; did you mean " + " or ".join(shown)
+
+    def assert_only_this_lanes_text(self, sentence: str, typed: str) -> None:
         """The claim this file exists for, restated for a sentence that can
         now carry catalog names (round `iu5xks`).
 
@@ -219,20 +252,16 @@ class _Case(unittest.TestCase):
         KEY OF THE PINNED TABLE.  A line assembled out of what was typed
         fails this exactly where it failed the old assertion.
         """
-        head, separator, clause = sentence.partition("; did you mean ")
+        head, separator, _clause = sentence.partition("; did you mean ")
         self.assertIn(
             head, self.sentences_this_lane_wrote(), f"line was: {sentence!r}"
         )
-        if not separator:
-            return
-        quoted = re.findall(r"'([^']*)'", clause)
-        self.assertTrue(quoted, f"a suggestion clause with no name: {clause!r}")
-        for name in quoted:
-            with self.subTest(suggested=name):
-                self.assertTrue(
-                    scene_catalog.resolve_gm_scene_name(name),
-                    f"{name!r} is not a name the shipped table carries",
-                )
+        expected = self.expected_suggestion_clause(typed)
+        self.assertEqual(
+            f"{head}{expected}", sentence, f"line was: {sentence!r}"
+        )
+        if not expected:
+            self.assertEqual("", separator, f"line was: {sentence!r}")
 
 
 class EveryLineThatWasSilentNowSpeaksTests(_Case):
@@ -360,7 +389,22 @@ class NothingTypedEverReachesTheConsoleTests(_Case):
                 _, console = self.act(session, f"/warp {needle}")
 
                 self.assertEqual(1, len(self.refusal_lines(console)))
-                self.assertNotIn(needle, console)
+                # OUTSIDE THE SUGGESTION CLAUSE -- narrowed, not weakened,
+                # and pf-adversary (round `iu5xks`, D4) is why it is said
+                # out loud.  A clause built out of the shipped table CAN
+                # repeat a typed fragment, because the fragment is what
+                # matched: `/warp Island` prints `'Mad Island'`.  This test
+                # passed only because its needles are lowercase and the
+                # table spells the word `Island`, which is a coincidence,
+                # not a property.  What is still true, and is what the
+                # founding threat model needs, is that nothing typed
+                # reaches the line EXCEPT as part of a name the table
+                # already carried -- the clause itself is pinned character
+                # for character by `assert_only_this_lanes_text`, so an
+                # echo appended to it is caught there and a fragment that
+                # is NOT in the table cannot appear at all.
+                clause = self.expected_suggestion_clause(f"/warp {needle}")
+                self.assertNotIn(needle, console.replace(clause, ""))
 
     def test_a_typed_line_can_only_choose_among_the_lanes_own_sentences(self):
         """The strongest form of the claim: whatever is typed, the printed
@@ -384,7 +428,9 @@ class NothingTypedEverReachesTheConsoleTests(_Case):
                 _, console = self.act(session, typed)
 
                 line = self.refusal_lines(console)[0]
-                self.assert_only_this_lanes_text(self.printed_usage(line))
+                self.assert_only_this_lanes_text(
+                    self.printed_usage(line), typed
+                )
 
     def test_the_hint_field_itself_is_never_built_from_the_typed_text(self):
         """Asked of the field rather than the console, so a printer that
@@ -398,7 +444,9 @@ class NothingTypedEverReachesTheConsoleTests(_Case):
                     config_path=str(self.config_path),
                     log_path=str(self.log_path),
                 )
-                self.assert_only_this_lanes_text(outcome.refusal_hint)
+                self.assert_only_this_lanes_text(
+                    outcome.refusal_hint, typed
+                )
 
 
 class TheLineCannotBeFloodedOrForgedTests(_Case):

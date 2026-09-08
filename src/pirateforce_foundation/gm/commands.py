@@ -594,8 +594,10 @@ def refusal_hint_for(body: str) -> str:
 
     NOTHING TYPED IS PRINTED, WHICH IS THE SAME RULE AS BEFORE.  The
     contract `usage_hint_for` keeps is not "the output ignores the input" --
-    which of its seven sentences comes back has always depended on the verb
-    that was typed.  The contract is that every CHARACTER of the output is
+    which of its sentences comes back (TEN of them at this commit, not the
+    "seven" three comments in this file still say: `COMMAND_USAGE` has nine
+    entries plus the joined line -- pf-adversary, round `iu5xks`, D10) has
+    always depended on the verb that was typed.  The contract is that every CHARACTER of the output is
     text this lane owns.  `_did_you_mean` is held to exactly that rule and
     tested against it with a marker that appears in none of the 330 shipped
     names, and every name it can return is pinned to encode in
@@ -603,8 +605,18 @@ def refusal_hint_for(body: str) -> str:
     `test_gm_scene_catalog.py`.  So the widened output cannot carry the
     unlucky byte that killed the console in round `9wy444`.
 
-    WHAT IT COSTS, said plainly: the line is no longer one of seven fixed
-    strings, so it is no longer bounded by construction.  It is bounded by
+    WHAT IT COSTS, said plainly, and it is more than width.  The clause is
+    a SUBSTRING ORACLE over the pinned table: an operator who types a
+    fragment reads back the row that contains it, so a typed fragment CAN
+    reappear on the console -- `/warp Island` prints `'Mad Island'`
+    (pf-adversary, round `iu5xks`, D4).  What is true, and what the
+    founding threat model needs, is narrower than "nothing typed appears":
+    nothing appears EXCEPT as part of a name the table already carried, and
+    the clause is pinned character for character by
+    `assert_only_this_lanes_text` in `test_gm_chat_command_parse_way_out.py`
+    so nothing can be appended to it.  A fragment that is not in the table
+    cannot reach the line at all.  The line is also no longer one of a
+    fixed set of strings, so it is no longer bounded by construction.  It is bounded by
     derivation instead -- `MAX_SUGGESTIONS` names, each at most
     `scene_catalog.LONGEST_GM_NAME_LENGTH` characters, plus this module's
     own joining words -- and `chat_command_action.py` still truncates at
@@ -764,8 +776,13 @@ MAX_WARP_NAME_QUERY_LENGTH = 2 * scene_catalog.LONGEST_GM_NAME_LENGTH
 #: The longest line this grammar can legitimately carry is
 #: `say ` + 480 characters = 484, so a `say` at its own ceiling has four
 #: characters of slack SHARED between those three places, not four of
-#: trailing space; `say` + five spaces + 480 characters is a body at its
-#: documented ceiling and is refused by the line cap.  Every shorter line
+#: trailing space.  ~~`say` + five spaces + 480 characters is refused by
+#: the line cap~~ IS STRUCK (pf-adversary, round `iu5xks`, D7, MEASURED):
+#: that line is 3 + 5 + 480 = 488 characters, the cap refuses only what is
+#: OVER 488, and it parses -- its `raw` is 488 characters long.  So the
+#: longest line this grammar legitimately carries is 488, not 484, and the
+#: boundary now has a test sitting exactly on it (a `>` that drifts to
+#: `>=` silently loses a real audit row, and used to survive the suite).  Every shorter line
 #: has more slack, and no other verb comes within 375 characters of the
 #: cap (`warp ` + 108 = 113 is the next longest).
 def _derive_max_command_line_length(
@@ -1184,6 +1201,16 @@ def _require_audit_sized_command(
     writes nothing.  Two guards answering one shape with two exception types
     would be a worse file than one, so this one stays out of that lane.
 
+    EVERY WRITER OF `raw` CALLS THIS, not just the `issued` one
+    (pf-adversary, this round, D3, MEASURED): `log_gm_command_outcome` and
+    `log_gm_command_queued` write the same `raw` and `args` fields into the
+    same file, from the same `command` object, at `chat_command_action.py`
+    3031/3033/3085/3089.  Guarding one of the three and then writing
+    "the unbounded audit line is closed" was the enumeration error that
+    finding is about.  A refusal here is still not a lost outcome row for
+    any command the grammar accepted: what `log_gm_command` refuses never
+    gets an `issued` row to close.
+
     WHAT IT STILL DOES NOT BOUND, named rather than left to be found:
     `account_name`, which does not come from the parser at all (it comes
     from the session), and `record_id`.  Both are this lane's own values on
@@ -1192,6 +1219,14 @@ def _require_audit_sized_command(
     unbounded audit line reachable from a hand-built COMMAND is closed; one
     reachable from a hand-built ACCOUNT NAME is not, and this docstring
     would rather say so than let the next round discover it.
+
+    ~~IT ADDS NO POLICY~~ IS NARROWED (pf-adversary, this round, D6): a
+    `str` SUBCLASS whose `__len__` lies gets a 200,007-character `raw` past
+    the parser -- that is D2's other half, still open there -- and this
+    function refuses to write it.  So the honest statement is that
+    everything the parser accepts FROM A REAL `str` passes, which is every
+    line the wire can carry (a decoded 0xAC52 payload is a plain `str`,
+    capped at `MAX_CHAT_PAYLOAD_LENGTH` before it gets here).
     """
     raw = command.raw
     if isinstance(raw, str) and str.__len__(raw) > MAX_COMMAND_LINE_LENGTH:
@@ -1200,15 +1235,23 @@ def _require_audit_sized_command(
             f"({str.__len__(raw)} given); the audit line is not the place "
             "to discover that"
         )
+    # THE SUM, NOT EACH ELEMENT (pf-adversary, this round, D2, MEASURED):
+    # a per-element cap is not a cap on the LINE.  100,000 args of 400
+    # characters each pass every per-element check and write a single
+    # 40,400,270-byte ndjson line -- the same defect, one dimension over,
+    # inside the function added to close it.  Everything the parser
+    # produces still passes for the same reason as before, and now the
+    # reason is the tighter one: `args` are slices of `raw`, so their
+    # lengths sum to at most `len(raw)`, which is at most the cap.
+    total = 0
     for index, value in enumerate(args):
-        if (
-            isinstance(value, str)
-            and str.__len__(value) > MAX_COMMAND_LINE_LENGTH
-        ):
+        if not isinstance(value, str):
+            continue
+        total += str.__len__(value)
+        if total > MAX_COMMAND_LINE_LENGTH:
             raise GmCommandArgsError(
-                f"command args[{index}] exceeds "
-                f"{MAX_COMMAND_LINE_LENGTH} characters "
-                f"({str.__len__(value)} given)"
+                f"command args exceed {MAX_COMMAND_LINE_LENGTH} characters "
+                f"in total by args[{index}] ({total} so far)"
             )
 
 
@@ -1330,6 +1373,7 @@ def log_gm_command_outcome(
     if not is_known_outcome(outcome):
         raise ValueError(f"unknown outcome: {outcome!r}")
     args = _require_args_tuple(command.args, min_length=0)
+    _require_audit_sized_command(command, args)
     ts = now_ts if now_ts is not None else time.time()
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
@@ -1413,6 +1457,7 @@ def log_gm_command_queued(
         # reads like a complete record and is worse than a missing line.
         raise ValueError("record_id must be a non-empty str")
     args = _require_args_tuple(command.args, min_length=0)
+    _require_audit_sized_command(command, args)
     ts = now_ts if now_ts is not None else time.time()
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),

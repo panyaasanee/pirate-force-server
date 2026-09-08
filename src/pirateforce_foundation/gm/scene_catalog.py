@@ -198,16 +198,21 @@ def suggest_gm_scene_names(
     `gm/commands.py::_did_you_mean` put it into a `GmCommandParseError`
     message, and `chat_command.py` -- the only code in `src/` that catches
     that exception -- discarded the message by contract and answered with
-    one of seven fixed sentences, so the console line for `/warp Atlantic`
-    was byte-identical before and after this search was written.  The open
+    one of a fixed set of sentences, so the console line for
+    `/warp Atlantic` was byte-identical before and after this search was
+    written.  The open
     question that left ("may a suggestion be printed at all") was answered
     yes by `commands.refusal_hint_for`, which appends this clause to that
     same fixed sentence.  The rule it had to satisfy first is the one this
     function was already built for: every character it returns comes out of
     the pinned table, none out of the query, and every shipped name encodes
     in the console's codec.  Measured on `origin/main` `ea59ec9` before the
-    change: `names_printed=0 usage_chars=46`; on the branch that made it:
-    `names_printed=1 usage_chars=129`.
+    change: `usage_chars=46` with no clause at all; on the branch that made
+    it: `usage_chars=129`, carrying TWO names (`'Atlantic Ocean1'` and
+    `'Atlantic-Dark Fog Sea'`).  The token that measured it counted the
+    CLAUSE, not the names in it, so `names_printed=1` in that headless line
+    means "one clause", and this sentence says so rather than let the
+    number be read as a count of names (pf-adversary, round `iu5xks`, D13).
 
     TWO SEARCHES, IN THIS ORDER, because they answer two different people.
     `difflib` answers the operator who typed a whole name and dropped a

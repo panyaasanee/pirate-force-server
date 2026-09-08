@@ -328,6 +328,13 @@ class ChatCommandOutcome:
     `gm/chat_command_action.py`, which writes the `outcome` row.  A refusal
     wrote no row, so it carries no id; there is nothing to close.
 
+    A FOURTH SHAPE EXISTS since round `iu5xks` (pf-adversary D11): a
+    `COMMAND_USAGE` sentence FOLLOWED BY the `; did you mean ...` clause
+    `commands.refusal_hint_for` appends for a refused `warp <name>`.  Every
+    character of that clause still comes out of the sha-pinned scene table
+    and none out of the typed line; the enumeration below predates it and
+    is no longer exhaustive.
+
     `refusal_hint` is the operator-readable half of a refusal: what would
     have worked instead.  Set only for the refusals in
     `TYPED_COMMAND_REFUSAL_PREFIXES` -- a GM typed something command-shaped
