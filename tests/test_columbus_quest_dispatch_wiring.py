@@ -255,7 +255,13 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         ), state.events)
         self.assertIn(
             "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
-            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            # ``from=caller_row`` ADDED to the token round 1v5i3h
+            # (pf-adversary D1 of round ioz8fd) and asserted EXACT here: this
+            # is the sanctioned SYNTHETIC arrival, built by
+            # resolve_columbus_arrival at the decreed point through
+            # via_login=False, and it must not read on the console like a
+            # character's own durable row landing at sea (from=stored_row).
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445 from=caller_row",
             state.events,
         )
         self.assertIn(
@@ -977,7 +983,7 @@ class ColumbusCrossingCheckpointTests(unittest.TestCase):
         )
         return state, character
 
-    def test_the_crossing_moves_the_row_but_writes_no_durable_scene_17(self):
+    def test_the_crossing_writes_the_durable_row_it_moved_to(self):
         state, character = self._crossed_state("tok-d3-row")
         self.assertEqual(
             state.foundation.selected.position.scene_id,
@@ -999,12 +1005,35 @@ class ColumbusCrossingCheckpointTests(unittest.TestCase):
             (row.scene_id, row.x, row.y, row.z),
             (arrival.scene_id, arrival.x, arrival.y, arrival.z),
         )
-        # The durable row is deliberately NOT scene 17: the registry pins
-        # persist_position_allowed false for it, and lifecycle.checkpoint
-        # honours that (GT-106).  A stored 17 would refuse the character at
-        # its next login, which login_entry_allowed false forbids.
+        # ~~The durable row is deliberately NOT scene 17 ... A stored 17
+        # would refuse the character at its next login, which
+        # login_entry_allowed false forbids.~~ REVERSED BY THE OWNER,
+        # LANE-A round 3a11a0: PANYA-DECISION 20260908_1218 says a login
+        # returns a character to the exact point it logged out from, in
+        # every scene, so `pirate-force-server#1137` opened scene 17 at
+        # login AND opened its write-back.  A stored 17 is now what lets a
+        # character that sailed out and closed the game come back on the
+        # same water; withholding it is what put them ashore.
+        #
+        # The two halves are asserted together on purpose, because that
+        # pairing is the whole of 1218 and each half alone is a defect: a
+        # row written into a scene the login refuses is a lockout, and an
+        # open door with no row written is a character that comes back
+        # somewhere it has never been.
         stored = self.store.get_character(character.id)
-        self.assertEqual(stored.position.scene_id, 1)
+        self.assertEqual(
+            stored.position.scene_id,
+            columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID,
+        )
+        self.assertEqual(
+            (stored.position.x, stored.position.y, stored.position.z),
+            (arrival.x, arrival.y, arrival.z),
+        )
+        from pirateforce_foundation import world_scene_entry
+
+        world_scene_entry.resolve_entry(  # must not raise: the next login
+            stored.position, emit=lambda _line: None,
+        )
 
     def test_a_warp_home_after_the_crossing_is_a_cross_scene_warp(self):
         """Warp home after sailing out and the census latch IS cleared -- and

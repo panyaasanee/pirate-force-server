@@ -113,6 +113,8 @@ from pirateforce_foundation.runtime import (  # noqa: E402
 )
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 CONSOLE_TOKEN = "GM_WARP_POSITION_CONFIRMED"
@@ -184,6 +186,34 @@ class GmWarpPositionConfirmedTests(unittest.TestCase):
         field_mobs.load_roster()
 
     # ----- harness -------------------------------------------------------
+
+    def _bend_the_disk(self, registry):
+        """Boot the rest of this case against `registry` instead of the file.
+
+        Starts the loader patch AND rebuilds the lifecycle under it, because
+        the lifecycle caches its reading at construction time.  Everything
+        after this call -- the login, the checkpoint, the persist gate, the
+        store -- is the real production path reading the bent rows.
+        """
+        patcher = bent.patch_disk(registry)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+        self.assertFalse(
+            world_scene_travel.is_position_persist_allowed(
+                UNPERSISTED_SCENE_ID, self.lifecycle._scene_registry,
+            ),
+            "the rebuilt lifecycle did not pick the bend up, so this case "
+            "would pass on the shipped reading and prove nothing",
+        )
+        return patcher
 
     def _login_and_start(self, token, *, scene_load_scenario=None):
         """The flagless boot: no scenario arguments of any kind.
@@ -494,15 +524,33 @@ class GmWarpPositionConfirmedTests(unittest.TestCase):
         )
 
     def test_the_registry_still_pins_scene_17_as_unpersisted(self):
-        """The premise of the test below, asserted rather than assumed."""
-        registry = world_scene_travel.load_scene_registry()
+        """The premise of the test below, asserted rather than assumed.
+
+        PANYA-DECISION 20260908_1218 opened scene 17's write-back in the
+        SHIPPED registry -- a character that logs out at sea has to come
+        back at sea, and a position nobody writes cannot do that.  So the
+        premise of the case below is no longer a fact about the file; it is
+        a fact about the GATE, and the gate is asked here on a bent reading
+        of the real registry (real row, real spawn, one boolean).  Both
+        halves are asserted: the gate still refuses a row pinned shut, and
+        the shipped file no longer pins any.
+        """
+        bent_registry = bent.unpersisted(UNPERSISTED_SCENE_ID)
         self.assertFalse(
             world_scene_travel.is_position_persist_allowed(
-                UNPERSISTED_SCENE_ID, registry,
+                UNPERSISTED_SCENE_ID, bent_registry,
             )
         )
         self.assertTrue(
-            world_scene_travel.is_position_persist_allowed(1, registry)
+            world_scene_travel.is_position_persist_allowed(1, bent_registry)
+        )
+        shipped = world_scene_travel.load_scene_registry()
+        self.assertTrue(
+            world_scene_travel.is_position_persist_allowed(
+                UNPERSISTED_SCENE_ID, shipped,
+            ),
+            "1218 opened this write-back; a shipped row that refuses it "
+            "again is the lockout this lane just removed",
         )
 
     def test_a_warp_inside_an_unpersisted_scene_confirms_nothing(self):
@@ -530,6 +578,20 @@ class GmWarpPositionConfirmedTests(unittest.TestCase):
         and Columbus lanes use.  Whether those lanes reach it correctly is
         their own tests' business, not this one's.
         """
+        # The disk is bent for the length of this case, because the
+        # behaviour it measures -- a session standing in a scene whose
+        # write-back is refused -- is the GATE's, and since PANYA-DECISION
+        # 20260908_1218 no shipped row asks for it.  Only
+        # `persist_position_allowed` moves; the login door 1218 opened stays
+        # open, so the boot below is the real one.
+        #
+        # `CharacterLifecycle` reads the registry ONCE, in its constructor
+        # (`lifecycle.py:215`), so `setUp`'s instance already holds the
+        # shipped reading and a patch alone would not reach it.  The
+        # lifecycle is therefore rebuilt under the bend -- a server BOOTED
+        # while scene 17 was pinned unpersisted, which is the state this
+        # case is about.
+        self._bend_the_disk(bent.unpersisted(UNPERSISTED_SCENE_ID))
         state = self._login_and_start("gmwarp11")
         before = self._row(state)
         before_scene = self._row_scene(state)

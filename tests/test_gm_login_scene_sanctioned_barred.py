@@ -51,6 +51,8 @@ from pirateforce_foundation.gm import (  # noqa: E402
 )
 from pirateforce_foundation.model import Position  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 # Pinned as a literal for the reason every other file in this lane pins it:
 # this file has to go RED when the set moves, not agree with whatever the
 # registry says on the day it runs.
@@ -70,7 +72,16 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # the_two_interiors, shared only with scene 10).  Scene 130 joined it this
 # round (yfbqmg), TENTH AND LAST door, same shape, NOT elevated-risk --
 # every one of the original ten doors is now open.
-ADMISSIBLE_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997)
+# WIDENED LANE-A round 3a11a0: PANYA-DECISION 20260908_1218 opened 17,
+# 126, 304 and 305 -- every remaining door in the shipped registry.  126 is
+# the SANCTIONED scene, so the sanction in `SANCTIONED_BARRED_SCENES` is
+# now dead weight: the registry admits that scene on its own and the
+# single-use bypass has nothing left to bypass.  Retiring the entry is
+# LANE-GM's call on LANE-GM's table, not this lane's to make silently, and
+# it is asked for by letter; what this file holds meanwhile is that the
+# dead entry GRANTS nothing, which is the case below.
+ADMISSIBLE_TODAY = (
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 130, 278, 304, 305, 997)
 # The one scene a chief letter sanctions today.
 SANCTIONED = 126
 # Pinned, named, and barred at login -- the shape scene 126 will have once
@@ -123,13 +134,29 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
     """
 
     def test_the_stageable_set_did_not_grow_by_the_sanctioned_scene(self):
+        """The sanction is not what puts a scene in the stageable set.
+
+        Since 1218 the shipped registry admits 126 on its own row, so
+        "126 is absent" no longer distinguishes a sanction that grants
+        nothing from one that grants everything.  What still does: shut that
+        row and ask again.  If the sanction were a grant, the scene would
+        survive the bend.
+        """
         self.assertEqual(
             login_scene_admission.stageable_scene_ids(), ADMISSIBLE_TODAY
         )
-        self.assertNotIn(SANCTIONED, login_scene_admission.stageable_scene_ids())
+        shut = bent.shut_at_login(SANCTIONED)
+        self.assertNotIn(
+            SANCTIONED,
+            login_scene_admission.stageable_scene_ids(scene_registry=shut),
+        )
 
     def test_the_predicate_still_refuses_the_sanctioned_scene(self):
-        self.assertFalse(login_scene_admission.login_entry_is_pinned(SANCTIONED))
+        self.assertFalse(
+            login_scene_admission.login_entry_is_pinned(
+                SANCTIONED, scene_registry=bent.shut_at_login(SANCTIONED)
+            )
+        )
 
     def test_it_still_refuses_after_lane_a_lands_the_barred_row(self):
         # The important one: the sanction must NOT turn into permission the
@@ -172,11 +199,43 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         # A sanction for a scene that is already admissible is dead weight
         # that reads like a grant.  If lane A ever opens one of these doors,
         # this test says so instead of leaving the entry to rot.
+        # ~~for scene_id ...: assertNotIn(scene_id, stageable_scene_ids())~~
+        # THE ALARM FIRED, LANE-A round 3a11a0, and this is what it was for.
+        # PANYA-DECISION 20260908_1218 opened scene 126 at login, so the one
+        # entry in the sanction map IS a scene the predicate admits today --
+        # exactly the rot this case was written to announce.  It is announced
+        # in a letter to LANE-GM, whose table it is; this lane does not edit
+        # another lane's data to make its own suite green.
+        #
+        # What replaces the assertion is the invariant that survives the
+        # rot and is the thing a tester can be hurt by: a dead sanction must
+        # GRANT nothing.  For every sanctioned scene, the single-use answer
+        # must be exactly the plain answer -- so an entry nobody has retired
+        # yet cannot widen the map on its own -- and the blocker must be
+        # `BLOCKER_NONE`, i.e. there is nothing left for the bypass to
+        # bypass.  Retiring the entry keeps this green; turning it into a
+        # grant does not.
         for scene_id in login_scene_admission.SANCTIONED_BARRED_SCENES:
             with self.subTest(scene=scene_id):
-                self.assertNotIn(
-                    scene_id, login_scene_admission.stageable_scene_ids()
+                plain = login_scene_admission.login_entry_is_pinned(scene_id)
+                self.assertEqual(
+                    plain,
+                    login_scene_admission.single_use_entry_is_admissible(
+                        scene_id
+                    ),
+                    "the sanction is granting something the plain rule "
+                    "refuses on the shipped registry",
                 )
+                if plain:
+                    self.assertEqual(
+                        login_scene_admission.sanctioned_barred_blocker(
+                            scene_id
+                        ),
+                        login_scene_admission.BLOCKER_NONE,
+                        "a sanctioned scene the registry already admits has "
+                        "nothing to bypass; the entry is dead weight and is "
+                        "LANE-GM's to retire",
+                    )
 
     def test_the_map_is_exactly_the_letters_this_lane_holds(self):
         # THE TRIPWIRE, IN BOTH DIRECTIONS, and it is written as an exact
@@ -286,12 +345,20 @@ class TheBlockerNamesTheMissingHalfTests(unittest.TestCase):
         # Measured against the shipped registry, not asserted from a doc.
         # This test FLIPS to the branch below the day lane A merges, and the
         # flip is the point: the console line changes with no edit here.
-        landed = SANCTIONED in world_scene_travel.load_scene_registry().ids
-        expected = (
-            login_scene_admission.BLOCKER_LOGIN_PATH_BARS_IT
-            if landed
-            else login_scene_admission.BLOCKER_NO_REGISTRY_ROW
-        )
+        # IT FLIPPED A SECOND TIME, LANE-A round 3a11a0, and the second
+        # flip is why the expectation is derived from the ROW rather than
+        # from "is there a row".  1218 opened scene 126's door, so the
+        # landed row no longer bars the login and the blocker is
+        # `BLOCKER_NONE`.  Three states, one derivation, no edit here the
+        # next time a door moves.
+        registry = world_scene_travel.load_scene_registry()
+        landed = SANCTIONED in registry.ids
+        if not landed:
+            expected = login_scene_admission.BLOCKER_NO_REGISTRY_ROW
+        elif registry[SANCTIONED].login_entry_allowed:
+            expected = login_scene_admission.BLOCKER_NONE
+        else:
+            expected = login_scene_admission.BLOCKER_LOGIN_PATH_BARS_IT
         self.assertEqual(
             login_scene_admission.sanctioned_barred_blocker(SANCTIONED),
             expected,
@@ -492,7 +559,10 @@ class TheStagePathSaysWhichRefusalItIsTests(unittest.TestCase):
         )
 
     def test_an_ordinary_barred_scene_keeps_the_ordinary_reason(self):
-        result = self._stage(BARRED_AT_LOGIN)
+        # Bent, not read: 1218 left no barred row in the shipped file, and
+        # the reason word this case is about belongs to a barred row.
+        with bent.patch_disk(bent.shut_at_login(BARRED_AT_LOGIN)):
+            result = self._stage(BARRED_AT_LOGIN)
         self.assertFalse(result.staged)
         self.assertEqual(
             result.reason, login_scene_stage.REASON_NO_LOGIN_ENTRY
@@ -622,17 +692,25 @@ class TheConsoleLineCannotBreakTheRefusalTests(unittest.TestCase):
         # that PRODUCED the refusal (the disk one), and no test made the
         # two readings differ, so the claim was decoration.  Here the
         # snapshot would answer `none` and the disk answers `row missing`.
-        line = self._line(
-            SANCTIONED,
-            login_scene_stage.REASON_SANCTIONED_NOT_YET_REACHABLE,
-            scene_registry=_registry_with_sanctioned_row(
-                login_entry_allowed=True
-            ),
-        )
-        self.assertIn(
-            f"blocker={login_scene_admission.sanctioned_barred_blocker(SANCTIONED)}",
-            line,
-        )
+        # The two readings have to DISAGREE or this measures nothing, and
+        # since 1218 the shipped file agrees with the caller's snapshot
+        # about scene 126 (both admit it).  So the DISK is the bent one now
+        # -- it bars the scene -- and the caller's snapshot is the one that
+        # would answer `none`.  Same divergence, opposite sides, because the
+        # data moved underneath it.
+        with bent.patch_disk(bent.shut_at_login(SANCTIONED)):
+            line = self._line(
+                SANCTIONED,
+                login_scene_stage.REASON_SANCTIONED_NOT_YET_REACHABLE,
+                scene_registry=_registry_with_sanctioned_row(
+                    login_entry_allowed=True
+                ),
+            )
+            self.assertIn(
+                "blocker="
+                + login_scene_admission.sanctioned_barred_blocker(SANCTIONED),
+                line,
+            )
         self.assertNotIn(
             f"blocker={login_scene_admission.BLOCKER_NONE}", line
         )

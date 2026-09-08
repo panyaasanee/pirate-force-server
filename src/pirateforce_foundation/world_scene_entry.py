@@ -73,7 +73,9 @@ the first one is the important one:
 
 1. **Home is never touched.**  Scene 1 is the only scene a character in this
    project has ever stood in, walked around and been persisted in.  A player
-   who logged out beside the tavern comes back beside the tavern, exactly as
+   who logged out beside the tavern comes back beside the tavern (and since
+   round ``ioz8fd`` so does one who logged out at sea - see
+   ``_ground_refutes_stored_row``; before it, only home kept a row), exactly as
    today, and the teleport arguments stay ``(1, 0, 0.0, 0.0, 0.0)`` -
    argument for argument what the runtime sends now.  That zero target is the
    shape every default boot here has been observed to survive, so home's
@@ -167,6 +169,7 @@ assumption.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from .model import Position
 from . import world_scene_travel
@@ -187,9 +190,46 @@ test_only = False
 # fired from the numbers afterwards.
 RELOCATED_NO_GROUND_EVIDENCE = "no_pinned_ground_for_scene"
 RELOCATED_OUTSIDE_GROUND = "stored_xy_outside_pinned_ground_extent"
+# ADDED round 1v5i3h (LANE-A), pf-adversary D2 of this round's own branch,
+# MEASURED: with the third gate open, a stored row of (14, inf, inf, 0) was
+# kept verbatim, and `teleport_fields` -> `make_login_teleport` -> f32tag
+# packs that as 0000807f onto the wire, on every login, forever - because no
+# login rewrites the row any more.  SQLite REAL round-trips +/-Inf, and
+# `runtime.py::_checkpoint_exact_target` unpacks the client's TargetPos with
+# no finite check, so the value gets in.  This project had already decided
+# such a check is required in two other places (`world_m2_return_leg.
+# remember_departure` refuses a non-finite row by name, `gm/warp_executor.
+# _require_finite_float` refuses NaN/Inf); the login path was the one that
+# did not have it, which is the path that matters most.
+RELOCATED_ROW_NOT_FINITE = "stored_xy_not_a_finite_number"
 RELOCATION_REASONS = (
     RELOCATED_NO_GROUND_EVIDENCE,
     RELOCATED_OUTSIDE_GROUND,
+    RELOCATED_ROW_NOT_FINITE,
+)
+
+# Why a stored position WAS the one used, for the same reader at 2am.  Both
+# of these are "kept"; they are not the same fact and an attended tester
+# reading the console must not have to guess which one held.
+KEPT_ROW_WITHIN_GROUND = "stored_xy_inside_pinned_ground_extent"
+# ~~KEPT_ROW_NOT_REFUTED = "login_row_not_refuted_by_measured_ground"~~ --
+# WITHDRAWN round 1v5i3h (LANE-A), pf-adversary D2 of round ioz8fd, which is
+# the sharpest kind of finding this project gets: the string was not merely
+# vague, it was FALSE on the one scene it was printed for.  Scene 17 carries
+# a measured placement box in the same JSON object, a stored row of
+# (999999, 999999) is outside it on any reading, and the console still said
+# no measured ground refuted the row -- because the decree veto in
+# ``_ground_evidence`` returned before the box was ever consulted.  One
+# token cannot carry "there is no measurement" and "there is one and the row
+# is inside it"; they are the two facts an attended tester most needs to
+# tell apart, so they are two tokens now and the login path actually
+# consults the box (see ``_measured_envelope_refutes``).
+KEPT_ROW_NO_MEASUREMENT = "login_row_no_measured_ground_exists_for_this_scene"
+KEPT_ROW_INSIDE_ENVELOPE = "login_row_inside_measured_placement_envelope"
+KEPT_ROW_BASES = (
+    KEPT_ROW_WITHIN_GROUND,
+    KEPT_ROW_NO_MEASUREMENT,
+    KEPT_ROW_INSIDE_ENVELOPE,
 )
 
 # Why an arrival was refused outright.  One exception type, several reasons,
@@ -332,6 +372,162 @@ def _ground_evidence(target: SceneDestination, x: float, y: float) -> bool | Non
     )
 
 
+def _ground_refutes_stored_row(
+    target: SceneDestination, stored: Position
+) -> bool:
+    """Whether MEASURED ground evidence says this XY is not in this scene.
+
+    THE THIRD GATE OF PANYA-DECISION 20260908_1218, NAMED.  Rounds 9lv3fa
+    and 3a11a0 opened the two gates everybody could see -
+    ``login_entry_allowed`` (may this row be read at all) and
+    ``persist_position_allowed`` (may this row be written at all) - and a
+    character that logged out at sea still arrived on the pinned spawn
+    rather than on its own coordinates, because ``_within_ground`` answered
+    "no" and ``resolve_entry`` threw the row away.  pf-adversary D1 of round
+    3a11a0 measured it: scene 17 stored (-149.0, -1250.3, 745.0) landed on
+    (0, 0, 0), scene 14 stored (-17000, 18500, 1890) landed on the marker.
+    That is the owner's rule failing on its own headline case.
+
+    WHY THE ANSWER IS THIS AND NOT A MEASUREMENT.  The other way to close
+    the gate is to give 14, 126, 304 and 305 a real ``ground`` block, and
+    NOW.md offers both - but with ``ground_extent`` forbidden to be made up,
+    and no placement file to derive one from, there is nothing honest to
+    write for those four.  So the rule moves instead: at login the stored
+    row is kept unless something MEASURED refutes it.  A stored row is not a
+    guess; it is where the client last said the character stood, written by
+    the persist path on a real ``TargetPos``.  An NPC-placement bounding box
+    is weaker evidence than that, and this registry's own ``ground`` blocks
+    say so in their ``limit`` field ("a .npc file carries NPC placements,
+    not ground").
+
+    WHAT STILL RELOCATES, so this is a narrowing and not a removal.  Two
+    kinds of ``False``, not one - and the second half of this paragraph was
+    WRONG for one round (pf-adversary, round ``1v5i3h``, negative result Q3:
+    the three lines of code below already refuted the sentence that used to
+    stand here, which read "a decree veto does not refute the row either"):
+
+    1. A ``False`` from ``_ground_evidence`` that came from a radius centred
+       on a MEASURED spawn - scene 278 is the only such row in the shipped
+       registry today - relocates, as it always did.
+    2. A ``False`` that came from the PROVISIONAL-OWNER-DECREE veto is not
+       itself a measurement of anything (see ``_ground_evidence``: the veto
+       exists precisely because a radius around an unmeasured point proves
+       nothing).  It does not END the question, which is what the struck
+       sentence claimed - it HANDS it to ``_measured_envelope_refutes``,
+       and a decree scene that has a measured envelope relocates on that
+       envelope's word.  Scene 17 is such a scene today: a stored row at
+       ``x=999999`` is refuted and relocated, while the ``1218`` headline
+       row ``(-149.0, -1250.3)`` is inside the envelope and is kept.
+
+    ``None`` - no ground block at all - never refuted anything, and still
+    does not.  That is the whole of what scenes 14, 126, 304 and 305 get
+    today, and it is why a garbage row naming one of THEM is still kept.
+
+    NOT CLAIMED: that a kept row is inside the playable map.  Nothing in
+    this tree can decide that for a scene with no ground block, and this
+    function does not pretend otherwise; it decides whose word is better in
+    the absence of evidence, and 1218 says it is the player's.
+    """
+    if _ground_evidence(target, stored.x, stored.y) is not False:
+        return False
+    provenance = target.spawn_provenance
+    if (
+        provenance is not None
+        and provenance.startswith("PROVISIONAL-OWNER-DECREE")
+    ):
+        # The radius test proved nothing here (that is what the veto means),
+        # but "the test I ran proved nothing" is not "there is nothing to
+        # measure against" -- see ``_measured_envelope_refutes``, which is
+        # the same generosity re-centred on a point that WAS measured.
+        return _measured_envelope_refutes(target, stored.x, stored.y) is True
+    return True
+
+
+def _row_is_finite(row: Position) -> bool:
+    """Is every coordinate of this stored row an actual number?
+
+    ``heading`` is deliberately not tested here: a bad heading points a
+    character the wrong way, which the next client report corrects, while a
+    bad coordinate is a place that does not exist and now survives every
+    login.  ``z`` IS tested even though no rule below reads it, because it
+    goes on the wire in the teleport frame exactly as stored.
+    """
+    return (
+        math.isfinite(row.x)
+        and math.isfinite(row.y)
+        and math.isfinite(row.z)
+    )
+
+
+def _measured_envelope_refutes(
+    target: SceneDestination, x: float, y: float
+) -> bool | None:
+    """Does the MEASURED placement box say this XY is not in this scene?
+
+    ``True`` outside, ``False`` inside, ``None`` when the scene has no
+    ground block to ask.
+
+    WHY THIS EXISTS (pf-adversary D2, round ioz8fd).  ``_ground_evidence``
+    centres ``ground_extent`` on ``target.spawn``, and refuses to do so when
+    that spawn is a PROVISIONAL-OWNER-DECREE, for the reason its own
+    docstring gives: a radius around an unmeasured point proves nothing.
+    That refusal is right.  What was wrong was what the login path then did
+    with it -- it reported that no measured ground existed, for a scene
+    whose ``ground`` block carries four measured numbers.  A BOX does not
+    need a spawn to be centred on, so a decreed spawn does not disqualify
+    it.
+
+    THE CENTRE AND THE SPANS ARE MEASURED.  THE SHAPE THEY MAKE IS
+    ``[PROPOSED]`` -- pf-adversary corrected an earlier draft of this
+    paragraph that said "nothing here is invented", and it was wrong twice
+    in one sentence:
+
+    1.  ``extent_x`` is the FULL width of the box, used here as a RADIUS, so
+        the accepted region is 2x the box on each axis and **4x its area**.
+        For scene 17 the box is x in [-971.3, 844.6] and the envelope is
+        x in [-1879.3, 1752.6].  The doubling is a choice, not a
+        measurement, and it is load-bearing: the row 1218 is about
+        (-149, -1250.3) sits 381 units OUTSIDE the measured box and is kept
+        only because of it.  A mutant that tightens the envelope to the real
+        box turns two cases red, which is the suite pinning the choice
+        rather than hiding it.
+    2.  It is not "what every measured scene already gets".  Scene 278's
+        test is centred on its SPAWN, this one on the box MIDPOINT, and for
+        278 those are 1816 units apart in x.  The two measured scenes get
+        two geometrically different tests, for the honest reason that one
+        has a measured spawn to centre on and the other does not.
+
+    WHY THE LOOSE SHAPE IS STILL THE RIGHT DIRECTION.  This function may
+    only ever REFUTE a stored row, never admit one, so a too-generous
+    envelope errs toward keeping the player where the client said it was --
+    the direction PANYA-DECISION 20260908_1218 rules in -- and a too-tight
+    one would relocate the very row 1218 is about.  What it buys is the case
+    it was built for: a row three orders of magnitude away is refuted by
+    measured data instead of being reported as unrefutable.
+
+    WHAT IT DOES AND DOES NOT SETTLE.  Scene 17's headline row
+    (-149.0, -1250.3) sits 381 units below ``y_min`` and is INSIDE this
+    envelope, so the row that 1218 is about is still kept -- this is not a
+    re-closing of the third gate.  A row of (999999, 999999) is outside it
+    by three orders of magnitude and is refuted, which is the case D2 found
+    the console lying about.  NOT CLAIMED: that a row inside the envelope is
+    on walkable ground.  A ``.npc`` file carries NPC placements, not
+    terrain (every ``ground`` block says so in its own ``limit`` field), so
+    this can catch a row that is provably nowhere near the scene and can
+    never certify one that is.
+    """
+    box = target.ground_box
+    extent = target.ground_extent
+    if box is None or extent is None:
+        return None
+    x_min, x_max, y_min, y_max = box
+    extent_x, extent_y = extent
+    return not (
+        abs(x - (x_min + x_max) / 2.0) <= extent_x
+        and abs(y - (y_min + y_max) / 2.0) <= extent_y
+    )
+
+
 def _within_ground(target: SceneDestination, stored: Position) -> bool:
     """Whether this scene has ground evidence that reaches the stored XY.
 
@@ -363,11 +559,29 @@ def is_position_within_scene_ground(
     real teleport frames for an off-ground point today because nothing it
     calls exposes this check publicly - see
     ``notes_to_chief/20260901_2028_LANE-GM-TO-LANE-A-warp-coordinate-bound-needs-a-public-ground-check.md``).
-    Wraps the exact same rule ``resolve_entry`` uses to decide whether a
+    ~~Wraps the exact same rule ``resolve_entry`` uses to decide whether a
     stored row survives a login (``_ground_evidence``, shared with
-    ``_within_ground``) rather than a second, looser radius test - a caller
-    importing this gets the PROVISIONAL-OWNER-DECREE carve-out for free
-    instead of having to know it exists.
+    ``_within_ground``) rather than a second, looser radius test~~ --
+    STRUCK ROUND 1v5i3h, pf-adversary D5 of that round: since the login path
+    also consults ``_measured_envelope_refutes``, this wrapper IS the looser
+    reading's opposite number, and the two now DISAGREE on a real row::
+
+        is_position_within_scene_ground(17, -149.0, -1250.3)  -> False
+        resolve_entry(same row, via_login=True)               -> KEPT
+
+    A caller importing this still gets the PROVISIONAL-OWNER-DECREE
+    carve-out for free, and that is what it is for.  What it must NOT be
+    read as any more is a preview of what a login will do with the same XY.
+
+    THE LIVE BITE, NAMED SO THE NEXT ROUND CAN FIX IT RATHER THAN
+    REDISCOVER IT: ``gm/warp_executor._refuse_if_outside_ground`` early-
+    returns for a decree scene, so ``/warp 17 1800 0`` composes a frame and
+    ``warp_scene_persist`` writes the row -- and the next login now
+    RELOCATES that character to the decreed point.  That module's headline
+    contract ("a destination the next login would refuse is not persisted")
+    was written when the login had no coordinate-level refusal to see, and
+    it needs this function's third answer wired into it.  It is LANE-GM's
+    file; this lane owns the check it must call.
 
     THREE ANSWERS, NOT TWO.  ``True`` - this XY is inside the ground this
     scene has evidence for.  ``False`` - this scene HAS ground evidence and
@@ -445,15 +659,28 @@ def resolve_entry(
     that keeps that path fail-closed without ``runtime.py`` ever having to say
     so explicitly - it is the chief's file and this lane does not add a kwarg
     to its call site.  A destination pinned with ``login_entry_allowed=False``
-    (~~today: scene 17 only~~ -- STRUCK, re-derived at HEAD by LANE-A round
-    ``fdo7ex`` on pf-adversary D14: the set is **17, 126, 304 and 305**, and
-    only 126/304/305 can strand anybody, because 17 also carries
-    ``persist_position_allowed=False``.  Derive it rather than believe this
-    sentence: ``world_m2_login_recovery.login_shut_scene_ids`` and
-    ``brick_risk_scene_ids``.  17 was the whole set when this comment was
-    written, added round 0z3kjx after the owner's provisional spawn decree
-    gave it a spawn and a pf-adversary pass noticed the free refusal that
-    used to protect it - ``REFUSED_NO_PINNED_SPAWN`` - was gone)
+    (~~today: scene 17 only~~ ~~the set is 17, 126, 304 and 305~~ -- BOTH
+    STRUCK, LANE-A round ``9lv3fa``, 2026-09-08: the set is **EMPTY**, and
+    PANYA-DECISION 20260908_1218 is why it must stay empty.  The owner's
+    permanent rule is that logging in returns a character to the exact point
+    it logged out from IN EVERY SCENE, sea and island included, so a pinned
+    ``False`` on a destination a character can stand in is a player who
+    cannot get back into their own character.  The four that carried it were
+    this project's own belt-and-braces pins (COO + this lane), not a fact
+    about the original game, and every one of them has a spawn today.
+    Do not believe this sentence either - derive it:
+    ``tests/test_world_scene_registry_login_door.py`` walks the registry and
+    fails if ANY pinned destination that has a spawn is shut at login.
+    AND READ THE NEXT SENTENCE BEFORE QUOTING THE ONE ABOVE.  Opening this
+    door delivers the SCENE, not the POINT: rounds ``9lv3fa`` and ``3a11a0``
+    both wrote the owner's full promise here while ``resolve_entry`` was
+    still throwing the stored x/y away, and pf-adversary D1 measured the
+    gap.  The point half is delivered by the third branch below and by
+    ``_ground_refutes_stored_row``; without that branch this paragraph is
+    an overclaim, which is exactly what it was for two rounds.
+    THE MECHANISM BELOW IS NOT REMOVED and is not dead code: a destination
+    added later without a measured spawn is exactly what it is for, and 1218
+    forbids the pin only for the CURRENT registry, not forever)
     raises ``REFUSED_NOT_ALLOWED_AT_LOGIN`` here UNLESS the caller explicitly
     passes ``via_login=False``, meaning "this call is not reading a
     character's own persisted position row" - which is exactly what
@@ -514,9 +741,20 @@ def resolve_entry(
     lines = [world_scene_travel.entry_console_line(target)]
     scene_id, scene_seq = world_scene_travel.entry_fields(target)
 
+    kept_basis = None
     if target.n_id == HOME_SCENE_ID:
         position = row
         reason = None
+    elif not _row_is_finite(row):
+        # Asked BEFORE any ground question, because every question below
+        # compares the row against a measurement and NaN loses every
+        # comparison silently: `abs(nan - centre) <= extent` is False, which
+        # reads as "outside" by luck rather than by decision, and +/-Inf is
+        # inside nothing but was kept by the login branch because nothing
+        # measured could refute it.  A row that is not a number is not a
+        # place, whoever is asking, so this arm is not gated on via_login.
+        position = world_scene_travel.entry_position(target, row.heading)
+        reason = RELOCATED_ROW_NOT_FINITE
     elif _within_ground(target, row):
         # The row is inside the only ground this scene has evidence for, so it
         # is a position this scene can account for.  Keep it, but keep it in
@@ -526,6 +764,21 @@ def resolve_entry(
             scene_id, scene_seq, row.x, row.y, row.z, row.heading,
         )
         reason = None
+        kept_basis = KEPT_ROW_WITHIN_GROUND
+    elif via_login and not _ground_refutes_stored_row(target, row):
+        # PANYA-DECISION 20260908_1218: logging in puts a character back on
+        # the point it logged out from, in EVERY scene.  Nothing measured
+        # says this row is wrong (see ``_ground_refutes_stored_row``), and a
+        # row the client wrote beats a spawn nobody stood on, so the row
+        # wins.  Same frame discipline as the branch above.
+        position = Position(
+            scene_id, scene_seq, row.x, row.y, row.z, row.heading,
+        )
+        reason = None
+        kept_basis = (
+            KEPT_ROW_NO_MEASUREMENT if target.ground_extent is None
+            else KEPT_ROW_INSIDE_ENVELOPE
+        )
     else:
         position = world_scene_travel.entry_position(target, row.heading)
         reason = (
@@ -549,10 +802,19 @@ def resolve_entry(
         moved
         or (position.x, position.y, position.z) != target.spawn
         or position.scene_seq != row.scene_seq
+        # ``or kept_basis is not None`` ADDED round 1v5i3h, pf-adversary D8
+        # of round ioz8fd: the three conditions above all ask "is the arrival
+        # different from the pin", and a row that a RULE decided to keep and
+        # that happens to sit exactly on the pin answers no to all three.  So
+        # the one line that says which rule kept the row was missing in the
+        # case it was written for, and the console for a kept (17, 0,0,0) was
+        # byte-identical to an arrival where the row had been thrown away
+        # (that is D1, from the other side).  A rule ran; it gets a line.
+        or kept_basis is not None
     ):
         lines.append(
             _relocated_line(target, row, position, reason) if moved
-            else _kept_row_line(target, row, position)
+            else _kept_row_line(target, row, position, kept_basis)
         )
 
     # PANYA-DECISION 2026-08-27T14:45+07:00 item 2: a spawn this project did
@@ -585,9 +847,40 @@ def resolve_entry(
         and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
     ):
         decree_tag = target.spawn_provenance.split(" ", 1)[0]
+        # ``from=`` ADDED round 1v5i3h (LANE-A), pf-adversary D1 of round
+        # ioz8fd.  The token above fires on the FINAL position matching the
+        # decreed pin, which is right (see the paragraph before it), but two
+        # very different arrivals produce that same match and, until this
+        # field, the same bytes on the console:
+        #
+        #   pinned_spawn  the incoming row was thrown away and the arrival
+        #                 is the decree -- what the token was written for
+        #   caller_row    a via_login=False caller (Columbus) handed in a row
+        #                 that already IS the decreed point.  Not a
+        #                 character's persisted row and must not read as one
+        #                 -- the first draft of this field called it
+        #                 stored_row and made the sanctioned synthetic
+        #                 arrival look like a durable one.
+        #   stored_row    the character's OWN persisted row is being used and
+        #                 happens to equal the decreed point.  A durable row
+        #                 of (17, 0,0,0) does this: it is kept, it moves
+        #                 nothing, so the second line above is (correctly)
+        #                 not printed, and an attended tester reading the
+        #                 console saw a decreed arrival that never happened.
+        #                 A zero row is exactly what an uninitialised or
+        #                 half-written character row looks like, so this is
+        #                 the case a tester most needs to catch.
+        #
+        # It reads the same ``moved`` the two lines above read, so a change
+        # to one cannot silently disagree with the other.
         lines.append(
-            "SCENE_ENTRY scene={0} xyz={1:.3f},{2:.3f},{3:.3f} source={4}"
-            .format(target.n_id, position.x, position.y, position.z, decree_tag)
+            "SCENE_ENTRY scene={0} xyz={1:.3f},{2:.3f},{3:.3f} source={4} "
+            "from={5}"
+            .format(
+                target.n_id, position.x, position.y, position.z, decree_tag,
+                "pinned_spawn" if moved
+                else ("stored_row" if via_login else "caller_row"),
+            )
         )
 
     for line in lines:
@@ -633,14 +926,37 @@ def _kept_row_line(
     target: SceneDestination,
     stored: Position,
     position: Position,
+    basis: str | None = None,
 ) -> str:
+    """The console line for an arrival that used the character's own row.
+
+    ``basis`` says WHICH rule kept it - measured ground reached the point,
+    the scene has no measurement to refute it, or a measured envelope
+    contains it - because on the console those look identical and only some
+    of them mean this project has evidence for the coordinate.  The values
+    are ``KEPT_ROW_BASES``, and ``test_every_kept_row_basis_is_one_this_
+    module_declares`` walks the registry to keep that tuple honest (it had
+    no reader at all until round 1v5i3h; pf-adversary D8).
+
+    ~~``None`` renders as ``basis=unstated`` rather than being dropped, so a
+    caller that forgets is visible instead of silent.~~ -- CORRECTED round
+    1v5i3h, same finding: ``None`` never came from a forgetful caller.  It
+    came from the RELOCATION branch, whose only caller is ``_relocated_line``
+    one line above this function in ``resolve_entry`` -- so ``unstated`` was
+    unreachable through this function and the sentence described a
+    protection that did not exist.  It renders as ``unstated`` anyway,
+    because the day a fourth branch is added the line should say it does not
+    know rather than silently pick one.
+    """
     return (
         "WORLD_SCENE_KEPT_ROW scene_id={0} used=({1:.3f},{2:.3f},{3:.3f}) "
-        "pinned_spawn=({4:.3f},{5:.3f},{6:.3f}) stored_seq={7} used_seq={8}"
+        "pinned_spawn=({4:.3f},{5:.3f},{6:.3f}) stored_seq={7} used_seq={8} "
+        "basis={9}"
         .format(
             target.n_id, position.x, position.y, position.z,
             *target.spawn,
             stored.scene_seq, position.scene_seq,
+            basis if basis is not None else "unstated",
         )
     )
 

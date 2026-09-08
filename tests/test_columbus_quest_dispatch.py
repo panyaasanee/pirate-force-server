@@ -253,6 +253,9 @@ class MatchesColumbusBornagainDispatchTests(unittest.TestCase):
         )
 
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
+
 class ResolveColumbusArrivalTests(unittest.TestCase):
     def test_succeeds_on_the_owner_decreed_provisional_spawn(self):
         """UPDATED PANYA-DECISION 2026-08-27T14:45+07:00: the owner decreed a
@@ -270,48 +273,78 @@ class ResolveColumbusArrivalTests(unittest.TestCase):
             (0.0, 0.0, 0.0),
         )
         self.assertIn(
+            # ``from=caller_row`` ADDED to the token round 1v5i3h
+            # (pf-adversary D1 of round ioz8fd).  It is asserted EXACT here,
+            # and the value matters: this arrival is a synthetic row this
+            # module built at the decreed point, NOT a character's persisted
+            # one, and the first draft of the field labelled it stored_row -
+            # which would have made the one sanctioned synthetic door read on
+            # the console exactly like a durable row arriving at sea.
             "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
-            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445 from=caller_row",
             lines,
         )
 
 
-class LoginPathStaysRefusedTests(unittest.TestCase):
-    """Round 0z3kjx, pf-adversary-flagged regression, proven from THIS
-    module's own vantage point rather than only world_scene_entry's: the
-    decree that lets ``resolve_columbus_arrival`` succeed above must not
-    also let a character's own persisted row walk into scene 17 through the
-    exact same login call runtime.py makes.
+class LoginPathTakesTheSeaRowTests(unittest.TestCase):
+    """RENAMED from ``LoginPathStaysRefusedTests``, LANE-A round 3a11a0.
+
+    ~~the decree that lets ``resolve_columbus_arrival`` succeed above must
+    not also let a character's own persisted row walk into scene 17 through
+    the exact same login call runtime.py makes.~~ REVERSED BY THE OWNER, not
+    by this lane: PANYA-DECISION 20260908_1218, in his own words, is that a
+    login returns a character to the exact point it logged out from, in
+    EVERY scene, the sea included -- so a persisted scene-17 row walking
+    into scene 17 at login is now the wanted behaviour and the refusal was
+    the lockout.  A character that closed the game on a ship had no way back
+    into itself.
+
+    The old sentence is kept struck rather than deleted because its
+    reasoning was true while the door was shut, and because it names what
+    this class must still hold: the two callers stay DIFFERENT questions.
+    `resolve_columbus_arrival` answers "where does the crossing land", the
+    login call answers "may this stored row be entered", and the second one
+    now says yes for its own reason (the row's own flag) rather than by
+    borrowing the first one's decree.  The refusal itself is still live
+    code, measured below on a registry that pins the door shut.
     """
 
-    def test_a_persisted_scene_17_row_is_refused_at_the_plain_login_call(self):
+    @staticmethod
+    def _login_call(registry=None):
         from pirateforce_foundation import world_scene_entry
         from pirateforce_foundation.model import Position
 
-        persisted_row = Position(17, 0, 1.0, 2.0, 3.0, 0.5)
+        return world_scene_entry.resolve_entry(
+            Position(17, 0, 1.0, 2.0, 3.0, 0.5),
+            registry=registry,
+            emit=lambda line: None,
+        )
+
+    def test_a_persisted_scene_17_row_is_taken_at_the_plain_login_call(self):
+        # No via_login keyword - exactly runtime.py's login call shape.
+        entry = self._login_call()
+        self.assertEqual(entry.destination.n_id, 17)
+
+    def test_the_refusal_is_still_live_code_for_a_door_that_is_shut(self):
+        """What 1218 removed is the shut DOOR, not the ability to shut one."""
+        from pirateforce_foundation import world_scene_entry
+
         with self.assertRaises(world_scene_entry.SceneEntryRefused) as caught:
-            # No via_login keyword - exactly runtime.py's login call shape.
-            world_scene_entry.resolve_entry(persisted_row, emit=lambda line: None)
+            self._login_call(registry=bent.shut_at_login(17))
         self.assertEqual(
             caught.exception.reason,
             world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
         )
 
-    def test_resolve_columbus_arrival_still_succeeds_despite_that_refusal(self):
-        # The two facts side by side: the same scene, the same registry, one
-        # call refuses and the other succeeds, because only one of them is
-        # reading a character's persisted row.
-        from pirateforce_foundation import world_scene_entry
-        from pirateforce_foundation.model import Position
-
-        with self.assertRaises(world_scene_entry.SceneEntryRefused):
-            world_scene_entry.resolve_entry(
-                Position(17, 0, 1.0, 2.0, 3.0, 0.5), emit=lambda line: None,
-            )
+    def test_resolve_columbus_arrival_answers_its_own_question(self):
+        # The two facts side by side: the same scene, the same registry,
+        # two callers -- the crossing's landing point and a stored row's
+        # admissibility -- and they agree on scene 17 for their own reasons.
         entry = columbus_quest_dispatch.resolve_columbus_arrival(
             emit=lambda line: None,
         )
         self.assertEqual(entry.destination.n_id, 17)
+        self.assertEqual(self._login_call().destination.n_id, 17)
 
 
 class DispatchColumbusQuest3021Tests(unittest.TestCase):
@@ -381,8 +414,15 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
             (0.0, 0.0, 0.0),
         )
         self.assertIn(
+            # ``from=caller_row`` ADDED to the token round 1v5i3h
+            # (pf-adversary D1 of round ioz8fd).  It is asserted EXACT here,
+            # and the value matters: this arrival is a synthetic row this
+            # module built at the decreed point, NOT a character's persisted
+            # one, and the first draft of the field labelled it stored_row -
+            # which would have made the one sanctioned synthetic door read on
+            # the console exactly like a durable row arriving at sea.
             "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
-            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445 from=caller_row",
             lines,
         )
         # ROUND 2pdf6j MOVED THIS ASSERTION BY ONE AND KEPT IT EXACT.  The

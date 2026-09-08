@@ -69,6 +69,8 @@ from pirateforce_foundation.gm import login_scene_admission  # noqa: E402
 from pirateforce_foundation.gm import login_scene_override  # noqa: E402
 from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 A = login_scene_admission
 
 
@@ -162,7 +164,9 @@ def registry_with_sanctioned_row(*, login_entry_allowed=False, spawn=True):
 
 
 @requires_a_sanctioned_scene
-class TheSanctionNowAdmitsViaSingleUseOnlyTests(unittest.TestCase):
+class TheSanctionNowAdmitsViaSingleUseOnlyTests(
+    bent.BentDiskMixin, unittest.TestCase,
+):
     """The state of the route as measured, not as hoped.
 
     RENAMED from `TheSanctionAdmitsNothingOnMainTodayTests` in round
@@ -176,7 +180,21 @@ class TheSanctionNowAdmitsViaSingleUseOnlyTests(unittest.TestCase):
     neither of the other two documents that sentence named needs a
     correction (`login_scene_admission`'s header never repeated the claim;
     the round letter is history and stays as written).
+
+    IT MOVED AGAIN, LANE-A round 3a11a0.  PANYA-DECISION 20260908_1218
+    OPENED scene 126 at ordinary login, so on the shipped registry the
+    sanction has nothing left to bypass and the widening this class is
+    named for is empty.  That end state is measured where it belongs --
+    `test_gm_login_scene_sanctioned_barred.py`'s
+    `test_every_sanctioned_scene_is_one_the_predicate_refuses_today`, which
+    now holds that a dead sanction GRANTS nothing.  This class keeps
+    measuring the widening itself, on the reading where a widening exists
+    at all: the real registry with scene 126's door flipped back shut.
+    Delete it only when the sanction entry is retired, not when the door
+    opens.
     """
+
+    BENT_SCENE = SANCTIONED
 
     def test_lane_a_has_landed_the_row_barred_at_login(self):
         self.assertEqual(
@@ -376,6 +394,15 @@ class TheStandaloneMapNeverWidensTests(_ConfigCase):
         `single_use_stageable_scene_ids`' own docstring calls worse than no
         way out.
         """
+        # A scene the single-use rule CANNOT reach is what the way-out
+        # branch is printed for, and since PANYA-DECISION 20260908_1218 the
+        # shipped registry has none: every door is open.  So one is bent
+        # shut for the length of this case -- the sea scene, a real row with
+        # a real spawn -- and `registry_with_sanctioned_row` builds on that
+        # reading, exactly as it built on the shipped one before.
+        self._sea_shut = bent.patch_disk(bent.shut_at_login(bent.SEA))
+        self._sea_shut.start()
+        self.addCleanup(self._sea_shut.stop)
         registry = registry_with_sanctioned_row()
         ordinary = A.stageable_scene_ids(scene_registry=registry)
         self.assertNotIn(SANCTIONED, ordinary)
@@ -451,13 +478,16 @@ class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
         self.assertEqual(SANCTIONED, caught.exception.scene_id)
 
     def test_a_standalone_refusal_is_not(self):
+        # The standalone map refuses the sanctioned scene under the PLAIN
+        # rule, which needs a reading in which the plain rule refuses it:
+        # 1218 opened that door in the shipped file.
         self.write_standalone_map(SANCTIONED)
         with self.assertRaises(
             login_scene_override.LoginSceneRefusedError
         ) as caught:
             login_scene_override.load_standalone_login_scene_overrides(
                 self.standalone_path,
-                scene_registry=world_scene_travel.load_scene_registry(),
+                scene_registry=bent.shut_at_login(SANCTIONED),
             )
         self.assertFalse(caught.exception.single_use)
 
@@ -487,13 +517,21 @@ class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
                 A.disk_admits_under_rule(SANCTIONED, single_use=False),
                 "the plain rule -- the standalone map's rule -- must not",
             )
-        # UPDATED round R249 (chief, gate-red repair of
-        # `pirate-force-server#332`): lane A's row for 126 is on the real
-        # disk now, pinned and barred at login -- so outside the mocked
-        # "future" this context manager used to simulate, the single-use
-        # rule already admits it, and only the plain rule still refuses.
+        # UPDATED AGAIN, LANE-A round 3a11a0.  ~~outside the mocked
+        # "future" ... only the plain rule still refuses.~~
+        # PANYA-DECISION 20260908_1218 opened scene 126 at ordinary login,
+        # so on the SHIPPED disk BOTH rules now admit it -- the plain one on
+        # the row's own flag, the single-use one through its first arm.  The
+        # separation the case is about is unaffected (it is measured inside
+        # the block above, on a disk where the row is barred); what changed
+        # is what the undisturbed disk says, and saying it wrongly here
+        # would be this file asserting a lockout that no longer exists.
         self.assertTrue(A.disk_admits_under_rule(SANCTIONED, single_use=True))
-        self.assertFalse(A.disk_admits_under_rule(SANCTIONED, single_use=False))
+        self.assertTrue(
+            A.disk_admits_under_rule(SANCTIONED, single_use=False),
+            "1218 opened this door; if the plain rule refuses it again, a "
+            "character logged out there is locked out of its own row",
+        )
 
     def test_the_remedy_word_follows_the_rule_that_refused(self):
         """The operator-visible payoff, walked rather than asserted about.
