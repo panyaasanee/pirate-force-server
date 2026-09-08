@@ -141,6 +141,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from . import mob_identity_sign
 from . import field_mob_ai_tables
 from . import mob_aggro
 from . import mob_ai_rules
@@ -404,7 +405,25 @@ class MobAiControlError(ValueError):
 
 
 def _require_identity(value: Any, label: str) -> int:
-    if type(value) is not int or value <= 0:
+    """Refuse an identity no inbound frame or roster row can legitimately carry.
+
+    R4 beat 0 (COO-DECISION 20260908 14:41), paying pf-adversary finding D5
+    of round ``gadxq5``.  This test used to read ``identity <= 0`` over an
+    UNSIGNED band, which got both halves wrong the moment the monster band
+    went negative: a real monster at ``-2`` was refused, while the
+    UNDECODED wire value of that same monster (``18446744073709551614``,
+    what ``struct.unpack('<Q', ...)`` hands back at every inbound parse
+    point in the frozen v141 file) sailed straight through and opened a
+    ledger against an actor that does not exist.  The band is now the
+    signed field the wire actually carries, and the single shared predicate
+    in ``mob_identity_sign`` decides -- so a caller that forgot to run
+    ``mob_identity_sign.decode_wire_identity`` on an inbound value is
+    refused HERE, loudly, instead of quietly missing.
+    """
+    if type(value) is not int or type(value) is bool:
+        raise MobAiControlError(
+            REFUSE_IDENTITY_NOT_POSITIVE, "%s=%r" % (label, value))
+    if not mob_identity_sign.is_targetable_identity(value):
         raise MobAiControlError(
             REFUSE_IDENTITY_NOT_POSITIVE, "%s=%r" % (label, value))
     return value
