@@ -1178,13 +1178,19 @@ class SQLiteStore:
             # reason: spelled as literals it matched only the first class's
             # weapon and quantity, so `rowcount != 1` turned every other
             # class's move into a rollback with no reply to the client.
+            # The DESTINATION stays spelled: slot 2 is not a per-class value,
+            # it is what HYP-PF-008 IS, and docs/HYPOTHESIS_LEDGER.json pins
+            # this exact statement as the hypothesis's own source_ref (that
+            # file is not this lane's to edit).  Drift between the literal and
+            # V111_SLOT2_DESTINATION cannot hide: expected_after is derived
+            # from the constant, so the post-state check below goes red.
             moved = db.execute(
-                "UPDATE character_backpack_items SET slot=? "
+                "UPDATE character_backpack_items SET slot=2 "
                 "WHERE character_id=? AND item_identity=1 AND template_id=? "
                 "AND quantity=? AND slot=? AND raw_u8_38=? "
                 "AND raw_u8_39=? AND detail_present=?",
                 (
-                    inventory.V111_SLOT2_DESTINATION, character_id,
+                    character_id,
                     source.template_id, source.quantity, source.slot,
                     source.raw_u8_38, source.raw_u8_39, source.detail_present,
                 ),

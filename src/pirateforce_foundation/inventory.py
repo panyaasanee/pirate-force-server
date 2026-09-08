@@ -216,7 +216,8 @@ def merged_v111_states() -> tuple[BackpackState, ...]:
     )
 
 
-# PF-HYPOTHESIS-LEDGER: HYP-PF-008 active
+# HYP-PF-008 (the ledger annotation for this file sits on the constant above:
+# docs/HYPOTHESIS_LEDGER.json declares one emitter per file per hypothesis).
 def hypothesized_v111_slot2_state(merged: BackpackState) -> BackpackState:
     """The HYP-PF-008 post-state for ONE already-merged bag.
 
