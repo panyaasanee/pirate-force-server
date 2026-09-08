@@ -211,6 +211,61 @@ class TheRouteOpensOnlyForTheRefusedSanctionedCaseTests(unittest.TestCase):
         self.assertEqual("", printed)
         self.assertFalse(self.config_path.exists())
 
+    def test_retiring_the_sanction_is_loud_and_not_silent(self):
+        """THE RETIREMENT THIS BRANCH USED TO SWALLOW.
+
+        `COO-DECISION 20260908_1742` orders scene 126's sanction retired.
+        The hour it is, this function stops staging for 126 -- the live warp
+        still moves the character (lane A's row decrees the arrival, so
+        `warp_no_coords_live_target` resolves it) and the relog is silently
+        not arranged.  A tester warps, sees the new scene, relogs, and is
+        back where they started with nothing on the console.
+
+        This case is the map emptied, which is exactly the retirement, and
+        it pins that the outcome is now ANNOUNCED.  It does not object to
+        the retirement; it makes it visible.
+        """
+        with mock.patch.object(
+            login_scene_admission, "SANCTIONED_BARRED_SCENES", {},
+        ):
+            word, printed = self._call(
+                warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE,
+                SANCTIONED_SCENE,
+            )
+        self.assertEqual(warp_relog_stage.OUTCOME_SCENE_NOT_SANCTIONED, word)
+        self.assertIn(warp_relog_stage.FAIL_CONSOLE_TOKEN, printed)
+        self.assertIn(
+            f"reason={warp_relog_stage.OUTCOME_SCENE_NOT_SANCTIONED}", printed,
+        )
+        self.assertIn(f"scene={SANCTIONED_SCENE}", printed)
+        # Announced, never written: the whole point is that no entry is
+        # created for a scene no letter names any more.
+        self.assertFalse(self.config_path.exists())
+
+    def test_a_scene_lane_a_never_decreed_stays_silent_when_unsanctioned(self):
+        """The other side of the split, so the new line cannot be read as
+        'print on every unsanctioned scene'.
+
+        Scene 17 carries no `decreed_arrival` block, so the live route never
+        resolved it and no character was moved: there is nothing for a
+        console line to warn about, and this is the case the branch has
+        always been silent for.
+        """
+        self.assertFalse(
+            login_scene_admission.scene_has_decreed_arrival(
+                BARRED_BUT_UNSANCTIONED_SCENE
+            )
+        )
+        with mock.patch.object(
+            login_scene_admission, "SANCTIONED_BARRED_SCENES", {},
+        ):
+            word, printed = self._call(
+                warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE,
+                BARRED_BUT_UNSANCTIONED_SCENE,
+            )
+        self.assertEqual(warp_relog_stage.OUTCOME_SCENE_NOT_SANCTIONED, word)
+        self.assertEqual("", printed)
+
     def test_true_is_not_scene_one(self):
         """`bool` is an `int` subclass; `True` would otherwise ask about
         scene 1 and could be answered by a map that ever names it."""

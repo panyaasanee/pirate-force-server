@@ -271,9 +271,15 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
     THE ORDER IS: read what the row holds -> hand the WHOLE id list to
     `store.grant_gm_skills` in ONE call -> count from what that door gave
     back.  There is no per-id loop and so there is no partial run any more:
-    the door is a single `BEGIN IMMEDIATE` transaction, so the operator's
-    action lands whole or not at all and a run that did not land left
+    the door is a single `BEGIN IMMEDIATE` transaction, so a tester gets
+    all 137 skills or none of them, and a run that did not land left
     nothing behind for anyone to clean up.
+    ~~"one id that raises does not stop the others, because a tester with
+    136 of 137 skills has a usable sandbox"~~ -- STRUCK with the loop it
+    described.  That sentence was true of hundreds of independent writes;
+    it is false of one transaction, and pf-adversary round `nboppe` D8 (the
+    round that caught the count in it going stale) pinned the NUMBER, not
+    the reasoning, so the pin moves to the sentence above.
 
     WHY THIS DOOR AND NOT `grant_learned_skill`, which this function called
     until now (`COO-DECISION 20260908_1943`, choice 2, answering this
@@ -319,6 +325,21 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
         # forbid.  No test called this function with anything but a valid
         # id, so both lines had never once executed.
         return SkillGrant(
+            # `True` for the same reason every sibling refusal below passes
+            # it: nothing was attempted, so nothing FELL BACK to counting
+            # calls, and `granted_from=calls` must not appear on a line whose
+            # counts are three zeros.  THE ARGUMENT WAS MISSING here and at
+            # REFUSED_NO_STORE below -- `counts_are_complete` was added to
+            # this dataclass in the commit that answered round `wv0fpe`, and
+            # five of the seven construction sites were updated -- so both
+            # branches raised TypeError instead of refusing.  pf-adversary
+            # (round `nboppe`, D1) built them and measured the cost: no
+            # console line, no notice, and an `issued` audit row with no
+            # `outcome` row.  Two rounds arrived at the same one-word fix
+            # independently; what this round adds is the pair of tests that
+            # REACH these branches, without which the suite went on proving
+            # that the refusal WORDS existed while the code returning them
+            # could not run.
             0, 0, 0, True, REFUSED_NO_CHARACTER,
             f"no usable selected character id on this connection ({character_id!r})",
         )
@@ -330,6 +351,7 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
         # this swap exists to stop.  A refusal names the missing door; a
         # fallback would put the wrong sentence in the database quietly.
         return SkillGrant(
+            # The second of the pair -- see REFUSED_NO_CHARACTER above.
             0, 0, 0, True, REFUSED_NO_STORE,
             "this session's store has no grant_gm_skills door",
         )
