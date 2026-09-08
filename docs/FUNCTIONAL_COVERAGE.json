@@ -977,6 +977,68 @@
           "notes": "One WANTED loading screen of roughly 30 seconds preceded Port Royal entry in attended loops. No other scene, no failure path, and no progress semantics are observed."
         }
       ]
+    },
+    {
+      "id": "ui_buttons",
+      "title": "UI buttons and social functions",
+      "domain_complete": false,
+      "status_banner": "UI buttons and social functions: INCOMPLETE",
+      "next_missing_behavior": "answered_button_client_reaction",
+      "capabilities": [
+        {
+          "id": "party_invite_answer",
+          "title": "Party invite button is answered",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_lane_ui_party_invite_answer.py"
+          ],
+          "notes": "PartyInviteVital 0x37B1. runtime.py routes this id into ui_dispatch and lane_hooks/lane_ui_party_invite_answer.py answers it on the ordinary flagless boot, echoing the player's own payload bytes after a decode/re-encode round trip. Answering with the same id rests on RE-312 RESULT-1 (INBOUND_YES, handler at vtable +0x1C) and RESULT-2 (caller 0x005F38B2 inside the batch dispatch loop), both in pf_bridge/notes_to_chief/20260908_1038 and _1105; those letters are not in this repository, which is why evidence_refs is empty rather than pointing at a file that does not exist here. The row is in_progress and not runtime_pass because observed_frames = 0: nobody has yet watched a client receive this answer. What is missing is that observation, on a screen, through an attended ticket."
+        },
+        {
+          "id": "party_command_answer",
+          "title": "Party command button is answered",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_lane_ui_party_cmd_answer.py"
+          ],
+          "notes": "PartyCmdVital 0x2466, same seam and same argument as the party invite row. This class is u8 + u64 with no string, so its reviewed outbound row states an exact width of 11 bytes and the answerer requires equality rather than a ceiling. observed_frames = 0."
+        },
+        {
+          "id": "trade_invite_answer",
+          "title": "Trade invite button is answered",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_lane_ui_trade_invite_answer.py"
+          ],
+          "notes": "TradeInviteVital 0x3700, same seam and same argument. RE-312 BUILD_IMPACT 2 measured that this class and PartyInviteVital share an encoder byte for byte, which is why answering it needed no new reversing. observed_frames = 0."
+        },
+        {
+          "id": "friend_remove_answer",
+          "title": "Remove friend button is answered",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_lane_ui_friend_remove_answer.py"
+          ],
+          "notes": "Community_RemoveFriendVital 0x98A1, u64 + u64 + u8, fixed at 20 bytes for every value the type can hold. RE-312 RESULT-1 lists it INBOUND_YES (handler 0x00645BF0, next 0x0063F9B0), but BUILD_IMPACT 3 of the same letter says the five Community_ ids share one vtable entry and split INSIDE 0x0063F9B0, and nobody has read that function -- so 'this id has a handler' is measured while 'the split reaches a body for this id' is not. That is a second reason this row cannot be runtime_pass, on top of observed_frames = 0."
+        },
+        {
+          "id": "answered_button_client_reaction",
+          "title": "A client is observed reacting to an answered button",
+          "required": true,
+          "status": "not_started",
+          "evidence_refs": [],
+          "test_refs": [],
+          "notes": "THE ROW THIS DOMAIN IS OPEN ON. Every row above proves bytes leave the server on the production path; none of them proves a pixel moves. This project answers questions about pixels with an attended ticket, and no ticket covering these four ids has been run yet. It stays not_started until one is, and it is the reason domain_complete is false and will stay false even if every other row above ever goes green."
+        }
+      ]
     }
   ]
 }

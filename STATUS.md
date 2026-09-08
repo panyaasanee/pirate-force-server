@@ -99,6 +99,16 @@ short of `complete`. A narrow fixture, golden, or single controlled run earns
   surface, the PvP/exit dialogs and one WANTED loading screen are observed in
   passing runs; no Foundation module owns any of it and no presentation behavior
   has a test.
+- **UI buttons and social functions: INCOMPLETE** — next missing behavior:
+  `answered_button_client_reaction`. Opened as the ninth domain by LANE-UI round
+  `ncejt8` because four buttons the server now answers on the ordinary flagless
+  boot — party invite `0x37B1`, party command `0x2466`, trade invite `0x3700`
+  and remove friend `0x98A1` — had no row anywhere in this matrix, so nothing
+  recorded that they exist or how far they got. Each answer is the player's own
+  payload bytes echoed back after a decode/re-encode round trip, on a seam whose
+  outbound shapes are reviewed in `ui_dispatch`; none of the four has been seen
+  reaching a client. `observed_frames = 0` for all four, which is why every row
+  reads `in_progress` and the domain is open on the observation, not on the code.
 
 ## Baselines
 
