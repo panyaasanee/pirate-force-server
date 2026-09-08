@@ -1,1 +1,1 @@
-{"sha":"67a7e77fb9636ecd56a0d4ecd2b0145b649aafa2","conclusion":"failure","event":"push","ref":"refs/heads/claude/gracious-rubin-1v5i3h","run_id":"34221553553","utc":"2026-09-08T12:13:14Z"}
+{"sha":"67a7e77fb9636ecd56a0d4ecd2b0145b649aafa2","conclusion":"failure","event":"pull_request","ref":"refs/pull/1160/merge","run_id":"34221557689","utc":"2026-09-08T12:20:05Z"}
