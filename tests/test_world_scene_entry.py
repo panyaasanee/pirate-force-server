@@ -513,7 +513,15 @@ class StageRowCoherenceTests(unittest.TestCase):
         # A silent heading reset is invisible at heading 0, which is what every
         # Port Royal row carries, so it is measured on the one row here that
         # does not.
-        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink())
+        #
+        # LANE-A round ioz8fd: driven with via_login=False, because a LOGIN
+        # no longer relocates this row at all - PANYA-DECISION 20260908_1218
+        # keeps a stored row that nothing measured refutes.  The relocation
+        # branch is still reached by every non-login caller (Columbus'
+        # synthetic arrival is the live one), and the heading question is
+        # about that branch, so this drives it where it still exists rather
+        # than asserting a relocation the owner's rule has withdrawn.
+        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink(), via_login=False)
         self.assertTrue(entry.relocated)
         self.assertEqual(entry.position.heading, PRISON_ISLAND_ROW.heading)
 
@@ -533,7 +541,8 @@ class StageRowCoherenceTests(unittest.TestCase):
             "WORLD_SCENE_KEPT_ROW scene_id=278 "
             "used=(-13000.000,22500.000,-2492.000) "
             "pinned_spawn=(-13270.058,22794.273,-2492.769) "
-            "stored_seq=0 used_seq=0"
+            "stored_seq=0 used_seq=0 "
+            "basis=stored_xy_inside_pinned_ground_extent"
         ))
 
     def test_a_rewritten_sequence_is_reported_rather_than_silent(self):
@@ -659,10 +668,18 @@ class SceneWithNoPinnedGroundTests(unittest.TestCase):
     """Scene 2 - n_SAVE = 1, n_MARKER = 2, no pinned ground, and the only
     non-home scene this client has ever rendered.  The branch that handles it
     is a different branch with a different reported reason, so it is tested as
-    one."""
+    one.
+
+    SINCE LANE-A ROUND ioz8fd these cases pass ``via_login=False``.  The
+    branch is unchanged and still live - every non-login caller takes it -
+    but a LOGIN no longer reaches it for a scene with no ground block:
+    PANYA-DECISION 20260908_1218 keeps the character's own stored row unless
+    something MEASURED refutes it, and a missing ground block measures
+    nothing.  See ``world_scene_entry._ground_refutes_stored_row``."""
 
     def test_a_scene_with_no_pinned_ground_uses_its_pinned_spawn(self):
-        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink())
+        # via_login=False since round ioz8fd - see the class docstring.
+        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink(), via_login=False)
         scene2 = world_scene_travel.destination(2)
         self.assertIsNone(scene2.ground_extent)
         self.assertTrue(entry.relocated)
@@ -674,23 +691,40 @@ class SceneWithNoPinnedGroundTests(unittest.TestCase):
     def test_the_reason_names_the_missing_ground_not_the_extent(self):
         # Two branches, two reasons.  A module that reported one reason for
         # both would be indistinguishable from one that never took this branch.
-        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink())
+        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink(), via_login=False)
         self.assertEqual(
             entry.relocation_reason, RELOCATED_NO_GROUND_EVIDENCE)
         self.assertNotEqual(
             entry.relocation_reason,
-            resolve_entry(PORT_ROYAL_XYZ_IN_THE_STAGE,
-                          emit=Sink()).relocation_reason,
+            resolve_entry(PORT_ROYAL_XYZ_IN_THE_STAGE, emit=Sink(),
+                          via_login=False).relocation_reason,
         )
 
-    def test_this_scene_persists_characters_and_is_relocated_anyway(self):
-        # The honest statement of rule 2's limit, kept as a test: n_SAVE says
-        # this scene saves characters, and the rule overrides its row anyway,
-        # because no path in this tree has written one yet.  The day that stops
-        # being true, this test is the one that has to be argued with.
+    def test_this_scene_persists_characters_and_its_login_row_is_now_kept(self):
+        """~~test_this_scene_persists_characters_and_is_relocated_anyway~~
+        -- INVERTED, LANE-A round ioz8fd, 2026-09-08.
+
+        The struck case ended with "The day that stops being true, this test
+        is the one that has to be argued with."  This is that argument.
+        n_SAVE said this scene saves characters and the rule overrode its
+        row anyway, on the stated grounds that no path in this tree had
+        written one yet; PANYA-DECISION 20260908_1218 says the row wins, and
+        since round 3a11a0 there IS a path that writes one.  So the same
+        fact - n_SAVE = 1 - is asserted against the opposite outcome, on the
+        same row, rather than deleted.
+        """
         scene2 = world_scene_travel.destination(2)
         self.assertTrue(scene2.persists_characters)
-        self.assertTrue(resolve_entry(PRISON_ISLAND_ROW, emit=Sink()).relocated)
+        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink())
+        self.assertFalse(entry.relocated)
+        self.assertEqual(
+            (entry.position.x, entry.position.y, entry.position.z),
+            (PRISON_ISLAND_ROW.x, PRISON_ISLAND_ROW.y, PRISON_ISLAND_ROW.z))
+        # ...and the withdrawn behaviour is still exactly one keyword away,
+        # so this case also pins that the change is about WHO is asking.
+        self.assertTrue(
+            resolve_entry(PRISON_ISLAND_ROW, emit=Sink(),
+                          via_login=False).relocated)
 
 
 class ProvisionalDecreeTests(unittest.TestCase):
@@ -882,7 +916,12 @@ class ReportingTests(unittest.TestCase):
     def test_every_reported_reason_is_one_of_the_named_ones(self):
         for row in (PORT_ROYAL_XYZ_IN_THE_STAGE, PRISON_ISLAND_ROW):
             with self.subTest(scene=row.scene_id):
-                entry = resolve_entry(row, emit=Sink())
+                # via_login=False: the prison-island row is KEPT at login
+                # since round ioz8fd, and a kept row reports no reason at
+                # all.  The question here is whether the relocation branch
+                # names its reason from the pinned tuple, so it is asked
+                # where relocation still happens.
+                entry = resolve_entry(row, emit=Sink(), via_login=False)
                 self.assertIn(entry.relocation_reason, RELOCATION_REASONS)
 
     def test_the_report_carries_both_positions_and_the_travel_columns(self):

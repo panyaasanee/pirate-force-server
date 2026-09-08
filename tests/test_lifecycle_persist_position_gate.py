@@ -40,7 +40,14 @@ class LifecyclePersistPositionGateTest(unittest.TestCase):
     lands reads scene_id=17 with scene 17's own XYZ - not GT-106's
     scene_id=1-carrying-17's-coordinates, which is the pair that made the
     original row wrong twice over.  Under 1218 that row is what puts the
-    character back on the deck it logged out from."""
+    character back on the deck it logged out from -- HALF OF IT.  Writing
+    the right row is this file's whole subject and is necessary; it was
+    never sufficient, and saying so flatly here was an overclaim for two
+    rounds (pf-adversary D1, round 3a11a0: the row was written correctly
+    and the character still arrived on (0,0,0)).  What reads the row back
+    without discarding it is ``world_scene_entry._ground_refutes_stored_row``
+    and the login-door test that now asserts the arrival equals the stored
+    point; this file does not test that and must not be cited for it."""
 
     @staticmethod
     def _registry_with_scene_17_pinned_shut():

@@ -73,7 +73,9 @@ the first one is the important one:
 
 1. **Home is never touched.**  Scene 1 is the only scene a character in this
    project has ever stood in, walked around and been persisted in.  A player
-   who logged out beside the tavern comes back beside the tavern, exactly as
+   who logged out beside the tavern comes back beside the tavern (and since
+   round ``ioz8fd`` so does one who logged out at sea - see
+   ``_ground_refutes_stored_row``; before it, only home kept a row), exactly as
    today, and the teleport arguments stay ``(1, 0, 0.0, 0.0, 0.0)`` -
    argument for argument what the runtime sends now.  That zero target is the
    shape every default boot here has been observed to survive, so home's
@@ -190,6 +192,16 @@ RELOCATED_OUTSIDE_GROUND = "stored_xy_outside_pinned_ground_extent"
 RELOCATION_REASONS = (
     RELOCATED_NO_GROUND_EVIDENCE,
     RELOCATED_OUTSIDE_GROUND,
+)
+
+# Why a stored position WAS the one used, for the same reader at 2am.  Both
+# of these are "kept"; they are not the same fact and an attended tester
+# reading the console must not have to guess which one held.
+KEPT_ROW_WITHIN_GROUND = "stored_xy_inside_pinned_ground_extent"
+KEPT_ROW_NOT_REFUTED = "login_row_not_refuted_by_measured_ground"
+KEPT_ROW_BASES = (
+    KEPT_ROW_WITHIN_GROUND,
+    KEPT_ROW_NOT_REFUTED,
 )
 
 # Why an arrival was refused outright.  One exception type, several reasons,
@@ -332,6 +344,59 @@ def _ground_evidence(target: SceneDestination, x: float, y: float) -> bool | Non
     )
 
 
+def _ground_refutes_stored_row(
+    target: SceneDestination, stored: Position
+) -> bool:
+    """Whether MEASURED ground evidence says this XY is not in this scene.
+
+    THE THIRD GATE OF PANYA-DECISION 20260908_1218, NAMED.  Rounds 9lv3fa
+    and 3a11a0 opened the two gates everybody could see -
+    ``login_entry_allowed`` (may this row be read at all) and
+    ``persist_position_allowed`` (may this row be written at all) - and a
+    character that logged out at sea still arrived on the pinned spawn
+    rather than on its own coordinates, because ``_within_ground`` answered
+    "no" and ``resolve_entry`` threw the row away.  pf-adversary D1 of round
+    3a11a0 measured it: scene 17 stored (-149.0, -1250.3, 745.0) landed on
+    (0, 0, 0), scene 14 stored (-17000, 18500, 1890) landed on the marker.
+    That is the owner's rule failing on its own headline case.
+
+    WHY THE ANSWER IS THIS AND NOT A MEASUREMENT.  The other way to close
+    the gate is to give 14, 126, 304 and 305 a real ``ground`` block, and
+    NOW.md offers both - but with ``ground_extent`` forbidden to be made up,
+    and no placement file to derive one from, there is nothing honest to
+    write for those four.  So the rule moves instead: at login the stored
+    row is kept unless something MEASURED refutes it.  A stored row is not a
+    guess; it is where the client last said the character stood, written by
+    the persist path on a real ``TargetPos``.  An NPC-placement bounding box
+    is weaker evidence than that, and this registry's own ``ground`` blocks
+    say so in their ``limit`` field ("a .npc file carries NPC placements,
+    not ground").
+
+    WHAT STILL RELOCATES, so this is a narrowing and not a removal:
+    a ``False`` from ``_ground_evidence`` that came from a radius centred on
+    a MEASURED spawn - scene 278 is the only such row in the shipped
+    registry today.  A ``False`` that came from the PROVISIONAL-OWNER-DECREE
+    veto is not a measurement of anything (see ``_ground_evidence``: the
+    veto exists precisely because a radius around an unmeasured point proves
+    nothing), so it does not refute the row either, and ``None`` - no ground
+    block at all - never did.
+
+    NOT CLAIMED: that a kept row is inside the playable map.  Nothing in
+    this tree can decide that for a scene with no ground block, and this
+    function does not pretend otherwise; it decides whose word is better in
+    the absence of evidence, and 1218 says it is the player's.
+    """
+    if _ground_evidence(target, stored.x, stored.y) is not False:
+        return False
+    provenance = target.spawn_provenance
+    if (
+        provenance is not None
+        and provenance.startswith("PROVISIONAL-OWNER-DECREE")
+    ):
+        return False
+    return True
+
+
 def _within_ground(target: SceneDestination, stored: Position) -> bool:
     """Whether this scene has ground evidence that reaches the stored XY.
 
@@ -457,6 +522,13 @@ def resolve_entry(
     Do not believe this sentence either - derive it:
     ``tests/test_world_scene_registry_login_door.py`` walks the registry and
     fails if ANY pinned destination that has a spawn is shut at login.
+    AND READ THE NEXT SENTENCE BEFORE QUOTING THE ONE ABOVE.  Opening this
+    door delivers the SCENE, not the POINT: rounds ``9lv3fa`` and ``3a11a0``
+    both wrote the owner's full promise here while ``resolve_entry`` was
+    still throwing the stored x/y away, and pf-adversary D1 measured the
+    gap.  The point half is delivered by the third branch below and by
+    ``_ground_refutes_stored_row``; without that branch this paragraph is
+    an overclaim, which is exactly what it was for two rounds.
     THE MECHANISM BELOW IS NOT REMOVED and is not dead code: a destination
     added later without a measured spawn is exactly what it is for, and 1218
     forbids the pin only for the CURRENT registry, not forever)
@@ -520,6 +592,7 @@ def resolve_entry(
     lines = [world_scene_travel.entry_console_line(target)]
     scene_id, scene_seq = world_scene_travel.entry_fields(target)
 
+    kept_basis = None
     if target.n_id == HOME_SCENE_ID:
         position = row
         reason = None
@@ -532,6 +605,18 @@ def resolve_entry(
             scene_id, scene_seq, row.x, row.y, row.z, row.heading,
         )
         reason = None
+        kept_basis = KEPT_ROW_WITHIN_GROUND
+    elif via_login and not _ground_refutes_stored_row(target, row):
+        # PANYA-DECISION 20260908_1218: logging in puts a character back on
+        # the point it logged out from, in EVERY scene.  Nothing measured
+        # says this row is wrong (see ``_ground_refutes_stored_row``), and a
+        # row the client wrote beats a spawn nobody stood on, so the row
+        # wins.  Same frame discipline as the branch above.
+        position = Position(
+            scene_id, scene_seq, row.x, row.y, row.z, row.heading,
+        )
+        reason = None
+        kept_basis = KEPT_ROW_NOT_REFUTED
     else:
         position = world_scene_travel.entry_position(target, row.heading)
         reason = (
@@ -558,7 +643,7 @@ def resolve_entry(
     ):
         lines.append(
             _relocated_line(target, row, position, reason) if moved
-            else _kept_row_line(target, row, position)
+            else _kept_row_line(target, row, position, kept_basis)
         )
 
     # PANYA-DECISION 2026-08-27T14:45+07:00 item 2: a spawn this project did
@@ -639,14 +724,25 @@ def _kept_row_line(
     target: SceneDestination,
     stored: Position,
     position: Position,
+    basis: str | None = None,
 ) -> str:
+    """The console line for an arrival that used the character's own row.
+
+    ``basis`` says WHICH rule kept it - measured ground reached the point,
+    or 1218's "nothing measured refutes it" - because on the console those
+    two look identical and only one of them means this project has evidence
+    for the coordinate.  ``None`` renders as ``basis=unstated`` rather than
+    being dropped, so a caller that forgets is visible instead of silent.
+    """
     return (
         "WORLD_SCENE_KEPT_ROW scene_id={0} used=({1:.3f},{2:.3f},{3:.3f}) "
-        "pinned_spawn=({4:.3f},{5:.3f},{6:.3f}) stored_seq={7} used_seq={8}"
+        "pinned_spawn=({4:.3f},{5:.3f},{6:.3f}) stored_seq={7} used_seq={8} "
+        "basis={9}"
         .format(
             target.n_id, position.x, position.y, position.z,
             *target.spawn,
             stored.scene_seq, position.scene_seq,
+            basis if basis is not None else "unstated",
         )
     )
 

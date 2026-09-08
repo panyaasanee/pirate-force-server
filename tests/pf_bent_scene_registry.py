@@ -179,24 +179,45 @@ class BentDiskMixin:
 
 @contextlib.contextmanager
 def process_reads(registry):
-    """The whole PROCESS answers from `registry`, caches included.
+    """The whole PROCESS answers from `registry`, THE CACHES NAMED BELOW.
 
-    `gm/warp_scene_persist` holds the registry it will predict logins from
-    in a module-level snapshot taken once per process, so patching the
-    loader after that snapshot exists changes nothing there: the module goes
-    on answering from the shipped file.  This clears the snapshot inside the
-    patch (so the next question re-reads the bend) and clears it again on
-    the way out, so the next case gets the shipped reading back.
+    ~~caches included~~ -- STRUCK, LANE-A round ioz8fd (pf-adversary D5 of
+    round 3a11a0).  "Caches included" read as a promise about every cache in
+    the tree and this function knew about one.  It now clears two, and the
+    third is named rather than silently missed.
+
+    CLEARED HERE:
+
+    * `gm/warp_scene_persist`'s module-level login snapshot, taken once per
+      process, so patching the loader after it exists changes nothing there.
+    * `world_m2_arrival._CACHED_REGISTRY`, via that module's own
+      `forget_cached_registry()`, which existed and was never called.
+
+    NOT CLEARED, AND THERE IS NO WAY TO FROM HERE:
+    `gm/warp_chain_preflight._scene_registry.cached` is a function attribute
+    with no reset entry point (`warp_chain_preflight.py:280`).  A case that
+    reaches `preflight_chain` after anything in the same process has already
+    asked it a question reads the SHIPPED file no matter what this function
+    does.  Deleting the attribute from a test would be this module reaching
+    into another lane's internals; the entry point belongs in that module.
+
+    Each cache is cleared on the way in AND on the way out, so the next case
+    gets the shipped reading back.
 
     Use this, not `patch_disk`, whenever the code under test is reached
     through `_persist_warp_scene`, `persist_warp_scene`, `login_would_accept`
     or `barred_login_scene_ids`.
     """
     from pirateforce_foundation.gm import warp_scene_persist
+    from pirateforce_foundation import world_m2_arrival
+
+    def forget():
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        world_m2_arrival.forget_cached_registry()
 
     with patch_disk(registry):
-        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        forget()
         try:
             yield registry
         finally:
-            warp_scene_persist.reset_login_registry_snapshot_for_tests()
+            forget()

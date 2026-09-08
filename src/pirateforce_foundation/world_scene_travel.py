@@ -1306,7 +1306,12 @@ def is_position_persist_allowed(
     NO destination in this registry is pinned ``False`` any more.  14 and 17
     were the last two and PANYA-DECISION 20260908_1218 lifted both, because a
     scene whose position is never written back is a scene the owner's
-    "log in where you logged out" rule cannot hold for.  This function is
+    "log in where you logged out" rule cannot hold for.  (That rule needs a
+    THIRD gate this function knows nothing about: writing the row and
+    admitting it at login still landed the character on the pinned spawn
+    until ``world_scene_entry._ground_refutes_stored_row``, LANE-A round
+    ``ioz8fd``.  A reader who quotes this paragraph as proof of the whole
+    rule is quoting a third of it.)  This function is
     therefore, today, a fence with nothing behind it - which is the intended
     state, not a sign it should be deleted: it is the check a future
     destination pinned ``False`` would fail, and the RULE that keeps the set

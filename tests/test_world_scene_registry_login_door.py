@@ -123,6 +123,137 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
                 )
                 self.assertEqual(entry.destination.n_id, destination.n_id)
 
+    def test_a_row_that_is_not_the_spawn_arrives_on_itself(self):
+        """THE THIRD GATE, and the case that was missing when D1 got through.
+
+        pf-adversary D2 of round 3a11a0, MEASURED: every case in this class
+        drove a row sitting exactly ON the pinned spawn, so a mutant that
+        threw the stored coordinates away and returned the spawn survived
+        all of them - which is precisely the defect D1 then found in
+        production code.  This case offsets the row first, so "the arrival
+        equals the stored point" is asserted rather than assumed.
+
+        The offset is small on purpose: for the one destination that has
+        MEASURED ground (278) it stays inside that ground, so this case
+        measures the third gate and not the ground test.  The ground test
+        keeps its own case below.
+        """
+        offset = 50.0
+        kept = 0
+        for destination in self.destinations:
+            if destination.spawn is None:
+                continue
+            with self.subTest(scene=destination.n_id):
+                spawn = _spawn_position(destination)
+                stored = Position(
+                    spawn.scene_id, spawn.scene_seq,
+                    spawn.x + offset, spawn.y + offset, spawn.z,
+                )
+                entry = world_scene_entry.resolve_entry(
+                    stored,
+                    registry=self.registry,
+                    emit=lambda line: None,
+                    via_login=True,
+                )
+                if destination.n_id == world_scene_entry.HOME_SCENE_ID:
+                    # Home is the one scene that never went through the
+                    # ground test at all; it keeps the row byte for byte and
+                    # is not evidence about the gate this case is here for.
+                    self.assertEqual(
+                        (entry.position.x, entry.position.y, entry.position.z),
+                        (stored.x, stored.y, stored.z))
+                    continue
+                self.assertEqual(
+                    (entry.position.x, entry.position.y, entry.position.z),
+                    (stored.x, stored.y, stored.z),
+                    "PANYA-DECISION 20260908_1218: logging in returns a "
+                    "character to the point it logged out from. Scene %d "
+                    "moved it to %r instead - the third gate "
+                    "(world_scene_entry._ground_refutes_stored_row) is the "
+                    "one that decides this, and an open door plus a written "
+                    "row does not imply it."
+                    % (destination.n_id,
+                       (entry.position.x, entry.position.y, entry.position.z)))
+                self.assertFalse(entry.relocated)
+                self.assertIsNone(entry.relocation_reason)
+                kept += 1
+        self.assertGreater(
+            kept, 1,
+            "this case must have driven more than one non-home destination "
+            "or it proves nothing about the registry")
+
+    def test_measured_ground_still_refuses_a_row_it_can_see_is_outside(self):
+        """The narrowing is a narrowing, not a removal of the ground test.
+
+        Round ioz8fd stopped a MISSING ground block and the
+        PROVISIONAL-OWNER-DECREE veto from throwing a stored row away, on
+        the grounds that neither is a measurement.  A row that a real,
+        spawn-centred extent puts outside itself is a measurement, and it
+        must still relocate - otherwise the change deleted the fence
+        instead of narrowing it.  Driven over whichever rows actually carry
+        that evidence rather than a scene id, so this case does not go red
+        the day one is added or removed; it asserts there is at least one.
+        """
+        measured = [
+            d for d in self.destinations
+            if d.spawn is not None
+            and d.ground_extent is not None
+            and not (d.spawn_provenance or "").startswith(
+                "PROVISIONAL-OWNER-DECREE")
+        ]
+        self.assertTrue(
+            measured,
+            "no destination carries spawn-centred ground evidence any more, "
+            "so nothing in this tree can refuse a stored row and this case "
+            "would pass by measuring an empty list")
+        for destination in measured:
+            with self.subTest(scene=destination.n_id):
+                spawn = _spawn_position(destination)
+                extent_x, extent_y = destination.ground_extent
+                stored = Position(
+                    spawn.scene_id, spawn.scene_seq,
+                    spawn.x + extent_x * 10.0,
+                    spawn.y + extent_y * 10.0,
+                    spawn.z,
+                )
+                entry = world_scene_entry.resolve_entry(
+                    stored,
+                    registry=self.registry,
+                    emit=lambda line: None,
+                    via_login=True,
+                )
+                self.assertTrue(entry.relocated)
+                self.assertEqual(
+                    entry.relocation_reason,
+                    world_scene_entry.RELOCATED_OUTSIDE_GROUND)
+                self.assertEqual(
+                    (entry.position.x, entry.position.y, entry.position.z),
+                    destination.spawn)
+
+    def test_the_console_says_which_rule_kept_the_row(self):
+        """An attended tester reads the console, not `entry.relocated`.
+
+        Two different rules keep a row - measured ground reached it, or
+        nothing measured refutes it - and before round ioz8fd the line was
+        identical either way, so a tester could not tell a coordinate this
+        project has evidence for from one it has only the player's word
+        for.  COO-DECISION 20260904_1646 item 2 is the standing rule.
+        """
+        sea = 17
+        destination = self.registry[sea]
+        spawn = _spawn_position(destination)
+        stored = Position(spawn.scene_id, spawn.scene_seq,
+                          spawn.x - 149.0, spawn.y - 1250.3, 745.0)
+        lines = []
+        entry = world_scene_entry.resolve_entry(
+            stored, registry=self.registry, emit=lines.append, via_login=True)
+        kept_lines = [ln for ln in lines if "WORLD_SCENE_KEPT_ROW" in ln]
+        self.assertEqual(len(kept_lines), 1, lines)
+        self.assertIn(
+            "basis=%s" % world_scene_entry.KEPT_ROW_NOT_REFUTED, kept_lines[0])
+        self.assertEqual(entry.position.x, stored.x)
+        self.assertEqual(entry.position.y, stored.y)
+
     def test_the_four_doors_1218_named_are_the_ones_that_opened(self):
         """History, pinned separately from the rule.
 
