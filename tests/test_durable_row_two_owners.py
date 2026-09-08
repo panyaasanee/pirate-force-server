@@ -331,6 +331,78 @@ class DurableRowTwoOwnersTests(unittest.TestCase):
             ),
         )
 
+    # ----- the session double that predates the keyword -------------------
+
+    def test_a_session_without_the_keyword_degrades_and_says_so(self):
+        """Four test doubles in this tree spell ``checkpoint(self, position)``.
+
+        A keyword-only parameter they do not carry is a TypeError, and a
+        TypeError raised out of dispatch takes the connection down: v141's
+        game listener has no ``except`` around ``state.dispatch``.  So the
+        call boundary catches it and degrades to the in-memory move -- the
+        same thing the login-override branch does -- but names the cost in
+        its own event rather than reusing the one that means "the lease was
+        checked".  Two different facts, two different event names.
+        """
+        state = self._login_and_start("dr_two_owners07")
+        x, y, z = self._memory(state)
+        self._arm_a_cross_scene_warp(state, UNREFUTABLE_SCENE_ID)
+        before = self._stored(state)
+
+        real = state.foundation.checkpoint
+
+        def _keywordless(position):
+            return real(position)
+
+        state.foundation.checkpoint = _keywordless
+        moved = (x + 3.0, y + 3.0, z)
+        err = self._report(state, *moved)
+
+        self.assertEqual(self._stored(state), before)
+        self.assertIn(
+            "durable_row_withheld_lease_unchecked_scene_%d"
+            % UNREFUTABLE_SCENE_ID,
+            state.events,
+        )
+        self.assertNotIn(
+            "durable_row_withheld_unconfirmed_scene_%d"
+            % UNREFUTABLE_SCENE_ID,
+            state.events,
+        )
+        self.assertEqual(
+            self._withheld_lines(err),
+            ["%s %d" % (WITHHELD_TOKEN, UNREFUTABLE_SCENE_ID)],
+        )
+        self.assertEqual(
+            self._memory(state),
+            (self._f32(moved[0]), self._f32(moved[1]), self._f32(moved[2])),
+        )
+
+    def test_a_stolen_lease_still_gets_out_of_the_withheld_branch(self):
+        """The ``except`` is TypeError, and it has to stay that way.
+
+        ``store.save_position``'s ownership SELECT is the only stolen-lease
+        signal this project has, and every other checkpoint call site in this
+        file lets that raise out on purpose.  A wider ``except`` here would
+        turn a hijacked session into a console line and a shrug -- measured:
+        widening it to ``except Exception`` leaves this file's other tests
+        green, so this is the one that notices.
+        """
+        state = self._login_and_start("dr_two_owners08")
+        x, y, z = self._memory(state)
+        self._arm_a_cross_scene_warp(state, UNREFUTABLE_SCENE_ID)
+
+        def _stolen(sid, cid, pos, *, write_position=True):
+            raise PermissionError("session does not own this character")
+
+        with mock.patch.object(self.store, "save_position", _stolen):
+            with self.assertRaises(PermissionError):
+                self._report(state, x + 3.0, y + 3.0, z)
+
+        self.assertFalse(
+            [e for e in state.events if e.startswith("durable_row_withheld")]
+        )
+
     # ----- `durable=` can only ever subtract a write ----------------------
 
     def test_the_registry_pin_still_wins_over_a_durable_caller(self):
