@@ -134,10 +134,13 @@ THE ONE NUMBER THIS MODULE DOES NAME, AND WHY IT IS NOT A THIRD READING.
 ``COO-DECISION 20260908_1441`` point 3 ordered it here for a reason that is
 worth keeping in front of the number: ``migrations/017`` gives
 ``characters.skill_points`` a ``DEFAULT 0``, and ``tests/pf_birth_state.py``
-pins the birth row -- but a pin whose expected value is spelled inside the
-pin only grades THAT THE COLUMN EXISTS.  For it to grade THE VALUE, the value
-has to be declared by a module that owns it, the way the three vitals are
-declared once and read by their pin.  That is all this constant is.
+pins the birth row -- but that pin OMITS ``skill_points`` ON PURPOSE, and
+says so in its own words: "a column no module owns a number for is absent
+here, and absence means this file has nothing to say about the value".  It
+reads ``experience`` through the module that owns THAT number and leaves this
+one ungraded, because there was nobody to ask.  This constant is the answer
+to that sentence and nothing more: it gives the pin somebody to ask, the way
+``new_character_vitals`` is who the pin asks about the three vitals.
 
   * It is NOT read off a shipped table.  Measured this round rather than
     asserted: of the 188 committed client tables, the ones that could
@@ -248,7 +251,6 @@ BIRTH_SKILL_POINTS_PROVENANCE = PROVENANCE_ASSUMPTION
 #: pairing in both directions, so "MEASURED" can never be claimed without a
 #: named source and a source can never be named for a number nobody measured.
 BIRTH_SKILL_POINTS_SOURCE = ""
-
 
 TABLE_FIRST_LEVEL = 1
 TABLE_LAST_LEVEL = 120
