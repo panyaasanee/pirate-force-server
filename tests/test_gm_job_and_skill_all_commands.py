@@ -36,6 +36,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -798,15 +799,142 @@ class DispatchContractTests(_Case):
             action2[0], chat_command_action.SKILL_REFUSED_NOTICE_ACTION_LABEL
         )
 
-    def test_a_missing_row_stops_the_grant_and_the_counts_still_add_up(self):
+    def test_a_missing_row_stops_the_grant_and_prints_what_it_wrote(self):
+        # pf-adversary (round `wv0fpe`, D4): the ONE branch where a partial
+        # write really happens was the one branch whose numbers never
+        # reached the operator -- 40 rows on disk and a console line reading
+        # `REFUSED [row_not_found]` with no count anywhere.
         session = FakeSession()
-        session.foundation.lifecycle.store.grant_raises = KeyError(1)
-        result = skill_all_command.grant_all(self.store_of(session), 1)
+        store = self.store_of(session)
+        store.skills.extend(list(class_skill_curriculum.CURRICULUM_SKILL_IDS)[:3])
+        store.grant_raises = KeyError(1)
+        result = skill_all_command.grant_all(store, 1)
         self.assertEqual(result.refusal, skill_all_command.REFUSED_ROW_MISSING)
-        self.assertEqual(
-            result.granted + result.already + result.failed,
-            class_skill_curriculum.SKILL_COUNT,
+        self.assertEqual(result.already, 3)
+        line = skill_all_command.console_line(result, 1)
+        self.assertIn("granted=", line)
+        self.assertIn("already=3", line)
+
+    def test_granted_counts_rows_the_door_really_inserted(self):
+        # pf-adversary (round `wv0fpe`, D3), MEASURED: the first draft
+        # counted a call as a grant whenever it came back, so a run that
+        # inserted nothing printed the full count -- the number the owner's
+        # HEADLESS_PROOF block greps.  The door returns its own post-insert
+        # id set, read inside its transaction, so a set that did not grow is
+        # the door saying INSERT OR IGNORE ignored.
+        every = tuple(class_skill_curriculum.CURRICULUM_SKILL_IDS)
+
+        class SomebodyElseGotThereFirstStore(FakeStore):
+            """Empty when asked, full from the first grant onward.
+
+            The concurrent case: a second writer put every row in between
+            this command's read and its first call.  Every call after that
+            is a real no-op, and only a count derived from the door's own
+            answer can tell.
+            """
+
+            def grant_learned_skill(self, character_id, skill_id):
+                self.grants.append((character_id, skill_id))
+                return every
+
+        store = SomebodyElseGotThereFirstStore()
+        result = skill_all_command.grant_all(store, 1)
+        self.assertTrue(result.ok)
+        self.assertEqual(len(store.grants), len(every))
+        # One call saw the set grow (from empty to full); the other 136 saw
+        # it stand still.  The first draft would have said len(every).
+        self.assertEqual(result.granted, 1)
+        self.assertTrue(result.counts_are_complete)
+
+    def test_a_door_whose_answer_cannot_be_measured_says_granted_from_calls(self):
+        # "cannot tell" may not be reported as "measured": a door that hands
+        # back something this module cannot count still gets its call
+        # counted, and the line announces that the number is a fallback.
+        class SilentDoorStore(FakeStore):
+            def grant_learned_skill(self, character_id, skill_id):
+                self.grants.append((character_id, skill_id))
+                return None
+
+        result = skill_all_command.grant_all(SilentDoorStore(), 1)
+        self.assertTrue(result.ok)
+        self.assertFalse(result.counts_are_complete)
+        self.assertIn(
+            "granted_from=calls", skill_all_command.console_line(result, 1)
         )
+
+    def test_an_unreadable_row_is_refused_rather_than_counted_blind(self):
+        # The posture change D3 forced: every number this command prints is
+        # derived from reading the row first, so a store that cannot be read
+        # gets a named refusal instead of a countable-looking guess -- and
+        # NOTHING is written on that branch.
+        class UnreadableStore(FakeStore):
+            def list_character_skills(self, character_id):
+                raise RuntimeError("database is locked")
+
+        store = UnreadableStore()
+        result = skill_all_command.grant_all(store, 1)
+        self.assertEqual(
+            result.refusal,
+            skill_all_command.REFUSED_CANNOT_READ_CURRENT_SKILLS,
+        )
+        self.assertEqual(store.grants, [])
+
+    def test_both_undos_report_the_effect_was_kept_rather_than_vanishing(self):
+        # pf-adversary (round `wv0fpe`, D2): `_make_action` runs the undo
+        # only when the audit row could not be written, and it tells "the
+        # effect was KEPT" from "anything it had in hand was dropped with
+        # it" by whether a callable exists at all.  A `/job` on a row whose
+        # class was NULL, and every `/skill all`, had no callable -- so the
+        # console said the rows were dropped while they sat on disk.
+        store = FakeStore()
+        kept = job_command.undo(store, 1, None)
+        self.assertIsNotNone(kept)
+        self.assertIs(kept(), False)
+        self.assertIs(skill_all_command.undo(store, 1)(), False)
+        # And the real undo still restores when there IS something to put
+        # back, so the honest `False` did not cost the working case.
+        store.stored["class_id"] = 4
+        self.assertIs(job_command.undo(store, 1, 2)(), True)
+        self.assertEqual(store.stored["class_id"], 2)
+
+    def test_write_class_id_never_raises_even_if_the_column_map_moves(self):
+        # pf-adversary (round `wv0fpe`, D7): `column = class_column()` sat
+        # outside every `try`, so the drift `CLASS_FIELD_X`'s own comment
+        # guards against escaped as a `TypedAttrError` -- caught one frame
+        # up, but leaving an `issued` audit row with no `outcome` row.
+        with mock.patch.object(
+            job_command, "class_column", side_effect=RuntimeError("x=13 gone")
+        ):
+            result = job_command.write_class_id(FakeStore(), 1, 16)
+        self.assertEqual(result.refusal, job_command.REFUSED_NO_COLUMN)
+
+    def test_a_row_the_login_would_not_read_back_is_refused_and_put_back(self):
+        # pf-adversary (round `wv0fpe`, D8): `login_would_send` shipped
+        # defined, tested and NEVER CALLED, so the module docstring claimed
+        # a gate that did not exist.  It is called now, and it asks the door
+        # `session.py` really reads.
+        class WriteOnlyStore(FakeStore):
+            """The write projects the value; the login's door does not."""
+
+            def read_typed_attributes(self, character_id):
+                return dict(self.login_view)
+
+            def __init__(self):
+                super().__init__()
+                self.login_view = {"class_id": 1}
+
+            def write_typed_attributes(self, character_id, values):
+                self.writes.append((character_id, dict(values)))
+                self.stored.update(values)
+                return dict(self.stored)
+
+        store = WriteOnlyStore()
+        result = job_command.write_class_id(store, 1, 16)
+        self.assertTrue(
+            result.refusal.startswith(job_command.REFUSED_LOGIN_WOULD_NOT_SEND)
+        )
+        # The row was put back to what the login's door reported.
+        self.assertEqual(store.writes[-1][1], {"class_id": 1})
 
     def test_a_partial_run_is_a_success_that_says_how_many_failed(self):
         # Some rows landed, so calling it refused would be false; calling it

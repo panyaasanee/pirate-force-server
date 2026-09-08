@@ -18,13 +18,27 @@ WHAT THIS MODULE DOES.
     `data/class_skill_curriculum.tsv` under a sha256 pin, so a hand-edited
     table fails at import instead of quietly granting a different set.
     PANYA-ORDER section 2.1 forbids a hardcoded id list in as many words,
-    and `tests/test_gm_skill_all_command.py` pins that this module contains
-    no skill-id literal at all.
+    and `tests/test_gm_job_and_skill_all_commands.py` pins that this module
+    contains no skill-id literal at all.
   * IT IS IDEMPOTENT because the door is: `INSERT OR IGNORE` against
     `UNIQUE(character_id, skill_id)`.  Typing `/skill all` twice writes
     nothing the second time and reports `granted=0 already=<all of them>`,
     which is the answer that tells a tester the command ran rather than the
     answer that hides it.
+  * THE COUNTS COME FROM THE DOOR'S OWN READ-BACK, NOT FROM COUNTING CALLS
+    THAT DID NOT RAISE.  `grant_learned_skill` returns every distinct skill
+    id on the row, read inside its own transaction; a set that GREW across
+    a call is the door saying it inserted, a set that stood still is
+    `INSERT OR IGNORE` saying it ignored.  pf-adversary (round `wv0fpe`,
+    D3) measured what the first draft did instead: it counted a call as a
+    grant whenever the door returned, so a character already holding every
+    id, on a store whose "what do you hold" reader was momentarily
+    unreadable, printed `granted=<all of them>` after inserting nothing --
+    and the owner's `HEADLESS_PROOF:` grep reads exactly that number.  Two
+    guards now stand where that hole was: the opening read is MANDATORY
+    (its refusal is `REFUSED_CANNOT_READ_CURRENT_SKILLS`), and a door whose
+    return value cannot be measured makes the line say `granted_from=calls`
+    so a fallback number is never presented as a measured one.
 
 THE 1024 BUCKET IS INCLUDED, AND SAYING SO IS PART OF THE PRODUCT.
 `class_skill_curriculum`'s own docstring records that 1024 is NOT PROVEN to
@@ -95,11 +109,13 @@ REFUSED_NO_CHARACTER = "no_selected_character"
 REFUSED_NO_STORE = "no_store_on_this_session"
 REFUSED_ROW_MISSING = "row_not_found"
 REFUSED_NOTHING_GRANTED = "no_skill_could_be_granted"
-#: A PARTIAL run is reported as a SUCCESS WITH A COUNT, never as a refusal
-#: and never as a silent success: some rows landed, so calling it refused
-#: would be false, and calling it clean would hide the ones that did not.
-#: The console line carries `failed=<k>` whenever this is non-zero.
-PARTIAL_SUFFIX = "_partial"
+#: The `before` read is MANDATORY, not best-effort, and that is a change of
+#: posture rather than a new check (pf-adversary round `wv0fpe`, D3).  Every
+#: number this command prints is derived from it; a store that cannot answer
+#: "what does this character hold now" cannot be given a countable answer,
+#: and the owner asked for a COUNTABLE token.  Refusing is honest; printing
+#: `granted=137` for a run that inserted nothing is not.
+REFUSED_CANNOT_READ_CURRENT_SKILLS = "current_skills_could_not_be_read"
 
 
 class SkillArgumentError(ValueError):
@@ -147,15 +163,29 @@ def all_skill_ids() -> tuple[int, ...]:
 class SkillGrant:
     """What one `/skill all` did, in the shape the console line reads.
 
-    `granted` counts rows this run really inserted; `already` counts ids the
-    character held before it ran; `failed` counts ids whose grant raised.
-    The three add up to `len(all_skill_ids())` on every path, which is the
-    property that makes the line countable rather than decorative.
+    `granted` counts calls after which the grant door's own returned id set
+    GREW -- i.e. rows it really inserted; `already` counts curriculum ids the
+    character held before it ran; `failed` counts ids whose grant call
+    raised.
+
+    ~~"The three add up to `len(all_skill_ids())` on every path"~~ -- STRUCK
+    (pf-adversary round `wv0fpe`, D8): they do not on the two refusals that
+    return before the loop, and they need not under concurrency, where
+    another writer's inserts land inside this run's two reads and `granted`
+    honestly counts rows this process did not write.  `counts_are_complete`
+    below says which of the two cases a reader is holding, instead of a
+    docstring promising an invariant the code cannot keep.
     """
 
     granted: int
     already: int
     failed: int
+    #: False when the CLOSING read of the row could not be made, so `granted`
+    #: fell back to counting calls that returned.  The console line says
+    #: `granted_from=calls` when this is False, and says nothing extra when
+    #: it is True -- a degraded measurement announces itself, a good one
+    #: does not need to.
+    counts_are_complete: bool
     refusal: str | None
     detail: str
 
@@ -164,21 +194,26 @@ class SkillGrant:
         return self.refusal is None
 
 
-def _skills_before(store: object, character_id: int) -> frozenset[int]:
-    """Every skill id the row already holds, or an empty set if unreadable.
+def _read_skills(store: object, character_id: int) -> frozenset[int] | None:
+    """Every skill id the row holds, or `None` for "could not be read".
 
-    Never raises.  An unreadable "before" is not a reason to refuse the
-    grant -- the door itself is idempotent, so the worst an empty set costs
-    is a `granted`/`already` split that under-reports `already`, and the
-    read-back below corrects the totals.
+    NEVER RAISES, AND NEVER SUBSTITUTES AN EMPTY SET FOR AN ANSWER IT DID
+    NOT GET.  ~~"an unreadable before is not a reason to refuse... the
+    read-back below corrects the totals"~~ -- STRUCK (pf-adversary round
+    `wv0fpe`, D3): there was no read-back below, and an empty set stood in
+    for "unknown" on both sides of the subtraction that produces `granted`.
+    A character already holding every curriculum skill, on a store whose
+    reader was momentarily unavailable, printed `granted=<all of them>`
+    after inserting nothing.  `None` is the honest answer and the caller
+    decides what to do with it.
     """
     reader = getattr(store, "list_character_skills", None)
     if reader is None:
-        return frozenset()
+        return None
     try:
         return frozenset(int(i) for i in reader(character_id))
     except Exception:  # noqa: BLE001 -- see the docstring
-        return frozenset()
+        return None
 
 
 def grant_all(store: object, character_id: object) -> SkillGrant:
@@ -207,51 +242,126 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
             "this session's store has no grant_learned_skill door",
         )
     skill_ids = all_skill_ids()
-    before = _skills_before(store, character_id)
+    wanted = frozenset(skill_ids)
+    before = _read_skills(store, character_id)
+    if before is None:
+        # NOTHING IS WRITTEN ON THIS BRANCH, deliberately: the write itself
+        # would be harmless (the door is idempotent), but its REPORT would
+        # not be, and the owner's `HEADLESS_PROOF:` block reads that report.
+        return SkillGrant(
+            0, 0, 0, True, REFUSED_CANNOT_READ_CURRENT_SKILLS,
+            "this session's store cannot say which skills the character "
+            "already holds, so no countable answer can be given; nothing "
+            "was written",
+        )
+    already = len(before & wanted)
     granted = 0
-    already = 0
     failed = 0
     first_error = ""
     row_missing = False
+    counts_are_complete = True
+    # THE BASELINE FOR "DID THIS CALL INSERT A ROW", and it is the door's own
+    # answer rather than this module's bookkeeping.  `grant_learned_skill`
+    # returns every distinct skill id on the row, read INSIDE its own
+    # transaction, so the set GROWING by one across a call is the door
+    # saying it inserted and the set standing still is the door saying
+    # `INSERT OR IGNORE` ignored.  pf-adversary (round `wv0fpe`, D3)
+    # measured what counting calls-that-returned instead cost: a full
+    # `granted=` count for a run that inserted nothing, read straight off
+    # the line the owner's `HEADLESS_PROOF:` block greps.
+    known_size = len(before)
     for skill_id in skill_ids:
         if skill_id in before:
-            already += 1
             continue
         try:
-            granter(character_id, skill_id)
+            returned = granter(character_id, skill_id)
         except KeyError:
             # The character has no live row.  Every remaining id would raise
-            # the same way, so stop asking -- but count them, because the
-            # totals are the interface.
+            # the same way, so stop asking -- and the ids already written
+            # stay written, which is why this refusal PRINTS ITS COUNTS
+            # (pf-adversary round `wv0fpe`, D4: the one branch where a
+            # partial write really happens was the one branch whose numbers
+            # never reached the operator).
             row_missing = True
-            failed += len(skill_ids) - granted - already - failed
             break
         except Exception as error:  # noqa: BLE001 -- counted, never escaping
             failed += 1
             if not first_error:
                 first_error = f"{type(error).__name__}: {error}"
             continue
-        granted += 1
+        try:
+            size = len({int(i) for i in returned})
+        except Exception:  # noqa: BLE001 -- a door that returned another shape
+            size = None
+        if size is None:
+            # CANNOT TELL, SO SAY SO.  The row very likely moved (the call
+            # returned), so the count goes up -- but `counts_are_complete`
+            # goes False and the console line says `granted_from=calls`,
+            # because a number this module could not verify may not be
+            # presented as one it measured.
+            counts_are_complete = False
+            granted += 1
+            continue
+        if size > known_size:
+            granted += 1
+        known_size = size
     if row_missing:
         return SkillGrant(
-            granted, already, failed, REFUSED_ROW_MISSING,
-            f"character {character_id} has no live row to grant against",
+            granted, already, failed, counts_are_complete, REFUSED_ROW_MISSING,
+            f"character {character_id} has no live row to grant against; "
+            f"{granted} row(s) had already been written when it stopped",
         )
     if granted == 0 and already == 0:
         return SkillGrant(
-            granted, already, failed, REFUSED_NOTHING_GRANTED,
+            granted, already, failed, counts_are_complete,
+            REFUSED_NOTHING_GRANTED,
             first_error or "no skill id could be written and none was already held",
         )
     if failed:
         return SkillGrant(
-            granted, already, failed, None,
+            granted, already, failed, counts_are_complete, None,
             f"{failed} of {len(skill_ids)} could not be written; "
             f"first: {first_error or 'unknown'}",
         )
     return SkillGrant(
-        granted, already, failed, None,
+        granted, already, failed, counts_are_complete, None,
         f"{granted} granted, {already} already held",
     )
+
+
+def undo(store: object, character_id: object):
+    """A zero-argument callable that reports what happened to the rows.
+
+    IT ALWAYS RETURNS A CALLABLE AND THAT CALLABLE ALWAYS ANSWERS `False`,
+    and both halves are deliberate rather than a stub.
+
+    `_make_action` runs this only when the audit row could not be written,
+    and it turns the answer into one of two console sentences: a callable
+    that answered `False` prints "the audit row could not be written and the
+    effect was KEPT"; NO callable at all prints "anything it had in hand was
+    dropped with it".  For this command the first is true and the second is
+    false -- the rows are on disk -- so passing no undo, which the first
+    draft did, made the console lie about every unaudited run (pf-adversary
+    round `wv0fpe`, D2).
+
+    WHY IT CANNOT ACTUALLY PUT THE ROWS BACK, stated so nobody reads
+    `False` as "the delete failed": `character_skills` is LANE-DB's table
+    and its writers are `grant_starting_skills` and `grant_learned_skill`,
+    both `INSERT OR IGNORE`; there is no deleter, and this lane may not add
+    one to another lane's table.  A deleter would also have no way to tell
+    the rows THIS run inserted from rows the character already held, so the
+    safe residue is a skill the GM did not ask to lose.  The command is
+    idempotent, so re-running it after a fixed audit costs nothing.
+
+    `store` and `character_id` are accepted and unused, so the call site
+    reads like every other undo in this lane and a future deleter has the
+    two values it would need without moving the call.
+    """
+
+    def _kept() -> bool:
+        return False
+
+    return _kept
 
 
 def _ascii_only(line: str) -> str:
@@ -285,13 +395,25 @@ def console_line(result: SkillGrant, character_id: object) -> str:
     both halves are what the tester has to know before she grades the K
     window.
     """
+    classes = ",".join(str(code) for code in bucket_codes())
+    failed = f" failed={result.failed}" if result.failed else ""
+    degraded = "" if result.counts_are_complete else " granted_from=calls"
     if result.ok:
-        classes = ",".join(str(code) for code in bucket_codes())
-        failed = f" failed={result.failed}" if result.failed else ""
         return _ascii_only(
             f"{CONSOLE_TOKEN} cid={character_id} granted={result.granted} "
-            f"already={result.already}{failed} classes={classes} "
+            f"already={result.already}{failed}{degraded} classes={classes} "
             "(rows written; no skill-list frame was sent to the live client)"
+        )
+    if result.granted or result.already or result.failed:
+        # A REFUSAL THAT WROTE SOMETHING STILL PRINTS ITS NUMBERS.
+        # pf-adversary (round `wv0fpe`, D4) measured the alternative: a
+        # character soft-deleted mid-run left 40 rows on disk and the
+        # console said `REFUSED [row_not_found]` with no count anywhere, so
+        # the operator's only reading was "nothing happened".
+        return _ascii_only(
+            f"{CONSOLE_TOKEN} REFUSED [{result.refusal}] "
+            f"cid={character_id} granted={result.granted} "
+            f"already={result.already}{failed}{degraded}: {result.detail}"
         )
     return _ascii_only(
         f"{CONSOLE_TOKEN} REFUSED [{result.refusal}]: {result.detail}"

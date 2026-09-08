@@ -2103,23 +2103,32 @@ _JOB_BLOCKERS = {
     job_command.REFUSED_READBACK_MISMATCH: (
         "the row read back a different class than the one asked for"
     ),
+    job_command.REFUSED_NO_COLUMN: (
+        "the typed-attribute map no longer serves the class field; nothing"
+        " was written"
+    ),
+    job_command.REFUSED_LOGIN_WOULD_NOT_SEND: (
+        "the row took the class but reading it back through the door the"
+        " login itself reads did not return it, so the next login would"
+        " send the composer's constant"
+    ),
 }
 # THE ONE REFUSAL THAT WROTE SOMETHING FIRST CARRIES A REPAIR SUFFIX, and the
 # suffix changes what the tester must do next -- so each variant gets its own
 # sentence rather than sharing the bare reason's.  Built by product rather
 # than typed out, exactly as `/lv`'s pair is.
-_JOB_BLOCKERS[
-    f"{job_command.REFUSED_READBACK_MISMATCH}{job_command.REPAIRED_SUFFIX}"
-] = (
-    f"{_JOB_BLOCKERS[job_command.REFUSED_READBACK_MISMATCH]}; the previous"
-    " class was put back"
-)
-_JOB_BLOCKERS[
-    f"{job_command.REFUSED_READBACK_MISMATCH}{job_command.REPAIR_FAILED_SUFFIX}"
-] = (
-    f"{_JOB_BLOCKERS[job_command.REFUSED_READBACK_MISMATCH]}; putting the"
-    " previous class back FAILED -- treat the row as UNKNOWN"
-)
+for _job_repairable in (
+    job_command.REFUSED_READBACK_MISMATCH,
+    job_command.REFUSED_LOGIN_WOULD_NOT_SEND,
+):
+    _JOB_BLOCKERS[f"{_job_repairable}{job_command.REPAIRED_SUFFIX}"] = (
+        f"{_JOB_BLOCKERS[_job_repairable]}; the previous class was put back"
+    )
+    _JOB_BLOCKERS[f"{_job_repairable}{job_command.REPAIR_FAILED_SUFFIX}"] = (
+        f"{_JOB_BLOCKERS[_job_repairable]}; putting the previous class back"
+        " FAILED -- treat the row as UNKNOWN"
+    )
+del _job_repairable
 for _job_reason, _job_sentence in _JOB_BLOCKERS.items():
     _NO_BYTES_BLOCKERS_SOURCE[f"{OUTCOME_JOB_REFUSED_PREFIX}{_job_reason}"] = (
         _job_sentence
@@ -2146,6 +2155,10 @@ _SKILL_BLOCKERS = {
     ),
     skill_all_command.REFUSED_ROW_MISSING: (
         "the selected character has no live row; the grant stopped there"
+    ),
+    skill_all_command.REFUSED_CANNOT_READ_CURRENT_SKILLS: (
+        "this session's store cannot say which skills the character already"
+        " holds, so no countable answer could be given; nothing was written"
     ),
     skill_all_command.REFUSED_NOTHING_GRANTED: (
         "not one skill id could be written and none was already held; see"
@@ -7013,18 +7026,18 @@ def _skill_action(
     argument, canonical-DB gate, write, notice, in that order and for the same
     reasons.
 
-    NO UNDO IS OFFERED, AND THAT IS A MEASURED CHOICE RATHER THAN AN
-    OMISSION.  `_make_action` runs a verdict's undo only when the audit row
-    could not be written, and the undo for this command would have to DELETE
-    granted skill rows -- `store` has no such door (its skill writers are
-    `grant_starting_skills` and `grant_learned_skill`, both `INSERT OR
-    IGNORE`), and this lane may not add one: `character_skills` is LANE-DB's
-    table, and a deleter would also have no way to tell the rows THIS run
-    inserted from rows the character already held.  So an unaudited
-    `/skill all` leaves its rows in place and says so through the audit's own
-    half-pair, rather than through a deleter this lane would have had to
-    invent.  A skill the GM did not ask to lose is the safer residue; the
-    command is idempotent, so re-running it after a fixed audit costs nothing.
+    THE UNDO IT PASSES CANNOT DELETE A ROW, AND IS PASSED ANYWAY.
+    ~~"NO UNDO IS OFFERED, AND THAT IS A MEASURED CHOICE"~~ -- STRUCK
+    (pf-adversary round `wv0fpe`, D2).  The reasoning behind it was right
+    and the conclusion was wrong: there really is no deleter for
+    `character_skills` and this lane really may not add one, but
+    `_make_action` reads the ABSENCE of an undo as "the effect was dropped
+    with the audit row" and printed exactly that while every granted row sat
+    on disk.  `skill_all_command.undo` therefore returns a callable that
+    always answers `False`, the same shape `_speed_undo` uses for its own
+    "nothing to put back" case, which reaches the console as "the effect was
+    KEPT".  See that function's docstring for why no real deletion is
+    attempted.
     """
     try:
         skill_all_command.parse_subcommand(getattr(command, "args", None))
@@ -7082,6 +7095,7 @@ def _skill_action(
         say_wire.SKILL_ALL_NOTICE_TEXT,
         SKILL_ALL_NOTICE_ACTION_LABEL,
         OUTCOME_SKILL_ROWS_WRITTEN,
+        skill_all_command.undo(store, character_id),
     )
 
 

@@ -39,10 +39,12 @@ composer's constant instead of the row's level.  The class does not ride
 that gate: `legacy_bridge.start_game`'s own comment says so in as many
 words -- "THIS IS NOT AN ALL-OR-NONE PAIR with the vitals above" -- and
 `session.py` reads the class from `read_typed_attributes`, which answers
-about the COLUMN.  So the read-back check below IS the login question for
-this command, asked at the same door the login asks, and there is no second
-gate to consult.  Saying otherwise (copying `/lv`'s `login_would_send`
-verbatim) would refuse writes the login would have honoured.
+about the COLUMN.  So `login_would_send` below asks THAT door -- the one the
+login itself calls -- after the write, and there is no vitals gate to
+consult.  Copying `/lv`'s vitals question verbatim would refuse writes the
+login would have honoured; skipping the login question altogether (which the
+first draft of this module did) would leave the docstring claiming a check
+the code did not make.
 
 WHY IT ALSO REFUSES THE CANONICAL DATABASE.  `AGENTS.md` section 7: this
 command WRITES a row, so the shared canonical-DB gate in
@@ -51,18 +53,47 @@ and `/speed`, and it fails CLOSED -- a store path this lane cannot read
 counts as canonical and the write is refused.  An attended boot runs a
 timestamped run-copy DB, and a relog inside that boot reads back the row.
 
-THE ALLOWLIST IS NOT RE-IMPLEMENTED HERE.  `/job` is a sibling of `/lv` and
+THE ALLOWLIST IS NOT RE-IMPLEMENTED HERE, AND WHAT THAT DOOR CAN AND CANNOT
+DO IS STATED PLAINLY RATHER THAN GLOSSED.  `/job` is a sibling of `/lv` and
 `/warp` in `gm/commands.py`'s one grammar, so it comes through
 `gm/chat_command.handle_local_talk_chat`'s identity check like they do
-(`REFUSAL_NOT_GM`); a non-GM's line is never decoded, never parsed, and
-never reaches this module at all.  PANYA-ORDER section 3 item 1 is answered
-by using that door, not by adding a second one.
+(`REFUSAL_NOT_GM`).  PANYA-ORDER section 3 item 1 is answered by using that
+door and adding no second one.
+
+  !! ~~"a non-GM's line is never decoded, never parsed, and never reaches
+  this module at all"~~ -- STRUCK, and it is the sentence a reviewer would
+  have trusted when deciding this command is safe.  pf-adversary (round
+  `wv0fpe`, D1) MEASURED it false on the shipped listener: the identity that
+  door checks is `session.token`, and `v141` builds every accepted
+  connection's `GameSessionState` from the ONE process-wide `--token` CLI
+  value, never reassigning it.  So on a boot whose token is allowlisted --
+  which is the only boot on which the owner's own `/job` works -- a SECOND
+  human connecting to the same listener is inside the allowlist too, and
+  `/job` writes THEIR character's row while the audit records the
+  operator's account name.  `runtime.py` says so at the very call site this
+  module was wired onto, and `reports/PF_MULTIPLAYER_READINESS_AUDIT001_
+  SINGLE_PLAYER_ASSUMPTIONS_20260818.md` rows I01-I04 carry it as a
+  committed measurement.
+  THIS IS NOT THIS MODULE'S HOLE TO CLOSE and it is not new -- `/lv` and
+  `/speed` have written rows through the same identity since their own
+  rounds -- but it IS this module's job not to describe it as shut.  Per-
+  connection identity lives in `runtime.py` / `pf_login_game_server_v141.py`,
+  chief's zone; the letter asking for it is
+  `pf_bridge/notes_to_chief/20260908_1655_LANE-GM-CORE-REQUEST-GM-per-
+  connection-identity-before-more-gm-writers.md`.  Until it lands, the
+  honest sentence is: A GM COMMAND IS AS PRIVATE AS THE LISTENER'S TOKEN,
+  which on a single-operator attended boot is private and on a shared boot
+  is not.
 
 MULTIPLAYER.  This command names its row by the `characters.id` of the
-character selected ON THE CONNECTION WHOSE FRAME IS BEING ANSWERED.  Two GMs
-on two sessions typing `/job` write two different rows; nothing here is
-process-global or per-scene, so `TWO_SESSIONS_SAME_SCENE` is answered by
-construction.
+character selected ON THE CONNECTION WHOSE FRAME IS BEING ANSWERED, and
+nothing here is process-global or per-scene -- so two connections typing
+`/job` write two rows rather than racing one.  `TWO_SESSIONS_SAME_SCENE` is
+answered that far and NO FURTHER: two connections that have selected THE
+SAME character (the owner's design is one sandbox character) still write one
+row, and `_repair`'s `previous` is then read before the other session's
+write and restored after it.  That race is not measured here and this module
+does not claim it is handled.
 
 NOT AN M-ANYTHING.  A class set by a GM is a way to REACH a testable state,
 never evidence that class selection works (`prompts/LANE-GM.md`, sentence
@@ -96,6 +127,14 @@ REFUSED_NO_STORE = "no_store_on_this_session"
 REFUSED_ROW_MISSING = "row_not_found"
 REFUSED_WRITE_FAILED = "write_failed"
 REFUSED_READBACK_MISMATCH = "readback_did_not_hold_the_value"
+#: The typed-column map no longer serves `CLASS_FIELD_X`.  A refusal rather
+#: than an escaping `TypedAttrError` -- see `write_class_id`'s own guard.
+REFUSED_NO_COLUMN = "class_column_not_in_the_typed_map"
+#: THE ROW MOVED AND THE LOGIN STILL WILL NOT SEND IT.  `/lv` has carried a
+#: refusal of this name since round `l86bt4`; this module SHIPPED
+#: `login_would_send` without calling it (pf-adversary round `wv0fpe`, D8),
+#: so the docstring claimed a gate that was not there.  It is called now.
+REFUSED_LOGIN_WOULD_NOT_SEND = "login_would_not_send_it"
 #: The repair after a refusal that put a value on disk this command will not
 #: stand behind.  A SEPARATE word from the refusal it follows, because "the
 #: row was put back" and "the row is still carrying it" are different states
@@ -285,7 +324,21 @@ def write_class_id(store: object, character_id: object, class_id: int) -> JobWri
             None, None, REFUSED_NO_STORE,
             "this session's store has no write_typed_attributes door",
         )
-    column = class_column()
+    try:
+        column = class_column()
+    except Exception as error:  # noqa: BLE001 -- "Never raises" means never,
+        # and this lookup is the one line that used to sit outside every
+        # `try` (pf-adversary round `wv0fpe`, D7): `column_for` raises
+        # `TypedAttrError` the day LANE-DB retires `x=13`, which is exactly
+        # the drift `CLASS_FIELD_X`'s comment says this module is guarded
+        # against.  An escape here bypasses the dispatch's `_log_outcome`
+        # entirely, leaving an `issued` audit row with no `outcome` row and
+        # no console line -- the half-pair `gm/commands.py` warns a reader
+        # about.  Named instead.
+        return JobWrite(
+            None, None, REFUSED_NO_COLUMN,
+            f"{type(error).__name__}: {error}",
+        )
     previous = _previous_class_id(store, character_id)
     try:
         after = writer(character_id, {column: class_id})
@@ -314,6 +367,22 @@ def write_class_id(store: object, character_id: object, class_id: int) -> JobWri
             class_id, previous, f"{REFUSED_READBACK_MISMATCH}{repair}",
             f"asked for class {class_id}, the row read back {read_back!r}",
         )
+    if not login_would_send(store, character_id, class_id):
+        # THE ROW MOVED AND THE SCREEN WILL NOT.  Put it back and say so.
+        # This is the call pf-adversary (round `wv0fpe`, D8) found missing:
+        # the function was defined, tested and never used, so the module
+        # docstring's "the read-back check IS the login question" rested on
+        # `write_typed_attributes`' post-write projection -- a DIFFERENT
+        # method from the `read_typed_attributes` the login really calls.
+        # Asking the login's own door costs one read and makes the sentence
+        # true instead of nearly true.
+        repair = _repair(store, character_id, previous)
+        return JobWrite(
+            class_id, previous, f"{REFUSED_LOGIN_WOULD_NOT_SEND}{repair}",
+            f"the row took class {class_id}, but reading it back through the "
+            "door the login itself reads did not return it, so the next "
+            "login would send the composer's constant instead",
+        )
     return JobWrite(
         read_back, previous, None,
         f"class {previous if previous is not None else '?'} -> {read_back}",
@@ -321,23 +390,39 @@ def write_class_id(store: object, character_id: object, class_id: int) -> JobWri
 
 
 def undo(store: object, character_id: int, previous: int | None):
-    """A zero-argument callable that puts the class back, or `None`.
+    """A zero-argument callable that puts the class back.  ALWAYS a callable.
 
-    `None` when there is nothing to undo TO (`previous is None`), which the
-    caller must not confuse with "the undo ran and failed" -- the dispatch's
-    own audit distinguishes those two and this returns the FIRST of them by
-    being absent rather than by returning a callable that lies about
-    succeeding.
+    RETURNS FALSE RATHER THAN NOTHING, for the three honest failures
+    `gm/chat_command_action._speed_undo` lists: there was no previous class
+    to restore, the store cannot be written, or the restoring write itself
+    failed.  A `False` reaches the console as "the audit row could not be
+    written and the effect was KEPT", which is the truth about a row that is
+    still carrying the new class; returning `None` reached it as "anything
+    it had in hand was dropped with it", which was measurably false
+    (pf-adversary round `wv0fpe`, D2).
 
     WHY `/job` NEEDS ONE: `_make_action`'s rule is that no durable effect
     survives a failure to record it in the audit, and this command has
     durable state (`/speed` grew one for the same reason, pf-adversary round
     `hw6dix`).
     """
-    if previous is None:
-        return None
-
     def _restore() -> bool:
+        if previous is None:
+            # NOTHING TO PUT BACK, REPORTED AS `False` RATHER THAN AS
+            # ABSENCE.  ~~`return None` when `previous is None`~~ -- STRUCK
+            # (pf-adversary round `wv0fpe`, D2).  `_make_action` runs the
+            # undo only when the audit row could not be written, and it
+            # distinguishes three states through this value: a callable that
+            # answered `False` prints "the effect was KEPT", while NO
+            # callable at all prints "anything it had in hand was dropped
+            # with it".  With `class_id` NULL at birth for the four cases
+            # `lifecycle.persist_class_id_from_starting_gear` returns `None`
+            # for, that branch was live -- and it told the operator the row
+            # had been dropped while the new class sat on disk.  `/speed`'s
+            # own undo earned the honest word the same way: it always
+            # returns a callable and reports `False` for "nothing to put
+            # back", "cannot read" and "the restore failed" alike.
+            return False
         return write_class_id(store, character_id, previous).ok
 
     return _restore
