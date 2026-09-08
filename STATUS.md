@@ -1,5 +1,11 @@
 # Pirate Force Server — Foundation Status
 
+> **History document. The current state of the project is `pf_bridge/NOW.md`.**
+> Read NOW.md for what is being built right now, who owns each milestone step and what its
+> pass criteria are. Everything below is a record of how the foundation got here; where the
+> two disagree, NOW.md wins. (PANYA-ORDER 20260908_1420 item R5, via COO-DECISION 1441.)
+
+
 Updated: 2026-08-23
 
 Execution is governed by `docs/WORKFLOW.md`: one active milestone, Cloud-first

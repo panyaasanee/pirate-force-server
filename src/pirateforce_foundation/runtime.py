@@ -12,6 +12,7 @@ import time
 from . import columbus_quest_dispatch
 from . import diag_multi_object_wiring
 from . import field_mobs
+from . import inventory
 from . import m2_survey_trial
 from . import mob_ai_control
 from . import mob_census_hostility
@@ -20,6 +21,7 @@ from . import mob_combat
 from . import mob_combat_membership
 from . import mob_death
 from . import mob_drop_presence
+from . import mob_identity_sign
 from . import mob_ground_persistence
 from . import mob_loot
 from . import mob_pickup
@@ -89,7 +91,6 @@ from .gm import warp_send_watch
 from .model import Position
 from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
-    MERGED_V111_BACKPACK,
     is_exact_merge_request,
     make_item_merge_delta_response,
     make_item_move_delta_response,
@@ -2090,8 +2091,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not applied:
                 self.events.append("foundation_v111_merge_replay_no_reply")
                 return []
-            if self.foundation.backpack != MERGED_V111_BACKPACK:
-                raise RuntimeError("committed V111 Backpack state mismatch")
+            if self.foundation.backpack not in inventory.merged_v111_states():
+                # The row is already written -- the repository call above
+                # committed before this line ran.  Raising here would leave
+                # dispatch() with an exception AFTER the write, which is the
+                # one shape CORE-REQUEST 20260908_0206 asked to remove: the
+                # bytes are dropped, the counter does not move, and the
+                # connection survives to say so.
+                self.events.append(
+                    "foundation_v111_merge_committed_unknown_state_no_reply"
+                )
+                return []
             self.stack_merge_count += 1
             self.events.append(
                 "foundation_v111_merge_committed_before_response"
@@ -2116,7 +2126,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not self.teleport_sent or not self.runtime_ack_sent:
                 self.events.append("item_move_capture_wrong_sequence_no_reply")
                 return []
-            if self.foundation.backpack != MERGED_V111_BACKPACK:
+            if self.foundation.backpack not in inventory.merged_v111_states():
                 self.events.append("item_move_capture_wrong_current_state_no_reply")
                 return []
             if self.item_move_capture_count:
@@ -2171,7 +2181,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if self.foundation.backpack == HYPOTHESIZED_V111_SLOT2_BACKPACK:
                 self.events.append("item_move_hypothesis_replay_no_reply")
                 return []
-            if self.foundation.backpack != MERGED_V111_BACKPACK:
+            if self.foundation.backpack not in inventory.merged_v111_states():
                 self.events.append("item_move_hypothesis_wrong_current_state_no_reply")
                 return []
 
@@ -5329,8 +5339,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 ((selected.identity_hi & 0xFFFFFFFF) << 32)
                 | (selected.identity_lo & 0xFFFFFFFF)
             )
-            target = fields.get("field_qword_20")
-            if type(target) is not int or target <= 0 or target == performer:
+            # R4 beat 0 (COO-DECISION 20260908 14:41), paying pf-adversary
+            # finding D4 of round ``gadxq5``: ``legacy.parse_action_vital``
+            # reads this field with ``struct.unpack('<Q', ...)``, so the
+            # monster band -- which the OUTBOUND half already masks to two's
+            # complement (``mob_identity_sign.encode_wire_identity``, and
+            # ``v141.qwordtag`` line 1131 before it) -- arrives here as a
+            # huge unsigned number.  Decoded HERE, once, before anything
+            # compares it: ``target_is_field_mob`` a few lines below is a
+            # plain ``==`` against ``mob.actor_identity``, so an undecoded
+            # ``18446744073709551614`` matches no roster row and the player
+            # who clicked the monster gets silence -- no event, no ledger,
+            # no damage.  The old ``target <= 0`` test cannot survive the
+            # move either: it was a stand-in for "not a real actor" while
+            # every actor was positive, and it throws away EVERY hit on a
+            # negative-band monster.  What is actually untargetable is the
+            # one identity the client refuses to draw, plus anything outside
+            # the signed field the wire can carry.
+            target_wire = fields.get("field_qword_20")
+            if type(target_wire) is not int:
+                self.events.append(
+                    "mob_combat_target_not_positive_or_self_no_reply"
+                )
+                return []
+            try:
+                target = mob_identity_sign.decode_wire_identity(target_wire)
+            except mob_identity_sign.MobIdentitySignError:
+                self.events.append(
+                    "mob_combat_target_not_positive_or_self_no_reply"
+                )
+                return []
+            if (
+                not mob_identity_sign.is_targetable_identity(target)
+                or target == performer
+            ):
                 self.events.append(
                     "mob_combat_target_not_positive_or_self_no_reply"
                 )
