@@ -478,12 +478,18 @@ class TheFragmentSearchTests(unittest.TestCase):
     def test_the_order_is_where_the_fragment_lands_then_alphabetical(self):
         """Pinned as a literal, because the order IS the promise.
 
-        `island` is at offset 4 in `mad island`, 5 in `bear island` and 6 in
-        `brave island`.  Sorting by name alone would answer `Bear Island`
-        first; iterating the table's own dict order would answer whatever
-        the file happens to list first and would not be a promise at all.
-        An operator who reads two different answers to the same query stops
-        reading the answer.
+        CORRECTED (pf-adversary round `pdf3gh`, D6): only the THIRD entry
+        comes from the new code.  `difflib.get_close_matches('island', ...)`
+        already returns `mad island` and `bear island` at this cutoff, and
+        difflib hits are placed ahead of containment hits, so this triple
+        pins the containment sort at one position, not three.  Sorting by
+        name alone would answer `Battle Island` (offset 7, alphabetically
+        first), not `Bear Island` as this docstring first said -- the
+        mutant does die on this assertion, for that reason rather than the
+        stated one.  Iterating the table's own dict order would answer
+        whatever the file happens to list first and would not be a promise
+        at all.  An operator who reads two different answers to the same
+        query stops reading the answer.
         """
         expected = (("Mad Island", 1), ("Bear Island", 1), ("Brave Island", 1))
         self.assertEqual(expected, scene_catalog.suggest_gm_scene_names("island"))

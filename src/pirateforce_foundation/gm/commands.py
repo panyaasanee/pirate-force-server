@@ -630,38 +630,73 @@ MAX_WARP_NAME_QUERY_LENGTH = 2 * scene_catalog.LONGEST_GM_NAME_LENGTH
 #: argument count is checked, and `stripped` -- the whole 200 KB of it --
 #: became `command.raw`, which `log_gm_command` writes into the ndjson
 #: audit as one line.  The same hole was open on `npc`, `item`, `lv`,
-#: `spawn`, `gmprobe`, `staged` and the NUMERIC `warp` form; the name form
-#: was the only one closed.
+#: `spawn`, `gmprobe` and the NUMERIC `warp` form -- SEVEN verbs, not the
+#: eight this comment first listed (pf-adversary round `pdf3gh`, D8):
+#: `staged` takes no argument at all, so every space of its padding was
+#: TRAILING and `text.strip()` removed it; its `raw` was six characters on
+#: `origin/main` and is six characters now.  The name form was the only
+#: one closed.
+#:
+#: WHAT IT STILL DOES NOT CLOSE, named rather than left to be found (same
+#: round, D2, MEASURED): the cap lives in the PARSER.  `log_gm_command`
+#: never looks at `command.raw`, so a hand-built `GmCommand` carrying a
+#: 200 KB `raw` still writes a 200 KB audit line -- which is exactly the
+#: case `say_wire.py` already answers for `MAX_SAY_MESSAGE_LENGTH` ("must
+#: be re-checked here too, not merely inherited by convention").  And the
+#: door is `isinstance(text, str)`, so a `str` subclass whose `strip()`
+#: returns something longer walks straight past this cap, the same shape
+#: `_require_args_tuple` answers with `type(args) is not tuple`.  Neither
+#: is reachable from the wire (a decoded chat payload is a plain `str`),
+#: and both are owned by the NEXT round of this lane.
 #:
 #: READ BEFORE `strip()` AND BEFORE `split()`, which is the point.  This is
 #: the invariant `_split_scene_selector` was corrected to keep in the same
 #: round (D1): a rewriter that runs before the checker can only narrow what
-#: the checker sees, so no rewriter may run first.  `text.strip()` walks the
-#: line and `rest.split()` BUILDS A LIST -- measured at 163 MB for a line of
-#: ten million spaces -- so a bound placed after either is a bound on the
-#: result and not on the work.  It is the first statement in the function
-#: after the type check for that reason.
+#: the checker sees, so no rewriter may run first.  ~~163 MB for a line of
+#: ten million spaces~~ is STRUCK (pf-adversary round `pdf3gh`, D3): for
+#: THAT input `str.split()` folds the whole run to one separator and builds
+#: an EMPTY list (152 bytes), and `strip()` returns the same object -- the
+#: measurement was of a different shape (`warp ` + `12 ` x 3.3M, many
+#: DISTINCT tokens, which really does build a list that size) and was
+#: written up as this one.  What survives the correction is the rule, not
+#: the number: `split(maxsplit=1)` is O(n) on any long line and the token
+#: list is unbounded for any line that is not one whitespace run, so a
+#: bound placed after either is a bound on the result and not on the work.
+#: It is the first statement in the function after the type check for that
+#: reason.
 #:
 #: DERIVED, NOT CHOSEN: the longest verb, one separator, and the widest
 #: argument allowance any verb has (`say`'s 480 characters; the `warp` name
 #: form's 108 is narrower).  It moves when either moves.
 #:
 #: IT COUNTS CHARACTERS, and the quota it protects (`chat_command.
-#: MAX_COMMAND_LOG_BYTES`) counts BYTES -- pf-adversary D8, which is a
+#: MAX_COMMAND_LOG_BYTES`) counts BYTES -- round `53rdv8`'s D8, which is a
 #: wording defect in the round that wrote it, not a code one.  The two are
-#: not the same unit and this comment will not pretend they are: a character
-#: this grammar accepts is cp874-encodable and printable, which in the
-#: ndjson line is 1 byte (ASCII) to 3 bytes (Thai, the table's own script)
-#: of UTF-8, plus JSON escaping.  So the cap bounds the audit line at
-#: roughly 3x its own number of bytes, not at its own number -- an upper
-#: bound is all the quota needs, and an upper bound is what this is.
+#: not the same unit and this comment will not pretend they are.
 #:
-#: WHAT IT NARROWS, stated rather than discovered later: surrounding
-#: whitespace counts, because it is counted before `strip()` removes it.
+#: ~~ROUGHLY 3x~~ IS STRUCK (pf-adversary round `pdf3gh`, D4, MEASURED):
+#: the cp874-and-printable card is applied to the `warp` NAME QUERY only,
+#: `say` carries no such check, and the audit record holds the message
+#: TWICE (`raw` and `args`) inside an envelope.  Measured on accepted
+#: 484-character lines with `ensure_ascii=False`: ASCII 1230 bytes (2.5x
+#: the cap), Thai 3150 (6.5x), astral 4110 (8.4x), `\x01` 6030 (12.4x).
+#: Both extremes reach the wire -- UTF-16LE decodes surrogate pairs, and
+#: `has_format_characters` refuses category `Cf` only, while an emoji is
+#: `So` and a control is `Cc`.  So the honest statement is: the cap bounds
+#: the audit line at THIRTEEN times its own number of bytes, not three.
+#: An upper bound is all the quota needs, and this is the measured one.
+#:
+#: WHAT IT NARROWS, stated rather than discovered later: EVERY character
+#: counts -- leading, trailing, and the run between the verb and its
+#: argument, all three of which `strip()` and `split()` would have removed
+#: (pf-adversary round `pdf3gh`, D10 widened this from "surrounding").
 #: The longest line this grammar can legitimately carry is
-#: `say ` + 480 characters = 484, so a `say` at its own ceiling keeps four
-#: characters of the trailing space a chat client adds, and every shorter
-#: line keeps more.  No other verb comes within 370 characters of the cap.
+#: `say ` + 480 characters = 484, so a `say` at its own ceiling has four
+#: characters of slack SHARED between those three places, not four of
+#: trailing space; `say` + five spaces + 480 characters is a body at its
+#: documented ceiling and is refused by the line cap.  Every shorter line
+#: has more slack, and no other verb comes within 375 characters of the
+#: cap (`warp ` + 108 = 113 is the next longest).
 MAX_COMMAND_LINE_LENGTH = (
     LONGEST_COMMAND_NAME_LENGTH
     + 1
