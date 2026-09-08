@@ -397,6 +397,20 @@ same as every other checkpoint call in this file - the audit's own interlock fac
 them are guarded, and this new one is not an exception. Re-derived on the cloud clone by
 `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
 
+**Re-pin, chief round `6o2786`/R407 (2026-09-08): `checkpoint_calls_at_try_depth_zero` 5 -> 6.** Not drift
+and not a correction: CORE-REQUEST `1808` item 1 (COO-DECISION `20260908_1943`) split the durable write
+on the TargetPos path into `_checkpoint_unless_the_label_is_a_guess`, which asks the session for a
+NON-durable write when the scene label is the server's own unconfirmed guess and login would not take
+that scene back. The withheld branch is a second `self.foundation.checkpoint` call, at try depth zero
+like every other one in this file. THIS INTERLOCK EARNED ITS KEEP THIS ROUND, and the note is worth more
+than the number: a first draft wrapped the non-durable call in `try/except TypeError` (for sessions whose
+`checkpoint` predates the keyword) and X06 caught it - v141's game listener has no `except` around
+`state.dispatch`, so a checkpoint whose raise can be swallowed is a stolen lease nobody hears about. The
+signature is READ instead, through a local name bound before the `try`, because the guard matches the
+text `self.foundation.checkpoint` wherever it appears and cannot tell a signature read from a guarded
+call. Re-derived on the cloud clone by `python3 tools/pf_multiplayer_readiness_audit.py --json`,
+computed and not quoted.
+
 **Re-pin, chief round `kt05o0`/R305 (2026-09-02): `checkpoint_calls_at_try_depth_zero` 4 -> 5.** Not drift
 and not a correction: D3 of `COO-DECISION 20260902_1347` gave the Columbus M2 crossing the
 `self.foundation.checkpoint(entry.position)` call it never had, so the scene the client is teleported
@@ -442,7 +456,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "assumption_sites_immutable": 18,
   "assumption_sites_mutable": 22,
   "ready_sites_total": 17,
-  "checkpoint_calls_at_try_depth_zero": 5,
+  "checkpoint_calls_at_try_depth_zero": 6,
   "game_listener_try_blocks_without_except": 1,
   "login_req_capture_guard": "reproduced",
   "frames_total": 18,

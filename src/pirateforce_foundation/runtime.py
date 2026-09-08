@@ -5020,34 +5020,58 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
 
             Returns True when a durable write was attempted.
             """
-            if not getattr(self, "scene_label_is_server_guess", False):
+            write_the_row = True
+            if getattr(self, "scene_label_is_server_guess", False):
+                try:
+                    write_the_row = warp_scene_persist.login_would_accept(
+                        candidate.scene_id,
+                    )
+                except Exception:  # noqa: BLE001 - a registry read, not a write
+                    # Fail CLOSED, the same direction every other gate in this
+                    # file fails: an unreadable fence cannot be read as consent
+                    # to write a row nobody can judge.
+                    write_the_row = False
+            if write_the_row:
                 self.foundation.checkpoint(candidate)
                 return True
+            # NEITHER checkpoint call below or above sits inside a `try`, and
+            # that is an interlock this repository enforces
+            # (`tools/pf_multiplayer_readiness_audit.py` X06, measured against
+            # every call in this file): v141's game listener has no `except`
+            # around `state.dispatch`, so a checkpoint whose raise can be
+            # swallowed is a stolen lease nobody hears about.  A first draft
+            # wrapped the non-durable call in `try/except TypeError` for
+            # sessions whose `checkpoint` predates the keyword and the audit
+            # caught it.  Reading the signature answers the same question
+            # without standing between the store and the listener -- the same
+            # idiom, and the same `except Exception` around the READ only,
+            # this file already uses for `name_colour_sweep.sweep_entries`.
+            # Bound BEFORE the try, and read through the local name inside
+            # it: the audit matches the text `self.foundation.checkpoint`
+            # wherever it appears, so even naming the method inside a `try`
+            # -- to read its signature, not to call it -- reads to that guard
+            # exactly like a swallowed write.  A guard that cannot tell those
+            # apart should be obeyed, not argued with.
+            checkpoint_callable = self.foundation.checkpoint
+            takes_the_keyword = False
             try:
-                login_takes_it_back = warp_scene_persist.login_would_accept(
-                    candidate.scene_id,
-                )
-            except Exception:  # noqa: BLE001 - a registry read, never the write
-                # Fail CLOSED, the same direction every other gate in this
-                # file fails: an unreadable fence cannot be read as consent
-                # to write a row nobody can judge.
-                login_takes_it_back = False
-            if login_takes_it_back:
-                self.foundation.checkpoint(candidate)
-                return True
-            try:
+                takes_the_keyword = "durable" in inspect.signature(
+                    checkpoint_callable
+                ).parameters
+            except Exception:  # noqa: BLE001 - see the block above
+                takes_the_keyword = False
+            if takes_the_keyword:
                 self.foundation.checkpoint(candidate, durable=False)
-            except TypeError:
+                self.events.append(
+                    "durable_row_withheld_unconfirmed_scene_"
+                    f"{candidate.scene_id}"
+                )
+            else:
                 self.foundation.selected = replace(
                     self.foundation.selected, position=candidate,
                 )
                 self.events.append(
                     "durable_row_withheld_lease_unchecked_scene_"
-                    f"{candidate.scene_id}"
-                )
-            else:
-                self.events.append(
-                    "durable_row_withheld_unconfirmed_scene_"
                     f"{candidate.scene_id}"
                 )
             print(
