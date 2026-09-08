@@ -776,7 +776,14 @@ class TheFileItselfTests(unittest.TestCase):
             int(path.name[:3]) for path in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")
         )
         self.assertEqual(len(numbers), len(set(numbers)), "duplicate version")
-        self.assertEqual(max(numbers), SIXTEEN_VERSION)
+        self.assertIn(SIXTEEN_VERSION, numbers)
+        # NOT `max(numbers) == SIXTEEN_VERSION` any more.  That assertion said
+        # "this file claimed a free number", and it stopped being able to say
+        # it the moment a later file landed -- `017` did, on
+        # `PANYA-DECISION 20260908_1218`.  The property that survives a
+        # successor is contiguity: a gap or a duplicate is what makes the
+        # checksum ledger disagree with the directory.
+        self.assertEqual(numbers, list(range(1, len(numbers) + 1)))
 
     def test_the_two_letters_it_rests_on_are_named_in_the_file(self):
         """The 0 in this file is a measurement borrowed from two other lanes.

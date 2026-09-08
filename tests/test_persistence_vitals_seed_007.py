@@ -1354,11 +1354,26 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
         20260901_1059`): a column whose value nobody has measured is never
         guessed -- it stays NULL and reaches the compose gate as absent.
         """
-        _store, _character_id, stored = self._newborn("no-extras")
+        store, _character_id, stored = self._newborn("no-extras")
         unadjudicated = [column for column in typed.TYPED_COLUMNS
                          if column not in birth_state.BIRTH_COLUMNS]
-        self.assertEqual(len(unadjudicated), 17)
+        # NOT A COUNT ANY MORE.  This line read `assertEqual(len(...), 17)`
+        # and turned red the day `migrations/017` gave two more columns a
+        # birth value -- a file this lane is chartered to add, on the owner's
+        # own instruction (`PANYA-DECISION 20260908_1218` point 3: "there are
+        # more than that as the discoveries keep coming").  The count was
+        # never the rule; the rule is the owner's `COO-DECISION 20260901_1059`
+        # -- a column whose value nobody measured is never guessed.  So the
+        # unadjudicated set is measured against the SCHEMA: none of them may
+        # carry a DEFAULT, and none of them may reach a newborn's row.
+        self.assertTrue(unadjudicated, "every typed column is adjudicated?")
+        with store.connect() as db:
+            defaulted = {
+                str(row[1]) for row in db.execute("PRAGMA table_info('characters')")
+                if row[4] is not None
+            }
         for column in unadjudicated:
+            self.assertNotIn(column, defaulted, column)
             self.assertNotIn(column, stored, column)
 
     def test_the_birth_values_are_the_same_three_007_wrote(self):

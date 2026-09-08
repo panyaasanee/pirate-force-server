@@ -37,6 +37,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+import pf_birth_state as _pin  # noqa: E402
 
 from pirateforce_foundation import persistence_attr_compose as compose  # noqa: E402,E501
 from pirateforce_foundation import persistence_skill_points_null_audit as audit_module  # noqa: E402,E501
@@ -216,6 +219,11 @@ class SoftDeletedRowsAreCountedSeparatelyTests(_Workspace):
             store.migrate()
             account_id = store.ensure_account("deleted")
             character = self._make_character(store, account_id, "B", "b")
+            # Constructed, for the reason `_built` gives: after
+            # `migrations/017` a newborn holds 0, so the row this audit counts
+            # has to be built rather than inherited from `create_character`.
+            _pin.clear_columns_to_null(
+                path, [audit_module.WIRED_COLUMN], [character.id])
             sid = store.open_session(account_id)
             store.soft_delete_character(sid, character.selector)
             audit = store.skill_points_null_audit()
@@ -238,6 +246,14 @@ class TheStoreDoorIsTheOneThatGetsRunTests(_Workspace):
         self._set(store, set_one.id, skill_points=5, unspent_points=2)
         null_one = self._make_character(store, account_id, "Null", "null")
         doomed = self._make_character(store, account_id, "Doomed", "doomed")
+        # THE NULL ROWS ARE CONSTRUCTED.  Since `migrations/017` a newborn is
+        # born holding 0 in `skill_points`, so an audit whose "never measured"
+        # group came from a fresh `create_character` was counting a group that
+        # no longer exists.  The rows this audit is FOR are the ones written
+        # before `016` reached the owner's database, and they are built here
+        # deliberately (raw SQL, temporary file only) rather than inherited.
+        _pin.clear_columns_to_null(
+            path, [audit_module.WIRED_COLUMN], [null_one.id, doomed.id])
         sid = store.open_session(account_id)
         store.soft_delete_character(sid, doomed.selector)
         return store, path, set_one, null_one

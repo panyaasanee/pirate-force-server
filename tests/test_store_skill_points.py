@@ -31,6 +31,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+import pf_birth_state as _pin  # noqa: E402
 
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import (  # noqa: E402
@@ -77,6 +80,15 @@ class GetSkillPointsTests(_StoreFixture):
         # NULL, and `COO-DECISION 20260901_1059` forbids reporting that as a
         # measured `0`.
         character = self._make_character()
+        # THE UNMEASURED STATE IS CONSTRUCTED NOW.  `migrations/017` gives
+        # this column a birth default (`PANYA-DECISION 20260908_1218`
+        # point 3), so no newborn arrives here holding NULL any more and
+        # this refusal stopped being reachable by accident.  It has to
+        # stay reachable on purpose: the owner's database still holds
+        # rows written before `016` ran, and a fail-closed door whose
+        # refusal no test can reach is a door that can be deleted with
+        # the suite green.
+        _pin.clear_columns_to_null(self.path, ["skill_points"], [character.id])
         self.assertIsNone(self.store.get_skill_points(character.id))
 
     def test_reads_back_a_value_written_by_write_typed_attributes(self):
@@ -115,6 +127,15 @@ class GetSkillPointsTests(_StoreFixture):
 class SpendSkillPointsTests(_StoreFixture):
     def test_unmeasured_balance_refuses_rather_than_guessing(self):
         character = self._make_character()
+        # THE UNMEASURED STATE IS CONSTRUCTED NOW.  `migrations/017` gives
+        # this column a birth default (`PANYA-DECISION 20260908_1218`
+        # point 3), so no newborn arrives here holding NULL any more and
+        # this refusal stopped being reachable by accident.  It has to
+        # stay reachable on purpose: the owner's database still holds
+        # rows written before `016` ran, and a fail-closed door whose
+        # refusal no test can reach is a door that can be deleted with
+        # the suite green.
+        _pin.clear_columns_to_null(self.path, ["skill_points"], [character.id])
         with self.assertRaises(UnmeasuredSkillPointsError):
             self.store.spend_skill_points(character.id, 1)
         # Refusing must not have written anything -- still NULL, not 0.

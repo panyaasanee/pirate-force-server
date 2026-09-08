@@ -251,7 +251,19 @@ class GrantDoorTests(_StoreFixture):
         self.assertNotIn(EXPERIENCE_COLUMN, str(caught.exception))
 
     def test_a_null_experience_is_refused_by_name(self):
+        """The NULL is CONSTRUCTED now, and that is the point of the door.
+
+        `migrations/017` gives `experience` a birth DEFAULT of 0
+        (`PANYA-DECISION 20260908_1218` point 3), so a newborn no longer
+        arrives at this door unmeasured and the refusal stopped being
+        reachable by accident.  It has to stay reachable on purpose: the
+        owner's database still holds rows written before `016` ran on it, and
+        a door whose refusal no test can reach is a door that can be deleted
+        with the suite green.
+        """
         character = self._character_at(level=1)
+        pf_birth_state.clear_columns_to_null(
+            self.path, [EXPERIENCE_COLUMN], [character.id])
         with self.assertRaises(UnmeasuredTypedAttributeError) as caught:
             self.store.grant_experience(character.id, 100)
         self.assertIn(EXPERIENCE_COLUMN, str(caught.exception))
