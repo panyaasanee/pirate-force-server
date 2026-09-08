@@ -1,5 +1,5 @@
 """Lifecycle-aware V141 state factory for the real legacy TCP listeners."""
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import inspect
 import math
 import os
@@ -75,6 +75,7 @@ from .gm.login_scene_consume import (
 )
 from .gm.warp_target_record import (
     SESSION_ATTRIBUTE as GM_WARP_TARGET_SESSION_ATTRIBUTE,
+    UNREADABLE_CHARACTER_ID,
     WarpTargetRecord,
     current_character_id,
     distance_to_target,
@@ -555,6 +556,50 @@ ORDER_REFUSED_PENDING_NOT_A_PENDING_CHECK = (
     "CHECK_REFUSED_ORDER_PENDING_NOT_A_PENDING_CHECK")
 ORDER_REFUSED_CHARACTER_ID_NOT_AN_INT = (
     "CHECK_REFUSED_ORDER_CHARACTER_ID_NOT_AN_INT")
+
+
+@dataclass(frozen=True)
+class _M2ArrivalExpectation:
+    """The point one M2 transport frame sent ONE connection to, and for whom.
+
+    THE HOLE THIS EXISTS TO CLOSE (pf-adversary on pirate-force-server#1132,
+    D3, CRITICAL, MEASURED).  `_m2_transport_resync_inner` sets
+    `scene_label_is_server_guess` when it relabels the row to the journey's
+    destination, and before this record existed the file had exactly two
+    sites that ever cleared that flag again: login, and the
+    `gm_warp_confirm_window_open` branch of `_checkpoint_exact_target`.  An
+    M2 journey opens no GM confirm window, so a travelling session could
+    never clear it: `client_confirmed_scene` stayed None for the rest of the
+    session (measured against a control that did not travel and read 1),
+    which reaches LANE-GM's `same_scene` token and LANE-A's own M2 survey
+    trial -- the seam armed the guess and then blocked it from ever being
+    answered.
+
+    WHAT THE RECORD IS EVIDENCE OF, AND IT IS ONE THING: these coordinates
+    went out in a TeleportVital transport frame.  It is not a delivery
+    receipt -- `gm/warp_executor.WarpTarget` says the same about its own
+    field and GT-106-R2's measurement (the MECHANISM moves a real client's
+    screen) is a fact about the mechanism, not about this frame.
+
+    WHY IT IS A SEPARATE PARK FROM `gm_last_warp_target`.  That attribute is
+    LANE-GM's, is consumed by the GM confirm branch, and prints GM_WARP
+    tokens.  Reusing it would hand an M2 destination to that branch and make
+    a journey report itself as a GM warp; the arithmetic
+    (`position_matches_target`) is shared instead, which is the part that was
+    worth sharing.
+    """
+
+    #: Where the transport frame said to go, in the destination scene.
+    target: WarpTarget
+    #: The character selected when the frame was built, compared before any
+    #: verdict for the reason `warp_target_record.WarpTargetRecord` gives:
+    #: a player who travels, re-selects and then walks must not have the
+    #: second character's report measured against the first one's journey.
+    character_id: object
+    #: For the console line only; -1 when the pending check carried a marker
+    #: id this seam could not read as an int (a diagnostic label may not cost
+    #: the confirmation itself).
+    marker_id: int
 
 
 def _teleport_check_say(build, *args) -> None:
@@ -1656,6 +1701,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # correct outcome: we do not know where the client is,
                 # so we go on saying the last scene we did know.
                 self.scene_label_is_server_guess = False
+                # The other half of that flag, added with the M2 arrival
+                # path (see `_M2ArrivalExpectation`): the point a journey
+                # sent this connection to, and whether its console line has
+                # been said yet.  Per connection, dies with the socket.
+                self._m2_arrival_expected = None
+                self._m2_arrival_said = False
                 # CORE-REQUEST (LANE-B, 20260828_0337): the attack-cadence
                 # gate MOB_COMBAT_CADENCE_WIRING asks for, opened next to
                 # mob_combat_ledger for the same per-session reason.
@@ -4427,6 +4478,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self._note_client_confirmed_scene(
                         candidate.scene_id, "override_visit_report",
                     )
+                # An override session can travel too, and a hole that only
+                # opens on one of two branches is still the D3 hole.
+                self._m2_note_arrival_if_confirmed(candidate)
             elif candidate != selected.position:
                 self.foundation.checkpoint(candidate)
                 # CORE-REQUEST-GM-051 item 3.  The gate is the PERSISTENT
@@ -4444,6 +4498,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self._note_client_confirmed_scene(
                         candidate.scene_id, "position_report",
                     )
+                # THE M2 ARRIVAL PATH.  Runs while the flag is still set --
+                # that is the case it exists for -- and is the only thing
+                # besides the GM confirm branch below that can clear it.
+                self._m2_note_arrival_if_confirmed(candidate)
                 if (
                     self.gm_warp_confirm_window_open
                     and world_scene_travel.is_position_persist_allowed(
@@ -7516,6 +7574,187 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 except Exception:  # noqa: BLE001 - events itself is gone
                     pass
 
+        def _m2_arrival_arm(self, pending, relocation) -> None:
+            """Park the destination this journey's transport frame carries.
+
+            Called ONLY on the branch that actually relabelled the row, so
+            an expectation can never outlive a refused relabel.  A second
+            journey replaces the first: once a newer frame has gone out, the
+            older destination can no longer be what the next report is about
+            (`gm/warp_target_record`'s own rule, and the same reason).
+
+            Never raises -- it runs between `sink.answered.add(...)` and the
+            return that hands out the transport frame, where an escape costs
+            the listener thread and the journey both.
+            """
+            try:
+                marker_id = int(getattr(pending, "marker_id", -1))
+            except (OverflowError, TypeError, ValueError):
+                # A diagnostic label may not cost the confirmation.
+                marker_id = -1
+            try:
+                target = WarpTarget(
+                    scene_id=int(relocation.scene_id),
+                    x=float(relocation.x),
+                    y=float(relocation.y),
+                    z=float(relocation.z),
+                )
+            except (OverflowError, TypeError, ValueError):
+                # `transport_relocation` reads `pending.destination` raw, so
+                # a hand-built PendingCheck can carry coordinates that are
+                # not numbers at all.  The relabel above still stands (its
+                # own fences passed on the scene id); what is lost is the
+                # ability to confirm it, which is named rather than guessed.
+                self._m2_arrival_expected = None
+                self.events.append(
+                    "lane_a_m2_arrival_not_armed_destination_unreadable")
+                return
+            if not all(math.isfinite(v) for v in (target.x, target.y, target.z)):
+                # A non-finite target would make every comparison "not
+                # comparable" forever, which is an expectation that can only
+                # ever answer "unknown" -- fail closed and say so.
+                self._m2_arrival_expected = None
+                self.events.append(
+                    "lane_a_m2_arrival_not_armed_destination_not_finite")
+                return
+            self._m2_arrival_expected = _M2ArrivalExpectation(
+                target, current_character_id(self), marker_id,
+            )
+            self._m2_arrival_said = False
+            self.events.append(
+                f"lane_a_m2_arrival_armed_scene_{target.scene_id}")
+
+        def _m2_note_arrival_if_confirmed(self, candidate) -> str:
+            """Clear the M2 guess when the CLIENT reports from the destination.
+
+            Returns `"match"`, `"mismatch"`, `"unknown"` or `"none"`; the
+            caller ignores it and the tests do not.
+
+            WHAT COUNTS AS THE CLIENT BACKING THE LABEL, and it is the same
+            evidence `GM_WARP_POSITION_CONFIRMED` rests on: the coordinates
+            in this report are within `WARP_TARGET_MATCH_TOLERANCE` of the
+            point the transport frame sent the client to.  NONCLAIM, and it
+            is the R328 D6 nonclaim repeated because it applies here word for
+            word: the SCENE half of that comparison is a tautology --
+            `distance_to_target` compares `target.scene_id` against
+            `candidate.scene_id`, which `_m2_transport_resync_inner` already
+            set to the destination -- so what is really tested is x/y/z
+            within one unit of coordinates that came from the MARKER table.
+            A player who never left the departure scene and happens to stand
+            within one unit of the destination's coordinates confirms
+            falsely.  Narrow, and stated rather than hidden: the same
+            movement measurement `WARP_TARGET_MATCH_TOLERANCE` cites (a
+            moving run steps 400-500 units between reports) is why one unit
+            is not something a walk lands on by accident.
+
+            WHY THE EXPECTATION IS NOT CONSUMED ON THE FIRST REPORT, unlike
+            LANE-GM's parked warp target.  That record consumes once because
+            RE-129 measured the client IGNORING ForcePos, so its second
+            report is about a frame the warp never caused.  The M2 transport
+            is the other composer -- a TeleportVital, whose mechanism
+            GT-106-R2 measured moving a real screen -- and the cost of being
+            wrong is asymmetric here: a consumed expectation that arrived one
+            frame early leaves the flag stuck for the session, which is
+            exactly D3 again.  So it stays parked until it is answered,
+            replaced by the next journey, or dropped because the label is no
+            longer a guess.  What keeps that from drifting into "confirm on
+            any later coincidence" is the tolerance above, not a frame count.
+
+            Never raises: it is called from the durable-write path, and v141
+            wraps `dispatch()` with no `except`.
+            """
+            try:
+                return self._m2_arrival_inner(candidate)
+            except Exception:  # noqa: BLE001 - see the docstring's last line.
+                try:
+                    self.events.append("lane_a_m2_arrival_refused_raised")
+                except Exception:  # noqa: BLE001 - events itself is gone
+                    pass
+                return "unknown"
+
+        def _m2_arrival_inner(self, candidate) -> str:
+            """The body of the arrival check.  See the caller for the wrapper."""
+            expectation = getattr(self, "_m2_arrival_expected", None)
+            if not isinstance(expectation, _M2ArrivalExpectation):
+                if expectation is not None:
+                    # Something that is not this record type is on the slot.
+                    # Drop it rather than reading fields off it: a foreign
+                    # value is the shape `warp_target_record` refuses too.
+                    self._m2_arrival_expected = None
+                    self.events.append("lane_a_m2_arrival_dropped_foreign_value")
+                return "none"
+            if not getattr(self, "scene_label_is_server_guess", False):
+                # The label is already the client's -- login cleared it, or
+                # the GM confirm branch did.  A stale expectation must not
+                # sit here waiting to re-confirm a label nobody doubts.
+                self._m2_arrival_expected = None
+                self.events.append("lane_a_m2_arrival_dropped_label_not_a_guess")
+                return "none"
+            character_id = current_character_id(self)
+            if (
+                character_id is UNREADABLE_CHARACTER_ID
+                or expectation.character_id is UNREADABLE_CHARACTER_ID
+                or character_id != expectation.character_id
+            ):
+                # Never compared when either side is unreadable, and never
+                # across characters: `warp_target_record` states both, and a
+                # second copy of that rule that disagreed would be worse than
+                # no rule.  Kept parked -- the character may be re-selected.
+                self.events.append("lane_a_m2_arrival_refused_character_mismatch")
+                return "unknown"
+            target = expectation.target
+            matches = position_matches_target(target, candidate)
+            distance = distance_to_target(target, candidate)
+            if matches:
+                self._m2_arrival_expected = None
+                # Order matters, and it is the GM branch's order: the note
+                # runs while the flag is still set, so nothing else on this
+                # frame can have written the field first, and the flag is
+                # cleared in the same breath.
+                self._note_client_confirmed_scene(
+                    candidate.scene_id, "m2_arrival_report",
+                )
+                self.scene_label_is_server_guess = False
+                self.events.append(
+                    f"lane_a_m2_arrival_confirmed_scene_{target.scene_id}")
+                self._m2_arrival_say(expectation, distance, True)
+                return "match"
+            if distance is not None:
+                verdict = "mismatch"
+                self.events.append(
+                    "lane_a_m2_arrival_not_at_target_"
+                    f"{int(round(min(distance, 1e9)))}")
+            else:
+                verdict = "unknown"
+                self.events.append("lane_a_m2_arrival_not_comparable")
+            # ONE line per journey on this branch, not one per step: an
+            # unconfirmed journey is followed by every ordinary walk frame
+            # the session sends, and a token printed on each of them would
+            # bury the confirmation an attended round is reading for (the
+            # `fire()` ceiling of R393 is the same lesson).
+            if not getattr(self, "_m2_arrival_said", False):
+                self._m2_arrival_said = True
+                self._m2_arrival_say(expectation, distance, False)
+            return verdict
+
+        def _m2_arrival_say(self, expectation, distance, confirmed) -> None:
+            """The console line an attended round reads for GT-309 (c).
+
+            Under LANE-A's own token so a tester greps one prefix for the
+            whole journey: PROMPT, ECHO, TRANSPORT, TRANSPORT_RESYNC, then
+            this.  `dist=` is the number that decided it, so a run that
+            confirms nothing still says how far away the client reported
+            from -- "it did not confirm" and "it confirmed somewhere else"
+            must not look identical.
+            """
+            _teleport_check_say(
+                lambda: "%s ARRIVAL marker=%d scene=%d dist=%s confirmed=%d"
+                % (world_m2_teleport_check.TOKEN, expectation.marker_id,
+                   expectation.target.scene_id,
+                   "none" if distance is None else "%.3f" % distance,
+                   int(bool(confirmed))),
+            )
+
         def _m2_transport_resync_say(self, pending, relocation, applied) -> None:
             """One console line per journey, on BOTH branches.
 
@@ -7600,6 +7839,9 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # Set AFTER the relabel, never before: every early return above
             # means no relabel happened and the label is still the client's.
             self.scene_label_is_server_guess = True
+            # ... and armed in the same breath, so no window exists in which
+            # the guess is set and nothing can ever answer it (D3).
+            self._m2_arrival_arm(pending, relocation)
             # KA1A-ROOTCAUSE (20260901_1035), the same block
             # `_gm_warp_resync_selected_scene` carries and the half R399
             # shipped without.  See the docstring for what each field costs.
