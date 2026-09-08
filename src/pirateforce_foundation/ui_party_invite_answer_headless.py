@@ -128,7 +128,30 @@ def run() -> int:
             bool(frame) and frame == expected_frame
             and pc == expected_pc and frame == legacy.frame_pc(pc)
         )
-        echo_exact = int(bool(pc) and payload in pc)
+        # ``in`` WAS A SUBSTRING TEST (pf-adversary round xqxadg, D10).
+        # The field is read as "the payload that went back is
+        # byte-identical to the one that came in", and containment does
+        # not say that: a reply of ``payload + b"\xAA"`` satisfied it
+        # while inventing a byte.  ``endswith`` is wrong too -- this
+        # envelope puts two bytes after the nested payload.  So the
+        # check is structural and does not lean on the comparison
+        # ``frame_matches`` already makes: build the SAME envelope
+        # around a marker payload of the same length, and require that
+        # the bytes in the payload slot are exactly the player's while
+        # every byte outside it is the envelope's own.
+        marker = b"\xEE" * len(payload)
+        probe_pc, _probe_frame = legacy.make_runtime_vitals(
+            [(wire.PARTY_INVITE_VITAL_ID, wire.PARTY_INVITE_VITAL_VERSION, marker)]
+        )
+        slot = probe_pc.find(marker)
+        echo_exact = int(
+            bool(pc)
+            and slot >= 0
+            and len(pc) == len(probe_pc)
+            and pc[slot:slot + len(payload)] == payload
+            and pc[:slot] == probe_pc[:slot]
+            and pc[slot + len(payload):] == probe_pc[slot + len(payload):]
+        )
         junk_refused = int(junk == [])
         ok = answered == 1 and frame_matches and echo_exact and junk_refused
         print(

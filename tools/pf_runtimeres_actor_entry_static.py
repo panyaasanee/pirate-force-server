@@ -1310,8 +1310,16 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # The answerer module itself adds NO site: a lane returns a VitalReply and
 # ui_dispatch._compose() calls the carrier, which is exactly the property
 # that shape exists to keep.  Re-pinned in the same commit that added it.
-guard(SRC_VITAL_STREAM_SITES == 32,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 32 call sites")
+# 32 -> 34 (LANE-UI round xqxadg, second pass, paying pf-adversary D10).
+# Both arming proofs gained a SECOND call: they build the same envelope
+# around a marker payload of the same length, so the proof can say that the
+# bytes in the payload slot are the player's and every byte outside it is the
+# envelope's own.  The token used to read `payload in pc`, which is
+# containment and not identity -- a reply of `payload + b"\xAA"` satisfied it
+# while inventing a byte.  Neither site is a sender: they are constructions
+# compared against the dispatcher's answer.
+guard(SRC_VITAL_STREAM_SITES == 34,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 34 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

@@ -31,6 +31,31 @@ module inherits that care: it does not treat a trade invite as a party
 invite, it only observes that the same decode/encode pair round-trips
 it.
 
+!! ONE BYTE THAT LEAVES IS NOT THE PLAYER'S, AND pf-adversary (round
+xqxadg, D3) is why this paragraph says so.  The reply is
+``make_runtime_vitals([(vital_id, version, payload)])``.  Only
+``payload`` is the client's.  ``version`` is the module constant
+``ui_trade_wire.TRADE_INVITE_VITAL_VERSION``, whose own header calls it
+an UNPROVEN DEFAULT, and the inbound version the client sent is parsed
+by ``runtime.py`` and NOT passed to ``ui_dispatch.answer()`` -- so if a
+client sends anything but zero the server answers with zero anyway.
+Worse, the letter this module cites says that byte is CHECKED:
+``RE-312`` RESULT-2 reads ``0x005F3EF4`` comparing the u8 after the id
+against ``[obj+0x10]`` and logging ``0xE0000031`` on a mismatch, and
+nobody has read ``[obj+0x10]`` for this class.  So the version byte is
+a REVIEWED guess (``ui_dispatch``'s outbound registry pins the set to
+what ships), not a derived value, and closing it needs the inbound
+version handed to ``answer()`` -- a ``runtime.py`` change, filed, not
+taken here.
+
+WHO CAN PRESS THIS BUTTON: ANYONE WITH A SOCKET (pf-adversary D7).  The
+eight-vital branch sits ABOVE ``runtime.py``'s login and start-game
+guards, so a session that never logged in gets an answer, and with a
+PROCESS-WIDE budget an unauthenticated peer can replay one captured
+payload until the allowance is spent and the button is silent for every
+legitimate player until restart.  Named because it is measured, not
+because it is fixed.
+
 WHAT THE PLAYER SEES IS STILL A QUESTION FOR A SCREEN.  Static evidence
 says the client has a live handler that will run.  Whether it draws a
 dialog, a row, or nothing is a question about pixels, and this project
@@ -126,6 +151,22 @@ def answer_trade_invite(session=None, vital_id=0, payload=b"", **_ignored):
         _say(
             "UI_TRADE_INVITE_REFUSED reason=not_byte_exact in=%d out=%d"
             " bytes_out=0" % (len(payload), len(reencoded))
+        )
+        return []
+    # THE SEAM'S OWN BUDGET, READ BEFORE SPENDING OURS (pf-adversary
+    # round xqxadg, D8).  ``ui_dispatch`` refuses a payload past the
+    # reviewed budget for this label, and that refusal lands AFTER this
+    # module has already counted an answer -- so well-formed invites
+    # with a very long name could burn the whole process allowance with
+    # zero bytes ever reaching anybody.  The registry is the authority
+    # on that number; this module asks it instead of keeping a second
+    # copy that can drift.
+    shape = ui_dispatch.outbound_shape(LABEL)
+    if shape is not None and len(reencoded) > shape.max_payload_bytes:
+        _say(
+            "UI_TRADE_INVITE_REFUSED reason=over_reviewed_payload_budget"
+            " len=%d budget=%d bytes_out=0"
+            % (len(reencoded), shape.max_payload_bytes)
         )
         return []
     if _answers_sent >= ANSWER_BUDGET:

@@ -219,6 +219,35 @@ class RefusalTests(_AnswererRegistered):
         self.assertIs(answerer_module.production_allowed, True)
 
 
+    def test_a_payload_past_the_reviewed_budget_does_not_spend_budget(self):
+        # pf-adversary round xqxadg, D8.  The seam refuses a payload past
+        # the reviewed budget AFTER this module has counted an answer, so
+        # well-formed invites carrying a very long name could burn the
+        # whole process allowance with zero bytes ever reaching anybody.
+        # This module now asks the registry first, and the refusal must
+        # be free.
+        shape = ui_dispatch.outbound_shape(answerer_module.LABEL)
+        oversized = wire.encode_party_invite_payload(
+            wire.PartyInviteFields(
+                field1_u8=1, field2_u64=0x1122334455667788,
+                field3_wstring="A" * 260,
+            )
+        )
+        self.assertGreater(len(oversized), shape.max_payload_bytes)
+        out, console = self._call(
+            vital_id=wire.PARTY_INVITE_VITAL_ID, payload=oversized,
+        )
+        self.assertEqual(out, [])
+        self.assertIn("reason=over_reviewed_payload_budget", console)
+        # Free: an ordinary invite right after it is still answered, and
+        # the whole allowance is still there.
+        for _ in range(answerer_module.ANSWER_BUDGET):
+            out, _ = self._call(
+                vital_id=wire.PARTY_INVITE_VITAL_ID, payload=_real_invite_payload(),
+            )
+            self.assertEqual(len(out), 1)
+
+
 class SeamComposesTests(_AnswererRegistered):
     """answer() turns the reply into an action, and refuses what it can't."""
 

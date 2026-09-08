@@ -1633,5 +1633,59 @@ class UnregisteredOutboundShapeTests(_RegistryIsolation):
         )
 
 
+class TheSeamIsNotASandboxTests(_RegistryIsolation):
+    """A MEASURED NEGATIVE RESULT, kept as a test on purpose.
+
+    pf-adversary (round xqxadg, D1) reproduced the round-3 D2 attack end
+    to end with every round-3 and round-4 fix installed: `answer()` calls
+    the lane from a frame whose locals hold the live `session` and the
+    `envelope` module, and Python hands the callee that frame.  Deleting
+    the locals does not close it either -- `runtime.py`'s frame holds the
+    same objects one step further up.
+
+    So this file pins WHAT IS TRUE rather than what the design wished
+    were true.  The day someone closes the reach for real (a data-only
+    queue drained after `answer()` returns, a separate process, a lane
+    that never runs on the dispatch path), this test goes RED and forces
+    whoever did it to say so here, in the file that used to claim the
+    opposite.  A `_SESSION_VIEW_FIELDS` allowlist is a statement about
+    the ARGUMENT LIST; it is not a boundary, and the seam's docstrings
+    now say that in as many words.
+    """
+
+    def test_an_answerer_reaches_the_seams_own_frame(self):
+        seen = {}
+
+        def answerer(session=None, vital_id=None, payload=None):
+            frame = sys._getframe(1)
+            seen["names"] = sorted(
+                name for name in frame.f_locals
+                if name in ("session", "envelope")
+            )
+            seen["session"] = frame.f_locals.get("session")
+            seen["envelope"] = frame.f_locals.get("envelope")
+            return []
+
+        live_session = object()
+        fake_envelope = object()
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        self.allow(answerer)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                ui_dispatch.answer(
+                    live_session, PARTY_INVITE_VITAL_ID, b"",
+                    envelope=fake_envelope,
+                ),
+                [],
+            )
+        # The snapshot handed to the answerer is empty, exactly as the
+        # design says -- and it does not matter, because the objects it
+        # was meant to withhold are one frame away.
+        self.assertEqual(ui_dispatch._SESSION_VIEW_FIELDS, ())
+        self.assertEqual(seen["names"], ["envelope", "session"])
+        self.assertIs(seen["session"], live_session)
+        self.assertIs(seen["envelope"], fake_envelope)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

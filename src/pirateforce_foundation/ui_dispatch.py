@@ -26,19 +26,34 @@ no chief round in between -- registers an answerer for one of the eight
 vital ids with ``register_answerer()``, and only then can a frame go back
 to the player.
 
-WHAT IT DOES ON THE DAY IT LANDS: NOTHING, AND THAT IS THE POINT.
-``_ANSWERERS`` ships EMPTY.  Every one of the eight frames therefore
-takes ``answer()``'s "no answerer" exit and gets ``[]`` back -- the same
-empty list, from the same branch, in the same order, after the same
-``rx_frames`` increment and the same ``lane_hooks.fire()`` (both of which
-stay in ``runtime.py``, above the call, untouched).  There is no flag to
-flip and no frame to see; a player cannot tell this landed.  That is what
-COO approved (route (b), ``pf_bridge/notes_to_chief/20260908_0142_COO-
-ROUND-0142-DECISIONS-*.md`` item 3, answering this lane's letter
+WHAT IT DID ON THE DAY IT LANDED, AND WHAT IT DOES NOW -- THESE ARE NOT
+THE SAME SENTENCE, AND THIS PARAGRAPH USED TO CLAIM THEY WERE.  The seam
+landed INERT: ``_ANSWERERS`` shipped empty, every one of the eight frames
+took ``answer()``'s "no answerer" exit, and a player could not tell it
+had landed.  That is what COO approved (route (b),
+``pf_bridge/notes_to_chief/20260908_0142_COO-ROUND-0142-DECISIONS-*.md``
+item 3, answering this lane's letter
 ``20260908_0031_LANE-UI-ASK-COO-eight-vitals-*``): the wiring lands
 inert, and the first real answer is a later, separate, reviewable change.
-``test_ui_dispatch.py`` pins the empty-registry answer for all eight ids
-against a mutant that returns anything else.
+
+That later change has happened -- twice.  ``lane_hooks``
+``lane_ui_party_invite_answer.py`` (round spdxy0) and
+``lane_ui_trade_invite_answer.py`` (round xqxadg) both ship
+``production_allowed = True``, so on a default flagless boot TWO of the
+eight ids answer with a real frame today and six still get ``[]``.  The
+line above stayed unedited for a whole round after that stopped being
+true, and pf-adversary (round xqxadg, D6) is what caught it: a header
+that describes the day a file landed, in the present tense, becomes a
+false statement about the system the first time somebody uses the file.
+Anything below that reads "ships empty" is history, not behaviour.
+
+``test_ui_dispatch.py``'s ``ShipsInertTests`` pins the EMPTY-registry
+answer for all eight ids -- and read what that is worth honestly: its
+isolation clears the process-global registry first, so it proves what
+``answer()`` does with no answerer registered.  It does NOT and cannot
+tell you how many lanes ship one (measured: a lane answering all eight
+leaves that file 100% green).  The count above is the docstring's claim,
+and the thing that keeps it true is a reader, not a test.
 
 FAIL-CLOSED IN EVERY DIRECTION, BECAUSE THE COST IS ASYMMETRIC.  What
 this seam can do wrong is put bytes on a socket a client parses; ``/warp
@@ -500,9 +515,38 @@ class VitalReply(_ReplyBase):
     wrapper, and ``fn.__closure__[0].cell_contents`` walks past a
     closure the same way.  A reference IS reach.
 
-    So the lane returns DATA and this module composes.  The lane never
-    holds the runtime, never holds the envelope builder, and cannot
-    choose a byte outside the payload it hands over:
+    !! AND SO IS THE CALL STACK.  THIS SHAPE IS NOT A BOUNDARY, AND THE
+    SENTENCE THAT USED TO STAND HERE -- "the lane never holds the
+    runtime, never holds the envelope builder, and cannot choose a byte
+    outside the payload it hands over" -- IS FALSE.  pf-adversary
+    (round xqxadg, D1) measured it end to end through the real
+    ``state.dispatch()`` on a logged-in session: a lane file with
+    ``production_allowed = True``, registered by the real
+    ``_discover()``, ran
+
+        f = sys._getframe(1)          # ui_dispatch.answer()'s frame
+        live = f.f_locals["session"]  # the live session
+        env = f.f_locals["envelope"]  # the frozen v141 module
+
+    armed ``gm_warp_position_pending`` on the live session, built a
+    ``LogoutVital`` frame of its own with the envelope builder, and
+    returned ``[]`` -- under a green ``UI_DISPATCH_ACCEPTED`` token.
+    That is the round-3 D2 symptom reproduced verbatim with every
+    round-3 and round-4 fix installed, because ``answer()`` calls the
+    lane from a frame that holds both names and Python hands the callee
+    that frame.  Deleting the locals does not close it either: the
+    caller's frame in ``runtime.py`` holds the same objects one step
+    further up.
+
+    So read this class for what it IS: a way for a lane to describe a
+    reply without NEEDING the runtime, which keeps an honest lane honest
+    and keeps the composition reviewable in one place.  It is not a
+    sandbox, and no allowlist in this file can make it one -- closing
+    the reach means the lane must not run on the dispatch path at all
+    (a data-only queue drained after ``answer()`` returns, or another
+    process).  That is a design question filed for COO, not a docstring
+    promise.  What the rules below DO still buy, against an honest lane
+    and against a lane that only returns bad data, is real:
 
     * ``vital_id`` must EQUAL the id of the frame being answered.  An
       answerer registered for the party invite cannot reply as a
