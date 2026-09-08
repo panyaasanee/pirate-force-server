@@ -167,6 +167,15 @@ COMMAND_EXERCISES: dict[str, tuple[str, ...]] = {
     # answering, would leave the standalone map's guarantee resting on a
     # promise instead of on a run.
     "staged": ("/staged",),
+    # `job` and `skill` (LANE-GM round `wv0fpe`, PANYA-ORDER 2026-09-08).
+    # Both WRITE -- one `characters.class_id` row and up to
+    # `class_skill_curriculum.SKILL_COUNT` `character_skills` rows -- so
+    # driving them past this door is the point of the door: neither may
+    # touch the standalone login-scene map on its way through, and a
+    # command that writes rows is exactly the kind that could grow a
+    # second writer by accident.
+    "job": ("/job 16",),
+    "skill": ("/skill all",),
 }
 
 # Lines that are not valid commands at all, run through the same door: a
