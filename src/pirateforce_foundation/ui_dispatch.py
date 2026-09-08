@@ -97,9 +97,18 @@ its own interpreter, and every guard this file could add is one
 attribute assignment away from being removed.  What closes it is the
 seam owning registration outright -- ``lane_hooks._discover()`` writing
 the table from a lane's declared ``ANSWERS_VITAL_ID`` instead of a lane
-calling in -- which is CORE-REQUEST ``20260908_1553``, filed, not
-answered yet.  Until it is answered this is a REAL residual and is not
-described anywhere as closed.
+calling in -- which is CORE-REQUEST ``20260908_1553``.  IT IS ANSWERED
+AND IT IS NOT LANDED, and those are different sentences (pf-adversary
+round `asw0n3`, D7: this paragraph still read "filed, not answered yet"
+two rounds after the answer arrived).  chief approved it in
+``notes_to_chief/20260908_1703_FROM_CHIEF_R404-to-LANE-UI-*`` and then,
+in ``20260908_2031_FROM_CHIEF_R406-*``, declined to wire ``_discover()``
+for one measured reason this lane asked for: ``adopt_answerer`` is not on
+``main`` yet, and wiring the seam to a function that is not there opens
+the hole it is meant to close.  So the residual is UNCHANGED in effect --
+registration is still a lane calling in -- and it is not described
+anywhere as closed.  What moved is only who it waits on: a merge, not a
+decision.
 
 WHAT THIS FILE DOES NOT DO.  It does not decode a payload, does not know
 what any of the eight frames MEAN (letter ``20260904_1120`` nonclaim (2)
@@ -215,12 +224,18 @@ _ANSWERERS = {}
 # ``answer()``'s gate still demands a ``_PRODUCTION_ALLOWED`` entry,
 # which only ``_discover()`` writes and only for ``lane_*.py``.
 # An id with NO row here cannot be taken by a lane module at all: the
-# six ids nobody has written an answerer for stay unanswerable until a
-# row for them is reviewed into this file.
+# ids nobody has written an answerer for stay unanswerable until a row
+# for them is reviewed into this file.  THE COUNT IS DELIBERATELY NOT
+# WRITTEN HERE (pf-adversary round `asw0n3`, D9: a hand-written "six"
+# went false the moment the next row landed and nothing could catch it).
+# The remaining ids are ``ANSWERABLE_VITAL_IDS`` minus this table's keys,
+# which is a subtraction any reader -- and
+# ``tests/test_ui_dispatch.py`` -- can do.
 _ANSWERER_OWNERS = {
     0x37B1: _LANE_PACKAGE + "lane_ui_party_invite_answer",
     0x3700: _LANE_PACKAGE + "lane_ui_trade_invite_answer",
     0x2466: _LANE_PACKAGE + "lane_ui_party_cmd_answer",
+    0x98A1: _LANE_PACKAGE + "lane_ui_friend_remove_answer",
 }
 
 
@@ -1090,6 +1105,24 @@ _OUTBOUND_FRAME_SHAPES = {
         vital_id=0x2466,
         versions=frozenset((0,)),
         max_payload_bytes=11,
+        max_frame_bytes=64,
+    ),
+    # THE SECOND FIXED-WIDTH CLASS, AND THE SAME CHOICE FOR THE SAME
+    # REASON.  ``Community_RemoveFriendVital`` is ``u64 + u64 + u8`` with
+    # no string, so every payload the lane can emit is exactly 20 bytes
+    # -- measured from the encoder over 4,000 random field triples,
+    # including both u64 extremes, in
+    # ``tests/test_lane_ui_friend_remove_answer.py`` -- and the answerer
+    # requires EQUALITY against this number rather than treating it as a
+    # ceiling.  ``max_frame_bytes`` 64 is again deliberately NOT exact:
+    # the envelope is ``legacy.make_runtime_vitals``'s and not this
+    # lane's, it measured 52 bytes on this commit, and that measurement
+    # is pinned in the test file (a RED TEST, which is a message to a
+    # person) instead of here (a refusal, which is a dead button).
+    "UI_FRIEND_REMOVE_ANSWERED": _OutboundShape(
+        vital_id=0x98A1,
+        versions=frozenset((0,)),
+        max_payload_bytes=20,
         max_frame_bytes=64,
     ),
 }
