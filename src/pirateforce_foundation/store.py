@@ -15,11 +15,15 @@ from uuid import uuid4
 # the five classes, so every five-bag measurement in this round covered the
 # other two gates and silently never reached this one.
 from . import inventory
+# Neither V111 golden POST-state is imported by value any more: chief's R404
+# letter measured that `store.py:22`'s `MERGED_V111_BACKPACK` binding and the
+# gate below were the half of CORE-REQUEST 0206 that stayed in this lane's
+# zone, and that they refuse four of the five classes the day
+# `STARTING_BACKPACKS` widens -- after `runtime.py:2128` has already let them
+# into a transaction that cannot succeed.
 from .inventory import (
     BackpackState,
-    HYPOTHESIZED_V111_SLOT2_BACKPACK,
     INITIAL_BACKPACK,
-    MERGED_V111_BACKPACK,
     ItemAttrState,
     merge_known_item_into_occupied_slot,
     move_known_item_to_free_slot,
@@ -1152,16 +1156,31 @@ class SQLiteStore:
             db.execute("BEGIN IMMEDIATE")
             self._require_selected_session(db, sid, character_id)
             before = self._load_backpack(db, character_id)
-            if before == HYPOTHESIZED_V111_SLOT2_BACKPACK:
+            # Both doors ask the MODULE, and the post-state is DERIVED from
+            # the bag this character actually holds rather than compared
+            # against one constant.  With one starting bag every answer here
+            # is the answer the constants gave; with five, the constants
+            # rejected a move they had just performed and rolled it back.
+            if before in inventory.hypothesized_v111_slot2_states():
                 return None
-            if before != MERGED_V111_BACKPACK:
+            if before not in inventory.merged_v111_states():
                 raise ValueError("Backpack is outside the HYP-PF-008 pre-state")
+            expected_after = inventory.hypothesized_v111_slot2_state(before)
+            source = next(item for item in before.items if item.identity == 1)
+            # The WHERE clause is derived from that same row for the same
+            # reason: spelled as literals it matched only the first class's
+            # weapon and quantity, so `rowcount != 1` turned every other
+            # class's move into a rollback with no reply to the client.
             moved = db.execute(
-                "UPDATE character_backpack_items SET slot=2 "
-                "WHERE character_id=? AND item_identity=1 AND template_id=2600001 "
-                "AND quantity=2 AND slot=0 AND raw_u8_38=0 "
-                "AND raw_u8_39=255 AND detail_present=0",
-                (character_id,),
+                "UPDATE character_backpack_items SET slot=? "
+                "WHERE character_id=? AND item_identity=1 AND template_id=? "
+                "AND quantity=? AND slot=? AND raw_u8_38=? "
+                "AND raw_u8_39=? AND detail_present=?",
+                (
+                    inventory.V111_SLOT2_DESTINATION, character_id,
+                    source.template_id, source.quantity, source.slot,
+                    source.raw_u8_38, source.raw_u8_39, source.detail_present,
+                ),
             )
             if moved.rowcount != 1:
                 raise RuntimeError("HYP-PF-008 target row changed during transaction")
@@ -1170,7 +1189,7 @@ class SQLiteStore:
                 (_now(), character_id),
             )
             after = self._load_backpack(db, character_id)
-            if after != HYPOTHESIZED_V111_SLOT2_BACKPACK:
+            if after != expected_after:
                 raise RuntimeError("HYP-PF-008 post-state validation failed")
             return after
 
