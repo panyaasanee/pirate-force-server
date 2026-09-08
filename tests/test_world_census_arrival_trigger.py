@@ -97,6 +97,18 @@ def _scenes_with_a_composer() -> tuple[int, ...]:
     return tuple(scenes)
 
 
+# LANE-A round 9lv3fa: scene 17 is open at login since PANYA-DECISION
+# 20260908_1218 and has a registered composer, but its roster is held out of
+# `ROSTER_COMPOSERS` by a `runtime.py` invariant this lane may not change.
+# Derived, not retyped: the set below is read off the handoff table, so the
+# day scene 17 is added there this exception fails and has to be removed.
+COMPOSER_HELD_BY_A_RUNTIME_INVARIANT = 17
+_ROSTER_COMPOSER_SOURCES = frozenset(
+    scene_id for scene_id, source in world_scene_travel.CENSUS_SOURCES.items()
+    if source in world_population_handoff.ROSTER_COMPOSERS
+)
+
+
 def _scenes_open_at_login() -> tuple[int, ...]:
     """The subset an ORDINARY login can actually arrive in.
 
@@ -306,6 +318,29 @@ class ArrivalTriggerFiresForEveryOpenWorldSceneTests(_ArrivalHarness):
         scenes = _scenes_open_at_login()
         # If this ever becomes empty the file above still passes vacuously.
         self.assertGreaterEqual(len(scenes), 9, scenes)
+        # ONE NAMED EXCEPTION, LANE-A round 9lv3fa, 2026-09-08, and it is a
+        # PLAYER-VISIBLE GAP rather than a tidy-up.  PANYA-DECISION
+        # 20260908_1218 opened scene 17 at login, so it enters this walk for
+        # the first time - but scene 17's roster is deliberately absent from
+        # `world_population_handoff.ROSTER_COMPOSERS`, because adding it
+        # would flip `runtime.py`'s Columbus crossing call site from
+        # KIND_CLEAR to KIND_CENSUS (that call site hardcodes
+        # `crossing_handoff_dispatched=True` on the assumption this seam
+        # answers 17 with a clear). `runtime.py` is the chief's file and the
+        # CORE-REQUEST asking for that review is round vwekfq's, still open.
+        # SO: a player who logs in at sea today arrives on an EMPTY deck.
+        # That is better than the lockout 1218 removed and worse than what
+        # 1218 asks for, and it is named here rather than deleted from the
+        # walk so it cannot be mistaken for a scene nobody built a cast for.
+        # The moment that CORE-REQUEST lands, this exception comes out and
+        # the walk covers 17 like every other open scene.
+        self.assertEqual(
+            (COMPOSER_HELD_BY_A_RUNTIME_INVARIANT,),
+            tuple(s for s in scenes if s not in _ROSTER_COMPOSER_SOURCES),
+            "exactly one open scene may be held back, and it is scene 17",
+        )
+        scenes = tuple(
+            s for s in scenes if s != COMPOSER_HELD_BY_A_RUNTIME_INVARIANT)
         composed = {}
         for scene_id in scenes:
             with self.subTest(scene=scene_id):

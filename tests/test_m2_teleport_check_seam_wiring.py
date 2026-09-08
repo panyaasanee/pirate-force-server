@@ -800,21 +800,32 @@ class SelectedSceneIsNotRelabelledTests(_SeamCase):
         actions = self._echo(state, marker_id=marker_id)
         return state, actions
 
-    def test_every_marker_this_seam_can_prompt_for_a_sea_scene_is_login_barred(self):
-        # THE FACT THE WHOLE CLASS RESTS ON, re-derived here rather than
-        # quoted, so it fails loudly the day the registry changes and this
-        # refusal stops being necessary.  Markers 17, 343 and 345 are the
-        # three decreed arrival rows M2 exists to reach.
+    def test_every_marker_this_seam_can_prompt_for_is_now_login_accepted(self):
+        """~~test_every_marker_this_seam_can_prompt_for_a_sea_scene_is_login_
+        barred~~ -- INVERTED, LANE-A round 9lv3fa, 2026-09-08.
+
+        This case was written to "fail loudly the day the registry changes
+        and this refusal stops being necessary".  That day is
+        PANYA-DECISION 20260908_1218, and it did fail loudly, so here is what
+        it means rather than a deleted assertion:
+
+        WHAT THIS CLASS PINS IS UNCHANGED.  The seam still does not write the
+        durable row at send time.  What changed is WHICH reason holds it.  It
+        used to have two: the client has not confirmed the move yet
+        (COO-DECISION 20260828_2130 - a frame that left the server is a
+        REQUEST, and the durable write happens on the first TargetPos after
+        it), and the destination was barred at login so a written row would
+        have locked the character out.  1218 removed the second.  The first
+        is untouched by 1218 and is the whole reason on its own; every other
+        case in this class drives it directly.
+        """
         for marker_id in (17, 343, 345):
             destination = tc.marker_destination(marker_id)
-            self.assertFalse(
+            self.assertTrue(
                 warp_scene_persist.login_would_accept(destination.scene_id),
-                "marker %d -> scene %d is no longer login-barred; the "
-                "refusal this class pins may be re-examined"
+                "marker %d -> scene %d must be login-accepted under 1218"
                 % (marker_id, destination.scene_id),
             )
-        # The control: a scene the login DOES accept, so the assertion above
-        # is not vacuously true for every input.
         self.assertTrue(warp_scene_persist.login_would_accept(
             tc.marker_destination(1).scene_id))
 
