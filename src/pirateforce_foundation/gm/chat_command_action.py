@@ -298,7 +298,9 @@ from .. import persistence_typed_attrs
 from . import (
     bt_gm_probe,
     item_catalog,
+    job_command,
     level_command,
+    skill_all_command,
     login_scene_stage,
     npc_switch_catalog,
     say_wire,
@@ -338,7 +340,9 @@ from .login_scene_override import console_safe
 from .commands import (
     COMMAND_NAMES,
     OUTCOME_COMPOSED,
+    OUTCOME_JOB_ROW_WRITTEN,
     OUTCOME_LV_ROW_WRITTEN,
+    OUTCOME_SKILL_ROWS_WRITTEN,
     OUTCOME_REFUSED_PREFIX,
     OUTCOME_STAGED_LOGIN_SCENE,
     OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
@@ -544,6 +548,23 @@ TYPO_REFUSED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_TYPO_REFUSED_LOCAL_TALK_NOTICE"
 # nobody.
 LV_SET_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_LV_SET_LOCAL_TALK_NOTICE"
 LV_REFUSED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_LV_REFUSED_LOCAL_TALK_NOTICE"
+
+# `/job`'s and `/skill all`'s pairs, minted for the reason `/lv`'s pair was
+# minted: an attended run greps the serve loop's action lines to tell "the row
+# was written" from "nothing was written", and every one of these sentences
+# rides the SAME `Channel_LocalTalkMessageVital` codec, so the label is the
+# only thing that tells them apart without decoding bytes.
+#
+# !! NONE OF THE FOUR MAY CONTAIN `TELEPORT`, the same rule every label above
+# carries: `runtime.py`'s `_move_authority_note_server_moves` reopens the
+# move-authority grace window on that exact substring, and neither `/job` nor
+# `/skill all` moves anybody.
+JOB_SET_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_JOB_SET_LOCAL_TALK_NOTICE"
+JOB_REFUSED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_JOB_REFUSED_LOCAL_TALK_NOTICE"
+SKILL_ALL_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_SKILL_ALL_LOCAL_TALK_NOTICE"
+SKILL_REFUSED_NOTICE_ACTION_LABEL = (
+    "LANE_GM_CHAT_SKILL_REFUSED_LOCAL_TALK_NOTICE"
+)
 
 # `staged`, the readback command (`gm/staged_readback.py`).  ONE label for all
 # three of its answers, unlike `/lv`'s pair: the two `/lv` labels exist because
@@ -1567,6 +1588,22 @@ EVENT_LV_ROW_WRITTEN = "gm_chat_action_lv_row_written"
 EVENT_LV_NOTICE_COMPOSED_PREFIX = "gm_chat_action_lv_notice_composed_"
 EVENT_LV_NOTICE_FAILED_PREFIX = "gm_chat_action_lv_notice_failed_"
 
+# `/job`'s and `/skill all`'s events (PANYA-ORDER 2026-09-08).  ONE SET EACH,
+# shaped exactly like `/lv`'s above rather than shared with it: `session.events`
+# is what an attended run greps to tell which command did what, and two commands
+# reporting `gm_chat_action_lv_row_written` would make that file unreadable for
+# the round the owner ordered these for.
+EVENT_JOB_REFUSED_PREFIX = "gm_chat_action_job_refused_"
+EVENT_JOB_WITHHELD_CANONICAL_DB = "gm_chat_action_job_withheld_canonical_db"
+EVENT_JOB_ROW_WRITTEN = "gm_chat_action_job_row_written"
+EVENT_JOB_NOTICE_COMPOSED_PREFIX = "gm_chat_action_job_notice_composed_"
+EVENT_JOB_NOTICE_FAILED_PREFIX = "gm_chat_action_job_notice_failed_"
+EVENT_SKILL_REFUSED_PREFIX = "gm_chat_action_skill_refused_"
+EVENT_SKILL_WITHHELD_CANONICAL_DB = "gm_chat_action_skill_withheld_canonical_db"
+EVENT_SKILL_ROWS_WRITTEN = "gm_chat_action_skill_rows_written"
+EVENT_SKILL_NOTICE_COMPOSED_PREFIX = "gm_chat_action_skill_notice_composed_"
+EVENT_SKILL_NOTICE_FAILED_PREFIX = "gm_chat_action_skill_notice_failed_"
+
 # The same pair for the cross-scene `/warp`'s sentence.  SEPARATE PREFIXES
 # rather than reuse of `/lv`'s: these events are the only record of whether a
 # GM saw her warp confirmed, and a reader grepping `lv_notice_failed_` must
@@ -1815,6 +1852,12 @@ OUTCOME_NO_WIRE_PATH = f"{OUTCOME_REFUSED_PREFIX}no_wire_path"
 # ride the two prefixes, same grammar as every other command's.
 OUTCOME_LV_WITHHELD_CANONICAL_DB = f"{OUTCOME_WITHHELD_PREFIX}lv_canonical_db"
 OUTCOME_LV_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}lv_"
+OUTCOME_JOB_WITHHELD_CANONICAL_DB = f"{OUTCOME_WITHHELD_PREFIX}job_canonical_db"
+OUTCOME_JOB_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}job_"
+OUTCOME_SKILL_WITHHELD_CANONICAL_DB = (
+    f"{OUTCOME_WITHHELD_PREFIX}skill_canonical_db"
+)
+OUTCOME_SKILL_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}skill_"
 # `refused_stage_<reason>`, where the reason is one of
 # `login_scene_stage`'s own REASON_* values (`not_gm_account`,
 # `unknown_scene`, `config_unreadable`, `write_failed`) or an exception TYPE
@@ -2027,6 +2070,110 @@ _NO_BYTES_BLOCKERS_SOURCE[OUTCOME_LV_WITHHELD_CANONICAL_DB] = (
     " a run copy (--db) and type it again"
 )
 del _lv_reason, _lv_sentence
+
+# `/job`'s blockers, BUILT FROM `job_command`'s own reason constants for the
+# same reason `/lv`'s are: a hand-typed list said five when upstream had ten,
+# and the five that were missing inherited `no blocker recorded` in silence.
+# A reason added in `job_command.py` therefore arrives here with a sentence or
+# turns the coverage test red; it cannot arrive mute.
+_JOB_BLOCKERS = {
+    job_command.REFUSED_ARGS_SHAPE: (
+        "job got something other than one plain word as its argument"
+    ),
+    job_command.REFUSED_NOT_AN_INTEGER: (
+        "job takes a whole number; nothing was written"
+    ),
+    job_command.REFUSED_NOT_A_CLASS_ID: (
+        "that is not one of the five class ids (they are a bitmask, not"
+        " 1..5); nothing was written"
+    ),
+    job_command.REFUSED_NO_CHARACTER: (
+        "this connection has no selected character to set a class on"
+    ),
+    job_command.REFUSED_NO_STORE: (
+        "this session has no store to write a class to"
+    ),
+    job_command.REFUSED_ROW_MISSING: (
+        "the selected character has no live row; nothing was written"
+    ),
+    job_command.REFUSED_WRITE_FAILED: (
+        "the store refused the class write; see the audit row for the"
+        " exception type"
+    ),
+    job_command.REFUSED_READBACK_MISMATCH: (
+        "the row read back a different class than the one asked for"
+    ),
+    job_command.REFUSED_NO_COLUMN: (
+        "the typed-attribute map no longer serves the class field; nothing"
+        " was written"
+    ),
+    job_command.REFUSED_LOGIN_WOULD_NOT_SEND: (
+        "the row took the class but reading it back through the door the"
+        " login itself reads did not return it, so the next login would"
+        " send the composer's constant"
+    ),
+}
+# THE ONE REFUSAL THAT WROTE SOMETHING FIRST CARRIES A REPAIR SUFFIX, and the
+# suffix changes what the tester must do next -- so each variant gets its own
+# sentence rather than sharing the bare reason's.  Built by product rather
+# than typed out, exactly as `/lv`'s pair is.
+for _job_repairable in (
+    job_command.REFUSED_READBACK_MISMATCH,
+    job_command.REFUSED_LOGIN_WOULD_NOT_SEND,
+):
+    _JOB_BLOCKERS[f"{_job_repairable}{job_command.REPAIRED_SUFFIX}"] = (
+        f"{_JOB_BLOCKERS[_job_repairable]}; the previous class was put back"
+    )
+    _JOB_BLOCKERS[f"{_job_repairable}{job_command.REPAIR_FAILED_SUFFIX}"] = (
+        f"{_JOB_BLOCKERS[_job_repairable]}; putting the previous class back"
+        " FAILED -- treat the row as UNKNOWN"
+    )
+del _job_repairable
+for _job_reason, _job_sentence in _JOB_BLOCKERS.items():
+    _NO_BYTES_BLOCKERS_SOURCE[f"{OUTCOME_JOB_REFUSED_PREFIX}{_job_reason}"] = (
+        _job_sentence
+    )
+_NO_BYTES_BLOCKERS_SOURCE[OUTCOME_JOB_WITHHELD_CANONICAL_DB] = (
+    "job writes a row, and this process is on the canonical database; boot"
+    " a run copy (--db) and type it again"
+)
+del _job_reason, _job_sentence
+
+# `/skill all`'s blockers.  Same construction, same rule.
+_SKILL_BLOCKERS = {
+    skill_all_command.REFUSED_ARGS_SHAPE: (
+        "skill got something other than one plain word as its argument"
+    ),
+    skill_all_command.REFUSED_UNKNOWN_SUBCOMMAND: (
+        "skill has only the `all` form today; nothing was written"
+    ),
+    skill_all_command.REFUSED_NO_CHARACTER: (
+        "this connection has no selected character to grant skills to"
+    ),
+    skill_all_command.REFUSED_NO_STORE: (
+        "this session has no store to grant skills through"
+    ),
+    skill_all_command.REFUSED_ROW_MISSING: (
+        "the selected character has no live row; the grant stopped there"
+    ),
+    skill_all_command.REFUSED_CANNOT_READ_CURRENT_SKILLS: (
+        "this session's store cannot say which skills the character already"
+        " holds, so no countable answer could be given; nothing was written"
+    ),
+    skill_all_command.REFUSED_NOTHING_GRANTED: (
+        "not one skill id could be written and none was already held; see"
+        " the audit row for the first exception type"
+    ),
+}
+for _skill_reason, _skill_sentence in _SKILL_BLOCKERS.items():
+    _NO_BYTES_BLOCKERS_SOURCE[
+        f"{OUTCOME_SKILL_REFUSED_PREFIX}{_skill_reason}"
+    ] = _skill_sentence
+_NO_BYTES_BLOCKERS_SOURCE[OUTCOME_SKILL_WITHHELD_CANONICAL_DB] = (
+    "skill all writes rows, and this process is on the canonical database;"
+    " boot a run copy (--db) and type it again"
+)
+del _skill_reason, _skill_sentence
 
 NO_BYTES_BLOCKERS = MappingProxyType(_NO_BYTES_BLOCKERS_SOURCE)
 
@@ -2589,23 +2736,30 @@ def make_gm_chat_command_action(
     list, exactly like `gm_state_action` -- or None, which means "this frame
     is not ours; behave exactly as the server did before this lane existed".
 
-    !! AN ACTION IS NOT ALWAYS A COMMAND.  SIX of the labels this can return
+    !! AN ACTION IS NOT ALWAYS A COMMAND.  TEN of the labels this can return
     are ON-SCREEN NOTICES, and every one of them ends in
     `_NOTICE_ACTION_LABEL` -- which is the only reason this sentence can be
     checked rather than believed.  ~~"Two of the labels"~~ struck LANE-GM
     round `2rk98y`: it was written when there were two, `/lv` made it four,
-    `staged` five and the staged `/warp` six, and it stayed at "two" through
-    all of them (pf-adversary round `0w9jhq`, D7).  A number typed into
+    `staged` five, the staged `/warp` six, and `/job` + `/skill all` ten
+    (LANE-GM round `wv0fpe`), and it stayed at "two" through the first four
+    of those (pf-adversary round `0w9jhq`, D7).  A number typed into
     prose drifts silently, so `tests/test_gm_chat_command_action.py`
     ::NoticeLabelCountTests now reads THIS docstring and the module's own
     labels and refuses the day they disagree.
 
-    Two of the six are about a command that did NOT run -- a refused
+    Two of the ten are about a command that did NOT run -- a refused
     `/speed` (`SPEED_DENIED_NOTICE_ACTION_LABEL`, COO-DECISION `0345`) and a
     MISTYPED command of any name (`TYPO_REFUSED_NOTICE_ACTION_LABEL`,
-    COO-DECISION `0647`).  The other four report a command that DID run and
-    put no frame of its own on the wire (`/lv` set or refused, `staged`'s
-    readback, and the staged cross-scene `/warp`).  The caller appends them
+    COO-DECISION `0647`).  The other eight report a command that DID run and
+    put no frame of its own on the wire (`/lv` set or refused, `/job` set or
+    refused, `/skill all` granted or refused, `staged`'s readback, and the
+    staged cross-scene `/warp`).  The four `/job` and `/skill` labels sit on
+    the DID-run side of that split with `/lv`'s pair and not with `/speed`'s
+    denial, and the reason is the one the split is drawn on: those two
+    commands reach their own dispatch handler, write (or decline to write)
+    their own rows and audit their own outcome, while a denied `/speed` and
+    a typo are turned away before any handler runs.  The caller appends them
     the same way; nothing at the call site changes.  It is said here because
     "an action came back" stopped meaning "the command ran" the day the
     first notice landed, and a reader of this docstring is exactly who would
@@ -2806,6 +2960,14 @@ def _make_action(
         # this round: it is no longer "parsed and audited with no proven
         # wire", it writes `characters.level` and the next login sends it.
         verdict = _lv_action(session, command, legacy, token=token)
+    elif command.name == "job":
+        # PANYA-ORDER 2026-09-08 section 2.2.  `job` was never in the `else`
+        # branch below -- it landed wired, writing `characters.class_id`, and
+        # the next login sends it.
+        verdict = _job_action(session, command, legacy, token=token)
+    elif command.name == "skill":
+        # PANYA-ORDER 2026-09-08 section 2.1, same footing as `job` above.
+        verdict = _skill_action(session, command, legacy, token=token)
     else:
         # Parsed and audited, but this lane has no proven server->client
         # wire for it yet.  Named, not silent: "nothing happened" and "we
@@ -4933,6 +5095,10 @@ NOTICE_TEXT_FOR_LABEL = MappingProxyType({
     TYPO_REFUSED_NOTICE_ACTION_LABEL: say_wire.TYPO_REFUSED_NOTICE_TEXT,
     LV_SET_NOTICE_ACTION_LABEL: say_wire.LV_SET_NOTICE_TEXT,
     LV_REFUSED_NOTICE_ACTION_LABEL: say_wire.LV_REFUSED_NOTICE_TEXT,
+    JOB_SET_NOTICE_ACTION_LABEL: say_wire.JOB_SET_NOTICE_TEXT,
+    JOB_REFUSED_NOTICE_ACTION_LABEL: say_wire.JOB_REFUSED_NOTICE_TEXT,
+    SKILL_ALL_NOTICE_ACTION_LABEL: say_wire.SKILL_ALL_NOTICE_TEXT,
+    SKILL_REFUSED_NOTICE_ACTION_LABEL: say_wire.SKILL_REFUSED_NOTICE_TEXT,
     # `STAGED_READBACK_NOTICE_ACTION_LABEL` IS DELIBERATELY ABSENT.  Every
     # value here is a CONSTANT sentence, and `staged`'s body is decided per
     # call (`SCENE 000278` names an id read from a config file), so any entry
@@ -6642,6 +6808,294 @@ def _lv_action(
         LV_SET_NOTICE_ACTION_LABEL,
         OUTCOME_LV_ROW_WRITTEN,
         level_command.undo(store, character_id, result.previous),
+    )
+
+
+def _job_notice(
+    session: object,
+    legacy: object,
+    text: str,
+    label: str,
+    outcome: str,
+    undo: object | None = None,
+) -> _Verdict:
+    """One `/job` verdict, with its on-screen sentence attached when it composes.
+
+    THE VERDICT IS THE PRODUCT, THE SENTENCE IS THE COURTESY, the posture
+    `_lv_notice` states and this copies rather than paraphrases: a notice that
+    cannot be composed is NAMED and dropped, never raised, because an on-screen
+    courtesy must not turn a decided outcome into
+    `gm_chat_action_unexpected_<Type>` on the listener thread.
+
+    `is_notice=True` ON BOTH BRANCHES, the success one included, for `/lv`'s
+    reason exactly: this command's effect is a DATABASE ROW, and the bytes
+    leaving here say so rather than carrying the effect.  Reporting
+    `is_notice=False` for the success would tell the two downstream readers
+    ("did the command's frame go out?") that a class frame reached the client,
+    which is the claim `GT-218` cost this lane the right to make.
+    """
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(legacy, text)
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(session, f"{EVENT_JOB_NOTICE_FAILED_PREFIX}{type(error).__name__}")
+        return _Verdict(None, outcome, undo, line_printed=True)
+    _note(session, f"{EVENT_JOB_NOTICE_COMPOSED_PREFIX}{label}")
+    return _Verdict(
+        (label, pc, frame, 0.0),
+        outcome,
+        undo,
+        line_printed=True,
+        is_notice=True,
+    )
+
+
+def _skill_notice(
+    session: object,
+    legacy: object,
+    text: str,
+    label: str,
+    outcome: str,
+    undo: object | None = None,
+) -> _Verdict:
+    """One `/skill all` verdict, with its sentence attached when it composes.
+
+    Same posture and same `is_notice=True` on both branches as `_job_notice`
+    above, for the same two reasons -- the effect is rows, and a dropped
+    courtesy may not become an exception on the listener thread.
+    """
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(legacy, text)
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(
+            session, f"{EVENT_SKILL_NOTICE_FAILED_PREFIX}{type(error).__name__}"
+        )
+        return _Verdict(None, outcome, undo, line_printed=True)
+    _note(session, f"{EVENT_SKILL_NOTICE_COMPOSED_PREFIX}{label}")
+    return _Verdict(
+        (label, pc, frame, 0.0),
+        outcome,
+        undo,
+        line_printed=True,
+        is_notice=True,
+    )
+
+
+def _print_job_line(session: object, token: str, line: str) -> None:
+    """One `GM_JOB` console line on STDERR.  Never alters dispatch.
+
+    STDERR, not stdout, for the incident `lane_hooks/__init__.py:117-123`
+    records (a stray token line inside a headless replay tool's JSON
+    artifact), and wrapped for the reason every printer here is wrapped: a
+    `None` stream or a stream that raises costs this line and nothing else.
+
+    NOTHING THE GM TYPED IS EVER PRINTED.  `line` is built by
+    `job_command.console_line` out of numbers this module validated and the
+    store read back -- never out of the raw chat text, which is the property
+    every printer in this module holds.
+    """
+    if sys.stderr is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        print(f"{line} account={token!r}", file=sys.stderr)
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _print_skill_line(session: object, token: str, line: str) -> None:
+    """One `GM_SKILL_ALL` console line on STDERR.  Never alters dispatch.
+
+    Same stream, same wrapping and same "nothing typed is ever printed" rule
+    as `_print_job_line` above.
+
+    THE TOKEN LEADS THE LINE, and the account trails it -- the opposite of
+    `_print_lv_line`'s order, deliberately.  PANYA-ORDER 2026-09-08 sections
+    2.1-2.2 spell these two lines as `GM_SKILL_ALL cid=... granted=...` and
+    `GM_JOB cid=... class_id_from=...`, and the owner's `HEADLESS_PROOF:`
+    block greps for a line STARTING with the token; a `GM_LV`-style prefix
+    ahead of it would leave those greps finding nothing while the line was
+    right there.
+    """
+    if sys.stderr is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        print(f"{line} account={token!r}", file=sys.stderr)
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _job_action(
+    session: object, command: object, legacy: object, *, token: str
+) -> _Verdict:
+    """One authorized `/job <class_id>` -> a `characters.class_id` row write.
+
+    PANYA-ORDER 2026-09-08 section 2.2.  The design, the refusals and the
+    reason no frame carrying a class ever leaves here are in
+    `gm/job_command.py`'s module docstring; this function is the dispatch
+    half only.
+
+    THE ORDER IS: argument -> canonical-DB gate -> write -> notice.  The gate
+    stands ABOVE the write and not beside it, because it is the only thing
+    between this command and `AGENTS.md` section 7's canonical-DB rule -- the
+    same load-bearing position it holds for `/lv` and `/speed`, whose helpers
+    this function reuses rather than re-implements.  Those helpers are still
+    named `_speed_db_*`: they ask a question about the PROCESS, not about a
+    command, and renaming them would touch `/speed`'s own pinned tests for no
+    gain.
+
+    IT MOVES NOBODY AND TELLS NOBODY ELSE.  One row, named by the id of the
+    character selected on THIS connection, and one sentence back down THIS
+    socket (`TWO_SESSIONS_SAME_SCENE`).
+    """
+    try:
+        class_id = job_command.parse_class_id(getattr(command, "args", None))
+    except job_command.JobArgumentError as error:
+        _note(session, f"{EVENT_JOB_REFUSED_PREFIX}{error.reason}")
+        _print_job_line(
+            session,
+            token,
+            f"{job_command.CONSOLE_TOKEN} REFUSED [{error.reason}]: "
+            f"{job_command.usage()}",
+        )
+        return _job_notice(
+            session,
+            legacy,
+            say_wire.JOB_REFUSED_NOTICE_TEXT,
+            JOB_REFUSED_NOTICE_ACTION_LABEL,
+            f"{OUTCOME_JOB_REFUSED_PREFIX}{error.reason}",
+        )
+
+    # THE GATE, BEFORE ANY WRITE.  It fails closed: a store path this lane
+    # cannot read counts as canonical (`_speed_db_is_canonical`'s own
+    # docstring), so the refusal below is what a test double gets too.
+    if _speed_db_is_canonical(session):
+        _note(session, EVENT_JOB_WITHHELD_CANONICAL_DB)
+        _print_job_line(
+            session,
+            token,
+            f"{job_command.CONSOLE_TOKEN} WITHHELD [canonical_db]: boot a run"
+            " copy (--db) to use /job",
+        )
+        return _job_notice(
+            session,
+            legacy,
+            say_wire.JOB_REFUSED_NOTICE_TEXT,
+            JOB_REFUSED_NOTICE_ACTION_LABEL,
+            OUTCOME_JOB_WITHHELD_CANONICAL_DB,
+        )
+
+    store = _speed_store(session)
+    character_id = _selected_speed_character_id(session)
+    result = job_command.write_class_id(store, character_id, class_id)
+    _print_job_line(session, token, job_command.console_line(result, character_id))
+    if not result.ok:
+        _note(session, f"{EVENT_JOB_REFUSED_PREFIX}{result.refusal}")
+        return _job_notice(
+            session,
+            legacy,
+            say_wire.JOB_REFUSED_NOTICE_TEXT,
+            JOB_REFUSED_NOTICE_ACTION_LABEL,
+            f"{OUTCOME_JOB_REFUSED_PREFIX}{result.refusal}",
+            # NO UNDO ON THIS BRANCH: the one refusal that CAN leave a value
+            # on disk repairs itself inside `job_command.write_class_id` and
+            # says in its own reason word whether the repair held.  An undo
+            # here would only ever run when the audit row failed to write
+            # (`_make_action`'s `if not audited`), which pf-adversary (round
+            # `l86bt4`, D6) measured is not the case this branch is about.
+        )
+    _note(session, EVENT_JOB_ROW_WRITTEN)
+    return _job_notice(
+        session,
+        legacy,
+        say_wire.JOB_SET_NOTICE_TEXT,
+        JOB_SET_NOTICE_ACTION_LABEL,
+        OUTCOME_JOB_ROW_WRITTEN,
+        job_command.undo(store, character_id, result.previous),
+    )
+
+
+def _skill_action(
+    session: object, command: object, legacy: object, *, token: str
+) -> _Verdict:
+    """One authorized `/skill all` -> `character_skills` rows.
+
+    PANYA-ORDER 2026-09-08 section 2.1.  The design and every refusal are in
+    `gm/skill_all_command.py`'s module docstring; this function is the
+    dispatch half only, and it is shaped exactly like `_job_action` above --
+    argument, canonical-DB gate, write, notice, in that order and for the same
+    reasons.
+
+    THE UNDO IT PASSES CANNOT DELETE A ROW, AND IS PASSED ANYWAY.
+    ~~"NO UNDO IS OFFERED, AND THAT IS A MEASURED CHOICE"~~ -- STRUCK
+    (pf-adversary round `wv0fpe`, D2).  The reasoning behind it was right
+    and the conclusion was wrong: there really is no deleter for
+    `character_skills` and this lane really may not add one, but
+    `_make_action` reads the ABSENCE of an undo as "the effect was dropped
+    with the audit row" and printed exactly that while every granted row sat
+    on disk.  `skill_all_command.undo` therefore returns a callable that
+    always answers `False`, the same shape `_speed_undo` uses for its own
+    "nothing to put back" case, which reaches the console as "the effect was
+    KEPT".  See that function's docstring for why no real deletion is
+    attempted.
+    """
+    try:
+        skill_all_command.parse_subcommand(getattr(command, "args", None))
+    except skill_all_command.SkillArgumentError as error:
+        _note(session, f"{EVENT_SKILL_REFUSED_PREFIX}{error.reason}")
+        _print_skill_line(
+            session,
+            token,
+            f"{skill_all_command.CONSOLE_TOKEN} REFUSED [{error.reason}]: "
+            f"{skill_all_command.usage()}",
+        )
+        return _skill_notice(
+            session,
+            legacy,
+            say_wire.SKILL_REFUSED_NOTICE_TEXT,
+            SKILL_REFUSED_NOTICE_ACTION_LABEL,
+            f"{OUTCOME_SKILL_REFUSED_PREFIX}{error.reason}",
+        )
+
+    if _speed_db_is_canonical(session):
+        _note(session, EVENT_SKILL_WITHHELD_CANONICAL_DB)
+        _print_skill_line(
+            session,
+            token,
+            f"{skill_all_command.CONSOLE_TOKEN} WITHHELD [canonical_db]: boot"
+            " a run copy (--db) to use /skill all",
+        )
+        return _skill_notice(
+            session,
+            legacy,
+            say_wire.SKILL_REFUSED_NOTICE_TEXT,
+            SKILL_REFUSED_NOTICE_ACTION_LABEL,
+            OUTCOME_SKILL_WITHHELD_CANONICAL_DB,
+        )
+
+    store = _speed_store(session)
+    character_id = _selected_speed_character_id(session)
+    result = skill_all_command.grant_all(store, character_id)
+    _print_skill_line(
+        session, token, skill_all_command.console_line(result, character_id)
+    )
+    if not result.ok:
+        _note(session, f"{EVENT_SKILL_REFUSED_PREFIX}{result.refusal}")
+        return _skill_notice(
+            session,
+            legacy,
+            say_wire.SKILL_REFUSED_NOTICE_TEXT,
+            SKILL_REFUSED_NOTICE_ACTION_LABEL,
+            f"{OUTCOME_SKILL_REFUSED_PREFIX}{result.refusal}",
+        )
+    _note(session, EVENT_SKILL_ROWS_WRITTEN)
+    return _skill_notice(
+        session,
+        legacy,
+        say_wire.SKILL_ALL_NOTICE_TEXT,
+        SKILL_ALL_NOTICE_ACTION_LABEL,
+        OUTCOME_SKILL_ROWS_WRITTEN,
+        skill_all_command.undo(store, character_id),
     )
 
 

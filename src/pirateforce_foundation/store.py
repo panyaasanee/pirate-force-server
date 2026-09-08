@@ -3515,6 +3515,132 @@ class SQLiteStore:
             ).fetchall()
         return tuple(r["skill_id"] for r in after)
 
+    def grant_gm_skills(
+        self, character_id: int, skill_ids: "tuple[int, ...] | list[int]"
+    ) -> tuple[int, ...]:
+        """Persist MANY skill ids a GM operator granted, in ONE transaction,
+        idempotently, and return every distinct skill id now on the row.
+
+        `pf_bridge/NOW.md` / `PANYA 20260908_1455` (restated by `1541`): a
+        skill practice ground on GM ACCOUNTS ONLY -- `/skill all` grants
+        every skill regardless of `n_LEVEL_LEARN`.  This lane's half of that
+        order is the row that survives the relog; the command itself is
+        LANE-GM's and this method has NO production caller yet.
+        `migrations/018_character_skills_gm_grant_source.sql` widens
+        `character_skills.source` to admit `'gm_grant'`, and this is the
+        only thing in the codebase that writes that value.
+
+        WHY A NEW DOOR RATHER THAN A LOOP OVER `grant_learned_skill`.  Two
+        reasons, and neither is style.  (1) PROVENANCE: an operator's grant
+        is not something the character learned, and writing it as
+        `'learned'` would put a false sentence in the owner's canonical
+        database -- the guess `COO-DECISION 20260901_1059` forbids.  (2)
+        ATOMICITY AND COST: `/skill all` is one operator action over
+        hundreds of ids; a loop would open hundreds of `BEGIN IMMEDIATE`
+        transactions, re-read the character's whole skill row after each
+        one (quadratic in the number of ids), and could be interrupted
+        halfway, leaving a character holding an arbitrary prefix of the
+        grant with nothing recording that the rest was meant to follow.
+        This door is one transaction: the operator's action lands whole or
+        not at all.
+
+        IDEMPOTENT, THE SAME WAY ITS TWO SIBLINGS ARE.  `INSERT OR IGNORE`
+        against the table's `UNIQUE(character_id, skill_id)` -- running
+        `/skill all` twice writes nothing the second time and raises
+        nothing, and a skill the character already owns as `'starting_kit'`
+        or `'learned'` KEEPS the provenance it has.  This door never
+        rewrites an existing row's `source`: `OR IGNORE`, deliberately not
+        `OR REPLACE`, for the reason `grant_starting_skills` records in its
+        own docstring (a replace re-mints the row with a new `id` and a new
+        `granted_at` and moves it to the end of the insertion order).
+
+        DUPLICATE IDS INSIDE ONE CALL ARE ACCEPTED, NOT REFUSED.  A caller
+        assembling "every skill" out of several client tables can hand the
+        same id twice; the second is the same fact, not a conflicting one,
+        and it is folded before any SQL runs (first occurrence wins the
+        insertion order).  An EMPTY sequence is still refused, matching
+        `grant_starting_skills` -- "grant nothing" is a caller bug, not a
+        no-op this door should absorb.
+
+        Returns every distinct skill id now on the row -- this call's own
+        ids plus anything already there -- read back INSIDE this method's
+        own transaction, ordered by insertion, the same read-after-write
+        discipline both siblings use.
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted, `TypeError` for a non-int/bool `character_id`, a
+        non-sequence `skill_ids`, or a non-int/bool id inside it, and
+        `ValueError` for an empty sequence or an id outside the u32 range
+        (`0..4294967295`, the raw client skill id range `migrations/
+        011_character_skills.sql` documents).  Raises `WriteLockTimeout`
+        instead of a raw `sqlite3.OperationalError` when the write lock
+        cannot be taken, matching `grant_learned_skill`.  Nothing is
+        written when anything is refused -- every id is validated before
+        the transaction opens.
+
+        NONCLAIMS.  This door does not decide WHICH ids "all skills" means
+        (`skill_catalog` carries eight ids, the starting kit, and this lane
+        does not own skill data); it does not check that an id exists in
+        any client table, because `011` stores the raw client id verbatim
+        and a GM sandbox is exactly where an id outside the shipped subset
+        is expected; and it does not gate on the caller being a GM -- the
+        account check belongs at the command site in `gm/`, which is not
+        this lane's zone.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if isinstance(skill_ids, (str, bytes)) or not isinstance(
+            skill_ids, (list, tuple)
+        ):
+            raise TypeError("skill_ids must be a list or tuple of int")
+        if not skill_ids:
+            raise ValueError("no skill ids to grant")
+        checked: list[int] = []
+        seen: set[int] = set()
+        for skill_id in skill_ids:
+            if isinstance(skill_id, bool) or not isinstance(skill_id, int):
+                raise TypeError("skill_id must be an int")
+            if not 0 <= skill_id <= 0xFFFFFFFF:
+                raise ValueError(
+                    "skill_id %d is outside the u32 range" % skill_id
+                )
+            if skill_id in seen:
+                continue
+            seen.add(skill_id)
+            checked.append(skill_id)
+        granted_at = _now()
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s GM skill grant within connect()'s "
+                    f"busy_timeout: {error}"
+                ) from error
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            db.executemany(
+                "INSERT OR IGNORE INTO character_skills"
+                "(character_id,skill_id,source,granted_at) VALUES (?,?,?,?)",
+                [
+                    (character_id, skill_id, "gm_grant", granted_at)
+                    for skill_id in checked
+                ],
+            )
+            after = db.execute(
+                "SELECT skill_id FROM character_skills "
+                "WHERE character_id=? ORDER BY id",
+                (character_id,),
+            ).fetchall()
+        return tuple(r["skill_id"] for r in after)
+
     def list_character_skills(self, character_id: int) -> tuple[int, ...]:
         """Every skill id ever granted to this character, oldest grant first.
 

@@ -137,6 +137,36 @@ COMMAND_USAGE = {
     # exist here.  The identity whose staging is read is the session's
     # authenticated `.token`, never anything in the payload.
     "staged": "staged",
+    # TWO OWNER-ORDERED GAMEPLAY COMMANDS, appended LAST for the fourth and
+    # fifth time and for the reason every comment above gives: growing this
+    # tuple at the end is a smaller drift than reordering anything already
+    # pinned ahead of it.  PANYA-ORDER 2026-09-08 ~14:5x (`pf_bridge/
+    # notes_to_chief/20260908_1455_KA1A-PANYA-ORDER-COO-gm-sandbox-skill-all-
+    # job-no-level-gate-class-weapons.md`), routed by `COO-DECISION
+    # 20260908_1541`: the owner wants a GM SKILL SANDBOX -- one character she
+    # can move between the five classes and hand every class's skills to,
+    # without rolling five characters and without levelling any of them.
+    #
+    # They are SIBLINGS OF `/lv`, deliberately: same grammar, same one-door
+    # allowlist (`chat_command.handle_local_talk_chat`'s identity check), same
+    # canonical-DB gate, same "the effect is a row and the screen moves on the
+    # next login" shape.  PANYA-ORDER section 3 item 1 forbids a second gate,
+    # and the way to obey that is to add no door here at all.
+    #
+    # `job`'s usage sentence NAMES THE FIVE VALUES rather than saying "a class
+    # id": they are a BITMASK (1, 2, 4, 16, 32 -- Gladiator, Paladin, Sniper,
+    # Necromancer, Sorcerer), NOT 1..5, so a human reading `job <class_id>`
+    # would type `3` and read the refusal as a bug.  The values are spelled
+    # here, once, and `gm/job_command.usage()` builds the same sentence from
+    # `class_catalog.CLASS_IDS` -- `tests/test_gm_job_command.py` fails if the
+    # two ever disagree, which is what keeps this literal honest.
+    "job": "job <1|2|4|16|32>",
+    # `skill` takes a WORD, not a flag, because the owner typed `/skill all`
+    # and the grammar keeps her spelling.  `all` is the only form today; a
+    # second one (`skill all raw`, the split PANYA-ORDER section 2.1 names as
+    # a LATER option if the 1024 bucket upsets the client) would be a second
+    # word here, never a silent change to what `all` means.
+    "skill": "skill all",
 }
 
 COMMAND_NAMES = tuple(COMMAND_USAGE)
@@ -322,12 +352,32 @@ OUTCOME_LV_ROW_WRITTEN = "lv_row_written"
 # reason it does for the two outcomes above -- no gameplay command ran.
 OUTCOME_STAGED_READBACK_ANSWERED = "staged_readback_answered"
 
+# `/job` (`gm/job_command.py`) and `/skill all` (`gm/skill_all_command.py`),
+# PANYA-ORDER 2026-09-08.  BOTH ARE `row_written` WORDS, minted for the same
+# reason `OUTCOME_LV_ROW_WRITTEN` was rather than reusing it: a reader of the
+# audit file asks WHICH row moved, and three commands sharing one word would
+# make `/job` indistinguishable from `/lv` in the one file that is supposed to
+# answer that.  `executed` stays False for both, exactly as it does for `/lv`:
+# a gameplay command did not execute, a row was written and the screen follows
+# on the next login.
+OUTCOME_JOB_ROW_WRITTEN = "job_row_written"
+
+# `/skill all` says ROWS, plural, and that is not a typo: one command writes up
+# to `class_skill_curriculum.SKILL_COUNT` rows, and a word saying "row" would
+# have a reader of a partial run looking for the single id that moved.  HOW
+# MANY moved is on the `GM_SKILL_ALL` console line, not in this word -- an
+# audit outcome is a fixed vocabulary value and a counted one could never be
+# matched by `AUDIT_OUTCOMES` below.
+OUTCOME_SKILL_ROWS_WRITTEN = "skill_rows_written"
+
 AUDIT_OUTCOMES = (
     OUTCOME_COMPOSED,
     OUTCOME_STAGED_LOGIN_SCENE,
     OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
     OUTCOME_LV_ROW_WRITTEN,
     OUTCOME_STAGED_READBACK_ANSWERED,
+    OUTCOME_JOB_ROW_WRITTEN,
+    OUTCOME_SKILL_ROWS_WRITTEN,
 )
 AUDIT_OUTCOME_PREFIXES = (OUTCOME_WITHHELD_PREFIX, OUTCOME_REFUSED_PREFIX)
 
@@ -426,6 +476,33 @@ def parse_gm_command(text: str) -> GmCommand:
         if len(args) != 1:
             raise GmCommandParseError(COMMAND_USAGE["lv"])
         _require_int(args[0], "n")
+        return GmCommand(name, tuple(args), stripped)
+
+    if name == "job":
+        # SAME SHAPE AS `lv` ABOVE, one token and an integer check, and the
+        # membership question (`is it one of the five?`) is deliberately NOT
+        # asked here -- it is asked at dispatch by `gm/job_command.
+        # parse_class_id`, the one place this lane's grammar and the class
+        # catalog are both in scope.  Same separation `warp`'s scene catalog
+        # keeps and `gmprobe`'s variant table keeps: a catalog membership
+        # check is decided downstream, never at parse time, so a catalog this
+        # module does not import cannot turn a grammar error into a catalog
+        # error or vice versa.
+        args = rest.split()
+        if len(args) != 1:
+            raise GmCommandParseError(COMMAND_USAGE["job"])
+        _require_int(args[0], "class_id")
+        return GmCommand(name, tuple(args), stripped)
+
+    if name == "skill":
+        # ONE WORD, and it is checked for SHAPE here and for MEANING at
+        # dispatch (`gm/skill_all_command.parse_subcommand`), the same split
+        # `job` above keeps.  `rest.split()` rather than `rest`, so
+        # `skill all   ` -- trailing spaces, which a chat client sends more
+        # often than not -- is the same command as `skill all`.
+        args = rest.split()
+        if len(args) != 1:
+            raise GmCommandParseError(COMMAND_USAGE["skill"])
         return GmCommand(name, tuple(args), stripped)
 
     if name == "spawn":
