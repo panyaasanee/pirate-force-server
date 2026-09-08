@@ -26,19 +26,34 @@ no chief round in between -- registers an answerer for one of the eight
 vital ids with ``register_answerer()``, and only then can a frame go back
 to the player.
 
-WHAT IT DOES ON THE DAY IT LANDS: NOTHING, AND THAT IS THE POINT.
-``_ANSWERERS`` ships EMPTY.  Every one of the eight frames therefore
-takes ``answer()``'s "no answerer" exit and gets ``[]`` back -- the same
-empty list, from the same branch, in the same order, after the same
-``rx_frames`` increment and the same ``lane_hooks.fire()`` (both of which
-stay in ``runtime.py``, above the call, untouched).  There is no flag to
-flip and no frame to see; a player cannot tell this landed.  That is what
-COO approved (route (b), ``pf_bridge/notes_to_chief/20260908_0142_COO-
-ROUND-0142-DECISIONS-*.md`` item 3, answering this lane's letter
+WHAT IT DID ON THE DAY IT LANDED, AND WHAT IT DOES NOW -- THESE ARE NOT
+THE SAME SENTENCE, AND THIS PARAGRAPH USED TO CLAIM THEY WERE.  The seam
+landed INERT: ``_ANSWERERS`` shipped empty, every one of the eight frames
+took ``answer()``'s "no answerer" exit, and a player could not tell it
+had landed.  That is what COO approved (route (b),
+``pf_bridge/notes_to_chief/20260908_0142_COO-ROUND-0142-DECISIONS-*.md``
+item 3, answering this lane's letter
 ``20260908_0031_LANE-UI-ASK-COO-eight-vitals-*``): the wiring lands
 inert, and the first real answer is a later, separate, reviewable change.
-``test_ui_dispatch.py`` pins the empty-registry answer for all eight ids
-against a mutant that returns anything else.
+
+That later change has happened -- twice.  ``lane_hooks``
+``lane_ui_party_invite_answer.py`` (round spdxy0) and
+``lane_ui_trade_invite_answer.py`` (round xqxadg) both ship
+``production_allowed = True``, so on a default flagless boot TWO of the
+eight ids answer with a real frame today and six still get ``[]``.  The
+line above stayed unedited for a whole round after that stopped being
+true, and pf-adversary (round xqxadg, D6) is what caught it: a header
+that describes the day a file landed, in the present tense, becomes a
+false statement about the system the first time somebody uses the file.
+Anything below that reads "ships empty" is history, not behaviour.
+
+``test_ui_dispatch.py``'s ``ShipsInertTests`` pins the EMPTY-registry
+answer for all eight ids -- and read what that is worth honestly: its
+isolation clears the process-global registry first, so it proves what
+``answer()`` does with no answerer registered.  It does NOT and cannot
+tell you how many lanes ship one (measured: a lane answering all eight
+leaves that file 100% green).  The count above is the docstring's claim,
+and the thing that keeps it true is a reader, not a test.
 
 FAIL-CLOSED IN EVERY DIRECTION, BECAUSE THE COST IS ASYMMETRIC.  What
 this seam can do wrong is put bytes on a socket a client parses; ``/warp
@@ -57,10 +72,34 @@ returned a well-formed action list" answers ``[]``:
 * the answerer returned anything this module cannot prove is a list of
   ``(label, pc, frame, delay)`` tuples in this project's shipped dispatch
   convention.  The whole batch is refused, not filtered: half a lane's
-  answer reaching the client is worse than none of it.
+  answer reaching the client is worse than none of it;
+* an action carries a label, an id or a byte count that
+  ``_OUTBOUND_FRAME_SHAPES`` -- the reviewed outbound registry this file
+  owns (COO-DECISION 20260908_1142 item 7, route (b)) -- does not name.
+  A lane with the flag set may answer, but only in a shape a human
+  reviewed into this file.
 
 ``BaseException`` (``SystemExit``, ``KeyboardInterrupt``) propagates, the
 same deliberate gap ``lane_hooks`` documents and for the same reason.
+
+WHAT IS STILL OPEN, NAMED HERE BECAUSE A RESIDUAL NOBODY WRITES DOWN IS
+A RESIDUAL NOBODY CLOSES (pf-adversary round vy1m79, D3).  Every table
+in this file -- ``_ANSWERERS``, ``_SESSION_ANSWERS_SENT``, the
+``_PROCESS_ANSWERS_SENT`` -- is module state, and a lane module
+runs inside this process.  One line in a lane file,
+``ui_dispatch._SESSION_ANSWERS_SENT.clear()``, hands every session a
+fresh allowance (measured: 500 answers under an allowance of 32), and
+``ui_dispatch._ANSWERERS[id] = ...`` is the same shape one level up --
+the attack this file's ownership check (round 1gc6hl, D-A) closed only
+for a forger borrowing the REVIEWED owner's name.  Neither is closable
+by a patch here: a module cannot hide state from code running inside
+its own interpreter, and every guard this file could add is one
+attribute assignment away from being removed.  What closes it is the
+seam owning registration outright -- ``lane_hooks._discover()`` writing
+the table from a lane's declared ``ANSWERS_VITAL_ID`` instead of a lane
+calling in -- which is CORE-REQUEST ``20260908_1553``, filed, not
+answered yet.  Until it is answered this is a REAL residual and is not
+described anywhere as closed.
 
 WHAT THIS FILE DOES NOT DO.  It does not decode a payload, does not know
 what any of the eight frames MEAN (letter ``20260904_1120`` nonclaim (2)
@@ -70,10 +109,12 @@ anything.  It moves exactly one thing: whether a return value is
 structurally possible.  Everything after that is a separate PR with its
 own evidence and its own GT ticket.
 """
+import collections
 import math
 import numbers
 import re
 import sys
+import weakref
 
 # NO ``from . import lane_hooks`` HERE (pf-adversary round 2, R4).
 # ``runtime.py`` imports this module at line 30 and ``lane_hooks`` at
@@ -122,6 +163,23 @@ import sys
 #   0x8183 delete mail                               (ui_mail_wire)
 #   0x3700 the eighth class, defined one module over, whose own name is
 #          on that guard's list -- see above
+_LANE_PACKAGE = "pirateforce_foundation.lane_hooks."
+
+
+def _is_discoverable_lane(name):
+    """Is ``name`` a module ``lane_hooks._discover()`` would import?
+
+    THE SAME RULE IN ONE PLACE.  ``_discover()`` imports only
+    ``lane_hooks/lane_*.py``, so those are the only modules that can
+    register on a production boot and the only ones with a
+    ``_PRODUCTION_ALLOWED`` entry to read.  ``_gating_module_names()``
+    learned this the hard way (round 4, D-E) and ``register_answerer()``'s
+    ownership check asks the same question, so the question is asked once.
+    """
+    if not isinstance(name, str) or not name.startswith(_LANE_PACKAGE):
+        return False
+    return name[len(_LANE_PACKAGE):].startswith("lane_")
+
 ANSWERABLE_VITAL_IDS = frozenset(
     (0x37B1, 0x2466, 0xB9E9, 0x98A1, 0x6E12, 0xAF60, 0x8183, 0x3700)
 )
@@ -129,6 +187,41 @@ ANSWERABLE_VITAL_IDS = frozenset(
 # vital_id -> (module_name, answerer). One answerer per id, by refusal:
 # see register_answerer().
 _ANSWERERS = {}
+
+# WHICH LANE MODULE MAY TAKE WHICH ID -- THE REVIEWED TABLE
+# (pf-adversary round xqxadg, D9).  Registration used to be first-wins,
+# and "first" was decided by ``pkgutil.iter_modules`` FILENAME ORDER: a
+# ``lane_hooks/lane_ui_aaa_party.py`` with ``production_allowed = True``
+# took ``0x37B1`` from the reviewed answerer beside it, answered the
+# player's party invite with its own bytes, and ``tests/
+# test_ui_dispatch.py`` stayed 100% green -- the incumbent-yield rule
+# above only rescues a GATED incumbent, and this thief is not gated.
+# Filename order is not a review, so it no longer decides anything: an
+# id named here may be taken ONLY by the module named beside it.
+#
+# THE SAME REVIEW UNIT AS ``_OUTBOUND_FRAME_SHAPES`` AND
+# ``_SESSION_VIEW_FIELDS``, for the same reason: adding a row is a diff
+# in THIS file, so "who decided this module may answer this button" has
+# a commit as its answer.  There is deliberately no register-your-own-
+# ownership call.
+#
+# WHAT IT DOES NOT COVER, SAID PLAINLY.  The rule binds registrars
+# INSIDE the lane package (``lane_hooks/lane_*.py`` -- the only files
+# ``_discover()`` imports, so the only ones that can register on a
+# production boot).  A test or a REPL registering from outside that
+# package is unaffected, because refusing those would make this file
+# untestable without also closing a route that cannot ship: nothing on
+# the boot path imports a non-lane module that registers, and
+# ``answer()``'s gate still demands a ``_PRODUCTION_ALLOWED`` entry,
+# which only ``_discover()`` writes and only for ``lane_*.py``.
+# An id with NO row here cannot be taken by a lane module at all: the
+# six ids nobody has written an answerer for stay unanswerable until a
+# row for them is reviewed into this file.
+_ANSWERER_OWNERS = {
+    0x37B1: _LANE_PACKAGE + "lane_ui_party_invite_answer",
+    0x3700: _LANE_PACKAGE + "lane_ui_trade_invite_answer",
+    0x2466: _LANE_PACKAGE + "lane_ui_party_cmd_answer",
+}
 
 
 def _say(line):
@@ -155,9 +248,6 @@ def _say(line):
         print(lane_hooks._console_safe(line), file=sys.stderr)
     except Exception:  # pragma: no cover - stderr itself is broken
         pass
-
-
-_LANE_PACKAGE = "pirateforce_foundation.lane_hooks."
 
 
 def _module_name_of_namespace(namespace):
@@ -229,9 +319,7 @@ def _gating_module_names(fn):
         # writing the flag INTO that file did not help, because nothing
         # imports it.  A module discovery cannot reach is not a lane whose
         # flag can be read, so it is not a lane this gate can judge.
-        if not isinstance(name, str) or not name.startswith(_LANE_PACKAGE):
-            return
-        if not name[len(_LANE_PACKAGE):].startswith("lane_"):
+        if not _is_discoverable_lane(name):
             return
         if name not in names:
             names.append(name)
@@ -301,6 +389,32 @@ def register_answerer(vital_id, fn):
             % (_hex(vital_id),)
         )
         return False
+    # THE REVIEWED OWNER, BEFORE ANY QUESTION OF WHO CAME FIRST
+    # (pf-adversary round xqxadg, D9).  ``_ANSWERER_OWNERS`` names the one
+    # lane module each answerable id belongs to; a lane-package registrar
+    # that is not that module is refused whether or not the id is free, so
+    # the winner of a race between two lane files is decided by this
+    # table's diff and never by ``pkgutil.iter_modules`` filename order.
+    # Registrars from outside the lane package are not judged here -- see
+    # the table's own note for why that is not a route to production.
+    if _is_discoverable_lane(module_name):
+        owner = _ANSWERER_OWNERS.get(vital_id)
+        owner_module = sys.modules.get(owner) if owner else None
+        # THE OWNER REGISTERED IT, OR THE OWNER'S OWN CALLABLE IS WHAT IS
+        # BEING REGISTERED.  The second clause keeps the legitimate case
+        # the D1 fix exists to protect -- a helper lane doing the wiring
+        # -- while still refusing a lane that wires a body nobody
+        # reviewed for this id.  What may NOT vary is whose code runs.
+        wires_the_owners_own = owner_module is not None and any(
+            value is fn for value in vars(owner_module).values()
+        )
+        if owner != module_name and not wires_the_owners_own:
+            _say(
+                "UI_DISPATCH_REGISTER_REFUSED id=%s reason=not_the_reviewed_owner"
+                " by=%s owner=%s"
+                % (_hex(vital_id), module_name, owner or "-")
+            )
+            return False
     if vital_id in _ANSWERERS:
         incumbent = _ANSWERERS[vital_id][0]
         # FIRST WINS -- BUT ONLY IF THE FIRST CAN ACTUALLY ANSWER
@@ -419,6 +533,238 @@ def clear_answerers():
 _SESSION_VIEW_FIELDS = ()
 
 
+# WHAT MUST BE TRUE OF THE SESSION BEFORE ANY ANSWERER RUNS
+# (pf-adversary round xqxadg, D7).  ``runtime.py``'s dispatch is one long
+# chain of ``if nested_id == ...`` branches, and the eight-vital branch
+# this seam hangs off is a branch of that chain like any other: it is
+# reached by the ID of the frame, NOT by where the session has got to.
+# Measured through the real ``state.dispatch()``: a connection that has
+# never sent LOGIN_VERIFY and never selected a character sent one
+# PartyInviteVital and got the answerer's frame back, and could repeat it
+# until the answerer's process-wide budget was spent -- after which the
+# button was silent for every logged-in player until the server was
+# restarted.  Two costs, one hole: bytes to a peer who never logged in,
+# and a denial of the button to everyone who did.
+#
+# THE PRECONDITION IS THE ONE ``runtime.py`` ALREADY USES for in-game
+# frames (``self.foundation.selected is None`` -- e.g.
+# ``_dispatch_item_move_capture``): a session holds a selected character
+# only after the login handshake, the character list and START_GAME_REQ
+# have all succeeded.  All eight of these vitals are buttons the shipped
+# client only draws in-game, so a frame carrying one before that point
+# is not an early press; it is a peer that did not come through the door.
+#
+# READ HERE, NOT IN ``runtime.py``, and not by widening
+# ``_SESSION_VIEW_FIELDS``: this is the seam's own admission check on the
+# object the seam is handed, and the answerer still gets the same empty
+# snapshot it gets today.  Fail-closed on anything unexpected -- a
+# session shape without the attribute, or a property that raises, answers
+# ``[]`` rather than guessing that it is logged in.
+_SESSION_IN_GAME_READS = ("foundation.selected",)
+
+
+def _session_is_in_game(session):
+    """Has this session actually reached in-game state?  Fail-closed."""
+    for path in _SESSION_IN_GAME_READS:
+        value = session
+        for part in path.split("."):
+            try:
+                value = getattr(value, part)
+            except Exception:
+                return False
+        if value is None:
+            return False
+    return True
+
+
+# WHOSE ALLOWANCE IS SPENT WHEN A BUTTON IS ANSWERED
+# (pf-adversary round 1gc6hl, D-B).  The two shipped answerers each kept
+# a PROCESS-WIDE counter, and the reason given for it was true but did
+# not follow: an answerer is handed no session identity, so a lane cannot
+# count per session.  The seam can.  Measured on the branch that shipped
+# the process-wide counter: session A, logged in correctly, answered 32
+# invites and then session B -- a different account, a different socket,
+# equally logged in -- got zero, and stayed at zero until the server was
+# restarted.  One ordinary player, pressing an ordinary button, silenced
+# the button for everybody.
+#
+# THE GUARD BELONGS WHERE THE SESSION IS VISIBLE, so it lives here and
+# the lanes no longer keep a counter at all.  What it bounds is what the
+# storm argument is actually about: a client that answers our answer with
+# the same vital would trade frames with us forever, and a storm runs
+# between the server and ONE socket.  A cap per session bounds that
+# exactly; a cap per process bounds it too, and bounds every other
+# session with it.
+#
+# COUNTED WHERE THE BATCH IS ACCEPTED, NOT WHERE THE FRAME ARRIVES (this
+# also pays D-F).  The charge happens once the batch has passed every
+# gate and is about to be returned -- one layer short of ``sendall``,
+# named rather than glossed (D7) -- and only for a batch that carries
+# actions.  So a refusal -- a wrong id, junk bytes, a
+# payload over the reviewed budget, a missing envelope, an answerer that
+# raised -- costs the session nothing, which is the property the lanes
+# used to try to buy by ordering their own checks and could not, because
+# the seam's own refusals happen after the lane has already counted.
+#
+# READ BEFORE THE ANSWERER RUNS, CHARGED AFTER IT SUCCEEDS: once the
+# allowance is spent the lane's code is not entered at all, the same
+# shape as the login door above.
+SESSION_ANSWER_BUDGET = 32
+
+# ``id(session)`` -> ``[weakref, {vital_id: answers_sent}]``.  Keyed by
+# IDENTITY, not by the session as a dict key: a ``WeakKeyDictionary``
+# would call the session class's own ``__hash__``/``__eq__``, and two
+# sessions that compare equal would then share one allowance -- which is
+# the very bug being fixed, reintroduced through the container.  The
+# weakref's callback drops the row when the session is collected, so a
+# long-lived server does not accumulate one entry per connection ever
+# made.  CPython runs that callback during the object's deallocation,
+# before its memory can be handed to a new object, so the id cannot
+# already belong to somebody else by the time the row goes.
+#
+# PER VITAL INSIDE THE SESSION, AND THAT IS NOT DECORATION (pf-adversary
+# round vy1m79, D1).  The first draft of this fix keyed on the session
+# alone, and the file that removed the old per-module counters asserted
+# in the same breath that "a storm on trade cannot silence party".
+# Measured through the real ``state.dispatch()``: it did.  32 trade
+# answers on one session, then the party button on that same session
+# returned nothing.  The property the two separate module counters used
+# to have is a property, not an accident, so it is kept explicitly here.
+_SESSION_ANSWERS_SENT = {}
+
+# THE CEILING THE OLD PER-MODULE COUNTERS ALSO BOUGHT (pf-adversary round
+# vy1m79, D2).  ``ANSWER_BUDGET = 32`` was per PROCESS, and its comment
+# said what it was for: "anything past that on one boot is a loop, not a
+# player".  A per-session allowance does not bound a loop that
+# RECONNECTS -- measured, four reconnects on one account produced 128
+# answer frames from one process where the old design allowed 32.  So the
+# process ceiling stays, at a number chosen to bound a runaway client
+# without letting one player reach it: 32 answers x 128 sessions.
+# [LANE-UI assumption - awaiting COO confirmation] the NUMBER is this
+# lane's judgement (letter filed this round); that there must BE one is
+# pf-adversary's measurement, not a judgement.
+#
+# PER VITAL, AND THAT WORD IS THE WHOLE POINT (pf-adversary round m54yxh,
+# D1).  The counter behind this number was one integer for the process,
+# shared by every session AND every vital -- so the arithmetic above was
+# only true while ONE vital could be answered.  Measured on the round
+# that added the third answerer: what one player could draw from the
+# shared pot went 64 -> 96, the sessions needed to exhaust it went
+# 64 -> 43, and after exhaustion a bystander who had pressed nothing got
+# nothing back, permanently, until a restart.  Every future answerer on
+# this seam would have taken another slice, and each could have said
+# truthfully that its own per-session allowance changed nothing.  So the
+# ceiling is kept PER VITAL ID: adding an answerer no longer shrinks the
+# pot the shipped ones share, and the comment above can be re-derived at
+# HEAD instead of describing the shape the file had two rounds ago.
+# WHAT IT STILL IS NOT: a per-account bound (one account may hold several
+# sessions) and not a promise that a determined crowd cannot exhaust ONE
+# vital's pot -- a pot with a ceiling can always be emptied.  What it now
+# refuses to do is let a new button quietly cost the old ones.
+PROCESS_ANSWER_BUDGET = 4096
+
+# vital_id -> answers sent for it since boot.  Never keyed by session:
+# that is _SESSION_ANSWERS_SENT's job, and this one has to survive the
+# session going away, which is the loop it exists to bound.
+_PROCESS_ANSWERS_SENT = {}
+
+
+def _drop_session_budget(key):
+    def _drop(_ref):
+        _SESSION_ANSWERS_SENT.pop(key, None)
+    return _drop
+
+
+def _session_row(session):
+    """This session's allowance row, created if new.  ``None`` = unbounded.
+
+    ``None`` means the seam cannot key this session at all, and every
+    caller treats that as a refusal.  The row is created HERE, at the
+    read, and not at the charge (pf-adversary round vy1m79, D5): the
+    first draft read a spend of 0 for a session it could not key, ran the
+    answerer in full on every frame, and threw the batch away on the last
+    line -- fail-closed on bytes and wide open on work.
+    """
+    key = id(session)
+    row = _SESSION_ANSWERS_SENT.get(key)
+    if row is not None:
+        return row
+    try:
+        ref = weakref.ref(session, _drop_session_budget(key))
+    except TypeError:
+        return None
+    row = [ref, {}]
+    _SESSION_ANSWERS_SENT[key] = row
+    return row
+
+
+def _session_answers_spent(session, vital_id):
+    """How many answers this session has been sent for ``vital_id``."""
+    row = _SESSION_ANSWERS_SENT.get(id(session))
+    if row is None:
+        return 0
+    return row[1].get(vital_id, 0)
+
+
+def _allowance_refusal(session, vital_id, count):
+    """Why ``count`` more answers may not be sent, or ``""``.
+
+    Read before the answerer runs with ``count`` of 1 -- an allowance
+    already spent must not run the lane's code at all -- and again at the
+    charge with the real batch size.
+    """
+    row = _session_row(session)
+    if row is None:
+        return "session_budget_unbounded"
+    if row[1].get(vital_id, 0) + count > SESSION_ANSWER_BUDGET:
+        return "session_budget_spent"
+    if (_PROCESS_ANSWERS_SENT.get(vital_id, 0) + count
+            > PROCESS_ANSWER_BUDGET):
+        return "process_budget_spent"
+    return ""
+
+
+def _charge_session_answer(session, vital_id, count):
+    """Spend ``count`` answers.  Returns "" when they were spent.
+
+    ``count`` is the SIZE OF THE BATCH, not one per call (pf-adversary
+    round vy1m79, D4): the first draft charged one whatever the answerer
+    returned, so an answerer returning eight actions per press put 256
+    frames on the socket against an allowance of 32.  The allowance is
+    about frames, so it counts frames.
+
+    The re-check here is not a duplicate of the pre-gate above: it is the
+    concurrency backstop.  Two threads dispatching for one session both
+    pass the read at ``answer()``'s gate and are serialised here, which is
+    what holds the cap at exactly ``SESSION_ANSWER_BUDGET`` under eight
+    threads (measured by pf-adversary, round vy1m79).
+    """
+    refusal = _allowance_refusal(session, vital_id, count)
+    if refusal:
+        return refusal
+    row = _SESSION_ANSWERS_SENT[id(session)]
+    row[1][vital_id] = row[1].get(vital_id, 0) + count
+    _PROCESS_ANSWERS_SENT[vital_id] = (
+        _PROCESS_ANSWERS_SENT.get(vital_id, 0) + count
+    )
+    return ""
+
+
+def reset_session_budgets_for_tests():
+    """Forget every session's spend.  Tests and arming proofs only.
+
+    NOT RE-EXPORTED BY ANY LANE MODULE (pf-adversary round vy1m79, D3).
+    Both answerers used to carry a ``reset_budget_for_tests()`` that
+    reset their own counter; delegating it here turned a helper in a
+    ``production_allowed = True`` module into a public switch that
+    clears the server's only storm guard for every session at once.  A
+    test that wants a clean allowance asks this module for it.
+    """
+    _SESSION_ANSWERS_SENT.clear()
+    _PROCESS_ANSWERS_SENT.clear()
+
+
+
 class _SessionSnapshot(tuple):
     """The allowlisted session fields, COPIED OUT. Holds no session.
 
@@ -472,6 +818,79 @@ class _SessionSnapshot(tuple):
             " edit to ui_dispatch.py (pf-adversary round 3 D2, round 4"
             " D-B)." % (name,)
         )
+
+
+_ReplyBase = collections.namedtuple(
+    "_ReplyBase", "label vital_id version payload delay"
+)
+
+
+class VitalReply(_ReplyBase):
+    """What an answerer returns when it wants a byte to reach the player.
+
+    WHY A DESCRIPTION AND NOT A FRAME.  Composing a frame needs the
+    envelope builder, which lives in the frozen v141 module, and this
+    file must not name that module (its containment test pins the
+    foundation modules allowed to spell that identifier to ``app.py``
+    and ``runtime.py``, and the comment above ``_SessionSnapshot``
+    already records that joining that set turned the suite red).  The
+    obvious workarounds are worse than the rule: handing the answerer
+    the session, or a closure over it, is not a boundary at all --
+    pf-adversary round 4 (D-B) walked five one-liners past exactly that
+    wrapper, and ``fn.__closure__[0].cell_contents`` walks past a
+    closure the same way.  A reference IS reach.
+
+    !! AND SO IS THE CALL STACK.  THIS SHAPE IS NOT A BOUNDARY, AND THE
+    SENTENCE THAT USED TO STAND HERE -- "the lane never holds the
+    runtime, never holds the envelope builder, and cannot choose a byte
+    outside the payload it hands over" -- IS FALSE.  pf-adversary
+    (round xqxadg, D1) measured it end to end through the real
+    ``state.dispatch()`` on a logged-in session: a lane file with
+    ``production_allowed = True``, registered by the real
+    ``_discover()``, ran
+
+        f = sys._getframe(1)          # ui_dispatch.answer()'s frame
+        live = f.f_locals["session"]  # the live session
+        env = f.f_locals["envelope"]  # the frozen v141 module
+
+    armed ``gm_warp_position_pending`` on the live session, built a
+    ``LogoutVital`` frame of its own with the envelope builder, and
+    returned ``[]`` -- under a green ``UI_DISPATCH_ACCEPTED`` token.
+    That is the round-3 D2 symptom reproduced verbatim with every
+    round-3 and round-4 fix installed, because ``answer()`` calls the
+    lane from a frame that holds both names and Python hands the callee
+    that frame.  Deleting the locals does not close it either: the
+    caller's frame in ``runtime.py`` holds the same objects one step
+    further up.
+
+    So read this class for what it IS: a way for a lane to describe a
+    reply without NEEDING the runtime, which keeps an honest lane honest
+    and keeps the composition reviewable in one place.  It is not a
+    sandbox, and no allowlist in this file can make it one -- closing
+    the reach means the lane must not run on the dispatch path at all
+    (a data-only queue drained after ``answer()`` returns, or another
+    process).  That is a design question filed for COO, not a docstring
+    promise.  What the rules below DO still buy, against an honest lane
+    and against a lane that only returns bad data, is real:
+
+    * ``vital_id`` must EQUAL the id of the frame being answered.  An
+      answerer registered for the party invite cannot reply as a
+      teleport, a login ack, or any of the other seven ids this branch
+      routes -- narrower than the registry alone, which only says who
+      may speak for an id, not what they may say.  RE-312 (pf_bridge
+      ``notes_to_chief/20260908_1038_*``) is what makes "same id" a
+      real answer rather than a limitation: all eight classes are
+      ``INBOUND_YES``, each with a live handler in vtable slot
+      ``+0x1C``, reached from the batch dispatcher at ``0x005F38B2``.
+    * ``version`` is the vital version byte, ``payload`` the nested
+      payload bytes, ``delay`` the same delay every action carries.
+
+    The composed ``(label, pc, frame, delay)`` then goes through
+    ``_actions_are_well_formed`` unchanged, so nothing this class adds
+    can skip a check that already existed.
+    """
+
+    __slots__ = ()
 
 
 LABEL_PREFIX = "UI_"
@@ -588,6 +1007,141 @@ def _hex(vital_id):
     return repr(vital_id)[:32]
 
 
+# THE OUTBOUND FRAME-SHAPE ALLOWLIST (COO-DECISION 20260908_1142 item 7,
+# route (b)).  The decision reads: what goes out must come from a
+# REVIEWED registry of frame shapes at ``answer()``'s send point, and the
+# PR that registers the first real answerer is the one that pays for it.
+# Route (b) landed the seam; the party answerer landed the first real
+# answerer; this is that bill.
+#
+# WHAT IT ADDS OVER EVERY CHECK ALREADY HERE.  ``_label_is_this_lanes_own``
+# says a name is well formed and belongs to no other consumer's
+# vocabulary.  ``_actions_are_well_formed`` says an action has the right
+# TYPES.  ``_compose`` says a reply may only answer the id it was sent.
+# None of the three says that THESE BYTES, under THIS NAME, answering
+# THIS id, are a shape a human reviewed.  Before this table, a lane with
+# ``production_allowed = True`` could return
+# ``("UI_ANYTHING_AT_ALL", b"..", b"..", 0.0)`` -- any label satisfying
+# the grammar, any bytes at all, of any length -- and the seam would put
+# it on the socket.  The registry closes that: an unlisted label leaves
+# nothing, and a listed one may only carry the id, the version and the
+# byte budget its entry names.
+#
+# THE ENTRIES ARE THE REVIEW UNIT.  Adding one is an edit to this file --
+# the same rule ``_SESSION_VIEW_FIELDS`` already lives by -- so the
+# question "who decided these bytes may reach a player" always has a
+# diff as its answer.  A lane cannot add an entry from its own module,
+# and there is deliberately no ``register_outbound_shape()``: a registry
+# a lane can write to is a registry that reviews nothing.
+#
+# THE NUMBERS.  ``versions`` is the vital version byte set; ``0`` is what
+# ``ui_party_wire``/``ui_trade_wire`` ship and their own headers mark it
+# an unproven default, so the set is exactly what is shipped and nothing
+# more.  ``max_payload_bytes`` 512: these two payloads are u8 + u64 +
+# tagged wstring, measured at 26 bytes for a five-character name, and 512
+# is far above any name the client can produce while still refusing a
+# lane that wants a listed label to carry a blob.  ``max_frame_bytes``
+# 1024: the envelope this project ships added 32 bytes to that 26-byte
+# payload (58 on the wire, the arming proof prints it), so 1024 bounds a
+# 512-byte payload with room to spare and still refuses a frame that is
+# not this shape at all.
+#
+# THE IDS ARE LITERALS, PINNED BY TEST, for the reason given above
+# ``ANSWERABLE_VITAL_IDS``: a comment cannot go stale unnoticed, so
+# ``tests/test_ui_dispatch.py`` imports ``ui_party_wire`` and
+# ``ui_trade_wire`` and compares these numbers against theirs.
+_OutboundShape = collections.namedtuple(
+    "_OutboundShape", "vital_id versions max_payload_bytes max_frame_bytes"
+)
+
+_OUTBOUND_FRAME_SHAPES = {
+    "UI_PARTY_INVITE_ANSWERED": _OutboundShape(
+        vital_id=0x37B1,
+        versions=frozenset((0,)),
+        max_payload_bytes=512,
+        max_frame_bytes=1024,
+    ),
+    "UI_TRADE_INVITE_ANSWERED": _OutboundShape(
+        vital_id=0x3700,
+        versions=frozenset((0,)),
+        max_payload_bytes=512,
+        max_frame_bytes=1024,
+    ),
+    # A FIXED-WIDTH CLASS GETS A FIXED WIDTH, NOT HEADROOM.
+    # ``PartyCmdVital`` is ``u8 + u64`` with no string, so every payload
+    # the lane can emit is exactly 11 bytes -- measured, and pinned from
+    # the encoder in ``tests/test_lane_ui_party_cmd_answer.py`` over
+    # 4,000 random field pairs.  The two rows above need 512 because a
+    # name makes their payload grow; this one does not, and headroom
+    # nobody needs is reach nobody reviewed, so the answerer requires
+    # EQUALITY against this number rather than treating it as a ceiling.
+    # ``max_frame_bytes`` 64 is deliberately NOT exact: the envelope
+    # around the payload is ``legacy.make_runtime_vitals``'s and not
+    # this lane's, it measured 43 bytes on this commit (the arming proof
+    # prints it), and pinning a number this file does not own would turn
+    # somebody else's envelope change into this button going silent.
+    # THE MEASUREMENT IS STILL TAKEN, ONE FILE OVER, AND THAT IS THE
+    # POINT (pf-adversary round m54yxh, D9): the test file asserts the
+    # frame is exactly 43 bytes, so an envelope change is caught -- as a
+    # RED TEST, which is a message to a person, instead of as a refusal,
+    # which is a dead button for a player.  The two places differ in
+    # where the breakage lands, and this row chooses the harmless one.
+    "UI_PARTY_CMD_ANSWERED": _OutboundShape(
+        vital_id=0x2466,
+        versions=frozenset((0,)),
+        max_payload_bytes=11,
+        max_frame_bytes=64,
+    ),
+}
+
+
+def outbound_shape(label):
+    """The reviewed outbound shape for ``label``, or ``None``.
+
+    ``type(label) is not str`` FIRST, not ``isinstance`` and not a bare
+    ``dict.get`` (the same lesson ``_label_is_this_lanes_own`` records).
+    A ``str`` subclass carries whatever ``__hash__`` and ``__eq__`` it
+    likes, so it can match a key here while telling every other consumer
+    it is something else -- and a lookup that can be lied to is not a
+    registry.  The exact-type check makes the key that matched the key
+    that everyone downstream sees.
+    """
+    if type(label) is not str:
+        return None
+    return _OUTBOUND_FRAME_SHAPES.get(label)
+
+
+def _outbound_shapes_are_registered(answered_id, actions):
+    """Is every action a shape this file's registry names for this id?
+
+    Runs at ``answer()``'s send point, AFTER ``_actions_are_well_formed``
+    -- so every action here is already a 4-tuple of the right types and
+    this function may read it without re-deriving that.  It applies to
+    EVERY action, whatever its origin: a composed ``VitalReply`` and a
+    plain 4-tuple an answerer built by hand face the same table.  Gating
+    only the composed half would be a gate with a door beside it.
+
+    ``answered_id`` is the id of the frame being answered, so a lane
+    cannot borrow a listed label to answer a different vital: the entry
+    names the id it belongs to, and this compares them.
+    """
+    for action in actions:
+        label, pc, frame, _delay = action
+        shape = outbound_shape(label)
+        if shape is None:
+            return False
+        if shape.vital_id != answered_id:
+            return False
+        # ``pc`` is the packet content the frame carries, so it is
+        # bounded by the frame budget too: a frame within budget whose
+        # pc is not is a shape this table does not describe.
+        if len(frame) > shape.max_frame_bytes:
+            return False
+        if len(pc) > shape.max_frame_bytes:
+            return False
+    return True
+
+
 def _actions_are_well_formed(actions):
     """Is ``actions`` a list/tuple of this project's action tuples?
 
@@ -661,7 +1215,95 @@ def _actions_are_well_formed(actions):
     return True
 
 
-def answer(session, vital_id, payload):
+def _compose(envelope, answered_id, item):
+    """One ``VitalReply`` -> one ``(label, pc, frame, delay)`` action.
+
+    Raises on every refusal so the caller's own ``except Exception``
+    (which already exists, and already fails the whole batch closed)
+    is the single place a bad reply dies.  Nothing here is filtered:
+    half a lane's answer reaching the client is worse than none of it,
+    the same rule the batch validator states.
+    """
+    if envelope is None:
+        raise ValueError(
+            "ui_dispatch was not given the envelope module; a VitalReply"
+            " cannot be composed and the batch is refused"
+        )
+    # EVERY FIELD READ EXACTLY ONCE, INTO A LOCAL.  ``VitalReply`` is a
+    # namedtuple, but a lane may subclass it and make a field a property
+    # -- and a field read twice (once to check, once to use) is a field
+    # that can return two different values.  The checks below therefore
+    # guard the SAME objects that go to the envelope builder.
+    label = item.label
+    vital_id = item.vital_id
+    version = item.version
+    payload = item.payload
+    delay = item.delay
+    # ``int`` EXACTLY, not ``==``.  ``!=`` runs the lane's own
+    # ``__eq__``, so an object that simply answers "equal" would satisfy
+    # the id rule and then be handed to the envelope builder itself --
+    # the same class of hole as the forged ``__module__`` the gate above
+    # was fixed for.  ``bool`` is an ``int`` and is refused with it.
+    if type(vital_id) is not int:
+        raise TypeError("VitalReply.vital_id must be an int")
+    if vital_id != answered_id:
+        raise ValueError(
+            "a VitalReply may only answer the id it was sent: got %s,"
+            " answering %s" % (_hex(vital_id), _hex(answered_id))
+        )
+    if type(version) is not int:
+        raise TypeError("VitalReply.version must be an int")
+    if not 0 <= version <= 0xFF:
+        raise ValueError("VitalReply.version is a single byte")
+    # ``bytes`` exactly, for the reason _actions_are_well_formed gives
+    # for ``pc``/``frame``: a bytearray is mutable after this check and a
+    # str would be encoded by somebody else's guess of a codec.
+    if type(payload) is not bytes:
+        raise TypeError("VitalReply.payload must be bytes")
+    # THE REVIEWED SHAPE, BEFORE THE ENVELOPE IS EVEN ASKED TO BUILD ONE
+    # (COO-DECISION 20260908_1142 item 7 route (b)).  ``version`` and
+    # ``payload`` are visible HERE and nowhere later: once the frame is
+    # built they are bytes inside it, and the send-point gate can only
+    # bound lengths.  So the half of the entry that describes the reply
+    # is spent here, on the same locals that go to the builder, and the
+    # half that describes what leaves is spent at the send point.
+    shape = outbound_shape(label)
+    if shape is None:
+        raise ValueError(
+            "no reviewed outbound frame shape is registered for label"
+            " %.64r; adding one is an edit to ui_dispatch.py"
+            % (label,)
+        )
+    if shape.vital_id != answered_id:
+        raise ValueError(
+            "label %.64r is registered for %s, not for %s"
+            % (label, _hex(shape.vital_id), _hex(answered_id))
+        )
+    if version not in shape.versions:
+        raise ValueError(
+            "version %d is not a reviewed version for label %.64r"
+            % (version, label)
+        )
+    if len(payload) > shape.max_payload_bytes:
+        raise ValueError(
+            "payload of %d bytes exceeds the reviewed budget %d for"
+            " label %.64r"
+            % (len(payload), shape.max_payload_bytes, label)
+        )
+    pc, frame = envelope.make_runtime_vitals([(vital_id, version, payload)])
+    # THE BUILDER'S OUTPUT IS CHECKED, NOT ASSUMED.  A payload inside
+    # budget whose frame is not says the shape in the table is not the
+    # shape being built, and the honest answer to that is to refuse.
+    if len(frame) > shape.max_frame_bytes:
+        raise ValueError(
+            "composed frame of %d bytes exceeds the reviewed budget %d"
+            " for label %.64r"
+            % (len(frame), shape.max_frame_bytes, label)
+        )
+    return (label, pc, frame, delay)
+
+
+def answer(session, vital_id, payload, envelope=None):
     """Answer one of the eight UI vitals, or return ``[]``.
 
     Called from ``runtime.py``'s ``_FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS``
@@ -669,10 +1311,17 @@ def answer(session, vital_id, payload):
     the frame and fired its report-only hook point.  Returns a list of
     ``(label, pc, frame, delay)`` actions for the dispatcher to send.
 
-    Returns ``[]`` -- today, on every frame, because ``_ANSWERERS`` ships
-    empty -- for every state described in this module's docstring.  The
-    list returned is always a NEW list this module owns, so a caller
-    extending it cannot reach back into an answerer's own object.
+    Returns ``[]`` -- for every state described in this module's
+    docstring.  The list returned is always a NEW list this module owns,
+    so a caller extending it cannot reach back into an answerer's own
+    object.
+
+    ``envelope`` is the module that owns ``make_runtime_vitals``, passed
+    down by ``runtime.py`` because this file may not name it (see
+    ``VitalReply``).  It is a keyword with a default so that every
+    caller which does not pass it -- a test, an older call site --
+    keeps the behaviour it has today: a ``VitalReply`` cannot be
+    composed without it, so the batch is REFUSED, not sent half-built.
     """
     entry = _ANSWERERS.get(vital_id)
     if entry is None:
@@ -705,6 +1354,72 @@ def answer(session, vital_id, payload):
                 % (_hex(vital_id), module_name, name)
             )
             return []
+    # AN ENTRY THAT CLAIMS THE REVIEWED OWNER'S NAME MUST BE THE REVIEWED
+    # OWNER'S CODE (pf-adversary round 1gc6hl, D-A).  `_ANSWERERS` is a
+    # module global and `register_answerer()` is not the only way into it:
+    # measured end to end through the real `state.dispatch()`, one line in
+    # a `production_allowed = False` lane --
+    # `ui_dispatch._ANSWERERS[0x37B1] = (VICTIM, (VICTIM,), forged)` --
+    # put a `TeleportVital` frame on the wire under the party label,
+    # printed `UI_DISPATCH_ACCEPTED module=<the victim>`, left the shipped
+    # answerer's budget untouched, and kept the whole suite and both
+    # arming proofs green.  Every check this file had asked about the
+    # NAMES STORED IN THE TUPLE, which the writer of the tuple chooses.
+    #
+    # So when the stored registrar IS the id's reviewed owner, the
+    # function is checked by IDENTITY against that module: the reviewed
+    # module has to be where this callable actually lives.  A name is
+    # copyable and `fn.__module__` is writable; being an attribute of an
+    # imported module object is neither.
+    #
+    # WHAT THIS DOES NOT CLOSE, MEASURED AND NAMED, NOT IMPLIED.  A
+    # forger who stores its OWN allowed lane name instead of the owner's
+    # is not caught here -- it is then answering under its own name, with
+    # its own flag, which is the case the gate above judges.  And nothing
+    # in a process can stop a lane that writes into the owner module's
+    # namespace.  The real question -- whether the unit of trust is a
+    # file, a module object, a function object or a dict entry -- is a
+    # COO letter this round, not a patch.
+    owner = _ANSWERER_OWNERS.get(vital_id)
+    if owner is not None and module_name == owner:
+        owner_module = sys.modules.get(owner)
+        if owner_module is None or not any(
+            value is fn for value in vars(owner_module).values()
+        ):
+            _say(
+                "UI_DISPATCH_GATED id=%s module=%s"
+                " reason=not_the_reviewed_owners_own_callable"
+                % (_hex(vital_id), module_name)
+            )
+            return []
+    # THE DOOR, BEFORE THE LANE'S CODE RUNS OR ITS BUDGET MOVES
+    # (pf-adversary round xqxadg, D7 -- see ``_SESSION_IN_GAME_READS``).
+    # Placed after the production gate so a closed lane still reports the
+    # reason it is closed, and before ``fn`` so an unauthenticated peer
+    # cannot reach an answerer at all -- not its bytes, and not its
+    # counter.
+    if not _session_is_in_game(session):
+        _say(
+            "UI_DISPATCH_GATED id=%s module=%s reason=not_in_game"
+            % (_hex(vital_id), module_name)
+        )
+        return []
+    # THIS SESSION'S OWN ALLOWANCE FOR THIS VITAL, READ BEFORE THE LANE'S
+    # CODE RUNS (pf-adversary round 1gc6hl D-B, round vy1m79 D1/D5 --
+    # see ``SESSION_ANSWER_BUDGET``).  Nothing is charged here, because a
+    # refusal must be free (D-F); what this decides is whether the lane
+    # runs at all.  A session the seam cannot key is refused HERE and not
+    # at the charge, or the answerer would do its whole decode /
+    # re-encode / compare on every frame forever and only the bytes would
+    # be stopped.
+    refusal = _allowance_refusal(session, vital_id, 1)
+    if refusal:
+        _say(
+            "UI_DISPATCH_GATED id=%s module=%s reason=%s"
+            " budget=%d" % (_hex(vital_id), module_name, refusal,
+                            SESSION_ANSWER_BUDGET)
+        )
+        return []
     try:
         actions = fn(
             session=_SessionSnapshot(session),
@@ -728,6 +1443,20 @@ def answer(session, vital_id, payload):
         # only settles the outer container.
         if type(actions) in (list, tuple):
             actions = list(actions)
+            # COMPOSE BEFORE VALIDATING, INSIDE THIS ``try``.  A
+            # ``VitalReply`` is this lane's own data; turning it into an
+            # action runs ``make_runtime_vitals`` on a payload the lane
+            # chose, so it belongs under the same handler that already
+            # catches an answerer raising -- not outside it, which is
+            # the D4 mistake one paragraph down.  A batch may mix
+            # composed replies with the plain 4-tuples answerers could
+            # already return; both shapes then face the SAME validator
+            # below, so nothing added here skips a check.
+            actions = [
+                _compose(envelope, vital_id, item)
+                if isinstance(item, VitalReply) else item
+                for item in actions
+            ]
         # AND THE CHECK ITSELF IS INSIDE THIS try (pf-adversary D4).  It
         # was outside, so an answerer supplying a ``Real`` whose
         # ``__float__`` raises escaped answer(), escaped dispatch(), and
@@ -756,6 +1485,38 @@ def answer(session, vital_id, payload):
             % (_hex(vital_id), module_name)
         )
         return []
+    # THE SEND POINT (COO-DECISION 20260908_1142 item 7 route (b)).  The
+    # whole batch dies on one unlisted action, for the reason ``_compose``
+    # already states: half a lane's answer reaching the client is worse
+    # than none of it.  This is deliberately the LAST gate before the
+    # return, so nothing that is composed, validated or copied after it
+    # can reintroduce a shape nobody reviewed.
+    if not _outbound_shapes_are_registered(vital_id, actions):
+        _say(
+            "UI_DISPATCH_ANSWER_REFUSED id=%s module=%s"
+            " reason=frame_shape_not_registered"
+            % (_hex(vital_id), module_name)
+        )
+        return []
+    # THE CHARGE, AND IT IS AT THE ACCEPT POINT -- NOT THE SEND POINT
+    # (pf-adversary round vy1m79, D7).  This comment said "send point",
+    # in the words the token six lines down abandoned for being one layer
+    # short of the wire: ``answer()`` returns to ``dispatch()``, which
+    # returns to the connection loop, which calls ``sendall``.  A batch
+    # that dies on ``SEND_FAILED`` therefore still spends, which is the
+    # behaviour we want for a storm guard -- the frames were built and
+    # handed over -- but it is not what "send point" means, so it no
+    # longer says it.  Only a batch that carries actions costs anything:
+    # an answerer returning ``[]`` is the ordinary "nothing for this
+    # payload" and must not spend a player's allowance.
+    if actions:
+        refusal = _charge_session_answer(session, vital_id, len(actions))
+        if refusal:
+            _say(
+                "UI_DISPATCH_ANSWER_REFUSED id=%s module=%s reason=%s"
+                % (_hex(vital_id), module_name, refusal)
+            )
+            return []
     # NAMED FOR WHAT IT MEASURES (pf-adversary round 3, D5).  This line
     # was ``UI_DISPATCH_ANSWERED``, and it fires here -- after the
     # validator liked the shape, BEFORE the dispatcher hands the batch to
@@ -767,7 +1528,8 @@ def answer(session, vital_id, payload):
     # as evidence that a button answered must not be one layer short of
     # the wire, so it says what it knows: the actions were ACCEPTED.
     _say(
-        "UI_DISPATCH_ACCEPTED id=%s module=%s actions=%d"
-        % (_hex(vital_id), module_name, len(actions))
+        "UI_DISPATCH_ACCEPTED id=%s module=%s actions=%d spent=%d/%d"
+        % (_hex(vital_id), module_name, len(actions),
+           _session_answers_spent(session, vital_id), SESSION_ANSWER_BUDGET)
     )
     return actions

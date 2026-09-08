@@ -16,14 +16,20 @@ What these tests prove
   * a character with no rows gets a refusal, never a count-0 frame;
   * the composed bytes are the GT-050-proven body and the frozen envelope,
     asserted by decoding them back with the owning module's own decoder;
-  * the module is not wired: ``callers_in_src=0`` is MEASURED here by grepping
-    every sibling module, so the token cannot go on saying it once it is false.
+  * ``callers_in_src`` is MEASURED here by grepping every sibling module, so
+    the token cannot go on saying a number once it is false.  It said 0 for
+    three rounds and says 1 since round `ixbs2f` wired the seam;
+  * and, since `ixbs2f`, that a REAL ``StartGameReq`` through the REAL
+    dispatcher comes back carrying the frame -- see the last class in this
+    file, which is the only kind of test that could have caught three rounds
+    of a green module nothing called.
 
 NOT tested here, because it is not claimed: that any client renders any of
 this (GT-249 says 3 of 4 ids rendered from a TRIGGER, never from a login);
 that a login is the right moment to send it; or that the movement regression
-GT-249 recorded is absent -- the attended ticket filed with this round asks
-exactly that, and ``production_allowed`` stays ``False`` until it answers.
+GT-249 recorded is absent.  ``GT-307`` is the attended ticket for all three,
+and `production_allowed` being True is not an answer to any of them -- it is
+a kill switch that an operator can put back, which is a different thing.
 """
 from __future__ import annotations
 
@@ -409,16 +415,36 @@ class TheComposedBytesAreTheProvenShapeTests(_Fixture):
         )
 
 
-class TheLaneIsNotWiredAndSaysSoTests(unittest.TestCase):
+class TheLaneIsWiredAndSaysSoTests(unittest.TestCase):
+    """Was `TheLaneIsNotWiredAndSaysSo...` until round `ixbs2f` wired it.
 
-    def test_production_allowed_is_false_while_the_regression_is_unisolated(
+    The three tests in here were written to go red on the day the seam
+    landed, and they did (all three, first run).  They are REWRITTEN, not
+    removed: each one still pins a fact, and the fact it pins is the one that
+    replaced the fact it used to pin.  A pin whose subject has changed and
+    that gets deleted instead of re-aimed is how a lane ends up with no pin
+    at all on the thing it just changed.
+    """
+
+    def test_production_allowed_is_true_and_the_flag_names_what_paid_for_it(
         self,
     ):
-        # GT-249 recorded a client that stopped emitting movement frames after
-        # this vital's sweep, cause never isolated.  Flipping this flag before
-        # an attended run says movement survives is the failure mode this
-        # test exists to make loud.
-        self.assertFalse(skill_list_at_login.production_allowed)
+        # GT-249 recorded a client that stopped emitting movement frames
+        # after this vital's sweep; while the cause was unisolated this
+        # asserted False, because flipping the flag before a measurement was
+        # the loud failure.  GT-276 (PASS, R323C) isolated it to the trailing
+        # u8, so the flag is True -- and the assertion moves to the thing
+        # that can now go wrong instead: True with nothing written down.
+        self.assertTrue(skill_list_at_login.production_allowed)
+        source = Path(
+            skill_list_at_login.__file__
+        ).read_text(encoding="utf-8")
+        head = source.split("production_allowed = True")[0]
+        # The comment BLOCK ABOVE the flag, not the file at large: a ticket
+        # id anywhere in a 900-line module would pass a whole-file search
+        # while the flag itself sat there unexplained.
+        self.assertIn("GT-276", head[-800:])
+        self.assertIn("R323C", head[-800:])
 
     def test_the_callers_in_src_token_matches_the_tree(self):
         summary = [
@@ -440,7 +466,11 @@ class TheLaneIsNotWiredAndSaysSoTests(unittest.TestCase):
         self.assertIn(
             "callers_in_src=%d" % len(callers), summary[0].split(),
         )
-        self.assertEqual([], callers, "callers appeared: %r" % (callers,))
+        # WAS `assertEqual([], callers)`.  The list is spelled out rather
+        # than counted so that a SECOND caller appearing -- a lane wiring
+        # this frame somewhere else without saying so -- goes red instead of
+        # quietly riding the count.
+        self.assertEqual(["runtime.py"], callers)
 
     def test_every_console_line_survives_the_bridge_console(self):
         for line in skill_list_at_login.describe_skill_list((111, 40000)):
@@ -986,13 +1016,30 @@ class AHookCanWireThisWithoutRuntimeChangingTests(unittest.TestCase):
             skill_list_at_login.seam_carrier(self.runtime, self.hooks),
         )
 
-    def test_the_live_tree_has_no_hook_carrier_today(self):
-        """Measured, not assumed: no lane_hooks module calls this today.
+    def test_the_live_tree_answers_runtime_and_the_call_is_really_there(self):
+        """Measured, not assumed: `runtime.py` CALLS the seam symbol today.
 
-        The day one does, this goes red and the round that wired it says so
-        out loud instead of shipping a token that reads `module_only`.
+        This asserted `module_only` until round `ixbs2f` wired the seam, and
+        went red on the first run after it -- which is the whole point of
+        reading the tree instead of a constant.  Re-aimed rather than
+        deleted, and with the second assertion added because `runtime` is a
+        three-state answer: `unknown` also comes back when the file cannot be
+        read or parsed, and this test would have passed on `unknown` if it
+        only asked "not module_only".
         """
-        self.assertEqual("module_only", skill_list_at_login.seam_carrier())
+        self.assertEqual("runtime", skill_list_at_login.seam_carrier())
+        runtime_source = (SRC / "runtime.py").read_text(encoding="utf-8")
+        tree = ast.parse(runtime_source)
+        calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(
+                node.func, "attr", getattr(node.func, "id", ""),
+            ) == skill_list_at_login.LOGIN_SEAM_SYMBOL
+        ]
+        # Exactly one: a second call site would mean two skill frames on one
+        # login, which is a thing no attended run has ever measured.
+        self.assertEqual(1, len(calls), "call sites: %d" % len(calls))
 
 
 class TheTokenReportsTheByteTheFrameCarriesTests(_Fixture):
@@ -1112,6 +1159,354 @@ class TheRouteRefusesAFrameThatWouldLockWalkingTests(_Fixture):
                     self.legacy, (99,),
                 )
         self.assertIn("0x01", str(caught.exception))
+
+class TheLoginPathActuallySendsItTests(unittest.TestCase):
+    """Round `ixbs2f`: the seam, driven through the REAL dispatcher.
+
+    Everything above this class tests the module in isolation, and the module
+    was already green for three rounds while both skill tabs stayed empty on a
+    real client -- because nothing called it.  These tests dispatch a genuine
+    ``StartGameReq`` and ask what came back, which is the only question that
+    could have caught that.
+
+    Shape borrowed, deliberately, from `tests/test_gm_login_state_guard.py`'s
+    `_login_and_start`: the GM frame beside this one is wired at the same
+    site, by the same rule, and two different harnesses for one code path is
+    how two lanes come to disagree about what a login does.
+
+    WHAT THESE CANNOT DO, stated rather than implied: no client is in the
+    room.  They prove the server composes the frame from the rows and hands
+    it to the dispatcher in a known position.  Whether the skill WINDOW fills
+    and whether the player can still walk afterwards is `GT-307`, attended,
+    and no assertion here is a substitute for it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+
+    def setUp(self):
+        from pirateforce_foundation import field_mobs
+        from pirateforce_foundation.legacy_bridge import LegacyProjector
+        from pirateforce_foundation.lifecycle import CharacterLifecycle
+        from pirateforce_foundation.runtime import make_state_class
+
+        self._make_state_class = make_state_class
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", MIGRATIONS,
+        )
+        self.store.migrate()
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+        field_mobs.load_roster()
+
+    def _login(self, token="skilluser"):
+        """Everything up to, but NOT including, the StartGameReq.
+
+        Split from the start so a test can change the world between the two
+        -- `CharacterLifecycle.login` needs the store it is being asked to
+        survive losing, so "no store" can only be staged after login.
+        """
+        state_type = self._make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(
+            state.foundation.account_id
+        )[-1]
+        return state, character
+
+    def _start(self, state, character):
+        return state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+
+    def _login_and_start(self, token="skilluser"):
+        state, character = self._login(token)
+        return state, self._start(state, character), character
+
+    def test_a_normal_login_carries_the_skill_frame(self):
+        state, actions, character = self._login_and_start()
+        by_label = {action[0]: action for action in actions}
+        self.assertIn("SKILL_LIST_AT_LOGIN", by_label)
+        _, pc, frame, delay = by_label["SKILL_LIST_AT_LOGIN"]
+        self.assertEqual(0.0, delay)
+        # The bytes are the composer's, byte for byte, off the SAME rows --
+        # not a second route built for the test.
+        rows = self.store.list_character_skills(character.id)
+        expected_pc, expected_frame = (
+            skill_list_at_login.make_skill_list_response(self.legacy, rows)
+        )
+        self.assertEqual(expected_pc, pc)
+        self.assertEqual(expected_frame, frame)
+        # A FIXED event name, not one with the byte count baked into it:
+        # pf-adversary D8 pointed out that the same commit arguing for
+        # `.reason` over `args[0]` (because other lanes match this list by
+        # equality) then put a varying number in the name.  The count is on
+        # the console line instead, where a varying number belongs.
+        self.assertIn("skill_list_at_login_sent", state.events)
+
+    def test_the_byte_that_locks_walking_is_zero_on_what_the_login_sent(self):
+        """R323C: trailing u8 == 1 locks walking, == 0 walks.
+
+        Measured off the pc the DISPATCHER handed out, decoded through the
+        module's own `measured_trailing_byte`.  Reading the constant here
+        instead would test that a constant equals itself.
+        """
+        _state, actions, character = self._login_and_start()
+        by_label = {action[0]: action for action in actions}
+        pc = by_label["SKILL_LIST_AT_LOGIN"][1]
+        rows = self.store.list_character_skills(character.id)
+        self.assertEqual(
+            0, skill_list_at_login.measured_trailing_byte(pc, len(rows)),
+        )
+
+    def test_it_rides_behind_start_game_and_the_teleport_never_in_front(self):
+        _state, actions, _character = self._login_and_start()
+        labels = [action[0] for action in actions]
+        self.assertEqual("SKILL_LIST_AT_LOGIN", labels[-1])
+        # Named, not just "last": the two frames whose bytes and order this
+        # seam promised not to disturb have to still BE there, in front.
+        start_game = [
+            index for index, label in enumerate(labels)
+            if "START_GAME" in label
+        ]
+        teleport = [
+            index for index, label in enumerate(labels) if "TELEPORT" in label
+        ]
+        self.assertTrue(start_game, "no START_GAME action at all: %r" % labels)
+        self.assertTrue(teleport, "no teleport action at all: %r" % labels)
+        self.assertLess(max(start_game), len(labels) - 1)
+        self.assertLess(max(teleport), len(labels) - 1)
+
+    def test_the_frame_follows_the_rows_and_not_the_class_table(self):
+        """Move the ROWS; the login frame has to move with them.
+
+        This is the assertion the whole order rests on (COO-DECISION
+        `20260908_1541`, and the module's own header): the ids on the wire
+        are THIS CHARACTER's persisted rows, so a grant or a revoke shows up
+        at the next login.  The substituted ids are deliberately ones the
+        class table does not contain -- a seam that read
+        `class_catalog.starting_skill_ids` would pass every other test in
+        this class and fail this one, and would fail it with the CLASS ids
+        in the frame rather than with a length mismatch that could be
+        anything.
+        """
+        state, character = self._login()
+        rows = self.store.list_character_skills(character.id)
+        self.assertEqual((111, 40000, 99, 110), rows)
+        substitute = (777, 778)
+        self.assertFalse(
+            set(substitute) & set(starting_skill_ids(1)),
+            "the substitute ids have to be absent from the class table",
+        )
+        with mock.patch.object(
+            SQLiteStore, "list_character_skills",
+            lambda self, cid: substitute,
+        ):
+            actions = self._start(state, character)
+        frame = {a[0]: a for a in actions}["SKILL_LIST_AT_LOGIN"][2]
+        expected_pc, expected_frame = (
+            skill_list_at_login.make_skill_list_response(
+                self.legacy, substitute,
+            )
+        )
+        self.assertEqual(expected_frame, frame)
+        # And not the class ids, said as its own assertion rather than
+        # inferred from the equality above.
+        class_pc, class_frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, rows,
+        )
+        self.assertNotEqual(class_frame, frame)
+
+    def test_a_character_with_no_rows_gets_no_frame_and_a_named_event(self):
+        """The refusal path, driven through the dispatcher.
+
+        `read_character_skill_ids` refuses an empty result BY NAME rather
+        than composing a count-0 frame (its docstring says why).  What this
+        adds is that the refusal reaches the login as a missing action and a
+        NAMED event -- not as an exception out of the listener thread, which
+        is what an uncaught one would be for every player on every login.
+
+        The event's exact spelling is asserted, and that caught a real one:
+        the seam appended `error.args[0]`, which is the human sentence, so
+        the event read `skill_list_at_login_refused_character 1 has no rows
+        in character_skills; sending a count-0 frame would assert an empty
+        skill list...` -- a paragraph, with spaces, in a list other lanes
+        match against by equality.
+        """
+        state, character = self._login()
+        with mock.patch.object(
+            SQLiteStore, "list_character_skills", lambda self, cid: (),
+        ):
+            actions = self._start(state, character)
+        self.assertNotIn(
+            "SKILL_LIST_AT_LOGIN", [action[0] for action in actions],
+        )
+        self.assertIn(
+            "skill_list_at_login_refused_%s"
+            % skill_list_at_login.REFUSE_NO_SKILL_ROWS,
+            state.events,
+        )
+
+    def test_the_flag_is_a_real_kill_switch_not_a_decoration(self):
+        """pf-adversary D1, paid in round `ixbs2f`.
+
+        The first draft flipped `production_allowed` to True and then never
+        read it: the seam called the module unconditionally, and the ONLY
+        consumer of that flag in the whole tree was a test asserting it was
+        True.  So an operator who watched players stop walking and set it
+        back to False would have changed nothing, and backing the frame out
+        would have meant editing `runtime.py` and redeploying.
+
+        That is not hypothetical for this frame in particular: the only
+        escape GT-249 ever recorded from its walk-lock was a relog, and a
+        relog is what re-sends this.  A feature whose failure mode is
+        "nobody can move" needs a switch that is not a code change.
+        """
+        state, character = self._login()
+        with mock.patch.object(
+            skill_list_at_login, "production_allowed", False,
+        ):
+            actions = self._start(state, character)
+        self.assertNotIn(
+            "SKILL_LIST_AT_LOGIN", [action[0] for action in actions],
+        )
+        self.assertIn(
+            "skill_list_at_login_withheld_not_production_allowed",
+            state.events,
+        )
+        # ...and the rest of the login is untouched: the switch withholds one
+        # frame, it does not break the login it rides on.
+        labels = [action[0] for action in actions]
+        self.assertTrue([x for x in labels if "START_GAME" in x], labels)
+        self.assertTrue([x for x in labels if "TELEPORT" in x], labels)
+
+    def test_a_store_error_costs_the_skill_frame_and_nothing_else(self):
+        """pf-adversary D4, paid in round `ixbs2f`, with adversary's own input.
+
+        The seam caught `SkillListAtLoginError` alone, on the module's
+        contract that it raises nothing else.  That contract covers what the
+        MODULE decides, not what the store does underneath it: adversary made
+        `list_character_skills` raise `sqlite3.OperationalError("database is
+        locked")` and watched it leave `dispatch()` entirely.  v141 wraps the
+        per-connection loop in try/finally with no except, so the thread
+        unwinds and the client parks on "connecting" -- and because the seam
+        runs BEFORE the action list is built, a locked database in the SKILL
+        LIST cost the player their START_GAME_RES and their teleport too.
+
+        The assertion that matters is the last two: the login SURVIVES.
+        """
+        state, character = self._login()
+
+        def locked(self, cid):
+            raise sqlite3.OperationalError("database is locked")
+
+        with mock.patch.object(SQLiteStore, "list_character_skills", locked):
+            actions = self._start(state, character)
+        self.assertNotIn(
+            "SKILL_LIST_AT_LOGIN", [action[0] for action in actions],
+        )
+        # Named by CLASS, so the operator gets a bug report and not an empty
+        # window with no explanation.
+        self.assertIn(
+            "skill_list_at_login_failed_OperationalError", state.events,
+        )
+        labels = [action[0] for action in actions]
+        self.assertTrue([x for x in labels if "START_GAME" in x], labels)
+        self.assertTrue([x for x in labels if "TELEPORT" in x], labels)
+
+    def test_every_branch_says_something_on_a_flagless_console(self):
+        """pf-adversary D3: events reach the console only under
+        `--export-events`, and this seam is on for the boot that does not
+        pass it.  A refusal used to be visible only as the ABSENCE of a line
+        the operator had to know to look for, while the write half printed
+        `CHARACTER_STARTING_SKILLS ... written` right next to it.
+
+        All three branches are driven, and each has to print.
+        """
+        cases = []
+        state, character = self._login("printuser1")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self._start(state, character)
+        cases.append(("sent", out.getvalue()))
+
+        state, character = self._login("printuser2")
+        with mock.patch.object(
+            SQLiteStore, "list_character_skills", lambda self, cid: (),
+        ), contextlib.redirect_stdout(io.StringIO()) as out:
+            self._start(state, character)
+        cases.append(("refused", out.getvalue()))
+
+        state, character = self._login("printuser3")
+        with mock.patch.object(
+            skill_list_at_login, "production_allowed", False,
+        ), contextlib.redirect_stdout(io.StringIO()) as out:
+            self._start(state, character)
+        cases.append(("withheld", out.getvalue()))
+
+        for name, printed in cases:
+            with self.subTest(branch=name):
+                lines = [
+                    line for line in printed.splitlines()
+                    if line.startswith("SKILL_LIST_AT_LOGIN ")
+                ]
+                self.assertEqual(1, len(lines), printed)
+                # cp874: the bridge console cannot carry anything else.
+                lines[0].encode("cp874")
+
+    def test_a_lifecycle_without_a_store_never_reaches_the_seam_at_all(self):
+        """Why the seam does NOT guard `lifecycle.store`, measured.
+
+        The seam first carried a `getattr(..., None)` and a named refusal for
+        a store-less lifecycle, copying session.py's defensive shape.  This
+        test was written to drive that refusal and could not: the login dies
+        two frames earlier, in `select_and_start` -> `lifecycle.select` ->
+        `store.select_character`, before the seam is reached.  So the guard
+        was removed, and this stayed -- pointing at the call that makes it
+        unnecessary.  If some future round moves the seam ABOVE
+        `select_and_start`, this goes green in a new way (no AttributeError,
+        or one raised from the seam's own line) and the guard has to come
+        back with it.
+        """
+        state, character = self._login()
+        del self.lifecycle.store
+        # Caught by hand, not with assertRaises: that context manager strips
+        # the traceback off the exception it hands back (to break reference
+        # cycles), and the traceback is the whole evidence here.
+        frames = []
+        try:
+            self._start(state, character)
+        except AttributeError as error:
+            self.assertIn("store", str(error))
+            traceback = error.__traceback__
+            while traceback is not None:
+                frames.append(traceback.tb_frame.f_code.co_name)
+                traceback = traceback.tb_next
+        else:                                # pragma: no cover - see below
+            self.fail(
+                "a store-less lifecycle now survives to the seam; the guard "
+                "removed in round `ixbs2f` has to come back"
+            )
+        self.assertIn("select_and_start", frames)
+        self.assertNotIn(
+            "login_skill_list_response", frames,
+            "the seam was reached after all: %r" % (frames,),
+        )
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

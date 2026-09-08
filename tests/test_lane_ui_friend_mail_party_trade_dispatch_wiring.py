@@ -181,8 +181,24 @@ class FriendMailPartyTradeDispatchWiringTests(unittest.TestCase):
                     actions = state.dispatch(self.legacy.parse_outer(
                         _synthetic_pc(self.legacy, vital_id, b"\x00\x01")
                     ))
+                # WHAT THIS ASSERTION IS WORTH, SAID OUT LOUD
+                # (pf-adversary round xqxadg, D4).  It used to read "this
+                # call site must send nothing back", and the shipped docs
+                # cited it as the proof that the seam is INERT.  That
+                # stopped being true the round a real answerer landed, and
+                # the assertion stayed green only because `b"\x00\x01"`
+                # is not a well-formed payload for any of the eight, so it
+                # never reaches an answerer at all.  Measured: swap in a
+                # well-formed party invite and this line fails with a real
+                # UI_PARTY_INVITE_ANSWERED action.  So the property this
+                # test owns is narrower than its old message claimed -- an
+                # UNDECODABLE payload is answered with nothing, on every
+                # one of the eight -- and that is what it now says.  What
+                # a well-formed payload does is pinned per class, in the
+                # answerer's own test file, where the answerer exists.
                 self.assertEqual(
-                    actions, [], "this call site must send nothing back",
+                    actions, [],
+                    "an undecodable payload must be answered with nothing",
                 )
                 self.assertEqual(
                     state.rx_frames, rx_before + 1,
