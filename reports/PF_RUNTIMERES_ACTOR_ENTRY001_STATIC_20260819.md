@@ -319,7 +319,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 29,
+  "src_vital_stream_call_sites": 31,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -1055,3 +1055,32 @@ count moved in the same change that added them, as this block's rule requires.
 
 No other census key moves: the module composes no actor entry and no
 remote-actor stream, and it passes no zero HP.
+
+## Round `spdxy0` (LANE-UI), 2026-09-08
+
+`src_vital_stream_call_sites` moves **29 -> 31**. Both new sites belong to the
+first answerer the eight-vital UI dispatch seam has ever had.
+
+`ui_dispatch.py`'s `_compose` is one of them, and where it sits is the point:
+a LANE-UI answerer returns a `VitalReply(label, vital_id, version, payload,
+delay)` -- data -- and the seam composes the carrier. The lane never holds the
+envelope builder and never holds the session, because a wrapper over a session
+is not a boundary (pf-adversary rounds 3 D2 and 4 D-B measured five one-liners
+walking past one) and neither is a closure over it. So the count records a call
+site that exists precisely so that eighteen `ui_*_wire.py` modules do not need
+one each.
+
+`ui_party_invite_answer_headless.py` is the other: the arming proof required
+by `NOW.md`'s `HEADLESS_PROOF:` rule. It boots the real dispatcher with no flag
+and no scenario, drives one real `PartyInviteVital`, and calls this carrier
+INDEPENDENTLY to build the frame it then compares the dispatcher's answer
+against -- a second construction, not a second sender.
+
+Unlike round `ebh143`'s two sites, one of these IS a live sender today:
+`runtime.py`'s `_FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS` branch returns what
+`ui_dispatch.answer()` returns, and `lane_hooks/lane_ui_party_invite_answer.py`
+ships `production_allowed = True`. What reaches the client is the player's own
+payload, re-encoded and refused unless byte-identical to what arrived.
+
+No other census key moves: neither module composes an actor entry or a
+remote-actor stream, and neither passes a zero HP.

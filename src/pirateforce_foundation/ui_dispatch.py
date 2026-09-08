@@ -720,24 +720,39 @@ def _compose(envelope, answered_id, item):
             "ui_dispatch was not given the envelope module; a VitalReply"
             " cannot be composed and the batch is refused"
         )
-    if item.vital_id != answered_id:
+    # EVERY FIELD READ EXACTLY ONCE, INTO A LOCAL.  ``VitalReply`` is a
+    # namedtuple, but a lane may subclass it and make a field a property
+    # -- and a field read twice (once to check, once to use) is a field
+    # that can return two different values.  The checks below therefore
+    # guard the SAME objects that go to the envelope builder.
+    label = item.label
+    vital_id = item.vital_id
+    version = item.version
+    payload = item.payload
+    delay = item.delay
+    # ``int`` EXACTLY, not ``==``.  ``!=`` runs the lane's own
+    # ``__eq__``, so an object that simply answers "equal" would satisfy
+    # the id rule and then be handed to the envelope builder itself --
+    # the same class of hole as the forged ``__module__`` the gate above
+    # was fixed for.  ``bool`` is an ``int`` and is refused with it.
+    if type(vital_id) is not int:
+        raise TypeError("VitalReply.vital_id must be an int")
+    if vital_id != answered_id:
         raise ValueError(
             "a VitalReply may only answer the id it was sent: got %s,"
-            " answering %s" % (_hex(item.vital_id), _hex(answered_id))
+            " answering %s" % (_hex(vital_id), _hex(answered_id))
         )
-    if isinstance(item.version, bool) or not isinstance(item.version, int):
+    if type(version) is not int:
         raise TypeError("VitalReply.version must be an int")
-    if not 0 <= item.version <= 0xFF:
+    if not 0 <= version <= 0xFF:
         raise ValueError("VitalReply.version is a single byte")
     # ``bytes`` exactly, for the reason _actions_are_well_formed gives
     # for ``pc``/``frame``: a bytearray is mutable after this check and a
     # str would be encoded by somebody else's guess of a codec.
-    if type(item.payload) is not bytes:
+    if type(payload) is not bytes:
         raise TypeError("VitalReply.payload must be bytes")
-    pc, frame = envelope.make_runtime_vitals(
-        [(item.vital_id, item.version, item.payload)]
-    )
-    return (item.label, pc, frame, item.delay)
+    pc, frame = envelope.make_runtime_vitals([(vital_id, version, payload)])
+    return (label, pc, frame, delay)
 
 
 def answer(session, vital_id, payload, envelope=None):

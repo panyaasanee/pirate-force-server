@@ -294,6 +294,54 @@ class SeamComposesTests(_AnswererRegistered):
                 ),
             )
 
+    def test_an_id_that_merely_claims_to_be_equal_is_refused(self):
+        # `!=` runs the lane's own `__eq__`.  An object that answers
+        # "equal" would pass the id rule and then be handed to the
+        # envelope builder itself, which is the forged-`__module__` hole
+        # in a new place.  The type check runs first, so it never gets
+        # to answer.
+        class SaysYes(int):
+            def __eq__(self, other):
+                return True
+
+            def __ne__(self, other):
+                return False
+
+            __hash__ = int.__hash__
+
+        with self.assertRaises(TypeError):
+            ui_dispatch._compose(
+                self.legacy, wire.PARTY_INVITE_VITAL_ID,
+                ui_dispatch.VitalReply(
+                    label="UI_X", vital_id=SaysYes(0xDEAD),
+                    version=0, payload=b"", delay=0.0,
+                ),
+            )
+
+    def test_a_field_that_changes_between_reads_cannot_be_used(self):
+        # A lane may subclass the namedtuple and make a field a property.
+        # `_compose` reads each field once into a local, so the bytes
+        # that were checked are the bytes that go out.
+        class Shifty(ui_dispatch.VitalReply):
+            _reads = 0
+
+            @property
+            def payload(self):
+                type(self)._reads += 1
+                return b"" if type(self)._reads == 1 else b"\xff" * 8
+
+        item = Shifty(
+            label="UI_X", vital_id=wire.PARTY_INVITE_VITAL_ID,
+            version=0, payload=b"", delay=0.0,
+        )
+        action = ui_dispatch._compose(
+            self.legacy, wire.PARTY_INVITE_VITAL_ID, item,
+        )
+        expected_pc, _ = self.legacy.make_runtime_vitals(
+            [(wire.PARTY_INVITE_VITAL_ID, 0, b"")]
+        )
+        self.assertEqual(action[1], expected_pc)
+
     def test_a_mutable_payload_is_refused_not_copied(self):
         # bytearray is mutable after the check; str would be encoded by
         # somebody else's guess of a codec.  Same rule the batch

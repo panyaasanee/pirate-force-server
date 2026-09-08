@@ -1294,8 +1294,16 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # no longer true of the path a player's hit takes, and this note is here
 # because a census that quietly changes MEANING stops being a census just as
 # surely as one that quietly widens (pf-adversary, round 9jrsei, D6).
-guard(SRC_VITAL_STREAM_SITES == 29,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 29 call sites")
+# 29 -> 31 (LANE-UI round spdxy0).  Two new call sites, both for the first
+# answerer the eight-vital UI dispatch seam has ever had: ui_dispatch.py's
+# _compose(), which is where a lane's VitalReply becomes a frame (the lane
+# itself never touches the carrier, which is the point of that shape), and
+# ui_party_invite_answer_headless.py, the arming proof that boots the real
+# dispatcher and compares the answered frame to one this carrier builds
+# independently.  Re-pinned in the same commit that added them, as this
+# guard's own standing test demands.
+guard(SRC_VITAL_STREAM_SITES == 31,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 31 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

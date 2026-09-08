@@ -52,7 +52,6 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:  # pragma: no cover - script entry
     sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import field_mobs
 from pirateforce_foundation import ui_party_wire as wire
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -93,7 +92,6 @@ def run() -> int:
             ),
             legacy.extract_avatar_attr_wire_from_actor,
         )
-        field_mobs.load_roster()
         state_type = make_state_class(legacy, lifecycle, projector)
         state = state_type("ui-party-armed")
         state.dispatch(legacy.parse_outer(
