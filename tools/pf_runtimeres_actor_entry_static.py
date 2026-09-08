@@ -1302,8 +1302,16 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # dispatcher and compares the answered frame to one this carrier builds
 # independently.  Re-pinned in the same commit that added them, as this
 # guard's own standing test demands.
-guard(SRC_VITAL_STREAM_SITES == 31,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 31 call sites")
+# 31 -> 32 (LANE-UI round xqxadg).  One new call site:
+# ui_trade_invite_answer_headless.py, the arming proof for the SECOND
+# answerer on that seam (TradeInviteVital 0x3700), which boots the real
+# dispatcher and compares the answered frame to one this carrier builds
+# independently -- the same shape as the party proof one round earlier.
+# The answerer module itself adds NO site: a lane returns a VitalReply and
+# ui_dispatch._compose() calls the carrier, which is exactly the property
+# that shape exists to keep.  Re-pinned in the same commit that added it.
+guard(SRC_VITAL_STREAM_SITES == 32,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 32 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

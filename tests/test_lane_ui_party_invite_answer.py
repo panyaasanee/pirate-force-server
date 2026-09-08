@@ -271,18 +271,30 @@ class SeamComposesTests(_AnswererRegistered):
                 ),
             )
 
-    def test_a_composed_reply_still_faces_the_label_check(self):
-        # Compose succeeds -- the label rule is not `_compose`'s job --
-        # and the action it produces is then refused by the same
-        # validator every answer already faced.
-        action = ui_dispatch._compose(
-            self.legacy, wire.PARTY_INVITE_VITAL_ID,
-            ui_dispatch.VitalReply(
-                label="UI_TELEPORT_NOW", vital_id=wire.PARTY_INVITE_VITAL_ID,
-                version=0, payload=b"", delay=0.0,
-            ),
+    def test_a_composed_reply_dies_at_both_gates_on_a_foreign_label(self):
+        # This test used to read "compose succeeds -- the label rule is
+        # not `_compose`'s job -- and the validator refuses what it
+        # built".  Half of that is no longer true: since COO-DECISION
+        # 20260908_1142 item 7 route (b), `_compose` refuses a label the
+        # outbound registry does not name, so a foreign label dies one
+        # gate EARLIER and no frame is ever built for it.
+        with self.assertRaises(ValueError):
+            ui_dispatch._compose(
+                self.legacy, wire.PARTY_INVITE_VITAL_ID,
+                ui_dispatch.VitalReply(
+                    label="UI_TELEPORT_NOW",
+                    vital_id=wire.PARTY_INVITE_VITAL_ID,
+                    version=0, payload=b"", delay=0.0,
+                ),
+            )
+        # And the gate it used to die at still refuses it, checked on a
+        # hand-built action: a new gate in front of an old one must not
+        # quietly become the reason the old one is never exercised.
+        self.assertFalse(
+            ui_dispatch._actions_are_well_formed(
+                [("UI_TELEPORT_NOW", b"\x01", b"\x02", 0.0)]
+            )
         )
-        self.assertFalse(ui_dispatch._actions_are_well_formed([action]))
 
     def test_a_version_outside_one_byte_is_refused(self):
         with self.assertRaises(ValueError):
@@ -331,7 +343,8 @@ class SeamComposesTests(_AnswererRegistered):
                 return b"" if type(self)._reads == 1 else b"\xff" * 8
 
         item = Shifty(
-            label="UI_X", vital_id=wire.PARTY_INVITE_VITAL_ID,
+            label="UI_PARTY_INVITE_ANSWERED",
+            vital_id=wire.PARTY_INVITE_VITAL_ID,
             version=0, payload=b"", delay=0.0,
         )
         action = ui_dispatch._compose(
@@ -433,9 +446,16 @@ class EndToEndThroughTheRealDispatcherTests(_AnswererRegistered):
             ))
         self.assertEqual(actions, [])
 
-    def test_the_other_seven_ids_are_unchanged_by_this_round(self):
-        # The registry holds ONE id.  Everything else in the branch must
-        # behave exactly as it did before this module existed.
+    def test_the_other_ids_are_unchanged_when_only_this_one_is_registered(
+        self,
+    ):
+        # This fixture installs exactly ONE registry entry (see
+        # `_AnswererRegistered`), so what this measures is that the seam
+        # answers only the id it was given an answerer for -- not that
+        # seven ids are unanswered in production.  As of the round that
+        # added `lane_ui_trade_invite_answer`, two of the eight are
+        # answered on a real boot, and the test that would go stale on
+        # that number is the one that must not be written here.
         for vital_id in sorted(ui_dispatch.ANSWERABLE_VITAL_IDS):
             if vital_id == wire.PARTY_INVITE_VITAL_ID:
                 continue

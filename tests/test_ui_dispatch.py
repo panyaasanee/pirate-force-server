@@ -342,7 +342,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         caller = self._lane_module(
             "lane_ui_zz_test_caller",
             "def answerer(session=None, vital_id=None, payload=None):\n"
-            "    return [('UI_ALLOWED_REPLY', b'\\x01',"
+            "    return [('UI_PARTY_INVITE_ANSWERED', b'\\x01',"
             " b'\\xde\\xad', 0.0)]\n",
             allowed=True,
         )
@@ -353,7 +353,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
                 ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""),
-                [("UI_ALLOWED_REPLY", b"\x01", b"\xde\xad", 0.0)],
+                [("UI_PARTY_INVITE_ANSWERED", b"\x01", b"\xde\xad", 0.0)],
             )
 
     def test_a_forged_fn_dunder_module_cannot_replace_the_registrar_gate(
@@ -451,7 +451,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         impl = self._lane_module(
             "ui_answer_impl_zz_test",
             "def answerer(session=None, vital_id=None, payload=None):\n"
-            "    return [('UI_GOOD_REPLY', b'\\x01', b'\\x02', 0.0)]\n",
+            "    return [('UI_PARTY_INVITE_ANSWERED', b'\\x01', b'\\x02', 0.0)]\n",
             allowed=False,
         )
         good = self._lane_module(
@@ -473,7 +473,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
                 ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""),
-                [("UI_GOOD_REPLY", b"\x01", b"\x02", 0.0)],
+                [("UI_PARTY_INVITE_ANSWERED", b"\x01", b"\x02", 0.0)],
             )
 
     def test_an_incumbent_yields_when_any_module_in_its_gate_is_closed(self):
@@ -658,7 +658,15 @@ class RoundThreeFindingsTests(_RegistryIsolation):
 
 
 class GateAndFailClosedTests(_RegistryIsolation):
-    ACTION = ("UI_TEST_ACTION", b"\x07\x07", b"\x01\x02", 0.0)
+    # THE LABEL IS A REGISTERED ONE, AND THAT IS THE POINT.  These tests
+    # used to carry invented labels (``UI_TEST_ACTION`` and friends).
+    # Since COO-DECISION 20260908_1142 item 7 route (b), an action only
+    # leaves ``answer()`` if ``_OUTBOUND_FRAME_SHAPES`` names its label
+    # for the id being answered -- so a test asserting that an allowed
+    # answerer's action REACHES the caller has to use a reviewed shape,
+    # exactly like a real lane.  ``UnregisteredOutboundShapeTests`` below
+    # pins the other half: an invented label leaves nothing.
+    ACTION = ("UI_PARTY_INVITE_ANSWERED", b"\x07\x07", b"\x01\x02", 0.0)
 
     def _register_returning(self, value):
         def answerer(session=None, vital_id=None, payload=None):
@@ -1081,7 +1089,7 @@ class ValidationOrderTests(_RegistryIsolation):
             def __trunc__(self): return 0
 
         holder = []
-        holder.append(("UI_LOOKS_FINE", b"\x01", b"\x02", Sneaky(holder)))
+        holder.append(("UI_PARTY_INVITE_ANSWERED", b"\x01", b"\x02", Sneaky(holder)))
 
         def answerer(session=None, vital_id=None, payload=None):
             return holder
@@ -1098,7 +1106,7 @@ class ValidationOrderTests(_RegistryIsolation):
         # where bytes must be, delay -99.0 -- never reaches the caller.
         self.assertNotIn(smuggled, actions)
         self.assertEqual(len(actions), 1)
-        self.assertEqual(actions[0][0], "UI_LOOKS_FINE")
+        self.assertEqual(actions[0][0], "UI_PARTY_INVITE_ANSWERED")
         self.assertEqual(actions[0][2], b"\x02")
         # And the lane really did rewrite the list it handed over, so this
         # test would fail on the draft rather than pass for lack of a try.
@@ -1307,7 +1315,7 @@ class GateIsKeyedOnTheRegistrarTests(_RegistryIsolation):
         # twice and a caching mutant survived. Close the gate between two
         # answers on the same registration.
         def answerer(session=None, vital_id=None, payload=None):
-            return [("UI_LIVE", b"\x01", b"\x02", 0.0)]
+            return [("UI_PARTY_INVITE_ANSWERED", b"\x01", b"\x02", 0.0)]
 
         ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
         self.allow()
@@ -1416,7 +1424,7 @@ class EndToEndThroughTheRealDispatcherTests(_RegistryIsolation):
 
         def answerer(session=None, vital_id=None, payload=None):
             seen.append(payload)
-            return [("UI_TEST_PARTY_INVITE_REPLY", b"\x03", b"\x11\x22", 0.0)]
+            return [("UI_PARTY_INVITE_ANSWERED", b"\x03", b"\x11\x22", 0.0)]
 
         ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
         self.allow(answerer)
@@ -1427,7 +1435,7 @@ class EndToEndThroughTheRealDispatcherTests(_RegistryIsolation):
                 _synthetic_pc(self.legacy, PARTY_INVITE_VITAL_ID, b"\x00\x01")
             ))
         self.assertEqual(
-            actions, [("UI_TEST_PARTY_INVITE_REPLY", b"\x03", b"\x11\x22", 0.0)],
+            actions, [("UI_PARTY_INVITE_ANSWERED", b"\x03", b"\x11\x22", 0.0)],
         )
         # The report-only hook above the call still ran, and the frame is
         # still counted: this seam replaced a `return []`, not the branch.
@@ -1448,6 +1456,181 @@ class EndToEndThroughTheRealDispatcherTests(_RegistryIsolation):
             ))
         self.assertEqual(actions, [])
         self.assertIn("UI_DISPATCH_ANSWER_ERR", stderr.getvalue())
+
+
+class UnregisteredOutboundShapeTests(_RegistryIsolation):
+    """The outbound frame-shape allowlist (COO 20260908_1142 item 7 (b)).
+
+    The decision this pays: what leaves ``answer()`` must come from a
+    REVIEWED registry of frame shapes, and the PR that registers the
+    first real answerer owes it.  What these tests pin is the half a
+    reader cannot check by eye -- that an allowed lane, past every gate
+    that already existed, still cannot put an unreviewed shape on the
+    socket.
+    """
+
+    GOOD = ("UI_PARTY_INVITE_ANSWERED", b"\x07\x07", b"\x01\x02", 0.0)
+
+    def _register_returning(self, value, vital_id=PARTY_INVITE_VITAL_ID):
+        def answerer(session=None, vital_id=None, payload=None):
+            return value
+
+        ui_dispatch.register_answerer(vital_id, answerer)
+        return answerer
+
+    def test_an_invented_label_leaves_nothing_even_from_an_allowed_lane(self):
+        # The label satisfies the grammar, carries no foreign substring,
+        # and the action is type-perfect -- everything the seam checked
+        # before this table existed.  It is refused because no human
+        # reviewed a shape under that name.
+        action = ("UI_SOMETHING_PLAUSIBLE", b"\x01", b"\x02", 0.0)
+        self.assertTrue(ui_dispatch._label_is_this_lanes_own(action[0]))
+        self.assertTrue(ui_dispatch._actions_are_well_formed([action]))
+        answerer = self._register_returning([action])
+        self.allow(answerer)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn("reason=frame_shape_not_registered", stderr.getvalue())
+
+    def test_a_registered_label_cannot_be_borrowed_for_another_id(self):
+        # The entry names the id it belongs to.  An answerer for the
+        # party COMMAND vital returning the party INVITE label is a lane
+        # speaking under a review that was not about it.
+        answerer = self._register_returning([self.GOOD], vital_id=0x2466)
+        self.allow(answerer)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(ui_dispatch.answer(object(), 0x2466, b""), [])
+        self.assertIn("reason=frame_shape_not_registered", stderr.getvalue())
+
+    def test_one_unlisted_action_refuses_the_whole_batch(self):
+        # Same rule the validator already states: half a lane's answer
+        # reaching the client is worse than none of it.
+        answerer = self._register_returning(
+            [self.GOOD, ("UI_UNLISTED_SECOND", b"\x01", b"\x02", 0.0)]
+        )
+        self.allow(answerer)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+
+    def test_a_frame_past_the_reviewed_budget_is_refused(self):
+        shape = ui_dispatch.outbound_shape("UI_PARTY_INVITE_ANSWERED")
+        big = (
+            "UI_PARTY_INVITE_ANSWERED", b"\x01",
+            b"\x00" * (shape.max_frame_bytes + 1), 0.0,
+        )
+        answerer = self._register_returning([big])
+        self.allow(answerer)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+
+    def test_a_frame_exactly_at_the_reviewed_budget_is_not_refused(self):
+        # The pair with the test above is what makes either of them mean
+        # anything: one byte over is refused, exactly at is not, so the
+        # test measures the budget rather than merely a large number.
+        shape = ui_dispatch.outbound_shape("UI_PARTY_INVITE_ANSWERED")
+        ok = (
+            "UI_PARTY_INVITE_ANSWERED", b"\x01",
+            b"\x00" * shape.max_frame_bytes, 0.0,
+        )
+        answerer = self._register_returning([ok])
+        self.allow(answerer)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""),
+                [ok],
+            )
+
+    def test_a_pc_past_the_reviewed_budget_is_refused(self):
+        shape = ui_dispatch.outbound_shape("UI_PARTY_INVITE_ANSWERED")
+        action = (
+            "UI_PARTY_INVITE_ANSWERED",
+            b"\x00" * (shape.max_frame_bytes + 1), b"\x02", 0.0,
+        )
+        answerer = self._register_returning([action])
+        self.allow(answerer)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+
+    def test_a_lying_str_subclass_does_not_match_a_registry_key(self):
+        # A `str` subclass carries whatever __hash__/__eq__ it likes, so
+        # a bare dict lookup can be told it is a registered label while
+        # every consumer downstream sees something else.  The exact-type
+        # check is what makes the key that matched the key everyone sees.
+        class Liar(str):
+            def __hash__(self):
+                return hash("UI_PARTY_INVITE_ANSWERED")
+
+            def __eq__(self, other):
+                return True
+
+        liar = Liar("UI_ANYTHING_I_LIKE")
+        self.assertEqual(
+            ui_dispatch._OUTBOUND_FRAME_SHAPES.get(liar),
+            ui_dispatch._OUTBOUND_FRAME_SHAPES["UI_PARTY_INVITE_ANSWERED"],
+        )
+        self.assertIsNone(ui_dispatch.outbound_shape(liar))
+        answerer = self._register_returning(
+            [(liar, b"\x01", b"\x02", 0.0)]
+        )
+        self.allow(answerer)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+
+    def test_the_registry_ids_are_the_wire_modules_ids(self):
+        # ui_dispatch spells its ids as literals (see the file header);
+        # this is the test that makes a hand-typed number safe, the same
+        # role ShipsInertTests plays for ANSWERABLE_VITAL_IDS.
+        from pirateforce_foundation import ui_party_wire
+        from pirateforce_foundation import ui_trade_wire
+
+        self.assertEqual(
+            ui_dispatch.outbound_shape("UI_PARTY_INVITE_ANSWERED").vital_id,
+            ui_party_wire.PARTY_INVITE_VITAL_ID,
+        )
+        self.assertEqual(
+            ui_dispatch.outbound_shape("UI_TRADE_INVITE_ANSWERED").vital_id,
+            ui_trade_wire.TRADE_INVITE_VITAL_ID,
+        )
+        # The shipped version byte is in the reviewed set, and nothing
+        # else is: a set that admitted more than what ships would review
+        # a shape nobody has seen.
+        self.assertEqual(
+            ui_dispatch.outbound_shape("UI_PARTY_INVITE_ANSWERED").versions,
+            frozenset((ui_party_wire.PARTY_INVITE_VITAL_VERSION,)),
+        )
+        self.assertEqual(
+            ui_dispatch.outbound_shape("UI_TRADE_INVITE_ANSWERED").versions,
+            frozenset((ui_trade_wire.TRADE_INVITE_VITAL_VERSION,)),
+        )
+
+    def test_every_registered_label_is_a_label_this_lane_may_use(self):
+        # A registry entry that the label rule would refuse is a shape
+        # that can never leave, which is a review nobody can act on.
+        for label, shape in ui_dispatch._OUTBOUND_FRAME_SHAPES.items():
+            with self.subTest(label=label):
+                self.assertTrue(ui_dispatch._label_is_this_lanes_own(label))
+                self.assertIn(shape.vital_id, ui_dispatch.ANSWERABLE_VITAL_IDS)
+
+    def test_there_is_no_way_for_a_lane_to_add_an_entry(self):
+        # A registry a lane can write to reviews nothing.  This pins the
+        # ABSENCE of a registrar, which is the whole design: adding an
+        # entry has to be a diff in ui_dispatch.py.
+        self.assertFalse(
+            [name for name in dir(ui_dispatch)
+             if "outbound" in name.lower() and name.startswith("register")]
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

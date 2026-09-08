@@ -319,7 +319,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 31,
+  "src_vital_stream_call_sites": 32,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -1084,3 +1084,31 @@ payload, re-encoded and refused unless byte-identical to what arrived.
 
 No other census key moves: neither module composes an actor entry or a
 remote-actor stream, and neither passes a zero HP.
+
+## Round `xqxadg` (LANE-UI), 2026-09-08
+
+`src_vital_stream_call_sites` moves **31 -> 32**. The one new site is
+`ui_trade_invite_answer_headless.py`, the arming proof for the SECOND answerer
+on the eight-vital UI dispatch seam: `TradeInviteVital` (`0x3700`). It boots
+the real dispatcher with no flag and no scenario, drives one real trade invite,
+and calls this carrier INDEPENDENTLY to build the frame it compares the
+dispatcher's answer against -- a second construction, not a second sender, the
+same shape as round `spdxy0`'s party proof.
+
+The answerer module itself adds NO site, and that is worth recording rather
+than assuming: `lane_hooks/lane_ui_trade_invite_answer.py` returns a
+`VitalReply` and `ui_dispatch._compose` calls the carrier, so a second lane
+answering a second vital did not need a second call site. That is the property
+the `VitalReply` shape exists to keep, and the census is where it shows.
+
+This site IS on a live path today: `runtime.py`'s
+`_FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS` branch returns what
+`ui_dispatch.answer()` returns, and the trade answerer ships
+`production_allowed = True`. What reaches the client is the player's own
+payload, re-encoded and refused unless byte-identical to what arrived, and --
+new this round -- only under a label the outbound frame-shape registry in
+`ui_dispatch.py` names for that id (COO-DECISION `20260908_1142` item 7,
+route (b)).
+
+No other census key moves: the module composes no actor entry and no
+remote-actor stream, and it passes no zero HP.

@@ -57,7 +57,12 @@ returned a well-formed action list" answers ``[]``:
 * the answerer returned anything this module cannot prove is a list of
   ``(label, pc, frame, delay)`` tuples in this project's shipped dispatch
   convention.  The whole batch is refused, not filtered: half a lane's
-  answer reaching the client is worse than none of it.
+  answer reaching the client is worse than none of it;
+* an action carries a label, an id or a byte count that
+  ``_OUTBOUND_FRAME_SHAPES`` -- the reviewed outbound registry this file
+  owns (COO-DECISION 20260908_1142 item 7, route (b)) -- does not name.
+  A lane with the flag set may answer, but only in a shape a human
+  reviewed into this file.
 
 ``BaseException`` (``SystemExit``, ``KeyboardInterrupt``) propagates, the
 same deliberate gap ``lane_hooks`` documents and for the same reason.
@@ -633,6 +638,116 @@ def _hex(vital_id):
     return repr(vital_id)[:32]
 
 
+# THE OUTBOUND FRAME-SHAPE ALLOWLIST (COO-DECISION 20260908_1142 item 7,
+# route (b)).  The decision reads: what goes out must come from a
+# REVIEWED registry of frame shapes at ``answer()``'s send point, and the
+# PR that registers the first real answerer is the one that pays for it.
+# Route (b) landed the seam; the party answerer landed the first real
+# answerer; this is that bill.
+#
+# WHAT IT ADDS OVER EVERY CHECK ALREADY HERE.  ``_label_is_this_lanes_own``
+# says a name is well formed and belongs to no other consumer's
+# vocabulary.  ``_actions_are_well_formed`` says an action has the right
+# TYPES.  ``_compose`` says a reply may only answer the id it was sent.
+# None of the three says that THESE BYTES, under THIS NAME, answering
+# THIS id, are a shape a human reviewed.  Before this table, a lane with
+# ``production_allowed = True`` could return
+# ``("UI_ANYTHING_AT_ALL", b"..", b"..", 0.0)`` -- any label satisfying
+# the grammar, any bytes at all, of any length -- and the seam would put
+# it on the socket.  The registry closes that: an unlisted label leaves
+# nothing, and a listed one may only carry the id, the version and the
+# byte budget its entry names.
+#
+# THE ENTRIES ARE THE REVIEW UNIT.  Adding one is an edit to this file --
+# the same rule ``_SESSION_VIEW_FIELDS`` already lives by -- so the
+# question "who decided these bytes may reach a player" always has a
+# diff as its answer.  A lane cannot add an entry from its own module,
+# and there is deliberately no ``register_outbound_shape()``: a registry
+# a lane can write to is a registry that reviews nothing.
+#
+# THE NUMBERS.  ``versions`` is the vital version byte set; ``0`` is what
+# ``ui_party_wire``/``ui_trade_wire`` ship and their own headers mark it
+# an unproven default, so the set is exactly what is shipped and nothing
+# more.  ``max_payload_bytes`` 512: these two payloads are u8 + u64 +
+# tagged wstring, measured at 26 bytes for a five-character name, and 512
+# is far above any name the client can produce while still refusing a
+# lane that wants a listed label to carry a blob.  ``max_frame_bytes``
+# 1024: the envelope this project ships added 32 bytes to that 26-byte
+# payload (58 on the wire, the arming proof prints it), so 1024 bounds a
+# 512-byte payload with room to spare and still refuses a frame that is
+# not this shape at all.
+#
+# THE IDS ARE LITERALS, PINNED BY TEST, for the reason given above
+# ``ANSWERABLE_VITAL_IDS``: a comment cannot go stale unnoticed, so
+# ``tests/test_ui_dispatch.py`` imports ``ui_party_wire`` and
+# ``ui_trade_wire`` and compares these numbers against theirs.
+_OutboundShape = collections.namedtuple(
+    "_OutboundShape", "vital_id versions max_payload_bytes max_frame_bytes"
+)
+
+_OUTBOUND_FRAME_SHAPES = {
+    "UI_PARTY_INVITE_ANSWERED": _OutboundShape(
+        vital_id=0x37B1,
+        versions=frozenset((0,)),
+        max_payload_bytes=512,
+        max_frame_bytes=1024,
+    ),
+    "UI_TRADE_INVITE_ANSWERED": _OutboundShape(
+        vital_id=0x3700,
+        versions=frozenset((0,)),
+        max_payload_bytes=512,
+        max_frame_bytes=1024,
+    ),
+}
+
+
+def outbound_shape(label):
+    """The reviewed outbound shape for ``label``, or ``None``.
+
+    ``type(label) is not str`` FIRST, not ``isinstance`` and not a bare
+    ``dict.get`` (the same lesson ``_label_is_this_lanes_own`` records).
+    A ``str`` subclass carries whatever ``__hash__`` and ``__eq__`` it
+    likes, so it can match a key here while telling every other consumer
+    it is something else -- and a lookup that can be lied to is not a
+    registry.  The exact-type check makes the key that matched the key
+    that everyone downstream sees.
+    """
+    if type(label) is not str:
+        return None
+    return _OUTBOUND_FRAME_SHAPES.get(label)
+
+
+def _outbound_shapes_are_registered(answered_id, actions):
+    """Is every action a shape this file's registry names for this id?
+
+    Runs at ``answer()``'s send point, AFTER ``_actions_are_well_formed``
+    -- so every action here is already a 4-tuple of the right types and
+    this function may read it without re-deriving that.  It applies to
+    EVERY action, whatever its origin: a composed ``VitalReply`` and a
+    plain 4-tuple an answerer built by hand face the same table.  Gating
+    only the composed half would be a gate with a door beside it.
+
+    ``answered_id`` is the id of the frame being answered, so a lane
+    cannot borrow a listed label to answer a different vital: the entry
+    names the id it belongs to, and this compares them.
+    """
+    for action in actions:
+        label, pc, frame, _delay = action
+        shape = outbound_shape(label)
+        if shape is None:
+            return False
+        if shape.vital_id != answered_id:
+            return False
+        # ``pc`` is the packet content the frame carries, so it is
+        # bounded by the frame budget too: a frame within budget whose
+        # pc is not is a shape this table does not describe.
+        if len(frame) > shape.max_frame_bytes:
+            return False
+        if len(pc) > shape.max_frame_bytes:
+            return False
+    return True
+
+
 def _actions_are_well_formed(actions):
     """Is ``actions`` a list/tuple of this project's action tuples?
 
@@ -751,7 +866,46 @@ def _compose(envelope, answered_id, item):
     # str would be encoded by somebody else's guess of a codec.
     if type(payload) is not bytes:
         raise TypeError("VitalReply.payload must be bytes")
+    # THE REVIEWED SHAPE, BEFORE THE ENVELOPE IS EVEN ASKED TO BUILD ONE
+    # (COO-DECISION 20260908_1142 item 7 route (b)).  ``version`` and
+    # ``payload`` are visible HERE and nowhere later: once the frame is
+    # built they are bytes inside it, and the send-point gate can only
+    # bound lengths.  So the half of the entry that describes the reply
+    # is spent here, on the same locals that go to the builder, and the
+    # half that describes what leaves is spent at the send point.
+    shape = outbound_shape(label)
+    if shape is None:
+        raise ValueError(
+            "no reviewed outbound frame shape is registered for label"
+            " %.64r; adding one is an edit to ui_dispatch.py"
+            % (label,)
+        )
+    if shape.vital_id != answered_id:
+        raise ValueError(
+            "label %.64r is registered for %s, not for %s"
+            % (label, _hex(shape.vital_id), _hex(answered_id))
+        )
+    if version not in shape.versions:
+        raise ValueError(
+            "version %d is not a reviewed version for label %.64r"
+            % (version, label)
+        )
+    if len(payload) > shape.max_payload_bytes:
+        raise ValueError(
+            "payload of %d bytes exceeds the reviewed budget %d for"
+            " label %.64r"
+            % (len(payload), shape.max_payload_bytes, label)
+        )
     pc, frame = envelope.make_runtime_vitals([(vital_id, version, payload)])
+    # THE BUILDER'S OUTPUT IS CHECKED, NOT ASSUMED.  A payload inside
+    # budget whose frame is not says the shape in the table is not the
+    # shape being built, and the honest answer to that is to refuse.
+    if len(frame) > shape.max_frame_bytes:
+        raise ValueError(
+            "composed frame of %d bytes exceeds the reviewed budget %d"
+            " for label %.64r"
+            % (len(frame), shape.max_frame_bytes, label)
+        )
     return (label, pc, frame, delay)
 
 
@@ -868,6 +1022,19 @@ def answer(session, vital_id, payload, envelope=None):
     if not well_formed:
         _say(
             "UI_DISPATCH_ANSWER_REFUSED id=%s module=%s reason=malformed"
+            % (_hex(vital_id), module_name)
+        )
+        return []
+    # THE SEND POINT (COO-DECISION 20260908_1142 item 7 route (b)).  The
+    # whole batch dies on one unlisted action, for the reason ``_compose``
+    # already states: half a lane's answer reaching the client is worse
+    # than none of it.  This is deliberately the LAST gate before the
+    # return, so nothing that is composed, validated or copied after it
+    # can reintroduce a shape nobody reviewed.
+    if not _outbound_shapes_are_registered(vital_id, actions):
+        _say(
+            "UI_DISPATCH_ANSWER_REFUSED id=%s module=%s"
+            " reason=frame_shape_not_registered"
             % (_hex(vital_id), module_name)
         )
         return []
