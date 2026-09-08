@@ -19,8 +19,10 @@ from . import inventory
 # letter measured that `store.py:22`'s `MERGED_V111_BACKPACK` binding and the
 # gate below were the half of CORE-REQUEST 0206 that stayed in this lane's
 # zone, and that they refuse four of the five classes the day
-# `STARTING_BACKPACKS` widens -- after `runtime.py:2128` has already let them
-# into a transaction that cannot succeed.
+# `STARTING_BACKPACKS` widens -- after the runtime gate that answers
+# `item_move_hypothesis_wrong_current_state_no_reply` (named, not numbered:
+# line numbers in that file drift every round) has already let them into a
+# transaction that cannot succeed.
 from .inventory import (
     BackpackState,
     INITIAL_BACKPACK,
@@ -1165,8 +1167,13 @@ class SQLiteStore:
                 return None
             if before not in inventory.merged_v111_states():
                 raise ValueError("Backpack is outside the HYP-PF-008 pre-state")
+            # Raises KeyError if identity 1 is gone, BEFORE any row is
+            # touched, which is also what makes the lookup below total.
             expected_after = inventory.hypothesized_v111_slot2_state(before)
-            source = next(item for item in before.items if item.identity == 1)
+            source = next(
+                (item for item in before.items if item.identity == 1), None)
+            if source is None:  # pragma: no cover - the line above raises first
+                raise RuntimeError("HYP-PF-008 pre-state lost identity 1")
             # The WHERE clause is derived from that same row for the same
             # reason: spelled as literals it matched only the first class's
             # weapon and quantity, so `rowcount != 1` turned every other
