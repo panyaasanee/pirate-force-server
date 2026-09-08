@@ -463,5 +463,81 @@ class EndToEndThroughTheRealDispatcherTests(_AnswererRegistered):
         )
 
 
+class TheReportOnlyHookCapsWhatItPrintsTests(unittest.TestCase):
+    """pf-adversary round `asw0n3`, D5, measured on the sibling hook.
+
+    ``lane_ui_friend_wire_log`` runs BEFORE ``ui_dispatch.answer()``, so
+    a peer that never logged in reaches it: the login gate and the
+    per-session answer allowance are both downstream.  Its UNPARSED line
+    was always capped at 96 bytes of hex; its DECODED line printed
+    ``field2_wstring`` with no bound at all, which made stderr an
+    amplifier a stranger could drive.  These tests pin the cap on the
+    path that lacked it and on the path that already had it.
+    """
+
+    def test_a_long_name_does_not_reach_stderr_in_full(self):
+        from pirateforce_foundation.lane_hooks import (
+            lane_ui_friend_wire_log as log_hook,
+        )
+
+        name = "A" * 5000
+        payload = wire.encode_request_be_friend_payload(
+            wire.RequestBeFriendFields(1, name, 0)
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            log_hook._on_request_be_friend(payload=payload)
+        line = stderr.getvalue()
+        self.assertIn("LANE_UI_FRIEND_REQUEST decoded", line)
+        self.assertNotIn("A" * 200, line)
+        # The whole line, not just the clipped field: an unbounded value
+        # anywhere else on it would fail here too.
+        self.assertLess(len(line), 400)
+
+    def test_the_cut_is_announced_and_a_short_name_is_not_marked(self):
+        from pirateforce_foundation.lane_hooks import (
+            lane_ui_friend_wire_log as log_hook,
+        )
+
+        for name, cut in (("A" * 5000, True), ("Panya", False)):
+            with self.subTest(length=len(name)):
+                payload = wire.encode_request_be_friend_payload(
+                    wire.RequestBeFriendFields(1, name, 0)
+                )
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    log_hook._on_request_be_friend(payload=payload)
+                line = stderr.getvalue()
+                self.assertEqual("'+" in line, cut)
+
+    def test_astral_characters_cannot_multiply_the_line_either(self):
+        """The measured amplifier was astral text, so it is the case
+        pinned: `repr` escapes each one, so a character budget is what
+        bounds the line, not a byte budget."""
+        from pirateforce_foundation.lane_hooks import (
+            lane_ui_friend_wire_log as log_hook,
+        )
+
+        payload = wire.encode_request_be_friend_payload(
+            wire.RequestBeFriendFields(1, "\U0001F600" * 2000, 0)
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            log_hook._on_request_be_friend(payload=payload)
+        self.assertLess(len(stderr.getvalue()), 1200)
+
+    def test_the_undecodable_line_was_already_capped_and_still_is(self):
+        from pirateforce_foundation.lane_hooks import (
+            lane_ui_friend_wire_log as log_hook,
+        )
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            log_hook._on_remove_friend(payload=b"\x99" * 100000)
+        line = stderr.getvalue()
+        self.assertIn("UNPARSED len=100000", line)
+        self.assertLess(len(line), 400)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

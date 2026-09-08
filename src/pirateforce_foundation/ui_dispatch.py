@@ -1052,14 +1052,31 @@ def _hex(vital_id):
 # THE NUMBERS.  ``versions`` is the vital version byte set; ``0`` is what
 # ``ui_party_wire``/``ui_trade_wire`` ship and their own headers mark it
 # an unproven default, so the set is exactly what is shipped and nothing
-# more.  ``max_payload_bytes`` 512: these two payloads are u8 + u64 +
-# tagged wstring, measured at 26 bytes for a five-character name, and 512
-# is far above any name the client can produce while still refusing a
-# lane that wants a listed label to carry a blob.  ``max_frame_bytes``
-# 1024: the envelope this project ships added 32 bytes to that 26-byte
-# payload (58 on the wire, the arming proof prints it), so 1024 bounds a
-# 512-byte payload with room to spare and still refuses a frame that is
-# not this shape at all.
+# more.
+#
+# ``max_payload_bytes`` 512 ON THE TWO WSTRING ROWS IS A BUDGET, NOT A
+# CLAIM ABOUT NAMES, and pf-adversary (round `asw0n3`, D8) is why this
+# paragraph now says so.  It used to read "512 is far above any name the
+# client can produce", which is a statement about what the field MEANS
+# -- exactly the reasoning letter ``20260904_1120`` nonclaim (2) forbids
+# this file from doing, in the same file that forbids it.  What is
+# actually measured: these payloads are u8 + u64 + tagged wstring, 26
+# bytes for a five-character value, and this seam refuses to SEND more
+# than 512.  What it does NOT bound is what a client may make an
+# answerer PARSE: inbound length is `recv_frame`'s u32, so a two-million
+# byte payload decodes and re-encodes (7.3 ms, measured) before anything
+# here declines it.  Bounding that is `recv_frame`'s business, filed, not
+# taken here -- but it must not be mistaken for a thing this row does.
+#
+# ``max_frame_bytes`` 1024 IS ALSO A BUDGET, AND THE ENVELOPE IS NOT A
+# CONSTANT 32 BYTES (measured 32 / 34 / 35 for values of 5 / 100 / 248
+# characters, because the envelope's own length fields widen).  The
+# conclusion the row rests on survives the correction and is stated as
+# an inequality rather than as an addition: the largest frame a 512-byte
+# payload can produce stayed under 550 in every measurement, and 1024
+# leaves room for an envelope this lane does not own to grow without
+# turning somebody else's change into a dead button, while still
+# refusing a frame that is not this shape at all.
 #
 # THE IDS ARE LITERALS, PINNED BY TEST, for the reason given above
 # ``ANSWERABLE_VITAL_IDS``: a comment cannot go stale unnoticed, so
