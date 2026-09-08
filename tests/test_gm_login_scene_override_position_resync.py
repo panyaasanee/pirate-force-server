@@ -51,6 +51,8 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 # Prison Exile Island: a real destination with a pinned spawn and no ground
@@ -431,6 +433,15 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         refused and which scene ids are admissible.
         """
         refused_scene = 17
+        # PANYA-DECISION 20260908_1218 opened every door in the shipped
+        # registry, so the inadmissible destination this case is about is
+        # installed rather than read: the real scene 17 row, its real
+        # spawn, one boolean flipped back to its 2026-09-07 reading.  The
+        # rule under test -- the map refuses at LOAD, the account still
+        # logs in at its own row -- is untouched.
+        patcher = bent.patch_disk(bent.shut_at_login(refused_scene))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._write_configs(["gm_runner"], {"gm_runner": refused_scene})
         before = self.overrides_path.read_bytes()
 
@@ -465,12 +476,15 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         # same shape; 9 joined it in round ir0lpw, eighth door, same shape;
         # 11 joined it in round 68mm02, ninth door, same shape --
         # elevated-risk row (the_two_interiors, shared only with scene 10);
-        # 130 joined it this round (yfbqmg), TENTH AND LAST door, same
-        # shape, NOT elevated-risk.  Scene 17, the id this test actually
-        # drives, is still barred and still refused either way.
+        # 130 joined it in round yfbqmg, TENTH AND LAST of the doors that
+        # queue surveyed; 304 and 305 joined it in LANE-A round 3a11a0
+        # (PANYA-DECISION 20260908_1218), which opened every remaining
+        # door.  Scene 17, the id this test actually drives, is barred
+        # HERE because this case bends its row shut -- which is why it is
+        # the one id 1218 opened that is missing from the line below.
         self.assertIn(
             "stageable=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 126, 130, "
-            "278, 997)",
+            "278, 304, 305, 997)",
             console)
 
         # And the operator's file is untouched: refusing to ACT on an entry
