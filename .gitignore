@@ -278,6 +278,7 @@
 !/reports/PF_UI_REFRESH001_CHARACTER_SELECT_STATE_MACHINE_STATIC_20260819.manifest
 !/tools/pf_ui_state_refresh_static.py
 !/tools/pf_ui_party_cmd_answer_headless.py
+!/tools/pf_ui_friend_remove_answer_headless.py
 !/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md
 !/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.manifest
 !/tools/pf_hp_death_respawn_static.py
