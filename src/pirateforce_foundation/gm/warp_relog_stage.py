@@ -21,7 +21,7 @@ is still False and `sanctioned_barred_blocker(126)` still returns a real
 blocker.  The route below is live.  The day `#1137` lands it goes dormant
 and the sanction retires with it, which is a decision with a cost measured
 by lane A (25 cases in 5 files) rather than a line to delete -- see
-`notes_to_chief/20260908_1758_LANE-GM-TO-LANE-A-...`.  Opening that door to
+`notes_to_chief/20260908_1805_LANE-GM-TO-LANE-A-...`.  Opening that door to
 buy the relog would trade a measured policy for a convenience, which is the
 trade `1444` already refused once.
 
