@@ -949,9 +949,18 @@ class TheUsageHintItselfTests(unittest.TestCase):
             # reasoning.
             # `staged` appended after `speed` by LANE-GM round `qpauwp`,
             # the third addition to grow this tuple by one at the end.
+            # `job` and `skill` appended after `staged` by LANE-GM round
+            # `wv0fpe` (PANYA-ORDER 2026-09-08 sections 2.1-2.2, routed by
+            # COO-DECISION 20260908_1541) -- the fourth and fifth additions,
+            # placed for the same reason every one before them was: growing
+            # this tuple at the end is a smaller drift than reordering the
+            # six the owner ordered first.  They are gameplay commands, not
+            # tooling ones like `gmprobe`/`staged`, and they still go LAST:
+            # the pinned order exists so a HUMAN reads a stable sentence,
+            # and "newest last" is the property that keeps it stable.
             (
                 "warp", "npc", "item", "lv", "spawn", "say", "gmprobe",
-                "speed", "staged",
+                "speed", "staged", "job", "skill",
             ),
             tuple(gm_commands.COMMAND_USAGE),
         )
