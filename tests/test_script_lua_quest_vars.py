@@ -29,7 +29,8 @@ from pf_preconditions import (BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS,
                              LUA_CORPUS_RUNNABLE, SIBLING)
 
 from pirateforce_foundation.lua_api import (quest, quest_criteria as qc,
-                                            quest_vars as qv, vendored)
+                                            quest_rewards, quest_vars as qv,
+                                            vendored)
 from pirateforce_foundation.lua_api.quest_criteria import QuestCriteriaError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -402,7 +403,10 @@ class NamespaceTests(unittest.TestCase):
         """
         namespace, lines = self._namespace(CHARGE_QUEST_ID)
         for _ in range(100):
-            self.assertEqual(namespace["Var4"], quest.STUB_DEFAULT)
+            # `quest_rewards.REFUSED_CELL`, not the 0 every other stub
+            # answers with: round `ad7t6n` measured that a refused charge
+            # cell handed back as 0 satisfies a REAL `CheckItemNum`.
+            self.assertEqual(namespace["Var4"], quest_rewards.REFUSED_CELL)
         self.assertEqual(len(lines), 1)
         self.assertIn("LUA_QUEST_GROUP_REFUSED n_VARI_4 quest=3200", lines[0])
 

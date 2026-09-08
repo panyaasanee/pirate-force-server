@@ -4209,3 +4209,112 @@ direction; what moved is that the server can now SEE the charge and
 refuses the row around it.  Nothing here gives an item, no frame goes out,
 and the corpus sweep pins are unchanged (2593 stub / 2878 real calls,
 re-run with lupa 2.8) because no API changed status.
+
+## Round `ad7t6n` -- the most common charge in the game, and the reason it could not be switched on until the refusal stopped being zero
+
+NOW.md: "Q: first job = `Player.RemoveItem` on the take side."  It is the
+charge the corpus makes most often -- **367 call sites in 137 files**,
+arity 2 (`item_id, count`) -- and until this round `TAKE_BY_API` had no
+opinion about any of them.
+
+**Why one rule could not read it.**  The take side had exactly one shape:
+a cell whose SIGN says the player pays.  `Player.RemoveItem` has no sign
+to read; the NAME is the charge, and the cells are an ordinary item id and
+an ordinary count.  So `TAKE_BY_API` now carries a SHAPE PER API --
+`TAKE_SHAPE_SCRIPT_NEGATED` for `Player.AddCash`/`Player.Addmoralized`
+(a bare cell there is walked past, because the signedness table owns the
+cell-negative ones) and `TAKE_SHAPE_ANY_VAR` for `Player.RemoveItem`
+(every bare cell it reads, at EITHER argument, is part of the charge).
+Every shape that occurs is counted in the tool's own comment; all 367 call
+sites hand it a BARE `Quest.VarN` at any cell-reading position, and
+anything else is a hard stop (`UnclassifiedTakeSite`), not a guess.
+
+**What that produced.**  56 new transaction groups, every one of them in
+`Report_Run` -- the entry point that removes the collected items and hands
+the reward over in the same breath.  `quest_column_groups.tsv` **67 ->
+1087 rows**, 61 groups instead of 5.  Two existing groups grew: the guild
+boss fee is also an item trade (`q_guild_boss2.lua:54`), and so is the
+ship purchase (`q_ship.lua:51`, `Quest.Var8` x `Quest.Var4`, on the line
+after the 15,000 charge).
+
+**THE PART THAT HAD TO BE FIXED FIRST (pf-adversary D8, round `5a3x47`).**
+Turning the item charge on with the refusal as it stood would have been
+worse than leaving it off.  A refused take cell was handed to the script
+as `0`, and `0` is an ordinary number to a REAL implementation:
+
+    q_ocean_gather1.lua:43   if( Player.CheckItemNum(Quest.Var2,Quest.Var3) )
+
+`Player.CheckItemNum` is in `player.REAL_METHODS` and reads the actual
+backpack.  `CheckItemNum(0, 0)` asks whether the player holds at least
+zero of template id zero -- **true of an empty backpack**.  MEASURED on
+the corpus this round: the take cells of the new groups are read by **91
+`Player.CheckItemNum` call sites inside `*_Check` entry points across 57
+scripts**.  Every one of those quests would have told a player carrying
+nothing "you may report this quest", advanced the flag (`Quest.SetFlag` is
+real), and then refused the reward: quest burned, nothing received.
+
+So `quest_rewards.REFUSED_CELL` is now **`-1`**, and only for the TAKE
+side.  Every `_coerce_int` door in this package refuses a value outside
+`[0, ceiling]` rather than clamping it, so `-1` is rejected as data by
+every real API: `CheckItemNum` answers False and the requirement
+REFUSES.  Tested, without a Lua state, by
+`test_a_refused_charge_cell_cannot_be_read_as_a_met_requirement`, which
+also asserts that the old `0` WOULD have satisfied the same check.
+
+**IT WAS `nil` FIRST, AND pf-adversary D3 SHOWED WHY THAT WAS A
+REGRESSION.**  The refusal is DECIDED per `(script, entry point)` --
+that is what a group is -- but DELIVERED through `Quest.VarN`, which is
+keyed on `(quest_id, column)` and does not know which entry point is
+running.  So a decision about `Report_Run` is enforced in `Accept_Run`
+and `Delete_Run` too: **87 of the 88 item take-cell members are read in
+some other top-level function of their own file**, 17 of them in an
+operator context.  At `q_gender_equip1.lua:25` (quests 1072 and 1089) a
+`nil` would raise AFTER `Quest.SetFlag(Quest.Active)` -- a real write --
+had already run and BEFORE four real `Player.MobAppear` writes on lines
+27-33: the gate manufacturing a half-executed entry point, which is the
+exact thing it exists to prevent.  A negative number refuses as data
+while `if (Quest.VarN > 0)` reads false and simply skips its branch, as
+it did when the cell was `0`.
+
+**WHAT `-1` DOES NOT FIX.**  A guard shaped `Player.GetCash() >=
+Quest.Var2` (`q_boat_health.lua:18`) is still true for a player with no
+money, so **D8 is NOT paid by this constant** -- it is left exactly where
+it was, no better and no worse than the `0` it replaces.  D8 needs the
+namespace to know which entry point is running, so that a refusal can be
+scoped to the group that made it.  That is a change to
+`QuestContext`/`script_host`, and it is the next round's first job.
+
+## Round `ad7t6n`, second finding: the take side's own realness was never checked
+
+pf-adversary D2, and the highest thing it raised.  `group_state`
+computed `blocking` over `group.side(GIVE)` alone, so a group became
+payable the moment its GIVE side went real -- whatever the take side was
+doing.  `Player.AddItem` and `Player.RemoveItem` are both stubs today and
+carry the same reason in `player.STILL_STUBBED`, so they are expected to
+land together; nothing made them.  Measured: on the day `AddItem` alone
+goes real, **452 of the 1544 shipped rows across 57 scripts** hand the
+player the reward AND let them keep the turn-in items, repeatably.
+
+`blocking` now reads `group.members` -- both sides.  A transaction is
+payable when every member can be honoured, and a take that no-ops is a
+member that cannot.  Both directions are pinned:
+`test_a_real_give_does_not_open_a_group_whose_take_is_still_a_stub` and
+`test_the_group_opens_when_both_sides_are_real_together`.
+
+The GIVE side keeps `0` deliberately: `if (Quest.RewardItem1 > 0)` is what
+the shipped scripts test, so `0` there means "no reward item" and
+correctly skips the payout.  Refusing to give and refusing to say are
+different refusals.
+
+**Not claimed.**  `Player.RemoveItem` is STILL A STUB, so no item is
+removed from anyone today in either direction; `Player.AddItem` is still a
+stub, so no reward is handed over either.  AND THERE IS NO DISPATCHER: the
+only thing that runs `Report_Check`/`Report_Run` today is `script_host`,
+which is the corpus SWEEP HARNESS, not a live request path -- nothing maps
+a refused check to "this player may not report this quest" yet.  So what
+moved is that the GATE IS RIGHT BEFORE THE REAL THING ARRIVES, not
+anything on a screen.  When a dispatcher exists, a gather quest is refused
+while its reward cannot be paid instead of completing and paying nothing.
+No frame goes out, no NPC dispatches a quest, and the corpus sweep pins
+are unchanged (2593 stub / 2878 real) because no API changed status --
+this round moves no name into `REAL_METHODS`.
