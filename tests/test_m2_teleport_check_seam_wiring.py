@@ -32,6 +32,7 @@ import contextlib
 import io
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -620,10 +621,24 @@ class ConsoleLinesTests(_SeamCase):
             prompt_lines[0])
         self.assertIn(f"marker={MARKER}", prompt_lines[0])
         echo_lines = self._lines(self._echo, state)
-        self.assertEqual(len(echo_lines), 2)
+        # THREE since R401, not two: the scene relabel prints its own line
+        # between the echo verdict and the transport receipt.  It has to,
+        # because without it an attended tester reading the console saw the
+        # identical `TRANSPORT ... scene=126` whether the relabel had been
+        # applied or refused (pf-adversary R401 D6; COO-DECISION 20260904_1646
+        # item 2, "a tester reads the CONSOLE, not session.events").
+        self.assertEqual(len(echo_lines), 3)
         self.assertIn("ECHO", echo_lines[0])
         self.assertIn("verdict=OK", echo_lines[0])
-        self.assertIn("TRANSPORT", echo_lines[1])
+        self.assertIn("TRANSPORT_RESYNC", echo_lines[1])
+        # `applied=` is the whole point of the line: on the shipped registry
+        # marker 17 is login-barred, so the relabel is REFUSED and the
+        # console must say so next to a scene number it did not adopt.
+        self.assertIn("applied=0", echo_lines[1])
+        self.assertIn("scene=%d" % tc.marker_destination(MARKER).scene_id,
+                      echo_lines[1])
+        self.assertIn("TRANSPORT", echo_lines[2])
+        self.assertNotIn("RESYNC", echo_lines[2])
 
     def test_a_refused_replay_says_why_on_the_console(self):
         state = self._login_and_start("m2consolerefuse")
@@ -1006,6 +1021,129 @@ class SelectedSceneIsRelabelledOnlyWhenTheLoginCanTakeItBackTests(_SeamCase):
             self.assertEqual(row.position.scene_id, scene_id)
             self.assertTrue(
                 warp_scene_persist.login_would_accept(row.position.scene_id))
+
+    def test_an_ordinary_marker_relabels_today_with_no_bent_registry(self):
+        """WHAT THIS SEAM ACTUALLY DOES ON THE SHIPPED REGISTRY.
+
+        pf-adversary R401 D2, MEASURED: `marker_destination` pins 15 markers
+        and `login_would_accept` answers True for scenes 1-11 and 14 today,
+        so the relabel is live for the ORDINARY in-game markers and dormant
+        only for the three decreed sea rows.  The first draft of this class
+        drove nothing but 17/343/345, which let a mutant that restricted the
+        relabel to those three scenes survive the whole suite.  This case is
+        the one that fails it.
+        """
+        marker_id = 2
+        scene_id = self._destination_scene(marker_id)
+        self.assertNotEqual(scene_id, 1, "this marker must leave scene 1")
+        self.assertTrue(warp_scene_persist.login_would_accept(scene_id))
+        state, actions = self._journey("m2ordinary", marker_id=marker_id)
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertEqual(state.foundation.selected.position.scene_id, scene_id)
+        self.assertIn(
+            "lane_a_m2_transport_selected_scene_resynced_%d" % scene_id,
+            state.events)
+
+    def test_a_scene_whose_row_may_not_be_written_is_refused(self):
+        """FENCE 2, and it is a different question from fence 1.
+
+        pf-adversary R401 D4, MEASURED on marker 14: scene 14 is
+        `login_entry_allowed=True` and `persist_position_allowed=False`, so
+        the login fence alone let the label move while `lifecycle.checkpoint`
+        declined the write.  The in-memory label then diverged from the
+        durable row for the life of the session and the resync event fired
+        green over a feature that had not happened.  PANYA-DECISION 1218
+        item 2 asks for the DURABLE ROW to name where the player is, which a
+        scene like this cannot deliver.
+        """
+        marker_id = 14
+        scene_id = self._destination_scene(marker_id)
+        self.assertTrue(warp_scene_persist.login_would_accept(scene_id))
+        self.assertFalse(
+            world_scene_travel.is_position_persist_allowed(scene_id),
+            "this marker must be the login-open persist-barred shape or it "
+            "proves nothing")
+        state, actions = self._journey("m2persistbarred", marker_id=marker_id)
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+        self.assertIn(
+            "lane_a_m2_transport_resync_refused_persist_barred_%d" % scene_id,
+            state.events)
+
+    def test_a_same_scene_journey_clears_nothing(self):
+        """The early return, pinned - a mutant deleting it survived the suite.
+
+        Marker 1 resolves to the scene a fresh character already stands in.
+        Unlatching the census and bumping the membership generation there
+        would cost a re-announce for a journey that moved nobody.
+        """
+        state = self._login_and_start("m2samescene")
+        state.world_census_sent = True
+        state.last_target_pos = (1.0, 2.0, 3.0)
+        generation_before = state.mob_combat_announced_membership_generation
+        self._record(state, marker_id=1)
+        self._tick(state)
+        self._echo(state, marker_id=1)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertTrue(state.world_census_sent)
+        self.assertEqual(state.last_target_pos, (1.0, 2.0, 3.0))
+        self.assertEqual(
+            state.mob_combat_announced_membership_generation,
+            generation_before)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+        self.assertIn("lane_a_m2_transport_resync_same_scene_1", state.events)
+
+    def test_a_selected_row_with_no_position_is_declined_not_crashed(self):
+        """The guard against a shape nobody has produced, pinned anyway.
+
+        A mutant deleting it survived the suite, which means the guard was
+        prose.  `replace()` on a row with no `position` is an AttributeError
+        inside the window where an escape costs the listener thread, so the
+        guard is cheap and the pin is cheaper than finding out.
+
+        CALLED DIRECTLY, not through a journey, and that is a real limit of
+        this pin rather than a convenience: a session whose `selected` row
+        has no position does not survive the rest of the echo path either
+        (measured: the AttributeError comes back out of a neighbouring
+        reader), so a dispatch-level version of this case would be testing
+        those readers, not this guard.  What is pinned here is that THIS
+        method declines by name instead of raising into the window where a
+        raise costs the listener thread.
+        """
+        state = self._login_and_start("m2noposition")
+        selected = state.foundation.selected
+        state.foundation.selected = types.SimpleNamespace(
+            id=getattr(selected, "id", None), position=None)
+        before = len(state.events)
+        state._m2_transport_resync_selected_scene(tc.open_check(MARKER))
+        events = state.events[before:]
+        self.assertIn("lane_a_m2_transport_resync_refused_no_position", events)
+        self.assertNotIn("lane_a_m2_transport_resync_refused_raised", events)
+
+    def test_a_relabel_that_raises_costs_the_relabel_and_nothing_else(self):
+        """NEVER RAISES, measured rather than asserted in a docstring.
+
+        pf-adversary R401 D5: only the relocation read was inside the try, and
+        the call sits between `sink.answered.add(...)` and the return that
+        hands out the transport frame - so an escape killed the listener
+        thread AND the journey, since the order is already popped.
+        """
+        state = self._login_and_start("m2resyncraises")
+        self._record(state)
+        self._tick(state)
+        with mock.patch.object(
+            warp_scene_persist, "login_would_accept",
+            side_effect=RuntimeError("registry object died"),
+        ):
+            actions = self._echo(state)
+        # The frame still leaves.
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertIn("lane_a_m2_transport_resync_refused_raised",
+                      state.events)
+        # And nothing was half-applied.
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
 
     def test_the_durable_row_never_names_a_scene_the_login_refuses(self):
         # THE INVARIANT THAT OUTRANKS THE RELABEL, asserted against whichever

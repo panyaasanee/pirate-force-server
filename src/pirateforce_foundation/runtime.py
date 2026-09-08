@@ -883,6 +883,36 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
     # a caller that passes a preloaded registry skips re-reading the file on
     # every login.
     scene_entry_registry = world_scene_travel.load_scene_registry()
+    # CORE-REQUEST-GM-056, accepted by chief 2026-09-05T00:45+07:00 and
+    # INSTALLED HERE (R401).  It was blocked on one thing -- `runtime.py` had
+    # no `from .gm import warp_scene_persist` -- which this round's own seam
+    # needed anyway, so the ticket costs one line now.
+    #
+    # WHY IT IS NOT OPTIONAL FOR THE SEAM BELOW.  `login_would_accept` is the
+    # fence `_m2_transport_resync_selected_scene` stands on, and until this
+    # call it answered from a SECOND, LATER, INDEPENDENT read of the scene
+    # registry while the login path it predicts is threaded THIS object.  Two
+    # reads of one file differ precisely when the file changed between them,
+    # and the registry is a JSON data file -- the most restart-free deploy
+    # there is.  pf-adversary (R401, D1) MEASURED the consequence end to end:
+    # boot with scene 126 barred, deploy LANE-A's edit without a restart,
+    # then travel -- the snapshot is taken for the first time AFTER the edit,
+    # answers True, the row is written, and the running login (frozen at
+    # boot) refuses it.  `Position(scene_id=126, ...)` durable, StartGame
+    # answering `[]`.  That is the bricked character the fence exists to
+    # prevent, reached through the one door the fence did not cover.
+    # Installed, both sides read one object and the disagreement has nowhere
+    # to live.  Never raises (see that function's own docstring); the word it
+    # returns is printed for the operator rather than swallowed.
+    #
+    # SCOPED, and stated so nobody reads it wider: this unifies this module
+    # with `scene_entry_registry`.  `CharacterLifecycle` takes a THIRD read
+    # of its own, and that is the one gating the durable write through
+    # `is_position_persist_allowed` -- see D4 on the seam below, which is why
+    # that seam asks the persist question separately rather than assuming
+    # this call answered it.
+    print("LOGIN_REGISTRY_SOURCE %s" % (
+        warp_scene_persist.use_boot_scene_registry(scene_entry_registry),))
     # CORE-REQUEST (LANE-A, notes_to_chief/20260826_1010 letter item 4-2).
     # Preloaded ONCE here too, same reason as the two pins just above: a
     # broken scene registry fails the boot in front of an operator instead
@@ -4998,10 +5028,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             in it is offensive, a player standing in scene 14 within reach
             of a bg0001 PLACEMENT is aggroed through the floor.
 
-            WHY THIS IS A DETECTOR AND NOT A LIST OF DOORS.  Four paths in
+            WHY THIS IS A DETECTOR AND NOT A LIST OF DOORS.  FIVE paths in
             this file put the session in a new scene: the GM warp resync,
-            the GM login-scene override, the travel-gate crossing and the
-            Columbus M2 checkpoint.  A fix that patches the doors it can
+            the GM login-scene override, the travel-gate crossing, the
+            Columbus M2 checkpoint and -- added R401 -- the M2 transport
+            relabel in ``_m2_transport_resync_selected_scene``.  The count
+            was four until that round and the sentence proved its own point
+            by going stale in the commit that added the fifth (pf-adversary,
+            R401, D8).  A fix that patches the doors it can
             enumerate today is wrong the next time a door is added -- which
             is the exact history of the defect this closes.  So this runs at
             the TOP of ``dispatch``, reads the scene the session is standing
@@ -7409,12 +7443,46 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             must cost the relabel and nothing else.
             """
             try:
-                relocation = world_m2_teleport_check.transport_relocation(
-                    pending)
-            except Exception:  # noqa: BLE001 - see docstring
-                self.events.append(
-                    "lane_a_m2_transport_resync_refused_no_relocation")
-                return
+                self._m2_transport_resync_inner(pending)
+            except Exception:  # noqa: BLE001 - see the NEVER RAISES block.
+                # THE WHOLE BODY, not just the relocation read (pf-adversary
+                # R401 D5, MEASURED: a raising registry and a non-dataclass
+                # position each escaped `dispatch()` from here).  This method
+                # is called between `sink.answered.add(...)` and the `return`
+                # that hands the transport frame out, so an escape costs the
+                # listener thread (v141 wraps `dispatch()` with no `except`)
+                # AND the journey permanently -- the order is already popped
+                # and the pair is already in `answered`, so the honest retry
+                # is refused with ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER.
+                # Before this seam existed the only statement in that window
+                # was a console print.
+                try:
+                    self.events.append(
+                        "lane_a_m2_transport_resync_refused_raised")
+                except Exception:  # noqa: BLE001 - events itself is gone
+                    pass
+
+        def _m2_transport_resync_say(self, pending, relocation, applied) -> None:
+            """One console line per journey, on BOTH branches.
+
+            `world_m2_teleport_check.transport_resync_console_line` is
+            LANE-A's own formatter for this exact moment and says
+            `guess=` / `durable=` -- but it describes what the record ASKS
+            for, not what this seam DID with it, so the applied/refused word
+            is appended here rather than smuggled into that formatter (it is
+            LANE-A's file, and a refusal is this file's fact).  Printed
+            through `_teleport_check_say`, so a closed stdout costs the line
+            and never the listener thread.
+            """
+            _teleport_check_say(
+                lambda: "%s applied=%d"
+                % (world_m2_teleport_check.transport_resync_console_line(
+                    pending), int(bool(applied))),
+            )
+
+        def _m2_transport_resync_inner(self, pending) -> None:
+            """The body of the relabel.  See the caller for why it is wrapped."""
+            relocation = world_m2_teleport_check.transport_relocation(pending)
             scene_id = relocation.scene_id
             selected = self.foundation.selected
             position = getattr(selected, "position", None)
@@ -7428,16 +7496,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if scene_id == position.scene_id:
                 # Same-scene transport: nothing to relabel, and none of the
                 # census clearing below is owed either.
+                self.events.append(
+                    f"lane_a_m2_transport_resync_same_scene_{scene_id}")
                 return
             if not warp_scene_persist.login_would_accept(scene_id):
-                # THE FENCE.  See the docstring: on today's registry this is
-                # the branch scenes 126/304/305 take, and it is the reason
-                # this change may land before or after LANE-A's flag PR
-                # without ever opening the brick window between them.
+                # FENCE 1, THE LOGIN QUESTION.  On today's registry this is
+                # the branch scenes 126/304/305 take.  Since R401 installed
+                # CORE-REQUEST-GM-056 at the boot factory, this predicate and
+                # the login path it predicts read ONE registry object, so the
+                # two-reads window pf-adversary D1 measured is closed.
                 self.events.append(
                     "lane_a_m2_transport_resync_refused_login_barred_"
                     f"{scene_id}"
                 )
+                self._m2_transport_resync_say(pending, relocation, False)
+                return
+            if not world_scene_travel.is_position_persist_allowed(
+                    scene_id, scene_entry_registry):
+                # FENCE 2, THE PERSIST QUESTION, AND IT IS A SEPARATE ONE
+                # (pf-adversary R401 D4, MEASURED on marker 14: scene 14 is
+                # `login_entry_allowed=True, persist_position_allowed=False`,
+                # so fence 1 alone let the label move while
+                # `lifecycle.checkpoint` silently declined the write with
+                # `write_position=False`.  The in-memory label then diverged
+                # from the durable row FOREVER, and the resync event fired
+                # green over a feature that had not happened).
+                #
+                # PANYA-DECISION 1218 item 2 asks for the DURABLE ROW to name
+                # where the player is.  A scene whose row may not be written
+                # cannot deliver that, so relabelling into it buys nothing
+                # and costs the divergence.  The same hole opens for
+                # 17/126/304/305 the moment LANE-A flips `login_entry_allowed`
+                # WITHOUT `persist_position_allowed` -- which is exactly the
+                # one-column edit the decision letter describes, so this
+                # fence is load-bearing on the day that PR lands, not later.
+                self.events.append(
+                    "lane_a_m2_transport_resync_refused_persist_barred_"
+                    f"{scene_id}"
+                )
+                self._m2_transport_resync_say(pending, relocation, False)
                 return
             self.foundation.selected = replace(
                 selected,
@@ -7472,6 +7569,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(
                 f"lane_a_m2_transport_census_latch_cleared_{scene_id}"
             )
+            # THE OPERATOR READS THE CONSOLE, NOT `session.events`
+            # (COO-DECISION 20260904_1646 item 2, which `warp_scene_persist`
+            # already paid once and this seam re-broke -- pf-adversary R401
+            # D6).  Without this line an attended tester saw the identical
+            # `TRANSPORT ... scene=126` on the relabelled AND the refused
+            # branch.  The formatter is LANE-A's own
+            # `transport_resync_console_line`, written for exactly this and
+            # until now called only by its own test file.
+            self._m2_transport_resync_say(pending, relocation, True)
 
         def _gm_warp_open_confirm_window(self, parsed) -> bool:
             """CORE-REQUEST-GM-030: this frame is the warp's TargetPos or none is.
