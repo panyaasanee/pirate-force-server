@@ -893,42 +893,6 @@ class NothingIsWiredTests(unittest.TestCase):
         # owes this class a new comment saying so.
         "src/pirateforce_foundation/mob_ai_player_damage.py",
         "tests/test_lane_b_mob_ai_tick.py",
-        # LANE-CS round `jty60h`, 2026-09-08.  The failure message below is
-        # what authorised this edit ("that is not forbidden -- it means this
-        # test's claim ... must be rewritten"), so the claim is rewritten
-        # here rather than widened silently, on the same terms as the LANE-B
-        # entry above.
-        #
-        # WHAT IS TRUE NOW, precisely.  `skill_learn_wiring.learn_skill_spend`
-        # is a REAL caller of `read_character_vitals`, not an exercise: it
-        # reads the character's level through `.require()` and refuses the
-        # spend when the level is not adjudicated, because the round that
-        # added a level gate to the learn path (`n_LEVEL_LEARN` in the
-        # client's own SKILL_CONTEXT table) must not fall back to "assume
-        # level 1" on a row nobody wrote.  It deliberately reads the
-        # gap-carrying door, not `_or_none`, for that reason.
-        #
-        # WHAT IT IS NOT is a caller on a SEND path: nothing in `runtime.py`
-        # calls `learn_skill_spend` from a client frame -- that seam is
-        # LANE-CS's next CORE-REQUEST and does not exist yet, which
-        # `tests/test_skill_learn_wiring.py`'s own module docstring states
-        # and this lane's round file measures.
-        #
-        # SO THE CLAIM ABOVE STAYS NARROWED, NOT ABANDONED: nothing on a
-        # send path calls these methods.  The day a request handler calls
-        # `learn_skill_spend`, the sentence to rewrite is this one, and the
-        # round that does it owes this class a new comment saying so.
-        # `tests/test_skill_learn_wiring.py` is NOT in this list even though
-        # it drives that spend: it never spells any of the three method
-        # names (it writes the level through `write_typed_attributes` and
-        # lets the module do the reading), so listing it would be a hole
-        # rather than an exception -- which the sibling test below says in
-        # as many words, and which it caught when this entry was first
-        # written.  `tests/test_skill_grant_wiring.py` IS listed: its fake
-        # store delegates `read_character_vitals` to the real one, so it
-        # does name the method.
-        "src/pirateforce_foundation/skill_learn_wiring.py",
-        "tests/test_skill_grant_wiring.py",
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):

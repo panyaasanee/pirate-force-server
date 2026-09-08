@@ -105,13 +105,23 @@ def learn_skill_spend(
     # to re-classify.  What changed is only which ids count as unknown.
     if not skill_context_census.is_declared(skill_id):
         raise KeyError(skill_id)
-    # The level comes from LANE-DB's own door, not from a column read here:
-    # `read_character_vitals(...).require()` is the method that refuses an
-    # unadjudicated level (a stored `level = 0`, a missing column) instead
-    # of handing back a number nobody wrote -- the same posture the NULL
-    # balance check above takes, and the reason this function does not fall
-    # back to "assume level 1".
-    level = store.read_character_vitals(character_id).require().level
+    # The level comes from LANE-DB's own door, not from a column read here.
+    # `read_character_vitals_or_none` answers with a level only when the
+    # database really holds one and every vitals rule passes, and with None
+    # for every reason it does not (a stored `level = 0`, a column nobody
+    # seeded, a row that fails a rule).  This function needs exactly that
+    # split -- adjudicated, or refuse -- so it takes the door that draws it,
+    # and it does NOT fall back to "assume level 1": the same posture the
+    # NULL balance check above takes, for the same reason.
+    vitals = store.read_character_vitals_or_none(character_id)
+    if vitals is None:
+        raise skill_learn_validator.SkillLearnValidatorError(
+            "character %r has no adjudicated level yet -- cannot check a "
+            "skill's n_LEVEL_LEARN against a level nobody wrote "
+            "(COO-DECISION 20260901_1059, same rule as the NULL balance "
+            "above)" % (character_id,)
+        )
+    level = vitals.level
     after = skill_learn_validator.skill_points_after_learning_declared(
         current, level, skill_id
     )
