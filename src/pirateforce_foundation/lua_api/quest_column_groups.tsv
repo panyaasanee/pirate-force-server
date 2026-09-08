@@ -2,9 +2,9 @@
 # regenerate: python3 tools/pf_regen_lua_quest_rewards.py
 # source: pf_bridge/gamedata/tables/QUESTDATA_TH__QUEST.tsv cross-read against pf_bridge/gamedata/lua
 # source_sha256: cc9927286def2bda166c320a2dddd16f5457eb4579ce5207a3d76758707527bd
-# source_rows: 35
+# source_rows: 67
 # pulled: 2026-09-07
-# body_sha256: 5fa82ed2c8f694562865ae7bf2e2a730c0c1a0cd9e27610f227fe644b3942f0c
+# body_sha256: dccf7bee529ab6302e7c69beaf93ceff7159cc40ad66c8447e3b06d9216f28bc
 # one row per member column of a take/give transaction group; group is the Lua entry point that performs both sides, call_site is the corpus line that proves the membership.
 script	group	side	column	api_name	call_site
 Q_BOAT_HEALTH	Accept_Run	take	n_VARI_2	Player.AddCash	Quest/q_boat_health.lua:21
@@ -26,6 +26,22 @@ Q_CLASS	Report_Run	give	n_REWARD_ITEM3	Player.AddItem	Quest/q_class.lua:68
 Q_CLASS	Report_Run	give	n_REWARD_ITEM4	Player.AddItem	Quest/q_class.lua:70
 Q_CLASS	Report_Run	give	n_REWARD_ITEM5	Player.AddItem	Quest/q_class.lua:72
 Q_CLASS	Report_Run	give	n_REWARD_ITEM6	Player.AddItem	Quest/q_class.lua:74
+Q_DAY_HUNT	Report_Run	take	n_VARI_4	Player.Addmoralized	Quest/q_day_hunt.lua:55
+Q_DAY_HUNT	Report_Run	give	-	Quest.AddLvCriteriaCash	Quest/q_day_hunt.lua:59
+Q_DAY_HUNT	Report_Run	give	-	Quest.AddLvCriteriaExp	Quest/q_day_hunt.lua:57
+Q_DAY_HUNT	Report_Run	give	-	Quest.AddLvCriteriaSkillPoint	Quest/q_day_hunt.lua:58
+Q_DAY_HUNT	Report_Run	give	n_REWARD_CHOOSE1	Quest.RewardItemSelect	Quest/q_day_hunt.lua:74
+Q_DAY_HUNT	Report_Run	give	n_REWARD_CHOOSE2	Quest.RewardItemSelect	Quest/q_day_hunt.lua:76
+Q_DAY_HUNT	Report_Run	give	n_REWARD_CHOOSE3	Quest.RewardItemSelect	Quest/q_day_hunt.lua:78
+Q_DAY_HUNT	Report_Run	give	n_REWARD_CHOOSE4	Quest.RewardItemSelect	Quest/q_day_hunt.lua:80
+Q_DAY_HUNT	Report_Run	give	n_REWARD_CHOOSE5	Quest.RewardItemSelect	Quest/q_day_hunt.lua:82
+Q_DAY_HUNT	Report_Run	give	n_REWARD_CHOOSE6	Quest.RewardItemSelect	Quest/q_day_hunt.lua:84
+Q_DAY_HUNT	Report_Run	give	n_REWARD_ITEM1	Player.AddItem	Quest/q_day_hunt.lua:62
+Q_DAY_HUNT	Report_Run	give	n_REWARD_ITEM2	Player.AddItem	Quest/q_day_hunt.lua:64
+Q_DAY_HUNT	Report_Run	give	n_REWARD_ITEM3	Player.AddItem	Quest/q_day_hunt.lua:66
+Q_DAY_HUNT	Report_Run	give	n_REWARD_ITEM4	Player.AddItem	Quest/q_day_hunt.lua:68
+Q_DAY_HUNT	Report_Run	give	n_REWARD_ITEM5	Player.AddItem	Quest/q_day_hunt.lua:70
+Q_DAY_HUNT	Report_Run	give	n_REWARD_ITEM6	Player.AddItem	Quest/q_day_hunt.lua:72
 Q_GUILD_BOSS2	Report_Run	take	n_VARI_8	Player.AddCash	Quest/q_guild_boss2.lua:59
 Q_GUILD_BOSS2	Report_Run	give	-	Quest.AddLvCriteriaCash	Quest/q_guild_boss2.lua:57
 Q_GUILD_BOSS2	Report_Run	give	-	Quest.AddLvCriteriaExp	Quest/q_guild_boss2.lua:55
@@ -42,3 +58,19 @@ Q_GUILD_BOSS2	Report_Run	give	n_REWARD_ITEM3	Player.AddItem	Quest/q_guild_boss2.
 Q_GUILD_BOSS2	Report_Run	give	n_REWARD_ITEM4	Player.AddItem	Quest/q_guild_boss2.lua:68
 Q_GUILD_BOSS2	Report_Run	give	n_REWARD_ITEM5	Player.AddItem	Quest/q_guild_boss2.lua:70
 Q_GUILD_BOSS2	Report_Run	give	n_REWARD_ITEM6	Player.AddItem	Quest/q_guild_boss2.lua:72
+Q_REPEAT_HUNT	Report_Run	take	n_VARI_4	Player.Addmoralized	Quest/q_repeat_hunt.lua:54
+Q_REPEAT_HUNT	Report_Run	give	-	Quest.AddLvCriteriaCash	Quest/q_repeat_hunt.lua:58
+Q_REPEAT_HUNT	Report_Run	give	-	Quest.AddLvCriteriaExp	Quest/q_repeat_hunt.lua:56
+Q_REPEAT_HUNT	Report_Run	give	-	Quest.AddLvCriteriaSkillPoint	Quest/q_repeat_hunt.lua:57
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_CHOOSE1	Quest.RewardItemSelect	Quest/q_repeat_hunt.lua:72
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_CHOOSE2	Quest.RewardItemSelect	Quest/q_repeat_hunt.lua:74
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_CHOOSE3	Quest.RewardItemSelect	Quest/q_repeat_hunt.lua:76
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_CHOOSE4	Quest.RewardItemSelect	Quest/q_repeat_hunt.lua:78
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_CHOOSE5	Quest.RewardItemSelect	Quest/q_repeat_hunt.lua:80
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_CHOOSE6	Quest.RewardItemSelect	Quest/q_repeat_hunt.lua:82
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_ITEM1	Player.AddItem	Quest/q_repeat_hunt.lua:60
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_ITEM2	Player.AddItem	Quest/q_repeat_hunt.lua:62
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_ITEM3	Player.AddItem	Quest/q_repeat_hunt.lua:64
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_ITEM4	Player.AddItem	Quest/q_repeat_hunt.lua:66
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_ITEM5	Player.AddItem	Quest/q_repeat_hunt.lua:68
+Q_REPEAT_HUNT	Report_Run	give	n_REWARD_ITEM6	Player.AddItem	Quest/q_repeat_hunt.lua:70
