@@ -1878,6 +1878,36 @@ class EventNameContractTests(_Case):
         "EVENT_LV_ROW_WRITTEN": "gm_chat_action_lv_row_written",
         "EVENT_LV_NOTICE_COMPOSED_PREFIX": "gm_chat_action_lv_notice_composed_",
         "EVENT_LV_NOTICE_FAILED_PREFIX": "gm_chat_action_lv_notice_failed_",
+        # `/job` and `/skill all` (LANE-GM round `wv0fpe`, PANYA-ORDER
+        # 2026-09-08).  ONE FULL SET EACH, shaped exactly like `/lv`'s five
+        # above rather than shared with them, and pinned here for the reason
+        # this whole table exists: an attended run greps `session.events` to
+        # tell which command wrote which row, and two commands answering to
+        # `gm_chat_action_lv_row_written` would make that unreadable.
+        "EVENT_JOB_REFUSED_PREFIX": "gm_chat_action_job_refused_",
+        "EVENT_JOB_WITHHELD_CANONICAL_DB": (
+            "gm_chat_action_job_withheld_canonical_db"
+        ),
+        "EVENT_JOB_ROW_WRITTEN": "gm_chat_action_job_row_written",
+        "EVENT_JOB_NOTICE_COMPOSED_PREFIX": (
+            "gm_chat_action_job_notice_composed_"
+        ),
+        "EVENT_JOB_NOTICE_FAILED_PREFIX": "gm_chat_action_job_notice_failed_",
+        # `rows_written`, PLURAL, and that is not a typo: one `/skill all`
+        # writes up to `class_skill_curriculum.SKILL_COUNT` rows, and a
+        # singular name would have a reader of a partial run looking for the
+        # one id that moved.
+        "EVENT_SKILL_REFUSED_PREFIX": "gm_chat_action_skill_refused_",
+        "EVENT_SKILL_WITHHELD_CANONICAL_DB": (
+            "gm_chat_action_skill_withheld_canonical_db"
+        ),
+        "EVENT_SKILL_ROWS_WRITTEN": "gm_chat_action_skill_rows_written",
+        "EVENT_SKILL_NOTICE_COMPOSED_PREFIX": (
+            "gm_chat_action_skill_notice_composed_"
+        ),
+        "EVENT_SKILL_NOTICE_FAILED_PREFIX": (
+            "gm_chat_action_skill_notice_failed_"
+        ),
         # The cross-scene `/warp`'s own sentence (LANE-GM round `0w9jhq`):
         # the same composed/failed pair, under their own names so a reader
         # grepping a warp's silence is never shown `/lv`'s events.
@@ -2001,6 +2031,27 @@ class EventNameContractTests(_Case):
         "LV_SET_NOTICE_ACTION_LABEL": "LANE_GM_CHAT_LV_SET_LOCAL_TALK_NOTICE",
         "LV_REFUSED_NOTICE_ACTION_LABEL": (
             "LANE_GM_CHAT_LV_REFUSED_LOCAL_TALK_NOTICE"
+        ),
+        # `/job`'s and `/skill all`'s two pairs (LANE-GM round `wv0fpe`,
+        # PANYA-ORDER 2026-09-08), for the same reason `/lv`'s pair is a
+        # pair: all four sentences ride the SAME
+        # `Channel_LocalTalkMessageVital` codec, so the label is the only
+        # thing that tells "the rows were written" from "nothing was
+        # written" without decoding bytes.  None of them carries a
+        # `TELEPORT` substring -- `runtime.py`'s
+        # `_move_authority_note_server_moves` reopens the move-authority
+        # grace window on that exact word, and neither command moves anyone.
+        "JOB_SET_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_JOB_SET_LOCAL_TALK_NOTICE"
+        ),
+        "JOB_REFUSED_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_JOB_REFUSED_LOCAL_TALK_NOTICE"
+        ),
+        "SKILL_ALL_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_SKILL_ALL_LOCAL_TALK_NOTICE"
+        ),
+        "SKILL_REFUSED_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_SKILL_REFUSED_LOCAL_TALK_NOTICE"
         ),
     }
 
@@ -3342,6 +3393,8 @@ class NoticeLabelCountTests(_Case):
         6: "SIX",
         7: "Seven",
         8: "Eight",
+        9: "Nine",
+        10: "TEN",
     }
 
     def notice_labels(self):
