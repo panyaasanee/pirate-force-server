@@ -52,8 +52,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:  # pragma: no cover - script entry
     sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import ui_party_wire as wire
-from pirateforce_foundation import ui_trade_wire as trade_wire
+from pirateforce_foundation import ui_dispatch
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
@@ -62,24 +61,30 @@ from pirateforce_foundation.store import SQLiteStore
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
-TOKEN = "UI_PARTY_INVITE_ANSWER_ARMED"
-
-# THE OTHER TWO BUTTONS ON THE SAME SEAM (round ly40b5).  This file used
-# to measure ``PartyInviteVital`` alone, and for four rounds that was all
-# there was to measure.  Two more answerers have landed since
+# EVERY ANSWERED BUTTON, ASKED FOR RATHER THAN NAMED (round ly40b5).
+# This file used to drive ``PartyInviteVital`` alone, and for four rounds
+# that was all there was to drive.  Two more answerers have landed since
 # (``TradeInviteVital`` round ``xqxadg``, ``PartyCmdVital`` round
 # ``m54yxh``) and neither had a runner, so neither could carry the
 # ``HEADLESS_PROOF:`` line ``NOW.md`` (PANYA ``0159``) demands -- three
 # working buttons and one provable one is a capture bus that boots to
 # find two of its three questions unanswerable.
 #
-# One boot drives all three: the per-session allowance is 32 answers and
-# this spends six, and a token that shares a login with the other two is
-# a STRONGER statement than three separate boots, not a weaker one --
-# it says the three answer in the same process, on the same session,
-# without taking each other's slot.
-TRADE_TOKEN = "UI_TRADE_INVITE_ANSWER_ARMED"
-PARTY_CMD_TOKEN = "UI_PARTY_CMD_ANSWER_ARMED"
+# The cases are read from ``ui_dispatch._ANSWERER_OWNERS`` -- the
+# reviewed table of which lane owns which id -- and each lane supplies
+# its own ``ARMING_TOKEN`` and ``arming_sample()``.  Two reasons, and the
+# second is not tidiness:
+#
+# 1. A fourth answerer becomes measurable by declaring two names in its
+#    own file, with no edit here; ``tests/test_ui_dispatch.py`` turns red
+#    if it declares neither, so "the button works but nobody can prove
+#    it" cannot recur silently.
+# 2. Naming the trade family here would put that vocabulary in a
+#    top-level Foundation module, which ``tests/test_npc_interaction_wire``
+#    guards by design.  That guard offers an exemption table -- and
+#    buying a green with an allowlist entry is what ``NOW.md`` ``2050``
+#    forbids outright.  Asking the lane that legitimately owns the class
+#    is the answer that needs no exemption.
 SUMMARY_TOKEN = "UI_SEAM_ANSWERS_ARMED_SUMMARY"
 
 
@@ -122,44 +127,36 @@ def run() -> int:
             legacy._synthetic_start_game_pc(character.selector)
         ))
 
-        cases = (
-            (
-                TOKEN,
-                wire.PARTY_INVITE_VITAL_ID,
-                wire.PARTY_INVITE_VITAL_VERSION,
-                wire.encode_party_invite_payload(
-                    wire.PartyInviteFields(
-                        field1_u8=1, field2_u64=0x1122334455667788,
-                        field3_wstring="Panya",
-                    )
-                ),
-            ),
-            (
-                TRADE_TOKEN,
-                trade_wire.TRADE_INVITE_VITAL_ID,
-                trade_wire.TRADE_INVITE_VITAL_VERSION,
-                trade_wire.encode_trade_invite_payload(
-                    trade_wire.TradeInviteFields(
-                        field1_u8=1, field2_u64=0x1122334455667788,
-                        field3_wstring="Panya",
-                    )
-                ),
-            ),
-            (
-                PARTY_CMD_TOKEN,
-                wire.PARTY_CMD_VITAL_ID,
-                wire.PARTY_CMD_VITAL_VERSION,
-                wire.encode_party_cmd_payload(
-                    wire.PartyCmdFields(
-                        field1_u8=1, field2_u64=0x1122334455667788,
-                    )
-                ),
-            ),
-        )
+        cases = []
+        for vital_id in sorted(ui_dispatch._ANSWERER_OWNERS):
+            owner = ui_dispatch._ANSWERER_OWNERS[vital_id]
+            lane = sys.modules.get(owner)
+            token = getattr(lane, "ARMING_TOKEN", None)
+            sample = getattr(lane, "arming_sample", None)
+            if lane is None or not isinstance(token, str) or not callable(sample):
+                # A REVIEWED ID WITH NO WAY TO MEASURE IT IS A FAILURE,
+                # NOT A GAP TO PASS OVER.  Printing PASS for the buttons
+                # that happen to be measurable, while a reviewed one
+                # cannot be, is exactly the shape that let two of these
+                # three go four rounds without a token.
+                cases.append((owner, vital_id, None))
+                continue
+            cases.append((token, vital_id, sample()))
 
         failed = 0
-        for token, vital_id, version, payload in cases:
-            failed += _measure(legacy, state, token, vital_id, version, payload)
+        for token, vital_id, sample in cases:
+            if sample is None:
+                print(
+                    "%s_UNMEASURABLE id=0x%04X owner=%s"
+                    " reason=no_arming_sample RESULT=FAIL"
+                    % (SUMMARY_TOKEN, vital_id, token)
+                )
+                failed += 1
+                continue
+            sample_id, version, payload = sample
+            failed += _measure(
+                legacy, state, token, sample_id, version, payload,
+            )
         print(
             "%s buttons=%d failed=%d RESULT=%s"
             % (SUMMARY_TOKEN, len(cases), failed,

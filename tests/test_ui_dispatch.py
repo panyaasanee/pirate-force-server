@@ -2814,42 +2814,36 @@ class EveryAnsweredButtonHasARunnerTests(unittest.TestCase):
     runner's source.
     """
 
-    def test_the_runner_drives_every_reviewed_answerable_id(self):
-        from pirateforce_foundation import ui_party_invite_answer_headless
-
-        source = Path(
-            ui_party_invite_answer_headless.__file__
-        ).read_text(encoding="utf-8")
-        # Read off the SOURCE rather than by running it: a boot takes
-        # seconds, and the claim here is about which id constants the
-        # runner mentions, which the text settles.
-        named = {
-            node.attr
-            for node in ast.walk(ast.parse(source))
-            if isinstance(node, ast.Attribute)
-        }
-        wire_names = {}
-        for module in list(sys.modules.values()):
-            module_name = getattr(module, "__name__", "")
-            if not module_name.startswith("pirateforce_foundation.ui_"):
-                continue
-            for name, value in vars(module).items():
-                if isinstance(value, int) and name.endswith("_VITAL_ID"):
-                    wire_names.setdefault(value, set()).add(name)
-        missing = [
-            hex(vital_id)
-            for vital_id in sorted(ui_dispatch._ANSWERER_OWNERS)
-            if sys.modules.get(ui_dispatch._ANSWERER_OWNERS[vital_id])
-            is not None
-            and not wire_names.get(vital_id, set()) & named
-        ]
-        self.assertEqual(
-            missing,
-            [],
-            "these reviewed answerable ids have a loaded answerer lane but"
-            " are not named by the arming runner, so no ticket for them can"
-            " carry a HEADLESS_PROOF line",
-        )
+    def test_every_reviewed_answerable_id_declares_an_arming_sample(self):
+        for vital_id in sorted(ui_dispatch._ANSWERER_OWNERS):
+            owner = ui_dispatch._ANSWERER_OWNERS[vital_id]
+            lane = sys.modules.get(owner)
+            if lane is None:
+                continue  # the lane is not imported in this process
+            with self.subTest(hex(vital_id)):
+                token = getattr(lane, "ARMING_TOKEN", None)
+                sample = getattr(lane, "arming_sample", None)
+                self.assertIsInstance(
+                    token, str,
+                    "%s answers %s but declares no ARMING_TOKEN, so the"
+                    " runner cannot produce a HEADLESS_PROOF line for it"
+                    % (owner, hex(vital_id)),
+                )
+                self.assertTrue(
+                    callable(sample),
+                    "%s answers %s but declares no arming_sample(), so no"
+                    " ticket for that button can carry a token"
+                    % (owner, hex(vital_id)),
+                )
+                sample_id, version, payload = sample()
+                self.assertEqual(
+                    sample_id, vital_id,
+                    "the sample must be a frame of the class the lane is"
+                    " the reviewed owner of",
+                )
+                self.assertIsInstance(version, int)
+                self.assertIsInstance(payload, bytes)
+                self.assertTrue(payload, "an empty payload proves nothing")
 
 
 class AdoptRoundLy40b5AdversaryTests(_RegistryIsolation):
