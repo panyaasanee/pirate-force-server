@@ -19,7 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
+    lifecycle,
     skill_learn_roundtrip,
+    skill_list_at_login,
     skill_learn_validator,
     skill_learn_wiring,
 )
@@ -401,6 +403,61 @@ class TheTokenMeasuresTheArtifactTests(_Fixture):
         )
         self.assertIn("RESULT=NOT_TOLD",
                       skill_learn_roundtrip.headless_token(stripped))
+
+
+class LearningAFifthSkillCollidesWithTheLoginCapTests(_Fixture):
+    """MEASURED THIS ROUND, and pinned so a player is not the first to find
+    it.
+
+    `skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT` is 4 -- the largest
+    count a real client has ever been measured accepting (`GT-249`) -- and
+    `COO-DECISION 20260908_1742` froze it there until an attended result
+    moves it.  Every character alive today carries exactly the 4 starting
+    kit rows, so nothing had ever produced a fifth.  This module produces
+    one on the first successful learn, and the next login then composes NO
+    SKILL FRAME AT ALL: a named refusal on the console, and an empty skill
+    window on the screen.
+
+    THE CAP IS NOT RAISED HERE and this test does not ask for it to be.  It
+    pins the collision so that the day the cap moves, the test that moves it
+    has to come here and say so -- and so that the ">4 rows" step this lane
+    asked `GT-307` for has a reproducible way to reach it that needs no GM
+    command at all.
+    """
+
+    def test_the_fifth_row_makes_the_login_frame_refuse_by_name(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(
+            character.id, {"skill_points": 99, "level": 40},
+        )
+        lifecycle.grant_starting_skills_for_class(self.store, character, 1)
+        before = skill_list_at_login.read_character_skill_ids(
+            self.store, character.id,
+        )
+        self.assertEqual(
+            skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT, len(before),
+        )
+        pc, _frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, before,
+        )
+        self.assertEqual(4, skill_list_at_login.measured_record_count(pc))
+
+        result = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, self.store, character.id, 2950,
+        )
+        self.assertTrue(result.learned)
+        after = skill_list_at_login.read_character_skill_ids(
+            self.store, character.id,
+        )
+        self.assertEqual(len(before) + 1, len(after))
+        with self.assertRaises(
+            skill_list_at_login.SkillListAtLoginError
+        ) as caught:
+            skill_list_at_login.make_skill_list_response(self.legacy, after)
+        self.assertEqual(
+            skill_list_at_login.REFUSE_TOO_MANY_UNMEASURED,
+            caught.exception.reason,
+        )
 
 
 class ThisLaneStaysInsideItsOwnZoneTests(unittest.TestCase):
