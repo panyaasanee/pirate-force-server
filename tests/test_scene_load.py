@@ -65,7 +65,10 @@ class SceneLoadTests(unittest.TestCase):
         state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
         c=self.store.list_characters(state.foundation.account_id)[0]
         actions=state.dispatch(self.legacy.parse_outer(self.legacy._synthetic_start_game_pc(c.selector)))
-        self.assertEqual([a[0] for a in actions],["FOUNDATION_SELECTED_START_GAME","V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE"])
+        # "SKILL_LIST_AT_LOGIN" added by LANE-CS round `ixbs2f` (PANYA
+        # 20260908_1455 item 2.3, COO-DECISION 20260908_1541).  Still an
+        # exact equality: appended, not loosened.
+        self.assertEqual([a[0] for a in actions],["FOUNDATION_SELECTED_START_GAME","V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE","SKILL_LIST_AT_LOGIN"])
     def test_player_faction1_relation_probe_is_explicit_and_read_only(self):
         self.scenario=load_scene_load_scenario(
             ROOT/"scenarios/scene2_fighting_fish_soldier_hp3857_player_faction1.json"

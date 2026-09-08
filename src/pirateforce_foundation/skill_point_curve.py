@@ -257,7 +257,33 @@ PROVENANCE_LABELS = (PROVENANCE_MEASURED, PROVENANCE_ASSUMPTION)
 #: module currently publishes.  A round that wants a different number without
 #: an RE behind it has to edit this line, where the decision reference is, and
 #: not just the export.
+#:
+#: 🔴 pf-adversary D5, round `30piru`, PAID in round `ixbs2f` and worth
+#: reading before trusting the gate below.  Its question was exact: "what in
+#: this repo goes red if a round changes BOTH integers to 5 in one commit and
+#: fixes up the two test literals?"  The honest answer at the time was
+#: NOTHING -- comparing two globals in one file proves ``X == X``, and a
+#: mutant that aliased one to the other left 39 tests green.  The number now
+#: has an anchor OUTSIDE this module: ``_BIRTH_SKILL_POINTS_SCHEMA_ANCHOR``
+#: below names the committed migration that materialises the same order as a
+#: column default, and :func:`schema_birth_skill_points` parses it out.  Both
+#: integers moved to 5 now needs the migration moved with them -- and moving
+#: a migration that has already run on the owner's database is a thing this
+#: project does not do quietly.
 OWNER_ORDERED_BIRTH_SKILL_POINTS = 0
+
+#: The committed file that carries the same order as SCHEMA, outside this
+#: module and outside this lane's write zone.  ``migrations/017`` rebuilt
+#: ``characters`` with ``skill_points INTEGER DEFAULT 0``; that default is
+#: what every character born on a migrated database actually gets, whatever
+#: this module says.
+_BIRTH_SKILL_POINTS_SCHEMA_ANCHOR = (
+    "migrations/017_character_experience_skill_points_birth_defaults.sql"
+)
+
+#: The column the anchor is read out of.  Spelled once so the parser and the
+#: refusal message cannot drift apart.
+_BIRTH_SKILL_POINTS_SCHEMA_COLUMN = "skill_points"
 
 #: The skill points a character is born holding.  See the module header
 #: section "THE ONE NUMBER THIS MODULE DOES NAME".
@@ -292,6 +318,19 @@ REFUSE_BIRTH_MEASURED_WITHOUT_SOURCE = (
 )
 REFUSE_BIRTH_ASSUMPTION_WITH_SOURCE = (
     "birth_value_names_a_shipped_table_but_is_labelled_an_assumption"
+)
+#: pf-adversary D5, paid in round `ixbs2f`: the owner-ordered number no
+#: longer stands alone in this file.  Raised when the committed migration
+#: that materialises the same order as a column default says something else.
+REFUSE_BIRTH_ORDER_NOT_IN_THE_SCHEMA = (
+    "owner_ordered_birth_value_disagrees_with_the_committed_migration"
+)
+#: Raised when the anchor file cannot be read or does not carry the column
+#: default at all.  Separate from the disagreement above on purpose: "the
+#: schema says 5" and "there is no schema to ask" are different bug reports
+#: and a single reason would have them arrive as the same one.
+REFUSE_BIRTH_SCHEMA_ANCHOR_UNREADABLE = (
+    "the_committed_migration_named_as_the_anchor_could_not_be_read"
 )
 
 
@@ -388,6 +427,85 @@ def sp_at_level(level: int) -> int:
     return row_for_level(level).sp
 
 
+def schema_birth_skill_points() -> int:
+    """The ``skill_points`` column default, READ OUT of the committed migration.
+
+    pf-adversary D5 (round `30piru`) asked one question and it is the only
+    reason this function exists: what in this repository goes red if a round
+    changes both ``OWNER_ORDERED_BIRTH_SKILL_POINTS`` and
+    ``BIRTH_SKILL_POINTS`` to 5 in a single commit and fixes up the two test
+    literals?  The answer was NOTHING -- the gate compared two globals in one
+    file, which proves ``X == X``, and a mutant aliasing one to the other left
+    the whole file green.  This is the anchor that was missing: a number in
+    another file, in another lane's write zone, that a round moving the
+    constant would also have to move.
+
+    WHAT IT PARSES.  ``_BIRTH_SKILL_POINTS_SCHEMA_ANCHOR``'s
+    ``CREATE TABLE ... skill_points INTEGER DEFAULT <n>``.  Not the whole SQL
+    -- the column line, found by name, and the integer after its ``DEFAULT``.
+
+    WHY THE FILE AND NOT A LIVE DATABASE.  A database is a thing on the
+    machine running the suite, and a machine that happens to have a database
+    with the wrong default would turn this into a fact about that machine
+    (this lane already lost eight tests to exactly that shape once, in the GM
+    login-scene config).  The migration file is committed, is the same on
+    every checkout, and IS what a fresh database gets built from.
+
+    WHAT IT IS NOT.  It is not a claim that 0 is the original game's number
+    -- the migration's own header says ``skill_points -- NOT MEASURED, AND
+    ORDERED ANYWAY``.  Both files record the same ORDER; agreeing about an
+    order is all this proves, and that is exactly the thing D5 showed was
+    unproven.  ``BIRTH_SKILL_POINTS_PROVENANCE`` stays ``ASSUMPTION``.
+    """
+    import re
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[2] / _BIRTH_SKILL_POINTS_SCHEMA_ANCHOR
+    )
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise SkillPointCurveError(
+            REFUSE_BIRTH_SCHEMA_ANCHOR_UNREADABLE,
+            "cannot read %s, named as the schema anchor for the birth "
+            "skill-point order: %s" % (_BIRTH_SKILL_POINTS_SCHEMA_ANCHOR, error),
+        ) from error
+    # Comment lines dropped first: this migration's header discusses its own
+    # DDL at length, including the string `skill_points INTEGER DEFAULT 0` in
+    # prose, and a scan that reads prose would pass while the DDL said 5.
+    body = "\n".join(
+        line for line in text.splitlines()
+        if not line.lstrip().startswith("--")
+    )
+    found = re.findall(
+        r"\b%s\s+INTEGER\s+DEFAULT\s+(-?\d+)"
+        % re.escape(_BIRTH_SKILL_POINTS_SCHEMA_COLUMN),
+        body,
+    )
+    if not found:
+        raise SkillPointCurveError(
+            REFUSE_BIRTH_SCHEMA_ANCHOR_UNREADABLE,
+            "%s carries no `%s INTEGER DEFAULT <n>` outside its comments"
+            % (
+                _BIRTH_SKILL_POINTS_SCHEMA_ANCHOR,
+                _BIRTH_SKILL_POINTS_SCHEMA_COLUMN,
+            ),
+        )
+    if len(set(found)) != 1:
+        raise SkillPointCurveError(
+            REFUSE_BIRTH_SCHEMA_ANCHOR_UNREADABLE,
+            "%s declares %s with more than one default (%r); this function "
+            "will not pick one"
+            % (
+                _BIRTH_SKILL_POINTS_SCHEMA_ANCHOR,
+                _BIRTH_SKILL_POINTS_SCHEMA_COLUMN,
+                sorted(set(found)),
+            ),
+        )
+    return int(found[0])
+
+
 def birth_skill_points() -> int:
     """The skill points a character is born holding, re-graded on every call.
 
@@ -420,6 +538,25 @@ def birth_skill_points() -> int:
             REFUSE_BIRTH_PROVENANCE_UNKNOWN,
             "provenance must be one of %r, got %r"
             % (PROVENANCE_LABELS, BIRTH_SKILL_POINTS_PROVENANCE),
+        )
+    # pf-adversary D5: the ORDER is graded against the committed migration
+    # before the published value is graded against the order.  Unconditional,
+    # under either label -- a MEASURED number that contradicts the schema
+    # every character is actually born under is a worse bug than an
+    # unmeasured one, not a better one.
+    schema_ordered = schema_birth_skill_points()
+    if schema_ordered != OWNER_ORDERED_BIRTH_SKILL_POINTS:
+        raise SkillPointCurveError(
+            REFUSE_BIRTH_ORDER_NOT_IN_THE_SCHEMA,
+            "this module records the owner's order as %d, and %s builds "
+            "`characters` with `%s ... DEFAULT %d`; one of the two moved "
+            "without the other"
+            % (
+                OWNER_ORDERED_BIRTH_SKILL_POINTS,
+                _BIRTH_SKILL_POINTS_SCHEMA_ANCHOR,
+                _BIRTH_SKILL_POINTS_SCHEMA_COLUMN,
+                schema_ordered,
+            ),
         )
     if BIRTH_SKILL_POINTS_PROVENANCE == PROVENANCE_ASSUMPTION:
         if BIRTH_SKILL_POINTS != OWNER_ORDERED_BIRTH_SKILL_POINTS:
