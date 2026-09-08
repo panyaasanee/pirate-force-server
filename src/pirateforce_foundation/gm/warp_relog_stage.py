@@ -107,9 +107,14 @@ OUTCOME_STAGED = "staged"
 OUTCOME_NOT_A_REFUSED_LOGIN = "not_a_refused_login"
 
 #: The persist was refused by the login path, but no chief letter sanctions
-#: this scene.  The ordinary refusal stands.  NO CONSOLE LINE for this one:
-#: it is the unremarkable case (every barred scene that is not 126), and a
-#: line here would print on warps that behave exactly as they always have.
+#: this scene.  The ordinary refusal stands.  NO CONSOLE LINE for a scene the
+#: live route cannot reach: that is the unremarkable case, and a line there
+#: would print on warps that behave exactly as they always have.  A scene
+#: lane A HAS decreed an arrival for does print `FAIL_CONSOLE_TOKEN` with
+#: this word as its reason -- there the character really was moved and the
+#: relog really was dropped, which is not unremarkable at all.  See the
+#: branch in `stage_relog_entry_after_refused_persist` for why the two
+#: silences had to be split.
 OUTCOME_SCENE_NOT_SANCTIONED = "scene_not_sanctioned"
 
 #: `stage_login_scene` refused; the suffix is its own reason word, not a
@@ -177,13 +182,46 @@ def stage_relog_entry_after_refused_persist(
         # written: this is the path every warp in the game takes.
         return RelogStageResult(OUTCOME_NOT_A_REFUSED_LOGIN)
 
-    if type(scene_id) is not int or not login_scene_admission.is_sanctioned_barred_scene(
-        scene_id
-    ):
+    if type(scene_id) is not int:
         # `type(...) is not int` first and separately: `is_sanctioned_barred_
         # scene` raises TypeError on a non-int, and this function does not
         # raise.  A bool is an int subclass and is refused here for the reason
         # `stage_login_scene` gives -- `True` would otherwise ask about scene 1.
+        return RelogStageResult(OUTCOME_SCENE_NOT_SANCTIONED)
+
+    if not login_scene_admission.is_sanctioned_barred_scene(scene_id):
+        # NOT ONE SILENCE BUT TWO, and telling them apart is the whole of
+        # this branch.  The unremarkable case -- a barred scene nothing
+        # reaches, which is every barred scene the live route cannot resolve
+        # -- still prints nothing, exactly as before: a line there would
+        # appear on warps that behave as they always have.
+        #
+        # THE OTHER CASE IS THE ONE THIS BRANCH WAS SILENT ABOUT, and it is
+        # the case scene 126 walks into the hour its sanction is retired
+        # (`COO-DECISION 20260908_1742` orders that retirement; this lane
+        # measured on main that its trigger has not fired yet).  A row that
+        # carries lane A's `decreed_arrival` block IS resolved by
+        # `warp_no_coords_live_target`, so the character was MOVED by a
+        # TeleportVital that has already been built -- and the durable row
+        # was refused by the login path, which is how control reached here.
+        # With no sanction to stage a single-use entry through, the relog is
+        # not arranged and nothing said so: the tester warps, sees the new
+        # scene, relogs, and is back where they started, which is precisely
+        # `FAIL_CONSOLE_TOKEN`'s own stated reason for existing ("the state a
+        # tester must never have to infer from silence").
+        #
+        # The reason word is this module's existing outcome word rather than
+        # a second vocabulary, so the console and the returned outcome say
+        # the same thing.  `scene_has_decreed_arrival` cannot raise and fails
+        # closed to False, so a registry this process cannot read costs this
+        # line and never the command.
+        if login_scene_admission.scene_has_decreed_arrival(
+            scene_id, scene_registry=scene_registry
+        ):
+            _console(
+                f"{FAIL_CONSOLE_TOKEN} scene={scene_id} "
+                f"reason={OUTCOME_SCENE_NOT_SANCTIONED}"
+            )
         return RelogStageResult(OUTCOME_SCENE_NOT_SANCTIONED)
 
     if type(account_name) is not str or not account_name:
