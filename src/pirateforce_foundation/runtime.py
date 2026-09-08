@@ -7338,13 +7338,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
         #: for all three and True for scene 1).  With the relabel in place,
         #: MEASURED end to end: the durable row becomes
         #: `Position(scene_id=126, ...)`, and the next login answers
-        #: StartGame with NOTHING -- `WORLD_SCENE_ENTRY_REFUSED
-        #: [scene_not_allowed_at_login]`, `world_scene_entry_refused_no_reply`,
-        #: an empty action list.  Only a login can rewrite
-        #: `character_positions`, and that login can no longer happen: the
-        #: character is permanently unplayable.  `gm/warp_scene_persist.py`
-        #: already states the rule this seam broke -- "refusing to write is
-        #: strictly better than bricking the character".
+        #: StartGame with NOTHING -- the scene-not-allowed-at-login refusal
+        #: that `world_scene_refusal_notice` composes (its token is spelled
+        #: THERE and not here: that module is its single producer and a test
+        #: pins the literal out of this file), the matching
+        #: `..._refused_no_reply` event, and an empty action list.  Only a
+        #: login can rewrite `character_positions`, and that login can no
+        #: longer happen: the character is permanently unplayable.
+        #: `gm/warp_scene_persist.py` already states the rule this seam
+        #: broke -- "refusing to write is strictly better than bricking the
+        #: character".
         #:
         #: TWO MORE MEASURED COSTS OF THAT RELABEL, either of which would
         #: block it on its own: a well-formed `PendingCheck` carrying a
