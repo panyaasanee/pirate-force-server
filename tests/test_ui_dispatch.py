@@ -2002,6 +2002,7 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
             {
                 ui_party_wire.PARTY_INVITE_VITAL_ID,
                 ui_trade_wire.TRADE_INVITE_VITAL_ID,
+                ui_party_wire.PARTY_CMD_VITAL_ID,
             },
         )
         # READ FROM DISK, NOT IMPORTED.  Importing an answerer module
@@ -2403,9 +2404,15 @@ class TheReviewedShapesArePinnedTests(unittest.TestCase):
     EXPECTED = {
         "UI_PARTY_INVITE_ANSWERED": (0x37B1, frozenset((0,)), 512, 1024),
         "UI_TRADE_INVITE_ANSWERED": (0x3700, frozenset((0,)), 512, 1024),
+        # Round m54yxh.  This one's payload is u8 + u64 with no string,
+        # so the reviewed width is the EXACT width and not headroom --
+        # and the answerer checks it with `!=`, not `>`.  The literal is
+        # here for the same reason as the two above: a registry that
+        # widens without a test changing is a registry nobody reviewed.
+        "UI_PARTY_CMD_ANSWERED": (0x2466, frozenset((0,)), 11, 64),
     }
 
-    def test_the_registry_is_exactly_these_two_reviewed_rows(self):
+    def test_the_registry_is_exactly_these_reviewed_rows(self):
         self.assertEqual(
             set(ui_dispatch._OUTBOUND_FRAME_SHAPES), set(self.EXPECTED)
         )
