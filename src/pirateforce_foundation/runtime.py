@@ -28,6 +28,7 @@ from . import mob_respawn
 from . import mob_scene_recompose
 from . import name_colour_sweep
 from . import scene_admission_gate
+from . import skill_list_at_login
 from . import trace_path
 from . import ui_dispatch
 from . import vital_walk
@@ -10065,6 +10066,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 load_only = scene_load_scenario is not None
                 entry = None
                 gm_state_action = None
+                skill_list_action = None
                 # CORE-REQUEST-017 point 1: default "no override" for the
                 # load_only path, where the block below that assigns this
                 # never runs. Read again much further down (the flagless
@@ -10753,6 +10755,104 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "gm_update_state_frame_withheld_no_confirmed_"
                             "vital_version_re105_open"
                         )
+                    # SKILL-LIST-AT-LOGIN-001 seam (PANYA 20260908_1455 item
+                    # 2.3 "this is the piece that is really missing", carried
+                    # into COO-DECISION 20260908_1541 which moved this seam to
+                    # LANE-CS and ordered it wired with the trailing byte 0).
+                    #
+                    # ALWAYS ON, no scenario flag, exactly like
+                    # CORE-REQUEST-006's GM frame above: the owner sat in
+                    # front of a production boot on 2026-09-07, watched
+                    # `CHARACTER_STARTING_SKILLS cid=1 written
+                    # skill_ids=(111, 40000, 99, 110)` print, and both skill
+                    # tabs stayed empty.  The rows were in the database and
+                    # nothing read them back onto the wire.  This is the read
+                    # half, and a flag on it would ship the same empty window.
+                    #
+                    # WHY THIS IS NOT THE WALK-LOCK.  GT-249 (R312, attended)
+                    # ended with a client that could not walk until relog
+                    # after this vital's six-frame sweep.  GT-276 (PASS,
+                    # R323C, 2026-09-07T21:33+07:00) isolated the cause to ONE
+                    # BYTE: steps carrying trailing u8 == 1 lock walking,
+                    # steps carrying trailing u8 == 0 walk (record count made
+                    # no difference; measured at counts 0, 1 and 3).  The
+                    # module refuses to hand back a payload whose trailing
+                    # byte it measures as anything but 0 -- that is a raise on
+                    # the composed bytes, not a constant it prints -- so the
+                    # frame that reaches this line is a frame R323C measured
+                    # as walkable.  What R323C did NOT re-boot is count 4 at
+                    # trailing 0 ("step 6 not booted per ticket"): that is
+                    # GT-249's own step 6, the step that rendered 3 of 4 ids,
+                    # and in R312 it rode in a sweep that also carried the
+                    # trailing-1 steps -- so no run has ever measured walking
+                    # after that step alone, and every character alive today
+                    # has exactly 4 rows.  GT-307 is the attended ticket for
+                    # that gap and this seam is its build precondition.
+                    #
+                    # RIDES ALONGSIDE, like gm_state_action: appended to the
+                    # same action list below.  The frozen START_GAME_RES and
+                    # teleport bytes are not touched, and every refusal here
+                    # leaves this login with no skill frame and a NAMED event
+                    # -- never an exception out of the listener thread.
+                    #
+                    # NOT CLAIMED: that login is the right MOMENT (GT-249's
+                    # positive result came from a trigger), that id 40000 will
+                    # render (it did not in R312), or what the three record
+                    # members mean.  The module's nonclaims say all three and
+                    # this seam does not quietly upgrade any of them.
+                    #
+                    # getattr on the store, not a plain attribute read, for
+                    # the reason session.py already writes down twice in its
+                    # own file: a lifecycle stub in another lane's test can
+                    # arrive here without one, and `.store` on it would raise
+                    # an AttributeError that the one `except` below does NOT
+                    # catch -- straight out of this listener thread, on every
+                    # login, for a frame that is allowed to be absent.  The
+                    # module's contract is one exception class; a missing
+                    # store is not one of its refusals, so it is named here.
+                    skill_store = getattr(
+                        self.foundation.lifecycle, "store", None,
+                    )
+                    try:
+                        if skill_store is None:
+                            raise skill_list_at_login.SkillListAtLoginError(
+                                "lifecycle_has_no_store",
+                                "this lifecycle exposes no store to read "
+                                "character_skills rows from",
+                            )
+                        skill_pc, skill_frame = (
+                            skill_list_at_login.login_skill_list_response(
+                                legacy,
+                                skill_store,
+                                self.foundation.selected.id,
+                            )
+                        )
+                    except skill_list_at_login.SkillListAtLoginError as error:
+                        # One except, one named reason, by that module's own
+                        # contract: a character whose rows cannot answer gets
+                        # a login with no skill frame rather than a login that
+                        # dies inside this thread.
+                        self.events.append(
+                            f"skill_list_at_login_refused_{error.args[0]}"
+                        )
+                    else:
+                        # The trailing byte is NOT re-derived here.  Reaching
+                        # this line already means the module decoded its own
+                        # composed payload back and measured a trailing 0 --
+                        # anything else raises REFUSE_TRAILING_BYTE_LOCKS_
+                        # WALKING above and lands in the except.  A second
+                        # copy of that measurement in this file would need
+                        # the record count, which this seam does not hold,
+                        # and a count guessed here is how a token comes to
+                        # report a byte the frame does not carry (the D3
+                        # defect that module's own docstring records).
+                        skill_list_action = (
+                            "SKILL_LIST_AT_LOGIN", skill_pc, skill_frame, 0.0,
+                        )
+                        self.events.append(
+                            "skill_list_at_login_sent_%d_bytes"
+                            % (len(skill_frame),)
+                        )
                     # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING
                     # step 0, "AT CHARACTER SELECT": claim this character's
                     # bag ONCE against the server-wide mob_pickup_registry
@@ -10972,6 +11072,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # START_GAME_RES / teleport bytes above stay
                     # byte-for-byte untouched.
                     actions.append(gm_state_action)
+                if skill_list_action is not None:
+                    # SKILL-LIST-AT-LOGIN-001, same rule as the line above:
+                    # appended LAST so the START_GAME_RES and the teleport
+                    # keep both their bytes and their order.  AFTER the
+                    # teleport deliberately -- R323C's walkable steps were
+                    # measured on a client that was already in the world,
+                    # and putting an unrendered-window frame in front of the
+                    # teleport would be a third unmeasured thing in a route
+                    # that already has two.
+                    actions.append(skill_list_action)
                 return actions
 
             if nested_id == legacy.ITEM_OPERATE_REQ_VITAL:
