@@ -2092,37 +2092,42 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # legacy response.  No successful bytes are queued unless the
             # later repository call commits exactly this post-state.
             before = self.foundation.backpack
-            try:
-                expected_after = inventory.merged_v111_state(before)
-            except ValueError as exc:
-                # A bag with no mergeable pair reaches no post-state, so
-                # there is nothing to write and nothing to answer.  The
-                # exact-envelope check above does not prove the HOLDER can
-                # merge, only that the REQUEST is the V111 one.
-                self.events.append(
-                    f"foundation_v111_merge_no_merged_state_no_reply_{exc!r}"
-                )
+            if not inventory.can_merge_v111(before):
+                # No mergeable pair means no post-state to derive, so there
+                # is nothing to write and nothing to answer.  The
+                # exact-envelope check above proves the REQUEST is the V111
+                # one, never that the HOLDER can still perform it.
+                #
+                # A bag that is ALREADY a merged state is the ordinary
+                # second click, and it keeps the name it has always had:
+                # deriving moved this check ahead of the repository call,
+                # which used to be the thing that reported a replay (it
+                # returned applied=False).  Renaming that event would have
+                # made a replay indistinguishable from a malformed bag on
+                # the console.
+                if before in inventory.merged_v111_states():
+                    self.events.append("foundation_v111_merge_replay_no_reply")
+                else:
+                    self.events.append(
+                        "foundation_v111_merge_no_merged_state_no_reply"
+                    )
                 return []
+            expected_after = inventory.merged_v111_state(before)
             merged_row = next(
-                (item for item in expected_after.items if item.identity == 1),
-                None,
+                item for item in expected_after.items if item.identity == 1
             )
-            if merged_row is None:
-                self.events.append(
-                    "foundation_v111_merge_no_merged_row_no_reply"
-                )
-                return []
-            try:
-                pc, frame = make_item_merge_delta_response(
-                    legacy, merged_row, 3,
-                )
-            except (TypeError, ValueError, RuntimeError) as exc:
-                # Fail closed with no write rather than queue bytes the
-                # composer itself refused to stand behind.
-                self.events.append(
-                    f"foundation_v111_merge_response_refused_no_reply_{exc!r}"
-                )
-                return []
+            # No try/except around the composer ON PURPOSE.  Every input that
+            # reaches here already satisfies its argument checks (the summed
+            # quantity is at least 2, and identity 3 is not identity 1), so
+            # the only exception it can raise is its own drift guard --
+            # "generic item-merge response drifted from the V111 golden" --
+            # which means the frozen golden and the derivation disagree.
+            # That is a build-level fault, it happens BEFORE any write, and
+            # the pre-existing contract for a builder failure here is to
+            # propagate (test_wrong_sequence_builder_and_repository_failures_
+            # do_not_mutate pins it).  Swallowing it would hide exactly the
+            # canary this round installed.
+            pc, frame = make_item_merge_delta_response(legacy, merged_row, 3)
             try:
                 applied = self.foundation.merge_v111_stack()
             except Exception as exc:

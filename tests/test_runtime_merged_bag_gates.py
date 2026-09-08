@@ -438,13 +438,17 @@ class MergedBagGateTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("MERGED_V111_BACKPACK", source)
         self.assertIn("from . import inventory", source)
-        # Two preconditions still ask the SET (any known bag may be the
-        # one in hand); the committed-merge gate now derives THIS bag's
-        # post-state instead, which is what pf-adversary D1 measured the
-        # set form could not do.
-        self.assertEqual(source.count("inventory.merged_v111_states()"), 2)
+        # Three readers of the SET: the two preconditions (any known bag
+        # may be the one in hand) and the replay branch (a second click
+        # lands on SOME bag's merged state).  The committed-merge gate is
+        # not one of them any more -- it derives THIS bag's post-state,
+        # which is what pf-adversary D1 measured the set form could not do.
+        self.assertEqual(source.count("inventory.merged_v111_states()"), 3)
         self.assertEqual(
             source.count("inventory.merged_v111_state(before)"), 1
+        )
+        self.assertEqual(
+            source.count("inventory.can_merge_v111(before)"), 1
         )
 
 
