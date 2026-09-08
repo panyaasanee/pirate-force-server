@@ -3667,8 +3667,24 @@ class SQLiteStore:
         round `6vv9mi`, is exactly the drift that happens when a read door
         answers this case its own way).  `counter_name` is refused with
         `TypeError`/`ValueError` on the same 1..128-character bound the
-        write doors use, so a name that could never have been written is
-        not silently answered with "no rows".
+        write doors use.
+
+        THE REFUSAL FAMILIES, stated exactly rather than reassuringly
+        (pf-adversary D5, round `euskyd`, caught this door's own letter
+        claiming more than it delivers).  `KeyError` and `ValueError` are
+        what LANE-Q's adapter catches; `TypeError` is DELIBERATELY outside
+        that family and propagates, here and in all five older doors, so a
+        caller handing this door a float or a number where a name belongs
+        is a bug that surfaces rather than an empty answer that lies.  That
+        is `lua_api/quest_state_store.py`'s own rule, not an accident.
+
+        ONE NAME SHAPE IS REFUSED BY THE TABLE AND ANSWERED HERE
+        (pf-adversary D8): Python counts `"\x00"` as one character, while
+        SQLite's `LENGTH()` stops at the first NUL and counts zero, so a
+        name beginning with NUL fails the table's CHECK on write and gets
+        an honest empty tuple here.  Empty is the truthful answer for a row
+        that cannot exist; it is recorded because the sentence above would
+        otherwise read as if the two bounds were identical.
 
         NO NEW INDEX IS OWED.  The table's PRIMARY KEY is
         `(character_id, quest_id, counter_name)`, so this filter rides its

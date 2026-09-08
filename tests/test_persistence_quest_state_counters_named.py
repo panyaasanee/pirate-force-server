@@ -25,6 +25,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from dataclasses import fields
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from pirateforce_foundation.model import Position               # noqa: E402
 from pirateforce_foundation.persistence_quest_state import (    # noqa: E402
     QuestCounterRow,
 )
+from pirateforce_foundation import store as store_module         # noqa: E402
 from pirateforce_foundation.store import SQLiteStore            # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
@@ -109,18 +111,42 @@ class TheAnswerTests(_Workspace):
     def test_the_order_is_by_quest_id_whatever_order_they_were_written_in(
         self,
     ):
-        for quest_id in (900, 12, 65535, 0):
+        # PAYS pf-adversary D4 (round `euskyd`): this fixture used to
+        # write `counter_value = quest_id`, which makes `ORDER BY
+        # quest_id`, `ORDER BY counter_value` and NO `ORDER BY` at all
+        # indistinguishable -- adversary deleted the ordering from the door
+        # and all 26 tests here stayed green.  The values below disagree
+        # with the ids on purpose, so each of those three doors answers
+        # differently.
+        for quest_id, counter_value in (
+            (900, 1), (12, 5), (65535, 3), (0, 9),
+        ):
             self.store.set_quest_counter(
-                self.character_id, quest_id, "mob:900", quest_id
+                self.character_id, quest_id, "mob:900", counter_value
             )
         rows = self.store.quest_counters_named(self.character_id, "mob:900")
         self.assertEqual(
             [row.quest_id for row in rows], [0, 12, 900, 65535]
         )
+        # ... and the same rows under `ORDER BY counter_value` would be
+        # `[900, 65535, 12, 0]`, which is what this assertion exists to
+        # tell apart.
+        self.assertEqual(
+            [row.counter_value for row in rows], [9, 5, 1, 3]
+        )
 
-    def test_it_reads_the_table_rather_than_echoing_the_last_write(self):
-        """A trigger rewrites the stored number behind the door's back, so
-        a door that answered from its own memory would report 5."""
+    def test_it_reads_the_table_rather_than_echoing_a_cached_number(self):
+        """A second connection rewrites the stored number behind the door's
+        back, so a door answering from anything but the table reports 5.
+
+        NONCLAIM (pf-adversary D7, round `euskyd`): this door never
+        RECEIVES a `counter_value`, so "echoes its argument" is not an
+        expressible bug for it, and no SQL mutant of the door turns this
+        test red.  It pins the weaker, still-worth-pinning fact that the
+        answer follows the table when the table changes underneath.  It is
+        also NOT a trigger, which an earlier draft of this docstring
+        claimed -- it is a plain UPDATE from a connection of this test's
+        own."""
         self.store.set_quest_counter(self.character_id, 11, "mob:900", 5)
         db = sqlite3.connect(str(self.path))
         try:
@@ -186,8 +212,15 @@ class TheMatchIsExactTests(_Workspace):
                 )
 
 
-class ItCreatesNothingTests(_Workspace):
-    """`1757`: a mob dying must not push a quest the player never accepted."""
+class ItCreatesNoRowTests(_Workspace):
+    """`1757`: a mob dying must not push a quest the player never accepted.
+
+    ROW-LEVEL, and pf-adversary (D7, round `euskyd`) is right that the
+    distinction matters: this door goes through `connect()` like its five
+    siblings, which opens the file read-write and sets `journal_mode`, so
+    asking about a database that does not exist CREATES an empty file.  No
+    row is created, ever, which is the fact LANE-Q asked for; the file is
+    not a fact this class measures or claims."""
 
     def test_asking_for_an_unknown_name_writes_no_row(self):
         before = self._raw_count()
@@ -267,23 +300,80 @@ class ItReadsThroughThePrimaryKeyTests(_Workspace):
     has.  It is not -- and the plan is pinned rather than asserted in
     prose, so a later schema change that turns it into a scan goes red."""
 
-    def test_the_query_plan_searches_and_does_not_scan(self):
+    def _statement_the_door_runs(self):
+        """The SELECT `quest_counters_named` actually executes, captured
+        off the connection it opens.
+
+        PAYS pf-adversary D3 (round `euskyd`): the plan test used to
+        EXPLAIN a copy of the SQL typed into this file, so it was blind to
+        every change of the DOOR -- adversary rewrote the door with `LIKE`,
+        with `COLLATE NOCASE`, with the `character_id` filter deleted and
+        with the ordering deleted, and this test stayed green through all
+        four.  A `set_trace_callback` on the store's own connection is what
+        ties the pin to the code."""
+        statements = []
+
+        def spy(*args, **kwargs):
+            db = real_connect(*args, **kwargs)
+            db.set_trace_callback(statements.append)
+            return db
+
+        real_connect = store_module.sqlite3.connect
+        with mock.patch.object(store_module.sqlite3, "connect", spy):
+            self.store.quest_counters_named(self.character_id, "mob:900")
+        against_the_table = [
+            statement for statement in statements
+            if "character_quest_counter" in statement
+        ]
+        self.assertEqual(
+            len(against_the_table), 1,
+            "the door should touch the counter table exactly once: %r"
+            % (against_the_table,),
+        )
+        return against_the_table[0]
+
+    def test_the_query_plan_of_the_statement_the_door_runs_does_not_scan(
+        self,
+    ):
+        statement = self._statement_the_door_runs()
         db = sqlite3.connect(str(self.path))
         try:
+            # `set_trace_callback` hands back the statement with its
+            # parameters already substituted on CPython 3.12+, and with
+            # `?` placeholders before that -- bind only when there are
+            # placeholders left to bind.
+            arguments = (
+                (self.character_id, "mob:900") if "?" in statement else ()
+            )
             plan = " ".join(
                 str(row[3]) for row in db.execute(
-                    "EXPLAIN QUERY PLAN SELECT character_id,quest_id,"
-                    "counter_name,counter_value,updated_at "
-                    "FROM character_quest_counter "
-                    "WHERE character_id=? AND counter_name=? "
-                    "ORDER BY quest_id", (self.character_id, "mob:900"),
+                    "EXPLAIN QUERY PLAN " + statement, arguments,
                 )
             )
         finally:
             db.close()
         self.assertIn("SEARCH", plan)
-        self.assertNotIn("SCAN character_quest_counter", plan)
         self.assertIn("character_quest_counter", plan)
+        # Both spellings: SQLite before 3.36 prints `SCAN TABLE <name>`.
+        self.assertNotIn("SCAN character_quest_counter", plan)
+        self.assertNotIn("SCAN TABLE character_quest_counter", plan)
+        # NONCLAIM: only `character_id` is a seek key on this schema --
+        # `counter_name` is filtered over that character's own rows.  This
+        # pins "not a table scan", not "an index seek on both columns".
+        self.assertIn("character_id", plan)
+
+    def test_the_statement_the_door_runs_orders_and_filters_as_published(
+        self,
+    ):
+        """The letter to LANE-Q publishes three properties of this query:
+        an exact `=` on the name, a filter on the character, and an order.
+        Read them off the statement the door really executes."""
+        statement = self._statement_the_door_runs()
+        self.assertIn("character_id=", statement)
+        self.assertIn("counter_name=", statement)
+        self.assertIn("ORDER BY quest_id", statement)
+        self.assertNotIn("LIKE", statement.upper())
+        self.assertNotIn("NOCASE", statement.upper())
 
     def test_another_characters_rows_are_not_returned(self):
         other = self._make_character("b")
@@ -306,7 +396,12 @@ class TheContractLANEQCopiesTests(_Workspace):
              "updated_at"],
         )
 
-    def test_the_signature_is_the_one_the_reply_letter_publishes(self):
+    def test_the_signature_is_the_one_the_letter_was_written_against(self):
+        """NONCLAIM (pf-adversary D7, round `euskyd`): the expected names
+        below are typed here, not read out of the letter -- `pf_bridge/` is
+        not a tracked path in this repository, so no test here can open it.
+        This pins the signature against drift; the letter agreeing with it
+        was checked by hand when the letter was written."""
         signature = inspect.signature(SQLiteStore.quest_counters_named)
         self.assertEqual(
             list(signature.parameters), ["self", "character_id",

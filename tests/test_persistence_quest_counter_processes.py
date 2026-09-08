@@ -19,6 +19,14 @@ than a probability -- every child reads the same number and every child
 writes that number plus one, so a table that should hold 3 holds 1 on every
 machine, every time, at any speed.
 
+WHAT EACH CHILD HAS TO PROVE IT DID.  A number in the row is not evidence
+that three writers raced for it: pf-adversary (round `euskyd`, D2) patched
+two of the three mutant children to skip their read and their write, and
+the row still held 1, so the control stayed green with two thirds of the
+contention gone.  Every child now writes down the value it READ and the
+value it WROTE, and the parent asserts on those files as well as on the
+row -- a child that does nothing is a red test, not a quiet one.
+
 WHAT THE PAIR PROVES TOGETHER.  The honest door and the read-outside-the-
 transaction shape are driven through the SAME harness, the same database
 and the same rendezvous.  The mutant losing increments is what gives the
@@ -72,8 +80,8 @@ NAME = sys.argv[11]
 def arrive(step):
     """Block until every child has reached `step`."""
     (GATE / (step + "." + TAG)).write_text("here", encoding="ascii")
-    deadline = time.time() + 90.0
-    while time.time() < deadline:
+    deadline = time.monotonic() + 90.0
+    while time.monotonic() < deadline:
         if len(list(GATE.glob(step + ".*"))) >= PEERS:
             return
         time.sleep(0.01)
@@ -84,8 +92,11 @@ def honest():
     from pirateforce_foundation.store import SQLiteStore
     store = SQLiteStore(Path(DB), Path(MIGRATIONS))
     arrive("start")
+    written = 0
     for _ in range(ITERATIONS):
         store.increment_quest_counter(CHARACTER_ID, QUEST_ID, NAME, 1)
+        written += 1
+    (GATE / ("wrote." + TAG)).write_text(str(written), encoding="ascii")
 
 
 def read_outside_the_transaction():
@@ -99,6 +110,7 @@ def read_outside_the_transaction():
             (CHARACTER_ID, QUEST_ID, NAME),
         ).fetchone()
         current = 0 if row is None else row[0]
+        (GATE / ("read_value." + TAG)).write_text(str(current), encoding="ascii")
         arrive("read")
         db.execute("BEGIN IMMEDIATE")
         db.execute(
@@ -110,6 +122,7 @@ def read_outside_the_transaction():
             (CHARACTER_ID, QUEST_ID, NAME, current + 1, "2026-09-08T00:00:00"),
         )
         db.commit()
+        (GATE / ("wrote." + TAG)).write_text(str(current + 1), encoding="ascii")
     finally:
         db.close()
 
@@ -187,6 +200,20 @@ class _ProcessHarness(unittest.TestCase):
                 ))
         self.assertEqual(report, [], "\n".join(report))
 
+    def _work_reported(self, step):
+        """What each child says it actually did, read off the gate.
+
+        PAYS pf-adversary D2 (round `euskyd`): the mutant control below
+        asserted only that the row held 1, and 1 is ALSO what one working
+        child and two idle children produce -- adversary patched two
+        children to skip both the read and the write, and the control
+        stayed green.  A number in the row is not evidence that three
+        writers raced for it; these files are."""
+        return sorted(
+            path.read_text(encoding="ascii")
+            for path in self.gate.glob(step + ".*")
+        )
+
     def _stored(self):
         """The number as a connection of the parent's own reads it."""
         db = sqlite3.connect(str(self.path))
@@ -217,6 +244,11 @@ class IncrementUnderRealProcessesTests(_ProcessHarness):
         four processes while every thread test there stayed green.
         """
         self._run("honest", self.ITERATIONS)
+        self.assertEqual(
+            self._work_reported("wrote"),
+            [str(self.ITERATIONS)] * self.PEERS,
+            "every child must report the increments it actually made",
+        )
         self.assertEqual(self._stored(), self.PEERS * self.ITERATIONS)
 
     def test_the_row_is_created_by_the_first_writer_not_by_the_test(self):
@@ -225,6 +257,7 @@ class IncrementUnderRealProcessesTests(_ProcessHarness):
         includes the INSERT half, not only the UPDATE half."""
         self.assertIsNone(self._stored())
         self._run("honest", 1)
+        self.assertEqual(self._work_reported("wrote"), ["1"] * self.PEERS)
         self.assertEqual(self._stored(), self.PEERS)
 
 
@@ -245,6 +278,16 @@ class TheHarnessCatchesTheMutantD1NamedTests(_ProcessHarness):
         below is the measurement that says it would not.
         """
         self._run("mutant", 1)
+        # THE ROW HOLDING 1 IS NOT ENOUGH ON ITS OWN, and pf-adversary
+        # (round `euskyd`, D2) proved it by patching two of the three
+        # children to skip both their read and their write: 1 is also what
+        # one working child and two idle ones leave behind, so this control
+        # passed with two thirds of the contention missing.  Both halves
+        # are now read off the gate - all three children must report that
+        # they READ 0 and WROTE 1 - so a child that does nothing is a red
+        # test rather than a quiet one.
+        self.assertEqual(self._work_reported("read_value"), ["0"] * self.PEERS)
+        self.assertEqual(self._work_reported("wrote"), ["1"] * self.PEERS)
         self.assertEqual(self._stored(), 1)
 
     def test_the_honest_door_survives_the_interleaving_that_breaks_it(self):
@@ -266,6 +309,7 @@ class TheHarnessCatchesTheMutantD1NamedTests(_ProcessHarness):
         processes do not all miss each other.
         """
         self._run("honest", 1)
+        self.assertEqual(self._work_reported("wrote"), ["1"] * self.PEERS)
         self.assertEqual(self._stored(), self.PEERS)
 
 
