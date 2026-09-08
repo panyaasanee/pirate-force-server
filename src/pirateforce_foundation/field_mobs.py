@@ -208,6 +208,12 @@ from . import field_mob_tables_bg0015
 # OPTIONAL `viewer_identity` keyword below; with that keyword absent this
 # module composes exactly the bytes it composed before the import existed.
 from . import mob_viewer_link
+# LANE-B's identity-sign law, measured on screen by GT-288 set 3
+# (R324A, 2026-09-08).  Imported for the one refusal below: an
+# actor identity of 0 is never drawn by the client, so a monster
+# composed at that identity is one the server would accept a
+# strike against and no player could ever see.
+from . import mob_identity_sign
 # Lane A's scene-id registry, read-only: the ONE public reader from a scene
 # id to that scene's own folder name (COO-DECISION 2026-08-29T08:48+07:00
 # item 3).  Imported for :func:`scene_for_scene_id`; nothing here writes to
@@ -2033,6 +2039,13 @@ def hostile_npc_attr(
             "a spawn at zero HP walks into the death lane's predicates and "
             "answers a different question than this module asks"
         )
+    # R324A (GT-288 set 3, owner's screen 2026-09-08 12:39-13:05 +07:00) read
+    # 23 of the 24 boards composed in one boot; the one that never reached the
+    # screen was the row carrying actor identity 0.  A monster composed there
+    # is still on the roster and still opens a combat ledger entry, so the
+    # refusal belongs on the composition path rather than in a report.
+    mob_identity_sign.refuse_undrawable_identity(
+        mob.actor_identity, what="field monster")
     name = mob.display_name if with_name else ""
     baseline = legacy.make_npc_attr(
         mob.template_id,
