@@ -54,22 +54,37 @@ WHAT THIS MODULE ADDS, AND WHAT IT DELIBERATELY DOES NOT.
 It composes.  It does not send.  ``crossing_handoff`` feeds the SceneEntry a
 crossing already produced to the seam that already ships, and hands back the
 ``SceneHandoff`` - kind, reason, bytes, dispatch slot and membership reset,
-all of it the existing encoder's answer and none of it re-derived here.  For
-scene 17 today that is STILL a 27-byte CLEAR in slot ``before_teleport`` -
-deliberately, not by omission (round ``vwekfq``, LANE-A).  Scene 17 now has
-a real, measured 7-actor cast (``world_bg1001_identity`` /
+all of it the existing encoder's answer and none of it re-derived here.
+~~For scene 17 today that is STILL a 27-byte CLEAR in slot
+``before_teleport`` - deliberately, not by omission (round ``vwekfq``,
+LANE-A).~~  SINCE chief round R405/y8fm7z IT IS A CENSUS: scene 17's real,
+measured 7-actor cast (``world_bg1001_identity`` /
 ``world_population_bg1001``, resolved through ``CONSTDATA_TH__INSTANCE.tsv``
 - the indirect route the old ``SCENES_INTENTIONALLY_UNPOPULATED`` entry
 never checked before declaring this scene castless, see that struck entry in
-``world_population_handoff``), and it is named in
-``world_scene_travel.CENSUS_SOURCES`` - but it is deliberately NOT in
-``world_population_handoff.ROSTER_COMPOSERS`` yet.  ``runtime.py``'s own
-call site (below) hardcodes ``crossing_handoff_dispatched=True`` on the
-documented assumption that this composes KIND_CLEAR every time; adding the
-roster there would flip that to KIND_CENSUS and start sending a
-never-attended-tested cast to a live client on the very next crossing,
-which is a runtime.py-invariant question this lane cannot resolve alone.
-See this round's CORE-REQUEST.
+``world_population_handoff``) is registered in
+``world_population_handoff.ROSTER_COMPOSERS``, and this function hands it
+back like any other roster.  Measured through THIS function on the real
+frozen encoder at the real Columbus arrival entry, before and after:
+
+    clear   pc= 17B frame=  27B slot=before_teleport reapply=None  actors=0
+    census  pc=1377B frame=1390B slot=after_teleport  reapply=3000 actors=7
+
+~~``runtime.py``'s own call site (below) hardcodes
+``crossing_handoff_dispatched=True`` on the documented assumption that this
+composes KIND_CLEAR every time; adding the roster there would flip that to
+KIND_CENSUS ... a runtime.py-invariant question this lane cannot resolve
+alone.  See this round's CORE-REQUEST.~~  ANSWERED, and the answer is that
+the invariant was never in ``runtime.py``: that call site reads
+``sends_a_frame``, ``dispatch_slot``, ``reapply_ms``, ``membership_reset``,
+``kind`` and ``scene_id`` back off whatever this function returns, and
+``crossing_handoff_dispatched`` is a field of the CONSOLE line below
+(``dispatched=YES``), not a claim about the kind.  What the review DID find
+is written where the entry now lives: registering any composer turns that
+scene's guaranteed CLEAR into a possible frameless ``KIND_UNAVAILABLE`` -
+115 Port Royal actors left standing on open water, measured - so the entry
+ships together with ``handoff_for_arrival``'s new fallback from a failed
+roster to the CLEAR.
 
 ~~Queueing those bytes is one block in ``runtime.py``, which is the chief's
 file.  ``dispatched=`` below is the parameter that block flips, so the
@@ -96,26 +111,28 @@ stowaway line next door.  It is written once, here, with the arrival named in
 the function that does it.
 
 WHAT THIS COSTS ON THE FRAME PATH, SAID OUT LOUD RATHER THAN LEFT TO BE
-DISCOVERED.  Composing a handoff in order to PRINT it means composing bytes
-that are then thrown away.  For the only crossing that exists today that is
-STILL a 27-byte clear and the cost is nothing - unchanged this round on
-purpose (see the paragraph above).  It would not stay nothing the day a
-roster is wired here: a scene with a roster would build the whole roster per
-crossing for one console line, AND - unlike when this paragraph was
-written - that frame is now known to be QUEUED AND SENT for real
-(``runtime.py``'s ``crossing_handoff_dispatched=True``, wired chief round
-R250/65etwo, well after this paragraph was first drafted), not merely
-composed and discarded.  So "the round that makes it reachable should queue
-the bytes rather than keep discarding them" is moot - queueing already
-happened - and the open question this round's CORE-REQUEST asks is the
-opposite one: whether it is safe to let that already-live queue start
-carrying a real, never-attended-tested cast at all.
+DISCOVERED, AND NOW PAID FOR REAL.  Composing a handoff in order to PRINT it
+means composing bytes that are then thrown away.  ~~For the only crossing
+that exists today that is STILL a 27-byte clear and the cost is nothing.~~
+Since chief round R405/y8fm7z the discarded composition is a 1390-byte,
+7-actor roster: one crossing builds it TWICE, once for the console line in
+``columbus_quest_dispatch`` and once in ``runtime.py`` for the bytes it
+actually queues.  MEASURED, NOT ASSUMED: the two compositions are
+byte-identical (``pc`` and ``frame`` both), because this roster reads frozen
+tables and holds no clock, counter or RNG - so the line the console prints
+and the frame the client receives cannot describe different seas.  Seven
+actors is a cost worth naming and not worth avoiding with a cache; the day a
+crossing lands somewhere with a hundred, the fix is to pass the composed
+handoff into the report rather than to compose it again, and this paragraph
+is where that reader should start.
 
-WHAT NOBODY HAS SEEN.  No human has watched a client render scene 17 at all:
-``GT-106`` is PENDING, and ``RE-162`` marks the in-session transition
-client-observable-UNPROVEN.  So "the sea is empty once this is queued" is what
-the bytes say, not what anyone has seen, and this module claims only the
-first.
+WHAT NOBODY HAS SEEN.  No human has watched a client render scene 17 WITH
+ANYBODY IN IT.  ``GT-106`` (2026-08-27, attended) walked the scene and found
+it empty of any cast at all, and ``RE-162`` marks the in-session transition
+client-observable-UNPROVEN.  So "the sea now carries its seven" is what the
+bytes say, not what anyone has seen; the attended entry chief filed in round
+R405/y8fm7z is what turns it into a sighting, and this module claims only
+the first half.
 """
 from __future__ import annotations
 
