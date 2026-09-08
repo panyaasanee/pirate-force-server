@@ -82,6 +82,25 @@ returned a well-formed action list" answers ``[]``:
 ``BaseException`` (``SystemExit``, ``KeyboardInterrupt``) propagates, the
 same deliberate gap ``lane_hooks`` documents and for the same reason.
 
+WHAT IS STILL OPEN, NAMED HERE BECAUSE A RESIDUAL NOBODY WRITES DOWN IS
+A RESIDUAL NOBODY CLOSES (pf-adversary round vy1m79, D3).  Every table
+in this file -- ``_ANSWERERS``, ``_SESSION_ANSWERS_SENT``, the
+``_process_answers_sent`` counter -- is module state, and a lane module
+runs inside this process.  One line in a lane file,
+``ui_dispatch._SESSION_ANSWERS_SENT.clear()``, hands every session a
+fresh allowance (measured: 500 answers under an allowance of 32), and
+``ui_dispatch._ANSWERERS[id] = ...`` is the same shape one level up --
+the attack this file's ownership check (round 1gc6hl, D-A) closed only
+for a forger borrowing the REVIEWED owner's name.  Neither is closable
+by a patch here: a module cannot hide state from code running inside
+its own interpreter, and every guard this file could add is one
+attribute assignment away from being removed.  What closes it is the
+seam owning registration outright -- ``lane_hooks._discover()`` writing
+the table from a lane's declared ``ANSWERS_VITAL_ID`` instead of a lane
+calling in -- which is CORE-REQUEST ``20260908_1553``, filed, not
+answered yet.  Until it is answered this is a REAL residual and is not
+described anywhere as closed.
+
 WHAT THIS FILE DOES NOT DO.  It does not decode a payload, does not know
 what any of the eight frames MEAN (letter ``20260904_1120`` nonclaim (2)
 still stands: a wire shape is not a verb), does not compose a reply, and
@@ -201,6 +220,7 @@ _ANSWERERS = {}
 _ANSWERER_OWNERS = {
     0x37B1: _LANE_PACKAGE + "lane_ui_party_invite_answer",
     0x3700: _LANE_PACKAGE + "lane_ui_trade_invite_answer",
+    0x2466: _LANE_PACKAGE + "lane_ui_party_cmd_answer",
 }
 
 
@@ -1024,6 +1044,25 @@ _OUTBOUND_FRAME_SHAPES = {
         versions=frozenset((0,)),
         max_payload_bytes=512,
         max_frame_bytes=1024,
+    ),
+    # A FIXED-WIDTH CLASS GETS A FIXED WIDTH, NOT HEADROOM.
+    # ``PartyCmdVital`` is ``u8 + u64`` with no string, so every payload
+    # the lane can emit is exactly 11 bytes -- measured, and pinned from
+    # the encoder in ``tests/test_lane_ui_party_cmd_answer.py`` over
+    # 4,000 random field pairs.  The two rows above need 512 because a
+    # name makes their payload grow; this one does not, and headroom
+    # nobody needs is reach nobody reviewed, so the answerer requires
+    # EQUALITY against this number rather than treating it as a ceiling.
+    # ``max_frame_bytes`` 64 is deliberately NOT exact: the envelope
+    # around the payload is ``legacy.make_runtime_vitals``'s and not
+    # this lane's, it measured 43 bytes on this commit (the arming proof
+    # prints it), and pinning a number this file does not own would turn
+    # somebody else's envelope change into this button going silent.
+    "UI_PARTY_CMD_ANSWERED": _OutboundShape(
+        vital_id=0x2466,
+        versions=frozenset((0,)),
+        max_payload_bytes=11,
+        max_frame_bytes=64,
     ),
 }
 
