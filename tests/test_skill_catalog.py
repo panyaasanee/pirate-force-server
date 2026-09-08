@@ -269,6 +269,21 @@ class SkillCatalogTests(unittest.TestCase):
             finished.returncode, 0,
             "the shipped skill catalog tables are not what a fresh mining "
             "produces:\n%s%s" % (finished.stdout, finished.stderr))
+        # LANE-CS round `jty60h`: the full-table census
+        # (`skill_context_census.py`) is mined from the SAME bridge table by
+        # a second extractor, and its own drift check rides here rather than
+        # in its own guarded test -- one more `skip_unless_present` test
+        # would be one more row in the gate's skip census for a question
+        # already being asked in this process.
+        census = subprocess.run(
+            [sys.executable,
+             str(ROOT / "tools/pf_skill_context_census_extract.py"),
+             "--check", "--bridge", str(ROOT.parent / "pf_bridge")],
+            capture_output=True, text=True)
+        self.assertEqual(
+            census.returncode, 0,
+            "the shipped SKILL_CONTEXT census is not what a fresh mining "
+            "produces:\n%s%s" % (census.stdout, census.stderr))
 
 
 class NPassiveIsNotATypeColumnTests(unittest.TestCase):

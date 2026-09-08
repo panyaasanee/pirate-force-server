@@ -18,7 +18,6 @@ class may learn any of these ids.
 from __future__ import annotations
 
 import hashlib
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -26,7 +25,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pf_preconditions import BRIDGE_GAMEDATA  # noqa: E402
 from pirateforce_foundation import (  # noqa: E402
     skill_catalog,
     skill_context_census as census,
@@ -58,20 +56,6 @@ class TheCopyIsTheClientTableTests(unittest.TestCase):
         console is cp874 and a transcoded row would be a silent edit."""
         raw = (DATA / "skill_context_all.tsv").read_bytes()
         raw.decode("ascii")
-
-    @BRIDGE_GAMEDATA.skip_unless_present()
-    def test_a_fresh_mining_reproduces_the_shipped_copy(self):
-        """Real drift detection against ../pf_bridge, not a self-hash."""
-        finished = subprocess.run(
-            [sys.executable,
-             str(ROOT / "tools/pf_skill_context_census_extract.py"),
-             "--check", "--bridge", str(ROOT.parent / "pf_bridge")],
-            capture_output=True, text=True)
-        self.assertEqual(
-            finished.returncode, 0,
-            "the shipped census is not what a fresh mining produces:\n%s%s"
-            % (finished.stdout, finished.stderr))
-
 
 class TheKitCopyIsASubsetOfThisOneTests(unittest.TestCase):
     """Two files carrying the same rows is how two answers drift apart."""

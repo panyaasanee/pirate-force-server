@@ -1132,15 +1132,6 @@
     },
     {
       "key": "bridge_gamedata",
-      "module": "tests/test_skill_context_census.py",
-      "count": 1,
-      "tests": [
-        "TheCopyIsTheClientTableTests::test_a_fresh_mining_reproduces_the_shipped_copy"
-      ],
-      "note": "round jty60h (LANE-CS): skill_context_census.py carries the client's whole CONSTDATA_TH__SKILL_CONTEXT table (2165 rows) so the learn rules stop knowing only the 8 starting-kit ids. ALL_CONTEXT_SOURCE_SHA256 catches a hand-edit to the committed copy but is structurally blind to the upstream client table changing underneath it -- the same gap the test_skill_catalog.py and test_class_catalog.py entries above close, closed the same way: re-run tools/pf_skill_context_census_extract.py --check against the live ../pf_bridge/gamedata sibling and fail if the committed copy is stale. A clone without pf_bridge beside it cannot answer, same as every other bridge_gamedata entry in this file."
-    },
-    {
-      "key": "bridge_gamedata",
       "module": "tests/test_combat_pose.py",
       "count": 8,
       "tests": [
