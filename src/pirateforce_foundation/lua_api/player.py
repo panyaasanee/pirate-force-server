@@ -90,7 +90,7 @@ lands, calls `store.get_backpack(sid, character_id)` and
 straight through to these two fields, no new store-side reads needed.
 
 WHY EVERY OTHER PLAYER.* NAME STAYS A STUB THIS ROUND, GROUPED, NOT
-GUESSED.  See `STILL_STUBBED` below -- 63 names, one of seven named
+GUESSED.  See `STILL_STUBBED` below -- 61 names, one of seven named
 category reasons each (item/equipment state, a stat-grant write seam,
 other per-character stat reads this lane's context does not carry yet,
 skill/buff state cross-lane with combat, a teleport/vehicle/camera wire
@@ -331,7 +331,7 @@ _EMPTY_BACKPACK = inventory.BackpackState(
     inventory.BACKPACK_RANGE_MASK, (),
 )
 
-#: The eleven names real so far. See the module docstring for why these
+#: The twelve names real so far. See the module docstring for why these
 #: eleven, and why every other Player.* name is not real yet.
 REAL_METHODS = frozenset({
     "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",

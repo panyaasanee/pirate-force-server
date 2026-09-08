@@ -965,6 +965,15 @@ class FieldMobTests(unittest.TestCase):
              "mob_death_bg0015_ruling_proposal.py",
              "mob_death_persistence.py",
              "mob_diag_multi_object.py",
+             # ROUND gadxq5 (lane B, consuming GT-288 set 3 / R324A): the
+             # identity-sign law.  The dependency runs the other way -- this
+             # module IMPORTS it, for the one refusal on the composition path
+             # (an actor identity of 0 is never drawn, so a monster composed
+             # there is one the server would accept a strike against and no
+             # player could ever see) -- and it names ``field_mobs`` in its
+             # own docstring, which is what this census counts.  IT
+             # DISPATCHES NOTHING: no runtime.py/app.py call site of its own.
+             "mob_identity_sign.py",
              "mob_ledger_admission.py", "mob_loot.py",
              "mob_scene_recompose.py",
              # LANE-B round `404m21`: the per-(viewer, monster) link module.

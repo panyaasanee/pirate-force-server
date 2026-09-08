@@ -189,6 +189,14 @@ LANE_B_MODULES = (
     # number of its own.  Listed in the same commit as the module, the same
     # reason every other entry on this tuple gives.
     "mob_ground_persistence.py",
+    # ROUND gadxq5: the identity-sign law GT-288 set 3 (R324A) measured on
+    # the owner's screen -- which side of zero an actor identity has to be
+    # on for the client to draw its name in the colour that says "this can
+    # be fought", and the monster-band allocator that follows from it.  No
+    # player stat of any kind: it computes an identity and a colour NAME,
+    # never a level, an HP or a damage number.  Listed in the same commit as
+    # the module, the same reason every other entry on this tuple gives.
+    "mob_identity_sign.py",
     "mob_loot.py",
     "mob_pickup.py",
     # ROUND uq2lxw: the pickup path's write half, joined to store.py's
