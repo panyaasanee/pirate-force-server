@@ -1052,8 +1052,14 @@ class TheFixesOfRoundNkb608Tests(_Case):
             + job_command.NO_PREVIOUS_SUFFIX
         )
         sentence = chat_command_action._JOB_BLOCKERS[reason]
-        self.assertIn("nothing to put back", sentence)
-        self.assertIn("still carrying", sentence)
+        self.assertIn("no class to put back", sentence)
+        self.assertIn("still carries the new one", sentence)
+        # And it fits the console cap, which the first wording of this
+        # sentence did not (254 > 240, caught by
+        # `tests/test_gm_chat_no_bytes_line.py`).
+        self.assertLessEqual(
+            len(sentence), chat_command_action.MAX_CONSOLE_HINT_LENGTH
+        )
 
     def test_a_refusal_that_left_rows_behind_offers_an_undo_that_says_kept(self):
         # D-B: `_make_action` reads a MISSING undo as "the effect was dropped

@@ -2159,8 +2159,11 @@ for _job_repairable in (
     # `/job` again with the class they want, or `sandbox` to see what the row
     # holds) depends on being told that.
     _JOB_BLOCKERS[f"{_job_repairable}{job_command.NO_PREVIOUS_SUFFIX}"] = (
-        f"{_JOB_BLOCKERS[_job_repairable]}; the row had NO class before, so"
-        " there was nothing to put back and it is still carrying the new one"
+        # SHORT because `MAX_CONSOLE_HINT_LENGTH` is 240 and the longest of
+        # the two base sentences is already 152: the first wording of this
+        # variant came to 254 and the contract test caught it.
+        f"{_JOB_BLOCKERS[_job_repairable]}; no class to put back, the row"
+        " still carries the new one"
     )
 del _job_repairable
 for _job_reason, _job_sentence in _JOB_BLOCKERS.items():
