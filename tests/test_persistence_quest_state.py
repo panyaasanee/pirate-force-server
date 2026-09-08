@@ -255,6 +255,16 @@ class AppliedSchemaTests(unittest.TestCase):
         `updated_at` survived every mutant."""
         columns = {row[1]: row for row in _table_info(
             self.path, "character_quest_counter")}
+        # PAYS pf-adversary D6 (round `euskyd`): `PRAGMA table_info` on a
+        # table that does not exist returns zero rows, so the loop below
+        # used to assert NOTHING and report PASS if the table were ever
+        # renamed away -- the same "green because it never got there"
+        # shape this test was written to close.  The set is checked first.
+        self.assertEqual(
+            set(columns),
+            {"character_id", "quest_id", "counter_name", "counter_value",
+             "updated_at"},
+        )
         for name in columns:
             self.assertEqual(columns[name][3], 1, name)
 
