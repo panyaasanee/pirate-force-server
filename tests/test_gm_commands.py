@@ -781,5 +781,239 @@ class WarpUnknownNameMessageContentTests(unittest.TestCase):
         self.assertIn("warp <scene_id>", message)
 
 
+class WarpNameQueryIsBoundedInLengthTests(unittest.TestCase):
+    """The third of the three shapes pf-adversary asked the query to have.
+
+    The codec card (round `nqgmam`) made the query cp874-encodable and
+    single-line and left "bounded in length" open; letter `20260908_0017`
+    recorded that gap.  `log_gm_command` writes `"raw": command.raw` into
+    the ndjson audit file, so whatever this branch accepts becomes a log
+    LINE -- these tests pin the bound, and pin that it is read first.
+    """
+
+    def _message(self, text):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(text)
+        return str(caught.exception)
+
+    def test_the_cap_matches_the_table_and_its_measured_value_is_written_down(self):
+        """pf-adversary D2, MEASURED: the relationship alone pinned nothing.
+
+        `assertEqual(MAX_WARP_NAME_QUERY_LENGTH, 2 * LONGEST_GM_NAME_LENGTH)`
+        is a statement about two constants, and `108 == 2 * 54` satisfies it
+        with BOTH of them hardcoded -- two mutants that typed the numbers in
+        survived the whole suite.  The relationship is kept (it is what "one
+        extra space per character of the longest matchable name" means) and
+        the measured values are written down beside it, so a table
+        re-derive turns this red instead of moving the cap silently.
+        `test_gm_scene_catalog.py` holds the sha that makes the literals
+        mean something.
+
+        WHAT THIS STILL DOES NOT PIN, said plainly rather than left in the
+        test's name: no assertion can tell `LONGEST_GM_NAME_LENGTH = 54`
+        from `max(len(key) for key in ...)` while the table yields 54.  The
+        guard against a typed constant is `SOURCE_SHA256`, which makes the
+        table unable to change quietly; the literals here make the values a
+        human has to re-approve when it does.  The test is named for that
+        pair now, not for a derivation it cannot observe.
+        """
+        self.assertEqual(
+            commands_module.MAX_WARP_NAME_QUERY_LENGTH,
+            2 * scene_catalog.LONGEST_GM_NAME_LENGTH,
+        )
+        self.assertEqual(54, scene_catalog.LONGEST_GM_NAME_LENGTH)
+        self.assertEqual(108, commands_module.MAX_WARP_NAME_QUERY_LENGTH)
+
+    def test_the_line_that_used_to_write_a_200_kb_audit_row_is_refused(self):
+        # `warp Port` + whitespace + `Royal` folds to `port royal` and
+        # resolved to scene 1 before this cap, with every one of those bytes
+        # landing in `raw`. Same line, both sides of the boundary.
+        self.assertEqual(parse_gm_command("warp Port  Royal").args, ("1",))
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command("warp Port" + " " * 200_000 + "Royal")
+
+    def test_the_boundary_itself_is_pinned_on_both_sides(self):
+        # The padding goes INSIDE the name: `parse_gm_command` strips the
+        # whole line before splitting off the verb, so trailing spaces never
+        # reach this branch and would have measured nothing.
+        cap = commands_module.MAX_WARP_NAME_QUERY_LENGTH
+        at_cap = "Port" + " " * (cap - len("PortRoyal")) + "Royal"
+        self.assertEqual(len(at_cap), cap)
+        self.assertEqual(parse_gm_command(f"warp {at_cap}").args, ("1",))
+        over = "Port" + " " * (cap - len("PortRoyal") + 1) + "Royal"
+        self.assertEqual(len(over), cap + 1)
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(f"warp {over}")
+        self.assertIn(str(cap), str(caught.exception))
+        self.assertIn(str(len(over)), str(caught.exception))
+
+    def test_the_cap_excludes_no_shipped_name(self):
+        # The bound may only ever refuse a query no scene could answer. Walk
+        # every shipped name, not a sample.
+        cap = commands_module.MAX_WARP_NAME_QUERY_LENGTH
+        for name in scene_catalog.SCENE_ID_TO_GM_NAME.values():
+            self.assertLessEqual(len(name.strip()), cap)
+
+    def test_the_length_is_read_before_anything_walks_the_string(self):
+        # Every later check is at least O(len) and `_did_you_mean` is
+        # difflib over the whole query, so a cap read after them bounds the
+        # result and not the work. A query that is BOTH over-length and
+        # un-encodable must come back with the length message: that can only
+        # happen if the length is read first.
+        cap = commands_module.MAX_WARP_NAME_QUERY_LENGTH
+        both = "\u0142" * (cap + 1)
+        self.assertFalse(commands_module._query_is_console_safe(both))
+        message = self._message(f"warp {both}")
+        self.assertIn("at most", message)
+        self.assertNotIn(commands_module.QUERY_CONSOLE_CODEC, message.split(";")[0])
+
+    def test_the_refusal_echoes_nothing_typed_and_stays_ascii(self):
+        marker = "ZZQQ_UNLIKELY_MARKER"
+        cap = commands_module.MAX_WARP_NAME_QUERY_LENGTH
+        message = self._message("warp " + marker + "x" * cap)
+        self.assertNotIn(marker, message)
+        message.encode("ascii")
+
+
+class WarpNameSelectorPicksAmongRepeatsTests(unittest.TestCase):
+    """`warp <scene name> #n` -- the eleventh `Hidden Island`, reachable.
+
+    Six names in the client's own table are on more than one scene id and
+    the ambiguity refusal can only print the first
+    `MAX_AMBIGUOUS_SCENE_IDS_SHOWN` of them, so before this an operator who
+    wanted the eleventh had no way to name it from the client at all.
+    """
+
+    def _message(self, text):
+        with self.assertRaises(GmCommandParseError) as caught:
+            parse_gm_command(text)
+        return str(caught.exception)
+
+    def test_the_nth_repeat_is_the_nth_id_in_ascending_order(self):
+        ids = scene_catalog.resolve_gm_scene_name("Hidden Island")
+        self.assertEqual(len(ids), 20)
+        self.assertEqual(list(ids), sorted(ids))
+        for index, scene_id in enumerate(ids, start=1):
+            with self.subTest(n=index):
+                self.assertEqual(
+                    parse_gm_command(f"warp Hidden Island #{index}").args,
+                    (str(scene_id),),
+                )
+
+    def test_the_selector_resolves_at_parse_time_like_every_other_form(self):
+        # Downstream must learn nothing new: `args` is the plain numeric
+        # form `warp <scene_id>` already produces, and `raw` keeps the line.
+        command = parse_gm_command("warp Hidden Island #11")
+        self.assertEqual(command.name, "warp")
+        self.assertEqual(len(command.args), 1)
+        self.assertEqual(command.raw, "warp Hidden Island #11")
+
+    def test_an_n_outside_the_range_is_refused_with_the_range_never_clamped(self):
+        # A clamped selector sends a GM somewhere they did not ask for and
+        # says nothing about it.
+        for text in ("warp Hidden Island #0", "warp Hidden Island #21"):
+            with self.subTest(text=text):
+                message = self._message(text)
+                self.assertIn("#1 to #20", message)
+        self.assertEqual(parse_gm_command("warp Port Royal #1").args, ("1",))
+        self.assertIn("on 1 scene,", self._message("warp Port Royal #2"))
+
+    def test_only_ascii_digits_are_a_selector(self):
+        # Thai digits are `isdigit()`, they encode in cp874 so the codec
+        # card does not stop them, and `int()` takes them -- `#\u0e51\u0e51`
+        # would have become 11. `int()` also takes `+11` and `1_1`.
+        for tail in ("\u0e51\u0e51", "+11", "1_1", "0x11", ""):
+            with self.subTest(tail=tail):
+                with self.assertRaises(GmCommandParseError):
+                    parse_gm_command(f"warp Hidden Island #{tail}")
+
+    def test_a_hash_that_is_not_a_selector_stays_part_of_the_name(self):
+        # No shipped name contains `#`, so these only ever refuse a typo --
+        # but they must refuse it as a NAME, not silently drop characters.
+        self.assertIn(
+            "no GM scene carries that name",
+            self._message("warp Hidden Island#3"),
+        )
+        self.assertIn(
+            "no GM scene carries that name", self._message("warp Port#Royal")
+        )
+
+    def test_a_bare_selector_with_no_name_shows_the_usage_line(self):
+        self.assertEqual(
+            self._message("warp #3"), commands_module.COMMAND_USAGE["warp"]
+        )
+
+    def test_the_ambiguity_refusal_now_names_the_selector_as_the_way_out(self):
+        # The way-out line is the only place an operator learns this form
+        # exists at the moment they need it.
+        message = self._message("warp Hidden Island")
+        self.assertIn("#1 to #20", message)
+        self.assertIn("warp <scene_id>", message)
+
+    def test_no_selector_message_echoes_what_was_typed_and_all_stay_ascii(self):
+        for text in (
+            "warp Hidden Island #0",
+            "warp Hidden Island #21",
+            "warp Port Royal #2",
+            "warp Hidden Island",
+        ):
+            with self.subTest(text=text):
+                message = self._message(text)
+                self.assertNotIn("Hidden", message)
+                self.assertNotIn("Royal", message)
+                message.encode("ascii")
+
+    def test_the_selector_split_shows_the_codec_check_every_character(self):
+        """pf-adversary D1, HIGH, MEASURED, reachable from the chat wire.
+
+        `_split_scene_selector` runs BEFORE `_query_is_console_safe`, and it
+        used to return `head.strip()` -- so every whitespace code point
+        between the name and `#n` was deleted before the codec check could
+        see it.  Twenty-seven of those are characters the check refuses,
+        `\n`, `\x85`, `\xa0`, `\u2028` and `\u3000` among them; each one
+        parsed, and each one landed in `command.raw`, which
+        `log_gm_command` writes into the ndjson audit line.  `chat_command`
+        does not stop them either (`has_format_characters` tests `Cf`; these
+        are `Cc`/`Zl`/`Zs`), so a ordinary GM chat frame reached it.
+
+        WALKS THE WHOLE CLASS, not a sample: the set is derived here from
+        the codec check itself, so a change to what the console accepts
+        cannot leave a hole this test does not look at.
+        """
+        refused_whitespace = [
+            chr(code)
+            for code in range(0x110000)
+            if chr(code).isspace()
+            and not commands_module._query_is_console_safe(chr(code))
+        ]
+        self.assertEqual(27, len(refused_whitespace))
+        for ch in refused_whitespace:
+            with self.subTest(ch=hex(ord(ch))):
+                with self.assertRaises(GmCommandParseError) as raised:
+                    parse_gm_command(f"warp Hidden Island{ch}#1")
+                self.assertIn("cp874", str(raised.exception))
+
+    def test_an_ordinary_extra_space_before_the_selector_still_resolves(self):
+        # The other side of D1's fix: not stripping must not cost the
+        # operator anything, because the catalog fold already collapses and
+        # trims ordinary whitespace.
+        self.assertEqual(parse_gm_command("warp Hidden Island #1").args, ("308",))
+        self.assertEqual(parse_gm_command("warp Hidden Island  #1").args, ("308",))
+        self.assertEqual(
+            parse_gm_command("warp Hidden Island \t #1").args, ("308",),
+        )
+
+    def test_the_usage_line_mentions_the_selector(self):
+        # A form the parser accepts but no usage sentence mentions is a form
+        # nobody finds.
+        self.assertIn("#n", commands_module.COMMAND_USAGE["warp"])
+
+    def test_the_numeric_form_is_untouched_by_either_change(self):
+        self.assertEqual(parse_gm_command("warp 2").args, ("2",))
+        self.assertEqual(parse_gm_command("warp 2 10 20").args, ("2", "10", "20"))
+        self.assertEqual(parse_gm_command("warp -1").args, ("-1",))
+        self.assertEqual(parse_gm_command("warp 1_0").args, ("1_0",))
+
+
 if __name__ == "__main__":
     unittest.main()

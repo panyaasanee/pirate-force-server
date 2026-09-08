@@ -59,12 +59,20 @@ directions.
 
 A DESTINATION THE NEXT LOGIN WOULD REFUSE IS NOT PERSISTED.  This write
 exists FOR the next login -- that is the entire content of `1430`.  A scene
-pinned `login_entry_allowed=False` (~~scene 126 today~~ -- STRUCK, and the
-number was already wrong when it was written: re-derived from
-`scenarios/world_scene_registry_001.json` at HEAD the set is **17 and 126**,
-pf-adversary round `741zlx` finding 9; `world_scene_entry.py` carries the
+pinned `login_entry_allowed=False` (~~scene 126 today~~, ~~**17 and 126**~~ --
+BOTH STRUCK, and this paragraph is no longer allowed to name a set at all.
+The second list was already two scenes short when chief read it: `COO-DECISION
+20260905_1748` barred 304 and 305 as well, and 304/305/126 are exactly the M2
+destination islands, so the undercount pointed the next reader at the three
+scenes it most needed to be right about (chief `R399`, round `jv0jk9`,
+pf-adversary `D7`).  A prose list of scene ids in this docstring is a copy of
+lane A's registry that nothing updates, and it went stale twice in four days.
+So `barred_login_scene_ids()` below DERIVES the set from the same registry
+snapshot `login_would_accept` answers from, the console names it on the
+refusal itself, and `tests/test_gm_warp_scene_persist.py` pins that the set
+moves when the registry moves.  `world_scene_entry.py` carries the
 mirror-image half-truth "today: scene 17 only", which is chief's zone and is
-named in this round's letter rather than edited here) accepts the write
+named in a letter rather than edited here) accepts the write
 through `is_position_persist_allowed`, which is a different question, and
 `world_scene_entry.resolve_entry` then refuses the next login with
 `scene_not_allowed_at_login`: the row is written, the character cannot get
@@ -119,6 +127,10 @@ CONSOLE_TOKEN = "GM_WARP_SCENE_PERSISTED"
 #: failed warp, it is this function called with something that was never a
 #: warp target at all, and there is no scene id to name.
 FAIL_CONSOLE_TOKEN = "GM_WARP_SCENE_PERSIST_FAILED"
+
+#: How many scene ids the `login_would_refuse` line names before it stops and
+#: counts the rest.  See `_barred_console_field`.
+MAX_LOGIN_BARRED_SCENE_IDS_SHOWN = 8
 
 #: The two lines the UNDO prints.  `pf-adversary` round `741zlx`, finding 1
 #: (CRITICAL, MEASURED): `_make_action` can withhold a composed `/warp <n>`
@@ -629,6 +641,80 @@ def login_would_accept(scene_id: object) -> bool:
     return getattr(target, "spawn", None) is not None
 
 
+def barred_login_scene_ids() -> tuple[int, ...]:
+    """Every PINNED scene this module would refuse to persist a warp into.
+
+    Chief `R399` (round `jv0jk9`, pf-adversary `D7`): the module docstring
+    used to carry this set as prose, and the prose was two scenes short --
+    it said `17 and 126` while `COO-DECISION 20260905_1748` had already
+    barred 304 and 305, which are two of M2's three destination islands.  A
+    hand-kept copy of lane A's registry goes stale silently and reads more
+    authoritatively than the code it is describing, so the set is derived
+    here instead and the docstring points at this function.
+
+    DERIVED FROM THE SAME SNAPSHOT `login_would_accept` ANSWERS FROM, and
+    through that same function -- not from a second reading of
+    `login_entry_allowed`.  The refusal has TWO halves (see
+    `login_would_accept`: the login flag, and the missing pinned spawn that
+    `world_scene_entry.resolve_entry` refuses just as loudly), and a lister
+    that re-derived only the first half would print a set that disagrees
+    with the writes this module actually refuses -- which is the same class
+    of half-truth `R399` is about.
+
+    PINNED ONLY, and that is a real bound, not an oversight.  A scene absent
+    from the registry is also refused (`login_would_accept` fails closed for
+    it), but it has no row to enumerate; the ids outside the registry are
+    every 16-bit integer, and printing that is not an answer.  This is why
+    the refusal console line names `pinned=` separately: `barred=` answers
+    "which pinned scenes does the next login shut", and `pinned=no` says the
+    scene in front of you was not one of the scenes it could have named.
+
+    An unreadable registry gives `()` -- the same fail-closed silence
+    `login_would_accept` gives, and the caller has
+    `OUTCOME_LOGIN_REGISTRY_UNREADABLE` to tell the two apart.  Sorted, so a
+    console line does not move with registry row order.
+    """
+    registry = _login_registry_snapshot()
+    if registry is None:
+        return ()
+    try:
+        ids = tuple(registry.ids)
+    except Exception:  # noqa: BLE001 - a bent registry object costs a
+        # console field, never a warp; `login_would_accept` is what decides
+        # whether a row is written and it guards itself.
+        return ()
+    return tuple(
+        sorted(
+            scene_id
+            for scene_id in ids
+            if type(scene_id) is int
+            and not isinstance(scene_id, bool)
+            and not login_would_accept(scene_id)
+        )
+    )
+
+
+def _barred_console_field() -> str:
+    """`barred=` for the refusal line: the derived set, bounded, ASCII.
+
+    BOUNDED BECAUSE THE REGISTRY IS LANE A'S.  It holds 17 scenes today and
+    nothing in this lane governs how many it holds tomorrow; a console line
+    that grows with another lane's data file is a console line that will one
+    day be cut in half by the bridge's own reader.  Past the ceiling the
+    field says how many it did not name, so the number is never silently
+    wrong -- the same shape `gm/commands.py` uses for an ambiguous scene
+    name.
+    """
+    barred = barred_login_scene_ids()
+    if not barred:
+        return "none"
+    shown = barred[:MAX_LOGIN_BARRED_SCENE_IDS_SHOWN]
+    field = ",".join(str(scene_id) for scene_id in shown)
+    if len(barred) > len(shown):
+        field = f"{field},+{len(barred) - len(shown)}"
+    return field
+
+
 def persist_warp_scene(session: object, target: object) -> str:
     """Write `target`'s scene and spawn point to the row now.  One word back.
 
@@ -675,7 +761,23 @@ def persist_warp_scene(session: object, target: object) -> str:
 
     if not login_would_accept(target.scene_id):
         # See the module docstring: writing here is what bricks a character.
-        return _fail(target, OUTCOME_LOGIN_WOULD_REFUSE, session)
+        #
+        # THE LINE NAMES THE SET, so nobody has to go and read a docstring
+        # for it (chief `R399`: the docstring that was there to be read had
+        # been wrong for four days, and wrong about M2's own islands).
+        # `pinned=` first, because it says whether `barred=` was even in a
+        # position to mention this scene: `pinned=no` is "not in lane A's
+        # registry at all", which is a data question, and `pinned=yes` is
+        # "pinned and shut", which is a policy one.
+        return _fail(
+            target,
+            OUTCOME_LOGIN_WOULD_REFUSE,
+            session,
+            detail=(
+                f"pinned={'yes' if _scene_is_pinned(target.scene_id) else 'no'}"
+                f" barred={_barred_console_field()}"
+            ),
+        )
 
     try:
         position = warp_destination_position(target, getattr(selected, "position", None))
@@ -1018,7 +1120,29 @@ def _note_console_loss(session: object, reason: str) -> None:
         return
 
 
-def _fail(target: WarpTarget, reason: str, session: object = None) -> str:
+def _scene_is_pinned(scene_id: object) -> bool:
+    """Whether lane A's registry has a row for this scene at all.
+
+    Split out from `login_would_accept`'s own fail-closed answer because the
+    two are different facts and this module already paid once for one word
+    carrying two (`vlk8rq` finding 5, next to `OUTCOME_LOGIN_REGISTRY_
+    UNREADABLE`).  Never raises: it decorates a console line.
+    """
+    registry = _login_registry_snapshot()
+    if registry is None:
+        return False
+    try:
+        return scene_id in tuple(registry.ids)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _fail(
+    target: WarpTarget,
+    reason: str,
+    session: object = None,
+    detail: str = "",
+) -> str:
     """Print `FAIL_CONSOLE_TOKEN` and hand the reason word straight back.
 
     `COO-DECISION 20260904_1646` item 2: every reachable non-persisted
@@ -1029,9 +1153,14 @@ def _fail(target: WarpTarget, reason: str, session: object = None) -> str:
     past the `isinstance(target, WarpTarget)` guard at the top of
     `persist_warp_scene`.
     """
-    if not _console(
-        f"{FAIL_CONSOLE_TOKEN} scene={target.scene_id} reason={reason}"
-    ):
+    line = f"{FAIL_CONSOLE_TOKEN} scene={target.scene_id} reason={reason}"
+    if detail:
+        # APPENDED, never interpolated into the middle: a reader that already
+        # parses `scene=` and `reason=` off this line keeps working, and the
+        # reason word stays the last thing anything has to match to find an
+        # outcome (`COO-DECISION 20260904_1646` item 2's one vocabulary).
+        line = f"{line} {detail}"
+    if not _console(line):
         # The line is gone; the loss is not.  `session` is optional only so
         # the older direct callers in the tests keep working -- every call
         # from `persist_warp_scene` passes it.

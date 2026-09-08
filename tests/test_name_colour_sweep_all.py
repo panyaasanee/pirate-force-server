@@ -557,5 +557,96 @@ class AllSetRowsTests(unittest.TestCase):
             )
 
 
+
+class ActorAttr1A0RefusalTests(unittest.TestCase):
+    """ka1-A addendum 3's nine rows are refused in writing, not in silence.
+
+    The letter (``pf_bridge/notes_to_chief/20260908_1140_KA1A-TO-COO-B-sweep-
+    all-addendum3-send-actorattr-0x1A0-rows-per-RE310.md``) asks for nine
+    boards that send ``ActorAttr +0x1A0``, and asks in the same sentence for a
+    written reason if this lane's body cannot carry ``ActorAttr`` mask bit
+    ``1 << 32``.  It cannot.  These tests pin the three halves of that answer
+    a machine can check: the labels are DECLARED (so a later round cannot
+    quietly forget nine rows the owner's runner is expecting), they are
+    REFUSED (so no boot composes one), and appending them moved NO existing
+    board -- the failure mode the slot table exists to prevent.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_the_nine_rows_are_declared_and_every_one_is_refused(self) -> None:
+        refused = dict(name_colour_sweep.ALL_SET_UNCOMPOSABLE)
+        for label in name_colour_sweep.ACTOR_ATTR_1A0_LABELS:
+            with self.subTest(label=label):
+                self.assertIn(label, name_colour_sweep.ALL_ROW_ORDER)
+                self.assertIn(label, refused)
+                self.assertEqual(
+                    refused[label], name_colour_sweep.ACTOR_ATTR_1A0_REFUSAL)
+
+    def test_the_body_on_this_branch_really_cannot_hold_the_bit(self) -> None:
+        """EXECUTE the refusal instead of grepping its prose.
+
+        pf-adversary round np8mhf, finding D6/D7: the first draft of this
+        class asserted three substrings of ``ACTOR_ATTR_1A0_REFUSAL``, a
+        constant defined in the module under test -- so widening
+        ``make_npc_attr`` to carry a 64-bit ActorAttr mask would leave the
+        string, and the test, untouched while the reason became false.  This
+        reads the REAL body instead, and it is the test that goes red on the
+        day the refusal stops being true.
+        """
+        body = name_colour_sweep._npc_plain_body(self.legacy, 0x1234, "N-BASE")
+        mask_at = field_mobs._basic_mask_offset(self.legacy, body, 0x1234)
+        mask = int.from_bytes(body[mask_at:mask_at + 2], "little")
+        # The whole refusal in one line: the mask this body carries is written
+        # back two bytes wide, and the requested bit is the 33rd.
+        with self.assertRaises(OverflowError):
+            (mask | name_colour_sweep.ACTOR_ATTR_1A0_MASK_BIT).to_bytes(
+                2, "little")
+        # ...and OverflowError is not a refusal this module can name, which is
+        # why the row must not be composed at all rather than composed and
+        # caught: it would escape into runtime's blanket handler and take the
+        # other boards with it.
+        self.assertFalse(
+            issubclass(OverflowError, name_colour_sweep.NameColourSweepError))
+
+    def test_no_boot_draws_one_of_them(self) -> None:
+        for env in (ALL_ENV, NOID_ENV):
+            for viewer in (None, VIEWER):
+                drawn = set(name_colour_sweep.all_set_labels(
+                    self.legacy,
+                    include_identity_rows=env is ALL_ENV,
+                    viewer_identity=viewer,
+                ))
+                with self.subTest(env=env["PF_NAME_COLOUR_SWEEP"], viewer=viewer):
+                    self.assertEqual(
+                        drawn & set(name_colour_sweep.ACTOR_ATTR_1A0_LABELS),
+                        set(),
+                    )
+
+    def test_appending_them_moved_no_board_an_attended_sheet_already_names(
+        self,
+    ) -> None:
+        # The nine were appended after M-T001 on purpose.  A placement index is
+        # ALL_ROW_ORDER.index(label), so a row spliced into the middle would
+        # renumber every later board -- exactly the drift the slot table was
+        # written to stop (N-ENM0 moved 28313 -> 28323 before it existed).
+        order = name_colour_sweep.ALL_ROW_ORDER
+        first_new = order.index(name_colour_sweep.ACTOR_ATTR_1A0_LABELS[0])
+        self.assertEqual(
+            order[first_new:],
+            name_colour_sweep.ACTOR_ATTR_1A0_LABELS,
+            "the nine refused rows must stay at the end of the slot table",
+        )
+        self.assertEqual(order.index("M-T001"), first_new - 1)
+        self.assertEqual(
+            name_colour_sweep.all_row_placement_index("M-T001"),
+            name_colour_sweep.SWEEP_PLACEMENT_BASE
+            + (first_new - 1) * name_colour_sweep.SWEEP_PLACEMENT_STRIDE,
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
