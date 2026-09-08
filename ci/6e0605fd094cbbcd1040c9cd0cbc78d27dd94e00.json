@@ -1,1 +1,1 @@
-{"sha":"6e0605fd094cbbcd1040c9cd0cbc78d27dd94e00","conclusion":"success","event":"push","ref":"refs/heads/claude/festive-allen-lpkt34","run_id":"34231567664","utc":"2026-09-08T14:08:17Z"}
+{"sha":"6e0605fd094cbbcd1040c9cd0cbc78d27dd94e00","conclusion":"failure","event":"pull_request","ref":"refs/pull/1174/merge","run_id":"34231608467","utc":"2026-09-08T14:24:45Z"}
