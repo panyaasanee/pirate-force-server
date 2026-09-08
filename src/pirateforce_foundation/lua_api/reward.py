@@ -190,6 +190,15 @@ REFUSE_INSUFFICIENT = "balance_does_not_cover_it"
 #: starting balance vs. tell them they are short).
 REFUSE_UNMEASURED = "balance_was_never_measured"
 
+#: :func:`balance` only.  The store has no ``read_typed_attributes``, the
+#: read counterpart of :data:`REFUSE_STORE_NOT_ATOMIC` /
+#: :data:`REFUSE_STORE_CANNOT_SPEND`.  Its own token rather than
+#: ``store_error`` because "this store cannot answer the question at all"
+#: is a WIRING fault of ours, while ``store_error`` is a database that
+#: tried and failed -- a census that folds them together cannot tell a
+#: half-built process from a sick one.
+REFUSE_STORE_CANNOT_READ = "store_has_no_typed_attribute_read"
+
 #: Every reason this module itself can produce.  A test asserts
 #: :func:`pay` never returns a reason outside this set union
 #: ``quest_criteria``'s.
@@ -198,6 +207,7 @@ REFUSALS: frozenset = frozenset({
     REFUSE_NOTHING_TO_PAY, REFUSE_NEGATIVE, REFUSE_STORE_ERROR,
     REFUSE_UNKNOWN_KIND, REFUSE_BAD_AMOUNT,
     REFUSE_STORE_CANNOT_SPEND, REFUSE_INSUFFICIENT, REFUSE_UNMEASURED,
+    REFUSE_STORE_CANNOT_READ,
 })
 
 
@@ -819,3 +829,112 @@ def pay(api_name: str, character_id: int, quest_id: int, *,
     log("LUA_QUEST_PAYOUT %s quest=%d %s"
         % (api_name, quest_id, payout.log_fields()))
     return payout, None
+
+
+class QuestBalanceStore(Protocol):
+    """The one method this lane needs to READ a balance back.
+
+    ``read_typed_attributes(character_id) -> dict[str, int | float]``
+
+    * Returns ONLY the columns that HAVE a value.  A NULL column is
+      OMITTED, never rendered as ``0`` -- LANE-DB's own docstring calls
+      that omission load-bearing, and it is what lets :func:`balance`
+      answer "nobody has ever measured this purse" instead of guessing an
+      empty one (``COO-DECISION 20260901_1059``).
+    * Raises ``KeyError`` for a character that does not exist or has been
+      soft-deleted.
+    * Raises ``WriteLockTimeout`` (a ``sqlite3.OperationalError``) under
+      contention rather than a bare operational error.
+    """
+
+    def read_typed_attributes(self, character_id: int) -> dict:
+        ...  # pragma: no cover - structural
+
+
+def _has_typed_read(store: Any) -> bool:
+    """True when ``store`` offers the :class:`QuestBalanceStore` method."""
+    return callable(getattr(store, "read_typed_attributes", None))
+
+
+def balance(api_name: str, kind: str, character_id: int, *,
+            store: Optional[Any] = None,
+            log: Optional[Callable[[str], None]] = None,
+            ) -> Tuple[Optional[int], Optional[str]]:
+    """The balance of one kind's column, or exactly why there is none.
+
+    The FOURTH door onto this seam, and the first that only reads.  It
+    exists because a shipped quest asks the question before it spends:
+    ``gamedata/lua/Quest/q_class.lua:47`` is
+    ``if (Player.GetCash() >= Quest.Var3)`` over ``n_VARI_3 = 15000``, and
+    ``q_boat_health.lua:17`` is the same shape over the repair price.  With
+    ``Player.GetCash`` stubbed at ``0`` those guards were DEAD -- the else
+    branch ran every time -- and :func:`charge`'s own docstring names the
+    consequence in the other direction: ``q_ship.lua`` charges and then
+    hands over the ship with no check of its own, so a player who cannot
+    afford it gets the ship anyway and only the log knows.
+
+    WHY THIS DOES NOT CONTRADICT THE MODULE DOCSTRING.  That text forbids
+    READ-MODIFY-WRITE -- reading a balance in order to compute a new one
+    and writing it back across two connections, which eats a concurrent
+    writer.  This function never writes, is never called by :func:`pay`,
+    :func:`grant` or :func:`charge`, and hands its answer to a Lua
+    comparison, not to an ``UPDATE``.  The write doors still take the
+    store's word for what a balance BECAME; they do not consult this one.
+    The value is therefore a snapshot and is documented as one: a script
+    that reads a purse and then spends from it races anything else moving
+    that column, and the SPEND is what settles it -- ``spend_typed_
+    attribute`` re-reads inside its own ``BEGIN IMMEDIATE`` and raises
+    ``Insufficient*`` rather than going negative.  That is the game's own
+    behaviour too: the client's purse is a snapshot between frames.
+
+    ``(value, None)`` or ``(None, reason)``, never raising, the same
+    contract the other three doors carry.  An ABSENT column is
+    :data:`REFUSE_UNMEASURED`, never ``0``: "we have never measured this
+    player's cash" and "this player has no cash" are different answers,
+    and the caller that turns the refusal into a stub default is the one
+    that has to say so in its own log line.
+    """
+    log = log or (lambda _line: None)
+
+    def _refuse(why: str, extra: str = "") -> Tuple[None, str]:
+        log("LUA_PLAYER_READ %s character=%s kind=%s refused=%s%s"
+            % (api_name, character_id, kind, why, extra))
+        return None, why
+
+    if kind not in KIND_COLUMN:
+        return _refuse(REFUSE_UNKNOWN_KIND)
+    if isinstance(character_id, bool) or not isinstance(character_id, int) \
+            or character_id <= 0:
+        return _refuse(REFUSE_NO_CHARACTER)
+    if store is None:
+        return _refuse(REFUSE_NO_STORE)
+    if not _has_typed_read(store):
+        return _refuse(REFUSE_STORE_CANNOT_READ)
+
+    column = KIND_COLUMN[kind]
+    try:
+        values = store.read_typed_attributes(character_id)
+    except Exception as exc:  # noqa: BLE001 - deliberate, see charge()
+        return _refuse(REFUSE_STORE_ERROR,
+                       " err=%s: %s" % (type(exc).__name__, exc))
+    try:
+        present = column in values
+    except Exception as exc:  # noqa: BLE001 - a store that answered garbage
+        return _refuse(REFUSE_STORE_ERROR,
+                       " err=%s: %s" % (type(exc).__name__, exc))
+    if not present:
+        return _refuse(REFUSE_UNMEASURED)
+    value = values[column]
+    if isinstance(value, bool) or not isinstance(value, int):
+        # A float is refused rather than truncated: every column in
+        # KIND_COLUMN is declared INTEGER in migration 006, so a float
+        # here is schema drift, and rounding it would hand a Lua
+        # comparison a number no row holds.
+        return _refuse(REFUSE_STORE_ERROR, " err=value=%r" % (value,))
+    if value < 0:
+        return _refuse(REFUSE_STORE_ERROR, (
+            " err=value=%d is negative: the store reported a row state its "
+            "own CHECK constraint forbids" % (value,)))
+    log("LUA_PLAYER_READ %s character=%d kind=%s column=%s balance=%d"
+        % (api_name, character_id, kind, column, value))
+    return value, None

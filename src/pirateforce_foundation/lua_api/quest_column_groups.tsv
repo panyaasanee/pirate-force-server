@@ -2,14 +2,15 @@
 # regenerate: python3 tools/pf_regen_lua_quest_rewards.py
 # source: pf_bridge/gamedata/tables/QUESTDATA_TH__QUEST.tsv cross-read against pf_bridge/gamedata/lua
 # source_sha256: cc9927286def2bda166c320a2dddd16f5457eb4579ce5207a3d76758707527bd
-# source_rows: 34
+# source_rows: 35
 # pulled: 2026-09-07
-# body_sha256: 30da22c248e332ad09524732117ddf1a96f295de47cdc3a4d163da6fcc49827f
+# body_sha256: 5fa82ed2c8f694562865ae7bf2e2a730c0c1a0cd9e27610f227fe644b3942f0c
 # one row per member column of a take/give transaction group; group is the Lua entry point that performs both sides, call_site is the corpus line that proves the membership.
 script	group	side	column	api_name	call_site
 Q_BOAT_HEALTH	Accept_Run	take	n_VARI_2	Player.AddCash	Quest/q_boat_health.lua:21
 Q_BOAT_HEALTH	Accept_Run	give	-	Player.BoatHealth	Quest/q_boat_health.lua:20
 Q_CLASS	Report_Run	take	n_VARI_4	Player.AddCash	Quest/q_class.lua:60
+Q_CLASS	Report_Run	give	-	Player.AddPpClass	Quest/q_class.lua:59
 Q_CLASS	Report_Run	give	-	Quest.AddCriteriaCash	Quest/q_class.lua:63
 Q_CLASS	Report_Run	give	-	Quest.AddCriteriaExp	Quest/q_class.lua:61
 Q_CLASS	Report_Run	give	-	Quest.AddCriteriaSkillPoint	Quest/q_class.lua:62

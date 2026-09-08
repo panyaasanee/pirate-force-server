@@ -346,6 +346,9 @@ REAL_METHODS = frozenset({
     # round `2euu94` now that a spend door with a floor answer exists
     # (see :data:`SIGNED_STAT_KINDS`).
     "AddCash",
+    # The purse READ the four spending quests gate themselves on, real
+    # from round `yzdgx1` (see :data:`STAT_READ_KINDS`).
+    "GetCash",
 })
 
 #: The API name -> reward kind map for the grant closures: which
@@ -421,6 +424,58 @@ GRANT_KINDS: dict[str, str] = {
 #: promise about what will arrive.
 SIGNED_STAT_KINDS: dict[str, str] = {
     "AddCash": _quest_criteria.KIND_CASH,
+}
+
+#: The API name -> reward kind map for the balance-READ closures: which
+#: ``characters`` column each name reports.  FROZEN AND CLOSED, one entry
+#: today, and the value is one of this package's own ``KIND_*`` constants
+#: for the same reason :data:`GRANT_KINDS` and :data:`SIGNED_STAT_KINDS`
+#: use them -- ``lua_api.reward.KIND_COLUMN`` owns the column spelling and
+#: a test pins it against ``persistence_typed_attrs.TYPED_COLUMNS``.
+#:
+#: WHY ``GetCash`` AND NOT THE OTHER FOURTEEN ``_STAT_READ`` NAMES.  Cash
+#: is the only one of them whose column this lane ALREADY WRITES:
+#: ``AddCash`` opened in round ``2euu94`` through
+#: ``reward.grant``/``reward.charge`` onto ``characters.cash``.  Reading
+#: the same column back through the same store is not new per-character
+#: state and needs no wider ``PlayerContext`` -- which is precisely what
+#: ``_STAT_READ`` says the other fourteen are still waiting for, and why
+#: this one name leaves that group and the rest stay.
+#:
+#: WHAT IT UNBLOCKS, GREPPED (``grep -rn "Player.GetCash" gamedata/lua/``
+#: = 7 call sites, 7 files, arity 0 at every one).  Four of them are the
+#: guard in front of a charge this lane has already built the charging
+#: half of:
+#:
+#:   * ``Quest/q_class.lua:47``       ``Player.GetCash() >= (Quest.Var3)``
+#:     (``n_VARI_3`` = 15000, the class-change fee ``q_class.lua:60``
+#:     then debits as ``n_VARI_4`` = 4294952296 = -15000)
+#:   * ``Quest/q_class2.lua:44``      the same shape
+#:   * ``Quest/q_boat_health.lua:18`` ``Player.GetCash() >= Quest.Var2``
+#:     (the 100-cash boat repair of round ``kkuqzo``)
+#:   * ``Quest/q_ship.lua:12``        the ship purchase
+#:
+#: With the name stubbed at ``STUB_DEFAULT`` every one of those four
+#: guards was FALSE for every player forever, so the else branch ran and
+#: the shipped quest's own affordability check never executed once.  That
+#: is the limit ``reward.charge``'s docstring names from the other side:
+#: ``q_ship.lua`` charges and then hands the ship over with no check of
+#: its own, so the script's guard is the only thing standing between a
+#: broke player and a free ship.
+#:
+#: The other three ask the same question for a quest that does not charge
+#: through this lane's doors: ``q_guildgather1.lua:42`` and
+#: ``q_guild_boss2.lua:42`` (``>= (Quest.Var5)``), and ``q_con3.lua:19``,
+#: the only one of the seven that asks ``<=`` -- a CEILING, "you are poor
+#: enough for this".  So the stub did NOT fail safe everywhere: it made
+#: that one guard silently TRUE for everybody while the other six were
+#: silently false, which is the direction worth naming.  ``q_con3`` is
+#: also the one call site an unbound corpus sweep never reaches -- its
+#: ``(Quest.Var4 == 0) or ...`` short-circuits on a 0 cell -- which is why
+#: the corpus pins move by SIX where the grep counts seven (measured per
+#: file, ``tests/test_script_lua_corpus.py``).
+STAT_READ_KINDS: dict[str, str] = {
+    "GetCash": _quest_criteria.KIND_CASH,
 }
 
 #: Sanity ceiling on a grant amount decoded off the Lua stack, the same
@@ -653,8 +708,10 @@ STILL_STUBBED: dict[str, str] = {
     "AddPpClass": _STAT_GRANT,
     "GiveLvCriteriaPercentageEXP": _STAT_GRANT,
     "Addmoralized": _STAT_GRANT,
-    # other per-character stat reads (15)
-    "GetCash": _STAT_READ,
+    # other per-character stat reads (14) -- GetCash moved to
+    # REAL_METHODS in round `yzdgx1` (see STAT_READ_KINDS): its column is
+    # the one this lane already writes, so it needed no wider
+    # PlayerContext.  The fourteen below still do.
     "GetCurrentHP": _STAT_READ,
     "GetMaxHP": _STAT_READ,
     "GetCurrentST": _STAT_READ,
@@ -832,6 +889,36 @@ class RealPlayerNamespace:
                 return class_id
 
             return get_class
+
+        if name in STAT_READ_KINDS:
+            kind = STAT_READ_KINDS[name]
+
+            def read_stat(*args, _name=name, _kind=kind):
+                self.calls.append("Player.%s" % _name)
+                if len(args) != 0:
+                    _log_bad_arity(self._log, _name, len(args), "0")
+                    return STUB_DEFAULT
+                value, _reason = _reward.balance(
+                    "Player.%s" % _name, _kind,
+                    self._context.character_id,
+                    store=self._payout_store, log=self._log)
+                if value is None:
+                    # STUB_DEFAULT ON EVERY REFUSAL, AND IT IS NOT A
+                    # GUESS OF ZERO -- `reward.balance` has already
+                    # logged WHICH refusal it was (an unmeasured column
+                    # is `balance_was_never_measured`, never `0`), and
+                    # this is the value a Lua comparison gets when the
+                    # host cannot answer.  The direction it errs in is
+                    # deliberate: six of the seven corpus guards are
+                    # `>=`, so 0 makes them false and the player is
+                    # refused a purchase rather than handed one they
+                    # cannot pay for.  The seventh (`q_con3.lua:19`,
+                    # `<= Quest.Var4`) errs the other way and is named
+                    # here rather than left for someone to discover.
+                    return STUB_DEFAULT
+                return value
+
+            return read_stat
 
         if name == "GetItemNum":
             def get_item_num(*args):

@@ -396,7 +396,19 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 #: 84bf078 (the commit before the merge), 2872/2599 at 43b392b (after) --
 #: red on main today, and invisible to `gate-windows`, which has no sibling
 #: checkout and skips this module entirely.
-BASELINE_TOTAL_STUB_CALLS = 2599
+#: RE-MEASURED to 2593 (LANE-Q, round `yzdgx1`).  `Player.GetCash` became
+#: real this round (`lua_api.player.STAT_READ_KINDS`) and the sweep
+#: executes it SIX times, not the seven `grep -rn Player.GetCash
+#: gamedata/lua/` finds.  MEASURED PER FILE, one corpus root per script,
+#: rather than reasoned about: q_ship/q_class/q_class2/q_guildgather1/
+#: q_guild_boss2/q_boat_health = 1 each, `Quest/q_con3.lua:19` = 0.  That
+#: line is `((Quest.Var4 == 0) or Player.GetCash() <= (Quest.Var4))`, and
+#: an unbound sweep answers `Quest.Var4` = 0, so Lua's `or` SHORT-CIRCUITS
+#: and the call never happens.  It is also the only one of the seven that
+#: asks `<=`.  Both numbers are kept rather than reconciled -- the grep
+#: counts CALL SITES, this pin counts CALLS -- and the six that move are
+#: the same six in both directions (stub -6, real +6, one run, not two).
+BASELINE_TOTAL_STUB_CALLS = 2593
 
 #: The other half of the split, pinned for the same reason (pf-adversary
 #: D1, round `oghyca`).  Only the stub total was pinned before, so a round
@@ -410,7 +422,10 @@ BASELINE_TOTAL_STUB_CALLS = 2599
 #: round's change that moved it.
 #: RE-MEASURED to 2872 (LANE-A, round `ew9416`): the same one call, arriving
 #: in this bucket.  See the note on BASELINE_TOTAL_STUB_CALLS above.
-BASELINE_TOTAL_REAL_CALLS = 2872
+#: RE-MEASURED to 2878 (LANE-Q, round `yzdgx1`): `Player.GetCash`'s six
+#: executed calls, arriving in this bucket.  See the note on
+#: BASELINE_TOTAL_STUB_CALLS above; the two edits are one commit.
+BASELINE_TOTAL_REAL_CALLS = 2878
 
 
 def bucket_conservation(report):
