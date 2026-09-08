@@ -69,6 +69,22 @@ def _raw(path, sql, args=()):
         db.close()
 
 
+def _rewrite_trigger(path):
+    """Make the stored value differ from the argument, behind the door's
+    back, so an echoing door and an honest one report different numbers."""
+    db = sqlite3.connect(str(path))
+    try:
+        db.execute(
+            "CREATE TRIGGER quest_counter_rewrite AFTER INSERT ON "
+            "character_quest_counter BEGIN UPDATE character_quest_counter "
+            "SET counter_value=4242 WHERE character_id=NEW.character_id "
+            "AND quest_id=NEW.quest_id AND counter_name=NEW.counter_name; END"
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 def _soft_delete(path, character_id):
     """Mark a character soft-deleted through this test's own connection.
 
@@ -164,8 +180,17 @@ class MigrationShapeTests(unittest.TestCase):
             if p.name[:3].isdigit()
         )
         self.assertEqual(numbers, list(range(1, max(numbers) + 1)))
-        self.assertEqual(max(numbers), 19)
         self.assertEqual(numbers.count(19), 1)
+        # NOT `max(numbers) == 19`.  PAYS pf-adversary D4 (round `6vv9mi`):
+        # that assertion says "this file claimed a free number", and it
+        # stops being able to say it the moment ANY lane lands `020` -- at
+        # which point this file goes red for a reason with nothing to do
+        # with quest state.  `tests/test_migration_016_experience_skill_
+        # points_backfill.py:780` deleted the same assertion for the same
+        # reason and wrote down why; repeating the mistake it removed would
+        # be worse than never having read it.  What survives is the two
+        # claims that stay true forever: the directory is a gapless run,
+        # and exactly one file is numbered 19.
 
 
 class AppliedSchemaTests(unittest.TestCase):
@@ -222,6 +247,33 @@ class AppliedSchemaTests(unittest.TestCase):
             self.assertEqual(
                 keys, [("characters", "character_id", "id", "CASCADE")], table
             )
+
+    def test_every_counter_column_is_not_null(self):
+        """PAYS pf-adversary D3 (round `6vv9mi`): the flag table's test
+        looped `notnull==1` over every column, the counter table's checked
+        only PK positions -- so dropping NOT NULL from `counter_value` and
+        `updated_at` survived every mutant."""
+        columns = {row[1]: row for row in _table_info(
+            self.path, "character_quest_counter")}
+        for name in columns:
+            self.assertEqual(columns[name][3], 1, name)
+
+    def test_the_counter_tables_u16_check_is_in_the_schema_too(self):
+        """PAYS pf-adversary D3: the u16 CHECK was measured on the flag
+        table only, so deleting it from the counter table went unnoticed --
+        and the migration's stated reason for it ("a second writer cannot
+        put a row here that the wire could never carry") was unproven for
+        half the schema."""
+        db = sqlite3.connect(str(self.path))
+        try:
+            for bad in (65536, -1):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    db.execute(
+                        "INSERT INTO character_quest_counter "
+                        "VALUES (1,?,'m',0,'t')", (bad,)
+                    )
+        finally:
+            db.close()
 
     def test_the_u16_check_is_in_the_schema_not_only_in_python(self):
         """A second writer (a repair script, a later migration) must not be
@@ -348,6 +400,51 @@ class QuestFlagDoorTests(_Workspace):
         _soft_delete(self.path, self.character_id)
         with self.assertRaises(KeyError):
             self.store.set_quest_flag(self.character_id, 3020, 1)
+
+    def test_the_read_side_refuses_a_missing_character_too(self):
+        """PAYS pf-adversary D9 (round `6vv9mi`).  `2212` writes two
+        separate clauses -- "no such / soft-deleted character -> KeyError"
+        and "no row (never set) -> None" -- and scopes only the second to
+        the write side.  Answering `None` for a character that does not
+        exist would collapse "no such character" into "no progress", which
+        is the one distinction the caller cannot recover afterwards."""
+        with self.assertRaises(KeyError):
+            self.store.get_quest_flag(999999, 3020)
+
+    def test_the_read_side_refuses_a_soft_deleted_character_too(self):
+        self.store.set_quest_flag(self.character_id, 3020, 1)
+        _soft_delete(self.path, self.character_id)
+        with self.assertRaises(KeyError):
+            self.store.get_quest_flag(self.character_id, 3020)
+
+    def test_a_character_id_sqlite_cannot_hold_is_refused(self):
+        """PAYS pf-adversary D6: this was the one number without a bound,
+        so it reached `sqlite3` and raised `OverflowError` from inside the
+        open transaction -- outside the exception family LANE-Q's adapter
+        catches, so it escaped into the Lua call stack."""
+        for door in (
+            lambda: self.store.set_quest_flag(2 ** 70, 3020, 1),
+            lambda: self.store.get_quest_flag(2 ** 70, 3020),
+            lambda: self.store.set_quest_counter(2 ** 70, 3020, "m", 1),
+            lambda: self.store.increment_quest_counter(2 ** 70, 3020, "m"),
+            lambda: self.store.get_quest_counter(2 ** 70, 3020, "m"),
+        ):
+            with self.assertRaises(ValueError):
+                door()
+
+    def test_setting_the_same_value_twice_still_moves_updated_at(self):
+        """`updated_at` is the only evidence that a script touched a quest
+        at all when the flag it wrote equals the flag already there."""
+        first = self.store.set_quest_flag(self.character_id, 3020, 1)
+        second = self.store.set_quest_flag(self.character_id, 3020, 1)
+        self.assertNotEqual(second.updated_at, first.updated_at)
+
+    def test_the_read_back_matches_the_quest_exactly_not_a_range(self):
+        """A read-back that matched `quest_id>=?` would return quest 3020's
+        row for a write to 3019 the moment both exist."""
+        self.store.set_quest_flag(self.character_id, 3019, 11)
+        row = self.store.set_quest_flag(self.character_id, 3020, 22)
+        self.assertEqual((row.quest_id, row.flag_value), (3020, 22))
 
     def test_a_quest_id_outside_u16_is_refused_on_both_sides(self):
         for bad in (-1, 0x10000):
@@ -510,6 +607,46 @@ class QuestCounterDoorTests(_Workspace):
         with self.assertRaises(KeyError):
             self.store.increment_quest_counter(
                 self.character_id, 3020, "mob_517")
+
+    def test_the_read_side_refuses_a_missing_character_too(self):
+        with self.assertRaises(KeyError):
+            self.store.get_quest_counter(999999, 3020, "mob_517")
+
+    def test_set_quest_counter_returns_what_the_table_holds_not_its_argument(
+            self):
+        """PAYS pf-adversary D2 (round `6vv9mi`): only the FLAG door had
+        this test, so a counter door that echoed its arguments survived
+        every mutant.  Same method as the flag door's: a trigger rewrites
+        the row behind the door's back, so an echoing door reports 3 and an
+        honest one reports 4242."""
+        _rewrite_trigger(self.path)
+        written = self.store.set_quest_counter(
+            self.character_id, 3020, "mob_517", 3)
+        self.assertEqual(written.counter_value, 4242)
+
+    def test_increment_returns_what_the_table_holds_not_its_own_sum(self):
+        _rewrite_trigger(self.path)
+        row = self.store.increment_quest_counter(
+            self.character_id, 3020, "mob_517", 3)
+        self.assertEqual(row.counter_value, 4242)
+
+    def test_incrementing_by_zero_still_moves_updated_at(self):
+        first = self.store.increment_quest_counter(
+            self.character_id, 3020, "mob_517", 5)
+        second = self.store.increment_quest_counter(
+            self.character_id, 3020, "mob_517", 0)
+        self.assertEqual(second.counter_value, 5)
+        self.assertNotEqual(second.updated_at, first.updated_at)
+
+    def test_the_read_matches_the_name_exactly_not_a_range(self):
+        """A read that matched `counter_name>=?` would answer one tracker
+        with another tracker's count."""
+        self.store.set_quest_counter(self.character_id, 3020, "mob_517", 3)
+        self.store.set_quest_counter(self.character_id, 3020, "mob_518", 8)
+        self.assertEqual(
+            self.store.get_quest_counter(
+                self.character_id, 3020, "mob_517").counter_value, 3
+        )
 
 
 class TheRowsSurviveARelogTests(_Workspace):

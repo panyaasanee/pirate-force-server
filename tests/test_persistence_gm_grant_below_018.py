@@ -114,6 +114,36 @@ class GrantGmSkillsBelow018Tests(unittest.TestCase):
             self._rows(), [(99, "starting_kit"), (210, "starting_kit")]
         )
 
+    def test_a_mixed_call_reports_the_number_it_actually_counted(self):
+        """PAYS pf-adversary D5 (round `6vv9mi`): the first version of the
+        message said "wrote none of N ids ... every INSERT OR IGNORE was
+        swallowed" no matter what it had counted.  On a call where three of
+        four ids were already on the row, only the fourth was swallowed and
+        the sentence was false."""
+        self.store.grant_starting_skills(self.character_id, (7, 8, 9))
+        with self.assertRaises(RuntimeError) as caught:
+            self.store.grant_gm_skills(self.character_id, (7, 8, 9, 4242))
+        self.assertIn("1 of 4 id(s)", str(caught.exception))
+        self.assertIn("4242", str(caught.exception))
+
+    def test_a_call_whose_ids_are_all_already_held_does_not_raise(self):
+        """And it must not: at `018` the same call also writes zero rows,
+        because `OR IGNORE` skips every id the row already carries.  The
+        check asks "did every id arrive", not "did this call mint a
+        gm_grant row" -- a door that raised here would refuse the one case
+        where 017 and 018 behave identically.  NONCLAIM, named rather than
+        hidden: that is exactly the case this guard cannot see, and it is
+        also the case where there is nothing to see."""
+        self.store.grant_starting_skills(self.character_id, (7, 8, 9))
+        self.assertEqual(
+            self.store.grant_gm_skills(self.character_id, (7, 8, 9)),
+            (7, 8, 9),
+        )
+        self.assertEqual(
+            self._rows(),
+            [(7, "starting_kit"), (8, "starting_kit"), (9, "starting_kit")],
+        )
+
     def test_the_sibling_doors_are_unaffected_at_017(self):
         """`'starting_kit'` and `'learned'` were legal in the migration
         that created the table and in `014`; neither sibling needs the

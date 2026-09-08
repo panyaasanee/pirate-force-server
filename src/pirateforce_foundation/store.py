@@ -3301,6 +3301,19 @@ class SQLiteStore:
         """
         if isinstance(character_id, bool) or not isinstance(character_id, int):
             raise TypeError("character_id must be an int")
+        # PAYS pf-adversary D6 (round `6vv9mi`): `character_id` was the one
+        # number these doors did not bound, so `set_quest_flag(2**70, ...)`
+        # reached `sqlite3` and raised `OverflowError` from INSIDE the open
+        # transaction.  LANE-Q's adapter catches `KeyError`/`ValueError`/
+        # `sqlite3.Error` and nothing else, so that exception escaped into
+        # the Lua call stack and the host sweep blamed the script -- the
+        # exact shape `lua_api/quest_state_store.py` says it exists to
+        # prevent.  Same int64 bound `_quest_number` gives every other
+        # number here, for the same reason.
+        if not -(2 ** 63) <= character_id <= 2 ** 63 - 1:
+            raise ValueError(
+                "character_id %d does not fit SQLite's INTEGER" % character_id
+            )
         if isinstance(quest_id, bool) or not isinstance(quest_id, int):
             raise TypeError("quest_id must be an int")
         if not 0 <= quest_id <= 0xFFFF:
@@ -3365,6 +3378,17 @@ class SQLiteStore:
                 f"{character_id}'s {what} within connect()'s busy_timeout: "
                 f"{error}"
             ) from error
+        self._quest_live(db, character_id)
+
+    def _quest_live(self, db, character_id: int) -> None:
+        """Refuse a character this database has no live row for.
+
+        ONE implementation shared by the three write doors and the two read
+        doors, so the two sides cannot drift apart -- which is how
+        pf-adversary D9 (round `6vv9mi`) happened in the first place: the
+        reads were written by analogy with `get_home_marker` instead of off
+        `2212`, and answered `None` where the contract says `KeyError`.
+        """
         row = db.execute(
             "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
             (character_id,),
@@ -3437,15 +3461,25 @@ class SQLiteStore:
         not an error -- it is the correct answer for every quest a
         character has never touched, and `2212` names it: the caller
         decides what "no progress recorded" means, this door does not
-        invent a starting flag.  A soft-deleted or missing character is not
-        an error here either: this is a read of a (character, quest) row
-        that simply is not there, the same shape `get_home_marker` uses.
+        invent a starting flag.
+
+        A MISSING OR SOFT-DELETED CHARACTER IS A `KeyError`, HERE TOO.
+        PAYS pf-adversary D9 (round `6vv9mi`).  This door first answered
+        `None` for that case, by analogy with `get_home_marker` -- but
+        `2212` writes the two cases as separate clauses ("no such /
+        soft-deleted character -> KeyError; no row (never set) -> None"),
+        it scopes only the second one to the write side, and
+        `COO-DECISION 20260908_1642` says implement that contract, do not
+        redesign it.  Answering `None` collapses "this character does not
+        exist" into "this character has no progress", which is the one
+        distinction a caller cannot recover afterwards.
 
         Raises `TypeError` / `ValueError` on the key exactly as the write
         side does, so a caller cannot read with a key it could not write.
         """
         self._quest_key(character_id, quest_id)
         with self.connect() as db:
+            self._quest_live(db, character_id)
             row = db.execute(
                 "SELECT character_id,quest_id,flag_value,updated_at "
                 "FROM character_quest_flag WHERE character_id=? AND quest_id=?",
@@ -3579,7 +3613,9 @@ class SQLiteStore:
         correct answer for a counter nothing has written yet -- `2212`
         forbids inventing a zero row here, because "never tracked" and
         "tracked, currently zero" are different facts and only the caller
-        knows which one matters to a quest.
+        knows which one matters to a quest.  A missing or soft-deleted
+        character is a `KeyError`, for the reason `get_quest_flag` above
+        records (pf-adversary D9).
 
         Raises `TypeError` / `ValueError` on the key exactly as the write
         side does.
@@ -3587,6 +3623,7 @@ class SQLiteStore:
         self._quest_key(character_id, quest_id)
         counter_name = self._quest_counter_name(counter_name)
         with self.connect() as db:
+            self._quest_live(db, character_id)
             row = db.execute(
                 "SELECT character_id,quest_id,counter_name,counter_value,"
                 "updated_at FROM character_quest_counter "
@@ -3983,13 +4020,21 @@ class SQLiteStore:
                 skill_id for skill_id in checked if skill_id not in present
             ]
             if missing:
+                # PAYS pf-adversary D5 (round `6vv9mi`): the first version of
+                # this message said "wrote none of N ids ... every INSERT OR
+                # IGNORE was swallowed", which is a sentence it had not
+                # measured -- on a mixed call where three of four ids were
+                # already on the row, only the fourth was swallowed.  It now
+                # reports what it counted, and names the CHECK as the likely
+                # cause rather than the established one.
                 raise RuntimeError(
-                    "grant_gm_skills wrote none of %d id(s) for character %d "
-                    "(first missing: %d) -- `character_skills.source` does "
-                    "not admit 'gm_grant' on this database, so every INSERT "
-                    "OR IGNORE was swallowed as a CHECK violation; run "
-                    "migrations/018_character_skills_gm_grant_source.sql"
-                    % (len(missing), character_id, missing[0])
+                    "grant_gm_skills: %d of %d id(s) for character %d did not "
+                    "reach character_skills (first missing: %d). The usual "
+                    "cause is a database that has not applied migrations/"
+                    "018_character_skills_gm_grant_source.sql, whose CHECK "
+                    "rejects source='gm_grant' -- INSERT OR IGNORE swallows "
+                    "that as quietly as the UNIQUE conflict it is here for."
+                    % (len(missing), len(checked), character_id, missing[0])
                 )
         return tuple(r["skill_id"] for r in after)
 
