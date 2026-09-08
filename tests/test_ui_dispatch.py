@@ -2241,7 +2241,8 @@ class TheAllowanceBelongsToTheSessionTests(_RegistryIsolation):
             out, _ = self._press(session)
             self.assertEqual(out, [])
         ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
-        self.assertEqual(ui_dispatch._session_answers_spent(session), 0)
+        self.assertEqual(ui_dispatch._session_answers_spent(
+            session, PARTY_INVITE_VITAL_ID), 0)
 
     def test_an_empty_answer_costs_the_session_nothing(self):
         # "Nothing for this payload" is the ordinary case, not a press.
@@ -2249,7 +2250,8 @@ class TheAllowanceBelongsToTheSessionTests(_RegistryIsolation):
         session = _in_game()
         for _ in range(80):
             self.assertEqual(self._press(session)[0], [])
-        self.assertEqual(ui_dispatch._session_answers_spent(session), 0)
+        self.assertEqual(ui_dispatch._session_answers_spent(
+            session, PARTY_INVITE_VITAL_ID), 0)
 
     def test_a_session_the_seam_cannot_bound_is_refused_not_answered(self):
         self._register([self.GOOD])
@@ -2270,6 +2272,89 @@ class TheAllowanceBelongsToTheSessionTests(_RegistryIsolation):
         gc.collect()
         self.assertNotIn(key, ui_dispatch._SESSION_ANSWERS_SENT)
 
+    def test_a_storm_on_one_vital_does_not_silence_the_other(self):
+        """pf-adversary round vy1m79, D1 -- and this file SAID it held.
+
+        The trade module's docstring asserted "a storm on trade cannot
+        silence party" while the allowance was keyed on the session
+        alone, and the real dispatcher disagreed: 32 trade answers, then
+        the party button on the same session returned nothing.  The two
+        separate module counters had this property; keeping it was the
+        whole reason they were separate.
+        """
+        from pirateforce_foundation import ui_trade_wire
+
+        def answerer(session=None, vital_id=None, payload=None):
+            return [(
+                "UI_TRADE_INVITE_ANSWERED" if vital_id ==
+                ui_trade_wire.TRADE_INVITE_VITAL_ID
+                else "UI_PARTY_INVITE_ANSWERED",
+                b"\x07", b"\x01\x02", 0.0,
+            )]
+
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        ui_dispatch.register_answerer(
+            ui_trade_wire.TRADE_INVITE_VITAL_ID, answerer
+        )
+        self.allow(answerer)
+        session = _in_game()
+        for _ in range(32):
+            with contextlib.redirect_stderr(io.StringIO()):
+                out = ui_dispatch.answer(
+                    session, ui_trade_wire.TRADE_INVITE_VITAL_ID, b""
+                )
+            self.assertEqual(len(out), 1)
+        with contextlib.redirect_stderr(io.StringIO()):
+            spent = ui_dispatch.answer(
+                session, ui_trade_wire.TRADE_INVITE_VITAL_ID, b""
+            )
+            party = ui_dispatch.answer(session, PARTY_INVITE_VITAL_ID, b"")
+        self.assertEqual(spent, [])
+        self.assertEqual(len(party), 1)
+
+    def test_a_batch_spends_one_per_frame_not_one_per_press(self):
+        # pf-adversary round vy1m79, D4.  The charge was one per CALL, so
+        # an answerer returning eight actions per press put 256 frames on
+        # the socket against an allowance of 32.
+        self._register([self.GOOD] * 8)
+        session = _in_game()
+        sent = 0
+        for _ in range(10):
+            out, _ = self._press(session)
+            sent += len(out)
+        self.assertEqual(sent, 32)
+
+    def test_the_answerer_does_not_run_for_a_session_that_cannot_be_keyed(self):
+        # pf-adversary round vy1m79, D5.  The refusal was at the charge
+        # only, so the lane's whole decode/re-encode/compare ran on every
+        # frame forever and only the bytes were stopped.
+        self._register([self.GOOD])
+        session = _UnweakreferenceableSession()
+        for _ in range(20):
+            out, console = self._press(session)
+            self.assertEqual(out, [])
+        self.assertEqual(self.calls, [])
+        self.assertIn("reason=session_budget_unbounded", console)
+
+    def test_the_process_ceiling_still_exists(self):
+        # pf-adversary round vy1m79, D2.  The old per-module counter was
+        # per PROCESS and its comment said what for: "anything past that
+        # on one boot is a loop, not a player".  A per-session allowance
+        # does not bound a client that RECONNECTS.
+        self.assertEqual(ui_dispatch.PROCESS_ANSWER_BUDGET, 4096)
+        self._register([self.GOOD])
+        sent = 0
+        console = ""
+        for _ in range(200):          # 200 fresh sessions x 32 = 6400
+            session = _in_game()
+            for _ in range(32):
+                out, console = self._press(session)
+                sent += len(out)
+            if not out:
+                break
+        self.assertEqual(sent, 4096)
+        self.assertIn("reason=process_budget_spent", console)
+
     def test_the_send_point_check_is_not_dead_code(self):
         """Both reasons the charge can refuse, reached on the charge.
 
@@ -2282,13 +2367,16 @@ class TheAllowanceBelongsToTheSessionTests(_RegistryIsolation):
         """
         session = _in_game()
         for _ in range(32):
-            self.assertEqual(ui_dispatch._charge_session_answer(session), "")
+            self.assertEqual(ui_dispatch._charge_session_answer(
+                session, PARTY_INVITE_VITAL_ID, 1), "")
         self.assertEqual(
-            ui_dispatch._charge_session_answer(session),
+            ui_dispatch._charge_session_answer(
+                session, PARTY_INVITE_VITAL_ID, 1),
             "session_budget_spent",
         )
         self.assertEqual(
-            ui_dispatch._charge_session_answer(_UnweakreferenceableSession()),
+            ui_dispatch._charge_session_answer(
+                _UnweakreferenceableSession(), PARTY_INVITE_VITAL_ID, 1),
             "session_budget_unbounded",
         )
 

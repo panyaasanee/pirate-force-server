@@ -102,8 +102,12 @@ class _AnswererRegistered(unittest.TestCase):
     def setUp(self):
         self._saved = dict(ui_dispatch._ANSWERERS)
         self.addCleanup(self._restore)
-        answerer_module.reset_budget_for_tests()
-        self.addCleanup(answerer_module.reset_budget_for_tests)
+        # Asked of the module that OWNS the allowance (pf-adversary
+        # round vy1m79, D3): the lane's delegating `reset_budget_for_
+        # tests()` was a public switch in a `production_allowed = True`
+        # file that cleared every session's spend process-wide.
+        ui_dispatch.reset_session_budgets_for_tests()
+        self.addCleanup(ui_dispatch.reset_session_budgets_for_tests)
         ui_dispatch.clear_answerers()
         if _REAL_ENTRY is not None:
             ui_dispatch._ANSWERERS[wire.PARTY_INVITE_VITAL_ID] = _REAL_ENTRY

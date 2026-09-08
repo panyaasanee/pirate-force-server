@@ -227,17 +227,6 @@ def answer_party_invite(session=None, vital_id=0, payload=b"", **_ignored):
     ]
 
 
-def reset_budget_for_tests():
-    """Forget every session's spend.  Tests only.
-
-    Kept under its old name, delegating, because the allowance moved to
-    ``ui_dispatch`` (pf-adversary D-B) and the callers of this helper are
-    setUp/cleanup pairs whose job -- start this test from a clean
-    allowance -- did not change.
-    """
-    ui_dispatch.reset_session_budgets_for_tests()
-
-
 # REGISTERED AT IMPORT, WHICH IS WHEN ``lane_hooks._discover()`` RUNS.
 # ``ui_dispatch`` is safe to import at module level here today because it
 # no longer imports ``lane_hooks`` at module level itself (the circular

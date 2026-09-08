@@ -81,9 +81,14 @@ need a reviewed widening of ``_SESSION_VIEW_FIELDS`` because the seam
 hands an answerer no session identity.  Both halves were true; the
 conclusion -- therefore a process-wide counter per module -- was not,
 because it only ever asked what a LANE can see.  ``ui_dispatch`` sees
-the session, so it holds the allowance, per session and (through the
-label registry) still per vital: a storm on trade cannot silence party,
-and a player spending their own allowance cannot silence anybody.
+the session, so it holds the allowance -- per session AND per vital.
+!! THE FIRST DRAFT OF THIS PARAGRAPH SAID "through the label registry"
+AND WAS FALSE.  The registry separates SHAPES, not allowances, and
+pf-adversary (round vy1m79, D1) measured what that cost: 32 trade
+answers on one session, then the party button on that same session
+returned nothing.  The allowance is now keyed by (session, vital id),
+which is the property the two separate module counters used to have and
+this file had claimed to keep without keeping it.
 
 WHY THIS IS A SEPARATE FILE AND NOT A SHARED FACTORY.  A factory that
 built both answerers would put the body that runs in one module and the
@@ -214,17 +219,6 @@ def answer_trade_invite(session=None, vital_id=0, payload=b"", **_ignored):
             delay=0.0,
         )
     ]
-
-
-def reset_budget_for_tests():
-    """Forget every session's spend.  Tests only.
-
-    Kept under its old name, delegating, because the allowance moved to
-    ``ui_dispatch`` (pf-adversary D-B) and the callers of this helper are
-    setUp/cleanup pairs whose job -- start this test from a clean
-    allowance -- did not change.
-    """
-    ui_dispatch.reset_session_budgets_for_tests()
 
 
 # REGISTERED AT IMPORT, WHICH IS WHEN ``lane_hooks._discover()`` RUNS --

@@ -576,10 +576,11 @@ def _session_is_in_game(session):
 # exactly; a cap per process bounds it too, and bounds every other
 # session with it.
 #
-# COUNTED WHERE THE BYTES ARE, NOT WHERE THE FRAME ARRIVES (this also
-# pays D-F).  The charge happens at the send point, once the batch has
-# passed every gate and is about to be returned, and only for a batch
-# that carries actions.  So a refusal -- a wrong id, junk bytes, a
+# COUNTED WHERE THE BATCH IS ACCEPTED, NOT WHERE THE FRAME ARRIVES (this
+# also pays D-F).  The charge happens once the batch has passed every
+# gate and is about to be returned -- one layer short of ``sendall``,
+# named rather than glossed (D7) -- and only for a batch that carries
+# actions.  So a refusal -- a wrong id, junk bytes, a
 # payload over the reviewed budget, a missing envelope, an answerer that
 # raised -- costs the session nothing, which is the property the lanes
 # used to try to buy by ordering their own checks and could not, because
@@ -590,17 +591,41 @@ def _session_is_in_game(session):
 # shape as the login door above.
 SESSION_ANSWER_BUDGET = 32
 
-# ``id(session)`` -> ``[answers_sent, weakref]``.  Keyed by IDENTITY, not
-# by the session as a dict key: a ``WeakKeyDictionary`` would call the
-# session class's own ``__hash__``/``__eq__``, and two sessions that
-# compare equal would then share one allowance -- which is the very bug
-# being fixed, reintroduced through the container.  The weakref's
-# callback drops the row when the session is collected, so a long-lived
-# server does not accumulate one entry per connection ever made.  CPython
-# runs that callback during the object's deallocation, before its memory
-# can be handed to a new object, so the id cannot already belong to
-# somebody else by the time the row goes.
+# ``id(session)`` -> ``[weakref, {vital_id: answers_sent}]``.  Keyed by
+# IDENTITY, not by the session as a dict key: a ``WeakKeyDictionary``
+# would call the session class's own ``__hash__``/``__eq__``, and two
+# sessions that compare equal would then share one allowance -- which is
+# the very bug being fixed, reintroduced through the container.  The
+# weakref's callback drops the row when the session is collected, so a
+# long-lived server does not accumulate one entry per connection ever
+# made.  CPython runs that callback during the object's deallocation,
+# before its memory can be handed to a new object, so the id cannot
+# already belong to somebody else by the time the row goes.
+#
+# PER VITAL INSIDE THE SESSION, AND THAT IS NOT DECORATION (pf-adversary
+# round vy1m79, D1).  The first draft of this fix keyed on the session
+# alone, and the file that removed the old per-module counters asserted
+# in the same breath that "a storm on trade cannot silence party".
+# Measured through the real ``state.dispatch()``: it did.  32 trade
+# answers on one session, then the party button on that same session
+# returned nothing.  The property the two separate module counters used
+# to have is a property, not an accident, so it is kept explicitly here.
 _SESSION_ANSWERS_SENT = {}
+
+# THE CEILING THE OLD PER-MODULE COUNTERS ALSO BOUGHT (pf-adversary round
+# vy1m79, D2).  ``ANSWER_BUDGET = 32`` was per PROCESS, and its comment
+# said what it was for: "anything past that on one boot is a loop, not a
+# player".  A per-session allowance does not bound a loop that
+# RECONNECTS -- measured, four reconnects on one account produced 128
+# answer frames from one process where the old design allowed 32.  So the
+# process ceiling stays, at a number chosen to bound a runaway client
+# without letting one player reach it: 32 answers x 128 sessions.
+# [LANE-UI assumption - awaiting COO confirmation] the NUMBER is this
+# lane's judgement (letter filed this round); that there must BE one is
+# pf-adversary's measurement, not a judgement.
+PROCESS_ANSWER_BUDGET = 4096
+
+_process_answers_sent = 0
 
 
 def _drop_session_budget(key):
@@ -609,42 +634,93 @@ def _drop_session_budget(key):
     return _drop
 
 
-def _session_answers_spent(session):
-    """How many answers this session has already been sent."""
-    entry = _SESSION_ANSWERS_SENT.get(id(session))
-    if entry is None:
-        return 0
-    return entry[0]
+def _session_row(session):
+    """This session's allowance row, created if new.  ``None`` = unbounded.
 
-
-def _charge_session_answer(session):
-    """Spend one answer for ``session``.  Returns "" when it was spent.
-
-    A non-empty return is the reason nothing may be sent, so the caller
-    prints what actually happened instead of one word covering two very
-    different states.  Fail-closed on a session this seam cannot bound: a
-    session object that cannot be weak-referenced would either leave its
-    row here forever (a leak) or need the row dropped (an unbounded
-    allowance), and neither is a guard.
+    ``None`` means the seam cannot key this session at all, and every
+    caller treats that as a refusal.  The row is created HERE, at the
+    read, and not at the charge (pf-adversary round vy1m79, D5): the
+    first draft read a spend of 0 for a session it could not key, ran the
+    answerer in full on every frame, and threw the batch away on the last
+    line -- fail-closed on bytes and wide open on work.
     """
     key = id(session)
-    entry = _SESSION_ANSWERS_SENT.get(key)
-    if entry is None:
-        try:
-            ref = weakref.ref(session, _drop_session_budget(key))
-        except TypeError:
-            return "session_budget_unbounded"
-        entry = [0, ref]
-        _SESSION_ANSWERS_SENT[key] = entry
-    if entry[0] >= SESSION_ANSWER_BUDGET:
+    row = _SESSION_ANSWERS_SENT.get(key)
+    if row is not None:
+        return row
+    try:
+        ref = weakref.ref(session, _drop_session_budget(key))
+    except TypeError:
+        return None
+    row = [ref, {}]
+    _SESSION_ANSWERS_SENT[key] = row
+    return row
+
+
+def _session_answers_spent(session, vital_id):
+    """How many answers this session has been sent for ``vital_id``."""
+    row = _SESSION_ANSWERS_SENT.get(id(session))
+    if row is None:
+        return 0
+    return row[1].get(vital_id, 0)
+
+
+def _allowance_refusal(session, vital_id, count):
+    """Why ``count`` more answers may not be sent, or ``""``.
+
+    Read before the answerer runs with ``count`` of 1 -- an allowance
+    already spent must not run the lane's code at all -- and again at the
+    charge with the real batch size.
+    """
+    row = _session_row(session)
+    if row is None:
+        return "session_budget_unbounded"
+    if row[1].get(vital_id, 0) + count > SESSION_ANSWER_BUDGET:
         return "session_budget_spent"
-    entry[0] += 1
+    if _process_answers_sent + count > PROCESS_ANSWER_BUDGET:
+        return "process_budget_spent"
+    return ""
+
+
+def _charge_session_answer(session, vital_id, count):
+    """Spend ``count`` answers.  Returns "" when they were spent.
+
+    ``count`` is the SIZE OF THE BATCH, not one per call (pf-adversary
+    round vy1m79, D4): the first draft charged one whatever the answerer
+    returned, so an answerer returning eight actions per press put 256
+    frames on the socket against an allowance of 32.  The allowance is
+    about frames, so it counts frames.
+
+    The re-check here is not a duplicate of the pre-gate above: it is the
+    concurrency backstop.  Two threads dispatching for one session both
+    pass the read at ``answer()``'s gate and are serialised here, which is
+    what holds the cap at exactly ``SESSION_ANSWER_BUDGET`` under eight
+    threads (measured by pf-adversary, round vy1m79).
+    """
+    global _process_answers_sent
+    refusal = _allowance_refusal(session, vital_id, count)
+    if refusal:
+        return refusal
+    row = _SESSION_ANSWERS_SENT[id(session)]
+    row[1][vital_id] = row[1].get(vital_id, 0) + count
+    _process_answers_sent += count
     return ""
 
 
 def reset_session_budgets_for_tests():
-    """Forget every session's spend.  Tests and arming proofs only."""
+    """Forget every session's spend.  Tests and arming proofs only.
+
+    NOT RE-EXPORTED BY ANY LANE MODULE (pf-adversary round vy1m79, D3).
+    Both answerers used to carry a ``reset_budget_for_tests()`` that
+    reset their own counter; delegating it here turned a helper in a
+    ``production_allowed = True`` module into a public switch that
+    clears the server's only storm guard for every session at once.  A
+    test that wants a clean allowance asks this module for it.
+    """
+    global _process_answers_sent
     _SESSION_ANSWERS_SENT.clear()
+    _process_answers_sent = 0
+
 
 
 class _SessionSnapshot(tuple):
@@ -1261,15 +1337,19 @@ def answer(session, vital_id, payload, envelope=None):
             % (_hex(vital_id), module_name)
         )
         return []
-    # THIS SESSION'S OWN ALLOWANCE, READ BEFORE THE LANE'S CODE RUNS
-    # (pf-adversary round 1gc6hl, D-B -- see ``SESSION_ANSWER_BUDGET``).
-    # A spent session does not reach the answerer at all; a session that
-    # has spent nothing is not charged here, because a refusal must be
-    # free (D-F).  The charge is at the send point below.
-    if _session_answers_spent(session) >= SESSION_ANSWER_BUDGET:
+    # THIS SESSION'S OWN ALLOWANCE FOR THIS VITAL, READ BEFORE THE LANE'S
+    # CODE RUNS (pf-adversary round 1gc6hl D-B, round vy1m79 D1/D5 --
+    # see ``SESSION_ANSWER_BUDGET``).  Nothing is charged here, because a
+    # refusal must be free (D-F); what this decides is whether the lane
+    # runs at all.  A session the seam cannot key is refused HERE and not
+    # at the charge, or the answerer would do its whole decode /
+    # re-encode / compare on every frame forever and only the bytes would
+    # be stopped.
+    refusal = _allowance_refusal(session, vital_id, 1)
+    if refusal:
         _say(
-            "UI_DISPATCH_GATED id=%s module=%s reason=session_budget_spent"
-            " budget=%d" % (_hex(vital_id), module_name,
+            "UI_DISPATCH_GATED id=%s module=%s reason=%s"
+            " budget=%d" % (_hex(vital_id), module_name, refusal,
                             SESSION_ANSWER_BUDGET)
         )
         return []
@@ -1351,13 +1431,19 @@ def answer(session, vital_id, payload, envelope=None):
             % (_hex(vital_id), module_name)
         )
         return []
-    # THE CHARGE, AND IT IS THE LAST THING BEFORE THE RETURN.  Only a
-    # batch that carries actions costs the session anything: an answerer
-    # returning ``[]`` is the ordinary "nothing for this payload" and
-    # must not be a way to spend a player's allowance.  A session this
-    # seam cannot bound is refused rather than answered unbounded.
+    # THE CHARGE, AND IT IS AT THE ACCEPT POINT -- NOT THE SEND POINT
+    # (pf-adversary round vy1m79, D7).  This comment said "send point",
+    # in the words the token six lines down abandoned for being one layer
+    # short of the wire: ``answer()`` returns to ``dispatch()``, which
+    # returns to the connection loop, which calls ``sendall``.  A batch
+    # that dies on ``SEND_FAILED`` therefore still spends, which is the
+    # behaviour we want for a storm guard -- the frames were built and
+    # handed over -- but it is not what "send point" means, so it no
+    # longer says it.  Only a batch that carries actions costs anything:
+    # an answerer returning ``[]`` is the ordinary "nothing for this
+    # payload" and must not spend a player's allowance.
     if actions:
-        refusal = _charge_session_answer(session)
+        refusal = _charge_session_answer(session, vital_id, len(actions))
         if refusal:
             _say(
                 "UI_DISPATCH_ANSWER_REFUSED id=%s module=%s reason=%s"
@@ -1377,6 +1463,6 @@ def answer(session, vital_id, payload, envelope=None):
     _say(
         "UI_DISPATCH_ACCEPTED id=%s module=%s actions=%d spent=%d/%d"
         % (_hex(vital_id), module_name, len(actions),
-           _session_answers_spent(session), SESSION_ANSWER_BUDGET)
+           _session_answers_spent(session, vital_id), SESSION_ANSWER_BUDGET)
     )
     return actions
