@@ -22,6 +22,12 @@
     "aggro_radius",
     "offensive"
   ],
+  "self_aggro_wander_ids": [
+    10,
+    11,
+    21,
+    22
+  ],
   "lane_b_assumptions": [
     "leash_radius max(3000.0, 2.5 * the monster's own mined n_AGGRO)",
     "home_radius=speed_walk field_mob_tables.speed_walk of the monster's own row",

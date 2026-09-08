@@ -514,6 +514,38 @@ def offensive_identities(mobs: tuple[FieldMob, ...]) -> tuple[int, ...]:
     )
 
 
+def self_aggro_wander_ids() -> tuple[int, ...]:
+    """Every AI_WANDER row that makes a monster start a fight on its own.
+
+    ROUND pksqwj, paying pf-adversary D7 of round ``najn72``.  Derived from
+    the mined table, because the number that was TYPED was wrong and stayed
+    wrong for several rounds: this lane's own survey said ``n_ID`` 11 was
+    "the one row in that table with BOTH ``n_OFFESIVE`` and a nonzero
+    ``n_AGGRO``".  Run against the shipped table it is FOUR -- 10 (radius
+    600), 11 (1200), 21 (3000) and 22 (5000) -- and a scan keyed on 11 alone
+    walks straight past the four wander-10 placements ``bg0007`` ships and
+    the wander-22 one in ``Bg0015``.
+
+    Nothing about the SERVER's behaviour changes with this function:
+    :func:`profile_of` has always read the ``n_OFFESIVE`` column of the
+    monster's own row rather than comparing its wander id to a literal, and
+    that was measured before this was written (mutating the column, not the
+    id, is what moves ``offensive_identities``).  What changes is that the
+    pin a person reads now carries the derived set, so the next round that
+    wants to know which monsters attack an unprovoked player reads it off a
+    generated file instead of retyping a literal that was never true.
+    """
+    return tuple(sorted(
+        wander_id
+        for wander_id, row in field_mob_ai_tables.AI_WANDER_ROWS.items()
+        # row = (s_WANDER, n_FACTION, n_OFFESIVE, n_AGGRO).  BOTH columns,
+        # because either alone is a different question: n_OFFESIVE with a
+        # zero radius acquires nothing, and a radius without the flag is the
+        # everyday "answers damage only" row every scene is mostly made of.
+        if row[2] and row[3]
+    ))
+
+
 # ---------------------------------------------------------------------------
 # The register: one row per monster, a generation, and a compare-and-swap.
 
@@ -1074,6 +1106,13 @@ def pin_document(mobs: tuple[FieldMob, ...]) -> dict:
         "attack_intent_deliverable": mob_aggro.ATTACK_INTENT_DELIVERABLE,
         "source_digests": dict(field_mob_ai_tables.SOURCE_DIGESTS),
         "mined_values": ["aggro_radius", "offensive"],
+        # ROUND pksqwj (pf-adversary D7 of `najn72`).  The rows that acquire
+        # an unprovoked player, derived from the mined table rather than
+        # typed -- see `self_aggro_wander_ids`.  It is in the pin because
+        # the pin is what a person reads when asking "which monsters here
+        # fight back before I hit them", and the answer used to be a literal
+        # that named one row out of four.
+        "self_aggro_wander_ids": list(self_aggro_wander_ids()),
         "lane_b_assumptions": list(LANE_B_ASSUMPTIONS),
         "offensive_identities": [
             "0x%X" % identity for identity in offensive_identities(roster)

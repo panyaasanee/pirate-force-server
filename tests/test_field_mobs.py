@@ -39,6 +39,7 @@ from pirateforce_foundation import (
     field_mob_tables_bg0002,
     field_mob_tables_bg0015,
     field_mobs,
+    mob_ai_control,
 )
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import (
@@ -1786,19 +1787,112 @@ class SelfAggroPlacementSurveyTests(unittest.TestCase):
     today.
     """
 
+    #: ROUND pksqwj, paying pf-adversary D7 of round `najn72`: "the survey
+    #: covers 1 of 12 scenes and its premise is wrong -- wander 10/21/22 are
+    #: `n_OFFESIVE=1` too".  Both halves are paid here.  MEASURED on this
+    #: tree through the production interface (`field_mobs.load_roster`,
+    #: which is what a session actually gets, not the raw table), scene ->
+    #: (rows whose WANDER ROW self-aggros, rows whose PROFILE does).
+    #:
+    #: The two numbers are kept apart because they disagree in exactly one
+    #: place and that disagreement is a ruling, not a bug: bg0001's four
+    #: practice dummies point at AI_WANDER 21 (`n_OFFESIVE=1`, radius 3000)
+    #: while their MOBS row has no combat script at all, and
+    #: `mob_ai_control.profile_of` forces `offensive` False for them
+    #: (COO-DECISION 2026-08-29T00:41+07:00 item 3).  A census that printed
+    #: one number would have to choose which of the two truths to hide.
+    SELF_AGGRO_CENSUS = {
+        "bg0001": (4, 0),
+        "Bg0002": (0, 0),
+        "Bg0003": (2, 2),
+        "bg0004": (1, 1),
+        "bg0005": (4, 4),
+        "bg0006": (2, 2),
+        "Bg0007": (4, 4),
+        "Bg0008": (2, 2),
+        "Bg0009": (3, 3),
+        "Bg0010": (7, 7),
+        "Bg0011": (2, 2),
+        "Bg0015": (5, 5),
+    }
+
+    def _self_aggro_wander_ids(self) -> tuple[int, ...]:
+        return mob_ai_control.self_aggro_wander_ids()
+
+    def _census_of(self, scene: str) -> tuple[int, int]:
+        wander_ids = set(self._self_aggro_wander_ids())
+        roster = field_mobs.load_roster(scene=scene)
+        return (
+            sum(1 for mob in roster if mob.ai_wander in wander_ids),
+            sum(1 for mob in roster
+                if mob_ai_control.profile_of(mob).offensive),
+        )
+
     def _wander_ids_are_self_aggro_and_not(self) -> None:
-        offensive, aggro = field_mob_ai_tables.AI_WANDER_ROWS[11][2:4]
-        self.assertEqual((offensive, aggro), (1, 1200))
+        # ~~`11` is the one row with BOTH `n_OFFESIVE` and a nonzero
+        # `n_AGGRO`~~ IS STRUCK AS FALSE, measured on the shipped table:
+        # there are FOUR (10, 11, 21, 22), and a survey keyed on 11 alone is
+        # blind to the four wander-10 placements Bg0007 ships and the
+        # wander-22 one in Bg0015.  Derived now, from the module that
+        # derives it, so the literal cannot come back.
+        self.assertEqual(self._self_aggro_wander_ids(), (10, 11, 21, 22))
+        for wander_id in self._self_aggro_wander_ids():
+            _script, _faction, offensive, aggro = (
+                field_mob_ai_tables.AI_WANDER_ROWS[wander_id])
+            self.assertEqual(offensive, 1, wander_id)
+            self.assertGreater(aggro, 0, wander_id)
+        # The everyday "does not attack first" row most placements use, kept
+        # as the negative control it always was.
         everyday_offensive = field_mob_ai_tables.AI_WANDER_ROWS[16][2]
         self.assertEqual(everyday_offensive, 0)
+        self.assertNotIn(16, self._self_aggro_wander_ids())
 
     def _wander_11_placements(self, module) -> tuple[int, ...]:
+        # KEPT, AND ONLY FOR THE ONE THING IT IS STILL HONEST ABOUT: the raw
+        # shipped table of ONE module, keyed on ONE id.  Every survey below
+        # goes through the roster interface instead; this remains so the
+        # bg0001 test can still say something about the raw table being
+        # empty.
         return tuple(
             row[0] for row in module.HOSTILE_PLACEMENTS if row[9] == 11
         )
 
-    def test_ai_wander_11_is_the_self_aggro_row_16_is_not(self) -> None:
+    def test_the_self_aggro_rows_are_derived_and_there_are_four_of_them(
+            self) -> None:
         self._wander_ids_are_self_aggro_and_not()
+
+    def test_a_wander_11_only_scan_would_miss_six_of_the_shipped_rows(
+            self) -> None:
+        """The D7 correction, pinned so reverting it is red, not silent.
+
+        The defect was not "a number was low", it was that the OLD scan
+        could not see a whole family of monster.  This measures the gap the
+        correction closed: rows whose wander id self-aggros but is not 11.
+        If a later round narrows the derivation back to a literal, this goes
+        red with the count in the message rather than quietly agreeing.
+        """
+        wander_ids = set(self._self_aggro_wander_ids())
+        missed = {}
+        for scene in sorted(field_mobs.live_scenes()):
+            blind = tuple(
+                mob.placement_index
+                for mob in field_mobs.load_roster(scene=scene)
+                if mob.ai_wander in wander_ids and mob.ai_wander != 11
+            )
+            if blind:
+                missed[scene] = blind
+        self.assertEqual(
+            missed,
+            # Bg0015's wander-22 row (placement 87) is NOT here on purpose:
+            # it is in the raw table and the roster interface withholds it,
+            # so a survey run through `load_roster` -- what a session gets --
+            # cannot see it.  Measured, not assumed; the raw-table count for
+            # that scene is 6 and the roster count is 5.
+            {"Bg0007": (28, 29), "bg0001": (103, 105, 107, 109)},
+            "the set of self-aggro rows a wander-11-only scan cannot see "
+            "changed: %r.  That is NEW INFORMATION about the shipped "
+            "tables, not a test to relax" % (missed,),
+        )
 
     def test_bg0001_ships_no_hostile_placement_at_all_so_none_can_self_aggro(
             self) -> None:
@@ -1832,16 +1926,53 @@ class SelfAggroPlacementSurveyTests(unittest.TestCase):
             "Bg0002 ships a self-aggro (wander-11) row again -- NEW "
             "information: nothing in the town scene initiated after the "
             "najn72 re-mining, and mob_aggro.py's own paragraph says so")
-        for module in (field_mob_tables_bg0002,):
-            wander_11 = set(self._wander_11_placements(module))
-            refused = set(field_mobs.owner_refused_placements(module.SCENE))
-            leftover = wander_11 - refused
+        # ROUND pksqwj (pf-adversary D7 of najn72): ~~one scene~~ ALL TWELVE.
+        # The loop below used to be `for module in (field_mob_tables_bg0002,)`
+        # -- a survey of the single scene that happened to have an owner
+        # refusal entry, reported as if it were a survey of the game.  Every
+        # live scene is walked now, through the roster interface a session
+        # uses, and the census is pinned per scene so a re-mining that adds
+        # or removes a monster that charges an unprovoked player is a red
+        # test with the scene named in it.
+        self.assertEqual(
+            sorted(self.SELF_AGGRO_CENSUS), sorted(field_mobs.live_scenes()),
+            "a live scene is not in the self-aggro census (or the census "
+            "names a scene that is no longer live) -- the survey has to "
+            "cover what ships, and this is the assertion that made it stop "
+            "covering one scene out of twelve",
+        )
+        measured = {scene: self._census_of(scene)
+                    for scene in sorted(field_mobs.live_scenes())}
+        self.assertEqual(
+            measured, self.SELF_AGGRO_CENSUS,
+            "the per-scene self-aggro census moved: %r.  NEW INFORMATION "
+            "about which monsters start a fight with a player who never "
+            "swung -- record it here, do not relax it" % (measured,),
+        )
+        # 32 monsters, across eleven of the twelve scenes, will acquire an
+        # unprovoked player.  Stated as one number because the sentence this
+        # survey used to support -- "no self-initiating monster exists
+        # outside the owner-refused block" -- was drawn from ONE scene and
+        # is false of the game.
+        self.assertEqual(
+            sum(profile for _table, profile in measured.values()), 32)
+        # The half that IS still a wall: a scene the owner has ruled on must
+        # keep its self-aggro rows inside that ruling.  Only Bg0002 carries
+        # such an entry today; scenes with no entry are unruled, not
+        # cleared, and the census above is what tracks them.
+        for scene in sorted(field_mobs.OWNER_REFUSED_PLACEMENTS):
+            wander_ids = set(self._self_aggro_wander_ids())
+            leftover = {
+                mob.placement_index
+                for mob in field_mobs.load_roster(scene=scene)
+                if mob.ai_wander in wander_ids
+            } - set(field_mobs.owner_refused_placements(scene))
             self.assertFalse(
                 leftover,
-                "scene %r ships a self-aggro (wander-11) placement outside "
-                "the owner-refused block: %r -- this is NEW information "
+                "scene %r ships a self-aggro placement outside the "
+                "owner-refused block: %r -- this is NEW information "
                 "(a shippable self-aggro monster may exist now), not a "
-                "test failure to silence" % (module.SCENE, leftover),
+                "test failure to silence" % (scene, leftover),
             )
 
     def test_bg0015_carries_a_self_aggro_row_not_covered_by_any_refusal(
