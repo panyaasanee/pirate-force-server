@@ -657,6 +657,332 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         self.assertEqual(seen, [(PARTY_INVITE_VITAL_ID, b"\x09")])
 
 
+class DeferredRegistrationTests(RoundThreeFindingsTests):
+    """pf-adversary round 4, D-A: the registrar is not always the author.
+
+    Every test here builds REAL modules under
+    ``pirateforce_foundation.lane_hooks.`` (inherited ``_lane_module``)
+    for the same reason the round-3 class does: the finding is about
+    which module the gate believes wrote the answerer, and a faked name
+    would prove nothing about what the gate reads.
+    """
+
+    # A table plus a flush loop.  No forgery, no metaprogramming: this
+    # is how two files share one registration point.
+    FLUSHER_SOURCE = (
+        "from pirateforce_foundation import ui_dispatch\n"
+        "PENDING = []\n"
+        "def flush():\n"
+        "    out = []\n"
+        "    for vital_id, fn in PENDING:\n"
+        "        out.append(ui_dispatch.register_answerer(vital_id, fn))\n"
+        "    return out\n"
+    )
+    CLOSED_SOURCE = (
+        "def answerer(session=None, vital_id=None, payload=None):\n"
+        "    return [('UI_DEFERRED_UNREVIEWED_REPLY',"
+        " b'\\x01', b'\\xde\\xad', 0.0)]\n"
+    )
+
+    def _deferred(self, stem_suffix, forge_dunder_module):
+        flusher = self._lane_module(
+            "lane_ui_zz_test_flusher_%s" % stem_suffix,
+            self.FLUSHER_SOURCE,
+            allowed=True,
+        )
+        closed = self._lane_module(
+            "lane_ui_zz_test_deferred_%s" % stem_suffix,
+            self.CLOSED_SOURCE,
+            allowed=False,
+        )
+        if forge_dunder_module:
+            # One assignment -- round 2's D5, in the one place where it
+            # was the last witness standing.
+            closed.answerer.__module__ = flusher.__name__
+        flusher.PENDING.append((PARTY_INVITE_VITAL_ID, closed.answerer))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(flusher.flush(), [True])
+        return flusher, closed
+
+    def test_a_deferred_flush_does_not_launder_a_closed_lane(self):
+        """The D-A SHAPE.  This test does NOT prove the D-A fix.
+
+        The closed lane appended and RETURNED; the allowed flusher makes
+        the call, so the stack walk sees only the flusher.  An earlier
+        version of this docstring added "and before this fix the gate
+        held only allowed names", which pf-adversary round 5 (D-delta)
+        measured false: this test PASSES against the pre-fix file,
+        because nothing here forges ``__module__`` and the plain
+        attribute already named the closed lane.  What proves the fix is
+        ``test_a_forged_dunder_module_does_not_survive_a_deferred_flush``
+        and the wrapper subtests; this one records the shape.
+        """
+        flusher, closed = self._deferred("plain", forge_dunder_module=False)
+        module_name, _fn = ui_dispatch.registered_answerer(
+            PARTY_INVITE_VITAL_ID
+        )
+        self.assertEqual(module_name, flusher.__name__)
+        self.assertTrue(lane_hooks.module_production_allowed(module_name))
+        self.assertIn(
+            closed.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        console = stderr.getvalue()
+        self.assertIn("UI_DISPATCH_GATED", console)
+        self.assertIn(closed.__name__, console)
+
+    def test_a_forged_dunder_module_does_not_survive_a_deferred_flush(self):
+        """D-A + D5 together -- the shape that actually shipped bytes.
+
+        With the stack carrying no closed frame, ``fn.__module__`` was
+        the only name left, and it is one assignment deep.  Identity is
+        not, so the gate still closes and still NAMES the real author.
+        """
+        _flusher, closed = self._deferred("forged", forge_dunder_module=True)
+        self.assertIn(
+            closed.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn(closed.__name__, stderr.getvalue())
+
+    def test_a_deferred_flush_from_an_allowed_lane_still_answers(self):
+        """The fix must not close the gate on the legitimate table.
+
+        Same two files, both production-allowed: the actions come back.
+        """
+        flusher = self._lane_module(
+            "lane_ui_zz_test_flusher_ok", self.FLUSHER_SOURCE, allowed=True
+        )
+        author = self._lane_module(
+            "lane_ui_zz_test_deferred_ok",
+            "def answerer(session=None, vital_id=None, payload=None):\n"
+            "    return [('UI_DEFERRED_REVIEWED_REPLY',"
+            " b'\\x01', b'\\xde\\xad', 0.0)]\n",
+            allowed=True,
+        )
+        flusher.PENDING.append((PARTY_INVITE_VITAL_ID, author.answerer))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(flusher.flush(), [True])
+            actions = ui_dispatch.answer(
+                object(), PARTY_INVITE_VITAL_ID, b""
+            )
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0][0], "UI_DEFERRED_REVIEWED_REPLY")
+
+    @staticmethod
+    def _forge_dunder_module(made, name):
+        """Point every writable ``__module__`` on ``made`` at ``name``.
+
+        Without this the subtests below prove nothing they claim: a
+        callable INSTANCE inherits ``__module__`` from its class and a
+        bound method reads it off its function, so the attribute route
+        found the closed lane on its own and the identity route was
+        never exercised.  Measured: with this helper absent, deleting
+        ``_defining_module_names``' callable-instance branch left the
+        whole file green.  Returns whether anything was forged, so a
+        shape that silently stopped being forgeable cannot pass quietly.
+        """
+        forged = False
+        for target in (made, getattr(made, "__func__", None), type(made)):
+            if target is None:
+                continue
+            try:
+                target.__module__ = name
+            except Exception:
+                continue
+            forged = getattr(made, "__module__", None) == name
+            if forged:
+                break
+        return forged
+
+    def test_the_ordinary_wrappers_do_not_hide_the_author(self):
+        """partial, bound method and callable instance all resolve.
+
+        Each is registered by the ALLOWED flusher, so no closed frame is
+        on the stack, and each has its ``__module__`` forged to name the
+        flusher -- so the ONLY witness left is identity.  ``partial``
+        carries ``functools`` there; not because a partial's
+        ``__module__`` is unforgeable (pf-adversary round 5: it has a
+        ``__dict__``, and the assignment succeeds) but because the gate
+        ignores a name that is not a lane module -- which leaves identity
+        as its only witness too.
+        """
+        import functools
+
+        shapes = {
+            "partial": (
+                "def _answer(session=None, vital_id=None, payload=None):\n"
+                "    return []\n"
+                "import functools\n"
+                "made = functools.partial(_answer)\n"
+            ),
+            "method": (
+                "class Answerer:\n"
+                "    def run(self, session=None, vital_id=None,"
+                " payload=None):\n"
+                "        return []\n"
+                "made = Answerer().run\n"
+            ),
+            "instance": (
+                "class Answerer:\n"
+                "    def __call__(self, session=None, vital_id=None,"
+                " payload=None):\n"
+                "        return []\n"
+                "made = Answerer()\n"
+            ),
+        }
+        for label, source in sorted(shapes.items()):
+            with self.subTest(shape=label):
+                ui_dispatch._ANSWERERS.clear()
+                flusher = self._lane_module(
+                    "lane_ui_zz_test_flusher_w_%s" % label,
+                    self.FLUSHER_SOURCE,
+                    allowed=True,
+                )
+                closed = self._lane_module(
+                    "lane_ui_zz_test_wrapped_%s" % label,
+                    source,
+                    allowed=False,
+                )
+                forged = self._forge_dunder_module(
+                    closed.made, flusher.__name__
+                )
+                if label != "partial":
+                    self.assertTrue(
+                        forged, "%s is no longer forgeable" % label
+                    )
+                self.assertNotEqual(
+                    getattr(closed.made, "__module__", None),
+                    closed.__name__,
+                    "%s still names its author by attribute" % label,
+                )
+                flusher.PENDING.append((PARTY_INVITE_VITAL_ID, closed.made))
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(flusher.flush(), [True])
+                self.assertIn(
+                    closed.__name__,
+                    ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+                    "%s hid its author from the gate" % label,
+                )
+        del functools
+
+    def test_a_class_registered_as_the_answerer_names_its_own_module(self):
+        """Self-review of round `lkswyp`, found after the first push.
+
+        A CLASS is callable: registering one and letting ``answer()``
+        call it builds an instance, so its code lives on ``__init__`` /
+        ``__call__`` ON the class.  ``type(a_class)`` is the METACLASS,
+        which names nobody, so before this the only witness for a class
+        was ``SomeClass.__module__`` -- the writable attribute the whole
+        fix exists to stop relying on.  Forged here, exactly as the
+        wrapper subtests forge theirs.
+        """
+        flusher = self._lane_module(
+            "lane_ui_zz_test_flusher_cls", self.FLUSHER_SOURCE, allowed=True
+        )
+        closed = self._lane_module(
+            "lane_ui_zz_test_class_answerer",
+            "class Answerer:\n"
+            "    def __init__(self, session=None, vital_id=None,"
+            " payload=None):\n"
+            "        self.actions = []\n"
+            "    def __iter__(self):\n"
+            "        return iter(self.actions)\n"
+            "made = Answerer\n",
+            allowed=False,
+        )
+        closed.made.__module__ = flusher.__name__
+        self.assertNotEqual(closed.made.__module__, closed.__name__)
+        flusher.PENDING.append((PARTY_INVITE_VITAL_ID, closed.made))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(flusher.flush(), [True])
+        self.assertIn(
+            closed.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+            "a class hid its author from the gate",
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+            )
+        self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
+
+    def test_the_identity_walk_names_a_fresh_callable_every_time(self):
+        """Two hundred fresh instances, collections forced between them.
+
+        WHAT THIS DOES NOT PROVE, SAID FIRST.  ``seen`` is an identity
+        set and ``getattr(type(x), "__call__")`` builds a NEW object per
+        access, so dropping the last reference to one lets CPython hand
+        its address to the next object built in the same walk, which
+        would then be skipped as "already seen".  ``_defining_module_
+        names`` keeps an ``alive`` list for that reason -- and a mutant
+        deleting that list SURVIVES this test.  So this is a smoke test
+        of the walk, not a proof of the keep-alive: the failure it
+        guards against is rare and load-dependent, and no test in this
+        file has reproduced it.  The fix is kept as cheap insurance and
+        is reported as an unkilled mutant, not as a paid finding.
+        """
+        import gc
+
+        class Answerer:
+            def __call__(self, session=None, vital_id=None, payload=None):
+                return []
+
+        missed = []
+        for i in range(200):
+            gc.collect() if i % 25 == 0 else None
+            names = ui_dispatch._defining_module_names(Answerer())
+            if names != (__name__,):
+                missed.append((i, names))
+        self.assertEqual(missed, [], "the identity walk lost a name")
+
+    def test_an_attribute_that_raises_cannot_break_registration(self):
+        """Registration survives a raising descriptor -- AND NOTHING MORE.
+
+        WHAT THIS DOES NOT ASSERT, named because pf-adversary round 5
+        (D-beta) caught it asserting less than its old docstring implied:
+        it does NOT check that the author was still found.  It cannot,
+        because TODAY THE AUTHOR IS LOST.  ``_defining_module_names``
+        wraps the whole loop body in one ``try`` and probes ``__func__``
+        FIRST, so an ordinary dict-backed ``__getattr__`` raising
+        ``KeyError`` abandons the object before ``func``, ``__wrapped__``
+        or ``type(fn).__call__`` are reached, and the gate falls back to
+        the forgeable ``__module__``.  Measured:
+        ``_defining_module_names(Hostile())`` returns ``()`` while the
+        same class without ``__getattr__`` returns this module's name.
+        This test passes with ``_defining_module_names`` stubbed to
+        ``return ()``, and that is the honest description of what it
+        covers.  The fix (a ``try`` per ``getattr``) and the test that
+        pins the author are this lane's next round.
+        """
+        class Hostile:
+            @property
+            def func(self):
+                raise RuntimeError("no")
+
+            def __call__(self, session=None, vital_id=None, payload=None):
+                return []
+
+        self.allow()
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(
+                ui_dispatch.register_answerer(
+                    PARTY_INVITE_VITAL_ID, Hostile()
+                )
+            )
+
+
 class GateAndFailClosedTests(_RegistryIsolation):
     ACTION = ("UI_TEST_ACTION", b"\x07\x07", b"\x01\x02", 0.0)
 
