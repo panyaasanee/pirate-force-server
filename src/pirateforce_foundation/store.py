@@ -3252,7 +3252,7 @@ class SQLiteStore:
         called with this transaction's own handle -- so a caller that keeps
         using them one at a time gets exactly what it got before.
 
-        🔴 "still standing" is a DATABASE-layer fact and only that
+        NOTE: "still standing" is a DATABASE-layer fact and only that
         (pf-adversary D5).  What a player can click is the in-memory
         `WorldGround` claim, which this door neither takes nor returns; the
         wired order in `mob_pickup_request` today is claim -> bag write ->
@@ -3296,7 +3296,7 @@ class SQLiteStore:
         transaction can get there.  That column is the next round's work and
         it is NOT claimed here.
 
-        🔴 NOT WIRED, AND DO NOT WIRE IT BLIND (pf-adversary D3).
+        NOT WIRED, AND DO NOT WIRE IT BLIND (pf-adversary D3).
         `mob_ground_persistence.restore_scene_ground` records that
         `persist_generation` has no production caller, so `ground_drops` is
         EMPTY on a running server: the `False` refusal above would then
