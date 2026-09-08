@@ -189,6 +189,14 @@ LANE_B_MODULES = (
     # number of its own.  Listed in the same commit as the module, the same
     # reason every other entry on this tuple gives.
     "mob_ground_persistence.py",
+    # ROUND db4o73: the one wire rule for a monster's avatar cell
+    # (COO-DECISION 2026-09-08T17:42).  It turns an s_OUTFIT CELL into the
+    # single basename the client can actually load and refuses a cell at the
+    # two paths that reach the client.  No player stat of any kind: it reads
+    # and returns text, and computes no level, HP or damage number.  Listed
+    # in the same commit as the module, the same reason every other entry on
+    # this tuple gives.
+    "mob_avatar_basename.py",
     # ROUND gadxq5: the identity-sign law GT-288 set 3 (R324A) measured on
     # the owner's screen -- which side of zero an actor identity has to be
     # on for the client to draw its name in the colour that says "this can
