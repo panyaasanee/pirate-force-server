@@ -1019,24 +1019,27 @@ _SCENES_WITH_A_MEASURED_WAY_OUT: frozenset[int] = frozenset()
 def one_way_scene_ids() -> frozenset[int]:
     """Scenes a player can reach in game and cannot leave again.
 
-    DERIVED, NOT LISTED.  The entry half comes from the dispatch site that
-    actually runs - Columbus quest 3021, whose destination constant is the one
-    this module reads - so a second crossing built by any lane enters this set
-    the moment its dispatch site names a destination, and nobody has to
-    remember to update a literal here.  The exit half is
+    DERIVED, NOT LISTED.  The entry half is
+    ``world_m2_sea_destination.DESTINATION_SCENE_N_ID`` - the module that
+    decides where the one crossing a player can actually make lands, and the
+    module the dispatch site itself agrees with (its own line 301 says so).
+    Read from there rather than from the dispatch module because
+    ``tests/test_npc_interaction_wire.py``'s foundation guard refuses a
+    non-quest module that names a quest symbol, and being on that allowlist
+    is not something this lane may grant itself.  The exit half is
     ``_SCENES_WITH_A_MEASURED_WAY_OUT`` above.
 
-    The import is local because ``columbus_quest_dispatch`` imports this
-    module: at module scope it would be a cycle, and this question is only
-    asked on a login.
+    The import is local rather than at module scope because this question is
+    only asked on a login, and because keeping the import out of the header
+    keeps the direction of dependency between these two modules readable.
 
     NOT CLAIMED: that this is every scene a character can end up standing in.
     A GM warp can put a character anywhere, and the way back out of a GM warp
     is a GM command - the third sanctioned overwrite, and not this one.
     """
-    from . import columbus_quest_dispatch
+    from . import world_m2_sea_destination
 
-    reachable = frozenset({columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID})
+    reachable = frozenset({world_m2_sea_destination.DESTINATION_SCENE_N_ID})
     return reachable - _SCENES_WITH_A_MEASURED_WAY_OUT
 
 

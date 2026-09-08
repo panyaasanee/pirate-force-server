@@ -23,14 +23,14 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import pf_bent_scene_registry  # noqa: E402
-from pirateforce_foundation import columbus_quest_dispatch  # noqa: E402
+from pirateforce_foundation import world_m2_sea_destination  # noqa: E402
 from pirateforce_foundation import world_m2_return_leg  # noqa: E402
 from pirateforce_foundation import world_scene_entry  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 
 HOME = world_scene_travel.HOME_SCENE_ID
-SEA = columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID
+SEA = world_m2_sea_destination.DESTINATION_SCENE_N_ID
 
 
 def _sea_row() -> Position:
