@@ -31,6 +31,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import sqlite3
 import struct
 import sys
 import tempfile
@@ -84,7 +85,7 @@ class FakeSelected:
 
 
 class FakeStore:
-    """`.path` for the run-copy gate plus the two LANE-DB doors used here.
+    """`.path` for the run-copy gate plus the LANE-DB doors used here.
 
     The signatures are copied from the real `store.SQLiteStore` methods.  The
     persistence classes below run the same commands against a REAL store, so
@@ -95,6 +96,7 @@ class FakeStore:
         self.path = path
         self.writes = []
         self.grants = []
+        self.learned_grants = []
         self.stored = {}
         self.skills = []
         self.raises = None
@@ -119,10 +121,33 @@ class FakeStore:
     def list_character_skills(self, character_id):
         return tuple(self.skills)
 
-    def grant_learned_skill(self, character_id, skill_id):
-        self.grants.append((character_id, skill_id))
+    def grant_gm_skills(self, character_id, skill_ids):
+        """The BULK door `/skill all` calls, signature copied from the real one.
+
+        Idempotent the way the real one is (`INSERT OR IGNORE`), and it
+        records the WHOLE call as ONE entry rather than one per id, so a
+        case can tell "one transaction" from "a loop over the ids" by
+        counting `self.grants` -- which is the property `COO-DECISION
+        20260908_1943` bought and the thing a future refactor could quietly
+        take away.
+        """
+        self.grants.append((character_id, tuple(skill_ids)))
         if self.grant_raises is not None:
             raise self.grant_raises
+        for skill_id in skill_ids:
+            if skill_id not in self.skills:
+                self.skills.append(skill_id)
+        return tuple(self.skills)
+
+    def grant_learned_skill(self, character_id, skill_id):
+        """The PER-ID door, present ONLY so a case can prove it is unused.
+
+        `/skill all` called this until `COO-DECISION 20260908_1943`; it
+        writes `source='learned'`, which is a false sentence about a row an
+        operator was handed.  Any call lands in `self.learned_grants` and
+        `SkillProvenanceTests` asserts that list stays empty.
+        """
+        self.learned_grants.append((character_id, skill_id))
         if skill_id not in self.skills:
             self.skills.append(skill_id)
         return tuple(self.skills)
@@ -685,6 +710,132 @@ class SkillPersistenceTests(_RealStoreCase):
             f"granted={class_skill_curriculum.SKILL_COUNT - len(overlap)}", err
         )
 
+    def _sources(self):
+        """`{skill_id: source}` straight out of the table, reopened.
+
+        CLOSED IN A `finally`, not with a context manager: `sqlite3`'s
+        `with` block commits the transaction and leaves the HANDLE open,
+        and `_assert_no_sqlite_handle_survives` (the guard PR #495 died
+        without, on the Windows gate) counts open handles under the temp
+        directory rather than transactions.
+        """
+        db = sqlite3.connect(self.db_path)
+        try:
+            rows = db.execute(
+                "SELECT skill_id,source FROM character_skills "
+                "WHERE character_id=?",
+                (self.character.id,),
+            ).fetchall()
+        finally:
+            db.close()
+        return {int(r[0]): str(r[1]) for r in rows}
+
+    def test_the_rows_this_command_writes_say_a_gm_granted_them(self):
+        # THE POINT OF THE WHOLE SWAP (`COO-DECISION 20260908_1943`, choice
+        # 2), asked of the COLUMN rather than of the module: a row an
+        # operator was handed must not claim the character learned it.
+        # Before the swap every one of these read `'learned'`.
+        started_with = set(self.store.list_character_skills(self.character.id))
+        self.act(self.session, "/skill all")
+        sources = self._sources()
+        granted_now = set(sources) - started_with
+        self.assertEqual(
+            granted_now, set(class_skill_curriculum.CURRICULUM_SKILL_IDS)
+        )
+        self.assertEqual(
+            {sources[skill_id] for skill_id in granted_now}, {"gm_grant"}
+        )
+        self.assertNotIn("learned", set(sources.values()))
+
+    def test_a_skill_the_character_already_owned_keeps_its_own_provenance(self):
+        # `INSERT OR IGNORE`, deliberately not `OR REPLACE`: a skill the
+        # character really did learn must not start saying a GM handed it
+        # over, or the column stops being able to answer the question it
+        # exists for -- and the swap would have traded one false sentence
+        # for another.  The row is planted through LANE-DB's OWN learn door,
+        # so this measures the two doors against each other rather than
+        # against a hand-written INSERT.
+        learned_id = class_skill_curriculum.CURRICULUM_SKILL_IDS[0]
+        self.store.grant_learned_skill(self.character.id, learned_id)
+        before = self._sources()
+        self.assertEqual(before.get(learned_id), "learned", before)
+        self.act(self.session, "/skill all")
+        after = self._sources()
+        self.assertEqual(after[learned_id], "learned")
+        for skill_id, source in before.items():
+            with self.subTest(skill_id=skill_id):
+                self.assertEqual(after[skill_id], source)
+
+    def test_the_printed_count_is_the_number_of_rows_that_appeared(self):
+        # `COO-DECISION 20260908_1943` makes the counter a condition of the
+        # swap, because the owner's `HEADLESS_PROOF:` block greps this
+        # number.  Measured against the TABLE, not against the module's own
+        # bookkeeping: `granted=` must equal how many rows the file grew by.
+        before = len(self._sources())
+        _, err = self.act_capturing_stderr(self.session, "/skill all")
+        appeared = len(self._sources()) - before
+        self.assertTrue(appeared)
+        self.assertIn(f"granted={appeared}", err)
+        self.assertNotIn("granted_from=", err)
+
+    def test_the_whole_grant_is_one_transaction_over_one_connection(self):
+        # The second thing the new door buys, and the one no console line
+        # shows: `/skill all` is hundreds of ids and used to be hundreds of
+        # `BEGIN IMMEDIATE` transactions, each re-reading the character's
+        # whole skill row.  Counted through the store's own `connect`, so a
+        # refactor back to a loop turns this red.
+        opened = []
+        real_connect = self.store.connect
+
+        def counting_connect(*args, **kwargs):
+            opened.append(1)
+            return real_connect(*args, **kwargs)
+
+        with mock.patch.object(self.store, "connect", counting_connect):
+            self.act(self.session, "/skill all")
+        # One read of the row, one write transaction, and the audit/readback
+        # the dispatcher does around it -- a per-id loop would be at least
+        # `SKILL_COUNT` of them.
+        self.assertLess(len(opened), class_skill_curriculum.SKILL_COUNT, opened)
+        self.assertEqual(
+            set(self.reopened_skills()) >= set(
+                class_skill_curriculum.CURRICULUM_SKILL_IDS
+            ),
+            True,
+        )
+
+    def test_a_database_without_migration_018_refuses_instead_of_lying(self):
+        # THE ONE REGRESSION THIS SWAP COULD CAUSE, measured rather than
+        # argued: the old door wrote a value legal since migration 014, the
+        # new one writes a value legal only since 018.  On a file stopped at
+        # 017 the CHECK rejects every row and `INSERT OR IGNORE` swallows it
+        # in silence -- so the door rolls back and this command must REFUSE,
+        # not print a clean count over an empty table.  (A normal boot
+        # cannot be in this state: `app.py` runs `migrate_with_backup()`
+        # before it serves.  A hand-made `--db` copy can.)
+        old_db = self.tmp / "stopped_at_017.sqlite3"
+        stunted = self.tmp / "migrations_through_017"
+        stunted.mkdir()
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) <= 17:
+                (stunted / path.name).write_bytes(path.read_bytes())
+        store = SQLiteStore(old_db, stunted)
+        store.migrate()
+        account_id = store.ensure_account(self.GM_ACCOUNT)
+        character = store.create_character(
+            account_id, "OldSchema", "oldschema", "fingerprint-old-schema",
+            _build_wire, Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+        held_before = store.list_character_skills(character.id)
+        result = skill_all_command.grant_all(store, character.id)
+        self.assertEqual(
+            result.refusal, skill_all_command.REFUSED_GRANT_ROLLED_BACK
+        )
+        self.assertEqual(result.granted, 0)
+        # AND THE ROW IS UNTOUCHED, which is the half a refusal alone would
+        # not prove.
+        self.assertEqual(store.list_character_skills(character.id), held_before)
+
     def test_a_job_change_does_not_take_any_skill_away(self):
         # The sandbox the owner asked for: one character holding EVERY
         # class's skills, moved between classes.  If `/job` dropped rows the
@@ -799,20 +950,30 @@ class DispatchContractTests(_Case):
             action2[0], chat_command_action.SKILL_REFUSED_NOTICE_ACTION_LABEL
         )
 
-    def test_a_missing_row_stops_the_grant_and_prints_what_it_wrote(self):
-        # pf-adversary (round `wv0fpe`, D4): the ONE branch where a partial
-        # write really happens was the one branch whose numbers never
-        # reached the operator -- 40 rows on disk and a console line reading
-        # `REFUSED [row_not_found]` with no count anywhere.
+    def test_a_missing_row_refuses_with_its_counts_and_writes_nothing(self):
+        # pf-adversary (round `wv0fpe`, D4) made this branch print its
+        # numbers, because back then it could leave 40 rows on disk while
+        # the console read `REFUSED [row_not_found]` with no count anywhere.
+        # SINCE THE BULK DOOR the partial write is gone -- `grant_gm_skills`
+        # looks the character up as the first statement inside its own
+        # transaction, before any INSERT -- so the numbers stay (the row
+        # really does hold three) and `granted=0` is now a fact rather than
+        # a floor.
         session = FakeSession()
         store = self.store_of(session)
-        store.skills.extend(list(class_skill_curriculum.CURRICULUM_SKILL_IDS)[:3])
+        held = list(class_skill_curriculum.CURRICULUM_SKILL_IDS)[:3]
+        store.skills.extend(held)
         store.grant_raises = KeyError(1)
         result = skill_all_command.grant_all(store, 1)
         self.assertEqual(result.refusal, skill_all_command.REFUSED_ROW_MISSING)
         self.assertEqual(result.already, 3)
+        self.assertEqual(result.granted, 0)
+        self.assertEqual(
+            result.failed, class_skill_curriculum.SKILL_COUNT - 3
+        )
+        self.assertEqual(store.skills, held)
         line = skill_all_command.console_line(result, 1)
-        self.assertIn("granted=", line)
+        self.assertIn("granted=0", line)
         self.assertIn("already=3", line)
 
     def test_granted_counts_rows_the_door_really_inserted(self):
@@ -825,41 +986,85 @@ class DispatchContractTests(_Case):
         every = tuple(class_skill_curriculum.CURRICULUM_SKILL_IDS)
 
         class SomebodyElseGotThereFirstStore(FakeStore):
-            """Empty when asked, full from the first grant onward.
+            """Empty when asked, already full when the grant lands.
 
             The concurrent case: a second writer put every row in between
-            this command's read and its first call.  Every call after that
-            is a real no-op, and only a count derived from the door's own
-            answer can tell.
+            this command's read and its call, so the door inserted NOTHING
+            and returned the full set anyway.  Only a count derived from
+            the door's own answer can tell, and here it cannot tell either
+            -- which is the honest limit `SkillGrant` records rather than
+            hides.
             """
 
-            def grant_learned_skill(self, character_id, skill_id):
-                self.grants.append((character_id, skill_id))
+            def grant_gm_skills(self, character_id, skill_ids):
+                self.grants.append((character_id, tuple(skill_ids)))
+                self.skills = list(every)
                 return every
 
         store = SomebodyElseGotThereFirstStore()
         result = skill_all_command.grant_all(store, 1)
         self.assertTrue(result.ok)
-        self.assertEqual(len(store.grants), len(every))
-        # One call saw the set grow (from empty to full); the other 136 saw
-        # it stand still.  The first draft would have said len(every).
-        self.assertEqual(result.granted, 1)
+        # ONE call, not one per id: the whole grant is one transaction now.
+        self.assertEqual(len(store.grants), 1)
+        self.assertEqual(store.grants[0][1], every)
+        self.assertEqual(result.granted, len(every))
         self.assertTrue(result.counts_are_complete)
 
-    def test_a_door_whose_answer_cannot_be_measured_says_granted_from_calls(self):
-        # "cannot tell" may not be reported as "measured": a door that hands
-        # back something this module cannot count still gets its call
-        # counted, and the line announces that the number is a fallback.
+        # THE CASE THE COUNT REALLY GUARDS, and the one the wv0fpe defect
+        # got wrong: the row is ALREADY full when this command reads it, so
+        # the door inserts nothing and returns the same set it was handed.
+        # A count read off the door's answer says 0; a count of "the call
+        # returned, so they all landed" would say all of them, on the very
+        # line the owner's HEADLESS_PROOF block greps.
+        settled = FakeStore()
+        settled.skills = list(every)
+        after = skill_all_command.grant_all(settled, 1)
+        self.assertEqual(after.granted, 0)
+        self.assertEqual(after.already, len(every))
+        self.assertTrue(after.counts_are_complete)
+
+    def test_a_row_another_writer_added_is_not_counted_as_this_grant(self):
+        # The door hands back the WHOLE row, not just what it was asked for,
+        # so a skill some other writer put there between this command's read
+        # and its call would be counted as one `/skill all` granted -- on
+        # the line the owner greps.  The count is scoped to the curriculum
+        # for that reason.
+        every = tuple(class_skill_curriculum.CURRICULUM_SKILL_IDS)
+        intruder = max(every) + 9999
+        self.assertNotIn(intruder, every)
+
+        class BusyTableStore(FakeStore):
+            def grant_gm_skills(self, character_id, skill_ids):
+                got = super().grant_gm_skills(character_id, skill_ids)
+                return got + (intruder,)
+
+        result = skill_all_command.grant_all(BusyTableStore(), 1)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.granted, len(every))
+
+    def test_a_door_whose_answer_cannot_be_measured_says_where_the_number_came_from(self):
+        # "derived" may not be reported as "measured".  A door that hands
+        # back something this module cannot count still made a promise by
+        # returning at all -- `grant_gm_skills` rolls back rather than
+        # return when an id did not land -- so the number comes from that
+        # CONTRACT, and the line says so instead of passing it off as a
+        # reading of the row.
         class SilentDoorStore(FakeStore):
-            def grant_learned_skill(self, character_id, skill_id):
-                self.grants.append((character_id, skill_id))
+            def grant_gm_skills(self, character_id, skill_ids):
+                self.grants.append((character_id, tuple(skill_ids)))
                 return None
 
         result = skill_all_command.grant_all(SilentDoorStore(), 1)
         self.assertTrue(result.ok)
         self.assertFalse(result.counts_are_complete)
-        self.assertIn(
-            "granted_from=calls", skill_all_command.console_line(result, 1)
+        self.assertEqual(result.granted, class_skill_curriculum.SKILL_COUNT)
+        line = skill_all_command.console_line(result, 1)
+        self.assertIn("granted_from=door_contract", line)
+        # And the ordinary line does NOT carry it, or the field would be
+        # noise rather than a warning.
+        clean = skill_all_command.grant_all(FakeStore(), 1)
+        self.assertNotIn(
+            "granted_from=", skill_all_command.console_line(clean, 1)
         )
 
     def test_an_unreadable_row_is_refused_rather_than_counted_blind(self):
@@ -936,25 +1141,65 @@ class DispatchContractTests(_Case):
         # The row was put back to what the login's door reported.
         self.assertEqual(store.writes[-1][1], {"class_id": 1})
 
-    def test_a_partial_run_is_a_success_that_says_how_many_failed(self):
-        # Some rows landed, so calling it refused would be false; calling it
-        # clean would hide the ones that did not.
-        class HalfBrokenStore(FakeStore):
-            def grant_learned_skill(self, character_id, skill_id):
-                if len(self.grants) % 2:
-                    self.grants.append((character_id, skill_id))
-                    raise ValueError("every other one")
-                return super().grant_learned_skill(character_id, skill_id)
+    def test_there_is_no_partial_run_left_for_the_operator_to_read(self):
+        # ~~"a partial run is a success that says how many failed"~~ --
+        # STRUCK by `COO-DECISION 20260908_1943`.  The per-id loop could
+        # write half the curriculum and report the rest as `failed=`; the
+        # bulk door is one transaction, so a run either lands whole or
+        # leaves the row exactly as it was.  This case pins the SECOND
+        # half: the refusal still carries the numbers, and `failed=` now
+        # means "ids the row still does not hold" rather than "calls that
+        # raised".
+        class RolledBackStore(FakeStore):
+            def grant_gm_skills(self, character_id, skill_ids):
+                self.grants.append((character_id, tuple(skill_ids)))
+                raise RuntimeError(
+                    "grant_gm_skills: 137 of 137 id(s) for character 1 did "
+                    "not reach character_skills (first missing: 7)"
+                )
 
-        store = HalfBrokenStore()
+        store = RolledBackStore()
+        before = list(store.skills)
         result = skill_all_command.grant_all(store, 1)
-        self.assertTrue(result.ok)
-        self.assertTrue(result.failed)
+        self.assertFalse(result.ok)
         self.assertEqual(
-            result.granted + result.already + result.failed,
-            class_skill_curriculum.SKILL_COUNT,
+            result.refusal, skill_all_command.REFUSED_GRANT_ROLLED_BACK
         )
-        self.assertIn("failed=", skill_all_command.console_line(result, 1))
+        self.assertEqual(result.granted, 0)
+        self.assertEqual(result.failed, class_skill_curriculum.SKILL_COUNT)
+        self.assertEqual(store.skills, before)
+        line = skill_all_command.console_line(result, 1)
+        self.assertIn("failed=", line)
+        self.assertIn("granted=0", line)
+        # The operator is told which door threw the transaction away, and
+        # the sentence the dispatcher prints names the remedy.
+        self.assertIn(
+            "018",
+            chat_command_action.NO_BYTES_BLOCKERS[
+                chat_command_action.OUTCOME_SKILL_REFUSED_PREFIX
+                + skill_all_command.REFUSED_GRANT_ROLLED_BACK
+            ],
+        )
+
+    def test_every_refusal_this_command_can_name_has_an_operator_sentence(self):
+        # DERIVED, not hand-listed, for the reason `test_gm_chat_no_bytes_
+        # line.py` gives about the stage faults: a reason added to
+        # `skill_all_command` and forgotten in the dispatcher's map prints
+        # `no blocker recorded` to the person holding the console.  This
+        # round added one (`REFUSED_GRANT_ROLLED_BACK`) and would have
+        # forgotten it.
+        reasons = [
+            value
+            for name, value in sorted(vars(skill_all_command).items())
+            if name.startswith("REFUSED_") and isinstance(value, str)
+        ]
+        self.assertGreaterEqual(len(reasons), 8, reasons)
+        for reason in reasons:
+            with self.subTest(reason=reason):
+                self.assertIn(
+                    chat_command_action.OUTCOME_SKILL_REFUSED_PREFIX + reason,
+                    chat_command_action.NO_BYTES_BLOCKERS,
+                )
 
 
 class TheFixesOfRoundNkb608Tests(_Case):
