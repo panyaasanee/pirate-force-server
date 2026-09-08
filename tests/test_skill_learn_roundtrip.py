@@ -18,7 +18,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import skill_learn_roundtrip  # noqa: E402
+from pirateforce_foundation import (  # noqa: E402
+    skill_learn_roundtrip,
+    skill_learn_validator,
+    skill_learn_wiring,
+)
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation.learn_skill_result_frame import (  # noqa: E402
     LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET,
@@ -64,6 +68,12 @@ class _FakeGrantStore:
     def spend_skill_points(self, character_id, cost):
         return self._store.spend_skill_points(character_id, cost)
 
+    def read_character_vitals_or_none(self, character_id):
+        # The level gate landed on `main` in #1166 and reads through this
+        # door; the fake delegates it so the level a refusal is measured
+        # against is the level a login would read, not one written here.
+        return self._store.read_character_vitals_or_none(character_id)
+
     def grant_learned_skill(self, character_id, skill_id):
         self.grant_calls.append((character_id, skill_id))
         if self._raise_on_grant is not None:
@@ -102,7 +112,7 @@ class TheClientIsToldTests(_Fixture):
 
     def test_a_successful_learn_composes_a_frame_that_re_decodes(self):
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        self.store.write_typed_attributes(character.id, {"skill_points": 5, "level": 40})
         result = skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
         )
@@ -129,7 +139,7 @@ class TheClientIsToldTests(_Fixture):
         database now holds.  Neither is read out of the other.
         """
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 3})
+        self.store.write_typed_attributes(character.id, {"skill_points": 3, "level": 40})
         skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
         )
@@ -140,7 +150,7 @@ class TheClientIsToldTests(_Fixture):
 
     def test_no_frame_travels_with_a_refusal(self):
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 0})
+        self.store.write_typed_attributes(character.id, {"skill_points": 0, "level": 40})
         result = skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
         )
@@ -157,7 +167,7 @@ class TheWindowBetweenTheSpendAndTheGrantTests(_Fixture):
 
     def test_a_grant_that_raises_after_the_spend_is_named_not_swallowed(self):
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        self.store.write_typed_attributes(character.id, {"skill_points": 5, "level": 40})
         self.fake.fail_next_grant(RuntimeError("character_skills is gone"))
         result = skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
@@ -176,13 +186,95 @@ class TheWindowBetweenTheSpendAndTheGrantTests(_Fixture):
         """The outcome is decided by re-reading the balance, so a refusal
         that never spent anything must not borrow the loud name."""
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 1})
+        self.store.write_typed_attributes(character.id, {"skill_points": 1, "level": 39})
         result = skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, self.fake, character.id, 2950,
         )
         self.assertEqual(skill_learn_roundtrip.OUTCOME_REFUSED, result.outcome)
         self.assertEqual(1, self.store.get_skill_points(character.id))
         self.assertEqual([], self.fake.grant_calls)
+
+
+class TheRefusalReachesTheConsoleByNameTests(_Fixture):
+    """A refusal an operator reads as a class name is a refusal nobody can
+    act on.
+
+    `SkillLearnValidatorError` carried its refusal only inside a sentence
+    that interpolates ids, balances and levels; the round trip's token
+    printed `reason=SkillLearnValidatorError` for every one of them.  The
+    named half now travels beside the sentence -- matching on
+    `error.args[0]` is the defect this lane was burned by in round
+    `ixbs2f`, so nothing here reads the sentence.
+    """
+
+    def test_a_level_refusal_reaches_the_token_under_its_own_name(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(
+            character.id, {"skill_points": 99, "level": 39},
+        )
+        result = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, self.fake, character.id, 2950,
+        )
+        self.assertEqual(
+            skill_learn_validator.REFUSED_LEVEL_TOO_LOW, result.reason,
+        )
+        self.assertIn(
+            "reason=" + skill_learn_validator.REFUSED_LEVEL_TOO_LOW,
+            skill_learn_roundtrip.headless_token(result),
+        )
+        # And the refusal really did cost her nothing.
+        self.assertEqual(99, self.store.get_skill_points(character.id))
+
+    def test_the_reason_is_never_the_human_sentence(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(
+            character.id, {"skill_points": 99, "level": 39},
+        )
+        result = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, self.fake, character.id, 2950,
+        )
+        self.assertNotIn(" ", result.reason)
+        # The sentence is a paragraph; the token must carry the name only.
+        self.assertNotIn(
+            "cannot learn skill", skill_learn_roundtrip.headless_token(result),
+        )
+        skill_learn_roundtrip.headless_token(result).encode("cp874")
+
+    def test_an_unadjudicated_level_is_named_too(self):
+        """The other raise site in the wiring layer, which `refusal_to_learn`
+        never sees because there is no level to hand it.
+
+        A character created today gets an adjudicated level from the store
+        itself (measured while writing this: the door answers for a fresh
+        row), so the door is the thing faked here -- exactly and only the
+        answer "nobody has adjudicated a level", which is what that raise
+        site exists for.
+        """
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        store, character_id = self.fake, character.id
+
+        class _NoLevelStore:
+            def get_skill_points(self, cid):
+                return store.get_skill_points(cid)
+
+            def spend_skill_points(self, cid, cost):
+                return store.spend_skill_points(cid, cost)
+
+            def read_character_vitals_or_none(self, cid):
+                return None
+
+            def grant_learned_skill(self, cid, skill_id):
+                raise AssertionError("nothing may be granted")
+
+        result = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, _NoLevelStore(), character_id, 99,
+        )
+        self.assertEqual(
+            skill_learn_wiring.REFUSED_LEVEL_NEVER_ADJUDICATED,
+            result.reason,
+        )
+        self.assertEqual(5, self.store.get_skill_points(character_id))
 
 
 class TheRefusalsThatComeBeforeAnyPointIsSpentTests(_Fixture):
@@ -230,7 +322,7 @@ class TheRefusalsThatComeBeforeAnyPointIsSpentTests(_Fixture):
         """The finding this check exists for: without it the point is spent
         and only then does the missing method raise."""
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        self.store.write_typed_attributes(character.id, {"skill_points": 5, "level": 40})
 
         class _SpendOnlyStore:
             def __init__(self, store):
@@ -241,6 +333,9 @@ class TheRefusalsThatComeBeforeAnyPointIsSpentTests(_Fixture):
 
             def spend_skill_points(self, character_id, cost):
                 return self._store.spend_skill_points(character_id, cost)
+
+            def read_character_vitals_or_none(self, character_id):
+                return self._store.read_character_vitals_or_none(character_id)
 
         result = skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, _SpendOnlyStore(self.store), character.id,
@@ -265,7 +360,7 @@ class TheRefusalsThatComeBeforeAnyPointIsSpentTests(_Fixture):
 class TheTokenMeasuresTheArtifactTests(_Fixture):
     def test_the_token_counts_records_off_the_composed_pc(self):
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        self.store.write_typed_attributes(character.id, {"skill_points": 5, "level": 40})
         result = skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
         )
@@ -279,7 +374,7 @@ class TheTokenMeasuresTheArtifactTests(_Fixture):
 
     def test_a_refusal_prints_not_told_and_zero_records(self):
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 0})
+        self.store.write_typed_attributes(character.id, {"skill_points": 0, "level": 40})
         result = skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
         )
@@ -292,7 +387,7 @@ class TheTokenMeasuresTheArtifactTests(_Fixture):
         """A pc that carries no records must not read `TOLD`, whatever the
         outcome field says -- the D3 shape, one module to the left."""
         character = self._make_character()
-        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        self.store.write_typed_attributes(character.id, {"skill_points": 5, "level": 40})
         result = skill_learn_roundtrip.learn_skill_round_trip(
             self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
         )

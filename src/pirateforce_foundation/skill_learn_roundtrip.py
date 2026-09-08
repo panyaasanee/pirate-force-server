@@ -45,7 +45,8 @@ NONCLAIMS -- read these before using one symbol from this file
     Nobody has measured what the original server put there, and nobody can.
   * Nothing here claims a client renders anything for this frame.  No
     client has seen one composed by this path; that is an attended ticket
-    (`GT-321`, filed this round), not a flag flip -- `NOW.md` `0945`.
+    (proposed to LANE-K this round -- ticket NUMBERS are K's to assign, so
+    none is spelled here), not a flag flip -- `NOW.md` `0945`.
   * Nothing here claims which class may learn which skill.  No committed
     table answers that, so this module does not ask.
   * This module has NO frame dispatch and NO handler.  Nothing in
