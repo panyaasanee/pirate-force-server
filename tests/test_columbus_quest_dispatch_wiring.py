@@ -1654,6 +1654,16 @@ class CrossingHandoffQueuedWiringTests(unittest.TestCase):
         return state
 
     def test_the_crossing_handoff_frame_is_queued_before_the_teleport_frame(self):
+        """~~before~~ AFTER the teleport since chief round R405/y8fm7z, and
+        the test reads the slot off the handoff rather than asserting a
+        direction, so the name is struck rather than the assertion inverted.
+
+        The slot moved because the KIND did: scene 17's roster is registered
+        now, so this crossing composes a CENSUS, and a census belongs AFTER
+        the teleport (the actors are the arrival scene's) exactly as a clear
+        belonged BEFORE it (empty the departure scene first).  Both
+        directions are asserted from ``expected_handoff.dispatch_slot``, so
+        the day a scene composes the other kind this test follows it."""
         state = self._cross("tok-crossing-handoff-queued")
         # The SAME handoff the runtime call site reads, recomputed through
         # this lane's own public functions -- not a second, hand-guessed
@@ -1665,8 +1675,10 @@ class CrossingHandoffQueuedWiringTests(unittest.TestCase):
         self.assertTrue(expected_handoff.sends_a_frame)
         self.assertEqual(
             expected_handoff.dispatch_slot,
-            world_population_handoff.SLOT_BEFORE_TELEPORT,
+            world_population_handoff.SLOT_AFTER_TELEPORT,
         )
+        self.assertEqual(
+            expected_handoff.kind, world_population_handoff.KIND_CENSUS)
 
         actions = state.dispatch(self.legacy.parse_outer(
             self.legacy._synthetic_quest_operate_pc(
@@ -1678,13 +1690,24 @@ class CrossingHandoffQueuedWiringTests(unittest.TestCase):
         self.assertIn(
             "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE", labels,
         )
-        self.assertLess(
+        self.assertGreater(
             labels.index(expected_handoff.label),
             labels.index(
                 "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE"
             ),
-            "the clear frame's own dispatch_slot is before_teleport -- it "
-            f"must be queued ahead of the teleport action: {actions!r}",
+            "the census frame's own dispatch_slot is after_teleport -- it "
+            f"must be queued behind the teleport action: {actions!r}",
+        )
+        # AND THE REAPPLY GOES WITH IT.  A census carries a non-None
+        # ``reapply_ms``; the clear this crossing used to send did not, so
+        # before chief round R405/y8fm7z there was no second action here at
+        # all and nothing measured whether the runtime call site queues one.
+        self.assertIsNotNone(expected_handoff.reapply_ms)
+        self.assertIn(expected_handoff.label + "_REAPPLY", labels, actions)
+        self.assertGreater(
+            labels.index(expected_handoff.label + "_REAPPLY"),
+            labels.index(expected_handoff.label),
+            actions,
         )
         handoff_action = [
             action for action in actions if action[0] == expected_handoff.label
@@ -1723,18 +1746,25 @@ class CrossingHandoffQueuedWiringTests(unittest.TestCase):
         # e0daaa convention: emit records AND prints the same line.
         self.assertIn(line, state.events)
         self.assertIn(
-            "world_m2_crossing_handoff_clear_scene_17", state.events,
+            "world_m2_crossing_handoff_census_scene_17", state.events,
         )
+        self.assertIn(" kind=census ", line)
+        self.assertIn(" slot=after_teleport ", line)
 
-    def test_a_successful_crossing_clears_the_frozen_membership_fields(self):
-        """A CLEAR handoff's own ``membership_reset.clears_everything`` is
-        ``True`` (nothing replaces Port Royal's roster with a sea roster --
-        the sea composer refuses to invent one, see
-        ``world_population_handoff.SCENES_INTENTIONALLY_UNPOPULATED``), so
-        the frozen state's own membership fields must go to ``None``, not
-        be left holding Port Royal's placement indices after the boat
-        sails.  Armed non-``None`` by the harness's own TargetPos frame
-        before the crossing, checked ``None`` after."""
+    def test_a_successful_crossing_rewrites_the_frozen_membership_fields(self):
+        """~~A CLEAR handoff's own ``membership_reset.clears_everything`` is
+        ``True`` ... so the frozen state's own membership fields must go to
+        ``None``.~~  A CENSUS since chief round R405/y8fm7z, so the same
+        pairing now says the opposite thing and is worth MORE: the fields
+        must hold THE SEA'S seven placements and the anchor they were built
+        at, never Port Royal's, and never ``None``.
+
+        ``None`` after a census would be its own defect - the client holds
+        seven actors the server does not think it sent, which is one
+        ChooseNPC away from the recompose this pairing exists to prevent.
+        Armed non-``None`` by the harness's own TargetPos frame before the
+        crossing, and checked against the handoff's OWN membership after,
+        not against a literal."""
         state = self._real_state("tok-crossing-handoff-membership-reset")
         self.assertIsNotNone(state.population_indices)
         self.assertIsNotNone(state.world_census_indices)
@@ -1749,8 +1779,57 @@ class CrossingHandoffQueuedWiringTests(unittest.TestCase):
                 columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
             )
         ))
+        expected = world_m2_crossing_handoff.crossing_handoff(
+            self.legacy, columbus_quest_dispatch.resolve_columbus_arrival(),
+        ).membership_reset
+        # The handoff DOES hand a real membership over -- seven placements
+        # and the anchor they were built at.
+        self.assertFalse(expected.clears_everything)
+        self.assertEqual(len(expected.population_indices), 7)
+        # ~~and the runtime installs it~~ -- IT WITHHOLDS IT, and the reason
+        # is measured rather than tasteful (pf-adversary, chief round
+        # R405/y8fm7z, D1).  ``population_indices`` is a placement-index
+        # space with no scene in it, and no ChooseNPC responder is
+        # registered for scene 17, so an installed membership sends the next
+        # click into the frozen Port Royal resolver.  See the gate at the
+        # call site.  The FRAME is queued either way -- that is asserted by
+        # the test above -- so the player still gets the cast.
         self.assertIsNone(state.population_indices)
         self.assertIsNone(state.world_census_indices)
+        self.assertIsNone(state.population_refresh_anchor)
+        self.assertIn(
+            "world_pop_handoff_membership_withheld_scene_17", state.events)
+
+    def test_a_click_on_the_sea_cast_does_not_kill_the_listener(self):
+        """THE FRAME THIS TEST SENDS IS THE WHOLE POINT, and the round that
+        first wrote the test above described this hazard in its own docstring
+        and then stopped one frame short of it (pf-adversary, chief round
+        R405/y8fm7z, D4: a tautological pin can only check that the runtime
+        copied a value, never that the value is survivable).
+
+        MEASURED, on the branch before the gate: clicking any one of the
+        seven actors the crossing puts on the client raised ``KeyError: 2``
+        straight out of ``dispatch`` - the frozen handler loops the WHOLE
+        membership through Port Royal's 115-row placement table, which has no
+        index 2, and the listener's only ``try`` has no ``except``, so
+        ManagedThread turns it into a server-wide stop.  One click, every
+        time, for every connected player.
+        """
+        state = self._cross("tok-crossing-handoff-click-the-cast")
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        # 0x2001..0x2007 -- the identity space the seven sea placements are
+        # announced in.  Every one of them, not a sample: the frozen handler
+        # walks the whole membership on ANY member click, so a sample that
+        # happened to miss is a test that happened to pass.
+        for identity in range(0x2001, 0x2008):
+            with self.subTest(identity=hex(identity)):
+                state.dispatch(self.legacy.parse_outer(
+                    _choose_npc_pc(self.legacy, identity)
+                ))
 
 
 if __name__ == "__main__":

@@ -200,8 +200,12 @@ def login_entry_is_pinned(scene_id: int, *, scene_registry=None) -> bool:
     Asked through lane A's own registry loader, never through a copy of its
     data: ``world_scene_travel`` owns which scenes have a pinned entry and
     which are barred from being a login destination
-    (``login_entry_allowed``, scene 17 today), and a second copy here would
-    drift the moment lane A pins one more.
+    (``login_entry_allowed``, ~~scene 17 today~~ -- FOUR scenes today: 17,
+    126, 304 and 305, re-measured 2026-09-08 on main in LANE-GM round
+    `nkb608` by asking this very function for every id in the registry;
+    the one-scene reading had been stale since lane A pinned the other
+    three), and a second copy here would drift the moment lane A pins one
+    more.
 
     Unknown-to-that-registry is False -- fail-closed, and deliberately the
     opposite default from ``is_position_persist_allowed``, because here an

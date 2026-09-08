@@ -194,7 +194,13 @@ class SkillGrant:
         return self.refusal is None
 
 
-def _read_skills(store: object, character_id: int) -> frozenset[int] | None:
+#: The third answer `_read_skills` can give: the store answered, and what it
+#: said is "there is no such character".  A sentinel rather than an exception
+#: because this module's contract is that nothing here raises.
+_ROW_MISSING = object()
+
+
+def _read_skills(store: object, character_id: int) -> object:
     """Every skill id the row holds, or `None` for "could not be read".
 
     NEVER RAISES, AND NEVER SUBSTITUTES AN EMPTY SET FOR AN ANSWER IT DID
@@ -212,6 +218,14 @@ def _read_skills(store: object, character_id: int) -> frozenset[int] | None:
         return None
     try:
         return frozenset(int(i) for i in reader(character_id))
+    except KeyError:
+        # A SEPARATE ANSWER FROM "the store could not be read" (pf-adversary
+        # round `nkb608`, D-K).  `SQLiteStore.list_character_skills` raises
+        # `KeyError` for a character id with no live row -- deleted, soft-
+        # deleted, or never there -- and folding that into `None` sent the
+        # operator to look at the store when the fault was the character.
+        # Nothing is written on either branch; only the sentence differs.
+        return _ROW_MISSING
     except Exception:  # noqa: BLE001 -- see the docstring
         return None
 
@@ -231,18 +245,30 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
     listener thread and parks the client on "connecting".
     """
     if type(character_id) is not int or isinstance(character_id, bool) or character_id <= 0:
+        # `counts_are_complete=True` and not an oversight: three zeroes ARE
+        # the complete count of what a refusal before the first door call
+        # wrote.  pf-adversary round `nkb608`, D-A: these two exits carried
+        # FIVE positional arguments into a six-field record from the round
+        # that inserted `counts_are_complete` -- a `TypeError` on the listener
+        # thread, which is the escape `write_level`'s docstring exists to
+        # forbid.  No test called this function with anything but a valid id,
+        # so both lines had never once executed.
         return SkillGrant(
-            # `True` for the same reason the sibling refusal twenty lines
-            # down passes it: nothing was attempted, so nothing FELL BACK to
-            # counting calls, and `granted_from=calls` must not appear on a
-            # line whose counts are three zeros.  The positional argument was
-            # MISSING here and at REFUSED_NO_STORE below until pf-adversary
-            # (round nboppe, D1) built the branch: `counts_are_complete` was
-            # added to this dataclass in the same commit that answered round
-            # wv0fpe, and five of the seven construction sites were updated.
-            # These two were the pair with no test that reaches them, so the
-            # suite proved the refusal WORD existed while the branch that
-            # returns it raised TypeError.
+            # `True` for the same reason every sibling refusal below passes
+            # it: nothing was attempted, so nothing FELL BACK to counting
+            # calls, and `granted_from=calls` must not appear on a line whose
+            # counts are three zeros.  THE ARGUMENT WAS MISSING here and at
+            # REFUSED_NO_STORE below -- `counts_are_complete` was added to
+            # this dataclass in the commit that answered round `wv0fpe`, and
+            # five of the seven construction sites were updated -- so both
+            # branches raised TypeError instead of refusing.  pf-adversary
+            # (round `nboppe`, D1) built them and measured the cost: no
+            # console line, no notice, and an `issued` audit row with no
+            # `outcome` row.  Two rounds arrived at the same one-word fix
+            # independently; what this round adds is the pair of tests that
+            # REACH these branches, without which the suite went on proving
+            # that the refusal WORDS existed while the code returning them
+            # could not run.
             0, 0, 0, True, REFUSED_NO_CHARACTER,
             f"no usable selected character id on this connection ({character_id!r})",
         )
@@ -256,6 +282,12 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
     skill_ids = all_skill_ids()
     wanted = frozenset(skill_ids)
     before = _read_skills(store, character_id)
+    if before is _ROW_MISSING:
+        return SkillGrant(
+            0, 0, 0, True, REFUSED_ROW_MISSING,
+            "the selected character has no live row to grant skills to; "
+            "nothing was written",
+        )
     if before is None:
         # NOTHING IS WRITTEN ON THIS BRANCH, deliberately: the write itself
         # would be harmless (the door is idempotent), but its REPORT would
@@ -388,7 +420,7 @@ def _ascii_only(line: str) -> str:
 
 #: The console token PANYA-ORDER section 2.1 asks for by name.  Its shape is
 #: an interface (the owner's `HEADLESS_PROOF:` block greps for it), pinned
-#: field by field in `tests/test_gm_skill_all_command.py`.
+#: field by field in `tests/test_gm_job_and_skill_all_commands.py`.
 CONSOLE_TOKEN = "GM_SKILL_ALL"
 
 

@@ -214,6 +214,14 @@ from . import mob_viewer_link
 # composed at that identity is one the server would accept a
 # strike against and no player could ever see.
 from . import mob_identity_sign
+# LANE-B's one wire rule for avatar cells (COO-DECISION 2026-09-08T17:42).
+# ``s_OUTFIT`` is a cell, sometimes a variant list; the client reaches only
+# its first token (RE-296 result 2), so what leaves this module is always a
+# single basename.  Imported for the refusal on the composition path and the
+# one in the roster parser below -- both call the SAME predicate, which is
+# also the predicate the roster generator mines under, so there is one rule
+# in this repository and not three copies of it.
+from . import mob_avatar_basename
 # Lane A's scene-id registry, read-only: the ONE public reader from a scene
 # id to that scene's own folder name (COO-DECISION 2026-08-29T08:48+07:00
 # item 3).  Imported for :func:`scene_for_scene_id`; nothing here writes to
@@ -1368,6 +1376,20 @@ def _parse_hostile_placements(module: Any) -> tuple[FieldMob, ...]:
         visual_preset, display_name = row[5], row[6]
         if type(visual_preset) is not str or not visual_preset:
             raise FieldMobContractError("visual preset must be non-empty text")
+        # ROUND db4o73.  The upstream gate: a table row whose preset is still
+        # a list cell means the module was generated before the wire rule, so
+        # it is refused where it enters the process rather than 40 frames
+        # later on somebody's screen.  Not normalised here -- see
+        # ``mob_avatar_basename.refuse_list_cell`` on why the gate does not
+        # quietly fix a stale table.
+        try:
+            mob_avatar_basename.refuse_list_cell(
+                visual_preset,
+                what="roster placement %d of %s" % (
+                    placement_index, getattr(module, "SCENE", "<unknown>")),
+            )
+        except mob_avatar_basename.AvatarCellOnTheWireError as exc:
+            raise FieldMobContractError(str(exc)) from exc
         if type(display_name) is not str or not display_name:
             raise FieldMobContractError("display name must be non-empty text")
         level = _require_int(row[7], "level", 1, 255)
@@ -2046,6 +2068,14 @@ def hostile_npc_attr(
     # refusal belongs on the composition path rather than in a report.
     mob_identity_sign.refuse_undrawable_identity(
         mob.actor_identity, what="field monster")
+    # ROUND db4o73.  The wire-side gate, in the same place and for the same
+    # reason as the identity refusal above: this is the last point where the
+    # bytes are still ours.  A hand-built ``FieldMob`` never passes through
+    # the roster parser, so the parser's gate alone would not cover this path.
+    mob_avatar_basename.refuse_list_cell(
+        mob.visual_preset,
+        what="field monster at placement %d" % mob.placement_index,
+    )
     name = mob.display_name if with_name else ""
     baseline = legacy.make_npc_attr(
         mob.template_id,

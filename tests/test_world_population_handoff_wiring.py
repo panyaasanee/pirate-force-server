@@ -370,7 +370,17 @@ class CrossingHandoffWiringTests(unittest.TestCase):
 
     def test_the_crossing_still_departs_when_the_handoff_cannot_compose(self):
         """The handoff's fail-closed contract reaches the wiring: a broken
-        composition must not cost the player the crossing itself."""
+        composition must not cost the player the crossing itself.
+
+        AND IT NO LONGER COSTS THEM THE MAP EITHER (chief round R405/y8fm7z).
+        ~~An unavailable handoff still drops the membership: nobody can
+        answer for it.~~  A scene the seam can NAME now falls back to that
+        scene's CLEAR instead of to no frame at all - measured reason: an
+        UNAVAILABLE queues nothing, so the client keeps the actors of the
+        scene it just left standing in the scene it just arrived in.  The
+        membership is still dropped, for the same reason as before; what
+        changed is that an empty map is now actually SENT to make the
+        dropped membership true on the client as well as on the server."""
         from unittest import mock
 
         state = self._state("chw_unavailable")
@@ -382,12 +392,15 @@ class CrossingHandoffWiringTests(unittest.TestCase):
             actions, console = self._walk_until_crossing(state, self.centre)
         labels = [a[0] for a in actions]
         self.assertTrue(any("TELEPORT" in l for l in labels), labels)
-        self.assertFalse(
+        self.assertTrue(
             any(l.startswith("WORLD_POP_HANDOFF_") for l in labels), labels,
         )
-        self.assertIn("kind=unavailable", console)
-        # An unavailable handoff still drops the membership: nobody can
-        # answer for it (the seam's own contract).
+        self.assertIn("kind=clear", console)
+        self.assertIn("cleared_instead:", console)
+        self.assertIn("composer exploded", console)
+        # A cleared handoff still drops the membership: the frame it sends
+        # puts nobody on the client, so a server-side membership naming
+        # anybody would be a lie in the other direction.
         self.assertIsNone(state.population_indices)
         self.assertIsNone(state.population_refresh_anchor)
 

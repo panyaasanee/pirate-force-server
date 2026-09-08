@@ -91,6 +91,14 @@ class _FakeGrantStore:
     def spend_skill_points(self, character_id, cost):
         return self._store.spend_skill_points(character_id, cost)
 
+    def read_character_vitals_or_none(self, character_id):
+        # Delegated like the other two spend-side calls: LANE-CS round
+        # `jty60h` gave `learn_skill_spend` a level gate
+        # (`n_LEVEL_LEARN`), and a fake that answered a level of its own
+        # would be testing the fake's number rather than the row the real
+        # store adjudicated.
+        return self._store.read_character_vitals_or_none(character_id)
+
     def grant_learned_skill(self, character_id, skill_id):
         self.grant_calls.append((character_id, skill_id))
         if self._raise_on_grant is not None:

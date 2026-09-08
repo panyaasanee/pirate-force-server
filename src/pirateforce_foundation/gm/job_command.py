@@ -142,6 +142,16 @@ REFUSED_LOGIN_WOULD_NOT_SEND = "login_would_not_send_it"
 #: suffixes `gm/level_command.py` uses, for the same reason.
 REPAIRED_SUFFIX = "_row_put_back"
 REPAIR_FAILED_SUFFIX = "_row_still_carries_it"
+#: THE THIRD STATE, and it is the COMMON one rather than an edge (pf-adversary
+#: round `nkb608`, D-C).  A row whose `class_id` was NULL -- the ordinary state
+#: of any character made before migration 006, which has no default and no
+#: backfill -- has nothing to put back: this door writes values, and there is
+#: no door in this lane that writes a column back to NULL.  The old code
+#: returned `""` here, so the refusal said `login_would_not_send_it` with no
+#: word at all about durability while the row carried the class the GM asked
+#: for, and a transient read failure meant the NEXT login sent it after a
+#: refusal.  Naming the state is the whole fix available inside this lane.
+NO_PREVIOUS_SUFFIX = "_row_kept_the_new_class"
 
 
 class JobArgumentError(ValueError):
@@ -280,18 +290,35 @@ def login_would_send(store: object, character_id: int, class_id: int) -> bool:
 def _repair(store: object, character_id: int, previous: int | None) -> str:
     """Put `previous` back after a write this command will not stand behind.
 
-    Returns the suffix the caller appends to its refusal reason, so the
-    audit row and the console line say WHICH of the two durable states the
-    tester is walking away from.  `""` when there was nothing to put back.
+    Returns the suffix the caller appends to its refusal reason, so the audit
+    row and the console line say WHICH of the THREE durable states the tester
+    is walking away from.  ~~"`\"\"` when there was nothing to put back"~~ --
+    STRUCK (pf-adversary round `nkb608`, D-C): an empty suffix reported the
+    most dangerous of the three -- a row still carrying the new class, with no
+    previous value to restore -- as though nothing had happened.  It answers
+    `NO_PREVIOUS_SUFFIX` now.
+
+    THE RESTORE IS READ BACK, and that is not ceremony either (D-D, MEASURED):
+    `write_typed_attributes` returning without raising is not the same fact as
+    the column holding the value again, and this function reported
+    `_row_put_back` -- in the audit row and on the console -- for a writer
+    whose second write was a silent no-op.  It asks the same door
+    `login_would_send` asks, so "put back" means the login would send the old
+    class, which is the only meaning the word has for a tester.
     """
     if previous is None:
-        return ""
+        return NO_PREVIOUS_SUFFIX
     writer = getattr(store, "write_typed_attributes", None)
     if writer is None:
         return REPAIR_FAILED_SUFFIX
     try:
         writer(character_id, {class_column(): previous})
     except Exception:  # noqa: BLE001 -- the repair may not raise either
+        return REPAIR_FAILED_SUFFIX
+    if _previous_class_id(store, character_id) != previous:
+        # Either the write did nothing, or the door that reads it cannot
+        # answer.  Both leave the tester with a row they may not trust, which
+        # is what this suffix means.
         return REPAIR_FAILED_SUFFIX
     return REPAIRED_SUFFIX
 
@@ -442,7 +469,7 @@ def _ascii_only(line: str) -> str:
 
 #: The console token PANYA-ORDER section 2.2 asks for by name.  A COUNTABLE
 #: line: the owner's `HEADLESS_PROOF:` block greps for it, so its shape is
-#: an interface, not a log message, and `tests/test_gm_job_command.py` pins
+#: an interface, not a log message, and `tests/test_gm_job_and_skill_all_commands.py` pins
 #: every field name below.
 CONSOLE_TOKEN = "GM_JOB"
 

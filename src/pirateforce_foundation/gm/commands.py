@@ -158,7 +158,7 @@ COMMAND_USAGE = {
     # Necromancer, Sorcerer), NOT 1..5, so a human reading `job <class_id>`
     # would type `3` and read the refusal as a bug.  The values are spelled
     # here, once, and `gm/job_command.usage()` builds the same sentence from
-    # `class_catalog.CLASS_IDS` -- `tests/test_gm_job_command.py` fails if the
+    # `class_catalog.CLASS_IDS` -- `tests/test_gm_job_and_skill_all_commands.py` fails if the
     # two ever disagree, which is what keeps this literal honest.
     "job": "job <1|2|4|16|32>",
     # `skill` takes a WORD, not a flag, because the owner typed `/skill all`
@@ -167,6 +167,22 @@ COMMAND_USAGE = {
     # a LATER option if the 1024 bucket upsets the client) would be a second
     # word here, never a silent change to what `all` means.
     "skill": "skill all",
+    # A LANE-GM TOOLING COMMAND, like `gmprobe` and `staged` and unlike the
+    # gameplay commands above: it WRITES NOTHING -- no row, no file, no frame
+    # but its own sentence.  Appended LAST for the sixth time, for the reason
+    # every comment above gives: growing this tuple at the end is a smaller
+    # drift than reordering anything already pinned ahead of it.
+    #
+    # It answers the question the two commands above leave open once the
+    # tester has relogged: what does the row HOLD now?  `gm/
+    # sandbox_readback.py`'s module docstring carries the why, the five
+    # sentences and the nonclaims.
+    #
+    # NO ARGUMENTS, the same property `staged` has and for the same reason:
+    # a command with no typed token to echo, resolve or spell into a message
+    # cannot have the hazards the `warp <scene name>` form had to close
+    # (pf-adversary round `osxc85`, D1/D2).
+    "sandbox": "sandbox",
 }
 
 COMMAND_NAMES = tuple(COMMAND_USAGE)
@@ -351,6 +367,13 @@ OUTCOME_LV_ROW_WRITTEN = "lv_row_written"
 # nothing durable moved anywhere.  `executed` stays False for the same
 # reason it does for the two outcomes above -- no gameplay command ran.
 OUTCOME_STAGED_READBACK_ANSWERED = "staged_readback_answered"
+# The `sandbox` readback's one success word.  A READ that reached an answer,
+# which is not the same fact as an answer that found something: `NO JOB
+# SK???` is `sandbox_readback_answered` too, because the command did exactly
+# what it promises and the row is what it is.  A word per shape of answer
+# would make `is_known_outcome` a table of five and teach nobody anything the
+# console line does not already say.
+OUTCOME_SANDBOX_READBACK_ANSWERED = "sandbox_readback_answered"
 
 # `/job` (`gm/job_command.py`) and `/skill all` (`gm/skill_all_command.py`),
 # PANYA-ORDER 2026-09-08.  BOTH ARE `row_written` WORDS, minted for the same
@@ -378,6 +401,7 @@ AUDIT_OUTCOMES = (
     OUTCOME_STAGED_READBACK_ANSWERED,
     OUTCOME_JOB_ROW_WRITTEN,
     OUTCOME_SKILL_ROWS_WRITTEN,
+    OUTCOME_SANDBOX_READBACK_ANSWERED,
 )
 AUDIT_OUTCOME_PREFIXES = (OUTCOME_WITHHELD_PREFIX, OUTCOME_REFUSED_PREFIX)
 
@@ -541,6 +565,16 @@ def parse_gm_command(text: str) -> GmCommand:
         # takes nothing, rather than watching their argument be ignored.
         if rest.split():
             raise GmCommandParseError(COMMAND_USAGE["staged"])
+        return GmCommand(name, (), stripped)
+
+    if name == "sandbox":
+        # NO ARGUMENTS AT ALL, and the check is `rest.split()` rather than
+        # `rest` for the reason `staged`'s branch below records: `sandbox   `
+        # (trailing spaces, which a chat client sends more often than not) is
+        # the same command, and `sandbox 3` is a refusal carrying the table's
+        # own sentence rather than an argument silently ignored.
+        if rest.split():
+            raise GmCommandParseError(COMMAND_USAGE["sandbox"])
         return GmCommand(name, (), stripped)
 
     if name == "gmprobe":
