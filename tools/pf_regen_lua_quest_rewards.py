@@ -222,16 +222,80 @@ TAKE_KIND = KIND_MONEY
 #: ``Quest.Var7`` back and removes the item again).  That asymmetry is
 #: exactly why the shape and not the name decides: the same API is the
 #: take on one line and the give on another.
+#: HOW A TAKE-SIDE ARGUMENT IS ALLOWED TO LOOK, per API.  Two shapes
+#: exist because two KINDS of charge exist, and reading them by one rule
+#: is what left the second kind invisible:
+#:
+#:   * :data:`SHAPE_SCRIPT_NEGATED` -- the API moves a SIGNED amount, so
+#:     only the sign says whether the player pays.  A bare
+#:     ``Quest.VarN`` there is NOT a take this tool may claim: it is
+#:     either an ordinary give (the ``Delete_Run`` refund) or a
+#:     cell-negative take the SIGNEDNESS table already carries with its
+#:     own provenance.  ``Player.AddCash`` and ``Player.Addmoralized``.
+#:   * :data:`SHAPE_ANY_VAR` -- the API's NAME is the charge and there is
+#:     no sign to read.  ``Player.RemoveItem(item, count)`` takes the
+#:     player's item whatever the cells hold, so EVERY cell it reads, at
+#:     EITHER argument, is part of that charge.
+TAKE_SHAPE_SCRIPT_NEGATED = "script_negated"
+TAKE_SHAPE_ANY_VAR = "any_var"
+
+#: ``api -> (argument positions this tool reads, the shape required
+#: there)``.  Closed and lane-authored, the same contract
+#: :data:`GIVE_BY_API` carries: an API nobody has read call sites for is
+#: absent, not defaulted.
+#:
+#: ``Player.RemoveItem`` JOINED IN ROUND ``ad7t6n`` (NOW.md "Q: first job
+#: = Player.RemoveItem on the take side"; pf-adversary D4 of round
+#: ``5a3x47`` measured it as "the most common charge in the corpus, and
+#: TAKE_BY_API has no opinion about it").  MEASURED over all 616 corpus
+#: files -- 367 call sites, arity 2 (``item_id, count``; the order the
+#: sibling reads prove: ``q_ocean_gather1.lua:43`` guards line 55's
+#: removal with ``Player.CheckItemNum(Quest.Var2,Quest.Var3)``, and
+#: ``Player.AddItem(Quest.RewardItem1,Quest.RewardItemNum1)`` on line 62
+#: is the same id-then-count pair).  Every shape that occurs, counted:
+#:
+#:     277  Player.RemoveItem(Quest.VarA, Quest.VarB)   both cells
+#:      29  Player.RemoveItem(Trigger.VarA, Trigger.VarB)  t_* scripts,
+#:          which hold no quest row and are never scanned here
+#:      24  Player.RemoveItem(Quest.VarA, delItem[N])   id cell only
+#:      19  Player.RemoveItem(2200225, 2)               literals, no cell
+#:      11  Player.RemoveItem(Quest.VarA, 1)            id cell only
+#:       5  Player.RemoveItem(mySet_1[i], mySet_2[i])   no cell
+#:       1  Player.RemoveItem(Trigger.VarA, 1)
+#:       1  Player.RemoveItem(2600392, Quest.Var3)      COUNT cell only
+#:                                                      q_sea_reward.lua:100
+#:
+#: The last line is why BOTH positions are read and not just argument 0.
+#: ``q_sea_reward.lua``'s ``Report_Run`` charges a literal item id
+#: ``Quest.Var3`` times and pays with ``Quest.AddLvCriteriaExp`` and
+#: ``Quest.AddLvCriteriaSkillPoint`` -- both stubs -- which is the
+#: ``q_ship.lua`` shape exactly: a charge whose delivery does not happen.
+#: HONEST ABOUT WHAT IT MOVES TODAY: that script is named on **0 of the
+#: shipped quest table's rows**, so no group forms for it either way and
+#: reading argument 1 changes no row of this mirror right now.  It is
+#: read because the RULE is about the call's shape and not about which
+#: scripts today's table happens to point at -- and because the same
+#: grep says this is the ONLY count-only cell read in all 306 quest
+#: scripts, so the day a row points at it there is nothing left to
+#: notice.
+#: EVERY quest-cell argument in all 367 sites is a BARE ``Quest.VarN``:
+#: no call site negates, adds to, or otherwise wraps a cell it hands to
+#: ``RemoveItem``, so anything else there is a HARD STOP
+#: (:class:`UnclassifiedTakeSite`) rather than a shape to guess at.
 TAKE_BY_API = {
-    "Player.AddCash": 0,
-    "Player.Addmoralized": 0,
+    "Player.AddCash": ((0,), TAKE_SHAPE_SCRIPT_NEGATED),
+    "Player.Addmoralized": ((0,), TAKE_SHAPE_SCRIPT_NEGATED),
+    "Player.RemoveItem": ((0, 1), TAKE_SHAPE_ANY_VAR),
 }
 
-#: A ``Quest.VarN`` read the take-side scan is allowed to walk past: the
-#: BARE read, which is either an ordinary give (the ``Delete_Run`` refund)
-#: or a cell-negative take the SIGNEDNESS table already carries with its
-#: own provenance.  Anything else that reads a cell at a take-side
-#: argument position is a HARD STOP -- see :class:`UnclassifiedTakeSite`.
+#: A BARE ``Quest.VarN`` read.  What it MEANS depends on the API that
+#: receives it, which is why :data:`TAKE_BY_API` carries a shape per API:
+#: under :data:`TAKE_SHAPE_SCRIPT_NEGATED` it is the read the take scan
+#: walks past (an ordinary give, or a cell-negative take the SIGNEDNESS
+#: table already carries with its own provenance), and under
+#: :data:`TAKE_SHAPE_ANY_VAR` it IS the take.  Anything else that reads a
+#: cell at a take-side argument position is a HARD STOP under both -- see
+#: :class:`UnclassifiedTakeSite`.
 _BARE_VAR_READ = re.compile(rb"^\s*Quest\.Var(\d+)\s*$")
 
 #: Does this argument read a quest cell at all.  Used only to tell
@@ -360,56 +424,91 @@ def give_sites(path: Path):
 
 
 def take_sites(path: Path):
-    """``[(function, var_index, api, line_number)]`` for SCRIPT-negated takes.
+    """``[(function, var_index, api, line_number)]``, the takes a SCRIPT makes.
 
     The other half of :func:`give_sites`, and deliberately its mirror
     image: bytes in, bytes matched, ASCII out, one entry per call site
-    that a reader can open the file and check.  Only the shapes in
-    :data:`TAKE_BY_API` are read; a ``Player.AddCash`` whose argument is
-    anything else (a bare ``Quest.VarN``, an expression nobody has
-    classified) is NOT reported here, because a take this function is not
-    certain of would gate a cell the player is entitled to.  The
-    signedness table still carries the cell-negative takes.
+    that a reader can open the file and check.  Only the APIs in
+    :data:`TAKE_BY_API` are read, each under ITS OWN argument shape -- a
+    ``Player.AddCash`` whose argument is a bare ``Quest.VarN`` is NOT
+    reported here (the sign is the only thing that says the player pays,
+    and the signedness table already carries the cell-negative ones),
+    while a ``Player.RemoveItem`` whose argument is a bare
+    ``Quest.VarN`` IS, because that call takes the item whatever the cell
+    holds.  One call site can therefore contribute TWO members, the item
+    id and the count, and both belong to the same charge.
     """
     data = path.read_bytes()
     lines = data.split(b"\n")
     found = []
     for number, line in enumerate(lines, start=1):
         for api in sorted(TAKE_BY_API):
-            position = TAKE_BY_API[api]
+            positions, shape = TAKE_BY_API[api]
             # EVERY call on the line (pf-adversary D3): a second
             # `Player.AddCash(...)` after the first one used to be read by
             # nothing at all.
             for args in argument_lists_of(line, api.encode("ascii")):
-                if position >= len(args):
-                    continue
-                argument = args[position]
-                index = None
-                for pattern in _SCRIPT_NEGATED_VAR:
-                    match = pattern.match(argument)
-                    if match is not None:
-                        index = int(match.group(1))
-                        break
-                if index is None:
-                    if (_READS_A_VAR.search(argument)
-                            and not _BARE_VAR_READ.match(argument)):
-                        raise UnclassifiedTakeSite(
-                            "%s:%d passes `%s` to %s at argument %d: it "
-                            "reads a quest cell but is neither the bare "
-                            "read nor a classified negation, so this tool "
-                            "cannot say whether the player is charged.  "
-                            "Read the line and either add the shape to "
-                            "`_SCRIPT_NEGATED_VAR` or say why it is not a "
-                            "take."
-                            % (path.name, number,
-                               argument.decode("ascii", "replace").strip(),
-                               api, position))
-                    continue
-                if not 1 <= index <= VAR_COUNT:
-                    continue
-                found.append((enclosing_function(lines, number), index, api,
-                              number))
+                for position in positions:
+                    if position >= len(args):
+                        continue
+                    index = _take_index_of(path, number, api, position,
+                                           args[position], shape)
+                    if index is None:
+                        continue
+                    if not 1 <= index <= VAR_COUNT:
+                        continue
+                    found.append((enclosing_function(lines, number), index,
+                                  api, number))
     return found
+
+
+def _take_index_of(path: Path, number: int, api: str, position: int,
+                   argument: bytes, shape: str):
+    """The ``VarN`` index this take-side argument charges, or ``None``.
+
+    ``None`` means "not a take THIS tool may claim", never "no cell here":
+    an argument that reads a cell in a shape nobody has classified raises
+    :class:`UnclassifiedTakeSite` instead, which is the whole point of the
+    class (pf-adversary D3, round ``yzdgx1``).
+    """
+    if shape == TAKE_SHAPE_ANY_VAR:
+        # The NAME is the charge: a bare cell read at either argument is
+        # part of it, whatever the cell holds.  Nothing to walk past, so
+        # anything that touches a cell in another shape is the hard stop.
+        match = _BARE_VAR_READ.match(argument)
+        if match is not None:
+            return int(match.group(1))
+        if _READS_A_VAR.search(argument):
+            raise UnclassifiedTakeSite(
+                "%s:%d passes `%s` to %s at argument %d: %s takes the "
+                "player's item whatever the cells hold, so every quest "
+                "cell it reads is part of that charge -- but this "
+                "argument reads one in a shape nobody has classified, so "
+                "this tool cannot name the cell being charged.  Read the "
+                "line and either say why it is not a take or give the "
+                "shape a rule."
+                % (path.name, number,
+                   argument.decode("ascii", "replace").strip(), api,
+                   position, api))
+        return None
+    if shape != TAKE_SHAPE_SCRIPT_NEGATED:  # pragma: no cover - closed set
+        raise UnclassifiedTakeSite(
+            "%s has no argument shape rule; TAKE_BY_API is closed and "
+            "every member must name one" % api)
+    for pattern in _SCRIPT_NEGATED_VAR:
+        match = pattern.match(argument)
+        if match is not None:
+            return int(match.group(1))
+    if _READS_A_VAR.search(argument) and not _BARE_VAR_READ.match(argument):
+        raise UnclassifiedTakeSite(
+            "%s:%d passes `%s` to %s at argument %d: it reads a quest "
+            "cell but is neither the bare read nor a classified "
+            "negation, so this tool cannot say whether the player is "
+            "charged.  Read the line and either add the shape to "
+            "`_SCRIPT_NEGATED_VAR` or say why it is not a take."
+            % (path.name, number,
+               argument.decode("ascii", "replace").strip(), api, position))
+    return None
 
 
 def scan_groups(rows, corpus: Path):
