@@ -3632,6 +3632,67 @@ class SQLiteStore:
             ).fetchone()
         return QuestCounterRow(*row) if row is not None else None
 
+    def quest_counters_named(
+        self, character_id: int, counter_name: str
+    ) -> "tuple[QuestCounterRow, ...]":
+        """Every counter one character carries under ONE name, across all
+        of her quests -- the (character, counter name) -> quest_id
+        direction the five doors of `2212` cannot answer.
+
+        WHY THIS DOOR EXISTS.  `pf_bridge/notes_to_chief/20260908_1757_
+        LANE-Q-TO-LANE-DB-one-more-door-which-quests-does-this-character-
+        count-mobs-for.md` measured the gap: a mob dying is an event from
+        LANE-B carrying a template id, not a quest id, so LANE-Q cannot
+        name the quest whose counter must move.  `get_quest_counter` takes
+        the full three-part key, so answering it needs the quest id that is
+        the question itself.  The two honest ways round it that letter
+        names -- asking all 65,536 u16 quest ids per dead mob, or guessing
+        from `QUESTDATA_*` which quests COULD count this mob (which cannot
+        say whether this character ACCEPTED any of them) -- are a scan and
+        a lie respectively.
+
+        READ ONLY, AND EXACT.  Nothing is created: a mob dying may not push
+        a quest the player never accepted forward, so a name nothing has
+        written yet is an EMPTY TUPLE, not a zero row and not an error.
+        The name is matched with `=`, never `LIKE` and never a prefix --
+        `counter_name` is caller-chosen text (`2212`), so a `%` or a `_`
+        inside a legitimate name would otherwise silently widen the answer.
+
+        Rows come back ordered by `quest_id` so two calls on unchanged
+        rows are byte-for-byte equal; SQLite's own row order is not a
+        promise, and LANE-Q's adapter iterates the result.
+
+        A missing or soft-deleted character raises `KeyError` -- the same
+        `_quest_live` check every other quest door uses (pf-adversary D9,
+        round `6vv9mi`, is exactly the drift that happens when a read door
+        answers this case its own way).  `counter_name` is refused with
+        `TypeError`/`ValueError` on the same 1..128-character bound the
+        write doors use, so a name that could never have been written is
+        not silently answered with "no rows".
+
+        NO NEW INDEX IS OWED.  The table's PRIMARY KEY is
+        `(character_id, quest_id, counter_name)`, so this filter rides its
+        leading column and touches only this character's own rows;
+        `tests/test_persistence_quest_state_counters_named.py` pins the
+        query plan (SEARCH, not SCAN) so a later schema change that would
+        turn this door into a table scan goes red here.
+        """
+        # `character_id` gets the SAME refusal the other five doors give
+        # it (`_quest_key`'s first half, identical bound and identical
+        # message) -- there is no `quest_id` here to key on, so the check
+        # is reached through `_quest_number` rather than re-typed.
+        self._quest_number(character_id, "character_id")
+        counter_name = self._quest_counter_name(counter_name)
+        with self.connect() as db:
+            self._quest_live(db, character_id)
+            rows = db.execute(
+                "SELECT character_id,quest_id,counter_name,counter_value,"
+                "updated_at FROM character_quest_counter "
+                "WHERE character_id=? AND counter_name=? ORDER BY quest_id",
+                (character_id, counter_name),
+            ).fetchall()
+        return tuple(QuestCounterRow(*row) for row in rows)
+
     def select_character_honoring_home_marker(self, sid: str, selector: int):
         """`select_character`, except a character who has SET a home marker
         comes back pointed at that scene's id instead of whatever scene her
