@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import gc
 import io
 import sys
 import tempfile
 import unittest
+import weakref
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2130,6 +2132,275 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
                     ui_party_wire.PARTY_CMD_VITAL_ID, answerer
                 )
             )
+
+
+class _UnweakreferenceableSession:
+    """In-game by the seam's own check, and impossible to bound.
+
+    ``__slots__`` without ``__weakref__`` is the one shape that makes
+    ``weakref.ref`` raise, which is the branch the allowance falls back
+    on.  A session like this is not hypothetical hygiene: it is what any
+    future memory-tuned session class would look like.
+    """
+
+    __slots__ = ("foundation",)
+
+    def __init__(self):
+        self.foundation = _InGameSession._Foundation()
+
+
+class _OversizeEnvelope:
+    """An envelope builder whose frame is bigger than it promised."""
+
+    def __init__(self, frame_bytes):
+        self._frame_bytes = frame_bytes
+
+    def make_runtime_vitals(self, items):
+        return b"\x00", b"\x00" * self._frame_bytes
+
+
+class TheAllowanceBelongsToTheSessionTests(_RegistryIsolation):
+    """pf-adversary round 1gc6hl, D-B and D-F, paid round vy1m79.
+
+    The two shipped answerers each kept a PROCESS-WIDE counter.  Measured
+    on the branch that shipped it: session A, logged in correctly,
+    answered 32 invites; session B -- a different object, equally past
+    the login door -- then got zero, and stayed at zero for the life of
+    the process.  One player pressing an ordinary button silenced the
+    button for everybody.  The allowance now lives in this seam, which is
+    the only place a session is visible, and it is keyed by session
+    identity.
+    """
+
+    GOOD = ("UI_PARTY_INVITE_ANSWERED", b"\x07\x07", b"\x01\x02", 0.0)
+
+    def setUp(self):
+        super().setUp()
+        ui_dispatch.reset_session_budgets_for_tests()
+        self.addCleanup(ui_dispatch.reset_session_budgets_for_tests)
+
+    def _register(self, value):
+        self.calls = []
+
+        def answerer(session=None, vital_id=None, payload=None):
+            self.calls.append(payload)
+            return value
+
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        self.allow(answerer)
+        return answerer
+
+    def _press(self, session):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            out = ui_dispatch.answer(session, PARTY_INVITE_VITAL_ID, b"")
+        return out, stderr.getvalue()
+
+    def test_the_allowance_is_pinned_at_a_literal_this_test_owns(self):
+        # Independent of the constant it pins: reading
+        # SESSION_ANSWER_BUDGET to build the expectation would make every
+        # value pass (pf-adversary D-C, the vacuous-pin family).
+        self.assertEqual(ui_dispatch.SESSION_ANSWER_BUDGET, 32)
+
+    def test_one_session_spends_its_own_allowance_and_no_other(self):
+        self._register([self.GOOD])
+        spender = _in_game()
+        for n in range(32):
+            out, _ = self._press(spender)
+            self.assertEqual(len(out), 1, "press %d" % (n,))
+        out, console = self._press(spender)
+        self.assertEqual(out, [])
+        self.assertIn("reason=session_budget_spent", console)
+        # THE WHOLE POINT: a different session, on the same process,
+        # after the first one is spent.
+        bystander = _in_game()
+        out, console = self._press(bystander)
+        self.assertEqual(len(out), 1)
+        self.assertNotIn("session_budget_spent", console)
+
+    def test_a_spent_session_does_not_reach_the_answerer_at_all(self):
+        # Before ``fn``, like the login door: a spent session must not
+        # even run the lane's code, or the guard is only about bytes.
+        self._register([self.GOOD])
+        spender = _in_game()
+        for _ in range(32):
+            self._press(spender)
+        self.assertEqual(len(self.calls), 32)
+        for _ in range(5):
+            self._press(spender)
+        self.assertEqual(len(self.calls), 32)
+
+    def test_a_refusal_costs_the_session_nothing(self):
+        # pf-adversary D-F.  The seam's own refusals used to land AFTER
+        # the lane had counted, so a client could burn an allowance with
+        # zero bytes ever reaching anybody.  The charge is now at the
+        # send point and only for a batch that carries actions.
+        answerer = self._register([("UI_UNLISTED_LABEL", b"\x01", b"\x02", 0.0)])
+        session = _in_game()
+        for _ in range(80):
+            out, _ = self._press(session)
+            self.assertEqual(out, [])
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        self.assertEqual(ui_dispatch._session_answers_spent(session), 0)
+
+    def test_an_empty_answer_costs_the_session_nothing(self):
+        # "Nothing for this payload" is the ordinary case, not a press.
+        self._register([])
+        session = _in_game()
+        for _ in range(80):
+            self.assertEqual(self._press(session)[0], [])
+        self.assertEqual(ui_dispatch._session_answers_spent(session), 0)
+
+    def test_a_session_the_seam_cannot_bound_is_refused_not_answered(self):
+        self._register([self.GOOD])
+        out, console = self._press(_UnweakreferenceableSession())
+        self.assertEqual(out, [])
+        self.assertIn("reason=session_budget_unbounded", console)
+
+    def test_the_row_goes_when_the_session_does(self):
+        # A row per connection ever made would be a leak, and dropping
+        # rows on a timer would be an unbounded allowance.  The weakref
+        # callback is what makes it neither.
+        self._register([self.GOOD])
+        session = _in_game()
+        self._press(session)
+        key = id(session)
+        self.assertIn(key, ui_dispatch._SESSION_ANSWERS_SENT)
+        del session
+        gc.collect()
+        self.assertNotIn(key, ui_dispatch._SESSION_ANSWERS_SENT)
+
+    def test_the_table_does_not_keep_the_session_alive(self):
+        self._register([self.GOOD])
+        session = _in_game()
+        self._press(session)
+        ref = weakref.ref(session)
+        del session
+        gc.collect()
+        self.assertIsNone(ref())
+
+
+class TheReviewedShapesArePinnedTests(unittest.TestCase):
+    """pf-adversary round 1gc6hl, D-C: six mutants survived a green suite.
+
+    Every test that touched a budget read the budget out of the entry it
+    was checking, so widening ``max_frame_bytes`` to a billion changed
+    nothing anybody asserted.  These pins are literals this file owns:
+    they are the reviewed numbers, written down a second time, so a
+    change to the registry has to be a change to a test as well.
+    """
+
+    EXPECTED = {
+        "UI_PARTY_INVITE_ANSWERED": (0x37B1, frozenset((0,)), 512, 1024),
+        "UI_TRADE_INVITE_ANSWERED": (0x3700, frozenset((0,)), 512, 1024),
+    }
+
+    def test_the_registry_is_exactly_these_two_reviewed_rows(self):
+        self.assertEqual(
+            set(ui_dispatch._OUTBOUND_FRAME_SHAPES), set(self.EXPECTED)
+        )
+
+    def test_every_number_in_every_row_is_the_reviewed_one(self):
+        for label, expected in self.EXPECTED.items():
+            with self.subTest(label=label):
+                shape = ui_dispatch._OUTBOUND_FRAME_SHAPES[label]
+                self.assertEqual(
+                    (shape.vital_id, frozenset(shape.versions),
+                     shape.max_payload_bytes, shape.max_frame_bytes),
+                    expected,
+                )
+
+
+class EveryRefusalInComposeIsReachedTests(unittest.TestCase):
+    """pf-adversary round 1gc6hl, D-C: five ``raise`` lines never ran.
+
+    Paying D8 the round before -- making the lanes ask the registry
+    before counting -- had the side effect that the seam's own budget
+    refusals became code no test could reach, because the only callers
+    were lanes that had already checked.  A refusal nothing executes is a
+    refusal nobody can be sure still works, so each one is reached here
+    directly, on ``_compose``, the way the file's own D-A tests do.
+    """
+
+    LABEL = "UI_PARTY_INVITE_ANSWERED"
+
+    def _reply(self, **kwargs):
+        fields = dict(
+            label=self.LABEL, vital_id=PARTY_INVITE_VITAL_ID, version=0,
+            payload=b"\x01", delay=0.0,
+        )
+        fields.update(kwargs)
+        return ui_dispatch.VitalReply(**fields)
+
+    def test_no_envelope(self):
+        with self.assertRaises(ValueError) as caught:
+            ui_dispatch._compose(None, PARTY_INVITE_VITAL_ID, self._reply())
+        self.assertIn("envelope", str(caught.exception))
+
+    def test_a_label_with_no_reviewed_row(self):
+        with self.assertRaises(ValueError) as caught:
+            ui_dispatch._compose(
+                _OversizeEnvelope(4), PARTY_INVITE_VITAL_ID,
+                self._reply(label="UI_NO_SUCH_REVIEWED_LABEL"),
+            )
+        self.assertIn("no reviewed outbound frame shape", str(caught.exception))
+
+    def test_a_label_reviewed_for_another_id(self):
+        # The reply answers the id it was sent (0x3700), so the earlier
+        # id check passes; the label is the party row, reviewed for
+        # 0x37B1.  This is a lane speaking under somebody else's review.
+        from pirateforce_foundation import ui_trade_wire
+
+        with self.assertRaises(ValueError) as caught:
+            ui_dispatch._compose(
+                _OversizeEnvelope(4),
+                ui_trade_wire.TRADE_INVITE_VITAL_ID,
+                self._reply(
+                    vital_id=ui_trade_wire.TRADE_INVITE_VITAL_ID
+                ),
+            )
+        self.assertIn("is registered for", str(caught.exception))
+
+    def test_a_version_nobody_reviewed(self):
+        with self.assertRaises(ValueError) as caught:
+            ui_dispatch._compose(
+                _OversizeEnvelope(4), PARTY_INVITE_VITAL_ID,
+                self._reply(version=1),
+            )
+        self.assertIn("not a reviewed version", str(caught.exception))
+
+    def test_a_payload_past_the_reviewed_budget(self):
+        with self.assertRaises(ValueError) as caught:
+            ui_dispatch._compose(
+                _OversizeEnvelope(4), PARTY_INVITE_VITAL_ID,
+                self._reply(payload=b"\x00" * 513),
+            )
+        self.assertIn("exceeds the reviewed budget", str(caught.exception))
+
+    def test_a_payload_exactly_at_the_reviewed_budget_is_not_refused(self):
+        # The pair that makes the test above measure a budget rather than
+        # a large number.
+        action = ui_dispatch._compose(
+            _OversizeEnvelope(4), PARTY_INVITE_VITAL_ID,
+            self._reply(payload=b"\x00" * 512),
+        )
+        self.assertEqual(action[0], self.LABEL)
+
+    def test_a_composed_frame_past_the_reviewed_budget(self):
+        # The builder's own output, checked rather than assumed: a
+        # payload inside budget whose FRAME is not says the row in the
+        # table is not the shape being built.
+        with self.assertRaises(ValueError) as caught:
+            ui_dispatch._compose(
+                _OversizeEnvelope(1025), PARTY_INVITE_VITAL_ID, self._reply(),
+            )
+        self.assertIn("composed frame", str(caught.exception))
+
+    def test_a_composed_frame_exactly_at_the_reviewed_budget(self):
+        action = ui_dispatch._compose(
+            _OversizeEnvelope(1024), PARTY_INVITE_VITAL_ID, self._reply(),
+        )
+        self.assertEqual(len(action[2]), 1024)
 
 
 if __name__ == "__main__":  # pragma: no cover

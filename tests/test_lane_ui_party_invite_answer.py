@@ -247,32 +247,27 @@ class RefusalTests(_AnswererRegistered):
         self.assertEqual(out, [])
         self.assertIn("reason=payload_not_bytes", log)
 
-    def test_the_budget_stops_answering_and_says_so(self):
+    def test_this_module_no_longer_keeps_an_allowance_of_its_own(self):
+        # pf-adversary D-B.  The counter that used to live here was
+        # process-wide, so one logged-in player spending it silenced the
+        # button for every other logged-in player.  It is gone; the
+        # allowance is the seam's and it is per session
+        # (BudgetIsPerSessionTests below measures that).  A name left
+        # behind would let a reader think this file still bounds
+        # anything.
+        self.assertFalse(hasattr(answerer_module, "ANSWER_BUDGET"))
+        self.assertFalse(hasattr(answerer_module, "_answers_sent"))
+
+    def test_calling_the_answerer_directly_is_no_longer_bounded_here(self):
+        # Said out loud rather than left as a surprise: this module will
+        # answer as often as it is asked.  What bounds a real player is
+        # ui_dispatch.answer(), which is the only route a frame takes.
         payload = _real_invite_payload()
-        for _ in range(answerer_module.ANSWER_BUDGET):
+        for _ in range(ui_dispatch.SESSION_ANSWER_BUDGET + 5):
             out, _ = self._call(
                 vital_id=wire.PARTY_INVITE_VITAL_ID, payload=payload,
             )
             self.assertEqual(len(out), 1)
-        out, log = self._call(
-            vital_id=wire.PARTY_INVITE_VITAL_ID, payload=payload,
-        )
-        self.assertEqual(out, [])
-        self.assertIn("reason=budget_spent", log)
-
-    def test_a_refused_frame_does_not_spend_budget(self):
-        # Ordering, not decoration: if the budget were charged before the
-        # decode, a client sending junk could spend the whole allowance
-        # and silence the button for the session that follows.
-        for _ in range(answerer_module.ANSWER_BUDGET + 5):
-            self._call(
-                vital_id=wire.PARTY_INVITE_VITAL_ID, payload=b"\x00",
-            )
-        out, _ = self._call(
-            vital_id=wire.PARTY_INVITE_VITAL_ID,
-            payload=_real_invite_payload(),
-        )
-        self.assertEqual(len(out), 1)
 
     def test_the_label_is_this_lanes_own(self):
         # The seam refuses a batch whose label is not UI_-prefixed or
@@ -308,13 +303,33 @@ class RefusalTests(_AnswererRegistered):
         )
         self.assertEqual(out, [])
         self.assertIn("reason=over_reviewed_payload_budget", console)
-        # Free: an ordinary invite right after it is still answered, and
-        # the whole allowance is still there.
-        for _ in range(answerer_module.ANSWER_BUDGET):
-            out, _ = self._call(
-                vital_id=wire.PARTY_INVITE_VITAL_ID, payload=_real_invite_payload(),
-            )
-            self.assertEqual(len(out), 1)
+        # Free: an ordinary invite right after it is still answered.
+        out, _ = self._call(
+            vital_id=wire.PARTY_INVITE_VITAL_ID,
+            payload=_real_invite_payload(),
+        )
+        self.assertEqual(len(out), 1)
+
+    def test_a_label_with_no_reviewed_shape_is_refused_not_skipped(self):
+        # pf-adversary D-F.  The guard read `if shape is not None and
+        # len(...) > ...`, so a renamed registry key made this module
+        # SKIP its own budget check and die inside _compose instead --
+        # the guard vanishing exactly when the thing it guards went
+        # missing.  Rename the key and the module must refuse, in its
+        # own token, before any of that.
+        saved = ui_dispatch._OUTBOUND_FRAME_SHAPES.pop(
+            answerer_module.LABEL
+        )
+        self.addCleanup(
+            ui_dispatch._OUTBOUND_FRAME_SHAPES.__setitem__,
+            answerer_module.LABEL, saved,
+        )
+        out, console = self._call(
+            vital_id=wire.PARTY_INVITE_VITAL_ID,
+            payload=_real_invite_payload(),
+        )
+        self.assertEqual(out, [])
+        self.assertIn("reason=no_reviewed_outbound_shape", console)
 
 
 class _InGameSession:

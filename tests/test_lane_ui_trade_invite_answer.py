@@ -205,23 +205,29 @@ class RefusalTests(_AnswererRegistered):
             "in=%d out=%d" % (len(payload), len(payload) + 1), console,
         )
 
-    def test_the_budget_stops_answering_and_refusals_do_not_spend_it(self):
-        payload = _real_invite_payload()
-        # Refusals first: if they spent budget, a client sending junk
-        # could silence the button for everyone on this process.
-        for _ in range(answerer_module.ANSWER_BUDGET * 2):
-            self._call(vital_id=wire.TRADE_INVITE_VITAL_ID, payload=b"\x00")
-        out, _ = self._call(
-            vital_id=wire.TRADE_INVITE_VITAL_ID, payload=payload,
+    def test_this_module_no_longer_keeps_an_allowance_of_its_own(self):
+        # pf-adversary D-B, same finding as the party module's.  The
+        # counter here was process-wide, so a storm guard bought at the
+        # price of one player being able to silence every other player.
+        self.assertFalse(hasattr(answerer_module, "ANSWER_BUDGET"))
+        self.assertFalse(hasattr(answerer_module, "_answers_sent"))
+
+    def test_a_label_with_no_reviewed_shape_is_refused_not_skipped(self):
+        # pf-adversary D-F.  A renamed registry key used to make this
+        # module skip its own budget check and die inside _compose.
+        saved = ui_dispatch._OUTBOUND_FRAME_SHAPES.pop(
+            answerer_module.LABEL
         )
-        self.assertEqual(len(out), 1)
-        for _ in range(answerer_module.ANSWER_BUDGET - 1):
-            self._call(vital_id=wire.TRADE_INVITE_VITAL_ID, payload=payload)
+        self.addCleanup(
+            ui_dispatch._OUTBOUND_FRAME_SHAPES.__setitem__,
+            answerer_module.LABEL, saved,
+        )
         out, console = self._call(
-            vital_id=wire.TRADE_INVITE_VITAL_ID, payload=payload,
+            vital_id=wire.TRADE_INVITE_VITAL_ID,
+            payload=_real_invite_payload(),
         )
         self.assertEqual(out, [])
-        self.assertIn("reason=budget_spent", console)
+        self.assertIn("reason=no_reviewed_outbound_shape", console)
 
     def test_the_reply_is_the_players_own_bytes(self):
         payload = _real_invite_payload()
@@ -257,13 +263,12 @@ class RefusalTests(_AnswererRegistered):
         )
         self.assertEqual(out, [])
         self.assertIn("reason=over_reviewed_payload_budget", console)
-        # Free: an ordinary invite right after it is still answered, and
-        # the whole allowance is still there.
-        for _ in range(answerer_module.ANSWER_BUDGET):
-            out, _ = self._call(
-                vital_id=wire.TRADE_INVITE_VITAL_ID, payload=_real_invite_payload(),
-            )
-            self.assertEqual(len(out), 1)
+        # Free: an ordinary invite right after it is still answered.
+        out, _ = self._call(
+            vital_id=wire.TRADE_INVITE_VITAL_ID,
+            payload=_real_invite_payload(),
+        )
+        self.assertEqual(len(out), 1)
 
 
 class SharedShapeTests(unittest.TestCase):
@@ -302,7 +307,7 @@ class SharedShapeTests(unittest.TestCase):
             )
             with self.subTest(module=module.__name__):
                 self.assertIs(module.production_allowed, True)
-                self.assertEqual(module.ANSWER_BUDGET, 32)
+                self.assertFalse(hasattr(module, "ANSWER_BUDGET"))
                 self.assertTrue(module.LABEL.startswith("UI_"))
                 self.assertIsNotNone(
                     ui_dispatch.outbound_shape(module.LABEL),

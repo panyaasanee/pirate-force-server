@@ -95,6 +95,7 @@ import math
 import numbers
 import re
 import sys
+import weakref
 
 # NO ``from . import lane_hooks`` HERE (pf-adversary round 2, R4).
 # ``runtime.py`` imports this module at line 30 and ``lane_hooks`` at
@@ -554,6 +555,96 @@ def _session_is_in_game(session):
         if value is None:
             return False
     return True
+
+
+# WHOSE ALLOWANCE IS SPENT WHEN A BUTTON IS ANSWERED
+# (pf-adversary round 1gc6hl, D-B).  The two shipped answerers each kept
+# a PROCESS-WIDE counter, and the reason given for it was true but did
+# not follow: an answerer is handed no session identity, so a lane cannot
+# count per session.  The seam can.  Measured on the branch that shipped
+# the process-wide counter: session A, logged in correctly, answered 32
+# invites and then session B -- a different account, a different socket,
+# equally logged in -- got zero, and stayed at zero until the server was
+# restarted.  One ordinary player, pressing an ordinary button, silenced
+# the button for everybody.
+#
+# THE GUARD BELONGS WHERE THE SESSION IS VISIBLE, so it lives here and
+# the lanes no longer keep a counter at all.  What it bounds is what the
+# storm argument is actually about: a client that answers our answer with
+# the same vital would trade frames with us forever, and a storm runs
+# between the server and ONE socket.  A cap per session bounds that
+# exactly; a cap per process bounds it too, and bounds every other
+# session with it.
+#
+# COUNTED WHERE THE BYTES ARE, NOT WHERE THE FRAME ARRIVES (this also
+# pays D-F).  The charge happens at the send point, once the batch has
+# passed every gate and is about to be returned, and only for a batch
+# that carries actions.  So a refusal -- a wrong id, junk bytes, a
+# payload over the reviewed budget, a missing envelope, an answerer that
+# raised -- costs the session nothing, which is the property the lanes
+# used to try to buy by ordering their own checks and could not, because
+# the seam's own refusals happen after the lane has already counted.
+#
+# READ BEFORE THE ANSWERER RUNS, CHARGED AFTER IT SUCCEEDS: once the
+# allowance is spent the lane's code is not entered at all, the same
+# shape as the login door above.
+SESSION_ANSWER_BUDGET = 32
+
+# ``id(session)`` -> ``[answers_sent, weakref]``.  Keyed by IDENTITY, not
+# by the session as a dict key: a ``WeakKeyDictionary`` would call the
+# session class's own ``__hash__``/``__eq__``, and two sessions that
+# compare equal would then share one allowance -- which is the very bug
+# being fixed, reintroduced through the container.  The weakref's
+# callback drops the row when the session is collected, so a long-lived
+# server does not accumulate one entry per connection ever made.  CPython
+# runs that callback during the object's deallocation, before its memory
+# can be handed to a new object, so the id cannot already belong to
+# somebody else by the time the row goes.
+_SESSION_ANSWERS_SENT = {}
+
+
+def _drop_session_budget(key):
+    def _drop(_ref):
+        _SESSION_ANSWERS_SENT.pop(key, None)
+    return _drop
+
+
+def _session_answers_spent(session):
+    """How many answers this session has already been sent."""
+    entry = _SESSION_ANSWERS_SENT.get(id(session))
+    if entry is None:
+        return 0
+    return entry[0]
+
+
+def _charge_session_answer(session):
+    """Spend one answer for ``session``.  Returns "" when it was spent.
+
+    A non-empty return is the reason nothing may be sent, so the caller
+    prints what actually happened instead of one word covering two very
+    different states.  Fail-closed on a session this seam cannot bound: a
+    session object that cannot be weak-referenced would either leave its
+    row here forever (a leak) or need the row dropped (an unbounded
+    allowance), and neither is a guard.
+    """
+    key = id(session)
+    entry = _SESSION_ANSWERS_SENT.get(key)
+    if entry is None:
+        try:
+            ref = weakref.ref(session, _drop_session_budget(key))
+        except TypeError:
+            return "session_budget_unbounded"
+        entry = [0, ref]
+        _SESSION_ANSWERS_SENT[key] = entry
+    if entry[0] >= SESSION_ANSWER_BUDGET:
+        return "session_budget_spent"
+    entry[0] += 1
+    return ""
+
+
+def reset_session_budgets_for_tests():
+    """Forget every session's spend.  Tests and arming proofs only."""
+    _SESSION_ANSWERS_SENT.clear()
 
 
 class _SessionSnapshot(tuple):
@@ -1170,6 +1261,18 @@ def answer(session, vital_id, payload, envelope=None):
             % (_hex(vital_id), module_name)
         )
         return []
+    # THIS SESSION'S OWN ALLOWANCE, READ BEFORE THE LANE'S CODE RUNS
+    # (pf-adversary round 1gc6hl, D-B -- see ``SESSION_ANSWER_BUDGET``).
+    # A spent session does not reach the answerer at all; a session that
+    # has spent nothing is not charged here, because a refusal must be
+    # free (D-F).  The charge is at the send point below.
+    if _session_answers_spent(session) >= SESSION_ANSWER_BUDGET:
+        _say(
+            "UI_DISPATCH_GATED id=%s module=%s reason=session_budget_spent"
+            " budget=%d" % (_hex(vital_id), module_name,
+                            SESSION_ANSWER_BUDGET)
+        )
+        return []
     try:
         actions = fn(
             session=_SessionSnapshot(session),
@@ -1248,6 +1351,19 @@ def answer(session, vital_id, payload, envelope=None):
             % (_hex(vital_id), module_name)
         )
         return []
+    # THE CHARGE, AND IT IS THE LAST THING BEFORE THE RETURN.  Only a
+    # batch that carries actions costs the session anything: an answerer
+    # returning ``[]`` is the ordinary "nothing for this payload" and
+    # must not be a way to spend a player's allowance.  A session this
+    # seam cannot bound is refused rather than answered unbounded.
+    if actions:
+        refusal = _charge_session_answer(session)
+        if refusal:
+            _say(
+                "UI_DISPATCH_ANSWER_REFUSED id=%s module=%s reason=%s"
+                % (_hex(vital_id), module_name, refusal)
+            )
+            return []
     # NAMED FOR WHAT IT MEASURES (pf-adversary round 3, D5).  This line
     # was ``UI_DISPATCH_ANSWERED``, and it fires here -- after the
     # validator liked the shape, BEFORE the dispatcher hands the batch to
@@ -1259,7 +1375,8 @@ def answer(session, vital_id, payload, envelope=None):
     # as evidence that a button answered must not be one layer short of
     # the wire, so it says what it knows: the actions were ACCEPTED.
     _say(
-        "UI_DISPATCH_ACCEPTED id=%s module=%s actions=%d"
-        % (_hex(vital_id), module_name, len(actions))
+        "UI_DISPATCH_ACCEPTED id=%s module=%s actions=%d spent=%d/%d"
+        % (_hex(vital_id), module_name, len(actions),
+           _session_answers_spent(session), SESSION_ANSWER_BUDGET)
     )
     return actions

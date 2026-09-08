@@ -54,24 +54,36 @@ WHO CAN PRESS THIS BUTTON: SOMEBODY WHO LOGGED IN -- AND THAT IS NEW
 fixed: ``ui_dispatch.answer()`` refuses before any answerer runs unless
 the session holds a selected character, the same precondition
 ``runtime.py`` already applies to in-game frames.  So a peer that never
-logged in reaches neither these bytes nor the counter below, and the
-process-wide budget can no longer be drained by anyone but a player who
-came through the door.  What is NOT claimed: this is not per-account
-rate limiting, and one logged-in player can still spend the whole
-process budget.
+logged in reaches neither these bytes nor an allowance.
+
+AND THE ALLOWANCE IS NOW THE SESSION'S, NOT THE SERVER'S (pf-adversary
+D-B, paid round vy1m79).  This module used to keep its own process-wide
+counter; the sentence above used to end "one logged-in player can still
+spend the whole process budget", and that was measured, not theoretical
+-- session A answered 32 invites and session B, a different account on a
+different socket, got nothing until the server was restarted.  The
+counter is gone from this file.  ``ui_dispatch`` keeps it instead, keyed
+by the session's identity (``SESSION_ANSWER_BUDGET``), because the seam
+is where a session is visible and a frame storm runs between the server
+and ONE socket.  A refusal costs nothing: the seam charges at its send
+point, and only for a batch that carries bytes.
 
 WHAT THE PLAYER SEES IS STILL A QUESTION FOR A SCREEN.  Static evidence
 says the client has a live handler that will run.  Whether it draws a
 dialog, a row, or nothing is a question about pixels, and this project
 answers those with an attended ticket, not with a docstring.
 
-THE BUDGET IS THIS MODULE'S OWN.  ``ANSWER_BUDGET`` is a separate
-process-wide counter from the party module's: two answerers sharing one
-counter would let a storm on either vital silence the other, which is a
-coupling nobody asked for.  Process-wide and not per session, for the
-reason ``ui_dispatch`` gives: the seam deliberately hands an answerer no
-session identity at all (``_SESSION_VIEW_FIELDS`` is empty), so a
-per-session budget would need a reviewed widening of that tuple.
+THE BUDGET IS NO LONGER THIS MODULE'S AT ALL, and the paragraph that
+stood here is worth keeping as a record of how a true sentence produced
+a wrong design.  It read: two answerers sharing one counter would let a
+storm on either vital silence the other, and a per-session budget would
+need a reviewed widening of ``_SESSION_VIEW_FIELDS`` because the seam
+hands an answerer no session identity.  Both halves were true; the
+conclusion -- therefore a process-wide counter per module -- was not,
+because it only ever asked what a LANE can see.  ``ui_dispatch`` sees
+the session, so it holds the allowance, per session and (through the
+label registry) still per vital: a storm on trade cannot silence party,
+and a player spending their own allowance cannot silence anybody.
 
 WHY THIS IS A SEPARATE FILE AND NOT A SHARED FACTORY.  A factory that
 built both answerers would put the body that runs in one module and the
@@ -96,13 +108,6 @@ production_allowed = True
 
 LABEL = "UI_TRADE_INVITE_ANSWERED"
 
-# Answers per process before this module stops answering.  Same number
-# and same reason as the party answerer's: the first attended run needs
-# a handful of presses, and anything past that on one boot is a loop,
-# not a player.
-ANSWER_BUDGET = 32
-
-_answers_sent = 0
 
 
 def _say(line: str) -> None:
@@ -127,8 +132,6 @@ def answer_trade_invite(session=None, vital_id=0, payload=b"", **_ignored):
     named on stderr so an attended round can line the console up against
     what the screen did.
     """
-    global _answers_sent
-
     if vital_id != wire.TRADE_INVITE_VITAL_ID:
         _say("UI_TRADE_INVITE_REFUSED reason=wrong_id bytes_out=0")
         return []
@@ -176,24 +179,32 @@ def answer_trade_invite(session=None, vital_id=0, payload=b"", **_ignored):
     # on that number; this module asks it instead of keeping a second
     # copy that can drift.
     shape = ui_dispatch.outbound_shape(LABEL)
-    if shape is not None and len(reencoded) > shape.max_payload_bytes:
+    # A MISSING ROW IS A REFUSAL, NOT A CHECK THAT DID NOT APPLY
+    # (pf-adversary round 1gc6hl, D-F).  This read `if shape is not None
+    # and len(...) > ...`, so if the registry key were ever renamed this
+    # module would SKIP its own budget check and go on to die inside
+    # `ui_dispatch._compose` instead -- a guard that disappears exactly
+    # when the thing it guards has gone missing.  The registry is the
+    # authority on whether this label may leave at all, so no row means
+    # no answer, said in its own token.
+    if shape is None:
+        _say(
+            "UI_TRADE_INVITE_REFUSED reason=no_reviewed_outbound_shape"
+            " label=%.64s bytes_out=0" % (LABEL,)
+        )
+        return []
+    if len(reencoded) > shape.max_payload_bytes:
         _say(
             "UI_TRADE_INVITE_REFUSED reason=over_reviewed_payload_budget"
             " len=%d budget=%d bytes_out=0"
             % (len(reencoded), shape.max_payload_bytes)
         )
         return []
-    if _answers_sent >= ANSWER_BUDGET:
-        _say(
-            "UI_TRADE_INVITE_REFUSED reason=budget_spent budget=%d bytes_out=0"
-            % (ANSWER_BUDGET,)
-        )
-        return []
-    _answers_sent += 1
-    _say(
-        "UI_TRADE_INVITE_ANSWER n=%d/%d len=%d"
-        % (_answers_sent, ANSWER_BUDGET, len(reencoded))
-    )
+    # NO COUNTER HERE ANY MORE (pf-adversary D-B).  The seam charges the
+    # SESSION at its send point, so this module neither counts nor knows
+    # who is asking -- and it stays that way: the fix bought a per-player
+    # bound without widening `_SESSION_VIEW_FIELDS` by one field.
+    _say("UI_TRADE_INVITE_ANSWER len=%d" % (len(reencoded),))
     return [
         ui_dispatch.VitalReply(
             label=LABEL,
@@ -206,9 +217,14 @@ def answer_trade_invite(session=None, vital_id=0, payload=b"", **_ignored):
 
 
 def reset_budget_for_tests():
-    """Put the process budget back to zero.  Tests only."""
-    global _answers_sent
-    _answers_sent = 0
+    """Forget every session's spend.  Tests only.
+
+    Kept under its old name, delegating, because the allowance moved to
+    ``ui_dispatch`` (pf-adversary D-B) and the callers of this helper are
+    setUp/cleanup pairs whose job -- start this test from a clean
+    allowance -- did not change.
+    """
+    ui_dispatch.reset_session_budgets_for_tests()
 
 
 # REGISTERED AT IMPORT, WHICH IS WHEN ``lane_hooks._discover()`` RUNS --

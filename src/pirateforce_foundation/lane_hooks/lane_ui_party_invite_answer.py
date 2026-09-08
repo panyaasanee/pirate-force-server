@@ -52,8 +52,13 @@ zero the server answers with zero anyway.  Worse, the letter this
 module cites says that byte is CHECKED: ``RE-312`` RESULT-2 reads
 ``0x005F3EF4`` comparing the u8 after the id against ``[obj+0x10]`` and
 logging ``0xE0000031`` on a mismatch, and nobody has read ``[obj+0x10]``
-for this class.  A mutation of the constant leaves the suite green
-because the constant sits on both sides of every assertion.  So: the
+for this class.  That sentence used to end "a mutation of the constant
+leaves the suite green because the constant sits on both sides of every
+assertion", and pf-adversary (round 1gc6hl, D-G) is why it no longer
+says so: the outbound registry pins the reviewed version SET as a
+literal, and ``TheReviewedShapesArePinnedTests`` pins the registry's own
+numbers against literals a test file owns, so mutating the constant now
+turns the suite red.  What is still true is the part that matters: the
 version byte is a REVIEWED guess (``ui_dispatch``'s outbound registry
 pins the set to what ships), not a derived value, and closing it needs
 the inbound version handed to ``answer()`` -- a ``runtime.py`` change,
@@ -65,11 +70,19 @@ WHO CAN PRESS THIS BUTTON: SOMEBODY WHO LOGGED IN -- AND THAT IS NEW
 fixed: ``ui_dispatch.answer()`` refuses before any answerer runs unless
 the session holds a selected character, the same precondition
 ``runtime.py`` already applies to in-game frames.  So a peer that never
-logged in reaches neither these bytes nor the counter below, and the
-process-wide budget can no longer be drained by anyone but a player who
-came through the door.  What is NOT claimed: this is not per-account
-rate limiting, and one logged-in player can still spend the whole
-process budget.
+logged in reaches neither these bytes nor an allowance.
+
+AND THE ALLOWANCE IS NOW THE SESSION'S, NOT THE SERVER'S (pf-adversary
+D-B, paid round vy1m79).  This module used to keep its own process-wide
+counter; the sentence above used to end "one logged-in player can still
+spend the whole process budget", and that was measured, not theoretical
+-- session A answered 32 invites and session B, a different account on a
+different socket, got nothing until the server was restarted.  The
+counter is gone from this file.  ``ui_dispatch`` keeps it instead, keyed
+by the session's identity (``SESSION_ANSWER_BUDGET``), because the seam
+is where a session is visible and a frame storm runs between the server
+and ONE socket.  A refusal costs nothing: the seam charges at its send
+point, and only for a batch that carries bytes.
 
 
 SO WHAT DOES THE PLAYER SEE?  THIS MODULE DOES NOT CLAIM TO KNOW.  The
@@ -106,12 +119,6 @@ production_allowed = True
 
 LABEL = "UI_PARTY_INVITE_ANSWERED"
 
-# Answers per process before this module stops answering.  Deliberately
-# small: the first attended run needs a handful of presses, and anything
-# past that on one boot is a loop, not a player.
-ANSWER_BUDGET = 32
-
-_answers_sent = 0
 
 
 def _say(line: str) -> None:
@@ -136,8 +143,6 @@ def answer_party_invite(session=None, vital_id=0, payload=b"", **_ignored):
     named on stderr so an attended round can line the console up against
     what the screen did.
     """
-    global _answers_sent
-
     if vital_id != wire.PARTY_INVITE_VITAL_ID:
         _say("UI_PARTY_INVITE_REFUSED reason=wrong_id bytes_out=0")
         return []
@@ -185,24 +190,32 @@ def answer_party_invite(session=None, vital_id=0, payload=b"", **_ignored):
     # registry is the authority on that number; this module asks it
     # rather than keeping a second copy that can drift.
     shape = ui_dispatch.outbound_shape(LABEL)
-    if shape is not None and len(reencoded) > shape.max_payload_bytes:
+    # A MISSING ROW IS A REFUSAL, NOT A CHECK THAT DID NOT APPLY
+    # (pf-adversary round 1gc6hl, D-F).  This read `if shape is not None
+    # and len(...) > ...`, so if the registry key were ever renamed this
+    # module would SKIP its own budget check and go on to die inside
+    # `ui_dispatch._compose` instead -- a guard that disappears exactly
+    # when the thing it guards has gone missing.  The registry is the
+    # authority on whether this label may leave at all, so no row means
+    # no answer, said in its own token.
+    if shape is None:
+        _say(
+            "UI_PARTY_INVITE_REFUSED reason=no_reviewed_outbound_shape"
+            " label=%.64s bytes_out=0" % (LABEL,)
+        )
+        return []
+    if len(reencoded) > shape.max_payload_bytes:
         _say(
             "UI_PARTY_INVITE_REFUSED reason=over_reviewed_payload_budget"
             " len=%d budget=%d bytes_out=0"
             % (len(reencoded), shape.max_payload_bytes)
         )
         return []
-    if _answers_sent >= ANSWER_BUDGET:
-        _say(
-            "UI_PARTY_INVITE_REFUSED reason=budget_spent budget=%d bytes_out=0"
-            % (ANSWER_BUDGET,)
-        )
-        return []
-    _answers_sent += 1
-    _say(
-        "UI_PARTY_INVITE_ANSWER n=%d/%d len=%d"
-        % (_answers_sent, ANSWER_BUDGET, len(reencoded))
-    )
+    # NO COUNTER HERE ANY MORE (pf-adversary D-B).  The seam charges the
+    # SESSION at its send point, so this module neither counts nor knows
+    # who is asking -- and it stays that way: the fix bought a per-player
+    # bound without widening `_SESSION_VIEW_FIELDS` by one field.
+    _say("UI_PARTY_INVITE_ANSWER len=%d" % (len(reencoded),))
     return [
         ui_dispatch.VitalReply(
             label=LABEL,
@@ -215,9 +228,14 @@ def answer_party_invite(session=None, vital_id=0, payload=b"", **_ignored):
 
 
 def reset_budget_for_tests():
-    """Put the process budget back to zero.  Tests only."""
-    global _answers_sent
-    _answers_sent = 0
+    """Forget every session's spend.  Tests only.
+
+    Kept under its old name, delegating, because the allowance moved to
+    ``ui_dispatch`` (pf-adversary D-B) and the callers of this helper are
+    setUp/cleanup pairs whose job -- start this test from a clean
+    allowance -- did not change.
+    """
+    ui_dispatch.reset_session_budgets_for_tests()
 
 
 # REGISTERED AT IMPORT, WHICH IS WHEN ``lane_hooks._discover()`` RUNS.
