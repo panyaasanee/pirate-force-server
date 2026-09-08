@@ -1994,6 +1994,7 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
         the table, so a rename or a deleted file turns this red instead
         of leaving a row pointing at nothing.
         """
+        from pirateforce_foundation import ui_friend_wire
         from pirateforce_foundation import ui_party_wire
         from pirateforce_foundation import ui_trade_wire
 
@@ -2003,6 +2004,9 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
                 ui_party_wire.PARTY_INVITE_VITAL_ID,
                 ui_trade_wire.TRADE_INVITE_VITAL_ID,
                 ui_party_wire.PARTY_CMD_VITAL_ID,
+                # Round asw0n3, the fourth button and the first of the
+                # five CommunityModule_Client ids.
+                ui_friend_wire.COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
             },
         )
         # READ FROM DISK, NOT IMPORTED.  Importing an answerer module
@@ -2410,6 +2414,11 @@ class TheReviewedShapesArePinnedTests(unittest.TestCase):
         # here for the same reason as the two above: a registry that
         # widens without a test changing is a registry nobody reviewed.
         "UI_PARTY_CMD_ANSWERED": (0x2466, frozenset((0,)), 11, 64),
+        # Round asw0n3.  A tagged wstring makes this width the player's,
+        # so it is back to a CEILING and the same 512/1024 pair the two
+        # wstring rows at the top carry -- written out here as a literal
+        # for the same reason they are.
+        "UI_FRIEND_REQUEST_ANSWERED": (0xB9E9, frozenset((0,)), 512, 1024),
     }
 
     def test_the_registry_is_exactly_these_reviewed_rows(self):

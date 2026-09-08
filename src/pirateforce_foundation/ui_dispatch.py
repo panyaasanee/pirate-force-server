@@ -221,6 +221,13 @@ _ANSWERER_OWNERS = {
     0x37B1: _LANE_PACKAGE + "lane_ui_party_invite_answer",
     0x3700: _LANE_PACKAGE + "lane_ui_trade_invite_answer",
     0x2466: _LANE_PACKAGE + "lane_ui_party_cmd_answer",
+    # THE FIRST OF THE FIVE ``CommunityModule_Client`` IDS, and the first
+    # row here whose id is ALSO read on the production path by a
+    # report-only hook (``lane_ui_friend_wire_log``).  Those are two
+    # different questions: runtime.py fires the log hook and then calls
+    # ``answer()``, so the log keeps printing what arrived and this row
+    # decides only who may put a byte back.
+    0xB9E9: _LANE_PACKAGE + "lane_ui_friend_request_answer",
 }
 
 
@@ -1091,6 +1098,21 @@ _OUTBOUND_FRAME_SHAPES = {
         versions=frozenset((0,)),
         max_payload_bytes=11,
         max_frame_bytes=64,
+    ),
+    # A WSTRING CLASS, SO A CEILING AND NOT A WIDTH.
+    # ``Community_RequestBeFriendVital`` is ``u64 + tagged wstring + u8``,
+    # so a name moves its width and the fixed-width row above would be
+    # wrong here: the same 512/1024 pair the two wstring rows at the top
+    # of this registry use, chosen for the same reason and measured the
+    # same way (26 bytes for a five-character name, 58 on the wire with
+    # ``make_runtime_vitals``'s 32-byte envelope).  512 still refuses a
+    # lane that wants this label to carry a blob: no name the client can
+    # type reaches it.
+    "UI_FRIEND_REQUEST_ANSWERED": _OutboundShape(
+        vital_id=0xB9E9,
+        versions=frozenset((0,)),
+        max_payload_bytes=512,
+        max_frame_bytes=1024,
     ),
 }
 
