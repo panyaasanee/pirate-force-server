@@ -4,10 +4,14 @@ bridge clone standing beside this checkout.
 WHY THIS FILE EXISTS -- pf-adversary D6, round db4o73, quoted:
 
     "the generator and the server cannot diverge" is true only on a machine
-    with the bridge clone beside it -- the regenerate test is
-    ``skip_unless_present``.  Adversary measured: reverting ``visual_preset``
-    back to the raw cell is COMPLETELY GREEN when ``../pf_bridge/gamedata``
-    is absent.
+    with the bridge clone beside it -- the regenerate test is guarded by a
+    precondition that skips it when the data is not there.  Adversary
+    measured: reverting ``visual_preset`` back to the raw cell is COMPLETELY
+    GREEN when ``../pf_bridge/gamedata`` is absent.
+
+    THIS FILE ITSELF HAS NO SKIP AND NO PRECONDITION.  That is the whole
+    point of it: it must run in exactly the environment where the test it
+    stands beside does not.
 
 That finding is about coverage, not about a wrong byte: the byte-for-byte
 regenerate test is a real check and it stays.  What it is not is a check that
