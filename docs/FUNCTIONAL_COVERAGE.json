@@ -1030,6 +1030,17 @@
           "notes": "Community_RemoveFriendVital 0x98A1, u64 + u64 + u8, fixed at 20 bytes for every value the type can hold. RE-312 RESULT-1 lists it INBOUND_YES (handler 0x00645BF0, next 0x0063F9B0), but BUILD_IMPACT 3 of the same letter says the five Community_ ids share one vtable entry and split INSIDE 0x0063F9B0, and nobody has read that function -- so 'this id has a handler' is measured while 'the split reaches a body for this id' is not. That is a second reason this row cannot be runtime_pass, on top of observed_frames = 0."
         },
         {
+          "id": "friend_request_answer",
+          "title": "Friend request button is answered",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_lane_ui_friend_request_answer.py"
+          ],
+          "notes": "Community_RequestBeFriendVital 0xB9E9, landed by round asw0n3 while round ncejt8 was writing this domain. u64 + tagged wstring + u8, so a name moves the width and the reviewed row is a 512-byte ceiling rather than an exact width. Same seam, same echo argument, same RE-312 RESULT-1/RESULT-2 basis, and the same unread split inside 0x0063F9B0 that the remove-friend row records. observed_frames = 0."
+        },
+        {
           "id": "answered_button_client_reaction",
           "title": "A client is observed reacting to an answered button",
           "required": true,

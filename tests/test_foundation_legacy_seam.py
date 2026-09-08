@@ -861,8 +861,15 @@ GRADE_SUBSET_SHA256 = (
     # each row's `notes` instead, which this digest deliberately does
     # not cover.
     #
+    # AND THE DOMAIN GAINED A SIXTH ROW BEFORE THE ROUND ENDED, which is
+    # itself the argument for the domain: `Community_RequestBeFriendVital`
+    # (0xB9E9, round asw0n3) landed on main WHILE this domain was being
+    # written, so the merge that brought it in would have re-created the
+    # exact gap this domain closes -- an answered button with no row --
+    # one commit after closing it.  `friend_request_answer` is that row.
+    #   parent 05143BFDDBFA9F24688C1CCC49164CD95EBA97507C5A8AEEBE39170FA8445D1E, the same round before that merge
     #   this pin, recorded by round ncejt8:
-    "05143BFDDBFA9F24688C1CCC49164CD95EBA97507C5A8AEEBE39170FA8445D1E"
+    "5CA10A2DF8009FD12CE6EBD30DAFBEC76D221355AD09D9A017C5F8BC8A110F0D"
 )
 
 
