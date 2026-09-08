@@ -255,7 +255,13 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         ), state.events)
         self.assertIn(
             "SCENE_ENTRY scene=17 xyz=0.000,0.000,0.000 "
-            "source=PROVISIONAL-OWNER-DECREE-20260827-1445",
+            # ``from=caller_row`` ADDED to the token round 1v5i3h
+            # (pf-adversary D1 of round ioz8fd) and asserted EXACT here: this
+            # is the sanctioned SYNTHETIC arrival, built by
+            # resolve_columbus_arrival at the decreed point through
+            # via_login=False, and it must not read on the console like a
+            # character's own durable row landing at sea (from=stored_row).
+            "source=PROVISIONAL-OWNER-DECREE-20260827-1445 from=caller_row",
             state.events,
         )
         self.assertIn(
