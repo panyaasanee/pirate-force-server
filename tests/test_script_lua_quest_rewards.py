@@ -76,12 +76,30 @@ FREE_REWARD_ITEMS = (2608007, 2401006)
 #: `Player.BoatHealth(Quest.Var3)` on the line above, is a stub, so the
 #: group is unpayable and the charge is refused: boat repair can no longer
 #: take the money without repairing the boat.
+#: `q_day_hunt` AND `q_repeat_hunt` JOINED IN ROUND `5a3x47`
+#: (pf-adversary D3 against round `kkuqzo`).  Their charge is not money at
+#: all -- `Player.Addmoralized(-Quest.Var4)` spends MORALE, in the same
+#: `Report_Run` that hands over the reward items -- and the take scan read
+#: only `Player.AddCash`, so nothing in this repository could see it.  The
+#: same shape appears at eleven call sites the shipped table reaches on 72
+#: rows; these two are the two where the give is in the SAME function, so
+#: they are the two that form a group.  The other nine charge morale at
+#: `Accept_Run` and hand over nothing there, which is not a half
+#: transaction and correctly stays out of this table.
 EXPECTED_GROUPS = {
-    ("q_class", "Report_Run"): ("n_VARI_4", "Quest/q_class.lua:60"),
+    ("q_class", "Report_Run"): ("n_VARI_4", "Quest/q_class.lua:60",
+                                "Player.AddCash"),
     ("q_guild_boss2", "Report_Run"): ("n_VARI_8",
-                                      "Quest/q_guild_boss2.lua:59"),
+                                      "Quest/q_guild_boss2.lua:59",
+                                      "Player.AddCash"),
     ("q_boat_health", "Accept_Run"): ("n_VARI_2",
-                                      "Quest/q_boat_health.lua:21"),
+                                      "Quest/q_boat_health.lua:21",
+                                      "Player.AddCash"),
+    ("q_day_hunt", "Report_Run"): ("n_VARI_4", "Quest/q_day_hunt.lua:55",
+                                   "Player.Addmoralized"),
+    ("q_repeat_hunt", "Report_Run"): ("n_VARI_4",
+                                      "Quest/q_repeat_hunt.lua:54",
+                                      "Player.Addmoralized"),
 }
 
 
@@ -226,7 +244,7 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
         qr.reset_caches()
         self.addCleanup(qr.reset_caches)
 
-    def test_exactly_the_three_coupled_scripts_are_in_the_table(self):
+    def test_exactly_the_five_coupled_scripts_are_in_the_table(self):
         groups = qr.load_groups()
         found = {(script, group.group)
                  for script, entries in groups.items() for group in entries}
@@ -239,11 +257,12 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
                 give = group.side(qr.GIVE)
                 self.assertTrue(take, script)
                 self.assertTrue(give, script)
-                expected_column, expected_site = EXPECTED_GROUPS[
-                    (script, group.group)]
+                expected_column, expected_site, expected_api = (
+                    EXPECTED_GROUPS[(script, group.group)])
                 self.assertEqual([member.column for member in take],
                                  [expected_column])
                 self.assertEqual(take[0].call_site, expected_site)
+                self.assertEqual(take[0].api_name, expected_api)
                 for member in group.members:
                     self.assertIn(":", member.call_site)
                     self.assertIn(".lua:", member.call_site)
@@ -321,7 +340,18 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
                         # is held instead by the assertion below: the call
                         # site must be a real line of the real corpus file,
                         # and `EXPECTED_GROUPS` pins which line.
-                        self.assertIn(member.api_name, ("Player.AddCash",))
+                        # ROUND `5a3x47` ADDS THE SECOND NAME.  A morale
+                        # charge is script-negated in every one of its
+                        # eleven call sites -- the cell is ordinary, the
+                        # minus sign is in the script -- so the signedness
+                        # table has nothing to say about any of them
+                        # either.  The list stays CLOSED rather than
+                        # becoming "whatever the table lacks": a take-side
+                        # name arriving here without a person adding it is
+                        # the thing this branch must not wave through.
+                        self.assertIn(member.api_name,
+                                      ("Player.AddCash",
+                                       "Player.Addmoralized"))
                         self.assertTrue(member.call_site.endswith(
                             EXPECTED_GROUPS[(script, group.group)][1]
                             .rsplit("/", 1)[-1]), member.call_site)
@@ -555,16 +585,15 @@ class TheGateBehavesTests(unittest.TestCase):
                         len(answered), 1,
                         "quest %d opened half of %s.%s"
                         % (quest_id, script, group.group))
-        self.assertEqual(checked, 169,
-                         "RE-DERIVED round `yzdgx1` (pf-adversary D7 "
-                         "against round `kkuqzo`, which left a wrong "
-                         "arithmetic string on the one assertion whose "
-                         "job is to be re-read): 5 Q_CLASS rows x 17 "
-                         "members (16 + Player.AddPpClass, new this "
-                         "round) + 5 Q_GUILD_BOSS2 rows x 16 + 2 "
-                         "Q_BOAT_HEALTH rows x 2 = 85 + 80 + 4 = 169. If "
-                         "this number moves, a group or a row appeared "
-                         "and the assertion above has to be read again")
+        self.assertEqual(checked, 217,
+                         "RE-DERIVED round `5a3x47`, which added the "
+                         "morale charge and with it two groups: 5 Q_CLASS "
+                         "rows x 17 members + 5 Q_GUILD_BOSS2 rows x 16 + "
+                         "2 Q_BOAT_HEALTH rows x 2 + 2 Q_DAY_HUNT rows x "
+                         "16 + 1 Q_REPEAT_HUNT row x 16 = 85 + 80 + 4 + "
+                         "32 + 16 = 217. If this number moves, a group or "
+                         "a row appeared and the assertion above has to "
+                         "be read again")
 
 
 def _lua_name_for(source_column: str) -> str:
@@ -573,6 +602,132 @@ def _lua_name_for(source_column: str) -> str:
         if column == source_column:
             return name
     raise AssertionError("no Lua name reads %s" % source_column)
+
+
+class TheScannerSeesEveryCallTests(unittest.TestCase):
+    """Layer 2b: the SCANNER, on scripts this file writes.
+
+    GATE-RUNNABLE ON PURPOSE (pf-adversary D8, round `yzdgx1`: the give
+    side is checked only where a `pf_bridge` checkout exists, so on the
+    Windows gate none of it runs).  Everything here feeds the tool bytes
+    from `tempfile` instead of the corpus, so the rules the tool applies
+    are held by a machine that has never seen the game -- and the two
+    holes pf-adversary D3 named are pinned as the tool REFUSING rather
+    than as the corpus happening not to contain them.
+    """
+
+    def _tool(self):
+        sys.path.insert(0, str(REPO_ROOT / "tools"))
+        try:
+            import pf_regen_lua_quest_rewards as regen
+        finally:
+            sys.path.pop(0)
+        return regen
+
+    def _script(self, body: str) -> Path:
+        handle = tempfile.NamedTemporaryFile(
+            "w", suffix=".lua", delete=False, encoding="ascii")
+        handle.write(body)
+        handle.close()
+        path = Path(handle.name)
+        self.addCleanup(path.unlink)
+        return path
+
+    def test_a_second_charge_on_the_same_line_is_read_too(self):
+        """The hole itself: `line.find` once meant one call per line.
+
+        Two `Player.AddCash` calls on one line used to produce ONE take
+        site -- the second charge read by nothing, the mirror green and
+        `--check` clean.  The corpus has no such line today (measured: six
+        `AddCash` call sites, six lines), which is why this is asserted
+        against a script written here rather than against the game.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.AddCash(-Quest.Var3) Player.AddCash(Quest.Var5 * -1)\n"
+            "end\n")
+        found = regen.take_sites(path)
+        self.assertEqual([(function, index, api) for function, index, api,
+                          _number in found],
+                         [("Report_Run", 3, "Player.AddCash"),
+                          ("Report_Run", 5, "Player.AddCash")])
+
+    def test_a_second_reward_give_on_the_same_line_is_read_too(self):
+        """The same hole on the give side, which is the worse direction.
+
+        A give the scan cannot see does not open a group, so the take it
+        was paired with is never refused.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.AddItem(Quest.RewardItem1,1) "
+            "Player.AddItem(Quest.RewardItem2,1)\n"
+            "end\n")
+        slots = sorted(entry[1] for entry in regen.give_sites(path))
+        self.assertEqual(slots, [1, 2])
+
+    def test_an_unclassified_negation_stops_the_tool_instead_of_passing(self):
+        """D3, said as the tool behaving rather than as four regexes.
+
+        `-1 * Quest.VarN` is not one of the two spellings the corpus uses.
+        The old scan walked past it without a word: no take, no group, no
+        refusal, and a player charged for an undelivered thing with every
+        test green.  Now the run STOPS and the message names the line.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.AddCash(-1 * Quest.Var3)\n"
+            "end\n")
+        with self.assertRaises(regen.UnclassifiedTakeSite) as caught:
+            regen.take_sites(path)
+        self.assertIn(":2", str(caught.exception))
+        self.assertIn("Player.AddCash", str(caught.exception))
+
+    def test_each_of_the_four_shapes_pf_adversary_named_is_refused(self):
+        """All four, so removing the stop for one of them fails here."""
+        regen = self._tool()
+        for argument in ("-1 * Quest.Var3", "-(Quest.Var3)",
+                         "Quest.Var3 * -2", "0 - Quest.Var3"):
+            path = self._script(
+                "function Report_Run()\n"
+                "    Player.AddCash(%s)\n"
+                "end\n" % argument)
+            with self.assertRaises(regen.UnclassifiedTakeSite, msg=argument):
+                regen.take_sites(path)
+
+    def test_the_bare_read_is_not_a_script_negated_take(self):
+        """The refund half of the same API name, and why shape decides.
+
+        `q_day_business.lua:105` gives `Quest.Var7` BACK in `Delete_Run`,
+        one bare read of the same cell `Accept_Run` spent.  A rule that
+        keyed on the NAME would call the refund a charge; the shape is
+        what tells them apart, and the bare read is the signedness
+        table's business, not this scan's.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Delete_Run()\n"
+            "    Player.Addmoralized(Quest.Var7)\n"
+            "end\n")
+        self.assertEqual(regen.take_sites(path), [])
+
+    def test_an_argument_that_reads_no_cell_is_nobody_s_business(self):
+        """A literal amount is not a column, so it is passed over quietly.
+
+        SAID OUT LOUD BECAUSE IT IS A LIMIT, not a result: this table
+        gates COLUMNS, so a charge that names no cell cannot be a member
+        of a group and the scan has nothing to record.  No corpus call
+        site is in this shape today.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.AddCash(-15000)\n"
+            "end\n")
+        self.assertEqual(regen.take_sites(path), [])
 
 
 @BRIDGE_GAMEDATA.skip_unless_present()
@@ -587,6 +742,86 @@ class MirrorsMatchTheGameTests(unittest.TestCase):
             capture_output=True, text=True, cwd=str(REPO_ROOT))
         self.assertEqual(result.returncode, 0,
                          result.stdout + result.stderr)
+
+    def _tool(self):
+        sys.path.insert(0, str(REPO_ROOT / "tools"))
+        try:
+            import pf_regen_lua_quest_rewards as regen
+        finally:
+            sys.path.pop(0)
+        return regen
+
+    def test_every_morale_charge_in_the_corpus_is_read_as_a_take(self):
+        """The eleven, by name, so a lost one fails here (round `5a3x47`).
+
+        `Player.Addmoralized(-Quest.VarN)` is the charge; the same name
+        with a BARE argument is the refund, and there are ten of those.
+        Both halves are asserted, because a scan that started reading the
+        refund as a charge would gate cells the player is owed.
+        """
+        regen = self._tool()
+        corpus = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        charges, refunds = [], 0
+        for path in sorted(corpus.rglob("*.lua")):
+            data = path.read_bytes()
+            if b"Addmoralized" not in data:
+                continue
+            takes = {(number, index) for _function, index, api, number
+                     in regen.take_sites(path) if api == "Player.Addmoralized"}
+            for number, line in enumerate(data.split(b"\n"), start=1):
+                for args in regen.argument_lists_of(line,
+                                                    b"Player.Addmoralized"):
+                    argument = args[0].strip()
+                    if argument.startswith(b"-"):
+                        charges.append((path.name, number))
+                        self.assertIn(
+                            (number, int(argument.rsplit(b"Var", 1)[1])),
+                            takes, "%s:%d" % (path.name, number))
+                    else:
+                        refunds += 1
+                        self.assertNotIn(
+                            number, {entry[0] for entry in takes},
+                            "%s:%d is the refund" % (path.name, number))
+        self.assertEqual(
+            sorted(charges),
+            [("q_day_business.lua", 26), ("q_day_hunt.lua", 55),
+             ("q_ocean_checkbuff.lua", 24), ("q_ocean_con.lua", 24),
+             ("q_ocean_gather1.lua", 24), ("q_ocean_gather2.lua", 24),
+             ("q_ocean_guard.lua", 24), ("q_ocean_kill1.lua", 26),
+             ("q_ocean_kill2.lua", 25), ("q_ocean_kill3.lua", 27),
+             ("q_repeat_hunt.lua", 54)])
+        self.assertEqual(refunds, 10)
+
+    def test_the_ship_purchase_is_classified_even_though_no_row_reaches_it(self):
+        """pf-adversary D1, round `yzdgx1`, ANSWERED RATHER THAN DELETED.
+
+        `Player.ChangeShip` and the `-Quest.VarN` spelling live in the
+        tool for `q_ship.lua` alone, and the shipped quest table names
+        `q_ship` on ZERO of its 1544 rows -- so no group is ever built
+        from either and a mutant deleting them changes no mirror.  The
+        answer is not to delete a true reading of the corpus; it is to
+        assert the reading directly, on the file, where deleting either
+        one fails.
+        """
+        regen = self._tool()
+        corpus = SIBLING / "pf_bridge" / "gamedata" / "lua"
+        path = regen.corpus_file_for(corpus, "q_ship")
+        self.assertIsNotNone(path)
+        self.assertEqual(
+            [(index, api, number) for _function, index, api, number
+             in regen.take_sites(path)],
+            [(3, "Player.AddCash", 50)])
+        self.assertIn(
+            ("Report_Run", 0, None, "Player.ChangeShip", 49),
+            [entry[:5] for entry in regen.give_sites(path)])
+        source = (SIBLING / "pf_bridge" / "gamedata" / "tables"
+                  / "QUESTDATA_TH__QUEST.tsv")
+        named = {script.strip().lower()
+                 for _identifier, script, _cells in regen.read_rows(source)}
+        self.assertNotIn("q_ship", named,
+                         "a row now names q_ship: the group table should "
+                         "have grown a fourth script, and this test is the "
+                         "one that says why it had not")
 
     def test_every_reward_cell_matches_the_source_by_column_name(self):
         """The tie a mirror checked only against itself never has.
