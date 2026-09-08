@@ -200,6 +200,71 @@ class TestTheAllocator(unittest.TestCase):
                     allocator_raised = True
                 self.assertEqual(bounds_raised, allocator_raised)
 
+    def test_a_negative_scene_id_is_refused_by_both_entry_points(self):
+        """pf-adversary round 6okcq4, D5: the agreement oracle is not enough.
+
+        ``test_the_two_entry_points_refuse_the_same_scene_ids`` only asserts
+        that the two doors agree, so deleting the ``scene_id < 0`` refusal
+        left the suite green with BOTH doors accepting -1 -- and then
+        ``mob_wire_identity(-1, 0)`` hands out a plausible negative identity
+        in no scene's block while ``scene_and_placement_for`` refuses it.
+        Dispenser and inverse disagreeing silently is the one thing this
+        module exists to prevent, so the refusal is named here.
+        """
+        for scene_id in (-1, -2, -4096):
+            with self.subTest(scene=scene_id):
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.mob_wire_identity(scene_id, 0)
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.scene_band_bounds(scene_id)
+
+    def test_the_inverse_refuses_the_gap_between_the_base_and_the_floor(self):
+        """pf-adversary round 6okcq4, D6: the gap nothing walked.
+
+        The band occupies [-16,777,280, -65].  Below it, all the way down to
+        the floor at -2**62, is empty -- numerically almost the whole
+        negative half of the wire field -- and no test walked one value of
+        it, so the two guards that cover it (below the base, below the
+        floor) masked each other and neither was pinned.  With the
+        below-base guard removed, -16,777,281 decodes to SCENE -1.
+        """
+        for identity in (
+            mis.MOB_IDENTITY_BASE - 1,
+            mis.MOB_IDENTITY_BASE - 4096,
+            -1_000_000_000,
+            -(2**61),
+            mis.MOB_IDENTITY_FLOOR,
+            mis.MOB_IDENTITY_FLOOR - 1,
+        ):
+            with self.subTest(identity=identity):
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.scene_and_placement_for(identity)
+
+    def test_the_sweep_head_is_guarded_at_the_end_of_the_band_it_touches(self):
+        """pf-adversary round 6okcq4, D8: the old pin watched the far end.
+
+        Under the descending band, scene 0 placement 0 sat next to the
+        reserved head, so a loop over the first scenes covered the hazard.
+        Ascending, the only identities that can reach the sweep's -1..-6 are
+        the LAST placements of the LAST block -- 16.7 million away from
+        where the sibling test looks.  This walks that end.
+        """
+        from pirateforce_foundation import name_colour_sweep as ncs
+
+        sweep = {
+            ncs.negative_identity_for(label)
+            for label in ncs.NEGATIVE_IDENTITY_SLOTS
+        }
+        self.assertTrue(sweep)
+        for scene_id in range(mis.SCENE_ID_CEILING - 2, mis.SCENE_ID_CEILING):
+            for placement in range(mis.SCENE_STRIDE - 80, mis.SCENE_STRIDE):
+                self.assertNotIn(
+                    mis.mob_wire_identity(scene_id, placement), sweep)
+        # and the one step past the ceiling that WOULD land on the sweep is
+        # refused rather than handed out
+        with self.assertRaises(mis.MobIdentitySignError):
+            mis.mob_wire_identity(mis.SCENE_ID_CEILING, mis.SCENE_STRIDE - 6)
+
     def test_every_scene_id_the_tree_names_fits_inside_the_ceiling(self):
         """The ceiling is a declared bound; this is the measurement under it."""
         from pirateforce_foundation.gm import scene_catalog
@@ -248,9 +313,16 @@ class TestTheWallBeatTwoWalksIntoTests(unittest.TestCase):
     to them.  That is a silent player-visible defect, which is the exact
     shape this house pins in a test rather than leaves in prose.
 
+    LAYER, because an earlier draft of this docstring called it
+    player-visible (pf-adversary, round 6okcq4): what is MEASURED below is
+    a wire/DB fact -- the row is not written and the caller is not told.
+    The sentence above about what a second player would see is the
+    INFERENCE that makes it worth fixing, through a census path nobody has
+    booted.  Nothing here has been on a screen.
+
     This test goes RED the day LANE-A widens the gate, and that is the day
     it should be rewritten to assert the new reach.  The ask is
-    ``notes_to_chief/20260908_20xx_LANE-B-ASK-COO-the-world-registry-
+    ``notes_to_chief/20260908_1941_LANE-B-ASK-COO-the-world-registry-
     refuses-every-band-identity.md``.
     """
 

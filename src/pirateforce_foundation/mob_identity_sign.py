@@ -91,6 +91,7 @@ __all__ = [
     "R324A_ROWS",
     "SCENE_STRIDE",
     "SCENE_ID_CEILING",
+    "MOB_IDENTITY_BASE",
     "SWEEP_RESERVED_IDENTITIES",
     "scene_band_bounds",
     "is_player_identity",
@@ -203,9 +204,11 @@ SWEEP_RESERVED_IDENTITIES = 64
 #: about -4.6e18; the ratio is 2.7e11).
 SCENE_ID_CEILING = 0x1000
 
-#: The most negative identity this allocator will ever hand out, kept a full
-#: order of magnitude away from ``-2**63`` so a caller that adds an offset of
-#: its own cannot wrap the sign bit back to positive.
+#: The most negative identity this allocator will ever hand out, kept one
+#: bit away from ``-2**63`` (a factor of two, not the "full order of
+#: magnitude" an earlier draft of this line claimed -- pf-adversary, round
+#: 6okcq4) so a caller that adds an offset of its own cannot wrap the sign
+#: bit back to positive.
 MOB_IDENTITY_FLOOR = -(2**62)
 
 #: The first (most negative) identity the band owns.  Every allocated value
@@ -292,8 +295,16 @@ def mob_wire_identity(scene_id: int, placement_index: int) -> int:
     the placement index inside a scene, and ascend with the scene id across
     scenes, so sorting a roster by identity reproduces the order the table
     placed it in.  That sentence is the whole point of this function and it
-    must survive any future rewrite of the arithmetic; four readers already
-    depend on it and none of them re-derives it:
+    must survive any future rewrite of the arithmetic.
+
+    WHO WILL DEPEND ON IT, AND WHEN.  Nothing in ``src/`` calls this
+    function today: every ``FieldMob`` still derives ``0x2000 +
+    placement_index + 1`` (``field_mobs`` line ~376), so the readers below
+    depend on the LEGACY formula's rise, not on this one.  They inherit the
+    dependency the day beat 2 flips a scene onto the band, which is why the
+    order is written down now rather than discovered then.  THREE readers,
+    counted after pf-adversary (round 6okcq4) measured that an earlier draft
+    of this list had four:
 
       * ``field_mobs.load_roster`` hands its rows out in PLACEMENT order and
         does not sort;
@@ -304,9 +315,18 @@ def mob_wire_identity(scene_id: int, placement_index: int) -> int:
         costs LOGIN, for every player;
       * ``mob_ai_control.open_register`` sorts by identity SILENTLY, so with
         a descending band its row zero is a different monster from the one
-        the ledger calls first, and nothing anywhere says so out loud;
-      * the census ships actors in roster order, which is the order a player
-        can see on screen.
+        the ledger calls first, and nothing anywhere says so out loud.
+
+    THE CENSUS IS NOT ONE OF THEM, and an earlier draft of this docstring
+    said it was.  Every census composer re-sorts by distance to the player
+    before encoding -- ``field_mobs.nearest_first`` (line ~2164) and
+    ``world_population_*.census_order`` (line ~139 in each) both key on
+    ``((dx**2 + dy**2 + dz**2), placement_index)`` -- so the order actors go
+    out in is a pure function of the viewer's anchor and the table, and
+    permuting the roster does not move one byte of it.  Consequence worth
+    writing down: the census wire order is NOT a reason to prefer this fix
+    over re-sorting ``load_roster``, though the COO letter that approved
+    this one gave it as such.
 
     Before this function ascended, the four agreed only because the legacy
     ``0x2000 + placement_index + 1`` formula happened to rise; the collision
@@ -336,17 +356,15 @@ def mob_wire_identity(scene_id: int, placement_index: int) -> int:
             "inverse rather than letting one scene's block run into the next"
         )
     identity = MOB_IDENTITY_BASE + scene_id * SCENE_STRIDE + placement_index
-    if identity < MOB_IDENTITY_FLOOR:
-        raise MobIdentitySignError(
-            f"scene {scene_id} placement {placement_index} lands at "
-            f"{identity}, below the monster-band floor {MOB_IDENTITY_FLOOR}"
-        )
-    if identity >= 0:
-        raise MobIdentitySignError(
-            f"scene {scene_id} placement {placement_index} lands at "
-            f"{identity}, which is not in the monster band (the band is "
-            "strictly negative)"
-        )
+    # NO FLOOR CHECK AND NO SIGN CHECK HERE, ON PURPOSE.  Both guards were
+    # written and both were measured DEAD by pf-adversary (round 6okcq4):
+    # with the scene id capped at SCENE_ID_CEILING and the placement at
+    # SCENE_STRIDE, this function's whole range is [MOB_IDENTITY_BASE, -65],
+    # so neither branch can fire, and deleting either left the suite green.
+    # mob_combat line ~644 states the house rule this follows: "a named
+    # refusal which cannot occur is a lie told to whoever counts them".  The
+    # two ceilings above are what keep the range where it is; the range
+    # itself is asserted in test_the_whole_band_stays_clear_of_the_floor.
     return identity
 
 

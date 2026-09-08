@@ -385,6 +385,54 @@ class ANegativeBandMonsterIsHitTests(unittest.TestCase):
             "mob_combat_target_not_positive_or_self_no_reply", state.events)
 
 
+class TheSecondWallBeatTwoWalksIntoTests(unittest.TestCase):
+    """A band identity does not merely fail to be written -- it RAISES.
+
+    pf-adversary, round 6okcq4, finding D2.  This round surveyed how far a
+    band identity can travel, found ``world_scene_registry`` refusing it
+    with a returned ``NoteOutcome``, and called that "the wall".  It is not
+    the only one and it is not the worst one.  ``mob_ai_player_damage``
+    line ~249 -- THIS LANE'S OWN FILE, on the live AI tick path
+    (``lane_hooks/lane_b_mob_ai_tick`` line ~270 calls ``apply_tick_damage``
+    which calls ``attack_decisions``) -- refuses any ``actor_identity`` that
+    is not strictly positive by RAISING ``identity_not_positive``.
+
+    Failure scenario, which is why this is pinned rather than written down:
+    beat 2 flips Bg0002 onto the band, and the first monster that decides to
+    attack takes the tick hook down for every player in the scene.
+
+    Not fixed in this round on purpose: widening a refusal on the live tick
+    path is a behaviour change that wants its own beat and its own full
+    suite, and nothing flips a scene until the COO answers the wall letter.
+    This test is the receipt.  It goes RED the day the guard is widened,
+    which is the day it should be rewritten to assert the new reach.
+    """
+
+    def test_the_tick_damage_path_raises_on_a_band_identity(self):
+        from pirateforce_foundation import mob_ai_player_damage as mapd
+
+        from pirateforce_foundation import mob_aggro
+
+        identity = mob_identity_sign.mob_wire_identity(2, 0)
+        row = dataclasses.make_dataclass(
+            "FakeTickResult", ["actor_identity", "intent_kind"])(
+                identity, mob_aggro.INTENT_ATTACK_UNDELIVERABLE)
+        with self.assertRaises(mapd.MobAiPlayerDamageError) as box:
+            mapd.attack_decisions((row,))
+        self.assertEqual(box.exception.reason, mapd.REFUSE_IDENTITY_NOT_POSITIVE)
+
+    def test_the_same_call_accepts_the_legacy_positive_identity(self):
+        """The control: it is the sign, not the shape of the record."""
+        from pirateforce_foundation import mob_ai_player_damage as mapd
+
+        from pirateforce_foundation import mob_aggro
+
+        row = dataclasses.make_dataclass(
+            "FakeTickResult", ["actor_identity", "intent_kind"])(
+                0x2001, mob_aggro.INTENT_ATTACK_UNDELIVERABLE)
+        self.assertEqual(mapd.attack_decisions((row,)), (0x2001,))
+
+
 class TheOrderingBlockerBeatOneAnsweredTests(unittest.TestCase):
     """The wall beat 1 walked into, now asserted from the other side.
 
@@ -492,6 +540,22 @@ class TheOrderingBlockerBeatOneAnsweredTests(unittest.TestCase):
             self.assertEqual(
                 [row.actor_identity for row in register.rows],
                 list(ledger.identities()),
+            )
+            # pf-adversary round 6okcq4, D7: everything above is ALSO
+            # satisfied by a register that does not sort at all (deleting
+            # the sort left the suite green), which is not what the
+            # docstring above claims to be pinning.  Hand it a roster in
+            # the wrong order and require ascending rows out, so "it sorts"
+            # is measured and not inferred from "it agrees".
+            shuffled = tuple(reversed(roster))
+            self.assertNotEqual(
+                [mob.actor_identity for mob in shuffled],
+                sorted(mob.actor_identity for mob in shuffled),
+            )
+            out = mob_ai_control.open_register(shuffled)
+            self.assertEqual(
+                [row.actor_identity for row in out.rows],
+                sorted(row.actor_identity for row in out.rows),
             )
 
 
