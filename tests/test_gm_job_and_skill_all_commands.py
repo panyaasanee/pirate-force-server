@@ -722,6 +722,62 @@ class DispatchContractTests(_Case):
                 session.events,
             )
 
+    def test_the_two_pre_loop_refusals_are_built_not_only_named(self):
+        """RUN THE BRANCH, do not enumerate its reason word.
+
+        pf-adversary (round `nboppe`, D1) measured that
+        `REFUSED_NO_CHARACTER` and `REFUSED_NO_STORE` both raised
+        `TypeError` when constructed: `counts_are_complete` was added to
+        `SkillGrant` and five of the seven construction sites were updated,
+        and these two were the pair no test reached.  The suite proved the
+        WORDS existed -- `test_every_refusal_reason_upstream_has_a_blocker_
+        sentence` below reads them out of a constant -- while the code that
+        returns them could not run.  The cost measured on the real dispatch
+        was an `issued` audit row with no `outcome` row, no console line and
+        no notice: the half-pair `job_command`'s own docstring warns about.
+
+        `counts_are_complete` is True on both, for the reason the sibling
+        `REFUSED_CANNOT_READ_CURRENT_SKILLS` passes it: nothing was
+        attempted, so nothing fell back to counting calls, and
+        `granted_from=calls` must not appear beside three zeros.
+        """
+
+        class NoDoorStore:
+            pass
+
+        cases = (
+            (0, skill_all_command.REFUSED_NO_CHARACTER),
+            (None, skill_all_command.REFUSED_NO_CHARACTER),
+            (True, skill_all_command.REFUSED_NO_CHARACTER),
+            (-1, skill_all_command.REFUSED_NO_CHARACTER),
+        )
+        for character_id, reason in cases:
+            with self.subTest(character_id=character_id):
+                result = skill_all_command.grant_all(NoDoorStore(), character_id)
+                self.assertEqual(reason, result.refusal)
+                self.assertEqual((0, 0, 0), (
+                    result.granted, result.already, result.failed,
+                ))
+                self.assertTrue(result.counts_are_complete)
+                self.assertFalse(result.ok)
+
+        no_store = skill_all_command.grant_all(NoDoorStore(), 1)
+        self.assertEqual(skill_all_command.REFUSED_NO_STORE, no_store.refusal)
+        self.assertEqual((0, 0, 0), (
+            no_store.granted, no_store.already, no_store.failed,
+        ))
+        self.assertTrue(no_store.counts_are_complete)
+        self.assertFalse(no_store.ok)
+
+    def test_the_sandbox_sentence_counts_the_curriculum_it_ships(self):
+        """pf-adversary D8: the docstring said "147 of 148" while the table
+        holds 137.  Re-derived here so the number cannot go stale again in
+        silence -- the count is read from the curriculum, not typed twice.
+        """
+        source = Path(skill_all_command.__file__).read_text(encoding="utf-8")
+        total = len(skill_all_command.all_skill_ids())
+        self.assertIn(f"a tester with {total - 1} of {total} skills", source)
+
     def test_every_refusal_reason_upstream_has_a_blocker_sentence(self):
         # The lesson `_LV_BLOCKERS`' own comment records: a hand-typed list
         # said five when upstream had ten, and the five that were missing

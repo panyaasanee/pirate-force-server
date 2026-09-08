@@ -235,7 +235,7 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
 
     THE ORDER IS: read what is there -> grant the rest, one door call per
     id -> count.  Each call is independent: one id that raises does not stop
-    the others, because a tester with 147 of 148 skills has a usable sandbox
+    the others, because a tester with 136 of 137 skills has a usable sandbox
     and a tester with 0 has nothing.  The failures are COUNTED and named in
     the console line, never swallowed.
 
@@ -254,12 +254,28 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
         # forbid.  No test called this function with anything but a valid id,
         # so both lines had never once executed.
         return SkillGrant(
+            # `True` for the same reason every sibling refusal below passes
+            # it: nothing was attempted, so nothing FELL BACK to counting
+            # calls, and `granted_from=calls` must not appear on a line whose
+            # counts are three zeros.  THE ARGUMENT WAS MISSING here and at
+            # REFUSED_NO_STORE below -- `counts_are_complete` was added to
+            # this dataclass in the commit that answered round `wv0fpe`, and
+            # five of the seven construction sites were updated -- so both
+            # branches raised TypeError instead of refusing.  pf-adversary
+            # (round `nboppe`, D1) built them and measured the cost: no
+            # console line, no notice, and an `issued` audit row with no
+            # `outcome` row.  Two rounds arrived at the same one-word fix
+            # independently; what this round adds is the pair of tests that
+            # REACH these branches, without which the suite went on proving
+            # that the refusal WORDS existed while the code returning them
+            # could not run.
             0, 0, 0, True, REFUSED_NO_CHARACTER,
             f"no usable selected character id on this connection ({character_id!r})",
         )
     granter = getattr(store, "grant_learned_skill", None)
     if granter is None:
         return SkillGrant(
+            # The second of the pair -- see REFUSED_NO_CHARACTER above.
             0, 0, 0, True, REFUSED_NO_STORE,
             "this session's store has no grant_learned_skill door",
         )

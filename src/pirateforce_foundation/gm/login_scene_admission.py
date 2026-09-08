@@ -460,6 +460,92 @@ def sanctioned_barred_provenance(scene_id: int) -> str | None:
     return SANCTIONED_BARRED_SCENES[scene_id]
 
 
+def scene_has_decreed_arrival(scene_id: int, *, scene_registry=None) -> bool:
+    """Does lane A's OWN row decree an arrival point for this scene?
+
+    Asked because a caller needs to tell two silences apart, and only lane
+    A's file can: a scene the live `/warp` route can really reach (its row
+    carries a `decreed_arrival` block, so `warp_no_coords_live_target`
+    resolves it and the character is MOVED) versus a scene nothing reaches
+    at all.  For the first kind, a dropped relog entry is a tester standing
+    somewhere the next login will not return them to; for the second, there
+    was never a warp to arrange a relog for.
+
+    NEVER RAISES AND FAILS CLOSED to ``False``, which is the opposite of
+    every other reader in this module and is deliberate: the one caller is
+    `warp_relog_stage`, inside a `/warp` whose TeleportVital is already
+    built, and that function's whole contract is that it cannot take a
+    composed command down.  A registry this function cannot read therefore
+    costs a console line, never the command.  It is NOT an admission
+    predicate and grants nothing -- `single_use_entry_is_admissible` is
+    still the only thing that admits, and it does not consult this.
+
+    THREE ROWS CARRY THE BLOCK TODAY (126, 304, 305), measured on main this
+    round, and naming that count here is the guard against reading this as
+    "the sanctioned scene": it is wider than `SANCTIONED_BARRED_SCENES` on
+    purpose, because the question it answers is lane A's ("did the map
+    decree a way in") and not this lane's ("does a letter name it").
+    """
+    if type(scene_id) is not int:
+        return False
+    try:
+        registry, _trusted = _registry_to_ask(scene_registry)
+        if registry is None:
+            return False
+        target = registry[scene_id]
+        if getattr(target, "n_id", None) != scene_id:
+            return False
+        return bool(getattr(target, "has_decreed_arrival", False))
+    except Exception:  # noqa: BLE001 - see the fail-closed note above.
+        return False
+
+
+def sanction_is_retirable(scene_id: int, *, scene_registry=None) -> bool:
+    """Is this sanction dead weight that MUST now be deleted?
+
+    The module's own retirement rule, written as arithmetic instead of as
+    prose somebody has to remember: an entry is RETIRED the moment
+    ``sanctioned_barred_blocker`` answers ``BLOCKER_NONE`` for it, because
+    at that moment the ordinary predicate already admits the scene and a
+    sanction that outlives its blocker is a deny-list wearing a permit's
+    name.
+
+    IT IS ALSO THE OTHER HALF OF THE GUARD, and that half is why this
+    function exists rather than a comment.  Answering ``False`` is a
+    statement that the entry is still LOAD-BEARING: on main today
+    ``warp_relog_stage`` reaches ``stage_login_scene`` for scene 126 only
+    because this map names it, so deleting the row while this answers
+    ``False`` serves ``PANYA 1329`` (the live warp) and silently drops
+    ``PANYA 1430`` (still there after a relog).  Retirement is a
+    measurement, not a date.
+
+    Follows ``sanctioned_barred_blocker``'s rules for ``scene_registry``
+    exactly, raising where it raises: this is a report, never a path a
+    composed command runs through.
+    """
+    return (
+        is_sanctioned_barred_scene(scene_id)
+        and sanctioned_barred_blocker(scene_id, scene_registry=scene_registry)
+        == BLOCKER_NONE
+    )
+
+
+def retirable_sanctioned_scene_ids(*, scene_registry=None) -> tuple[int, ...]:
+    """Every sanction whose blocker is gone, in id order.  Empty is healthy.
+
+    Non-empty means a round owes a deletion, and
+    ``test_no_sanction_has_outlived_its_blocker`` is what says so out loud
+    rather than leaving the map to rot.
+    """
+    return tuple(
+        sorted(
+            scene_id
+            for scene_id in SANCTIONED_BARRED_SCENES
+            if sanction_is_retirable(scene_id, scene_registry=scene_registry)
+        )
+    )
+
+
 def sanctioned_barred_blocker(scene_id: int, *, scene_registry=None) -> str:
     """WHICH half of a sanctioned scene's route is missing, measured now.
 
