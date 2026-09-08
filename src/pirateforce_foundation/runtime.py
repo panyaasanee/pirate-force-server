@@ -4957,14 +4957,51 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             the same answer ``lifecycle.checkpoint`` already gives for a scene
             pinned ``persist_position_allowed: false``.
 
+            AND THE GUESS ALONE IS NOT ENOUGH TO REFUSE A ROW -- MEASURED,
+            NOT REASONED.  A first draft withheld on the flag by itself and
+            took five tests in this tree down with it, each naming a case
+            where the label is a "guess" and the row is still the right one:
+
+              * ``gm/warp_send_watch._restore_selected_scene`` puts the
+                DEPARTURE scene back after a rollback (CORE-REQUEST-GM-059)
+                but nothing clears the flag, so a warp whose frame never went
+                out would have stopped that session persisting position at
+                all -- for the rest of its life, over a warp that did not
+                happen.
+              * PANYA `1218` item 2 requires the opposite of a refusal for
+                the M2 journey: a journey plus one step must leave a row that
+                brings the character back to the SEA rather than to Port
+                Royal (``tests/test_m2_teleport_check_seam_wiring.py``).
+
+            So the second half of the gate is the fence this project already
+            uses for exactly this question, ``warp_scene_persist.
+            login_would_accept``: the row is refused when the label is a
+            guess AND login would not take that scene back.  That is the row
+            that BRICKS -- stored, believed at the next login, and then
+            refused, which is a character that cannot be played rather than a
+            character standing in the wrong place.  It is also the same fence
+            R401 put on the M2 relabel, now applied to the write instead of
+            only to the label, so the two cannot disagree.  Measured today:
+            login refuses 17/126/304/305/343/345 and accepts 1/2/14/278/997,
+            and 305 is the scene LANE-A's letter measured the defect on.
+
+            WHAT THIS STILL DOES NOT CLOSE, SAID PLAINLY.  A warp to a scene
+            login DOES accept -- 278 is the live example, whose registry row
+            is ``sent_before=NO, return_ticket=REQUIRED`` -- that the client
+            never follows still writes that scene with the departure's
+            coordinates.  The character can log in, and cannot walk home.
+            Narrower than the brick and not fixed here; it is the first item
+            of this lane's next round and is named in the round file rather
+            than left for the next reader to rediscover.
+
             WHAT IT COSTS, NAMED RATHER THAN HIDDEN.  A warp or a journey the
             client DOES follow clears the flag on the frame that confirms it,
             and the confirming frame runs this method BEFORE the clear -- so
-            the first step after an arrival writes no durable row and the
-            second one does.  One step, not one session.  The in-memory row
-            still moves on every frame either way, so the census, the travel
-            gates and every reader in this file see the player where the
-            player is.
+            for a refused destination the first step after an arrival writes
+            no durable row and the second one does.  One step, not one
+            session.  The in-memory row still moves on every frame either
+            way, so the census, the travel gates and every reader in this
+            file see the player where the player is.
 
             THE LEASE CHECK IS NOT COLLATERAL.  ``store.save_position``'s
             ownership SELECT is this project's only detection signal for a
@@ -4984,6 +5021,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             Returns True when a durable write was attempted.
             """
             if not getattr(self, "scene_label_is_server_guess", False):
+                self.foundation.checkpoint(candidate)
+                return True
+            try:
+                login_takes_it_back = warp_scene_persist.login_would_accept(
+                    candidate.scene_id,
+                )
+            except Exception:  # noqa: BLE001 - a registry read, never the write
+                # Fail CLOSED, the same direction every other gate in this
+                # file fails: an unreadable fence cannot be read as consent
+                # to write a row nobody can judge.
+                login_takes_it_back = False
+            if login_takes_it_back:
                 self.foundation.checkpoint(candidate)
                 return True
             try:

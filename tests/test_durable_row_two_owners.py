@@ -55,6 +55,9 @@ from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from pirateforce_foundation.gm.warp_scene_persist import (  # noqa: E402
+    login_would_accept,
+)
 from pirateforce_foundation.world_scene_travel import (  # noqa: E402
     is_position_persist_allowed,
     load_scene_registry,
@@ -69,6 +72,9 @@ UNREFUTABLE_SCENE_ID = 305
 # The one the registry pins shut, used below to prove `durable=` can only
 # ever subtract a write.
 UNPERSISTED_SCENE_ID = 17
+# Login DOES take this one back, so the gate lets its row through: the
+# residual this round did not close, pinned rather than hidden.
+LOGIN_ACCEPTED_SCENE_ID = 278
 
 
 def _legacy():
@@ -328,6 +334,49 @@ class DurableRowTwoOwnersTests(unittest.TestCase):
                 UNREFUTABLE_SCENE_ID,
                 self._f32(second[0]), self._f32(second[1]),
                 self._f32(second[2]),
+            ),
+        )
+
+    # ----- the fence: a guess login would accept is still written ---------
+
+    def test_the_gate_is_the_brick_not_the_guess(self):
+        """The second half of the gate, and the residual it leaves.
+
+        Withholding on the guess ALONE took five tests in this tree down:
+        a rolled-back warp (whose label is restored but whose flag is not
+        cleared) would have stopped that session persisting at all, and
+        PANYA `1218` item 2 requires the M2 journey's row to name the sea.
+        So the refusal is "the label is a guess AND login would not take
+        that scene back" -- the row that bricks.
+
+        THE RESIDUAL, MEASURED HERE ON PURPOSE: a warp to a scene login DOES
+        accept, which the client never follows, still writes that scene with
+        the departure's coordinates.  278's registry row is `sent_before=NO,
+        return_ticket=REQUIRED`, so that character can log in and cannot walk
+        home.  This test asserts the CURRENT behaviour so the day someone
+        closes it, this is the line that says what changed.
+        """
+        registry = load_scene_registry()
+        self.assertFalse(login_would_accept(UNREFUTABLE_SCENE_ID))
+        self.assertTrue(login_would_accept(LOGIN_ACCEPTED_SCENE_ID))
+        self.assertTrue(
+            is_position_persist_allowed(LOGIN_ACCEPTED_SCENE_ID, registry)
+        )
+
+        state = self._login_and_start("dr_two_owners09")
+        x, y, z = self._memory(state)
+        self._arm_a_cross_scene_warp(state, LOGIN_ACCEPTED_SCENE_ID)
+        self.assertTrue(getattr(state, "scene_label_is_server_guess", False))
+
+        moved = (x + 3.0, y + 3.0, z)
+        err = self._report(state, *moved)
+
+        self.assertEqual(self._withheld_lines(err), [])
+        self.assertEqual(
+            self._stored(state),
+            (
+                LOGIN_ACCEPTED_SCENE_ID,
+                self._f32(moved[0]), self._f32(moved[1]), self._f32(moved[2]),
             ),
         )
 
