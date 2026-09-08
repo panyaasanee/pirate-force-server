@@ -1,0 +1,176 @@
+"""LANE-UI: the first frame this lane ever puts BACK on the wire.
+
+WHAT A PLAYER CAN DO THAT THEY COULD NOT YESTERDAY.  Send a party
+invite from the shipped client UI and have the server answer it.  Until
+this module, every one of the eight ``_FRIEND_MAIL_PARTY_TRADE_DISPATCH``
+vitals was counted, logged by a report-only hook, and answered with an
+empty list -- the player pressed a button and the server said nothing,
+by construction (``ui_dispatch.py``'s own module docstring).  This
+module registers the first answerer, for ``PartyInviteVital``
+(``0x37B1``), and the server replies.
+
+WHY ANSWERING WITH THE SAME ID IS AN ANSWER AND NOT A GUESS.  RE-312
+(pf_bridge ``notes_to_chief/20260908_1038_RE-312-RESULT-*`` and its
+RESULT-2 at ``20260908_1105_*``) settled the question this lane had been
+blocked on -- "what does the client DO when it RECEIVES one of these
+eight" -- from the shipped image:
+
+* all eight classes are ``INBOUND_YES``: each carries a real inbound
+  handler in vtable slot ``+0x1C`` (RESULT-1 section 1 reads the slot
+  map off three vtables and cross-checks it against ``RE-303``, which
+  had already disassembled ``TeleportCheckVital``'s ``+0x1C`` and
+  watched it open a window on screen);
+* the party family's handler is ``0x0062EA70``: it looks up the
+  ``"PartyModule_Client"`` window, type-checks it, and hands the
+  decoded vital to ``0x0062D0E0``;
+* RESULT-2 pinned the caller -- ``0x005F38B2``, ``call eax`` with
+  ``eax = [vtable+0x1C]``, inside the batch dispatch loop at
+  ``0x005F3840`` -- so the slot is reached by the ordinary receive
+  path, not by a route nobody walks.
+
+WHAT IT SENDS: THE PLAYER'S OWN BYTES, AND NOTHING ELSE.  The payload
+is decoded with ``ui_party_wire``'s pinned field shape and then
+RE-ENCODED, and the reply is refused unless the re-encoding is
+byte-identical to what arrived.  So every byte that leaves is a byte
+the client itself just produced, in the order it produced them.  This
+lane invents no field value, and it cannot: letter ``20260904_1120``
+nonclaim (2) still stands -- the three fields have a proven wire shape
+and zero proven MEANING, and RE-312's own nonclaim 5 repeats it
+(``proven_semantics`` UNKNOWN).  Naming ``field2_u64`` "the invited
+player" and routing the invite to them would be the guess this project
+forbids; ``/warp x y`` (pf_bridge letter 1744) is what guessing bytes
+costs.
+
+SO WHAT DOES THE PLAYER SEE?  THIS MODULE DOES NOT CLAIM TO KNOW.  The
+static evidence says the client has a live handler that will run and
+that it addresses the party window.  Whether that draws a dialog, a
+list row, or nothing visible is a question about pixels, and this
+project answers those on a screen: the GT ticket filed with this round
+is what decides it.  This module's claim is bounded to what it can
+prove -- the server now answers, with bytes the client sent, on the
+production path with no flag to flip.
+
+THE STORM GUARD IS PROCESS-WIDE, AND THAT IS A LIMITATION, NAMED.  If a
+client were ever to answer this answer with the same vital, the two
+would trade frames forever.  Nothing measured says it does (a UI module
+window handler needs a human click; RE-312 traced the handler to a
+window lookup, not to a send), but the cost of being wrong is a frame
+storm on a live socket, so there is a budget.  It counts answers for
+the whole process, NOT per session, because ``ui_dispatch`` deliberately
+hands an answerer no session identity at all (its ``_SESSION_VIEW_FIELDS``
+is the empty tuple, and pf-adversary rounds 3 and 4 are why).  A
+per-session budget therefore needs a reviewed widening of that tuple,
+which is a separate edit with its own argument; this one caps the blast
+radius today without asking for any reach.
+"""
+from __future__ import annotations
+
+import sys
+
+from . import console_safe
+from .. import ui_dispatch
+from .. import ui_party_wire as wire
+
+production_allowed = True
+
+LABEL = "UI_PARTY_INVITE_ANSWERED"
+
+# Answers per process before this module stops answering.  Deliberately
+# small: the first attended run needs a handful of presses, and anything
+# past that on one boot is a loop, not a player.
+ANSWER_BUDGET = 32
+
+_answers_sent = 0
+
+
+def _say(line: str) -> None:
+    """One ASCII-folded token on stderr, guarded.
+
+    Same two-part shape and same reason as ``ui_dispatch._say``: the
+    bridge console is cp874, so the fold comes first, and the guard is
+    for the stderr that is gone or full.
+    """
+    try:
+        print(console_safe(line), file=sys.stderr)
+    except Exception:  # pragma: no cover - stderr itself is broken
+        pass
+
+
+def answer_party_invite(session=None, vital_id=0, payload=b"", **_ignored):
+    """Answer one ``PartyInviteVital`` with the bytes it arrived as.
+
+    ``session`` is ``ui_dispatch``'s snapshot, not the runtime, and this
+    module reads nothing from it -- it is accepted only because the seam
+    passes it by keyword.  Returns ``[]`` on every refusal, each one
+    named on stderr so an attended round can line the console up against
+    what the screen did.
+    """
+    global _answers_sent
+
+    if vital_id != wire.PARTY_INVITE_VITAL_ID:
+        _say("UI_PARTY_INVITE_REFUSED reason=wrong_id bytes_out=0")
+        return []
+    if type(payload) is not bytes:
+        _say("UI_PARTY_INVITE_REFUSED reason=payload_not_bytes bytes_out=0")
+        return []
+    fields = wire.decode_party_invite_payload(payload)
+    if fields is None:
+        # The report-only hook beside this one prints the hex; this line
+        # only has to say why nothing went back.
+        _say(
+            "UI_PARTY_INVITE_REFUSED reason=undecodable len=%d bytes_out=0"
+            % (len(payload),)
+        )
+        return []
+    # THE ROUND TRIP IS THE WHOLE SAFETY ARGUMENT, so it is checked, not
+    # assumed.  ``decode_*`` in this project returns fields for the bytes
+    # it consumed; re-encoding and comparing is what turns "these bytes
+    # parsed" into "these are exactly the bytes that parsed".  A payload
+    # with an unexplained trailer, or any field this lane's model rounds,
+    # fails here and is answered with nothing.
+    reencoded = wire.encode_party_invite_payload(fields)
+    if reencoded != payload:
+        _say(
+            "UI_PARTY_INVITE_REFUSED reason=not_byte_exact in=%d out=%d"
+            " bytes_out=0" % (len(payload), len(reencoded))
+        )
+        return []
+    if _answers_sent >= ANSWER_BUDGET:
+        _say(
+            "UI_PARTY_INVITE_REFUSED reason=budget_spent budget=%d bytes_out=0"
+            % (ANSWER_BUDGET,)
+        )
+        return []
+    _answers_sent += 1
+    _say(
+        "UI_PARTY_INVITE_ANSWER n=%d/%d len=%d"
+        % (_answers_sent, ANSWER_BUDGET, len(reencoded))
+    )
+    return [
+        ui_dispatch.VitalReply(
+            label=LABEL,
+            vital_id=wire.PARTY_INVITE_VITAL_ID,
+            version=wire.PARTY_INVITE_VITAL_VERSION,
+            payload=reencoded,
+            delay=0.0,
+        )
+    ]
+
+
+def reset_budget_for_tests():
+    """Put the process budget back to zero.  Tests only."""
+    global _answers_sent
+    _answers_sent = 0
+
+
+# REGISTERED AT IMPORT, WHICH IS WHEN ``lane_hooks._discover()`` RUNS.
+# ``ui_dispatch`` is safe to import at module level here today because it
+# no longer imports ``lane_hooks`` at module level itself (the circular
+# half-built import its own header comment records was the reason that
+# was ever a problem).  A refused registration is not an exception: the
+# seam returns False and names the reason on stderr, and this module then
+# simply never answers -- which is the shipping state, not a crash in
+# discovery.
+ui_dispatch.register_answerer(
+    wire.PARTY_INVITE_VITAL_ID, answer_party_invite
+)

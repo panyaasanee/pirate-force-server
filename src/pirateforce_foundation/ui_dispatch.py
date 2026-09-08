@@ -70,6 +70,7 @@ anything.  It moves exactly one thing: whether a return value is
 structurally possible.  Everything after that is a separate PR with its
 own evidence and its own GT ticket.
 """
+import collections
 import math
 import numbers
 import re
@@ -474,6 +475,50 @@ class _SessionSnapshot(tuple):
         )
 
 
+_ReplyBase = collections.namedtuple(
+    "_ReplyBase", "label vital_id version payload delay"
+)
+
+
+class VitalReply(_ReplyBase):
+    """What an answerer returns when it wants a byte to reach the player.
+
+    WHY A DESCRIPTION AND NOT A FRAME.  Composing a frame needs the
+    envelope builder, which lives in the frozen v141 module, and this
+    file must not name that module (its containment test pins the
+    foundation modules allowed to spell that identifier to ``app.py``
+    and ``runtime.py``, and the comment above ``_SessionSnapshot``
+    already records that joining that set turned the suite red).  The
+    obvious workarounds are worse than the rule: handing the answerer
+    the session, or a closure over it, is not a boundary at all --
+    pf-adversary round 4 (D-B) walked five one-liners past exactly that
+    wrapper, and ``fn.__closure__[0].cell_contents`` walks past a
+    closure the same way.  A reference IS reach.
+
+    So the lane returns DATA and this module composes.  The lane never
+    holds the runtime, never holds the envelope builder, and cannot
+    choose a byte outside the payload it hands over:
+
+    * ``vital_id`` must EQUAL the id of the frame being answered.  An
+      answerer registered for the party invite cannot reply as a
+      teleport, a login ack, or any of the other seven ids this branch
+      routes -- narrower than the registry alone, which only says who
+      may speak for an id, not what they may say.  RE-312 (pf_bridge
+      ``notes_to_chief/20260908_1038_*``) is what makes "same id" a
+      real answer rather than a limitation: all eight classes are
+      ``INBOUND_YES``, each with a live handler in vtable slot
+      ``+0x1C``, reached from the batch dispatcher at ``0x005F38B2``.
+    * ``version`` is the vital version byte, ``payload`` the nested
+      payload bytes, ``delay`` the same delay every action carries.
+
+    The composed ``(label, pc, frame, delay)`` then goes through
+    ``_actions_are_well_formed`` unchanged, so nothing this class adds
+    can skip a check that already existed.
+    """
+
+    __slots__ = ()
+
+
 LABEL_PREFIX = "UI_"
 _LABEL_GRAMMAR = re.compile(r"\AUI_[A-Z0-9_]{1,64}\Z")
 
@@ -661,7 +706,41 @@ def _actions_are_well_formed(actions):
     return True
 
 
-def answer(session, vital_id, payload):
+def _compose(envelope, answered_id, item):
+    """One ``VitalReply`` -> one ``(label, pc, frame, delay)`` action.
+
+    Raises on every refusal so the caller's own ``except Exception``
+    (which already exists, and already fails the whole batch closed)
+    is the single place a bad reply dies.  Nothing here is filtered:
+    half a lane's answer reaching the client is worse than none of it,
+    the same rule the batch validator states.
+    """
+    if envelope is None:
+        raise ValueError(
+            "ui_dispatch was not given the envelope module; a VitalReply"
+            " cannot be composed and the batch is refused"
+        )
+    if item.vital_id != answered_id:
+        raise ValueError(
+            "a VitalReply may only answer the id it was sent: got %s,"
+            " answering %s" % (_hex(item.vital_id), _hex(answered_id))
+        )
+    if isinstance(item.version, bool) or not isinstance(item.version, int):
+        raise TypeError("VitalReply.version must be an int")
+    if not 0 <= item.version <= 0xFF:
+        raise ValueError("VitalReply.version is a single byte")
+    # ``bytes`` exactly, for the reason _actions_are_well_formed gives
+    # for ``pc``/``frame``: a bytearray is mutable after this check and a
+    # str would be encoded by somebody else's guess of a codec.
+    if type(item.payload) is not bytes:
+        raise TypeError("VitalReply.payload must be bytes")
+    pc, frame = envelope.make_runtime_vitals(
+        [(item.vital_id, item.version, item.payload)]
+    )
+    return (item.label, pc, frame, item.delay)
+
+
+def answer(session, vital_id, payload, envelope=None):
     """Answer one of the eight UI vitals, or return ``[]``.
 
     Called from ``runtime.py``'s ``_FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS``
@@ -669,10 +748,17 @@ def answer(session, vital_id, payload):
     the frame and fired its report-only hook point.  Returns a list of
     ``(label, pc, frame, delay)`` actions for the dispatcher to send.
 
-    Returns ``[]`` -- today, on every frame, because ``_ANSWERERS`` ships
-    empty -- for every state described in this module's docstring.  The
-    list returned is always a NEW list this module owns, so a caller
-    extending it cannot reach back into an answerer's own object.
+    Returns ``[]`` -- for every state described in this module's
+    docstring.  The list returned is always a NEW list this module owns,
+    so a caller extending it cannot reach back into an answerer's own
+    object.
+
+    ``envelope`` is the module that owns ``make_runtime_vitals``, passed
+    down by ``runtime.py`` because this file may not name it (see
+    ``VitalReply``).  It is a keyword with a default so that every
+    caller which does not pass it -- a test, an older call site --
+    keeps the behaviour it has today: a ``VitalReply`` cannot be
+    composed without it, so the batch is REFUSED, not sent half-built.
     """
     entry = _ANSWERERS.get(vital_id)
     if entry is None:
@@ -728,6 +814,20 @@ def answer(session, vital_id, payload):
         # only settles the outer container.
         if type(actions) in (list, tuple):
             actions = list(actions)
+            # COMPOSE BEFORE VALIDATING, INSIDE THIS ``try``.  A
+            # ``VitalReply`` is this lane's own data; turning it into an
+            # action runs ``make_runtime_vitals`` on a payload the lane
+            # chose, so it belongs under the same handler that already
+            # catches an answerer raising -- not outside it, which is
+            # the D4 mistake one paragraph down.  A batch may mix
+            # composed replies with the plain 4-tuples answerers could
+            # already return; both shapes then face the SAME validator
+            # below, so nothing added here skips a check.
+            actions = [
+                _compose(envelope, vital_id, item)
+                if isinstance(item, VitalReply) else item
+                for item in actions
+            ]
         # AND THE CHECK ITSELF IS INSIDE THIS try (pf-adversary D4).  It
         # was outside, so an answerer supplying a ``Real`` whose
         # ``__float__`` raises escaped answer(), escaped dispatch(), and

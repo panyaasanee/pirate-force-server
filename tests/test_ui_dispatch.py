@@ -937,7 +937,22 @@ class SeamIsRealTests(unittest.TestCase):
         )
         body = "\n".join(source[anchor:anchor + 70])
         self.assertIn("return ui_dispatch.answer(", body)
-        self.assertIn("self, nested_id, bytes(parsed.nested_payload))", body)
+        # THE ARGUMENT LINE GREW BY ONE KEYWORD, round `spdxy0`, and this
+        # test is where that is declared rather than discovered.
+        # `envelope=legacy` is what lets an answerer put a byte back
+        # WITHOUT holding the runtime: ui_dispatch composes the frame
+        # from the (id, version, payload) triple a lane returns, because
+        # it may not name the frozen module that owns the envelope
+        # builder (its own containment pin, and the reason handing a lane
+        # the session or a closure over it was refused -- pf-adversary
+        # rounds 3 D2 and 4 D-B: a reference IS reach).  It takes the
+        # runtime.py budget COO route (b) granted from three added lines
+        # to four; that is the lane's assumption, filed for COO in
+        # pf_bridge/notes_to_chief/20260908_*_LANE-UI-ASK-COO-*.
+        self.assertIn(
+            "self, nested_id, bytes(parsed.nested_payload),", body
+        )
+        self.assertIn("envelope=legacy)", body)
 
     def test_the_seam_names_ui_dispatch_on_exactly_two_lines(self):
         # RENAMED, and its claim narrowed, on pf-adversary D8: the old name
@@ -973,8 +988,13 @@ class SeamIsRealTests(unittest.TestCase):
         )
         self.assertEqual(
             source[naming[1] + 1].strip(),
-            "self, nested_id, bytes(parsed.nested_payload))",
+            "self, nested_id, bytes(parsed.nested_payload),",
         )
+        # Four added lines now, not three: see the paragraph in
+        # test_the_call_is_the_return_of_the_eight_vital_branch.  Still
+        # counted by POSITION rather than by grep, because neither
+        # argument line names the module.
+        self.assertEqual(source[naming[1] + 2].strip(), "envelope=legacy)")
 
 
 class TheConventionIsTheRealDispatchersTests(_RegistryIsolation):

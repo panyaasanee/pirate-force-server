@@ -9426,8 +9426,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         "vital_inbound_trade_invite_vital",
                         session=self, payload=bytes(parsed.nested_payload),
                     )
+                # ``envelope=legacy`` is what lets an answerer put a byte
+                # back WITHOUT ever holding the runtime: ui_dispatch composes
+                # the frame itself from the (id, version, payload) triple a
+                # lane returns, so no lane module names or reaches this
+                # module.  ui_dispatch answers [] when it is not passed.
                 return ui_dispatch.answer(
-                    self, nested_id, bytes(parsed.nested_payload))
+                    self, nested_id, bytes(parsed.nested_payload),
+                    envelope=legacy)
             if nested_id == legacy.START_GAME_REQ:
                 self.rx_frames += 1
                 self.start_game_seen = True
