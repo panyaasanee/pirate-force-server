@@ -993,6 +993,22 @@ class SQLiteStore:
         Ownership is checked the way ``save_position`` checks it: a session
         that does not have this character selected cannot write into its bag.
         """
+        self._require_acquired_row(item)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            return self._commit_acquired_backpack_item_locked(
+                db, sid, character_id, item,
+            )
+
+    @staticmethod
+    def _require_acquired_row(item: ItemAttrState) -> None:
+        """Every refusal a picked-up row earns BEFORE any transaction opens.
+
+        Lifted out of :meth:`commit_acquired_backpack_item` unchanged so that
+        :meth:`commit_pickup_taking_the_drop_off_the_ground` refuses the same
+        rows, by the same names, for the same reasons.  Two copies of these
+        bounds would be two things to keep in step with gate 2; this is one.
+        """
         if type(item) is not ItemAttrState:
             raise TypeError("acquired item must be an exact ItemAttrState")
         # WHAT THIS METHOD ACCEPTS MUST BE A SUBSET OF WHAT GATE 2 ADMITS,
@@ -1017,60 +1033,75 @@ class SQLiteStore:
                 "template id 0 is not a pickup template; gate 2 would refuse "
                 "this row forever"
             )
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            self._require_selected_session(db, sid, character_id)
-            expected_identity = self._next_item_identity(db, character_id)
-            if item.identity != expected_identity:
-                raise ValueError(
-                    "acquired identity %d is not this character's next free "
-                    "identity %d" % (item.identity, expected_identity)
-                )
-            before = self._load_backpack(db, character_id)
-            if any(row.slot == item.slot for row in before.items):
-                raise ValueError(
-                    "slot %d is occupied; a pickup goes to a free slot"
-                    % item.slot
-                )
-            # Structure is validated on the value that is ABOUT to be written,
-            # before anything is written: a duplicate identity or a bag that
-            # would come back malformed refuses here rather than through an
-            # IntegrityError with the database's wording instead of ours.
-            expected = require_backpack_shape(BackpackState(
-                before.base_mask, before.base_identity, before.range_mask,
-                tuple(sorted(
-                    before.items + (item,), key=lambda row: row.identity,
-                )),
-            ))
-            inserted = db.execute(
-                "INSERT INTO character_backpack_items("
-                "character_id,item_identity,template_id,quantity,slot,raw_u8_38,raw_u8_39,detail_present"
-                ") VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    character_id, item.identity, item.template_id,
-                    item.quantity, item.slot, item.raw_u8_38,
-                    item.raw_u8_39, item.detail_present,
-                ),
+
+    def _commit_acquired_backpack_item_locked(
+        self, db: sqlite3.Connection, sid: str, character_id: int,
+        item: ItemAttrState,
+    ) -> BackpackState:
+        """The write half of a pickup, inside a transaction the CALLER opened.
+
+        Lifted out of :meth:`commit_acquired_backpack_item` without a change
+        to one statement, so that
+        :meth:`commit_pickup_taking_the_drop_off_the_ground` can write this
+        row and the ground-drop taken-marker in ONE transaction.  Nothing
+        here opens or commits anything: the caller's ``BEGIN IMMEDIATE`` is
+        what makes it all-or-nothing, and the caller's rollback is what
+        un-writes it.  Private because a caller that has not opened a
+        transaction would get a row and a counter that can part company --
+        the exact failure the public method's docstring exists to forbid.
+        """
+        self._require_selected_session(db, sid, character_id)
+        expected_identity = self._next_item_identity(db, character_id)
+        if item.identity != expected_identity:
+            raise ValueError(
+                "acquired identity %d is not this character's next free "
+                "identity %d" % (item.identity, expected_identity)
             )
-            if inserted.rowcount != 1:
-                raise RuntimeError("acquired row was not inserted")
-            # The counter moves under its own read value: a second writer that
-            # advanced it between this transaction's read and this statement
-            # leaves rowcount 0, and the whole transaction rolls back rather
-            # than stamping a stale number over a newer one.
-            advanced = db.execute(
-                "UPDATE character_backpacks SET next_item_identity=?,updated_at=? "
-                "WHERE character_id=? AND next_item_identity=?",
-                (item.identity + 1, _now(), character_id, expected_identity),
+        before = self._load_backpack(db, character_id)
+        if any(row.slot == item.slot for row in before.items):
+            raise ValueError(
+                "slot %d is occupied; a pickup goes to a free slot"
+                % item.slot
             )
-            if advanced.rowcount != 1:
-                raise RuntimeError(
-                    "identity counter changed during the pickup transaction"
-                )
-            after = self._load_backpack(db, character_id)
-            if after != expected:
-                raise RuntimeError("acquired-row post-state validation failed")
-            return after
+        # Structure is validated on the value that is ABOUT to be written,
+        # before anything is written: a duplicate identity or a bag that
+        # would come back malformed refuses here rather than through an
+        # IntegrityError with the database's wording instead of ours.
+        expected = require_backpack_shape(BackpackState(
+            before.base_mask, before.base_identity, before.range_mask,
+            tuple(sorted(
+                before.items + (item,), key=lambda row: row.identity,
+            )),
+        ))
+        inserted = db.execute(
+            "INSERT INTO character_backpack_items("
+            "character_id,item_identity,template_id,quantity,slot,raw_u8_38,raw_u8_39,detail_present"
+            ") VALUES (?,?,?,?,?,?,?,?)",
+            (
+                character_id, item.identity, item.template_id,
+                item.quantity, item.slot, item.raw_u8_38,
+                item.raw_u8_39, item.detail_present,
+            ),
+        )
+        if inserted.rowcount != 1:
+            raise RuntimeError("acquired row was not inserted")
+        # The counter moves under its own read value: a second writer that
+        # advanced it between this transaction's read and this statement
+        # leaves rowcount 0, and the whole transaction rolls back rather
+        # than stamping a stale number over a newer one.
+        advanced = db.execute(
+            "UPDATE character_backpacks SET next_item_identity=?,updated_at=? "
+            "WHERE character_id=? AND next_item_identity=?",
+            (item.identity + 1, _now(), character_id, expected_identity),
+        )
+        if advanced.rowcount != 1:
+            raise RuntimeError(
+                "identity counter changed during the pickup transaction"
+            )
+        after = self._load_backpack(db, character_id)
+        if after != expected:
+            raise RuntimeError("acquired-row post-state validation failed")
+        return after
 
     def apply_v111_stack_merge(
         self, sid: str, character_id: int,
@@ -3132,6 +3163,22 @@ class SQLiteStore:
         that gap has a bug LANE-B's side needs to see, not a value this
         door should paper over by pretending it happened anyway.
         """
+        # Validated here as well as inside the locked half so a bad pair is
+        # refused BEFORE a write lock is taken, which is where it was refused
+        # before this method was split.  The helper validates again because it
+        # is also reached from the atomic door; both calls are pure.
+        self._require_ground_drop_key(scene, drop_key)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            return self._mark_ground_drop_taken_locked(db, scene, drop_key)
+
+    @staticmethod
+    def _require_ground_drop_key(scene: str, drop_key: int) -> str:
+        """Validate one `(scene, drop_key)` pair and return the folded scene.
+
+        Lifted out of :meth:`mark_ground_drop_taken` unchanged so the atomic
+        pickup door refuses the same pairs by the same names.
+        """
         scene = _require_ground_drop_scene(scene)
         if isinstance(drop_key, bool) or not isinstance(drop_key, int):
             raise TypeError("drop_key must be an int")
@@ -3139,22 +3186,91 @@ class SQLiteStore:
             raise ValueError(
                 "drop_key 0x%X is outside the u32 range" % drop_key
             )
-        scene_fold = scene.casefold()
-        taken_at = _now()
+        return scene.casefold()
+
+    def _mark_ground_drop_taken_locked(
+        self, db: sqlite3.Connection, scene: str, drop_key: int,
+    ) -> bool:
+        """:meth:`mark_ground_drop_taken`'s body, inside the CALLER's transaction.
+
+        Same statements, same idempotence, same return meaning; the only
+        difference is who opened the transaction.  Private for the same
+        reason the acquired-row half is: a caller without one gets a marker
+        that can land while the bag row does not.
+        """
+        scene_fold = self._require_ground_drop_key(scene, drop_key)
+        cursor = db.execute(
+            "UPDATE ground_drops SET taken_at=? "
+            "WHERE scene_fold=? AND drop_key=? AND taken_at IS NULL",
+            (_now(), scene_fold, drop_key),
+        )
+        if cursor.rowcount:
+            return True
+        row = db.execute(
+            "SELECT 1 FROM ground_drops WHERE scene_fold=? AND drop_key=?",
+            (scene_fold, drop_key),
+        ).fetchone()
+        return row is not None
+
+    def commit_pickup_taking_the_drop_off_the_ground(
+        self, sid: str, character_id: int, item: ItemAttrState,
+        scene: str, drop_key: int,
+    ) -> BackpackState:
+        """Take the drop off the ground AND put the row in the bag, or NEITHER.
+
+        `mob_pickup.py` note 16 measured the shape this replaces: the drop
+        leaves the ground first (`BagCell.commit_pickup` advances its own mark
+        and the ledger row is marked taken), and
+        :meth:`commit_acquired_backpack_item` is "a separate later call that
+        can refuse (lease taken over, database locked, disk full)".  Two
+        transactions means a window where the FIRST one is committed and the
+        second never lands -- and in that window the item is off the ground
+        and not in any bag.  Nothing puts it back: `commit_ground_drop` is the
+        only writer of that table and `taken_at` is never un-set, so the row
+        the player walked over is gone from
+        :meth:`list_ground_drops_still_on_the_ground` forever, while their bag
+        never gained it.  That is a player losing an item to a database
+        hiccup, and it survives relog because BOTH halves are on disk-backed
+        state: the loss is durable, which is the worst kind.
+
+        This door is the pair as ONE transaction.  Either the marker and the
+        row are both committed, or SQLite rolls both back and the drop is
+        still standing for the player to walk over again.  Nothing about what
+        each half writes changes -- both halves are the existing bodies,
+        called through their `_locked` helpers -- so a caller that keeps using
+        the two separate doors gets exactly what it got before.
+
+        THE ORDER INSIDE IS DELIBERATE: the ground row is marked FIRST.  A
+        `drop_key` this scene never had a `commit_ground_drop` for makes
+        :meth:`mark_ground_drop_taken` return `False`, and this refuses the
+        whole pickup rather than minting a bag row for a drop that never
+        existed -- an item out of nothing is a worse bug than a refused
+        pickup, and the caller with that gap needs to see it.  A drop that was
+        ALREADY taken returns `True` (that door is idempotent on purpose,
+        because LANE-B's letter says pickup can be delivered twice) and is NOT
+        refused here: the identity check inside the bag half is what stops the
+        second delivery from writing a second row, and it refuses by its own
+        name.
+
+        Returns the bag as it stands after the row lands, exactly as
+        :meth:`commit_acquired_backpack_item` does.
+        """
+        self._require_acquired_row(item)
+        # Validated before the transaction opens, for the same reason the row
+        # bounds are: a bad `drop_key` should not hold a write lock while it
+        # is being rejected.
+        self._require_ground_drop_key(scene, drop_key)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            cursor = db.execute(
-                "UPDATE ground_drops SET taken_at=? "
-                "WHERE scene_fold=? AND drop_key=? AND taken_at IS NULL",
-                (taken_at, scene_fold, drop_key),
+            if not self._mark_ground_drop_taken_locked(db, scene, drop_key):
+                raise ValueError(
+                    "scene %r has no ground drop 0x%X to take; refusing to "
+                    "mint a bag row for a drop that never existed"
+                    % (scene, drop_key)
+                )
+            return self._commit_acquired_backpack_item_locked(
+                db, sid, character_id, item,
             )
-            if cursor.rowcount:
-                return True
-            row = db.execute(
-                "SELECT 1 FROM ground_drops WHERE scene_fold=? AND drop_key=?",
-                (scene_fold, drop_key),
-            ).fetchone()
-            return row is not None
 
     def list_ground_drops_still_on_the_ground(
         self, scene: str
