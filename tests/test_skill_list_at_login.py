@@ -1049,6 +1049,181 @@ class AHookCanWireThisWithoutRuntimeChangingTests(unittest.TestCase):
         self.assertEqual(1, len(calls), "call sites: %d" % len(calls))
 
 
+class TheSeamCallHasToBeReachableTests(unittest.TestCase):
+    """pf-adversary D7 (round ``ixbs2f``), paid: a call node is not a seam.
+
+    The mutant that survived the previous round deletes ONE line -- the
+    login path's ``self._skill_list_login_action(legacy)`` -- and leaves the
+    method it called standing.  The server then sends no skill frame at
+    login, and the suite goes red on eight tests, but the CONSOLE TOKEN kept
+    printing ``sent_by=runtime ... RESULT=ARMED``.  The token is the artifact
+    that travels alone: it is pasted into GT-307's ``HEADLESS_PROOF:`` line,
+    read by an operator who is not running the suite.  These tests are about
+    that line, not about the suite.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def _write(self, source):
+        path = self.dir / "runtime.py"
+        path.write_text(source, encoding="utf-8")
+        return path
+
+    def test_the_real_tree_with_the_login_call_deleted_reads_module_only(self):
+        """THE mutant, applied to the SHIPPED tree, not to a toy.
+
+        The mutation is located through the AST rather than by matching
+        source text, so it keeps finding the call after the call is
+        reformatted, renamed or moved to another method.
+        """
+        source = (SRC / "runtime.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        chains = []
+
+        def _walk(node, stack):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.Call) and getattr(
+                    child.func, "attr", getattr(child.func, "id", ""),
+                ) == skill_list_at_login.LOGIN_SEAM_SYMBOL:
+                    chains.append(list(stack))
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _walk(child, stack + [child])
+                else:
+                    _walk(child, stack)
+
+        _walk(tree, [])
+        self.assertEqual(
+            1, len(chains), "seam call sites in runtime.py: %d" % len(chains)
+        )
+        self.assertTrue(
+            chains[0],
+            "the seam call sits at module level, so there is no login-path "
+            "call to delete and this mutant does not exist",
+        )
+        # The INNERMOST enclosing def is the carrier the mutant leaves
+        # standing; the outer one is the factory `app.py` calls.
+        carrier_name = chains[0][-1].name
+
+        spans = [
+            (node.lineno, node.end_lineno)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(
+                node.func, "attr", getattr(node.func, "id", ""),
+            ) == carrier_name
+        ]
+        self.assertTrue(
+            spans,
+            "nothing in runtime.py calls %s -- the seam is already dead"
+            % (carrier_name,),
+        )
+
+        lines = source.splitlines()
+        for start, end in sorted(spans, reverse=True):
+            indent = len(lines[start - 1]) - len(lines[start - 1].lstrip())
+            lines[start - 1:end] = [" " * indent + "pass"]
+        mutant = "\n".join(lines) + "\n"
+
+        self.assertNotEqual(source, mutant, "the mutation did not apply")
+        # The METHOD survives the mutation: that is what makes this the
+        # mutant the plain walk could not see.
+        self.assertIn(
+            skill_list_at_login.LOGIN_SEAM_SYMBOL,
+            mutant,
+            "the mutation removed the seam symbol too, which is a different "
+            "and easier mutant",
+        )
+        ast.parse(mutant)
+
+        self.assertEqual(
+            "module_only",
+            skill_list_at_login.seam_carrier(self._write(mutant)),
+        )
+
+    def test_a_method_nobody_names_does_not_arm_the_token(self):
+        path = self._write(
+            "def make_state_class():\n"
+            "    class State:\n"
+            "        def _dead(self, legacy):\n"
+            "            return %s(legacy, None, 1)\n"
+            "        def login(self):\n"
+            "            return None\n"
+            "    return State\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(path))
+
+    def test_naming_that_method_from_the_login_path_arms_it(self):
+        """The same tree as above plus the one line the mutant deletes."""
+        path = self._write(
+            "def make_state_class():\n"
+            "    class State:\n"
+            "        def _carrier(self, legacy):\n"
+            "            return %s(legacy, None, 1)\n"
+            "        def login(self):\n"
+            "            return self._carrier(None)\n"
+            "    return State\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("runtime", skill_list_at_login.seam_carrier(path))
+
+    def test_a_function_that_only_calls_itself_does_not_vouch_for_itself(self):
+        path = self._write(
+            "def outer():\n"
+            "    def _loop(n):\n"
+            "        %s(None, None, n)\n"
+            "        return _loop(n)\n"
+            "    return 1\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(path))
+
+    def test_a_module_level_def_still_counts_because_another_file_calls_it(
+        self,
+    ):
+        """The documented exemption, pinned so it cannot be widened quietly.
+
+        ``runtime.py``'s own ``make_state_class`` is spelled nowhere in
+        ``runtime.py`` outside its own body -- ``app.py`` calls it -- so a
+        rule that demanded an in-file caller for the OUTERMOST def would
+        answer ``module_only`` on the tree that ships today.
+        """
+        path = self._write(
+            "def make_state_class():\n"
+            "    return %s(None, None, 1)\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("runtime", skill_list_at_login.seam_carrier(path))
+
+    def test_a_call_at_module_level_counts_because_import_runs_it(self):
+        path = self._write(
+            "FRAME = %s(None, None, 1)\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("runtime", skill_list_at_login.seam_carrier(path))
+
+    def test_the_summary_line_follows_the_tree_down(self):
+        """The operator-facing consequence, asserted on the line itself.
+
+        ``sent_by`` and ``RESULT`` are read out of the SUMMARY string rather
+        than out of ``seam_carrier``, because the defect this pays for was a
+        format string that disagreed with the function beside it.
+        """
+        dead = self._write(
+            "def make_state_class():\n"
+            "    class State:\n"
+            "        def _dead(self, legacy):\n"
+            "            return %s(legacy, None, 1)\n"
+            "    return State\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(dead))
+
+
 class TheTokenReportsTheByteTheFrameCarriesTests(_Fixture):
     """pf-adversary D3: the `HEADLESS_PROOF:` line used to print
     `SKILL_LIST_TRAILING_BYTE` straight out of the format string, so it read

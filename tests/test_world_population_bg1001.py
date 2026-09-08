@@ -257,11 +257,14 @@ class Bg1001Census(unittest.TestCase):
         self.assertEqual(self._build().actor_count, census.ROSTER_COUNT)
 
     def test_only_the_census_seam_imports_this_module(self) -> None:
-        """UNLIKE every sibling composer, ``world_population_handoff`` does
-        NOT import this module this round - see that module's own
-        ``PENDING_CROSSING_SAFETY_REVIEW`` comment for why.  Pinned here so
-        a later round that adds the import without also updating that
-        comment (or removing this pin) is caught."""
+        """~~UNLIKE every sibling composer, ``world_population_handoff`` does
+        NOT import this module this round.~~  IT DOES since chief round
+        R405/y8fm7z, which registered ``bg1001_roster`` in
+        ``ROSTER_COMPOSERS`` - so this module is now imported by exactly the
+        two files every sibling composer is, and the pin says so rather than
+        being deleted.  A THIRD importer is still the thing this test exists
+        to catch: a composer reached from somewhere other than the seam is
+        the double-populator shape COO-DECISION 20260829_2245 bans."""
         import ast
 
         importers = []
@@ -278,7 +281,9 @@ class Bg1001Census(unittest.TestCase):
                              for alias in node.names]
                 if "world_population_bg1001" in names:
                     importers.append(path.name)
-        self.assertEqual(sorted(set(importers)), ["lane_a_scene_census.py"])
+        self.assertEqual(
+            sorted(set(importers)),
+            ["lane_a_scene_census.py", "world_population_handoff.py"])
 
 
 if __name__ == "__main__":

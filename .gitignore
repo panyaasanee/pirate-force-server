@@ -613,6 +613,11 @@
 !/tools/pf_class_skill_starting_kit_extract.py
 !/tools/pf_class_skill_curriculum_extract.py
 
+# LANE-CS round jty60h - generator for the full SKILL_CONTEXT census
+# (skill_context_census.py); same reason as the two above: a fresh clone
+# has to be able to re-derive the committed copy from ../pf_bridge/gamedata.
+!/tools/pf_skill_context_census_extract.py
+
 # LANE-B round ti9gxr - the generator for combat_pose.py's two committed local
 # TSV copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class
 # .tsv) from ../pf_bridge/gamedata.  IT SHIPPED WITHOUT THIS LINE and

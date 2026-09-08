@@ -21,6 +21,20 @@ matters:
      and the NEW content guard aborts the migration.  Point 3 is what makes
      this a guard rather than a decoration, and it is measured here on a
      real database, not argued.
+
+NONCLAIM ADDED AFTER ADVERSARY FINDING D4 (round `fw2hs6`).  Point 3 is
+carried by exactly TWO of the mutants below -- `test_the_old_count_only_
+guard_passes_the_corrupted_rebuild` paired with `test_the_content_guard_
+aborts_the_same_corrupted_rebuild`, and `test_a_dropped_column_filled_by_a_
+default_is_caught`.  `test_a_lost_row_is_caught_too` is caught by the row
+COUNT as well and separates nothing; it is here because losing a row is a
+failure worth pinning, not as evidence for point 3.
+
+WHAT THIS FILE STILL DOES NOT WATCH.  The SCHEMA.  A rebuild that quietly
+drops a foreign key passes every test here (adversary finding D1) -- that
+half lives in `tests/test_persistence_rebuild_guard_schema_half.py`, on
+`schema_snapshot_sql`/`schema_verify_sql`, which `018` predates and cannot
+carry.
 """
 from __future__ import annotations
 
@@ -354,12 +368,39 @@ class TheGuardCatchesWhatTheCountMissedTests(unittest.TestCase):
         self.assertEqual(_rows(path), before)
 
     def test_a_lost_row_is_caught_too(self):
+        """A row that the REBUILD drops on the way across.
+
+        PAYS ADVERSARY FINDING D4 (round `fw2hs6`).  This test used to
+        mutate the first `FROM character_skills;` in the file, which is the
+        SNAPSHOT statement on line 102, not the copy on line 113 -- so the
+        rebuilt table lost nothing and the SNAPSHOT was the short one.  It
+        went red for the wrong reason and measured the mirror image of its
+        own name.  The mutant now names the copy statement in full, the
+        same way `test_a_dropped_column_filled_by_a_default_is_caught`
+        beside it already does, and the test asserts the snapshot line is
+        untouched so this cannot silently drift back.
+
+        NONCLAIM: unlike the two tests above, this mutant is caught by the
+        row-count guard as well -- a lost row changes the count.  It does
+        not separate the new guard from the old one and is not offered as
+        evidence that it does; it is here because "the rebuild loses a row"
+        is a failure the guard must catch on the way in, not because it is
+        a failure only the new guard can see.
+        """
         path, _ = self._database_at_017_with_two_skill_rows("lost.sqlite3")
         before = _rows(path)
+        copy_statement = (
+            "SELECT id,character_id,skill_id,source,granted_at "
+            f"FROM {TABLE};"
+        )
         mutant = self.eighteen.replace(
-            f"FROM {TABLE};", f"FROM {TABLE} WHERE skill_id<>210;", 1
+            copy_statement,
+            "SELECT id,character_id,skill_id,source,granted_at "
+            f"FROM {TABLE} WHERE skill_id<>210;",
+            1,
         )
         self.assertNotEqual(mutant, self.eighteen)
+        self.assertIn(guard.snapshot_sql(TABLE, TAG), mutant)
         with self.assertRaises(sqlite3.IntegrityError):
             self._run_eighteen(path, mutant, "lost")
         self.assertEqual(_rows(path), before)

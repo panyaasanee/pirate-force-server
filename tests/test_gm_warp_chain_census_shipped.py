@@ -93,6 +93,9 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
+from pirateforce_foundation.lane_hooks import (  # noqa: E402
+    lane_a_scene_census,
+)
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_bg0002  # noqa: E402
 from pirateforce_foundation import world_population_handoff  # noqa: E402
@@ -145,23 +148,33 @@ def _lane_census_scenes() -> tuple[int, ...]:
     scene a lane adds tomorrow is covered the day it registers, and a scene
     a lane REMOVES cannot leave a green test asserting nothing.
 
-    EXCLUDES ``PENDING_CROSSING_SAFETY_REVIEW`` SOURCES (round `vwekfq`,
-    LANE-A): scene 17 is registered in ``CENSUS_SOURCES`` (a real,
-    [PROPOSED] roster exists - ``world_bg1001_identity`` /
-    ``world_population_bg1001``) but deliberately NOT in
-    ``world_population_handoff.ROSTER_COMPOSERS`` yet - see that table's own
-    comment.  A GM ``/warp`` chain is attended, but this helper is shared by
-    tests that assert a REAL census queues on every hop, and scene 17 does
-    not have one to queue until that table gains the entry.  Filtering here
-    (rather than adding a per-test skip) keeps every consumer of this helper
-    consistent with the one seam that actually decides.
+    ~~EXCLUDES ``PENDING_CROSSING_SAFETY_REVIEW`` SOURCES (round `vwekfq`,
+    LANE-A): scene 17 ... is deliberately NOT in
+    ``world_population_handoff.ROSTER_COMPOSERS`` yet.~~  IT IS, since chief
+    round R405/y8fm7z, and that table is now empty - so the old filter would
+    exclude nothing and this helper needs the condition it was standing in
+    for.
+
+    EXCLUDES SCENES THIS ARM IS NOT OPEN TO, and it is the arm's OWN gate
+    that is asked (``lane_a_scene_census.scene_is_open_to_players``, which
+    reads the registry's ``login_entry_allowed`` for EVERY arrival, not only
+    the login one).  Scene 17 is the case that makes the difference legible:
+    its cast now ships on the COLUMBUS CROSSING (a different seam,
+    ``world_population_handoff.ROSTER_COMPOSERS`` via
+    ``world_m2_crossing_handoff``) while its login door stays shut, so a GM
+    ``/warp 17`` still arrives empty.  Two seams, two answers, and this
+    helper belongs to the ``/warp`` one - asking the composer table here
+    would assert that the OTHER seam's work shows up on this path, which is
+    exactly the cross-seam claim ``world_population_bg1001``'s own docstring
+    says is not made.  Filtering here (rather than adding a per-test skip)
+    keeps every consumer of this helper consistent with the one gate that
+    actually decides for this path.
     """
     scenes = []
     for scene_id in sorted(world_scene_travel.CENSUS_SOURCES):
         if scene_id == world_population.SCENE_ID:
             continue
-        source = world_scene_travel.CENSUS_SOURCES[scene_id]
-        if source in world_population_handoff.PENDING_CROSSING_SAFETY_REVIEW:
+        if not lane_a_scene_census.scene_is_open_to_players(scene_id):
             continue
         composer = lane_hooks.scene_census_composer(scene_id)
         if composer is None:

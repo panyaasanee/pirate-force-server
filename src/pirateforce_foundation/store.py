@@ -29,6 +29,7 @@ from .inventory import (
 from .model import Character, Position
 from .persistence_ground_drops import GroundDropRow
 from .persistence_home_marker import HomeMarkerRow
+from .persistence_quest_state import QuestCounterRow, QuestFlagRow
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -3273,6 +3274,364 @@ class SQLiteStore:
             ).fetchone()
         return HomeMarkerRow(*row) if row is not None else None
 
+    # -- quest state ---------------------------------------------------
+    #
+    # The five doors `notes_to_chief/20260905_2212_LANE-DB-TO-LANE-Q-quest-
+    # state-doors-declared-and-opened-this-round.md` declared and
+    # `notes_to_chief/20260908_1642_COO-DECISION-quest-flags-schema-comes-
+    # before-the-bulk-skill-rows-LANE-DB.md` ordered built, on the tables
+    # `migrations/019_character_quest_state.sql` creates.  Every name,
+    # signature, refusal and return shape below is `2212`'s -- the COO
+    # decision forbids redesigning the contract, and LANE-Q's
+    # `lua_api/quest_state_store.StoreBackedQuestStateStore` already calls
+    # these names.
+
+    def _quest_key(
+        self, character_id: int, quest_id: int
+    ) -> None:
+        """Refuse a (character, quest) pair this database cannot hold.
+
+        `quest_id` is bounded to u16 because that is the range the client
+        actually carries -- `columbus_quest_dispatch.py` puts a quest id on
+        the wire with `legacy.u16tag(0x12, quest_id)` -- and the same bound
+        is written into the tables' own CHECK so a second writer cannot get
+        around this one.  Bools are refused explicitly: `sqlite3` binds
+        `True`/`False` as `1`/`0` without complaint, which would silently
+        read or write quest 1 for a caller's typo.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        # PAYS pf-adversary D6 (round `6vv9mi`): `character_id` was the one
+        # number these doors did not bound, so `set_quest_flag(2**70, ...)`
+        # reached `sqlite3` and raised `OverflowError` from INSIDE the open
+        # transaction.  LANE-Q's adapter catches `KeyError`/`ValueError`/
+        # `sqlite3.Error` and nothing else, so that exception escaped into
+        # the Lua call stack and the host sweep blamed the script -- the
+        # exact shape `lua_api/quest_state_store.py` says it exists to
+        # prevent.  Same int64 bound `_quest_number` gives every other
+        # number here, for the same reason.
+        if not -(2 ** 63) <= character_id <= 2 ** 63 - 1:
+            raise ValueError(
+                "character_id %d does not fit SQLite's INTEGER" % character_id
+            )
+        if isinstance(quest_id, bool) or not isinstance(quest_id, int):
+            raise TypeError("quest_id must be an int")
+        if not 0 <= quest_id <= 0xFFFF:
+            raise ValueError(
+                "quest_id %d is outside the u16 quest-id range" % quest_id
+            )
+
+    def _quest_counter_name(self, counter_name: str) -> str:
+        """Refuse a counter name that would merge two trackers into one row.
+
+        The name is part of the primary key, so an empty name is not an
+        empty fact -- it is a second tracker landing on the first one's row
+        (`gamedata/lua/Quest/q_kill5.lua` runs two at once inside one
+        quest).  1..128 characters is `2212`'s own bound, and the table
+        carries the same CHECK.
+        """
+        if not isinstance(counter_name, str):
+            raise TypeError("counter_name must be a str")
+        if not 1 <= len(counter_name) <= 128:
+            raise ValueError(
+                "counter_name must be 1..128 characters, got %d"
+                % len(counter_name)
+            )
+        return counter_name
+
+    def _quest_number(self, value: int, what: str) -> int:
+        """Refuse a value SQLite's INTEGER cannot hold.
+
+        `2212` puts no enum and no narrower range on `flag_value` (this
+        database does not know what `Quest.Active` means and must not
+        guess), so the only bound is the storage's own: a signed 64-bit
+        integer.  Checking it here turns a caller's overflow into this
+        door's `ValueError` before the transaction opens, instead of
+        `sqlite3`'s `OverflowError` from inside it.
+        """
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError("%s must be an int" % what)
+        if not -(2 ** 63) <= value <= 2 ** 63 - 1:
+            raise ValueError(
+                "%s %d does not fit SQLite's INTEGER" % (what, value)
+            )
+        return value
+
+    def _quest_begin(self, db, character_id: int, what: str) -> None:
+        """`BEGIN IMMEDIATE`, then prove the character is live.
+
+        Split out only because all three quest write doors need exactly
+        this preamble; it raises `WriteLockTimeout` rather than a raw
+        `sqlite3.OperationalError` (matching `spend_skill_points` and
+        `grant_learned_skill`) and `KeyError` for a character that does not
+        exist or has been soft-deleted (matching `set_home_marker`: quest
+        progress for a character this database has no live row for is an
+        orphan `COO-DECISION 20260901_1059` forbids).
+        """
+        try:
+            db.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as error:
+            if _LOCKED not in str(error):
+                raise
+            raise WriteLockTimeout(
+                "could not take the write lock for character "
+                f"{character_id}'s {what} within connect()'s busy_timeout: "
+                f"{error}"
+            ) from error
+        self._quest_live(db, character_id)
+
+    def _quest_live(self, db, character_id: int) -> None:
+        """Refuse a character this database has no live row for.
+
+        ONE implementation shared by the three write doors and the two read
+        doors, so the two sides cannot drift apart -- which is how
+        pf-adversary D9 (round `6vv9mi`) happened in the first place: the
+        reads were written by analogy with `get_home_marker` instead of off
+        `2212`, and answered `None` where the contract says `KeyError`.
+        """
+        row = db.execute(
+            "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+            (character_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(character_id)
+
+    def set_quest_flag(
+        self, character_id: int, quest_id: int, flag_value: int
+    ) -> QuestFlagRow:
+        """Persist one quest's status number for one character, and read it
+        straight back.
+
+        UPSERT, NOT INSERT-THEN-UPDATE.  A quest's flag moves many times
+        over its life (`gamedata/lua/Quest/q_kill5.lua` sets
+        `Quest.Active` and later `Quest.Finish` on the same quest), so this
+        always writes the CURRENT value and moves `updated_at`, whether or
+        not a row already existed -- one `INSERT ... ON CONFLICT
+        (character_id,quest_id) DO UPDATE` statement, not a read-then-
+        branch a second writer could slip between.
+
+        THE RETURN IS READ BACK, NOT ECHOED.  The row comes out of a
+        `SELECT` inside this method's own transaction, so a caller that
+        gets a row back is holding what the table holds -- `2212`'s
+        explicit requirement, and LANE-Q's adapter has a test that fails if
+        this door ever echoes its arguments instead
+        (`notes_to_chief/20260908_1647`).
+
+        `flag_value` IS OPAQUE.  `Quest.Active` / `Quest.Finish` and every
+        other status number belong to the script host; this database stores
+        the integer and never interprets it (`COO-DECISION 20260901_1059`
+        forbids the guess, `20260908_1642` restates it).
+
+        Raises `TypeError` for a non-int/bool `character_id`, `quest_id` or
+        `flag_value`, `ValueError` for a `quest_id` outside u16 or a
+        `flag_value` outside SQLite's INTEGER, `KeyError` for a character
+        that does not exist or has been soft-deleted, and
+        `WriteLockTimeout` when the write lock cannot be taken.  Nothing is
+        written when anything is refused -- every argument is validated
+        before the transaction opens.
+        """
+        self._quest_key(character_id, quest_id)
+        flag_value = self._quest_number(flag_value, "flag_value")
+        updated_at = _now()
+        with self.connect() as db:
+            self._quest_begin(db, character_id, "quest flag write")
+            db.execute(
+                "INSERT INTO character_quest_flag"
+                "(character_id,quest_id,flag_value,updated_at)"
+                " VALUES (?,?,?,?) "
+                "ON CONFLICT(character_id,quest_id) DO UPDATE SET "
+                "flag_value=excluded.flag_value,"
+                "updated_at=excluded.updated_at",
+                (character_id, quest_id, flag_value, updated_at),
+            )
+            after = db.execute(
+                "SELECT character_id,quest_id,flag_value,updated_at "
+                "FROM character_quest_flag WHERE character_id=? AND quest_id=?",
+                (character_id, quest_id),
+            ).fetchone()
+        return QuestFlagRow(*after)
+
+    def get_quest_flag(
+        self, character_id: int, quest_id: int
+    ) -> "QuestFlagRow | None":
+        """One quest's status number for one character, or `None` if it was
+        never set.
+
+        The read half of the door `set_quest_flag` above writes.  `None` is
+        not an error -- it is the correct answer for every quest a
+        character has never touched, and `2212` names it: the caller
+        decides what "no progress recorded" means, this door does not
+        invent a starting flag.
+
+        A MISSING OR SOFT-DELETED CHARACTER IS A `KeyError`, HERE TOO.
+        PAYS pf-adversary D9 (round `6vv9mi`).  This door first answered
+        `None` for that case, by analogy with `get_home_marker` -- but
+        `2212` writes the two cases as separate clauses ("no such /
+        soft-deleted character -> KeyError; no row (never set) -> None"),
+        it scopes only the second one to the write side, and
+        `COO-DECISION 20260908_1642` says implement that contract, do not
+        redesign it.  Answering `None` collapses "this character does not
+        exist" into "this character has no progress", which is the one
+        distinction a caller cannot recover afterwards.
+
+        Raises `TypeError` / `ValueError` on the key exactly as the write
+        side does, so a caller cannot read with a key it could not write.
+        """
+        self._quest_key(character_id, quest_id)
+        with self.connect() as db:
+            self._quest_live(db, character_id)
+            row = db.execute(
+                "SELECT character_id,quest_id,flag_value,updated_at "
+                "FROM character_quest_flag WHERE character_id=? AND quest_id=?",
+                (character_id, quest_id),
+            ).fetchone()
+        return QuestFlagRow(*row) if row is not None else None
+
+    def set_quest_counter(
+        self,
+        character_id: int,
+        quest_id: int,
+        counter_name: str,
+        counter_value: int,
+    ) -> QuestCounterRow:
+        """Set one NAMED counter inside one quest to an ABSOLUTE value, and
+        read it straight back.
+
+        Absolute, not additive -- `increment_quest_counter` below is the
+        additive door.  `2212` split them deliberately: the script decides
+        which it means (starting to track a mob is a set, a kill landing is
+        an increment), and this database does not guess on the script's
+        behalf.
+
+        The key is `(character_id, quest_id, counter_name)`, so two
+        counters inside the same quest are two rows that cannot overwrite
+        one another -- the case `gamedata/lua/Quest/q_kill5.lua` puts on
+        the record by tracking two mobs at once.
+
+        Same UPSERT, same read-after-write, same refusals as
+        `set_quest_flag`, plus `TypeError` for a non-str `counter_name` and
+        `ValueError` for one outside 1..128 characters.
+        """
+        self._quest_key(character_id, quest_id)
+        counter_name = self._quest_counter_name(counter_name)
+        counter_value = self._quest_number(counter_value, "counter_value")
+        updated_at = _now()
+        with self.connect() as db:
+            self._quest_begin(db, character_id, "quest counter write")
+            db.execute(
+                "INSERT INTO character_quest_counter"
+                "(character_id,quest_id,counter_name,counter_value,updated_at)"
+                " VALUES (?,?,?,?,?) "
+                "ON CONFLICT(character_id,quest_id,counter_name) DO UPDATE SET "
+                "counter_value=excluded.counter_value,"
+                "updated_at=excluded.updated_at",
+                (
+                    character_id,
+                    quest_id,
+                    counter_name,
+                    counter_value,
+                    updated_at,
+                ),
+            )
+            after = db.execute(
+                "SELECT character_id,quest_id,counter_name,counter_value,"
+                "updated_at FROM character_quest_counter "
+                "WHERE character_id=? AND quest_id=? AND counter_name=?",
+                (character_id, quest_id, counter_name),
+            ).fetchone()
+        return QuestCounterRow(*after)
+
+    def increment_quest_counter(
+        self,
+        character_id: int,
+        quest_id: int,
+        counter_name: str,
+        delta: int = 1,
+    ) -> QuestCounterRow:
+        """Add `delta` to one named counter inside ONE transaction, and read
+        the result straight back.
+
+        READ-MODIFY-WRITE-BACK UNDER `BEGIN IMMEDIATE`, which is the whole
+        point of this door existing beside `set_quest_counter`: two kills
+        landing at the same moment must not both read 3 and both write 4.
+        The read and the write are inside the same immediate transaction,
+        so the second caller queues behind the first and sees 4 before
+        writing 5.
+
+        A COUNTER THAT WAS NEVER SET STARTS AT `0 + delta`.  That is not a
+        guess about a value that already existed -- there is no row to
+        guess about -- it is the creation of a new fact, the same way
+        `grant_starting_skills` writes a character's first skill row
+        (`2212` names this case explicitly).
+
+        `delta` MAY BE NEGATIVE OR ZERO.  This database does not know
+        whether a quest counter can go down (an item handed back, a stack
+        consumed), and `2212` gave it no such rule; the SUM is bounded by
+        SQLite's INTEGER and a `delta` that would push the total past it is
+        refused with `ValueError` before anything is written, rather than
+        being stored wrapped.
+
+        Same refusals as `set_quest_counter`, plus that overflow.
+        """
+        self._quest_key(character_id, quest_id)
+        counter_name = self._quest_counter_name(counter_name)
+        delta = self._quest_number(delta, "delta")
+        updated_at = _now()
+        with self.connect() as db:
+            self._quest_begin(db, character_id, "quest counter increment")
+            row = db.execute(
+                "SELECT counter_value FROM character_quest_counter "
+                "WHERE character_id=? AND quest_id=? AND counter_name=?",
+                (character_id, quest_id, counter_name),
+            ).fetchone()
+            current = 0 if row is None else row["counter_value"]
+            total = self._quest_number(current + delta, "counter total")
+            db.execute(
+                "INSERT INTO character_quest_counter"
+                "(character_id,quest_id,counter_name,counter_value,updated_at)"
+                " VALUES (?,?,?,?,?) "
+                "ON CONFLICT(character_id,quest_id,counter_name) DO UPDATE SET "
+                "counter_value=excluded.counter_value,"
+                "updated_at=excluded.updated_at",
+                (character_id, quest_id, counter_name, total, updated_at),
+            )
+            after = db.execute(
+                "SELECT character_id,quest_id,counter_name,counter_value,"
+                "updated_at FROM character_quest_counter "
+                "WHERE character_id=? AND quest_id=? AND counter_name=?",
+                (character_id, quest_id, counter_name),
+            ).fetchone()
+        return QuestCounterRow(*after)
+
+    def get_quest_counter(
+        self, character_id: int, quest_id: int, counter_name: str
+    ) -> "QuestCounterRow | None":
+        """One named counter inside one quest, or `None` if it was never
+        set.
+
+        The read half of the two counter doors above.  `None` is the
+        correct answer for a counter nothing has written yet -- `2212`
+        forbids inventing a zero row here, because "never tracked" and
+        "tracked, currently zero" are different facts and only the caller
+        knows which one matters to a quest.  A missing or soft-deleted
+        character is a `KeyError`, for the reason `get_quest_flag` above
+        records (pf-adversary D9).
+
+        Raises `TypeError` / `ValueError` on the key exactly as the write
+        side does.
+        """
+        self._quest_key(character_id, quest_id)
+        counter_name = self._quest_counter_name(counter_name)
+        with self.connect() as db:
+            self._quest_live(db, character_id)
+            row = db.execute(
+                "SELECT character_id,quest_id,counter_name,counter_value,"
+                "updated_at FROM character_quest_counter "
+                "WHERE character_id=? AND quest_id=? AND counter_name=?",
+                (character_id, quest_id, counter_name),
+            ).fetchone()
+        return QuestCounterRow(*row) if row is not None else None
+
     def select_character_honoring_home_marker(self, sid: str, selector: int):
         """`select_character`, except a character who has SET a home marker
         comes back pointed at that scene's id instead of whatever scene her
@@ -3578,6 +3937,23 @@ class SQLiteStore:
         written when anything is refused -- every id is validated before
         the transaction opens.
 
+        RAISES `RuntimeError` WHEN THE GRANT LANDED NOWHERE.  SQLite's
+        `INSERT OR IGNORE` swallows a CHECK violation exactly as quietly as
+        it swallows the UNIQUE conflict it is here for, so on a database
+        that has not yet applied `migrations/018_character_skills_gm_grant_
+        source.sql` every row of a several-hundred-id `/skill all` is
+        dropped on the floor and this method would otherwise return
+        normally -- measured by `pf-adversary` on round `fw2hs6`'s own
+        branch (finding D3: 300 ids in, 0 rows written, no exception), and
+        the exact opposite of the sentence above.  The read-back this
+        method already does is therefore also the proof: every id that went
+        in must come back out, or the whole transaction rolls back with a
+        message naming the migration that is missing.  Neither sibling door
+        needs this check -- `'starting_kit'` and `'learned'` were legal in
+        the same migration that created the table and the one that first
+        wrote them, whereas `'gm_grant'` became legal in a migration of its
+        own.
+
         NONCLAIMS.  This door does not decide WHICH ids "all skills" means
         (`skill_catalog` carries eight ids, the starting kit, and this lane
         does not own skill data); it does not check that an id exists in
@@ -3639,6 +4015,27 @@ class SQLiteStore:
                 "WHERE character_id=? ORDER BY id",
                 (character_id,),
             ).fetchall()
+            present = {r["skill_id"] for r in after}
+            missing = [
+                skill_id for skill_id in checked if skill_id not in present
+            ]
+            if missing:
+                # PAYS pf-adversary D5 (round `6vv9mi`): the first version of
+                # this message said "wrote none of N ids ... every INSERT OR
+                # IGNORE was swallowed", which is a sentence it had not
+                # measured -- on a mixed call where three of four ids were
+                # already on the row, only the fourth was swallowed.  It now
+                # reports what it counted, and names the CHECK as the likely
+                # cause rather than the established one.
+                raise RuntimeError(
+                    "grant_gm_skills: %d of %d id(s) for character %d did not "
+                    "reach character_skills (first missing: %d). The usual "
+                    "cause is a database that has not applied migrations/"
+                    "018_character_skills_gm_grant_source.sql, whose CHECK "
+                    "rejects source='gm_grant' -- INSERT OR IGNORE swallows "
+                    "that as quietly as the UNIQUE conflict it is here for."
+                    % (len(missing), len(checked), character_id, missing[0])
+                )
         return tuple(r["skill_id"] for r in after)
 
     def list_character_skills(self, character_id: int) -> tuple[int, ...]:
