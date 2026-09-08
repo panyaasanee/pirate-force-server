@@ -67,10 +67,15 @@ from .learn_skill_result_frame import (
 #: themselves on the normal boot; there is nothing here for a flag to hide.
 production_allowed = True
 
-#: The trailing u8 at object+0x2C.  Imported as a value the same way
-#: `skill_list_at_login` imports its own: nobody knows what the byte means,
-#: so this lane sends the one the only rendering capture carried rather
-#: than inventing a second unknown.
+#: The trailing u8 at object+0x2C.  Taken as a value the same way the
+#: login-list lane takes its own: nobody knows what the byte means, so this
+#: lane sends the one the only rendering capture carried rather than
+#: inventing a second unknown.
+#: THE SIBLING LANE IS NOT SPELLED HERE, ON PURPOSE.  Its own console
+#: token counts "callers in src" by scanning every file in this package for
+#: its module name, so prose about it is treated as a use of it -- LANE-CS
+#: turned that pin red once already (round `jty60h`, pf-adversary D1) by
+#: writing the name in a comment.  This note is what replaces the name.
 LEARN_RESULT_TRAILING_BYTE = 0
 
 #: WHICH MEMBER CARRIES WHAT IS THIS PROJECT'S DESIGN, NOT A MEASUREMENT.
@@ -242,8 +247,10 @@ def headless_token(result: LearnSkillRoundTrip) -> str:
         start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
         # The count field is read off the wire and then handed straight back
         # through the decoder, so a pc that merely starts with the right tag
-        # cannot answer -- `skill_list_at_login.measured_record_count` was
-        # written the same way, on the same finding, the same day.
+        # cannot answer.  The login-list lane's own row-count measurement was
+        # written the same way, on the same finding, the same day (its module
+        # name is deliberately not spelled here -- see the note beside
+        # LEARN_RESULT_TRAILING_BYTE).
         declared = int.from_bytes(result.pc[start + 1:start + 3], "little")
         size = (
             LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE
