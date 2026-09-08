@@ -1,1 +1,1 @@
-{"sha":"d780e003d42ced873d86babfe33cd0dcff8e6799","conclusion":"success","event":"push","ref":"refs/heads/claude/determined-cray-vavm4h","run_id":"34238832042","utc":"2026-09-08T15:05:43Z"}
+{"sha":"d780e003d42ced873d86babfe33cd0dcff8e6799","conclusion":"success","event":"pull_request","ref":"refs/pull/1178/merge","run_id":"34238837960","utc":"2026-09-08T15:07:35Z"}
