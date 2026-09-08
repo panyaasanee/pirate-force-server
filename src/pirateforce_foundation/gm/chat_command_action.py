@@ -305,6 +305,7 @@ from . import (
     npc_switch_catalog,
     say_wire,
     speed_wire,
+    sandbox_readback,
     staged_readback,
     teleport_wire,
     warp_executor,
@@ -346,6 +347,7 @@ from .commands import (
     OUTCOME_REFUSED_PREFIX,
     OUTCOME_STAGED_LOGIN_SCENE,
     OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED,
+    OUTCOME_SANDBOX_READBACK_ANSWERED,
     OUTCOME_STAGED_READBACK_ANSWERED,
     OUTCOME_WITHHELD_PREFIX,
     log_gm_command_outcome,
@@ -574,6 +576,13 @@ SKILL_REFUSED_NOTICE_ACTION_LABEL = (
 # way.  Which of the three sentences went out is on the
 # `STAGED_READBACK_CONSOLE_TOKEN` line, in full.
 STAGED_READBACK_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_STAGED_READBACK_LOCAL_TALK_NOTICE"
+# !! MUST NOT CONTAIN `TELEPORT`, the same rule every notice label above
+# carries: `runtime.py`'s `_move_authority_note_server_teleport` reads the
+# label as a substring and would open a move-authority grace window for a
+# sentence that moves nobody.
+SANDBOX_READBACK_NOTICE_ACTION_LABEL = (
+    "LANE_GM_CHAT_SANDBOX_READBACK_LOCAL_TALK_NOTICE"
+)
 
 # The cross-scene `/warp`'s own sentence (`say_wire.WARP_STAGED_NOTICE_TEXT`).
 #
@@ -1184,6 +1193,20 @@ EVENT_STAGED_READBACK_NOTICE_FAILED_PREFIX = (
     "gm_chat_action_staged_readback_notice_failed_"
 )
 EVENT_STAGED_READBACK_STATUS_PREFIX = "gm_chat_action_staged_readback_status_"
+
+# The `sandbox` readback's three events, shaped like the three above them: one
+# for the answer that was reached, one for a notice that would not compose,
+# one carrying the body that did.  The status word is the SHAPE of the answer
+# (`job_and_skills`, `no_job`, `skills_unknown`, ...), never a number: an
+# events list that grew a member per skill count would be unreadable at the
+# one moment it is read, which is an attended boot.
+EVENT_SANDBOX_READBACK_STATUS_PREFIX = "gm_chat_action_sandbox_readback_status_"
+EVENT_SANDBOX_READBACK_NOTICE_COMPOSED = (
+    "gm_chat_action_sandbox_readback_composed"
+)
+EVENT_SANDBOX_READBACK_NOTICE_FAILED_PREFIX = (
+    "gm_chat_action_sandbox_readback_notice_failed_"
+)
 
 # The trial gate's own console token -- COO `0646` item 2, fourth bullet: the
 # person watching the screen must be able to read WHICH value the door was
@@ -2128,6 +2151,20 @@ for _job_repairable in (
         f"{_JOB_BLOCKERS[_job_repairable]}; putting the previous class back"
         " FAILED -- treat the row as UNKNOWN"
     )
+    # THE THIRD VARIANT, added in round `nkb608` after pf-adversary D-C: the
+    # bare reason used to serve this case, and it is the one case with no
+    # sentence about durability at all -- a row that had no class before now
+    # carries the one that was asked for, and there is no door in this lane
+    # that writes a column back to NULL.  The tester's next action (type
+    # `/job` again with the class they want, or `sandbox` to see what the row
+    # holds) depends on being told that.
+    _JOB_BLOCKERS[f"{_job_repairable}{job_command.NO_PREVIOUS_SUFFIX}"] = (
+        # SHORT because `MAX_CONSOLE_HINT_LENGTH` is 240 and the longest of
+        # the two base sentences is already 152: the first wording of this
+        # variant came to 254 and the contract test caught it.
+        f"{_JOB_BLOCKERS[_job_repairable]}; no class to put back, the row"
+        " still carries the new one"
+    )
 del _job_repairable
 for _job_reason, _job_sentence in _JOB_BLOCKERS.items():
     _NO_BYTES_BLOCKERS_SOURCE[f"{OUTCOME_JOB_REFUSED_PREFIX}{_job_reason}"] = (
@@ -2736,7 +2773,7 @@ def make_gm_chat_command_action(
     list, exactly like `gm_state_action` -- or None, which means "this frame
     is not ours; behave exactly as the server did before this lane existed".
 
-    !! AN ACTION IS NOT ALWAYS A COMMAND.  TEN of the labels this can return
+    !! AN ACTION IS NOT ALWAYS A COMMAND.  ELEVEN of the labels this can return
     are ON-SCREEN NOTICES, and every one of them ends in
     `_NOTICE_ACTION_LABEL` -- which is the only reason this sentence can be
     checked rather than believed.  ~~"Two of the labels"~~ struck LANE-GM
@@ -2748,10 +2785,10 @@ def make_gm_chat_command_action(
     ::NoticeLabelCountTests now reads THIS docstring and the module's own
     labels and refuses the day they disagree.
 
-    Two of the ten are about a command that did NOT run -- a refused
+    Two of the eleven are about a command that did NOT run -- a refused
     `/speed` (`SPEED_DENIED_NOTICE_ACTION_LABEL`, COO-DECISION `0345`) and a
     MISTYPED command of any name (`TYPO_REFUSED_NOTICE_ACTION_LABEL`,
-    COO-DECISION `0647`).  The other eight report a command that DID run and
+    COO-DECISION `0647`).  The other nine report a command that DID run and
     put no frame of its own on the wire (`/lv` set or refused, `/job` set or
     refused, `/skill all` granted or refused, `staged`'s readback, and the
     staged cross-scene `/warp`).  The four `/job` and `/skill` labels sit on
@@ -2941,6 +2978,11 @@ def _make_action(
         verdict = _gmprobe_action(session, command, legacy)
     elif command.name == "speed":
         verdict = _speed_action(session, command, legacy)
+    elif command.name == "sandbox":
+        # A READ, like `staged` below it, and the two are deliberately
+        # neighbours: one answers where the next login puts this account, the
+        # other what that login will find on its row.
+        verdict = _sandbox_action(session, command, legacy, token=token)
     elif command.name == "staged":
         # A READ, not a command with an effect -- see `_staged_action`.  It
         # sits above `lv` in this chain for no reason but that the chain is
@@ -6722,6 +6764,106 @@ def _staged_action(
     )
 
 
+def _sandbox_status_word(state: object) -> str:
+    """The SHAPE of the answer, for `.events`.  Never a number.
+
+    Four words, one per branch `sandbox_readback.notice_body` can take, so a
+    reader of an attended run's event list can tell "the row is stocked" from
+    "the row could not be read" without parsing a sentence -- and cannot
+    build a count out of it, which is what the console line is for.
+    """
+    if getattr(state, "class_id", None) is None:
+        return "no_job_skills_unknown" if state.curriculum_held is None else "no_job"
+    return "job_skills_unknown" if state.curriculum_held is None else "job_and_skills"
+
+
+def _print_sandbox_line(session: object, token: str, line: str) -> None:
+    """One `GM_SANDBOX` console line on STDERR.  Never alters dispatch.
+
+    Same stream, same wrapping, same token-leads-the-line order and the same
+    "nothing the GM typed is ever printed" rule as `_print_skill_line` above
+    -- and here the last of those is free rather than enforced: `sandbox`
+    takes no arguments, so there is nothing typed that COULD reach a line.
+    """
+    if sys.stderr is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        print(f"{line} account={token!r}", file=sys.stderr)
+    except Exception as error:  # noqa: BLE001 - a lost line costs this line
+        # and nothing else; the readback itself already happened.
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _sandbox_action(
+    session: object, command: object, legacy: object, *, token: str
+) -> _Verdict:
+    """One authorized `sandbox` -> an on-screen readback of the row.
+
+    THE SECOND COMMAND THAT WRITES NOTHING.  No row, no file, no gameplay
+    frame, no undo -- there is nothing to undo.  `gm/sandbox_readback.py`'s
+    module docstring carries the why, the five sentences, and the nonclaims;
+    this function is the dispatch half only.
+
+    NO CANONICAL-DB GATE, and that is a decision rather than an omission.
+    `_speed_db_is_canonical` stands in front of `/lv`, `/job` and `/skill all`
+    because those three WRITE, and a write into the canonical database is the
+    one thing this lane may never do.  This command reads.  Refusing to
+    answer "what does this row hold" on a canonical boot would withhold the
+    one sentence that tells an operator they are ON a canonical boot -- and
+    it would refuse a question whose answer harms nothing.
+
+    THE CHARACTER IS THE SESSION'S OWN SELECTION, through the same
+    `_selected_speed_character_id` accessor `/job` and `/skill all` write
+    through, so the three commands cannot end up talking about different
+    characters on one connection.  The account word on the console line is
+    the authenticated `.token`, never a field of the payload.
+
+    `is_notice=True` on the composed arm, for the reason `_lv_notice_verdict`
+    gives at greater length: downstream readers ask "did this command's own
+    gameplay frame go out?" and the honest answer for a report is no.
+
+    THE VERDICT IS THE PRODUCT, THE SENTENCE IS THE COURTESY -- with the same
+    twist `_staged_action` carries: this command's whole product IS the
+    sentence, so a notice that will not compose leaves nothing at all and the
+    outcome is a refusal word rather than a success word with no bytes.
+    """
+    store = _speed_store(session)
+    character_id = _selected_speed_character_id(session)
+    state = sandbox_readback.read_sandbox_state(store, character_id)
+    body = sandbox_readback.notice_body(state)
+    _note(session, f"{EVENT_SANDBOX_READBACK_STATUS_PREFIX}{_sandbox_status_word(state)}")
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(legacy, body)
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(
+            session,
+            f"{EVENT_SANDBOX_READBACK_NOTICE_FAILED_PREFIX}{type(error).__name__}",
+        )
+        _print_sandbox_line(
+            session,
+            token,
+            f"{sandbox_readback.console_line(character_id, state)} notice=none",
+        )
+        return _Verdict(
+            None,
+            f"{OUTCOME_REFUSED_PREFIX}sandbox_{type(error).__name__}",
+            line_printed=True,
+        )
+    _note(session, EVENT_SANDBOX_READBACK_NOTICE_COMPOSED)
+    _print_sandbox_line(
+        session,
+        token,
+        f"{sandbox_readback.console_line(character_id, state)} notice={body!r}",
+    )
+    return _Verdict(
+        (SANDBOX_READBACK_NOTICE_ACTION_LABEL, pc, frame, 0.0),
+        OUTCOME_SANDBOX_READBACK_ANSWERED,
+        line_printed=True,
+        is_notice=True,
+    )
+
+
 def _lv_action(
     session: object, command: object, legacy: object, *, token: str
 ) -> _Verdict:
@@ -6997,12 +7139,26 @@ def _job_action(
             say_wire.JOB_REFUSED_NOTICE_TEXT,
             JOB_REFUSED_NOTICE_ACTION_LABEL,
             f"{OUTCOME_JOB_REFUSED_PREFIX}{result.refusal}",
-            # NO UNDO ON THIS BRANCH: the one refusal that CAN leave a value
-            # on disk repairs itself inside `job_command.write_class_id` and
-            # says in its own reason word whether the repair held.  An undo
-            # here would only ever run when the audit row failed to write
-            # (`_make_action`'s `if not audited`), which pf-adversary (round
-            # `l86bt4`, D6) measured is not the case this branch is about.
+            # ~~"NO UNDO ON THIS BRANCH ... an undo here would only ever run
+            # when the audit row failed to write, which round `l86bt4` D6
+            # measured is not the case this branch is about."~~ -- STRUCK
+            # (pf-adversary round `nkb608`, D-B).  Both halves were read
+            # right and the conclusion was wrong: the audit row failing IS
+            # the case `_make_action` reads the undo for, and it reads the
+            # ABSENCE of one as "the effect was dropped with the audit row".
+            # So a refusal that left the class on disk printed
+            # `GM_JOB REFUSED [..._row_still_carries_it]` and, one line
+            # later, `blocked_on=... anything it had in hand was dropped`.
+            #
+            # The undo is attached ONLY for the two refusals that really do
+            # leave a value behind, and it is `skill_all_command`'s always-
+            # `False` shape rather than a second restore attempt: the repair
+            # already ran inside `write_class_id` and running it again here
+            # would write on a path whose whole point is that this command
+            # will not stand behind the value.  A refusal that wrote nothing
+            # keeps NO undo, because for it "dropped with the audit row" is
+            # the true sentence.
+            _job_refusal_undo(result),
         )
     _note(session, EVENT_JOB_ROW_WRITTEN)
     return _job_notice(
@@ -7013,6 +7169,21 @@ def _job_action(
         OUTCOME_JOB_ROW_WRITTEN,
         job_command.undo(store, character_id, result.previous),
     )
+
+
+def _job_refusal_undo(result: object):
+    """An always-`False` undo for the `/job` refusals that left a row behind.
+
+    `None` -- meaning "there was nothing on disk to keep" -- for every other
+    refusal, so the console's two answers stay two answers.  See the struck
+    paragraph in `_job_action` for what reading them as one cost.
+    """
+    refusal = getattr(result, "refusal", None) or ""
+    if refusal.endswith(
+        (job_command.REPAIR_FAILED_SUFFIX, job_command.NO_PREVIOUS_SUFFIX)
+    ):
+        return lambda: False
+    return None
 
 
 def _skill_action(
@@ -7087,6 +7258,15 @@ def _skill_action(
             say_wire.SKILL_REFUSED_NOTICE_TEXT,
             SKILL_REFUSED_NOTICE_ACTION_LABEL,
             f"{OUTCOME_SKILL_REFUSED_PREFIX}{result.refusal}",
+            # THE SAME FIX AS `_job_action`'s (pf-adversary round `nkb608`,
+            # D-B), and this branch is the one that was measured lying: a
+            # character removed halfway through the 137 grants refuses with
+            # `granted=20` on the console and, one line later, told the
+            # operator everything in hand was dropped -- with 20 rows on
+            # disk and no deleter in this lane that could have taken them
+            # off.  An always-`False` undo reaches the console as "the
+            # effect was KEPT", which is what those 20 rows are.
+            (lambda: False) if result.granted else None,
         )
     _note(session, EVENT_SKILL_ROWS_WRITTEN)
     return _skill_notice(

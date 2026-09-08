@@ -194,7 +194,13 @@ class SkillGrant:
         return self.refusal is None
 
 
-def _read_skills(store: object, character_id: int) -> frozenset[int] | None:
+#: The third answer `_read_skills` can give: the store answered, and what it
+#: said is "there is no such character".  A sentinel rather than an exception
+#: because this module's contract is that nothing here raises.
+_ROW_MISSING = object()
+
+
+def _read_skills(store: object, character_id: int) -> object:
     """Every skill id the row holds, or `None` for "could not be read".
 
     NEVER RAISES, AND NEVER SUBSTITUTES AN EMPTY SET FOR AN ANSWER IT DID
@@ -212,6 +218,14 @@ def _read_skills(store: object, character_id: int) -> frozenset[int] | None:
         return None
     try:
         return frozenset(int(i) for i in reader(character_id))
+    except KeyError:
+        # A SEPARATE ANSWER FROM "the store could not be read" (pf-adversary
+        # round `nkb608`, D-K).  `SQLiteStore.list_character_skills` raises
+        # `KeyError` for a character id with no live row -- deleted, soft-
+        # deleted, or never there -- and folding that into `None` sent the
+        # operator to look at the store when the fault was the character.
+        # Nothing is written on either branch; only the sentence differs.
+        return _ROW_MISSING
     except Exception:  # noqa: BLE001 -- see the docstring
         return None
 
@@ -231,19 +245,33 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
     listener thread and parks the client on "connecting".
     """
     if type(character_id) is not int or isinstance(character_id, bool) or character_id <= 0:
+        # `counts_are_complete=True` and not an oversight: three zeroes ARE
+        # the complete count of what a refusal before the first door call
+        # wrote.  pf-adversary round `nkb608`, D-A: these two exits carried
+        # FIVE positional arguments into a six-field record from the round
+        # that inserted `counts_are_complete` -- a `TypeError` on the listener
+        # thread, which is the escape `write_level`'s docstring exists to
+        # forbid.  No test called this function with anything but a valid id,
+        # so both lines had never once executed.
         return SkillGrant(
-            0, 0, 0, REFUSED_NO_CHARACTER,
+            0, 0, 0, True, REFUSED_NO_CHARACTER,
             f"no usable selected character id on this connection ({character_id!r})",
         )
     granter = getattr(store, "grant_learned_skill", None)
     if granter is None:
         return SkillGrant(
-            0, 0, 0, REFUSED_NO_STORE,
+            0, 0, 0, True, REFUSED_NO_STORE,
             "this session's store has no grant_learned_skill door",
         )
     skill_ids = all_skill_ids()
     wanted = frozenset(skill_ids)
     before = _read_skills(store, character_id)
+    if before is _ROW_MISSING:
+        return SkillGrant(
+            0, 0, 0, True, REFUSED_ROW_MISSING,
+            "the selected character has no live row to grant skills to; "
+            "nothing was written",
+        )
     if before is None:
         # NOTHING IS WRITTEN ON THIS BRANCH, deliberately: the write itself
         # would be harmless (the door is idempotent), but its REPORT would
@@ -376,7 +404,7 @@ def _ascii_only(line: str) -> str:
 
 #: The console token PANYA-ORDER section 2.1 asks for by name.  Its shape is
 #: an interface (the owner's `HEADLESS_PROOF:` block greps for it), pinned
-#: field by field in `tests/test_gm_skill_all_command.py`.
+#: field by field in `tests/test_gm_job_and_skill_all_commands.py`.
 CONSOLE_TOKEN = "GM_SKILL_ALL"
 
 
