@@ -780,6 +780,15 @@ LOGIN_OWNED_SOURCES: dict[str, str] = {
 # An empty dict here means "nothing is waiting", never "nobody thought to
 # wait" - and ``test_world_population_handoff`` reads it as the seam's own
 # answer either way.
+#
+# IT HAS NO PRODUCTION READER, AND IT NEVER DID (pf-adversary, chief round
+# R405/y8fm7z, D9).  Nothing under ``src/`` reads this table; withholding a
+# source was only ever achieved by leaving it out of ``ROSTER_COMPOSERS``,
+# and this table is the PROSE that tells a reader the omission was a ruling
+# rather than a to-do.  That is a real job - ``LOGIN_OWNED_SOURCES`` exists
+# for the same reason and its own comment says why - but a reader who
+# assumes putting a row here withholds anything is wrong, so it is said here
+# rather than left to be discovered.
 PENDING_CROSSING_SAFETY_REVIEW: dict[str, str] = {}
 
 

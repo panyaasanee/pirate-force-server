@@ -1782,12 +1782,54 @@ class CrossingHandoffQueuedWiringTests(unittest.TestCase):
         expected = world_m2_crossing_handoff.crossing_handoff(
             self.legacy, columbus_quest_dispatch.resolve_columbus_arrival(),
         ).membership_reset
+        # The handoff DOES hand a real membership over -- seven placements
+        # and the anchor they were built at.
         self.assertFalse(expected.clears_everything)
-        self.assertEqual(state.population_indices, expected.population_indices)
-        self.assertEqual(state.world_census_indices, expected.population_indices)
-        self.assertEqual(
-            state.population_refresh_anchor, expected.population_refresh_anchor)
-        self.assertEqual(len(state.population_indices), 7)
+        self.assertEqual(len(expected.population_indices), 7)
+        # ~~and the runtime installs it~~ -- IT WITHHOLDS IT, and the reason
+        # is measured rather than tasteful (pf-adversary, chief round
+        # R405/y8fm7z, D1).  ``population_indices`` is a placement-index
+        # space with no scene in it, and no ChooseNPC responder is
+        # registered for scene 17, so an installed membership sends the next
+        # click into the frozen Port Royal resolver.  See the gate at the
+        # call site.  The FRAME is queued either way -- that is asserted by
+        # the test above -- so the player still gets the cast.
+        self.assertIsNone(state.population_indices)
+        self.assertIsNone(state.world_census_indices)
+        self.assertIsNone(state.population_refresh_anchor)
+        self.assertIn(
+            "world_pop_handoff_membership_withheld_scene_17", state.events)
+
+    def test_a_click_on_the_sea_cast_does_not_kill_the_listener(self):
+        """THE FRAME THIS TEST SENDS IS THE WHOLE POINT, and the round that
+        first wrote the test above described this hazard in its own docstring
+        and then stopped one frame short of it (pf-adversary, chief round
+        R405/y8fm7z, D4: a tautological pin can only check that the runtime
+        copied a value, never that the value is survivable).
+
+        MEASURED, on the branch before the gate: clicking any one of the
+        seven actors the crossing puts on the client raised ``KeyError: 2``
+        straight out of ``dispatch`` - the frozen handler loops the WHOLE
+        membership through Port Royal's 115-row placement table, which has no
+        index 2, and the listener's only ``try`` has no ``except``, so
+        ManagedThread turns it into a server-wide stop.  One click, every
+        time, for every connected player.
+        """
+        state = self._cross("tok-crossing-handoff-click-the-cast")
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        # 0x2001..0x2007 -- the identity space the seven sea placements are
+        # announced in.  Every one of them, not a sample: the frozen handler
+        # walks the whole membership on ANY member click, so a sample that
+        # happened to miss is a test that happened to pass.
+        for identity in range(0x2001, 0x2008):
+            with self.subTest(identity=hex(identity)):
+                state.dispatch(self.legacy.parse_outer(
+                    _choose_npc_pc(self.legacy, identity)
+                ))
 
 
 if __name__ == "__main__":
