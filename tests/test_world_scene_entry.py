@@ -21,6 +21,7 @@ can be booted at all, and whether the boot it gets can be graded:
 """
 
 import ast
+import dataclasses
 import json
 from pathlib import Path
 import sys
@@ -264,34 +265,71 @@ class LoginEntryRestrictionTests(unittest.TestCase):
     the refusal survives now that scene 17 has one, WITHOUT going through
     ``columbus_quest_dispatch``'s own synthetic call - the exact gap the
     adversary pass found no test covering.
+
+    THE SUBJECT MOVED, THE REGRESSION DID NOT (LANE-A round ``9lv3fa``,
+    2026-09-08).  PANYA-DECISION 20260908_1218 opened scene 17 at login along
+    with 126, 304 and 305, so scene 17 can no longer play the shut scene in
+    these tests.  Rather than delete the regression with the pin - which would
+    leave ``via_login`` untested for as long as the registry has nobody to
+    refuse - the shut scene is now SYNTHETIC: a real pinned destination with a
+    real spawn, copied with ``login_entry_allowed=False``.  That is strictly
+    stronger than what this class did before, because it no longer depends on
+    any particular scene staying shut in the shipped registry, and it is what
+    keeps the mechanism alive for a destination added later without a spawn.
+    Which scenes are open TODAY is a different question, walked over the whole
+    registry in tests/test_world_scene_registry_login_door.py.
     """
 
+    @staticmethod
+    def _shut_registry():
+        """A one-row registry whose only destination is pinned shut.
+
+        Built from a REAL row (scene 17, spawn and all) so the refusal under
+        test is the only thing that can refuse it - a synthetic row with no
+        spawn would be refused by REFUSED_NO_PINNED_SPAWN and prove nothing.
+        """
+        real = world_scene_travel.load_scene_registry()[17]
+        return world_scene_travel.SceneRegistry(
+            destinations=(dataclasses.replace(
+                real, login_entry_allowed=False),))
+
     # A row shaped exactly like what a character's stored position would be
-    # if it somehow ever named scene 17 - NOT the synthetic zero-XYZ Position
+    # if it named the shut scene - NOT the synthetic zero-XYZ Position
     # columbus_quest_dispatch.resolve_columbus_arrival builds fresh every
     # call, so a fix that only special-cased that literal object would not
     # pass this.
     PERSISTED_SCENE_17_ROW = Position(17, 0, 1.0, 2.0, 3.0, 0.5)
 
-    def test_a_stored_scene_17_row_is_refused_at_the_login_call_shape(self):
+    def test_a_stored_shut_scene_row_is_refused_at_the_login_call_shape(self):
         # resolve_entry(row, registry=..., emit=...) - no via_login keyword -
         # is exactly the call runtime.py's login path makes.  This is the
-        # regression pin: it must still refuse scene 17 today, exactly as it
-        # did before scene 17 had a pinned spawn at all.
+        # regression pin: a row naming a scene pinned shut is refused on that
+        # call shape, whichever scene the registry pins shut.
         with self.assertRaises(SceneEntryRefused) as caught:
-            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink())
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink(),
+                          registry=self._shut_registry())
         self.assertEqual(caught.exception.reason, REFUSED_NOT_ALLOWED_AT_LOGIN)
         self.assertIn("17", str(caught.exception))
+
+    def test_the_same_row_is_admitted_by_the_registry_that_ships(self):
+        """The other half of 1218, on the same row and the same call shape.
+
+        Without this, replacing the registry with a shut one in every test
+        above would hide a regression that shut the real door again.
+        """
+        entry = resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink())
+        self.assertEqual(entry.destination.n_id, 17)
 
     def test_the_refusal_reason_is_named_in_the_public_set(self):
         self.assertIn(REFUSED_NOT_ALLOWED_AT_LOGIN, REFUSAL_REASONS)
 
-    def test_a_refused_scene_17_login_emits_nothing(self):
+    def test_a_refused_login_emits_nothing(self):
         # Same contract as every other refusal: no WORLD_SCENE line for a
         # destination that was never actually granted.
         sink = Sink()
         with self.assertRaises(SceneEntryRefused):
-            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=sink)
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=sink,
+                          registry=self._shut_registry())
         self.assertEqual(sink.lines, [])
 
     def test_via_login_defaults_true_with_no_keyword_passed(self):
@@ -300,7 +338,8 @@ class LoginEntryRestrictionTests(unittest.TestCase):
         # would still pass (they pass no keyword either) - this one exists so
         # a reader can see the default is asserted, not merely relied upon.
         with self.assertRaises(SceneEntryRefused):
-            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink())
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink(),
+                          registry=self._shut_registry())
 
     def test_via_login_false_is_the_columbus_dispatch_escape_hatch(self):
         # The other half of the same mechanism: an explicit non-login caller

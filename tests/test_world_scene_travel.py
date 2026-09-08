@@ -177,7 +177,16 @@ class SceneRegistryTests(unittest.TestCase):
         direction, under a named decision, not as a silent shortcut.
         """
         row = destination(126, self.registry)
-        self.assertFalse(row.login_entry_allowed)
+        # UPDATED 2026-09-08 (LANE-A round 9lv3fa, PANYA-DECISION
+        # 20260908_1218): ~~self.assertFalse(row.login_entry_allowed)~~.  The
+        # owner's permanent rule is that a login returns a character to the
+        # point it logged out from in EVERY scene, so the door here is open.
+        # The rest of this test is untouched on purpose and is the reason it
+        # keeps its name: 126 is still not a rule-1 scene, its coordinate is
+        # still not from its own marker, and an open login door does not
+        # change either of those claims.  The RULE that keeps this True is
+        # walked in tests/test_world_scene_registry_login_door.py.
+        self.assertTrue(row.login_entry_allowed)
         self.assertEqual(row.spawn, (3050.0, 232.0, 90.0))
         # UPDATED 2026-09-05 (COO-DECISION 20260905_0251, LANE-A):
         # `sent_before` and `login_entry_allowed` are separate claims (COO's
@@ -283,18 +292,33 @@ class SceneRegistryTests(unittest.TestCase):
             "5e4de48707a87061d9a95471a1c3c25c56f0469fe2ece7ef0709a9c79f40fec7",
         )
 
-    def test_scene_17_is_pinned_not_allowed_as_a_login_destination(self):
-        """Round 0z3kjx, adversary-flagged: scene 17 stopped being a scene
-        with no pinned spawn (round e0daaa's owner decree), which means the
-        free login-time refusal that used to protect a stored/persisted row
-        naming it (REFUSED_NO_PINNED_SPAWN) is gone. login_entry_allowed=False
-        is what replaces it - see world_scene_entry.resolve_entry's via_login
-        parameter for who checks this and tests/test_world_scene_entry.py for
-        the login-path regression this field exists to prove."""
+    def test_scene_17_is_open_at_login_like_every_other_pinned_scene(self):
+        """~~test_scene_17_is_pinned_not_allowed_as_a_login_destination~~ --
+        RENAMED AND INVERTED, LANE-A round 9lv3fa, 2026-09-08.
+
+        WHAT THIS TEST USED TO SAY, kept because it is the reason the field
+        exists at all: round 0z3kjx found that scene 17 had stopped being a
+        scene with no pinned spawn (round e0daaa's owner decree), so the free
+        login-time refusal that had protected a persisted row naming it
+        (REFUSED_NO_PINNED_SPAWN) was gone, and login_entry_allowed=False was
+        put in its place.
+
+        WHY IT NOW SAYS THE OPPOSITE.  PANYA-DECISION 20260908_1218 is the
+        owner's own permanent rule: logging in returns a character to the
+        exact point it logged out from, IN EVERY SCENE, sea included.  Under
+        that rule a shut door is not a fence around a half-known scene, it is
+        a player who cannot get back into their own character.  The owner's
+        letter also records that this pin was this project's belt-and-braces,
+        not a fact about the original game.
+
+        THE FIELD IS NOT DEAD and this file still proves it works - see
+        tests/test_world_scene_registry_login_door.py, which walks the whole
+        registry for the rule and refuses a synthetic pinned-False scene to
+        prove the mechanism still bites."""
         sea = destination(17, self.registry)
-        self.assertFalse(sea.login_entry_allowed)
+        self.assertTrue(sea.login_entry_allowed)
         raw = [row for row in _raw()["destinations"] if row["n_id"] == 17][0]
-        self.assertIs(raw["login_entry_allowed"], False)
+        self.assertIs(raw["login_entry_allowed"], True)
 
     def test_every_other_destination_defaults_login_entry_allowed_true(self):
         """The optional field's absence must mean True, not merely 'False
@@ -310,7 +334,7 @@ class SceneRegistryTests(unittest.TestCase):
             with self.subTest(n_id=n_id):
                 self.assertTrue(destination(n_id, self.registry).login_entry_allowed)
 
-    def test_scene_17_is_pinned_not_allowed_to_persist_position(self):
+    def test_scene_17_now_persists_its_position_like_every_other_scene(self):
         """Round jafskv: GT-106 (notes_to_chief/20260827_1710_GT106-RESULT-
         M2-Columbus-3021-enters-scene17-*) watched a character walk into
         scene 17 and come out of teardown with a character_positions row
@@ -323,11 +347,22 @@ class SceneRegistryTests(unittest.TestCase):
         smaller, reversible answer - see
         world_scene_registry_001.json's persist_position_allowed_because for
         the full incident."""
+        # INVERTED 2026-09-08 (LANE-A round 9lv3fa, PANYA-DECISION
+        # 20260908_1218).  The docstring above is kept verbatim because every
+        # sentence of it was true when written, and because its argument
+        # names its own expiry: "persist_position_allowed=false is the
+        # smaller, reversible answer" rested ENTIRELY on scene 17 being shut
+        # at login.  The owner has opened that door in every scene, so
+        # refusing to write is now the thing that strands a player - the
+        # character comes back at wherever it last stood SOMEWHERE ELSE.
+        # The GT-106 row (scene_id=1 carrying scene 17's XYZ) stays a real
+        # bug and stays owned by the WRITER: lifecycle.checkpoint and
+        # tests/test_lifecycle_persist_position_gate.py, not this pin.
         sea = destination(17, self.registry)
-        self.assertFalse(sea.persist_position_allowed)
-        self.assertFalse(is_position_persist_allowed(17, self.registry))
+        self.assertTrue(sea.persist_position_allowed)
+        self.assertTrue(is_position_persist_allowed(17, self.registry))
         raw = [row for row in _raw()["destinations"] if row["n_id"] == 17][0]
-        self.assertIs(raw["persist_position_allowed"], False)
+        self.assertIs(raw["persist_position_allowed"], True)
 
     def test_every_other_destination_defaults_persist_position_allowed_true(self):
         """The optional field's absence must mean True, not merely 'False for

@@ -445,15 +445,21 @@ def resolve_entry(
     that keeps that path fail-closed without ``runtime.py`` ever having to say
     so explicitly - it is the chief's file and this lane does not add a kwarg
     to its call site.  A destination pinned with ``login_entry_allowed=False``
-    (~~today: scene 17 only~~ -- STRUCK, re-derived at HEAD by LANE-A round
-    ``fdo7ex`` on pf-adversary D14: the set is **17, 126, 304 and 305**, and
-    only 126/304/305 can strand anybody, because 17 also carries
-    ``persist_position_allowed=False``.  Derive it rather than believe this
-    sentence: ``world_m2_login_recovery.login_shut_scene_ids`` and
-    ``brick_risk_scene_ids``.  17 was the whole set when this comment was
-    written, added round 0z3kjx after the owner's provisional spawn decree
-    gave it a spawn and a pf-adversary pass noticed the free refusal that
-    used to protect it - ``REFUSED_NO_PINNED_SPAWN`` - was gone)
+    (~~today: scene 17 only~~ ~~the set is 17, 126, 304 and 305~~ -- BOTH
+    STRUCK, LANE-A round ``9lv3fa``, 2026-09-08: the set is **EMPTY**, and
+    PANYA-DECISION 20260908_1218 is why it must stay empty.  The owner's
+    permanent rule is that logging in returns a character to the exact point
+    it logged out from IN EVERY SCENE, sea and island included, so a pinned
+    ``False`` on a destination a character can stand in is a player who
+    cannot get back into their own character.  The four that carried it were
+    this project's own belt-and-braces pins (COO + this lane), not a fact
+    about the original game, and every one of them has a spawn today.
+    Do not believe this sentence either - derive it:
+    ``tests/test_world_scene_registry_login_door.py`` walks the registry and
+    fails if ANY pinned destination that has a spawn is shut at login.
+    THE MECHANISM BELOW IS NOT REMOVED and is not dead code: a destination
+    added later without a measured spawn is exactly what it is for, and 1218
+    forbids the pin only for the CURRENT registry, not forever)
     raises ``REFUSED_NOT_ALLOWED_AT_LOGIN`` here UNLESS the caller explicitly
     passes ``via_login=False``, meaning "this call is not reading a
     character's own persisted position row" - which is exactly what

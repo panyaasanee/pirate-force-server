@@ -750,6 +750,16 @@ PROVISIONAL_SPAWN_PROVENANCE_PREFIX = "PROVISIONAL-OWNER-DECREE"
 # path that resolves it on purpose (today: columbus_quest_dispatch.
 # resolve_columbus_arrival, via resolve_entry's own via_login=False) - not a
 # door a stored row can open by accident.
+#
+# LANE-A round 9lv3fa, 2026-09-08: no destination carries False any more.
+# PANYA-DECISION 20260908_1218 lifted 17, 126, 304 and 305 - the whole set -
+# on the owner's permanent rule that a login puts a character back where it
+# logged out from IN EVERY SCENE.  The default above is unchanged and the
+# refusal it feeds (world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN) is
+# unchanged; what changed is that the CURRENT registry has nobody to refuse.
+# 1218 keeps the mechanism for a scene added later, and turns the ordering
+# around for it: a new destination earns a measured spawn BEFORE it is pinned
+# at all, instead of being pinned with the login door shut behind it.
 DEFAULT_LOGIN_ENTRY_ALLOWED = True
 
 # ``persist_position_allowed`` distinguishes "safe to write this character's
@@ -766,7 +776,25 @@ DEFAULT_LOGIN_ENTRY_ALLOWED = True
 # wrong twice over: scene 1 is the wrong scene, and (-149, -1250, 745) is not
 # a position anybody measured as valid ground for scene 1.
 #
-# WHY THE FIX PINNED HERE IS "DO NOT PERSIST", NOT "PERSIST 17 INSTEAD".  The
+# ~~WHY THE FIX PINNED HERE IS "DO NOT PERSIST", NOT "PERSIST 17 INSTEAD"~~
+# -- STRUCK IN FULL, LANE-A round 9lv3fa, 2026-09-08, by PANYA-DECISION
+# 20260908_1218.  The paragraph below is kept because it is the honest record
+# of why scene 17 was pinned False for twelve days, and because its argument
+# is worth reading once: it rests ENTIRELY on scene 17 being shut at login,
+# and the owner has now opened that door in every scene.  Read it as history.
+# WHAT IS TRUE AS OF THIS COMMIT: no destination in this registry is pinned
+# False, on either flag.  1218's rule is that a character logs back in at the
+# point it logged out from, in every scene, which cannot hold for a scene
+# whose position is never written; refusing to write is now the thing that
+# strands a player, not the thing that protects one.  The GT-106 row remains
+# a real bug - but it is a bug in what the WRITER wrote (scene_id=1 carrying
+# scene 17's XYZ, a pair nobody chose), and a write gate that answers "write
+# nothing anywhere" was never a fix for a writer that writes the wrong scene
+# number.  That belongs to lifecycle.checkpoint and its own gate test.
+# THE MECHANISM STAYS: is_position_persist_allowed still refuses a pinned
+# False, for a destination this project catches corrupting rows in future.
+#
+# ~~WHY THE FIX PINNED HERE IS "DO NOT PERSIST", NOT "PERSIST 17 INSTEAD"~~.  The
 # obvious-looking correction - write scene_id=17 with that XYZ - drives
 # straight into the trap round 0z3kjx built ``login_entry_allowed`` to catch:
 # scene 17 is pinned ``login_entry_allowed: false`` precisely because a
@@ -1273,6 +1301,20 @@ def is_position_persist_allowed(
     True - the same "nothing changes for a scene that was never part of the
     incident" contract ``DEFAULT_LOGIN_ENTRY_ALLOWED`` makes, applied to a
     default that points the other way for a different reason.
+
+    ~~(today: only 17)~~ -- STRUCK, LANE-A round ``9lv3fa``, 2026-09-08:
+    NO destination in this registry is pinned ``False`` any more.  14 and 17
+    were the last two and PANYA-DECISION 20260908_1218 lifted both, because a
+    scene whose position is never written back is a scene the owner's
+    "log in where you logged out" rule cannot hold for.  This function is
+    therefore, today, a fence with nothing behind it - which is the intended
+    state, not a sign it should be deleted: it is the check a future
+    destination pinned ``False`` would fail, and the RULE that keeps the set
+    empty is pinned as a test rather than as a list in code
+    (``tests/test_world_scene_registry_login_door.py``: every pinned
+    destination that has a spawn must answer True here and be admissible at
+    login).  A list in this file would have to be edited by hand every time
+    the registry grows; a walk of the registry cannot fall out of date.
 
     Still validates ``n_id`` itself (type and the wire field's 1..0xFFFF
     range) rather than fail-opening on a garbage argument - a caller that
