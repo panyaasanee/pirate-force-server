@@ -126,6 +126,44 @@ class TestTheAllocator(unittest.TestCase):
                     mis.scene_and_placement_for(identity)
 
 
+class TestTheBandDoesNotStealTheSweepsIdentities(unittest.TestCase):
+    """pf-adversary round ``gadxq5``, finding D6.
+
+    The first draft handed scene 0's first six placements -1..-6, which are
+    exactly the six identities ``name_colour_sweep`` allocates to its
+    attended rows.  Two actors sharing an identity overwrite each other on
+    the client, and the board that survives answers a different question
+    than the tester is reading.  This reads the sweep's real tuple, so
+    shrinking the reserved head goes red here rather than on someone's
+    screen.
+    """
+
+    def test_no_allocated_identity_lands_on_a_sweep_row(self):
+        from pirateforce_foundation import name_colour_sweep as ncs
+
+        sweep = {
+            ncs.negative_identity_for(label)
+            for label in ncs.NEGATIVE_IDENTITY_SLOTS
+        }
+        self.assertTrue(sweep)
+        for scene_id in range(0, 40):
+            for placement in range(0, 80):
+                self.assertNotIn(
+                    mis.mob_wire_identity(scene_id, placement), sweep)
+
+    def test_the_reserved_head_covers_every_slot_the_sweep_declares(self):
+        from pirateforce_foundation import name_colour_sweep as ncs
+
+        self.assertGreaterEqual(
+            mis.SWEEP_RESERVED_IDENTITIES, len(ncs.NEGATIVE_IDENTITY_SLOTS))
+
+    def test_the_inverse_refuses_the_reserved_head_rather_than_decoding_it(self):
+        for identity in (-1, -6, -mis.SWEEP_RESERVED_IDENTITIES):
+            with self.subTest(identity=identity):
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.scene_and_placement_for(identity)
+
+
 class TestTheWireEncoding(unittest.TestCase):
     """A negative identity survives the FROZEN encoder, measured not assumed."""
 

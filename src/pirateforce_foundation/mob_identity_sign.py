@@ -21,9 +21,10 @@ THE ONE MEASURED SENTENCE, IN THE ORDER THE CLIENT DECIDES:
        identity and every one of them stayed green or pink.
     2. identity < 0   -> the NPC/MONSTER formula.  Faction relation decides
        first: not an enemy -> YELLOW; an enemy -> orange or red.
-    3. within the enemy half, ``n_OFFESIVE`` picks the shade: 1 -> RED,
-       0 -> ORANGE.  The two rows that split here (``M-IDNEG`` template 916
-       and ``M-IDNEG-T31`` template 31) differ in ONE field.
+    3. within the enemy half, SOMETHING picks the shade: the row whose table
+       says ``n_OFFESIVE=1`` came back RED and the one that says 0 came back
+       ORANGE.  READ RULE 3 AS A CORRELATION, NOT A CAUSE -- see the rival
+       reading below, which this module refuses to paper over.
     4. identity == 0  -> the client DOES NOT DRAW THE ACTOR AT ALL.  The
        owner counted 23 boards of the 24 composed and named the missing one:
        ``N-ID0``.
@@ -43,14 +44,32 @@ WHAT THIS MODULE DOES NOT CLAIM.
     field monster a player meets today is drawn by rule 1 and is pink.
     Moving them is a census-identity-space change that this lane cannot make
     alone; the ask is written up in this round's build letter.
-  * It does not claim the shade selector IS ``n_OFFESIVE`` rather than the
-    template id.  Those two rows differ in one field and ``n_OFFESIVE`` is
-    derived FROM the template, so a single boot cannot separate them.  The
-    letter's own reading is recorded in :data:`R324A_ROWS` as what was seen
-    (the colour) and not as what caused it; :func:`expected_name_colour`
-    takes ``offensive`` as an argument for that reason -- a caller that
-    disagrees about how ``n_OFFESIVE`` is derived still gets the measured
-    mapping.
+  * IT DOES NOT CLAIM ``n_OFFESIVE`` SELECTS THE SHADE, and the result
+    letter's "the two rows differ in ONE field, template_id" is FALSE.
+    pf-adversary (round ``gadxq5``) composed both bodies with the real
+    ``field_mobs.hostile_npc_attr`` and diffed the wire bytes: they differ in
+    SIX semantic fields -- identity, name, level (100 vs 27), current and max
+    HP (198125 vs 3857), speed (150 vs 100), template (916 vs 31) and visual
+    preset.  ``field_mob_ai_tables`` adds two more the letter's own nonclaim
+    missed, ``n_FACTION`` (12 vs 6) and ``n_AGGRO``.
+    A RIVAL READING FITS ALL SIX NON-POSITIVE ROWS WITH ONE FIELD and this
+    boot cannot separate it: a level-relative "con colour" against the
+    viewer, who was a level 1 character.  The four yellow rows carry NO level
+    field on the wire at all (they are composed by the sweep's plain-NPC
+    body, which splices neither level nor faction); the orange row carries
+    level 27; the red row carries level 100.  Note also that ``n_OFFESIVE``
+    is never on the wire anywhere -- no encoder in this tree writes it -- so
+    the client cannot be reading the field the letter names; at best it is
+    reading something the client derives from the template itself.
+    THE ONE ROW THAT WOULD SETTLE IT, and which this lane is asking for:
+    a monster on template 916 (``n_OFFESIVE=1``) composed with level spliced
+    to 27.  Red -> the letter's rule survives.  Orange -> the shade is level.
+    Until that row is booted, :func:`expected_name_colour` reproduces the
+    MEASURED mapping and nothing more; its ``offensive`` parameter is the
+    name of the row's table column, not a claim about what the client read.
+  * It does not claim the template id selects the colour either -- that
+    reading is DEAD: ``N-IDNEG-T916`` and ``M-IDNEG`` share template 916 and
+    came back yellow and red.
   * Nobody clicked, attacked or Tab-targeted any of the twenty-four actors
     (the ticket forbade it), so nothing here says a yellow/orange/red actor
     can be fought, or that the colour survives aggro.
@@ -71,6 +90,7 @@ __all__ = [
     "NAME_COLOUR_NOT_DRAWN",
     "R324A_ROWS",
     "SCENE_STRIDE",
+    "SWEEP_RESERVED_IDENTITIES",
     "is_player_identity",
     "is_mob_identity",
     "identity_is_drawn",
@@ -133,13 +153,32 @@ R324A_ROWS: tuple[tuple[str, int, bool, "bool | None", str], ...] = (
     ("M-T001", 1, True, None, NAME_COLOUR_PINK),
 )
 
-#: How many placement slots one scene owns inside the monster band.  The
-#: widest roster this lane has ever mined is Bg0010 at 72 rows (round
-#: ``np8mhf``, 439 rows over eleven scenes), so 4096 is three doublings of
-#: headroom and still lets every scene id in ``SCENE_NAME`` (271 rows, ids
-#: below 2048) have its own block without coming anywhere near the 64-bit
-#: floor.  Named rather than inlined because the inverse depends on it.
+#: How many placement slots one scene owns inside the monster band.
+#: Re-derived at HEAD by pf-adversary (round ``gadxq5``) after the first
+#: draft of this line quoted "Bg0010 at 72 rows, 439 over eleven scenes"
+#: from this lane's own round file -- those are the [PROPOSED] numbers a
+#: blocked cross-lane table would produce, not rows anyone can load today.
+#: What ``field_mobs.load_roster`` actually answers at HEAD: 143 rows over
+#: twelve scenes, widest Bg0002 at 52.  4096 is six doublings above that,
+#: and the widest scene-id space this tree names is ``gm/scene_catalog``'s
+#: (max id 999; ``world_scene_travel`` counts 271 client-registered ones),
+#: so every scene gets its own block without approaching the 64-bit floor.
+#: Named rather than inlined because the inverse depends on it.
 SCENE_STRIDE = 0x1000
+
+#: THE SWEEP'S NEGATIVE POOL IS NOT THIS BAND'S TO HAND OUT.
+#: ``name_colour_sweep.NEGATIVE_IDENTITY_SLOTS`` allocates -1, -2, -3, ...
+#: one per attended row.  pf-adversary (round ``gadxq5``) measured that the
+#: first draft of :func:`mob_wire_identity` handed scene 0's first six
+#: placements exactly -1..-6 -- a collision with all six sweep rows -- and
+#: the sweep module writes the price of that collision itself: the client
+#: keys an actor BY its identity, so two actors sharing one overwrite each
+#: other and the board that survives answers a different question than the
+#: one the tester is reading.  The production band therefore starts below a
+#: reserved head.  Widen this rather than the sweep's pool if the sweep ever
+#: needs more rows; the guard in ``tests/test_mob_identity_sign.py`` reads
+#: the sweep's real tuple, so shrinking it here goes red.
+SWEEP_RESERVED_IDENTITIES = 64
 
 #: The most negative identity this allocator will ever hand out, kept a full
 #: order of magnitude away from ``-2**63`` so a caller that adds an offset of
@@ -168,9 +207,22 @@ def identity_is_drawn(identity: int) -> bool:
 def refuse_undrawable_identity(identity: int, *, what: str = "actor") -> int:
     """Refuse an identity the client will never put on screen.
 
-    Called from the production hostile-body composer, so a monster that no
-    player could ever see cannot be handed to a census and then opened in the
-    combat ledger.  Returns ``identity`` so it can be used inline.
+    Called from the hostile-body composer, so a monster that no player could
+    ever see cannot be handed to a census and then opened in the combat
+    ledger.  Returns ``identity`` so it can be used inline.
+
+    REACH, MEASURED (pf-adversary, round ``gadxq5``), because the first
+    draft of this docstring oversold it: no input the composer can be handed
+    TODAY reaches zero.  Every roster row parses through
+    ``field_mobs`` line ~1346 with ``placement_index >= 0``, so
+    ``actor_identity >= 0x2001``, and stubbing this refusal out kills no test
+    but this module's own.  The one place in the tree that really does
+    compose an identity-0 actor is the attended sweep's ``N-ID0`` row, which
+    goes through the plain-NPC body and never touches this composer -- and
+    that row is the measurement, so it is not this guard's job to stop it.
+    This is a guard on the band that :func:`mob_wire_identity` is about to
+    start handing out, placed before the first caller rather than after the
+    first invisible monster.
     """
     _refuse_non_integer(identity)
     if identity == IDENTITY_NOT_DRAWN:
@@ -211,7 +263,10 @@ def mob_wire_identity(scene_id: int, placement_index: int) -> int:
             f"{SCENE_STRIDE} -- widen SCENE_STRIDE in one commit with the "
             "inverse rather than letting one scene's block run into the next"
         )
-    identity = -(1 + scene_id * SCENE_STRIDE + placement_index)
+    identity = -(
+        SWEEP_RESERVED_IDENTITIES + 1
+        + scene_id * SCENE_STRIDE + placement_index
+    )
     if identity < MOB_IDENTITY_FLOOR:
         raise MobIdentitySignError(
             f"scene {scene_id} placement {placement_index} lands at "
@@ -238,7 +293,13 @@ def scene_and_placement_for(identity: int) -> tuple[int, int]:
             f"identity {identity} is below the monster-band floor "
             f"{MOB_IDENTITY_FLOOR}"
         )
-    flat = -identity - 1
+    flat = -identity - 1 - SWEEP_RESERVED_IDENTITIES
+    if flat < 0:
+        raise MobIdentitySignError(
+            f"identity {identity} is inside the reserved head this band does "
+            f"not hand out (the first {SWEEP_RESERVED_IDENTITIES} negative "
+            "values belong to name_colour_sweep's attended rows)"
+        )
     return flat // SCENE_STRIDE, flat % SCENE_STRIDE
 
 
