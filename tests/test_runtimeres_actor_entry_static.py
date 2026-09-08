@@ -461,7 +461,13 @@ class TestTheAnswer(unittest.TestCase):
         # second collection (RE-092 measured a second collection as
         # replace-by-omission at set scope).  Carrier only -- no new entry
         # builder, so the two counts below do not move.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 45)
+        # 45 -> 46 on 2026-09-08 (chief, round vx8irh):
+        # world_population.empty_rung, the carrier that encodes an
+        # EMPTY collection so a caller can remove a town by omission
+        # on purpose (RE-092) for the sweep sets that have to be read
+        # on an empty square.  Carrier only, and in a module both
+        # censuses below already name -- so neither of them moves.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 46)
         self.assertEqual(counts["src_actor_entry_call_sites"], 34)
         self.assertEqual(counts["src_modules_building_actor_entries"], 33)
         self.assertIn(
