@@ -487,6 +487,14 @@ class InMemoryQuestStateStore:
     ``TriggerStatusRegistry.__init__`` already documents for itself.
     """
 
+    #: Read by a caller deciding whether quest progress survives a relog,
+    #: WITHOUT isinstance-ing across module boundaries: the durable half of
+    #: this seam (``lua_api.quest_state_store.StoreBackedQuestStateStore``)
+    #: carries the same attribute set to True.  Stated rather than left to
+    #: ``getattr(store, "durable", False)`` at the call site, so that a
+    #: reader of THIS class sees the claim it makes about itself.
+    durable = False
+
     def __init__(self, characters: int = CHARACTERS_CAP,
                  quests_per_character: int = QUESTS_PER_CHARACTER_CAP,
                  counters_per_character: int = COUNTERS_PER_CHARACTER_CAP) -> None:
