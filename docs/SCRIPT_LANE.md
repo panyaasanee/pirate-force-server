@@ -4665,3 +4665,105 @@ answers point opposite ways.  Until the seam carries a `refused` signal a
 charge path can read, `REFUSED_VALUE` is fail-closed at one call site and
 fail-open at two.  **That is next round's first job**, ahead of anything
 new.
+## Round 7cf5ak (2026-09-08) -- refusal becomes the THIRD state, and the daily-quest charge stops repeating
+
+The debt the previous round closed with, paid. `REFUSED_VALUE = 0` and a
+read's `None` said two different things with one answer -- "this quest has
+not advanced" and "this server could not record what just happened" -- and
+`Quest.CanReportDailyQuest()` read the second as the first.
+
+### What a player would have seen, and what they see now
+
+`gamedata/lua/Quest/q_day_business.lua` runs, in this order:
+
+    Accept_Check():  if( Quest.CanReportDailyQuest()) and ...
+    Report_Run():    Player.RemoveItem(Quest.Var2,Quest.Var3)   <- the charge
+                     Quest.ReportDailyQuest()                   <- the record
+
+With a write-locked store the charge lands and the record does not. Before
+this round the next click found `CanReportDailyQuest()` still True (no
+stamp on record = "not reported today") and charged again: measured four
+charges where a healthy store charges once, and charges 2-4 printed no
+refusal line at all because the console dedupe had already spent the key.
+
+Now: charged once, then every later attempt is refused out loud. The player
+loses one day of one daily quest instead of four lots of items.
+
+### The mechanism, in three pieces
+
+1. **`lua_api/quest_state_signal.py`** (new, leaf, no intra-package
+   imports). `Refused` is an `int` SUBCLASS carrying the number the
+   refusing call already returned (0 for nearly all of them) plus a
+   `reason`. So a caller that has never heard of this module keeps exactly
+   today's number and today's behaviour -- the module cannot regress a path
+   it has not been wired into -- while a caller that asks `is_refused()`
+   gets the third state. `RefusalLedger` remembers per `(character_id,
+   quest_id)` that a WRITE was refused and has not since succeeded.
+2. **`quest_state_store.py`**: every refusal path answers
+   `refused(<reason>)` instead of a bare `0`/`None`; a refused WRITE
+   poisons the pair, a successful write clears it. Refused READS are
+   reported and poison nothing -- a read failure loses no fact.
+3. **`quest.py`**: `InMemoryQuestStateStore` marks its cap refusals the
+   same way (a cap refusal is a lost write too), and the decision sites
+   refuse rather than guess: `CanReportDailyQuest`, `CheckMobKillCount`,
+   `GetMobKillCount`, `GetQuestFlag`, `GetFlag`, `SetFlag`, `SetQuestFlag`,
+   `MobKillCount`, `ReportDailyQuest`, the cross-lane `is_quest_accepted`/
+   `is_quest_reported` LANE-A gates NPC visibility on, and -- the payout
+   gate PANYA's `NOW.md` line names -- `Quest.Var1..Var20` and the reward
+   cells, which come back as `STUB_DEFAULT` while the pair is poisoned, so
+   the script's own arithmetic charges zero and `lua_api.player` refuses it
+   by name (`amount_is_zero`).
+
+### The cost, stated rather than hidden
+
+A poisoned pair stalls that quest entirely, not just at the till: `VarN`
+also carries mob ids and target counts. That is the intended trade -- a
+stalled quest is recoverable, a double charge is not -- and it ends the
+moment one write for the pair succeeds (pinned:
+`test_one_successful_write_clears_the_pair`). The ledger never evicts a
+pair to make room, because evicting one would turn "unreadable" back into
+"not started"; it refuses NEW pairs at `LEDGER_CAP` and reports
+`saturated()`.
+
+### Evidence
+
+`tests/test_script_lua_quest_refusal_third_state.py` (15 tests) drives the
+real `Quest` namespace over a store whose READS work and whose WRITES raise
+the `sqlite3.OperationalError` family `store.WriteLockTimeout` belongs to --
+the hard case, where nothing looks broken from the read side. Seven mutants
+of this round's code, all killed: gate removed, poison not recorded, `VarN`
+gate removed, pair never cleared, ledger evicting, `is_refused` answering
+True for a real 0, cross-lane read consulting only the value and not the
+ledger.
+
+Six existing pins in `tests/test_script_lua_quest_state_store.py` asserted
+`None` for a refused read and were CHANGED on purpose: that `None` was the
+defect. They now assert the refusal, and separately assert it is still
+numerically 0.
+
+### LANE-DB's five doors landed on main DURING this round
+
+Measured at the start of this round (19:28 +07): absent, as in every round
+before it. Measured again at the merge before the push (`origin/main`
+`2e4e3f6`): `store.py:3399` `set_quest_flag`, `:3454` `get_quest_flag`,
+`:3490` `set_quest_counter`, `:3544` `increment_quest_counter`, `:3606`
+`get_quest_counter`, plus `persistence_quest_state.py` and
+`migrations/019_character_quest_state.sql`.
+
+That settles pf-adversary F10 by READING rather than by reply:
+`QuestCounterRow(character_id, quest_id, counter_name, counter_value,
+updated_at)` -- `counter_value` is real, and the `[PROPOSED]` label on
+`_COUNTER_FIELD` is lifted with the file and line that prove it.
+
+### Not claimed
+
+- No name moved into `REAL_METHODS`; the corpus stub pin does not move.
+- **Quest progress still does not survive a relog.** The doors exist and
+  this adapter is written to them, but nothing in the codebase yet hands a
+  store to `load_quest_script(persistence=...)`; `lua_api.dispatch.resolve_
+  quest_state_store` is the one switch that would, and it has no production
+  caller. That wiring is the next round's first job.
+- This adapter has never run against the real store -- the fake in
+  `tests/test_script_lua_quest_state_store.py` is still a fake. What
+  changed is that it now mirrors a row shape that can be checked.
+- `increment_quest_counter` still has no production caller.
