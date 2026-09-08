@@ -170,3 +170,233 @@ def drop_sql(tag: str) -> str:
     return "\n".join(
         (f"DROP TABLE {tag}_guard;", f"DROP TABLE {tag}_before;")
     )
+
+
+# -- the SCHEMA half ------------------------------------------------------
+#
+# Adversary finding D1 on round `fw2hs6` asked the question the three
+# builders above cannot answer: they prove the ROWS crossed the rebuild
+# unchanged, and a rebuild exists precisely to change the SCHEMA, so they
+# deliberately do not look at it -- with the result that a one-token mutant
+# deleting `REFERENCES characters(id)` from `018` passed the whole suite,
+# and the test named `test_foreign_key_integrity_holds_after_the_rebuild`
+# passed BECAUSE the foreign key was gone (`pragma_foreign_key_check` sees
+# nothing to check on a table that has no constraints).
+#
+# These two builders are that missing half.  They are a SEPARATE, OPT-IN
+# pair rather than more rows inside `verify_sql`, for two reasons that are
+# not style: (1) `migrations/018` is applied and its text is pinned by
+# checksum, so widening `verify_sql` would change the pin and make every
+# database that already ran `018` refuse to boot; (2) a rebuild whose whole
+# purpose IS to add or drop a constraint must be able to say so, and a
+# guard that cannot be opted out of would simply be deleted by the first
+# migration that needed to.  A migration that does not intend to change its
+# constraints carries this pair and says so in one line; one that does
+# intend to leaves it out, and the reader can see which from the file.
+
+
+def schema_snapshot_sql(table: str, tag: str) -> str:
+    """The statement that records a table's CONSTRAINTS on the way in.
+
+    Two more scaffold tables beside `snapshot_sql`'s data copy: the
+    table's foreign keys and its indexes, read out of SQLite's own
+    catalogue rather than out of the migration's prose.  Like the data
+    snapshot it must run before the rebuild's first `CREATE`/`DROP`, and
+    `drop_sql` (widened below) removes both again inside the same
+    transaction.
+
+    `pragma_index_list` is filtered to `origin='c'` -- indexes the schema
+    CREATEd by name.  The `u`/`pk` rows are the implicit indexes SQLite
+    mints for `UNIQUE`/`PRIMARY KEY` and it names them
+    `sqlite_autoindex_<table>_<n>`, which changes with the table's name and
+    the ordinal of the constraint; those constraints are visible to the
+    data guard's own `UNIQUE` failures and to `pragma_foreign_key_list`,
+    and pinning their generated names would make an honest rename red.
+    """
+    table = _identifier(table, "table")
+    tag = _identifier(tag, "tag")
+    return "\n".join(
+        (
+            f"CREATE TABLE {tag}_fk_before AS SELECT"
+            ' "table","from","to",on_update,on_delete,"match"'
+            f" FROM pragma_foreign_key_list('{table}');",
+            f"CREATE TABLE {tag}_ix_before AS SELECT"
+            ' name,"unique",partial'
+            f" FROM pragma_index_list('{table}') WHERE origin='c';",
+        )
+    )
+
+
+def schema_verify_sql(table: str, tag: str) -> str:
+    """The guard rows that refuse a rebuild which quietly changed the
+    table's constraints.
+
+    Four more rows on the SAME `<tag>_guard` table `verify_sql` creates
+    (so this pair must follow it, not replace it), asking the two questions
+    in both directions: no foreign key gained, none lost, no created index
+    gained, none lost.  `EXCEPT` both ways for the same reason the data
+    guard uses it -- a set difference that is empty in one direction only
+    is a change, not a match.
+
+    A rebuild that INTENDS to change a constraint must not carry these
+    rows; see the comment above this section for why that is a deliberate
+    opt-in rather than something a migration can be forced into.
+    """
+    table = _identifier(table, "table")
+    tag = _identifier(tag, "tag")
+    fk = '"table","from","to",on_update,on_delete,"match"'
+    ix = 'name,"unique",partial'
+    live_fk = f"SELECT {fk} FROM pragma_foreign_key_list('{table}')"
+    live_ix = (
+        f"SELECT {ix} FROM pragma_index_list('{table}') WHERE origin='c'"
+    )
+    return "\n".join(
+        (
+            f"INSERT INTO {tag}_guard(ok) SELECT CASE WHEN NOT EXISTS("
+            f"{live_fk} EXCEPT SELECT {fk} FROM {tag}_fk_before)"
+            " THEN 1 ELSE 0 END;",
+            f"INSERT INTO {tag}_guard(ok) SELECT CASE WHEN NOT EXISTS("
+            f"SELECT {fk} FROM {tag}_fk_before EXCEPT {live_fk})"
+            " THEN 1 ELSE 0 END;",
+            f"INSERT INTO {tag}_guard(ok) SELECT CASE WHEN NOT EXISTS("
+            f"{live_ix} EXCEPT SELECT {ix} FROM {tag}_ix_before)"
+            " THEN 1 ELSE 0 END;",
+            f"INSERT INTO {tag}_guard(ok) SELECT CASE WHEN NOT EXISTS("
+            f"SELECT {ix} FROM {tag}_ix_before EXCEPT {live_ix})"
+            " THEN 1 ELSE 0 END;",
+        )
+    )
+
+
+def schema_drop_sql(tag: str) -> str:
+    """The cleanup for `schema_snapshot_sql`'s two scaffold tables.
+
+    Separate from `drop_sql` for the same reason the snapshot is separate:
+    `migrations/018` is frozen and carries `drop_sql`'s exact text, so
+    widening that one would break its checksum pin.
+    """
+    tag = _identifier(tag, "tag")
+    return "\n".join(
+        (f"DROP TABLE {tag}_ix_before;", f"DROP TABLE {tag}_fk_before;")
+    )
+
+
+# -- the WINDOW check -----------------------------------------------------
+#
+# Adversary finding D2 on round `fw2hs6`: the corruption the guard was
+# built to stop moved UP one line and passed green --
+#
+#     BEGIN IMMEDIATE;
+#     UPDATE character_skills SET skill_id=skill_id+1000;   <- here
+#     CREATE TABLE _pf_mig018_before AS SELECT * FROM character_skills;
+#
+# because the window the guard protects STARTS at the snapshot, and nothing
+# proved the snapshot was the first thing in the transaction.  No SQL the
+# guard can emit closes that: the guard runs inside the window it is trying
+# to bound.  What can close it is a check on the FILE, run by the tests
+# that pin the migration, which is what this is.  It is a linter, not a
+# guard, and it is named that way on purpose.
+
+
+def _statements(text: str) -> "list[str]":
+    """The migration's executable statements, comments stripped.
+
+    Line comments only (`--`), which is every comment style the migrations
+    in this repository use; a `/* */` block would need a real tokenizer and
+    none exists in the corpus to justify one.
+    """
+    code = "\n".join(
+        line for line in text.splitlines()
+        if not line.strip().startswith("--")
+    )
+    return [s.strip() for s in code.split(";") if s.strip()]
+
+
+def _mentions(statement: str, table: str) -> bool:
+    """Is ``table`` named as a WHOLE identifier anywhere in ``statement``?
+
+    Written by hand rather than with `re` on purpose: the test beside this
+    module pins that this file imports nothing but `__future__`, which is
+    what proves a helper whose whole job is to RETURN SQL never runs any.
+    A regular expression would be the first import, and the next reader
+    would have a weaker pin to argue with.
+
+    Whole-identifier, so ``character_skills`` does not match
+    ``character_skills_rebuild`` -- the scaffold `018` creates and drops
+    entirely inside the guard's own window, which a substring test would
+    report as a violation on every honest rebuild in the repository.
+    Case-insensitive because SQLite is.
+    """
+    target = table.lower()
+    token: list[str] = []
+    for character in statement.lower() + " ":
+        if character.isalnum() or character == "_":
+            token.append(character)
+            continue
+        if token and "".join(token) == target:
+            return True
+        token = []
+    return False
+
+
+def window_violations(text: str, table: str, tag: str) -> "tuple[str, ...]":
+    """Everything wrong with WHERE the guard sits in a migration's file.
+
+    Returns a tuple of human-readable problems -- empty means the file's
+    guard window really does cover every statement that can touch
+    ``table``:
+
+      1. the snapshot exists at all;
+      2. no statement before the snapshot mentions ``table`` (the D2
+         corruption, which is invisible to the guard by construction);
+      3. no statement after the LAST guard row mentions ``table`` (the
+         mirror image: a corruption appended after the guard has already
+         voted);
+      4. the scaffold is dropped, so nothing ``_pf_`` survives.
+
+    Case-insensitive on the table name because SQLite is; a statement is
+    counted as "mentioning" the table when the name appears as a whole word
+    in it, which over-reports rather than under-reports -- a linter that
+    guesses wrong should send its author to look, not wave them through.
+    """
+    table = _identifier(table, "table")
+    tag = _identifier(tag, "tag")
+    statements = _statements(text)
+    snapshot = snapshot_sql(table, tag).rstrip(";")
+    problems: list[str] = []
+    try:
+        first = next(
+            i for i, s in enumerate(statements) if s == snapshot
+        )
+    except StopIteration:
+        return (
+            f"the snapshot statement for {table} is not in this file "
+            f"(expected {snapshot!r})",
+        )
+    guard_rows = [
+        i for i, s in enumerate(statements)
+        if s.startswith(f"INSERT INTO {tag}_guard(ok)")
+    ]
+    if not guard_rows:
+        problems.append(f"no {tag}_guard rows in this file")
+    for i in range(first):
+        if _mentions(statements[i], table):
+            problems.append(
+                "statement %d touches %s before the snapshot: %s"
+                % (i + 1, table, statements[i].splitlines()[0])
+            )
+    if guard_rows:
+        for i in range(guard_rows[-1] + 1, len(statements)):
+            if _mentions(statements[i], table):
+                problems.append(
+                    "statement %d touches %s after the last guard row: %s"
+                    % (i + 1, table, statements[i].splitlines()[0])
+                )
+    for scaffold in (f"{tag}_before", f"{tag}_guard"):
+        if any(s == f"CREATE TABLE {scaffold}" or
+               s.startswith(f"CREATE TABLE {scaffold} ") or
+               s.startswith(f"CREATE TABLE {scaffold}(")
+               for s in statements):
+            if not any(s == f"DROP TABLE {scaffold}" for s in statements):
+                problems.append(f"{scaffold} is created but never dropped")
+    return tuple(problems)
