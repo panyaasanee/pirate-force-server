@@ -370,12 +370,30 @@ class TheTableFactsTheWarpGrammarLeansOnTests(unittest.TestCase):
     future re-derive changes the file.
     """
 
-    def test_the_longest_name_length_is_the_longest_matchable_key(self):
-        # `MAX_WARP_NAME_QUERY_LENGTH` is twice this, so an off-by-one here
-        # is an off-by-two in what an operator may type.
+    def test_the_longest_name_length_is_the_measured_value_not_a_recompute(self):
+        """A LITERAL, backed by the sha pin -- pf-adversary D3, MEASURED.
+
+        ~~`assertEqual(LONGEST_GM_NAME_LENGTH, max(len(key) for key in
+        _GM_NAME_TO_SCENE_IDS))`~~ is STRUCK: that is character for
+        character the right-hand side of the constant's own definition, so
+        it recomputes the implementation and ANY table passes it.  The class
+        docstring claimed this pair goes loudly wrong if a re-derive changes
+        the file, and it could not: it was a tautology wearing the name of
+        the property.
+
+        The honest shape is the measured number written down here and the
+        table pinned by `SOURCE_SHA256` at import.  Re-derive the table and
+        this goes red, which is the whole point -- `MAX_WARP_NAME_QUERY_
+        LENGTH` is twice this, so an off-by-one here is an off-by-two in
+        what an operator may type, and that must be a human decision rather
+        than a number that follows a data file silently.
+        """
+        self.assertEqual(54, scene_catalog.LONGEST_GM_NAME_LENGTH)
         self.assertEqual(
-            scene_catalog.LONGEST_GM_NAME_LENGTH,
-            max(len(key) for key in scene_catalog._GM_NAME_TO_SCENE_IDS),
+            "f9076cfc3c14433b376811437d68375d5dd1ce1ef2c7a50dbc1d4e4d241bfa3a",
+            scene_catalog.SOURCE_SHA256,
+            "the literal above is only meaningful while this table is that "
+            "table; a new sha means re-measure, not re-type",
         )
         # Characters, not bytes: the table is `TEXTDATA_TH__*` and its
         # longest name today is Thai, which is 3 bytes per character in
@@ -386,6 +404,23 @@ class TheTableFactsTheWarpGrammarLeansOnTests(unittest.TestCase):
         self.assertGreater(
             len(longest.encode("utf-8")), scene_catalog.LONGEST_GM_NAME_LENGTH
         )
+
+    def test_the_thai_row_count_the_constant_cites_is_the_measured_one(self):
+        """pf-adversary D4: the docstring said 37; it is 209 of 330.
+
+        Written down rather than recomputed, for D3's reason.  37 was
+        `SCENE_COUNT - GM_NAME_COUNT` from another paragraph of the same
+        file, re-labelled -- and it is the sentence that argues why this
+        constant counts CHARACTERS and not bytes, so a reader checking that
+        argument was being handed a number off by 5.6x.
+        """
+        thai = sum(
+            1
+            for name in scene_catalog.SCENE_ID_TO_GM_NAME.values()
+            if any("\u0e00" <= ch <= "\u0e7f" for ch in name)
+        )
+        self.assertEqual(209, thai)
+        self.assertEqual(330, len(scene_catalog.SCENE_ID_TO_GM_NAME))
 
     def test_no_shipped_name_contains_the_scene_selector_character(self):
         # This is the whole reason `warp <scene name> #n` can be told apart

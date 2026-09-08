@@ -700,12 +700,24 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     that range is refused with the range rather than clamped -- a clamped
     selector sends a GM to a scene they did not ask for and says nothing.
 
-    NO ECHO OF THE TYPED TEXT in any message raised here.  These lines reach
-    a cp874 console, the operator can already see what they typed, and a
-    message that repeats arbitrary client-supplied text is one unlucky
+    NO ECHO OF THE TYPED *NAME* in any message raised here.  These lines
+    reach a cp874 console, the operator can already see what they typed, and
+    a message that repeats arbitrary client-supplied text is one unlucky
     character away from killing the console it is trying to help.  (This is
     strictly less echoing than the `_require_int` path this branch replaced,
     which put the raw token in its message.)
+
+    ~~NO ECHO OF THE TYPED TEXT~~ is narrowed rather than left absolute
+    (pf-adversary, this round, D7, MEASURED): the out-of-range selector
+    message prints the number back --
+    `#99999999999999999999999999 names none of them` -- because a range
+    refusal that will not say which selector it refused is a worse line than
+    one that does.  What makes that safe is exactly what makes the name
+    unsafe: the selector reached this point only by passing
+    `tail.isascii() and tail.isdigit()`, so it is ASCII digits and nothing
+    else, and the length cap read at the top of `_parse_warp` bounds it.
+    The NAME is still never echoed, and that is the half the rule was
+    written for.
     """
     # LENGTH FIRST, before anything walks the string.  Every check below
     # this line is at least O(len(rest)) and `_did_you_mean` is difflib over
@@ -777,6 +789,29 @@ def _split_scene_selector(rest: str) -> tuple[str, int | None]:
     selector, so the only accepted spelling is one or more ASCII digits, and
     anything else stays part of the name and fails the catalog lookup with
     the message that names the way out.
+
+    THIS FUNCTION HANDS BACK THE HEAD IT WAS GIVEN, WHITESPACE AND ALL, and
+    ~~`head.strip()`~~ is STRUCK (pf-adversary, this round, D1, HIGH,
+    MEASURED, reachable from the chat wire).  This splitter runs BEFORE
+    `_query_is_console_safe`, so whatever it deletes is never shown to the
+    codec check -- and `str.strip()` deletes 27 code points that
+    `_query_is_console_safe` refuses, `\n \x85 \xa0 \u2028 \u3000` among
+    them.  Measured on the branch that shipped the strip:
+    `warp Hidden Island\u2028#1` parsed and put the line separator in
+    `command.raw`, which `log_gm_command` writes into the ndjson audit; the
+    same line is refused on `origin/main`.  `chat_command` does not stop it
+    either -- `has_format_characters` tests `Cf`, and those characters are
+    `Cc`/`Zl`/`Zs`.  So the head is returned unchanged and the codec check
+    sees the whole query.  It costs nothing an operator had: the fold in
+    `scene_catalog.resolve_gm_scene_name` already collapses and trims
+    ordinary spaces, so `warp Hidden Island  #1` still resolves.
+
+    THE INVARIANT, stated because pf-adversary's closing question was that
+    it never was: everything this grammar accepts into `raw` is cp874-
+    encodable and single-line.  A rewriter that runs before the checker can
+    only narrow what the checker sees, so it must not delete anything the
+    checker would have refused.  That is the rule this function now keeps,
+    and it is the rule `head.strip()` broke.
     """
     head, separator, tail = rest.rpartition(SCENE_SELECTOR_PREFIX)
     if not separator:
@@ -788,7 +823,7 @@ def _split_scene_selector(rest: str) -> tuple[str, int | None]:
         # selector by whitespace or the `#` is part of whatever was typed.
         # (No shipped name contains `#`, so this only ever refuses a typo.)
         return rest, None
-    return head.strip(), int(tail)
+    return head, int(tail)
 
 
 def _require_int(value: str, label: str) -> None:

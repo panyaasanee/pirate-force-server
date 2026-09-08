@@ -796,14 +796,33 @@ class WarpNameQueryIsBoundedInLengthTests(unittest.TestCase):
             parse_gm_command(text)
         return str(caught.exception)
 
-    def test_the_cap_is_derived_from_the_table_not_typed(self):
-        # A literal here would go stale the first time the client's table
-        # grows a longer name. The allowance is "one extra space per
-        # character of the longest matchable name", which is exactly twice.
+    def test_the_cap_matches_the_table_and_its_measured_value_is_written_down(self):
+        """pf-adversary D2, MEASURED: the relationship alone pinned nothing.
+
+        `assertEqual(MAX_WARP_NAME_QUERY_LENGTH, 2 * LONGEST_GM_NAME_LENGTH)`
+        is a statement about two constants, and `108 == 2 * 54` satisfies it
+        with BOTH of them hardcoded -- two mutants that typed the numbers in
+        survived the whole suite.  The relationship is kept (it is what "one
+        extra space per character of the longest matchable name" means) and
+        the measured values are written down beside it, so a table
+        re-derive turns this red instead of moving the cap silently.
+        `test_gm_scene_catalog.py` holds the sha that makes the literals
+        mean something.
+
+        WHAT THIS STILL DOES NOT PIN, said plainly rather than left in the
+        test's name: no assertion can tell `LONGEST_GM_NAME_LENGTH = 54`
+        from `max(len(key) for key in ...)` while the table yields 54.  The
+        guard against a typed constant is `SOURCE_SHA256`, which makes the
+        table unable to change quietly; the literals here make the values a
+        human has to re-approve when it does.  The test is named for that
+        pair now, not for a derivation it cannot observe.
+        """
         self.assertEqual(
             commands_module.MAX_WARP_NAME_QUERY_LENGTH,
             2 * scene_catalog.LONGEST_GM_NAME_LENGTH,
         )
+        self.assertEqual(54, scene_catalog.LONGEST_GM_NAME_LENGTH)
+        self.assertEqual(108, commands_module.MAX_WARP_NAME_QUERY_LENGTH)
 
     def test_the_line_that_used_to_write_a_200_kb_audit_row_is_refused(self):
         # `warp Port` + whitespace + `Royal` folds to `port royal` and
@@ -943,6 +962,46 @@ class WarpNameSelectorPicksAmongRepeatsTests(unittest.TestCase):
                 self.assertNotIn("Hidden", message)
                 self.assertNotIn("Royal", message)
                 message.encode("ascii")
+
+    def test_the_selector_split_shows_the_codec_check_every_character(self):
+        """pf-adversary D1, HIGH, MEASURED, reachable from the chat wire.
+
+        `_split_scene_selector` runs BEFORE `_query_is_console_safe`, and it
+        used to return `head.strip()` -- so every whitespace code point
+        between the name and `#n` was deleted before the codec check could
+        see it.  Twenty-seven of those are characters the check refuses,
+        `\n`, `\x85`, `\xa0`, `\u2028` and `\u3000` among them; each one
+        parsed, and each one landed in `command.raw`, which
+        `log_gm_command` writes into the ndjson audit line.  `chat_command`
+        does not stop them either (`has_format_characters` tests `Cf`; these
+        are `Cc`/`Zl`/`Zs`), so a ordinary GM chat frame reached it.
+
+        WALKS THE WHOLE CLASS, not a sample: the set is derived here from
+        the codec check itself, so a change to what the console accepts
+        cannot leave a hole this test does not look at.
+        """
+        refused_whitespace = [
+            chr(code)
+            for code in range(0x110000)
+            if chr(code).isspace()
+            and not commands_module._query_is_console_safe(chr(code))
+        ]
+        self.assertEqual(27, len(refused_whitespace))
+        for ch in refused_whitespace:
+            with self.subTest(ch=hex(ord(ch))):
+                with self.assertRaises(GmCommandParseError) as raised:
+                    parse_gm_command(f"warp Hidden Island{ch}#1")
+                self.assertIn("cp874", str(raised.exception))
+
+    def test_an_ordinary_extra_space_before_the_selector_still_resolves(self):
+        # The other side of D1's fix: not stripping must not cost the
+        # operator anything, because the catalog fold already collapses and
+        # trims ordinary whitespace.
+        self.assertEqual(parse_gm_command("warp Hidden Island #1").args, ("308",))
+        self.assertEqual(parse_gm_command("warp Hidden Island  #1").args, ("308",))
+        self.assertEqual(
+            parse_gm_command("warp Hidden Island \t #1").args, ("308",),
+        )
 
     def test_the_usage_line_mentions_the_selector(self):
         # A form the parser accepts but no usage sentence mentions is a form
