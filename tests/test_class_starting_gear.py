@@ -24,6 +24,7 @@ import ast
 import csv
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -44,6 +45,14 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 TABLE_PATH = ROOT / "src" / "pirateforce_foundation" / "data" / "charcreate_class.tsv"
 SOURCE_PATH = ROOT / "src" / "pirateforce_foundation" / "class_starting_gear.py"
 MODULE_NAME = "class_starting_gear"
+
+#: The module names that may import ``class_starting_gear`` from shipped
+#: code.  ``COO-DECISION 20260908_1246`` lifted this lane's pin from "no
+#: production caller at all" to this one name, because the zero was what
+#: blocked LANE-DB from putting the five-bag set behind their gates.  It is
+#: spelled here, in the test, and not in the module: production code carries
+#: no allowlist, so widening it is an edit a reviewer sees in a test diff.
+ALLOWED_IMPORTERS = ("inventory",)
 
 
 def _table_hand_slots() -> dict:
@@ -286,7 +295,7 @@ class DerivedNotCountedTests(unittest.TestCase):
 
 
 class NotWiredYetTests(unittest.TestCase):
-    def test_the_module_has_no_production_caller(self):
+    def test_the_only_production_caller_allowed_is_inventory(self):
         """Measured, not asserted in prose (``NOW.md``: WIRED = observed).
 
         The measurement walks the PARSED module, not its text: round
@@ -340,7 +349,19 @@ class NotWiredYetTests(unittest.TestCase):
                     name = getattr(func, "attr", getattr(func, "id", ""))
                     if name in ("import_module", "__import__"):
                         importers.append(path.relative_to(ROOT).as_posix())
-        self.assertEqual(importers, [])
+        # COO-DECISION 20260908_1246 replaced "importers must be empty" with
+        # "the importer is `inventory`".  Both teeth are kept: a SECOND
+        # importer fails the count, and a first one under any other name
+        # fails the membership -- so the pin still bites in exactly the
+        # directions that made it worth having.  "At most one" rather than
+        # "exactly one" because LANE-DB has not wired it yet, and the strict
+        # form would leave this file (and the preflight gate every lane
+        # pushes through) red in the meantime.  See the module docstring's
+        # "WHO MAY IMPORT THIS MODULE" and the ASK-COO letter it cites.
+        self.assertEqual(ALLOWED_IMPORTERS, ("inventory",))
+        stems = sorted({Path(path).stem for path in importers})
+        self.assertEqual([stem for stem in stems if stem not in ALLOWED_IMPORTERS], [])
+        self.assertLessEqual(len(stems), len(ALLOWED_IMPORTERS))
         # Recorded, not enforced: today the mentions are two comments, and
         # NEITHER is a caller.  `class_catalog` points readers here from its
         # docstring.  `inventory.py` gained its line while this branch was
@@ -418,11 +439,22 @@ class ConsoleTokenTests(unittest.TestCase):
                     result.stdout.decode("ascii"),
                 )
                 self.assertIn("rhand=%d" % rhand, result.stdout.decode("ascii"))
-        self.assertIn("wired_callers=0", lines[-1])
-        # The zero is now counted, not spelled (pf-adversary D3): the same
-        # function the token calls must return the same number this test
-        # measures for itself.
-        self.assertEqual(class_starting_gear.count_production_importers(), 0)
+        # The number is counted, not spelled (pf-adversary D3): the same
+        # function the token calls must report the same tree this test
+        # measures for itself.  It is no longer compared against a literal
+        # zero -- COO-DECISION 20260908_1246 lets `inventory` become the one
+        # importer, and a literal zero here would turn red the day it does.
+        # `test_the_token_reports_a_real_importer_when_one_exists` is what
+        # keeps this from being a number compared with itself.
+        importers = class_starting_gear.production_importers()
+        self.assertIn("wired_callers=%d" % len(importers), lines[-1])
+        self.assertIn(
+            "wired_by=%s" % (",".join(importers) if importers else "NONE"),
+            lines[-1],
+        )
+        self.assertEqual(
+            [name for name in importers if name not in ALLOWED_IMPORTERS], []
+        )
 
     def test_the_token_reports_a_real_importer_when_one_exists(self):
         """The number must be able to be something other than zero.
@@ -437,6 +469,10 @@ class ConsoleTokenTests(unittest.TestCase):
             ROOT / "src" / "pirateforce_foundation" / "_class_starting_gear_probe.py"
         )
         self.assertFalse(intruder.exists())
+        # Relative to whatever the tree already has, so this keeps working
+        # the day `inventory` becomes a legitimate importer (COO-DECISION
+        # 20260908_1246) instead of turning red on a hardcoded 1.
+        baseline = class_starting_gear.count_production_importers()
         intruder.write_text(
             "from . import class_starting_gear\n"
             "STATE = class_starting_gear.starting_backpack_state(1)\n",
@@ -450,10 +486,18 @@ class ConsoleTokenTests(unittest.TestCase):
                 capture_output=True,
                 check=True,
             )
-            self.assertIn("wired_callers=1", result.stdout.decode("ascii"))
+            token = result.stdout.decode("ascii")
+            self.assertIn("wired_callers=%d" % (baseline + 1), token)
+            # The name, not only the count: after 1246 the pin is "the
+            # importer is `inventory`", and a token that can only ever say
+            # how many could not tell an intruder from the allowed one.
+            self.assertIn("_class_starting_gear_probe", token)
         finally:
             intruder.unlink()
-        self.assertEqual(class_starting_gear.count_production_importers(), 0)
+        self.assertEqual(class_starting_gear.count_production_importers(), baseline)
+        self.assertNotIn(
+            "_class_starting_gear_probe", class_starting_gear.production_importers()
+        )
 
     def test_the_token_says_which_class_is_the_untouched_one(self):
         self.assertIn("same_object_as_v141=YES", class_starting_gear.describe(1))
@@ -464,6 +508,132 @@ class ConsoleTokenTests(unittest.TestCase):
                 self.assertIn(
                     "same_object_as_v141=NO", class_starting_gear.describe(class_id)
                 )
+
+
+class TheShapeLaneDbMustUseToWireItTests(unittest.TestCase):
+    """Lifting the pin is not the same as `inventory` being able to import.
+
+    Measured this round, not predicted.  ``class_starting_gear`` reads
+    ``INITIAL_BACKPACK`` from ``inventory`` at MODULE level -- it has to, so
+    that ``WEAPON_ROW_INDEX`` is derived at import and a drifted table raises
+    at import instead of in front of a player.  So the obvious wiring, a
+    plain ``from . import class_starting_gear`` at the top of
+    ``inventory.py``, is a circular import: ``inventory`` is only half built
+    when ``class_starting_gear`` asks it for the bag, and the process dies
+    before the server has a socket.  COO-DECISION 20260908_1246 lifted the
+    pin without knowing that; these two tests are what stops LANE-DB from
+    finding it out from a dead boot instead of from this file.
+
+    The shape that DOES work is a deferred import -- inside the function
+    that needs the set -- and the pin still counts it, because the walk
+    parses the tree rather than reading the first lines of the file.
+
+    ``inventory.py`` belongs to LANE-DB and is not edited here: both tests
+    stage a COPY of the package (links for every file but the one under
+    test) and run a real interpreter against it.
+    """
+
+    def _staged_package(self, tmp, inventory_text):
+        """A package dir whose `inventory.py` is `inventory_text`."""
+        package = Path(tmp) / "pirateforce_foundation"
+        package.mkdir()
+        source = ROOT / "src" / "pirateforce_foundation"
+        for entry in sorted(source.iterdir()):
+            if entry.name == "__pycache__":
+                continue
+            if entry.name == "inventory.py":
+                continue
+            (package / entry.name).symlink_to(entry)
+        (package / "inventory.py").write_text(inventory_text, encoding="utf-8")
+        return package
+
+    def _run(self, tmp, statement):
+        return subprocess.run(
+            [sys.executable, "-c", statement],
+            cwd=str(ROOT),
+            env={"PYTHONPATH": str(tmp), "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+        )
+
+    def test_a_top_level_import_in_inventory_is_a_circular_import(self):
+        original = (
+            ROOT / "src" / "pirateforce_foundation" / "inventory.py"
+        ).read_text(encoding="utf-8")
+        marker = "from __future__ import annotations"
+        self.assertIn(marker, original)
+        wired = original.replace(
+            marker,
+            marker + "\n\nfrom . import " + MODULE_NAME,
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            self._staged_package(tmp, wired)
+            result = self._run(tmp, "from pirateforce_foundation import inventory")
+        self.assertNotEqual(result.returncode, 0)
+        stderr = result.stderr.decode("utf-8", "replace")
+        self.assertIn("ImportError", stderr)
+        self.assertIn("partially initialized module", stderr)
+
+    def test_a_deferred_import_in_inventory_works_and_the_pin_counts_it(self):
+        original = (
+            ROOT / "src" / "pirateforce_foundation" / "inventory.py"
+        ).read_text(encoding="utf-8")
+        wired = original + (
+            "\n\ndef _lane_db_would_call_this():\n"
+            "    from . import " + MODULE_NAME + "\n"
+            "    return " + MODULE_NAME + ".starting_backpack_states()\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            package = self._staged_package(tmp, wired)
+            result = self._run(
+                tmp,
+                "from pirateforce_foundation import inventory;"
+                "print(len(inventory._lane_db_would_call_this()))",
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stderr.decode("utf-8", "replace")[-2000:],
+            )
+            self.assertEqual(
+                result.stdout.decode("ascii").strip(),
+                str(class_catalog.CLASS_COUNT),
+            )
+            # ...and the pin reads that staged tree as "one importer, named
+            # inventory": the lift is measured against the shape LANE-DB
+            # would actually ship, not against a promise about it.
+            importers = class_starting_gear.production_importers(root=package)
+            self.assertEqual(importers, ("inventory",))
+            self.assertEqual(
+                [name for name in importers if name not in ALLOWED_IMPORTERS], []
+            )
+            self.assertLessEqual(len(importers), len(ALLOWED_IMPORTERS))
+
+    def test_the_pin_still_bites_a_second_importer_in_that_same_tree(self):
+        """The lift must not be "any one caller is fine now"."""
+        original = (
+            ROOT / "src" / "pirateforce_foundation" / "inventory.py"
+        ).read_text(encoding="utf-8")
+        wired = original + (
+            "\n\ndef _lane_db_would_call_this():\n"
+            "    from . import " + MODULE_NAME + "\n"
+            "    return " + MODULE_NAME + ".starting_backpack_states()\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            package = self._staged_package(tmp, wired)
+            second = package / "_a_second_caller.py"
+            second.write_text(
+                "from . import " + MODULE_NAME + "\n", encoding="ascii"
+            )
+            importers = class_starting_gear.production_importers(root=package)
+            self.assertEqual(importers, ("_a_second_caller", "inventory"))
+            # Both teeth, on the same tree: the stranger is named...
+            self.assertEqual(
+                [name for name in importers if name not in ALLOWED_IMPORTERS],
+                ["_a_second_caller"],
+            )
+            # ...and the count is over the allowance.
+            self.assertGreater(len(importers), len(ALLOWED_IMPORTERS))
 
 
 class Gate2RefusesEveryClassButOneTodayTests(unittest.TestCase):
@@ -612,10 +782,21 @@ class TheSetOfFiveIsTheGoldenNowTests(unittest.TestCase):
         # mutated view of: the tuple itself is a fresh object each call.
         self.assertIsNot(first, second)
 
-    def test_the_set_still_has_no_production_importer(self):
-        # COO-DECISION 2342 step 1: "no caller until DB wires it".  Measured,
-        # not promised.
-        self.assertEqual(0, class_starting_gear.count_production_importers())
+    def test_the_set_importer_is_inventory_and_the_flag_is_still_down(self):
+        # Two separate facts, split on COO-DECISION 20260908_1246's own
+        # instruction, because they now move at different times.
+        #
+        # (1) The importer.  2342 step 1 said "no caller until DB wires it";
+        # 0542 item 4 then told LANE-DB to wire it, so the condition that
+        # zero stood for has been reached and the pin is a NAMED one now.
+        stems = class_starting_gear.production_importers()
+        self.assertEqual([name for name in stems if name not in ALLOWED_IMPORTERS], [])
+        self.assertLessEqual(len(stems), len(ALLOWED_IMPORTERS))
+        # (2) The flag.  1246 explicitly refused to flip this in the same
+        # commit: `0945` says a flag comes down after a client has been seen
+        # to show the thing, and no client has yet shown five bags at birth.
+        # It stays down until the attended ticket passes, whatever the
+        # importer count says.
         self.assertFalse(class_starting_gear.production_allowed)
 
 

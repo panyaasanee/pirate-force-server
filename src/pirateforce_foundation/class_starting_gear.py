@@ -89,8 +89,35 @@ CORE-REQUEST-the-starting-bag-needs-the-class-she-picked.md``) is filed as
 HOLD, and the question of who owns the golden a non-Gladiator bag is
 measured against went to COO in ``pf_bridge/notes_to_chief/20260907_2258_
 LANE-CS-ASK-COO-there-is-no-legal-non-gladiator-bag-yet.md``.  Until both
-are answered no character's bag changes, ``production_allowed`` stays
-``False``, and a test measures that no production module imports this one.
+are answered no character's bag changes and ``production_allowed`` stays
+``False``.
+
+WHO MAY IMPORT THIS MODULE (``COO-DECISION 20260908_1246``).  The pin used
+to read "no production module imports this one".  That zero was the thing
+blocking LANE-DB from putting the five-bag set behind their own gates
+(their letter ``pf_bridge/notes_to_chief/20260908_1155_LANE-DB-TO-COO-five-
+bag-set-is-blocked-by-a-no-importer-pin.md``), and COO lifted it to "the
+importer is ``inventory``".  The pin is now a NAMED one, and it still has
+teeth in the two directions that matter: a SECOND importer is red, and a
+first importer under any other name is red.  ``production_importers()``
+reports names, not a count, so the console token and the test measure the
+same fact.
+
+The lift is written as "at most one, and it is ``inventory``" rather than
+"exactly one", because LANE-DB has not wired it yet: "exactly one" would
+leave ``pytest tests/test_class_starting_gear.py`` -- and with it the
+preflight gate every lane pushes through -- red from the moment this lands
+until their wiring lands, and the round rules forbid pushing a red gate.
+The moment ``inventory`` imports this module the pin reads exactly one
+importer with no further edit.  Flagged ``[assumption of LANE-CS - awaiting
+COO confirmation]``; the letter is
+``pf_bridge/notes_to_chief/20260908_1352_LANE-CS-ASK-COO-exactly-one-
+importer-would-leave-main-red-until-db-wires.md``.
+
+``production_allowed`` is NOT part of that lift and stays ``False``: COO
+kept it shut in the same decision, because ``0945`` says a flag comes down
+after a client has been seen to show the thing, and no client has yet shown
+five different bags at birth.
 """
 
 from __future__ import annotations
@@ -280,6 +307,49 @@ def describe(class_id: int) -> str:
     )
 
 
+def production_importers(root=None) -> tuple[str, ...]:
+    """Which shipped modules import this one, by module name, at run time.
+
+    Names, not just a number, because ``COO-DECISION 20260908_1246`` moved
+    this lane's pin from "nobody imports me" to "at most ONE module imports
+    me and it is ``inventory``".  A count alone cannot tell those two apart:
+    one importer named ``store`` and one named ``inventory`` are both ``1``.
+
+    Sorted and de-duplicated per module, so a module that imports this one
+    on two lines is one importer, and the order does not depend on the
+    filesystem.
+    """
+    import ast
+    import pathlib
+
+    here = pathlib.Path(__file__).resolve()
+    base = here.parent if root is None else pathlib.Path(root)
+    names = set()
+    for path in sorted(base.rglob("*.py")):
+        # resolve()d, not compared raw: `root` may be a staged copy of the
+        # package whose own entry for this file is a link back to it, and a
+        # raw comparison would then scan this module as if it were somebody
+        # else and report whatever its own prose says.
+        if path.resolve() == here:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(a.name.split(".")[-1] == _MODULE_NAME for a in node.names):
+                    names.add(path.stem)
+                    break
+            elif isinstance(node, ast.ImportFrom):
+                if (node.module or "").split(".")[-1] == _MODULE_NAME or any(
+                    a.name == _MODULE_NAME for a in node.names
+                ):
+                    names.add(path.stem)
+                    break
+    return tuple(sorted(names))
+
+
 def count_production_importers(root=None) -> int:
     """How many shipped modules import this one, counted at run time.
 
@@ -289,42 +359,20 @@ def count_production_importers(root=None) -> int:
     already is.  This walks the package's parsed modules instead, so the
     operator's console reports what is true of the tree it is running on.
     """
-    import ast
-    import pathlib
-
-    here = pathlib.Path(__file__).resolve()
-    base = here.parent if root is None else pathlib.Path(root)
-    count = 0
-    for path in sorted(base.rglob("*.py")):
-        if path == here:
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                if any(a.name.split(".")[-1] == _MODULE_NAME for a in node.names):
-                    count += 1
-                    break
-            elif isinstance(node, ast.ImportFrom):
-                if (node.module or "").split(".")[-1] == _MODULE_NAME or any(
-                    a.name == _MODULE_NAME for a in node.names
-                ):
-                    count += 1
-                    break
-    return count
+    return len(production_importers(root))
 
 
 def main() -> int:
     for class_id in class_catalog.CLASS_IDS:
         print(describe(class_id))
+    importers = production_importers()
     print(
-        "CLASS_STARTING_GEAR_SUMMARY classes=%d wired_callers=%d "
+        "CLASS_STARTING_GEAR_SUMMARY classes=%d wired_callers=%d wired_by=%s "
         "production_allowed=%s gate2_admits_non_class_1=NO"
         % (
             class_catalog.CLASS_COUNT,
-            count_production_importers(),
+            len(importers),
+            ",".join(importers) if importers else "NONE",
             production_allowed,
         )
     )
