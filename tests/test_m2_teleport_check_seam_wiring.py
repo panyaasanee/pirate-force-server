@@ -845,6 +845,38 @@ class SelectedSceneIsRelabelledOnlyWhenTheLoginCanTakeItBackTests(_SeamCase):
         finally:
             warp_scene_persist.reset_login_registry_snapshot_for_tests()
 
+    @contextlib.contextmanager
+    def _registry_barred_at_login_on(self, scene_id):
+        """The other half of the same fixture, and NOT a skip.
+
+        The refusal branch has to stay tested after LANE-A opens the four
+        pins, and `NOW 2050` bars skip/xfail/allowlist outright, so the case
+        below bends the row shut rather than standing down when the shipped
+        registry stops being shut on its own.  Today this fixture agrees with
+        the shipped data; the day it stops agreeing it is still the fence a
+        future spawnless scene will take.
+        """
+        real = world_scene_travel.load_scene_registry()
+        bent = replace(
+            real,
+            destinations=tuple(
+                replace(target, login_entry_allowed=False)
+                if target.n_id == scene_id else target
+                for target in real.destinations
+            ),
+        )
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        try:
+            with mock.patch.object(
+                world_scene_travel, "load_scene_registry", return_value=bent
+            ):
+                self.assertFalse(
+                    warp_scene_persist.login_would_accept(scene_id),
+                    "the fixture bent nothing")
+                yield bent
+        finally:
+            warp_scene_persist.reset_login_registry_snapshot_for_tests()
+
     def _destination_scene(self, marker_id=MARKER):
         return tc.marker_destination(marker_id).scene_id
 
@@ -872,22 +904,19 @@ class SelectedSceneIsRelabelledOnlyWhenTheLoginCanTakeItBackTests(_SeamCase):
 
     def test_a_login_barred_destination_is_declined_and_says_so(self):
         scene_id = self._destination_scene()
-        if warp_scene_persist.login_would_accept(scene_id):
-            self.skipTest(
-                "scene %d is open at login on this registry; the refusal "
-                "branch is exercised by the bent-registry test below "
-                "reading the other way" % scene_id)
-        state, actions = self._journey("m2barred")
-        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
-        # LAYER 1 (server state): the label is untouched...
-        self.assertEqual(state.foundation.selected.position.scene_id, 1)
-        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
-        # ...and the decline is NAMED.  A silent decline is how the
-        # pre-existing wrong-label bug hid for as long as it did.
-        self.assertIn(
-            "lane_a_m2_transport_resync_refused_login_barred_%d" % scene_id,
-            state.events,
-        )
+        with self._registry_barred_at_login_on(scene_id):
+            state, actions = self._journey("m2barred")
+            self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+            # LAYER 1 (server state): the label is untouched...
+            self.assertEqual(state.foundation.selected.position.scene_id, 1)
+            self.assertFalse(
+                getattr(state, "scene_label_is_server_guess", False))
+            # ...and the decline is NAMED.  A silent decline is how the
+            # pre-existing wrong-label bug hid for as long as it did.
+            self.assertIn(
+                "lane_a_m2_transport_resync_refused_login_barred_%d" % scene_id,
+                state.events,
+            )
 
     def test_an_open_destination_is_relabelled_with_the_census_unlatched(self):
         scene_id = self._destination_scene()
