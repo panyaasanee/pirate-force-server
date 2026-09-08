@@ -2071,11 +2071,58 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "foundation_v111_merge_wrong_sequence_no_reply"
                 )
                 return []
-            # Build the frozen exact response before opening the persistence
-            # transaction. No successful bytes are queued unless the later
-            # repository call commits the allowlisted post-state.
-            pc, frame = legacy.make_item_operate_stack_merge_success()
+            # Build the response before opening the persistence transaction,
+            # and DERIVE it from the bag this character actually holds.
+            #
+            # pf-adversary D1 on R403 measured what the frozen golden costs
+            # once STARTING_BACKPACKS grows: legacy.make_item_operate_stack_
+            # merge_success() hardcodes identity 1 at quantity 2, so a
+            # starting bag whose identity 1 begins at quantity 2 commits a
+            # stack of 3 and tells the client 2, with the success counter
+            # moving.  Membership in merged_v111_states() cannot catch that
+            # -- the committed bag IS a member; it is simply not the merge of
+            # the bag that was commanded.  Deriving fixes both halves at once:
+            # the bytes describe this bag, and the post-check below has an
+            # exact state to compare against instead of a set.
+            #
+            # For today's single bag the bytes are provably unchanged:
+            # make_item_merge_delta_response re-derives the V111 case and
+            # raises "generic item-merge response drifted from the V111
+            # golden" if its result is not byte-identical to the frozen
+            # legacy response.  No successful bytes are queued unless the
+            # later repository call commits exactly this post-state.
             before = self.foundation.backpack
+            try:
+                expected_after = inventory.merged_v111_state(before)
+            except ValueError as exc:
+                # A bag with no mergeable pair reaches no post-state, so
+                # there is nothing to write and nothing to answer.  The
+                # exact-envelope check above does not prove the HOLDER can
+                # merge, only that the REQUEST is the V111 one.
+                self.events.append(
+                    f"foundation_v111_merge_no_merged_state_no_reply_{exc!r}"
+                )
+                return []
+            merged_row = next(
+                (item for item in expected_after.items if item.identity == 1),
+                None,
+            )
+            if merged_row is None:
+                self.events.append(
+                    "foundation_v111_merge_no_merged_row_no_reply"
+                )
+                return []
+            try:
+                pc, frame = make_item_merge_delta_response(
+                    legacy, merged_row, 3,
+                )
+            except (TypeError, ValueError, RuntimeError) as exc:
+                # Fail closed with no write rather than queue bytes the
+                # composer itself refused to stand behind.
+                self.events.append(
+                    f"foundation_v111_merge_response_refused_no_reply_{exc!r}"
+                )
+                return []
             try:
                 applied = self.foundation.merge_v111_stack()
             except Exception as exc:
@@ -2091,13 +2138,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not applied:
                 self.events.append("foundation_v111_merge_replay_no_reply")
                 return []
-            if self.foundation.backpack not in inventory.merged_v111_states():
+            if self.foundation.backpack != expected_after:
                 # The row is already written -- the repository call above
                 # committed before this line ran.  Raising here would leave
                 # dispatch() with an exception AFTER the write, which is the
                 # one shape CORE-REQUEST 20260908_0206 asked to remove: the
                 # bytes are dropped, the counter does not move, and the
                 # connection survives to say so.
+                #
+                # The comparison is against THIS bag's post-state, not
+                # against membership in merged_v111_states().  pf-adversary
+                # D3 on R403 measured that the set form could not fire on
+                # any production input (the store refuses outside the set
+                # before writing), while the mismatch it was supposed to
+                # catch -- committed one thing, answered another -- walked
+                # straight through it.
                 self.events.append(
                     "foundation_v111_merge_committed_unknown_state_no_reply"
                 )
@@ -2206,7 +2261,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.events.append("item_move_hypothesis_replay_no_reply")
                 return []
             if self.foundation.backpack != HYPOTHESIZED_V111_SLOT2_BACKPACK:
-                raise RuntimeError("committed HYP-PF-008 Backpack state mismatch")
+                # The fourth post-commit raise, byte-for-byte the shape
+                # CORE-REQUEST 20260908_0206 asked to delete and the one
+                # R403 left behind (pf-adversary D2).  The row is written by
+                # the time this line runs, so an exception here unwinds past
+                # the accept loop in the frozen listener -- which has a
+                # try/finally around dispatch() and no except -- dropping
+                # every player on the process over one character's bag.
+                self.events.append(
+                    "item_move_hypothesis_committed_unknown_state_no_reply"
+                )
+                return []
             self.item_move_hypothesis_count += 1
             self.events.append(
                 "item_move_hypothesis_committed_before_composed_response"

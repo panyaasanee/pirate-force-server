@@ -26,6 +26,7 @@ right shape for a post-condition at all.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import replace
 from pathlib import Path
 import sys
@@ -135,36 +136,35 @@ class MergedBagGateTests(unittest.TestCase):
                 (character_id,),
             ).fetchall()
 
-    def _empty_the_set_after(self, session):
-        """Empty the merged set the instant the repository call returns.
+    def _diverge_in_memory_after_the_write(self, session):
+        """Let the row commit, then leave memory holding a DIFFERENT bag.
 
-        The post-commit gate cannot be reached with a globally empty set --
-        ``store.apply_v111_stack_merge`` reads the same set and would refuse
-        the write first, which is the ordering that makes the whole request
-        safe.  Flipping between the two is the only way to stand where the
-        gate stands: row written, set no longer holding the state.
+        This is where the post-commit gate stands: the repository call has
+        returned, the row IS written, and the state the server now believes
+        it holds is not the post-state the request commanded.  R403 reached
+        that line by patching ``inventory.merged_v111_states`` between the
+        store call and the gate -- pinning the implementation rather than
+        the behaviour (pf-adversary D4), and a strictly stronger derived
+        gate turned it red.  Nothing is patched here except the bag itself,
+        so the fixture survives any shape of the gate that actually checks
+        "is what I hold what I promised".
         """
-        real = inventory.merged_v111_states
-        flipped = {"on": False}
         original_merge = session.merge_v111_stack
 
         def merge():
             applied = original_merge()
-            flipped["on"] = True
+            session.backpack = INITIAL_BACKPACK
             return applied
 
         session.merge_v111_stack = merge
-        return mock.patch.object(
-            inventory, "merged_v111_states",
-            lambda: () if flipped["on"] else real(),
-        )
+        return contextlib.nullcontext()
 
     # ------------------------------------------------------------------
     # the committed-merge gate
 
     def test_the_committed_merge_gate_does_not_raise_after_the_write(self):
         state, character = self._state("committed")
-        with self._empty_the_set_after(state.foundation):
+        with self._diverge_in_memory_after_the_write(state.foundation):
             actions = state.dispatch(
                 self.legacy.parse_outer(V111_MERGE_REQUEST_PC)
             )
@@ -184,7 +184,7 @@ class MergedBagGateTests(unittest.TestCase):
         """
         state, character = self._state("committed-row")
         before = self._rows(character.id)
-        with self._empty_the_set_after(state.foundation):
+        with self._diverge_in_memory_after_the_write(state.foundation):
             state.dispatch(self.legacy.parse_outer(V111_MERGE_REQUEST_PC))
         after = self._rows(character.id)
         self.assertNotEqual(before, after)
@@ -272,6 +272,159 @@ class MergedBagGateTests(unittest.TestCase):
                 inventory.merged_v111_state(second), MERGED_V111_BACKPACK
             )
 
+    # ------------------------------------------------------------------
+    # D1: the reply describes the bag in hand, not the frozen golden
+
+    def _bag_whose_target_row_starts_at_two(self):
+        """A starting bag identical to today's except identity 1 holds 2.
+
+        ``class_starting_gear.py`` leaves this open explicitly: only the
+        identity-4 weapon row is re-derived per class today, but nothing in
+        the module forbids a class being born with a different identity-1
+        stack.  The frozen V141 reply hardcodes quantity 2 for that row, so
+        this bag is the smallest one for which "what committed" and "what
+        was said" can disagree.
+        """
+        return replace(
+            INITIAL_BACKPACK,
+            items=tuple(
+                replace(item, quantity=2) if item.identity == 1 else item
+                for item in INITIAL_BACKPACK.items
+            ),
+        )
+
+    def _set_row_quantity(self, character_id, item_identity, quantity):
+        with self.store.connect() as db:
+            db.execute(
+                "UPDATE character_backpack_items SET quantity=? "
+                "WHERE character_id=? AND item_identity=?",
+                (quantity, character_id, item_identity),
+            )
+
+    def test_the_reply_carries_the_quantity_the_row_actually_holds(self):
+        """pf-adversary D1 on R403, closed and measured.
+
+        Before: the bytes came from ``legacy.make_item_operate_stack_merge_
+        success()``, which hardcodes identity 1 at quantity 2.  A character
+        born holding 2 commits a stack of THREE and was told TWO, with
+        ``stack_merge_count`` reporting success -- and the post-check could
+        not notice, because the committed bag really was a member of the
+        merged set.
+        """
+        state, character = self._state("derived-reply")
+        self._set_row_quantity(character.id, 1, 2)
+        state.foundation.close_connection()
+        wide = self._bag_whose_target_row_starts_at_two()
+        with mock.patch.object(
+            inventory, "STARTING_BACKPACKS", (INITIAL_BACKPACK, wide)
+        ):
+            reloaded, same = self._state("derived-reply", create=False)
+            self.assertEqual(same.id, character.id)
+            self.assertEqual(reloaded.foundation.backpack, wide)
+            actions = reloaded.dispatch(
+                self.legacy.parse_outer(V111_MERGE_REQUEST_PC)
+            )
+            self.assertEqual(len(actions), 1)
+            self.assertEqual(reloaded.stack_merge_count, 1)
+            frame = actions[0][2]
+
+        # Layer one, on the wire: the bytes are NOT the frozen qty-2 golden.
+        frozen_pc, frozen_frame = self.legacy.make_item_operate_stack_merge_success()
+        self.assertNotEqual(frame, frozen_frame)
+        expected_pc, expected_frame = inventory.make_item_merge_delta_response(
+            self.legacy,
+            replace(
+                next(i for i in wide.items if i.identity == 1), quantity=3,
+            ),
+            3,
+        )
+        self.assertEqual(frame, expected_frame)
+        self.assertEqual(actions[0][1], expected_pc)
+
+        # Layer two, in the DB, read straight out of the table: the row the
+        # transaction actually committed holds three, and identity 3 is gone.
+        rows = self._rows(character.id)
+        self.assertEqual(
+            [(row[0], row[2]) for row in rows if row[0] == 1], [(1, 3)]
+        )
+        self.assertNotIn(3, [row[0] for row in rows])
+
+    def test_a_member_of_the_set_that_is_not_THIS_bags_post_state_is_refused(self):
+        """The discriminator between the set gate and the derived one.
+
+        A set gate asks "is what I hold one of the bags a merge can end at".
+        Land on ANOTHER bag's merged state and it says yes, because that
+        state really is a member -- it is simply not the merge of the bag
+        this request commanded.  The derived gate has the one right answer
+        to compare against, so it refuses and drops the reply.  Without this
+        case the two shapes are indistinguishable and only a source pin
+        separates them.
+        """
+        state, character = self._state("wrong-member")
+        self._set_row_quantity(character.id, 1, 2)
+        state.foundation.close_connection()
+        wide = self._bag_whose_target_row_starts_at_two()
+        with mock.patch.object(
+            inventory, "STARTING_BACKPACKS", (INITIAL_BACKPACK, wide)
+        ):
+            # The state we will land on IS a member of the set, and is NOT
+            # this bag's post-state.  Both halves are asserted, so the test
+            # cannot quietly become vacuous if the set narrows.
+            self.assertIn(MERGED_V111_BACKPACK, inventory.merged_v111_states())
+            self.assertNotEqual(
+                MERGED_V111_BACKPACK, inventory.merged_v111_state(wide)
+            )
+            reloaded, same = self._state("wrong-member", create=False)
+            original_merge = reloaded.foundation.merge_v111_stack
+
+            def merge():
+                applied = original_merge()
+                reloaded.foundation.backpack = MERGED_V111_BACKPACK
+                return applied
+
+            reloaded.foundation.merge_v111_stack = merge
+            actions = reloaded.dispatch(
+                self.legacy.parse_outer(V111_MERGE_REQUEST_PC)
+            )
+        self.assertEqual(actions, [])
+        self.assertEqual(reloaded.stack_merge_count, 0)
+        self.assertIn(
+            "foundation_v111_merge_committed_unknown_state_no_reply",
+            reloaded.events,
+        )
+
+    def test_todays_single_bag_still_gets_the_frozen_golden_bytes(self):
+        """The control: deriving changed nothing a player can see today.
+
+        Every character alive on this build is born with ``INITIAL_BACKPACK``
+        (identity 1 at quantity 1), so the derived reply must be the same
+        bytes the real client accepted at runtime, or this round is a
+        regression dressed as a fix.
+        """
+        state, character = self._state("frozen-control")
+        actions = state.dispatch(self.legacy.parse_outer(V111_MERGE_REQUEST_PC))
+        self.assertEqual(len(actions), 1)
+        frozen_pc, frozen_frame = self.legacy.make_item_operate_stack_merge_success()
+        self.assertEqual(actions[0][1], frozen_pc)
+        self.assertEqual(actions[0][2], frozen_frame)
+
+    def test_the_fourth_post_commit_raise_is_gone(self):
+        """pf-adversary D2 on R403: the shape the CORE-REQUEST asked to delete.
+
+        ``_dispatch_item_move_hypothesis`` kept a fourth
+        ``raise RuntimeError`` after ``move_hypothesized_v111_slot2`` had
+        committed.  The frozen listener wraps ``dispatch()`` in try/finally
+        with no ``except``, so that exception drops every player on the
+        process over one character's bag.
+        """
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("committed HYP-PF-008 Backpack state mismatch", source)
+        self.assertIn(
+            "item_move_hypothesis_committed_unknown_state_no_reply", source
+        )
+
     def test_runtime_binds_no_copy_of_the_single_merged_bag(self):
         """The D2 shape, pinned one layer up.
 
@@ -285,7 +438,14 @@ class MergedBagGateTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("MERGED_V111_BACKPACK", source)
         self.assertIn("from . import inventory", source)
-        self.assertEqual(source.count("inventory.merged_v111_states()"), 3)
+        # Two preconditions still ask the SET (any known bag may be the
+        # one in hand); the committed-merge gate now derives THIS bag's
+        # post-state instead, which is what pf-adversary D1 measured the
+        # set form could not do.
+        self.assertEqual(source.count("inventory.merged_v111_states()"), 2)
+        self.assertEqual(
+            source.count("inventory.merged_v111_state(before)"), 1
+        )
 
 
 if __name__ == "__main__":
