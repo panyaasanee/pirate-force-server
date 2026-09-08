@@ -50,6 +50,19 @@ MIRROR_DIR = REPO_ROOT / "src" / "pirateforce_foundation" / "lua_api"
 GATED_QUEST_ID = 3200
 GATED_ITEMS = (2480010, 2480011, 2480012)
 
+#: A row of `q_ocean_gather1`, the flagship of the 56 groups
+#: `Player.RemoveItem` opens in round `ad7t6n`.  Its `Report_Run` removes
+#: `n_VARI_2` x `n_VARI_3` (the shipped cells: ten of item 2500533) and
+#: pays with `Player.AddItem`, which is a stub -- so the group is
+#: unpayable and both charge cells are refused.  `n_VARI_4`/`n_VARI_5`
+#: are the teleport scene and the countdown `Accept_Run` reads, in no
+#: group, and must still resolve -- and both ship NON-ZERO, so the
+#: assertion cannot pass by accidentally agreeing with a stub default.
+GATHER_QUEST_ID = 4501
+GATHER_ITEM = 2500533
+GATHER_COUNT = 10
+GATHER_UNGATED = {"Var4": 126, "Var5": 600}
+
 #: Same script SHAPE, different rows: `q_guild_boss2.lua` carries the
 #: identical `Player.AddItem` block, but rows 8061..8065 put nothing in a
 #: reward cell, so their charge is a complete transaction on its own and
@@ -86,7 +99,15 @@ FREE_REWARD_ITEMS = (2608007, 2401006)
 #: they are the two that form a group.  The other nine charge morale at
 #: `Accept_Run` and hand over nothing there, which is not a half
 #: transaction and correctly stays out of this table.
-EXPECTED_GROUPS = {
+#: ROUND `ad7t6n` SPLITS THIS LIST IN TWO, because the take side stopped
+#: being one kind of thing.  `EXPECTED_CHARGE_GROUPS` still pins, by hand
+#: and exactly, every group whose charge is money or morale -- the takes
+#: whose only evidence is a SIGN.  `Player.RemoveItem` is the other kind:
+#: the name is the charge, it is the most common one in the corpus (367
+#: call sites), and it opens 56 more groups, which are pinned by the
+#: derived facts below plus three spelled-out flagships rather than by
+#: 56 hand-copied lines nobody would re-derive.
+EXPECTED_CHARGE_GROUPS = {
     ("q_class", "Report_Run"): ("n_VARI_4", "Quest/q_class.lua:60",
                                 "Player.AddCash"),
     ("q_guild_boss2", "Report_Run"): ("n_VARI_8",
@@ -100,6 +121,36 @@ EXPECTED_GROUPS = {
     ("q_repeat_hunt", "Report_Run"): ("n_VARI_4",
                                       "Quest/q_repeat_hunt.lua:54",
                                       "Player.Addmoralized"),
+}
+
+#: Every group `Player.RemoveItem` opens, counted.  RE-DERIVE with
+#: ``python3 tools/pf_regen_lua_quest_rewards.py --explain``.
+EXPECTED_ITEM_GROUP_COUNT = 56
+
+#: Three of those 56, spelled out to the cell and the line, so a change
+#: to the item scan has to be a change to this file too.  Chosen for the
+#: three shapes that exist: both cells at one call site, a script that
+#: charges FOUR separate items, and a script whose removals are spread
+#: over three call sites in one entry point.
+EXPECTED_ITEM_GROUPS = {
+    ("q_ocean_gather1", "Report_Run"): (
+        ("n_VARI_2", "Quest/q_ocean_gather1.lua:55"),
+        ("n_VARI_3", "Quest/q_ocean_gather1.lua:55"),
+    ),
+    ("q_other1", "Report_Run"): (
+        ("n_VARI_2", "Quest/q_other1.lua:59"),
+        ("n_VARI_3", "Quest/q_other1.lua:60"),
+        ("n_VARI_4", "Quest/q_other1.lua:61"),
+        ("n_VARI_5", "Quest/q_other1.lua:62"),
+    ),
+    ("q_week2_gather3", "Report_Run"): (
+        ("n_VARI_2", "Quest/q_week2_gather3.lua:53"),
+        ("n_VARI_3", "Quest/q_week2_gather3.lua:53"),
+        ("n_VARI_4", "Quest/q_week2_gather3.lua:54"),
+        ("n_VARI_5", "Quest/q_week2_gather3.lua:54"),
+        ("n_VARI_6", "Quest/q_week2_gather3.lua:55"),
+        ("n_VARI_7", "Quest/q_week2_gather3.lua:55"),
+    ),
 }
 
 
@@ -244,11 +295,58 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
         qr.reset_caches()
         self.addCleanup(qr.reset_caches)
 
-    def test_exactly_the_five_coupled_scripts_are_in_the_table(self):
+    def test_exactly_the_measured_coupled_scripts_are_in_the_table(self):
+        """Five charge groups, 56 item groups, and nothing else.
+
+        The five are named; the 56 are counted and then characterised by
+        the assertion below, which is the only honest way to pin a set
+        this size: a hand-copied list of 56 lines is a list nobody
+        re-derives, and a bare count would let one group swap for
+        another.
+        """
         groups = qr.load_groups()
         found = {(script, group.group)
                  for script, entries in groups.items() for group in entries}
-        self.assertEqual(found, set(EXPECTED_GROUPS))
+        self.assertTrue(set(EXPECTED_CHARGE_GROUPS) <= found)
+        self.assertTrue(set(EXPECTED_ITEM_GROUPS) <= found)
+        self.assertEqual(len(found) - len(EXPECTED_CHARGE_GROUPS),
+                         EXPECTED_ITEM_GROUP_COUNT)
+
+    def test_every_item_group_is_a_removeitem_take_in_a_report_run(self):
+        """What the 56 unnamed groups all are, asserted rather than trusted.
+
+        Every group that is not one of the five named charges exists
+        because `Player.RemoveItem` takes something, and every one of them
+        is in `Report_Run` -- the entry point that also hands the reward
+        over.  A group appearing anywhere else, or with a take this lane
+        has not classified, fails here instead of arriving unremarked in
+        a mirror of 1087 rows.
+        """
+        for script, entries in qr.load_groups().items():
+            for group in entries:
+                if (script, group.group) in EXPECTED_CHARGE_GROUPS:
+                    continue
+                self.assertEqual(group.group, "Report_Run", script)
+                self.assertEqual(
+                    {member.api_name for member in group.side(qr.TAKE)},
+                    {"Player.RemoveItem"}, script)
+
+    def test_the_three_spelled_out_item_groups_are_exactly_right(self):
+        """The cell AND the line, for one group of each shape.
+
+        Deleting the second member of `q_ocean_gather1` (the COUNT cell of
+        a single call) or the third call site of `q_week2_gather3` leaves
+        a mirror that still has the right number of groups, so the count
+        above cannot catch it and this does.
+        """
+        groups = qr.load_groups()
+        for (script, entry), expected in EXPECTED_ITEM_GROUPS.items():
+            found = [group for group in groups[script]
+                     if group.group == entry]
+            self.assertEqual(len(found), 1, script)
+            self.assertEqual(
+                tuple((member.column, member.call_site)
+                      for member in found[0].side(qr.TAKE)), expected)
 
     def test_every_group_names_both_sides_with_provenance(self):
         for script, entries in qr.load_groups().items():
@@ -257,12 +355,14 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
                 give = group.side(qr.GIVE)
                 self.assertTrue(take, script)
                 self.assertTrue(give, script)
-                expected_column, expected_site, expected_api = (
-                    EXPECTED_GROUPS[(script, group.group)])
-                self.assertEqual([member.column for member in take],
-                                 [expected_column])
-                self.assertEqual(take[0].call_site, expected_site)
-                self.assertEqual(take[0].api_name, expected_api)
+                expected = EXPECTED_CHARGE_GROUPS.get((script, group.group))
+                if expected is not None:
+                    expected_column, expected_site, expected_api = expected
+                    charge = [member for member in take
+                              if member.api_name == expected_api]
+                    self.assertEqual([member.column for member in charge],
+                                     [expected_column])
+                    self.assertEqual(charge[0].call_site, expected_site)
                 for member in group.members:
                     self.assertIn(":", member.call_site)
                     self.assertIn(".lua:", member.call_site)
@@ -294,6 +394,27 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
                     self.assertEqual(columns, [])
                     self.assertEqual(names, ["Player.BoatHealth"])
                     continue
+                if script == "q_instance_gather2":
+                    # THE ONE SCRIPT THAT PAYS TWICE, and a corpus fact
+                    # rather than a scan defect: `Report_Run` calls every
+                    # `Player.AddItem`/`Quest.RewardItemSelect` once
+                    # UNCONDITIONALLY at lines 60-71 and then AGAIN
+                    # behind `if (Quest.RewardItemK > 0)` from line 74.
+                    # A group member is a CALL SITE, so twelve columns
+                    # arrive as twenty-four members with twenty-four
+                    # distinct lines.  Asserted as its own branch, and by
+                    # count as well as by set, so the day the scan starts
+                    # collapsing call sites this fails instead of
+                    # quietly agreeing.
+                    self.assertEqual(sorted(set(columns)),
+                                     sorted(qr.GIVE_ID_COLUMNS))
+                    self.assertEqual(len(columns),
+                                     2 * len(qr.GIVE_ID_COLUMNS))
+                    self.assertEqual(
+                        len({member.call_site for member in give
+                             if member.column != qr.NO_COLUMN}),
+                        2 * len(qr.GIVE_ID_COLUMNS))
+                    continue
                 self.assertEqual(sorted(qr.GIVE_ID_COLUMNS), columns)
                 # THE THREE CURVE PAYOUTS, PLUS -- for `q_class` only --
                 # the thing the charge BUYS.  Round `yzdgx1`
@@ -315,6 +436,19 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
                 for name in criteria:
                     self.assertTrue(name.startswith("Quest.Add"), name)
                     self.assertIn("Criteria", name)
+                # TWO CURVE FAMILIES, never mixed inside one group.  The
+                # shipped scripts call either the three `AddCriteria*` or
+                # the three `AddLvCriteria*` (round `ad7t6n`, measured:
+                # 40 groups take the first, 19 the second, 0 take some of
+                # each).  A group holding a mix would mean the scan had
+                # merged two entry points, which is the failure this
+                # assertion exists to catch.
+                self.assertIn(
+                    sorted(criteria),
+                    [["Quest.AddCriteriaCash", "Quest.AddCriteriaExp",
+                      "Quest.AddCriteriaSkillPoint"],
+                     ["Quest.AddLvCriteriaCash", "Quest.AddLvCriteriaExp",
+                      "Quest.AddLvCriteriaSkillPoint"]], names)
 
     def test_the_take_side_agrees_with_the_signedness_table(self):
         """One fact, two files, and they have to match.
@@ -349,12 +483,30 @@ class TheTableSaysWhatItSaysTests(unittest.TestCase):
                         # becoming "whatever the table lacks": a take-side
                         # name arriving here without a person adding it is
                         # the thing this branch must not wave through.
+                        # ROUND `ad7t6n` ADDS THE THIRD NAME, and it is
+                        # here for a DIFFERENT reason than the first two.
+                        # `Player.AddCash`/`Player.Addmoralized` are
+                        # absent from the signedness table when the SIGN
+                        # is in the script.  `Player.RemoveItem` is
+                        # absent from it always: it moves an ITEM, so
+                        # `quest_var_signedness.tsv` -- which is about
+                        # whether a MONEY cell is stored negative -- has
+                        # no opinion about any of its 367 call sites and
+                        # never will.  The list stays CLOSED for both
+                        # reasons: a take-side name arriving here without
+                        # a person adding it is the thing this branch
+                        # must not wave through.
                         self.assertIn(member.api_name,
                                       ("Player.AddCash",
-                                       "Player.Addmoralized"))
-                        self.assertTrue(member.call_site.endswith(
-                            EXPECTED_GROUPS[(script, group.group)][1]
-                            .rsplit("/", 1)[-1]), member.call_site)
+                                       "Player.Addmoralized",
+                                       "Player.RemoveItem"))
+                        expected = EXPECTED_CHARGE_GROUPS.get(
+                            (script, group.group))
+                        if (expected is not None
+                                and member.api_name == expected[2]):
+                            self.assertTrue(member.call_site.endswith(
+                                expected[1].rsplit("/", 1)[-1]),
+                                member.call_site)
                         continue
                     self.assertEqual(column.kind, qv.KIND_MONEY)
                     self.assertEqual(column.api_name.split("@")[0],
@@ -380,8 +532,21 @@ class TheGateBehavesTests(unittest.TestCase):
 
     def test_the_charged_row_refuses_both_halves(self):
         namespace, lines = self._namespace(GATED_QUEST_ID)
-        self.assertEqual(namespace["Var4"], quest.STUB_DEFAULT)
-        self.assertEqual(namespace["RewardItem1"], quest.STUB_DEFAULT)
+        self.assertEqual(namespace["Var4"], qr.REFUSED_CELL)
+        self.assertLess(qr.REFUSED_CELL, 0,
+                        "a refused CHARGE cell is NEGATIVE: every "
+                        "`_coerce_int` door in this package refuses a "
+                        "value outside [0, ceiling], so no real API "
+                        "accepts it as data -- see qr.REFUSED_CELL")
+        self.assertFalse(qr.REFUSED_CELL > 0,
+                         "and it must still be a NUMBER, so a shipped "
+                         "`if (Quest.VarN > 0)` skips its branch instead "
+                         "of raising half way through an entry point "
+                         "(pf-adversary D3, round `ad7t6n`)")
+        self.assertEqual(namespace["RewardItem1"], quest.STUB_DEFAULT,
+                         "a refused REWARD cell stays 0: that is what the "
+                         "shipped `if (Quest.RewardItem1 > 0)` tests, and "
+                         "0 there correctly skips the payout")
         self.assertTrue(any(line.startswith("LUA_QUEST_GROUP_REFUSED")
                             for line in lines))
         self.assertTrue(any("refused=%s" % qr.REFUSE_GROUP_UNPAYABLE in line
@@ -412,7 +577,7 @@ class TheGateBehavesTests(unittest.TestCase):
         the group is always exercised and the fee waits with it.
         """
         namespace, lines = self._namespace(UNGATED_CHARGE_QUEST_ID)
-        self.assertEqual(namespace["Var8"], quest.STUB_DEFAULT)
+        self.assertEqual(namespace["Var8"], qr.REFUSED_CELL)
         refusals = [line for line in lines
                     if line.startswith("LUA_QUEST_GROUP_REFUSED")]
         self.assertEqual(len(refusals), 1, refusals)
@@ -451,9 +616,136 @@ class TheGateBehavesTests(unittest.TestCase):
             self.assertFalse([line for line in lines
                               if line.startswith("LUA_QUEST_GROUP_REFUSED")])
             gated, _lines = self._namespace(GATED_QUEST_ID)
-            self.assertEqual(gated["Var4"], quest.STUB_DEFAULT,
+            self.assertEqual(gated["Var4"], qr.REFUSED_CELL,
                              "3200 DOES name a reward item, so the same "
                              "column-only table gates it and not 8061")
+
+    def test_a_real_give_does_not_open_a_group_whose_take_is_still_a_stub(self):
+        """pf-adversary D2, round `ad7t6n`, the highest finding it raised.
+
+        `group_state` computed `blocking` over `group.side(GIVE)` alone,
+        so a group became payable the moment its GIVE side went real --
+        whatever the take side was doing.  `Player.AddItem` and
+        `Player.RemoveItem` are both stubs today and both carry the same
+        reason in `player.STILL_STUBBED`, so they are expected to land
+        together; nothing made them.  The day `AddItem` alone went real,
+        the adversary measured 452 of the 1544 shipped rows across 57
+        scripts in which the player would receive the reward AND KEEP the
+        turn-in items, repeatably -- the module's own rule broken by the
+        module, in the one direction it never looked.
+
+        A transaction is payable when EVERY member can be honoured.  A
+        take that no-ops is a member that cannot.
+        """
+        with mock.patch.object(
+                lua_player, "REAL_METHODS",
+                lua_player.REAL_METHODS | {"AddItem"}), \
+                mock.patch.object(
+                    quest, "REAL_METHODS",
+                    quest.REAL_METHODS | {"RewardItemSelect",
+                                          "AddCriteriaExp",
+                                          "AddCriteriaSkillPoint",
+                                          "AddCriteriaCash"}):
+            states = qr.group_state(GATHER_QUEST_ID)
+            self.assertEqual(len(states), 1)
+            self.assertFalse(states[0].payable,
+                             "the give side is real and the take side is "
+                             "not; that is still half a transaction")
+            self.assertEqual(states[0].blocking, ("Player.RemoveItem",))
+            namespace, _lines = self._namespace(GATHER_QUEST_ID)
+            self.assertEqual(namespace["Var2"], qr.REFUSED_CELL)
+            self.assertEqual(namespace["RewardItem1"], quest.STUB_DEFAULT)
+
+    def test_the_group_opens_when_both_sides_are_real_together(self):
+        """The other half of the mutant above: the take side is a GATE,
+        not a permanent hold.  Same row, same table; `Player.RemoveItem`
+        joins its namespace's `REAL_METHODS` alongside the give side and
+        both halves come back at once."""
+        with mock.patch.object(
+                lua_player, "REAL_METHODS",
+                lua_player.REAL_METHODS | {"AddItem", "RemoveItem"}), \
+                mock.patch.object(
+                    quest, "REAL_METHODS",
+                    quest.REAL_METHODS | {"RewardItemSelect",
+                                          "AddCriteriaExp",
+                                          "AddCriteriaSkillPoint",
+                                          "AddCriteriaCash"}):
+            states = qr.group_state(GATHER_QUEST_ID)
+            self.assertEqual(states[0].blocking, ())
+            self.assertTrue(states[0].payable)
+            namespace, lines = self._namespace(GATHER_QUEST_ID)
+            self.assertEqual(namespace["Var2"], GATHER_ITEM)
+            self.assertEqual(namespace["Var3"], GATHER_COUNT)
+        self.assertFalse([line for line in lines
+                          if line.startswith("LUA_QUEST_GROUP_REFUSED")])
+
+    def test_a_refused_charge_cell_cannot_be_read_as_a_met_requirement(self):
+        """pf-adversary D8 of round `5a3x47`, PAID -- and the reason the
+        item charge could be turned on at all.
+
+        `q_ocean_gather1.lua:43` guards the report with
+        `Player.CheckItemNum(Quest.Var2,Quest.Var3)`, and quest 4501 ships
+        those cells as "ten of item 2500533".  `Player.CheckItemNum` is
+        REAL: it reads the player's actual backpack.  So what the gate
+        hands back for a refused charge cell is not a private matter
+        between two of this lane's modules -- it goes straight into a
+        real requirement check.
+
+        `0` is a catastrophic answer there: it asks whether the player
+        holds at least ZERO of template id ZERO, which is true of an
+        EMPTY BACKPACK.  Every one of the 57 scripts this round couples
+        would have told a player carrying nothing "you may report this
+        quest", and then refused the reward -- the quest burned, nothing
+        received.  `nil` runs into the `_coerce_int` door every namespace
+        in this package already has, and the check REFUSES.
+
+        Both halves are asserted: that the requirement now refuses, and
+        that the old value would have satisfied it.  Without the second
+        line the first one passes for the wrong reason the day someone
+        changes the backpack fixture.
+        """
+        from pirateforce_foundation.lua_api import spec as api_spec
+        empty_backpack = lua_player.PlayerContext()
+        namespace = lua_player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], lambda _line: None,
+            context=empty_backpack)
+        check = namespace["CheckItemNum"]
+        quest_namespace, _lines = self._namespace(GATHER_QUEST_ID)
+        self.assertEqual(quest_namespace["Var2"], qr.REFUSED_CELL)
+        self.assertEqual(quest_namespace["Var3"], qr.REFUSED_CELL)
+        self.assertFalse(check(quest_namespace["Var2"],
+                               quest_namespace["Var3"]),
+                         "a refused charge cell must not satisfy a real "
+                         "requirement check")
+        self.assertTrue(check(quest.STUB_DEFAULT, quest.STUB_DEFAULT),
+                        "this is what the gate used to hand the script: "
+                        "`CheckItemNum(0, 0)` is TRUE for an empty "
+                        "backpack, which is why REFUSED_CELL is not 0")
+        self.assertFalse(qr.REFUSED_CELL > 0,
+                         "and the refusal must not raise on the way out "
+                         "of a guard it was never decided for: 87 of the "
+                         "88 item take cells are read in some OTHER "
+                         "entry point of their own script")
+        self.assertTrue(check(GATHER_ITEM, 0),
+                        "and 0 as a COUNT alone is true as well, so it is "
+                        "not only the id position that mattered")
+
+    def test_the_ungated_cells_of_a_gated_gather_row_still_resolve(self):
+        """The gate is still a group, not a quarantine of the row.
+
+        `q_ocean_gather1` charges `n_VARI_2`/`n_VARI_3` at `Report_Run`;
+        the teleport scene and the countdown `Accept_Run` reads are in no
+        group.  Refusing them too would be the blunt reading of COO's
+        rule that the rule itself rules out -- and with 56 new groups
+        covering many cells each, this is where a blunt reading would
+        first show.  Both pinned values are NON-ZERO on purpose: against
+        a stub default of 0 an assertion about a zero cell would pass
+        whether the gate was blunt or not.
+        """
+        namespace, _lines = self._namespace(GATHER_QUEST_ID)
+        for name, value in sorted(GATHER_UNGATED.items()):
+            with self.subTest(cell=name):
+                self.assertEqual(namespace[name], value)
 
     def test_a_reward_row_with_no_take_side_resolves_straight_through(self):
         """206 of the 209 scripts couple nothing; they must not pay for
@@ -494,7 +786,7 @@ class TheGateBehavesTests(unittest.TestCase):
                                           "AddCriteriaSkillPoint",
                                           "AddCriteriaCash"}):
             namespace, lines = self._namespace(GATED_QUEST_ID)
-            self.assertEqual(namespace["Var4"], quest.STUB_DEFAULT)
+            self.assertEqual(namespace["Var4"], qr.REFUSED_CELL)
             refusals = [line for line in lines
                         if line.startswith("LUA_QUEST_GROUP_REFUSED")]
             self.assertTrue(refusals, lines)
@@ -533,7 +825,7 @@ class TheGateBehavesTests(unittest.TestCase):
         with mock.patch.object(quest, "REAL_METHODS",
                                quest.REAL_METHODS | {"RewardItemSelect"}):
             namespace, lines = self._namespace(GATED_QUEST_ID)
-            self.assertEqual(namespace["Var4"], quest.STUB_DEFAULT)
+            self.assertEqual(namespace["Var4"], qr.REFUSED_CELL)
         blocked = [line for line in lines
                    if line.startswith("LUA_QUEST_GROUP_REFUSED")]
         self.assertEqual(len(blocked), 1, blocked)
@@ -585,15 +877,18 @@ class TheGateBehavesTests(unittest.TestCase):
                         len(answered), 1,
                         "quest %d opened half of %s.%s"
                         % (quest_id, script, group.group))
-        self.assertEqual(checked, 217,
-                         "RE-DERIVED round `5a3x47`, which added the "
-                         "morale charge and with it two groups: 5 Q_CLASS "
-                         "rows x 17 members + 5 Q_GUILD_BOSS2 rows x 16 + "
-                         "2 Q_BOAT_HEALTH rows x 2 + 2 Q_DAY_HUNT rows x "
-                         "16 + 1 Q_REPEAT_HUNT row x 16 = 85 + 80 + 4 + "
-                         "32 + 16 = 217. If this number moves, a group or "
-                         "a row appeared and the assertion above has to "
-                         "be read again")
+        self.assertEqual(checked, 7816,
+                         "RE-DERIVED round `ad7t6n`, which put "
+                         "`Player.RemoveItem` on the take side and with "
+                         "it 56 more groups, all in `Report_Run`, on the "
+                         "gather/send/set quests the shipped table names "
+                         "on many rows each -- so this number is now "
+                         "dominated by rows, not by groups.  Re-derive "
+                         "it, do not adjust it: sum over every coupled "
+                         "script of (rows naming that script) x (members "
+                         "of each of its groups).  If it moves, a group "
+                         "or a row appeared and the assertion above has "
+                         "to be read again")
 
 
 def _lua_name_for(source_column: str) -> str:
@@ -632,6 +927,104 @@ class TheScannerSeesEveryCallTests(unittest.TestCase):
         path = Path(handle.name)
         self.addCleanup(path.unlink)
         return path
+
+    def test_removeitem_charges_with_both_of_its_cells(self):
+        """The item charge reads the id AND the count, at one call.
+
+        `Player.RemoveItem(item, count)` takes the player's item whatever
+        the cells hold, so both cells are part of that charge -- unlike
+        `Player.AddCash`, where only a SIGN says the player pays at all.
+        Asserted on a script written here, so the rule is held on a
+        machine with no corpus.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.RemoveItem(Quest.Var2,Quest.Var3)\n"
+            "end\n")
+        self.assertEqual(
+            [(index, api) for _function, index, api, _number
+             in regen.take_sites(path)],
+            [(2, "Player.RemoveItem"), (3, "Player.RemoveItem")])
+
+    def test_removeitem_charges_from_the_count_alone(self):
+        """A literal item id and a cell COUNT is still a charge.
+
+        The shape `Player.RemoveItem(2600392, Quest.Var3)` -- the corpus
+        has exactly one, at `q_sea_reward.lua:100`, on a script no
+        shipped row names -- is why argument 1 is read and not only
+        argument 0.  A scan that read the id position alone would report
+        no take here, form no group, and leave the transaction as
+        unguarded as `q_ship.lua` was.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.RemoveItem(2600392,Quest.Var3)\n"
+            "end\n")
+        self.assertEqual(
+            [(index, api) for _function, index, api, _number
+             in regen.take_sites(path)],
+            [(3, "Player.RemoveItem")])
+
+    def test_removeitem_walks_past_an_argument_that_reads_no_cell(self):
+        """`delItem[1]`, `mySet_1[i]` and bare literals are not this
+        lane's business: 49 of the 367 call sites hand `RemoveItem`
+        something that is not a quest cell at one position or both, and a
+        take with no cell to name is one this table must not carry."""
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.RemoveItem(Quest.Var2,delItem[1])\n"
+            "    Player.RemoveItem(mySet_1[i],mySet_2[i])\n"
+            "    Player.RemoveItem(2200225,2)\n"
+            "end\n")
+        self.assertEqual(
+            [(index, api) for _function, index, api, _number
+             in regen.take_sites(path)],
+            [(2, "Player.RemoveItem")])
+
+    def test_an_unclassified_removeitem_argument_stops_the_tool(self):
+        """The shape nobody has read is LOUD, not skipped.
+
+        Every one of the 367 shipped call sites hands `RemoveItem` a BARE
+        `Quest.VarN` at any cell-reading position.  The day one is
+        shipped that does arithmetic on a cell, this tool must name the
+        line rather than report no take -- because no take means no
+        group, no refusal, a green run and a player charged for an
+        undelivered reward.  That is the same contract
+        `UnclassifiedTakeSite` already carries for the money shapes.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.RemoveItem(Quest.Var2 + 1,Quest.Var3)\n"
+            "end\n")
+        with self.assertRaises(regen.UnclassifiedTakeSite) as caught:
+            regen.take_sites(path)
+        self.assertIn("Quest.Var2 + 1", str(caught.exception))
+        self.assertIn("Player.RemoveItem", str(caught.exception))
+
+    def test_a_bare_cell_is_a_take_for_removeitem_and_not_for_addcash(self):
+        """One spelling, two meanings, decided by the API not the shape.
+
+        `Player.AddCash(Quest.Var3)` is NOT reported: the sign is the only
+        thing that says the player pays, and where the shipped cell is
+        negative `quest_var_signedness.tsv` already carries it with its
+        own provenance.  The identical argument to `Player.RemoveItem`
+        IS reported.  Reading both under one rule is what left one of the
+        two kinds of charge invisible.
+        """
+        regen = self._tool()
+        path = self._script(
+            "function Report_Run()\n"
+            "    Player.AddCash(Quest.Var3)\n"
+            "    Player.RemoveItem(Quest.Var3,1)\n"
+            "end\n")
+        self.assertEqual(
+            [(index, api) for _function, index, api, _number
+             in regen.take_sites(path)],
+            [(3, "Player.RemoveItem")])
 
     def test_a_second_charge_on_the_same_line_is_read_too(self):
         """The hole itself: `line.find` once meant one call per line.
@@ -810,7 +1203,13 @@ class MirrorsMatchTheGameTests(unittest.TestCase):
         self.assertEqual(
             [(index, api, number) for _function, index, api, number
              in regen.take_sites(path)],
-            [(3, "Player.AddCash", 50)])
+            [(3, "Player.AddCash", 50),
+             (8, "Player.RemoveItem", 51),
+             (4, "Player.RemoveItem", 51)],
+            "round `ad7t6n`: the ship is not only paid for, it is "
+            "TRADED for -- `Player.RemoveItem(Quest.Var8,Quest.Var4)` on "
+            "the line after the charge takes an item too, and both cells "
+            "of that one call are members of the same charge")
         self.assertIn(
             ("Report_Run", 0, None, "Player.ChangeShip", 49),
             [entry[:5] for entry in regen.give_sites(path)])

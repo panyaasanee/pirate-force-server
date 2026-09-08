@@ -51,7 +51,8 @@ were the same mistake seen from two sides:
   D2  ``q_guild_boss2.lua`` rows 8061..8065 name no reward item, so the
       draft called their group "not exercised" and let a 10,000 charge
       through -- take with no give, on one of the only two scripts the
-      table names.  Line 55 of that file calls ``AddLvCriteriaExp``
+      table named AT THE TIME (round `ad7t6n` took the table to 61
+      groups; the reasoning is unchanged, the count is not).  Line 55 of that file calls ``AddLvCriteriaExp``
       UNCONDITIONALLY: the give was there, it just had no column.
 
 So a member may carry :data:`NO_COLUMN` and be addressed by its API name,
@@ -63,9 +64,9 @@ WHETHER A GROUP IS EXERCISED IS STILL A FACT ABOUT THE ROW
 For a group whose give side is columns only, it is the row's own cells
 that decide -- a row owing nothing must not have its take refused.  No
 shipped group is in that shape today (both carry an unconditional
-payout), so this half of the rule is load-bearing for the future rather
-than for the two scripts in the table; it is tested directly rather than
-left as a comment.  The GROUP is a fact about the code (which entry point
+payout) -- all 61 of them, re-derived round `ad7t6n` -- so this half of
+the rule is load-bearing for the future rather than for any shipped row;
+it is tested directly rather than left as a comment.  The GROUP is a fact about the code (which entry point
 performs both sides); EXERCISED is a fact about the row.
 
 WHAT THIS DOES NOT DECIDE
@@ -368,7 +369,8 @@ class GroupState:
         self.group = group
         #: Does THIS row put an id in a give-side cell of this group.
         self.exercised = exercised
-        #: The give-side API names that are not real yet, in order.
+        #: The API names of this group -- EITHER SIDE -- that are not
+        #: real yet, in order (pf-adversary D2, round `ad7t6n`).
         self.blocking = blocking
 
     @property
@@ -386,12 +388,81 @@ class GroupState:
 #: shipped transaction has no implementation.
 REFUSE_GROUP_UNPAYABLE = "transaction_group_give_side_not_implemented"
 
+#: What a REFUSED TAKE-SIDE CELL hands the script: ``-1``, and
+#: deliberately NOT the ``0`` every other stub answers with.
+#:
+#: WHY IT CANNOT BE ZERO (pf-adversary D8, round ``5a3x47``, and MEASURED
+#: at scale in round ``ad7t6n``).  Refusing a cell is supposed to mean
+#: "this lane will not say what is in it".  ``0`` does not mean that to a
+#: script: it is an ordinary number, and the REAL implementations happily
+#: compare it.  ``q_boat_health.lua`` guards its repair with
+#: ``Player.GetCash() >= Quest.Var2``; with the charge cell refused to
+#: ``0`` that guard reads ``>= 0``, is true for a player holding nothing,
+#: and the script says "repaired" (``Player.ShowMessage(824)``, a REAL
+#: method) on screen.  The gate itself was manufacturing a false message.
+#:
+#: ``Player.RemoveItem`` turns that from one script into fifty-seven.
+#: MEASURED on the corpus this round: the take cells of the 56 groups it
+#: opens are read by **91 ``Player.CheckItemNum`` call sites inside
+#: ``*_Check`` entry points**, and ``Player.CheckItemNum`` IS REAL
+#: (``player.REAL_METHODS``).  ``CheckItemNum(0, 0)`` asks whether the
+#: player holds at least zero of template id zero and answers TRUE, so
+#: every one of those 57 gather/send quests would have told a player with
+#: an empty backpack "you may report this quest" -- and then refused the
+#: reward.  The player would lose the quest and receive nothing.
+#:
+#: WHY A NEGATIVE NUMBER AND NOT ``nil``.  ``nil`` is the tempting
+#: answer -- it is Lua's own "there is no value" -- and this round wrote
+#: it first.  pf-adversary D3 of round ``ad7t6n`` measured what it costs,
+#: and the cost is a REGRESSION, not a refusal:
+#:
+#: The refusal is DECIDED per ``(script, Lua entry point)`` -- that is
+#: what a group is -- but it is DELIVERED through ``Quest.VarN``, which
+#: is keyed on ``(quest_id, column)`` and has no idea which entry point
+#: is running.  So a decision made about ``Report_Run`` is enforced in
+#: ``Accept_Run`` and ``Delete_Run`` too: 87 of the 88 item take-cell
+#: members are read in some OTHER top-level function of their own file.
+#: With ``nil`` in the cell, 17 of those reads are in an operator
+#: context, and at ``q_gender_equip1.lua:25`` (quests 1072 and 1089) the
+#: raise lands AFTER ``Quest.SetFlag(Quest.Active)`` -- a REAL write --
+#: has already run, and BEFORE four real ``Player.MobAppear`` writes on
+#: lines 27-33.  The gate would manufacture a half-executed entry point,
+#: which is the exact thing it exists to prevent.
+#:
+#: ``-1`` refuses without breaking control flow.  Every ``_coerce_int``
+#: door in this package refuses a value outside ``[0, ceiling]`` rather
+#: than clamping it, so ``-1`` is rejected as data by every real API
+#: exactly the way ``nil`` would be -- ``CheckItemNum`` answers False and
+#: the requirement REFUSES -- while ``if (Quest.VarN > 0)`` reads FALSE
+#: and simply skips its branch, as it did when the cell was ``0``.  So
+#: the refusal is a value no real API will accept and no shipped guard
+#: will trip over.
+#:
+#: WHAT ``-1`` DOES NOT FIX, said plainly: a guard of the shape
+#: ``Player.GetCash() >= Quest.Var2`` (``q_boat_health.lua:18``) is still
+#: true for a player with no money, so pf-adversary D8 of round
+#: ``5a3x47`` is NOT paid by this constant -- it is left exactly where it
+#: was, no better and no worse than the ``0`` it replaces.  D8 needs the
+#: namespace to know which entry point is running so a refusal can be
+#: scoped to the group that made it; that is a change to
+#: ``QuestContext``/``script_host``, it is written up in
+#: ``docs/SCRIPT_LANE.md``, and it is the next round's first job.
+#:
+#: The GIVE side keeps ``0`` on purpose: a reward cell of ``0`` is what
+#: the shipped scripts already test (``if (Quest.RewardItem1 > 0)``), so
+#: ``0`` there means "no reward item" and correctly skips the payout.
+#: Refusing to give and refusing to say are different refusals.
+REFUSED_CELL = -1
+
 
 def group_state(quest_id: int) -> Tuple[GroupState, ...]:
     """Every transaction group of this row's script, decided for this row.
 
-    Empty for the 207 of 209 scripts that couple nothing -- which is the
-    ordinary case and not an error.
+    Empty for the 148 of 209 scripts that couple nothing -- which is
+    still the ordinary case and not an error.  RE-DERIVED round
+    `ad7t6n`, when `Player.RemoveItem` took the count from 2 coupled
+    scripts to 61; the old "207 of 209" in this line described a table
+    with five groups in it.
     """
     script = quest_criteria.script_for_quest(quest_id)
     if script is None:
@@ -412,8 +483,20 @@ def group_state(quest_id: int) -> Tuple[GroupState, ...]:
                 if cells[SOURCE_COLUMNS.index(member.column)]:
                     exercised = True
                     break
+        # BOTH SIDES, not just the give (pf-adversary D2, round
+        # `ad7t6n`, MEASURED).  This read `group.side(GIVE)` alone, so a
+        # group was payable the moment its GIVE side went real -- no
+        # matter what the TAKE side was.  On the day `Player.AddItem`
+        # lands while `Player.RemoveItem` is still a stub, that is 452 of
+        # the 1544 shipped rows across 57 scripts in which the player
+        # receives the reward AND KEEPS THE TURN-IN ITEMS, repeatably:
+        # the module's own rule ("an incomplete group refuses every
+        # column in it") broken by the module, in the one direction it
+        # never looked.  A transaction is payable when EVERY member of it
+        # can be honoured, and a take that no-ops is a member that
+        # cannot.
         blocking = tuple(sorted({member.api_name
-                                 for member in group.side(GIVE)
+                                 for member in group.members
                                  if not _default_api_is_real(member.api_name)}))
         states.append(GroupState(group, exercised, blocking))
     return tuple(states)
@@ -572,4 +655,7 @@ def resolve_var_for_namespace(log: Callable[[str], None], quest_id: int,
         if said is not None:
             said.add(key)
         log_group_refusal(log, quest_id, var_column(var_index), state)
-    return stub_default
+    # NOT ``stub_default``.  See :data:`REFUSED_CELL`: handing a refused
+    # charge cell back as ``0`` is what let a REAL ``CheckItemNum`` read
+    # it as "holds at least zero of item zero" and answer True.
+    return REFUSED_CELL
