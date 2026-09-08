@@ -460,13 +460,156 @@ class LearningAFifthSkillCollidesWithTheLoginCapTests(_Fixture):
         )
 
 
+class LearningTheSameSkillTwiceTests(_Fixture):
+    """pf-adversary round `8wzpyw`, D1 -- the worst thing this module
+    shipped with, paid in the same round it was found.
+
+    `grant_learned_skill` is `INSERT OR IGNORE`.  Clicking "learn" twice on
+    a skill she already holds wrote nothing the second time and charged her
+    anyway: three clicks measured as three points gone, one row, and
+    `outcome=learned RESULT=TOLD` every time.
+    """
+
+    def _character_at_forty(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(
+            character.id, {"skill_points": 10, "level": 40},
+        )
+        return character
+
+    def test_the_second_click_is_refused_and_costs_nothing(self):
+        character = self._character_at_forty()
+        first = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, self.store, character.id, 2950,
+        )
+        self.assertTrue(first.learned)
+        after_first = self.store.get_skill_points(character.id)
+
+        second = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, self.store, character.id, 2950,
+        )
+        self.assertEqual(
+            skill_learn_roundtrip.OUTCOME_REFUSED, second.outcome,
+        )
+        self.assertEqual(
+            skill_learn_roundtrip.REFUSE_ALREADY_HOLDS_SKILL, second.reason,
+        )
+        self.assertIsNone(second.pc)
+        self.assertEqual(after_first, self.store.get_skill_points(character.id))
+
+    def test_three_clicks_cost_exactly_one_point(self):
+        """The measurement that named the defect, turned into a pin."""
+        character = self._character_at_forty()
+        before = self.store.get_skill_points(character.id)
+        for _ in range(3):
+            skill_learn_roundtrip.learn_skill_round_trip(
+                self.legacy, self.store, character.id, 2950,
+            )
+        self.assertEqual(before - 1, self.store.get_skill_points(character.id))
+        # No starting kit was granted in this fixture, so the one learned
+        # row is the only row -- three clicks, one row, one point.
+        self.assertEqual(
+            1, len(self.store.list_character_skills(character.id)),
+        )
+
+    def test_a_grant_that_writes_nothing_is_never_reported_as_learned(self):
+        """The belt behind the preflight.
+
+        A store that cannot list skills makes the preflight undecidable, so
+        the duplicate reaches the grant; the size of the returned set is
+        what catches it there.  This is the branch that survives when the
+        preflight cannot answer.
+        """
+        real = self.store
+
+        class _BlindLister:
+            """Lists nothing, and grants without ever growing the set."""
+
+            def get_skill_points(self, cid):
+                return real.get_skill_points(cid)
+
+            def spend_skill_points(self, cid, cost):
+                return real.spend_skill_points(cid, cost)
+
+            def read_character_vitals_or_none(self, cid):
+                return real.read_character_vitals_or_none(cid)
+
+            def list_character_skills(self, cid):
+                return real.list_character_skills(cid)
+
+            def grant_learned_skill(self, cid, skill_id):
+                # INSERT OR IGNORE against a row that already exists.
+                return real.list_character_skills(cid)
+
+        character = self._character_at_forty()
+        result = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, _BlindLister(), character.id, 2950,
+        )
+        self.assertEqual(
+            skill_learn_roundtrip.OUTCOME_SPENT_ON_NOTHING, result.outcome,
+        )
+        self.assertIsNone(result.pc)
+        self.assertIn(
+            "RESULT=NOT_TOLD",
+            skill_learn_roundtrip.headless_token(result),
+        )
+
+
 class ThisLaneStaysInsideItsOwnZoneTests(unittest.TestCase):
-    def test_the_module_names_no_write_zone_that_is_not_its_own(self):
+    def test_no_module_outside_this_lane_is_imported_at_import_time(self):
+        """WAS four `assertNotIn` substrings, which pf-adversary walked
+        straight through (`from . import store as _db` passed it).
+
+        The question is not which characters appear in the file -- it is
+        which modules this one pulls in, and where.  The AST answers that:
+        at module level the lane may import only its own siblings, and the
+        database layer may be reached only from the console entry point,
+        the same posture the login lane's own AST pin takes.
+        """
+        import ast
+
         source = (ROOT / "src" / "pirateforce_foundation"
                   / "skill_learn_roundtrip.py").read_text(encoding="utf-8")
-        for forbidden in ("import runtime", "from .runtime",
-                          "from .app", "from .store import"):
-            self.assertNotIn(forbidden, source)
+        tree = ast.parse(source)
+        top_level = set()
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom):
+                top_level.add(node.module or "")
+                for alias in node.names:
+                    top_level.add(alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    top_level.add(alias.name)
+        for forbidden in ("store", "runtime", "app", "gm", "lifecycle"):
+            self.assertNotIn(forbidden, top_level)
+
+        # And inside functions, `store` may be reached from `main` only --
+        # the console entry point that has to open a real database.
+        importers = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.ImportFrom) and inner.level:
+                    if (inner.module or "") in ("store", "runtime", "app"):
+                        importers.add(node.name)
+                elif isinstance(inner, ast.Import):
+                    for alias in inner.names:
+                        if alias.name.split(".")[0] in (
+                            "runtime", "app",
+                        ):
+                            importers.add(node.name)
+        self.assertEqual({"main"}, importers)
+
+    def test_the_console_entry_point_exists_and_is_reachable(self):
+        """The reason it exists: an attended ticket whose pass criterion is
+        a console line nothing in the tree can print burns a slot on the
+        owner's machine and comes back FAIL blaming the server."""
+        self.assertTrue(callable(skill_learn_roundtrip.main))
+        source = (ROOT / "src" / "pirateforce_foundation"
+                  / "skill_learn_roundtrip.py").read_text(encoding="utf-8")
+        self.assertIn('if __name__ == "__main__":', source)
+        self.assertIn("LEARN_SKILL_ROUND_TRIP", source)
 
     def test_it_carries_no_scenario_flag_a_boot_could_switch_off(self):
         self.assertIs(True, skill_learn_roundtrip.production_allowed)

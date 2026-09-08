@@ -96,6 +96,21 @@ REFUSE_CHARACTER_ID_NOT_AN_INT = "character_id_is_not_an_int"
 REFUSE_SKILL_ID_NOT_AN_INT = "skill_id_is_not_an_int"
 REFUSE_STORE_CANNOT_GRANT = "store_does_not_answer_grant_learned_skill"
 REFUSE_BALANCE_UNMEASURED = "skill_point_balance_has_never_been_written"
+#: pf-adversary round `8wzpyw`, D1 -- the worst defect this module shipped
+#: with in its first hour.  `grant_learned_skill` is `INSERT OR IGNORE`, so
+#: learning a skill she ALREADY HOLDS wrote nothing and charged her anyway:
+#: three clicks measured as three points gone, one row, and
+#: `outcome=learned RESULT=TOLD` every time.  The evidence was already in
+#: this module's hand -- the granted set came back the same size -- and
+#: nothing looked at it.  Asked BEFORE the spend, because that is the only
+#: place where refusing costs her nothing; the size check after the grant
+#: is the belt behind it, for the row that appears between the two reads.
+REFUSE_ALREADY_HOLDS_SKILL = "character_already_holds_this_skill"
+#: The same defect seen from the other side: the grant returned, and the
+#: set of skills did not grow.  Nothing was written, so nothing may be
+#: reported as learned -- and the point that was already spent is named,
+#: exactly like `spent_but_not_granted`, rather than swallowed.
+OUTCOME_SPENT_ON_NOTHING = "spent_but_nothing_was_written"
 
 
 class SkillLearnRoundTripError(RuntimeError):
@@ -143,6 +158,24 @@ def _balance_or_none(store: Any, character_id: int) -> "int | None":
         return None
 
 
+def _skills_or_none(store: Any, character_id: int) -> "tuple[int, ...] | None":
+    """The skill ids the character holds, or `None` when nobody can say.
+
+    `None` means "not answered" and is never read as "she holds nothing":
+    a store that cannot list, or raises while listing, is not evidence that
+    a second charge is safe -- it is only evidence that this check cannot
+    decide.  The size comparison after the grant is what still catches the
+    duplicate in that case.
+    """
+    lister = getattr(store, "list_character_skills", None)
+    if not callable(lister):
+        return None
+    try:
+        return tuple(lister(character_id))
+    except Exception:                       # noqa: BLE001 - see docstring
+        return None
+
+
 def preflight_refusal(store: Any, character_id: int, skill_id: int) -> "str | None":
     """The refusal to give BEFORE a single point is spent, or `None`.
 
@@ -160,6 +193,9 @@ def preflight_refusal(store: Any, character_id: int, skill_id: int) -> "str | No
         return REFUSE_SKILL_ID_NOT_AN_INT
     if not callable(getattr(store, "grant_learned_skill", None)):
         return REFUSE_STORE_CANNOT_GRANT
+    held = _skills_or_none(store, character_id)
+    if held is not None and skill_id in held:
+        return REFUSE_ALREADY_HOLDS_SKILL
     if _balance_or_none(store, character_id) is None:
         return REFUSE_BALANCE_UNMEASURED
     return None
@@ -186,6 +222,7 @@ def learn_skill_round_trip(
         )
 
     points_before = _balance_or_none(store, character_id)
+    held = _skills_or_none(store, character_id)
     try:
         points_remaining, skills_after = skill_grant_wiring.learn_and_grant_skill(
             store, character_id, skill_id,
@@ -208,6 +245,20 @@ def learn_skill_round_trip(
             None, None, None,
         )
 
+    # THE BELT BEHIND THE PREFLIGHT (same finding).  `grant_learned_skill`
+    # is `INSERT OR IGNORE`: it returns the character's whole skill set
+    # whether or not this call wrote a row.  If the set did not grow, the
+    # point is already spent and nothing was written -- so no frame is
+    # composed and the outcome says exactly that, instead of a cheerful
+    # `learned` for a row that was already there.  `held` may be None
+    # (the store could not list), and then this check cannot decide and
+    # does not pretend to.
+    if held is not None and len(tuple(skills_after)) <= len(held):
+        return LearnSkillRoundTrip(
+            OUTCOME_SPENT_ON_NOTHING, REFUSE_ALREADY_HOLDS_SKILL,
+            character_id, skill_id, points_before, points_remaining,
+            tuple(skills_after), None, None,
+        )
     records = (
         LearnSkillResultRecord(
             record_u32_0=skill_id,
@@ -283,3 +334,84 @@ def headless_token(result: LearnSkillRoundTrip) -> str:
             "TOLD" if records_on_wire else "NOT_TOLD",
         )
     )
+
+
+#: The database a flagless boot opens, spelled once.
+DEFAULT_DB_RELATIVE_PATH = "state/pirateforce.sqlite3"
+
+
+def _print_console_line(line: str) -> None:
+    """Print one line the cp874 bridge console can carry, always.
+
+    The token is built out of integers and names and cannot carry a
+    surprise, but the refusal line interpolates the operator's own `--db`
+    path.  Escaping is lossy on purpose: an operator reading `sch\\xf6n`
+    still recognises the path, and a dead console recognises nothing.
+    """
+    print(line.encode("ascii", "backslashreplace").decode("ascii"))
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    """``python -m pirateforce_foundation.skill_learn_roundtrip``.
+
+    WHY THIS ENTRY POINT EXISTS AT ALL, in one sentence: an attended ticket
+    whose pass criterion is a console line that NOTHING IN THE TREE CAN
+    PRINT burns a slot on the owner's machine and comes back FAIL blaming
+    the server.  This lane escalated exactly that defect against `GT-307`
+    three hours before writing this file, and pf-adversary caught the same
+    lane about to file it again.  So the token this lane's new ticket names
+    is produced by a command that ships with the tree, against a real
+    database, the same way the login lane produces its own.
+
+    Prints one `LEARN_SKILL_ROUND_TRIP` line and exits 0 when the learn
+    succeeded, or the same line with the named refusal and exits 1.  A
+    refusal is not a crash: the operator reads one line either way.
+    """
+    import argparse
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        prog="python -m pirateforce_foundation.skill_learn_roundtrip",
+        description=(
+            "Adjudicate one learn-skill request against a real database and "
+            "compose the client's confirmation frame."
+        ),
+    )
+    parser.add_argument(
+        "--character", type=int, required=True, metavar="CID",
+        help="character id (the cid the console prints at creation)",
+    )
+    parser.add_argument(
+        "--skill", type=int, required=True, metavar="ID",
+        help="skill id from the client's own SKILL_CONTEXT table",
+    )
+    parser.add_argument(
+        "--db", default=None, metavar="PATH",
+        help="database file; default is the one a flagless boot opens (%s)"
+             % DEFAULT_DB_RELATIVE_PATH,
+    )
+    args = parser.parse_args(argv)
+
+    from .legacy_bridge import load_legacy
+    from .store import SQLiteStore
+
+    # The checkout this module runs out of.  Computed here rather than
+    # imported from the sibling that already has the same three lines: that
+    # module's own console token counts "callers in src" by scanning every
+    # file in this package for its name, so importing it would make its
+    # token report a caller that does not call it.  Three lines duplicated
+    # beats a token that lies (see the note beside
+    # LEARN_RESULT_TRAILING_BYTE).
+    root = Path(__file__).resolve().parents[2]
+    database = args.db
+    if database is None:
+        database = Path(root) / DEFAULT_DB_RELATIVE_PATH
+    store = SQLiteStore(database, Path(root) / "migrations")
+    legacy = load_legacy(Path(root) / "current" / "pf_login_game_server_v141.py")
+    result = learn_skill_round_trip(legacy, store, args.character, args.skill)
+    _print_console_line(headless_token(result))
+    return 0 if result.learned else 1
+
+
+if __name__ == "__main__":  # pragma: no cover - console entry point
+    raise SystemExit(main())
