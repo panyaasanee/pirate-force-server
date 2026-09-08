@@ -2201,6 +2201,12 @@ _SKILL_BLOCKERS = {
         "not one skill id could be written and none was already held; see"
         " the audit row for the first exception type"
     ),
+    skill_all_command.REFUSED_GRANT_ROLLED_BACK: (
+        "the grant door threw its whole transaction away; the row is"
+        " untouched. Read schema_migrations on this database -- below 018"
+        " no gm_grant row is writable, and a --scene-load-scenario boot"
+        " does NOT migrate the file it opens"
+    ),
 }
 for _skill_reason, _skill_sentence in _SKILL_BLOCKERS.items():
     _NO_BYTES_BLOCKERS_SOURCE[
