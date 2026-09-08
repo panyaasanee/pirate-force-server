@@ -155,6 +155,21 @@ to that sentence and nothing more: it gives the pin somebody to ask, the way
     of them is "what a character is born holding".  So the label is
     ``ASSUMPTION`` and it says so in the constant, not only here.
 
+  * ONE THING DOES SUPPORT IT, AND IT IS AN ARGUMENT, NOT A DECLARATION --
+    which is why the label stays ``ASSUMPTION``.  The client's own scripting
+    surface has no verb that SETS this balance: ``gamedata/PF_LUA_API_SPEC
+    .md`` lists ``AddSkillPoint``, ``Quest.AddCriteriaSkillPoint`` and
+    ``AddLvCriteriaSkillPoint``, all of them ADD, and ``SetSkillPoint``
+    appears nowhere under ``gamedata/`` at all (grepped this round; the two
+    ``AddSkillPoint`` call sites are ``gamedata/lua/t_getm_rat_exp&sp.lua``
+    and ``gamedata/lua/t_inskyev_getm_rat_exp&sp.lua``).  A quantity that is
+    only ever added to starts SOMEWHERE, and 0 is the natural somewhere --
+    which is exactly the argument ``migrations/017`` uses to call the 0 on
+    ``experience`` MEASURED.  It is weaker here: there the argument rides on
+    a shipped table that carries ``n_EXP_CURRENTLV = 0`` at level 1, and no
+    table carries the equivalent row for this column.  An absent setter is
+    consistent with 0; it does not state it.
+
   * It is NOT derived from either reading of this table, and the coincidence
     has to be stated or somebody will mistake it for support: under reading
     (b) a level-1 character holds 0, which is the same 0.  That is a
