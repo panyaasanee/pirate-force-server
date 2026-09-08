@@ -1064,7 +1064,14 @@ class RealPlayerNamespace:
                     # cannot say a window was opened, so the LUA_PLAYER_REAL
                     # line above says stored=unknown and no proof token is
                     # printed.
-                    self._log(_teleport_check.prompt_console_line(pending))
+                    # The sink goes WITH the line.  Recording into a recorder
+                    # nobody drains is R307's window that goes nowhere all over
+                    # again, and this token used to read the same either way;
+                    # now it names the recorder and says `drain=unclaimed`
+                    # until the code that drains it says otherwise
+                    # (pf-adversary, round `nilasm`, H4).
+                    self._log(_teleport_check.prompt_console_line(
+                        pending, self._teleport_check_sink))
                 return returned
 
             return teleport_check

@@ -147,6 +147,53 @@ class TheHostHandsTheTravelOrderOutTests(unittest.TestCase):
                           if line.startswith(tc.TOKEN + " PROMPT")], [])
         prompts[0].encode("ascii")
 
+    def test_the_console_says_nobody_claimed_this_hosts_sink_yet(self):
+        # A default host is a host whose orders nothing will ever drain, and
+        # the token used to read exactly like one that will.  `unclaimed` is
+        # the token saying so out loud -- the honest half of H4, since nothing
+        # in this package can see the drain in runtime.py (pf-adversary, round
+        # `nilasm`, H4).
+        lines = []
+        host = _host(log=lines.append)
+        host.load("function Go() Player.TeleportCheck(%d) end" % PINNED_MARKER_ID)
+        host.call("Go")
+        prompts = [line for line in lines
+                   if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
+        self.assertEqual(len(prompts), 1)
+        self.assertTrue(prompts[0].endswith(
+            " sink=%s drain=unclaimed wired=0 taken=0"
+            % tc.sink_fingerprint(host.teleport_check_sink)), prompts[0])
+        # `wired=0` is the fact under the word: this host built the inert
+        # default for itself, so nothing on this connection queues a send --
+        # measured off the object, not claimed (pf-adversary, `v721gm`, D3).
+        self.assertFalse(tc.sink_is_wired(host.teleport_check_sink))
+        prompts[0].encode("ascii")
+
+    def test_a_drain_that_claims_the_hosts_sink_is_named_on_its_console(self):
+        # The one call the dispatch drain has to make, made here through the
+        # SAME accessor a caller outside this package has: claim the object
+        # `host.teleport_check_sink` hands you, and every order this host
+        # files afterwards says on the console which code will empty it.
+        lines = []
+        host = _host(log=lines.append)
+        tc.claim_sink_for_drain(host.teleport_check_sink, "dispatch-drain")
+        host.load("function Go() Player.TeleportCheck(%d) end" % PINNED_MARKER_ID)
+        host.call("Go")
+        prompts = [line for line in lines
+                   if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
+        self.assertEqual(len(prompts), 1)
+        self.assertIn(" drain=dispatch-drain", prompts[0])
+        # A SECOND host is not covered by the first host's claim: one claim is
+        # about one recorder, and two sessions never share one.
+        other_lines = []
+        other = _host(log=other_lines.append)
+        other.load("function Go() Player.TeleportCheck(%d) end" % PINNED_MARKER_ID)
+        other.call("Go")
+        other_prompts = [line for line in other_lines
+                         if line.startswith(tc.TOKEN + " ORDER_RECORDED")]
+        self.assertEqual(len(other_prompts), 1)
+        self.assertIn(" drain=unclaimed", other_prompts[0])
+
     def test_a_host_with_no_character_bound_refuses_instead_of_recording(self):
         # What a production caller that forgot the player_context gets: a
         # counted refusal by name, not a sink full of orders whose echoes can

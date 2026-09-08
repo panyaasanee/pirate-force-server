@@ -79,6 +79,8 @@ NOT CLAIMED
 """
 from __future__ import annotations
 
+import threading
+import weakref
 from typing import Any, NamedTuple
 
 from . import world_scene_marker
@@ -542,7 +544,91 @@ def encode_transport(legacy: Any, pending: PendingCheck) -> tuple[bytes, bytes]:
     return legacy.make_runtime_vitals([(legacy.TELEPORT_VITAL, 4, payload)])
 
 
-def prompt_console_line(pending: PendingCheck) -> str:
+class TransportRelocation(NamedTuple):
+    """What a caller must do to the SESSION when it sends the transport.
+
+    LANE-A's answer to chief's G1 (letter `20260908_0545_FROM_CHIEF_R398b`),
+    which asked a WORLD question and so is answered here rather than at the
+    call site: does the M2 transport move the client, or not?
+
+    IT MOVES THE CLIENT.  :func:`encode_transport` builds the same
+    ``TeleportVital`` v4 body with a ``TeleportTarget`` that
+    ``make_v137_marker1_transport_probe`` sends and that ``gm/teleport_wire``
+    composes for the GM warp -- the one cross-scene mover this server already
+    had.  A server that hands that frame to a socket and then keeps calling
+    the player's scene by the departure scene's number is lying to its own
+    next frame: chief MEASURED the cost of that lie on a real store -- the
+    destination's coordinates written into the durable row under
+    ``scene_id=1``, and the next login putting the character in Port Royal at
+    a point that belongs to the open sea.
+
+    AND MOVING THE CLIENT IS NOT A LICENCE TO WRITE THE ROW.  COO-DECISION
+    2026-08-28T21:30 (position ownership after a GM warp) already ruled the
+    other half and this lane does not reopen it: the owner of a position is
+    the position the CLIENT confirmed, a frame that left the server is a
+    REQUEST and never evidence that anything moved, and the durable write
+    happens on the first ``TargetPos`` after the frame, not before it.  So
+    the two halves of this record are deliberately asymmetric:
+    ``scene_id`` is relabelled IN MEMORY at send time, and
+    ``durable_write_allowed`` is False -- exactly the shape
+    ``_gm_warp_resync_selected_scene`` already has for the other mover,
+    including leaving x/y/z alone so the first real report still reads as a
+    change.
+
+    ``scene_label_is_server_guess`` is True for the same reason it is there
+    at all: until the client reports from the destination, the new scene
+    number is this server's guess about where a frame it sent will land, and
+    a guess must not advance ``client_confirmed_scene``.
+    """
+
+    scene_id: int
+    x: int
+    y: int
+    z: int
+    scene_label_is_server_guess: bool
+    durable_write_allowed: bool
+
+
+#: What the relocation record always says about a durable write, named so a
+#: reader does not have to trust a bare ``False`` in a tuple: the ruling above
+#: is COO's, not this module's, and a caller that wants to write at send time
+#: is arguing with that decision rather than with this file.
+TRANSPORT_DURABLE_WRITE_ALLOWED = False
+
+
+def transport_relocation(pending: PendingCheck) -> TransportRelocation:
+    """The in-memory relabel the caller owes the session for this transport.
+
+    Call it WHERE THE FRAME IS QUEUED, with the pending check the echo
+    resolved, and apply ``scene_id`` to the session's own position row (and
+    nothing else -- see :class:`TransportRelocation`).  This module holds no
+    session state and reaches no store, so it cannot apply anything itself;
+    what it can do is say, in one place, what the answer is, so the call site
+    is one line rather than a second derivation of the marker row.
+    """
+    d = pending.destination
+    return TransportRelocation(
+        scene_id=d.scene_id, x=d.x, y=d.y, z=d.z,
+        scene_label_is_server_guess=True,
+        durable_write_allowed=TRANSPORT_DURABLE_WRITE_ALLOWED)
+
+
+def transport_resync_console_line(pending: PendingCheck) -> str:
+    """The line a caller prints when it applies :func:`transport_relocation`.
+
+    ``durable=0`` is the field an attended round reads next to the DB row it
+    is about to look at: the row is EXPECTED to still carry the departure
+    scene until the player takes one step, and a ticket that does not know
+    that will report the correct behaviour as a defect.
+    """
+    r = transport_relocation(pending)
+    return (
+        "%s TRANSPORT_RESYNC marker=%d scene=%d xyz=%d,%d,%d guess=%d durable=%d"
+        % (TOKEN, pending.marker_id, r.scene_id, r.x, r.y, r.z,
+           int(r.scene_label_is_server_guess), int(r.durable_write_allowed)))
+
+
+def prompt_console_line(pending: PendingCheck, sink: Any = None) -> str:
     """ASCII only (the bridge console is cp874): what this server RECORDED.
 
     IT IS NOT A SEND RECEIPT, AND IT NO LONGER READS LIKE ONE.  This line is
@@ -555,16 +641,26 @@ def prompt_console_line(pending: PendingCheck) -> str:
     D-A1).  The verb now says which half fired, and ``sent=0`` says the other
     half did not: what a send looks like is :func:`prompt_sent_console_line`,
     which only the code path holding the bytes may print.
+
+    ``sink`` IS THE OTHER HALF OF THE SAME HONESTY.  An order recorded into a
+    recorder nobody drains is R307's window that goes nowhere, and until now
+    this line read the same either way.  Pass the recorder the order went into
+    and the line names it (:func:`sink_fingerprint`) and says whether anyone
+    claimed to drain it (:func:`sink_drain_claim`); omit it and the line says
+    ``sink=unnamed drain=unknown`` rather than pretending
+    (pf-adversary, round `nilasm`, H4).
     """
     d = pending.destination
     return (
         "%s ORDER_RECORDED marker=%d scene=%d xyz=%d,%d,%d dir=%d"
-        " confirm_predicted=%d window_expected=%d sent=0"
+        " confirm_predicted=%d window_expected=%d sent=0 %s"
         % (TOKEN, pending.marker_id, d.scene_id, d.x, d.y, d.z, d.direction,
-           pending.confirm_id, int(pending.window_expected)))
+           pending.confirm_id, int(pending.window_expected),
+           sink_console_fields(sink)))
 
 
-def prompt_sent_console_line(pending: PendingCheck, frame_bytes: int) -> str:
+def prompt_sent_console_line(pending: PendingCheck, frame_bytes: int,
+                             sink: Any = None) -> str:
     """The line for a ``TeleportCheckVital`` this server HANDED TO A SEND PATH.
 
     ONLY THE CALLER THAT HOLDS THE BYTES MAY PRINT THIS.  ``frame_bytes`` is
@@ -580,13 +676,22 @@ def prompt_sent_console_line(pending: PendingCheck, frame_bytes: int) -> str:
     (pf-adversary, round `nilasm`, M2).  ``frame_bytes`` is counted by the
     caller and verified by nothing here: a drain that builds the bytes and
     then dies before the socket can still print this line.
+
+    PASS THE SINK YOU DRAINED.  Then this line and the ``ORDER_RECORDED`` line
+    of the same order carry the same ``sink=`` word when -- and only when --
+    the recorder that took the order is the recorder these bytes came out of.
+    That comparison is what a reader can do with their eyes and what this
+    module cannot do for them: nothing here can see the drain, so the check is
+    "the two halves name one object", never "the drain ran"
+    (pf-adversary, round `nilasm`, H4).
     """
     d = pending.destination
     return (
         "%s PROMPT_SENT marker=%d scene=%d xyz=%d,%d,%d dir=%d"
-        " confirm_predicted=%d window_expected=%d bytes_out=%d"
+        " confirm_predicted=%d window_expected=%d bytes_out=%d %s"
         % (TOKEN, pending.marker_id, d.scene_id, d.x, d.y, d.z, d.direction,
-           pending.confirm_id, int(pending.window_expected), frame_bytes))
+           pending.confirm_id, int(pending.window_expected), frame_bytes,
+           sink_console_fields(sink)))
 
 
 def echo_console_line(pending: PendingCheck | None, echoed_marker_id: Any,
@@ -638,6 +743,390 @@ ORDER_CAP = 64
 ORDER_REFUSED_AT_CAP = "ORDER_REFUSED_AT_CAP"
 
 
+#: What the console prints for the drain half when the sink was never claimed.
+#: NOT an error and NOT a refusal: the order really was recorded, and this word
+#: is the token saying out loud that it cannot tell whether anyone will ever
+#: take it off the sink (pf-adversary, round `nilasm`, H4).
+DRAIN_CLAIM_UNCLAIMED = "unclaimed"
+
+#: What the console prints when the caller did not even say WHICH recorder took
+#: the order.  Told apart from ``unclaimed`` on purpose: "nobody claimed this
+#: sink" and "this line does not know its sink" are two different holes and a
+#: reader who cannot tell them apart will chase the wrong one.
+DRAIN_CLAIM_UNKNOWN = "unknown"
+SINK_FINGERPRINT_UNNAMED = "unnamed"
+
+#: A sink this process cannot hold a weak reference to cannot be told apart
+#: from the next object that lands on its address, so it gets a fingerprint
+#: that says exactly that instead of a sequence number that would be a lie.
+#:
+#: IT CARRIES A COUNTER SO IT CAN NEVER COMPARE EQUAL TO ITSELF.  The first
+#: draft printed the bare word, and two different recorders of one
+#: ``__slots__`` class then produced the SAME fingerprint on both halves of
+#: the line -- so the "these two halves name one object" rule this whole
+#: mechanism exists for passed on the exact failure it is looking for
+#: (pf-adversary, round `v721gm`, D2).  "I cannot identify this object" must
+#: never read as "these are the same object".
+SINK_FINGERPRINT_UNPINNED_SUFFIX = "unpinned"
+
+#: What the drain half says for a recorder the claim door REFUSES.  Told apart
+#: from ``unclaimed`` because they are different repairs: one needs somebody to
+#: claim the sink, the other needs a ``__weakref__`` slot before anybody can
+#: (pf-adversary, round `v721gm`, D2).
+DRAIN_CLAIM_UNCLAIMABLE = "unclaimable"
+
+#: A claim is printed on a space-delimited console line, in cp874, next to a
+#: token an attended ticket greps for.  So it is one printable-ASCII word,
+#: bounded, and refused at CLAIM time rather than sanitised at print time: the
+#: caller who wrote the bad claim is the one who can fix it, and they are
+#: standing right there when this raises.
+DRAIN_CLAIM_MAX_LEN = 40
+
+CLAIM_REFUSED_NOT_A_STRING = "CLAIM_REFUSED_NOT_A_STRING"
+CLAIM_REFUSED_EMPTY = "CLAIM_REFUSED_EMPTY"
+CLAIM_REFUSED_TOO_LONG = "CLAIM_REFUSED_TOO_LONG"
+CLAIM_REFUSED_NOT_PRINTABLE_ASCII = "CLAIM_REFUSED_NOT_PRINTABLE_ASCII"
+#: ``=`` and ``@`` are the two STRUCTURAL characters of the console line: a
+#: claim carrying them can grow a second ``drain=`` inside the first field, and
+#: a parser taking the first match reads a claim nobody made (pf-adversary,
+#: round `v721gm`, D5).
+CLAIM_REFUSED_STRUCTURAL_CHARACTER = "CLAIM_REFUSED_STRUCTURAL_CHARACTER"
+#: A claim that spells one of this module's own verdict words turns a correctly
+#: wired session into a wiring bug report: a drain that claims ``unknown``
+#: prints the word documented as "this line does not know its sink", and a sink
+#: claimed ``unclaimed`` is indistinguishable from one nobody claimed
+#: (pf-adversary, round `v721gm`, D4).
+CLAIM_REFUSED_RESERVED_WORD = "CLAIM_REFUSED_RESERVED_WORD"
+CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE = (
+    "CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE")
+
+
+class SinkClaimError(ValueError):
+    """Raised by :func:`claim_sink_for_drain` when a claim cannot be trusted.
+
+    Named like :class:`TeleportCheckError` and for the same reason: the drain
+    that mis-claims must be able to tell "this lane refused my claim" apart
+    from a ``TypeError`` out of its own plumbing.
+    """
+
+
+class _SinkEntry:
+    """What this module remembers about one recorder object.
+
+    ``ref`` is what makes the memory safe.  The dict is keyed by ``id(sink)``
+    because a recorder is allowed to define ``__eq__`` (which would make two
+    DIFFERENT recorders one key in any dict keyed by the object itself) and
+    allowed to be unhashable, and neither may cost a lane its identity check.
+    An address, though, is reused the moment the object at it dies -- so every
+    lookup re-checks ``ref() is sink`` and a dead entry answers for nobody.
+    """
+
+    __slots__ = ("ref", "sequence", "claim")
+
+    def __init__(self, ref, sequence: int) -> None:
+        self.ref = ref
+        self.sequence = sequence
+        self.claim: str | None = None
+
+
+_SINK_REGISTRY_LOCK = threading.RLock()
+_SINK_REGISTRY: "dict[int, _SinkEntry]" = {}
+_SINK_SEQUENCE = 0
+
+
+def _next_sequence() -> int:
+    """The next number no object in this process has ever worn.
+
+    Monotonic and never recycled, so two lines printed minutes apart can be
+    compared: an ADDRESS would be reused the moment the first object died and
+    the reader would have no way to know (pf-adversary, round `v721gm`, D7,
+    which killed the mutant that printed ``id(sink)`` instead).
+    """
+    global _SINK_SEQUENCE
+    with _SINK_REGISTRY_LOCK:
+        _SINK_SEQUENCE += 1
+        return _SINK_SEQUENCE
+
+
+def _forget_sink(key: int, dead_ref) -> None:
+    """Drop a dead recorder's entry, and ONLY if it is still that entry.
+
+    A weakref callback runs after the object is gone, which is exactly when a
+    new object may already have been allocated at the same address and
+    registered under the same key.  Deleting by key alone would then throw away
+    a LIVE recorder's identity, and the next console line would say a different
+    fingerprint for a sink that never moved.
+    """
+    with _SINK_REGISTRY_LOCK:
+        entry = _SINK_REGISTRY.get(key)
+        if entry is not None and entry.ref is dead_ref:
+            del _SINK_REGISTRY[key]
+
+
+def _entry_for(sink: Any, create: bool) -> "_SinkEntry | None":
+    """This recorder's entry, minting one when asked and when possible."""
+    key = id(sink)
+    with _SINK_REGISTRY_LOCK:
+        entry = _SINK_REGISTRY.get(key)
+        if entry is not None:
+            if entry.ref() is sink:
+                return entry
+            # The address was reused.  The old entry belongs to an object that
+            # is already gone; its claim must not be inherited by whoever
+            # landed here next.
+            del _SINK_REGISTRY[key]
+        if not create:
+            return None
+        try:
+            ref = weakref.ref(sink, lambda dead, key=key: _forget_sink(key, dead))
+        except TypeError:
+            return None
+        entry = _SinkEntry(ref, _next_sequence())
+        _SINK_REGISTRY[key] = entry
+        return entry
+
+
+def _sink_type_name(sink: Any) -> str:
+    """The recorder's class name, ASCII and printable, never a crash.
+
+    Class names may hold non-ASCII (Python allows it) and a ``__class__`` may
+    be a property that raises; either one reaching a cp874 console kills the
+    line that was reporting on somebody else's mistake -- the same failure
+    ``ascii()`` was introduced for one round ago.
+    """
+    try:
+        # str() INSIDE the try: a metaclass may answer __name__ with a
+        # non-string, and the comprehension below then raised out of the
+        # composer AFTER record() had stored the order -- the D-A5 shape
+        # again, one round later (pf-adversary, round `v721gm`, D11).
+        name = str(type(sink).__name__)
+    except Exception:
+        return "sink"
+    # `=` and `@` are dropped, not kept: they are this line's own structure,
+    # and a class named `Rec@1 drain=dispatch` otherwise grows a second
+    # drain= field inside the sink word (pf-adversary, round `v721gm`, D5).
+    cleaned = "".join(ch for ch in name
+                      if 33 <= ord(ch) <= 126 and ch not in "=@")
+    return cleaned[:40] or "sink"
+
+
+def sink_fingerprint(sink: Any) -> str:
+    """A per-object name for a recorder that two console lines can compare.
+
+    THIS IS THE HALF OF H4 THAT IS NOT A PROMISE.  ``ORDER_RECORDED`` prints
+    the fingerprint of the sink the order went INTO and ``PROMPT_SENT`` prints
+    the fingerprint of the sink the bytes came OUT of, so a reader of one log
+    can see with their own eyes whether the two halves are talking about the
+    same object -- which is the failure R307 named ("a window that goes
+    nowhere") and which nothing in this file could previously show.
+
+    The sequence number is per process and never reused; the address is not
+    printed, because an address IS reused and a reader comparing two lines
+    minutes apart would have no way to know it.  A recorder that cannot be
+    weak-referenced gets ``@unpinned`` instead of a number, because for that
+    object this module genuinely cannot tell one incarnation from the next.
+    """
+    entry = _entry_for(sink, create=True)
+    if entry is None:
+        return "%s@%s-%d" % (_sink_type_name(sink),
+                             SINK_FINGERPRINT_UNPINNED_SUFFIX,
+                             _next_sequence())
+    return "%s@%d" % (_sink_type_name(sink), entry.sequence)
+
+
+#: The words this module prints as VERDICTS.  A claim may not be one of them:
+#: see :data:`CLAIM_REFUSED_RESERVED_WORD`.
+DRAIN_CLAIM_RESERVED_WORDS = (
+    DRAIN_CLAIM_UNCLAIMED, DRAIN_CLAIM_UNKNOWN, DRAIN_CLAIM_UNCLAIMABLE,
+    SINK_FINGERPRINT_UNNAMED, SINK_FINGERPRINT_UNPINNED_SUFFIX)
+
+
+def claim_sink_for_drain(sink: Any, claim: Any) -> str:
+    """Record that ``claim`` is the code that will DRAIN this recorder.
+
+    WHAT THIS PROVES, EXACTLY: that some caller, holding this very object,
+    said so.  It is not a promise that the drain will run, and this module
+    cannot make one -- the drain lives in ``runtime.py``'s dispatch, which is
+    chief's file and not this lane's to inspect.  What it buys is that the
+    two ways of getting this wrong stop looking identical on the console: a
+    sink NOBODY claimed now prints ``drain=unclaimed``, and a sink claimed by
+    a drain that then drains a DIFFERENT object prints a fingerprint the
+    ``PROMPT_SENT`` line does not repeat.  Before this, both cases printed
+    ``stored=1`` and read like success (pf-adversary, round `nilasm`, H4).
+
+    Refuses loudly rather than sanitising: a claim is printed unescaped next to
+    the token an attended ticket greps for, so a claim carrying a space, a
+    newline or a byte the bridge's cp874 console cannot render would corrupt
+    the very line it was meant to make readable.  A recorder that cannot be
+    weak-referenced is refused too, with the one-line fix in the message --
+    without a weak reference this module cannot notice the object dying and
+    would hand its claim to whatever is allocated at that address next.
+    """
+    if type(claim) is not str:
+        raise SinkClaimError(
+            "%s claim=%s: a drain claim is a short printable-ASCII word"
+            % (CLAIM_REFUSED_NOT_A_STRING, ascii(claim)))
+    if not claim:
+        raise SinkClaimError(
+            "%s: a drain claim names the code that will drain this sink"
+            % CLAIM_REFUSED_EMPTY)
+    if len(claim) > DRAIN_CLAIM_MAX_LEN:
+        raise SinkClaimError(
+            "%s claim=%s len=%d max=%d"
+            % (CLAIM_REFUSED_TOO_LONG, ascii(claim), len(claim),
+               DRAIN_CLAIM_MAX_LEN))
+    if any(not (33 <= ord(ch) <= 126) for ch in claim):
+        raise SinkClaimError(
+            "%s claim=%s: no spaces, no control bytes, no cp874 gambles"
+            % (CLAIM_REFUSED_NOT_PRINTABLE_ASCII, ascii(claim)))
+    if any(ch in "=@" for ch in claim):
+        raise SinkClaimError(
+            "%s claim=%s: '=' and '@' are this line's own structure"
+            % (CLAIM_REFUSED_STRUCTURAL_CHARACTER, ascii(claim)))
+    if claim in DRAIN_CLAIM_RESERVED_WORDS:
+        raise SinkClaimError(
+            "%s claim=%s: that word is a verdict of this module, not a name"
+            % (CLAIM_REFUSED_RESERVED_WORD, ascii(claim)))
+    entry = _entry_for(sink, create=True)
+    if entry is None:
+        raise SinkClaimError(
+            "%s sink=%s: give the recorder a weak reference slot "
+            "(add \"__weakref__\" to its __slots__) so a claim cannot "
+            "outlive the object that carries it"
+            % (CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE,
+               _sink_type_name(sink)))
+    with _SINK_REGISTRY_LOCK:
+        entry.claim = claim
+    return claim
+
+
+def try_claim_sink_for_drain(sink: Any, claim: Any) -> str | None:
+    """:func:`claim_sink_for_drain`, but ``None`` instead of a raise.
+
+    FOR THE SOCKET PATH, AND ONLY BECAUSE OF WHERE THAT PATH LIVES.  The drain
+    this claim is for runs inside ``dispatch()``, whose listener has a ``try:``
+    with no ``except``: a raise there does not fail a claim, it kills the
+    accept loop for every session on the process.  And the most ordinary way to
+    reach it is not a typo -- ``ScriptHost.teleport_check_sink`` answers
+    ``None`` for a degraded host, which the house rule says must fail SOFT, so
+    a claim that raised would turn a survivable mirror failure into a dead
+    server (pf-adversary, round `v721gm`, D6).
+
+    Returns the claim on success and the refusal NAME on failure, so the caller
+    logs a word instead of losing a thread.
+    """
+    try:
+        return claim_sink_for_drain(sink, claim)
+    except SinkClaimError:
+        return None
+
+
+def claim_refusal_reason(sink: Any, claim: Any) -> str | None:
+    """The refusal name a claim would earn, or ``None`` when it would be taken.
+
+    Split out from :func:`try_claim_sink_for_drain` so the socket path can log
+    WHICH repair it needs -- ``CLAIM_REFUSED_SINK_NOT_WEAK_REFERENCEABLE`` and
+    ``CLAIM_REFUSED_RESERVED_WORD`` are two different one-line fixes.
+    """
+    try:
+        claim_sink_for_drain(sink, claim)
+    except SinkClaimError as exc:
+        return str(exc).split(" ", 1)[0]
+    return None
+
+
+def sink_drain_claim(sink: Any) -> str | None:
+    """The claim on this recorder, or ``None`` when nobody claimed it.
+
+    Never mints an entry: asking who will drain a sink must not be the reason
+    this module starts remembering it.
+    """
+    entry = _entry_for(sink, create=False)
+    if entry is None:
+        return None
+    with _SINK_REGISTRY_LOCK:
+        return entry.claim
+
+
+def sink_is_wired(sink: Any) -> bool:
+    """Whether this recorder's ``record`` is something other than the default's.
+
+    A MEASUREMENT, NOT A PROMISE, and it is here because the claim is the
+    other way round.  The recorder a live connection hands ``ScriptHost`` is
+    an ``InMemoryTeleportCheckSink`` subclass whose ``record()`` also queues
+    the send (chief, letter `20260908_0432`); the inert default that every
+    unwired host builds for itself is this module's own class, unchanged.  So
+    "is this the recorder nobody wired?" can be answered by looking at the
+    object rather than by believing a word somebody wrote on it
+    (pf-adversary, round `v721gm`, D3/D12).
+
+    WHAT IT DOES NOT SAY: that the wired recorder's queue is ever drained.
+    ``taken`` is the number that says that, and only draining moves it.
+    """
+    try:
+        return type(sink).record is not InMemoryTeleportCheckSink.record
+    except Exception:
+        return True
+
+
+def sink_taken_count(sink: Any) -> int | None:
+    """How many orders were REMOVED from this recorder, or ``None``.
+
+    ``InMemoryTeleportCheckSink.take`` is the only thing that moves it, and
+    ``take`` is what a drain calls, so ``taken=0`` on a session that has been
+    filing orders for a while is R307's window-that-goes-nowhere stated as a
+    number instead of as a promise about the future (pf-adversary, round
+    `v721gm`: the claim proves only that somebody wrote a string).
+    """
+    try:
+        value = sink.taken
+    except Exception:
+        return None
+    if isinstance(value, bool) or type(value) is not int:
+        return None
+    return value
+
+
+def sink_console_fields(sink: Any) -> str:
+    """The ``sink=... drain=... wired=... taken=...`` half of a console line.
+
+    ``sink is None`` means the caller did not say which recorder it used, and
+    that reads ``sink=unnamed drain=unknown`` -- not ``unclaimed``, which is a
+    measured fact about a named object.
+
+    ``drain=unclaimable`` is a third case and not a fourth spelling of the
+    first two: the claim door REFUSES this object (no weak reference can hold
+    it), so nobody can ever claim it and the repair is a ``__slots__`` line,
+    not a wiring call.
+
+    ``wired`` and ``taken`` are the two fields nothing can assert into: they
+    are read off the object each time the line is printed.
+    """
+    if sink is None:
+        return ("sink=%s drain=%s wired=? taken=?"
+                % (SINK_FINGERPRINT_UNNAMED, DRAIN_CLAIM_UNKNOWN))
+    claim = sink_drain_claim(sink)
+    if claim is not None:
+        drain = claim
+    elif _entry_for(sink, create=False) is None and not _can_be_claimed(sink):
+        drain = DRAIN_CLAIM_UNCLAIMABLE
+    else:
+        drain = DRAIN_CLAIM_UNCLAIMED
+    taken = sink_taken_count(sink)
+    return ("sink=%s drain=%s wired=%d taken=%s"
+            % (sink_fingerprint(sink), drain, int(sink_is_wired(sink)),
+               "?" if taken is None else taken))
+
+
+def _can_be_claimed(sink: Any) -> bool:
+    """Whether a weak reference can hold this recorder at all."""
+    try:
+        weakref.ref(sink)
+    except TypeError:
+        return False
+    return True
+
+
 def sink_stored_count(returned: Any) -> int | None:
     """What a recorder's ``record()`` answered, or ``None`` for "it did not".
 
@@ -674,11 +1163,21 @@ class InMemoryTeleportCheckSink:
     can collide inside.
     """
 
-    __slots__ = ("orders", "refusals")
+    #: ``__weakref__`` is load-bearing, not boilerplate: without a weak
+    #: reference slot this recorder cannot be claimed for draining at all
+    #: (:func:`claim_sink_for_drain` refuses it by name), because this
+    #: module would have no way to notice the object dying and would hand
+    #: its claim to whatever is allocated at that address next.
+    __slots__ = ("orders", "refusals", "taken", "__weakref__")
 
     def __init__(self) -> None:
         self.orders: list[TeleportCheckOrder] = []
         self.refusals: list[str] = []
+        #: Orders REMOVED by :meth:`take`, which is what a drain calls.  Only
+        #: the act of draining moves it, which is what makes it worth printing
+        #: next to a claim that only proves somebody made a promise
+        #: (pf-adversary, round `v721gm`, D3).
+        self.taken = 0
 
     def record(self, character_id: int, pending: PendingCheck) -> int:
         """``1`` when the order was stored, ``0`` when the cap refused it.
@@ -708,4 +1207,6 @@ class InMemoryTeleportCheckSink:
         if index is None:
             self.refusals.append(ECHO_REFUSED_NO_ORDER_FOR_THIS_PLAYER)
             return None
-        return self.orders.pop(index)
+        order = self.orders.pop(index)
+        self.taken += 1
+        return order

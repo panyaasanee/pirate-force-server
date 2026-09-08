@@ -1540,19 +1540,21 @@
     {
       "key": "lupa_package",
       "module": "tests/test_world_m2_teleport_check_host_door.py",
-      "count": 9,
+      "count": 11,
       "tests": [
+        "TheHostHandsTheTravelOrderOutTests::test_a_drain_that_claims_the_hosts_sink_is_named_on_its_console",
         "TheHostHandsTheTravelOrderOutTests::test_a_host_with_no_character_bound_refuses_instead_of_recording",
         "TheHostHandsTheTravelOrderOutTests::test_a_load_script_file_host_carries_the_sink_through_too",
         "TheHostHandsTheTravelOrderOutTests::test_a_script_calling_teleport_check_lands_in_the_hosts_own_sink",
         "TheHostHandsTheTravelOrderOutTests::test_a_script_passing_a_bad_id_is_refused_by_name_not_by_a_raise",
+        "TheHostHandsTheTravelOrderOutTests::test_the_console_says_nobody_claimed_this_hosts_sink_yet",
         "TheHostHandsTheTravelOrderOutTests::test_the_console_token_reaches_a_real_hosts_log",
         "TheHostHandsTheTravelOrderOutTests::test_the_door_is_the_same_object_the_namespace_records_into",
         "TheHostHandsTheTravelOrderOutTests::test_the_hosts_door_cannot_be_swapped_out_from_under_the_namespace",
         "TheHostHandsTheTravelOrderOutTests::test_the_sink_the_caller_supplied_is_the_one_that_is_written_to",
         "TheHostHandsTheTravelOrderOutTests::test_two_hosts_never_share_one_sink"
       ],
-      "note": "round ew9416 (LANE-A). New module: the M2 travel order's door out of the Lua namespace (pf-adversary D2 of round ebh143). Every test here drives a live ScriptHost, so the whole class carries ONE key and each of the 7 methods carries the class decorator -- no stacked second precondition, which is the drift shape COO-DECISION 20260906_0550 traced to a red gate. The module reads no sibling checkout (no fixture, no gamedata): the namespace-level behaviour that needs no Lua is pinned in tests/test_world_m2_teleport_check.py instead, which stays unguarded. MEASURED, not predicted: the module was collected with lupa absent and reported exactly these 9 skips, and 9 only. Round nilasm added the eighth and ninth (the round ew9416 adversary result was paid there, not here) (a host with no player_context refuses to file an order at all, chief letter 20260908_0432 D6) and made the module collectable on its own, which is the command this note tells a reader to rehearse with."
+      "note": "round ew9416 (LANE-A). New module: the M2 travel order's door out of the Lua namespace (pf-adversary D2 of round ebh143). Every test here drives a live ScriptHost, so the whole class carries ONE key and each of the 7 methods carries the class decorator -- no stacked second precondition, which is the drift shape COO-DECISION 20260906_0550 traced to a red gate. The module reads no sibling checkout (no fixture, no gamedata): the namespace-level behaviour that needs no Lua is pinned in tests/test_world_m2_teleport_check.py instead, which stays unguarded. MEASURED, not predicted: the module was collected with lupa absent and reported exactly these 9 skips, and 9 only. Round nilasm added the eighth and ninth (the round ew9416 adversary result was paid there, not here) (a host with no player_context refuses to file an order at all, chief letter 20260908_0432 D6) and made the module collectable on its own, which is the command this note tells a reader to rehearse with. Round v721gm added the tenth and eleventh (pf-adversary H4 of round nilasm: the console token now names the recorder the order was filed into and says whether anyone claimed to drain it -- one test for an unclaimed host, one for a host whose sink a drain claimed through host.teleport_check_sink). MEASURED AGAIN in round v721gm with lupa absent from the interpreter: exactly 11 skips in this module and 11 only, collected on its own."
     }
   ],
   "windows_gate_excluded_modules": {
