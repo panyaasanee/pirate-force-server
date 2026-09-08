@@ -228,6 +228,66 @@ class TestTheAllocator(unittest.TestCase):
                     mis.scene_and_placement_for(identity)
 
 
+class TestTheWallBeatTwoWalksIntoTests(unittest.TestCase):
+    """The shared world registry refuses every identity this band hands out.
+
+    MEASURED THIS ROUND, not predicted.  ``world_scene_registry`` is
+    LANE-A's book and this lane writes combat state INTO it (NOW.md: "A =
+    registry - B writes combat state into A's registry"), so this lane may
+    not change it.  Its ``_require_identity`` accepts ``1 <= identity <=
+    0xFFFFFFFF``; every value :func:`mob_wire_identity` produces is
+    negative, so ``note_position`` and ``note_balance`` come back with
+    reason ``bad_identity`` and remember NOTHING.
+
+    WHY THIS IS A PIN AND NOT A BUG REPORT.  Those two doors do not raise --
+    they return a ``NoteOutcome``.  So the day beat 2 flips a scene onto the
+    band, every monster in that scene stops being written to the shared
+    world with no exception anywhere: the arrival census reads an empty
+    book, and a second player entering the scene sees monsters standing at
+    their table positions with full HP no matter what the first player did
+    to them.  That is a silent player-visible defect, which is the exact
+    shape this house pins in a test rather than leaves in prose.
+
+    This test goes RED the day LANE-A widens the gate, and that is the day
+    it should be rewritten to assert the new reach.  The ask is
+    ``notes_to_chief/20260908_20xx_LANE-B-ASK-COO-the-world-registry-
+    refuses-every-band-identity.md``.
+    """
+
+    def test_the_registry_refuses_a_band_identity_on_both_doors(self):
+        from pirateforce_foundation import world_scene_registry as wsr
+
+        registry = wsr.WorldSceneRegistry()
+        identity = mis.mob_wire_identity(2, 0)
+        self.assertLess(identity, 0)
+        for outcome in (
+            registry.note_position("Bg0002", identity, (1.0, 2.0, 3.0)),
+            registry.note_balance("Bg0002", identity, 10, 20),
+        ):
+            self.assertEqual(outcome.reason, wsr.REFUSE_BAD_IDENTITY)
+            self.assertIsNone(outcome.remembered)
+
+    def test_it_is_the_sign_and_not_something_else_about_the_value(self):
+        """The legacy positive formula goes in through the same door."""
+        from pirateforce_foundation import world_scene_registry as wsr
+
+        registry = wsr.WorldSceneRegistry()
+        outcome = registry.note_position("Bg0002", 0x2001, (1.0, 2.0, 3.0))
+        self.assertEqual(outcome.reason, "")
+        self.assertIsNotNone(outcome.remembered)
+
+    def test_the_refusal_is_returned_rather_than_raised(self):
+        """Which is why nothing upstream would notice the loss."""
+        from pirateforce_foundation import world_scene_registry as wsr
+
+        registry = wsr.WorldSceneRegistry()
+        identity = mis.mob_wire_identity(2, 5)
+        outcome = registry.note_balance("Bg0002", identity, 1, 2)
+        self.assertEqual(outcome.reason, wsr.REFUSE_BAD_IDENTITY)
+        # nothing was written, and no caller was told by an exception
+        self.assertEqual(registry.remembered("Bg0002"), ())
+
+
 class TestTheBandDoesNotStealTheSweepsIdentities(unittest.TestCase):
     """pf-adversary round ``gadxq5``, finding D6.
 
