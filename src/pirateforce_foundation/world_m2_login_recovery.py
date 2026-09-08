@@ -105,7 +105,7 @@ not authorise a write; it is ``_checkpoint_exact_target``, at the client's
 first confirmed position, that writes - which is exactly the division
 ``COO-DECISION 20260828_2130`` set.
 
-🔴 CARRY THE ``KA1A-ROOTCAUSE`` BLOCK.  chief marked this red in R399 section
+RED RULE - CARRY THE ``KA1A-ROOTCAUSE`` BLOCK.  chief marked this red in R399 section
 2 for ANYONE performing this VISIT, and measured the price of copying half of
 it: the destination scene's census never fires for the whole session (an
 empty world), combat membership stays pinned to the departure scene so every
