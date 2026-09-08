@@ -198,8 +198,9 @@ SWEEP_RESERVED_IDENTITIES = 64
 #: back onto scene 0's block.  ``gm/scene_catalog`` is the widest scene-id
 #: space this tree names -- 330 rows, ids 1..999 -- so 4096 leaves four
 #: times the room the catalogue uses, and the most negative identity the
-#: whole band can produce is -(64 + 4096*4096) = -16,777,280, six orders of
-#: magnitude above :data:`MOB_IDENTITY_FLOOR`.
+#: whole band can produce is -(64 + 4096*4096) = -16,777,280, which is
+#: eleven orders of magnitude above :data:`MOB_IDENTITY_FLOOR` (-2**62 is
+#: about -4.6e18; the ratio is 2.7e11).
 SCENE_ID_CEILING = 0x1000
 
 #: The most negative identity this allocator will ever hand out, kept a full
