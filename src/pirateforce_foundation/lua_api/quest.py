@@ -148,7 +148,7 @@ precise boundary.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -444,6 +444,20 @@ class QuestContext:
 
     character_id: int
     quest_id: int
+    #: The Lua entry point currently running (``Report_Run``,
+    #: ``Accept_Check``, ...), or ``quest_rewards.UNKNOWN_ENTRY_POINT``.
+    #: Carried HERE rather than passed down every call because it is the
+    #: same kind of fact ``quest_id`` is -- something only the dispatcher
+    #: knows and every gated read needs -- and because a field cannot be
+    #: forgotten at one call site out of four.
+    #:
+    #: ``ScriptHost.call`` swaps this in for the duration of one entry
+    #: point (``dataclasses.replace``, restored in a ``finally``), so the
+    #: context stays frozen and a namespace outside a call is back to
+    #: unknown, which is the fail-closed answer.  See
+    #: ``quest_rewards.UNKNOWN_ENTRY_POINT`` for why unknown must refuse
+    #: everything rather than nothing.
+    entry_point: str = quest_rewards.UNKNOWN_ENTRY_POINT
 
 
 #: The context a :class:`RealQuestNamespace` gets when nothing more specific
@@ -697,7 +711,7 @@ def _pay_criteria(log: Callable[[str], None], api_name: str,
     :func:`lua_api.reward.pay`: nothing implements the atomic delta yet.
     """
     state = quest_rewards.unpayable_group_for(
-        context.quest_id, "Quest.%s" % api_name)
+        context.quest_id, "Quest.%s" % api_name, context.entry_point)
     if state is not None:
         # The half-transaction gate, on the one give side that carries no
         # column of its own (COO-DECISION `20260908_0242` item 4, and
@@ -767,6 +781,34 @@ STILL_STUBBED: dict[str, str] = {
 }
 
 
+class _EntryPointScope:
+    """What :meth:`RealQuestNamespace.entering` returns.
+
+    Swaps a NEW frozen :class:`QuestContext` in for the duration of the
+    block and puts the old one back in a ``finally``.  The context stays
+    frozen (``dataclasses.replace``), so nothing that captured the old one
+    -- a log line already written, a closure already built -- can see it
+    change underneath.
+    """
+
+    __slots__ = ("_namespace", "_entry_point", "_saved")
+
+    def __init__(self, namespace: "RealQuestNamespace", entry_point: str):
+        self._namespace = namespace
+        self._entry_point = entry_point
+        self._saved = None
+
+    def __enter__(self) -> "RealQuestNamespace":
+        self._saved = self._namespace._context  # noqa: SLF001 - own class
+        self._namespace._context = replace(  # noqa: SLF001 - own class
+            self._saved, entry_point=self._entry_point)
+        return self._namespace
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self._namespace._context = self._saved  # noqa: SLF001 - own class
+        return False
+
+
 class RealQuestNamespace:
     """Drop-in replacement for ``script_host.ApiNamespaceStub`` on ``Quest``.
 
@@ -813,6 +855,31 @@ class RealQuestNamespace:
         #: NAMESPACE, so two scripts each get their own lines.
         self._var_facts_said: set = set()
         self.calls: list = []
+
+    @property
+    def context(self) -> "QuestContext":
+        """The (character, quest, entry point) this namespace answers for.
+
+        READ-ONLY, the same posture ``teleport_check_sink`` takes on
+        ``lua_api.player``'s namespace and for the same measured reason: an
+        assignable attribute lets a caller swap the binding while the gate
+        keeps consulting the old one, and nothing says so.  A caller that
+        wants a different entry point uses :meth:`entering`, which restores.
+        """
+        return self._context
+
+    def entering(self, entry_point: str) -> "_EntryPointScope":
+        """Run a block with ``entry_point`` named as the running function.
+
+        A context manager rather than a setter so the restore cannot be
+        forgotten -- and it restores rather than clearing, because a
+        dispatcher may one day nest (an entry point of one script calling
+        into another's).  On the way out the namespace is back to whatever
+        it was, which for a fresh host is
+        :data:`quest_rewards.UNKNOWN_ENTRY_POINT`: fail-closed, gated cell
+        by cell, exactly as it was before this scoping existed.
+        """
+        return _EntryPointScope(self, entry_point)
 
     def __getitem__(self, name):
         if name == "CheckOpenTime":
@@ -1021,13 +1088,13 @@ class RealQuestNamespace:
             # `quest_rewards.resolve_var_for_namespace`.
             return quest_rewards.resolve_var_for_namespace(
                 self._log, self._context.quest_id, var_index, STUB_DEFAULT,
-                self._var_facts_said)
+                self._var_facts_said, self._context.entry_point)
 
         reward_name = quest_rewards.lua_name_of(name)
         if reward_name is not None:
             return quest_rewards.resolve_for_namespace(
                 self._log, self._context.quest_id, reward_name, STUB_DEFAULT,
-                self._var_facts_said)
+                self._var_facts_said, self._context.entry_point)
 
         if name in self._stub_methods:
             qualified = "Quest.%s" % name
@@ -1049,6 +1116,61 @@ class RealQuestNamespace:
         # in the corpus assigns into a namespace table at runtime (verified
         # there, not re-verified here); accept and discard.
         return None
+
+
+@dataclass(frozen=True)
+class EntryPointRefusal:
+    """Why one Lua entry point must not run, ready to log and to raise.
+
+    Carries the two SENTENCES rather than the parts, so ``script_host``
+    neither reaches into a group's fields nor re-spells any of them.  That
+    is not tidiness: ``tests/test_npc_interaction_wire.py``'s symbol guard
+    (LANE-A's, chief-granted, and NOT this lane's to widen) refuses new
+    quest/reward-shaped names in ``src/pirateforce_foundation/*.py``, and it
+    is right to -- a Lua host that starts deciding quest outcomes in Python
+    is exactly what ``prompts/LANE-Q.md`` forbids.  The decision belongs
+    one directory down, HERE, beside the table it reads; the host's whole
+    part is to ask and to obey.
+    """
+
+    log_line: str
+    message: str
+
+
+def entry_point_refusal(namespace, entry_point: str
+                        ) -> "Optional[EntryPointRefusal]":
+    """The refusal ``entry_point`` earns on ``namespace``, or ``None`` to run.
+
+    A MODULE-LEVEL FUNCTION taking the namespace rather than a method
+    reaching into a host, so the decision can be exercised against every
+    row in the shipped table without a Lua runtime -- ``lupa`` is absent on
+    the cloud clones this lane works from, and a gate whose only tests skip
+    there is a gate nobody is checking (``NOW.md`` `2050`).
+
+    ``None`` for a namespace carrying no context at all (a degraded host,
+    or the generic ``script_host.ApiNamespaceStub`` a spec change could
+    leave in place).  Not a hole: with nothing bound there is no row, no
+    script and no group, so there is nothing to refuse -- and every CELL
+    such a host reads is still gated the old, conservative way by
+    :func:`lua_api.quest_rewards.unpayable_group_for`'s fail-closed unknown.
+    """
+    context = getattr(namespace, "context", None)
+    if context is None:
+        return None
+    state = quest_rewards.unpayable_group_of_entry_point(
+        context.quest_id, entry_point)
+    if state is None:
+        return None
+    blocked = ",".join(state.blocking)
+    return EntryPointRefusal(
+        log_line=("LUA_QUEST_ENTRY_REFUSED script=%s entry=%s quest=%d "
+                  "blocked_on=%s" % (state.group.script, entry_point,
+                                     context.quest_id, blocked)),
+        message=("%s.%s refused for quest %d: this entry point performs a "
+                 "transaction whose members are not implemented (%s), so "
+                 "running it would take one side and not the other"
+                 % (state.group.script, entry_point, context.quest_id,
+                    ", ".join(state.blocking))))
 
 
 def build_namespace(methods: frozenset, log: Callable[[str], None], *,

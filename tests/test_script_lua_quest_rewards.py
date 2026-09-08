@@ -35,11 +35,17 @@ from unittest import mock
 
 from pf_preconditions import BRIDGE_GAMEDATA, BRIDGE_LUA_SCRIPTS, SIBLING
 
+from pirateforce_foundation import script_host
 from pirateforce_foundation.lua_api import (player as lua_player, quest,
                                             quest_criteria as qc,
                                             quest_rewards as qr,
-                                            quest_vars as qv, vendored)
+                                            quest_vars as qv, spec, vendored)
 from pirateforce_foundation.lua_api.quest_criteria import QuestCriteriaError
+
+#: What a refused ``Quest.VarN`` would hand back if the gate let it fall
+#: through to the namespace's own bare-name default -- imported by value so
+#: this file's assertions say which of the two answers they mean.
+STUB_DEFAULT = quest.STUB_DEFAULT
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MIRROR_DIR = REPO_ROOT / "src" / "pirateforce_foundation" / "lua_api"
@@ -1263,6 +1269,240 @@ class MirrorsMatchTheGameTests(unittest.TestCase):
                     line = data[int(number) - 1]
                     self.assertIn(member.api_name.split(".")[1].encode("ascii"),
                                   line, member.call_site)
+
+
+class TheRefusalKnowsWhichEntryPointIsRunningTests(unittest.TestCase):
+    """pf-adversary D8 (round `5a3x47`): a group is one entry point's fact.
+
+    A group is DEFINED as the take and give one Lua entry point performs
+    together -- it is even keyed that way in the mirror -- but until this
+    round the refusal was delivered through ``Quest.VarN``, keyed only on
+    ``(quest_id, column)``, and therefore imposed on every OTHER top-level
+    function of the same script as well.
+
+    ``Q_BOAT_HEALTH`` (quest 3189) is the whole defect in one shipped file,
+    which is why it is the fixture here rather than a hand-written one: its
+    single group belongs to ``Accept_Run`` (blocked on ``Player.BoatHealth``,
+    still a stub), and ``n_VARI_2`` is the 100-cash price the repair costs.
+    """
+
+    QUEST = 3189
+    OWNER = "Accept_Run"
+    PRICE = 100
+
+    def test_the_owning_entry_point_still_has_its_cells_refused(self):
+        state = qr.unpayable_group_for(self.QUEST, "n_VARI_2", self.OWNER)
+        self.assertIsNotNone(state)
+        self.assertEqual(state.group.group, self.OWNER)
+        self.assertEqual(
+            qr.resolve_var_for_namespace(lambda _line: None, self.QUEST, 2,
+                                         STUB_DEFAULT, None, self.OWNER),
+            qr.REFUSED_CELL)
+
+    def test_another_entry_point_of_the_same_script_reads_the_real_cell(self):
+        # D8 itself.  `Report_Check`/`Delete_Run`/`Accept_Check` are not
+        # part of the repair transaction and were being handed -1 for it.
+        for entry_point in ("Accept_Check", "Report_Check", "Report_Run",
+                            "Delete_Run", "OpenAcceptUI_Run"):
+            with self.subTest(entry_point=entry_point):
+                self.assertIsNone(qr.unpayable_group_for(self.QUEST,
+                                                         "n_VARI_2",
+                                                         entry_point))
+                self.assertEqual(
+                    qr.resolve_var_for_namespace(lambda _line: None,
+                                                 self.QUEST, 2, STUB_DEFAULT,
+                                                 None, entry_point),
+                    self.PRICE)
+
+    def test_an_unnamed_entry_point_refuses_exactly_as_much_as_before(self):
+        # FAIL-CLOSED, and the pin that says so.  If unknown ever scoped to
+        # "no group", every caller that forgets to name its entry point
+        # would silently disarm the gate -- the state COO `0242` item 4
+        # forbids.  Both spellings of unknown, and the default, must refuse.
+        for unknown in (qr.UNKNOWN_ENTRY_POINT, ""):
+            with self.subTest(unknown=unknown):
+                self.assertIsNotNone(qr.unpayable_group_for(self.QUEST,
+                                                            "n_VARI_2",
+                                                            unknown))
+        self.assertIsNotNone(qr.unpayable_group_for(self.QUEST, "n_VARI_2"))
+        self.assertEqual(
+            qr.resolve_var_for_namespace(lambda _line: None, self.QUEST, 2,
+                                         STUB_DEFAULT),
+            qr.REFUSED_CELL)
+
+    def test_only_the_owner_is_refused_as_a_whole_entry_point(self):
+        owner = qr.unpayable_group_of_entry_point(self.QUEST, self.OWNER)
+        self.assertIsNotNone(owner)
+        self.assertEqual(owner.group.script, "Q_BOAT_HEALTH")
+        self.assertEqual(owner.blocking, ("Player.BoatHealth",))
+        for other in ("Accept_Check", "Report_Check", "Report_Run",
+                      "Delete_Run", "Script_Start", qr.UNKNOWN_ENTRY_POINT):
+            with self.subTest(other=other):
+                self.assertIsNone(
+                    qr.unpayable_group_of_entry_point(self.QUEST, other))
+
+    def test_a_row_whose_groups_are_all_payable_refuses_no_entry_point(self):
+        # The negative result: entry-point scoping must not invent a
+        # refusal for a row that had none.
+        #
+        # DRIVEN BY MAKING THE APIS REAL, not by looking for such a row in
+        # the shipped table.  pf-adversary D3 of round `0ldyk7` measured
+        # that the first version of this test did the latter and was
+        # VACUOUS: today zero of the 452 rows with a group have all their
+        # groups payable (Player.AddItem/RemoveItem are stubs, so every
+        # group blocks), the list was empty, the loop body never ran, and
+        # the test was green for the one reason a test must never be green.
+        # It could not falsify `not state.payable` -- deleting that clause
+        # left the whole suite passing.
+        with mock.patch.object(qr, "_default_api_is_real",
+                               return_value=True):
+            for quest_id in (self.QUEST, 39, 42, 44):
+                states = qr.group_state(quest_id)
+                self.assertTrue(states, quest_id)
+                self.assertTrue(all(state.payable for state in states))
+                for entry_point in ("Accept_Run", "Report_Run",
+                                    "Delete_Run"):
+                    self.assertIsNone(
+                        qr.unpayable_group_of_entry_point(quest_id,
+                                                          entry_point))
+                self.assertIsNone(qr.unpayable_group_for(quest_id,
+                                                         "n_VARI_2"))
+        # And back, on the real table, without the patch.
+        self.assertIsNotNone(
+            qr.unpayable_group_of_entry_point(self.QUEST, self.OWNER))
+
+    def test_the_host_call_ACTS_on_the_refusal_and_does_not_merely_log_it(self):
+        """``ScriptHost.call`` refuses, WITHOUT a Lua runtime to prove it.
+
+        pf-adversary D2 of round `0ldyk7`: every other test of the acting
+        half is in `tests/test_script_host_spike.py`, guarded by
+        `LUPA_PACKAGE`, so on a cloud clone -- where this lane does all its
+        work -- replacing the `raise` in `ScriptHost.call` with nothing at
+        all left the entire suite green.  The gate reported and did not
+        act, and nothing said so.
+
+        So this drives the REAL `ScriptHost.call` against a stand-in
+        `self`: the method is called unbound, with an object carrying only
+        the four attributes it touches.  Not a mock of the gate -- the gate
+        itself, line for line, including `_refuse_if_degraded`'s real
+        ordering.  `runtime` raises if it is ever reached, which is the
+        assertion that matters: a `call` that only logged would fall
+        through to it.
+        """
+        class _RuntimeThatMustNotBeReached:
+            def globals(self):  # pragma: no cover - reaching this is the bug
+                raise AssertionError("call() ran the script after refusing")
+
+        class _HostStandIn:
+            _refuse_if_degraded = script_host.ScriptHost._refuse_if_degraded
+            call = script_host.ScriptHost.call
+            degraded = False
+            mirror_failure = None
+
+            def __init__(self, namespace, log):
+                self.namespaces = {"Quest": namespace}
+                self.log = log
+                self.runtime = _RuntimeThatMustNotBeReached()
+
+        lines = []
+        namespace = quest.build_namespace(
+            spec.NAMESPACE_METHODS["Quest"], lines.append,
+            context=quest.QuestContext(character_id=1, quest_id=self.QUEST))
+        host = _HostStandIn(namespace, lines.append)
+        with self.assertRaises(script_host.EntryPointRefused) as raised:
+            host.call(self.OWNER)
+        self.assertIn("Player.BoatHealth", str(raised.exception))
+        self.assertIn("LUA_QUEST_ENTRY_REFUSED script=Q_BOAT_HEALTH "
+                      "entry=Accept_Run quest=3189 "
+                      "blocked_on=Player.BoatHealth", lines)
+        # The entry point BESIDE it is not refused, so `call` goes on to
+        # the runtime -- which is how this test knows the refusal above was
+        # the gate and not the stand-in refusing everything.
+        with self.assertRaises(AssertionError):
+            host.call("Report_Check")
+
+    def test_the_namespace_carries_the_entry_point_and_puts_it_back(self):
+        namespace = quest.build_namespace(
+            spec.NAMESPACE_METHODS["Quest"], lambda _line: None,
+            context=quest.QuestContext(character_id=1, quest_id=self.QUEST))
+        self.assertEqual(namespace.context.entry_point,
+                         qr.UNKNOWN_ENTRY_POINT)
+        self.assertEqual(namespace["Var2"], qr.REFUSED_CELL)
+        with namespace.entering("Report_Check") as entered:
+            self.assertIs(entered, namespace)
+            self.assertEqual(namespace.context.entry_point, "Report_Check")
+            self.assertEqual(namespace["Var2"], self.PRICE)
+        # RESTORED, and restored to unknown rather than left open: a host
+        # someone reads cells off of outside a call gets the conservative
+        # answer back, not the last entry point that happened to run.
+        self.assertEqual(namespace.context.entry_point,
+                         qr.UNKNOWN_ENTRY_POINT)
+        self.assertEqual(namespace["Var2"], qr.REFUSED_CELL)
+
+    def test_the_scope_is_restored_even_when_the_entry_point_raises(self):
+        namespace = quest.build_namespace(
+            spec.NAMESPACE_METHODS["Quest"], lambda _line: None,
+            context=quest.QuestContext(character_id=1, quest_id=self.QUEST))
+        with self.assertRaises(ZeroDivisionError):
+            with namespace.entering("Report_Check"):
+                raise ZeroDivisionError("the script blew up mid entry point")
+        self.assertEqual(namespace.context.entry_point,
+                         qr.UNKNOWN_ENTRY_POINT)
+
+    def test_the_context_cannot_be_swapped_behind_the_gates_back(self):
+        namespace = quest.build_namespace(
+            spec.NAMESPACE_METHODS["Quest"], lambda _line: None,
+            context=quest.QuestContext(character_id=1, quest_id=self.QUEST))
+        with self.assertRaises(AttributeError):
+            namespace.context = quest.QuestContext(character_id=1, quest_id=1)
+
+    def test_the_gate_reads_the_namespace_and_refuses_the_owner(self):
+        # `quest.entry_point_refusal` is module level, and lives in
+        # `lua_api` rather than in `script_host`, precisely so this runs
+        # where `lupa` does not -- which is every cloud clone this lane
+        # works from.  Both sentences are asserted, because the log line is
+        # the only thing a reader of a live server will ever see.
+        namespace = quest.build_namespace(
+            spec.NAMESPACE_METHODS["Quest"], lambda _line: None,
+            context=quest.QuestContext(character_id=1, quest_id=self.QUEST))
+        refused = quest.entry_point_refusal(namespace, self.OWNER)
+        self.assertIsNotNone(refused)
+        self.assertEqual(refused.log_line,
+                         "LUA_QUEST_ENTRY_REFUSED script=Q_BOAT_HEALTH "
+                         "entry=Accept_Run quest=3189 "
+                         "blocked_on=Player.BoatHealth")
+        self.assertIn("Player.BoatHealth", refused.message)
+        for other in ("Accept_Check", "Report_Run", "Delete_Run"):
+            self.assertIsNone(quest.entry_point_refusal(namespace, other))
+
+    def test_a_namespace_with_no_context_refuses_no_entry_point(self):
+        self.assertIsNone(quest.entry_point_refusal(None, "Accept_Run"))
+        self.assertIsNone(quest.entry_point_refusal(object(), "Accept_Run"))
+
+    def test_an_unbound_row_refuses_no_entry_point(self):
+        # Why the corpus sweep cannot raise EntryPointRefused: it never
+        # passes a context, so every host it builds is bound to row 0,
+        # which has no script and therefore no group.  The sweep's numbers
+        # are untouched by this gate, stated here rather than trusted in a
+        # comment.
+        namespace = quest.build_namespace(
+            spec.NAMESPACE_METHODS["Quest"], lambda _line: None)
+        self.assertEqual(namespace.context.quest_id, 0)
+        for entry_point in script_host.STANDARD_ENTRY_POINTS:
+            self.assertIsNone(quest.entry_point_refusal(namespace,
+                                                        entry_point))
+
+    def test_every_group_in_the_mirror_is_owned_by_a_known_entry_point(self):
+        # The census this scoping stands on, pinned so a regen that moves a
+        # group to an entry point the host never calls is seen HERE and not
+        # as a gate that silently stopped refusing anything.  Today: 61
+        # groups, 60 in Report_Run and one in Accept_Run (Q_BOAT_HEALTH).
+        owners = {}
+        for entries in qr.load_groups().values():
+            for group in entries:
+                owners[group.group] = owners.get(group.group, 0) + 1
+        self.assertEqual(owners, {"Report_Run": 60, "Accept_Run": 1})
+        self.assertLessEqual(set(owners), set(script_host.STANDARD_ENTRY_POINTS))
 
 
 if __name__ == "__main__":  # pragma: no cover
