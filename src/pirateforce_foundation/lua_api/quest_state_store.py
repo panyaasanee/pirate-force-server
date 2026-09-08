@@ -38,8 +38,9 @@ CONTRACT and refuses -- loudly, by name -- when the doors are absent,
 instead of guessing a schema or silently persisting nothing.
 
 WHAT "REAL" MEANS HERE, and what it does not.  This adapter is real code
-on a real seam: hand it any object carrying those five doors and quest
-flags/counters live wherever that object puts them.  It does NOT by itself
+on a real seam: hand it any object carrying :data:`REQUIRED_DOORS` and
+quest flags/counters live wherever that object puts them (the fifth door
+is optional -- :data:`OPTIONAL_DOORS` says why).  It does NOT by itself
 make anything survive a relog -- that needs LANE-DB's rows to exist.  The
 one thing it makes impossible today is the SILENT version of the failure:
 a host that keeps quest state in process memory now has a way to say so
@@ -63,15 +64,44 @@ REQUIRED_DOORS: Tuple[str, ...] = (
     "set_quest_counter",
 )
 
-#: Named but not required: the ``QuestStateStore`` protocol in
-#: ``lua_api.quest`` has no increment method, so nothing in this lane can
-#: call it yet.  Listed so a reader of the log token below can tell "the
-#: store is missing a door I need" from "the store is missing a door
-#: LANE-DB offered and I have not earned a caller for".
+#: Doors LANE-DB's letter offers that this lane names on the seam but does
+#: not yet CALL from any production path.
+#:
+#: PROMOTED TO REQUIRED AND PUT BACK, IN ONE ROUND (`7qw2tr`), because the
+#: adversary priced the promotion and it was a bad trade.  The reasoning
+#: for promoting was "the seam publishes ``increment_quest_counter`` now,
+#: so a store without it cannot back the seam".  The cost: if LANE-DB
+#: lands the four flag/counter doors and names the atomic one differently,
+#: or ships it a round later, ``missing_doors`` comes back non-empty and
+#: :func:`quest_state_store_for` throws away a WORKING durable store --
+#: every quest in the game drops back to process memory over a door that
+#: nothing calls.  Trading durable flags for volatile ones to protect a
+#: path with no callers is worse than the thing it protects against.
+#:
+#: So the refusal moved to where it can be exact: a store missing this
+#: door still backs flags and counters durably, and the ONE method that
+#: needs it refuses BY NAME when it is called (see
+#: :meth:`StoreBackedQuestStateStore.increment_quest_counter`).  It gets
+#: promoted the round it gets a caller, not before.
 OPTIONAL_DOORS: Tuple[str, ...] = ("increment_quest_counter",)
 
 #: Attribute carrying the number on the row each door returns (LANE-DB's
 #: ``QuestFlagRow`` / ``QuestCounterRow``).
+#:
+#: ONE OF THESE TWO IS QUOTED AND ONE IS A GUESS, and this file used to
+#: present both as "copied from the letter verbatim" (pf-adversary F10,
+#: round `7qw2tr`).  Re-read of ``pf_bridge/notes_to_chief/20260905_2212_
+#: LANE-DB-...``: it spells ``QuestFlagRow(character_id, quest_id,
+#: flag_value, updated_at)`` in full, so ``flag_value`` is [MEASURED].  It
+#: never enumerates ``QuestCounterRow``'s fields anywhere -- ``counter_
+#: value`` appears there only as a PARAMETER name -- so the line below is
+#: [PROPOSED], and the lane's own fake in ``tests/test_script_lua_quest_
+#: state_store.py`` uses the same guess, which makes that pin circular.
+#:
+#: The cost if it is wrong: flags work and EVERY counter read and write is
+#: refused, forever, on a correctly migrated database.  The question is in
+#: the round `7qw2tr` letter to LANE-DB; until it is answered this stays
+#: labelled rather than believed.
 _FLAG_FIELD = "flag_value"
 _COUNTER_FIELD = "counter_value"
 
@@ -91,10 +121,26 @@ REFUSED_TOKEN = "LUA_QUEST_STATE_REFUSED"
 REFUSED_VALUE = 0
 
 #: Ceiling on distinct refusal keys this adapter will log before it goes
-#: quiet.  ``Quest.SetFlag``/``GetQuestFlag`` are the two highest-count
-#: names in the whole 160-function API map (416 + 489 call sites); a
-#: corpus sweep against a store with no rows would otherwise write one log
-#: line per call site per script.
+#: quiet.
+#:
+#: THE NUMBERS HERE WERE WRONG UNTIL ROUND `7qw2tr` and are re-derived
+#: rather than repeated.  This comment used to call ``Quest.SetFlag``/
+#: ``GetQuestFlag`` "the two highest-count names in the whole 160-function
+#: API map (416 + 489 call sites)".  Counted at HEAD from
+#: ``pf_bridge/gamedata/PF_GAMEDATA_LUA_API.tsv``:
+#:
+#:     3532  Player.MobAppear
+#:     1430  Player.AddItem
+#:     1335  Quest.RewardItemSelect
+#:      716  Mob.ShowAnimation
+#:      508  Quest.GetQuestFlag     <- rank 5
+#:      417  Quest.SetFlag          <- rank 6
+#:
+#: Both figures were off and the superlative was false.  The cap still
+#: earns its place on the true numbers -- 925 call sites across the two,
+#: and a corpus sweep against a store with no rows would otherwise write
+#: one log line per refused key per script -- but it earns it on measured
+#: ones.
 REFUSAL_LOG_CAP = 256
 
 
@@ -264,6 +310,51 @@ class StoreBackedQuestStateStore:
             return REFUSED_VALUE
         return written
 
+    def increment_quest_counter(self, character_id: int, quest_id: int,
+                                counter_name: str, delta: int = 1) -> int:
+        """LANE-DB's atomic door, handed straight through.
+
+        THE WHOLE POINT IS THAT THIS METHOD DOES NOT READ FIRST.  There is
+        no ``get_quest_counter`` call here and there must never be one: the
+        contract says the door does read-modify-write-back inside ONE
+        transaction, and any read this adapter added around it would put
+        the lost-update window back on the outside of the transaction that
+        exists to close it.  Two mob deaths in the same tick each add one.
+
+        The refusal posture is ``set_quest_counter``'s, unchanged -- a
+        store refusal is logged and answered "no progress recorded", and a
+        write that answers with no row is a contract breach rather than a
+        reason to report the delta as if it landed.  Reporting an
+        unwritten increment is worse here than in any other method on this
+        seam: a caller that believes a kill was credited will not credit
+        it again.
+        """
+        if not self._live_character("increment_quest_counter", character_id, quest_id):
+            return REFUSED_VALUE
+        door = getattr(self._store, "increment_quest_counter", None)
+        if not callable(door):
+            # NOT a fallback to get-then-set.  A caller reaching this
+            # method wants an addition no concurrent addition can lose;
+            # answering it with the racy shape would be the lost update
+            # wearing the atomic method's name.  Refuse, by the door's
+            # own name, and let the caller see it in the console.
+            self._refuse("increment_quest_counter", "no-atomic-door",
+                         character_id, quest_id)
+            return REFUSED_VALUE
+        try:
+            written = self._value_of(
+                door(character_id, quest_id, counter_name, delta),
+                _COUNTER_FIELD)
+        except _REFUSALS as exc:
+            self._refuse("increment_quest_counter", _reason_of(exc),
+                         character_id, quest_id)
+            return REFUSED_VALUE
+        if written is None:
+            self._refuse("increment_quest_counter", "no-row-after-write",
+                         character_id, quest_id)
+            return REFUSED_VALUE
+        return written
+
 
 class _UnreadableRow(TypeError):
     """A door answered with something that is not a row this lane can read.
@@ -277,11 +368,20 @@ class _UnreadableRow(TypeError):
 
 
 #: The three refusal families LANE-DB's letter documents, plus the shape
-#: drift above.  ``sqlite3.Error`` rather than ``store.WriteLockTimeout``
-#: on purpose: importing ``store`` from inside ``lua_api`` would drag the
-#: whole persistence module into every Lua host, and ``WriteLockTimeout``
-#: is a subclass of ``sqlite3.OperationalError`` by that module's own
-#: definition, so the family catches it by construction.
+#: drift above.  ``sqlite3.Error`` rather than ``store.WriteLockTimeout``,
+#: and the reason given here used to be false: "importing ``store`` from
+#: inside ``lua_api`` would drag the whole persistence module into every
+#: Lua host".  Measured (pf-adversary, round `7qw2tr`): ``lua_api/
+#: reward.py:65`` already does ``from ..store import ...`` and
+#: ``lua_api/quest.py`` imports ``reward``, so importing ``script_host``
+#: already puts ``pirateforce_foundation.store`` in ``sys.modules``.  The
+#: drag happened two imports away, before this file existed.
+#:
+#: The TRUE reason to keep the family here: ``WriteLockTimeout`` is a
+#: subclass of ``sqlite3.OperationalError`` by ``store.py``'s own
+#: definition, so the family catches it by construction AND catches the
+#: same class of failure from any other DB-API store LANE-DB might put
+#: behind these doors, which a named import of one class would not.
 _REFUSALS = (KeyError, ValueError, sqlite3.Error, _UnreadableRow)
 
 

@@ -34,6 +34,67 @@ from typing import Callable, Dict, Optional, Tuple
 from . import player as lua_api_player
 from . import quest as lua_api_quest
 from . import quest_criteria
+from . import quest_state_store as lua_api_quest_state_store
+
+#: Console token for the half of the choice below that is GOOD news: this
+#: dispatch's quest progress is going to a row that outlives the process.
+#: Its opposite (``lua_api.quest_state_store.VOLATILE_TOKEN``) is emitted
+#: by the resolver itself.  Both are ASCII (the bridge console is cp874).
+DURABLE_TOKEN = "LUA_QUEST_STATE_DURABLE"
+
+
+def resolve_quest_state_store(persistence, log=None):
+    """The quest-state store one dispatch should use, chosen OUT LOUD.
+
+    ``persistence`` is the server's own store object -- the thing that
+    carries LANE-DB's quest-state doors
+    (``pf_bridge/notes_to_chief/20260905_2212_LANE-DB-TO-LANE-Q-quest-
+    state-doors-declared-and-opened-this-round.md``).  Carrying the four
+    in ``quest_state_store.REQUIRED_DOORS`` buys the durable adapter;
+    missing any of them buys ``lua_api.quest.InMemoryQuestStateStore``
+    AND a ``LUA_QUEST_STATE_VOLATILE`` line naming the doors that were
+    absent.  The fifth door (``increment_quest_counter``) is NOT required
+    here and deliberately so -- see ``quest_state_store.OPTIONAL_DOORS``
+    for why requiring a door with no production caller would trade a
+    working durable store for a volatile one.
+
+    THIS FUNCTION IS THE ONE-LINE SWAP COO-DECISION 2026-09-08T16:42
+    ASKED FOR.  The lane was told to build its half against the contract
+    while LANE-DB's rows are still not on ``main`` (measured again this
+    round: ``grep -n "def set_quest_flag" store.py`` -> 0 hits), so that
+    "the real one arrives" is a change at ONE call site rather than a
+    hunt.  This is that call site.
+
+    NEITHER OUTCOME IS SILENT, and that is the whole asymmetry this
+    function removes: a server that persists says so once per dispatch,
+    and a server that does not says so once per dispatch too.  A reader of
+    the console can tell the two apart WITHOUT relogging a character to
+    find out -- which, before this, was the only way to find out.
+
+    THE ``persistence is None`` CASE IS NOT AN EXEMPTION FROM THAT
+    (pf-adversary F2, round `7qw2tr`, correcting this function's first
+    draft).  The draft resolved only when a caller named a store, so every
+    caller that exists today -- all of which name none -- got the old
+    silence back, under a docstring claiming nothing was silent any more.
+    A default that is quiet is exactly the state a reader cannot
+    distinguish from a persistent one.  So no store at all is reported
+    like any other store that cannot hold quest state.
+
+    ``durable`` IS READ HERE, not merely set (pf-adversary F4): the log
+    line below asks the CHOSEN store whether it survives a relog rather
+    than inferring it from which branch was taken, so an implementation
+    whose attribute and whose behaviour disagree is visible in the
+    console instead of only in a class body.
+    """
+    chosen = lua_api_quest_state_store.quest_state_store_for(persistence, log)
+    if chosen is None:
+        # `quest_state_store_for` has already said WHY, door by door.
+        return lua_api_quest.InMemoryQuestStateStore()
+    if log is not None:
+        log("%s store=%s durable=%s"
+            % (DURABLE_TOKEN, type(persistence).__name__,
+               getattr(chosen, "durable", False)))
+    return chosen
 
 
 class QuestDispatchError(Exception):
@@ -145,6 +206,7 @@ def reset_caches() -> None:
 
 def load_quest_script(root, quest_id: int, character_id: int,
                       log: Optional[Callable[[str], None]] = None,
+                      persistence: object = None,
                       **kwargs) -> "object":
     """Load a quest's script AS THAT QUEST, not as an anonymous file.
 
@@ -177,8 +239,23 @@ def load_quest_script(root, quest_id: int, character_id: int,
     player_context = kwargs.pop(
         "player_context",
         lua_api_player.PlayerContext(character_id=character_id))
+    # PASSING BOTH IS A PROGRAMMING ERROR, NOT A PRECEDENCE PUZZLE.
+    # Silently preferring one would leave a caller believing quest progress
+    # is on a row when it is in process memory -- the exact confusion
+    # `resolve_quest_state_store` exists to end -- so the ambiguity is
+    # refused where it is written rather than resolved by a rule nobody
+    # reads.
+    if persistence is not None and "quest_store" in kwargs:
+        raise TypeError(
+            "load_quest_script(): pass persistence or quest_store, not both")
     log("LUA_QUEST_DISPATCH quest=%d character=%d script=%s"
         % (quest_id, character_id, path.stem))
+    # AFTER the dispatch line, deliberately: that line is the first thing
+    # this function has always printed and two existing tests read it as
+    # `calls[0]`.  A caller that injected its own `quest_store` has already
+    # made the choice and is not told about one it did not make.
+    if "quest_store" not in kwargs:
+        kwargs["quest_store"] = resolve_quest_state_store(persistence, log)
     return script_host.load_script_file(path, log, quest_context=context,
                                         player_context=player_context,
                                         **kwargs)
