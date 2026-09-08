@@ -140,7 +140,16 @@ here, and absence means this file has nothing to say about the value".  It
 reads ``experience`` through the module that owns THAT number and leaves this
 one ungraded, because there was nobody to ask.  This constant is the answer
 to that sentence and nothing more: it gives the pin somebody to ask, the way
-``new_character_vitals`` is who the pin asks about the three vitals.
+the vitals module is who that pin asks about the three vitals.
+
+    THE VITALS DOOR IS NOT SPELLED HERE, AND THAT IS THE FOURTH TIME.  The
+    function that answers "what are the three vitals at birth" carries a
+    sole-call-site pin that scans every file under ``src/`` for its own name
+    as a SUBSTRING, so writing it in this sentence -- as an ANALOGY, calling
+    nothing -- turned that pin red on the full suite of this very round.  The
+    comment over ``SOURCE_SHA256`` predicted this and said the fourth time
+    would be somebody else; it was not.  The rule for this file is now
+    simple: describe another lane's door, never name it.
 
   * It is NOT read off a shipped table.  Measured this round rather than
     asserted: of the 188 committed client tables, the ones that could
@@ -382,9 +391,10 @@ def sp_at_level(level: int) -> int:
 def birth_skill_points() -> int:
     """The skill points a character is born holding, re-graded on every call.
 
-    WHY A FUNCTION AND NOT JUST THE CONSTANT.  The same reason
-    ``new_character_vitals`` re-validates its three numbers before handing
-    them back: a birth value that contradicts this module's own rules is a
+    WHY A FUNCTION AND NOT JUST THE CONSTANT.  The same reason the vitals
+    module re-validates its three birth numbers before handing them back
+    (named nowhere in this file on purpose -- see the header):
+    a birth value that contradicts this module's own rules is a
     character the server would compose wrongly on its first login, and the
     failure would surface far from the edit that caused it.  Three checks,
     run every call, are cheaper than finding that out from a database.
