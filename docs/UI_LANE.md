@@ -272,7 +272,34 @@ one writing `_ANSWERERS`, the ownership gate in `register_answerer()` closes
 only against an impostor that registers under SOMEBODY ELSE'S name: a lane
 file that declares `production_allowed = True` and registers an id under its
 OWN name is refused only because `_ANSWERER_OWNERS` has no row for it -- a
-reviewed row plus a stack the walk cannot see (round `m54yxh` D-A: a table a
-lane appends to and an allowed module flushes later) is still a route in.
-Reading that code today and concluding "impostors are closed" would be
-reading more than it says.
+reviewed row plus a stack the walk cannot see (round `ihf029` D-A -- a table a
+lane appends to and an allowed module flushes later; NOT round `1gc6hl`'s D-A,
+which is a direct `_ANSWERERS` dict write, and this paragraph named the wrong
+round until pf-adversary D6 this round) is still a route in. Reading that code
+today and concluding "impostors are closed" would be reading more than it says.
+
+**pf-adversary ran against this seam the round it was written and was NOT
+CLEAN; the two findings that mattered are paid in the same round.** D1
+(CRITICAL, measured end to end): on the adopt route no lane frame is on the
+stack, so `fn.__module__` was the only thing that could add a second name to
+the gate -- and a `production_allowed = False` lane that set
+`victim.ANSWERS_WITH = evil` and forged `evil.__module__` to the victim's name
+put its own bytes on the wire under the reviewed owner's name, its own name in
+no token, while discovery printed `SKIPPED_NOT_PRODUCTION_ALLOWED` for it.
+That is `ihf029`'s D-A promoted to the sanctioned path -- the hole this seam
+was requested to close. The gate now also asks two questions a lane file
+cannot rewrite after the fact: which FILE the callable was compiled from
+(`__code__.co_filename`, mapped back through a lane's `__file__`) and which
+discoverable lanes HOLD the object by identity. Both can only add names, never
+remove one. D2 (HIGH): the call sits in `_discover()`, outside the try that
+guards a lane's import, so `ANSWERS_VITAL_ID = [id, id]` -- an author wanting
+two buttons -- killed the whole boot with `TypeError: unhashable type`. Two
+layers now: the declaration's type is checked before it is used, and nothing a
+lane writes may raise out of the function at all.
+
+**Still open, recorded rather than fixed:** the gated-incumbent YIELD path has
+no test on the adopt route (the refusal path does), and `_install_answerer()`
+is a named write primitive whose registrar name and gate are caller-supplied
+strings -- no new capability over the `_ANSWERERS[id] = ...` residual that was
+already recorded, but it reads like plumbing where the dict write reads like
+an attack.

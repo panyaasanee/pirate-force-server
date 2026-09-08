@@ -418,7 +418,7 @@ def register_answerer(vital_id, fn):
     return _install_answerer(module_name, gating, vital_id, fn)
 
 
-def _install_answerer(module_name, gating, vital_id, fn):
+def _install_answerer(module_name, gating, vital_id, fn, token="REGISTER"):
     """Take the slot for ``vital_id``, or refuse and say why. Returns a bool.
 
     THE WRITE ITSELF, SHARED BY THE TWO WAYS IN (round ly40b5).  Two
@@ -463,14 +463,27 @@ def _install_answerer(module_name, gating, vital_id, fn):
             lane_hooks.module_production_allowed(name)
             for name in incumbent_gate
         ):
+            # THE REFUSED PARTY IS NAMED, NOT ONLY THE INCUMBENT
+            # (pf-adversary round ly40b5, D4).  These two lines are
+            # shared by both routes now, and on the adopt route they
+            # printed ``UI_DISPATCH_REGISTER_REFUSED ... by=<incumbent>``
+            # -- a refusal that greps as the OTHER route's token and does
+            # not contain the name of the module that was turned away.
+            # Measured on the very first boot chief's seam will make: a
+            # lane that still calls ``register_answerer()`` AND declares
+            # ``ANSWERS_VITAL_ID`` (the transition state this file's own
+            # docs plan for) was denounced as its own thief. ``by=`` now
+            # always means "the module this call was made for", on both
+            # routes, and the incumbent has a key of its own.
             _say(
-                "UI_DISPATCH_REGISTER_REFUSED id=%s reason=already_taken by=%s"
-                % (_hex(vital_id), incumbent)
+                "UI_DISPATCH_%s_REFUSED id=%s reason=already_taken by=%s"
+                " incumbent=%s"
+                % (token, _hex(vital_id), module_name, incumbent)
             )
             return False
         _say(
-            "UI_DISPATCH_REGISTER_REPLACED id=%s gated=%s by=%s"
-            % (_hex(vital_id), incumbent, module_name)
+            "UI_DISPATCH_%s_REPLACED id=%s gated=%s by=%s"
+            % (token, _hex(vital_id), incumbent, module_name)
         )
     # ONE STATEMENT, NOT A CHECK-THEN-ACT (pf-adversary round 3, D9).
     # The refusal above still reads the dict first, but the write that
@@ -535,13 +548,128 @@ def adopt_answerer(qualified_name, vital_id, module):
     Not checked here, deliberately: whether the lane is
     production-allowed.  That flag is a snapshot ``_discover()`` takes
     around this call, and the gate that reads it lives in ``answer()``,
-    on every frame, exactly as it does for ``register_answerer()``.
+    on every frame.  WHICH NAMES that gate is asked about is NOT the same
+    on the two routes, and this sentence used to claim it was: see
+    ``_lane_modules_answerable_for()`` for the difference and for the
+    measured attack (round ly40b5, D1) that the difference let through.
+
+    Nothing a lane file writes may raise out of this function: it is
+    called from ``_discover()``, outside the try that guards a lane's
+    import, so an exception here is a server that does not boot (D2).
+    Every path returns a bool and names itself on stderr.
     """
-    name = qualified_name if isinstance(qualified_name, str) else "-"
-    if vital_id not in ANSWERABLE_VITAL_IDS:
+    try:
+        return _adopt_answerer(qualified_name, vital_id, module)
+    except Exception as exc:  # a lane's own object raised, on the boot path
+        # NOTHING A LANE FILE WRITES MAY STOP THE SERVER BOOTING
+        # (pf-adversary round ly40b5, D2).  This call sits in
+        # ``_discover()``, OUTSIDE ``_import_module_safely()``'s try --
+        # that try covers the lane's import, not this -- so an exception
+        # here is not "one button silent", it is ``lane_hooks`` failing to
+        # import, so ``runtime`` failing to import, so nobody logging in.
+        # Measured: ``ANSWERS_VITAL_ID = [0x37B1, 0x2466]`` (an author
+        # wanting two buttons) killed the boot with ``TypeError:
+        # unhashable type: 'list'`` at the membership test, and an object
+        # with a raising ``__eq__`` killed it at the declared-id check.
+        # The same typo through ``register_answerer()`` costs one skipped
+        # lane and the server boots -- so the regression was created
+        # purely by moving the call out of the lane's own import, and it
+        # is exactly the shape chief refused to ship on his side.
+        _say(
+            "UI_DISPATCH_ADOPT_REFUSED id=%s reason=declaration_raised by=%s"
+            " exc=%s"
+            % (
+                _safe_hex(vital_id),
+                qualified_name if type(qualified_name) is str else "-",
+                type(exc).__name__,
+            )
+        )
+        return False
+
+
+def _safe_hex(vital_id):
+    """``_hex()`` for a value a lane file supplied. Never raises."""
+    try:
+        return _hex(vital_id) if type(vital_id) is int else "-"
+    except Exception:  # pragma: no cover - _hex on an int cannot raise
+        return "-"
+
+
+def _lane_modules_answerable_for(fn):
+    """Every discoverable lane that DEFINED or HOLDS ``fn``, by identity.
+
+    THE GATE MAY NOT REST ON ``fn.__module__`` ON THIS ROUTE
+    (pf-adversary round ly40b5, D1 -- CRITICAL, measured end to end).
+    ``register_answerer()`` binds the callable inside the lane's own
+    import, so the lane's frame is on the registration stack and
+    ``_gating_module_names()`` finds it there; ``__module__`` can only ADD
+    a name, which is why this file says a forged value "cannot open the
+    gate".  ``adopt_answerer()`` binds it LATER, from ``_discover()``'s
+    frame, where NO lane frame exists -- so on that route ``__module__``
+    is the only thing that can add the second name, and forging it
+    REMOVES the name the gate needed.  Measured: a
+    ``production_allowed = False`` lane that sets
+    ``victim.ANSWERS_WITH = evil`` and ``evil.__module__ = victim`` put
+    its own bytes on the wire under the reviewed owner's name, with the
+    thief's name in no token, while discovery printed
+    ``SKIPPED_NOT_PRODUCTION_ALLOWED`` for it.  That is round ``ihf029``'s
+    D-A -- the deferred flush this seam was requested to CLOSE -- and it
+    would have shipped as the sanctioned path.
+
+    So the answer to "whose code is this" is taken from facts a lane
+    file cannot rewrite after the fact:
+
+    * the file the callable was COMPILED from (``__code__.co_filename``,
+      set by the import machinery, not assignable like ``__module__``),
+      mapped back to a lane by that module's ``__file__``;
+    * every discoverable lane whose namespace HOLDS the object by
+      identity -- the thief must keep ``evil`` somewhere to bind it, and
+      a lane that hands its own callable to another lane's declaration
+      is answerable for it either way.
+
+    Both can only ADD names to the gate, never remove one, so this
+    function cannot open a gate that would otherwise be closed.
+    """
+    import os  # noqa: PLC0415 - see the module header comment
+
+    names = []
+
+    def add(module_name):
+        if _is_discoverable_lane(module_name) and module_name not in names:
+            names.append(module_name)
+
+    code = getattr(fn, "__code__", None)
+    if code is None:  # a callable object, not a plain function
+        call = getattr(type(fn), "__call__", None)
+        code = getattr(call, "__code__", None)
+    filename = getattr(code, "co_filename", None)
+    for module_name, module in list(sys.modules.items()):
+        if not isinstance(module_name, str) or module is None:
+            continue
+        if not _is_discoverable_lane(module_name):
+            continue
+        module_file = getattr(module, "__file__", None)
+        if (
+            filename
+            and isinstance(module_file, str)
+            and os.path.realpath(module_file) == os.path.realpath(filename)
+        ):
+            add(module_name)
+        namespace = getattr(module, "__dict__", None)
+        if isinstance(namespace, dict) and any(
+            value is fn for value in list(namespace.values())
+        ):
+            add(module_name)
+    return tuple(names)
+
+
+def _adopt_answerer(qualified_name, vital_id, module):
+    """``adopt_answerer()``'s body. See it for what this is and why."""
+    name = qualified_name if type(qualified_name) is str else "-"
+    if type(vital_id) is not int or vital_id not in ANSWERABLE_VITAL_IDS:
         _say(
             "UI_DISPATCH_ADOPT_REFUSED id=%s reason=not_routed_here by=%s"
-            % (_hex(vital_id), name)
+            % (_safe_hex(vital_id), name)
         )
         return False
     if not _is_discoverable_lane(name):
@@ -570,7 +698,8 @@ def adopt_answerer(qualified_name, vital_id, module):
             % (_hex(vital_id), name, owner)
         )
         return False
-    if getattr(module, "ANSWERS_VITAL_ID", None) != vital_id:
+    declared = getattr(module, "ANSWERS_VITAL_ID", None)
+    if type(declared) is not int or declared != vital_id:
         _say(
             "UI_DISPATCH_ADOPT_REFUSED id=%s reason=id_is_not_the_declared_one by=%s"
             % (_hex(vital_id), name)
@@ -583,16 +712,21 @@ def adopt_answerer(qualified_name, vital_id, module):
             % (_hex(vital_id), name)
         )
         return False
-    # THE DECLARING LANE IS ALWAYS IN THE GATE, whatever the stack says.
-    # ``_gating_module_names()`` walks frames, and on this route the
-    # frames belong to ``_discover()`` and to this file -- neither is a
-    # lane -- so without this the gate for a declared answerer could come
-    # back empty and ``answer()`` would fall back to judging the
-    # registrar name alone.  It still adds ``fn.__module__`` when that is
-    # a lane, which is how a module declaring ANOTHER lane's callable
-    # stays judged by both.
-    gating = tuple(dict.fromkeys((name,) + _gating_module_names(fn)))
-    return _install_answerer(name, gating, vital_id, fn)
+    # WHO THE GATE MUST CLEAR, FROM FACTS A LANE CANNOT REWRITE.
+    # ``_lane_modules_answerable_for()`` is the load-bearing term here --
+    # see its docstring for the measured attack (round ly40b5, D1) that
+    # ``_gating_module_names()`` alone lets through on this route, where
+    # no lane frame is on the stack and ``fn.__module__`` is forgeable.
+    # ``name`` is kept for the token's sake; ``answer()`` gates on
+    # ``(module_name,) + gating`` as a union, so on this route it is
+    # already covered and adding it changes no decision.
+    # ``_gating_module_names()`` is kept because it can only ADD names.
+    gating = tuple(dict.fromkeys(
+        (name,)
+        + _lane_modules_answerable_for(fn)
+        + _gating_module_names(fn)
+    ))
+    return _install_answerer(name, gating, vital_id, fn, token="ADOPT")
 
 
 def registered_answerer(vital_id):

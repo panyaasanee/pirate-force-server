@@ -2551,11 +2551,15 @@ class AdoptAnswererTests(_RegistryIsolation):
         module.production_allowed = allowed
         sys.modules[qualified] = module
         self.addCleanup(sys.modules.pop, qualified, None)
-        if allowed:
-            lane_hooks._PRODUCTION_ALLOWED[qualified] = True
-            self.addCleanup(
-                lane_hooks._PRODUCTION_ALLOWED.pop, qualified, None,
-            )
+        # WRITE THE SNAPSHOT EITHER WAY (pf-adversary round ly40b5, D9).
+        # This used to write the entry only when ``allowed`` was true, so
+        # the "not production-allowed" case closed the gate on the
+        # ABSENCE of a discovery entry, not on the flag -- same verdict,
+        # different cause than the test's name claims.
+        lane_hooks._PRODUCTION_ALLOWED[qualified] = bool(allowed)
+        self.addCleanup(
+            lane_hooks._PRODUCTION_ALLOWED.pop, qualified, None,
+        )
         exec(
             compile(
                 self.ADOPTED_SOURCE % vital_id if source is None else source,
@@ -2846,6 +2850,223 @@ class EveryAnsweredButtonHasARunnerTests(unittest.TestCase):
             " are not named by the arming runner, so no ticket for them can"
             " carry a HEADLESS_PROOF line",
         )
+
+
+class AdoptRoundLy40b5AdversaryTests(_RegistryIsolation):
+    """The findings pf-adversary measured against this round's own seam.
+
+    D1 (CRITICAL) and D2 (HIGH) are attacks that were RUN end to end
+    against the first version of ``adopt_answerer()``: one put an
+    unreviewed lane's bytes on the wire under the reviewed owner's name,
+    the other stopped the server booting from an ordinary typo in a lane
+    file.  Both are reproduced here as the lane files that did it, on
+    disk, because the whole point of each is which module the machinery
+    believes is answerable -- a fabricated name would prove nothing.
+    """
+
+    def _lane_file(self, stem, source, allowed):
+        """A REAL importable file under lane_hooks, imported for real.
+
+        ``_lane_modules_answerable_for()`` reads ``__code__.co_filename``
+        and maps it back through a module's ``__file__``; a module built
+        with ``types.ModuleType`` and ``exec`` has neither, so the D1
+        test would pass for the wrong reason on a fake.
+        """
+        import importlib
+
+        package_dir = Path(lane_hooks.__file__).parent
+        path = package_dir / f"{stem}.py"
+        path.write_text(source, encoding="utf-8")
+        self.addCleanup(path.unlink, missing_ok=True)
+        qualified = f"{lane_hooks.__name__}.{stem}"
+        self.addCleanup(sys.modules.pop, qualified, None)
+        module = importlib.import_module(qualified)
+        lane_hooks._PRODUCTION_ALLOWED[qualified] = bool(allowed)
+        self.addCleanup(
+            lane_hooks._PRODUCTION_ALLOWED.pop, qualified, None,
+        )
+        return module
+
+    OWNER_SOURCE = (
+        "production_allowed = True\n"
+        "ANSWERS_VITAL_ID = 0x37B1\n"
+        "def answer_it(session=None, vital_id=0, payload=b'', **_ignored):\n"
+        "    return []\n"
+        "ANSWERS_WITH = answer_it\n"
+    )
+
+    THIEF_SOURCE = (
+        "production_allowed = False\n"
+        "def evil(session=None, vital_id=0, payload=b'', **_ignored):\n"
+        "    return []\n"
+    )
+
+    def test_a_closed_lane_cannot_launder_its_callable_through_the_owner(
+        self,
+    ):
+        """pf-adversary round ly40b5, D1 -- the measured attack, verbatim.
+
+        A ``production_allowed = False`` lane rebinds the reviewed
+        owner's ``ANSWERS_WITH`` to its own function and forges
+        ``__module__`` to the owner's name.  On the adopt route no lane
+        frame is on the stack, so before the fix ``fn.__module__`` was
+        the only thing that could name the thief -- and forging it
+        REMOVED that name.  Measured then: the thief's bytes went out
+        under a green ``UI_DISPATCH_ACCEPTED`` naming the owner, with the
+        thief in no token, while discovery printed
+        ``SKIPPED_NOT_PRODUCTION_ALLOWED`` for it.
+        """
+        owner = self._lane_file(
+            "lane_ui_zz_ly_owner", self.OWNER_SOURCE, allowed=True,
+        )
+        thief = self._lane_file(
+            "lane_ui_zz_ly_thief", self.THIEF_SOURCE, allowed=False,
+        )
+        thief.evil.__module__ = owner.__name__  # the one forged line
+        owner.ANSWERS_WITH = thief.evil
+        self.review_owner(owner.__name__, PARTY_INVITE_VITAL_ID)
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            took = ui_dispatch.adopt_answerer(
+                owner.__name__, PARTY_INVITE_VITAL_ID, owner,
+            )
+        self.assertTrue(took, "the declaration is still adopted")
+        self.assertIn(
+            thief.__name__,
+            ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
+            "the lane whose file the callable was compiled from, and whose"
+            " namespace holds it, must be in the gate however __module__"
+            " reads",
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""),
+                [],
+            )
+        console = stderr.getvalue()
+        self.assertIn("UI_DISPATCH_GATED", console)
+        self.assertIn(thief.__name__, console)
+
+    def test_the_honest_owners_own_callable_is_not_gated_by_that_fix(self):
+        """The D1 fix must not close the gate on the legitimate case."""
+        owner = self._lane_file(
+            "lane_ui_zz_ly_honest",
+            self.OWNER_SOURCE.replace("return []", "return []"),
+            allowed=True,
+        )
+        self.review_owner(owner.__name__, PARTY_INVITE_VITAL_ID)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(
+                ui_dispatch.adopt_answerer(
+                    owner.__name__, PARTY_INVITE_VITAL_ID, owner,
+                )
+            )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""),
+                [],
+            )
+        self.assertNotIn("UI_DISPATCH_GATED", stderr.getvalue())
+
+    def test_a_declaration_that_raises_does_not_stop_the_boot(self):
+        """pf-adversary round ly40b5, D2 -- both measured inputs.
+
+        This call lives in ``_discover()``, OUTSIDE the try that guards a
+        lane's import, so an exception here is not one silent button: it
+        is ``lane_hooks`` failing to import, so ``runtime`` failing to
+        import, so nobody logging in.  ``ANSWERS_VITAL_ID = [id, id]`` is
+        an author wanting two buttons, and it killed the boot with
+        ``TypeError: unhashable type: 'list'``.
+        """
+        import types
+
+        for label, declared in (
+            ("unhashable", [PARTY_INVITE_VITAL_ID, 0x2466]),
+            ("raising_eq", _RaisesOnCompare()),
+        ):
+            with self.subTest(label):
+                module = types.ModuleType("throwaway")
+                module.ANSWERS_VITAL_ID = declared
+                module.ANSWERS_WITH = lambda **_ignored: []
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    took = ui_dispatch.adopt_answerer(
+                        "pirateforce_foundation.lane_hooks.lane_ui_zz_ly_bad",
+                        declared,
+                        module,
+                    )
+                self.assertFalse(took)
+                self.assertIn("UI_DISPATCH_ADOPT_REFUSED", stderr.getvalue())
+                self.assertIsNone(
+                    ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+                )
+
+    def test_a_non_string_name_is_refused_without_raising(self):
+        """pf-adversary round ly40b5, D5 -- the untested defensive arm."""
+        import types
+
+        module = types.ModuleType("throwaway")
+        module.ANSWERS_VITAL_ID = PARTY_INVITE_VITAL_ID
+        module.ANSWERS_WITH = lambda **_ignored: []
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            took = ui_dispatch.adopt_answerer(
+                object(), PARTY_INVITE_VITAL_ID, module,
+            )
+        self.assertFalse(took)
+        self.assertIn("by=-", stderr.getvalue())
+
+    def test_a_refused_adoption_names_the_declarer_not_the_incumbent(self):
+        """pf-adversary round ly40b5, D4 -- chief's condition, on the
+        two refusals the two routes share.
+
+        The transition state this file's own docs plan for -- a lane that
+        still calls ``register_answerer()`` and also declares
+        ``ANSWERS_VITAL_ID`` -- printed ``UI_DISPATCH_REGISTER_REFUSED
+        ... by=<the incumbent>`` on the adopt route: the owner denounced
+        as its own thief, under the other route's token.
+        """
+        def incumbent(session=None, vital_id=0, payload=b"", **_ignored):
+            return []
+
+        self.allow()
+        self.review_owner(
+            f"{lane_hooks.__name__}.{__name__}", PARTY_INVITE_VITAL_ID,
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(
+                ui_dispatch.register_answerer(
+                    PARTY_INVITE_VITAL_ID, incumbent,
+                )
+            )
+        owner = self._lane_file(
+            "lane_ui_zz_ly_second", self.OWNER_SOURCE, allowed=True,
+        )
+        self.review_owner(owner.__name__, PARTY_INVITE_VITAL_ID)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertFalse(
+                ui_dispatch.adopt_answerer(
+                    owner.__name__, PARTY_INVITE_VITAL_ID, owner,
+                )
+            )
+        console = stderr.getvalue()
+        self.assertIn("UI_DISPATCH_ADOPT_REFUSED", console)
+        self.assertIn("reason=already_taken", console)
+        self.assertIn("by=%s" % (owner.__name__,), console)
+        self.assertNotIn("UI_DISPATCH_REGISTER_REFUSED", console)
+
+
+class _RaisesOnCompare:
+    """An object whose ``__eq__`` raises -- a lane could declare one."""
+
+    def __eq__(self, other):
+        raise RuntimeError("a lane's own __eq__")
+
+    __hash__ = None
 
 
 if __name__ == "__main__":  # pragma: no cover
