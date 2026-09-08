@@ -1,1 +1,1 @@
-{"sha":"5b58782366b67f4472d3aaf6409b772a56b2f1bd","conclusion":"success","event":"push","ref":"refs/heads/claude/determined-cray-39vp7o","run_id":"34204970580","utc":"2026-09-08T09:03:13Z"}
+{"sha":"5b58782366b67f4472d3aaf6409b772a56b2f1bd","conclusion":"success","event":"pull_request","ref":"refs/pull/1146/merge","run_id":"34205006075","utc":"2026-09-08T09:11:07Z"}
