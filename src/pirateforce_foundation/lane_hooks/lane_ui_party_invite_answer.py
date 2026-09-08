@@ -59,14 +59,17 @@ pins the set to what ships), not a derived value, and closing it needs
 the inbound version handed to ``answer()`` -- a ``runtime.py`` change,
 filed, not taken here.
 
-WHO CAN PRESS THIS BUTTON: ANYONE WITH A SOCKET (pf-adversary D7).  The
-eight-vital branch sits ABOVE ``runtime.py``'s login and start-game
-guards, so a session that never logged in gets an answer.  That was
-invisible while the branch returned ``[]``; it is not invisible now.
-Combined with a PROCESS-WIDE budget it means an unauthenticated peer
-can replay one captured payload until the budget is spent and the
-button is silent for every legitimate player until restart.  Named
-here because it is measured, not because it is fixed.
+WHO CAN PRESS THIS BUTTON: SOMEBODY WHO LOGGED IN -- AND THAT IS NEW
+(pf-adversary D7, paid round 1gc6hl).  This paragraph used to end
+"named because it is measured, not because it is fixed", and it is now
+fixed: ``ui_dispatch.answer()`` refuses before any answerer runs unless
+the session holds a selected character, the same precondition
+``runtime.py`` already applies to in-game frames.  So a peer that never
+logged in reaches neither these bytes nor the counter below, and the
+process-wide budget can no longer be drained by anyone but a player who
+came through the door.  What is NOT claimed: this is not per-account
+rate limiting, and one logged-in player can still spend the whole
+process budget.
 
 
 SO WHAT DOES THE PLAYER SEE?  THIS MODULE DOES NOT CLAIM TO KNOW.  The
@@ -157,6 +160,16 @@ def answer_party_invite(session=None, vital_id=0, payload=b"", **_ignored):
     # with an unexplained trailer, or any field this lane's model rounds,
     # fails here and is answered with nothing.
     reencoded = wire.encode_party_invite_payload(fields)
+    # AND IT IS DEAD CODE TODAY, SAID OUT LOUD (pf-adversary D5).  The
+    # decoder above calls ``require_exhausted``, and the encoder is its
+    # exact inverse for every payload it accepts: measured over 4,000
+    # structurally valid payloads in this module's own test file, every
+    # one that decoded re-encoded byte for byte, so the refusal below has
+    # never fired through the real decoder.  It stays because it is the
+    # guard for the decoder this project will have LATER, not the one it
+    # has today, and the test file reaches it by making the encoder
+    # disagree -- so the comparison cannot be deleted or inverted under a
+    # green suite.
     if reencoded != payload:
         _say(
             "UI_PARTY_INVITE_REFUSED reason=not_byte_exact in=%d out=%d"

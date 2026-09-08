@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import ui_dispatch  # noqa: E402
+from pirateforce_foundation import ui_social_wire as social_wire  # noqa: E402
 from pirateforce_foundation import ui_party_wire as wire  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_ui_party_invite_answer as answerer_module,
@@ -151,17 +152,85 @@ class RefusalTests(_AnswererRegistered):
         self.assertEqual(out, [])
         self.assertIn("reason=undecodable", log)
 
-    def test_a_trailing_byte_is_not_byte_exact_and_is_refused(self):
-        # The decoders in this project can succeed on a prefix; the round
-        # trip is what turns "parsed" into "these are the bytes that
-        # parsed".  Without it a payload with an unexplained trailer
-        # would come back SHORTER than it went out.
+    def test_a_trailing_byte_is_refused_as_UNDECODABLE(self):
+        """The name says which refusal, because the old one did not.
+
+        pf-adversary (round xqxadg, D5) read this test's old name --
+        "is not byte exact" -- against what it actually measures: the
+        decoder calls ``require_exhausted``, so a trailer never reaches
+        the round-trip comparison at all, and the assertion was the
+        unfalsifiable ``assertIn("reason=", log)``, which passes on every
+        refusal this module can print.  It is kept, pointed at the reason
+        it really produces; the round-trip guard is measured on its own,
+        two tests down.
+        """
         out, log = self._call(
             vital_id=wire.PARTY_INVITE_VITAL_ID,
             payload=_real_invite_payload() + b"\xAA",
         )
         self.assertEqual(out, [])
-        self.assertIn("reason=", log)
+        self.assertIn("reason=undecodable", log)
+
+    def test_no_decodable_payload_reaches_the_round_trip_refusal(self):
+        """pf-adversary D5: the branch is unreachable through THIS decoder.
+
+        Written as a measurement, not a claim: 4,000 structurally valid
+        payloads -- random u8, random u64, random UTF-16LE bodies of
+        several lengths -- every one that decodes re-encodes to the same
+        bytes.  If a future decoder ever loosens (an optional field, a
+        second accepted tag, a length the encoder normalises), this test
+        goes red and the guard below stops being dead code.
+        """
+        import random
+        import struct
+
+        rng = random.Random(20260908)
+        decoded = 0
+        for _ in range(4000):
+            body = bytes(
+                rng.getrandbits(8)
+                for _ in range(rng.choice((0, 2, 4, 6, 10, 20)))
+            )
+            payload = (
+                bytes([wire._TAG_FIELD1_U8, rng.getrandbits(8)])
+                + social_wire.u64tag(
+                    wire._TAG_FIELD2_U64, rng.getrandbits(64)
+                )
+                + bytes([0x48]) + struct.pack("<I", len(body)) + body
+            )
+            fields = wire.decode_party_invite_payload(payload)
+            if fields is None:
+                continue
+            decoded += 1
+            self.assertEqual(
+                wire.encode_party_invite_payload(fields), payload,
+            )
+        self.assertGreater(decoded, 1000, "the sample decoded too little")
+
+    def test_the_round_trip_guard_refuses_when_it_IS_reached(self):
+        """And it is a guard, not decoration -- so it is exercised.
+
+        The only honest way to reach a branch the decoder cannot produce
+        is to make the encoder disagree, which is exactly the future this
+        guard is held against.  Without this test the comparison could be
+        inverted or deleted and every other test here would stay green.
+        """
+        payload = _real_invite_payload()
+        real = wire.encode_party_invite_payload
+
+        def one_byte_longer(fields):
+            return real(fields) + b"\x00"
+
+        wire.encode_party_invite_payload = one_byte_longer
+        self.addCleanup(
+            setattr, wire, "encode_party_invite_payload", real,
+        )
+        out, log = self._call(
+            vital_id=wire.PARTY_INVITE_VITAL_ID, payload=payload,
+        )
+        self.assertEqual(out, [])
+        self.assertIn("reason=not_byte_exact", log)
+        self.assertIn("in=%d out=%d" % (len(payload), len(payload) + 1), log)
 
     def test_a_frame_for_another_id_is_refused(self):
         out, log = self._call(
@@ -248,6 +317,20 @@ class RefusalTests(_AnswererRegistered):
             self.assertEqual(len(out), 1)
 
 
+class _InGameSession:
+    """A session past the seam's admission check (pf-adversary D7).
+
+    ``ui_dispatch`` refuses to run any answerer for a connection that
+    holds no selected character, so a test that calls ``answer()``
+    directly has to come through that door like a player does.
+    """
+
+    class _Foundation:
+        selected = object()
+
+    foundation = _Foundation()
+
+
 class SeamComposesTests(_AnswererRegistered):
     """answer() turns the reply into an action, and refuses what it can't."""
 
@@ -259,7 +342,7 @@ class SeamComposesTests(_AnswererRegistered):
         payload = _real_invite_payload()
         with contextlib.redirect_stderr(io.StringIO()):
             actions = ui_dispatch.answer(
-                object(), wire.PARTY_INVITE_VITAL_ID, payload,
+                _InGameSession(), wire.PARTY_INVITE_VITAL_ID, payload,
                 envelope=self.legacy,
             )
         self.assertEqual(len(actions), 1)
@@ -280,7 +363,7 @@ class SeamComposesTests(_AnswererRegistered):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             actions = ui_dispatch.answer(
-                object(), wire.PARTY_INVITE_VITAL_ID, _real_invite_payload(),
+                _InGameSession(), wire.PARTY_INVITE_VITAL_ID, _real_invite_payload(),
             )
         self.assertEqual(actions, [])
         self.assertIn("UI_DISPATCH_ANSWER_ERR", stderr.getvalue())

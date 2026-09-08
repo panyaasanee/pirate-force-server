@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import ui_dispatch  # noqa: E402
+from pirateforce_foundation import ui_social_wire as social_wire  # noqa: E402
 from pirateforce_foundation import ui_party_wire as party_wire  # noqa: E402
 from pirateforce_foundation import ui_trade_wire as wire  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
@@ -134,15 +135,75 @@ class RefusalTests(_AnswererRegistered):
         self.assertEqual(out, [])
         self.assertIn("reason=undecodable", console)
 
-    def test_a_payload_with_a_trailer_is_refused_not_rounded(self):
-        # The round trip is the whole safety argument: bytes that parse
-        # but do not re-encode identically are not the player's bytes.
+    def test_a_payload_with_a_trailer_is_refused_as_UNDECODABLE(self):
+        """Named for the refusal it gets (pf-adversary round xqxadg, D5).
+
+        The decoder calls ``require_exhausted``, so a trailer is refused
+        one step BEFORE the round-trip comparison; the old assertion
+        (``assertIn("REFUSED", console)``) could not tell the two apart
+        and the old name claimed the wrong one.  The round-trip guard is
+        measured on its own in the two tests below.
+        """
         out, console = self._call(
             vital_id=wire.TRADE_INVITE_VITAL_ID,
             payload=_real_invite_payload() + b"\x77",
         )
         self.assertEqual(out, [])
-        self.assertIn("REFUSED", console)
+        self.assertIn("reason=undecodable", console)
+
+    def test_no_decodable_payload_reaches_the_round_trip_refusal(self):
+        """D5: unreachable through this decoder, measured not asserted.
+
+        4,000 structurally valid payloads; every one that decodes
+        re-encodes byte for byte.  A decoder that ever loosens turns this
+        red, which is when the guard below stops being dead code.
+        """
+        import random
+        import struct
+
+        rng = random.Random(20260908)
+        decoded = 0
+        for _ in range(4000):
+            body = bytes(
+                rng.getrandbits(8)
+                for _ in range(rng.choice((0, 2, 4, 6, 10, 20)))
+            )
+            payload = (
+                bytes([wire._TAG_FIELD1_U8, rng.getrandbits(8)])
+                + social_wire.u64tag(
+                    wire._TAG_FIELD2_U64, rng.getrandbits(64)
+                )
+                + bytes([0x48]) + struct.pack("<I", len(body)) + body
+            )
+            fields = wire.decode_trade_invite_payload(payload)
+            if fields is None:
+                continue
+            decoded += 1
+            self.assertEqual(
+                wire.encode_trade_invite_payload(fields), payload,
+            )
+        self.assertGreater(decoded, 1000, "the sample decoded too little")
+
+    def test_the_round_trip_guard_refuses_when_it_IS_reached(self):
+        """The guard is exercised, so deleting it cannot stay green."""
+        payload = _real_invite_payload()
+        real = wire.encode_trade_invite_payload
+
+        def one_byte_longer(fields):
+            return real(fields) + b"\x00"
+
+        wire.encode_trade_invite_payload = one_byte_longer
+        self.addCleanup(
+            setattr, wire, "encode_trade_invite_payload", real,
+        )
+        out, console = self._call(
+            vital_id=wire.TRADE_INVITE_VITAL_ID, payload=payload,
+        )
+        self.assertEqual(out, [])
+        self.assertIn("reason=not_byte_exact", console)
+        self.assertIn(
+            "in=%d out=%d" % (len(payload), len(payload) + 1), console,
+        )
 
     def test_the_budget_stops_answering_and_refusals_do_not_spend_it(self):
         payload = _real_invite_payload()

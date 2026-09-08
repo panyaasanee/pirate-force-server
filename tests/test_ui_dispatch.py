@@ -34,6 +34,18 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import ui_dispatch  # noqa: E402
+# IMPORTED AT MODULE LEVEL ON PURPOSE.  These two lane modules register
+# their answerers AT IMPORT, and `_RegistryIsolation` snapshots the
+# registry in setUp: importing one INSIDE a test therefore leaves the
+# module imported (so it never registers again) while the cleanup
+# restores the pre-import snapshot without its entry -- measured, the
+# party answerer's own end-to-end test went red only when this file ran
+# first in the same interpreter.  Importing here puts both entries in
+# every snapshot this file takes.
+from pirateforce_foundation.lane_hooks import (  # noqa: E402,F401
+    lane_ui_party_invite_answer as _party_answerer,
+    lane_ui_trade_invite_answer as _trade_answerer,
+)
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
@@ -80,6 +92,29 @@ def _synthetic_pc(legacy, nested_id: int, payload: bytes) -> bytes:
     )
 
 
+class _InGameSession:
+    """The smallest session the seam's admission check admits.
+
+    `ui_dispatch._session_is_in_game` reads exactly the precondition
+    `runtime.py` already uses for in-game frames -- `foundation.selected
+    is not None` -- so a test that wants to exercise anything PAST that
+    door has to come through it, the same as a player.  This stand-in
+    holds nothing else: every test below that used to pass a bare
+    `object()` was, without saying so, testing an unauthenticated peer.
+    `EndToEndThroughTheRealDispatcherTests` drives the real login instead
+    and is the check that this stand-in is not a fiction.
+    """
+
+    class _Foundation:
+        selected = object()
+
+    foundation = _Foundation()
+
+
+def _in_game():
+    return _InGameSession()
+
+
 class _RegistryIsolation(unittest.TestCase):
     """Every test in this file leaves the shipped registry EMPTY.
 
@@ -105,6 +140,24 @@ class _RegistryIsolation(unittest.TestCase):
 
         self.addCleanup(_restore)
         ui_dispatch._ANSWERERS.clear()
+        saved_owners = dict(ui_dispatch._ANSWERER_OWNERS)
+
+        def _restore_owners():
+            ui_dispatch._ANSWERER_OWNERS.clear()
+            ui_dispatch._ANSWERER_OWNERS.update(saved_owners)
+
+        self.addCleanup(_restore_owners)
+
+    def review_owner(self, module_name, vital_id):
+        """Give a fabricated lane module the reviewed ownership of an id.
+
+        The SAME shape as `allow()` above and for the same reason: the
+        real `register_answerer()` reads `_ANSWERER_OWNERS`, so a test
+        that wants a made-up `lane_ui_zz_test_*.py` to reach the code
+        under test writes the row a reviewer would have written, instead
+        of monkeypatching the check away.  Restored in setUp's cleanup.
+        """
+        ui_dispatch._ANSWERER_OWNERS[vital_id] = module_name
 
     def allow(self, fn=None):
         """Open the production gate for THIS test module, then close it.
@@ -139,7 +192,7 @@ class ShipsInertTests(_RegistryIsolation):
     def test_every_one_of_the_eight_ids_answers_with_an_empty_list(self):
         for vital_id in sorted(ui_dispatch.ANSWERABLE_VITAL_IDS):
             with self.subTest(vital_id=f"{vital_id:#06x}"):
-                answer = ui_dispatch.answer(object(), vital_id, b"\x00\x01")
+                answer = ui_dispatch.answer(_in_game(), vital_id, b"\x00\x01")
                 self.assertEqual(answer, [])
                 # A tuple would compare unequal to [] at the call site's
                 # own assertion in the sibling wiring test, and the
@@ -150,7 +203,7 @@ class ShipsInertTests(_RegistryIsolation):
         # runtime.py never calls answer() for anything outside its own
         # guard, but a future call site that did must not find a
         # different shape here.
-        self.assertEqual(ui_dispatch.answer(object(), 0x0000, b""), [])
+        self.assertEqual(ui_dispatch.answer(_in_game(), 0x0000, b""), [])
 
     def test_the_eight_ids_are_exactly_the_ones_runtime_routes_here(self):
         # The drift this pins: an id added to runtime.py's guard but not
@@ -266,7 +319,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
     about the thing the gate actually reads.
     """
 
-    def _lane_module(self, stem, source, allowed):
+    def _lane_module(self, stem, source, allowed, owns=None):
         import types
 
         qualified = f"{lane_hooks.__name__}.{stem}"
@@ -280,6 +333,11 @@ class RoundThreeFindingsTests(_RegistryIsolation):
             self.addCleanup(
                 lane_hooks._PRODUCTION_ALLOWED.pop, qualified, None,
             )
+        if owns is not None:
+            # This module is the one that CALLS register_answerer in the
+            # test below, so it needs the reviewed ownership row a real
+            # answerer's id carries in ui_dispatch (pf-adversary D9).
+            self.review_owner(qualified, owns)
         exec(compile(source, f"<{stem}>", "exec"), module.__dict__)
         return module
 
@@ -301,7 +359,8 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         forged here: this is how shared registration code is factored.
         """
         helper = self._lane_module(
-            "lane_ui_zz_test_helpers", self.HELPER_SOURCE, allowed=True
+            "lane_ui_zz_test_helpers", self.HELPER_SOURCE, allowed=True,
+            owns=PARTY_INVITE_VITAL_ID,
         )
         experimental = self._lane_module(
             "lane_ui_zz_test_experimental",
@@ -328,7 +387,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         console = stderr.getvalue()
         self.assertIn("UI_DISPATCH_GATED", console)
@@ -337,14 +396,19 @@ class RoundThreeFindingsTests(_RegistryIsolation):
     def test_the_same_helper_still_works_for_an_allowed_lane(self):
         """The D1 fix must not close the gate on the legitimate case."""
         helper = self._lane_module(
-            "lane_ui_zz_test_helpers2", self.HELPER_SOURCE, allowed=True
+            "lane_ui_zz_test_helpers2", self.HELPER_SOURCE, allowed=True,
         )
+        # THE ROW GOES TO THE MODULE THAT DEFINES THE BODY THAT RUNS
+        # (COO 20260908_1142 item 7 D-zeta, and pf-adversary D-A): a
+        # helper may still do the wiring, but the reviewed answerer is
+        # the callable the owner module itself holds.
         caller = self._lane_module(
             "lane_ui_zz_test_caller",
             "def answerer(session=None, vital_id=None, payload=None):\n"
             "    return [('UI_PARTY_INVITE_ANSWERED', b'\\x01',"
             " b'\\xde\\xad', 0.0)]\n",
             allowed=True,
+            owns=PARTY_INVITE_VITAL_ID,
         )
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertTrue(
@@ -352,7 +416,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
             )
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""),
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""),
                 [("UI_PARTY_INVITE_ANSWERED", b"\x01", b"\xde\xad", 0.0)],
             )
 
@@ -379,7 +443,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
 
@@ -407,6 +471,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
             " payload=payload)\n"
             "    return ui_dispatch.register_answerer(vital_id, logged)\n",
             allowed=True,
+            owns=PARTY_INVITE_VITAL_ID,
         )
         gated = self._lane_module(
             "lane_ui_zz_test_gated_caller",
@@ -434,7 +499,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
         self.assertIn(gated.__name__, stderr.getvalue())
@@ -453,6 +518,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
             "def answerer(session=None, vital_id=None, payload=None):\n"
             "    return [('UI_PARTY_INVITE_ANSWERED', b'\\x01', b'\\x02', 0.0)]\n",
             allowed=False,
+            owns=PARTY_INVITE_VITAL_ID,
         )
         good = self._lane_module(
             "lane_ui_zz_test_good",
@@ -472,7 +538,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         )
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""),
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""),
                 [("UI_PARTY_INVITE_ANSWERED", b"\x01", b"\x02", 0.0)],
             )
 
@@ -500,6 +566,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
             "    return ui_dispatch.register_answerer("
             "vital_id, impl.answerer)\n",
             allowed=True,
+            owns=PARTY_INVITE_VITAL_ID,
         )
         challenger = self._lane_module(
             "lane_ui_zzz_test_correct",
@@ -512,6 +579,13 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         )
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertTrue(incumbent.install(PARTY_INVITE_VITAL_ID))
+        # THE HANDOVER IS A REVIEWED ROW, NOT A RACE (pf-adversary D9).
+        # Since ownership landed, two lane modules can no longer contest
+        # an id by import order -- so the yield rule's live scenario is
+        # the one that remains: the table hands the id to a new owner
+        # while a process still holds the old, now-gated module's
+        # registration.
+        self.review_owner(challenger.__name__, PARTY_INVITE_VITAL_ID)
         self.assertIn(
             impl.__name__,
             ui_dispatch.gating_module_names(PARTY_INVITE_VITAL_ID),
@@ -549,6 +623,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
             "def take(vital_id):\n"
             "    return ui_dispatch.register_answerer(vital_id, answerer)\n",
             allowed=True,
+            owns=PARTY_INVITE_VITAL_ID,
         )
         with contextlib.redirect_stderr(io.StringIO()):
             ui_dispatch.register_answerer(
@@ -651,7 +726,7 @@ class RoundThreeFindingsTests(_RegistryIsolation):
         self.allow(answerer)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b"\x09"),
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b"\x09"),
                 [],
             )
         self.assertEqual(seen, [(PARTY_INVITE_VITAL_ID, b"\x09")])
@@ -685,7 +760,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
 
@@ -695,7 +770,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             actions = ui_dispatch.answer(
-                object(), PARTY_INVITE_VITAL_ID, b"\x09"
+                _in_game(), PARTY_INVITE_VITAL_ID, b"\x09"
             )
         self.assertEqual(actions, [self.ACTION])
         # Named for what it measures: the actions were accepted by the
@@ -725,7 +800,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
         self.allow(answerer)
 
-        class Session(object):
+        class Session(_InGameSession):
             def __init__(self):
                 self.gm_warp_position_pending = False
 
@@ -773,7 +848,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         untouched, not as a green empty answer with the flag flipped.
         """
 
-        class Session(object):
+        class Session(_InGameSession):
             def __init__(self):
                 self.gm_warp_position_pending = False
                 self.move_authority_grace_remaining = 0
@@ -808,7 +883,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         console = stderr.getvalue()
         self.assertIn("UI_DISPATCH_ANSWER_ERR", console)
@@ -824,7 +899,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         self.allow(answerer)
         with self.assertRaises(KeyboardInterrupt):
             with contextlib.redirect_stderr(io.StringIO()):
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b"")
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b"")
 
     def test_none_is_the_ordinary_no_answer_and_is_not_an_error(self):
         answerer = self._register_returning(None)
@@ -832,7 +907,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertNotIn("REFUSED", stderr.getvalue())
 
@@ -886,7 +961,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
                 with contextlib.redirect_stderr(stderr):
                     self.assertEqual(
                         ui_dispatch.answer(
-                            object(), PARTY_INVITE_VITAL_ID, b""
+                            _in_game(), PARTY_INVITE_VITAL_ID, b""
                         ),
                         [],
                     )
@@ -900,7 +975,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertNotIn("REFUSED", stderr.getvalue())
 
@@ -913,7 +988,7 @@ class GateAndFailClosedTests(_RegistryIsolation):
         self.allow(answerer)
         with contextlib.redirect_stderr(io.StringIO()):
             actions = ui_dispatch.answer(
-                object(), PARTY_INVITE_VITAL_ID, b""
+                _in_game(), PARTY_INVITE_VITAL_ID, b""
             )
         self.assertIsNot(actions, owned)
         actions.append(("UI_EXTRA", b"\x01", b"\x02", 0.0))
@@ -1099,7 +1174,7 @@ class ValidationOrderTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             actions = ui_dispatch.answer(
-                object(), PARTY_INVITE_VITAL_ID, b""
+                _in_game(), PARTY_INVITE_VITAL_ID, b""
             )
         # What ships is the SNAPSHOT the guard checked, not whatever the
         # lane rewrote the list to afterwards. The smuggled tuple -- a str
@@ -1157,7 +1232,7 @@ class ValidationOrderTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertIn("UI_DISPATCH_ANSWER_ERR", stderr.getvalue())
 
@@ -1212,7 +1287,7 @@ class RoundTwoFindingsTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
 
@@ -1251,7 +1326,7 @@ class RoundTwoFindingsTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertIn("UI_DISPATCH_ANSWER_ERR", stderr.getvalue())
 
@@ -1306,7 +1381,7 @@ class GateIsKeyedOnTheRegistrarTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertIn("UI_DISPATCH_GATED", stderr.getvalue())
 
@@ -1320,12 +1395,12 @@ class GateIsKeyedOnTheRegistrarTests(_RegistryIsolation):
         ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
         self.allow()
         with contextlib.redirect_stderr(io.StringIO()):
-            first = ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b"")
+            first = ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b"")
         self.assertEqual(len(first), 1)
         qualified = f"{lane_hooks.__name__}.{__name__}"
         lane_hooks._PRODUCTION_ALLOWED[qualified] = False
         with contextlib.redirect_stderr(io.StringIO()):
-            second = ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b"")
+            second = ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b"")
         self.assertEqual(second, [])
 
 
@@ -1491,7 +1566,7 @@ class UnregisteredOutboundShapeTests(_RegistryIsolation):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
         self.assertIn("reason=frame_shape_not_registered", stderr.getvalue())
 
@@ -1503,7 +1578,7 @@ class UnregisteredOutboundShapeTests(_RegistryIsolation):
         self.allow(answerer)
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
-            self.assertEqual(ui_dispatch.answer(object(), 0x2466, b""), [])
+            self.assertEqual(ui_dispatch.answer(_in_game(), 0x2466, b""), [])
         self.assertIn("reason=frame_shape_not_registered", stderr.getvalue())
 
     def test_one_unlisted_action_refuses_the_whole_batch(self):
@@ -1515,7 +1590,7 @@ class UnregisteredOutboundShapeTests(_RegistryIsolation):
         self.allow(answerer)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
 
     def test_a_frame_past_the_reviewed_budget_is_refused(self):
@@ -1528,7 +1603,7 @@ class UnregisteredOutboundShapeTests(_RegistryIsolation):
         self.allow(answerer)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
 
     def test_a_frame_exactly_at_the_reviewed_budget_is_not_refused(self):
@@ -1544,7 +1619,7 @@ class UnregisteredOutboundShapeTests(_RegistryIsolation):
         self.allow(answerer)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""),
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""),
                 [ok],
             )
 
@@ -1558,7 +1633,7 @@ class UnregisteredOutboundShapeTests(_RegistryIsolation):
         self.allow(answerer)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
 
     def test_a_lying_str_subclass_does_not_match_a_registry_key(self):
@@ -1585,7 +1660,7 @@ class UnregisteredOutboundShapeTests(_RegistryIsolation):
         self.allow(answerer)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(
-                ui_dispatch.answer(object(), PARTY_INVITE_VITAL_ID, b""), []
+                ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b""), []
             )
 
     def test_the_registry_ids_are_the_wire_modules_ids(self):
@@ -1666,7 +1741,7 @@ class TheSeamIsNotASandboxTests(_RegistryIsolation):
             seen["envelope"] = frame.f_locals.get("envelope")
             return []
 
-        live_session = object()
+        live_session = _in_game()
         fake_envelope = object()
         ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
         self.allow(answerer)
@@ -1685,6 +1760,376 @@ class TheSeamIsNotASandboxTests(_RegistryIsolation):
         self.assertEqual(seen["names"], ["envelope", "session"])
         self.assertIs(seen["session"], live_session)
         self.assertIs(seen["envelope"], fake_envelope)
+
+
+class TheDoorIsLoginNotTheFrameIdTests(_RegistryIsolation):
+    """pf-adversary round xqxadg, D7 -- measured through real dispatch.
+
+    `runtime.py` picks the eight-vital branch by the ID of the frame, so
+    nothing about where the connection has got to was ever consulted.
+    These tests drive the REAL `state.dispatch()` with no login at all,
+    which is the only way to show it: a stand-in session would only prove
+    what the stand-in was built to say.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
+        )
+        self.store.migrate()
+        self.legacy = _legacy()
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+        field_mobs.load_roster()
+        self.calls = []
+
+        def answerer(session=None, vital_id=None, payload=None):
+            self.calls.append(payload)
+            return [("UI_PARTY_INVITE_ANSWERED", b"\x03", b"\x11\x22", 0.0)]
+
+        ui_dispatch.register_answerer(PARTY_INVITE_VITAL_ID, answerer)
+        self.allow(answerer)
+
+    def _fresh_connection(self):
+        """A state object that has sent nothing at all -- a raw socket."""
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        return state_type("uidisp-nologin")
+
+    def _press(self, state):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            actions = state.dispatch(self.legacy.parse_outer(
+                _synthetic_pc(self.legacy, PARTY_INVITE_VITAL_ID, b"\x00\x01")
+            ))
+        return actions, stderr.getvalue()
+
+    def test_a_peer_that_never_logged_in_gets_nothing_back(self):
+        state = self._fresh_connection()
+        self.assertIsNone(state.foundation.selected)
+        actions, console = self._press(state)
+        self.assertEqual(actions, [])
+        self.assertIn("reason=not_in_game", console)
+
+    def test_the_answerer_is_not_even_reached(self):
+        """The refusal is a DOOR, not a filter on what comes back.
+
+        A lane's answerer keeps a process-wide budget, prints tokens and
+        may count what it saw; if it ran and its bytes were dropped
+        afterwards, an unauthenticated peer would still be spending the
+        button.  So the check has to be before `fn`, and this is what
+        says it is.
+        """
+        state = self._fresh_connection()
+        for _ in range(5):
+            self.assertEqual(self._press(state)[0], [])
+        self.assertEqual(self.calls, [])
+
+    def test_the_same_press_after_a_real_login_is_answered(self):
+        """The other half: the door is shut, not the button.
+
+        Without this the test above would pass just as well if the seam
+        had stopped answering anybody.
+        """
+        state = self._fresh_connection()
+        self.assertEqual(self._press(state)[0], [])
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc("uidisp-nologin")
+        ))
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._V25_REAL_CREATE_PC
+        ))
+        character = self.store.list_characters(
+            state.foundation.account_id
+        )[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        actions, _console = self._press(state)
+        self.assertEqual(
+            actions, [("UI_PARTY_INVITE_ANSWERED", b"\x03", b"\x11\x22", 0.0)],
+        )
+        self.assertEqual(self.calls, [b"\x00\x01"])
+
+    def test_a_session_shape_the_check_cannot_read_is_refused(self):
+        """Fail-closed on the unexpected, not open.
+
+        An object with no `foundation`, and one whose attribute raises,
+        both answer nothing -- the seam does not get to assume that what
+        it cannot read is a logged-in player.
+        """
+        class Exploding:
+            @property
+            def foundation(self):
+                raise RuntimeError("no")
+
+        for session in (object(), Exploding()):
+            with self.subTest(session=type(session).__name__):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(
+                        ui_dispatch.answer(
+                            session, PARTY_INVITE_VITAL_ID, b"",
+                        ),
+                        [],
+                    )
+        self.assertEqual(self.calls, [])
+
+
+class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
+    """pf-adversary round xqxadg, D9 -- filename order stops deciding.
+
+    The finding: registration was first-wins and `pkgutil.iter_modules`
+    decides who is first, so a `lane_ui_aaa_*.py` shipping
+    `production_allowed = True` could take `0x37B1` from the reviewed
+    answerer and put its own bytes on the wire, with this file 100%
+    green.  `_ANSWERER_OWNERS` is the reviewed table that closes it.
+    """
+
+    def _lane_module(self, stem, source, allowed):
+        import types
+
+        qualified = f"{lane_hooks.__name__}.{stem}"
+        module = types.ModuleType(qualified)
+        module.__file__ = f"<{stem}>"
+        module.production_allowed = allowed
+        sys.modules[qualified] = module
+        self.addCleanup(sys.modules.pop, qualified, None)
+        if allowed:
+            lane_hooks._PRODUCTION_ALLOWED[qualified] = True
+            self.addCleanup(
+                lane_hooks._PRODUCTION_ALLOWED.pop, qualified, None,
+            )
+        exec(compile(source, f"<{stem}>", "exec"), module.__dict__)
+        return module
+
+    TAKER = (
+        "from pirateforce_foundation import ui_dispatch\n"
+        "def answerer(session=None, vital_id=None, payload=None):\n"
+        "    return [('UI_PARTY_INVITE_ANSWERED', b'\\xff',"
+        " b'\\xff\\xff', 0.0)]\n"
+        "def install(vital_id):\n"
+        "    return ui_dispatch.register_answerer(vital_id, answerer)\n"
+    )
+
+    def test_the_measured_thief_cannot_take_a_free_id(self):
+        """The attack verbatim: alphabetically first, flag on, id free."""
+        thief = self._lane_module(
+            "lane_ui_aaa_thief", self.TAKER, allowed=True
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertFalse(thief.install(PARTY_INVITE_VITAL_ID))
+        self.assertIn("reason=not_the_reviewed_owner", stderr.getvalue())
+        self.assertIsNone(
+            ui_dispatch.registered_answerer(PARTY_INVITE_VITAL_ID)
+        )
+
+    def test_the_thief_cannot_take_it_by_being_there_first_either(self):
+        """Order is not the question any more, so order cannot answer it.
+
+        The thief registers BEFORE the reviewed owner and still loses --
+        which is the difference between this and the incumbent-yield
+        rule, where whoever got there first mattered.
+        """
+        thief = self._lane_module(
+            "lane_ui_aaa_thief2", self.TAKER, allowed=True
+        )
+        # The reviewed owner here is a FABRICATED lane, not the shipped
+        # answerer module: fabricating under the real module's name would
+        # take over its `sys.modules` entry and its `_PRODUCTION_ALLOWED`
+        # row, and the cleanup would then delete the real lane's gate for
+        # whatever test file runs next (measured: the party answerer's own
+        # end-to-end test went red only when this file ran first).
+        owner = self._lane_module(
+            "lane_ui_zzz_reviewed_owner", self.TAKER, allowed=True
+        )
+        owner_name = owner.__name__
+        self.review_owner(owner_name, PARTY_INVITE_VITAL_ID)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertFalse(thief.install(PARTY_INVITE_VITAL_ID))
+            self.assertTrue(owner.install(PARTY_INVITE_VITAL_ID))
+        module_name, _fn = ui_dispatch.registered_answerer(
+            PARTY_INVITE_VITAL_ID
+        )
+        self.assertEqual(module_name, owner_name)
+
+    def test_an_id_with_no_reviewed_row_cannot_be_taken_by_a_lane(self):
+        """The six ids nobody has written an answerer for stay shut.
+
+        `ANSWERABLE_VITAL_IDS` says runtime.py ROUTES the id here; it
+        never said a lane may claim it.  Before the table, any lane file
+        could.
+        """
+        lane = self._lane_module(
+            "lane_ui_zz_unreviewed_id", self.TAKER, allowed=True
+        )
+        for vital_id in sorted(
+            ui_dispatch.ANSWERABLE_VITAL_IDS
+            - set(ui_dispatch._ANSWERER_OWNERS)
+        ):
+            with self.subTest(vital_id=hex(vital_id)):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertFalse(lane.install(vital_id))
+                self.assertIsNone(
+                    ui_dispatch.registered_answerer(vital_id)
+                )
+
+    def test_the_table_names_the_modules_that_actually_ship(self):
+        """A row for a module that does not exist reviews nothing.
+
+        Imports the shipped answerers and compares their own ids against
+        the table, so a rename or a deleted file turns this red instead
+        of leaving a row pointing at nothing.
+        """
+        from pirateforce_foundation import ui_party_wire
+        from pirateforce_foundation import ui_trade_wire
+
+        self.assertEqual(
+            set(ui_dispatch._ANSWERER_OWNERS),
+            {
+                ui_party_wire.PARTY_INVITE_VITAL_ID,
+                ui_trade_wire.TRADE_INVITE_VITAL_ID,
+            },
+        )
+        # READ FROM DISK, NOT IMPORTED.  Importing an answerer module
+        # registers it, and this file's isolation restores the registry
+        # it snapshotted BEFORE that import -- which would leave the lane
+        # imported and its id unregistered for whatever test file runs
+        # next in the same interpreter (the hazard `_RegistryIsolation`
+        # already records for `clear_answerers()`).  So the row is
+        # checked against the FILE it names.
+        lane_dir = (
+            ROOT / "src" / "pirateforce_foundation" / "lane_hooks"
+        )
+        for vital_id, name in ui_dispatch._ANSWERER_OWNERS.items():
+            with self.subTest(vital_id=hex(vital_id)):
+                self.assertTrue(
+                    name.startswith(ui_dispatch._LANE_PACKAGE), name,
+                )
+                stem = name[len(ui_dispatch._LANE_PACKAGE):]
+                path = lane_dir / f"{stem}.py"
+                self.assertTrue(path.is_file(), f"no such lane file: {path}")
+                source = path.read_text(encoding="utf-8")
+                self.assertIn("register_answerer(", source)
+
+    def test_every_owned_id_is_an_id_runtime_actually_routes_here(self):
+        self.assertTrue(
+            set(ui_dispatch._ANSWERER_OWNERS)
+            <= ui_dispatch.ANSWERABLE_VITAL_IDS
+        )
+
+    def test_a_forged_entry_under_the_owners_name_answers_nothing(self):
+        """pf-adversary round 1gc6hl, D-A -- the attack verbatim.
+
+        `_ANSWERERS` is a module global, so `register_answerer()` is not
+        the only way in.  One line in a `production_allowed = False`
+        lane -- storing `(owner_name, (owner_name,), forged)` directly --
+        made every name the seam reads say "the reviewed answerer", and
+        arbitrary bytes went out under the reviewed label with
+        `UI_DISPATCH_ACCEPTED module=<the owner>` in the console.  The
+        identity check in `answer()` is what refuses it.
+        """
+        forger = self._lane_module(
+            "lane_ui_zz_forger",
+            "def forged(session=None, vital_id=None, payload=None):\n"
+            "    return [('UI_PARTY_INVITE_ANSWERED', b'\\x01',"
+            " b'\\xde\\xad\\xbe\\xef', 0.0)]\n",
+            allowed=False,
+        )
+        owner_name = ui_dispatch._ANSWERER_OWNERS[PARTY_INVITE_VITAL_ID]
+        # The forger writes the dict itself: no registrar name of its own
+        # anywhere in the entry, and `fn.__module__` forged too, because
+        # it is a plain writable attribute.
+        forger.forged.__module__ = owner_name
+        ui_dispatch._ANSWERERS[PARTY_INVITE_VITAL_ID] = (
+            owner_name, (owner_name,), forger.forged,
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            actions = ui_dispatch.answer(
+                _in_game(), PARTY_INVITE_VITAL_ID, b"",
+            )
+        self.assertEqual(actions, [])
+        self.assertIn(
+            "reason=not_the_reviewed_owners_own_callable", stderr.getvalue()
+        )
+        self.assertNotIn("UI_DISPATCH_ACCEPTED", stderr.getvalue())
+
+    def test_the_shipped_answerer_passes_the_same_check(self):
+        """The other half: the check admits the code it was written for.
+
+        Without this, the test above would pass just as well if the
+        identity check refused everybody -- including the two buttons
+        that are supposed to answer.
+        """
+        owner_name = ui_dispatch._ANSWERER_OWNERS[PARTY_INVITE_VITAL_ID]
+        owner_module = _party_answerer
+        self.assertEqual(owner_module.__name__, owner_name)
+        # Registering it here rather than relying on import order: this
+        # file's isolation empties the registry in setUp.
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(
+                ui_dispatch.register_answerer(
+                    PARTY_INVITE_VITAL_ID,
+                    owner_module.answer_party_invite,
+                )
+            )
+        # RESTORE THE PREVIOUS VALUE, DO NOT POP.  `_discover()` owns
+        # this entry for a real lane module; popping it deleted the
+        # shipped answerer's gate for whatever test file ran next
+        # (measured: the party answerer's end-to-end test went red only
+        # when this file ran first).
+        had = owner_name in lane_hooks._PRODUCTION_ALLOWED
+        previous = lane_hooks._PRODUCTION_ALLOWED.get(owner_name)
+        lane_hooks._PRODUCTION_ALLOWED[owner_name] = True
+
+        def _restore_flag():
+            if had:
+                lane_hooks._PRODUCTION_ALLOWED[owner_name] = previous
+            else:
+                lane_hooks._PRODUCTION_ALLOWED.pop(owner_name, None)
+
+        self.addCleanup(_restore_flag)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ui_dispatch.answer(_in_game(), PARTY_INVITE_VITAL_ID, b"\x99")
+        self.assertNotIn(
+            "reason=not_the_reviewed_owners_own_callable", stderr.getvalue()
+        )
+
+    def test_a_registrar_outside_the_lane_package_is_not_judged(self):
+        """Said out loud because it is the rule's edge, not an oversight.
+
+        This test file registers from outside `lane_hooks`, and so does a
+        REPL; refusing those would make the seam untestable without
+        closing a route that cannot ship, since `_discover()` imports
+        only `lane_hooks/lane_*.py`.  The residual is real and named in
+        `_ANSWERER_OWNERS`: a lane that routes its registration through a
+        helper in `lane_hooks/` whose name does NOT start with `lane_` is
+        not judged by the table either.
+        """
+        def answerer(session=None, vital_id=None, payload=None):
+            return []
+
+        from pirateforce_foundation import ui_party_wire
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertTrue(
+                ui_dispatch.register_answerer(
+                    ui_party_wire.PARTY_CMD_VITAL_ID, answerer
+                )
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -143,6 +143,23 @@ import sys
 #   0x8183 delete mail                               (ui_mail_wire)
 #   0x3700 the eighth class, defined one module over, whose own name is
 #          on that guard's list -- see above
+_LANE_PACKAGE = "pirateforce_foundation.lane_hooks."
+
+
+def _is_discoverable_lane(name):
+    """Is ``name`` a module ``lane_hooks._discover()`` would import?
+
+    THE SAME RULE IN ONE PLACE.  ``_discover()`` imports only
+    ``lane_hooks/lane_*.py``, so those are the only modules that can
+    register on a production boot and the only ones with a
+    ``_PRODUCTION_ALLOWED`` entry to read.  ``_gating_module_names()``
+    learned this the hard way (round 4, D-E) and ``register_answerer()``'s
+    ownership check asks the same question, so the question is asked once.
+    """
+    if not isinstance(name, str) or not name.startswith(_LANE_PACKAGE):
+        return False
+    return name[len(_LANE_PACKAGE):].startswith("lane_")
+
 ANSWERABLE_VITAL_IDS = frozenset(
     (0x37B1, 0x2466, 0xB9E9, 0x98A1, 0x6E12, 0xAF60, 0x8183, 0x3700)
 )
@@ -150,6 +167,40 @@ ANSWERABLE_VITAL_IDS = frozenset(
 # vital_id -> (module_name, answerer). One answerer per id, by refusal:
 # see register_answerer().
 _ANSWERERS = {}
+
+# WHICH LANE MODULE MAY TAKE WHICH ID -- THE REVIEWED TABLE
+# (pf-adversary round xqxadg, D9).  Registration used to be first-wins,
+# and "first" was decided by ``pkgutil.iter_modules`` FILENAME ORDER: a
+# ``lane_hooks/lane_ui_aaa_party.py`` with ``production_allowed = True``
+# took ``0x37B1`` from the reviewed answerer beside it, answered the
+# player's party invite with its own bytes, and ``tests/
+# test_ui_dispatch.py`` stayed 100% green -- the incumbent-yield rule
+# above only rescues a GATED incumbent, and this thief is not gated.
+# Filename order is not a review, so it no longer decides anything: an
+# id named here may be taken ONLY by the module named beside it.
+#
+# THE SAME REVIEW UNIT AS ``_OUTBOUND_FRAME_SHAPES`` AND
+# ``_SESSION_VIEW_FIELDS``, for the same reason: adding a row is a diff
+# in THIS file, so "who decided this module may answer this button" has
+# a commit as its answer.  There is deliberately no register-your-own-
+# ownership call.
+#
+# WHAT IT DOES NOT COVER, SAID PLAINLY.  The rule binds registrars
+# INSIDE the lane package (``lane_hooks/lane_*.py`` -- the only files
+# ``_discover()`` imports, so the only ones that can register on a
+# production boot).  A test or a REPL registering from outside that
+# package is unaffected, because refusing those would make this file
+# untestable without also closing a route that cannot ship: nothing on
+# the boot path imports a non-lane module that registers, and
+# ``answer()``'s gate still demands a ``_PRODUCTION_ALLOWED`` entry,
+# which only ``_discover()`` writes and only for ``lane_*.py``.
+# An id with NO row here cannot be taken by a lane module at all: the
+# six ids nobody has written an answerer for stay unanswerable until a
+# row for them is reviewed into this file.
+_ANSWERER_OWNERS = {
+    0x37B1: _LANE_PACKAGE + "lane_ui_party_invite_answer",
+    0x3700: _LANE_PACKAGE + "lane_ui_trade_invite_answer",
+}
 
 
 def _say(line):
@@ -176,9 +227,6 @@ def _say(line):
         print(lane_hooks._console_safe(line), file=sys.stderr)
     except Exception:  # pragma: no cover - stderr itself is broken
         pass
-
-
-_LANE_PACKAGE = "pirateforce_foundation.lane_hooks."
 
 
 def _module_name_of_namespace(namespace):
@@ -250,9 +298,7 @@ def _gating_module_names(fn):
         # writing the flag INTO that file did not help, because nothing
         # imports it.  A module discovery cannot reach is not a lane whose
         # flag can be read, so it is not a lane this gate can judge.
-        if not isinstance(name, str) or not name.startswith(_LANE_PACKAGE):
-            return
-        if not name[len(_LANE_PACKAGE):].startswith("lane_"):
+        if not _is_discoverable_lane(name):
             return
         if name not in names:
             names.append(name)
@@ -322,6 +368,32 @@ def register_answerer(vital_id, fn):
             % (_hex(vital_id),)
         )
         return False
+    # THE REVIEWED OWNER, BEFORE ANY QUESTION OF WHO CAME FIRST
+    # (pf-adversary round xqxadg, D9).  ``_ANSWERER_OWNERS`` names the one
+    # lane module each answerable id belongs to; a lane-package registrar
+    # that is not that module is refused whether or not the id is free, so
+    # the winner of a race between two lane files is decided by this
+    # table's diff and never by ``pkgutil.iter_modules`` filename order.
+    # Registrars from outside the lane package are not judged here -- see
+    # the table's own note for why that is not a route to production.
+    if _is_discoverable_lane(module_name):
+        owner = _ANSWERER_OWNERS.get(vital_id)
+        owner_module = sys.modules.get(owner) if owner else None
+        # THE OWNER REGISTERED IT, OR THE OWNER'S OWN CALLABLE IS WHAT IS
+        # BEING REGISTERED.  The second clause keeps the legitimate case
+        # the D1 fix exists to protect -- a helper lane doing the wiring
+        # -- while still refusing a lane that wires a body nobody
+        # reviewed for this id.  What may NOT vary is whose code runs.
+        wires_the_owners_own = owner_module is not None and any(
+            value is fn for value in vars(owner_module).values()
+        )
+        if owner != module_name and not wires_the_owners_own:
+            _say(
+                "UI_DISPATCH_REGISTER_REFUSED id=%s reason=not_the_reviewed_owner"
+                " by=%s owner=%s"
+                % (_hex(vital_id), module_name, owner or "-")
+            )
+            return False
     if vital_id in _ANSWERERS:
         incumbent = _ANSWERERS[vital_id][0]
         # FIRST WINS -- BUT ONLY IF THE FIRST CAN ACTUALLY ANSWER
@@ -438,6 +510,50 @@ def clear_answerers():
 # this file naming the answerer that needs the field and why -- one
 # place, for every lane, instead of a rule each producer remembers.
 _SESSION_VIEW_FIELDS = ()
+
+
+# WHAT MUST BE TRUE OF THE SESSION BEFORE ANY ANSWERER RUNS
+# (pf-adversary round xqxadg, D7).  ``runtime.py``'s dispatch is one long
+# chain of ``if nested_id == ...`` branches, and the eight-vital branch
+# this seam hangs off is a branch of that chain like any other: it is
+# reached by the ID of the frame, NOT by where the session has got to.
+# Measured through the real ``state.dispatch()``: a connection that has
+# never sent LOGIN_VERIFY and never selected a character sent one
+# PartyInviteVital and got the answerer's frame back, and could repeat it
+# until the answerer's process-wide budget was spent -- after which the
+# button was silent for every logged-in player until the server was
+# restarted.  Two costs, one hole: bytes to a peer who never logged in,
+# and a denial of the button to everyone who did.
+#
+# THE PRECONDITION IS THE ONE ``runtime.py`` ALREADY USES for in-game
+# frames (``self.foundation.selected is None`` -- e.g.
+# ``_dispatch_item_move_capture``): a session holds a selected character
+# only after the login handshake, the character list and START_GAME_REQ
+# have all succeeded.  All eight of these vitals are buttons the shipped
+# client only draws in-game, so a frame carrying one before that point
+# is not an early press; it is a peer that did not come through the door.
+#
+# READ HERE, NOT IN ``runtime.py``, and not by widening
+# ``_SESSION_VIEW_FIELDS``: this is the seam's own admission check on the
+# object the seam is handed, and the answerer still gets the same empty
+# snapshot it gets today.  Fail-closed on anything unexpected -- a
+# session shape without the attribute, or a property that raises, answers
+# ``[]`` rather than guessing that it is logged in.
+_SESSION_IN_GAME_READS = ("foundation.selected",)
+
+
+def _session_is_in_game(session):
+    """Has this session actually reached in-game state?  Fail-closed."""
+    for path in _SESSION_IN_GAME_READS:
+        value = session
+        for part in path.split("."):
+            try:
+                value = getattr(value, part)
+            except Exception:
+                return False
+        if value is None:
+            return False
+    return True
 
 
 class _SessionSnapshot(tuple):
@@ -1004,6 +1120,56 @@ def answer(session, vital_id, payload, envelope=None):
                 % (_hex(vital_id), module_name, name)
             )
             return []
+    # AN ENTRY THAT CLAIMS THE REVIEWED OWNER'S NAME MUST BE THE REVIEWED
+    # OWNER'S CODE (pf-adversary round 1gc6hl, D-A).  `_ANSWERERS` is a
+    # module global and `register_answerer()` is not the only way into it:
+    # measured end to end through the real `state.dispatch()`, one line in
+    # a `production_allowed = False` lane --
+    # `ui_dispatch._ANSWERERS[0x37B1] = (VICTIM, (VICTIM,), forged)` --
+    # put a `TeleportVital` frame on the wire under the party label,
+    # printed `UI_DISPATCH_ACCEPTED module=<the victim>`, left the shipped
+    # answerer's budget untouched, and kept the whole suite and both
+    # arming proofs green.  Every check this file had asked about the
+    # NAMES STORED IN THE TUPLE, which the writer of the tuple chooses.
+    #
+    # So when the stored registrar IS the id's reviewed owner, the
+    # function is checked by IDENTITY against that module: the reviewed
+    # module has to be where this callable actually lives.  A name is
+    # copyable and `fn.__module__` is writable; being an attribute of an
+    # imported module object is neither.
+    #
+    # WHAT THIS DOES NOT CLOSE, MEASURED AND NAMED, NOT IMPLIED.  A
+    # forger who stores its OWN allowed lane name instead of the owner's
+    # is not caught here -- it is then answering under its own name, with
+    # its own flag, which is the case the gate above judges.  And nothing
+    # in a process can stop a lane that writes into the owner module's
+    # namespace.  The real question -- whether the unit of trust is a
+    # file, a module object, a function object or a dict entry -- is a
+    # COO letter this round, not a patch.
+    owner = _ANSWERER_OWNERS.get(vital_id)
+    if owner is not None and module_name == owner:
+        owner_module = sys.modules.get(owner)
+        if owner_module is None or not any(
+            value is fn for value in vars(owner_module).values()
+        ):
+            _say(
+                "UI_DISPATCH_GATED id=%s module=%s"
+                " reason=not_the_reviewed_owners_own_callable"
+                % (_hex(vital_id), module_name)
+            )
+            return []
+    # THE DOOR, BEFORE THE LANE'S CODE RUNS OR ITS BUDGET MOVES
+    # (pf-adversary round xqxadg, D7 -- see ``_SESSION_IN_GAME_READS``).
+    # Placed after the production gate so a closed lane still reports the
+    # reason it is closed, and before ``fn`` so an unauthenticated peer
+    # cannot reach an answerer at all -- not its bytes, and not its
+    # counter.
+    if not _session_is_in_game(session):
+        _say(
+            "UI_DISPATCH_GATED id=%s module=%s reason=not_in_game"
+            % (_hex(vital_id), module_name)
+        )
+        return []
     try:
         actions = fn(
             session=_SessionSnapshot(session),
