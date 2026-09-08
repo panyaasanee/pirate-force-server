@@ -1,1 +1,1 @@
-{"sha":"f18a027f02cf5aba7994c6fd56ac7f8af23a8bbe","conclusion":"success","event":"push","ref":"refs/heads/claude/determined-franklin-3f12wv","run_id":"34172392541","utc":"2026-09-08T00:39:51Z"}
+{"sha":"f18a027f02cf5aba7994c6fd56ac7f8af23a8bbe","conclusion":"success","event":"pull_request","ref":"refs/pull/1125/merge","run_id":"34172415926","utc":"2026-09-08T00:44:03Z"}
