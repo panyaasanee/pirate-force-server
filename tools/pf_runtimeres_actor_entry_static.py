@@ -1310,16 +1310,25 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # The answerer module itself adds NO site: a lane returns a VitalReply and
 # ui_dispatch._compose() calls the carrier, which is exactly the property
 # that shape exists to keep.  Re-pinned in the same commit that added it.
-# 32 -> 34 (LANE-UI round xqxadg, second pass, paying pf-adversary D10).
-# Both arming proofs gained a SECOND call: they build the same envelope
-# around a marker payload of the same length, so the proof can say that the
-# bytes in the payload slot are the player's and every byte outside it is the
-# envelope's own.  The token used to read `payload in pc`, which is
-# containment and not identity -- a reply of `payload + b"\xAA"` satisfied it
-# while inventing a byte.  Neither site is a sender: they are constructions
-# compared against the dispatcher's answer.
-guard(SRC_VITAL_STREAM_SITES == 34,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 34 call sites")
+# 31 -> 32 NET (LANE-UI round xqxadg), and the arithmetic is written out
+# because two changes moved in opposite directions in one round:
+#   +1  the party arming proof gained a SECOND call, paying pf-adversary D10:
+#       it builds the same envelope around a marker payload of the same
+#       length, so `echo_is_the_players_bytes` can say what its name claims --
+#       the payload slot is exactly the player's bytes and every byte outside
+#       it is the envelope's own.  The token used to read `payload in pc`,
+#       which is containment, not identity.
+#   +2/-2  the TRADE arming proof was written under `src/` and then moved to
+#       `tools/pf_ui_trade_invite_answer_headless.py`, because a top-level
+#       foundation module may not carry trade vocabulary
+#       (tests/test_npc_interaction_wire.py::QuestAndShopStateGuardTests) and
+#       the answer to that guard is not an allowlist entry.  Its two calls
+#       are therefore OUTSIDE this census, which this comment records rather
+#       than leaving to be rediscovered.
+# The trade ANSWERER adds no site at all: the lane returns a VitalReply and
+# ui_dispatch._compose() calls the carrier.
+guard(SRC_VITAL_STREAM_SITES == 32,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 32 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

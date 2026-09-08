@@ -319,7 +319,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 34,
+  "src_vital_stream_call_sites": 32,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -1087,7 +1087,7 @@ remote-actor stream, and neither passes a zero HP.
 
 ## Round `xqxadg` (LANE-UI), 2026-09-08
 
-`src_vital_stream_call_sites` moves **31 -> 34**. One new site is
+`src_vital_stream_call_sites` moves **31 -> 32** net. The one site that stays is
 `ui_trade_invite_answer_headless.py`, the arming proof for the SECOND answerer
 on the eight-vital UI dispatch seam: `TradeInviteVital` (`0x3700`). It boots
 the real dispatcher with no flag and no scenario, drives one real trade invite,
@@ -1113,11 +1113,20 @@ route (b)).
 No other census key moves: the module composes no actor entry and no
 remote-actor stream, and it passes no zero HP.
 
-The other two arrived later in the same round, paying pf-adversary D10: each
-arming proof (party and trade) now builds the envelope a SECOND time, around a
-marker payload of the same length, so that `echo_is_the_players_bytes` can say
-what its name claims -- the bytes in the payload slot are the player's and
+Two more arrived later in the same round and one pair left again, so the net is
++1. Paying pf-adversary D10, each arming proof now builds the envelope a SECOND
+time, around a marker payload of the same length, so that
+`echo_is_the_players_bytes` can say what its name claims -- the bytes in the payload slot are the player's and
 every byte outside it is the envelope's own. The token previously computed
 `payload in pc`, which is containment, not identity: a reply of
 `payload + b"\xAA"` set it to 1 while inventing a byte. Neither new site is a
 sender; both are constructions compared against the dispatcher's answer.
+
+And the trade proof then moved OUT of `src/` entirely, to
+`tools/pf_ui_trade_invite_answer_headless.py`:
+`tests/test_npc_interaction_wire.py::QuestAndShopStateGuardTests` refuses
+trade/shop/quest identifiers in any top-level foundation module, the proof has
+to spell `encode_trade_invite_payload` to build a real payload, and the answer
+to another lane's guard is not an allowlist entry (NOW `2050`). So the trade
+proof's two carrier calls are outside this census by design, and the party
+proof's two are inside it: **31 -> 32**, not 34.

@@ -28,6 +28,21 @@ ordinary receive path reaches it; its own nonclaim 2 records
 runtime.  That is the attended ticket's question, and this file exists
 to stop that ticket boarding the capture bus blind.
 
+WHY THIS ONE LIVES IN ``tools/`` AND THE PARTY PROOF LIVES IN ``src/``.
+``tests/test_npc_interaction_wire.py::QuestAndShopStateGuardTests`` reads
+every top-level module of ``src/pirateforce_foundation`` and refuses
+identifiers carrying trade/shop/quest vocabulary, so that no foundation
+module quietly grows shop behaviour.  This proof has to spell
+``encode_trade_invite_payload`` to build a real payload, and the honest
+way past a guard is not to be exempted from it: the guard's subject is
+FOUNDATION MODULES, and an arming proof is a script.  So it sits with
+the other proof scripts instead of asking for an allowlist entry in
+another lane's guard (NOW `2050` forbids exactly that trade).  The
+consequence is recorded, not hidden: this file's ``make_runtime_vitals``
+calls are outside ``src/`` and therefore outside the
+``SRC_VITAL_STREAM_SITES`` census, which is why that pin reads 32 and
+not 34.
+
 ASCII only, on stdout, for the cp874 bridge console.
 """
 from __future__ import annotations
@@ -36,7 +51,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:  # pragma: no cover - script entry
     sys.path.insert(0, str(ROOT / "src"))
 
