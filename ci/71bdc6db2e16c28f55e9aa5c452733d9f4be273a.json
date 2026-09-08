@@ -1,1 +1,1 @@
-{"sha":"71bdc6db2e16c28f55e9aa5c452733d9f4be273a","conclusion":"success","event":"push","ref":"refs/heads/claude/hopeful-babbage-wv0fpe","run_id":"34214157842","utc":"2026-09-08T10:54:59Z"}
+{"sha":"71bdc6db2e16c28f55e9aa5c452733d9f4be273a","conclusion":"success","event":"pull_request","ref":"refs/pull/1155/merge","run_id":"34214210766","utc":"2026-09-08T11:05:09Z"}
