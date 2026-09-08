@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import skill_catalog                # noqa: E402
+from pirateforce_foundation import (                            # noqa: E402
+    skill_context_census,
+    skill_learn_validator,
+)
 from pirateforce_foundation.skill_learn_validator import (      # noqa: E402
     SkillLearnValidatorError,
     can_afford_to_learn,
@@ -239,6 +243,155 @@ class SkillPointsAfterLearningTests(unittest.TestCase):
             skill_points_after_learning("1", 99)
         with self.assertRaises(TypeError):
             skill_points_after_learning(1.0, 99)
+
+
+class RefusalToLearnAnswersForEverySkillTheClientDeclaresTests(
+    unittest.TestCase
+):
+    """The 8-id ceiling is gone: 2165 ids get an answer, not a KeyError.
+
+    `can_afford_to_learn` raises `KeyError` for any id outside the
+    starting-kit catalog, which a caller cannot tell apart from a broken
+    lookup -- so a player clicking a skill her own client drew got no
+    answerable refusal.  These tests are about the function that does answer.
+    """
+
+    def test_a_kit_id_she_can_pay_for_and_has_the_level_for_is_not_refused(
+        self,
+    ):
+        self.assertIsNone(skill_learn_validator.refusal_to_learn(9, 1, 40000))
+
+    def test_an_id_the_table_does_not_declare_is_named_as_such(self):
+        self.assertEqual(
+            skill_learn_validator.REFUSED_SKILL_NOT_DECLARED,
+            skill_learn_validator.refusal_to_learn(9, 99, 123456),
+        )
+
+    def test_a_level_too_low_is_reported_as_level_not_as_points(self):
+        """A player told "3 points short" goes and grinds the wrong thing."""
+        self.assertEqual(40, skill_context_census.level_to_learn(2950))
+        self.assertEqual(
+            skill_learn_validator.REFUSED_LEVEL_TOO_LOW,
+            skill_learn_validator.refusal_to_learn(999, 39, 2950),
+        )
+        self.assertIsNone(
+            skill_learn_validator.refusal_to_learn(999, 40, 2950)
+        )
+
+    def test_the_level_check_runs_before_the_cost_check(self):
+        """Both wrong at once: the answer is the one she must fix first."""
+        self.assertEqual(
+            skill_learn_validator.REFUSED_LEVEL_TOO_LOW,
+            skill_learn_validator.refusal_to_learn(0, 1, 2950),
+        )
+
+    def test_a_zero_cost_row_is_refused_by_name_not_reported_free(self):
+        free = [
+            skill_id for skill_id in skill_context_census.DECLARED_SKILL_IDS
+            if skill_context_census.rank_one_point_cost(skill_id) <= 0
+            and skill_context_census.level_to_learn(skill_id) == 1
+        ]
+        self.assertTrue(free, "no zero-cost level-1 row to exercise")
+        self.assertEqual(
+            skill_learn_validator.REFUSED_COST_NOT_POSITIVE,
+            skill_learn_validator.refusal_to_learn(9, 1, free[0]),
+        )
+
+    def test_not_enough_points_is_its_own_named_refusal(self):
+        self.assertEqual(
+            skill_learn_validator.REFUSED_NOT_ENOUGH_POINTS,
+            skill_learn_validator.refusal_to_learn(0, 1, 40000),
+        )
+
+    def test_every_refusal_string_is_distinct(self):
+        names = {
+            skill_learn_validator.REFUSED_SKILL_NOT_DECLARED,
+            skill_learn_validator.REFUSED_LEVEL_TOO_LOW,
+            skill_learn_validator.REFUSED_COST_NOT_POSITIVE,
+            skill_learn_validator.REFUSED_NOT_ENOUGH_POINTS,
+        }
+        self.assertEqual(4, len(names))
+
+    def test_bools_are_refused_rather_than_compared_as_one_and_zero(self):
+        with self.assertRaises(TypeError):
+            skill_learn_validator.refusal_to_learn(True, 1, 99)
+        with self.assertRaises(TypeError):
+            skill_learn_validator.refusal_to_learn(9, True, 99)
+        with self.assertRaises(TypeError):
+            skill_learn_validator.refusal_to_learn(9, 1, True)
+
+    def test_a_negative_balance_is_refused_the_same_way_as_elsewhere(self):
+        with self.assertRaises(SkillLearnValidatorError):
+            skill_learn_validator.refusal_to_learn(-1, 1, 99)
+
+    def test_it_agrees_with_can_afford_to_learn_on_every_kit_id(self):
+        """One door, two callers: the older function stays the authority for
+        the 8 ids it knows, and this one must not answer differently."""
+        for skill_id in skill_catalog.STARTING_KIT_SKILL_IDS:
+            for balance in (0, 1, 9):
+                with self.subTest(skill_id=skill_id, balance=balance):
+                    try:
+                        affordable = can_afford_to_learn(balance, skill_id)
+                    except SkillLearnValidatorError:
+                        # A non-positive cost: both refuse, by the same name.
+                        self.assertEqual(
+                            skill_learn_validator.REFUSED_COST_NOT_POSITIVE,
+                            skill_learn_validator.refusal_to_learn(
+                                balance, 120, skill_id
+                            ),
+                        )
+                        continue
+                    refusal = skill_learn_validator.refusal_to_learn(
+                        balance, 120, skill_id
+                    )
+                    self.assertEqual(
+                        affordable,
+                        refusal is None,
+                        "id %d balance %d: afford=%r refusal=%r"
+                        % (skill_id, balance, affordable, refusal),
+                    )
+
+
+
+class TheWidenedSpendAgreesWithTheOlderOneTests(unittest.TestCase):
+    """One door, two names: the kit ids must not get two answers."""
+
+    def test_every_kit_id_spends_the_same_at_a_level_that_clears_it(self):
+        for skill_id in skill_catalog.STARTING_KIT_SKILL_IDS:
+            with self.subTest(skill_id=skill_id):
+                try:
+                    expected = skill_points_after_learning(99, skill_id)
+                except SkillLearnValidatorError:
+                    with self.assertRaises(SkillLearnValidatorError):
+                        skill_learn_validator.\
+                            skill_points_after_learning_declared(
+                                99, 120, skill_id
+                            )
+                    continue
+                self.assertEqual(
+                    expected,
+                    skill_learn_validator.
+                    skill_points_after_learning_declared(99, 120, skill_id),
+                )
+
+    def test_a_non_kit_id_now_has_an_answer_instead_of_a_key_error(self):
+        with self.assertRaises(KeyError):
+            skill_points_after_learning(99, 2950)
+        self.assertEqual(
+            98,
+            skill_learn_validator.skill_points_after_learning_declared(
+                99, 40, 2950
+            ),
+        )
+
+    def test_a_level_too_low_refuses_by_name_instead_of_spending(self):
+        with self.assertRaises(SkillLearnValidatorError) as caught:
+            skill_learn_validator.skill_points_after_learning_declared(
+                99, 39, 2950
+            )
+        self.assertIn(
+            skill_learn_validator.REFUSED_LEVEL_TOO_LOW, str(caught.exception)
+        )
 
 
 if __name__ == "__main__":

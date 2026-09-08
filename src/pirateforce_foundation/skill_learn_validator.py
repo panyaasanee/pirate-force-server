@@ -88,6 +88,7 @@ from __future__ import annotations
 import math
 
 from . import skill_catalog
+from . import skill_context_census
 
 
 class SkillLearnValidatorError(RuntimeError):
@@ -174,5 +175,132 @@ def skill_points_after_learning(current_skill_points: int, skill_id: int) -> int
             "can_afford_to_learn first" % (current_skill_points, skill_id)
         )
     cost = skill_catalog.skill_point_cost_to_learn(skill_id)
+    spend = cost if cost.is_integer() else math.ceil(cost)
+    return current_skill_points - int(spend)
+
+
+#: The named refusals :func:`refusal_to_learn` can return.  Strings, not an
+#: enum, because they travel to a console line and into a test's assertion
+#: unchanged, and because every other refusal in this lane is already a
+#: named string a caller can match on (`skill_list_at_login`'s
+#: `record_count_is_above_any_observed_acceptance` is the shape).
+REFUSED_SKILL_NOT_DECLARED = "skill_id_not_in_skill_context"
+REFUSED_LEVEL_TOO_LOW = "character_level_below_n_level_learn"
+REFUSED_COST_NOT_POSITIVE = "f_sp_leve1_is_not_positive"
+REFUSED_NOT_ENOUGH_POINTS = "skill_points_below_f_sp_leve1"
+
+
+def refusal_to_learn(
+    current_skill_points: int, character_level: int, skill_id: int
+) -> "str | None":
+    """The reason this character cannot learn this skill, or `None`.
+
+    WHY THIS FUNCTION EXISTS, AND WHAT CHANGED.  `can_afford_to_learn` above
+    answers ONE of the two questions the client's own table asks -- can she
+    pay -- and only for the 8 starting-kit ids `skill_catalog` carries; for
+    every other id it raises `KeyError`, which is indistinguishable from a
+    broken lookup.  The client's table declares 2165 skills.  This function
+    answers for all of them, through `skill_context_census`, and adds the
+    second question the table states: has she reached the skill's own
+    `n_LEVEL_LEARN` (see `skill_context_census.meets_level_requirement` for
+    who ordered that rule and why the comparison is `>=`).
+
+    ORDER OF THE CHECKS IS PART OF THE ANSWER.  Declared, then level, then
+    cost: an undeclared id has no level to check, and a player who is too
+    low to learn a skill should be told THAT and not "you are 3 points
+    short", which is a different thing to go and fix.
+
+    RETURNS `None` FOR "NOTHING REFUSES", not `True` for "allowed".  There is
+    no grant here and no permission being given: this module has no store,
+    no wire and no socket (see the module docstring), and a caller that
+    writes a skill row is doing so on its own authority.  A named string is
+    also what a console line and a test can carry unchanged, which a bool
+    cannot.
+
+    RAISES rather than refusing for inputs that are not answerable at all:
+    `TypeError` for a non-`int` (or `bool`) balance, level or skill id, and
+    `SkillLearnValidatorError` for a negative balance -- same posture, same
+    reasons, as `can_afford_to_learn`.
+
+    WHAT IT STILL DOES NOT ASK.  Whether this character's CLASS may learn
+    this skill (no committed table maps a class to its full skill list --
+    `skill_context_census`'s docstring carries the measurement), whether she
+    already knows it (that is a store read, and the store is not this
+    module's), whether a rank beyond the first costs anything (`n_LEVELS` is
+    a sentinel for 169 rows -- the census refuses that arithmetic by name),
+    and whether any client enforces any of this (unmeasured).
+    """
+    if isinstance(current_skill_points, bool) or not isinstance(
+        current_skill_points, int
+    ):
+        raise TypeError(
+            "current_skill_points must be an int, got %s"
+            % type(current_skill_points).__name__
+        )
+    if current_skill_points < 0:
+        raise SkillLearnValidatorError(
+            "current_skill_points must be >= 0, got %r"
+            % (current_skill_points,)
+        )
+    if isinstance(character_level, bool) or not isinstance(
+        character_level, int
+    ):
+        raise TypeError(
+            "character_level must be an int, got %s"
+            % type(character_level).__name__
+        )
+    if isinstance(skill_id, bool) or not isinstance(skill_id, int):
+        raise TypeError(
+            "skill_id must be an int, got %s" % type(skill_id).__name__
+        )
+
+    if not skill_context_census.is_declared(skill_id):
+        return REFUSED_SKILL_NOT_DECLARED
+    if not skill_context_census.meets_level_requirement(
+        character_level, skill_id
+    ):
+        return REFUSED_LEVEL_TOO_LOW
+    cost = skill_context_census.rank_one_point_cost(skill_id)
+    if cost <= 0:
+        # 1767 of the 2165 rows carry 0.0 here.  Reporting those learnable
+        # for free is the failure `can_afford_to_learn` was already fixed
+        # for once (pf-adversary, round `jbe8rr`/`7fqb46`); this is the same
+        # refusal, kept identical on purpose.
+        return REFUSED_COST_NOT_POSITIVE
+    if current_skill_points < cost:
+        return REFUSED_NOT_ENOUGH_POINTS
+    return None
+
+
+def skill_points_after_learning_declared(
+    current_skill_points: int, character_level: int, skill_id: int
+) -> int:
+    """`skill_points_after_learning`, widened to every declared skill id.
+
+    Same arithmetic, same `math.ceil` house rule (`COO-DECISION
+    20260905_1245`), same refusal posture -- but the cost comes from
+    `skill_context_census` (2165 rows) instead of `skill_catalog` (8), and
+    the character's level is checked first through :func:`refusal_to_learn`.
+
+    ONE DOOR, NOT TWO.  The census copy and the starting-kit copy are the
+    same client table, and `skill_context_census` asserts at import that the
+    kit rows are byte-identical in both; on top of that,
+    `tests/test_skill_learn_validator.py` pins that this function returns
+    exactly what `skill_points_after_learning` returns for every one of the
+    8 kit ids at a level that clears their `n_LEVEL_LEARN`.  The older
+    function is not deleted and not re-routed: callers that have no level to
+    offer keep it, and it keeps refusing unknown ids with `KeyError`.
+
+    Raises `SkillLearnValidatorError` naming the refusal (one of the four
+    `REFUSED_*` strings) when :func:`refusal_to_learn` refuses -- including
+    "not enough points", which this function cannot answer with a number.
+    """
+    refusal = refusal_to_learn(current_skill_points, character_level, skill_id)
+    if refusal is not None:
+        raise SkillLearnValidatorError(
+            "cannot learn skill %r at level %r with %r skill points: %s"
+            % (skill_id, character_level, current_skill_points, refusal)
+        )
+    cost = skill_context_census.rank_one_point_cost(skill_id)
     spend = cost if cost.is_integer() else math.ceil(cost)
     return current_skill_points - int(spend)
