@@ -77,10 +77,18 @@ so it is not all it does.  Two separate questions are asked:
    equal it.  A migration that quietly changes `level`'s default to 0 is red
    here, and this check is NOT derived from the schema, so it cannot be
    satisfied by agreeing with the thing it grades.
-   For a column no module owns a number for (`experience` and `skill_points`
-   after `migrations/017`, and whatever the next discovery adds) question 2
-   has nothing to say and says nothing.  That is the deliberate gap the owner
-   ordered: a new birth column needs no permission from this file.
+   `experience` is in that list too: `migrations/017` calls its 0 MEASURED
+   and names the module it is measured from -- the shipped, sha-pinned
+   `standard_status.tsv`, whose `n_EXP_CURRENTLV` is 0 at level 1 -- so this
+   file reads it through `persistence_experience` rather than leaving it
+   ungraded.  For a column no module owns a number for -- `skill_points`
+   today, and whatever the next discovery adds -- question 2 has nothing to
+   say and says nothing.  That is the deliberate gap the owner ordered: a new
+   birth column needs no permission from this file.  What stops that gap from
+   becoming permanent is not here but in
+   `tests/test_migration_017_*.py::ItStaysTrueOnTheDIRECTORYNotOnlyOnThisVersionTests`,
+   which reads the shipped `migrations/` directory and is red the day a later
+   migration takes either default away or changes its number.
 
 WHAT IT DOES NOT CLAIM.  It does not check that other TABLES (positions,
 backpacks) or non-vital columns of other rows survived the creation of this
@@ -139,6 +147,17 @@ def _adjudicated_birth_values() -> dict[str, int | float]:
 
     values: dict[str, int | float] = dict(vitals.new_character_vitals())
     values[SPEED_COLUMN] = float(compose.CLIENT_CONSTRUCTION_DEFAULTS[7].value)
+    # `experience` DOES have an owner, which this function did not ask on its
+    # first draft (`pf-adversary`, round `nivlwg`, D5): `migrations/017`'s own
+    # header calls this number MEASURED and names the module --
+    # `src/pirateforce_foundation/data/standard_status.tsv`, the committed,
+    # sha-pinned table `persistence_experience` already reads, whose
+    # `n_EXP_CURRENTLV` is 0 at level 1.  Read through the reader rather than
+    # typed here, so a table whose first row stops being 0 moves this with it.
+    from pirateforce_foundation.persistence_standard_status import (
+        standard_status_row,
+    )
+    values["experience"] = int(standard_status_row(1).exp_currentlv)
     return values
 
 
@@ -152,9 +171,25 @@ def _coerce(column: str, literal: str) -> int | float:
     text = literal.strip()
     if text[:1] == "'" and text[-1:] == "'":
         text = text[1:-1]
-    if getattr(spec, "sql_type", "").upper() == "REAL" or "." in text or "e" in text.lower():
-        return float(text)
-    return int(text)
+    try:
+        if (getattr(spec, "sql_type", "").upper() == "REAL"
+                or "." in text or "e" in text.lower()):
+            return float(text)
+        return int(text)
+    except ValueError:
+        # SQLite accepts `DEFAULT (0)`, `DEFAULT 0x10` and
+        # `DEFAULT CURRENT_TIMESTAMP`, and a bare `int()` on any of them
+        # crashed every fixture importing this module with an opaque
+        # traceback (`pf-adversary`, round `nivlwg`, D10).  The refusal says
+        # what to do instead.
+        raise AssertionError(
+            "the birth DEFAULT this database declares for %r is %r, which "
+            "this module cannot read as a number.  A migration that writes a "
+            "default in a form other than a plain literal has to teach this "
+            "function how to read it, in the same pull request -- a birth "
+            "value nothing can read is a birth value nothing can grade."
+            % (column, literal)
+        )
 
 
 def _defaults_from_columns(columns) -> dict[str, int | float]:
@@ -268,7 +303,13 @@ def expected_birth_state(store) -> dict[str, int | float]:
     row disagreeing with this expectation.
     """
     state = _schema_defaults(store)
-    if state or _writes_vitals_at_birth():
+    # `_writes_vitals_at_birth()` FIRST, and not behind `state or ...`: with
+    # the short-circuit the source read never ran on any database at 009 or
+    # later, which is every database that matters, so the module could not
+    # actually follow the insertion point being withdrawn -- measured at zero
+    # calls over three characters on a 017 database (`pf-adversary`, round
+    # `nivlwg`, D8).
+    if _writes_vitals_at_birth():
         state.update(seeded_birth())
     return state
 
@@ -351,7 +392,13 @@ def measure_birth_typed_state(store, character_id: int) -> dict[str, int | float
     """
     state = dict(store.read_typed_attributes(character_id))
     expected = expected_birth_state(store)
-    _check_schema_against_the_modules(expected)
+    # THE RAW SCHEMA DEFAULTS, not `expected`.  `expected` has already been
+    # overlaid with `seeded_birth()`, which IS `new_character_vitals()` -- so
+    # feeding it here compared three of the four adjudicated columns against
+    # themselves, and `pf-adversary` (round `nivlwg`, D4) drove `level = 0`,
+    # `hp_max = 1` and both through it green.  Only `speed_walk` was ever
+    # reachable, because it is the one column the overlay does not touch.
+    _check_schema_against_the_modules(_schema_defaults(store))
     if state == expected:
         return state
     missing = {c: v for c, v in expected.items() if c not in state}

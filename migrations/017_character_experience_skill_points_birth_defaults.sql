@@ -154,7 +154,15 @@
 -- orphaned to find afterwards.  Guard 5 below catches it and rolls the file
 -- back, so the failure mode is "the owner's server will not boot" rather than
 -- "the owner's characters lost their backpacks", but a migration that can
--- only fail is not a migration.  `009` carries the same three lines for the
+-- only fail is not a migration.
+-- WHICH MECHANISM STOPS IT DEPENDS ON WHAT THE DATABASE HOLDS, measured by
+-- `pf-adversary` (D6) rather than left as the convenient half: on a database
+-- holding only rows `create_character` makes (positions and backpacks, both
+-- ON DELETE CASCADE) guard 5 is what refuses.  On any database that has been
+-- PLAYED on -- one row in `character_skills`, `character_equipment` or an
+-- open `sessions` row, all three NO ACTION -- SQLite's own enforcement raises
+-- `FOREIGN KEY constraint failed` before a guard runs at all.  Same outcome,
+-- and the owner's database is the second shape.  `009` carries the same three lines for the
 -- same reason and its header does not say why; this one does.
 -- The `COMMIT` closes the empty transaction the runner opened (`BEGIN
 -- IMMEDIATE` is the first line it prepends and nothing has run inside it
@@ -184,7 +192,19 @@ CREATE TABLE _pf_mig017_idx_before AS
 CREATE TABLE _pf_mig017_master_before AS
     SELECT type, name, tbl_name, sql FROM sqlite_master
      WHERE NOT (type='table' AND name='characters')
-       AND name NOT LIKE '\_pf\_mig017\_%' ESCAPE '\';
+       AND name NOT IN ('_pf_mig017_rows_before',
+                     '_pf_mig017_ddl_before',
+                     '_pf_mig017_cols_before',
+                     '_pf_mig017_idx_before',
+                     '_pf_mig017_master_before',
+                     '_pf_mig017_children_before',
+                     '_pf_mig017_guard_rows',
+                     '_pf_mig017_guard_columns',
+                     '_pf_mig017_guard_defaults',
+                     '_pf_mig017_guard_indexes',
+                     '_pf_mig017_guard_children',
+                     '_pf_mig017_guard_ddl',
+                     '_pf_mig017_guard_other_objects');
 -- Every table that references `characters`, plus the grandchild that hangs
 -- off `character_backpacks`.  `009`'s list named four; three more have landed
 -- since (`011` character_skills, `013` character_home_marker, `015`
@@ -474,17 +494,41 @@ INSERT INTO _pf_mig017_guard_ddl(ok) SELECT CASE WHEN
 --    or view on `characters`, which a rebuild destroys silently and which no
 --    per-column check can see.  `schema_migrations` is excluded because the
 --    runner inserts this file's own ledger row inside this transaction -- a
---    row, not a schema change.  The `_pf_mig017_*` scratch tables are
---    excluded on both sides because they exist only between the first
---    statement of this transaction and the last, which is what
---    `test_no_scratch_table_of_this_migration_survives` proves.
+--    row, not a schema change.
+--    THE SCRATCH TABLES ARE EXCLUDED BY NAME, ONE BY ONE, AND NOT BY THEIR
+--    PREFIX, which is a defect `pf-adversary` drove through this guard on
+--    this round (D1) before it was written this way.  An earlier draft
+--    excluded `name LIKE '_pf_mig017_%'` on both sides, so ANY permanent
+--    object this file created under that prefix was structurally invisible
+--    to the only guard that watches `sqlite_master`.  Measured: a trigger
+--    named `_pf_mig017_trg` that writes `experience` back to 0 after every
+--    UPDATE committed GREEN through all seven guards, and afterwards
+--    `store.grant_experience(1, 500)` returned an ExperienceGain saying the
+--    character reached level 4 while the row still held 0 -- every quest
+--    reward eaten, silently, forever.  Naming the thirteen tables closes it:
+--    an object this file did not mean to leave behind cannot be spelled in
+--    a way that skips the comparison.  `test_a_rebuild_that_leaves_a_stray_
+--    object_behind_is_refused` uses the PREFIXED name, so the hole cannot be
+--    reopened without that test going green for the wrong reason.
 CREATE TABLE _pf_mig017_guard_other_objects(
     ok INTEGER NOT NULL
         CONSTRAINT guard_every_other_object_is_unchanged CHECK(ok=1));
 INSERT INTO _pf_mig017_guard_other_objects(ok) SELECT CASE WHEN
     (SELECT COUNT(*) FROM sqlite_master
       WHERE NOT (type='table' AND name='characters')
-        AND name NOT LIKE '\_pf\_mig017\_%' ESCAPE '\')
+        AND name NOT IN ('_pf_mig017_rows_before',
+                     '_pf_mig017_ddl_before',
+                     '_pf_mig017_cols_before',
+                     '_pf_mig017_idx_before',
+                     '_pf_mig017_master_before',
+                     '_pf_mig017_children_before',
+                     '_pf_mig017_guard_rows',
+                     '_pf_mig017_guard_columns',
+                     '_pf_mig017_guard_defaults',
+                     '_pf_mig017_guard_indexes',
+                     '_pf_mig017_guard_children',
+                     '_pf_mig017_guard_ddl',
+                     '_pf_mig017_guard_other_objects'))
         = (SELECT COUNT(*) FROM _pf_mig017_master_before)
     AND NOT EXISTS (
         SELECT 1 FROM _pf_mig017_master_before b

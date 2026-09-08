@@ -630,6 +630,24 @@ class TheGuardsInTheFileReallyFireTests(_Base):
               "CREATE TABLE characters_leftover(x);")],
         )
 
+    def test_a_stray_object_named_with_this_files_own_prefix_is_refused(self):
+        """The mutant that got through, and the reason guard 7 names its
+        thirteen scratch tables one by one instead of excluding a prefix.
+
+        `pf-adversary` (round `nivlwg`, D1) planted a TRIGGER called
+        `_pf_mig017_trg` that writes `experience` back to 0 after every
+        UPDATE.  It committed green through all seven guards, and on the
+        database it left behind `store.grant_experience(character, 500)`
+        returned an ExperienceGain reporting level 1 -> 4 while the row still
+        held 0: every quest reward eaten, silently, with the store's own
+        return value agreeing that it had been paid."""
+        self._refuses(
+            "guard_every_other_object_is_unchanged",
+            [("CREATE UNIQUE INDEX characters_active_identity ON characters(identity_lo, identity_hi) WHERE deleted_at IS NULL;",
+              "CREATE UNIQUE INDEX characters_active_identity ON characters(identity_lo, identity_hi) WHERE deleted_at IS NULL;\n"
+              "CREATE TABLE _pf_mig017_leftover(x);")],
+        )
+
     def test_every_guard_in_the_file_has_a_mutant_in_this_class(self):
         """What keeps the list above honest when a guard is added or removed.
         The name must appear as the FIRST ARGUMENT of a `self._refuses(` call,
@@ -721,6 +739,67 @@ class TheChildrenGuardCannotFallBehindTests(_Base):
         self.assertEqual(missing, [], "columns the rebuild would leave NULL")
 
 
+class ItStaysTrueOnTheDIRECTORYNotOnlyOnThisVersionTests(unittest.TestCase):
+    """The gap `pf-adversary` measured (round `nivlwg`, D3) and this class
+    closes.
+
+    Every other test here builds its store from a migration tree capped at
+    `<= 017`, which is right for grading THIS file and blind by construction
+    to what an `018` does.  And the rewritten `tests/pf_birth_state.py` reads
+    its expectation off the schema, so an `018` that takes these two defaults
+    back MOVES the expectation with it and the pin accepts the result.  Put
+    together, the exact regression that shuts 497 quest call sites again was
+    green across the whole suite.  These two tests are the signal: they run
+    against `migrations/` ITSELF, so they are red the day a later migration
+    undoes this one -- whether by removing the default or by changing the
+    number.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+
+    def test_the_shipped_migration_directory_gives_both_columns_a_birth_zero(self):
+        rows = {
+            row[1]: row[4]
+            for row in _sql(
+                self.path,
+                'SELECT cid,name,type,"notnull",dflt_value,pk '
+                "FROM pragma_table_info('characters')",
+            )
+        }
+        for column in DEFAULTED_COLUMNS:
+            self.assertEqual(
+                rows[column],
+                DEFAULT_LITERAL,
+                "%s lost the birth default 017 gave it, or was given a "
+                "different number.  If that is deliberate, the migration "
+                "that did it owes this test a replacement saying what the "
+                "new number is and who measured it -- the two doors behind "
+                "these columns refuse a NULL by name, so removing the "
+                "default closes them for every character created afterwards."
+                % column,
+            )
+
+    def test_a_character_created_on_the_shipped_directory_is_born_at_zero(self):
+        account = self.store.ensure_account("account-shipped")
+        character = self.store.create_character(
+            account,
+            "Shipped",
+            "shipped",
+            "fingerprint-shipped",
+            _build_wire,
+            Position(3, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+        stored = self.store.read_typed_attributes(character.id)
+        for column in DEFAULTED_COLUMNS:
+            self.assertEqual(stored.get(column), 0, column)
+        self.store.grant_experience(character.id, 1)
+
+
 class TheFileItselfTests(unittest.TestCase):
     def test_the_migration_is_pure_ascii(self):
         SEVENTEEN.read_bytes().decode("ascii")
@@ -731,7 +810,13 @@ class TheFileItselfTests(unittest.TestCase):
             for path in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")
         )
         self.assertEqual(numbers, list(range(1, len(numbers) + 1)))
-        self.assertEqual(numbers[-1], SEVENTEEN_VERSION)
+        # NOT `numbers[-1] == SEVENTEEN_VERSION`.  That is the assertion this
+        # round had to go and edit out of `016`'s own file the moment `017`
+        # landed beside it, and re-shipping it here would hand the same job to
+        # whoever writes `018` (`pf-adversary`, round `nivlwg`, D7).  The
+        # property that survives a successor is that this file's number exists
+        # exactly once in a directory with no gap.
+        self.assertIn(SEVENTEEN_VERSION, numbers)
 
     def test_the_decision_that_ordered_this_file_is_named_in_it(self):
         """`016` was cut down to a backfill on the authority of a decision
