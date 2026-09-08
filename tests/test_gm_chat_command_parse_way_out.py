@@ -40,6 +40,7 @@ import contextlib
 import io
 import json
 import pathlib
+import re
 import struct
 import sys
 import tempfile
@@ -54,6 +55,7 @@ from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import commands as gm_commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
+from pirateforce_foundation.gm import scene_catalog  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 TOKEN = chat_command_action.COMMAND_REFUSED_CONSOLE_TOKEN
@@ -203,6 +205,35 @@ class _Case(unittest.TestCase):
         allowed.add(chat_command.FORMAT_CHARACTER_REFUSAL_DETAIL)
         return allowed
 
+    def assert_only_this_lanes_text(self, sentence: str) -> None:
+        """The claim this file exists for, restated for a sentence that can
+        now carry catalog names (round `iu5xks`).
+
+        Round `iu5xks` widened `refusal_hint` from one of a FIXED SET of
+        sentences to "a fixed sentence, optionally followed by scene names
+        the catalog search found" -- because a search whose answer nobody
+        may read is not an answer (pf-adversary round `pdf3gh`, D1).  The
+        set is therefore no longer enumerable, but the property it was
+        standing in for is, and it is the stronger of the two: the head is
+        one of this lane's own sentences, and every name in the clause is a
+        KEY OF THE PINNED TABLE.  A line assembled out of what was typed
+        fails this exactly where it failed the old assertion.
+        """
+        head, separator, clause = sentence.partition("; did you mean ")
+        self.assertIn(
+            head, self.sentences_this_lane_wrote(), f"line was: {sentence!r}"
+        )
+        if not separator:
+            return
+        quoted = re.findall(r"'([^']*)'", clause)
+        self.assertTrue(quoted, f"a suggestion clause with no name: {clause!r}")
+        for name in quoted:
+            with self.subTest(suggested=name):
+                self.assertTrue(
+                    scene_catalog.resolve_gm_scene_name(name),
+                    f"{name!r} is not a name the shipped table carries",
+                )
+
 
 class EveryLineThatWasSilentNowSpeaksTests(_Case):
     def test_each_measured_silent_line_prints_exactly_one_way_out(self):
@@ -337,8 +368,6 @@ class NothingTypedEverReachesTheConsoleTests(_Case):
         connected.  An echo, an OS message or a payload field fails this
         even if it happens to contain no obvious needle.
         """
-        allowed = self.sentences_this_lane_wrote()
-
         for typed in (
             "/warp island",
             f"/warp {HEBREW}",
@@ -355,15 +384,11 @@ class NothingTypedEverReachesTheConsoleTests(_Case):
                 _, console = self.act(session, typed)
 
                 line = self.refusal_lines(console)[0]
-                self.assertIn(
-                    self.printed_usage(line), allowed, f"line was: {line!r}"
-                )
+                self.assert_only_this_lanes_text(self.printed_usage(line))
 
     def test_the_hint_field_itself_is_never_built_from_the_typed_text(self):
         """Asked of the field rather than the console, so a printer that
         started folding an echo away would still be red here."""
-        allowed = self.sentences_this_lane_wrote()
-
         for typed in ("/warp island", "/nonsense", f"/warp {RLO}1", "/"):
             with self.subTest(typed=typed):
                 gm_dispatch.reset_rate_limit_state_for_tests()
@@ -373,7 +398,7 @@ class NothingTypedEverReachesTheConsoleTests(_Case):
                     config_path=str(self.config_path),
                     log_path=str(self.log_path),
                 )
-                self.assertIn(outcome.refusal_hint, allowed)
+                self.assert_only_this_lanes_text(outcome.refusal_hint)
 
 
 class TheLineCannotBeFloodedOrForgedTests(_Case):

@@ -115,7 +115,7 @@ from .commands import (
     GmCommand,
     GmCommandArgsError,
     GmCommandParseError,
-    usage_hint_for,
+    refusal_hint_for,
     log_gm_command,
     new_audit_record_id,
     parse_gm_command,
@@ -632,7 +632,15 @@ def handle_local_talk_chat(
             # `error` is deliberately NOT passed -- its message quotes what
             # was typed, and nothing typed may reach the console (see
             # `refusal_hint`'s contract and `usage_hint_for`'s docstring).
-            refusal_hint=usage_hint_for(command_body(text)),
+            #
+            # `refusal_hint_for`, not `usage_hint_for`, since round
+            # `iu5xks`: for `warp <name>` it appends the scene names the
+            # catalog search found, which is the one thing that search had
+            # never been allowed to tell anybody (pf-adversary round
+            # `pdf3gh`, D1).  The rule it is held to is unchanged -- every
+            # character still comes out of this lane's own pinned table and
+            # none out of `text`.  `error` is still not passed.
+            refusal_hint=refusal_hint_for(command_body(text)),
         )
 
     resolved_log_path = Path(
