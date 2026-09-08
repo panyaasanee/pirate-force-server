@@ -362,5 +362,39 @@ class WitnessesPfAdversaryNqgmamAskedFor(unittest.TestCase):
         )
 
 
+class TheTableFactsTheWarpGrammarLeansOnTests(unittest.TestCase):
+    """Two properties of the pinned table that `gm/commands.py` relies on.
+
+    Both live here rather than there because both are statements about the
+    client's shipped data, and both go silently wrong -- not loudly -- if a
+    future re-derive changes the file.
+    """
+
+    def test_the_longest_name_length_is_the_longest_matchable_key(self):
+        # `MAX_WARP_NAME_QUERY_LENGTH` is twice this, so an off-by-one here
+        # is an off-by-two in what an operator may type.
+        self.assertEqual(
+            scene_catalog.LONGEST_GM_NAME_LENGTH,
+            max(len(key) for key in scene_catalog._GM_NAME_TO_SCENE_IDS),
+        )
+        # Characters, not bytes: the table is `TEXTDATA_TH__*` and its
+        # longest name today is Thai, which is 3 bytes per character in
+        # UTF-8 and 1 in cp874. A byte count would mean two different caps
+        # depending on who measured it.
+        longest = max(scene_catalog._GM_NAME_TO_SCENE_IDS, key=len)
+        self.assertEqual(len(longest), scene_catalog.LONGEST_GM_NAME_LENGTH)
+        self.assertGreater(
+            len(longest.encode("utf-8")), scene_catalog.LONGEST_GM_NAME_LENGTH
+        )
+
+    def test_no_shipped_name_contains_the_scene_selector_character(self):
+        # This is the whole reason `warp <scene name> #n` can be told apart
+        # from a name, where a trailing bare number could not: 52 names end
+        # in a digit, none contains a `#`. Walks all 330, not a sample.
+        for scene_id, name in scene_catalog.SCENE_ID_TO_GM_NAME.items():
+            with self.subTest(scene_id=scene_id):
+                self.assertNotIn("#", name)
+
+
 if __name__ == "__main__":
     unittest.main()
