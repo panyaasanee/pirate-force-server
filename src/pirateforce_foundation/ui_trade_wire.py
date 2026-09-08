@@ -6,6 +6,38 @@ docstring for why fields are named positionally rather than by guessed
 meaning. Field shape is copied field-for-field from
 ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``.
 
+SAME SHAPE IS AN UNDERSTATEMENT -- IT IS THE SAME FUNCTION BODY
+(static RE, round ``ihf029``, letter
+``notes_to_chief/20260908_0502_LANE-UI-TO-K-re0336-addendum-one-
+disassembly-answers-two-classes.md``).  This class and
+``PartyInviteVital`` (``0x37B1``) do not merely agree on tags and
+order: ``PF_PROTOCOL_REGISTRY.tsv`` gives both ``serializer_va
+0x00664550``, and all twelve field rows across the two classes are
+byte-identical in ``PF_SERIALIZER_FIELDS.tsv`` -- same span
+``0x00664550..0x006645B7``, same ``span_sha256 81bb0c0e...``, same
+``file_off_claim`` per direction and order.  The two vtable pointer
+slots are genuinely different file offsets (``0x00B32D70`` and
+``0x00B36544``) holding that one value, so this is sharing in the
+image, not an extractor deduplicating rows.
+
+TWO CONSEQUENCES A READER OF THIS FILE MUST CARRY.  First: on the
+wire a ``TradeInviteVital`` body and a ``PartyInviteVital`` body are
+produced by one piece of code, so the ONLY thing distinguishing them
+is the vital id, not any byte in the body.  Second, and this is the
+one that bites: any meaning ever assigned to ``field1_u8`` /
+``field2_u64`` / ``field3_wstring`` must be true of a PARTY invite
+and a TRADE invite simultaneously.  That is why the positional names
+below stay positional.  ``external/PF_TAG_CENSUS.tsv`` reads
+``proven_semantics=UNKNOWN`` for both ``0x08`` and ``0x32``, and
+``Community_RequestBeFriendVital`` -- same family of concept -- puts
+its wstring at ``+0x28`` behind a ``0x0B`` byte tag, so tag numbers
+carry no meaning across classes to borrow either.
+
+``tests/test_ui_trade_wire.py`` asserting that this module's
+dataclass and ``ui_party_wire``'s are distinct TYPES pins Python
+identity and says nothing about the wire; it is not evidence that
+the two frames differ.
+
 NOT ``TradeCmdVital``.  This is only the ``TradeInviteVital`` class
 (opcode/fields fully resolved, per ``CORE-REQUEST 1120``). ``TradeCmdVital``
 (the class that would actually execute the exchange) is separately tracked --
