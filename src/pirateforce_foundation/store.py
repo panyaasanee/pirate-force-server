@@ -1080,10 +1080,30 @@ class SQLiteStore:
             db.execute("BEGIN IMMEDIATE")
             self._require_selected_session(db, sid, character_id)
             before = self._load_backpack(db, character_id)
-            if before in inventory.merged_v111_states():
-                return None
-            if before not in inventory.STARTING_BACKPACKS:
+            # WAS ``before in inventory.merged_v111_states()`` / ``before not
+            # in inventory.STARTING_BACKPACKS`` -- membership, which asks "is
+            # this bag untouched".  A character who has picked ONE item up off
+            # a mob answers no to that question for the rest of their life, so
+            # the merge below refused them forever and the caller
+            # (runtime.py's V111 dispatch) swallows the refusal and sends
+            # nothing: the player clicks the stack and the client sits there.
+            # The two predicates ask the question the merge actually needs --
+            # "are the rows this transaction is about to touch still the ones
+            # a starting bag was born with" -- and an acquired row cannot
+            # change that answer because the merge never touches it.
+            # COO-DECISION 20260908_0542 section 4.
+            if inventory.starting_core_of(before) is None:
+                if inventory.settled_core_of(before) is not None:
+                    return None
                 raise ValueError("Backpack is outside the exact V111 pre-state")
+            if not inventory.can_merge_v111(before):
+                # A starting bag with no identity 3, or with two different
+                # templates on identities 1 and 3, has no stack to fold.  The
+                # two lines below used to answer that with a KeyError naming
+                # a dict subscript; the caller catches Exception either way,
+                # so nothing upstream moves, but an operator reading the log
+                # got "3" instead of a sentence.
+                raise ValueError("Backpack has no V111 stack to merge")
             rows = {item.identity: item for item in before.items}
             target, source = rows[1], rows[3]
             # DERIVED from the row that is actually there, not the one

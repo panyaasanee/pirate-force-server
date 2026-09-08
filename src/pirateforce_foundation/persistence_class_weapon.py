@@ -269,17 +269,24 @@ def admission_blockers(
 
     post, _new_issued = carry_old_weapon_forward(bag, class_id, issued_through)
     blockers: list[str] = []
-    if post not in inventory.STARTING_BACKPACKS:
-        # store.apply_v111_stack_merge's pre-state door.  A carried-forward
-        # bag has one row more than any starting bag, so it is outside that
-        # set for good, and the character LOSES THE STACK MERGE SILENTLY: the
-        # ValueError is caught upstream and no bytes go back to the client.
-        # The door is in this lane's own file and widening it (accept
-        # golden-plus-acquired, derive the post-state) is this lane's work.
+    if inventory.starting_core_of(post) is None:
+        # store.apply_v111_stack_merge's pre-state door.  It no longer asks
+        # ``post in STARTING_BACKPACKS`` -- the extra row this migration adds
+        # would have failed that forever, which was the blocker this function
+        # reported until COO-DECISION 20260908_0542 section 4 -- it asks
+        # whether the bag still CARRIES a starting bag's own rows.  The
+        # carried-forward bag does not, because retargeting the weapon row is
+        # exactly the change the core check refuses, and the class's own bag
+        # is not in the set: ``STARTING_BACKPACKS`` still holds one member.
+        # So the blocker stands, with a different sentence and a different
+        # remedy -- widen the SET, not the door.  It clears itself the day
+        # ``inventory.STARTING_BACKPACKS`` holds LANE-CS's five, with no edit
+        # here, which is why the condition is asked rather than spelled.
         blockers.append(
-            "store.apply_v111_stack_merge refuses a post-state bag that is "
-            "not itself a starting bag: the character loses the V111 stack "
-            "merge with no reply to the client")
+            "store.apply_v111_stack_merge refuses a post-state bag whose "
+            "core is outside inventory.STARTING_BACKPACKS (%d member(s) "
+            "today): the character loses the V111 stack merge with no reply "
+            "to the client" % len(inventory.STARTING_BACKPACKS))
     return tuple(blockers)
 
 
@@ -306,3 +313,103 @@ def newly_created_character_merge_warning() -> str | None:
                 "the commit; a character born in this class reaches that "
                 "(CORE-REQUEST 20260908_0206)")
     return None
+
+
+# ---------------------------------------------------------------------------
+# The READ-ONLY census (COO-DECISION 20260908_0542 section 4).
+#
+# PANYA's item 4 (letter 20260908_0025) says an attended run under LOCK_GAME
+# corrects the weapon row of every character that already exists.  Nobody can
+# size that job from a cloud clone: the canonical database is on the owner's
+# machine and this repository has never held a copy.  These two functions are
+# the half that can be answered without the machine and without writing
+# anything -- how many characters exist, in which classes, and how many of
+# them hold a weapon their class would not be given.  The connection is
+# opened ``mode=ro`` through a file: URI, so the process CANNOT write even if
+# a later edit here asked it to; that is the whole reason the census is a
+# separate entry point from the migration.
+# ---------------------------------------------------------------------------
+
+#: The identity the born bag puts the weapon on, DERIVED from the committed
+#: bag rather than typed as 4, for the reason ``weapon_row`` states at length.
+def _born_weapon_identity() -> int:
+    return weapon_row(INITIAL_BACKPACK_FOR_PROBE).identity
+
+
+def census_rows(db) -> tuple[tuple[int, int, int, int, int], ...]:
+    """``(class_id, characters, weapon_ok, weapon_wrong, weapon_missing)`` per class.
+
+    ``db`` is any DB-API connection; the caller owns opening it read-only.
+    A class with no entry in the weapon table counts every one of its
+    characters as ``weapon_missing`` rather than raising, because a census
+    that dies on the first surprising row tells an operator nothing about the
+    other nine hundred.
+    """
+    identity = _born_weapon_identity()
+    counts: dict[int, list[int]] = {}
+    rows = db.execute(
+        "SELECT c.class_id, i.template_id FROM characters AS c "
+        "LEFT JOIN character_backpack_items AS i "
+        "ON i.character_id = c.id AND i.item_identity = ? "
+        "ORDER BY c.class_id, c.id",
+        (identity,),
+    ).fetchall()
+    for class_id, template_id in rows:
+        class_id = -1 if class_id is None else int(class_id)
+        bucket = counts.setdefault(class_id, [0, 0, 0, 0])
+        bucket[0] += 1
+        expected = CLASS_ID_TO_WEAPON_TEMPLATE.get(class_id)
+        if template_id is None or expected is None:
+            bucket[3] += 1
+        elif int(template_id) == expected:
+            bucket[1] += 1
+        else:
+            bucket[2] += 1
+    return tuple(
+        (class_id, *counts[class_id]) for class_id in sorted(counts)
+    )
+
+
+def census_lines(db) -> list[str]:
+    """The console tokens, ASCII only, one per class plus one summary."""
+    rows = census_rows(db)
+    lines = [
+        "CLASS_WEAPON_CENSUS_CLASS class_id=%d name=%s characters=%d "
+        "weapon_ok=%d weapon_wrong=%d weapon_missing=%d"
+        % (
+            class_id,
+            class_catalog.class_name(class_id)
+            if class_id in class_catalog.CLASS_IDS else "UNKNOWN",
+            characters, ok, wrong, missing,
+        )
+        for class_id, characters, ok, wrong, missing in rows
+    ]
+    lines.append(
+        "CLASS_WEAPON_CENSUS_SUMMARY classes=%d characters=%d "
+        "rows_to_change=%d writes_performed=0 read_only=YES"
+        % (
+            len(rows),
+            sum(row[1] for row in rows),
+            sum(row[3] for row in rows),
+        )
+    )
+    return lines
+
+
+def census_main(argv=None) -> int:  # pragma: no cover - console entry
+    import sqlite3
+    import sys
+
+    args = sys.argv[1:] if argv is None else list(argv)
+    if len(args) != 1:
+        print("CLASS_WEAPON_CENSUS_ERROR usage=<state.sqlite3>")
+        return 2
+    uri = "file:%s?mode=ro" % args[0].replace("?", "%3f").replace("#", "%23")
+    with sqlite3.connect(uri, uri=True) as db:
+        for line in census_lines(db):
+            print(line)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - console entry
+    raise SystemExit(census_main())
