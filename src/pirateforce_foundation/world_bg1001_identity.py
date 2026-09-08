@@ -283,11 +283,11 @@ class SceneIdentity:
 _RESOLVED_ROWS = (
     (1, 26660, 2880, 'M025_001_000_N', 'Fighting Fish soldier', '',
      30, 1, 5143, 1),
-    (2, 26661, 2881, 'M024_000_001_SP1', 'Penguin Sergeant', '',
+    (2, 26661, 2881, 'M024_000_001_SP1;M024_000_001_SP2', 'Penguin Sergeant', '',
      32, 1, 6174, 1),
-    (4, 26663, 2883, 'M019_000_001_N', 'Golden Cat Navy Group', '',
+    (4, 26663, 2883, 'M019_000_001_N;M019_000_001_SP1', 'Golden Cat Navy Group', '',
      34, 1, 7339, 1),
-    (5, 26664, 2884, 'M001_000_001_SP1', 'Lion pirates', '',
+    (5, 26664, 2884, 'M001_000_001_SP1;M001_000_001_SP2', 'Lion pirates', '',
      35, 1, 7980, 1),
 )
 
@@ -465,9 +465,20 @@ def _self_check() -> None:
         if cline_row_id < 1 or n_id < 1:
             raise Bg1001IdentityError(
                 "set %d carries no CLINE row or leader locator" % template_id)
-        if ";" in outfit or "|" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg1001IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
+        if "|" in outfit:
+            raise Bg1001IdentityError(
+                "set %d ships an unknown avatar separator" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg1001IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)
@@ -500,9 +511,11 @@ def _self_check() -> None:
             raise Bg1001IdentityError(
                 "leader %d is in MULTI_VARIANT_OUTFITS but its raw string "
                 "has no ';'" % n_id)
-        if outfit != variants[0]:
+        # ROUND 2a2jqp: ~~the FIRST variant~~ -> the WHOLE cell
+        # (COO-DECISION 2026-09-08 13:41, PANYA `1313`, `RE-296`).
+        if outfit != raw:
             raise Bg1001IdentityError(
-                "leader %d does not ship the first outfit variant" % n_id)
+                "leader %d does not ship the whole outfit cell" % n_id)
     if multi_variant_leaders != set(MULTI_VARIANT_OUTFITS):
         raise Bg1001IdentityError(
             "MULTI_VARIANT_OUTFITS names a leader this table does not ship, "

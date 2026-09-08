@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -299,6 +300,16 @@ class UndecidedReadingTests(unittest.TestCase):
         changes its shape: an allowlist, not a ban.  A fifth birth name, or a
         ``starting_skill_points()`` under any other spelling, is still red.
         """
+        # WIDENED BY THREE IN ROUND `ixbs2f`, and pf-adversary D6 is the
+        # reason this paragraph exists rather than three quiet lines.  D6's
+        # complaint was that `1441` licensed ONE constant and this lane
+        # shipped nine names through the door.  Three more is not a rebuttal
+        # of that, so: the two DATA constants the D5 anchor needs
+        # (`_BIRTH_SKILL_POINTS_SCHEMA_ANCHOR`,
+        # `_BIRTH_SKILL_POINTS_SCHEMA_COLUMN`) are module-PRIVATE and never
+        # reach this filter.  What is public is the reader and its two
+        # refusal reasons, on the same rule the four reasons above already
+        # follow: a caller branches on a constant, never on a message.
         allowed = {
             "BIRTH_SKILL_POINTS",
             "BIRTH_SKILL_POINTS_PROVENANCE",
@@ -309,6 +320,9 @@ class UndecidedReadingTests(unittest.TestCase):
             "REFUSE_BIRTH_ASSUMPTION_NOT_AS_ORDERED",
             "REFUSE_BIRTH_MEASURED_WITHOUT_SOURCE",
             "REFUSE_BIRTH_ASSUMPTION_WITH_SOURCE",
+            "REFUSE_BIRTH_ORDER_NOT_IN_THE_SCHEMA",
+            "REFUSE_BIRTH_SCHEMA_ANCHOR_UNREADABLE",
+            "schema_birth_skill_points",
         }
         found = {
             name for name in dir(skill_point_curve)
@@ -460,20 +474,44 @@ class BirthSkillPointsTests(unittest.TestCase):
         self.assertIn("birth_sp_provenance=ASSUMPTION", line)
 
     def test_the_console_line_reads_the_door_not_a_constant(self):
-        """Mutation pin of the same shape D3/D6 forced on the other fields:
-        move the number (and the order behind it) and the line must move."""
-        skill_point_curve.OWNER_ORDERED_BIRTH_SKILL_POINTS = 5
-        skill_point_curve.BIRTH_SKILL_POINTS = 5
+        """pf-adversary D2, paid in round `ixbs2f` with the shape D2 asked for.
+
+        The old body set BOTH globals to 5 and asserted `birth_sp=5`.  D2
+        showed by mutant that this measured nothing: replacing
+        `birth_skill_points()` with `BIRTH_SKILL_POINTS` inside
+        `headless_summary()` left 39 tests green, because a line that reads
+        the RAW CONSTANT prints 5 too.  The two candidates only separate
+        where the door REFUSES and the constant does not, so that is what is
+        driven here -- adversary's own prescription, quoted in
+        `rounds/CS_20260908_1508_30piru_ADVERSARY-RESULT.md`.
+
+        (It would also fail today for a second reason: since round `ixbs2f`
+        both-globals-to-5 is refused by the schema anchor.  That is D5's
+        pin, not this one's, and a test that passes for two reasons is a
+        test nobody can read.)
+        """
+        skill_point_curve.BIRTH_SKILL_POINTS_PROVENANCE = "probably"
+        with self.assertRaises(
+            skill_point_curve.SkillPointCurveError
+        ) as caught:
+            skill_point_curve.headless_summary()
+        self.assertEqual(
+            skill_point_curve.REFUSE_BIRTH_PROVENANCE_UNKNOWN,
+            caught.exception.args[0],
+        )
+
+    def test_the_console_line_moves_with_the_number_it_is_allowed_to_move(
+        self,
+    ):
+        """The other half: a number the gate ACCEPTS still reaches the line.
+
+        Split out of the test above rather than folded into it, because a
+        refusal pin alone would pass against a `headless_summary()` that
+        printed nothing at all.
+        """
         line = skill_point_curve.headless_summary()
-        self.assertIn("birth_sp=5", line)
-        skill_point_curve.BIRTH_SKILL_POINTS_PROVENANCE = (
-            skill_point_curve.PROVENANCE_MEASURED
-        )
-        skill_point_curve.BIRTH_SKILL_POINTS_SOURCE = "RE-xxx table row"
-        self.assertIn(
-            "birth_sp_provenance=MEASURED",
-            skill_point_curve.headless_summary(),
-        )
+        self.assertIn("birth_sp=0", line)
+        self.assertIn("birth_sp_provenance=ASSUMPTION", line)
 
 
 class RefusalTests(unittest.TestCase):
@@ -642,6 +680,171 @@ class AdversaryPaidTests(unittest.TestCase):
         )
         self.assertNotEqual(skill_point_curve.sp_at_level(120), forward)
         self.assertNotEqual(skill_point_curve.sp_at_level(120), backward)
+
+
+class D5TheOwnerOrderHasAnAnchorOutsideThisFileTests(unittest.TestCase):
+    """pf-adversary D5, round `30piru`, paid in round `ixbs2f`.
+
+    The finding, in its own words: the gate compared
+    ``BIRTH_SKILL_POINTS`` with ``OWNER_ORDERED_BIRTH_SKILL_POINTS``, both
+    plain globals in one file, so it proved ``X == X``.  The question it
+    ended on is the one these tests answer:
+
+        "what in this repo goes red if the next round changes both integers
+        to 5 in one commit and fixes the two test literals to match?"
+
+    The answer is now: `migrations/017` does, because it carries the same
+    order as a column default and the gate reads it.
+    """
+
+    def test_the_anchor_is_read_out_of_the_committed_migration(self):
+        self.assertEqual(
+            "migrations/017_character_experience_skill_points_birth_defaults"
+            ".sql",
+            skill_point_curve._BIRTH_SKILL_POINTS_SCHEMA_ANCHOR,
+        )
+        self.assertEqual(0, skill_point_curve.schema_birth_skill_points())
+        self.assertEqual(
+            skill_point_curve.OWNER_ORDERED_BIRTH_SKILL_POINTS,
+            skill_point_curve.schema_birth_skill_points(),
+        )
+
+    def test_moving_both_integers_to_five_is_now_refused_by_name(self):
+        """THE mutant D5 named, run for real -- two globals, one commit.
+
+        Nothing is edited on disk: both module globals are set to 5, which
+        is strictly easier than the commit D5 described, and the gate has to
+        refuse anyway because the migration still says 0.
+        """
+        with mock.patch.multiple(
+            skill_point_curve,
+            BIRTH_SKILL_POINTS=5,
+            OWNER_ORDERED_BIRTH_SKILL_POINTS=5,
+        ):
+            with self.assertRaises(
+                skill_point_curve.SkillPointCurveError
+            ) as caught:
+                skill_point_curve.birth_skill_points()
+        self.assertEqual(
+            skill_point_curve.REFUSE_BIRTH_ORDER_NOT_IN_THE_SCHEMA,
+            caught.exception.args[0],
+        )
+        # The message has to carry both numbers, or the bug report says
+        # "they disagree" without saying about what.
+        self.assertIn("5", str(caught.exception))
+        self.assertIn("DEFAULT 0", str(caught.exception))
+
+    def test_the_alias_mutant_that_used_to_pass_is_covered_too(self):
+        """D5's other mutant: `OWNER_ORDERED = BIRTH_SKILL_POINTS`.
+
+        Aliasing the two names left 39 tests green, because the gate's whole
+        job was to compare them.  Under the schema anchor the alias is
+        harmless when the value is right and caught when it is not -- which
+        is what an anchor outside the file buys: the alias stops mattering.
+        """
+        with mock.patch.multiple(
+            skill_point_curve,
+            BIRTH_SKILL_POINTS=7,
+            OWNER_ORDERED_BIRTH_SKILL_POINTS=7,
+        ):
+            with self.assertRaises(skill_point_curve.SkillPointCurveError):
+                skill_point_curve.birth_skill_points()
+
+    def test_a_migration_that_says_something_else_is_refused_not_believed(
+        self,
+    ):
+        """The anchor is read, not assumed -- driven off a real file.
+
+        A copy of the module pointed at a temp file whose DDL says 5: the
+        gate has to refuse with the schema's number in the message, which is
+        also what proves it PARSED rather than pattern-matched a constant.
+        """
+        anchor = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (anchor / "migrations").mkdir()
+        (anchor / "migrations" / "fake.sql").write_text(
+            "-- skill_points INTEGER DEFAULT 0  (prose, must be ignored)\n"
+            "CREATE TABLE characters (\n"
+            "    id INTEGER PRIMARY KEY,\n"
+            "    skill_points INTEGER DEFAULT 5\n"
+            ");\n",
+            encoding="utf-8",
+        )
+        with mock.patch.object(
+            skill_point_curve, "_BIRTH_SKILL_POINTS_SCHEMA_ANCHOR",
+            "migrations/fake.sql",
+        ), mock.patch.object(
+            skill_point_curve, "__file__",
+            str(anchor / "src" / "pkg" / "skill_point_curve.py"),
+        ):
+            self.assertEqual(5, skill_point_curve.schema_birth_skill_points())
+            with self.assertRaises(
+                skill_point_curve.SkillPointCurveError
+            ) as caught:
+                skill_point_curve.birth_skill_points()
+        self.assertEqual(
+            skill_point_curve.REFUSE_BIRTH_ORDER_NOT_IN_THE_SCHEMA,
+            caught.exception.args[0],
+        )
+
+    def test_prose_in_the_header_cannot_stand_in_for_the_ddl(self):
+        """The real anchor file discusses its own DDL in a comment.
+
+        A scan that read comments would report 0 off the header while the
+        CREATE TABLE said 5 -- an anchor that agrees with the module for a
+        reason that has nothing to do with what the database gets.
+        """
+        anchor = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (anchor / "migrations").mkdir()
+        (anchor / "migrations" / "fake.sql").write_text(
+            "-- rebuilt with `skill_points INTEGER DEFAULT 0`\n"
+            "CREATE TABLE characters (skill_points INTEGER DEFAULT 5);\n",
+            encoding="utf-8",
+        )
+        with mock.patch.object(
+            skill_point_curve, "_BIRTH_SKILL_POINTS_SCHEMA_ANCHOR",
+            "migrations/fake.sql",
+        ), mock.patch.object(
+            skill_point_curve, "__file__",
+            str(anchor / "src" / "pkg" / "skill_point_curve.py"),
+        ):
+            self.assertEqual(5, skill_point_curve.schema_birth_skill_points())
+
+    def test_a_missing_anchor_is_a_separate_reason_from_a_disagreeing_one(
+        self,
+    ):
+        """"The schema says 5" and "there is no schema" are different bugs."""
+        anchor = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with mock.patch.object(
+            skill_point_curve, "_BIRTH_SKILL_POINTS_SCHEMA_ANCHOR",
+            "migrations/absent.sql",
+        ), mock.patch.object(
+            skill_point_curve, "__file__",
+            str(anchor / "src" / "pkg" / "skill_point_curve.py"),
+        ):
+            with self.assertRaises(
+                skill_point_curve.SkillPointCurveError
+            ) as caught:
+                skill_point_curve.schema_birth_skill_points()
+        self.assertEqual(
+            skill_point_curve.REFUSE_BIRTH_SCHEMA_ANCHOR_UNREADABLE,
+            caught.exception.args[0],
+        )
+
+    def test_the_anchor_is_not_claimed_to_measure_anything(self):
+        """The label stays ASSUMPTION, and the migration says why.
+
+        Two files agreeing about an ORDER is not a measurement of the
+        original game, and this is the assertion that stops a later round
+        reading the new gate as one.
+        """
+        self.assertEqual(
+            skill_point_curve.PROVENANCE_ASSUMPTION,
+            skill_point_curve.BIRTH_SKILL_POINTS_PROVENANCE,
+        )
+        migration = (
+            ROOT / skill_point_curve._BIRTH_SKILL_POINTS_SCHEMA_ANCHOR
+        ).read_text(encoding="utf-8")
+        self.assertIn("NOT MEASURED, AND ORDERED ANYWAY", migration)
 
 
 if __name__ == "__main__":

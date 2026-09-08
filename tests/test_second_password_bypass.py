@@ -85,11 +85,17 @@ class SecondPasswordBypassTests(unittest.TestCase):
         started = state.dispatch(self.legacy.parse_outer(
             self.legacy._synthetic_start_game_pc(character.selector)
         ))
+        # "SKILL_LIST_AT_LOGIN" added by LANE-CS round `ixbs2f` (PANYA
+        # 20260908_1455 item 2.3, COO-DECISION 20260908_1541): the login
+        # now also sends this character's persisted skill rows.  Kept an
+        # EXACT equality on purpose -- appended, not loosened to
+        # assertIn, so the next lane that adds a login frame lands here.
         self.assertEqual(
             [action[0] for action in started],
             [
                 "FOUNDATION_SELECTED_START_GAME",
                 "V113_TELEPORT_SCENE1_STABLE_ZERO_TARGET_ONCE",
+                "SKILL_LIST_AT_LOGIN",
             ],
         )
         return state

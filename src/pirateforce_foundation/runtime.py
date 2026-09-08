@@ -30,6 +30,7 @@ from . import mob_respawn
 from . import mob_scene_recompose
 from . import name_colour_sweep
 from . import scene_admission_gate
+from . import skill_list_at_login
 from . import trace_path
 from . import ui_dispatch
 from . import vital_walk
@@ -2071,11 +2072,109 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "foundation_v111_merge_wrong_sequence_no_reply"
                 )
                 return []
-            # Build the frozen exact response before opening the persistence
-            # transaction. No successful bytes are queued unless the later
-            # repository call commits the allowlisted post-state.
-            pc, frame = legacy.make_item_operate_stack_merge_success()
+            # Build the response before opening the persistence transaction,
+            # and DERIVE it from the bag this character actually holds.
+            #
+            # pf-adversary D1 on R403 measured what the frozen golden costs
+            # once STARTING_BACKPACKS grows: legacy.make_item_operate_stack_
+            # merge_success() hardcodes identity 1 at quantity 2, so a
+            # starting bag whose identity 1 begins at quantity 2 commits a
+            # stack of 3 and tells the client 2, with the success counter
+            # moving.  Membership in merged_v111_states() cannot catch that
+            # -- the committed bag IS a member; it is simply not the merge of
+            # the bag that was commanded.  Deriving fixes both halves at once:
+            # the bytes describe this bag, and the post-check below has an
+            # exact state to compare against instead of a set.
+            #
+            # For today's single bag the bytes are provably unchanged:
+            # make_item_merge_delta_response re-derives the V111 case and
+            # raises "generic item-merge response drifted from the V111
+            # golden" if its result is not byte-identical to the frozen
+            # legacy response.  No successful bytes are queued unless the
+            # later repository call commits exactly this post-state.
             before = self.foundation.backpack
+            try:
+                mergeable = inventory.can_merge_v111(before)
+            except Exception as exc:
+                # pf-adversary D-A on this branch, HIGH, measured: a session
+                # that never loaded a Backpack.  ReadOnlyFoundationSession
+                # (session.py, installed as the session_factory whenever
+                # app.py is given --scene-load) sets `selected` and leaves
+                # `backpack` at None, and this dispatch has no scenario gate.
+                # The old code handed that None to merge_v111_stack() INSIDE
+                # the try below, where the session's own PermissionError was
+                # absorbed; can_merge_v111 catches only ValueError, so moving
+                # the question ahead of that try turned a refusal into an
+                # AttributeError out of dispatch() -- the exact shape this
+                # round exists to remove, relocated from after the write to
+                # before it.  Absorb it here, name the cause, write nothing.
+                self.events.append(
+                    f"foundation_v111_merge_unusable_backpack_no_reply_{exc!r}"
+                )
+                return []
+            if not mergeable:
+                # No mergeable pair means no post-state to derive, so there
+                # is nothing to write and nothing to answer.  The
+                # exact-envelope check above proves the REQUEST is the V111
+                # one, never that the HOLDER can still perform it.
+                #
+                # A bag that is ALREADY a merged state is the ordinary
+                # second click, and it keeps the name it has always had:
+                # deriving moved this check ahead of the repository call,
+                # which used to be the thing that reported a replay (it
+                # returned applied=False).  Renaming that event would have
+                # made a replay indistinguishable from a malformed bag on
+                # the console.
+                if before in inventory.merged_v111_states():
+                    self.events.append("foundation_v111_merge_replay_no_reply")
+                else:
+                    self.events.append(
+                        "foundation_v111_merge_no_merged_state_no_reply"
+                    )
+                return []
+            expected_after = inventory.merged_v111_state(before)
+            merged_row = next(
+                item for item in expected_after.items if item.identity == 1
+            )
+            # The two things the COMMAND says, asked of the state the write
+            # would produce.  pf-adversary D-B and D-E on this branch, both
+            # measured, both this patch's own:
+            #
+            # * D-E: `is_exact_merge_request` pins the request to
+            #   V111_MERGE_FIELDS = (op 4, destination slot 0, identity 3),
+            #   and NOTHING anywhere compared that destination against where
+            #   the merge actually landed.  A bag holding identity 1 at slot
+            #   5 committed into slot 5, replied with slot 5, and reported
+            #   success.  origin/main refused that bag by accident -- its
+            #   frozen post-state carried slot 0 -- and deriving removed the
+            #   accident without replacing it.  This is the replacement.
+            # * D-B: can_merge_v111 admits any total in the u16 range,
+            #   including 0 and 1, and the composer refuses a merged
+            #   quantity below 2 with a ValueError.  With the composer's
+            #   try/except gone (deliberately, so its drift guard stays
+            #   loud) that ValueError would leave dispatch(). Not reachable
+            #   today -- no write path produces a quantity-0 row -- but the
+            #   comment that used to stand here asserted it could not happen
+            #   at all, and that was measured false.
+            if (
+                merged_row.slot != inventory.V111_MERGE_FIELDS[1]
+                or merged_row.quantity < 2
+            ):
+                self.events.append(
+                    "foundation_v111_merge_post_state_is_not_the_command_"
+                    f"no_reply_slot{merged_row.slot}_qty{merged_row.quantity}"
+                )
+                return []
+            # No try/except around the composer ON PURPOSE.  With the two
+            # checks above standing, the only exception it can still raise is
+            # its own drift guard -- "generic item-merge response drifted
+            # from the V111 golden" -- which means the frozen golden and the
+            # derivation disagree.  That is a build-level fault, it happens
+            # BEFORE any write, and the pre-existing contract for a builder
+            # failure here is to propagate (test_wrong_sequence_builder_and_
+            # repository_failures_do_not_mutate pins it).  Swallowing it
+            # would hide exactly the canary this round installed.
+            pc, frame = make_item_merge_delta_response(legacy, merged_row, 3)
             try:
                 applied = self.foundation.merge_v111_stack()
             except Exception as exc:
@@ -2091,13 +2190,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not applied:
                 self.events.append("foundation_v111_merge_replay_no_reply")
                 return []
-            if self.foundation.backpack not in inventory.merged_v111_states():
+            if self.foundation.backpack != expected_after:
                 # The row is already written -- the repository call above
                 # committed before this line ran.  Raising here would leave
                 # dispatch() with an exception AFTER the write, which is the
                 # one shape CORE-REQUEST 20260908_0206 asked to remove: the
                 # bytes are dropped, the counter does not move, and the
                 # connection survives to say so.
+                #
+                # The comparison is against THIS bag's post-state, not
+                # against membership in merged_v111_states().  pf-adversary
+                # D3 on R403 measured that the set form could not fire on
+                # any production input (the store refuses outside the set
+                # before writing), while the mismatch it was supposed to
+                # catch -- committed one thing, answered another -- walked
+                # straight through it.
                 self.events.append(
                     "foundation_v111_merge_committed_unknown_state_no_reply"
                 )
@@ -2206,7 +2313,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.events.append("item_move_hypothesis_replay_no_reply")
                 return []
             if self.foundation.backpack != HYPOTHESIZED_V111_SLOT2_BACKPACK:
-                raise RuntimeError("committed HYP-PF-008 Backpack state mismatch")
+                # The fourth post-commit raise, byte-for-byte the shape
+                # CORE-REQUEST 20260908_0206 asked to delete and the one
+                # R403 left behind (pf-adversary D2).  The row is written by
+                # the time this line runs, so an exception here unwinds past
+                # the accept loop in the frozen listener -- which has a
+                # try/finally around dispatch() and no except -- dropping
+                # every player on the process over one character's bag.
+                self.events.append(
+                    "item_move_hypothesis_committed_unknown_state_no_reply"
+                )
+                return []
             self.item_move_hypothesis_count += 1
             self.events.append(
                 "item_move_hypothesis_committed_before_composed_response"
@@ -3905,6 +4022,92 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 "remote_player_hypothesis_visibility_probe_sent"
             )
             return actions
+
+        def _skill_list_login_action(self, legacy):
+            """SKILL-LIST-AT-LOGIN-001: the action, or ``None`` and a reason.
+
+            Split out of the START_GAME_REQ handler by pf-adversary D4, which
+            is also the finding this docstring is mostly about.
+
+            EVERY EXCEPTION CLASS, not just the module's own.  The seam used
+            to catch ``SkillListAtLoginError`` alone, on the module's stated
+            contract that it raises nothing else.  That contract covers what
+            the module DECIDES; it does not cover what the store does
+            underneath it.  ``read_character_skill_ids`` translates
+            ``KeyError`` and ``TypeError`` -- adversary made
+            ``list_character_skills`` raise ``sqlite3.OperationalError
+            ("database is locked")``, dispatched a real ``StartGameReq``, and
+            watched it leave ``dispatch()`` entirely.  v141 wraps the
+            per-connection loop in ``try``/``finally`` with no ``except``, so
+            the thread unwinds and the client parks on "connecting" -- and
+            because this runs BEFORE the action list is built, a locked
+            database in the SKILL LIST would have cost the player their
+            START_GAME_RES and their teleport too.  The module's own offline
+            route already catches ``sqlite3.DatabaseError`` around the
+            identical call; the console command was hardened and the login
+            path was not, which is the asymmetry that made this a bug rather
+            than a judgement call.
+
+            So: a broad ``except`` with a NAMED, class-tagged event, and the
+            login continues without a skill frame.  A skill window is worth
+            less than a login.
+
+            EVERY BRANCH PRINTS (D3).  Events reach the console only under
+            ``--export-events``; this seam is on for the flagless boot, where
+            a refusal was previously visible only as the absence of a line
+            the operator would have to know to look for.
+            """
+            import sqlite3      # noqa: F401 - named in the comment below
+
+            try:
+                skill_pc, skill_frame = (
+                    skill_list_at_login.login_skill_list_response(
+                        legacy,
+                        self.foundation.lifecycle.store,
+                        self.foundation.selected.id,
+                    )
+                )
+            except skill_list_at_login.SkillListAtLoginError as error:
+                # The module's own contract: one class, one machine-readable
+                # `.reason`.  NOT `args[0]`, which is the human sentence --
+                # that shipped once and put a whole paragraph, spaces and
+                # all, into an event list other lanes match by equality.
+                self.events.append(
+                    f"skill_list_at_login_refused_{error.reason}"
+                )
+                print(
+                    "SKILL_LIST_AT_LOGIN refused=1 reason=%s" % (error.reason,)
+                )
+                return None
+            except Exception as error:      # noqa: BLE001 - see the docstring
+                # Deliberately broad, deliberately last, and it does NOT
+                # swallow quietly: the class name goes in the event and on
+                # the console, so an operator gets a bug report rather than
+                # an empty skill window with no explanation.  `sqlite3` is
+                # the measured case; the class is not narrowed to it because
+                # the point is that this seam does not get to decide which
+                # failures the store is allowed to have.
+                self.events.append(
+                    "skill_list_at_login_failed_%s" % (type(error).__name__,)
+                )
+                print(
+                    "SKILL_LIST_AT_LOGIN failed=1 error=%s"
+                    % (type(error).__name__,)
+                )
+                return None
+            # The trailing byte is NOT re-derived here.  Reaching this line
+            # already means the module decoded its own composed payload back
+            # and measured a trailing 0 -- anything else raises
+            # REFUSE_TRAILING_BYTE_LOCKS_WALKING above.  A second copy of that
+            # measurement here would need the record count, which this seam
+            # does not hold, and a guessed count is how a token comes to
+            # report a byte the frame does not carry.
+            self.events.append("skill_list_at_login_sent")
+            print(
+                "SKILL_LIST_AT_LOGIN sent=1 cid=%d frame_bytes=%d"
+                % (self.foundation.selected.id, len(skill_frame))
+            )
+            return ("SKILL_LIST_AT_LOGIN", skill_pc, skill_frame, 0.0)
 
         def _npc_hostile_start_game_response(self, pc, frame, position=None):
             """The entry half of HYP-PF-027: the SCENE-005 player faction.
@@ -10066,8 +10269,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         "vital_inbound_trade_invite_vital",
                         session=self, payload=bytes(parsed.nested_payload),
                     )
+                # ``envelope=legacy`` is what lets an answerer put a byte
+                # back WITHOUT ever holding the runtime: ui_dispatch composes
+                # the frame itself from the (id, version, payload) triple a
+                # lane returns, so no lane module names or reaches this
+                # module.  ui_dispatch answers [] when it is not passed.
                 return ui_dispatch.answer(
-                    self, nested_id, bytes(parsed.nested_payload))
+                    self, nested_id, bytes(parsed.nested_payload),
+                    envelope=legacy)
             if nested_id == legacy.START_GAME_REQ:
                 self.rx_frames += 1
                 self.start_game_seen = True
@@ -10107,6 +10316,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 load_only = scene_load_scenario is not None
                 entry = None
                 gm_state_action = None
+                skill_list_action = None
                 # CORE-REQUEST-017 point 1: default "no override" for the
                 # load_only path, where the block below that assigns this
                 # never runs. Read again much further down (the flagless
@@ -10795,6 +11005,106 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "gm_update_state_frame_withheld_no_confirmed_"
                             "vital_version_re105_open"
                         )
+                    # SKILL-LIST-AT-LOGIN-001 seam (PANYA 20260908_1455 item
+                    # 2.3 "this is the piece that is really missing", carried
+                    # into COO-DECISION 20260908_1541 which moved this seam to
+                    # LANE-CS and ordered it wired with the trailing byte 0).
+                    #
+                    # NO SCENARIO FLAG, like CORE-REQUEST-006's GM frame
+                    # above: the owner sat in front of a production boot on
+                    # 2026-09-07, watched `CHARACTER_STARTING_SKILLS cid=1
+                    # written skill_ids=(111, 40000, 99, 110)` print, and both
+                    # skill tabs stayed empty.  The rows were in the database
+                    # and nothing read them back onto the wire.  This is the
+                    # read half, and a scenario flag on it would ship the same
+                    # empty window.  It IS gated on the lane's own
+                    # `production_allowed` -- see below, that is a kill
+                    # switch, not an opt-in.
+                    #
+                    # WHAT R323C MEASURED, AND WHAT IT DID NOT.  GT-249 (R312,
+                    # attended) ended with a client that could not walk until
+                    # relog after this vital's six-frame sweep.  GT-276 (PASS,
+                    # R323C, 2026-09-07T21:33+07:00) booted five frames
+                    # carrying DUMMY records at counts 0, 1 and 3, and found
+                    # trailing u8 == 1 locks walking while == 0 walks; record
+                    # count made no difference across those three.  So the
+                    # frame this seam sends carries A TRAILING BYTE MATCHING
+                    # THE ONES R323C MEASURED AS WALKABLE -- that is a claim
+                    # about one byte, and it is the only claim available.
+                    # pf-adversary D5 caught the earlier wording here, "a
+                    # frame R323C measured as walkable", which is a claim
+                    # about a frame nobody booted.
+                    #
+                    # WHAT NOBODY HAS BOOTED, kept next to the code that
+                    # does it: count 4 at trailing 0 with REAL ids.  The
+                    # R323C letter's own table row 6 reads "not booted" and its
+                    # nonclaims say the same.  Every class starts with exactly
+                    # 4 skills, so EVERY production login under this seam is
+                    # that unbooted shape.  GT-307 is the attended ticket for
+                    # exactly that, this seam is its build precondition, and
+                    # the flag below is what an operator turns off if GT-307
+                    # comes back badly.
+                    #
+                    # RIDES ALONGSIDE, like gm_state_action: appended to the
+                    # same action list below.  The frozen START_GAME_RES and
+                    # teleport bytes are not touched, and every refusal here
+                    # leaves this login with no skill frame and a NAMED event
+                    # -- never an exception out of the listener thread.
+                    #
+                    # NOT CLAIMED: that login is the right MOMENT (GT-249's
+                    # positive result came from a trigger), that id 40000 will
+                    # render (it did not in R312), or what the three record
+                    # members mean.  The module's nonclaims say all three and
+                    # this seam does not quietly upgrade any of them.
+                    #
+                    # NO GUARD on `lifecycle.store`, and that is a measured
+                    # decision rather than an omission.  This block first
+                    # carried a `getattr(..., None)` and a named refusal for
+                    # it, copying session.py's own defensive shape.  The test
+                    # written to drive that refusal could not reach it: on
+                    # this path `select_and_start` has already called
+                    # `lifecycle.select` -> `store.select_character` two
+                    # frames earlier, so a lifecycle with no store never
+                    # arrives here -- it dies further up, before the seam
+                    # exists.  A refusal reason that cannot happen is a lie
+                    # to whoever counts refusals (mob_loot.py states the rule;
+                    # the guard-free `self.foundation.selected.id` below is
+                    # the same call being made for the same reason).
+                    #
+                    # THE FLAG IS READ HERE, and pf-adversary D1 is why this
+                    # line exists.  The first draft flipped
+                    # `production_allowed` to True and then never asked it,
+                    # so the flag was decorative: an operator who watched
+                    # players stop walking and set it back to False would
+                    # have changed nothing, and reverting would have meant
+                    # editing this file and redeploying.  That is not a
+                    # theoretical worry for THIS frame -- the only escape
+                    # GT-249 ever recorded from its walk-lock was a relog,
+                    # and a relog is exactly what re-sends this.  Same shape
+                    # as `logout_dialog_open_hypothesis.production_allowed`
+                    # further up this file.
+                    #
+                    # THE CONSOLE LINE IS NOT OPTIONAL EITHER (D3).  Events
+                    # reach the console only under `--export-events`, which a
+                    # normal boot does not pass, so on the boot this seam is
+                    # "always on" for, a refusal was previously visible as
+                    # the ABSENCE of a line -- the operator would see the
+                    # write half print `CHARACTER_STARTING_SKILLS ... written`
+                    # and nothing at all from the read half.  Every branch
+                    # below prints, refusals included.
+                    if not skill_list_at_login.production_allowed:
+                        self.events.append(
+                            "skill_list_at_login_withheld_not_production_"
+                            "allowed"
+                        )
+                        print(
+                            "SKILL_LIST_AT_LOGIN withheld=1 "
+                            "reason=production_allowed_is_false"
+                        )
+                    else:
+                        skill_list_action = self._skill_list_login_action(
+                            legacy,
+                        )
                     # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING
                     # step 0, "AT CHARACTER SELECT": claim this character's
                     # bag ONCE against the server-wide mob_pickup_registry
@@ -11014,6 +11324,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # START_GAME_RES / teleport bytes above stay
                     # byte-for-byte untouched.
                     actions.append(gm_state_action)
+                if skill_list_action is not None:
+                    # SKILL-LIST-AT-LOGIN-001, same rule as the line above:
+                    # appended LAST so the START_GAME_RES and the teleport
+                    # keep both their bytes and their order.  AFTER the
+                    # teleport deliberately -- R323C's walkable steps were
+                    # measured on a client that was already in the world,
+                    # and putting an unrendered-window frame in front of the
+                    # teleport would be a third unmeasured thing in a route
+                    # that already has two.
+                    actions.append(skill_list_action)
                 return actions
 
             if nested_id == legacy.ITEM_OPERATE_REQ_VITAL:

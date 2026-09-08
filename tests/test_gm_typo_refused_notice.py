@@ -316,6 +316,16 @@ class EveryCommandNameGetsTheNoticeTests(_Case):
                 # `test_a_mistyped_argument_of_the_no_argument_verb_gets_the_
                 # notice` below runs.
                 "staged",
+                # `job` and `skill` (LANE-GM round `wv0fpe`, PANYA-ORDER
+                # 2026-09-08).  Checked as this assertion asks: both are
+                # ORDINARY verbs for this layer -- a bare `job` and a bare
+                # `skill` are parse refusals (`command_parse_error_*`, the
+                # condition COO-DECISION `0647` states), so both get the
+                # notice, and `test_a_bare_verb_of_every_command_...` below
+                # runs each of them rather than taking this comment's word
+                # for it.  Neither is a `staged`-shaped exception.
+                "job",
+                "skill",
             },
             "the grammar's vocabulary changed. That is not a failure by "
             "itself -- but re-read COO-DECISION 0647, whose condition is "

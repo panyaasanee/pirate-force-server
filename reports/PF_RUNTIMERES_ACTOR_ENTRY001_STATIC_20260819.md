@@ -319,7 +319,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 29,
+  "src_vital_stream_call_sites": 32,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -1055,3 +1055,78 @@ count moved in the same change that added them, as this block's rule requires.
 
 No other census key moves: the module composes no actor entry and no
 remote-actor stream, and it passes no zero HP.
+
+## Round `spdxy0` (LANE-UI), 2026-09-08
+
+`src_vital_stream_call_sites` moves **29 -> 31**. Both new sites belong to the
+first answerer the eight-vital UI dispatch seam has ever had.
+
+`ui_dispatch.py`'s `_compose` is one of them, and where it sits is the point:
+a LANE-UI answerer returns a `VitalReply(label, vital_id, version, payload,
+delay)` -- data -- and the seam composes the carrier. The lane never holds the
+envelope builder and never holds the session, because a wrapper over a session
+is not a boundary (pf-adversary rounds 3 D2 and 4 D-B measured five one-liners
+walking past one) and neither is a closure over it. So the count records a call
+site that exists precisely so that eighteen `ui_*_wire.py` modules do not need
+one each.
+
+`ui_party_invite_answer_headless.py` is the other: the arming proof required
+by `NOW.md`'s `HEADLESS_PROOF:` rule. It boots the real dispatcher with no flag
+and no scenario, drives one real `PartyInviteVital`, and calls this carrier
+INDEPENDENTLY to build the frame it then compares the dispatcher's answer
+against -- a second construction, not a second sender.
+
+Unlike round `ebh143`'s two sites, one of these IS a live sender today:
+`runtime.py`'s `_FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS` branch returns what
+`ui_dispatch.answer()` returns, and `lane_hooks/lane_ui_party_invite_answer.py`
+ships `production_allowed = True`. What reaches the client is the player's own
+payload, re-encoded and refused unless byte-identical to what arrived.
+
+No other census key moves: neither module composes an actor entry or a
+remote-actor stream, and neither passes a zero HP.
+
+## Round `xqxadg` (LANE-UI), 2026-09-08
+
+`src_vital_stream_call_sites` moves **31 -> 32** net. The one site that stays is
+`ui_trade_invite_answer_headless.py`, the arming proof for the SECOND answerer
+on the eight-vital UI dispatch seam: `TradeInviteVital` (`0x3700`). It boots
+the real dispatcher with no flag and no scenario, drives one real trade invite,
+and calls this carrier INDEPENDENTLY to build the frame it compares the
+dispatcher's answer against -- a second construction, not a second sender, the
+same shape as round `spdxy0`'s party proof.
+
+The answerer module itself adds NO site, and that is worth recording rather
+than assuming: `lane_hooks/lane_ui_trade_invite_answer.py` returns a
+`VitalReply` and `ui_dispatch._compose` calls the carrier, so a second lane
+answering a second vital did not need a second call site. That is the property
+the `VitalReply` shape exists to keep, and the census is where it shows.
+
+This site IS on a live path today: `runtime.py`'s
+`_FRIEND_MAIL_PARTY_TRADE_DISPATCH_IDS` branch returns what
+`ui_dispatch.answer()` returns, and the trade answerer ships
+`production_allowed = True`. What reaches the client is the player's own
+payload, re-encoded and refused unless byte-identical to what arrived, and --
+new this round -- only under a label the outbound frame-shape registry in
+`ui_dispatch.py` names for that id (COO-DECISION `20260908_1142` item 7,
+route (b)).
+
+No other census key moves: the module composes no actor entry and no
+remote-actor stream, and it passes no zero HP.
+
+Two more arrived later in the same round and one pair left again, so the net is
++1. Paying pf-adversary D10, each arming proof now builds the envelope a SECOND
+time, around a marker payload of the same length, so that
+`echo_is_the_players_bytes` can say what its name claims -- the bytes in the payload slot are the player's and
+every byte outside it is the envelope's own. The token previously computed
+`payload in pc`, which is containment, not identity: a reply of
+`payload + b"\xAA"` set it to 1 while inventing a byte. Neither new site is a
+sender; both are constructions compared against the dispatcher's answer.
+
+And the trade proof then moved OUT of `src/` entirely, to
+`tools/pf_ui_trade_invite_answer_headless.py`:
+`tests/test_npc_interaction_wire.py::QuestAndShopStateGuardTests` refuses
+trade/shop/quest identifiers in any top-level foundation module, the proof has
+to spell `encode_trade_invite_payload` to build a real payload, and the answer
+to another lane's guard is not an allowlist entry (NOW `2050`). So the trade
+proof's two carrier calls are outside this census by design, and the party
+proof's two are inside it: **31 -> 32**, not 34.

@@ -35,30 +35,53 @@ order, and this module honours it in the only way that is honest about today:
     wrong: what is real is the ROUTE.  The day a second writer exists, this
     route already carries it and the class-table route never could.
 
-THE REASON THIS IS NOT WIRED IN THIS ROUND (read this before using the module)
+WHY IT IS WIRED NOW, AND WHAT PAID FOR THE FLAG (2026-09-08, round `ixbs2f`)
 ----------------------------------------------
-The HYP-PF-033 sweep lane's own docstring records, from GT-249 run on
-a real client on 2026-09-05: after its six-frame sweep landed, the client
+It stayed unwired for three rounds, and the reason was specific rather than
+cautious.  The HYP-PF-033 sweep lane's own docstring records, from GT-249 run
+on a real client on 2026-09-05: after its six-frame sweep landed, the client
 stopped emitting any outbound movement frame for the rest of the session --
 the player could open windows and drag items but COULD NOT WALK until a fresh
-login -- and which frame (or which interaction between them) causes it was
-never isolated.  That lane's ``production_allowed`` is ``False`` for exactly
-that reason.
+login.  Which frame caused it was not isolated, so this module composing ONE
+frame of that same vital was a candidate way to ship a game nobody can walk
+in, and ``production_allowed`` stayed ``False`` with the condition to flip it
+written down instead of left to a future round's judgement.
 
-This module composes ONE frame of that same vital.  Sending it unconditionally
-on every login is therefore, on today's evidence, a candidate way to ship a
-game where nobody can move.  So:
+**GT-276 answered it.**  PASS, R323C, attended, ``OBSERVER_CONFIRMED``
+2026-09-07T21:33+07:00: the walk-lock is ONE BYTE.  Steps carrying trailing
+u8 == 1 lock walking; steps carrying trailing u8 == 0 walk.  The record count
+made no difference across those three.  The tester's own proposed reading of
+why R312 locked is that the six-frame sweep it rode in contained trailing-1
+steps; that is in the letter's `proposed status` section and not in its
+`RESULT:` line, so it is recorded here as the tester's reading and not as a
+measured fact (pf-adversary D5 caught the earlier wording, which stated it
+flat and went further than five dummy-record frames can carry).
 
-  * ``production_allowed`` is ``False`` here too, and the condition to flip it
-    is written down rather than left to a future round's judgement: an
-    attended run that sends THIS module's single frame at login, with its own
-    observation window, and reports (a) the skill window populated and (b)
-    movement still working afterwards.  That is the ticket this round files.
-  * nothing in ``src/`` calls this module (``callers_in_src=0`` in its console
-    token, measured by a test, not asserted here).  The one seam it needs is
-    in ``runtime.py``, outside this lane's write zone, and the CORE-REQUEST
-    filed with this round says in its own text that it must NOT be wired
-    until that attended result comes back green on movement.
+So the flag is flipped, and these are the things that carry it:
+
+  * The refusal is on the BYTES, not on a constant.  ``make_skill_list_response``
+    decodes back the payload it just composed and raises
+    ``REFUSE_TRAILING_BYTE_LOCKS_WALKING`` unless what it measures is 0, so a
+    frame that leaves this module CARRIES A TRAILING BYTE MATCHING the ones
+    R323C measured as walkable.  Say it that way and not "a frame R323C
+    measured as walkable" (which this section did say, until pf-adversary D5):
+    R323C booted five frames of DUMMY records at counts 0, 1 and 3.  It never
+    booted this frame.  The claim is about one byte.
+  * The owner ordered the seam by hand (PANYA `20260908_1455` item 2.3, "this
+    is the piece that is really missing"), and COO-DECISION `20260908_1541`
+    moved the seam into this lane's write zone and named the byte: trailing 0,
+    not optional.
+  * ``runtime.py``'s login path now CALLS ``login_skill_list_response``, so
+    ``seam_carrier()`` reports ``runtime`` off a call node in that file and
+    the console token's ``callers_in_src`` is counted off the tree.
+
+WHAT IS STILL NOT MEASURED, written here rather than left for somebody to
+find: R323C did not re-boot count 4 at trailing 0.  Count 4 at trailing 0 is
+GT-249's own step 6 -- the step that rendered 3 of 4 ids -- and every
+character alive today has exactly 4 rows, so the first production login under
+this seam is the one count R323C skipped.  ``GT-307`` is the attended ticket
+for precisely that, this seam is its build precondition, and nothing in this
+section says the attended run became unnecessary.
 
 NONCLAIMS -- inherited and new
 -------------------------------
@@ -95,7 +118,13 @@ from .learn_skill_result_frame import (
 
 
 SKILL_LIST_AT_LOGIN_CHECKPOINT = "SKILL-LIST-AT-LOGIN-001"
-production_allowed = False
+
+#: True since 2026-09-08 (round `ixbs2f`).  Flipped on GT-276's PASS (R323C),
+#: which measured the walk-lock as the trailing u8 rather than this vital, and
+#: on the owner's order in `20260908_1455` item 2.3 carried by COO-DECISION
+#: `20260908_1541`.  The module docstring's "WHY IT IS WIRED NOW" holds what
+#: this rests on -- and the one thing R323C did not boot, which is `GT-307`.
+production_allowed = True
 
 #: The trailing u8 GT-249's positive step carried.  Imported as a value, not
 #: as a decision: this lane has no idea what the byte means (that module's
@@ -426,14 +455,69 @@ def login_skill_list_response(
     )
 
 
+def callers_in_src() -> int:
+    """How many sibling modules under ``src/`` name this one, COUNTED.
+
+    It used to be the literal ``0`` inside the summary format string, with a
+    test doing the counting; that was honest for exactly as long as the answer
+    stayed 0, and round `ixbs2f` wired the seam, so the constant would now
+    print ``callers_in_src=0`` on a server that sends this frame on every
+    login.  A number about the tree, printed by a format string that cannot
+    see the tree, is the same species of defect ``seam_carrier`` exists to
+    kill one field to its right; the fix is the same one -- go and look.
+
+    NOT AT IMPORT TIME, which is the objection the old docstring raised and
+    which still stands.  It runs only when somebody asks for the console
+    summary, by the same rule ``seam_carrier()`` follows: a package walk on a
+    boot path would be the thing with no business here.  (An earlier draft of
+    this paragraph said "the console entry point calls it".  It does not --
+    ``main()`` calls ``seam_carrier()`` and ``headless_token()``, and
+    ``describe_skill_list`` has no caller outside ``tests/``.  pf-adversary
+    D6: a sentence about a call site that does not exist, doing the work of
+    answering "is this on a boot path?".)
+
+    SUBSTRING, NOT AST, on purpose and unlike ``seam_carrier``.  The question
+    here is "does any sibling module mention this module at all", which is the
+    widest form of the question and the one that cannot miss an alias, a
+    ``getattr`` or an import this module did not predict.  It counts prose
+    too, and that is a deliberate over-count: a mention that turns out to be a
+    comment costs somebody a look at a diff, while a call this scan cannot see
+    costs a token that says nothing sends the frame while something does.
+    Returns 0 rather than raising when the package cannot be walked.  THE
+    CAVEAT, WRITTEN HERE RATHER THAN POINTED AT: a 0 because the directory
+    could not be read and a 0 because nothing names this module print the
+    same digit.  An earlier draft said the caveat was "named in ``main``'s
+    docstring"; it was not written anywhere (pf-adversary D6).  The
+    ``sent_by`` field beside it in the summary is the one that cannot be
+    faked, so read that one first.
+    """
+    from pathlib import Path
+
+    here = Path(__file__).resolve()
+    try:
+        siblings = sorted(here.parent.rglob("*.py"))
+    except OSError:
+        return 0
+    total = 0
+    for path in siblings:
+        if path.resolve() == here:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if here.stem in text:
+            total += 1
+    return total
+
+
 def describe_skill_list(skill_ids: "tuple[int, ...] | list[int]") -> tuple[str, ...]:
     """ASCII console lines for a headless boot to print.
 
     One line per record plus a summary, in the shape the bridge console can
-    carry (cp874: ASCII only).  The summary's ``callers_in_src`` is a claim
-    that is MEASURED by a test which greps every sibling module, not by this
-    function -- a module under ``src/`` scanning its own package at import
-    time is exactly the thing that has no business being here.
+    carry (cp874: ASCII only).  The summary's ``callers_in_src`` comes from
+    ``callers_in_src()`` -- see that function for why it stopped being a
+    literal the day the seam landed.
     """
     records = skill_list_records(skill_ids)
     lines = [
@@ -442,14 +526,28 @@ def describe_skill_list(skill_ids: "tuple[int, ...] | list[int]") -> tuple[str, 
            record.record_u16_4, record.record_u32_8)
         for index, record in enumerate(records)
     ]
+    # `sent_by` and a COMPUTED result, not `RESULT=ARMED` as a literal:
+    # pf-adversary D7 deleted the seam's try/except out of `runtime.py`,
+    # left the import and the comments, and this line still read
+    # `callers_in_src=1 ... RESULT=ARMED` on a server that sends nothing --
+    # because a mention in a comment is a "caller" to a substring scan, and
+    # `ARMED` was typed into the format string.  `sent_by` comes from the AST
+    # walk that only a real call node satisfies, and `RESULT` is derived from
+    # it, so the two halves of this line cannot disagree.
+    carrier = seam_carrier()
     lines.append(
         "SKILL_LIST_AT_LOGIN_SUMMARY records=%d trailing=%d "
-        "observed_cap=%d callers_in_src=0 production_allowed=%s RESULT=ARMED"
+        "observed_cap=%d callers_in_src=%d sent_by=%s production_allowed=%s "
+        "RESULT=%s"
         % (
             len(records),
             SKILL_LIST_TRAILING_BYTE,
             OBSERVED_ACCEPTED_RECORD_COUNT,
+            callers_in_src(),
+            carrier,
             production_allowed,
+            "ARMED" if (carrier != "module_only" and production_allowed)
+            else "NOT_ARMED",
         )
     )
     return tuple(lines)

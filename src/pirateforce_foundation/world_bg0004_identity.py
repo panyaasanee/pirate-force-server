@@ -336,16 +336,16 @@ _RESOLVED_ROWS = (
     (25, 1624, 90, "M073_000_001_N", "Hood", "Shameless Slave Traders ", 50, 0, 23976, 2),
     (26, 1625, 91, "M074_000_001_N", "Local people", "", 50, 0, 23976, 2),
     (27, 1626, 92, "P_FEMALE_015_000_PENNY", "Penny", "Cute Girl Slave", 50, 0, 23976, 2),
-    (28, 1627, 93, "M028_000_000_SP1", "Scythe Beetle", "", 46, 1, 18424, 1),
+    (28, 1627, 93, "M028_000_000_SP1;M028_000_000_SP2", "Scythe Beetle", "", 46, 1, 18424, 1),
     (29, 1628, 94, "M020_001_000_SP1", "An Gebo Little Firebird", "", 47, 1, 19710, 1),
-    (30, 1629, 95, "M017_000_001_SP1", "Dragon Gladiator", "", 48, 1, 21045, 1),
-    (31, 1630, 96, "M011_000_002_SP1", "Forest Green Eagle", "", 50, 1, 23976, 1),
+    (30, 1629, 95, "M017_000_001_SP1;M017_000_001_SP2", "Dragon Gladiator", "", 48, 1, 21045, 1),
+    (31, 1630, 96, "M011_000_002_SP1;M011_000_002_SP2", "Forest Green Eagle", "", 50, 1, 23976, 1),
     (32, 1631, 97, "M011_000_002_SP3", "Mutant Green Eagle", "", 51, 1, 25564, 1),
-    (33, 1632, 98, "M019_002_000_SP1", "Gladiator Slave Girl", "", 52, 1, 27184, 1),
-    (34, 1633, 99, "M008_000_001_SP1", "Moor Slime", "", 53, 1, 28904, 1),
-    (35, 1634, 100, "M021_000_001_SP1", "Sharp snake poison ivy", "", 54, 1, 30703, 1),
-    (36, 1635, 101, "M006_001_001_SP1", "Swamp Tortoise", "", 56, 1, 34530, 1),
-    (37, 1636, 102, "M023_000_001_SP1", "Orc", "", 57, 1, 36585, 1),
+    (33, 1632, 98, "M019_002_000_SP1;M019_002_000_SP2", "Gladiator Slave Girl", "", 52, 1, 27184, 1),
+    (34, 1633, 99, "M008_000_001_SP1;M008_000_001_SP2", "Moor Slime", "", 53, 1, 28904, 1),
+    (35, 1634, 100, "M021_000_001_SP1;M021_000_001_SP2", "Sharp snake poison ivy", "", 54, 1, 30703, 1),
+    (36, 1635, 101, "M006_001_001_SP1;M006_001_001_SP2", "Swamp Tortoise", "", 56, 1, 34530, 1),
+    (37, 1636, 102, "M023_000_001_SP1;M023_000_001_SP2", "Orc", "", 57, 1, 36585, 1),
     (38, 1637, 103, "M023_000_001_SP3", "Orc Chief", "", 58, 1, 38728, 1),
     (39, 1638, 640, "P_FEMALE_003_000_ARENAFIGHTER", "Crazy Rose Regina", "", 105, 0, 228055, 2),
     (40, 1639, 641, "M017_000_001_SP3", "Blood dragon Norman", "", 105, 0, 228055, 2),
@@ -357,7 +357,7 @@ _RESOLVED_ROWS = (
     (46, 1645, 246, "M015_001_001_SP1", "Jet cat thieves No.4", "", 57, 1, 36585, 1),
     (47, 1646, 757, "P_MALE_015_000_ZERALTIN", "Salahuddin", "Liberate", 50, 0, 23976, 2),
     (107, 1653, 917, "INVISIBLE", "", "", 100, 0, 198125, 7),
-    (108, 1654, 7043, "M024_001_001_SP1", "Penguin Searcher", "Serious and responsible", 99, 0, 192488, 2),
+    (108, 1654, 7043, "M024_001_001_SP1;M024_001_001_SP2", "Penguin Searcher", "Serious and responsible", 99, 0, 192488, 2),
 )
 
 IDENTITIES = {row[0]: SceneIdentity(*row) for row in _RESOLVED_ROWS}
@@ -628,9 +628,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0004IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0004IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0004IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)

@@ -277,6 +277,7 @@
 !/reports/PF_UI_REFRESH001_CHARACTER_SELECT_STATE_MACHINE_STATIC_20260819.md
 !/reports/PF_UI_REFRESH001_CHARACTER_SELECT_STATE_MACHINE_STATIC_20260819.manifest
 !/tools/pf_ui_state_refresh_static.py
+!/tools/pf_ui_party_cmd_answer_headless.py
 !/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md
 !/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.manifest
 !/tools/pf_hp_death_respawn_static.py
@@ -575,6 +576,7 @@
 # shape as the lines above: src/tests/scenarios are allow-listed wholesale, so
 # only the tool needs its own line here.
 !/tools/pf_mine_scene_mob_roster.py
+!/tools/pf_regen_lane_a_outfit_cells.py
 
 # LANE-B round g627j0 (BUILD-006 / M5): the generator behind
 # src/pirateforce_foundation/field_drop_tables.py.  Allow-listed for the same

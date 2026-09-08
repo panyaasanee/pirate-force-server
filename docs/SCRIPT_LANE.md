@@ -4533,3 +4533,135 @@ that implements LANE-DB's letter method-for-method, plus the alarm that
 stops a memory-only host from looking like a persistent one.  Nothing is
 on a screen; no player relogged and found a quest where they left it.
 The corpus sweep pins are unchanged (2593 stub / 2878 real).
+
+## Round 7qw2tr (2026-09-08) -- the seam gained its atomic counter, and one place to choose the store
+
+Two things, both squarely inside this lane's own write zone (`lua_api/`),
+both aimed at the same failure PANYA's order of 2026-09-08 ~15:20 put ahead
+of everything else here: quest progress that does not stick.
+
+### 1. `increment_quest_counter` is on the seam now, and it is atomic
+
+`QuestStateStore` published four methods: read/write a flag, read/write a
+counter.  Kill progress moved through the last of those -- which means the
+only way to add a kill was read-then-write, in the caller.  That is the
+classic lost update, and here it has a player-shaped consequence: two mobs
+of the same template dying in one tick both read 4 and both write 5, so a
+five-kill quest counts six kills as five, and the NPC never advances.
+
+LANE-DB's contract (`pf_bridge/notes_to_chief/20260905_2212_...`) already
+offered the atomic door -- "read-modify-write-back in one transaction" --
+and this lane simply had no method to call it with.  It has one now:
+
+    QuestStateStore.increment_quest_counter(character_id, quest_id,
+                                            counter_name, delta=1) -> int
+
+Not a redesign: the name, the argument order and the default are LANE-DB's.
+`InMemoryQuestStateStore` implements it in ONE `with self._lock` block --
+never as its own `get_quest_counter` + `set_quest_counter`, which would
+release the lock in the middle -- and `StoreBackedQuestStateStore` hands it
+straight to the door WITHOUT reading first, because a read added here would
+put the lost-update window back outside the transaction that closes it.
+
+`increment_quest_counter` was promoted from `OPTIONAL_DOORS` to
+`REQUIRED_DOORS` in this round's first draft **and put straight back**,
+because pf-adversary priced the promotion and it lost.  If LANE-DB lands
+the four flag/counter doors and names the atomic one differently, or ships
+it one round later, `missing_doors` comes back non-empty and
+`quest_state_store_for` throws away a WORKING durable store -- every quest
+in the game drops back to process memory over a door that nothing calls.
+Durable flags are worth more than a guard on an uncalled path.
+
+So the refusal moved to where it can be exact: a store missing the atomic
+door still backs flags and counters durably, and the one method that needs
+it refuses BY NAME (`reason=no-atomic-door`) when it is called -- never
+falling back to get-then-set, which would be the lost update wearing the
+atomic method's name.  It gets promoted the round it gets a caller.
+
+The mutant that mattered: rewriting the in-memory increment as
+`get_quest_counter` then `set_quest_counter` **survived** the threaded test
+(8 threads x 50 increments interleaved cleanly every run -- the window is a
+few bytecodes wide and the GIL rarely lands in it).  A test that can only
+sometimes fail reports "safe" for the wrong reason, so the pin is
+structural: a subclass observes the two public methods, and an
+implementation that calls either of them has released the lock.  That
+version of the test kills the mutant on every run.  The threaded test is
+kept, relabelled as the floor it actually is (it would catch an
+implementation taking no lock at all), not as the pin.
+
+### 2. `lua_api.dispatch.resolve_quest_state_store` -- the one-line swap
+
+COO-DECISION `20260908_1642` asked for a junction where "the real store
+from LANE-DB arrives" is a change at ONE call site rather than a hunt.
+This is it.  `load_quest_script(..., persistence=<the server's store>)`
+resolves the seam once per dispatch:
+
+* the four required doors present -> the durable adapter, and one
+  `LUA_QUEST_STATE_DURABLE store=... durable=True` line (the flag is READ
+  off the chosen store, not inferred from the branch, so an implementation
+  whose attribute and whose behaviour disagree shows up in the console);
+* any required door missing, **or no store at all** -> a fresh
+  `InMemoryQuestStateStore`, and one `LUA_QUEST_STATE_VOLATILE` line
+  naming the doors that were absent.
+
+The `persistence is None` case is not an exemption from that, and in this
+round's first draft it was: the resolver ran only when a caller named a
+store, so every caller that exists -- all of which name none -- kept the
+old silence under a docstring claiming nothing was silent any more, and
+the round's own test pinned that silence as correct (pf-adversary F2).
+Both are inverted now.  `LUA_QUEST_DISPATCH` is still the first line
+printed, because two existing tests read it as `calls[0]`.
+
+Neither outcome is silent, and that symmetry is the point: before this, the
+only way to find out which kind of server you were running was to relog a
+character and see whether the NPC remembered.  Passing BOTH `persistence`
+and `quest_store` raises `TypeError` rather than ranking them -- silently
+preferring one would leave a caller believing progress is on a row when it
+is in process memory, which is the exact confusion the resolver exists to
+end.  A caller that names neither is left byte-for-byte as it was: no new
+argument reaches the host, no new log line is written.
+
+Measured again this round, unchanged: `grep -n "def set_quest_flag"
+src/pirateforce_foundation/store.py` -> 0 hits, `ls migrations/ | grep -i
+quest` -> 0 hits.  The doors are still not on `main`.
+
+### Not claimed
+
+`increment_quest_counter` has NO production caller yet -- which is exactly
+why it is back in `OPTIONAL_DOORS` above.  Its caller is a mob-death lane
+hook (`lane_hooks/lane_q_*`), and that hook needs one thing this lane
+cannot derive: which quests a character has a counter row for.
+LANE-DB's contract reads counters by exact `(character_id, quest_id,
+counter_name)` only, so there is no way to ask "which of this character's
+quests care about mob 900".  A letter asking for that door went out this
+round; the hook is the round after it is answered.
+
+No name moved into `REAL_METHODS`.  The corpus sweep pins are unchanged
+(2593 stub / 2878 real).  Nothing is on a screen, and no player has yet
+relogged and found a quest where they left it.
+
+### Debts this round took on, or left standing, with the finding that names them
+
+Paid in-round, after pf-adversary came back before the push: F2 (the silent
+default), F5 (`durable` set but never read), F7 (call-site counts that were
+wrong -- re-derived: `Player.MobAppear` 3532 leads the map, `GetQuestFlag`
+508 is rank 5, `SetFlag` 417 is rank 6), F8 (a test whose name asserted the
+opposite of its body), F9 (the bad promotion, reverted), F10 (`_COUNTER_
+FIELD` relabelled `[PROPOSED]` -- LANE-DB's letter never enumerates
+`QuestCounterRow`'s fields, so the lane's own fake pins a guess against
+itself), F11 (a stated reason that the repo contradicts: `lua_api/reward.py`
+already imports `store`).
+
+**Left standing, and it is the biggest thing in this lane: F1/F4/F6, the
+fail-open charge.**  A refused store write answers `REFUSED_VALUE = 0`, and
+`quest.py` reads that same 0 as "never started".  Measured by the adversary
+on shipped scripts: `q_day_business.lua` charges then records, so a
+write-locked store lets `CanReportDailyQuest` stay True and the player is
+charged four times over; `q_ship.lua` does the same with cash plus an item.
+The dedupe at `REFUSAL_LOG_CAP` means charges 2-4 print no refusal line at
+all.  One integer is answering two different questions -- "never set" and
+"refused" -- and at `CanReportDailyQuest`/`is_quest_reported` the two
+answers point opposite ways.  Until the seam carries a `refused` signal a
+charge path can read, `REFUSED_VALUE` is fail-closed at one call site and
+fail-open at two.  **That is next round's first job**, ahead of anything
+new.
