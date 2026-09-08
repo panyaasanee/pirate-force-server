@@ -112,33 +112,98 @@ import sys
 # one any consumer can reach.  The function that says what "first token"
 # means is the one the SERVER runs at the wire edge, and it is loaded here by
 # path rather than copied, so this generator and the running server can never
-# disagree about it.  (This script is standalone by design and imports
-# nothing else from the package; the loaded module is import-free for exactly
-# this reason.)
+# disagree about it.
+#
+# WHAT "STANDALONE" DOES AND DOES NOT MEAN HERE (corrected under pf-adversary
+# D5, round db4o73, which caught the first draft claiming more independence
+# than this file has).  This script does not IMPORT the package: it never
+# needs ``src/`` on ``sys.path`` and it pulls in nothing that pulls in the
+# runtime.  It is NOT free of the checkout layout: it reads one file by a
+# path relative to its own, ``../src/pirateforce_foundation/
+# mob_avatar_basename.py``.  Moving this script without moving that file is
+# the move that breaks it, and it now says so out loud instead of dying with
+# a bare FileNotFoundError.  A ticket to relocate this tool must relocate the
+# path below, or give it a --wire-rule argument, in the same commit.
 _AVATAR_RULE_PATH = (
     Path(__file__).resolve().parent.parent
     / "src" / "pirateforce_foundation" / "mob_avatar_basename.py"
 )
 
 
+class WireRuleUnavailableError(RuntimeError):
+    """The wire rule file this generator must share with the server is gone.
+
+    Its own class rather than a bare ``RuntimeError`` so a caller that wants
+    to run the argument parser without the rule -- ``--help``, or a test that
+    only checks option parsing -- can tell this apart from any other failure.
+    """
+
+
 def _load_avatar_rule():
+    """Load ``mob_avatar_basename`` by path, or say WHY it could not be.
+
+    pf-adversary D5, round db4o73: the first version of this function tested
+    ``spec is None or spec.loader is None`` and treated that as "the file is
+    missing".  It is not.  ``spec_from_file_location`` on a path that does
+    not exist returns a perfectly ordinary spec with a real loader -- the
+    absence is only discovered inside ``exec_module``, which raises a bare
+    ``FileNotFoundError`` naming a path with no explanation of what the file
+    was for.  The guard could therefore never fire on the case it was written
+    for.  The existence check below is that case, checked where it is true.
+    """
+    if not _AVATAR_RULE_PATH.is_file():
+        raise WireRuleUnavailableError(
+            "the wire rule this generator shares with the server is not at "
+            "%s.  This script does not import the package, but it does read "
+            "that one file by a path relative to its own; a checkout that "
+            "moved either of them must move both (see the header)."
+            % _AVATAR_RULE_PATH
+        )
     spec = importlib.util.spec_from_file_location(
         "pf_mob_avatar_basename_for_miner", _AVATAR_RULE_PATH
     )
     if spec is None or spec.loader is None:
-        # Not MineError: that class is defined further down this file and
-        # this loader runs at import time, before it exists.
-        raise RuntimeError(
-            "cannot load the wire rule from %s" % _AVATAR_RULE_PATH
+        # Kept, but demoted to what it is: a defensive branch for an
+        # importlib that declines to build a spec at all.  It is NOT the
+        # missing-file branch; that one is above.  Not MineError, because
+        # that class is defined further down this file and this loader can
+        # run before it exists.
+        raise WireRuleUnavailableError(
+            "importlib built no loader for the wire rule at %s"
+            % _AVATAR_RULE_PATH
         )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-_AVATAR_RULE = _load_avatar_rule()
-avatar_basename = _AVATAR_RULE.avatar_basename
-has_separator = _AVATAR_RULE.has_separator
+_AVATAR_RULE = None
+
+
+def _avatar_rule():
+    """The wire rule module, loaded on FIRST USE rather than at import.
+
+    pf-adversary D5: loading at import time made ``--help`` -- and every
+    other path that never mines a row -- die on a checkout without the rule
+    file.  A tool that cannot print its own usage is a tool nobody can
+    diagnose.  Mining still cannot proceed without the rule, and still
+    refuses; it just refuses at the point where the rule is actually needed,
+    with the message above.
+    """
+    global _AVATAR_RULE
+    if _AVATAR_RULE is None:
+        _AVATAR_RULE = _load_avatar_rule()
+    return _AVATAR_RULE
+
+
+def avatar_basename(cell: str) -> str:
+    """The server's own :func:`mob_avatar_basename.avatar_basename`."""
+    return _avatar_rule().avatar_basename(cell)
+
+
+def has_separator(value: str) -> bool:
+    """The server's own :func:`mob_avatar_basename.has_separator`."""
+    return _avatar_rule().has_separator(value)
 
 
 PLACEMENT_COLUMNS = ("index", "template_ids", "x", "y", "z")
@@ -533,6 +598,41 @@ def unambiguous_placements(
     return kept
 
 
+def _wire_basename(outfit: str, where: str) -> str:
+    """The basename that goes in ``visual_preset``, refusing the empty one.
+
+    pf-adversary D10, round db4o73, found a gap between the two ends of this
+    rule.  The row builder took the first token and wrote whatever came back;
+    the SERVER's boot-time splitter refuses an empty preset.  So a cell
+    shaped ``";X"`` -- a leading separator, then a real basename -- makes the
+    first token the empty string, and this generator would have written a
+    value into a module that its own boot path then refuses.  The scene would
+    not have shipped a wrong body; it would not have booted.
+
+    NOT A LIVE BUG TODAY, and this does not pretend to be a fix for one:
+    measured over every OUTFIT column of every table in the committed
+    ``gamedata/tables``, ZERO of 3210 rows begin with a separator.  This is
+    the generator refusing to write a value the other end of the same rule
+    rejects, so that the day such a cell appears the failure lands HERE, on
+    the person regenerating the table, naming the row -- instead of at boot,
+    on a scene that has already shipped.
+
+    A row whose cell is entirely separators is a data question, not a
+    guessable one: it is refused, loudly, rather than dropped quietly, because
+    dropping it would silently remove a monster from a scene.
+    """
+    basename = avatar_basename(outfit)
+    if not basename:
+        raise MineError(
+            "%s: s_OUTFIT cell %r has no first token, so visual_preset would "
+            "be empty -- which the server's own splitter refuses at boot.  "
+            "This is a data question (a cell that begins with a separator); "
+            "fix the cell or rule the row out, do not ship an empty preset."
+            % (where, outfit)
+        )
+    return basename
+
+
 def _reason_token(raw: str) -> str:
     """The raw cell, safe to embed in a generated module's reason string.
 
@@ -649,7 +749,7 @@ def _roster_row(sources: Sources, item: tuple) -> dict:
         # down.  ``visual_preset`` is what the server hands the client, so it
         # is the single basename; ``outfit_cell`` is the table cell it came
         # from, carried for a reader and put on the wire by nothing.
-        "visual_preset": avatar_basename(outfit),
+        "visual_preset": _wire_basename(outfit, where),
         "outfit_cell": outfit,
         "display_name": sources.display_name(n_id),
         "level": level,
@@ -922,6 +1022,19 @@ def verify_frozen_any(gamedata: Path, legacy_path: Path) -> tuple[int, int, int]
 
     A reordering of the tuple's first six columns, the failure the old
     fixed-arity unpack used to catch, still surfaces here as mismatches.
+
+    WHICH OUTFIT COLUMN THIS COMPARES, WRITTEN DOWN BECAUSE IT IS NOT THE
+    OBVIOUS ONE (pf-adversary D8, round db4o73).  ``unambiguous_placements``
+    hands back the RAW ``s_OUTFIT`` cell at index 5, so the six-column
+    comparison below is against v141's frozen cell -- which is the right
+    comparison for THIS control, because v141 froze cells and the claim being
+    pinned is "dropping the ``;`` half moved nothing that was already there".
+    It is one layer away from what ships.  Since round vavm4h the shipped
+    column is checked too, and separately: for every frozen row that matched,
+    ``avatar_basename`` of the frozen cell must equal the basename this
+    generator would put on the wire for that placement.  A change to the wire
+    rule that left the raw cells alone used to walk past this function
+    untouched; it now lands on ``wire_mismatches``.
     """
     sources = Sources(gamedata, CONTROL_SCENE)
     derived = [
@@ -944,6 +1057,7 @@ def verify_frozen_any(gamedata: Path, legacy_path: Path) -> tuple[int, int, int]
     by_index = {row[0]: row for row in derived}
     matched = 0
     mismatches = 0
+    wire_mismatches = 0
     for row in frozen:
         row = tuple(row[:6])
         derived_row = by_index.get(row[0])
@@ -953,6 +1067,18 @@ def verify_frozen_any(gamedata: Path, legacy_path: Path) -> tuple[int, int, int]
         matched += 1
         if derived_row != row:
             mismatches += 1
+        # D8: the column that actually reaches the client, checked on its
+        # own.  Both sides go through the SERVER's rule (this module's
+        # ``avatar_basename`` is the server's function, loaded by path), so a
+        # rule change shows up as a mismatch here rather than as silence.
+        if avatar_basename(derived_row[5]) != avatar_basename(row[5]):
+            wire_mismatches += 1
+    if wire_mismatches:
+        raise MineError(
+            "the wire column drifted on %d frozen placement(s): the basename "
+            "this generator would ship is not the basename v141's frozen "
+            "cell resolves to under the same rule" % wire_mismatches
+        )
     return len(derived), matched, mismatches
 
 
