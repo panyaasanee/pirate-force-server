@@ -76,6 +76,7 @@ import io
 import json
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -2305,6 +2306,92 @@ class AtlantisRegistrationTests(unittest.TestCase):
             legacy=self.legacy, anchor=self.anchor, scene_id=ATLANTIS,
         )
         self.assertIsNotNone(result.membership)
+
+
+class Scene126CensusOwesNothingToTheGmSanctionTable(unittest.TestCase):
+    """A tripwire, approved as this exact shape by COO-DECISION 20260908_1742.
+
+    THE HISTORY IN ONE PARAGRAPH.  Scene 126 is named in LANE-GM's
+    ``gm/login_scene_admission.SANCTIONED_BARRED_SCENES`` - a table of scenes
+    whose ordinary login door is SHUT and which a chief letter sanctions a GM
+    to reach anyway.  PANYA-DECISION 20260908_1218 opened the ordinary door
+    for 126, which makes that row stale; retiring it is LANE-GM's work and
+    LANE-GM has scheduled it (letter 20260908_1805, to this lane: the row
+    comes out on the first GM round after the door-opening commit is an
+    ancestor of main, together with the 25 cases across 5 files that read
+    it).  THIS LANE DOES NOT GET TO DELETE ANOTHER LANE'S ROW, and a case
+    that stays RED until another lane moves is a bill this lane has no right
+    to hand the whole house (COO-DECISION 20260908_1742, item 4, now a house
+    rule).
+
+    SO THIS CASE IS GREEN TODAY AND WATCHES A DIFFERENT THING: that the
+    census this lane composes for scene 126 does not READ that table.  Today
+    the answer for 126 comes from the registry row alone
+    (``scene_is_open_to_players`` -> ``login_entry_allowed``).  If a later
+    round wires this lane's 126 census back through the GM sanction map - the
+    tempting shortcut on the day the row is retired, because the map is
+    public and already imported in this tree - the two rebinds below start
+    disagreeing with the unpatched answer and this file goes red on the
+    round that did it, not four rounds later.
+
+    IT DOES NOT ASSERT the row is gone, that 126's door is open, or anything
+    at all about LANE-GM's own predicates: ``scene_is_sanctioned_for_a_gm_
+    entry`` is SUPPOSED to read that table (it is the second admission arm,
+    and its own docstring says so), so it is deliberately not exercised here.
+    """
+
+    SCENE_126 = 126
+
+    def _answers(self, table=None):
+        # Imported inside the method, the same shape this file already uses
+        # for the GM module at ``test_the_third_arm_asks_the_gm_predicate``:
+        # a lane test that imports another lane's module at file scope makes
+        # a collection error out of that lane's bad round.
+        from pirateforce_foundation.gm import login_scene_admission
+        if table is None:
+            return (
+                lane_a.scene_is_open_to_players(self.SCENE_126),
+                self.SCENE_126 in world_scene_travel.CENSUS_SOURCES,
+            )
+        with mock.patch.object(
+            login_scene_admission, "SANCTIONED_BARRED_SCENES", table
+        ):
+            return (
+                lane_a.scene_is_open_to_players(self.SCENE_126),
+                self.SCENE_126 in world_scene_travel.CENSUS_SOURCES,
+            )
+
+    def test_the_answer_for_126_does_not_move_when_the_gm_table_does(self):
+        as_shipped = self._answers()
+        emptied = self._answers(types.MappingProxyType({}))
+        widened = self._answers(
+            types.MappingProxyType({self.SCENE_126: "x", 130: "x", 305: "x"})
+        )
+        self.assertEqual(
+            as_shipped, emptied,
+            "this lane's census answer for scene 126 changed when LANE-GM's "
+            "SANCTIONED_BARRED_SCENES was emptied - which means it is being "
+            "read. Scene 126's census is this lane's to answer for, from the "
+            "registry row; see COO-DECISION 20260908_1742.")
+        self.assertEqual(
+            as_shipped, widened,
+            "this lane's census answer for scene 126 changed when LANE-GM's "
+            "SANCTIONED_BARRED_SCENES grew rows - same defect, other "
+            "direction.")
+
+    def test_the_table_this_tripwire_watches_is_the_one_gm_still_ships(self):
+        """Green because the row is still there; a NOTE, not a demand.
+
+        If LANE-GM retires the row tomorrow this case goes red and the reader
+        deletes it - the tripwire above is the part that has to survive that
+        day, and it does not name 126 in any table of its own.
+        """
+        from pirateforce_foundation.gm import login_scene_admission
+        self.assertIn(
+            self.SCENE_126, login_scene_admission.SANCTIONED_BARRED_SCENES,
+            "LANE-GM retired the scene-126 sanction row (letter 20260908_"
+            "1805 said it would, on its first round after the door-opening "
+            "commit reaches main). Delete this case; keep the one above.")
 
 
 if __name__ == "__main__":

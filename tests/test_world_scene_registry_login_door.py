@@ -12,13 +12,34 @@ a property of the registry FOREVER AFTER, and the only way to state it so that
 it still holds for a destination nobody has written yet is to walk the whole
 registry every run:
 
-    every pinned destination that has a spawn is admissible at login AND has
-    its position written back.
+    every destination this project actually populates for a client is
+    admissible at login AND has its position written back.
 
 That sentence is the rule.  A future round that pins a new scene ``false``
-while giving it a spawn - which is exactly the shape the four lifted scenes
-had, and exactly the shape that stranded a character for twelve days - turns
-this file red without anybody remembering to add its id anywhere.
+while shipping a population for it - which is exactly the shape the four
+lifted scenes had, and exactly the shape that stranded a character for twelve
+days - turns this file red without anybody remembering to add its id
+anywhere.
+
+WHY "POPULATES" AND NOT "HAS A SPAWN" (pf-adversary D7, round ``1v5i3h``).
+This file used to say "has a spawn", and that made *this test file* the thing
+that forced a login door open, for two scenes 1218 never spoke about:
+
+    997  a ``FilmScene`` this project has never sent to any client
+    278  ``world_scene_travel.TEST_STAGE_SCENE_ID``, the test arena
+
+Both carry a spawn, so the old sentence demanded a login door for both, and
+"has a spawn" quietly became the house rule for who gets one.  It is not the
+house rule and it was never measured; ``1218`` is about scenes a character
+can log OUT of, and the honest register of those in this tree is
+``world_scene_travel.CENSUS_SOURCES`` - the table that decides who is
+standing in a scene when a client arrives.  The rule is now stated over that
+table, and the two scenes outside it are named, counted and pinned by
+``test_the_scenes_outside_the_populated_rule_are_exactly_two`` below rather
+than swept into the rule.  NOTHING ABOUT THE SHIPPED REGISTRY CHANGES IN THIS
+ROUND: 997 and 278 keep the doors they have today.  Whether a scene no client
+is ever shown should hold a login door at all is an owner question, and it is
+out this round as an ASK-COO letter; this file stops pre-deciding it.
 
 WHAT THIS FILE DELIBERATELY DOES NOT ASSERT.  It does not assert that the
 refusal mechanism is gone; 1218 keeps it, for a destination added later
@@ -73,25 +94,55 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
             "a registry that loaded as one row or none would make every "
             "assertion in this file pass without measuring anything")
 
-    def test_every_pinned_scene_with_a_spawn_is_open_at_login(self):
+    def test_every_populated_scene_is_open_at_login(self):
         shut = [
             d.n_id for d in self.destinations
-            if d.spawn is not None and not d.login_entry_allowed
+            if d.n_id in world_scene_travel.CENSUS_SOURCES
+            and not d.login_entry_allowed
         ]
         self.assertEqual(
             shut, [],
             "PANYA-DECISION 20260908_1218: a character logs back in where it "
-            "logged out, in every scene. A destination that has a spawn (so a "
-            "character can stand on it) but is pinned login_entry_allowed: "
-            "false is a character that cannot get back into its own save. If "
-            "a new scene needs to be kept out of the login path, it must be "
-            "kept out of this registry until it has a measured spawn - that "
-            "is the ordering 1218 asks for, and this is where it is enforced.")
+            "logged out, in every scene. A destination this project ships a "
+            "population for (world_scene_travel.CENSUS_SOURCES) is a scene a "
+            "character can be standing in, so a login_entry_allowed: false "
+            "pin on it is a character that cannot get back into its own "
+            "save. If a new scene needs to be kept out of the login path, it "
+            "must be kept out of CENSUS_SOURCES too - a scene with a cast "
+            "and no door is the shape 1218 exists to forbid.")
 
-    def test_every_pinned_scene_with_a_spawn_has_its_position_written(self):
+    def test_the_scenes_outside_the_populated_rule_are_exactly_two(self):
+        """The two the rule above does NOT speak for, named rather than swept.
+
+        pf-adversary D7 (round ``1v5i3h``) measured the older form of this
+        file forcing a login door open for both of these, on the strength of
+        nothing but a spawn coordinate.  Neither is a scene a player logs out
+        of: 997 is a ``FilmScene`` this project has never sent to a client,
+        278 is the test arena.  Their registry rows are NOT changed by this
+        round - they keep the doors 9lv3fa gave them - but the day a THIRD
+        such scene appears, or the day one of these two joins the populated
+        register, this case goes red and the reader has to say which side of
+        the rule it belongs on instead of inheriting an answer.
+        """
+        outside = sorted(
+            d.n_id for d in self.destinations
+            if d.n_id not in world_scene_travel.CENSUS_SOURCES
+        )
+        self.assertEqual(
+            outside, [278, 997],
+            "the registry grew a scene this project populates for nobody. "
+            "Decide out loud whether it is a place a character can log out "
+            "of (add it to CENSUS_SOURCES, and the rule above covers it) or "
+            "not (say so here, with the reason).")
+        self.assertEqual(
+            278, world_scene_travel.TEST_STAGE_SCENE_ID,
+            "278 is named here as the test arena on the strength of "
+            "TEST_STAGE_SCENE_ID, not on the strength of this file's memory")
+
+    def test_every_populated_scene_has_its_position_written(self):
         unwritten = [
             d.n_id for d in self.destinations
-            if d.spawn is not None
+            if d.n_id in world_scene_travel.CENSUS_SOURCES
             and not world_scene_travel.is_position_persist_allowed(
                 d.n_id, self.registry)
         ]

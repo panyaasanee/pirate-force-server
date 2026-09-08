@@ -400,14 +400,28 @@ def _ground_refutes_stored_row(
     say so in their ``limit`` field ("a .npc file carries NPC placements,
     not ground").
 
-    WHAT STILL RELOCATES, so this is a narrowing and not a removal:
-    a ``False`` from ``_ground_evidence`` that came from a radius centred on
-    a MEASURED spawn - scene 278 is the only such row in the shipped
-    registry today.  A ``False`` that came from the PROVISIONAL-OWNER-DECREE
-    veto is not a measurement of anything (see ``_ground_evidence``: the
-    veto exists precisely because a radius around an unmeasured point proves
-    nothing), so it does not refute the row either, and ``None`` - no ground
-    block at all - never did.
+    WHAT STILL RELOCATES, so this is a narrowing and not a removal.  Two
+    kinds of ``False``, not one - and the second half of this paragraph was
+    WRONG for one round (pf-adversary, round ``1v5i3h``, negative result Q3:
+    the three lines of code below already refuted the sentence that used to
+    stand here, which read "a decree veto does not refute the row either"):
+
+    1. A ``False`` from ``_ground_evidence`` that came from a radius centred
+       on a MEASURED spawn - scene 278 is the only such row in the shipped
+       registry today - relocates, as it always did.
+    2. A ``False`` that came from the PROVISIONAL-OWNER-DECREE veto is not
+       itself a measurement of anything (see ``_ground_evidence``: the veto
+       exists precisely because a radius around an unmeasured point proves
+       nothing).  It does not END the question, which is what the struck
+       sentence claimed - it HANDS it to ``_measured_envelope_refutes``,
+       and a decree scene that has a measured envelope relocates on that
+       envelope's word.  Scene 17 is such a scene today: a stored row at
+       ``x=999999`` is refuted and relocated, while the ``1218`` headline
+       row ``(-149.0, -1250.3)`` is inside the envelope and is kept.
+
+    ``None`` - no ground block at all - never refuted anything, and still
+    does not.  That is the whole of what scenes 14, 126, 304 and 305 get
+    today, and it is why a garbage row naming one of THEM is still kept.
 
     NOT CLAIMED: that a kept row is inside the playable map.  Nothing in
     this tree can decide that for a scene with no ground block, and this
