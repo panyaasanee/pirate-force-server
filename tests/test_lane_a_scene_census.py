@@ -2101,22 +2101,83 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
             login_scene_admission.single_use_entry_is_admissible = original
         self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
 
-    def test_this_lane_finds_out_if_the_gm_lane_retires_the_sanction(self):
-        """pf-adversary D8, round `4uztfj`: this arm is a RUNTIME COUPLING
-        to another lane's table.  If LANE-GM ever drops 126 from
-        ``SANCTIONED_BARRED_SCENES`` -- for any reason other than the door
-        opening -- this scene's census goes dark and the only signal in
-        production is a ``..._declined`` latch nobody is watching.  So the
-        dependency is pinned HERE, in this lane's own suite, where it goes
-        red on the commit that removes it rather than on the boot that
-        needed it."""
+    def test_the_census_of_126_no_longer_depends_on_the_gm_lanes_table(self):
+        """The replacement for ``test_this_lane_finds_out_if_the_gm_lane_
+        retires_the_sanction`` (LANE-A round `1v5i3h`), which that test's own
+        docstring asked for: it said "either its door opened -- then this
+        lane's first admission arm covers it and this test should be deleted
+        -- or the census just went dark", and the door DID open
+        (PANYA-DECISION 20260908_1218 put ``login_entry_allowed: true`` on
+        scene 126).
+
+        WHY IT IS REPLACED RATHER THAN DELETED.  What the old test was FOR is
+        still worth a fence: LANE-GM retiring its row must not darken this
+        scene's census.  What it did was assert the row still EXISTS -- which,
+        the day the door opened, stopped measuring that and started demanding
+        that another lane keep a row it is documented to retire.  Round
+        `ioz8fd` measured ``sanctioned_barred_blocker(126) == BLOCKER_NONE``
+        already today, so the old assertion was one GM commit away from going
+        red for the RIGHT reason and blocking the wrong lane's tree.
+
+        THIS TEST MEASURES THE PROPERTY INSTEAD.  It kills BOTH GM-fed arms
+        in-process -- the sanction predicate and the table lookup the second
+        arm reads -- and requires the census to survive anyway on the first
+        arm (the registry pin).  Green today; red the day someone re-couples
+        126's census to the GM lane's table, or the day the registry pin that
+        replaced that coupling goes away.  It stays inside this lane: nothing
+        here needs LANE-GM to keep, remove, or change a single row.
+
+        IT IS NOT A CLAIM ABOUT ARM 2.  Arm 2 still exists and still reads the
+        GM lane's table for whatever scenes that table governs; the
+        assertions below are about scene 126's CENSUS surviving without it,
+        which is a different sentence.  ``test_the_arm_answers_the_gm_lanes_
+        own_predicate_not_a_copy`` above still drives arm 2 itself.
+        """
         from pirateforce_foundation.gm import login_scene_admission
-        self.assertIn(
-            ATLANTIS, login_scene_admission.SANCTIONED_BARRED_SCENES,
-            "the GM lane no longer sanctions scene 126: either its door "
-            "opened (then this lane's first admission arm covers it and "
-            "this test should be deleted) or the census just went dark",
-        )
+
+        original_predicate = login_scene_admission.single_use_entry_is_admissible
+        original_lookup = login_scene_admission.is_sanctioned_barred_scene
+        login_scene_admission.single_use_entry_is_admissible = (
+            lambda *a, **k: False)
+        login_scene_admission.is_sanctioned_barred_scene = (
+            lambda *a, **k: False)
+        try:
+            # Both GM-fed arms are dead in this block.  Arm 2 asks the two
+            # functions just replaced; arm 3 refuses 126 by name, and the
+            # assertion below is what keeps that true rather than assuming
+            # it -- if a later round adds 126 to ARM_THREE_ELIGIBLE_SCENE_IDS
+            # this test would otherwise pass on the wrong arm.
+            self.assertFalse(
+                lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS),
+                "arm 2 answered yes with the GM lane's predicate forced to "
+                "no -- this test is no longer measuring what it claims",
+            )
+            self.assertFalse(
+                lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
+                    ATLANTIS),
+                "arm 3 has taken scene 126 -- see ARM_THREE_ELIGIBLE_SCENE_"
+                "IDS, whose own comment says 126 is arm 2's scene",
+            )
+            # ...and the census is STILL composed, on the registry pin alone.
+            self.assertTrue(
+                lane_a.scene_is_open_to_players(ATLANTIS),
+                "the registry pin no longer opens scene 126: the census of "
+                "this scene is back on another lane's table",
+            )
+            self.assertTrue(
+                lane_a.scene_may_be_populated(ATLANTIS),
+                "scene 126's census went dark with the GM lane's table "
+                "removed -- the coupling the old canary warned about is "
+                "back, and a player logging in here would arrive to an "
+                "empty ocean",
+            )
+        finally:
+            login_scene_admission.single_use_entry_is_admissible = (
+                original_predicate)
+            login_scene_admission.is_sanctioned_barred_scene = original_lookup
+
+        # Outside the block, nothing was left patched.
+        self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
 
     def test_the_arm_fails_closed_when_the_predicate_raises(self):
         from pirateforce_foundation.gm import login_scene_admission
