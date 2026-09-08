@@ -1,1 +1,1 @@
-{"sha":"fb1143d2827d171ff9a120e6ae2a5fcf79e40af8","conclusion":"failure","event":"push","ref":"refs/heads/claude/upbeat-hypatia-ioz8fd","run_id":"34211909297","utc":"2026-09-08T10:27:48Z"}
+{"sha":"fb1143d2827d171ff9a120e6ae2a5fcf79e40af8","conclusion":"failure","event":"pull_request","ref":"refs/pull/1153/merge","run_id":"34211969279","utc":"2026-09-08T10:36:10Z"}
