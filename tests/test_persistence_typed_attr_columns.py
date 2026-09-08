@@ -1380,8 +1380,16 @@ class TheGateStillRefusesTests(unittest.TestCase):
         """
         birth_state.clear_birth_defaults_to_pre_009(
             self.path, [self.character.id])
-        self.birth = birth_state.measure_birth_typed_state(
-            self.store, self.character.id)
+        # READ, not `measure_birth_typed_state`.  The gate grades a NEWBORN
+        # against what the database declares, and this row is deliberately no
+        # longer one: the line above cleared every birth column out of it.
+        # Routing a constructed state through the gate was only ever
+        # accidental -- `pf_birth_state`'s own docstring says a test whose
+        # subject IS a particular state constructs it and says so -- and
+        # since `PANYA-DECISION 20260908_1218` point 3 the gate refuses it by
+        # name instead of silently accepting `{}` as a third legal birth.
+        self.birth = dict(
+            self.store.read_typed_attributes(self.character.id))
         self.birth_x = birth_state.birth_by_x(self.birth)
         self.assertEqual(self.birth, {})
         before = {g.x for g in compose.block_gaps(self._typed_values())}
@@ -2800,10 +2808,15 @@ class ReadTypedAttributesPreMigration006Tests(unittest.TestCase):
         store.write_typed_attributes(normal.id, {"class_id": 4})
         result = store.read_typed_attributes(normal.id)
         self.assertEqual(result["class_id"], 4)
-        # `hp_current`/`hp_max`/`level`/`speed_walk` get birth defaults
-        # (migration 009); the other 17 typed columns, `experience` among
-        # them, stay NULL until something adjudicated writes them.
-        self.assertNotIn("experience", result)
+        # `hp_current`/`hp_max`/`level`/`speed_walk` get birth defaults from
+        # `migrations/009`, and `experience`/`skill_points` from
+        # `migrations/017` (`PANYA-DECISION 20260908_1218` point 3).  The
+        # remaining typed columns stay NULL until something adjudicated
+        # writes them -- which is the property this line is really about, so
+        # it now names a column nobody has adjudicated instead of one that
+        # has since been.
+        self.assertEqual(result["experience"], 0)
+        self.assertNotIn("cash", result)
         result_and_name, name = store.read_typed_attributes_and_name(
             normal.id,
         )
@@ -2911,10 +2924,20 @@ class WriteTypedAttributesPreMigration006Tests(unittest.TestCase):
         )
         after = store.write_typed_attributes(normal.id, {"class_id": 4})
         self.assertEqual(after["class_id"], 4)
+        # `mp_current` and not `experience`: since `migrations/017` a newborn
+        # is born holding 0 in `experience`, so "if unset" has nothing to do
+        # there and the door correctly declines.  `mp_current` is still one
+        # of the columns nobody has adjudicated a birth value for, which is
+        # the state this door is for.
         written = store.write_typed_attribute_if_unset(
-            normal.id, "experience", 10,
+            normal.id, "mp_current", 10,
         )
         self.assertEqual(written, 10)
+        self.assertIsNone(
+            store.write_typed_attribute_if_unset(normal.id, "experience", 10),
+            "a column a migration gives a birth default is SET at birth, so "
+            "the if-unset door must decline it rather than overwrite it",
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

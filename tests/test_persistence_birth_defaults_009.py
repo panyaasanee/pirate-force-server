@@ -327,10 +327,21 @@ class ANewbornHoldsTheFourNumbersTests(_PreNineFixture):
         # speed from `CLIENT_CONSTRUCTION_DEFAULTS[7]`, so the chain from the
         # schema back to the two owning modules is unbroken either way.
         owned = birth_state.default_birth()
-        self.assertEqual(sorted(owned), sorted(BIRTH_COLUMNS))
-        for column, value in owned.items():
+        # A SUPERSET, not an equality.  `BIRTH_COLUMNS` here is the FOUR
+        # columns `009` declares, which is what this file grades;
+        # `default_birth()` follows the newest migration that rebuilds the
+        # table and after `017` that is six (`PANYA-DECISION 20260908_1218`
+        # point 3).  What `009` requires is that its own four are still
+        # there, still with these numbers -- a later migration dropping one
+        # is red on the next line.
+        self.assertTrue(set(BIRTH_COLUMNS) <= set(owned))
+        # Only the four this file's database actually declares: the store
+        # here is stopped at `009`, so `experience` and `skill_points` hold
+        # no default on it and grading them would be grading `017` from
+        # inside `009`'s test file.
+        for column in BIRTH_COLUMNS:
             with self.subTest(column=column):
-                self.assertEqual(float(defaults[column]), float(value))
+                self.assertEqual(float(defaults[column]), float(owned[column]))
         self.assertEqual(
             float(defaults["speed_walk"]),
             compose.CLIENT_CONSTRUCTION_DEFAULTS[7].value,

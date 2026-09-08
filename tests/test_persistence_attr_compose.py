@@ -935,14 +935,31 @@ class LiveUnlockReportTests(unittest.TestCase):
         self.assertEqual(values[3], 100)
         self.assertEqual(values[4], 100)
         self.assertEqual(values[7], 400.0)
-        self.assertEqual(set(values), {1, 2, 3, 4, 7})
+        # THE SET IS DERIVED, not the five numbers this test used to name.
+        # `migrations/017` gives `experience` and `skill_points` a birth
+        # default too (`PANYA-DECISION 20260908_1218` point 3: the birth
+        # columns are logic read off the schema, not a list), so a bare
+        # `create_character` now supplies seven fields and will supply more
+        # as the discoveries keep coming.  What stays exact is the RULE: the
+        # fields supplied are the name plus exactly the typed columns the
+        # database in front of this test gives a birth value.
+        import pf_birth_state as birth_state
+        expected = {1} | set(
+            birth_state.birth_by_x(
+                birth_state.expected_birth_state(self.store)))
+        self.assertEqual(set(values), expected)
 
     def test_live_unlock_report_names_the_gap_instead_of_zero_filling_it(self):
         character = self._make("gap")
         report = compose.live_unlock_report(self.store, character.id)
         self.assertEqual(report["character_id"], character.id)
+        import pf_birth_state as birth_state
         self.assertEqual(
-            report["server_owned_fields_supplied"], [1, 2, 3, 4, 7],
+            report["server_owned_fields_supplied"],
+            sorted(
+                {1} | set(
+                    birth_state.birth_by_x(
+                        birth_state.expected_birth_state(self.store)))),
         )
         still_missing = report["server_owned_fields_not_supplied"]
         # class_id (13) and cash (24) are two of the seventeen COO-DECISION

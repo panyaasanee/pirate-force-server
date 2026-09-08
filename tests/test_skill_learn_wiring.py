@@ -19,6 +19,15 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+# LANE-DB, round `nivlwg`, THREE LINES IN LANE-CS'S FILE, declared by
+# letter `20260908_14xx_LANE-DB-TO-CS-*`: `migrations/017` gives
+# `skill_points` a birth default, so the unmeasured state this test is
+# about stopped being reachable from `create_character` and has to be
+# CONSTRUCTED.  Revert or respell freely -- the helper is this lane's
+# and the fixture is yours.
+import pf_birth_state as _pin  # noqa: E402
 
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.skill_learn_validator import (  # noqa: E402
@@ -97,6 +106,7 @@ class LearnSkillSpendTests(_StoreFixture):
 
     def test_unmeasured_balance_refuses_before_any_write(self):
         character = self._make_character()
+        _pin.clear_columns_to_null(self.path, ["skill_points"], [character.id])
         with self.assertRaises(SkillLearnValidatorError):
             learn_skill_spend(self.store, character.id, _WHOLE_COST_SKILL_ID)
         # Refusing must not have written anything -- still NULL, not 0.

@@ -142,7 +142,23 @@ class TheMigrationItselfTests(_StoreFixture):
 
     def test_no_existing_table_or_row_is_touched(self):
         """011 is a bare CREATE TABLE -- not a rebuild, not a backfill."""
-        db = sqlite3.connect(str(self.path))
+        # A DATABASE AT THE VERSION THIS FILE GRADES, not at whatever
+        # `migrations/` holds today.  This comparison used to read the
+        # DDL off `self.path`, which is migrated with the WHOLE
+        # directory, so the day a later migration legitimately changed
+        # `characters` -- `017`, on `PANYA-DECISION 20260908_1218`
+        # point 3 -- this test failed for a change that is not this
+        # file's subject.  The claim it makes is about ONE file, so
+        # both sides are built by number.
+        this_version = Path(self.tmp.name) / "this_version.sqlite3"
+        this_version_migrations = Path(self.tmp.name) / "this_version_migrations"
+        this_version_migrations.mkdir()
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) <= 11:
+                (this_version_migrations / path.name).write_text(
+                    path.read_text(encoding="utf-8"), encoding="utf-8")
+        SQLiteStore(this_version, this_version_migrations).migrate()
+        db = sqlite3.connect(str(this_version))
         try:
             after_ddl = db.execute(
                 "SELECT sql FROM sqlite_master "

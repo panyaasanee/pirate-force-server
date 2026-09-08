@@ -21,6 +21,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+import pf_birth_state as _pin  # noqa: E402
 
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import live_named_attr_values as live  # noqa: E402
@@ -563,7 +566,21 @@ class AgainstARealMigratedStoreTests(unittest.TestCase):
     def test_a_newborn_answers_exactly_the_four_rows_the_round_claims(self):
         character = self._born("A", 0x1000)
         values = live.values_for(self.store, character.id)
-        self.assertEqual(sorted(values), [1, 2, 3, 4])
+        # DERIVED, not the four numbers this test used to name.  What a
+        # newborn answers is the name plus exactly the typed columns the
+        # database in front of this test gives a birth value, and since
+        # `migrations/017` that is six rather than four -- and more as the
+        # discoveries keep coming (`PANYA-DECISION 20260908_1218` point 3).
+        # The three values below stay named, so this is still an assertion.
+        # Intersected with the named set this read point serves: `speed_walk`
+        # (x=7) is a birth column that `named_rows_wanted()` does not ask for,
+        # so it is legitimately absent here and naming it would make this
+        # assertion wrong in the other direction.
+        self.assertEqual(
+            sorted(values),
+            sorted(({1} | set(_pin.birth_by_x(
+                _pin.expected_birth_state(self.store))))
+                   & ({1} | set(live.named_rows_wanted()))))
         self.assertEqual(values[1], "BornA")
         self.assertEqual((values[2], values[3], values[4]), (1, 100, 100))
 
@@ -579,9 +596,18 @@ class AgainstARealMigratedStoreTests(unittest.TestCase):
         character = self._born("B", 0x2000)
         values = live.values_for(self.store, character.id)
         missing = sorted(set(live.named_rows_wanted()) - set(values))
-        self.assertEqual(len(missing), len(live.named_rows_wanted()) - 4)
-        for name in ("cash", "mp_current", "class_id", "str", "experience"):
+        answered = {1} | set(_pin.birth_by_x(
+            _pin.expected_birth_state(self.store)))
+        self.assertEqual(
+            len(missing),
+            len(set(live.named_rows_wanted()) - answered))
+        # `experience` left this list when `migrations/017` gave it a birth
+        # default: it is answered now, which is the whole point of that file.
+        for name in ("cash", "mp_current", "class_id", "str"):
             self.assertIn(attr_wire.BY_NAME[name][0], missing)
+        self.assertNotIn(
+            attr_wire.BY_NAME["experience"][0], missing,
+            "017 gives `experience` a birth value, so a newborn answers it")
 
     def test_the_consumer_names_those_rows_rather_than_the_missing_door(self):
         character = self._born("C", 0x3000)

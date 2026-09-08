@@ -40,6 +40,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+import pf_birth_state as _pin  # noqa: E402
 
 from pirateforce_foundation.lua_api import quest_criteria, reward  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
@@ -115,6 +118,15 @@ class AddTypedAttributeTests(_StoreFixture):
         attributes` DROPS a NULL column, so a caller doing its own
         arithmetic reaches for `.get(column, 0)` and guesses."""
         character = self._make_character()
+        # THE UNMEASURED STATE IS CONSTRUCTED NOW.  `migrations/017` gives
+        # this column a birth default (`PANYA-DECISION 20260908_1218`
+        # point 3), so no newborn arrives here holding NULL any more and
+        # this refusal stopped being reachable by accident.  It has to
+        # stay reachable on purpose: the owner's database still holds
+        # rows written before `016` ran, and a fail-closed door whose
+        # refusal no test can reach is a door that can be deleted with
+        # the suite green.
+        _pin.clear_columns_to_null(self.path, ["experience"], [character.id])
         self.assertNotIn("experience", self.store.read_typed_attributes(character.id))
         with self.assertRaises(UnmeasuredTypedAttributeError) as caught:
             self.store.add_typed_attribute(character.id, "experience", 10)
@@ -348,6 +360,15 @@ class QuestRewardReachesARealRowTests(_StoreFixture):
         """
         quest_id, _expected = self._a_resolvable_quest()
         character = self._make_character()
+        # THE UNMEASURED STATE IS CONSTRUCTED NOW.  `migrations/017` gives
+        # this column a birth default (`PANYA-DECISION 20260908_1218`
+        # point 3), so no newborn arrives here holding NULL any more and
+        # this refusal stopped being reachable by accident.  It has to
+        # stay reachable on purpose: the owner's database still holds
+        # rows written before `016` ran, and a fail-closed door whose
+        # refusal no test can reach is a door that can be deleted with
+        # the suite green.
+        _pin.clear_columns_to_null(self.path, ["experience"], [character.id])
 
         payout, reason = reward.pay(
             "AddCriteriaExp", character.id, quest_id, store=self.store)

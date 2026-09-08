@@ -669,16 +669,56 @@ class WhatAHalfDoneUpgradeLeavesBehindTests(_PreLaneWorkspace):
         self.assertEqual(len(ids), len(names))
 
 
-class _FakeStore:
-    """Answers `read_typed_attributes` from a dict, and nothing else.
+class _FakeSchema:
+    """The one statement `pf_birth_state` asks a store's connection for."""
 
-    The gate takes a store only to call that one method; giving it a real
-    `SQLiteStore` here would mean building a row in a state the schema's own
-    CHECK constraints refuse, which is the wrong thing to measure.
+    def __init__(self, defaults):
+        self._defaults = defaults
+
+    def execute(self, sql, *args):
+        if "table_info" not in sql:
+            raise AssertionError("the gate asked a fake store for %r" % sql)
+        # EVERY typed column, exactly as `PRAGMA table_info` answers: a column
+        # with no DEFAULT is a row carrying None, not a missing row.  An
+        # earlier draft listed only the declared ones and an empty declaration
+        # then read as "this store cannot be asked", which sent the gate to
+        # the migration directory and graded a pre-009 fixture against the
+        # newest schema.
+        rows = []
+        for cid, name in enumerate(typed.TYPED_COLUMNS):
+            rows.append(
+                (cid, name, "INTEGER", 0, self._defaults.get(name), 0))
+        return rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _FakeStore:
+    """Answers `read_typed_attributes` from a dict, and DECLARES A SCHEMA.
+
+    The gate takes a store to call that one method and to read the birth
+    defaults the database in front of it declares
+    (`PANYA-DECISION 20260908_1218` point 3 -- the accepted birth state is
+    measured from `PRAGMA table_info('characters')`, not from a list in the
+    module).  So a fake that wants to stand for a database below `009` says
+    so by declaring NO defaults, and one standing for a database at `017`
+    declares the six.  Giving the gate a real `SQLiteStore` here would mean
+    building a row in a state the schema's own CHECK constraints refuse,
+    which is the wrong thing to measure.
     """
 
-    def __init__(self, states):
+    def __init__(self, states, declared_defaults=None):
         self._states = states
+        self._declared = dict(declared_defaults or {})
+
+    def connect(self):
+        return _FakeSchema(
+            {name: repr(value).strip("'") for name, value in self._declared.items()}
+        )
 
     def read_typed_attributes(self, character_id):
         return dict(self._states[character_id])
@@ -718,12 +758,33 @@ class TheBirthGateRefusesTests(unittest.TestCase):
         self.assertEqual({}, unseeded)
         self.assertEqual(len({tuple(sorted(state.items()))
                               for state in accepted}), 3)
-        self.assertEqual(sorted(defaulted),
-                         sorted(list(seeded) + ["speed_walk"]))
-        for state in accepted:
-            store = _FakeStore({1: state})
-            self.assertEqual(state,
-                             birth_state.measure_birth_typed_state(store, 1))
+        # `defaulted` is no longer "the seeded three plus speed_walk": it is
+        # whatever the newest migration that rebuilds `characters` declares,
+        # which after `migrations/017` is six columns and after the next
+        # discovery will be more (`PANYA-DECISION 20260908_1218` point 3).
+        # What still has to hold is that every column `create_character`
+        # writes is in it -- a declaration that dropped one would leave a
+        # newborn holding a column the schema does not know about.
+        self.assertTrue(set(seeded) <= set(defaulted))
+        self.assertTrue(set(defaulted) - set(seeded),
+                        "no column reaches a birth through a DEFAULT at all")
+        # WHICH STATE IS ACCEPTED NOW DEPENDS ON THE DATABASE, which is the
+        # whole change: a store that declares no defaults must produce the
+        # columns `create_character` writes and nothing more, and a store
+        # declaring the newest migration's defaults must produce those.
+        below = _FakeStore({1: seeded})
+        self.assertEqual(
+            seeded, birth_state.measure_birth_typed_state(below, 1))
+        at_head = _FakeStore({1: defaulted}, declared_defaults=defaulted)
+        self.assertEqual(
+            defaulted, birth_state.measure_birth_typed_state(at_head, 1))
+        # And each is refused by the OTHER database, so neither passes by
+        # being a state this module happens to have heard of.
+        for store, wrong in ((below, defaulted), (at_head, seeded)):
+            with self.assertRaises(AssertionError):
+                birth_state.measure_birth_typed_state(
+                    _FakeStore({1: wrong}, declared_defaults=(
+                        defaulted if store is at_head else {})), 1)
 
     def test_the_seeded_state_is_derived_and_is_not_a_second_copy(self):
         """`seeded_birth` must DERIVE the numbers, not restate them.
@@ -832,7 +893,7 @@ class TheBirthGateRefusesTests(unittest.TestCase):
         with self.assertRaises(AssertionError) as caught:
             birth_state.measure_birth_typed_state(store, 1)
         message = str(caught.exception)
-        self.assertIn("20260902_0444", message)
+        self.assertIn("20260908_1218", message)
         self.assertIn(repr(birth_state.seeded_birth()), message)
 
     def test_measure_every_birth_refuses_a_bad_SECOND_character(self):
@@ -845,26 +906,43 @@ class TheBirthGateRefusesTests(unittest.TestCase):
             birth_state.measure_every_birth(store, [1, 2])
 
     def test_measure_every_birth_returns_one_state_per_id_in_order(self):
-        """Three DISTINGUISHABLE states, because the first draft used a
-        palindrome (`[{}, seeded, {}]`) and a `pf-adversary` pass reversed
-        the iteration inside the helper with this file -- and all five other
-        lane files -- still green.  The order is load-bearing:
+        """The order is load-bearing:
         `tests/test_persistence_vitals_or_none.py` unpacks
         `self.birth, self.second_birth = measure_every_birth(...)`, so a
-        reversal silently grades the wrong row.
+        helper that reversed its iteration would silently grade the wrong row.
+
+        IT IS NO LONGER MEASURED WITH THREE DIFFERENT ACCEPTED STATES.  Since
+        `PANYA-DECISION 20260908_1218` point 3 the accepted state is measured
+        from the database, so every newborn on ONE store must hold the SAME
+        state and a `[{}, seeded, {}]` fixture is a state the gate rightly
+        refuses.  The order is measured directly instead, on the ids the
+        helper asks the store for -- which is strictly harder to fake than a
+        palindrome was: a reversed iteration is red here even though every
+        state it returns is legitimate.
         """
-        unseeded, seeded, _defaulted = birth_state.accepted_birth_states()
-        store = _FakeStore({1: unseeded, 2: seeded, 3: unseeded})
+        seeded = birth_state.seeded_birth()
+        asked = []
+
+        class _Recording(_FakeStore):
+            def read_typed_attributes(self, character_id):
+                asked.append(character_id)
+                return super().read_typed_attributes(character_id)
+
+        store = _Recording({1: seeded, 2: seeded, 3: seeded})
         self.assertEqual(
-            [unseeded, seeded, unseeded],
+            [seeded, seeded, seeded],
             birth_state.measure_every_birth(store, [1, 2, 3]))
+        self.assertEqual([1, 2, 3], asked)
+        asked.clear()
+        birth_state.measure_every_birth(store, [3, 2])
         self.assertEqual(
-            [seeded, unseeded],
-            birth_state.measure_every_birth(store, [2, 3]),
+            [3, 2], asked,
             "the helper does not follow the order of the ids it was given")
+        asked.clear()
         self.assertEqual(
-            [unseeded, seeded],
-            birth_state.measure_every_birth(store, [3, 2]))
+            2, len(birth_state.measure_every_birth(store, [2, 3])),
+            "one state per id, and only the ids given")
+        self.assertEqual([2, 3], asked)
 
     def test_with_birth_lets_what_the_test_wrote_win(self):
         birth = self._seeded()
