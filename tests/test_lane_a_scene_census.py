@@ -2036,10 +2036,15 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
         cls._work = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls._work.cleanup)
 
-    def test_the_registry_pin_for_this_scene_is_still_shut(self):
-        # The round's own claim, read off the repository's file: this round
-        # did NOT flip the door COO-DECISION 20260829_1444 pinned shut.
-        self.assertFalse(lane_a.scene_is_open_to_players(ATLANTIS))
+    def test_the_registry_pin_for_this_scene_is_open_since_1218(self):
+        # ~~test_the_registry_pin_for_this_scene_is_still_shut~~ -- INVERTED,
+        # LANE-A round 9lv3fa, 2026-09-08.  PANYA-DECISION 20260908_1218
+        # opened this door, and voided the part of COO-DECISION 20260829_1444
+        # that required an attended var2 test before any flip.  The GM arms
+        # below are unchanged and still tested by name: what changed is that
+        # the CHEAP arm now answers True for 126 too, so the GM arms are no
+        # longer the only thing standing between this scene and a census.
+        self.assertTrue(lane_a.scene_is_open_to_players(ATLANTIS))
 
     def test_the_gm_arm_admits_this_scene_and_the_pair_does_too(self):
         self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
@@ -2080,7 +2085,18 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
         try:
             self.assertFalse(
                 lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
-            self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS))
+            # ~~self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS))~~
+            # -- STRUCK, LANE-A round 9lv3fa (PANYA-DECISION 20260908_1218).
+            # The coupling this test is named for is intact and is the
+            # assertion above: revoking the GM lane's sanction still darkens
+            # THIS ARM.  What it no longer darkens is the scene, because the
+            # registry pin - the first arm in scene_may_be_populated, and the
+            # one nothing in this test touches - now answers True for 126.
+            # A scene ordinary players may log in to is a scene that gets its
+            # actors whether or not a GM is sanctioned to enter it; asserting
+            # otherwise would pin an empty ocean for every player who arrives
+            # here under 1218.
+            self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
         finally:
             login_scene_admission.single_use_entry_is_admissible = original
         self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
@@ -2122,7 +2138,7 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
             lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS, absent))
         self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS, absent))
 
-    def test_the_ordinary_login_path_still_refuses_this_scene(self):
+    def test_the_ordinary_login_path_now_admits_this_scene(self):
         """The sentence the round file and the PR body both make: this arm
         opens no door.  ``resolve_entry(..., via_login=True)`` is the
         ordinary login, and it must still refuse scene 126 with the pin
@@ -2145,23 +2161,25 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
         # cannot put anybody into.
         self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
 
+        # ~~the ordinary login path still refuses this scene~~ -- INVERTED,
+        # LANE-A round 9lv3fa, PANYA-DECISION 20260908_1218.  COO-DECISION
+        # 20260902_2145's condition 1 was "the arm may answer yes while the
+        # door stays shut"; the owner has since opened the door, so the pair
+        # this test asserts on one process state is now the other pair: the
+        # arm says yes AND the ordinary login path admits.  The refusal is
+        # not deleted from the tree - it is exercised on a synthetic pinned
+        # scene in tests/test_world_scene_registry_login_door.py, which is
+        # also where the rule that keeps this door open is walked.
         emitted = []
-        with self.assertRaises(world_scene_entry.SceneEntryRefused) as raised:
-            world_scene_entry.resolve_entry(
-                Position(ATLANTIS, 0, 0.0, 0.0, 0.0, 0),
-                emit=emitted.append,
-                via_login=True,
-            )
-        self.assertIn(
-            world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
-            str(raised.exception),
+        entry = world_scene_entry.resolve_entry(
+            Position(ATLANTIS, 0, 0.0, 0.0, 0.0, 0),
+            emit=emitted.append,
+            via_login=True,
         )
-        # And the refusal is silent on the wire: a census line for this
-        # scene reaching a client that was never admitted is the failure
-        # this condition exists to make impossible.
-        self.assertEqual(
-            [], [line for line in emitted if str(ATLANTIS) in str(line)
-                 and "CENSUS" in str(line).upper()],
+        self.assertEqual(entry.destination.n_id, ATLANTIS)
+        self.assertNotIn(
+            world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
+            "".join(str(line) for line in emitted),
         )
         # The arm still says yes AFTER the refusal, so the refusal is the
         # door doing its job rather than the arm having quietly flipped.
