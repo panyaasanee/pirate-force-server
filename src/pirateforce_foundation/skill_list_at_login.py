@@ -108,6 +108,7 @@ from __future__ import annotations
 from typing import Any
 
 from .learn_skill_result_frame import (
+    LEARN_SKILL_RESULT_COUNT_TAG,
     LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE,
     LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET,
     LEARN_SKILL_RESULT_RECORD_WIRE_SIZE,
@@ -367,6 +368,50 @@ def measured_trailing_byte(pc: bytes, record_count: int) -> int:
             "trailing byte could not be checked at all: %s" % (error,),
         ) from error
     return trailing
+
+
+def measured_record_count(pc: bytes) -> int:
+    """The record count CARRIED BY ``pc``, decoded, never ``len(skill_ids)``.
+
+    pf-adversary (round `jty60h`, D3) named the defect this closes: every
+    number in the token except the trailing byte was measured off something
+    the caller had in hand BEFORE the frame existed, so a mutant that stops
+    composing -- or stops appending the composed action to the login list --
+    leaves ``rows=4`` printing about a wire that carries nothing.  The count
+    is read out of the payload's own u16 field and then handed back through
+    the same decoder that ``measured_trailing_byte`` uses, so a byte string
+    that merely starts with the right tag cannot answer.
+
+    Raises ``SkillListAtLoginError`` and never a bare decoder exception, the
+    same one-exception-class promise the rest of this module makes.
+    """
+    start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
+    header = bytes(pc[start:start + 3])
+    if len(header) != 3 or header[0] != LEARN_SKILL_RESULT_COUNT_TAG:
+        raise SkillListAtLoginError(
+            REFUSE_PAYLOAD_UNREADABLE,
+            "the composed pc carries no readable record-count field at "
+            "offset %d, so the row count could not be measured at all"
+            % (start,),
+        )
+    declared = int.from_bytes(header[1:3], "little")
+    payload_size = (
+        LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE
+        + LEARN_SKILL_RESULT_RECORD_WIRE_SIZE * declared
+    )
+    try:
+        records, _trailing = decode_learn_skill_result_payload(
+            pc[start:start + payload_size]
+        )
+    except Exception as error:      # noqa: BLE001 - same reasoning as
+        # `measured_trailing_byte`: a payload this module just composed and
+        # cannot read back is not a frame to report a row count about.
+        raise SkillListAtLoginError(
+            REFUSE_PAYLOAD_UNREADABLE,
+            "the composed payload could not be decoded back, so the record "
+            "count could not be measured at all: %s" % (error,),
+        ) from error
+    return len(records)
 
 
 def make_skill_list_response(
@@ -761,7 +806,7 @@ def seam_carrier(runtime_path: "Any" = None, hooks_dir: "Any" = None) -> str:
 
 def headless_token(
     character_id: int, skill_ids: "tuple[int, ...]", frame: bytes,
-    sent_by: str, trailing: int,
+    sent_by: str, trailing: int, *, pc: bytes,
 ) -> str:
     """The one ASCII line GT-307 names as its ``HEADLESS_PROOF:``.
 
@@ -774,13 +819,35 @@ def headless_token(
     turned into a token reading ``trailing_u8=0`` about a frame carrying
     ``0x01``.  Nothing here re-derives an id from the class table -- that is
     the substitution GT-307 exists to rule out.
+
+    ``rows`` COMES OFF THE WIRE (round `jty60h`, pf-adversary D3 again, one
+    field to the left).  It used to be ``len(skill_ids)`` -- the list the
+    store returned, which exists whether or not anything was ever composed
+    or appended -- so the single line an operator pastes into ``GT-307``'s
+    ``HEADLESS_PROOF:`` travelled alone saying ``rows=4`` about a login that
+    sent no frame at all.  ``pc`` is keyword-only and has no default on
+    purpose: a caller that has no composed pc cannot produce a token by
+    forgetting an argument, and the two counts are compared here rather than
+    trusted, so the store's answer and the wire's answer cannot disagree
+    inside one line.  ``ids`` still comes from the store, because the
+    substitution GT-307 rules out is exactly "the ids on the wire are not
+    the ids on the row".
     """
+    on_the_wire = measured_record_count(pc)
+    if on_the_wire != len(skill_ids):
+        raise SkillListAtLoginError(
+            REFUSE_PAYLOAD_UNREADABLE,
+            "the composed pc carries %d records but the store returned %d "
+            "skill ids; a token that reported either number alone would be "
+            "a measurement of nothing"
+            % (on_the_wire, len(skill_ids)),
+        )
     return (
         "SKILL_LIST_AT_LOGIN cid=%d rows=%d ids=(%s) trailing_u8=%d "
         "frame_bytes=%d sent_by=%s"
         % (
             character_id,
-            len(skill_ids),
+            on_the_wire,
             ",".join(str(skill_id) for skill_id in skill_ids),
             trailing,
             len(frame),
@@ -941,7 +1008,7 @@ def main(argv: "list[str] | None" = None) -> int:
     _print_console_line(
         headless_token(
             args.character, skill_ids, frame, seam_carrier(args.runtime),
-            measured_trailing_byte(pc, len(skill_ids)),
+            measured_trailing_byte(pc, len(skill_ids)), pc=pc,
         )
     )
     return 0
