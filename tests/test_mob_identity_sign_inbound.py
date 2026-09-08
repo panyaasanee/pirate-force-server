@@ -385,47 +385,91 @@ class ANegativeBandMonsterIsHitTests(unittest.TestCase):
             "mob_combat_target_not_positive_or_self_no_reply", state.events)
 
 
-class TheOrderingBlockerBeatOneMustAnswerTests(unittest.TestCase):
-    """The wall beat 1 walks into, pinned as a refusal rather than as prose.
+class TheSecondWallBeatTwoWalksIntoTests(unittest.TestCase):
+    """A band identity does not merely fail to be written -- it RAISES.
 
-    pf-adversary findings D1 (critical) and D3 of round 39vp7o.  Beat 0's own
-    end-to-end test flips only ``CONTROL_PLACEMENT_INDEX``, which happens to
-    be the FIRST and smallest row of the roster, so the flipped identity
-    stays in ascending order and nothing notices.  Flip the whole roster and
-    the run does not merely fail a combat assertion -- the session cannot be
-    built at all:
+    pf-adversary, round 6okcq4, finding D2.  This round surveyed how far a
+    band identity can travel, found ``world_scene_registry`` refusing it
+    with a returned ``NoteOutcome``, and called that "the wall".  It is not
+    the only one and it is not the worst one.  ``mob_ai_player_damage``
+    line ~249 -- THIS LANE'S OWN FILE, on the live AI tick path
+    (``lane_hooks/lane_b_mob_ai_tick`` line ~270 calls ``apply_tick_damage``
+    which calls ``attack_decisions``) -- refuses any ``actor_identity`` that
+    is not strictly positive by RAISING ``identity_not_positive``.
 
-      * ``field_mobs.load_roster`` returns rows in PLACEMENT order;
-      * ``mob_identity_sign.mob_wire_identity`` DECREASES as the placement
-        index rises, where ``0x2000 + placement + 1`` increased;
-      * ``mob_combat.CombatLedger`` requires ascending identity order and
-        refuses -- on purpose, its own docstring says "REFUSED rather than
-        silently re-sorted" -- to sort for its caller;
-      * ``runtime.PersistentGameSessionState.__init__`` opens that ledger
-        off the boot roster, so the refusal lands on LOGIN.  Every player,
-        not one frame.
+    Failure scenario, which is why this is pinned rather than written down:
+    beat 2 flips Bg0002 onto the band, and the first monster that decides to
+    attack takes the tick hook down for every player in the scene.
 
-    Today the four readers of "roster order" agree only because the old
-    formula rose with the placement index, and no file in the tree writes
-    that coincidence down as a contract.  The lane cannot pick the fix on
-    its own -- reordering ``load_roster`` changes the order actors go out on
-    the census wire, which is a screen question -- so this test pins the
-    collision where it is.  It goes RED the day somebody resolves it, which
-    is when this file should be rewritten to assert the new order.
+    Not fixed in this round on purpose: widening a refusal on the live tick
+    path is a behaviour change that wants its own beat and its own full
+    suite, and nothing flips a scene until the COO answers the wall letter.
+    This test is the receipt.  It goes RED the day the guard is widened,
+    which is the day it should be rewritten to assert the new reach.
     """
 
-    def test_a_fully_flipped_roster_cannot_open_a_ledger_today(self):
+    def test_the_tick_damage_path_raises_on_a_band_identity(self):
+        from pirateforce_foundation import mob_ai_player_damage as mapd
+
+        from pirateforce_foundation import mob_aggro
+
+        identity = mob_identity_sign.mob_wire_identity(2, 0)
+        row = dataclasses.make_dataclass(
+            "FakeTickResult", ["actor_identity", "intent_kind"])(
+                identity, mob_aggro.INTENT_ATTACK_UNDELIVERABLE)
+        with self.assertRaises(mapd.MobAiPlayerDamageError) as box:
+            mapd.attack_decisions((row,))
+        self.assertEqual(box.exception.reason, mapd.REFUSE_IDENTITY_NOT_POSITIVE)
+
+    def test_the_same_call_accepts_the_legacy_positive_identity(self):
+        """The control: it is the sign, not the shape of the record."""
+        from pirateforce_foundation import mob_ai_player_damage as mapd
+
+        from pirateforce_foundation import mob_aggro
+
+        row = dataclasses.make_dataclass(
+            "FakeTickResult", ["actor_identity", "intent_kind"])(
+                0x2001, mob_aggro.INTENT_ATTACK_UNDELIVERABLE)
+        self.assertEqual(mapd.attack_decisions((row,)), (0x2001,))
+
+
+class TheOrderingBlockerBeatOneAnsweredTests(unittest.TestCase):
+    """The wall beat 1 walked into, now asserted from the other side.
+
+    This class used to pin a COLLISION.  ``field_mobs.load_roster`` returns
+    rows in placement order, the first draft of
+    ``mob_identity_sign.mob_wire_identity`` DESCENDED as the placement index
+    rose, ``mob_combat.CombatLedger`` refuses a roster that is not in
+    ascending identity order (on purpose -- "REFUSED rather than silently
+    re-sorted"), and ``runtime.PersistentGameSessionState.__init__`` opens
+    that ledger off the boot roster.  So flipping a whole scene onto the
+    band did not fail one combat assertion, it failed LOGIN, for every
+    player.  The old class asserted the descent and asserted the refusal,
+    and its own docstring said it should be rewritten the day somebody
+    resolved it.
+
+    COO decision ``20260908_1642_COO-DECISION-roster-order-take-option-
+    three-LANE-B`` resolved it by making the DISPENSER ascend (option 3),
+    rather than re-sorting ``load_roster`` (option 1, which changes the
+    order actors go out on the census wire -- a screen question, and the
+    owner's machine is the most expensive queue in this house) or teaching
+    ``open_ledger`` to sort (option 2, which deletes another module's
+    written reason for refusing).  These tests are the same four readers as
+    before, asserted in the direction that now holds.
+    """
+
+    def test_a_fully_flipped_roster_is_in_ascending_identity_order(self):
         rows = tuple(
             mob_identity_sign.mob_wire_identity(1, mob.placement_index)
             for mob in field_mobs.load_roster()
         )
         self.assertGreater(len(rows), 1)
-        # the dispenser descends where the old formula rose -- this is the
-        # whole collision, in one assertion
-        self.assertEqual(list(rows), sorted(rows, reverse=True))
-        self.assertNotEqual(list(rows), sorted(rows))
+        # the dispenser now rises where the legacy 0x2000 formula rose --
+        # the ordering contract, in one assertion
+        self.assertEqual(list(rows), sorted(rows))
+        self.assertEqual(len(set(rows)), len(rows))
 
-    def test_the_ledger_refuses_that_order_rather_than_sorting_it(self):
+    def test_the_ledger_that_used_to_refuse_this_roster_now_opens_on_it(self):
 
         def _identity(mob):
             return mob_identity_sign.mob_wire_identity(1, mob.placement_index)
@@ -434,9 +478,86 @@ class TheOrderingBlockerBeatOneMustAnswerTests(unittest.TestCase):
             field_mobs.FieldMob, "actor_identity", property(_identity)
         ):
             roster = field_mobs.load_roster()
+            ledger = mob_combat.open_ledger(roster)
+        self.assertEqual(
+            list(ledger.identities()), sorted(ledger.identities()))
+        self.assertTrue(all(i < 0 for i in ledger.identities()))
+
+    def test_the_ledger_still_refuses_a_roster_that_is_out_of_order(self):
+        """The fix is the band's order, NOT the removal of the refusal.
+
+        Without this, "the ledger opens" above would also be satisfied by
+        somebody quietly deleting the guard, which is exactly the option
+        the COO decision rejected.
+        """
+
+        def _identity(mob):
+            return -mob_identity_sign.mob_wire_identity(1, mob.placement_index)
+
+        with mock.patch.object(
+            field_mobs.FieldMob, "actor_identity", property(_identity)
+        ):
+            roster = field_mobs.load_roster()
             with self.assertRaises(mob_combat.MobCombatContractError) as box:
                 mob_combat.open_ledger(roster)
         self.assertEqual(box.exception.reason, "ledger_not_sorted")
+
+    def test_the_register_row_zero_is_the_mob_the_ledger_calls_first(self):
+        """COO condition 3 of the option-3 approval, as a measurement.
+
+        ``mob_ai_control.open_register`` sorts by identity SILENTLY.  Option
+        3 makes it agree with the ledger today, but a silent sort that
+        agrees by luck is the same time bomb the old descent was, so the
+        agreement is asserted rather than assumed: row zero of the register
+        and row zero of the ledger have to be the same monster, by identity
+        AND by placement index.
+        """
+        from pirateforce_foundation import mob_ai_control
+
+        def _identity(mob):
+            return mob_identity_sign.mob_wire_identity(1, mob.placement_index)
+
+        with mock.patch.object(
+            field_mobs.FieldMob, "actor_identity", property(_identity)
+        ):
+            roster = field_mobs.load_roster()
+            ledger = mob_combat.open_ledger(roster)
+            register = mob_ai_control.open_register(roster)
+            self.assertGreater(len(roster), 1)
+            self.assertEqual(
+                register.rows[0].actor_identity, ledger.identities()[0])
+            self.assertEqual(
+                register.rows[0].actor_identity, roster[0].actor_identity)
+            # NOT "placement_index == 0": the no-argument roster is
+            # bg0001's, whose placement indices start at 103.  What the
+            # contract says is that row zero is the SMALLEST placement, and
+            # asserting the literal 0 would have passed for the wrong reason
+            # on any scene that happens to start there.
+            placements = [mob.placement_index for mob in roster]
+            self.assertEqual(placements, sorted(placements))
+            self.assertEqual(roster[0].placement_index, min(placements))
+            # and all the way down, not only at row zero
+            self.assertEqual(
+                [row.actor_identity for row in register.rows],
+                list(ledger.identities()),
+            )
+            # pf-adversary round 6okcq4, D7: everything above is ALSO
+            # satisfied by a register that does not sort at all (deleting
+            # the sort left the suite green), which is not what the
+            # docstring above claims to be pinning.  Hand it a roster in
+            # the wrong order and require ascending rows out, so "it sorts"
+            # is measured and not inferred from "it agrees".
+            shuffled = tuple(reversed(roster))
+            self.assertNotEqual(
+                [mob.actor_identity for mob in shuffled],
+                sorted(mob.actor_identity for mob in shuffled),
+            )
+            out = mob_ai_control.open_register(shuffled)
+            self.assertEqual(
+                [row.actor_identity for row in out.rows],
+                sorted(row.actor_identity for row in out.rows),
+            )
+
 
 
 if __name__ == "__main__":  # pragma: no cover
