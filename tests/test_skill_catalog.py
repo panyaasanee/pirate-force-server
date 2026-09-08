@@ -271,8 +271,8 @@ class SkillCatalogTests(unittest.TestCase):
             "produces:\n%s%s" % (finished.stdout, finished.stderr))
         # LANE-CS round `jty60h`: the full-table census
         # (`skill_context_census.py`) is mined from the SAME bridge table by
-        # a second extractor, and its own drift check rides here rather than
-        # in its own guarded test -- one more `skip_unless_present` test
+        # a second extractor, and its own drift check rides here rather
+        # than in a guarded test of its own -- a second bridge-guarded test
         # would be one more row in the gate's skip census for a question
         # already being asked in this process.
         census = subprocess.run(
