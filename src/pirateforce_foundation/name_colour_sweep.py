@@ -709,6 +709,90 @@ ENEMY_SPLICE_BYTES = 1 + ENEMY_WIDTH
 #: order asked for real ones only "if a table naming the domain turns up".
 ENEMY_CANDIDATES = (0, 1, 2, 6, 12, 0xFF)
 
+#: ka1-A's addendum 3 (2026-09-08T11:40+07:00) asks this lane for nine more
+#: nameboards, each one sending the ActorAttr byte at ``+0x1A0`` -- the field
+#: the selector gate ``0x0043C380`` reads BEFORE any predicate, so "hostile"
+#: and "not hostile" inside the NPC branch would become two readable boards.
+#: The answer the letter asks for in writing rather than in silence is that
+#: THIS LANE CANNOT SEND THAT BYTE, and the reason is three measurements deep.
+#:
+#: 1. THE BODY THIS MODULE COMPOSES HAS NOWHERE TO PUT BIT ``1 << 32``.  Every
+#:    row here is ``legacy.make_npc_attr`` (or ``field_mobs.hostile_npc_attr``
+#:    over it), and that frozen shape is, in order: a ``u8`` tag, the identity
+#:    qword, a SIXTEEN-BIT BasicAttr change mask, the BasicAttr fields, scene
+#:    id and sequence, an EIGHT-BIT NPCAttr change mask, then template and
+#:    preset -- ``current/pf_login_game_server_v141.py`` lines 1177-1201, the
+#:    frozen serializer itself, NOT ``npc_wire.py`` (this module does not
+#:    import that one, and its P30-only diagnostic refuses every profile a
+#:    sweep row carries; pf-adversary round np8mhf finding D8 caught the first
+#:    draft citing it).  The same two widths are what every splice in this
+#:    module reads back: ``_splice_enemy`` and ``_npc_faction_body`` both take
+#:    the mask as ``body[mask_at:mask_at + 2]``, and ``BASIC_MASK_OVERFLOW_BIT``
+#:    below is the measurement that a 33rd bit does not fit in it.  ``+0x1A0`` is row 46 of
+#:    ``gm/attr_wire.FIELDS``, block ``"actor"``, mask bit ``1 << 32``: the
+#:    33rd bit of a SIXTY-FOUR-bit ActorAttr change mask that this body does
+#:    not carry at all.  There is no splice position for it, and widening the
+#:    16-bit mask to reach a 33rd bit would not produce the ActorAttr block --
+#:    it would produce a BasicAttr mask the client reads as garbage.
+#: 2. THE ONE WRITER OF ``+0x1A0`` IS A FRAME THIS LANE DOES NOT SEND.  RE-310
+#:    addendum 2 (pf_bridge/notes_to_chief/20260908_1049_RE-310-ADDENDUM-2-
+#:    who-writes-x1A0-answer-the-wire-only.md) is the result ka1-A is citing,
+#:    and its own nonclaim 5 says the carrying frame was NOT established:
+#:    ``ActorAttr``'s registry serializer ``0x0043BB80`` is a ``ret 8`` stub,
+#:    so the codec ``0x00466230`` that writes ``+0x1A0`` is called from
+#:    somewhere else -- "probably the UpdateAttr/0x309A frame", with the
+#:    caller walk not yet done.  Asking this lane to send the byte is asking
+#:    it to guess which frame carries it.
+#: 3. THE 0x309A DOOR IS SHUT, AND SHUT FOR THIS EXACT HAZARD.  If the frame
+#:    is ``UpdateAttrVital``, the module that owns it (``gm/attr_wire.py``)
+#:    refuses a sparse block outright: the client's apply is a bulk copy of
+#:    the incoming ActorAttr (RE-222 Q0, ``ActorAttr::full copy
+#:    [0x00464F30,0x004652AC)``), so a block carrying only ``+0x1A0`` would
+#:    overwrite the name and the HP of the very actor whose NAMEBOARD the
+#:    sweep exists to read.  The nine boards would erase themselves.
+#:
+#: So the rows are named here, with their reason, instead of composed wrong or
+#: dropped quietly.  Of the four inputs ``0x0043C380`` reads, exactly ONE is
+#: on a wire today: ``+0x68``, the ``M-*`` rows' BasicAttr faction.  ``+0x98``
+#: is drawn only when a caller passes ``viewer_identity`` (the ``N-LNKP`` /
+#: ``N-IDNEG-LNKP`` pair), and no caller on main does -- an earlier draft of
+#: this paragraph said "already drawn" and contradicted the note twenty lines
+#: below it (pf-adversary round np8mhf finding D9a).  WHICH ``+0x98`` that
+#: gate reads is also not settled: ``ActorAttr+0x98`` and ``NPCAttr+0x98`` are
+#: different fields on sibling classes, and this module's own note at the top
+#: of the linked-row block exists to stop the two being conflated.  Only
+#: ``+0x1A0`` is out of reach outright, and reaching it is a frame-level ask
+#: that belongs to whoever owns the 0x309A door, not to a nameboard row.
+#: The 33rd bit, as the number the refusal above is measured with rather than
+#: only described by.  ``ALL_SET_UNCOMPOSABLE``'s other two refusals are
+#: EXECUTED by the tests (they compose the row and catch the raise); this one
+#: had no executable half until pf-adversary round np8mhf pointed out that it
+#: does have one and it is one line: the BasicAttr mask is written back with
+#: ``.to_bytes(2, "little")``, so OR-ing bit ``1 << 32`` into it raises
+#: ``OverflowError`` -- which is NOT a ``NameColourSweepError``, so it would
+#: escape every named refusal in this module, reach runtime's blanket
+#: ``except Exception`` and cost all twenty-two working boards, not just the
+#: one bad row.  ``tests/test_name_colour_sweep_all.py`` runs exactly that.
+ACTOR_ATTR_1A0_MASK_BIT = 1 << 32
+
+ACTOR_ATTR_1A0_LABELS = (
+    "N-R2", "N-R3",
+    "N-IDNEG-R0", "N-IDNEG-R1", "N-IDNEG-R2", "N-IDNEG-R3", "N-IDNEG-R4",
+    "M-IDNEG-R3", "M-IDNEG-T31-R3",
+)
+
+ACTOR_ATTR_1A0_REFUSAL = (
+    "ActorAttr +0x1A0 is mask bit 1 << 32 of a 64-bit ActorAttr change mask "
+    "(gm/attr_wire.FIELDS row 46).  The body every row here composes carries "
+    "a 16-bit BasicAttr mask and an 8-bit NPCAttr mask and no ActorAttr mask "
+    "at all (the frozen legacy make_npc_attr), so the bit has no "
+    "splice position.  Its only writer is codec 0x00466230, whose carrying "
+    "frame RE-310 addendum 2 nonclaim 5 leaves unestablished and expects to "
+    "be UpdateAttr/0x309A -- a frame gm/attr_wire.py refuses to send sparsely "
+    "because the client applies ActorAttr as a full-object copy (RE-222 Q0), "
+    "which would blank the nameboard this row exists to be read from"
+)
+
 #: Labels whose row this lane can NOT compose, and the refusal that stops it.
 #: Named here rather than dropped silently, because the order says a row that
 #: cannot be built must come back with its reason (COO-ORDER 2342 item 2).
@@ -742,6 +826,8 @@ ALL_SET_UNCOMPOSABLE = (
         "on the client (pf-adversary round ixdda8 finding D3), so this mix is "
         "a separate boot rather than a second nameboard here",
     ),
+) + tuple(
+    (label, ACTOR_ATTR_1A0_REFUSAL) for label in ACTOR_ATTR_1A0_LABELS
 )
 
 #: Labels that need the WATCHING SESSION's identity, which this module cannot
@@ -868,6 +954,15 @@ ALL_ROW_ORDER = (
     "N-HP0", "M-DEAD",
     "N-IDNEG-LNKP", "N-IDNEG-ENM1", "N-ID0-LNKP", "M-IDNEG-DEAD",
     "M-T001",
+    # ka1-A addendum 3's nine ActorAttr +0x1A0 rows.  APPENDED, never spliced
+    # into the middle: a placement index is ALL_ROW_ORDER.index(label), so a
+    # row inserted above M-T001 would renumber every board an attended sheet
+    # already names.  They are declared here and refused in
+    # ALL_SET_UNCOMPOSABLE, so the boot draws none of them and the tester
+    # reads why rather than hunting for boards that cannot exist.
+    "N-R2", "N-R3",
+    "N-IDNEG-R0", "N-IDNEG-R1", "N-IDNEG-R2", "N-IDNEG-R3", "N-IDNEG-R4",
+    "M-IDNEG-R3", "M-IDNEG-T31-R3",
 )
 
 
