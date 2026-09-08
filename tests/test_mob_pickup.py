@@ -51,8 +51,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (
-    bag_admission, inventory, mob_loot, mob_pickup, mob_pickup_persist,
-    mob_pickup_request,
+    bag_admission, inventory, mob_identity_sign, mob_loot, mob_pickup,
+    mob_pickup_persist, mob_pickup_request,
 )
 from pirateforce_foundation.inventory import (
     BACKPACK_BASE_IDENTITY,
@@ -2256,12 +2256,26 @@ class MobPickupTests(unittest.TestCase):
         ``lifecycle.py``'s ``hi = 0`` kept that off the live path.
 
         The values below walk the composition, not a round number: chief's own
-        case, the top of the space, and the ceiling itself.
+        case and the widest value that still MEANS what it says.
+
+        R4 beat 0 (COO-DECISION 20260908 14:41) moved the band this pins.
+        The two values dropped from this loop -- ``hi`` with the top bit set,
+        and the u64 ceiling -- are no longer identities at all: the same
+        eight bytes on the wire carry a SIGNED field (the monster band is
+        negative by construction now), so a value at or above ``2 ** 63``
+        reaching a lane guard is an inbound number somebody forgot to run
+        through ``mob_identity_sign.decode_wire_identity``, not a big actor.
+        They are pinned as REFUSED in
+        ``test_an_undecoded_wire_value_is_refused_rather_than_keyed`` below.
+        Chief's ni2wh2 case -- the one that was ever on a live path, and the
+        reason this test exists -- is ``hi=1``, four billion times under the
+        new ceiling, and it still walks the whole pickup here.  Only the
+        hypothetical half moved, and it moved to a loud refusal, not to
+        silence.
         """
         for label, wide in (
             ("chief's case, hi=1", (1 << 32) | 0x750059),
-            ("hi with the top bit set", (0x80000000 << 32) | 0x750059),
-            ("the ceiling itself", mob_pickup.MAX_ACTOR_IDENTITY),
+            ("the signed ceiling itself", mob_loot.MAX_SIGNED_IDENTITY),
         ):
             with self.subTest(identity=label):
                 # mob_loot takes it, as the killer of a real drop...
@@ -2294,15 +2308,70 @@ class MobPickupTests(unittest.TestCase):
         composed_ceiling = ((0xFFFFFFFF & 0xFFFFFFFF) << 32) | 0xFFFFFFFF
         self.assertEqual(mob_loot.MAX_IDENTITY, composed_ceiling)
         self.assertEqual(mob_pickup.MAX_ACTOR_IDENTITY, composed_ceiling)
-        # the ceiling is ACCEPTED, one past it is refused: an off-by-one in
-        # either direction is a different bound than the one pinned above
+        # R4 beat 0: the two constants above are still pinned, but they are
+        # now pinned as the WIRE WIDTH -- what the eight bytes can hold --
+        # and no longer as the set of MEANINGS those bytes may carry.  The
+        # band a guard admits is the signed one, pinned here against the
+        # same composition rather than against a literal, so narrowing
+        # either side still goes red and still says which side moved.
+        self.assertEqual(mob_loot.MAX_SIGNED_IDENTITY, composed_ceiling >> 1)
         self.assertEqual(
-            PickupClaim(composed_ceiling, 1.0, 2.0, 3.0, KEY, 0)
-            .claimant_identity, composed_ceiling)
+            mob_loot.MIN_SIGNED_IDENTITY, -(composed_ceiling >> 1) - 1)
+        # the signed ceiling is ACCEPTED, one past it is refused: an
+        # off-by-one in either direction is a different bound
+        self.assertEqual(
+            PickupClaim(mob_loot.MAX_SIGNED_IDENTITY, 1.0, 2.0, 3.0, KEY, 0)
+            .claimant_identity, mob_loot.MAX_SIGNED_IDENTITY)
         self.assertEqual(
             self._refusal(
-                PickupClaim, composed_ceiling + 1, 1.0, 2.0, 3.0, KEY, 0),
+                PickupClaim, mob_loot.MAX_SIGNED_IDENTITY + 1,
+                1.0, 2.0, 3.0, KEY, 0),
             mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
+        # and the floor, which did not exist at all before R4 beat 0
+        self.assertEqual(
+            PickupClaim(mob_loot.MIN_SIGNED_IDENTITY, 1.0, 2.0, 3.0, KEY, 0)
+            .claimant_identity, mob_loot.MIN_SIGNED_IDENTITY)
+        self.assertEqual(
+            self._refusal(
+                PickupClaim, mob_loot.MIN_SIGNED_IDENTITY - 1,
+                1.0, 2.0, 3.0, KEY, 0),
+            mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
+
+    def test_an_undecoded_wire_value_is_refused_rather_than_keyed(self):
+        """The half of chief's ni2wh2 loop that R4 beat 0 turned around.
+
+        pf-adversary, round ``gadxq5``, finding D5: every inbound parse
+        point in the frozen v141 file reads this field with
+        ``struct.unpack('<Q', ...)``, so a monster at ``-2`` arrives as
+        ``18446744073709551614``.  While these guards ran ``identity <= 0``
+        over an unsigned band, that number was ACCEPTED -- a claim, a drop
+        and a bag row could all be keyed under an actor that does not
+        exist, and the player who actually swung got nothing back.  There
+        is no value in this band a caller can legitimately mean, so it is
+        refused where it arrives instead of being carried.
+        """
+        undecoded = int.from_bytes(
+            mob_identity_sign.encode_wire_identity(-2), "little")
+        self.assertEqual(undecoded, 18446744073709551614)
+        self.assertEqual(
+            mob_identity_sign.decode_wire_identity(undecoded), -2)
+        for label, value in (
+            ("the undecoded wire value of the monster band", undecoded),
+            ("hi with the top bit set", (0x80000000 << 32) | 0x750059),
+            ("the u64 ceiling", mob_pickup.MAX_ACTOR_IDENTITY),
+        ):
+            with self.subTest(identity=label):
+                self.assertEqual(
+                    self._refusal(PickupClaim, value, 1.0, 2.0, 3.0, KEY, 0),
+                    mob_pickup.REFUSE_VALUE_OUT_OF_RANGE)
+        # ...and the DECODED form of that same monster is taken, on every
+        # record this lane carries an identity on
+        self.assertEqual(
+            PickupClaim(-2, 1.0, 2.0, 3.0, KEY, 0).claimant_identity, -2)
+        self.assertEqual(a_drop(killer=-2).killer_identity, -2)
+        self.assertEqual(
+            mob_pickup.BagRowWrite(-2, CHARACTER, 5, ITEM, 1, 4)
+            .claimant_identity, -2)
 
     def test_the_two_lanes_share_one_constant_rather_than_two_literals(self):
         """Not ``assertEqual(x, x)``, which is what the first draft was.

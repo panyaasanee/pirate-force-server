@@ -200,6 +200,7 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
+from . import mob_identity_sign
 from . import field_mobs
 from . import mob_loot
 from .field_mobs import FieldMob
@@ -719,10 +720,26 @@ def _require_int(value: Any, label: str, minimum: int, maximum: int) -> int:
 
 
 def _require_identity(value: Any, label: str) -> int:
-    identity = _require_int(value, label, 0, 0xFFFFFFFFFFFFFFFF)
-    if identity <= 0:
+    """Refuse an identity no inbound frame or roster row can legitimately carry.
+
+    R4 beat 0 (COO-DECISION 20260908 14:41), paying pf-adversary finding D5
+    of round ``gadxq5``.  This test used to read ``identity <= 0`` over an
+    UNSIGNED band, which got both halves wrong the moment the monster band
+    went negative: a real monster at ``-2`` was refused, while the
+    UNDECODED wire value of that same monster (``18446744073709551614``,
+    what ``struct.unpack('<Q', ...)`` hands back at every inbound parse
+    point in the frozen v141 file) sailed straight through and opened a
+    ledger against an actor that does not exist.  The band is now the
+    signed field the wire actually carries, and the single shared predicate
+    in ``mob_identity_sign`` decides -- so a caller that forgot to run
+    ``mob_identity_sign.decode_wire_identity`` on an inbound value is
+    refused HERE, loudly, instead of quietly missing.
+    """
+    identity = _require_int(value, label, -(2 ** 63), 2 ** 63 - 1)
+    if not mob_identity_sign.is_targetable_identity(identity):
         raise MobCombatContractError(
-            REFUSE_IDENTITY_NOT_POSITIVE, "%s must be positive" % label)
+            REFUSE_IDENTITY_NOT_POSITIVE,
+            "%s must be a drawable identity in the signed wire band" % label)
     return identity
 
 
@@ -2896,8 +2913,25 @@ def attack_from_observed_action(
         raise MobCombatContractError(
             REFUSE_ACTION_FIELDS_MALFORMED,
             "action fields carry no target identity at field_qword_20")
+    # R4 beat 0 (COO-DECISION 20260908 14:41): ``action_fields`` is whatever
+    # the frozen inbound parser produced, and every one of those reads the
+    # identity with ``struct.unpack('<Q', ...)``.  Decoded HERE rather than
+    # by the caller, because this function reaches back into
+    # ``action_fields`` itself: a caller that decoded the value for its own
+    # guard and then handed the dict on would have left ONE NUMBER WITH TWO
+    # MEANINGS, which is the exact shape of the bug beat 0 is paying off.
+    # One dispenser for the whole cycle -- the owner's words in the R4
+    # order -- means this module reads the field through the same decoder
+    # the composer wrote it with, and nowhere else.
     target = _require_identity(
-        action_fields["field_qword_20"], "target identity")
+        mob_identity_sign.decode_wire_identity(
+            _require_int(
+                action_fields["field_qword_20"], "target identity",
+                0, mob_identity_sign.WIRE_IDENTITY_MASK,
+            )
+        ),
+        "target identity",
+    )
     mobs = field_mobs.load_roster() if roster is None else roster
     for mob in mobs:
         if mob.actor_identity == target:
