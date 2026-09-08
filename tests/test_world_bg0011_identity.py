@@ -71,7 +71,10 @@ class Bg0011TableShape(unittest.TestCase):
                 self.assertTrue(row.outfit.isascii() and row.outfit)
                 self.assertTrue(row.name.isascii() and row.name)
                 self.assertTrue(row.title.isascii())
-                self.assertNotIn(";", row.outfit)
+                # ROUND 2a2jqp: a ';' is no longer a defect (the cell
+                # ships whole); an EMPTY token still is.
+                self.assertTrue(
+                    all(token for token in row.outfit.split(";")))
                 self.assertGreaterEqual(row.max_hp, 1)
 
     def test_every_shipped_row_is_cp874_encodable(self) -> None:
@@ -132,13 +135,16 @@ class Bg0011TableShape(unittest.TestCase):
         for row in identity.IDENTITIES.values():
             self.assertGreater(row.cline_row_id, 0)
 
-    def test_multi_variant_outfits_ship_their_first_variant(self) -> None:
+    def test_multi_variant_outfits_ship_the_whole_cell(self) -> None:
         self.assertEqual(len(identity.MULTI_VARIANT_OUTFITS), 7)
         by_n_id = {row.mobs_n_id: row for row in identity.IDENTITIES.values()}
         for n_id, whole in identity.MULTI_VARIANT_OUTFITS.items():
             with self.subTest(n_id=n_id):
                 self.assertIn(";", whole)
-                self.assertEqual(by_n_id[n_id].outfit, whole.split(";")[0])
+                # ROUND 2a2jqp: ~~the first token~~ -> the WHOLE cell
+                # (COO-DECISION 2026-09-08 13:41, PANYA `1313`,
+                # `RE-296`: the client tokenises the cell itself).
+                self.assertEqual(by_n_id[n_id].outfit, whole)
         affected = [p for p in identity.shippable_placements()
                     if p.n_id in identity.MULTI_VARIANT_OUTFITS]
         # Measured, not estimated: 27 of 51 shippable placements.

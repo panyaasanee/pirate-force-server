@@ -576,6 +576,7 @@
 # shape as the lines above: src/tests/scenarios are allow-listed wholesale, so
 # only the tool needs its own line here.
 !/tools/pf_mine_scene_mob_roster.py
+!/tools/pf_regen_lane_a_outfit_cells.py
 
 # LANE-B round g627j0 (BUILD-006 / M5): the generator behind
 # src/pirateforce_foundation/field_drop_tables.py.  Allow-listed for the same

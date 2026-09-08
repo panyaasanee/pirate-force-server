@@ -333,10 +333,10 @@ _RESOLVED_ROWS = (
     (9, 60358, 891, 'P_MALE_014_000_ARNO', 'Arnaud', 'Devil Trainers', 10, 0, 421, 2),
     (10, 60359, 892, 'P_MALE_014_000_ARNO', 'Arnaud', 'Devil Trainers', 10, 0, 421, 2),
     (11, 60360, 893, 'M014_000_001_N', 'Lightning Enchanted Generator', '', 150, 0, 616267, 7),
-    (12, 60361, 894, 'P_FEMALE_001_000_N', 'Rookie Recruit', '', 150, 0, 616267, 7),
+    (12, 60361, 894, 'P_FEMALE_001_000_N;P_FEMALE_002_000_MIX;P_FEMALE_004_000_N', 'Rookie Recruit', '', 150, 0, 616267, 7),
     (13, 60362, 895, 'M005_000_004_SP1', 'Deer', '', 10, 0, 421, 2),
     (14, 60363, 896, 'M000_000_000_SP1', 'Alienation Wolf', '', 10, 0, 421, 1),
-    (16, 60365, 898, 'P_MALE_004_000_N', 'Passers Soldier', '', 10, 0, 421, 2),
+    (16, 60365, 898, 'P_MALE_004_000_N;P_MALE_002_000_SP1;P_MALE_001_000_ROLANCE', 'Passers Soldier', '', 10, 0, 421, 2),
     (17, 60366, 900, 'M005_000_004_SP3', 'Kindly Deer', '', 10, 0, 421, 2),
     (19, 60368, 906, 'M073_000_000_SP3', 'Hande', 'Support Troops', 10, 0, 421, 2),
 )
@@ -532,9 +532,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg4001IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg4001IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg4001IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)
