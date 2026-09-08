@@ -369,9 +369,21 @@ class TheGroundDropDoorIsExactlyWhatWasOrderedTests(unittest.TestCase):
     #: DB-ground-drops-need-a-taken-marker.md` -- the read-half unblock for
     #: `mob_ground_persistence.restore_scene_ground`, which was refusing by
     #: name (`REFUSE_TAKEN_DOOR_IS_ABSENT`) until both existed.
+    #: WIDENED IN ROUND `kh0ukv`, AND HERE IS THE "WHY" THE MESSAGE BELOW
+    #: DEMANDS BE READ FIRST.  Neither new name is a new ground-drop DOOR:
+    #: `_require_ground_drop_key` is the argument check lifted out of
+    #: `mark_ground_drop_taken` so the atomic door refuses the same pairs by
+    #: the same names (it touches no table at all -- the table scan below is
+    #: what holds that line, not this name list), and
+    #: `commit_pickup_taking_the_drop_off_the_ground` writes the ground table
+    #: only THROUGH `mark_ground_drop_taken`, which is still the one and only
+    #: setter of `taken_at`.  The COO-DECISION 20260903_1843 count -- how
+    #: many methods may WRITE this ledger -- is unchanged at two.
     EXPECTED_METHOD_HITS = frozenset({
         "commit_ground_drop", "list_ground_drops_for_scene",
         "mark_ground_drop_taken", "list_ground_drops_still_on_the_ground",
+        "_require_ground_drop_key",
+        "commit_pickup_taking_the_drop_off_the_ground",
     })
 
     #: Matches across line breaks and arbitrary whitespace between the
