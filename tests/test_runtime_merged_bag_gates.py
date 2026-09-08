@@ -425,6 +425,109 @@ class MergedBagGateTests(unittest.TestCase):
             "item_move_hypothesis_committed_unknown_state_no_reply", source
         )
 
+    # ------------------------------------------------------------------
+    # what pf-adversary measured on THIS branch, paid in the same round
+
+    def test_a_session_with_no_backpack_refuses_instead_of_raising(self):
+        """D-A HIGH, this round's own: --scene-load boots without a bag.
+
+        ``ReadOnlyFoundationSession.select_and_start`` sets ``selected`` and
+        leaves ``backpack`` at None, and this dispatch has no scenario gate.
+        Asking ``can_merge_v111`` ahead of the repository try turned what
+        used to be an absorbed refusal into an ``AttributeError`` leaving
+        ``dispatch()`` -- and an exception out of ``dispatch()`` unwinds past
+        the frozen listener's accept loop, which is the whole hazard this
+        round exists to remove.
+        """
+        state, character = self._state("no-bag")
+        state.foundation.backpack = None
+        actions = state.dispatch(self.legacy.parse_outer(V111_MERGE_REQUEST_PC))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.stack_merge_count, 0)
+        self.assertEqual(
+            len([e for e in state.events
+                 if e.startswith(
+                     "foundation_v111_merge_unusable_backpack_no_reply")]),
+            1,
+        )
+        # The row is untouched: nothing was written on the way to refusing.
+        self.assertIn(3, [row[0] for row in self._rows(character.id)])
+
+    def test_a_merge_that_would_land_off_the_commanded_slot_is_refused(self):
+        """D-E, this round's own: the command names slot 0, nothing checked it.
+
+        ``is_exact_merge_request`` pins the request to
+        ``V111_MERGE_FIELDS = (4, 0, 3)`` -- operation 4, destination slot 0,
+        identity 3.  A bag holding identity 1 at slot 5 merges into slot 5,
+        which is not what was asked for.  ``origin/main`` refused it by
+        accident, because its frozen post-state carried slot 0; deriving
+        removed the accident, so the check is now explicit.
+        """
+        state, character = self._state("wrong-slot")
+        with self.store.connect() as db:
+            db.execute(
+                "UPDATE character_backpack_items SET slot=5 "
+                "WHERE character_id=? AND item_identity=1",
+                (character.id,),
+            )
+        state.foundation.close_connection()
+        off_slot = replace(
+            INITIAL_BACKPACK,
+            items=tuple(
+                replace(item, slot=5) if item.identity == 1 else item
+                for item in INITIAL_BACKPACK.items
+            ),
+        )
+        with mock.patch.object(
+            inventory, "STARTING_BACKPACKS", (INITIAL_BACKPACK, off_slot)
+        ):
+            # The bag really can merge -- this is not a can_merge_v111
+            # refusal wearing a different hat.
+            self.assertTrue(inventory.can_merge_v111(off_slot))
+            reloaded, same = self._state("wrong-slot", create=False)
+            self.assertEqual(reloaded.foundation.backpack, off_slot)
+            actions = reloaded.dispatch(
+                self.legacy.parse_outer(V111_MERGE_REQUEST_PC)
+            )
+        self.assertEqual(actions, [])
+        self.assertEqual(reloaded.stack_merge_count, 0)
+        self.assertIn(
+            "foundation_v111_merge_post_state_is_not_the_command_"
+            "no_reply_slot5_qty2",
+            reloaded.events,
+        )
+        # Layer two: nothing was written, identity 3 is still on the row.
+        self.assertIn(3, [row[0] for row in self._rows(character.id)])
+
+    def test_the_hyp008_gate_drops_the_reply_it_used_to_raise_on(self):
+        """D-C, this round's own: the D2 deliverable had no behavioural test.
+
+        Deleting the whole replacement gate left 163 tests green -- only a
+        grep of ``runtime.py``'s source text noticed, and a source pin
+        cannot tell a correct branch from an unreachable one.  This reaches
+        it the same way the merge gate's own test does: let the row commit,
+        then leave memory holding a bag that is not the commanded post-state.
+        """
+        state, character = self._merged_state("hyp008", hypothesis=True)
+        session = state.foundation
+        original_move = session.move_hypothesized_v111_slot2
+
+        def move():
+            applied = original_move()
+            session.backpack = MERGED_V111_BACKPACK
+            return applied
+
+        session.move_hypothesized_v111_slot2 = move
+        actions = state.dispatch(self.legacy.parse_outer(
+            ITEM_MOVE_CAPTURE_REQUEST_PC
+        ))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.item_move_hypothesis_count, 0)
+        self.assertIn(
+            "item_move_hypothesis_committed_unknown_state_no_reply",
+            state.events,
+        )
+
     def test_runtime_binds_no_copy_of_the_single_merged_bag(self):
         """The D2 shape, pinned one layer up.
 

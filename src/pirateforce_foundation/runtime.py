@@ -2092,7 +2092,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # legacy response.  No successful bytes are queued unless the
             # later repository call commits exactly this post-state.
             before = self.foundation.backpack
-            if not inventory.can_merge_v111(before):
+            try:
+                mergeable = inventory.can_merge_v111(before)
+            except Exception as exc:
+                # pf-adversary D-A on this branch, HIGH, measured: a session
+                # that never loaded a Backpack.  ReadOnlyFoundationSession
+                # (session.py, installed as the session_factory whenever
+                # app.py is given --scene-load) sets `selected` and leaves
+                # `backpack` at None, and this dispatch has no scenario gate.
+                # The old code handed that None to merge_v111_stack() INSIDE
+                # the try below, where the session's own PermissionError was
+                # absorbed; can_merge_v111 catches only ValueError, so moving
+                # the question ahead of that try turned a refusal into an
+                # AttributeError out of dispatch() -- the exact shape this
+                # round exists to remove, relocated from after the write to
+                # before it.  Absorb it here, name the cause, write nothing.
+                self.events.append(
+                    f"foundation_v111_merge_unusable_backpack_no_reply_{exc!r}"
+                )
+                return []
+            if not mergeable:
                 # No mergeable pair means no post-state to derive, so there
                 # is nothing to write and nothing to answer.  The
                 # exact-envelope check above proves the REQUEST is the V111
@@ -2116,17 +2135,44 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             merged_row = next(
                 item for item in expected_after.items if item.identity == 1
             )
-            # No try/except around the composer ON PURPOSE.  Every input that
-            # reaches here already satisfies its argument checks (the summed
-            # quantity is at least 2, and identity 3 is not identity 1), so
-            # the only exception it can raise is its own drift guard --
-            # "generic item-merge response drifted from the V111 golden" --
-            # which means the frozen golden and the derivation disagree.
-            # That is a build-level fault, it happens BEFORE any write, and
-            # the pre-existing contract for a builder failure here is to
-            # propagate (test_wrong_sequence_builder_and_repository_failures_
-            # do_not_mutate pins it).  Swallowing it would hide exactly the
-            # canary this round installed.
+            # The two things the COMMAND says, asked of the state the write
+            # would produce.  pf-adversary D-B and D-E on this branch, both
+            # measured, both this patch's own:
+            #
+            # * D-E: `is_exact_merge_request` pins the request to
+            #   V111_MERGE_FIELDS = (op 4, destination slot 0, identity 3),
+            #   and NOTHING anywhere compared that destination against where
+            #   the merge actually landed.  A bag holding identity 1 at slot
+            #   5 committed into slot 5, replied with slot 5, and reported
+            #   success.  origin/main refused that bag by accident -- its
+            #   frozen post-state carried slot 0 -- and deriving removed the
+            #   accident without replacing it.  This is the replacement.
+            # * D-B: can_merge_v111 admits any total in the u16 range,
+            #   including 0 and 1, and the composer refuses a merged
+            #   quantity below 2 with a ValueError.  With the composer's
+            #   try/except gone (deliberately, so its drift guard stays
+            #   loud) that ValueError would leave dispatch(). Not reachable
+            #   today -- no write path produces a quantity-0 row -- but the
+            #   comment that used to stand here asserted it could not happen
+            #   at all, and that was measured false.
+            if (
+                merged_row.slot != inventory.V111_MERGE_FIELDS[1]
+                or merged_row.quantity < 2
+            ):
+                self.events.append(
+                    "foundation_v111_merge_post_state_is_not_the_command_"
+                    f"no_reply_slot{merged_row.slot}_qty{merged_row.quantity}"
+                )
+                return []
+            # No try/except around the composer ON PURPOSE.  With the two
+            # checks above standing, the only exception it can still raise is
+            # its own drift guard -- "generic item-merge response drifted
+            # from the V111 golden" -- which means the frozen golden and the
+            # derivation disagree.  That is a build-level fault, it happens
+            # BEFORE any write, and the pre-existing contract for a builder
+            # failure here is to propagate (test_wrong_sequence_builder_and_
+            # repository_failures_do_not_mutate pins it).  Swallowing it
+            # would hide exactly the canary this round installed.
             pc, frame = make_item_merge_delta_response(legacy, merged_row, 3)
             try:
                 applied = self.foundation.merge_v111_stack()
