@@ -3898,6 +3898,92 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             )
             return actions
 
+        def _skill_list_login_action(self, legacy):
+            """SKILL-LIST-AT-LOGIN-001: the action, or ``None`` and a reason.
+
+            Split out of the START_GAME_REQ handler by pf-adversary D4, which
+            is also the finding this docstring is mostly about.
+
+            EVERY EXCEPTION CLASS, not just the module's own.  The seam used
+            to catch ``SkillListAtLoginError`` alone, on the module's stated
+            contract that it raises nothing else.  That contract covers what
+            the module DECIDES; it does not cover what the store does
+            underneath it.  ``read_character_skill_ids`` translates
+            ``KeyError`` and ``TypeError`` -- adversary made
+            ``list_character_skills`` raise ``sqlite3.OperationalError
+            ("database is locked")``, dispatched a real ``StartGameReq``, and
+            watched it leave ``dispatch()`` entirely.  v141 wraps the
+            per-connection loop in ``try``/``finally`` with no ``except``, so
+            the thread unwinds and the client parks on "connecting" -- and
+            because this runs BEFORE the action list is built, a locked
+            database in the SKILL LIST would have cost the player their
+            START_GAME_RES and their teleport too.  The module's own offline
+            route already catches ``sqlite3.DatabaseError`` around the
+            identical call; the console command was hardened and the login
+            path was not, which is the asymmetry that made this a bug rather
+            than a judgement call.
+
+            So: a broad ``except`` with a NAMED, class-tagged event, and the
+            login continues without a skill frame.  A skill window is worth
+            less than a login.
+
+            EVERY BRANCH PRINTS (D3).  Events reach the console only under
+            ``--export-events``; this seam is on for the flagless boot, where
+            a refusal was previously visible only as the absence of a line
+            the operator would have to know to look for.
+            """
+            import sqlite3      # noqa: F401 - named in the comment below
+
+            try:
+                skill_pc, skill_frame = (
+                    skill_list_at_login.login_skill_list_response(
+                        legacy,
+                        self.foundation.lifecycle.store,
+                        self.foundation.selected.id,
+                    )
+                )
+            except skill_list_at_login.SkillListAtLoginError as error:
+                # The module's own contract: one class, one machine-readable
+                # `.reason`.  NOT `args[0]`, which is the human sentence --
+                # that shipped once and put a whole paragraph, spaces and
+                # all, into an event list other lanes match by equality.
+                self.events.append(
+                    f"skill_list_at_login_refused_{error.reason}"
+                )
+                print(
+                    "SKILL_LIST_AT_LOGIN refused=1 reason=%s" % (error.reason,)
+                )
+                return None
+            except Exception as error:      # noqa: BLE001 - see the docstring
+                # Deliberately broad, deliberately last, and it does NOT
+                # swallow quietly: the class name goes in the event and on
+                # the console, so an operator gets a bug report rather than
+                # an empty skill window with no explanation.  `sqlite3` is
+                # the measured case; the class is not narrowed to it because
+                # the point is that this seam does not get to decide which
+                # failures the store is allowed to have.
+                self.events.append(
+                    "skill_list_at_login_failed_%s" % (type(error).__name__,)
+                )
+                print(
+                    "SKILL_LIST_AT_LOGIN failed=1 error=%s"
+                    % (type(error).__name__,)
+                )
+                return None
+            # The trailing byte is NOT re-derived here.  Reaching this line
+            # already means the module decoded its own composed payload back
+            # and measured a trailing 0 -- anything else raises
+            # REFUSE_TRAILING_BYTE_LOCKS_WALKING above.  A second copy of that
+            # measurement here would need the record count, which this seam
+            # does not hold, and a guessed count is how a token comes to
+            # report a byte the frame does not carry.
+            self.events.append("skill_list_at_login_sent")
+            print(
+                "SKILL_LIST_AT_LOGIN sent=1 cid=%d frame_bytes=%d"
+                % (self.foundation.selected.id, len(skill_frame))
+            )
+            return ("SKILL_LIST_AT_LOGIN", skill_pc, skill_frame, 0.0)
+
         def _npc_hostile_start_game_response(self, pc, frame, position=None):
             """The entry half of HYP-PF-027: the SCENE-005 player faction.
 
@@ -10793,34 +10879,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # into COO-DECISION 20260908_1541 which moved this seam to
                     # LANE-CS and ordered it wired with the trailing byte 0).
                     #
-                    # ALWAYS ON, no scenario flag, exactly like
-                    # CORE-REQUEST-006's GM frame above: the owner sat in
-                    # front of a production boot on 2026-09-07, watched
-                    # `CHARACTER_STARTING_SKILLS cid=1 written
-                    # skill_ids=(111, 40000, 99, 110)` print, and both skill
-                    # tabs stayed empty.  The rows were in the database and
-                    # nothing read them back onto the wire.  This is the read
-                    # half, and a flag on it would ship the same empty window.
+                    # NO SCENARIO FLAG, like CORE-REQUEST-006's GM frame
+                    # above: the owner sat in front of a production boot on
+                    # 2026-09-07, watched `CHARACTER_STARTING_SKILLS cid=1
+                    # written skill_ids=(111, 40000, 99, 110)` print, and both
+                    # skill tabs stayed empty.  The rows were in the database
+                    # and nothing read them back onto the wire.  This is the
+                    # read half, and a scenario flag on it would ship the same
+                    # empty window.  It IS gated on the lane's own
+                    # `production_allowed` -- see below, that is a kill
+                    # switch, not an opt-in.
                     #
-                    # WHY THIS IS NOT THE WALK-LOCK.  GT-249 (R312, attended)
-                    # ended with a client that could not walk until relog
-                    # after this vital's six-frame sweep.  GT-276 (PASS,
-                    # R323C, 2026-09-07T21:33+07:00) isolated the cause to ONE
-                    # BYTE: steps carrying trailing u8 == 1 lock walking,
-                    # steps carrying trailing u8 == 0 walk (record count made
-                    # no difference; measured at counts 0, 1 and 3).  The
-                    # module refuses to hand back a payload whose trailing
-                    # byte it measures as anything but 0 -- that is a raise on
-                    # the composed bytes, not a constant it prints -- so the
-                    # frame that reaches this line is a frame R323C measured
-                    # as walkable.  What R323C did NOT re-boot is count 4 at
-                    # trailing 0 ("step 6 not booted per ticket"): that is
-                    # GT-249's own step 6, the step that rendered 3 of 4 ids,
-                    # and in R312 it rode in a sweep that also carried the
-                    # trailing-1 steps -- so no run has ever measured walking
-                    # after that step alone, and every character alive today
-                    # has exactly 4 rows.  GT-307 is the attended ticket for
-                    # that gap and this seam is its build precondition.
+                    # WHAT R323C MEASURED, AND WHAT IT DID NOT.  GT-249 (R312,
+                    # attended) ended with a client that could not walk until
+                    # relog after this vital's six-frame sweep.  GT-276 (PASS,
+                    # R323C, 2026-09-07T21:33+07:00) booted five frames
+                    # carrying DUMMY records at counts 0, 1 and 3, and found
+                    # trailing u8 == 1 locks walking while == 0 walks; record
+                    # count made no difference across those three.  So the
+                    # frame this seam sends carries A TRAILING BYTE MATCHING
+                    # THE ONES R323C MEASURED AS WALKABLE -- that is a claim
+                    # about one byte, and it is the only claim available.
+                    # pf-adversary D5 caught the earlier wording here, "a
+                    # frame R323C measured as walkable", which is a claim
+                    # about a frame nobody booted.
+                    #
+                    # WHAT NOBODY HAS BOOTED, kept next to the code that
+                    # does it: count 4 at trailing 0 with REAL ids.  The
+                    # R323C letter's own table row 6 reads "not booted" and its
+                    # nonclaims say the same.  Every class starts with exactly
+                    # 4 skills, so EVERY production login under this seam is
+                    # that unbooted shape.  GT-307 is the attended ticket for
+                    # exactly that, this seam is its build precondition, and
+                    # the flag below is what an operator turns off if GT-307
+                    # comes back badly.
                     #
                     # RIDES ALONGSIDE, like gm_state_action: appended to the
                     # same action list below.  The frozen START_GAME_RES and
@@ -10847,49 +10939,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # to whoever counts refusals (mob_loot.py states the rule;
                     # the guard-free `self.foundation.selected.id` below is
                     # the same call being made for the same reason).
-                    try:
-                        skill_pc, skill_frame = (
-                            skill_list_at_login.login_skill_list_response(
-                                legacy,
-                                self.foundation.lifecycle.store,
-                                self.foundation.selected.id,
-                            )
-                        )
-                    except skill_list_at_login.SkillListAtLoginError as error:
-                        # One except, one named reason, by that module's own
-                        # contract: a character whose rows cannot answer gets
-                        # a login with no skill frame rather than a login that
-                        # dies inside this thread.
-                        #
-                        # `.reason`, NOT `args[0]`.  This read `args[0]` until
-                        # the dispatcher test below was written, and args[0]
-                        # is the HUMAN SENTENCE -- the event came out as
-                        # `skill_list_at_login_refused_character 1 has no rows
-                        # in character_skills; sending a count-0 frame would
-                        # assert...`, a whole paragraph with spaces in an
-                        # event list that other lanes match on by equality.
-                        # The class carries the machine-readable constant on
-                        # `.reason` and says so in its own docstring.
+                    #
+                    # THE FLAG IS READ HERE, and pf-adversary D1 is why this
+                    # line exists.  The first draft flipped
+                    # `production_allowed` to True and then never asked it,
+                    # so the flag was decorative: an operator who watched
+                    # players stop walking and set it back to False would
+                    # have changed nothing, and reverting would have meant
+                    # editing this file and redeploying.  That is not a
+                    # theoretical worry for THIS frame -- the only escape
+                    # GT-249 ever recorded from its walk-lock was a relog,
+                    # and a relog is exactly what re-sends this.  Same shape
+                    # as `logout_dialog_open_hypothesis.production_allowed`
+                    # further up this file.
+                    #
+                    # THE CONSOLE LINE IS NOT OPTIONAL EITHER (D3).  Events
+                    # reach the console only under `--export-events`, which a
+                    # normal boot does not pass, so on the boot this seam is
+                    # "always on" for, a refusal was previously visible as
+                    # the ABSENCE of a line -- the operator would see the
+                    # write half print `CHARACTER_STARTING_SKILLS ... written`
+                    # and nothing at all from the read half.  Every branch
+                    # below prints, refusals included.
+                    if not skill_list_at_login.production_allowed:
                         self.events.append(
-                            f"skill_list_at_login_refused_{error.reason}"
+                            "skill_list_at_login_withheld_not_production_"
+                            "allowed"
+                        )
+                        print(
+                            "SKILL_LIST_AT_LOGIN withheld=1 "
+                            "reason=production_allowed_is_false"
                         )
                     else:
-                        # The trailing byte is NOT re-derived here.  Reaching
-                        # this line already means the module decoded its own
-                        # composed payload back and measured a trailing 0 --
-                        # anything else raises REFUSE_TRAILING_BYTE_LOCKS_
-                        # WALKING above and lands in the except.  A second
-                        # copy of that measurement in this file would need
-                        # the record count, which this seam does not hold,
-                        # and a count guessed here is how a token comes to
-                        # report a byte the frame does not carry (the D3
-                        # defect that module's own docstring records).
-                        skill_list_action = (
-                            "SKILL_LIST_AT_LOGIN", skill_pc, skill_frame, 0.0,
-                        )
-                        self.events.append(
-                            "skill_list_at_login_sent_%d_bytes"
-                            % (len(skill_frame),)
+                        skill_list_action = self._skill_list_login_action(
+                            legacy,
                         )
                     # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING
                     # step 0, "AT CHARACTER SELECT": claim this character's

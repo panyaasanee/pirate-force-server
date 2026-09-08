@@ -16,14 +16,20 @@ What these tests prove
   * a character with no rows gets a refusal, never a count-0 frame;
   * the composed bytes are the GT-050-proven body and the frozen envelope,
     asserted by decoding them back with the owning module's own decoder;
-  * the module is not wired: ``callers_in_src=0`` is MEASURED here by grepping
-    every sibling module, so the token cannot go on saying it once it is false.
+  * ``callers_in_src`` is MEASURED here by grepping every sibling module, so
+    the token cannot go on saying a number once it is false.  It said 0 for
+    three rounds and says 1 since round `ixbs2f` wired the seam;
+  * and, since `ixbs2f`, that a REAL ``StartGameReq`` through the REAL
+    dispatcher comes back carrying the frame -- see the last class in this
+    file, which is the only kind of test that could have caught three rounds
+    of a green module nothing called.
 
 NOT tested here, because it is not claimed: that any client renders any of
 this (GT-249 says 3 of 4 ids rendered from a TRIGGER, never from a login);
 that a login is the right moment to send it; or that the movement regression
-GT-249 recorded is absent -- the attended ticket filed with this round asks
-exactly that, and ``production_allowed`` stays ``False`` until it answers.
+GT-249 recorded is absent.  ``GT-307`` is the attended ticket for all three,
+and `production_allowed` being True is not an answer to any of them -- it is
+a kill switch that an operator can put back, which is a different thing.
 """
 from __future__ import annotations
 
@@ -1246,9 +1252,12 @@ class TheLoginPathActuallySendsItTests(unittest.TestCase):
         )
         self.assertEqual(expected_pc, pc)
         self.assertEqual(expected_frame, frame)
-        self.assertIn(
-            "skill_list_at_login_sent_%d_bytes" % len(frame), state.events,
-        )
+        # A FIXED event name, not one with the byte count baked into it:
+        # pf-adversary D8 pointed out that the same commit arguing for
+        # `.reason` over `args[0]` (because other lanes match this list by
+        # equality) then put a varying number in the name.  The count is on
+        # the console line instead, where a varying number belongs.
+        self.assertIn("skill_list_at_login_sent", state.events)
 
     def test_the_byte_that_locks_walking_is_zero_on_what_the_login_sent(self):
         """R323C: trailing u8 == 1 locks walking, == 0 walks.
@@ -1352,6 +1361,112 @@ class TheLoginPathActuallySendsItTests(unittest.TestCase):
             % skill_list_at_login.REFUSE_NO_SKILL_ROWS,
             state.events,
         )
+
+    def test_the_flag_is_a_real_kill_switch_not_a_decoration(self):
+        """pf-adversary D1, paid in round `ixbs2f`.
+
+        The first draft flipped `production_allowed` to True and then never
+        read it: the seam called the module unconditionally, and the ONLY
+        consumer of that flag in the whole tree was a test asserting it was
+        True.  So an operator who watched players stop walking and set it
+        back to False would have changed nothing, and backing the frame out
+        would have meant editing `runtime.py` and redeploying.
+
+        That is not hypothetical for this frame in particular: the only
+        escape GT-249 ever recorded from its walk-lock was a relog, and a
+        relog is what re-sends this.  A feature whose failure mode is
+        "nobody can move" needs a switch that is not a code change.
+        """
+        state, character = self._login()
+        with mock.patch.object(
+            skill_list_at_login, "production_allowed", False,
+        ):
+            actions = self._start(state, character)
+        self.assertNotIn(
+            "SKILL_LIST_AT_LOGIN", [action[0] for action in actions],
+        )
+        self.assertIn(
+            "skill_list_at_login_withheld_not_production_allowed",
+            state.events,
+        )
+        # ...and the rest of the login is untouched: the switch withholds one
+        # frame, it does not break the login it rides on.
+        labels = [action[0] for action in actions]
+        self.assertTrue([x for x in labels if "START_GAME" in x], labels)
+        self.assertTrue([x for x in labels if "TELEPORT" in x], labels)
+
+    def test_a_store_error_costs_the_skill_frame_and_nothing_else(self):
+        """pf-adversary D4, paid in round `ixbs2f`, with adversary's own input.
+
+        The seam caught `SkillListAtLoginError` alone, on the module's
+        contract that it raises nothing else.  That contract covers what the
+        MODULE decides, not what the store does underneath it: adversary made
+        `list_character_skills` raise `sqlite3.OperationalError("database is
+        locked")` and watched it leave `dispatch()` entirely.  v141 wraps the
+        per-connection loop in try/finally with no except, so the thread
+        unwinds and the client parks on "connecting" -- and because the seam
+        runs BEFORE the action list is built, a locked database in the SKILL
+        LIST cost the player their START_GAME_RES and their teleport too.
+
+        The assertion that matters is the last two: the login SURVIVES.
+        """
+        state, character = self._login()
+
+        def locked(self, cid):
+            raise sqlite3.OperationalError("database is locked")
+
+        with mock.patch.object(SQLiteStore, "list_character_skills", locked):
+            actions = self._start(state, character)
+        self.assertNotIn(
+            "SKILL_LIST_AT_LOGIN", [action[0] for action in actions],
+        )
+        # Named by CLASS, so the operator gets a bug report and not an empty
+        # window with no explanation.
+        self.assertIn(
+            "skill_list_at_login_failed_OperationalError", state.events,
+        )
+        labels = [action[0] for action in actions]
+        self.assertTrue([x for x in labels if "START_GAME" in x], labels)
+        self.assertTrue([x for x in labels if "TELEPORT" in x], labels)
+
+    def test_every_branch_says_something_on_a_flagless_console(self):
+        """pf-adversary D3: events reach the console only under
+        `--export-events`, and this seam is on for the boot that does not
+        pass it.  A refusal used to be visible only as the ABSENCE of a line
+        the operator had to know to look for, while the write half printed
+        `CHARACTER_STARTING_SKILLS ... written` right next to it.
+
+        All three branches are driven, and each has to print.
+        """
+        cases = []
+        state, character = self._login("printuser1")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self._start(state, character)
+        cases.append(("sent", out.getvalue()))
+
+        state, character = self._login("printuser2")
+        with mock.patch.object(
+            SQLiteStore, "list_character_skills", lambda self, cid: (),
+        ), contextlib.redirect_stdout(io.StringIO()) as out:
+            self._start(state, character)
+        cases.append(("refused", out.getvalue()))
+
+        state, character = self._login("printuser3")
+        with mock.patch.object(
+            skill_list_at_login, "production_allowed", False,
+        ), contextlib.redirect_stdout(io.StringIO()) as out:
+            self._start(state, character)
+        cases.append(("withheld", out.getvalue()))
+
+        for name, printed in cases:
+            with self.subTest(branch=name):
+                lines = [
+                    line for line in printed.splitlines()
+                    if line.startswith("SKILL_LIST_AT_LOGIN ")
+                ]
+                self.assertEqual(1, len(lines), printed)
+                # cp874: the bridge console cannot carry anything else.
+                lines[0].encode("cp874")
 
     def test_a_lifecycle_without_a_store_never_reaches_the_seam_at_all(self):
         """Why the seam does NOT guard `lifecycle.store`, measured.

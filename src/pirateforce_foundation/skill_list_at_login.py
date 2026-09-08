@@ -50,16 +50,23 @@ written down instead of left to a future round's judgement.
 **GT-276 answered it.**  PASS, R323C, attended, ``OBSERVER_CONFIRMED``
 2026-09-07T21:33+07:00: the walk-lock is ONE BYTE.  Steps carrying trailing
 u8 == 1 lock walking; steps carrying trailing u8 == 0 walk.  The record count
-made no difference -- counts 0, 1 and 3 were each booted.  R312's session
-locked because the six-frame sweep it rode in contained trailing-1 steps, not
-because this vital reaches a client at all.
+made no difference across those three.  The tester's own proposed reading of
+why R312 locked is that the six-frame sweep it rode in contained trailing-1
+steps; that is in the letter's `proposed status` section and not in its
+`RESULT:` line, so it is recorded here as the tester's reading and not as a
+measured fact (pf-adversary D5 caught the earlier wording, which stated it
+flat and went further than five dummy-record frames can carry).
 
 So the flag is flipped, and these are the things that carry it:
 
   * The refusal is on the BYTES, not on a constant.  ``make_skill_list_response``
     decodes back the payload it just composed and raises
     ``REFUSE_TRAILING_BYTE_LOCKS_WALKING`` unless what it measures is 0, so a
-    frame that leaves this module is a frame R323C measured as walkable.
+    frame that leaves this module CARRIES A TRAILING BYTE MATCHING the ones
+    R323C measured as walkable.  Say it that way and not "a frame R323C
+    measured as walkable" (which this section did say, until pf-adversary D5):
+    R323C booted five frames of DUMMY records at counts 0, 1 and 3.  It never
+    booted this frame.  The claim is about one byte.
   * The owner ordered the seam by hand (PANYA `20260908_1455` item 2.3, "this
     is the piece that is really missing"), and COO-DECISION `20260908_1541`
     moved the seam into this lane's write zone and named the byte: trailing 0,
@@ -460,9 +467,14 @@ def callers_in_src() -> int:
     kill one field to its right; the fix is the same one -- go and look.
 
     NOT AT IMPORT TIME, which is the objection the old docstring raised and
-    which still stands.  This is a function the console entry point calls, in
-    the same breath as ``seam_carrier()`` and by the same rules: a package
-    walk on a boot path would be the thing with no business here.
+    which still stands.  It runs only when somebody asks for the console
+    summary, by the same rule ``seam_carrier()`` follows: a package walk on a
+    boot path would be the thing with no business here.  (An earlier draft of
+    this paragraph said "the console entry point calls it".  It does not --
+    ``main()`` calls ``seam_carrier()`` and ``headless_token()``, and
+    ``describe_skill_list`` has no caller outside ``tests/``.  pf-adversary
+    D6: a sentence about a call site that does not exist, doing the work of
+    answering "is this on a boot path?".)
 
     SUBSTRING, NOT AST, on purpose and unlike ``seam_carrier``.  The question
     here is "does any sibling module mention this module at all", which is the
@@ -471,9 +483,13 @@ def callers_in_src() -> int:
     too, and that is a deliberate over-count: a mention that turns out to be a
     comment costs somebody a look at a diff, while a call this scan cannot see
     costs a token that says nothing sends the frame while something does.
-    Returns 0 rather than raising when the package cannot be walked -- with a
-    caveat named in ``main``'s docstring, since a 0 for that reason and a 0
-    for "genuinely no callers" print the same.
+    Returns 0 rather than raising when the package cannot be walked.  THE
+    CAVEAT, WRITTEN HERE RATHER THAN POINTED AT: a 0 because the directory
+    could not be read and a 0 because nothing names this module print the
+    same digit.  An earlier draft said the caveat was "named in ``main``'s
+    docstring"; it was not written anywhere (pf-adversary D6).  The
+    ``sent_by`` field beside it in the summary is the one that cannot be
+    faked, so read that one first.
     """
     from pathlib import Path
 
@@ -510,15 +526,28 @@ def describe_skill_list(skill_ids: "tuple[int, ...] | list[int]") -> tuple[str, 
            record.record_u16_4, record.record_u32_8)
         for index, record in enumerate(records)
     ]
+    # `sent_by` and a COMPUTED result, not `RESULT=ARMED` as a literal:
+    # pf-adversary D7 deleted the seam's try/except out of `runtime.py`,
+    # left the import and the comments, and this line still read
+    # `callers_in_src=1 ... RESULT=ARMED` on a server that sends nothing --
+    # because a mention in a comment is a "caller" to a substring scan, and
+    # `ARMED` was typed into the format string.  `sent_by` comes from the AST
+    # walk that only a real call node satisfies, and `RESULT` is derived from
+    # it, so the two halves of this line cannot disagree.
+    carrier = seam_carrier()
     lines.append(
         "SKILL_LIST_AT_LOGIN_SUMMARY records=%d trailing=%d "
-        "observed_cap=%d callers_in_src=%d production_allowed=%s RESULT=ARMED"
+        "observed_cap=%d callers_in_src=%d sent_by=%s production_allowed=%s "
+        "RESULT=%s"
         % (
             len(records),
             SKILL_LIST_TRAILING_BYTE,
             OBSERVED_ACCEPTED_RECORD_COUNT,
             callers_in_src(),
+            carrier,
             production_allowed,
+            "ARMED" if (carrier != "module_only" and production_allowed)
+            else "NOT_ARMED",
         )
     )
     return tuple(lines)
