@@ -45,13 +45,16 @@ IDENTITY_RULE = 'cline'
 # whose s_OUTFIT is a variant list is carried here; a module with
 # no OUTFIT_RULE line was mined under the older rule that
 # refused those rows.  visual_preset below is the SINGLE
-# BASENAME the client will load, never the raw cell: RE-296
-# result 2 (2026-09-07T20:53) measured the consumer pushing a
-# literal index 0 at 0x0059AA52, so the first token is the only
-# token any consumer can reach, and COO-DECISION
+# BASENAME this lane sends, never the raw cell: COO-DECISION
 # 2026-09-08T17:42 rules that what goes on the wire is always
 # one basename.  The raw cell is kept beside it in
-# OUTFIT_CELL_FOR_PLACEMENT, which nothing sends.
+# OUTFIT_CELL_FOR_PLACEMENT, which nothing sends.  WHAT IS
+# MEASURED, stated narrowly (pf-adversary D3/D4, round
+# db4o73): RE-296 result 2 read the client tokenising ITS OWN
+# MOBS.s_OUTFIT row and taking index 0.  That is NOT a
+# measurement of what the client does with the wstr THIS
+# server writes at NPCAttr+0x7C - 8 of 13 .avt xrefs are still
+# unwalked - so no row below is a claim that a body draws.
 OUTFIT_RULE = 'any'
 SCENE_CLINE_TYPE = 2
 SOURCE_DIGESTS = {
@@ -180,11 +183,9 @@ SET_NUMBER_FOR_PLACEMENT = {
 }
 
 # The s_OUTFIT CELL each placement's basename was taken from, for the rows
-# where the two differ.  NOTHING PUTS THIS ON THE WIRE.  The client formats
-# what the server sends into ".\\Data\\GC\\V\\%s.avt" and reaches only the
-# first token (RE-296 result 2), so a cell shipped whole names a file that
-# cannot open.  Carried so a reader can see the variant list the table holds
-# without any consumer being able to send it.
+# where the two differ.  NOTHING PUTS THIS ON THE WIRE (COO-DECISION
+# 2026-09-08T17:42: one basename, always).  Carried so a reader can see the
+# variant list the table holds without any consumer being able to send it.
 OUTFIT_CELL_FOR_PLACEMENT = {
     31: 'M001_000_000_N;M001_000_000_SP1',
     32: 'M001_000_000_N;M001_000_000_SP1',

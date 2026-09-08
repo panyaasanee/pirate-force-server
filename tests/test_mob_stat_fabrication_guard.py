@@ -193,9 +193,13 @@ LANE_B_MODULES = (
     # (COO-DECISION 2026-09-08T17:42).  It turns an s_OUTFIT CELL into the
     # single basename the client can actually load and refuses a cell at the
     # two paths that reach the client.  No player stat of any kind: it reads
-    # and returns text, and computes no level, HP or damage number.  Listed
-    # in the same commit as the module, the same reason every other entry on
-    # this tuple gives.
+    # and returns text, and computes no level, HP or damage number.
+    # NOT listed in the same commit as the module, unlike every other entry
+    # on this tuple: the module landed first and made this guard red, and
+    # pf-adversary (D1) caught the correcting commit claiming otherwise.
+    # Written this way because a tuple whose purpose is to be the lane's
+    # second record of what it owns is the last place to leave a sentence
+    # the repository's own history refutes.
     "mob_avatar_basename.py",
     # ROUND gadxq5: the identity-sign law GT-288 set 3 (R324A) measured on
     # the owner's screen -- which side of zero an actor identity has to be

@@ -3,21 +3,24 @@
 ROUND db4o73, executing COO-DECISION 2026-09-08T17:42+07:00 (LANE-B, "the
 first token is correct -- hold #1156 and roll bg0002 back").
 
-WHAT A PLAYER SEES THAT THEY DID NOT SEE YESTERDAY.  Forty of the fifty-two
-monsters this lane ships in Bg0002 -- the scene the owner actually stands in
--- were sent to the client with their MOBS ``s_OUTFIT`` CELL as the avatar
-name, separators and all (``M001_000_000_N;M001_000_000_SP1``).  The client
-formats what it is sent into ``".\\Data\\GC\\V\\%s.avt"``.  A path built from
-a cell names no file that ships.  After this round those forty carry
-``M001_000_000_N`` -- a basename that exists -- so they are monsters with a
-body rather than monsters with a filename.
+WHAT CHANGED ON THE WIRE.  Forty of the fifty-two monsters this lane ships in
+Bg0002 -- the scene the owner actually stands in -- were sent to the client
+with their MOBS ``s_OUTFIT`` CELL as the avatar name, separators and all
+(``M001_000_000_N;M001_000_000_SP1``).  After this round those forty send
+``M001_000_000_N``: one basename, the form this project's own tables and
+LANE-A's identity tables have always carried.
 
-THE MEASUREMENT THIS RESTS ON is not this round's.  ``RE-296`` result 2
-(2026-09-07T20:53, PASS/BOUNDED-POSITIVE) walked to the consumer and read the
-index pushed at ``0x0059AA52`` as a literal ``0``: the first token is the
-only token any consumer can reach, and no caller chooses another.  That is
-why the rule is "send the first token", not "send the cell and let the client
-sort it out".
+WHAT THIS IS NOT (corrected under pf-adversary D3, and written here because
+the first draft of this card got it wrong).  ``RE-296`` result 2
+(2026-09-07T20:53) read the client tokenising ITS OWN ``MOBS.s_OUTFIT`` row
+and taking index 0.  That is a measurement about the client reading its own
+table, NOT about what the client does with the wstr this server writes at
+``NPCAttr+0x7C``; the same result records that 8 of 13 ``.avt`` xrefs were
+never walked.  So nothing here says a body now draws where none drew before.
+The authority for the change is COO-DECISION 2026-09-08T17:42, which rules
+that what goes on the wire is always a single basename; the argument behind
+it is that "first token" is the only reading of a cell this project has
+measured anywhere, while a list is a form no server-side consumer wants.
 
 WHAT IS PINNED HERE, and why each pin is not the same pin twice:
 
@@ -47,6 +50,7 @@ an enemy: that is ``n_RANK`` plus ``n_AI_COMBAT`` and nothing else (PANYA
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 from pathlib import Path
 import sys
@@ -59,6 +63,7 @@ sys.path.insert(0, str(SRC))
 from pirateforce_foundation import field_mob_tables_bg0002  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_avatar_basename  # noqa: E402
+from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 TOOL_PATH = ROOT / "tools" / "pf_mine_scene_mob_roster.py"
 
@@ -281,12 +286,23 @@ class TheGatesRefuseTests(unittest.TestCase):
         # A FieldMob built in code never passes the parser, so the parser's
         # gate alone would not cover this path.  This is the reason there are
         # two gates and not one.
+        #
+        # ROUND db4o73, pf-adversary D2: the first draft of this test called
+        # ``refuse_list_cell`` directly, so deleting the call site inside
+        # ``hostile_npc_attr`` left the whole suite green while the second
+        # gate was gone.  It now composes a real body through the real
+        # function, which is the only thing that pins the CALL SITE rather
+        # than the predicate.
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        clean = field_mobs.load_roster(scene=field_mob_tables_bg0002.SCENE)[0]
+        poisoned = dataclasses.replace(
+            clean, visual_preset="M001_000_000_N;M001_000_000_SP1")
+        # The control: the same monster with its real basename composes.
+        self.assertTrue(field_mobs.hostile_npc_attr(legacy, clean))
         with self.assertRaises(
                 mob_avatar_basename.AvatarCellOnTheWireError) as caught:
-            mob_avatar_basename.refuse_list_cell(
-                "M001_000_000_N;M001_000_000_SP1",
-                what="field monster at placement 31")
-        self.assertIn("placement 31", str(caught.exception))
+            field_mobs.hostile_npc_attr(legacy, poisoned)
+        self.assertIn(str(clean.placement_index), str(caught.exception))
 
     def test_the_gate_does_not_normalise_behind_the_callers_back(self) -> None:
         # Deliberate: a silent trim would leave a stale table shipping for

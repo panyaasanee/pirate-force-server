@@ -1241,15 +1241,12 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
         outfit_cell_block = (
             "\n# The s_OUTFIT CELL each placement's basename was taken from, "
             "for the rows\n"
-            "# where the two differ.  NOTHING PUTS THIS ON THE WIRE.  The "
-            "client formats\n"
-            "# what the server sends into \".\\\\Data\\\\GC\\\\V\\\\%%s.avt\" "
-            "and reaches only the\n"
-            "# first token (RE-296 result 2), so a cell shipped whole names a "
-            "file that\n"
-            "# cannot open.  Carried so a reader can see the variant list "
-            "the table holds\n"
-            "# without any consumer being able to send it.\n"
+            "# where the two differ.  NOTHING PUTS THIS ON THE WIRE "
+            "(COO-DECISION\n"
+            "# 2026-09-08T17:42: one basename, always).  Carried so a "
+            "reader can see the\n"
+            "# variant list the table holds without any consumer being "
+            "able to send it.\n"
             "OUTFIT_CELL_FOR_PLACEMENT = %s\n" % (
                 "{\n%s}" % "".join(
                     "    %d: %s,\n" % (index, ascii(cell))
@@ -1412,13 +1409,16 @@ def render_module(scene: str, roster: list[dict], digests: dict[str, str],
             "# whose s_OUTFIT is a variant list is carried here; a module with\n"
             "# no OUTFIT_RULE line was mined under the older rule that\n"
             "# refused those rows.  visual_preset below is the SINGLE\n"
-            "# BASENAME the client will load, never the raw cell: RE-296\n"
-            "# result 2 (2026-09-07T20:53) measured the consumer pushing a\n"
-            "# literal index 0 at 0x0059AA52, so the first token is the only\n"
-            "# token any consumer can reach, and COO-DECISION\n"
+            "# BASENAME this lane sends, never the raw cell: COO-DECISION\n"
             "# 2026-09-08T17:42 rules that what goes on the wire is always\n"
             "# one basename.  The raw cell is kept beside it in\n"
-            "# OUTFIT_CELL_FOR_PLACEMENT, which nothing sends.\n"
+            "# OUTFIT_CELL_FOR_PLACEMENT, which nothing sends.  WHAT IS\n"
+            "# MEASURED, stated narrowly (pf-adversary D3/D4, round\n"
+            "# db4o73): RE-296 result 2 read the client tokenising ITS OWN\n"
+            "# MOBS.s_OUTFIT row and taking index 0.  That is NOT a\n"
+            "# measurement of what the client does with the wstr THIS\n"
+            "# server writes at NPCAttr+0x7C - 8 of 13 .avt xrefs are still\n"
+            "# unwalked - so no row below is a claim that a body draws.\n"
             "OUTFIT_RULE = %r\n" % (outfit_rule,)
         ),
         "digests": _ascii_dict(digests),
