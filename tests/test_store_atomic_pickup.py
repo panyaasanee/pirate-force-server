@@ -9,6 +9,13 @@ disk -- so the loss survives relog, which is the worst kind of loss there is.
 ``store.commit_pickup_taking_the_drop_off_the_ground`` is the pair as ONE
 transaction; this file measures that the halfway state cannot be reached.
 
+🔴 WHAT IT IS NOT.  All-or-nothing PER ATTEMPT is not exactly-once, and two
+tests here assert the gap as measured (pf-adversary D1/D2): one drop
+delivered twice writes two rows, and two characters delivered one drop both
+get it.  Nothing in the schema binds a bag row to the drop it came from, so
+no ordering inside one transaction can close that; the round that adds the
+binding is the round those two tests go red in.
+
 HOW THE FAILURE IS INJECTED.  Not by mocking the store's own method (that
 would prove the mock rolls back).  The bag half is made to refuse the way it
 really refuses -- the identity counter is moved out from under the caller by
@@ -233,24 +240,89 @@ class AtomicPickupTests(unittest.TestCase):
         self.assertIn("never existed", str(caught.exception))
         self.assertEqual(self._rows(), rows_before)
 
-    def test_a_second_delivery_of_one_drop_does_not_write_a_second_row(self):
-        """LANE-B's letter says pickup can be delivered twice.
+    def test_a_second_delivery_of_one_drop_DOES_write_a_second_row(self):
+        """THE DOOR IS ALL-OR-NOTHING PER ATTEMPT, NOT EXACTLY-ONCE.
 
-        The ground half is idempotent by design, so the SECOND delivery gets
-        past it; the identity check inside the bag half is what refuses, and
-        it must, or one drop becomes two items.
+        The first draft of this test asserted the opposite and was GREEN --
+        by handing the second call back the SAME ``ItemAttrState`` object,
+        whose identity the counter had already moved past.  That green came
+        from a state delta, not from the drop having been taken; pf-adversary
+        (D2, round kh0ukv) named the one-word input change that refutes it,
+        and it is the change this test now makes: re-mint, the way a real
+        re-delivery mints.
+
+        This asserts the DEFECT on purpose.  The ground half is idempotent by
+        design (LANE-B's letter says pickup can be delivered twice) and the
+        bag half's identity check is scoped to one character's counter and
+        cannot see ``drop_key`` at all, so nothing between them is a
+        per-drop delivery record.  When some later round adds one, this test
+        goes red -- and that is the round that gets to claim exactly-once.
         """
         drop = self._put_on_the_ground()
-        item = self._mint()
         self.store.commit_pickup_taking_the_drop_off_the_ground(
-            self.sid, self.character.id, item, SCENE, drop.drop_key,
+            self.sid, self.character.id, self._mint(), SCENE, drop.drop_key,
         )
         after_first = self._rows()
-        with self.assertRaises(ValueError):
-            self.store.commit_pickup_taking_the_drop_off_the_ground(
-                self.sid, self.character.id, item, SCENE, drop.drop_key,
-            )
-        self.assertEqual(self._rows(), after_first)
+        # Re-minted, not the same object: this is what the item lane hands a
+        # second delivery, because place_in_bag reads a bag that has moved.
+        second = self._mint()
+        self.store.commit_pickup_taking_the_drop_off_the_ground(
+            self.sid, self.character.id, second, SCENE, drop.drop_key,
+        )
+        self.assertEqual(len(self._rows()), len(after_first) + 1)
+
+    def test_two_characters_delivered_one_drop_BOTH_get_it(self):
+        """The same defect across characters, which is the worse half.
+
+        `BEGIN IMMEDIATE` serialises the two attempts perfectly and both
+        still win, because the loser is never told it lost: the ground half
+        answers `True` for an already-taken row and the bag half is looking
+        at a different character's counter.  Asserted as measured, so the
+        round that binds a bag row to its drop sees this go red.
+        """
+        drop = self._put_on_the_ground()
+        first = self._mint()
+        self.store.commit_pickup_taking_the_drop_off_the_ground(
+            self.sid, self.character.id, first, SCENE, drop.drop_key,
+        )
+        other_account = self.store.ensure_account("atomic-pickup-two")
+        other_sid = self.store.open_session(other_account)
+        other = self.store.create_character(
+            other_account, "AtomicPickupTwo", "atomicpickuptwo",
+            "fingerprint-atomic-pickup-2",
+            # A distinct actor identity: selectors restart per account, and
+            # the pair is UNIQUE across the table.
+            lambda selector: (b"wire", b"avatar", 0x20000001 + selector, 0),
+            self.home,
+        )
+        self.store.select_character(other_sid, other.selector)
+        bag = self.store.get_backpack(other_sid, other.id)
+        issued = self.store.backpack_issued_through(other_sid, other.id)
+        _, their_item = mob_pickup.place_in_bag(bag, a_drop(0, 1), issued)
+        self.store.commit_pickup_taking_the_drop_off_the_ground(
+            other_sid, other.id, their_item, SCENE, drop.drop_key,
+        )
+        with self._raw() as db:
+            owners = [
+                int(row[0]) for row in db.execute(
+                    "SELECT character_id FROM character_backpack_items "
+                    "WHERE template_id=? AND character_id IN (?,?)",
+                    (ITEM, self.character.id, other.id),
+                )
+            ]
+        self.assertIn(self.character.id, owners)
+        self.assertIn(other.id, owners)
+
+    def test_a_handle_in_autocommit_is_refused_by_the_join(self):
+        """pf-adversary D4: joining a transaction that does not exist.
+
+        An unchecked join accepted an autocommit handle silently, so a call
+        that raised "identity counter changed" had already COMMITTED its row.
+        """
+        with self.assertRaises(ValueError) as caught:
+            with self.store._transaction(sqlite3.connect(self.path)):
+                pass
+        self.assertIn("autocommit", str(caught.exception))
 
     def test_a_session_without_this_character_selected_writes_neither_half(self):
         drop = self._put_on_the_ground()

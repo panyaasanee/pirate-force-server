@@ -507,6 +507,18 @@ class SQLiteStore:
         module anywhere in this file's AST, string constants included.)
         """
         if db is not None:
+            # pf-adversary D4 (round kh0ukv) measured what an UNCHECKED join
+            # costs: a handle in autocommit was accepted silently, so the
+            # counter read and its compare-and-swap straddled no write lock,
+            # and a row was COMMITTED by a call that then raised "identity
+            # counter changed" -- the method whose docstring promises "or
+            # neither" reported failure and wrote the row.  A caller that has
+            # not opened a transaction is not joining one.
+            if not db.in_transaction:
+                raise ValueError(
+                    "db= joins a transaction the caller has already opened; "
+                    "this handle is in autocommit, so nothing would roll back"
+                )
             yield db
             return
         with self.connect() as owned:
@@ -3236,21 +3248,62 @@ class SQLiteStore:
         This door is the pair as ONE transaction.  Either the marker and the
         row are both committed, or SQLite rolls both back and the drop is
         still standing for the player to walk over again.  Nothing about what
-        each half writes changes -- both halves are the existing bodies,
-        called through their `_locked` helpers -- so a caller that keeps using
-        the two separate doors gets exactly what it got before.
+        each half writes changes -- both halves ARE the two public doors,
+        called with this transaction's own handle -- so a caller that keeps
+        using them one at a time gets exactly what it got before.
+
+        🔴 "still standing" is a DATABASE-layer fact and only that
+        (pf-adversary D5).  What a player can click is the in-memory
+        `WorldGround` claim, which this door neither takes nor returns; the
+        wired order in `mob_pickup_request` today is claim -> bag write ->
+        durable marker LAST (best-effort, never raises), which is the
+        opposite of the order this docstring's first paragraph describes.  So
+        the window that exists on main right now is bag-row-committed /
+        marker-missing -- a DUPLICATE after restart, not a loss.  The loss
+        window this door closes is the one the call site would have the day
+        it marks the ground durably before the bag write.
 
         THE ORDER INSIDE IS DELIBERATE: the ground row is marked FIRST.  A
         `drop_key` this scene never had a `commit_ground_drop` for makes
         :meth:`mark_ground_drop_taken` return `False`, and this refuses the
         whole pickup rather than minting a bag row for a drop that never
-        existed -- an item out of nothing is a worse bug than a refused
-        pickup, and the caller with that gap needs to see it.  A drop that was
-        ALREADY taken returns `True` (that door is idempotent on purpose,
-        because LANE-B's letter says pickup can be delivered twice) and is NOT
-        refused here: the identity check inside the bag half is what stops the
-        second delivery from writing a second row, and it refuses by its own
-        name.
+        existed.
+
+        ~~"A drop that was ALREADY taken is not refused here: the identity
+        check inside the bag half is what stops the second delivery from
+        writing a second row"~~ IS STRUCK AS FALSE OF THIS CODE
+        (pf-adversary D1/D2, round kh0ukv, measured both ways).  The identity
+        check compares against ONE CHARACTER'S counter and cannot see
+        `drop_key` at all:
+
+        * two different characters delivered the same `drop_key` BOTH commit,
+          serialised by `BEGIN IMMEDIATE` and both winning, because the loser
+          is never told it lost; and
+        * one character delivering twice commits twice as well, as soon as the
+          second row is RE-MINTED (which is what a real re-delivery does --
+          `place_in_bag` takes the next free slot off a bag that has moved).
+          The refusal only appears when the caller hands back the same
+          `ItemAttrState` object, which is a state delta, not a door.
+
+        SO THIS IS ALL-OR-NOTHING PER ATTEMPT, NOT EXACTLY-ONCE, and the
+        difference is not a detail: nothing in the schema binds a bag row to
+        the drop it came from.  `character_backpack_items` has no `drop_key`
+        and `ground_drops` has no "delivered to", so after this commits
+        NOTHING IN THE DATABASE CAN ANSWER "has this drop already been put in
+        somebody's bag".  A per-character counter cannot answer a question
+        about a drop.  Exactly-once needs one of those two rows to record the
+        other; until it does, no ordering of the halves inside one
+        transaction can get there.  That column is the next round's work and
+        it is NOT claimed here.
+
+        🔴 NOT WIRED, AND DO NOT WIRE IT BLIND (pf-adversary D3).
+        `mob_ground_persistence.restore_scene_ground` records that
+        `persist_generation` has no production caller, so `ground_drops` is
+        EMPTY on a running server: the `False` refusal above would then
+        refuse EVERY pickup, and `mob_pickup_request.POST_TAKE_REFUSALS`
+        treats that refusal as post-take, so the world claim is not returned
+        either and the loot becomes unclickable.  The ledger has to be
+        populated on the kill path BEFORE any call site moves to this door.
 
         Returns the bag as it stands after the row lands, exactly as
         :meth:`commit_acquired_backpack_item` does.
