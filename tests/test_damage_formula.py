@@ -287,14 +287,31 @@ class UnusableTableTests(unittest.TestCase):
         self.assertEqual(raised.exception.args[0], REFUSE_TABLE_UNUSABLE)
         self.assertIn("9", raised.exception.args[1])
 
-    def test_an_empty_table_and_a_table_that_does_not_start_at_one(self):
-        for bad in ({}, {2: 0, 3: 1}):
-            with self.subTest(table=bad):
-                with self.assertRaises(DamageFormulaError) as raised:
-                    AbilityPointTable(bad)
-                self.assertEqual(
-                    raised.exception.args[0], REFUSE_TABLE_UNUSABLE
-                )
+    def test_an_empty_table_is_refused_and_says_it_is_empty(self):
+        with self.assertRaises(DamageFormulaError) as raised:
+            AbilityPointTable({})
+        self.assertEqual(raised.exception.args[0], REFUSE_TABLE_UNUSABLE)
+        self.assertIn("empty", raised.exception.args[1])
+
+    def test_a_table_that_does_not_start_at_one_names_where_it_starts(self):
+        """MEASURED BLIND SPOT, paid here.  This assertion used to check only
+        ``args[0]``, and round ``30piru`` mutation-tested every ``raise`` in
+        ``damage_formula.py`` one at a time: deleting the ``levels[0] != 1``
+        raise left this whole file GREEN (26 passed, 826 subtests) while every
+        other raise site went red.  The reason is that the guard is fully
+        SUBSUMED by the hole check that follows it -- a table starting at 2
+        is missing level 1, so it is also a table with a hole -- so the only
+        thing the earlier branch contributes is the DIAGNOSTIC, and a pin that
+        reads ``args[0]`` alone cannot see it disappear.  Grading the sentence
+        is therefore not decoration here; it is the only thing that can.
+        """
+        with self.assertRaises(DamageFormulaError) as raised:
+            AbilityPointTable({2: 0, 3: 1})
+        self.assertEqual(raised.exception.args[0], REFUSE_TABLE_UNUSABLE)
+        self.assertIn("starts at level 2", raised.exception.args[1])
+        # And the message must be the start-of-table one, not the hole one
+        # the subsuming branch would produce.
+        self.assertNotIn("holes", raised.exception.args[1])
 
     def test_a_grant_that_is_not_a_count_is_refused(self):
         for bad in (-1, 1.5, "2", None, True):

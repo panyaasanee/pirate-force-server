@@ -192,18 +192,27 @@ def suggest_gm_scene_names(
     caller had a match and did not need this), and for a query that is
     neither close to nor contained in any shipped name.  Best match first.
 
-    WHO READS THIS TODAY: NOBODY, and that has to be said first
-    (pf-adversary round `pdf3gh`, D1, MEASURED).  The only live caller is
-    `gm/commands.py::_did_you_mean`, which puts this into a
-    `GmCommandParseError` message -- and the only code in `src/` that
-    catches that exception, `chat_command.py`, discards the message by
-    contract and answers with `refusal_hint`, one of seven fixed sentences
-    that is "NEVER DERIVED FROM WHAT WAS TYPED".  Measured end to end:
-    the console line for `/warp Atlantic` is byte-identical before and
-    after this search existed.  So every number below is a fact about a
-    string the wire path throws away, and none of it is an operator-facing
-    improvement until somebody decides whether a suggestion may be printed
-    at all.  That decision is open and is the next round's first question.
+    ~~WHO READS THIS TODAY: NOBODY~~ IS STRUCK (round `iu5xks`), and what
+    it said is kept because it is why the reader exists.  pf-adversary
+    round `pdf3gh` (D1) MEASURED that this search had no reader at all:
+    `gm/commands.py::_did_you_mean` put it into a `GmCommandParseError`
+    message, and `chat_command.py` -- the only code in `src/` that catches
+    that exception -- discarded the message by contract and answered with
+    one of a fixed set of sentences, so the console line for
+    `/warp Atlantic` was byte-identical before and after this search was
+    written.  The open
+    question that left ("may a suggestion be printed at all") was answered
+    yes by `commands.refusal_hint_for`, which appends this clause to that
+    same fixed sentence.  The rule it had to satisfy first is the one this
+    function was already built for: every character it returns comes out of
+    the pinned table, none out of the query, and every shipped name encodes
+    in the console's codec.  Measured on `origin/main` `ea59ec9` before the
+    change: `usage_chars=46` with no clause at all; on the branch that made
+    it: `usage_chars=129`, carrying TWO names (`'Atlantic Ocean1'` and
+    `'Atlantic-Dark Fog Sea'`).  The token that measured it counted the
+    CLAUSE, not the names in it, so `names_printed=1` in that headless line
+    means "one clause", and this sentence says so rather than let the
+    number be read as a count of names (pf-adversary, round `iu5xks`, D13).
 
     TWO SEARCHES, IN THIS ORDER, because they answer two different people.
     `difflib` answers the operator who typed a whole name and dropped a

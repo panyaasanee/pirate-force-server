@@ -401,15 +401,34 @@ REFUSE_GROUP_UNPAYABLE = "transaction_group_give_side_not_implemented"
 #: and the script says "repaired" (``Player.ShowMessage(824)``, a REAL
 #: method) on screen.  The gate itself was manufacturing a false message.
 #:
-#: ``Player.RemoveItem`` turns that from one script into fifty-seven.
-#: MEASURED on the corpus this round: the take cells of the 56 groups it
-#: opens are read by **91 ``Player.CheckItemNum`` call sites inside
-#: ``*_Check`` entry points**, and ``Player.CheckItemNum`` IS REAL
+#: ``Player.RemoveItem`` turns that from one script into fifty-four.
+#: MEASURED on the corpus: the take cells of the 56 groups it opens are
+#: read by **91 ``Player.CheckItemNum`` call sites inside ``*_Check``
+#: entry points, across 54 scripts** (79 sites in 53 ``Report_Check`` +
+#: 12 sites in 6 ``Accept_Check``).  This said "57 scripts" for two
+#: rounds; 57 is the number of scripts with a ``RemoveItem`` take member,
+#: and three of them (``q_day_business``, ``q_gender_equip1``,
+#: ``q_gender_equip2``) guard that cell in no ``*_Check`` at all
+#: (pf-adversary D6, round ``0ldyk7``).  ``Player.CheckItemNum`` IS REAL
 #: (``player.REAL_METHODS``).  ``CheckItemNum(0, 0)`` asks whether the
 #: player holds at least zero of template id zero and answers TRUE, so
-#: every one of those 57 gather/send quests would have told a player with
+#: every one of those 54 gather/send quests would have told a player with
 #: an empty backpack "you may report this quest" -- and then refused the
 #: reward.  The player would lose the quest and receive nothing.
+#:
+#: WHERE THIS CONSTANT STILL BITES, AFTER ROUND ``0ldyk7``.  Narrower than
+#: the paragraphs above imply, and pf-adversary D7 of that round measured
+#: exactly how narrow: over all 66,048 (row, entry point, column) triples,
+#: there is NOT ONE where this cell gate fires and
+#: :func:`unpayable_group_of_entry_point` does not.  Structurally so -- the
+#: cell gate refuses a NAMED entry point only when it owns an unpayable
+#: group, which is the same condition on which ``ScriptHost.call`` has
+#: already refused the whole entry point.  So through ``call`` with a real
+#: name, this constant is unreachable; the one live path left is
+#: :data:`UNKNOWN_ENTRY_POINT` -- a cell read outside a call -- which is
+#: the fail-closed default and is what makes forgetting to name an entry
+#: point safe rather than silent.  Kept, and kept fail-closed, for that;
+#: not kept because anything reaches it today.
 #:
 #: WHY A NEGATIVE NUMBER AND NOT ``nil``.  ``nil`` is the tempting
 #: answer -- it is Lua's own "there is no value" -- and this round wrote
@@ -502,7 +521,27 @@ def group_state(quest_id: int) -> Tuple[GroupState, ...]:
     return tuple(states)
 
 
-def unpayable_group_for(quest_id: int, column: str) -> Optional[GroupState]:
+#: What a caller names as the running Lua entry point when it does not
+#: know which one is running.  EMPTY STRING, not ``None``, for both
+#: arguments and for :attr:`lua_api.quest.QuestContext.entry_point`, so
+#: there is exactly one spelling of "unknown" in the package and a reader
+#: cannot invent a second.
+#:
+#: UNKNOWN IS FAIL-CLOSED, and this is the whole safety of the scoping
+#: below.  An unknown entry point refuses EVERY unpayable group the row
+#: has -- byte for byte the behaviour this module had before entry points
+#: were scoped at all.  The tempting alternative (unknown -> scope to
+#: nothing -> refuse nothing) turns every caller that forgets to say which
+#: entry point it is running into a caller that silently disarms the
+#: half-transaction gate, which is the state ``COO-DECISION 20260908_0242``
+#: item 4 forbids outright.  A gate that opens when you forget to address
+#: it is not a gate.
+UNKNOWN_ENTRY_POINT = ""
+
+
+def unpayable_group_for(quest_id: int, column: str,
+                        entry_point: str = UNKNOWN_ENTRY_POINT
+                        ) -> Optional[GroupState]:
     """The group that refuses ``column`` for this row, or ``None``.
 
     ``column`` is a SHIPPED column name (``n_VARI_4``, ``n_REWARD_ITEM1``),
@@ -511,9 +550,43 @@ def unpayable_group_for(quest_id: int, column: str) -> Optional[GroupState]:
     (``Quest.AddCriteriaCash``).  A column-less member has nothing else to
     be addressed by, and leaving it unaddressable is what pf-adversary D1
     measured as a 15,000-per-run gift.
+
+    ``entry_point`` is the Lua function the host is CURRENTLY RUNNING
+    (``Report_Run``, ``Accept_Check``, ...), or :data:`UNKNOWN_ENTRY_POINT`.
+    Naming it scopes the refusal to the group that entry point OWNS; not
+    naming it refuses conservatively, as before.  This is pf-adversary D8
+    of round ``5a3x47``, and the reason it is a defect rather than an
+    over-cautious nicety:
+
+    A group is a fact about ONE entry point -- that is its definition and
+    its mirror key (``script``, ``group``).  The refusal, however, was
+    delivered through ``Quest.VarN``, keyed only on ``(quest_id, column)``,
+    so a decision taken about ``Report_Run`` was ALSO enforced in
+    ``Accept_Run``, ``Delete_Run`` and every ``*_Check`` of the same file:
+    87 of the 88 item take-cell CALL SITES are read in some other
+    top-level function of their own script (168 members over those 88
+    sites, since a ``RemoveItem`` site carries an id cell and a count cell
+    -- pf-adversary D5 of round ``0ldyk7``, correcting three places where
+    this repository called the 88 a member count).  Those readers were
+    handed :data:`REFUSED_CELL` for a transaction they are not part of.
+
+    WHAT SCOPING DOES NOT REACH, corrected here because an earlier draft of
+    this very docstring said the opposite (pf-adversary D4, same round):
+    the ``Player.GetCash() >= Quest.Var2`` guard at
+    ``q_boat_health.lua:18`` lives INSIDE ``Accept_Run``, which is the
+    entry point that OWNS that script's only group, so scoping does not
+    free that cell and never will.  What saves that guard is the other
+    half -- :func:`unpayable_group_of_entry_point`, which stops
+    ``Accept_Run`` before line 15, so the guard is never evaluated at all.
+    (Its cell is 100, the shipped repair price; the 15,000 an earlier draft
+    named here belongs to ``Q_CLASS``'s ``n_VARI_4``, a different script.)
     """
     for state in group_state(quest_id):
         if state.payable:
+            continue
+        if entry_point and state.group.group != entry_point:
+            # Someone else's transaction.  Its refusal is not this entry
+            # point's business, and imposing it is D8.
             continue
         if column in state.columns():
             return state
@@ -523,8 +596,44 @@ def unpayable_group_for(quest_id: int, column: str) -> Optional[GroupState]:
     return None
 
 
-def reward_cell(quest_id: int, lua_name: str) -> Tuple[Optional[int],
-                                                       Optional[str]]:
+def unpayable_group_of_entry_point(quest_id: int,
+                                   entry_point: str) -> Optional[GroupState]:
+    """The unpayable group ``entry_point`` OWNS for this row, or ``None``.
+
+    The companion of :func:`unpayable_group_for`, and the half that makes
+    scoping safe rather than a regression.  Scoping alone lets a
+    ``Report_Check`` read its real cells and answer "yes, you may report"
+    to a player who genuinely holds the items -- and then ``Report_Run``
+    refuses every cell of its own group while ``Quest.SetFlag`` (REAL)
+    still marks the quest done: the flag moves, nothing is taken, nothing
+    is paid, and the quest is burned.  That is worse than today, where the
+    quest is merely unreportable.
+
+    So the owning entry point must be refused AS A WHOLE, before its first
+    statement runs, rather than cell by cell from inside it -- see
+    ``script_host.ScriptHost.call`` and :class:`script_host.EntryPointRefused`.
+    Refusing before the entry point starts is the difference between this
+    and the ``nil`` cell pf-adversary D3 measured, which raised at
+    ``q_gender_equip1.lua:25`` AFTER a real ``Quest.SetFlag(Quest.Active)``
+    and BEFORE four real ``Player.MobAppear`` writes: a half-executed entry
+    point.  Nothing runs here, so nothing can half-run.
+
+    ``UNKNOWN_ENTRY_POINT`` owns nothing and refuses nothing: an unknown
+    entry point is still gated cell by cell by
+    :func:`unpayable_group_for`, which is fail-closed for it.  Refusing a
+    call whose name we do not know would refuse every call in the corpus.
+    """
+    if not entry_point:
+        return None
+    for state in group_state(quest_id):
+        if not state.payable and state.group.group == entry_point:
+            return state
+    return None
+
+
+def reward_cell(quest_id: int, lua_name: str,
+                entry_point: str = UNKNOWN_ENTRY_POINT
+                ) -> Tuple[Optional[int], Optional[str]]:
     """``(value, None)`` or ``(None, reason)`` for one ``Quest.Reward*``.
 
     Never raises for game data.  A missing/corrupt mirror still raises
@@ -540,7 +649,7 @@ def reward_cell(quest_id: int, lua_name: str) -> Tuple[Optional[int],
     cells = load_rewards().get(quest_id)
     if cells is None:
         return None, REFUSE_NO_QUEST_ROW
-    if unpayable_group_for(quest_id, source) is not None:
+    if unpayable_group_for(quest_id, source, entry_point) is not None:
         return None, REFUSE_GROUP_UNPAYABLE
     return cells[SOURCE_COLUMNS.index(source)], None
 
@@ -597,7 +706,8 @@ def log_group_refusal(log: Callable[[str], None], quest_id: int, column: str,
 
 def resolve_for_namespace(log: Callable[[str], None], quest_id: int,
                           lua_name: str, stub_default,
-                          said: Optional[set] = None):
+                          said: Optional[set] = None,
+                          entry_point: str = UNKNOWN_ENTRY_POINT):
     """What ``Quest.RewardItem1`` hands the script: the value, or the stub.
 
     ``said`` is the caller's own set of what has already been logged for
@@ -605,11 +715,19 @@ def resolve_for_namespace(log: Callable[[str], None], quest_id: int,
     :func:`lua_api.quest_vars.resolve_for_namespace` takes: within one
     namespace the quest binding never changes, so each distinct fact is
     stated once instead of once per read.
+
+    ``entry_point`` is NOT part of ``said``'s key on purpose: the entry
+    point changes inside one namespace (a dispatcher calls ``Accept_Run``
+    and later ``Report_Run`` on the same host), but each distinct
+    ``(reason, lua_name)`` is still worth saying once per namespace, and
+    keying the set on the entry point would restate the same refusal for
+    every entry point the host runs.
     """
-    value, reason = reward_cell(quest_id, lua_name)
+    value, reason = reward_cell(quest_id, lua_name, entry_point)
     state = None
     if reason == REFUSE_GROUP_UNPAYABLE:
-        state = unpayable_group_for(quest_id, _LUA_NAME_TO_SOURCE[lua_name])
+        state = unpayable_group_for(quest_id, _LUA_NAME_TO_SOURCE[lua_name],
+                                    entry_point)
     if said is None:
         log_reward(log, quest_id, lua_name, value, reason, state)
         return value if reason is None else stub_default
@@ -633,7 +751,8 @@ def var_column(var_index: int) -> str:
 
 def resolve_var_for_namespace(log: Callable[[str], None], quest_id: int,
                               var_index: int, stub_default,
-                              said: Optional[set] = None):
+                              said: Optional[set] = None,
+                              entry_point: str = UNKNOWN_ENTRY_POINT):
     """``Quest.VarN`` WITH the half-transaction gate in front of it.
 
     THE ONLY PATH THE NAMESPACE TAKES, on purpose.  The gate cannot live
@@ -646,7 +765,7 @@ def resolve_var_for_namespace(log: Callable[[str], None], quest_id: int,
     tested) as ``quest_vars.quest_var`` for a reader who wants the raw
     table answer.
     """
-    state = unpayable_group_for(quest_id, var_column(var_index))
+    state = unpayable_group_for(quest_id, var_column(var_index), entry_point)
     if state is None:
         return quest_vars.resolve_for_namespace(
             log, quest_id, var_index, stub_default, said)

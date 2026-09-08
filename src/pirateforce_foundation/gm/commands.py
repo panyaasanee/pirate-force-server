@@ -545,6 +545,89 @@ def usage_hint_for(body: str) -> str:
     return usage
 
 
+def _scene_suggestion_clause(body: str) -> str:
+    """The `; did you mean ...` clause for a refused `warp <name>`, or `""`.
+
+    Reads the line the way `_parse_warp_named` reads it and stops at every
+    gate that branch stops at, so a query this lane would never have
+    resolved is a query it never searches: over the name cap, not console
+    safe, empty, or the NUMERIC form (which never reaches the name branch
+    and whose refusal is about a scene id, not a spelling).  A suggestion
+    offered for a line the grammar would not have accepted anyway is a
+    suggestion that answers a question nobody asked.
+
+    It returns `_did_you_mean`'s clause unchanged rather than composing its
+    own sentence: that helper is where the "every character comes out of the
+    pinned table, none out of `rest`" rule is written down and tested, and
+    two places that build this string are two places that can disagree.
+    """
+    stripped = body.strip() if isinstance(body, str) else ""
+    parts = stripped.split(maxsplit=1)
+    if len(parts) != 2 or parts[0].lower() != "warp":
+        return ""
+    rest = parts[1].strip()
+    if not rest or _is_int_literal(rest.split()[0]):
+        return ""
+    if len(rest) > MAX_WARP_NAME_QUERY_LENGTH:
+        return ""
+    query, _selector_text = _split_scene_selector(rest)
+    if not query or not _query_is_console_safe(query):
+        return ""
+    return _did_you_mean(query)
+
+
+def refusal_hint_for(body: str) -> str:
+    """What the operator reads when a typed command was refused.
+
+    `usage_hint_for`, plus -- for `warp <name>` and nothing else -- the
+    scene names this lane found in its own pinned table.
+
+    THIS IS THE ANSWER TO THE QUESTION `scene_catalog.py` LEFT OPEN.
+    pf-adversary round `pdf3gh` measured (D1) that `suggest_gm_scene_names`
+    had NO reader: `_did_you_mean` puts its result in a
+    `GmCommandParseError` message, and `chat_command.py` -- the only code in
+    `src/` that catches that exception -- discards the message by contract
+    and answers with `usage_hint_for`.  The console line for
+    `/warp Atlantic` was byte-identical before and after that search was
+    written.  The open question was "may a suggestion be printed at all";
+    this is the yes, and the reason it is a yes rather than an echo:
+
+    NOTHING TYPED IS PRINTED, WHICH IS THE SAME RULE AS BEFORE.  The
+    contract `usage_hint_for` keeps is not "the output ignores the input" --
+    which of its sentences comes back (TEN of them at this commit, not the
+    "seven" three comments in this file still say: `COMMAND_USAGE` has nine
+    entries plus the joined line -- pf-adversary, round `iu5xks`, D10) has
+    always depended on the verb that was typed.  The contract is that every CHARACTER of the output is
+    text this lane owns.  `_did_you_mean` is held to exactly that rule and
+    tested against it with a marker that appears in none of the 330 shipped
+    names, and every name it can return is pinned to encode in
+    `QUERY_CONSOLE_CODEC` (cp874), the bridge console's codec, by
+    `test_gm_scene_catalog.py`.  So the widened output cannot carry the
+    unlucky byte that killed the console in round `9wy444`.
+
+    WHAT IT COSTS, said plainly, and it is more than width.  The clause is
+    a SUBSTRING ORACLE over the pinned table: an operator who types a
+    fragment reads back the row that contains it, so a typed fragment CAN
+    reappear on the console -- `/warp Island` prints `'Mad Island'`
+    (pf-adversary, round `iu5xks`, D4).  What is true, and what the
+    founding threat model needs, is narrower than "nothing typed appears":
+    nothing appears EXCEPT as part of a name the table already carried, and
+    the clause is pinned character for character by
+    `assert_only_this_lanes_text` in `test_gm_chat_command_parse_way_out.py`
+    so nothing can be appended to it.  A fragment that is not in the table
+    cannot reach the line at all.  The line is also no longer one of a
+    fixed set of strings, so it is no longer bounded by construction.  It is bounded by
+    derivation instead -- `MAX_SUGGESTIONS` names, each at most
+    `scene_catalog.LONGEST_GM_NAME_LENGTH` characters, plus this module's
+    own joining words -- and `chat_command_action.py` still truncates at
+    `MAX_CONSOLE_HINT_LENGTH` before anything reaches stderr, which is why
+    that cap was put on the printer rather than on the supplier.
+    """
+    usage = usage_hint_for(body)
+    clause = _scene_suggestion_clause(body)
+    return f"{usage}{clause}" if clause else usage
+
+
 # How many scene ids an ambiguous name is allowed to print before the line
 # stops being readable.  `Hidden Island` is on twenty scenes in the client's
 # own table, and a way-out line that dumps twenty numbers is a way-out line
@@ -693,14 +776,43 @@ MAX_WARP_NAME_QUERY_LENGTH = 2 * scene_catalog.LONGEST_GM_NAME_LENGTH
 #: The longest line this grammar can legitimately carry is
 #: `say ` + 480 characters = 484, so a `say` at its own ceiling has four
 #: characters of slack SHARED between those three places, not four of
-#: trailing space; `say` + five spaces + 480 characters is a body at its
-#: documented ceiling and is refused by the line cap.  Every shorter line
+#: trailing space.  ~~`say` + five spaces + 480 characters is refused by
+#: the line cap~~ IS STRUCK (pf-adversary, round `iu5xks`, D7, MEASURED):
+#: that line is 3 + 5 + 480 = 488 characters, the cap refuses only what is
+#: OVER 488, and it parses -- its `raw` is 488 characters long.  So the
+#: longest line this grammar legitimately carries is 488, not 484, and the
+#: boundary now has a test sitting exactly on it (a `>` that drifts to
+#: `>=` silently loses a real audit row, and used to survive the suite).  Every shorter line
 #: has more slack, and no other verb comes within 375 characters of the
 #: cap (`warp ` + 108 = 113 is the next longest).
-MAX_COMMAND_LINE_LENGTH = (
-    LONGEST_COMMAND_NAME_LENGTH
-    + 1
-    + max(MAX_SAY_MESSAGE_LENGTH, MAX_WARP_NAME_QUERY_LENGTH)
+def _derive_max_command_line_length(
+    longest_command_name_length: int, *argument_allowances: int
+) -> int:
+    """The line cap as a FUNCTION of the caps it is derived from.
+
+    pf-adversary round `pdf3gh`, D7: written inline, the derivation had a
+    DEAD ARM.  `max(MAX_SAY_MESSAGE_LENGTH, MAX_WARP_NAME_QUERY_LENGTH)` is
+    480 against 108 today, so no test could reach the `warp` side of that
+    `max()`, and three mutants of the expression survived the whole suite --
+    `max` -> `min` and either allowance dropped all still yield 488 as long
+    as `say` is the widest.  A constant cannot be tested at both of its
+    branches; a function can, and `test_gm_commands.py` now calls this one
+    with the arms swapped.  The pin is on the RULE ("longest verb, one
+    separator, the widest allowance any verb has"), which is what has to
+    survive `say` and `warp` trading places, not on the number 488.
+
+    `*argument_allowances` rather than two named parameters for the same
+    reason: an eighth verb with its own cap is added to the call, and the
+    rule does not have to be rewritten to know about it.  Empty is a
+    programming error and `max()` says so.
+    """
+    return longest_command_name_length + 1 + max(argument_allowances)
+
+
+MAX_COMMAND_LINE_LENGTH = _derive_max_command_line_length(
+    LONGEST_COMMAND_NAME_LENGTH,
+    MAX_SAY_MESSAGE_LENGTH,
+    MAX_WARP_NAME_QUERY_LENGTH,
 )
 
 #: `Hidden Island` is on twenty scene ids in the client's own table, and the
@@ -1050,6 +1162,99 @@ def new_audit_record_id() -> str:
     return uuid.uuid4().hex[:16]
 
 
+def _require_audit_sized_command(
+    command: GmCommand, args: tuple[str, ...]
+) -> None:
+    """Re-check at the WRITER what the parser already promised about size.
+
+    pf-adversary round `pdf3gh`, D2, MEASURED and owned by round `iu5xks`:
+    `MAX_COMMAND_LINE_LENGTH` lived in the PARSER only.  `log_gm_command`
+    never looked at `command.raw` at all, so a hand-built `GmCommand`
+    carrying a 200 KB `raw` wrote a 200 KB line into the ndjson audit -- the
+    file `GT-127`/`GT-141` are graded on, and the file whose byte quota
+    (`chat_command.MAX_COMMAND_LOG_BYTES`) is checked BEFORE a write and so
+    cannot refuse an oversized line, only be blown past by one.  This is the
+    same shape `say_wire.py` already answers for `MAX_SAY_MESSAGE_LENGTH`:
+    a cap that lives in one supplier is a property of that supplier, never
+    of the sink.
+
+    IT ADDS NO POLICY.  Everything `parse_gm_command` produces passes:
+    `raw` is `text.strip()` measured against the same cap before the strip,
+    and every element of `args` is a slice of that same line.  So the set of
+    commands this file will record is EXACTLY the set the grammar accepts --
+    the check re-asserts a promise instead of making a new one.  A rejection
+    here means the caller built the command by hand, which is precisely the
+    threat model `GmCommandArgsError` was opened for.
+
+    `str.__len__(value)`, NOT `len(value)`, and that is not a style choice:
+    `len()` reads `type(obj).__len__`, so a `str` SUBCLASS reports whatever
+    length it likes while carrying 200 KB -- the same lie that walks past
+    the parser's own `isinstance(text, str)` door, which D2 named in its
+    other half.  The unbound method reads the real string's length whatever
+    the subclass says, so the measurement cannot be lied to and no
+    legitimate subclass is banned for being one.
+
+    IT MEASURES ONLY WHAT IS A `str` AT ALL, and refuses nothing else --
+    deliberately.  A non-str element is ALREADY refused, by the contract
+    round `w8t8vi` pinned after pf-adversary: `json.dumps` runs before any
+    filesystem mutation, so a `Weird()` in `args` raises `TypeError` and
+    writes nothing.  Two guards answering one shape with two exception types
+    would be a worse file than one, so this one stays out of that lane.
+
+    EVERY WRITER OF `raw` CALLS THIS, not just the `issued` one
+    (pf-adversary, this round, D3, MEASURED): `log_gm_command_outcome` and
+    `log_gm_command_queued` write the same `raw` and `args` fields into the
+    same file, from the same `command` object, at `chat_command_action.py`
+    3031/3033/3085/3089.  Guarding one of the three and then writing
+    "the unbounded audit line is closed" was the enumeration error that
+    finding is about.  A refusal here is still not a lost outcome row for
+    any command the grammar accepted: what `log_gm_command` refuses never
+    gets an `issued` row to close.
+
+    WHAT IT STILL DOES NOT BOUND, named rather than left to be found:
+    `account_name`, which does not come from the parser at all (it comes
+    from the session), and `record_id`.  Both are this lane's own values on
+    every live path, neither is derived from a typed line, and inventing a
+    cap for them here would be a policy rather than a re-check.  The
+    unbounded audit line reachable from a hand-built COMMAND is closed; one
+    reachable from a hand-built ACCOUNT NAME is not, and this docstring
+    would rather say so than let the next round discover it.
+
+    ~~IT ADDS NO POLICY~~ IS NARROWED (pf-adversary, this round, D6): a
+    `str` SUBCLASS whose `__len__` lies gets a 200,007-character `raw` past
+    the parser -- that is D2's other half, still open there -- and this
+    function refuses to write it.  So the honest statement is that
+    everything the parser accepts FROM A REAL `str` passes, which is every
+    line the wire can carry (a decoded 0xAC52 payload is a plain `str`,
+    capped at `MAX_CHAT_PAYLOAD_LENGTH` before it gets here).
+    """
+    raw = command.raw
+    if isinstance(raw, str) and str.__len__(raw) > MAX_COMMAND_LINE_LENGTH:
+        raise GmCommandArgsError(
+            f"command raw exceeds {MAX_COMMAND_LINE_LENGTH} characters "
+            f"({str.__len__(raw)} given); the audit line is not the place "
+            "to discover that"
+        )
+    # THE SUM, NOT EACH ELEMENT (pf-adversary, this round, D2, MEASURED):
+    # a per-element cap is not a cap on the LINE.  100,000 args of 400
+    # characters each pass every per-element check and write a single
+    # 40,400,270-byte ndjson line -- the same defect, one dimension over,
+    # inside the function added to close it.  Everything the parser
+    # produces still passes for the same reason as before, and now the
+    # reason is the tighter one: `args` are slices of `raw`, so their
+    # lengths sum to at most `len(raw)`, which is at most the cap.
+    total = 0
+    for index, value in enumerate(args):
+        if not isinstance(value, str):
+            continue
+        total += str.__len__(value)
+        if total > MAX_COMMAND_LINE_LENGTH:
+            raise GmCommandArgsError(
+                f"command args exceed {MAX_COMMAND_LINE_LENGTH} characters "
+                f"in total by args[{index}] ({total} so far)"
+            )
+
+
 def log_gm_command(
     command: GmCommand,
     account_name: str,
@@ -1077,6 +1282,7 @@ def log_gm_command(
     ):
         raise ValueError("record_id must be a non-empty str or None")
     args = _require_args_tuple(command.args, min_length=0)
+    _require_audit_sized_command(command, args)
     ts = now_ts if now_ts is not None else time.time()
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
@@ -1167,6 +1373,7 @@ def log_gm_command_outcome(
     if not is_known_outcome(outcome):
         raise ValueError(f"unknown outcome: {outcome!r}")
     args = _require_args_tuple(command.args, min_length=0)
+    _require_audit_sized_command(command, args)
     ts = now_ts if now_ts is not None else time.time()
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
@@ -1250,6 +1457,7 @@ def log_gm_command_queued(
         # reads like a complete record and is worse than a missing line.
         raise ValueError("record_id must be a non-empty str")
     args = _require_args_tuple(command.args, min_length=0)
+    _require_audit_sized_command(command, args)
     ts = now_ts if now_ts is not None else time.time()
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),

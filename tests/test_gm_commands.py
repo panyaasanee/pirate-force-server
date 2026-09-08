@@ -1186,5 +1186,237 @@ class TheOutOfRangeSelectorEchoTests(unittest.TestCase):
         )
 
 
+class TheLineCapDerivationHasTwoArmsTests(unittest.TestCase):
+    """pf-adversary round `pdf3gh` D7: written inline, one arm was dead.
+
+    `max(MAX_SAY_MESSAGE_LENGTH, MAX_WARP_NAME_QUERY_LENGTH)` is 480
+    against 108, so the `warp` side of that `max()` could not be reached by
+    any input, and three mutants of the expression survived the suite.
+    These call the derivation directly, with the arms swapped, so the RULE
+    is pinned rather than the number 488.
+    """
+
+    def test_the_widest_allowance_wins_when_it_is_the_warp_one(self):
+        # `min` in place of `max` returns 118 here and 488 for the real
+        # constants -- this is the case that can tell them apart.
+        self.assertEqual(
+            489,
+            commands_module._derive_max_command_line_length(7, 10, 481),
+        )
+
+    def test_the_widest_allowance_wins_when_it_is_the_say_one(self):
+        self.assertEqual(
+            489,
+            commands_module._derive_max_command_line_length(7, 481, 10),
+        )
+
+    def test_dropping_either_allowance_is_a_different_answer(self):
+        both = commands_module._derive_max_command_line_length(7, 10, 481)
+        self.assertNotEqual(
+            both, commands_module._derive_max_command_line_length(7, 10)
+        )
+        self.assertEqual(
+            both, commands_module._derive_max_command_line_length(7, 481)
+        )
+
+    def test_the_separator_is_counted_exactly_once(self):
+        self.assertEqual(
+            commands_module._derive_max_command_line_length(7, 480) + 1,
+            commands_module._derive_max_command_line_length(8, 480),
+        )
+
+    def test_the_live_constant_is_that_rule_applied_to_the_live_caps(self):
+        self.assertEqual(
+            commands_module.MAX_COMMAND_LINE_LENGTH,
+            commands_module._derive_max_command_line_length(
+                commands_module.LONGEST_COMMAND_NAME_LENGTH,
+                commands_module.MAX_SAY_MESSAGE_LENGTH,
+                commands_module.MAX_WARP_NAME_QUERY_LENGTH,
+            ),
+        )
+
+
+class TheAuditWriterChecksTheSizeItWasPromisedTests(unittest.TestCase):
+    """pf-adversary round `pdf3gh` D2: the cap lived in the parser only.
+
+    `log_gm_command` never read `command.raw`, so a hand-built `GmCommand`
+    wrote whatever it carried into the ndjson audit as one line.
+    """
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.log_path = Path(self._dir.name) / "gm.ndjson"
+
+    def test_a_hand_built_raw_over_the_cap_is_refused_not_written(self):
+        oversized = "say hi" + " " * commands_module.MAX_COMMAND_LINE_LENGTH
+        with self.assertRaises(GmCommandArgsError):
+            log_gm_command(
+                GmCommand("say", ("hi",), oversized),
+                "panya",
+                log_path=self.log_path,
+                now_ts=0,
+            )
+        # Refused BEFORE the append, not after: an audit file that already
+        # holds the line is not defended by an exception.
+        self.assertFalse(self.log_path.exists())
+
+    def test_a_hand_built_arg_over_the_cap_is_refused_too(self):
+        body = "x" * (commands_module.MAX_COMMAND_LINE_LENGTH + 1)
+        with self.assertRaises(GmCommandArgsError):
+            log_gm_command(
+                GmCommand("say", (body,), "say hi"),
+                "panya",
+                log_path=self.log_path,
+                now_ts=0,
+            )
+        self.assertFalse(self.log_path.exists())
+
+    def test_a_non_str_arg_keeps_the_error_the_serializer_already_gave(self):
+        # The size check must not take over a shape the audit writer
+        # already answers: round `w8t8vi` pinned `TypeError` from
+        # `json.dumps`, before any filesystem mutation.
+        class Weird:
+            def __repr__(self):
+                return "<Weird>"
+
+        with self.assertRaises(TypeError):
+            log_gm_command(
+                GmCommand("warp", (Weird(),), "warp x"),
+                "panya",
+                log_path=self.log_path,
+                now_ts=0,
+            )
+        self.assertFalse(self.log_path.exists())
+
+    def test_a_str_subclass_cannot_lie_its_way_past_the_length(self):
+        class _ShortLiar(str):
+            def __len__(self):  # noqa: D105 - the lie under test
+                return 1
+
+        with self.assertRaises(GmCommandArgsError):
+            log_gm_command(
+                GmCommand("say", ("hi",), _ShortLiar("z" * 200_000)),
+                "panya",
+                log_path=self.log_path,
+                now_ts=0,
+            )
+        self.assertFalse(self.log_path.exists())
+
+    def test_a_hand_built_pile_of_small_args_is_refused_too(self):
+        # pf-adversary, this round, D2: a per-element cap is not a cap on
+        # the LINE. 100,000 args of 400 characters each passed every
+        # per-element check and wrote one 40,400,270-byte ndjson line.
+        with self.assertRaises(GmCommandArgsError):
+            log_gm_command(
+                GmCommand("say", tuple("A" * 400 for _ in range(2_000)), "say hi"),
+                "panya",
+                log_path=self.log_path,
+                now_ts=0,
+            )
+        self.assertFalse(self.log_path.exists())
+
+    def test_the_two_sibling_writers_are_guarded_as_well(self):
+        # pf-adversary, this round, D3: they write the same `raw` and
+        # `args` into the same file, from the same command object.
+        big = GmCommand("say", ("Y" * 200_000,), "say " + "Z" * 200_000)
+        with self.assertRaises(GmCommandArgsError):
+            commands_module.log_gm_command_outcome(
+                big, "panya", commands_module.OUTCOME_COMPOSED,
+                record_id="a" * 16, log_path=self.log_path, now_ts=0,
+            )
+        with self.assertRaises(GmCommandArgsError):
+            commands_module.log_gm_command_queued(
+                big, "panya", record_id="a" * 16,
+                log_path=self.log_path, now_ts=0,
+            )
+        self.assertFalse(self.log_path.exists())
+
+    def test_the_longest_line_the_grammar_carries_sits_on_the_boundary(self):
+        # pf-adversary, this round, D7: `>` -> `>=` survived the whole
+        # suite because no test sat on 488. The comment that said this
+        # line was refused was wrong: it parses, and its raw IS the cap.
+        line = "say" + " " * 5 + "a" * MAX_SAY_MESSAGE_LENGTH
+        self.assertEqual(commands_module.MAX_COMMAND_LINE_LENGTH, len(line))
+        command = parse_gm_command(line)
+        self.assertEqual(
+            commands_module.MAX_COMMAND_LINE_LENGTH, len(command.raw)
+        )
+        log_gm_command(command, "panya", log_path=self.log_path, now_ts=0)
+        row = json.loads(self.log_path.read_text(encoding="utf-8").strip())
+        self.assertEqual(line, row["raw"])
+
+    def test_every_line_the_grammar_accepts_is_still_written(self):
+        # The check re-asserts the parser's promise; it must not narrow it.
+        # A `say` at its own ceiling is the longest line this grammar has.
+        at_ceiling = "say " + "a" * MAX_SAY_MESSAGE_LENGTH
+        command = parse_gm_command(at_ceiling)
+        self.assertLessEqual(
+            len(command.raw), commands_module.MAX_COMMAND_LINE_LENGTH
+        )
+        log_gm_command(command, "panya", log_path=self.log_path, now_ts=0)
+        row = json.loads(self.log_path.read_text(encoding="utf-8").strip())
+        self.assertEqual(at_ceiling, row["raw"])
+
+
+class TheRefusedWarpNameSaysWhatItFoundTests(unittest.TestCase):
+    """pf-adversary round `pdf3gh` D1: the catalog search had no reader.
+
+    `suggest_gm_scene_names` computed real names and `chat_command.py` threw
+    the sentence away, so the console line for `/warp Atlantic` was
+    byte-identical before and after that search was written.
+    """
+
+    def test_a_near_miss_now_names_the_scenes_the_table_holds(self):
+        hint = commands_module.refusal_hint_for("warp Atlantic")
+        self.assertIn("did you mean", hint)
+        self.assertIn("Atlantic Ocean1", hint)
+
+    def test_the_usage_sentence_is_still_the_first_thing_it_says(self):
+        hint = commands_module.refusal_hint_for("warp Atlantic")
+        self.assertTrue(hint.startswith(commands_module.COMMAND_USAGE["warp"]))
+
+    def test_nothing_typed_reaches_the_line(self):
+        # A marker that appears in none of the 330 shipped names, so its
+        # presence in the output could only have come from the query.
+        marker = "ZZQX"
+        hint = commands_module.refusal_hint_for(f"warp Atlantic{marker}")
+        self.assertNotIn(marker, hint)
+
+    def test_the_numeric_form_is_not_a_spelling_question(self):
+        self.assertEqual(
+            commands_module.usage_hint_for("warp 99999"),
+            commands_module.refusal_hint_for("warp 99999"),
+        )
+
+    def test_no_other_verb_grows_a_clause(self):
+        for body in ("lv abc", "spawn zzz", "say", "nonsense", ""):
+            with self.subTest(body=body):
+                self.assertEqual(
+                    commands_module.usage_hint_for(body),
+                    commands_module.refusal_hint_for(body),
+                )
+
+    def test_a_query_the_name_form_would_refuse_is_never_searched(self):
+        over_cap = "q" * (commands_module.MAX_WARP_NAME_QUERY_LENGTH + 1)
+        self.assertEqual(
+            commands_module.usage_hint_for("warp " + over_cap),
+            commands_module.refusal_hint_for("warp " + over_cap),
+        )
+        # A homoglyph the console codec has no byte for gets the same
+        # treatment as it does one layer down, for the same reason.
+        self.assertEqual(
+            commands_module.usage_hint_for("warp \u0410tlantic"),
+            commands_module.refusal_hint_for("warp \u0410tlantic"),
+        )
+
+    def test_every_line_it_can_print_survives_the_console_codec(self):
+        for query in ("Atlantic", "Prison", "Island", "Sea", "Port"):
+            with self.subTest(query=query):
+                commands_module.refusal_hint_for(f"warp {query}").encode(
+                    commands_module.QUERY_CONSOLE_CODEC
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

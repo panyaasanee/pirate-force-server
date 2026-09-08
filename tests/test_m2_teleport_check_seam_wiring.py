@@ -32,6 +32,7 @@ import contextlib
 import io
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -45,6 +46,12 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.gm import warp_scene_persist  # noqa: E402
+from pirateforce_foundation.gm.warp_target_record import (  # noqa: E402
+    UNREADABLE_CHARACTER_ID,
+)
+from dataclasses import replace  # noqa: E402
+from unittest import mock  # noqa: E402
+from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
@@ -617,10 +624,24 @@ class ConsoleLinesTests(_SeamCase):
             prompt_lines[0])
         self.assertIn(f"marker={MARKER}", prompt_lines[0])
         echo_lines = self._lines(self._echo, state)
-        self.assertEqual(len(echo_lines), 2)
+        # THREE since R401, not two: the scene relabel prints its own line
+        # between the echo verdict and the transport receipt.  It has to,
+        # because without it an attended tester reading the console saw the
+        # identical `TRANSPORT ... scene=126` whether the relabel had been
+        # applied or refused (pf-adversary R401 D6; COO-DECISION 20260904_1646
+        # item 2, "a tester reads the CONSOLE, not session.events").
+        self.assertEqual(len(echo_lines), 3)
         self.assertIn("ECHO", echo_lines[0])
         self.assertIn("verdict=OK", echo_lines[0])
-        self.assertIn("TRANSPORT", echo_lines[1])
+        self.assertIn("TRANSPORT_RESYNC", echo_lines[1])
+        # `applied=` is the whole point of the line: on the shipped registry
+        # marker 17 is login-barred, so the relabel is REFUSED and the
+        # console must say so next to a scene number it did not adopt.
+        self.assertIn("applied=0", echo_lines[1])
+        self.assertIn("scene=%d" % tc.marker_destination(MARKER).scene_id,
+                      echo_lines[1])
+        self.assertIn("TRANSPORT", echo_lines[2])
+        self.assertNotIn("RESYNC", echo_lines[2])
 
     def test_a_refused_replay_says_why_on_the_console(self):
         state = self._login_and_start("m2consolerefuse")
@@ -748,22 +769,16 @@ class RecordingDoorTests(_SeamCase):
         self.assertEqual(len(state.teleport_check_sink().unsent), 1)
 
 
-class SelectedSceneIsNotRelabelledTests(_SeamCase):
-    """The relabel this seam must NOT carry, and the reason, pinned.
+class _JourneyFixture(_SeamCase):
+    """The journey helpers the two classes below share.
 
-    pf-adversary G1 of #1109 is real: a completed journey leaves
-    `selected.position.scene_id` naming the DEPARTURE, so the first ordinary
-    TargetPos writes the destination's coordinates under the wrong scene.
-    A relabel modelled on `_gm_warp_resync_selected_scene` was written and
-    measured in round R399 and TAKEN BACK OUT, because all three decreed M2
-    arrival scenes are pinned `login_entry_allowed: false` -- so the
-    "corrected" durable row is one the next login REFUSES, and only a login
-    can rewrite that row.  Recoverable bug traded for a permanently
-    unplayable character.
-
-    These tests exist so the next reader who notices G1 -- correctly -- and
-    reaches for the obvious one-line fix goes red instead of shipping it.
+    Split out of `SelectedSceneIsRelabelledOnlyWhenTheLoginCanTakeItBackTests`
+    when the arrival class arrived: a subclass would have re-run every test of
+    that class under a second name, and a second copy of `_report`/`_journey`
+    would let the two halves of one seam drift apart in their fixtures.  No
+    test methods live here on purpose.
     """
+
 
     def _target_pos_pc(self, x, y, z, heading=0.0, moving=1):
         """The exact singleton shape parse_v141_refresh_target_pos accepts.
@@ -800,34 +815,344 @@ class SelectedSceneIsNotRelabelledTests(_SeamCase):
         actions = self._echo(state, marker_id=marker_id)
         return state, actions
 
-    def test_every_marker_this_seam_can_prompt_for_a_sea_scene_is_login_barred(self):
-        # THE FACT THE WHOLE CLASS RESTS ON, re-derived here rather than
-        # quoted, so it fails loudly the day the registry changes and this
-        # refusal stops being necessary.  Markers 17, 343 and 345 are the
-        # three decreed arrival rows M2 exists to reach.
-        for marker_id in (17, 343, 345):
-            destination = tc.marker_destination(marker_id)
-            self.assertFalse(
-                warp_scene_persist.login_would_accept(destination.scene_id),
-                "marker %d -> scene %d is no longer login-barred; the "
-                "refusal this class pins may be re-examined"
-                % (marker_id, destination.scene_id),
-            )
-        # The control: a scene the login DOES accept, so the assertion above
-        # is not vacuously true for every input.
-        self.assertTrue(warp_scene_persist.login_would_accept(
-            tc.marker_destination(1).scene_id))
+    @contextlib.contextmanager
+    def _registry_open_at_login_on(self, scene_id):
+        """The registry LANE-A's PR (PANYA 1218 item 1) leaves behind.
 
-    def test_a_journey_does_not_relabel_the_selected_scene(self):
-        state, actions = self._journey("m2norelabel")
+        Bent rather than waited for, deliberately: this seam's behaviour after
+        that flip is chief's to prove, and a test that can only run once
+        somebody else's PR has merged proves it on nobody's schedule.  Only
+        `login_entry_allowed` moves; the row keeps its own decreed spawn, so
+        `login_would_accept`'s OTHER condition is answered by the real data.
+        """
+        real = world_scene_travel.load_scene_registry()
+        bent = replace(
+            real,
+            destinations=tuple(
+                replace(target, login_entry_allowed=True)
+                if target.n_id == scene_id else target
+                for target in real.destinations
+            ),
+        )
+        self.assertIsNotNone(
+            bent[scene_id].spawn,
+            "this row must keep a spawn or login_would_accept refuses it for "
+            "the OTHER reason and the fixture proves nothing",
+        )
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        try:
+            with mock.patch.object(
+                world_scene_travel, "load_scene_registry", return_value=bent
+            ):
+                self.assertTrue(warp_scene_persist.login_would_accept(scene_id),
+                                "the fixture bent nothing")
+                yield bent
+        finally:
+            warp_scene_persist.reset_login_registry_snapshot_for_tests()
+
+    @contextlib.contextmanager
+    def _registry_barred_at_login_on(self, scene_id):
+        """The other half of the same fixture, and NOT a skip.
+
+        The refusal branch has to stay tested after LANE-A opens the four
+        pins, and `NOW 2050` bars skip/xfail/allowlist outright, so the case
+        below bends the row shut rather than standing down when the shipped
+        registry stops being shut on its own.  Today this fixture agrees with
+        the shipped data; the day it stops agreeing it is still the fence a
+        future spawnless scene will take.
+        """
+        real = world_scene_travel.load_scene_registry()
+        bent = replace(
+            real,
+            destinations=tuple(
+                replace(target, login_entry_allowed=False)
+                if target.n_id == scene_id else target
+                for target in real.destinations
+            ),
+        )
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        try:
+            with mock.patch.object(
+                world_scene_travel, "load_scene_registry", return_value=bent
+            ):
+                self.assertFalse(
+                    warp_scene_persist.login_would_accept(scene_id),
+                    "the fixture bent nothing")
+                yield bent
+        finally:
+            warp_scene_persist.reset_login_registry_snapshot_for_tests()
+
+    def _destination_scene(self, marker_id=MARKER):
+        return tc.marker_destination(marker_id).scene_id
+
+class SelectedSceneIsRelabelledOnlyWhenTheLoginCanTakeItBackTests(_JourneyFixture):
+    """What a completed M2 journey does to `selected.position.scene_id`.
+
+    PANYA-DECISION 20260908_1218 item 2 is the owner's answer to the question
+    round R399 could not decide alone: logging back in must put a character at
+    the last point before logout, in ANY scene, the open sea included.  So the
+    relabel R399 withdrew is back -- BEHIND THE FENCE THAT MADE THE WITHDRAWAL
+    NECESSARY.  See `_m2_transport_resync_selected_scene` for the two fences;
+    both halves are proved here, the second against a bent registry, so this
+    file does not go red on the day LANE-A lands and does not quietly stop
+    testing anything either.
+    """
+
+    def test_the_seam_agrees_with_the_registry_about_all_three_sea_scenes(self):
+        # THE CONTRACT, RE-DERIVED RATHER THAN QUOTED, for the three decreed
+        # arrival rows M2 exists to reach.  This is deliberately NOT an
+        # assertion that they are barred (they are today, and PANYA 1218 item
+        # 1 orders them opened): it asserts that whatever the registry says,
+        # the seam does the matching thing.  It therefore stays meaningful
+        # across LANE-A's flip instead of going red on it.
+        for marker_id in (17, 343, 345):
+            scene_id = self._destination_scene(marker_id)
+            open_at_login = warp_scene_persist.login_would_accept(scene_id)
+            state, actions = self._journey(
+                "m2agrees%d" % marker_id, marker_id=marker_id)
+            self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+            relabelled = state.foundation.selected.position.scene_id == scene_id
+            self.assertEqual(
+                open_at_login, relabelled,
+                "marker %d -> scene %d: login_would_accept=%r but the seam "
+                "%s relabel"
+                % (marker_id, scene_id, open_at_login,
+                   "did" if relabelled else "did not"),
+            )
+
+    def test_a_login_barred_destination_is_declined_and_says_so(self):
+        scene_id = self._destination_scene()
+        with self._registry_barred_at_login_on(scene_id):
+            state, actions = self._journey("m2barred")
+            self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+            # LAYER 1 (server state): the label is untouched...
+            self.assertEqual(state.foundation.selected.position.scene_id, 1)
+            self.assertFalse(
+                getattr(state, "scene_label_is_server_guess", False))
+            # ...and the decline is NAMED.  A silent decline is how the
+            # pre-existing wrong-label bug hid for as long as it did.
+            self.assertIn(
+                "lane_a_m2_transport_resync_refused_login_barred_%d" % scene_id,
+                state.events,
+            )
+
+    def test_an_open_destination_is_relabelled_with_the_census_unlatched(self):
+        scene_id = self._destination_scene()
+        with self._registry_open_at_login_on(scene_id):
+            # LATCHED FIRST, AND THIS IS THE WHOLE TEST.  A first draft of
+            # this case asserted the fields were falsy after a journey and
+            # MEASURED NOTHING: on a fresh session they are already falsy, so
+            # deleting the clearing block outright left all 50 cases green
+            # (mutant run, this round).  `world_census_sent` is latched once
+            # per CONNECTION and is exactly the field whose stale True makes
+            # every later scene of a session silent, so the fixture puts the
+            # session in the state a real second scene arrives in.
+            state = self._login_and_start("m2open")
+            state.world_census_sent = True
+            state.world_census_refused = True
+            state.last_target_pos = (1.0, 2.0, 3.0)
+            state.population_indices = (7,)
+            state.world_census_indices = (7,)
+            state.population_refresh_anchor = (1.0, 2.0, 3.0)
+            state.census_anchor_record = (1.0, 2.0, 3.0)
+            state.npc_idle_action_sent = True
+            state.world_census_identity_resolved = True
+            state.world_census_actor_count = 97
+            state.mob_combat_announced_membership = (11, 12)
+            generation_before = state.mob_combat_announced_membership_generation
+            self._record(state)
+            self._tick(state)
+            actions = self._echo(state)
+            self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+            self.assertEqual(
+                state.foundation.selected.position.scene_id, scene_id)
+            # The label is the SERVER'S GUESS until the client reports from
+            # there (CORE-REQUEST-GM-051 item 3).
+            self.assertTrue(state.scene_label_is_server_guess)
+            # KA1A-ROOTCAUSE: shipping the relabel without this block is what
+            # left every later scene of a session with no census, no roster
+            # and every field-mob ActionVital refused.
+            self.assertIn(
+                "lane_a_m2_transport_census_latch_cleared_%d" % scene_id,
+                state.events,
+            )
+            self.assertFalse(state.world_census_sent)
+            self.assertFalse(state.world_census_refused)
+            self.assertFalse(state.npc_idle_action_sent)
+            self.assertFalse(state.world_census_identity_resolved)
+            self.assertIsNone(state.population_refresh_anchor)
+            # Bumped, never reset: an old generation for a scene visited
+            # earlier this session must not be replayable as current.
+            self.assertGreater(
+                state.mob_combat_announced_membership_generation,
+                generation_before)
+            self.assertIsNone(state.last_target_pos)
+            self.assertIsNone(state.population_indices)
+            self.assertIsNone(state.world_census_indices)
+            self.assertIsNone(state.census_anchor_record)
+            self.assertIsNone(state.world_census_actor_count)
+            self.assertIsNone(state.mob_combat_announced_membership)
+
+    def test_x_y_z_are_left_at_the_departure_row(self):
+        # SCENE ONLY.  The coordinates in the relocation record are the frame
+        # this server SENT, and a frame that left the server is a request.
+        # Copying them here would also make the first real report compare
+        # EQUAL to the stored row and skip the durable write entirely.
+        scene_id = self._destination_scene()
+        with self._registry_open_at_login_on(scene_id):
+            before = self._login_and_start("m2xyzbefore")
+            origin = before.foundation.selected.position
+            state, _ = self._journey("m2xyz")
+            after = state.foundation.selected.position
+            self.assertEqual(
+                (after.x, after.y, after.z, after.heading),
+                (origin.x, origin.y, origin.z, origin.heading),
+            )
+
+    def test_the_durable_row_names_the_destination_after_one_step(self):
+        # LAYER 2 (wire/DB), and this is the half PANYA 1218 item 2 is about:
+        # once the pins are open, a journey plus one step leaves a row that
+        # brings the character back to the sea rather than to Port Royal.
+        scene_id = self._destination_scene()
+        with self._registry_open_at_login_on(scene_id):
+            state, _ = self._journey("m2durableopen")
+            destination = tc.marker_destination(MARKER)
+            self._report(state, float(destination.x) + 40.0,
+                         float(destination.y) + 40.0, float(destination.z))
+            row = self.store.list_characters(
+                state.foundation.account_id)[-1]
+            self.assertEqual(row.position.scene_id, scene_id)
+            self.assertTrue(
+                warp_scene_persist.login_would_accept(row.position.scene_id))
+
+    def test_an_ordinary_marker_relabels_today_with_no_bent_registry(self):
+        """WHAT THIS SEAM ACTUALLY DOES ON THE SHIPPED REGISTRY.
+
+        pf-adversary R401 D2, MEASURED: `marker_destination` pins 15 markers
+        and `login_would_accept` answers True for scenes 1-11 and 14 today,
+        so the relabel is live for the ORDINARY in-game markers and dormant
+        only for the three decreed sea rows.  The first draft of this class
+        drove nothing but 17/343/345, which let a mutant that restricted the
+        relabel to those three scenes survive the whole suite.  This case is
+        the one that fails it.
+        """
+        marker_id = 2
+        scene_id = self._destination_scene(marker_id)
+        self.assertNotEqual(scene_id, 1, "this marker must leave scene 1")
+        self.assertTrue(warp_scene_persist.login_would_accept(scene_id))
+        state, actions = self._journey("m2ordinary", marker_id=marker_id)
         self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertEqual(state.foundation.selected.position.scene_id, scene_id)
+        self.assertIn(
+            "lane_a_m2_transport_selected_scene_resynced_%d" % scene_id,
+            state.events)
+
+    def test_a_scene_whose_row_may_not_be_written_is_refused(self):
+        """FENCE 2, and it is a different question from fence 1.
+
+        pf-adversary R401 D4, MEASURED on marker 14: scene 14 is
+        `login_entry_allowed=True` and `persist_position_allowed=False`, so
+        the login fence alone let the label move while `lifecycle.checkpoint`
+        declined the write.  The in-memory label then diverged from the
+        durable row for the life of the session and the resync event fired
+        green over a feature that had not happened.  PANYA-DECISION 1218
+        item 2 asks for the DURABLE ROW to name where the player is, which a
+        scene like this cannot deliver.
+        """
+        marker_id = 14
+        scene_id = self._destination_scene(marker_id)
+        self.assertTrue(warp_scene_persist.login_would_accept(scene_id))
+        self.assertFalse(
+            world_scene_travel.is_position_persist_allowed(scene_id),
+            "this marker must be the login-open persist-barred shape or it "
+            "proves nothing")
+        state, actions = self._journey("m2persistbarred", marker_id=marker_id)
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+        self.assertIn(
+            "lane_a_m2_transport_resync_refused_persist_barred_%d" % scene_id,
+            state.events)
+
+    def test_a_same_scene_journey_clears_nothing(self):
+        """The early return, pinned - a mutant deleting it survived the suite.
+
+        Marker 1 resolves to the scene a fresh character already stands in.
+        Unlatching the census and bumping the membership generation there
+        would cost a re-announce for a journey that moved nobody.
+        """
+        state = self._login_and_start("m2samescene")
+        state.world_census_sent = True
+        state.last_target_pos = (1.0, 2.0, 3.0)
+        generation_before = state.mob_combat_announced_membership_generation
+        self._record(state, marker_id=1)
+        self._tick(state)
+        self._echo(state, marker_id=1)
+        self.assertEqual(state.foundation.selected.position.scene_id, 1)
+        self.assertTrue(state.world_census_sent)
+        self.assertEqual(state.last_target_pos, (1.0, 2.0, 3.0))
+        self.assertEqual(
+            state.mob_combat_announced_membership_generation,
+            generation_before)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+        self.assertIn("lane_a_m2_transport_resync_same_scene_1", state.events)
+
+    def test_a_selected_row_with_no_position_is_declined_not_crashed(self):
+        """The guard against a shape nobody has produced, pinned anyway.
+
+        A mutant deleting it survived the suite, which means the guard was
+        prose.  `replace()` on a row with no `position` is an AttributeError
+        inside the window where an escape costs the listener thread, so the
+        guard is cheap and the pin is cheaper than finding out.
+
+        CALLED DIRECTLY, not through a journey, and that is a real limit of
+        this pin rather than a convenience: a session whose `selected` row
+        has no position does not survive the rest of the echo path either
+        (measured: the AttributeError comes back out of a neighbouring
+        reader), so a dispatch-level version of this case would be testing
+        those readers, not this guard.  What is pinned here is that THIS
+        method declines by name instead of raising into the window where a
+        raise costs the listener thread.
+        """
+        state = self._login_and_start("m2noposition")
+        selected = state.foundation.selected
+        state.foundation.selected = types.SimpleNamespace(
+            id=getattr(selected, "id", None), position=None)
+        before = len(state.events)
+        state._m2_transport_resync_selected_scene(tc.open_check(MARKER))
+        events = state.events[before:]
+        self.assertIn("lane_a_m2_transport_resync_refused_no_position", events)
+        self.assertNotIn("lane_a_m2_transport_resync_refused_raised", events)
+
+    def test_a_relabel_that_raises_costs_the_relabel_and_nothing_else(self):
+        """NEVER RAISES, measured rather than asserted in a docstring.
+
+        pf-adversary R401 D5: only the relocation read was inside the try, and
+        the call sits between `sink.answered.add(...)` and the return that
+        hands out the transport frame - so an escape killed the listener
+        thread AND the journey, since the order is already popped.
+        """
+        state = self._login_and_start("m2resyncraises")
+        self._record(state)
+        self._tick(state)
+        with mock.patch.object(
+            warp_scene_persist, "login_would_accept",
+            side_effect=RuntimeError("registry object died"),
+        ):
+            actions = self._echo(state)
+        # The frame still leaves.
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertIn("lane_a_m2_transport_resync_refused_raised",
+                      state.events)
+        # And nothing was half-applied.
         self.assertEqual(state.foundation.selected.position.scene_id, 1)
         self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
 
     def test_the_durable_row_never_names_a_scene_the_login_refuses(self):
-        # LAYER 2 (wire/DB).  This is the assertion a naive G1 fix breaks:
-        # with the relabel in place the row read back here was
-        # Position(scene_id=126, ...), and the next login answered StartGame
+        # THE INVARIANT THAT OUTRANKS THE RELABEL, asserted against whichever
+        # registry this run actually has.  This is the assertion the naive G1
+        # fix broke: with an unfenced relabel the row read back here was
+        # Position(scene_id=126, ...) and the next login answered StartGame
         # with an empty action list and world_scene_entry_refused_no_reply.
         state, _ = self._journey("m2durablelogin")
         destination = tc.marker_destination(MARKER)
@@ -858,7 +1183,6 @@ class SelectedSceneIsNotRelabelledTests(_SeamCase):
                 ))
         self.assertNotIn("world_scene_entry_refused_no_reply", again.events)
         self.assertIsNotNone(actions)
-
 
 class SurvivingMutantTests(_SeamCase):
     """The five mutants R398 measured surviving the suite at 41 passed."""
@@ -972,3 +1296,445 @@ class SurvivingMutantTests(_SeamCase):
             self._tick(state)
         self.assertFalse([e for e in state.events
                           if e.startswith("lane_a_m2_teleport_check")])
+
+
+class M2ArrivalAnswersTheGuessTests(_JourneyFixture):
+    """The flag a journey sets can be cleared again, and only by the client.
+
+    pf-adversary on pirate-force-server#1132 found D3 (CRITICAL) and it is
+    what kept that PR draft: `_m2_transport_resync_inner` sets
+    `scene_label_is_server_guess`, and until this round the only two sites
+    that ever cleared it were login and the `gm_warp_confirm_window_open`
+    branch of `_checkpoint_exact_target`.  An M2 journey opens no GM confirm
+    window, so a travelling session could never clear it and
+    `client_confirmed_scene` stayed None for the rest of its life -- measured
+    against a control that did not travel and read the departure scene.
+
+    THE EVIDENCE THAT ENDS THE REFUSAL is the same evidence
+    `GM_WARP_POSITION_CONFIRMED` rests on: the client reports coordinates
+    within `WARP_TARGET_MATCH_TOLERANCE` of the point the transport frame
+    sent it to.  NONCLAIM, stated in `_m2_note_arrival_if_confirmed` and
+    repeated here because a reader of these test names would otherwise
+    over-read them: the SCENE half of that comparison is a tautology (the
+    relabel already put the destination in `candidate.scene_id`), so what is
+    tested is x/y/z, and nobody has watched a client draw the arrival --
+    that is `GT-309` rhythm (c), which is HELD.
+    """
+
+    ORDINARY_MARKER = 2
+
+    def _arrived_journey(self, token, marker_id=None):
+        """A journey whose relabel actually happened, plus its destination."""
+        marker_id = self.ORDINARY_MARKER if marker_id is None else marker_id
+        destination = tc.marker_destination(marker_id)
+        self.assertTrue(
+            warp_scene_persist.login_would_accept(destination.scene_id),
+            "this marker must relabel on the shipped registry or the "
+            "arrival path is never armed and the test proves nothing",
+        )
+        state, actions = self._journey(token, marker_id=marker_id)
+        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+        self.assertTrue(state.scene_label_is_server_guess)
+        self.assertIn(
+            "lane_a_m2_arrival_armed_scene_%d" % destination.scene_id,
+            state.events)
+        return state, destination
+
+    def _report_at(self, state, destination, offset=0.0):
+        return self._report(
+            state, float(destination.x) + offset,
+            float(destination.y), float(destination.z),
+        )
+
+    def _say(self, state, destination, offset=0.0):
+        """One position report with stdout captured, returned as text."""
+        out = io.StringIO()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with contextlib.redirect_stdout(out):
+                state.dispatch(self.legacy.parse_outer(self._target_pos_pc(
+                    float(destination.x) + offset, float(destination.y),
+                    float(destination.z),
+                )))
+        return out.getvalue()
+
+    # ------------------------------------------------------------------
+    # the hole itself
+
+    def test_a_report_from_the_destination_clears_the_guess(self):
+        state, destination = self._arrived_journey("m2arrive")
+        self._report_at(state, destination)
+        self.assertFalse(
+            state.scene_label_is_server_guess,
+            "the client reported from the point the transport frame named, "
+            "which is the whole evidence this flag was waiting for",
+        )
+        self.assertEqual(state.client_confirmed_scene, destination.scene_id)
+        self.assertIn(
+            "lane_a_m2_arrival_confirmed_scene_%d" % destination.scene_id,
+            state.events)
+        self.assertIn(
+            "client_confirmed_scene_%d_m2_arrival_report" % destination.scene_id,
+            state.events)
+
+    def test_the_control_that_did_not_travel_is_unaffected(self):
+        """The measurement D3 was stated against, kept as a test.
+
+        A session that never travels reads its scene back on the first
+        ordinary report, through the branch that has always been there.  If
+        this ever goes red with the case above green, the arrival path has
+        started answering for journeys that did not happen.
+        """
+        state = self._login_and_start("m2control")
+        destination = tc.marker_destination(self.ORDINARY_MARKER)
+        self.assertFalse(state.scene_label_is_server_guess)
+        self._report_at(state, destination)
+        self.assertEqual(state.client_confirmed_scene, 1)
+        self.assertNotIn("lane_a_m2_arrival_armed_scene_%d"
+                         % destination.scene_id, state.events)
+
+    def test_a_report_somewhere_else_confirms_nothing(self):
+        state, destination = self._arrived_journey("m2elsewhere")
+        self._report_at(state, destination, offset=4000.0)
+        self.assertTrue(
+            state.scene_label_is_server_guess,
+            "a report 4000 units from the destination is not an arrival",
+        )
+        self.assertIsNone(state.client_confirmed_scene)
+        self.assertIn("lane_a_m2_arrival_not_at_target_4000", state.events)
+
+    def test_a_late_arrival_still_confirms(self):
+        """WHY THE EXPECTATION IS NOT CONSUMED ON THE FIRST REPORT.
+
+        LANE-GM's parked warp target consumes once because RE-129 measured
+        the client IGNORING ForcePos, so its second report is about a frame
+        the warp never caused.  The M2 transport is the other composer, and
+        the cost of being wrong here is asymmetric: an expectation consumed
+        one frame early leaves the flag stuck for the session, which is D3
+        again.  This is the case that fails a consume-once mutant.
+        """
+        state, destination = self._arrived_journey("m2late")
+        self._report_at(state, destination, offset=4000.0)
+        self.assertTrue(state.scene_label_is_server_guess)
+        self._report_at(state, destination)
+        self.assertFalse(state.scene_label_is_server_guess)
+        self.assertEqual(state.client_confirmed_scene, destination.scene_id)
+
+    def test_a_refused_relabel_arms_nothing(self):
+        """No relabel, no guess, and so nothing for an arrival to answer.
+
+        Under a login-barred destination the seam declines, the label stays
+        the client's own departure scene, and the ordinary report path -- not
+        this one -- records it.  An expectation armed on this branch would be
+        an arrival for a journey the server itself refused to believe in.
+        """
+        scene_id = self._destination_scene()
+        with self._registry_barred_at_login_on(scene_id):
+            state, _ = self._journey("m2barred")
+            destination = tc.marker_destination(MARKER)
+            self.assertFalse(state.scene_label_is_server_guess)
+            self._report_at(state, destination)
+        self.assertNotIn("lane_a_m2_arrival_armed_scene_%d" % scene_id,
+                         state.events)
+        self.assertNotIn("lane_a_m2_arrival_confirmed_scene_%d" % scene_id,
+                         state.events)
+        self.assertEqual(state.client_confirmed_scene, 1)
+
+    # ------------------------------------------------------------------
+    # who the expectation belongs to, and what it refuses
+
+    def test_another_character_cannot_answer_this_journey(self):
+        state, destination = self._arrived_journey("m2othercharacter")
+        parked = state._m2_arrival_expected
+        state._m2_arrival_expected = replace(
+            parked, character_id=parked.character_id + 1)
+        self._report_at(state, destination)
+        self.assertTrue(state.scene_label_is_server_guess)
+        self.assertIsNone(state.client_confirmed_scene)
+        self.assertIn("lane_a_m2_arrival_refused_character_mismatch",
+                      state.events)
+        self.assertIsNotNone(
+            state._m2_arrival_expected,
+            "a re-selectable character keeps the journey parked; only an "
+            "answer or a newer journey takes it away",
+        )
+
+    def test_an_unreadable_character_is_never_compared(self):
+        state, destination = self._arrived_journey("m2unreadable")
+        parked = state._m2_arrival_expected
+        state._m2_arrival_expected = replace(
+            parked, character_id=UNREADABLE_CHARACTER_ID)
+        self._report_at(state, destination)
+        self.assertTrue(state.scene_label_is_server_guess)
+        self.assertIn("lane_a_m2_arrival_refused_character_mismatch",
+                      state.events)
+
+    def test_a_foreign_value_on_the_slot_is_dropped_not_read(self):
+        state, destination = self._arrived_journey("m2foreign")
+        state._m2_arrival_expected = object()
+        self._report_at(state, destination)
+        self.assertIsNone(state._m2_arrival_expected)
+        self.assertIn("lane_a_m2_arrival_dropped_foreign_value", state.events)
+        self.assertTrue(state.scene_label_is_server_guess)
+
+    def test_an_expectation_is_dropped_once_the_label_is_not_a_guess(self):
+        state, destination = self._arrived_journey("m2notaguess")
+        state.scene_label_is_server_guess = False
+        self._report_at(state, destination, offset=4000.0)
+        self.assertIsNone(state._m2_arrival_expected)
+        self.assertIn("lane_a_m2_arrival_dropped_label_not_a_guess",
+                      state.events)
+
+    def test_a_second_journey_replaces_the_first_destination(self):
+        state, first = self._arrived_journey("m2twice")
+        second_marker = 3
+        second = tc.marker_destination(second_marker)
+        self.assertNotEqual(second.scene_id, first.scene_id)
+        self.assertTrue(warp_scene_persist.login_would_accept(second.scene_id))
+        self._record(state, marker_id=second_marker)
+        self._tick(state)
+        self._echo(state, marker_id=second_marker)
+        self.assertEqual(state._m2_arrival_expected.target.scene_id,
+                         second.scene_id)
+        self._report_at(state, first)
+        self.assertTrue(
+            state.scene_label_is_server_guess,
+            "the older destination can no longer be what a report is about",
+        )
+        self._report_at(state, second)
+        self.assertEqual(state.client_confirmed_scene, second.scene_id)
+
+    # ------------------------------------------------------------------
+    # never raises, never floods
+
+    def test_a_position_whose_axis_raises_costs_the_comparison_only(self):
+        """v141 wraps `dispatch()` with no `except`; nothing here may escape."""
+        state, _destination = self._arrived_journey("m2raises")
+
+        class _Raising:
+            scene_id = state._m2_arrival_expected.target.scene_id
+
+            @property
+            def x(self):
+                raise RuntimeError("axis")
+
+        self.assertEqual(
+            state._m2_note_arrival_if_confirmed(_Raising()), "unknown")
+        self.assertTrue(state.scene_label_is_server_guess)
+
+    def test_a_destination_that_is_not_numbers_arms_nothing(self):
+        """`transport_relocation` reads `pending.destination` raw.
+
+        A hand-built PendingCheck can therefore carry coordinates that are
+        not numbers at all.  The relabel above it still stands -- its own
+        fences passed on the scene id -- but the arrival path must say it
+        cannot be answered rather than park something it will only ever
+        compare as "unknown".
+        """
+        state, destination = self._arrived_journey("m2badxyz")
+        bent = tc.PendingCheck(
+            marker_id=destination.marker_id,
+            destination=destination._replace(x="not a number"),
+            window_expected=True,
+            confirm_id=tc.CONFIRM_ID_DOCKING,
+        )
+        relocation = tc.transport_relocation(bent)
+        state._m2_arrival_arm(bent, relocation,
+                              state.foundation.selected.position)
+        self.assertIsNone(state._m2_arrival_expected)
+        self.assertIn("lane_a_m2_arrival_not_armed_destination_unreadable",
+                      state.events)
+
+    def test_a_non_finite_destination_arms_nothing(self):
+        state, destination = self._arrived_journey("m2infxyz")
+        bent = tc.PendingCheck(
+            marker_id=destination.marker_id,
+            destination=destination._replace(x=float("inf")),
+            window_expected=True,
+            confirm_id=tc.CONFIRM_ID_DOCKING,
+        )
+        state._m2_arrival_arm(bent, tc.transport_relocation(bent),
+                              state.foundation.selected.position)
+        self.assertIsNone(state._m2_arrival_expected)
+        self.assertIn("lane_a_m2_arrival_not_armed_destination_not_finite",
+                      state.events)
+
+    def test_the_console_says_the_arrival_once_and_the_confirmation_once(self):
+        state, destination = self._arrived_journey("m2console")
+        first = self._say(state, destination, offset=4000.0)
+        self.assertIn("ARRIVAL", first)
+        self.assertIn("confirmed=0", first)
+        self.assertIn("dist=4000.000", first)
+        second = self._say(state, destination, offset=3000.0)
+        self.assertNotIn(
+            "ARRIVAL", second,
+            "one line per journey on the unconfirmed branch: every ordinary "
+            "walk frame would otherwise bury the confirmation",
+        )
+        third = self._say(state, destination)
+        self.assertIn("ARRIVAL", third)
+        self.assertIn("confirmed=1", third)
+        self.assertIn("scene=%d" % destination.scene_id, third)
+
+    def test_an_unconfirmed_journey_costs_one_event_not_one_per_step(self):
+        """The events list may not grow for as long as the player walks.
+
+        Found in this round's own self-review, not by a test that was already
+        there: the first draft printed the console line once but appended an
+        event on EVERY report, so a session that travelled and then walked for
+        an hour grew `self.events` without bound.  That is the leak
+        `lane_hooks.fire()`'s per-session ceiling exists to stop (R393).
+        """
+        state, destination = self._arrived_journey("m2eventonce")
+        for step in range(5):
+            self._report_at(state, destination, offset=4000.0 + step)
+        misses = [e for e in state.events
+                  if e.startswith("lane_a_m2_arrival_not_at_target_")]
+        self.assertEqual(
+            len(misses), 1,
+            "one event per journey, not one per step: %r" % misses)
+        self.assertTrue(state.scene_label_is_server_guess)
+        # ... and the journey is still answerable after all that walking.
+        self._report_at(state, destination)
+        self.assertEqual(state.client_confirmed_scene, destination.scene_id)
+
+    def test_the_console_line_carries_the_marker_the_journey_used(self):
+        state, destination = self._arrived_journey("m2markerline")
+        line = self._say(state, destination)
+        self.assertIn("marker=%d" % self.ORDINARY_MARKER, line)
+        self.assertTrue(line.startswith(tc.TOKEN),
+                        "one prefix for the whole journey: %r" % line)
+
+
+class ArrivalFindingsPaidTests(_JourneyFixture):
+    """The three pf-adversary findings this round's own first draft earned.
+
+    D1 and D3 are defects the draft introduced; D2 is the laundering path the
+    draft's disclosed tautology turned from annotated into load-bearing.  Each
+    case below is the adversary's own measured sequence, kept as a test so the
+    fix cannot be undone by a later edit that looks harmless.
+    """
+
+    ORDINARY_MARKER = 2
+
+    class _MarkerIdThatRaises:
+        """A `marker_id` that raises something `_m2_arrival_arm` does not guard.
+
+        `int()` on it raises RuntimeError, which is outside the
+        OverflowError/TypeError/ValueError the arm catches - the exact input
+        the adversary drove through the public recorder door.
+        """
+
+        def __int__(self):
+            raise RuntimeError("marker id")
+
+        def __eq__(self, other):
+            return other == 2
+
+        def __hash__(self):
+            return hash(2)
+
+    def test_an_arm_that_raises_costs_the_answer_and_not_the_census(self):
+        """D1: the census unlatch must not depend on the arm surviving."""
+        state = self._login_and_start("m2armraises")
+        destination = tc.marker_destination(self.ORDINARY_MARKER)
+        pending = tc.PendingCheck(
+            marker_id=self._MarkerIdThatRaises(),
+            destination=destination,
+            window_expected=True,
+            confirm_id=tc.CONFIRM_ID_DOCKING,
+        )
+        state.world_census_sent = True
+        with contextlib.redirect_stdout(io.StringIO()):
+            state._m2_transport_resync_selected_scene(pending)
+        self.assertEqual(state.foundation.selected.position.scene_id,
+                         destination.scene_id, "the relabel still happened")
+        self.assertFalse(
+            state.world_census_sent,
+            "the KA1A-ROOTCAUSE block must run whatever the arm did: a scene "
+            "relabelled with the census still latched dispatches a teleport "
+            "frame and nothing else for the rest of the session (R399)",
+        )
+        self.assertIn(
+            "lane_a_m2_transport_census_latch_cleared_%d" % destination.scene_id,
+            state.events)
+        self.assertNotIn(
+            "lane_a_m2_transport_resync_refused_raised", state.events,
+            "an arm that raises may not escape into the caller's blanket "
+            "except at all: the console line the operator reads is built "
+            "after it",
+        )
+        self.assertIn("lane_a_m2_arrival_not_armed_raised", state.events)
+        self.assertIsNone(state._m2_arrival_expected)
+
+    def test_turning_on_the_spot_is_not_an_arrival(self):
+        """D2: the confirmation needs displacement, not only coordinates.
+
+        The adversary's own sequence, and it needs no hostile input at all:
+        `marker_destination(N)` is bit-identical to scene N's registry spawn,
+        the relabel deliberately leaves x/y/z on the departure row, and
+        `Position` carries `heading` - so a client that reports the marker's
+        coordinates BEFORE echoing and then turns on the spot reached the
+        arrival check with `dist=0.000` and confirmed a transport it never
+        processed.
+        """
+        state = self._login_and_start("m2turnonspot")
+        destination = tc.marker_destination(self.ORDINARY_MARKER)
+        # The client is standing on the destination's coordinates already,
+        # in the DEPARTURE scene.
+        self._report(state, float(destination.x), float(destination.y),
+                     float(destination.z))
+        self._record(state, marker_id=self.ORDINARY_MARKER)
+        self._tick(state)
+        self._echo(state, marker_id=self.ORDINARY_MARKER)
+        self.assertTrue(state.scene_label_is_server_guess)
+        # ... and now it only turns: same point, different heading.
+        with contextlib.redirect_stderr(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()):
+                state.dispatch(self.legacy.parse_outer(self._target_pos_pc(
+                    float(destination.x), float(destination.y),
+                    float(destination.z), heading=1.5,
+                )))
+        self.assertTrue(
+            state.scene_label_is_server_guess,
+            "zero displacement is not evidence that a transport moved anyone",
+        )
+        self.assertEqual(
+            state.client_confirmed_scene, 1,
+            "the field still names the last scene the client really backed, "
+            "which is the departure scene it reported from before echoing",
+        )
+        self.assertIn("lane_a_m2_arrival_refused_no_displacement", state.events)
+
+    def test_the_gm_confirm_window_owns_its_own_frame(self):
+        """D3: a parked journey may not take the credit for a GM warp.
+
+        Measured by the adversary end to end: journey armed, client misses,
+        the expectation stays parked (by design), a GM `/warp` then lands the
+        client on the destination's spawn - which IS the marker point - and
+        this seam printed `confirmed=1` for a journey that delivered nothing,
+        then swallowed the GM path's own `warp_confirmed` event because
+        `_note_client_confirmed_scene` returns early on an unchanged value.
+        """
+        state, destination = self._journey("m2gmwindow",
+                                           marker_id=self.ORDINARY_MARKER), None
+        state = state[0]
+        destination = tc.marker_destination(self.ORDINARY_MARKER)
+        self.assertTrue(state.scene_label_is_server_guess)
+        parked = state._m2_arrival_expected
+        state.gm_warp_confirm_window_open = True
+        position = state.foundation.selected.position
+        candidate = Position(
+            position.scene_id, position.scene_seq,
+            float(destination.x), float(destination.y), float(destination.z),
+            0.0,
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            verdict = state._m2_note_arrival_if_confirmed(candidate)
+        self.assertEqual(verdict, "none")
+        self.assertTrue(state.scene_label_is_server_guess)
+        self.assertIsNone(state.client_confirmed_scene)
+        self.assertIn("lane_a_m2_arrival_yielded_to_gm_confirm", state.events)
+        self.assertIs(
+            state._m2_arrival_expected, parked,
+            "a journey does not expire because a GM warped in the middle of it",
+        )

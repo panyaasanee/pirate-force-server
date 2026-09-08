@@ -287,14 +287,193 @@ class UndecidedReadingTests(unittest.TestCase):
         )
         self.assertEqual(len(set(skill_point_curve.UNDECIDED_READINGS)), 2)
 
-    def test_the_module_exports_no_birth_value_under_any_spelling(self):
-        forbidden = [
+    def test_the_only_birth_names_are_the_four_the_owner_ordered(self):
+        """This test used to demand ZERO birth names, and that was right
+        until 2026-09-08 14:41.
+
+        ``COO-DECISION 20260908_1341`` forbade a birth value while nothing
+        consumed one; ``COO-DECISION 20260908_1441`` point 3 lifted the ban
+        for exactly one constant, because a consumer arrived -- LANE-DB's
+        birth pin, which can only grade the VALUE of ``skill_points`` if some
+        module in ``src/`` declares it.  So the test keeps its teeth and
+        changes its shape: an allowlist, not a ban.  A fifth birth name, or a
+        ``starting_skill_points()`` under any other spelling, is still red.
+        """
+        allowed = {
+            "BIRTH_SKILL_POINTS",
+            "BIRTH_SKILL_POINTS_PROVENANCE",
+            "BIRTH_SKILL_POINTS_SOURCE",
+            "OWNER_ORDERED_BIRTH_SKILL_POINTS",
+            "birth_skill_points",
+            "REFUSE_BIRTH_PROVENANCE_UNKNOWN",
+            "REFUSE_BIRTH_ASSUMPTION_NOT_AS_ORDERED",
+            "REFUSE_BIRTH_MEASURED_WITHOUT_SOURCE",
+            "REFUSE_BIRTH_ASSUMPTION_WITH_SOURCE",
+        }
+        found = {
             name for name in dir(skill_point_curve)
             if not name.startswith("_")
             and ("starting" in name.lower() or "birth" in name.lower()
                  or "default" in name.lower())
-        ]
-        self.assertEqual(forbidden, [])
+        }
+        self.assertEqual(found - allowed, set())
+        # And the four that carry the value must all still be there: a round
+        # that deletes the provenance label and keeps the number is the other
+        # way this can go wrong.
+        self.assertLessEqual(
+            {
+                "BIRTH_SKILL_POINTS",
+                "BIRTH_SKILL_POINTS_PROVENANCE",
+                "BIRTH_SKILL_POINTS_SOURCE",
+                "OWNER_ORDERED_BIRTH_SKILL_POINTS",
+            },
+            found,
+        )
+
+
+class BirthSkillPointsTests(unittest.TestCase):
+    """The one number this module names.
+
+    ``COO-DECISION 20260908_1441`` point 3 made this lane the owner of the
+    skill points a character is born holding, so that LANE-DB's birth pin can
+    grade the value instead of only the column.  These tests grade the two
+    things that can rot: the number, and the honesty of the label on it.
+    """
+
+    def setUp(self):
+        self._saved = {
+            name: getattr(skill_point_curve, name)
+            for name in (
+                "BIRTH_SKILL_POINTS",
+                "BIRTH_SKILL_POINTS_PROVENANCE",
+                "BIRTH_SKILL_POINTS_SOURCE",
+                "OWNER_ORDERED_BIRTH_SKILL_POINTS",
+            )
+        }
+
+    def tearDown(self):
+        for name, value in self._saved.items():
+            setattr(skill_point_curve, name, value)
+
+    def test_the_shipped_value_is_the_zero_the_owner_ordered(self):
+        self.assertEqual(skill_point_curve.BIRTH_SKILL_POINTS, 0)
+        self.assertEqual(
+            skill_point_curve.OWNER_ORDERED_BIRTH_SKILL_POINTS, 0
+        )
+        self.assertEqual(skill_point_curve.birth_skill_points(), 0)
+
+    def test_the_label_is_assumption_and_names_no_source(self):
+        """Not decoration.  ``COO-DECISION 20260908_1441`` point 3 says to
+        write MEASURED only if a shipped table declares the number, and this
+        round's header scan of every ``gamedata/tables/*.tsv`` found none."""
+        self.assertEqual(
+            skill_point_curve.BIRTH_SKILL_POINTS_PROVENANCE,
+            skill_point_curve.PROVENANCE_ASSUMPTION,
+        )
+        self.assertEqual(skill_point_curve.BIRTH_SKILL_POINTS_SOURCE, "")
+        self.assertEqual(
+            skill_point_curve.PROVENANCE_LABELS,
+            ("MEASURED", "ASSUMPTION"),
+        )
+
+    def test_the_number_does_not_come_from_the_table(self):
+        """Mutation pin for the coincidence the header calls out: under
+        reading (b) level 1 holds 0 too, so a reader could think this value
+        is read off the curve.  Blank the whole curve and the birth value
+        must not move."""
+        original = dict(skill_point_curve._ROWS)
+        try:
+            for level in list(skill_point_curve._ROWS):
+                skill_point_curve._ROWS[level] = (
+                    skill_point_curve.SkillPointRow(level=level, sp=777)
+                )
+            self.assertEqual(skill_point_curve.birth_skill_points(), 0)
+        finally:
+            skill_point_curve._ROWS.clear()
+            skill_point_curve._ROWS.update(original)
+
+    def test_an_unknown_provenance_label_is_refused_by_name(self):
+        skill_point_curve.BIRTH_SKILL_POINTS_PROVENANCE = "probably"
+        with self.assertRaises(
+            skill_point_curve.SkillPointCurveError
+        ) as caught:
+            skill_point_curve.birth_skill_points()
+        self.assertEqual(
+            caught.exception.args[0],
+            skill_point_curve.REFUSE_BIRTH_PROVENANCE_UNKNOWN,
+        )
+
+    def test_an_unmeasured_number_other_than_the_ordered_one_is_refused(self):
+        """The guessed-number door.  A later round that quietly writes the
+        table's own ``2`` into the birth constant, still labelled
+        ASSUMPTION, gets refused rather than shipped."""
+        skill_point_curve.BIRTH_SKILL_POINTS = 2
+        with self.assertRaises(
+            skill_point_curve.SkillPointCurveError
+        ) as caught:
+            skill_point_curve.birth_skill_points()
+        self.assertEqual(
+            caught.exception.args[0],
+            skill_point_curve.REFUSE_BIRTH_ASSUMPTION_NOT_AS_ORDERED,
+        )
+        self.assertIn("20260908_1218", caught.exception.args[1])
+
+    def test_claiming_measured_without_naming_a_table_is_refused(self):
+        skill_point_curve.BIRTH_SKILL_POINTS_PROVENANCE = (
+            skill_point_curve.PROVENANCE_MEASURED
+        )
+        with self.assertRaises(
+            skill_point_curve.SkillPointCurveError
+        ) as caught:
+            skill_point_curve.birth_skill_points()
+        self.assertEqual(
+            caught.exception.args[0],
+            skill_point_curve.REFUSE_BIRTH_MEASURED_WITHOUT_SOURCE,
+        )
+
+    def test_naming_a_table_under_an_assumption_label_is_refused(self):
+        skill_point_curve.BIRTH_SKILL_POINTS_SOURCE = "CONSTDATA_TH__LEVEL_SP"
+        with self.assertRaises(
+            skill_point_curve.SkillPointCurveError
+        ) as caught:
+            skill_point_curve.birth_skill_points()
+        self.assertEqual(
+            caught.exception.args[0],
+            skill_point_curve.REFUSE_BIRTH_ASSUMPTION_WITH_SOURCE,
+        )
+
+    def test_a_measured_value_with_a_named_source_is_allowed_through(self):
+        """The door has to OPEN the day an RE answers, or the guard is just
+        a wall.  Measured here rather than assumed: relabel, name a table,
+        and any number passes."""
+        skill_point_curve.BIRTH_SKILL_POINTS = 2
+        skill_point_curve.BIRTH_SKILL_POINTS_PROVENANCE = (
+            skill_point_curve.PROVENANCE_MEASURED
+        )
+        skill_point_curve.BIRTH_SKILL_POINTS_SOURCE = "RE-xxx table row"
+        self.assertEqual(skill_point_curve.birth_skill_points(), 2)
+
+    def test_the_console_line_reports_the_birth_value_and_its_label(self):
+        line = skill_point_curve.headless_summary()
+        self.assertEqual(line.encode("ascii").decode("ascii"), line)
+        self.assertIn("birth_sp=0", line)
+        self.assertIn("birth_sp_provenance=ASSUMPTION", line)
+
+    def test_the_console_line_reads_the_door_not_a_constant(self):
+        """Mutation pin of the same shape D3/D6 forced on the other fields:
+        move the number (and the order behind it) and the line must move."""
+        skill_point_curve.OWNER_ORDERED_BIRTH_SKILL_POINTS = 5
+        skill_point_curve.BIRTH_SKILL_POINTS = 5
+        line = skill_point_curve.headless_summary()
+        self.assertIn("birth_sp=5", line)
+        skill_point_curve.BIRTH_SKILL_POINTS_PROVENANCE = (
+            skill_point_curve.PROVENANCE_MEASURED
+        )
+        skill_point_curve.BIRTH_SKILL_POINTS_SOURCE = "RE-xxx table row"
+        self.assertIn(
+            "birth_sp_provenance=MEASURED",
+            skill_point_curve.headless_summary(),
+        )
 
 
 class RefusalTests(unittest.TestCase):
