@@ -259,6 +259,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from . import mob_identity_sign
 from . import field_drop_tables
 from . import mob_combat
 from . import mob_loot
@@ -840,10 +841,12 @@ def _require_identity(value: Any, label: str) -> int:
     compared and printed as ``0x%X``), which is why the width can follow the
     server's composition rather than a wire field's.
     """
-    identity = _require_int(value, label, 0, MAX_ACTOR_IDENTITY)
-    if identity <= 0:
+    identity = _require_int(value, label, mob_loot.MIN_SIGNED_IDENTITY,
+                            mob_loot.MAX_SIGNED_IDENTITY)
+    if not mob_identity_sign.is_targetable_identity(identity):
         raise MobPickupContractError(
-            REFUSE_IDENTITY_NOT_POSITIVE, "%s must be positive" % label)
+            REFUSE_IDENTITY_NOT_POSITIVE,
+            "%s must be a drawable identity in the signed wire band" % label)
     return identity
 
 

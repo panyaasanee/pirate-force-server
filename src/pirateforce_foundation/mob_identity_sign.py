@@ -99,12 +99,19 @@ __all__ = [
     "scene_and_placement_for",
     "expected_name_colour",
     "encode_wire_identity",
+    "decode_wire_identity",
+    "is_targetable_identity",
+    "WIRE_IDENTITY_MASK",
 ]
 
 
 class MobIdentitySignError(ValueError):
     """Raised when an identity cannot carry the colour it is asked to."""
 
+
+#: The width of the identity field on the wire, as ``v141.qwordtag`` masks
+#: it (line 1131).  Inbound parsers hand back a value in ``[0, this]``.
+WIRE_IDENTITY_MASK = 0xFFFFFFFFFFFFFFFF
 
 #: The one value the client refuses to draw (R324A row 8, ``N-ID0``).
 IDENTITY_NOT_DRAWN = 0
@@ -350,6 +357,71 @@ def encode_wire_identity(identity: int) -> bytes:
             f"identity {identity} does not fit a signed 64-bit field"
         )
     return (identity & 0xFFFFFFFFFFFFFFFF).to_bytes(8, "little")
+
+
+def decode_wire_identity(wire: int) -> int:
+    """The identity a caller MEANT, given the eight bytes that arrived.
+
+    Exact inverse of :func:`encode_wire_identity` over the whole signed
+    64-bit range: ``decode_wire_identity(int.from_bytes(encode_wire_identity(
+    n), "little")) == n`` for every ``n`` the encoder accepts.
+
+    WHY THIS EXISTS, MEASURED (pf-adversary, round ``gadxq5``, finding D4,
+    confirmed as an order by COO-DECISION 20260908 14:41 beat 0):
+    the outbound half already masks two's complement, but EVERY inbound
+    parse point in ``current/pf_login_game_server_v141.py`` reads the same
+    field with ``struct.unpack('<Q', ...)`` -- unsigned:
+
+      * line ~3026 ``parse_target_vital``      -> ``actor_identity``
+      * line ~3040 ``parse_choose_npc``        -> the single identity
+      * line ~3061 ``extract_choose_npc_identities`` -> each identity
+      * line ~3191 ``parse_quest_operate_vital`` -> ``field_qword_20``
+      * line ~3264 ``parse_action_vital``      -> ``field_qword_18/20/28``
+
+    So a monster-band identity of ``-2`` comes back as
+    ``18446744073709551614``, no roster row equals it, and the player who
+    clicked gets silence: no event, no log, no damage.  The frozen file is
+    not edited (it is the client-derived reference and is never touched);
+    the normalisation happens once, HERE, and every server-side reader of an
+    inbound identity calls this before comparing it to anything.
+
+    NOT A GUARD.  This function does not judge whether the identity is
+    targetable, drawn, in band, or real -- see :func:`identity_is_drawn`,
+    :func:`refuse_undrawable_identity` and :func:`is_targetable_identity`
+    for that.  It only stops one number from having two meanings.
+    """
+    _refuse_non_integer(wire, "wire identity")
+    if wire < 0 or wire > WIRE_IDENTITY_MASK:
+        raise MobIdentitySignError(
+            f"wire identity {wire} is not an unsigned 64-bit field value; "
+            "this function decodes the bytes a parser produced, not an "
+            "identity that was already decoded"
+        )
+    if wire >= 2**63:
+        return wire - 2**64
+    return wire
+
+
+def is_targetable_identity(identity: int) -> bool:
+    """True when an inbound frame may name ``identity`` as its target.
+
+    The band moved, so the old shape of this test moved with it.  Before the
+    monster band went negative, ``target <= 0`` was a serviceable stand-in
+    for "not a real actor" at ``runtime.py`` line ~5227; the moment a monster
+    can legitimately be ``-2`` that same test throws away every real hit on
+    every monster.  What actually cannot be targeted is the one value the
+    client refuses to draw (:data:`IDENTITY_NOT_DRAWN`) and anything outside
+    the signed field the wire can carry.
+
+    Takes an ALREADY DECODED identity: pass the result of
+    :func:`decode_wire_identity`, never a raw parser value.
+    """
+    _refuse_non_integer(identity)
+    if identity == IDENTITY_NOT_DRAWN:
+        return False
+    if identity >= 2**63 or identity < -(2**63):
+        return False
+    return True
 
 
 def _refuse_non_integer(value: Any, what: str = "identity") -> None:

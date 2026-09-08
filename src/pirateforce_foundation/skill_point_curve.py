@@ -101,9 +101,11 @@ number anyway.
     answer is 2, not 0, so "0" is a CHOICE and not a value read off the
     client's own table -- carried together with the paragraph above, which
     says reading (a) is the weaker of the two.  It is NOT a recommendation to
-    seed 2, and this lane is not the owner of that column -- ``skill_points``
-    is LANE-DB's (``prompts/LANE-CS.md``: rows in the DB are not this lane's
-    write zone).
+    seed 2.  WHAT CHANGED ON 2026-09-08 AT 14:41: the COLUMN is still
+    LANE-DB's (``prompts/LANE-CS.md``: rows in the DB are not this lane's
+    write zone) but the NUMBER is now this lane's, by
+    ``COO-DECISION 20260908_1441`` point 3 on LANE-DB's own proposal --
+    see ``BIRTH_SKILL_POINTS`` below, which is where that order landed.
 
     THIS LANE'S OWN EARLIER CLAIM IS WITHDRAWN HERE, in the file rather than
     only in a letter.  Letter ``20260908_0458`` argued "thirteen million
@@ -126,6 +128,77 @@ for) is what would actually close it, and this round did not open that file.
 Related: ``_load_rows`` raising at import means a drifted byte fails
 COLLECTION for every test module that imports this one, so the failure names
 the import rather than the row.
+
+THE ONE NUMBER THIS MODULE DOES NAME, AND WHY IT IS NOT A THIRD READING.
+``BIRTH_SKILL_POINTS`` is 0, and it is an ASSUMPTION, not a measurement.
+``COO-DECISION 20260908_1441`` point 3 ordered it here for a reason that is
+worth keeping in front of the number: ``migrations/017`` gives
+``characters.skill_points`` a ``DEFAULT 0``, and ``tests/pf_birth_state.py``
+pins the birth row -- but that pin OMITS ``skill_points`` ON PURPOSE, and
+says so in its own words: "a column no module owns a number for is absent
+here, and absence means this file has nothing to say about the value".  It
+reads ``experience`` through the module that owns THAT number and leaves this
+one ungraded, because there was nobody to ask.  This constant is the answer
+to that sentence and nothing more: it gives the pin somebody to ask, the way
+the vitals module is who that pin asks about the three vitals.
+
+    THE VITALS DOOR IS NOT SPELLED HERE, AND THAT IS THE FOURTH TIME.  The
+    function that answers "what are the three vitals at birth" carries a
+    sole-call-site pin that scans every file under ``src/`` for its own name
+    as a SUBSTRING, so writing it in this sentence -- as an ANALOGY, calling
+    nothing -- turned that pin red on the full suite of this very round.  The
+    comment over ``SOURCE_SHA256`` predicted this and said the fourth time
+    would be somebody else; it was not.  The rule for this file is now
+    simple: describe another lane's door, never name it.
+
+  * It is NOT read off a shipped table.  Measured this round rather than
+    asserted: of the 188 committed client tables, the ones that could
+    plausibly carry a birth balance carry no such column -- all four
+    ``CONSTDATA_TH__CHARCREATE_*`` tables were dumped header-first (CLASS 5
+    rows / 38 columns, PACKAGE 30/14, LOOK 218/12, SKIN 20/10) and none has a
+    skill-point column of any spelling, and a header scan across every
+    ``gamedata/tables/*.tsv`` for ``SP``/``SKILL_POINT`` returns only
+    per-level, per-mob, per-quest, guild and PVP columns -- ``n_SP`` (this
+    table and ``STANDARD_MOB``), ``n_QUEST_SP``, ``n_PVP_SP``, ``f_SP``,
+    ``f_REWARD_SP``, ``f_RATIO_SP`` and the ten ``GUILD_MEMBER`` rows.  None
+    of them is "what a character is born holding".  So the label is
+    ``ASSUMPTION`` and it says so in the constant, not only here.
+
+  * ONE THING DOES SUPPORT IT, AND IT IS AN ARGUMENT, NOT A DECLARATION --
+    which is why the label stays ``ASSUMPTION``.  The client's own scripting
+    surface has no verb that SETS this balance: ``gamedata/PF_LUA_API_SPEC
+    .md`` lists ``AddSkillPoint``, ``Quest.AddCriteriaSkillPoint`` and
+    ``AddLvCriteriaSkillPoint``, all of them ADD, and ``SetSkillPoint``
+    appears nowhere under ``gamedata/`` at all (grepped this round; the two
+    ``AddSkillPoint`` call sites are ``gamedata/lua/t_getm_rat_exp&sp.lua``
+    and ``gamedata/lua/t_inskyev_getm_rat_exp&sp.lua``).  A quantity that is
+    only ever added to starts SOMEWHERE, and 0 is the natural somewhere --
+    which is exactly the argument ``migrations/017`` uses to call the 0 on
+    ``experience`` MEASURED.  It is weaker here: there the argument rides on
+    a shipped table that carries ``n_EXP_CURRENTLV = 0`` at level 1, and no
+    table carries the equivalent row for this column.  An absent setter is
+    consistent with 0; it does not state it.
+
+  * It is NOT derived from either reading of this table, and the coincidence
+    has to be stated or somebody will mistake it for support: under reading
+    (b) a level-1 character holds 0, which is the same 0.  That is a
+    COINCIDENCE AND NOT EVIDENCE.  The 0 here comes from
+    ``PANYA-DECISION 20260908_1218`` point 3 -- the owner ordered the column
+    default by name -- and it would still be 0 if this table said something
+    else entirely, because nothing in this file was consulted to pick it.
+    ``migrations/017``'s own header says the same thing in the other
+    direction ("the 0 on THIS column is hers, not a measurement").
+
+  * The guard is that the label and the value cannot drift apart.
+    :func:`birth_skill_points` refuses a value that is labelled
+    ``ASSUMPTION`` and is not the number the owner ordered, and refuses a
+    value labelled ``MEASURED`` that names no source -- so the day an RE
+    answers this, the round that changes the number is FORCED to change the
+    label and name the table in the same edit.  What the guard does not do,
+    said plainly: it cannot stop a caller reading ``BIRTH_SKILL_POINTS``
+    directly and bypassing the check, exactly as ``sp_at_level`` can be
+    spent by a caller who ignores the two readings.  It raises the cost of
+    the wrong edit; it is not a mechanism.
 
 WHAT THIS MODULE IS NOT.  It is not a progression system, it grants nothing,
 it touches no database, and it has no caller in ``src/`` on the round that
@@ -169,6 +242,40 @@ READING_HOLDING = "sp_already_held_on_reaching_this_level"
 READING_THRESHOLD = "sp_still_owed_to_leave_this_level"
 UNDECIDED_READINGS = (READING_HOLDING, READING_THRESHOLD)
 
+#: The two provenance labels a number in this module may carry.  ``MEASURED``
+#: means a committed, shipped table says it; ``ASSUMPTION`` means somebody
+#: decided it and no shipped byte does.  Kept as data rather than as prose in
+#: a comment so :func:`birth_skill_points` can refuse a label it does not
+#: recognise instead of trusting a free-text string.
+PROVENANCE_MEASURED = "MEASURED"
+PROVENANCE_ASSUMPTION = "ASSUMPTION"
+PROVENANCE_LABELS = (PROVENANCE_MEASURED, PROVENANCE_ASSUMPTION)
+
+#: The number the owner ordered for ``characters.skill_points`` at birth.
+#: Separate from ``BIRTH_SKILL_POINTS`` on purpose: this one records WHAT WAS
+#: ORDERED and only the owner moves it, while the one below records what this
+#: module currently publishes.  A round that wants a different number without
+#: an RE behind it has to edit this line, where the decision reference is, and
+#: not just the export.
+OWNER_ORDERED_BIRTH_SKILL_POINTS = 0
+
+#: The skill points a character is born holding.  See the module header
+#: section "THE ONE NUMBER THIS MODULE DOES NAME".
+BIRTH_SKILL_POINTS = 0
+
+#: ASSUMPTION, not MEASURED: no committed client table declares a birth
+#: skill-point balance (header scan of every ``gamedata/tables/*.tsv``, and
+#: all four ``CHARCREATE`` tables dumped column by column -- see the module
+#: header).  The value is the owner's order, ``PANYA-DECISION 20260908_1218``
+#: point 3, the same order ``migrations/017`` carries as ``DEFAULT 0``.
+BIRTH_SKILL_POINTS_PROVENANCE = PROVENANCE_ASSUMPTION
+
+#: The shipped table a ``MEASURED`` number was read off.  Empty exactly while
+#: the label is ``ASSUMPTION``, and :func:`birth_skill_points` grades that
+#: pairing in both directions, so "MEASURED" can never be claimed without a
+#: named source and a source can never be named for a number nobody measured.
+BIRTH_SKILL_POINTS_SOURCE = ""
+
 TABLE_FIRST_LEVEL = 1
 TABLE_LAST_LEVEL = 120
 
@@ -176,6 +283,16 @@ REFUSE_LEVEL_NOT_AN_INT = "level_is_not_an_int"
 REFUSE_LEVEL_OFF_TABLE = "level_is_outside_the_committed_table"
 REFUSE_TABLE_DRIFTED = "committed_copy_no_longer_matches_source_sha256"
 REFUSE_TABLE_MALFORMED = "committed_copy_is_not_the_two_column_level_table"
+REFUSE_BIRTH_PROVENANCE_UNKNOWN = "birth_provenance_is_not_a_known_label"
+REFUSE_BIRTH_ASSUMPTION_NOT_AS_ORDERED = (
+    "birth_value_is_an_assumption_but_not_the_number_the_owner_ordered"
+)
+REFUSE_BIRTH_MEASURED_WITHOUT_SOURCE = (
+    "birth_value_claims_measured_but_names_no_shipped_table"
+)
+REFUSE_BIRTH_ASSUMPTION_WITH_SOURCE = (
+    "birth_value_names_a_shipped_table_but_is_labelled_an_assumption"
+)
 
 
 class SkillPointCurveError(KeyError):
@@ -271,6 +388,63 @@ def sp_at_level(level: int) -> int:
     return row_for_level(level).sp
 
 
+def birth_skill_points() -> int:
+    """The skill points a character is born holding, re-graded on every call.
+
+    WHY A FUNCTION AND NOT JUST THE CONSTANT.  The same reason the vitals
+    module re-validates its three birth numbers before handing them back
+    (named nowhere in this file on purpose -- see the header):
+    a birth value that contradicts this module's own rules is a
+    character the server would compose wrongly on its first login, and the
+    failure would surface far from the edit that caused it.  Three checks,
+    run every call, are cheaper than finding that out from a database.
+
+    WHAT IT REFUSES, and each one is a real edit somebody could make:
+
+      * a provenance label this module does not know (``"probably"``);
+      * ``ASSUMPTION`` paired with any number other than the one the owner
+        ordered -- this is the guessed-number door
+        ``COO-DECISION 20260908_1441`` point 3 closes by name;
+      * ``MEASURED`` with no named source, which is the shape of a round
+        upgrading the label without doing the reading; and its mirror,
+        a named source under an ``ASSUMPTION`` label.
+
+    WHAT IT DOES NOT DO.  It is not a write, it touches no database, and it
+    is not a claim that 0 is the original game's number -- see
+    ``BIRTH_SKILL_POINTS_PROVENANCE``.  A caller may also read
+    ``BIRTH_SKILL_POINTS`` directly and skip all of this; the constant is
+    exported because a pin has to be able to name it.
+    """
+    if BIRTH_SKILL_POINTS_PROVENANCE not in PROVENANCE_LABELS:
+        raise SkillPointCurveError(
+            REFUSE_BIRTH_PROVENANCE_UNKNOWN,
+            "provenance must be one of %r, got %r"
+            % (PROVENANCE_LABELS, BIRTH_SKILL_POINTS_PROVENANCE),
+        )
+    if BIRTH_SKILL_POINTS_PROVENANCE == PROVENANCE_ASSUMPTION:
+        if BIRTH_SKILL_POINTS != OWNER_ORDERED_BIRTH_SKILL_POINTS:
+            raise SkillPointCurveError(
+                REFUSE_BIRTH_ASSUMPTION_NOT_AS_ORDERED,
+                "an unmeasured birth value may only be the %d the owner "
+                "ordered (PANYA-DECISION 20260908_1218 point 3), got %r"
+                % (OWNER_ORDERED_BIRTH_SKILL_POINTS, BIRTH_SKILL_POINTS),
+            )
+        if BIRTH_SKILL_POINTS_SOURCE:
+            raise SkillPointCurveError(
+                REFUSE_BIRTH_ASSUMPTION_WITH_SOURCE,
+                "a value that names the shipped table %r is not an "
+                "assumption -- relabel it %s"
+                % (BIRTH_SKILL_POINTS_SOURCE, PROVENANCE_MEASURED),
+            )
+    elif not BIRTH_SKILL_POINTS_SOURCE:
+        raise SkillPointCurveError(
+            REFUSE_BIRTH_MEASURED_WITHOUT_SOURCE,
+            "a %s birth value must name the shipped table it was read off"
+            % (PROVENANCE_MEASURED,),
+        )
+    return BIRTH_SKILL_POINTS
+
+
 def levels() -> tuple[int, ...]:
     """Every level the table carries, ascending."""
     return tuple(range(TABLE_FIRST_LEVEL, TABLE_LAST_LEVEL + 1))
@@ -291,7 +465,8 @@ def headless_summary() -> str:
     """One ASCII line for a cp874 console.  No characters above 0x7F."""
     return (
         "SKILL_POINT_CURVE rows=%d levels=%d..%d sp_first=%d sp_last=%d "
-        "strictly_increasing=%s readings_undecided=%d source_sha256=%s"
+        "strictly_increasing=%s readings_undecided=%d birth_sp=%d "
+        "birth_sp_provenance=%s source_sha256=%s"
         % (
             len(_ROWS),
             TABLE_FIRST_LEVEL,
@@ -300,6 +475,8 @@ def headless_summary() -> str:
             _ROWS[TABLE_LAST_LEVEL].sp,
             "yes" if is_strictly_increasing() else "no",
             len(UNDECIDED_READINGS),
+            birth_skill_points(),
+            BIRTH_SKILL_POINTS_PROVENANCE,
             SOURCE_SHA256[:16],
         )
     )
