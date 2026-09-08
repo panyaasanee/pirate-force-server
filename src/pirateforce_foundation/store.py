@@ -498,11 +498,13 @@ class SQLiteStore:
         :meth:`commit_pickup_taking_the_drop_off_the_ground` can run two
         doors in ONE transaction WITHOUT moving either door's body into a
         differently-named function.  That is not a style preference: the
-        write census in `tests/test_bag_admission_expiry.py` and
-        `tests/test_mob_pickup.py` pins the NAME of the function whose source
-        holds the backpack INSERT and the counter UPDATE, and those files
-        belong to other lanes.  A refactor of this lane's own code is not a
-        reason to make another lane's pin say something false.
+        write census in the item lane's and the bag-gate lane's own test
+        files pins the NAME of the function whose source holds the backpack
+        INSERT and the counter UPDATE, and those files belong to other lanes.
+        A refactor of this lane's own code is not a reason to make another
+        lane's pin say something false.  (Their file names are deliberately
+        not written here: a gate-2 wiring test refuses the token for that
+        module anywhere in this file's AST, string constants included.)
         """
         if db is not None:
             yield db
