@@ -445,9 +445,15 @@ def resolve_entry(
     that keeps that path fail-closed without ``runtime.py`` ever having to say
     so explicitly - it is the chief's file and this lane does not add a kwarg
     to its call site.  A destination pinned with ``login_entry_allowed=False``
-    (today: scene 17 only, added round 0z3kjx after the owner's provisional
-    spawn decree gave it a spawn and a pf-adversary pass noticed the free
-    refusal that used to protect it - ``REFUSED_NO_PINNED_SPAWN`` - was gone)
+    (~~today: scene 17 only~~ -- STRUCK, re-derived at HEAD by LANE-A round
+    ``fdo7ex`` on pf-adversary D14: the set is **17, 126, 304 and 305**, and
+    only 126/304/305 can strand anybody, because 17 also carries
+    ``persist_position_allowed=False``.  Derive it rather than believe this
+    sentence: ``world_m2_login_recovery.login_shut_scene_ids`` and
+    ``brick_risk_scene_ids``.  17 was the whole set when this comment was
+    written, added round 0z3kjx after the owner's provisional spawn decree
+    gave it a spawn and a pf-adversary pass noticed the free refusal that
+    used to protect it - ``REFUSED_NO_PINNED_SPAWN`` - was gone)
     raises ``REFUSED_NOT_ALLOWED_AT_LOGIN`` here UNLESS the caller explicitly
     passes ``via_login=False``, meaning "this call is not reading a
     character's own persisted position row" - which is exactly what
