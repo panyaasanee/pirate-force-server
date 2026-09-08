@@ -10801,29 +10801,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # members mean.  The module's nonclaims say all three and
                     # this seam does not quietly upgrade any of them.
                     #
-                    # getattr on the store, not a plain attribute read, for
-                    # the reason session.py already writes down twice in its
-                    # own file: a lifecycle stub in another lane's test can
-                    # arrive here without one, and `.store` on it would raise
-                    # an AttributeError that the one `except` below does NOT
-                    # catch -- straight out of this listener thread, on every
-                    # login, for a frame that is allowed to be absent.  The
-                    # module's contract is one exception class; a missing
-                    # store is not one of its refusals, so it is named here.
-                    skill_store = getattr(
-                        self.foundation.lifecycle, "store", None,
-                    )
+                    # NO GUARD on `lifecycle.store`, and that is a measured
+                    # decision rather than an omission.  This block first
+                    # carried a `getattr(..., None)` and a named refusal for
+                    # it, copying session.py's own defensive shape.  The test
+                    # written to drive that refusal could not reach it: on
+                    # this path `select_and_start` has already called
+                    # `lifecycle.select` -> `store.select_character` two
+                    # frames earlier, so a lifecycle with no store never
+                    # arrives here -- it dies further up, before the seam
+                    # exists.  A refusal reason that cannot happen is a lie
+                    # to whoever counts refusals (mob_loot.py states the rule;
+                    # the guard-free `self.foundation.selected.id` below is
+                    # the same call being made for the same reason).
                     try:
-                        if skill_store is None:
-                            raise skill_list_at_login.SkillListAtLoginError(
-                                "lifecycle_has_no_store",
-                                "this lifecycle exposes no store to read "
-                                "character_skills rows from",
-                            )
                         skill_pc, skill_frame = (
                             skill_list_at_login.login_skill_list_response(
                                 legacy,
-                                skill_store,
+                                self.foundation.lifecycle.store,
                                 self.foundation.selected.id,
                             )
                         )
@@ -10832,8 +10827,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # contract: a character whose rows cannot answer gets
                         # a login with no skill frame rather than a login that
                         # dies inside this thread.
+                        #
+                        # `.reason`, NOT `args[0]`.  This read `args[0]` until
+                        # the dispatcher test below was written, and args[0]
+                        # is the HUMAN SENTENCE -- the event came out as
+                        # `skill_list_at_login_refused_character 1 has no rows
+                        # in character_skills; sending a count-0 frame would
+                        # assert...`, a whole paragraph with spaces in an
+                        # event list that other lanes match on by equality.
+                        # The class carries the machine-readable constant on
+                        # `.reason` and says so in its own docstring.
                         self.events.append(
-                            f"skill_list_at_login_refused_{error.args[0]}"
+                            f"skill_list_at_login_refused_{error.reason}"
                         )
                     else:
                         # The trailing byte is NOT re-derived here.  Reaching
