@@ -15,11 +15,17 @@ from uuid import uuid4
 # the five classes, so every five-bag measurement in this round covered the
 # other two gates and silently never reached this one.
 from . import inventory
+# Neither V111 golden POST-state is imported by value any more: chief's R404
+# letter measured that `store.py:22`'s `MERGED_V111_BACKPACK` binding and the
+# gate below were the half of CORE-REQUEST 0206 that stayed in this lane's
+# zone, and that they refuse four of the five classes the day
+# `STARTING_BACKPACKS` widens -- after the runtime gate that answers
+# `item_move_hypothesis_wrong_current_state_no_reply` (named, not numbered:
+# line numbers in that file drift every round) has already let them into a
+# transaction that cannot succeed.
 from .inventory import (
     BackpackState,
-    HYPOTHESIZED_V111_SLOT2_BACKPACK,
     INITIAL_BACKPACK,
-    MERGED_V111_BACKPACK,
     ItemAttrState,
     merge_known_item_into_occupied_slot,
     move_known_item_to_free_slot,
@@ -1152,16 +1158,45 @@ class SQLiteStore:
             db.execute("BEGIN IMMEDIATE")
             self._require_selected_session(db, sid, character_id)
             before = self._load_backpack(db, character_id)
-            if before == HYPOTHESIZED_V111_SLOT2_BACKPACK:
+            # Both doors ask the MODULE, and the post-state is DERIVED from
+            # the bag this character actually holds rather than compared
+            # against one constant.  With one starting bag every answer here
+            # is the answer the constants gave; with five, the constants
+            # rejected a move they had just performed and rolled it back.
+            if before in inventory.hypothesized_v111_slot2_states():
                 return None
-            if before != MERGED_V111_BACKPACK:
+            if before not in inventory.merged_v111_states():
                 raise ValueError("Backpack is outside the HYP-PF-008 pre-state")
+            # Raises KeyError if identity 1 is gone, BEFORE any row is
+            # touched, which is also what makes the lookup below total.
+            expected_after = inventory.hypothesized_v111_slot2_state(before)
+            source = next(
+                (item for item in before.items if item.identity == 1), None)
+            if source is None:  # pragma: no cover - the line above raises first
+                raise RuntimeError("HYP-PF-008 pre-state lost identity 1")
+            # The WHERE clause is derived from that same row.  CORRECTION,
+            # pf-adversary measured it: the literals it replaces matched ALL
+            # FIVE of LANE-CS's bags, because their generator only rewrites
+            # identity 4 -- and `rowcount != 1` was never the failure path,
+            # since the pre-state door raised before the UPDATE.  What this
+            # buys is the bag whose identity-1 stack differs at all, which
+            # the committed table does not yet contain.
+            # The DESTINATION stays spelled: slot 2 is not a per-class value,
+            # it is what HYP-PF-008 IS, and docs/HYPOTHESIS_LEDGER.json pins
+            # this exact statement as the hypothesis's own source_ref (that
+            # file is not this lane's to edit).  Drift between the literal and
+            # V111_SLOT2_DESTINATION cannot hide: expected_after is derived
+            # from the constant, so the post-state check below goes red.
             moved = db.execute(
                 "UPDATE character_backpack_items SET slot=2 "
-                "WHERE character_id=? AND item_identity=1 AND template_id=2600001 "
-                "AND quantity=2 AND slot=0 AND raw_u8_38=0 "
-                "AND raw_u8_39=255 AND detail_present=0",
-                (character_id,),
+                "WHERE character_id=? AND item_identity=1 AND template_id=? "
+                "AND quantity=? AND slot=? AND raw_u8_38=? "
+                "AND raw_u8_39=? AND detail_present=?",
+                (
+                    character_id,
+                    source.template_id, source.quantity, source.slot,
+                    source.raw_u8_38, source.raw_u8_39, source.detail_present,
+                ),
             )
             if moved.rowcount != 1:
                 raise RuntimeError("HYP-PF-008 target row changed during transaction")
@@ -1170,7 +1205,7 @@ class SQLiteStore:
                 (_now(), character_id),
             )
             after = self._load_backpack(db, character_id)
-            if after != HYPOTHESIZED_V111_SLOT2_BACKPACK:
+            if after != expected_after:
                 raise RuntimeError("HYP-PF-008 post-state validation failed")
             return after
 
