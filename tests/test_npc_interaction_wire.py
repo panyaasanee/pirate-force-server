@@ -332,6 +332,45 @@ EXPECTED_TABLES = {
     # 20260901_1459): this pin counts tables, it does not test this file's
     # own npc_interaction behaviour.
     "character_equipment",
+    # character_quest_flag / character_quest_counter: the quest-state
+    # persistence doors -- `migrations/019_character_quest_state.sql`,
+    # ordered by `PANYA 20260908_1520` ("quest-flag store first") and routed
+    # to LANE-DB by `pf_bridge/notes_to_chief/20260908_1642_COO-DECISION-
+    # quest-flags-schema-comes-before-the-bulk-skill-rows-LANE-DB.md`.
+    #
+    # 🔴 UNLIKE THE FOUR ENTRIES ABOVE, THESE ARE NOT "not quest state".
+    # ground_drops, character_skills, character_home_marker and
+    # character_equipment each argued that the table holds a fact which is
+    # not quest/shop/reward state, and each argument was true.  This pair
+    # cannot make that argument and does not try to: `character_quest_flag`
+    # holds `Quest.SetFlag`'s number per (character, quest) and
+    # `character_quest_counter` holds `Quest.MobKillCount`'s tracker.  The
+    # coverage row `npc_interaction/quest_accept_and_progress` carries the
+    # note "no quest state is stored server-side", and the day this
+    # migration lands that sentence is FALSE.  This guard's own docstring
+    # says what happens then: "the matrix has to be re-graded first".
+    #
+    # 🔴 THIS ENTRY IS A LANE-DB ASSUMPTION AWAITING COO/chief, NOT A GRANT.
+    # `pf_bridge/notes_to_chief/20260908_1805_LANE-DB-CORE-REQUEST-quest-
+    # state-lands-regrade-the-npc-matrix.md` is the request, filed in the
+    # same round that lands the code.  It asks the
+    # matrix's owner for two things and this lane has done neither: re-grade
+    # the `quest_accept_and_progress` note, and decide whether this guard
+    # should keep counting tables at all now that a quest table legitimately
+    # exists.  If the answer is "revert", the migration is not yet on main
+    # and this entry goes with it.  What this lane will NOT do is write the
+    # sentence "not quest state" about a table named
+    # `character_quest_flag` -- `COO-DECISION 20260901_1059` forbids exactly
+    # that kind of convenient false sentence, and it would be the one thing
+    # here that could not be undone by a revert.
+    #
+    # NONCLAIM: nothing calls these doors.  LANE-Q's adapter
+    # (`lua_api/quest_state_store.py`) is written but has no dispatcher, and
+    # `runtime.py` is not LANE-DB's zone -- so no PLAYER's quest survives a
+    # logout today.  The row's note is false about the SCHEMA, not yet about
+    # the gameplay.
+    "character_quest_flag",
+    "character_quest_counter",
 }
 
 
@@ -841,6 +880,58 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         "world_m2_sea_destination.py": {
             "destination_quest_id",
             "destination_quest_row_var2",
+        },
+        # 🔴 LANE-DB's quest-state persistence doors, `migrations/019`.
+        # LANE-DB ASSUMPTION AWAITING COO/chief -- see the same CORE-REQUEST
+        # named beside `character_quest_flag` in EXPECTED_TABLES above, and
+        # read that comment first: this entry does NOT claim these names are
+        # "not quest state".  They ARE quest state, which is the whole point
+        # of the request, and this lane is not the one who gets to decide
+        # that the matrix may keep saying otherwise.
+        #
+        # WHY THE NAMES CANNOT SIMPLY BE RENAMED, which is what AGENTS.md
+        # section 7 asks for first.  They are a contract this lane published
+        # in `pf_bridge/notes_to_chief/20260905_2212_LANE-DB-TO-LANE-Q-quest-
+        # state-doors-declared-and-opened-this-round.md`; LANE-Q has already
+        # written `lua_api/quest_state_store.StoreBackedQuestStateStore`
+        # against them name-for-name (`20260908_1647`), and the COO decision
+        # that ordered this round says in as many words: implement that
+        # contract, do not redesign it.  Renaming here would break a lane
+        # that is waiting, to hide a fact the project asked for.
+        #
+        # AND FOUR OF THEM ARE ALREADY NAMED IN THIS FILE, by chief, as the
+        # production answer: the `script_host.py` block above says "chief's
+        # real accessor landed round `awnjat`, store.py's get_quest_flag/
+        # set_quest_flag/get_quest_counter/set_quest_counter".  🔴 That
+        # sentence was not true when it was written -- `git grep "def
+        # set_quest_flag" origin/main -- src/pirateforce_foundation/store.py`
+        # returned nothing on 2026-09-08, which is what `20260908_1642` and
+        # `20260908_1647` both measured independently.  It is true as of this
+        # PR.  The entry is recorded here rather than quietly relied on.
+        #
+        # Every symbol below is a live code hit in its module, so
+        # `test_every_symbol_exemption_is_still_earned` holds; the private
+        # `_quest_*` helpers are argument validators and a `BEGIN IMMEDIATE`
+        # preamble, and `persistence_quest_state` is an import name.
+        "persistence_quest_state.py": {
+            "_quest_counter_row",
+            "_quest_flag_row",
+            "quest_id",
+        },
+        "store.py": {
+            "_quest_begin",
+            "_quest_counter_name",
+            "_quest_counter_row",
+            "_quest_flag_row",
+            "_quest_key",
+            "_quest_number",
+            "get_quest_counter",
+            "get_quest_flag",
+            "increment_quest_counter",
+            "persistence_quest_state",
+            "quest_id",
+            "set_quest_counter",
+            "set_quest_flag",
         },
     }
 
