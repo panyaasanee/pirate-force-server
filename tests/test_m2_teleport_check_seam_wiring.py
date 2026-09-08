@@ -1573,6 +1573,28 @@ class M2ArrivalAnswersTheGuessTests(_JourneyFixture):
         self.assertIn("confirmed=1", third)
         self.assertIn("scene=%d" % destination.scene_id, third)
 
+    def test_an_unconfirmed_journey_costs_one_event_not_one_per_step(self):
+        """The events list may not grow for as long as the player walks.
+
+        Found in this round's own self-review, not by a test that was already
+        there: the first draft printed the console line once but appended an
+        event on EVERY report, so a session that travelled and then walked for
+        an hour grew `self.events` without bound.  That is the leak
+        `lane_hooks.fire()`'s per-session ceiling exists to stop (R393).
+        """
+        state, destination = self._arrived_journey("m2eventonce")
+        for step in range(5):
+            self._report_at(state, destination, offset=4000.0 + step)
+        misses = [e for e in state.events
+                  if e.startswith("lane_a_m2_arrival_not_at_target_")]
+        self.assertEqual(
+            len(misses), 1,
+            "one event per journey, not one per step: %r" % misses)
+        self.assertTrue(state.scene_label_is_server_guess)
+        # ... and the journey is still answerable after all that walking.
+        self._report_at(state, destination)
+        self.assertEqual(state.client_confirmed_scene, destination.scene_id)
+
     def test_the_console_line_carries_the_marker_the_journey_used(self):
         state, destination = self._arrived_journey("m2markerline")
         line = self._say(state, destination)

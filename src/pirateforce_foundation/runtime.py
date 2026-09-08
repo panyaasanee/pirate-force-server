@@ -7719,21 +7719,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     f"lane_a_m2_arrival_confirmed_scene_{target.scene_id}")
                 self._m2_arrival_say(expectation, distance, True)
                 return "match"
-            if distance is not None:
-                verdict = "mismatch"
-                self.events.append(
-                    "lane_a_m2_arrival_not_at_target_"
-                    f"{int(round(min(distance, 1e9)))}")
-            else:
-                verdict = "unknown"
-                self.events.append("lane_a_m2_arrival_not_comparable")
-            # ONE line per journey on this branch, not one per step: an
-            # unconfirmed journey is followed by every ordinary walk frame
-            # the session sends, and a token printed on each of them would
-            # bury the confirmation an attended round is reading for (the
-            # `fire()` ceiling of R393 is the same lesson).
+            verdict = "mismatch" if distance is not None else "unknown"
+            # ONE line AND ONE EVENT per journey on this branch, not one per
+            # step.  An unconfirmed journey is followed by every ordinary walk
+            # frame the session sends for the rest of its life, so a token
+            # printed on each of them would bury the confirmation an attended
+            # round is reading for -- and an event appended on each of them
+            # grows `self.events` without bound for as long as the player
+            # walks, which is the leak `lane_hooks.fire()`'s per-session
+            # ceiling exists to stop (R393).  The latch is per journey: a
+            # newer journey re-arms it in `_m2_arrival_arm`.
             if not getattr(self, "_m2_arrival_said", False):
                 self._m2_arrival_said = True
+                if distance is not None:
+                    self.events.append(
+                        "lane_a_m2_arrival_not_at_target_"
+                        f"{int(round(min(distance, 1e9)))}")
+                else:
+                    self.events.append("lane_a_m2_arrival_not_comparable")
                 self._m2_arrival_say(expectation, distance, False)
             return verdict
 
