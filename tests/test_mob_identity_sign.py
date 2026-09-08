@@ -119,6 +119,108 @@ class TestTheAllocator(unittest.TestCase):
         with self.assertRaises(mis.MobIdentitySignError):
             mis.mob_wire_identity(1, mis.SCENE_STRIDE)
 
+    def test_the_band_ascends_with_the_placement_index(self):
+        """COO decision 1642 option 3, as the assertion the four readers need.
+
+        Not "is negative" and not "is unique" -- ORDER.  ``load_roster``
+        hands rows out in placement order, ``CombatLedger`` refuses a
+        roster that is not ascending, ``open_register`` sorts by identity
+        silently, and the census ships in roster order.
+        """
+        for scene_id in (0, 1, 14, 126, 999, mis.SCENE_ID_CEILING - 1):
+            with self.subTest(scene=scene_id):
+                rows = [
+                    mis.mob_wire_identity(scene_id, placement)
+                    for placement in range(0, 80)
+                ]
+                self.assertEqual(rows, sorted(rows))
+                self.assertEqual(len(set(rows)), len(rows))
+
+    def test_the_band_ascends_with_the_scene_id_too(self):
+        """So a ledger that ever holds two scenes sorts the same way."""
+        rows = [
+            mis.mob_wire_identity(scene_id, placement)
+            for scene_id in range(0, 40)
+            for placement in range(0, 30)
+        ]
+        self.assertEqual(rows, sorted(rows))
+
+    def test_every_scene_declares_a_block_that_holds_its_own_stride(self):
+        for scene_id in (0, 1, 14, 999, mis.SCENE_ID_CEILING - 1):
+            with self.subTest(scene=scene_id):
+                first, last = mis.scene_band_bounds(scene_id)
+                self.assertEqual(last - first + 1, mis.SCENE_STRIDE)
+                self.assertEqual(
+                    first, mis.mob_wire_identity(scene_id, 0))
+                self.assertEqual(
+                    last,
+                    mis.mob_wire_identity(scene_id, mis.SCENE_STRIDE - 1))
+                self.assertLess(last, 0)
+
+    def test_no_scenes_block_runs_into_the_next(self):
+        previous_last = None
+        for scene_id in range(0, 200):
+            first, last = mis.scene_band_bounds(scene_id)
+            if previous_last is not None:
+                self.assertEqual(first, previous_last + 1)
+                self.assertGreater(first, previous_last)
+            previous_last = last
+
+    def test_a_scene_id_past_the_block_ceiling_is_refused_not_wrapped(self):
+        """The overflow the COO approval names: loud, not folded back.
+
+        Asserted as a REFUSAL and as a non-collision, because the failure
+        being guarded against is not "an exception did not happen", it is
+        "scene N quietly got scene 0's identities".
+        """
+        for scene_id in (
+            mis.SCENE_ID_CEILING,
+            mis.SCENE_ID_CEILING + 1,
+            mis.SCENE_ID_CEILING * 4,
+        ):
+            with self.subTest(scene=scene_id):
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.mob_wire_identity(scene_id, 0)
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.scene_band_bounds(scene_id)
+
+    def test_the_two_entry_points_refuse_the_same_scene_ids(self):
+        """A block a caller can be told about is a block it can allocate in."""
+        for scene_id in (-1, 0, 1, 999, mis.SCENE_ID_CEILING - 1,
+                         mis.SCENE_ID_CEILING, True, "14"):
+            with self.subTest(scene=scene_id):
+                bounds_raised = allocator_raised = False
+                try:
+                    mis.scene_band_bounds(scene_id)
+                except mis.MobIdentitySignError:
+                    bounds_raised = True
+                try:
+                    mis.mob_wire_identity(scene_id, 0)
+                except mis.MobIdentitySignError:
+                    allocator_raised = True
+                self.assertEqual(bounds_raised, allocator_raised)
+
+    def test_every_scene_id_the_tree_names_fits_inside_the_ceiling(self):
+        """The ceiling is a declared bound; this is the measurement under it."""
+        from pirateforce_foundation.gm import scene_catalog
+
+        known = sorted(scene_catalog.SCENE_ID_TO_NAME)
+        self.assertTrue(known)
+        self.assertLess(known[-1], mis.SCENE_ID_CEILING)
+        for scene_id in known:
+            self.assertTrue(mis.is_mob_identity(
+                mis.mob_wire_identity(scene_id, 0)))
+
+    def test_the_whole_band_stays_clear_of_the_floor(self):
+        """Both ends, so widening one constant cannot silently cross it."""
+        lowest = mis.mob_wire_identity(0, 0)
+        highest = mis.mob_wire_identity(
+            mis.SCENE_ID_CEILING - 1, mis.SCENE_STRIDE - 1)
+        self.assertEqual(lowest, mis.MOB_IDENTITY_BASE)
+        self.assertGreater(lowest, mis.MOB_IDENTITY_FLOOR)
+        self.assertLess(highest, 0)
+        self.assertEqual(highest, -(mis.SWEEP_RESERVED_IDENTITIES + 1))
+
     def test_the_inverse_refuses_identities_it_could_not_have_made(self):
         for identity in (0, 1, 0x2001, mis.MOB_IDENTITY_FLOOR - 1):
             with self.subTest(identity=identity):
