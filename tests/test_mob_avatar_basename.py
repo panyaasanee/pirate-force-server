@@ -1,0 +1,302 @@
+"""LANE-B: what leaves this server as a monster's avatar is ONE basename.
+
+ROUND db4o73, executing COO-DECISION 2026-09-08T17:42+07:00 (LANE-B, "the
+first token is correct -- hold #1156 and roll bg0002 back").
+
+WHAT A PLAYER SEES THAT THEY DID NOT SEE YESTERDAY.  Forty of the fifty-two
+monsters this lane ships in Bg0002 -- the scene the owner actually stands in
+-- were sent to the client with their MOBS ``s_OUTFIT`` CELL as the avatar
+name, separators and all (``M001_000_000_N;M001_000_000_SP1``).  The client
+formats what it is sent into ``".\\Data\\GC\\V\\%s.avt"``.  A path built from
+a cell names no file that ships.  After this round those forty carry
+``M001_000_000_N`` -- a basename that exists -- so they are monsters with a
+body rather than monsters with a filename.
+
+THE MEASUREMENT THIS RESTS ON is not this round's.  ``RE-296`` result 2
+(2026-09-07T20:53, PASS/BOUNDED-POSITIVE) walked to the consumer and read the
+index pushed at ``0x0059AA52`` as a literal ``0``: the first token is the
+only token any consumer can reach, and no caller chooses another.  That is
+why the rule is "send the first token", not "send the cell and let the client
+sort it out".
+
+WHAT IS PINNED HERE, and why each pin is not the same pin twice:
+
+* ``OneRuleTests`` -- the rule itself, on inputs, including the ones that
+  would corrupt a legitimate basename if it were written carelessly.
+* ``OneDefinitionTests`` -- the roster GENERATOR mines under the very same
+  function object the server runs, loaded by path rather than copied.  A
+  second copy of this rule is the failure mode the module exists to prevent,
+  so it is measured and not asserted in a comment.
+* ``NothingShipsACellTests`` -- every placement this lane ships, in every
+  registered scene, carries a basename.  This is the standing rule, not a
+  bg0002 fact: a future scene mined the old way fails here.
+* ``TheRawCellSurvivesTests`` -- rolling back did not throw the cell away.
+  Bg0002 keeps every raw cell in a column, and the column agrees with the
+  wire column row by row.
+* ``TheGatesRefuseTests`` -- both refusals fire, on the two paths that reach
+  the client: a stale table entering through the roster parser, and a
+  hand-built monster entering at composition.
+
+NON-CLAIMS.  Nothing here claims the client draws these forty bodies: that is
+a screen fact and it needs a boot (the GT letter this round writes).  Nothing
+here claims the basenames name files that ship -- no test on this side of the
+wire can open the client's ``.avt`` directory.  Nothing here re-opens WHO is
+an enemy: that is ``n_RANK`` plus ``n_AI_COMBAT`` and nothing else (PANYA
+1313), and this round did not move one row in or out of the roster.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
+
+from pirateforce_foundation import field_mob_tables_bg0002  # noqa: E402
+from pirateforce_foundation import field_mobs  # noqa: E402
+from pirateforce_foundation import mob_avatar_basename  # noqa: E402
+
+TOOL_PATH = ROOT / "tools" / "pf_mine_scene_mob_roster.py"
+
+#: Bg0002 rows the rollback actually moved.  MEASURED on the regenerated
+#: module (it is ``len(OUTFIT_CELL_FOR_PLACEMENT)``), pinned as a literal so
+#: that a regeneration which silently drops the correction fails here instead
+#: of agreeing with itself.
+EXPECTED_BG0002_LIST_CELLS = 40
+
+#: Placements this lane ships across every registered scene, at the time this
+#: card was written.  A number, not a bound: if a scene is added the count
+#: moves and the reader is sent to look at what was added.
+EXPECTED_SHIPPED_PLACEMENTS = 145
+
+
+class OneRuleTests(unittest.TestCase):
+    """The rule, on the inputs that decide whether it is written correctly."""
+
+    def test_a_list_cell_becomes_its_first_token(self) -> None:
+        self.assertEqual(
+            mob_avatar_basename.avatar_basename(
+                "M001_000_000_N;M001_000_000_SP1"),
+            "M001_000_000_N",
+        )
+
+    def test_a_basename_is_returned_unchanged(self) -> None:
+        # The 105 rows this lane already shipped correctly must not move.
+        self.assertEqual(
+            mob_avatar_basename.avatar_basename("M011_000_000_SP1"),
+            "M011_000_000_SP1",
+        )
+
+    def test_every_separator_re296_named_is_refused_and_split(self) -> None:
+        for cell, expected in (
+            ("A;B", "A"),
+            ("A\tB", "A"),
+            ("A B", "A"),
+            ("A;B\tC D", "A"),
+        ):
+            with self.subTest(cell=cell):
+                self.assertEqual(
+                    mob_avatar_basename.avatar_basename(cell), expected)
+                self.assertTrue(mob_avatar_basename.has_separator(cell))
+
+    def test_an_empty_cell_is_empty_and_not_an_error(self) -> None:
+        # Callers upstream already read '' as "this row ships no avatar" and
+        # clear the NPCAttr preset bit for it; turning that into an exception
+        # here would refuse rows the roster never had a problem with.
+        for cell in ("", "   ", "\t"):
+            with self.subTest(cell=cell):
+                self.assertEqual(mob_avatar_basename.avatar_basename(cell), "")
+
+    def test_a_non_string_cell_is_a_type_error_not_a_silent_pass(self) -> None:
+        with self.assertRaises(TypeError):
+            mob_avatar_basename.avatar_basename(None)
+
+
+class OneDefinitionTests(unittest.TestCase):
+    """The generator mines under the function the server runs."""
+
+    def test_the_miner_loads_this_module_rather_than_copying_it(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "pf_mine_scene_mob_roster_for_this_test", TOOL_PATH)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        # Not "they agree on these inputs" -- that is what a copy would also
+        # do until it drifted.  The miner must be running THIS source file.
+        self.assertEqual(
+            Path(tool._AVATAR_RULE_PATH).resolve(),
+            (SRC / "pirateforce_foundation" / "mob_avatar_basename.py"
+             ).resolve(),
+        )
+        self.assertEqual(
+            tool.avatar_basename("M001_000_000_N;M001_000_000_SP1"),
+            mob_avatar_basename.avatar_basename(
+                "M001_000_000_N;M001_000_000_SP1"),
+        )
+
+    def test_the_repository_holds_one_definition_of_the_rule(self) -> None:
+        # A grep, because the claim is about the repository and not about an
+        # import graph: any OTHER file that splits an outfit cell on ';' for
+        # a LANE-B mob is a second rule waiting to drift.  LANE-A's identity
+        # tables are excluded BY NAME rather than by pattern -- they are that
+        # lane's files, they apply the same first-token reading at their own
+        # row build, and this lane does not get to refactor them.
+        lane_a_owned = {"world_", "scene2_prison_exile_tables.py"}
+        # ``;`` is a separator in more than one of this game's tables -- the
+        # AI rule strings in ``mob_ai_rules`` split on it too, and those have
+        # nothing to do with avatars.  So the grep is for a split on ';' IN
+        # THE SAME LINE AS an avatar word, which is what a second copy of
+        # this rule would actually look like.
+        avatar_words = ("outfit", "preset", "avatar", ".avt")
+        offenders = []
+        for path in sorted((SRC / "pirateforce_foundation").rglob("*.py")):
+            if any(path.name.startswith(p) or path.name == p
+                   for p in lane_a_owned):
+                continue
+            if path.name == "mob_avatar_basename.py":
+                continue
+            text = path.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#") or stripped.startswith("*"):
+                    continue
+                if "split(';')" not in line and 'split(";")' not in line:
+                    continue
+                if any(word in line.lower() for word in avatar_words):
+                    offenders.append("%s: %s" % (path.name, stripped))
+        self.assertEqual(
+            offenders, [],
+            "a second copy of the avatar rule appeared outside "
+            "mob_avatar_basename.py: %s" % offenders,
+        )
+
+
+class NothingShipsACellTests(unittest.TestCase):
+    """Every shipped placement, every registered scene, one basename."""
+
+    def test_no_registered_scene_ships_a_list_cell_on_the_wire(self) -> None:
+        shipped = 0
+        offenders = []
+        for scene in field_mobs.live_scenes():
+            module = field_mobs._SCENE_TABLE_MODULES[scene]
+            for row in module.SHIPPED_PLACEMENTS:
+                shipped += 1
+                preset = row[5]
+                if mob_avatar_basename.has_separator(preset):
+                    offenders.append((scene, row[0], preset))
+        self.assertEqual(
+            offenders, [],
+            "these placements would send an s_OUTFIT cell to the client: %s"
+            % offenders,
+        )
+        self.assertEqual(
+            shipped, EXPECTED_SHIPPED_PLACEMENTS,
+            "the number of placements this lane ships moved; re-read what "
+            "was added before moving this pin",
+        )
+
+    def test_the_roster_loader_returns_basenames_for_every_scene(self) -> None:
+        # The table is one thing and what load_roster hands downstream is
+        # another; this walks the second one, through the real parser.
+        for scene in field_mobs.live_scenes():
+            with self.subTest(scene=scene):
+                for mob in field_mobs.load_roster(scene=scene):
+                    self.assertFalse(
+                        mob_avatar_basename.has_separator(mob.visual_preset),
+                        "%s placement %d loads a cell, not a basename"
+                        % (scene, mob.placement_index),
+                    )
+
+
+class TheRawCellSurvivesTests(unittest.TestCase):
+    """Rolling back kept the cell; it just took it off the wire."""
+
+    def test_bg0002_carries_every_cell_it_normalised(self) -> None:
+        cells = field_mob_tables_bg0002.OUTFIT_CELL_FOR_PLACEMENT
+        self.assertEqual(len(cells), EXPECTED_BG0002_LIST_CELLS)
+        presets = {row[0]: row[5]
+                   for row in field_mob_tables_bg0002.SHIPPED_PLACEMENTS}
+        for index, cell in cells.items():
+            with self.subTest(placement=index):
+                self.assertIn(index, presets)
+                self.assertTrue(mob_avatar_basename.has_separator(cell))
+                self.assertEqual(
+                    mob_avatar_basename.avatar_basename(cell),
+                    presets[index],
+                    "the raw column and the wire column disagree at "
+                    "placement %d" % index,
+                )
+
+    def test_the_column_covers_exactly_the_rows_that_moved(self) -> None:
+        # A row absent from the raw column is a row whose cell WAS already a
+        # basename.  Measured, so the column cannot quietly become partial.
+        cells = field_mob_tables_bg0002.OUTFIT_CELL_FOR_PLACEMENT
+        for row in field_mob_tables_bg0002.SHIPPED_PLACEMENTS:
+            if row[0] in cells:
+                continue
+            with self.subTest(placement=row[0]):
+                self.assertFalse(
+                    mob_avatar_basename.has_separator(row[5]))
+
+    def test_no_scene_module_without_list_cells_grew_the_column(self) -> None:
+        # The emission condition, from the other side: a module carrying the
+        # column must have something to put in it.
+        for scene in field_mobs.live_scenes():
+            module = field_mobs._SCENE_TABLE_MODULES[scene]
+            cells = getattr(module, "OUTFIT_CELL_FOR_PLACEMENT", None)
+            with self.subTest(scene=scene):
+                if cells is None:
+                    continue
+                self.assertTrue(cells)
+
+
+class TheGatesRefuseTests(unittest.TestCase):
+    """Both paths to the client refuse a cell, and say which row it was."""
+
+    def _bg0002_row_as_list(self) -> list:
+        rows = list(field_mob_tables_bg0002.SHIPPED_PLACEMENTS)
+        return rows
+
+    def test_the_roster_parser_refuses_a_stale_generated_table(self) -> None:
+        rows = self._bg0002_row_as_list()
+        index = rows[0][0]
+        poisoned = list(rows[0])
+        poisoned[5] = "M001_000_000_N;M001_000_000_SP1"
+        rows[0] = tuple(poisoned)
+
+        class StaleModule:
+            SCENE = field_mob_tables_bg0002.SCENE
+            SHIPPED_PLACEMENTS = rows
+
+        with self.assertRaises(field_mobs.FieldMobContractError) as caught:
+            field_mobs._parse_hostile_placements(StaleModule)
+        self.assertIn(str(index), str(caught.exception))
+        self.assertIn("M001_000_000_N;M001_000_000_SP1",
+                      str(caught.exception))
+
+    def test_composition_refuses_a_hand_built_monster(self) -> None:
+        # A FieldMob built in code never passes the parser, so the parser's
+        # gate alone would not cover this path.  This is the reason there are
+        # two gates and not one.
+        with self.assertRaises(
+                mob_avatar_basename.AvatarCellOnTheWireError) as caught:
+            mob_avatar_basename.refuse_list_cell(
+                "M001_000_000_N;M001_000_000_SP1",
+                what="field monster at placement 31")
+        self.assertIn("placement 31", str(caught.exception))
+
+    def test_the_gate_does_not_normalise_behind_the_callers_back(self) -> None:
+        # Deliberate: a silent trim would leave a stale table shipping for
+        # another round with nothing to show for it.
+        self.assertEqual(
+            mob_avatar_basename.refuse_list_cell("M011_000_000_SP1",
+                                                 what="a row"),
+            "M011_000_000_SP1",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
