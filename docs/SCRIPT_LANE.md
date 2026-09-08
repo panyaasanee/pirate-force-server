@@ -4767,3 +4767,88 @@ updated_at)` -- `counter_value` is real, and the `[PROPOSED]` label on
   `tests/test_script_lua_quest_state_store.py` is still a fake. What
   changed is that it now mirrors a row shape that can be checked.
 - `increment_quest_counter` still has no production caller.
+
+## Round `z113cx` -- the refusal is remembered for as long as the row it stands for
+
+pf-adversary broke round `7cf5ak`'s mechanism after that round had already
+unlocked (`pf_bridge/rounds/Q_20260908_2009_7cf5ak_addendum_*.md`), the
+marker was pulled from `pirate-force-server#1170`, and this round rebuilds
+the design on that branch rather than landing it as it was. The finding
+that mattered was one question: **what is the unit of a lost fact, and
+where is it remembered so that the memory outlives the process that failed
+to write it?**
+
+### The answer, in two moves
+
+1. **The unit is the ROW.** `RefusalLedger` is keyed
+   `(character_id, quest_id, kind, name)` -- `kind` is `flag` or `counter`,
+   `name` is the counter name (always `""` for a flag, normalised inside
+   the ledger so a caller cannot poison one flag row and clear another).
+   A write clears the row it wrote and nothing else. This is A2: in
+   `Quest/q_day_business.lua` the refused `ReportDailyQuest()` at line 59
+   is followed at line 63, four lines later in the same script run, by a
+   `SetFlag` that SUCCEEDS -- and pair-keying let that success vouch for a
+   daily stamp that was still missing from disk.
+2. **The memory belongs to the BACKING STORE, not the adapter.**
+   `quest_state_signal.ledger_for(store)` keeps one ledger per store
+   object in a weak-keyed side table owned by this leaf module. This is
+   A1: `dispatch.load_quest_script()` builds a fresh adapter per run, so
+   the click that charged the player and the click that would charge them
+   again were different `RefusalLedger` instances and the gate was open
+   every time. A weak side table rather than an attribute on
+   `store.SQLiteStore` because `store.py` is LANE-DB's file, not this
+   lane's, and the association has no business living on their instance.
+
+### The move that was a removal (A3)
+
+The first version answered `Quest.VarN` with `STUB_DEFAULT` while the
+quest was poisoned, on the reasoning that `VarN` is the amount a script
+charges or pays. In the shipped corpus `Quest.VarN == 0` is the "this
+quest has no prerequisite" idiom -- **299 call sites across 302 scripts**,
+including `q_day_business.lua:12` and the level cap at `:14`. Zeroing the
+cell did not stall those gates; it OPENED them, in the same script the
+mechanism was written for. Both cell gates (`VarN` and the reward cells)
+are gone. The refusal is enforced where a decision is taken instead:
+
+* the read gates -- `CanReportDailyQuest`, `CheckMobKillCount`,
+  `GetMobKillCount`, `GetQuestFlag`, `GetFlag`, `is_quest_accepted`,
+  `is_quest_reported` -- each asking about the ONE row it reads;
+* `_pay_criteria`, the one closure in the file whose name is "pay", which
+  was the one not gated (A7) and which asks about the quest as a whole,
+  because a payout is a decision about the quest and not about a row.
+
+### Also paid this round
+
+* **A4** -- `test_one_successful_write_clears_the_pair` and
+  `test_the_amount_cells_go_to_the_stub_default_once_poisoned` pinned the
+  two bugs as requirements. Both are rewritten to assert the opposite,
+  under names that say so, and `TheMemoryOutlivesTheDispatchTests` crosses
+  the dispatch boundary through `dispatch.resolve_quest_state_store`
+  itself -- with a test that first proves the resolver really does build a
+  new adapter each time, so the rest cannot pass vacuously.
+* **A6** -- `character_id < 1` is the inert default context, not a
+  character whose progress went missing. It never poisons now, whatever
+  `wrote` says; recording it left a healthy store poisoned forever,
+  because no write for character 0 will ever clear it.
+* **A8** -- `dispatch.py`'s docstring still said LANE-DB's doors were
+  absent from `main`. They are on `main`; what is absent is a production
+  CALLER, and the docstring now says that instead.
+* **F12** (carried debt) -- the refusal log's de-duplication key now
+  carries the row, so `q_kill5.lua` chasing two mob ids no longer collapses
+  two different lost counters into one console line. The line itself gains
+  `row=<kind>:<name>`.
+
+### Not claimed
+
+- **The memory does not outlive the PROCESS.** The only place durable
+  enough for that is the row itself, which is exactly the thing that could
+  not be written. After a restart the gates re-derive from whatever the
+  store can be read to say. Stated here because the previous round's
+  headline claim was bigger than its code, and this one must not be.
+- Quest progress still does not survive a relog: nothing hands a store to
+  `load_quest_script(persistence=...)`.
+- No name moved into `REAL_METHODS`; the corpus stub pin does not move; no
+  frame reaches the client.
+- The corpus counts quoted above (299 sites / 302 scripts) are
+  pf-adversary's measurement of round `7cf5ak`, carried over, not
+  re-derived this round.

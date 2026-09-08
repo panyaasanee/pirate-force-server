@@ -228,13 +228,23 @@ class StoreBackedQuestStateStore:
         #: name on whatever store a namespace was handed, so the decision
         #: sites in ``lua_api.quest`` need no isinstance and no import of
         #: this module.
-        self.refusals = quest_state_signal.RefusalLedger()
+        #: ONE LEDGER PER BACKING STORE, NOT PER ADAPTER.
+        #: ``dispatch.load_quest_script()`` builds a fresh adapter for
+        #: every script run, so an adapter-owned ledger forgot a refused
+        #: write between the click that charged the player and the click
+        #: that charged them again (pf-adversary, round ``7cf5ak``, A1).
+        #: ``ledger_for`` keys it to the store object instead, and it is
+        #: public under this name so ``quest_state_signal.ledger_of``
+        #: finds it on whatever store a namespace was handed.
+        self.refusals = quest_state_signal.ledger_for(store)
 
     # -- refusal bookkeeping ------------------------------------------
 
     def _refuse(self, method: str, reason: str, character_id: int,
                 quest_id: int,
-                wrote: bool = False) -> quest_state_signal.Refused:
+                wrote: bool = False,
+                kind: str = quest_state_signal.COUNTER_ROW,
+                name: str = "") -> quest_state_signal.Refused:
         """Log the refusal once, remember it if it lost a WRITE, answer 0.
 
         ``wrote`` is the whole difference between the two halves of the
@@ -242,29 +252,34 @@ class StoreBackedQuestStateStore:
         call may well succeed, so it is reported and nothing is
         remembered.  A refused WRITE means a script was told something
         happened and this server failed to record it: every later decision
-        about that (character, quest) is now being made on a state that is
-        missing a fact, so the pair is poisoned in :attr:`refusals` until a
-        write for it succeeds, and the gates that pay or charge refuse to
-        run on it (``quest_state_signal.unreadable_reason``).
+        about that ROW is now being made on a state that is missing a
+        fact, so ``(character, quest, kind, name)`` is poisoned in
+        :attr:`refusals` until a write to THAT row succeeds, and the gates
+        that read it refuse to decide on it
+        (``quest_state_signal.unreadable_reason``).  Keying the poison to
+        the row rather than the pair is what stops an unrelated successful
+        write four lines later from clearing it (pf-adversary, round
+        ``7cf5ak``, A2).
 
         The log is capped and de-duplicated; the LEDGER is neither, and
-        must not be -- a cap on remembering a pair is a cap on refusing to
+        must not be -- a cap on remembering a row is a cap on refusing to
         overcharge it.  (:data:`quest_state_signal.LEDGER_CAP` bounds the
-        memory instead, by refusing NEW pairs rather than forgetting old
+        memory instead, by refusing NEW rows rather than forgetting old
         ones.)
         """
         if wrote:
-            self.refusals.record(character_id, quest_id, reason)
+            self.refusals.record(character_id, quest_id, reason, kind, name)
         answer = quest_state_signal.refused(reason)
         if self._log is None:
             return answer
-        key = (method, reason, character_id, quest_id)
+        key = (method, reason, character_id, quest_id, kind, name)
         with self._lock:
             if key in self._logged or len(self._logged) >= REFUSAL_LOG_CAP:
                 return answer
             self._logged.add(key)
-        self._log("%s method=%s reason=%s character=%d quest=%d"
-                  % (REFUSED_TOKEN, method, reason, character_id, quest_id))
+        self._log("%s method=%s reason=%s character=%d quest=%d row=%s:%s"
+                  % (REFUSED_TOKEN, method, reason, character_id, quest_id,
+                     kind, name))
         return answer
 
     def _live_character(self, method: str, character_id: int,
@@ -279,9 +294,18 @@ class StoreBackedQuestStateStore:
         earn a ``KeyError`` per call; refusing it here keeps the default
         context inert, which is what it is for.
         """
+        # NEVER POISONED, whatever ``wrote`` says (pf-adversary, round
+        # ``7cf5ak``, A6).  ``character_id < 1`` is not a character whose
+        # progress went missing; it is the default context, which no write
+        # can ever clear because no write for character 0 will ever be
+        # made.  Recording it left a healthy store permanently poisoned and
+        # made ``LUA_QUEST_STATE_UNREADABLE`` on the console mean nothing.
+        # ``wrote`` is still taken and still ignored here on purpose: the
+        # callers are honest about which calls were writes, and this method
+        # is the one place that knows the id is not a character.
         if character_id < 1:
             return self._refuse(method, "no-character", character_id,
-                                quest_id, wrote=wrote)
+                                quest_id, wrote=False)
         return None
 
     @staticmethod
@@ -326,15 +350,18 @@ class StoreBackedQuestStateStore:
                 _FLAG_FIELD)
         except _REFUSALS as exc:
             return self._refuse("set_quest_flag", _reason_of(exc),
-                                character_id, quest_id, wrote=True)
+                                character_id, quest_id, wrote=True,
+                                kind=quest_state_signal.FLAG_ROW)
         # LANE-DB's contract is "read back after the write, never a bare
         # echo of the argument".  A door that answers None to a WRITE has
         # not honoured it, so this returns the refusal answer rather than
         # pretending the argument landed.
         if written is None:
             return self._refuse("set_quest_flag", "no-row-after-write",
-                                character_id, quest_id, wrote=True)
-        self.refusals.clear(character_id, quest_id)
+                                character_id, quest_id, wrote=True,
+                                kind=quest_state_signal.FLAG_ROW)
+        self.refusals.clear(character_id, quest_id,
+                            quest_state_signal.FLAG_ROW)
         return written
 
     def get_quest_counter(self, character_id: int, quest_id: int,
@@ -363,11 +390,16 @@ class StoreBackedQuestStateStore:
                 _COUNTER_FIELD)
         except _REFUSALS as exc:
             return self._refuse("set_quest_counter", _reason_of(exc),
-                                character_id, quest_id, wrote=True)
+                                character_id, quest_id, wrote=True,
+                                kind=quest_state_signal.COUNTER_ROW,
+                                name=counter_name)
         if written is None:
             return self._refuse("set_quest_counter", "no-row-after-write",
-                                character_id, quest_id, wrote=True)
-        self.refusals.clear(character_id, quest_id)
+                                character_id, quest_id, wrote=True,
+                                kind=quest_state_signal.COUNTER_ROW,
+                                name=counter_name)
+        self.refusals.clear(character_id, quest_id,
+                            quest_state_signal.COUNTER_ROW, counter_name)
         return written
 
     def increment_quest_counter(self, character_id: int, quest_id: int,
@@ -401,18 +433,25 @@ class StoreBackedQuestStateStore:
             # wearing the atomic method's name.  Refuse, by the door's
             # own name, and let the caller see it in the console.
             return self._refuse("increment_quest_counter", "no-atomic-door",
-                                character_id, quest_id, wrote=True)
+                                character_id, quest_id, wrote=True,
+                                kind=quest_state_signal.COUNTER_ROW,
+                                name=counter_name)
         try:
             written = self._value_of(
                 door(character_id, quest_id, counter_name, delta),
                 _COUNTER_FIELD)
         except _REFUSALS as exc:
             return self._refuse("increment_quest_counter", _reason_of(exc),
-                                character_id, quest_id, wrote=True)
+                                character_id, quest_id, wrote=True,
+                                kind=quest_state_signal.COUNTER_ROW,
+                                name=counter_name)
         if written is None:
             return self._refuse("increment_quest_counter", "no-row-after-write",
-                                character_id, quest_id, wrote=True)
-        self.refusals.clear(character_id, quest_id)
+                                character_id, quest_id, wrote=True,
+                                kind=quest_state_signal.COUNTER_ROW,
+                                name=counter_name)
+        self.refusals.clear(character_id, quest_id,
+                            quest_state_signal.COUNTER_ROW, counter_name)
         return written
 
 

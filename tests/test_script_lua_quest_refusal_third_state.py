@@ -24,6 +24,7 @@ namespace (``quest.build_namespace``), not through a paraphrase of it.
 import threading
 import unittest
 
+from pirateforce_foundation.lua_api import dispatch
 from pirateforce_foundation.lua_api import quest
 from pirateforce_foundation.lua_api import quest_state_signal as qs_signal
 from pirateforce_foundation.lua_api import quest_state_store as qss
@@ -150,18 +151,30 @@ class TheChargeThatRanFourTimesTests(unittest.TestCase):
                 self.ns["CanReportDailyQuest"](),
                 "the gate must stay shut while the report is unrecorded")
 
-    def test_the_amount_cells_go_to_the_stub_default_once_poisoned(self):
-        """A script that runs ``Report_Run`` anyway charges nothing.
+    def test_the_amount_cells_are_left_alone_by_a_poisoned_row(self):
+        """THE OPPOSITE OF WHAT THIS TEST USED TO ASSERT, ON PURPOSE.
 
-        The gate above is the first line of defence; this is the second,
-        because ``Report_Run`` is reachable from the client's report
-        button as well as from ``Accept_Check``.  ``Quest.Var2``/``Var3``
-        are the item id and count ``Player.RemoveItem`` is handed.
+        Its first version pinned "a poisoned quest answers ``VarN`` with
+        the stub default" as the requirement.  pf-adversary (round
+        ``7cf5ak``, A3) measured what that does to the shipped corpus:
+        ``Quest.VarN == 0`` is the "this quest has no prerequisite" idiom
+        at 299 call sites across 302 scripts, including
+        ``q_day_business.lua:12`` and the level cap at ``:14``.  Zeroing
+        the cell did not stall those gates, it OPENED them -- a fail-open
+        introduced by the fail-closed mechanism, in the same script.
+
+        So the cells keep answering the table, and the refusal is enforced
+        at the decisions instead (the gate above, and ``_pay_criteria``).
         """
+        before = (self.ns["Var2"], self.ns["Var3"], self.ns["RewardItem1"])
         self.ns["ReportDailyQuest"]()
-        self.assertEqual(self.ns["Var2"], quest.STUB_DEFAULT)
-        self.assertEqual(self.ns["Var3"], quest.STUB_DEFAULT)
-        self.assertEqual(self.ns["RewardItem1"], quest.STUB_DEFAULT)
+        after = (self.ns["Var2"], self.ns["Var3"], self.ns["RewardItem1"])
+        self.assertEqual(before, after,
+                         "a poisoned row must not rewrite a table cell")
+        self.assertNotEqual(
+            after[2], quest.STUB_DEFAULT,
+            "this quest has a reward row; if it did not, the test proves "
+            "nothing about the gate having been removed")
 
     def test_the_console_names_the_reason_not_just_the_refusal(self):
         self.ns["ReportDailyQuest"]()
@@ -222,19 +235,49 @@ class TheLedgerIsAskedAboutTheRightQuestTests(unittest.TestCase):
 class TheRefusalIsNotForeverTests(unittest.TestCase):
     """A transient lock must not become a permanent lockout."""
 
-    def test_one_successful_write_clears_the_pair(self):
+    def test_a_write_to_another_row_does_not_clear_this_one(self):
+        """``q_day_business.lua`` LINES 59 AND 63, IN THAT ORDER.
+
+        Its first version asserted the opposite and pinned the bug as the
+        requirement (pf-adversary, round ``7cf5ak``, A4).  In the shipped
+        script the refused ``Quest.ReportDailyQuest()`` at line 59 is
+        followed four lines later, in the same run, by a ``SetFlag`` that
+        SUCCEEDS.  Keyed to the pair, that success cleared the poison with
+        the daily stamp still missing from disk, so the gate was open
+        again before any click could read it.  The poison is keyed to the
+        ROW now: the flag row is repaired, the counter row is not.
+        """
+        log = []
+        store = HealingStore(fail_writes=1)
+        adapter = qss.StoreBackedQuestStateStore(store, log.append)
+        ns = _namespace(adapter, log)
+
+        ns["ReportDailyQuest"]()                       # line 59: refused
+        self.assertFalse(ns["CanReportDailyQuest"]())  # shut
+
+        self.assertEqual(ns["SetFlag"](quest.QUEST_ACTIVE),
+                         quest.QUEST_ACTIVE)           # line 63: lands
+        self.assertFalse(
+            ns["CanReportDailyQuest"](),
+            "a flag write must not vouch for a counter row it never wrote")
+
+    def test_a_write_to_the_same_row_does_clear_it(self):
+        """The other half: this is a refusal, not a blacklist."""
         log = []
         store = HealingStore(fail_writes=1)
         adapter = qss.StoreBackedQuestStateStore(store, log.append)
         ns = _namespace(adapter, log)
 
         ns["ReportDailyQuest"]()                       # refused, poisons
-        self.assertFalse(ns["CanReportDailyQuest"]())  # shut
-
-        self.assertEqual(ns["SetFlag"](quest.QUEST_ACTIVE),
-                         quest.QUEST_ACTIVE)           # a write lands
-        self.assertTrue(ns["CanReportDailyQuest"](),
-                        "the pair must be readable again once a write lands")
+        self.assertFalse(ns["CanReportDailyQuest"]())
+        ns["ReportDailyQuest"]()                       # the store has healed
+        self.assertFalse(
+            ns["CanReportDailyQuest"](),
+            "the stamp is now on record for today, so the daily gate is "
+            "shut because it was REPORTED, not because it is unreadable")
+        self.assertEqual(
+            adapter.refusals.rows(), (),
+            "the row that was repaired must be forgotten")
 
     def test_only_the_pair_that_lost_a_write_is_poisoned(self):
         log = []
@@ -365,3 +408,134 @@ class TheLedgerHoldsUnderConcurrencyTests(unittest.TestCase):
 
 if __name__ == "__main__":       # pragma: no cover
     unittest.main()
+
+
+class TheMemoryOutlivesTheDispatchTests(unittest.TestCase):
+    """A1: the click that charges and the click that would charge again
+    are DIFFERENT dispatches.
+
+    ``dispatch.load_quest_script()`` builds a fresh
+    ``StoreBackedQuestStateStore`` on every run, so a ledger owned by the
+    adapter was empty by the time the second click asked.  pf-adversary
+    (round `7cf5ak`, A1) measured it and called the whole mechanism
+    theatre, correctly: a memory shorter than the fact it stands for
+    cannot gate anything.  Every test here crosses that boundary by
+    building the adapter TWICE over one backing store, the way the
+    resolver does.
+    """
+
+    def setUp(self):
+        self.log = []
+        self.store = WriteLockedStore()
+
+    def _dispatch(self):
+        """One `load_quest_script`-worth of adapter, through the same
+        resolver the loader calls -- not a hand-built one."""
+        adapter = dispatch.resolve_quest_state_store(self.store,
+                                                     self.log.append)
+        return adapter, _namespace(adapter, self.log)
+
+    def test_the_resolver_really_does_build_a_new_adapter_each_time(self):
+        """If this ever stops being true the tests below prove nothing."""
+        first, _ = self._dispatch()
+        second, _ = self._dispatch()
+        self.assertIsNot(first, second)
+        self.assertIsInstance(first, qss.StoreBackedQuestStateStore)
+
+    def test_the_gate_stays_shut_on_the_next_dispatch(self):
+        """FOUR CLICKS, FOUR DISPATCHES, ONE CHARGE."""
+        _, first = self._dispatch()
+        self.assertTrue(first["CanReportDailyQuest"]())
+        first["ReportDailyQuest"]()                     # refused
+
+        for _ in range(3):
+            _, later = self._dispatch()
+            self.assertFalse(
+                later["CanReportDailyQuest"](),
+                "a new dispatch must not forget the unrecorded report")
+
+    def test_two_adapters_over_one_store_share_one_ledger(self):
+        first, _ = self._dispatch()
+        second, _ = self._dispatch()
+        self.assertIs(first.refusals, second.refusals)
+        self.assertTrue(qs_signal.ledger_is_shared(self.store))
+
+    def test_two_adapters_over_different_stores_do_not(self):
+        first = qss.StoreBackedQuestStateStore(WriteLockedStore())
+        second = qss.StoreBackedQuestStateStore(WriteLockedStore())
+        self.assertIsNot(first.refusals, second.refusals)
+
+    def test_the_ledger_dies_with_the_store_it_describes(self):
+        """Not a leak: the side table holds the store weakly."""
+        import gc
+        store = WriteLockedStore()
+        qss.StoreBackedQuestStateStore(store)
+        self.assertTrue(qs_signal.ledger_is_shared(store))
+        del store
+        gc.collect()
+        self.assertEqual(len(qs_signal._LEDGERS), 0)
+
+
+class TheDefaultContextIsNotAPoisonedCharacterTests(unittest.TestCase):
+    """A6: ``character_id < 1`` is the inert default context, not a
+    character whose progress went missing.
+
+    Recording it left a HEALTHY store poisoned forever -- no write for
+    character 0 will ever be made, so nothing could clear it -- which made
+    ``LUA_QUEST_STATE_UNREADABLE`` on the console mean nothing.
+    """
+
+    def test_a_write_for_character_zero_poisons_nothing(self):
+        log = []
+        adapter = qss.StoreBackedQuestStateStore(HealingStore(fail_writes=0),
+                                                 log.append)
+        answer = adapter.set_quest_flag(0, 33, quest.QUEST_ACTIVE)
+        self.assertTrue(qs_signal.is_refused(answer))
+        self.assertEqual(qs_signal.reason_of(answer), "no-character")
+        self.assertEqual(adapter.refusals.rows(), ())
+
+    def test_a_healthy_store_answers_a_real_character_normally(self):
+        log = []
+        store = HealingStore(fail_writes=0)
+        adapter = qss.StoreBackedQuestStateStore(store, log.append)
+        adapter.set_quest_flag(0, 33, quest.QUEST_ACTIVE)     # the default
+        ns = _namespace(adapter, log, character_id=7, quest_id=33)
+        self.assertTrue(
+            ns["CanReportDailyQuest"](),
+            "character 7 must not inherit character 0's refusal")
+
+
+class TheLedgerKeysRowsNotPairsTests(unittest.TestCase):
+    """A2, at the ledger itself."""
+
+    def setUp(self):
+        self.ledger = qs_signal.RefusalLedger()
+
+    def test_two_counters_of_one_quest_are_two_facts(self):
+        self.ledger.record(7, 33, "write-locked",
+                           qs_signal.COUNTER_ROW, "mob:900")
+        self.ledger.record(7, 33, "write-locked",
+                           qs_signal.COUNTER_ROW, "mob:901")
+        self.ledger.clear(7, 33, qs_signal.COUNTER_ROW, "mob:900")
+        self.assertIsNone(self.ledger.unreadable(
+            7, 33, qs_signal.COUNTER_ROW, "mob:900"))
+        self.assertEqual(self.ledger.unreadable(
+            7, 33, qs_signal.COUNTER_ROW, "mob:901"), "write-locked")
+
+    def test_the_flag_row_has_no_name_of_its_own(self):
+        self.ledger.record(7, 33, "write-locked", qs_signal.FLAG_ROW, "x")
+        self.assertEqual(
+            self.ledger.unreadable(7, 33, qs_signal.FLAG_ROW), "write-locked",
+            "a caller must not be able to poison one flag row and clear "
+            "another by passing a different name")
+
+    def test_asking_about_the_quest_sees_any_poisoned_row(self):
+        self.ledger.record(7, 33, "write-locked",
+                           qs_signal.COUNTER_ROW, "mob:900")
+        self.assertEqual(self.ledger.unreadable(7, 33), "write-locked")
+        self.assertIsNone(self.ledger.unreadable(
+            7, 33, qs_signal.FLAG_ROW))
+
+    def test_an_unknown_kind_is_refused_not_silently_accepted(self):
+        with self.assertRaises(ValueError):
+            self.ledger.record(7, 33, "write-locked", "rumour", "")

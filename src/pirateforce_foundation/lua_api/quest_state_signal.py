@@ -38,7 +38,7 @@ WHAT IT IS NOT.  Not an exception: a refusal is the server's own fact
 from LANE-DB's contract), not the script's, and raising into the Lua call
 stack would make the host log ``LUA_SCRIPT <file> ERR`` and blame the
 script -- the exact confusion pf-adversary named D11/D9 in two earlier
-rounds.  Not a store: :class:`RefusalLedger` remembers only that a pair is
+rounds.  Not a store: :class:`RefusalLedger` remembers only that a row is
 currently unreadable, never any quest progress.
 
 ASCII only, no intra-package imports: this is a leaf both halves of the
@@ -49,6 +49,7 @@ store``'s durable adapter) import without either importing the other.
 from __future__ import annotations
 
 import threading
+import weakref
 from typing import Any, Dict, Optional, Tuple
 
 #: Console token for a call answered with the third state.  Distinct from
@@ -57,14 +58,14 @@ from typing import Any, Dict, Optional, Tuple
 #: a gate -- declining to run on a state it cannot read.
 UNREADABLE_TOKEN = "LUA_QUEST_STATE_UNREADABLE"
 
-#: Ceiling on how many (character, quest) pairs one ledger remembers as
+#: Ceiling on how many quest-state ROWS one ledger remembers as
 #: unreadable.
 #:
 #: A cap is required, not decorative: the ledger is written from the same
 #: paths a looping script drives, and an unbounded dict keyed by whatever
 #: ids arrive is a memory leak with a script for a throttle.  When the cap
-#: is reached the ledger stops ACCEPTING NEW pairs and says so through
-#: :meth:`RefusalLedger.saturated`; it never evicts an existing pair,
+#: is reached the ledger stops ACCEPTING NEW rows and says so through
+#: :meth:`RefusalLedger.saturated`; it never evicts an existing row,
 #: because evicting one would silently turn "unreadable" back into
 #: "not started" -- the exact confusion this module exists to end.
 LEDGER_CAP = 4096
@@ -134,26 +135,40 @@ def reason_of(value: Any) -> Optional[str]:
     return value.reason if isinstance(value, Refused) else None
 
 
+#: The two shapes of quest-state row this lane can lose a write to.
+#: ``FLAG_ROW`` has one row per (character, quest) so its name is always
+#: ``""``; ``COUNTER_ROW`` has one row per counter name.
+FLAG_ROW = "flag"
+COUNTER_ROW = "counter"
+
+
 class RefusalLedger:
-    """Which (character, quest) pairs currently have UNRECORDED progress.
+    """Which quest-state ROWS currently have an unrecorded write.
 
-    THE POINT IS THE STICKINESS.  A refused read is a moment's bad luck; a
-    refused WRITE means the server told a script that something happened
-    and then failed to remember it, and every later decision about that
-    pair is being made on a state that does not include it.  So a refused
-    write poisons the pair until a write for that pair succeeds, and the
-    gates that pay, charge or advance the quest ask this ledger first.
+    THE UNIT IS THE ROW, NOT THE (character, quest) PAIR, and that is this
+    class's whole correction over its first version.  pf-adversary (round
+    ``7cf5ak``, A2) measured what pair-keying costs on a script the game
+    ships:
 
-    That converts ``q_day_business.lua``'s measured failure from "the
-    player is charged four times" into "the player is charged once, and
-    every later attempt is refused out loud" -- which is the fail-closed
-    half of the same fact.
+        Quest/q_day_business.lua:59  Quest.ReportDailyQuest()   <- refused
+        Quest/q_day_business.lua:63  Quest.SetFlag(Quest.None)  <- succeeds
 
-    IT CLEARS.  A successful write for the pair clears it (the server can
-    record again), so a transient write-lock does not lock a character out
-    of a quest forever; that is the difference between this and a
-    blacklist.  Nothing else clears it: not time, not a read, not another
-    character's write.
+    Four lines apart, in one script run.  Keyed to the pair, the SetFlag
+    that succeeded cleared the poison left by the ReportDailyQuest that
+    did not -- so the protection was gone before any gate could read it,
+    with the daily stamp still missing from disk.  A write clears the row
+    it actually wrote and nothing else.
+
+    THE POINT IS STILL THE STICKINESS.  A refused read is a moment's bad
+    luck; a refused WRITE means the server told a script that something
+    happened and then failed to remember it, and every later decision that
+    reads that row is being made on a state that does not include it.  So
+    a refused write poisons that row until a write to THAT row succeeds,
+    and the gates that decide "has this already been reported" ask here
+    first.
+
+    IT CLEARS, and only that way: not by time, not by a read, not by
+    another row's write, not by another character's write.
 
     Thread-safe: two mobs of the same template dying in one tick reach
     this through two threads.
@@ -164,47 +179,142 @@ class RefusalLedger:
             raise ValueError("cap must be a positive int")
         self._cap = cap
         self._lock = threading.RLock()
-        self._pairs: Dict[Tuple[int, int], str] = {}
+        self._rows: Dict[Tuple[int, int, str, str], str] = {}
         self._saturated = False
 
-    def record(self, character_id: int, quest_id: int, reason: str) -> None:
-        """Remember that a write for this pair was refused."""
-        key = (character_id, quest_id)
+    @staticmethod
+    def _key(character_id: int, quest_id: int, kind: str,
+             name: str) -> Tuple[int, int, str, str]:
+        if kind not in (FLAG_ROW, COUNTER_ROW):
+            raise ValueError("kind must be %r or %r" % (FLAG_ROW, COUNTER_ROW))
+        if not isinstance(name, str):
+            raise TypeError("a row name is a str")
+        # A flag row has no name of its own; normalising here means a
+        # caller cannot poison `("flag", "")` and clear `("flag", "x")`.
+        return (character_id, quest_id, kind,
+                "" if kind == FLAG_ROW else name)
+
+    def record(self, character_id: int, quest_id: int, reason: str,
+               kind: str = COUNTER_ROW, name: str = "") -> None:
+        """Remember that a write to this ROW was refused."""
+        key = self._key(character_id, quest_id, kind, name)
         with self._lock:
-            if key in self._pairs:
+            if key in self._rows:
                 # Keep the FIRST reason: it is the one that names why the
                 # progress is missing.  Later calls fail for whatever the
                 # store is doing now, which is a symptom of the same gap.
                 return
-            if len(self._pairs) >= self._cap:
+            if len(self._rows) >= self._cap:
                 self._saturated = True
                 return
-            self._pairs[key] = reason
+            self._rows[key] = reason
 
-    def clear(self, character_id: int, quest_id: int) -> None:
-        """Forget this pair -- a write for it has succeeded."""
+    def clear(self, character_id: int, quest_id: int,
+              kind: str = COUNTER_ROW, name: str = "") -> None:
+        """Forget this ROW -- a write to it has succeeded."""
+        key = self._key(character_id, quest_id, kind, name)
         with self._lock:
-            self._pairs.pop((character_id, quest_id), None)
+            self._rows.pop(key, None)
 
-    def unreadable(self, character_id: int, quest_id: int) -> Optional[str]:
-        """The reason this pair's state cannot be trusted, or ``None``."""
+    def unreadable(self, character_id: int, quest_id: int,
+                   kind: Optional[str] = None,
+                   name: str = "") -> Optional[str]:
+        """The reason a row of this quest cannot be trusted, or ``None``.
+
+        With ``kind`` given, the answer is about THAT row and no other --
+        which is what a gate reading one row (the daily stamp, one kill
+        counter) must ask.  With ``kind`` left out, the answer is "is any
+        row of this (character, quest) missing a write", which is what a
+        decision about the QUEST as a whole (paying it out, accepting it)
+        must ask; the reason returned is then the first in sorted key
+        order, so the answer does not depend on dict insertion order.
+        """
         with self._lock:
-            return self._pairs.get((character_id, quest_id))
+            if kind is not None:
+                return self._rows.get(
+                    self._key(character_id, quest_id, kind, name))
+            for key in sorted(self._rows):
+                if key[0] == character_id and key[1] == quest_id:
+                    return self._rows[key]
+            return None
 
     def saturated(self) -> bool:
-        """True once a pair has been dropped for want of room.
-
-        Read by a caller that wants to say so in the console; the ledger
-        does not log by itself, because it has no log to write to and
-        borrowing one would make a leaf module hold a callback.
-        """
+        """True once a row has been dropped for want of room."""
         with self._lock:
             return self._saturated
 
-    def pairs(self) -> Tuple[Tuple[Tuple[int, int], str], ...]:
-        """Every remembered pair, sorted -- for tests and operators."""
+    def rows(self) -> Tuple[Tuple[Tuple[int, int, str, str], str], ...]:
+        """Every remembered row, sorted -- for tests and operators."""
         with self._lock:
-            return tuple(sorted(self._pairs.items()))
+            return tuple(sorted(self._rows.items()))
+
+    def pairs(self) -> Tuple[Tuple[Tuple[int, int], str], ...]:
+        """The distinct (character, quest) pairs that have a poisoned row.
+
+        Kept because operators and the console think in quests, not rows;
+        the reason shown for a pair is the first of its rows in sorted key
+        order.  Not the ledger's unit -- see :meth:`rows`.
+        """
+        seen: Dict[Tuple[int, int], str] = {}
+        with self._lock:
+            for key in sorted(self._rows):
+                seen.setdefault((key[0], key[1]), self._rows[key])
+        return tuple(sorted(seen.items()))
+
+
+#: One ledger per BACKING STORE OBJECT, found by identity.
+#:
+#: WHY THIS IS NOT AN ATTRIBUTE ON THE STORE.  The backing store is
+#: LANE-DB's object (``store.SQLiteStore``); ``store.py`` is not this
+#: lane's to write, and a lane that reaches over and sets a field on
+#: another lane's instance is one rename away from a silent collision.  A
+#: weak-keyed side table owned by this leaf module keeps the association
+#: entirely inside LANE-Q's zone and lets the ledger die with the store it
+#: describes.
+_LEDGERS: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+_LEDGERS_LOCK = threading.RLock()
+
+
+def ledger_for(backing: Any) -> RefusalLedger:
+    """The one ledger for ``backing``, created on first ask.
+
+    THIS IS THE ANSWER TO "WHERE IS A LOST FACT REMEMBERED".
+    pf-adversary (round ``7cf5ak``, A1) measured that
+    ``dispatch.load_quest_script()`` builds a NEW adapter per dispatch, so
+    a ledger owned by the adapter was forgotten between the click that
+    charged the player and the click that would charge them again -- a
+    memory shorter than the fact it stands for is not a gate.  Keyed to
+    the backing store, every adapter built over one store shares one
+    ledger, and the memory lasts as long as the store does.
+
+    IT DOES NOT OUTLIVE THE PROCESS, and this lane does not pretend
+    otherwise: the only place durable enough for that is the row itself,
+    which is precisely the thing that could not be written.  After a
+    restart the gates re-derive from what the store can be read to say.
+
+    An object that cannot be weak-referenced (a store with ``__slots__``
+    and no ``__weakref__``) gets a fresh ledger each time, which is the
+    old per-dispatch behaviour rather than a crash; callers that care can
+    detect it with :func:`ledger_is_shared`.
+    """
+    try:
+        with _LEDGERS_LOCK:
+            ledger = _LEDGERS.get(backing)
+            if ledger is None:
+                ledger = RefusalLedger()
+                _LEDGERS[backing] = ledger
+            return ledger
+    except TypeError:
+        return RefusalLedger()
+
+
+def ledger_is_shared(backing: Any) -> bool:
+    """True iff ``backing`` can carry a ledger that outlives a dispatch."""
+    try:
+        with _LEDGERS_LOCK:
+            return backing in _LEDGERS
+    except TypeError:
+        return False
 
 
 def ledger_of(store: Any) -> Optional[RefusalLedger]:
@@ -219,15 +329,18 @@ def ledger_of(store: Any) -> Optional[RefusalLedger]:
     return ledger if isinstance(ledger, RefusalLedger) else None
 
 
-def unreadable_reason(store: Any, character_id: int,
-                      quest_id: int) -> Optional[str]:
-    """Why this pair's quest state cannot be read, or ``None``.
+def unreadable_reason(store: Any, character_id: int, quest_id: int,
+                      kind: Optional[str] = None,
+                      name: str = "") -> Optional[str]:
+    """Why this quest's state cannot be read, or ``None``.
 
     The one function the decision sites call.  ``None`` means "go ahead":
-    either the store keeps no ledger, or it keeps one and this pair is
-    clean.
+    either the store keeps no ledger, or it keeps one and the row asked
+    about is clean.  Pass ``kind``/``name`` when the decision reads ONE
+    row and leave them out when it is about the quest as a whole -- see
+    :meth:`RefusalLedger.unreadable`.
     """
     ledger = ledger_of(store)
     if ledger is None:
         return None
-    return ledger.unreadable(character_id, quest_id)
+    return ledger.unreadable(character_id, quest_id, kind, name)

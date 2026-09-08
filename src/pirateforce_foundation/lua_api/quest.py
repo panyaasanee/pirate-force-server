@@ -576,13 +576,15 @@ class InMemoryQuestStateStore:
         self.refusals = quest_state_signal.RefusalLedger()
 
     def _refuse_write(self, reason: str, character_id: int, quest_id: int,
-                      value: int) -> quest_state_signal.Refused:
+                      value: int,
+                      kind: str = quest_state_signal.COUNTER_ROW,
+                      name: str = "") -> quest_state_signal.Refused:
         """Mark a write this store declined, keeping the number it
         already answered with (the value still on record, or
         :data:`STUB_DEFAULT`); see
         :class:`quest_state_signal.Refused`'s own note on why the number
         must not change."""
-        self.refusals.record(character_id, quest_id, reason)
+        self.refusals.record(character_id, quest_id, reason, kind, name)
         return quest_state_signal.refused(reason, value)
 
     def get_quest_flag(self, character_id: int, quest_id: int) -> Optional[int]:
@@ -596,14 +598,17 @@ class InMemoryQuestStateStore:
                 if len(self._flags) >= self._characters_cap:
                     return self._refuse_write(
                         "cap-characters", character_id, quest_id,
-                        self.get_quest_flag(character_id, quest_id) or STUB_DEFAULT)
+                        self.get_quest_flag(character_id, quest_id) or STUB_DEFAULT,
+                        quest_state_signal.FLAG_ROW)
                 rows = self._flags.setdefault(character_id, {})
             if quest_id not in rows and len(rows) >= self._quests_per_character_cap:
                 return self._refuse_write(
                     "cap-quests-per-character", character_id, quest_id,
-                    rows.get(quest_id, STUB_DEFAULT))
+                    rows.get(quest_id, STUB_DEFAULT),
+                    quest_state_signal.FLAG_ROW)
             rows[quest_id] = flag_value
-            self.refusals.clear(character_id, quest_id)
+            self.refusals.clear(character_id, quest_id,
+                                quest_state_signal.FLAG_ROW)
             return flag_value
 
     def get_quest_counter(self, character_id: int, quest_id: int,
@@ -620,15 +625,18 @@ class InMemoryQuestStateStore:
                     return self._refuse_write(
                         "cap-characters", character_id, quest_id,
                         self.get_quest_counter(
-                            character_id, quest_id, counter_name) or STUB_DEFAULT)
+                            character_id, quest_id, counter_name) or STUB_DEFAULT,
+                        quest_state_signal.COUNTER_ROW, counter_name)
                 rows = self._counters.setdefault(character_id, {})
             key = (quest_id, counter_name)
             if key not in rows and len(rows) >= self._counters_per_character_cap:
                 return self._refuse_write(
                     "cap-counters-per-character", character_id, quest_id,
-                    rows.get(key, STUB_DEFAULT))
+                    rows.get(key, STUB_DEFAULT),
+                    quest_state_signal.COUNTER_ROW, counter_name)
             rows[key] = counter_value
-            self.refusals.clear(character_id, quest_id)
+            self.refusals.clear(character_id, quest_id,
+                                quest_state_signal.COUNTER_ROW, counter_name)
             return counter_value
 
     def increment_quest_counter(self, character_id: int, quest_id: int,
@@ -652,18 +660,21 @@ class InMemoryQuestStateStore:
                     return self._refuse_write(
                         "cap-characters", character_id, quest_id,
                         self.get_quest_counter(
-                            character_id, quest_id, counter_name) or STUB_DEFAULT)
+                            character_id, quest_id, counter_name) or STUB_DEFAULT,
+                        quest_state_signal.COUNTER_ROW, counter_name)
                 rows = self._counters.setdefault(character_id, {})
             key = (quest_id, counter_name)
             if key not in rows and len(rows) >= self._counters_per_character_cap:
                 return self._refuse_write(
                     "cap-counters-per-character", character_id, quest_id,
-                    rows.get(key, STUB_DEFAULT))
+                    rows.get(key, STUB_DEFAULT),
+                    quest_state_signal.COUNTER_ROW, counter_name)
             # Never set before is 0 + delta, per LANE-DB's contract for the
             # same door: there is no earlier value to guess at, so this
             # creates the fact rather than assuming one.
             rows[key] = rows.get(key, 0) + delta
-            self.refusals.clear(character_id, quest_id)
+            self.refusals.clear(character_id, quest_id,
+                                quest_state_signal.COUNTER_ROW, counter_name)
             return rows[key]
 
 
@@ -698,7 +709,8 @@ def is_quest_accepted(store: "QuestStateStore", character_id: int, quest_id: int
     """
     flag = store.get_quest_flag(character_id, quest_id)
     if quest_state_signal.is_refused(flag) or quest_state_signal.unreadable_reason(
-            store, character_id, quest_id) is not None:
+            store, character_id, quest_id,
+            quest_state_signal.FLAG_ROW) is not None:
         # LANE-A gates an NPC's per-player visibility on this.  A refused
         # read is numerically 0 and would already answer False here, but
         # an EARLIER refused write would not: the flag reads QUEST_ACTIVE
@@ -720,7 +732,8 @@ def is_quest_reported(store: "QuestStateStore", character_id: int, quest_id: int
     """
     flag = store.get_quest_flag(character_id, quest_id)
     if quest_state_signal.is_refused(flag) or quest_state_signal.unreadable_reason(
-            store, character_id, quest_id) is not None:
+            store, character_id, quest_id,
+            quest_state_signal.FLAG_ROW) is not None:
         return False
     return flag == QUEST_FINISH
 
@@ -778,7 +791,9 @@ def _log_bad_value(log: Callable[[str], None], api_name: str, **raw_args: Any) -
 
 def _unreadable_reason(store: Any, context: "QuestContext",
                        value: Any = None,
-                       quest_id: Optional[int] = None) -> Optional[str]:
+                       quest_id: Optional[int] = None,
+                       kind: Optional[str] = None,
+                       name: str = "") -> Optional[str]:
     """Why this call must not be answered from quest state, or ``None``.
 
     Two sources, one answer.  ``value`` is what a store just handed back:
@@ -796,6 +811,15 @@ def _unreadable_reason(store: Any, context: "QuestContext",
     one direction and miss a poisoned one in the other, so the closures
     that carry their own id pass it.
 
+    ``kind``/``name`` NAME THE ROW, and a caller that reads one row must
+    pass them (pf-adversary, round ``7cf5ak``, A2).  The daily stamp and
+    the quest flag are different rows of the same quest: a
+    ``SetFlag`` that lands does not make the missing daily stamp
+    readable, and a gate that asked about the pair was answered "clean"
+    by the wrong row's success.  Left out, the question is "is ANY row of
+    this quest missing a write", which is what a decision about the whole
+    quest -- paying it out -- has to ask.
+
     A store with no ledger and a plain answer gives ``None``: nothing here
     changes for a caller that never refuses.
     """
@@ -803,7 +827,7 @@ def _unreadable_reason(store: Any, context: "QuestContext",
         return quest_state_signal.reason_of(value)
     return quest_state_signal.unreadable_reason(
         store, context.character_id,
-        context.quest_id if quest_id is None else quest_id)
+        context.quest_id if quest_id is None else quest_id, kind, name)
 
 
 def _log_unreadable(log: Callable[[str], None], api_name: str,
@@ -870,7 +894,8 @@ def _log_criteria(log: Callable[[str], None], api_name: str,
 
 
 def _pay_criteria(log: Callable[[str], None], api_name: str,
-                  context: "QuestContext", payout_store: Any):
+                  context: "QuestContext", payout_store: Any,
+                  quest_store: Any = None):
     """Resolve one criteria reward, then try to pay it.  Two lines, two facts.
 
     ``LUA_QUEST_CRITERIA`` says what the game's own tables resolve for this
@@ -886,6 +911,19 @@ def _pay_criteria(log: Callable[[str], None], api_name: str,
     -- today always ``None``, for the measured reason in
     :func:`lua_api.reward.pay`: nothing implements the atomic delta yet.
     """
+    # NEVER PAY ON A STATE THAT CANNOT BE READ (PANYA, `NOW.md` LANE-Q
+    # line, 2026-09-08; COO-DECISION `1742`).  This is the payout
+    # decision, so the question is about the QUEST, not one row: if ANY
+    # row of this (character, quest) is missing a write, the server does
+    # not know what this character has already been given, and a reward
+    # paid on that is the double payout the third state exists to stop.
+    # pf-adversary (round `7cf5ak`, A7) found this closure -- the only one
+    # in the file whose name is "pay" -- was the one not gated.
+    denied = quest_state_signal.unreadable_reason(
+        quest_store, context.character_id, context.quest_id)
+    if denied is not None:
+        _log_unreadable(log, api_name, context, denied, STUB_DEFAULT)
+        return None
     state = quest_rewards.unpayable_group_for(
         context.quest_id, "Quest.%s" % api_name, context.entry_point)
     if state is not None:
@@ -1088,7 +1126,8 @@ class RealQuestNamespace:
                     return QUEST_NONE
                 value = self._store.get_quest_flag(self._context.character_id, quest_id)
                 reason = _unreadable_reason(self._store, self._context, value,
-                                            quest_id)
+                                            quest_id,
+                                            quest_state_signal.FLAG_ROW)
                 if reason is not None:
                     _log_unreadable(self._log, "GetQuestFlag", self._context,
                                     reason, QUEST_NONE, quest_id)
@@ -1107,7 +1146,9 @@ class RealQuestNamespace:
                     return STUB_DEFAULT
                 value = self._store.get_quest_flag(
                     self._context.character_id, self._context.quest_id)
-                reason = _unreadable_reason(self._store, self._context, value)
+                reason = _unreadable_reason(self._store, self._context, value,
+                                            None,
+                                            quest_state_signal.FLAG_ROW)
                 if reason is not None:
                     _log_unreadable(self._log, "GetFlag", self._context,
                                     reason, QUEST_NONE)
@@ -1211,7 +1252,10 @@ class RealQuestNamespace:
                 progress = self._store.get_quest_counter(
                     self._context.character_id, self._context.quest_id,
                     _mob_kill_counter_name(mob_id))
-                reason = _unreadable_reason(self._store, self._context, progress)
+                reason = _unreadable_reason(
+                    self._store, self._context, progress, None,
+                    quest_state_signal.COUNTER_ROW,
+                    _mob_kill_counter_name(mob_id))
                 if reason is not None:
                     # NOT `(progress or 0) >= target`: a refused read is 0,
                     # and `target` of 0 would then answer "you have killed
@@ -1240,7 +1284,10 @@ class RealQuestNamespace:
                 progress = self._store.get_quest_counter(
                     self._context.character_id, self._context.quest_id,
                     _mob_kill_counter_name(mob_id))
-                reason = _unreadable_reason(self._store, self._context, progress)
+                reason = _unreadable_reason(
+                    self._store, self._context, progress, None,
+                    quest_state_signal.COUNTER_ROW,
+                    _mob_kill_counter_name(mob_id))
                 if reason is not None:
                     _log_unreadable(self._log, "GetMobKillCount", self._context,
                                     reason, STUB_DEFAULT)
@@ -1262,7 +1309,10 @@ class RealQuestNamespace:
                 stamp = self._store.get_quest_counter(
                     self._context.character_id, self._context.quest_id,
                     _DAILY_REPORT_COUNTER_NAME)
-                reason = _unreadable_reason(self._store, self._context, stamp)
+                reason = _unreadable_reason(
+                    self._store, self._context, stamp, None,
+                    quest_state_signal.COUNTER_ROW,
+                    _DAILY_REPORT_COUNTER_NAME)
                 if reason is not None:
                     # THE ONE THAT COST THE PLAYER MONEY.  `stamp is None
                     # or stamp != today` reads both "no stamp was ever
@@ -1311,29 +1361,26 @@ class RealQuestNamespace:
 
         var_index = _var_index_of(name)
         if var_index is not None:
-            # NEVER PAY OR CHARGE ON A STATE THAT CANNOT BE READ
-            # (PANYA, `NOW.md` LANE-Q line, 2026-09-08).  `VarN` IS the
-            # amount: `Player.AddCash(Quest.Var2 * -1)` charges it and
-            # `Quest.RewardItemSelect(Quest.Var5)` pays it.  When an
-            # earlier write for this (character, quest) was refused, the
-            # server does not know what this character has already been
-            # charged or given, so the cell is answered with the stub
-            # default and the script's own arithmetic comes out zero --
-            # which `lua_api.player` already refuses BY NAME
-            # (`amount_is_zero`) instead of moving money.
+            # NO POISON GATE HERE, AND THE ABSENCE IS THE FIX.
             #
-            # THE COST, STATED: a quest whose pair is poisoned stops
-            # progressing entirely, not just at the till -- `VarN` also
-            # carries mob ids and target counts.  That is the intended
-            # trade (a stalled quest is recoverable; a double charge is
-            # not), and it ends the moment one write for the pair
-            # succeeds.
-            denied = quest_state_signal.unreadable_reason(
-                self._store, self._context.character_id, self._context.quest_id)
-            if denied is not None:
-                _log_unreadable(self._log, name, self._context, denied,
-                                STUB_DEFAULT)
-                return STUB_DEFAULT
+            # The first version of the third state answered `VarN` with
+            # `STUB_DEFAULT` while any row of the quest was unreadable, on
+            # the reasoning that `VarN` is the amount a script charges or
+            # pays.  pf-adversary (round `7cf5ak`, A3) measured what that
+            # actually does to the scripts the game ships: `Quest.VarN ==
+            # 0` is the corpus's "this quest has no prerequisite" idiom --
+            # 299 call sites across 302 scripts, including
+            # `q_day_business.lua:12` (the prerequisite) and `:14` (the
+            # level cap).  Answering 0 did not stall those gates.  It
+            # OPENED them.  A gate that fails open under exactly the
+            # condition it was added for is worse than no gate.
+            #
+            # So the refusal is enforced where a decision is made -- the
+            # read gates below (`CanReportDailyQuest`, `CheckMobKillCount`,
+            # `GetQuestFlag`, ...) and the payout gate in `_pay_criteria`
+            # -- and never by rewriting a number a script is about to
+            # compare against zero.
+            #
             # Through `quest_rewards`, not `quest_vars`, because the
             # half-transaction gate has to be in FRONT of the join: a
             # `VarN` that is the take side of a group whose give side is
@@ -1346,12 +1393,11 @@ class RealQuestNamespace:
 
         reward_name = quest_rewards.lua_name_of(name)
         if reward_name is not None:
-            denied = quest_state_signal.unreadable_reason(
-                self._store, self._context.character_id, self._context.quest_id)
-            if denied is not None:
-                _log_unreadable(self._log, name, self._context, denied,
-                                STUB_DEFAULT)
-                return STUB_DEFAULT
+            # Same removal, same reason as the `VarN` block above: a reward
+            # cell answered 0 is read by the corpus as "this quest has no
+            # such reward", which is a fact, not a refusal.  The payout
+            # gate is in `_pay_criteria`, where the decision to MOVE
+            # something is actually taken.
             return quest_rewards.resolve_for_namespace(
                 self._log, self._context.quest_id, reward_name, STUB_DEFAULT,
                 self._var_facts_said, self._context.entry_point)
@@ -1363,7 +1409,7 @@ class RealQuestNamespace:
                 self.calls.append(_qualified)
                 if _name in CRITERIA_METHODS:
                     _pay_criteria(self._log, _name, self._context,
-                                  self._payout_store)
+                                  self._payout_store, self._store)
                 self._log("LUA_API_STUB %s" % _qualified)
                 return STUB_DEFAULT
 
