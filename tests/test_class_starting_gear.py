@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -534,16 +535,19 @@ class TheShapeLaneDbMustUseToWireItTests(unittest.TestCase):
     """
 
     def _staged_package(self, tmp, inventory_text):
-        """A package dir whose `inventory.py` is `inventory_text`."""
+        """A package dir whose `inventory.py` is `inventory_text`.
+
+        Copied, not linked: the gate runs on Windows, where creating a
+        symlink needs a privilege the runner does not have, and a test that
+        is only ever green on the author's machine is worth less than no
+        test.  ~0.1 s for the whole package with the caches left behind.
+        """
         package = Path(tmp) / "pirateforce_foundation"
-        package.mkdir()
-        source = ROOT / "src" / "pirateforce_foundation"
-        for entry in sorted(source.iterdir()):
-            if entry.name == "__pycache__":
-                continue
-            if entry.name == "inventory.py":
-                continue
-            (package / entry.name).symlink_to(entry)
+        shutil.copytree(
+            ROOT / "src" / "pirateforce_foundation",
+            package,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
         (package / "inventory.py").write_text(inventory_text, encoding="utf-8")
         return package
 
