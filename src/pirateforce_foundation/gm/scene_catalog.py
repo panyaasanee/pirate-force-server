@@ -189,8 +189,27 @@ def suggest_gm_scene_names(
 
     Empty tuple for an empty/whitespace-only query, for a query that folds
     to a key already in the table (an exact hit is not a suggestion -- the
-    caller had a match and did not need this), and for anything with no
-    close match at all.  Best match first.
+    caller had a match and did not need this), and for a query that is
+    neither close to nor contained in any shipped name.  Best match first.
+
+    TWO SEARCHES, IN THIS ORDER, because they answer two different people.
+    `difflib` answers the operator who typed a whole name and dropped a
+    letter.  It CANNOT answer the operator who remembers a piece of one:
+    walked over the table today, 61 of the 86 distinct first words of the
+    shipped names -- `Atlantic`, `Deep`, `Dragon`, `Eagle`, `Bear` -- score
+    below `SUGGESTION_MINIMUM_RATIO` against every one of the 293 keys,
+    because the ratio is computed over the WHOLE name and a fragment is
+    mostly missing name.  So `warp Atlantic` used to end at "no GM scene
+    carries that name" with nothing after the semicolon, which is the same
+    dead end this helper was written to remove, just one keystroke earlier.
+    Containment fills the slots `difflib` left empty; it never displaces a
+    close match, so no query that was answered before is answered worse.
+
+    A fragment shorter than any real name browses rather than searches (`a`
+    returns the first three names carrying an `a`).  That is bounded by
+    `limit` and pinned in the order below rather than forbidden by a floor:
+    the shortest key in the table is 9 characters, and a floor derived from
+    it would have refused `Atlantic` -- the very query this exists for.
 
     The second element of each pair is the number of scene ids that name is
     on, so a caller can say "on 20 scenes" instead of printing 20 numbers.
@@ -202,14 +221,41 @@ def suggest_gm_scene_names(
     key = _fold_gm_scene_name(query)
     if not key or key in _GM_NAME_TO_SCENE_IDS:
         return ()
+    folded_keys = list(_GM_NAME_TO_SCENE_IDS)
     close = difflib.get_close_matches(
         key,
-        list(_GM_NAME_TO_SCENE_IDS),
+        folded_keys,
         n=limit,
         cutoff=SUGGESTION_MINIMUM_RATIO,
     )
+    ordered = list(close)
+    if len(ordered) < limit:
+        already = set(ordered)
+        for folded in _containing_keys(key, folded_keys):
+            if folded in already:
+                continue
+            ordered.append(folded)
+            already.add(folded)
+            if len(ordered) == limit:
+                break
     return tuple(
         (SCENE_ID_TO_GM_NAME[_GM_NAME_TO_SCENE_IDS[folded][0]],
          len(_GM_NAME_TO_SCENE_IDS[folded]))
-        for folded in close
+        for folded in ordered
     )
+
+
+def _containing_keys(key: str, folded_keys: list[str]) -> list[str]:
+    """Every folded table key that CONTAINS `key`, in a pinned order.
+
+    Ordered by where the fragment lands and then alphabetically, so the same
+    query returns the same three names on every run and on every machine --
+    `dict` order over the table would be neither, and an operator who reads
+    a different answer to the same typo twice stops reading the answer.
+    A name that STARTS with the fragment comes first because that is the
+    shape a half-remembered name has: `warp Prison` is a person who knows
+    the beginning of `Prison Exile Island`, not the end of one.
+    """
+    hits = [(folded.index(key), folded) for folded in folded_keys if key in folded]
+    hits.sort()
+    return [folded for _position, folded in hits]

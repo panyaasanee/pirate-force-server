@@ -141,6 +141,11 @@ COMMAND_USAGE = {
 
 COMMAND_NAMES = tuple(COMMAND_USAGE)
 
+#: The longest verb this grammar answers to, derived from the table above so
+#: that adding a command moves it.
+LONGEST_COMMAND_NAME_LENGTH = max(len(name) for name in COMMAND_NAMES)
+
+
 DEFAULT_LOG_PATH = "capture/gm_command_log.ndjson"
 
 # Channel_GMGlobalMessageVital (0x9F2C) is a global broadcast, not a private
@@ -148,7 +153,6 @@ DEFAULT_LOG_PATH = "capture/gm_command_log.ndjson"
 # growing without bound once execution is wired in, and keeps each logged
 # record to roughly one write() call worth of bytes.
 MAX_SAY_MESSAGE_LENGTH = 480
-
 
 # ---------------------------------------------------------------------------
 # AUDIT VOCABULARY (CORE-REQUEST-GM-032 items 1-2)
@@ -373,6 +377,16 @@ def parse_gm_command(text: str) -> GmCommand:
     """
     if not isinstance(text, str):
         raise TypeError("text must be a str")
+    # THE BOUND, before `strip()` and before any `split()` -- see
+    # `MAX_COMMAND_LINE_LENGTH` for why it cannot be anywhere else.  The
+    # message names the cap and the length, and echoes NOTHING typed: this
+    # line reaches a cp874 console and the operator can already see what
+    # they sent.
+    if len(text) > MAX_COMMAND_LINE_LENGTH:
+        raise GmCommandParseError(
+            f"a command line may be at most {MAX_COMMAND_LINE_LENGTH} "
+            f"characters (got {len(text)})"
+        )
     stripped = text.strip()
     if not stripped:
         raise GmCommandParseError("empty command")
@@ -608,6 +622,52 @@ QUERY_CONSOLE_CODEC = "cp874"
 #: not touch the numeric form, which never reaches this branch.
 MAX_WARP_NAME_QUERY_LENGTH = 2 * scene_catalog.LONGEST_GM_NAME_LENGTH
 
+#: THE CAP EVERY VERB GETS, and the half of the length question the `warp`
+#: name cap left open (pf-adversary round `53rdv8`, D5, MEASURED).  That
+#: round bounded ONE verb and wrote its rationale as though it had bounded
+#: the audit line; it had not.  `speed` + 200,000 spaces + `1` still parsed,
+#: because `rest.split()` folds any run of whitespace to nothing before the
+#: argument count is checked, and `stripped` -- the whole 200 KB of it --
+#: became `command.raw`, which `log_gm_command` writes into the ndjson
+#: audit as one line.  The same hole was open on `npc`, `item`, `lv`,
+#: `spawn`, `gmprobe`, `staged` and the NUMERIC `warp` form; the name form
+#: was the only one closed.
+#:
+#: READ BEFORE `strip()` AND BEFORE `split()`, which is the point.  This is
+#: the invariant `_split_scene_selector` was corrected to keep in the same
+#: round (D1): a rewriter that runs before the checker can only narrow what
+#: the checker sees, so no rewriter may run first.  `text.strip()` walks the
+#: line and `rest.split()` BUILDS A LIST -- measured at 163 MB for a line of
+#: ten million spaces -- so a bound placed after either is a bound on the
+#: result and not on the work.  It is the first statement in the function
+#: after the type check for that reason.
+#:
+#: DERIVED, NOT CHOSEN: the longest verb, one separator, and the widest
+#: argument allowance any verb has (`say`'s 480 characters; the `warp` name
+#: form's 108 is narrower).  It moves when either moves.
+#:
+#: IT COUNTS CHARACTERS, and the quota it protects (`chat_command.
+#: MAX_COMMAND_LOG_BYTES`) counts BYTES -- pf-adversary D8, which is a
+#: wording defect in the round that wrote it, not a code one.  The two are
+#: not the same unit and this comment will not pretend they are: a character
+#: this grammar accepts is cp874-encodable and printable, which in the
+#: ndjson line is 1 byte (ASCII) to 3 bytes (Thai, the table's own script)
+#: of UTF-8, plus JSON escaping.  So the cap bounds the audit line at
+#: roughly 3x its own number of bytes, not at its own number -- an upper
+#: bound is all the quota needs, and an upper bound is what this is.
+#:
+#: WHAT IT NARROWS, stated rather than discovered later: surrounding
+#: whitespace counts, because it is counted before `strip()` removes it.
+#: The longest line this grammar can legitimately carry is
+#: `say ` + 480 characters = 484, so a `say` at its own ceiling keeps four
+#: characters of the trailing space a chat client adds, and every shorter
+#: line keeps more.  No other verb comes within 370 characters of the cap.
+MAX_COMMAND_LINE_LENGTH = (
+    LONGEST_COMMAND_NAME_LENGTH
+    + 1
+    + max(MAX_SAY_MESSAGE_LENGTH, MAX_WARP_NAME_QUERY_LENGTH)
+)
+
 #: `Hidden Island` is on twenty scene ids in the client's own table, and the
 #: ambiguity refusal could only ever show the first `MAX_AMBIGUOUS_SCENE_
 #: IDS_SHOWN` of them -- so an operator who wanted the eleventh had no way
@@ -719,17 +779,25 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     The NAME is still never echoed, and that is the half the rule was
     written for.
     """
-    # LENGTH FIRST, before anything walks the string.  Every check below
-    # this line is at least O(len(rest)) and `_did_you_mean` is difflib over
-    # the whole query, so the bound has to be the first thing read or it is
-    # not a bound on the work, only on the result.
+    # LENGTH FIRST *IN THIS FUNCTION* -- narrowed from "before anything
+    # walks the string", which was never true (pf-adversary round `53rdv8`,
+    # D6): `parse_gm_command` reaches this branch only after `text.strip()`,
+    # `stripped.split(maxsplit=1)` and `rest.split()`, three O(n) walks, the
+    # last of which BUILDS A LIST (163 MB for ten million spaces, measured).
+    # What is true is what the check still buys: every check BELOW it is at
+    # least O(len(rest)) and `_did_you_mean` is difflib over the whole
+    # query, which is superlinear -- 0.019 s against 0.688 s on the line
+    # that motivated it.  The bound on the WORK now lives one level up, in
+    # `MAX_COMMAND_LINE_LENGTH`, which is read before all three walks; this
+    # one bounds what the NAME FORM accepts, which is a narrower thing and
+    # is all it ever did.
     if len(rest) > MAX_WARP_NAME_QUERY_LENGTH:
         raise GmCommandParseError(
             f"a scene name may be at most {MAX_WARP_NAME_QUERY_LENGTH} "
             f"characters (got {len(rest)}); "
             f'use {COMMAND_USAGE["warp"]!r}'
         )
-    query, selector = _split_scene_selector(rest)
+    query, selector_text = _split_scene_selector(rest)
     if not query:
         raise GmCommandParseError(COMMAND_USAGE["warp"])
     if not _query_is_console_safe(query):
@@ -747,12 +815,20 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
             f"{scene_catalog.SCENE_COUNT} scenes){_did_you_mean(query)}; "
             f'use {COMMAND_USAGE["warp"]!r}'
         )
-    if selector is not None:
+    if selector_text is not None:
+        selector = int(selector_text)
         if not 1 <= selector <= len(matches):
             raise GmCommandParseError(
                 f"that name is on {len(matches)} "
                 f"{'scene' if len(matches) == 1 else 'scenes'}, so "
-                f"{SCENE_SELECTOR_PREFIX}{selector} names none of them; "
+                # AS TYPED, not as parsed (pf-adversary round `53rdv8`, D9):
+                # `#0000000000011` used to be read back as `#11`, so the one
+                # line an operator has to compare against their own screen
+                # showed them something they had not typed.  Safe for the
+                # reason D7 already gave -- the token got here only by
+                # passing `tail.isascii() and tail.isdigit()`, and
+                # `MAX_COMMAND_LINE_LENGTH` bounds its length.
+                f"{SCENE_SELECTOR_PREFIX}{selector_text} names none of them; "
                 f"use {SCENE_SELECTOR_PREFIX}1 to "
                 f"{SCENE_SELECTOR_PREFIX}{len(matches)}"
             )
@@ -774,10 +850,15 @@ def _parse_warp_named(rest: str, stripped: str) -> GmCommand:
     return GmCommand("warp", (str(matches[0]),), stripped)
 
 
-def _split_scene_selector(rest: str) -> tuple[str, int | None]:
-    """Split `rest` into (name query, 1-based scene selector or None).
+def _split_scene_selector(rest: str) -> tuple[str, str | None]:
+    """Split `rest` into (name query, selector AS TYPED or None).
 
-    `warp Hidden Island #11` -> `("Hidden Island", 11)`.  A line with no
+    `warp Hidden Island #11` -> `("Hidden Island ", "11")`.  The selector
+    comes back as the digits the operator typed, not as an `int`, so the
+    refusal line can print back exactly what was sent (pf-adversary round
+    `53rdv8`, D9: `int("0000000000011")` is 11, and a message that answers
+    `#11` to somebody who typed `#0000000000011` is answering a question
+    nobody asked).  The caller converts when it needs the number.  A line with no
     trailing `#n` token comes back unchanged with `None`, which is the shape
     every caller of this grammar saw before the selector existed.
 
@@ -813,6 +894,14 @@ def _split_scene_selector(rest: str) -> tuple[str, int | None]:
     checker would have refused.  That is the rule this function now keeps,
     and it is the rule `head.strip()` broke.
     """
+    # `rpartition`, so the LAST `#n` is the selector and any earlier `#`
+    # stays in the name query -- where it will fail the catalog lookup,
+    # because no shipped name carries a `#`.  `partition` would read
+    # `Hidden Island #1 #2` as the name `Hidden Island` with the selector
+    # `1 #2`, refuse that as non-digits, and hand the whole line back as a
+    # name; the difference is invisible in every message the parser prints,
+    # which is why `test_gm_commands.py` pins it on this function directly
+    # (pf-adversary round `53rdv8`, M9: the mutant survived the suite).
     head, separator, tail = rest.rpartition(SCENE_SELECTOR_PREFIX)
     if not separator:
         return rest, None
@@ -823,7 +912,7 @@ def _split_scene_selector(rest: str) -> tuple[str, int | None]:
         # selector by whitespace or the `#` is part of whatever was typed.
         # (No shipped name contains `#`, so this only ever refuses a typo.)
         return rest, None
-    return head, int(tail)
+    return head, tail
 
 
 def _require_int(value: str, label: str) -> None:
