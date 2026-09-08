@@ -182,8 +182,11 @@ def skill_points_after_learning(current_skill_points: int, skill_id: int) -> int
 #: The named refusals :func:`refusal_to_learn` can return.  Strings, not an
 #: enum, because they travel to a console line and into a test's assertion
 #: unchanged, and because every other refusal in this lane is already a
-#: named string a caller can match on (`skill_list_at_login`'s
-#: `record_count_is_above_any_observed_acceptance` is the shape).
+#: named string a caller can match on (the login-frame module's
+#: `record_count_is_above_any_observed_acceptance` is the shape; its name is
+#: deliberately not spelled here -- that module's `callers_in_src` token
+#: counts every sibling that mentions it, and a prose mention would make an
+#: operator's console line report a caller this file is not).
 REFUSED_SKILL_NOT_DECLARED = "skill_id_not_in_skill_context"
 REFUSED_LEVEL_TOO_LOW = "character_level_below_n_level_learn"
 REFUSED_COST_NOT_POSITIVE = "f_sp_leve1_is_not_positive"
