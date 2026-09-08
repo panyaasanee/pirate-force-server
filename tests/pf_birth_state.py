@@ -38,17 +38,49 @@ named, and it refuses everything else -- so an insertion point that seeds
 ``level = 0``, or that adds a FIFTH column, turns every file that imports this
 one red at its fixture.
 
-WHAT CHANGED ON 2026-09-02 AT 16:07, and why the list grew to three.  This
-module used to refuse a birth carrying ``speed_walk = 400.0`` outright, citing
-``COO-DECISION 20260901_1447`` point 2, which reserved that number for a
-migration and forbade it at birth.  That decision was overtaken twice: `0742`
-lifted the ban on the number once `RE-194` closed which of the two candidates
-the player object uses, and ``COO-DECISION 20260902_1607`` -- the owner
-overruling her own COO in session -- had this lane install all four as column
-DEFAULTS in ``migrations/009_character_birth_defaults.sql``.  So the third
-accepted state is not a loosening of the guard, it is the guard following the
-decision that created it: a birth on a database at 009 is exactly those four
-values, and anything else is still refused.
+WHAT CHANGED ON 2026-09-08 AT 12:18, AND WHY THE LIST OF STATES IS GONE.
+This module used to name THREE accepted birth states as literal dicts and
+FOUR birth columns, citing `COO-DECISION 20260902_1607` -- the owner naming
+four columns in session.  She reopened that herself on 2026-09-08
+(`PANYA-DECISION 20260908_1218` point 3, her words: "do not hold to what I
+once said, that a newly born character's defaults are only four columns;
+there are more than that as the discoveries keep coming.  Make it correct
+logic"), because the literal list had become a veto: `migrations/016` was cut
+down from a rebuild to a backfill precisely because a fifth and sixth birth
+column turned 39 tests red at this module's fixture, and a character born
+after it still could not be paid by a quest.
+
+SO THE BIRTH STATE IS NOW MEASURED, NOT LISTED.  What a newborn may hold is
+computed from the database in front of the test: every typed column that
+carries a DEFAULT in `PRAGMA table_info('characters')`, overlaid with the
+columns `store.create_character` writes by name.  A migration that adds a
+seventh birth column is then not an event in this file at all, and no other
+lane's fixture goes red for it -- which is the half the owner ordered.
+
+WHAT DID NOT LOOSEN, WHICH IS THE HALF THAT MATTERS.  Deriving the
+expectation from the schema would be a rubber stamp if that were all it did,
+so it is not all it does.  Two separate questions are asked:
+
+1. DOES THE ROW MATCH THE SCHEMA?  The newborn's typed state must equal the
+   computed state EXACTLY -- not a superset, not a subset, and column for
+   column by value.  An insertion point that writes `level = 0`, or that
+   writes a number the schema does not declare, or that seeds character one
+   correctly and character two wrongly, is red here exactly as before.  This
+   is not circular: it compares a ROW against a SCHEMA, and they are written
+   by different files.
+
+2. DOES THE SCHEMA MATCH THE MODULE THAT OWNS THE NUMBER?  For every column
+   some module in `src/` owns an adjudicated value for -- the three vitals
+   from `persistence_vitals.new_character_vitals()`, `speed_walk` from
+   `persistence_attr_compose.CLIENT_CONSTRUCTION_DEFAULTS[7]`, the client's
+   own construction default at `0x00464AF2` -- the schema's DEFAULT must
+   equal it.  A migration that quietly changes `level`'s default to 0 is red
+   here, and this check is NOT derived from the schema, so it cannot be
+   satisfied by agreeing with the thing it grades.
+   For a column no module owns a number for (`experience` and `skill_points`
+   after `migrations/017`, and whatever the next discovery adds) question 2
+   has nothing to say and says nothing.  That is the deliberate gap the owner
+   ordered: a new birth column needs no permission from this file.
 
 WHAT IT DOES NOT CLAIM.  It does not check that other TABLES (positions,
 backpacks) or non-vital columns of other rows survived the creation of this
@@ -79,26 +111,130 @@ from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 #: rather than written here as a string, because the column NAME still encodes
 #: an unproven identification ("speed_walk", [assumption of LANE-DB - awaiting
 #: RE], see the naming note in `migrations/006`) while the field it is bound to
-#: does not.  A rename of the column therefore moves this constant with it; a
-#: column that stops existing is an error here rather than a silently absent
-#: key in an expectation.
+#: does not.
 SPEED_COLUMN = _typed.COLUMN_FOR_X[7]
 
-#: The state a character was born into before `migrations/009_character_birth
-#: _defaults.sql`: no typed column holds anything.  Still reachable, and still
-#: accepted, because a database BELOW 009 really is in it -- the boot tests
-#: build databases that stop at 006, 007 and 008 on purpose, and
-#: :func:`clear_vitals_to_pre_seed` constructs it deliberately so the
-#: fail-closed doors stay measured instead of unreachable.
+#: The state a character was born into before any migration gave a column a
+#: DEFAULT: no typed column holds anything.  Still reachable and still
+#: meaningful -- the boot tests build databases that stop at 006, 007 and 008
+#: on purpose, and :func:`clear_vitals_to_pre_seed` constructs it deliberately
+#: so the fail-closed doors stay measured instead of unreachable.
 UNSEEDED_BIRTH: dict[str, int | float] = {}
 
-#: The four columns `migrations/009_character_birth_defaults.sql` gives a
-#: DEFAULT, in the order the migration lists them.
-BIRTH_COLUMNS: tuple[str, ...] = tuple(vitals.VITAL_COLUMNS) + (SPEED_COLUMN,)
+MIGRATIONS = ROOT / "migrations"
+
+
+def _adjudicated_birth_values() -> dict[str, int | float]:
+    """The birth columns some module in ``src/`` owns the NUMBER for.
+
+    This is the half of the pin that is not derived from the schema, so it
+    cannot be satisfied by agreeing with the thing it grades.  It is also
+    deliberately incomplete: a column no module owns a number for is absent
+    here, and absence means "this file has nothing to say about the value",
+    not "the value is wrong".  ``experience`` and ``skill_points`` are absent
+    on purpose -- `migrations/017` gives them a DEFAULT of 0 on
+    `PANYA-DECISION 20260908_1218`, and no module publishes those numbers.
+    """
+    from pirateforce_foundation import persistence_attr_compose as compose
+
+    values: dict[str, int | float] = dict(vitals.new_character_vitals())
+    values[SPEED_COLUMN] = float(compose.CLIENT_CONSTRUCTION_DEFAULTS[7].value)
+    return values
+
+
+def _coerce(column: str, literal: str) -> int | float:
+    """A `PRAGMA table_info` default literal, in the column's own Python type.
+
+    The type comes from `persistence_typed_attrs`, which owns what each
+    column is, rather than from guessing at the shape of the text.
+    """
+    spec = _typed.TYPED_COLUMNS[column]
+    text = literal.strip()
+    if text[:1] == "'" and text[-1:] == "'":
+        text = text[1:-1]
+    if getattr(spec, "sql_type", "").upper() == "REAL" or "." in text or "e" in text.lower():
+        return float(text)
+    return int(text)
+
+
+def _defaults_from_columns(columns) -> dict[str, int | float]:
+    """``{column: value}`` for every TYPED column carrying a DEFAULT.
+
+    ``columns`` is a sequence of ``(name, dflt_value)`` pairs, whatever their
+    source: a live `PRAGMA table_info`, or the declaration parsed out of the
+    migration that last rebuilt the table.  Non-typed columns (`identity_hi`,
+    `name_key`, `create_fingerprint`) carry defaults too and are not birth
+    state -- they never appear in `read_typed_attributes`, so a fixture that
+    expected them would be red against every store.
+    """
+    return {
+        name: _coerce(name, default)
+        for name, default in columns
+        if default is not None and name in _typed.TYPED_COLUMNS
+    }
+
+
+def _declared_defaults_from_migrations() -> dict[str, int | float]:
+    """The birth defaults the migration DIRECTORY declares, for the callers
+    that have no store to ask.
+
+    Parsed from the newest migration that rebuilds `characters`, because that
+    is the file that owns the table's declaration; SQLite has no other way to
+    attach a DEFAULT to an existing column, so a rebuild is where every one of
+    them is written.  A file that adds a birth column therefore moves this
+    function by itself, which is the point -- nothing here is a list.
+    """
+    import re
+
+    rebuilds = sorted(
+        path
+        for path in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")
+        if "CREATE TABLE characters_rebuild" in path.read_text(encoding="utf-8")
+    )
+    if not rebuilds:
+        raise AssertionError(
+            "no migration in %s rebuilds `characters`, so the declared birth "
+            "defaults cannot be read; this module's derivation is broken, not "
+            "the caller's test" % MIGRATIONS
+        )
+    text = rebuilds[-1].read_text(encoding="utf-8")
+    body = text.split("CREATE TABLE characters_rebuild", 1)[1]
+    body = body.split("\n);", 1)[0]
+    pairs = []
+    for name in _typed.TYPED_COLUMNS:
+        found = re.search(
+            r"^\s*%s\s+\w+\s+DEFAULT\s+([^\s,]+)" % re.escape(name),
+            body,
+            re.MULTILINE,
+        )
+        pairs.append((name, found.group(1) if found else None))
+    return _defaults_from_columns(pairs)
+
+
+def _schema_defaults(store) -> dict[str, int | float]:
+    """The birth defaults the database IN FRONT OF THE TEST declares.
+
+    Falls back to the migration directory only when the store cannot be asked
+    (a fake, or a store built over a table that does not exist yet), because a
+    test running against a database stopped at 006 must be graded on THAT
+    database and not on what `migrations/` holds today.
+    """
+    try:
+        with store.connect() as db:
+            rows = [
+                (row[1], row[4])
+                for row in db.execute("PRAGMA table_info('characters')")
+            ]
+    except Exception:
+        return _declared_defaults_from_migrations()
+    if not rows:
+        return _declared_defaults_from_migrations()
+    return _defaults_from_columns(rows)
 
 
 def seeded_birth() -> dict[str, int]:
-    """The state a character is born into once the insertion point lands.
+    """The columns ``store.create_character`` writes by name, with the numbers
+    the module it reads them from returns.
 
     Derived from ``new_character_vitals()`` on every call rather than written
     out again here, so this file cannot drift away from the module that owns
@@ -108,75 +244,135 @@ def seeded_birth() -> dict[str, int]:
 
 
 def default_birth() -> dict[str, int | float]:
-    """The state a character is born into on a database that has applied
-    ``migrations/009_character_birth_defaults.sql``.
+    """The state a character is born into on a database at the newest
+    migration this repository ships.
 
-    THE FOURTH COLUMN IS NOT A DRIFT.  Until `009` this module refused a birth
-    carrying ``speed_walk``, on `COO-DECISION 20260901_1447` point 2 -- which
-    forbade seeding that column while 400.0 and the 150.0 proven on the wire
-    for NPCs were two candidates.  `RE-194` closed that question,
-    `COO-DECISION 20260902_0742` lifted the ban and approved
-    ``008_character_speed_walk_seed.sql``, and `COO-DECISION 20260902_1607`
-    -- the owner overruling two refusals of her own COO in session on
-    2026-09-02 -- put the same number on the column as a DEFAULT so that
-    characters born after `008` get it too.  So the refusal below did not
-    weaken: it moved with the decision that created it, and a birth carrying
-    a FIFTH column, or any of these four with a different number, is still a
-    defect this module raises on.
-
-    Both halves are derived rather than retyped: the three vitals from
-    ``persistence_vitals.new_character_vitals()`` and the speed from
-    ``persistence_attr_compose.CLIENT_CONSTRUCTION_DEFAULTS[7]``, the
-    client's own construction default at ``0x00464AF2``.  A migration whose
-    DEFAULT drifts from either module is red at every fixture that imports
-    this file, which is the whole reason this state is spelled here once.
+    Derived twice over: the columns and their numbers come from the migration
+    that declares them, and the columns `create_character` writes come from
+    `persistence_vitals`.  Nothing is retyped here, so a migration that adds a
+    birth column moves this function without anyone editing it -- which is
+    what `PANYA-DECISION 20260908_1218` point 3 ordered.
     """
-    from pirateforce_foundation import persistence_attr_compose as compose
-
-    state: dict[str, int | float] = dict(seeded_birth())
-    state[SPEED_COLUMN] = float(compose.CLIENT_CONSTRUCTION_DEFAULTS[7].value)
+    state = _declared_defaults_from_migrations()
+    state.update(seeded_birth())
     return state
 
 
-def accepted_birth_states() -> tuple[dict, ...]:
-    """The only states this lane accepts from ``create_character``.
+def expected_birth_state(store) -> dict[str, int | float]:
+    """What a character created against ``store`` must hold, and nothing else.
 
-    Three, in the order a database reaches them: no seeding at all (below
-    `009`, and what `clear_vitals_to_pre_seed` builds), the three vitals
-    `COO-DECISION 20260902_0444` has chief write at the insertion point, and
-    the four `009` installs as column defaults.  A database that has applied
-    `009` AND carries chief's plug lands on the third of them as well -- the
-    plug writes the same three numbers the defaults would have supplied, which
-    is measured, not assumed (LANE-DB letter `20260902_1452`).
+    The schema's own DEFAULTs, overlaid with the columns
+    `store.create_character` writes by name.  The overlay order is the one
+    SQLite itself uses: a named column in the INSERT beats the DEFAULT, so a
+    plug that writes a number DISAGREEING with the schema is visible as the
+    row disagreeing with this expectation.
+    """
+    state = _schema_defaults(store)
+    if state or _writes_vitals_at_birth():
+        state.update(seeded_birth())
+    return state
+
+
+def _writes_vitals_at_birth() -> bool:
+    """Whether `store.create_character` still names the vitals in its INSERT.
+
+    Read from the shipped source rather than assumed, so the day the
+    insertion point is withdrawn this module follows it instead of demanding
+    a state nothing produces.
+    """
+    import inspect
+
+    from pirateforce_foundation import store as store_module
+
+    source = inspect.getsource(store_module.SQLiteStore.create_character)
+    insert = [line for line in source.splitlines() if "INSERT INTO characters(" in line]
+    if not insert:
+        return False
+    named = insert[0].split("INSERT INTO characters(", 1)[1].split(")", 1)[0]
+    return all(column in named.split(",") for column in vitals.VITAL_COLUMNS)
+
+
+def accepted_birth_states() -> tuple[dict, ...]:
+    """Kept for callers that still ask for the list.
+
+    It is no longer the authority -- :func:`measure_birth_typed_state` grades
+    against the database in front of it -- but the two states a test can still
+    legitimately name are here: nothing seeded at all (a database below the
+    first rebuild, and what `clear_vitals_to_pre_seed` builds) and the state
+    the newest migration declares.
     """
     return dict(UNSEEDED_BIRTH), seeded_birth(), default_birth()
 
 
+#: The typed columns the newest migration gives a DEFAULT, plus the ones
+#: `create_character` writes.  Derived, so it grows by itself.
+def birth_columns() -> tuple[str, ...]:
+    return tuple(default_birth())
+
+
+#: Backwards-compatible name.  A tuple built once at import, from the same
+#: derivation, for the callers that read it as a constant.
+BIRTH_COLUMNS: tuple[str, ...] = tuple(default_birth())
+
+
+def _check_schema_against_the_modules(state: dict) -> None:
+    """Question 2: the schema's numbers against the modules that own them.
+
+    Only for columns some module owns a value for.  A column nobody owns a
+    number for is skipped in silence -- that is the gap
+    `PANYA-DECISION 20260908_1218` point 3 opened on purpose.
+    """
+    adjudicated = _adjudicated_birth_values()
+    wrong = {
+        column: (state[column], adjudicated[column])
+        for column in state
+        if column in adjudicated and state[column] != adjudicated[column]
+    }
+    if wrong:
+        raise AssertionError(
+            "the birth value of a column whose number is owned by a module in "
+            "src/ disagrees with that module: %r (column: (found, owed)).  "
+            "`level`, `hp_current` and `hp_max` are owned by "
+            "`persistence_vitals.new_character_vitals()` and `%s` by "
+            "`persistence_attr_compose.CLIENT_CONSTRUCTION_DEFAULTS[7]`.  A "
+            "migration or an insertion point moved one of them; this is not a "
+            "defect in the test that refused it."
+            % (wrong, SPEED_COLUMN)
+        )
+
+
 def measure_birth_typed_state(store, character_id: int) -> dict[str, int | float]:
-    """The typed state a just-created character holds, refusing any third one.
+    """The typed state a just-created character holds, refusing any other.
 
     Call it on a character nothing has written to yet.  The return value is
-    what every expectation in that test should be phrased against; the
-    refusal is what keeps that phrasing from being a rubber stamp.
+    what every expectation in that test should be phrased against; the two
+    refusals are what keep that phrasing from being a rubber stamp -- see this
+    module's docstring for which question each one asks.
     """
     state = dict(store.read_typed_attributes(character_id))
-    accepted = accepted_birth_states()
-    if state in accepted:
+    expected = expected_birth_state(store)
+    _check_schema_against_the_modules(expected)
+    if state == expected:
         return state
-    unseeded, seeded, defaulted = accepted
+    missing = {c: v for c, v in expected.items() if c not in state}
+    extra = {c: v for c, v in state.items() if c not in expected}
+    differing = {
+        c: (state[c], expected[c])
+        for c in state
+        if c in expected and state[c] != expected[c]
+    }
     raise AssertionError(
-        "a newly created character holds a typed state this lane does not "
-        "accept: %r.  The three accepted states are %r (no seeding -- a "
-        "database below migrations/009, or one built by "
-        "clear_vitals_to_pre_seed), %r (create_character calling "
-        "persistence_vitals.new_character_vitals(), COO-DECISION "
-        "20260902_0444) and %r (the column defaults of "
-        "migrations/009_character_birth_defaults.sql, COO-DECISION "
-        "20260902_1607).  Anything else -- a fifth column, a level of zero, "
-        "one of these four with a different number -- is a defect in the "
-        "insertion point or in the migration, not in the test that just "
-        "refused it."
-        % (state, unseeded, seeded, defaulted)
+        "a newly created character does not hold the birth state this "
+        "database declares.  Held: %r.  Declared by the schema and by "
+        "`create_character`: %r.  Columns the row is missing: %r.  Columns "
+        "the row holds that nothing declares: %r.  Columns holding a "
+        "different value (found, declared): %r.  The birth state is MEASURED "
+        "from `PRAGMA table_info('characters')` and from the INSERT in "
+        "`store.create_character` (PANYA-DECISION 20260908_1218 point 3), so "
+        "a mismatch here is a defect in the insertion point or in the "
+        "migration, not in the test that refused it -- adding a birth column "
+        "to a migration is NOT a change this file has to be told about."
+        % (state, expected, missing, extra, differing)
     )
 
 
@@ -235,6 +431,21 @@ def clear_birth_defaults_to_pre_009(db_path, character_ids=None) -> int:
     20260901_1112` point 2).
     """
     return _clear_columns(db_path, list(BIRTH_COLUMNS), character_ids)
+
+
+def clear_columns_to_null(db_path, columns, character_ids=None) -> int:
+    """Put named columns back to NULL on a temporary test database.
+
+    The state a fail-closed door refuses ("nobody ever measured this column")
+    stopped being reachable by accident the day a migration gave the column a
+    birth DEFAULT, and a door whose refusal is unreachable is a door that can
+    be deleted with the suite still green.  So the state is CONSTRUCTED, and
+    the test says so -- the same rule, and the same raw-SQL-on-a-temporary-
+    file-only limit, as its two neighbours: the owner's canonical database is
+    reachable exactly one way, through a migration file (`COO-DECISION
+    20260901_1112` point 2).
+    """
+    return _clear_columns(db_path, list(columns), character_ids)
 
 
 def clear_vitals_to_pre_seed(db_path, character_ids=None) -> int:

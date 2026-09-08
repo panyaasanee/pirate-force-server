@@ -247,19 +247,21 @@ class TheListMatchesTheSchemaAtHeadTests(unittest.TestCase):
             finally:
                 db.close()
         # A DEFAULT is one way a column gets adjudicated and an `UPDATE` in a
-        # migration is the other, which the sibling assertion above already
-        # says.  `016` uses the second and deliberately not the first -- the
-        # DEFAULT half is a birth rule that `tests/pf_birth_state.py` holds
-        # for its owner to move -- so the audited set is the defaulted
-        # columns UNION the assigned ones, not the defaulted ones alone.
-        self.assertEqual(
-            defaulted | self._columns_a_migration_assigns(),
-            set(audit_module.NULL_AUDIT_COLUMNS))
+        # migration is the other.  `016` used the second and deliberately not
+        # the first, so this used to be defaulted UNION assigned, with a
+        # tripwire saying that if the assigned half ever became a subset of
+        # the defaulted half the union should go back to being an equality.
+        # `migrations/017` is the day that happened: it gives `experience`
+        # and `skill_points` the DEFAULT `016` was not allowed to attach
+        # (`PANYA-DECISION 20260908_1218` point 3), so every column a
+        # migration assigns now also carries a default, and the tripwire
+        # fired exactly as it was built to.  Equality it is.
+        self.assertEqual(defaulted, set(audit_module.NULL_AUDIT_COLUMNS))
         self.assertTrue(
-            set(audit_module.NULL_AUDIT_COLUMNS) - defaulted,
-            "no audited column comes from an UPDATE any more; if that is "
-            "really true this assertion is measuring nothing and the union "
-            "above should go back to being an equality")
+            self._columns_a_migration_assigns() <= defaulted,
+            "a column a migration assigns carries no DEFAULT, so the audited "
+            "set is wider than the defaulted one and this assertion must go "
+            "back to being a union")
 
 
 class _UpgradeWorkspace(unittest.TestCase):
