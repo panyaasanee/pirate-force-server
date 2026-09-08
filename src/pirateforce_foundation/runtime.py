@@ -600,6 +600,18 @@ class _M2ArrivalExpectation:
     #: id this seam could not read as an int (a diagnostic label may not cost
     #: the confirmation itself).
     marker_id: int
+    #: WHERE THE CLIENT WAS STANDING WHEN THE FRAME WENT OUT, as a target in
+    #: the DESTINATION's scene number so the same arithmetic compares it.
+    #: pf-adversary D2, MEASURED: `marker_destination(N)` is bit-identical to
+    #: scene N's registry spawn for 11 of the 12 markers this seam can
+    #: relabel for, the relabel deliberately leaves x/y/z on the departure
+    #: row, and `Position` carries `heading` -- so a report that changed only
+    #: the heading reached the check with the departure row's coordinates and
+    #: confirmed at `dist=0.000` without the client ever processing the
+    #: transport frame.  A confirmation therefore has to be evidence that the
+    #: client MOVED as well as evidence of where it is: a report still on
+    #: this point is refused, whatever it says about the destination.
+    origin: WarpTarget | None
 
 
 def _teleport_check_say(build, *args) -> None:
@@ -7574,7 +7586,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 except Exception:  # noqa: BLE001 - events itself is gone
                     pass
 
-        def _m2_arrival_arm(self, pending, relocation) -> None:
+        def _m2_arrival_arm(self, pending, relocation, position) -> None:
+            """Wrapper: this method's own escape cost a CRITICAL once (D1)."""
+            try:
+                self._m2_arrival_arm_inner(pending, relocation, position)
+            except Exception:  # noqa: BLE001 - see `_m2_arrival_arm_inner`.
+                # The caller's blanket `except` would otherwise swallow the
+                # REST of `_m2_transport_resync_inner` -- which, now that the
+                # arm runs last, is the operator's `applied=1` console line.
+                # A failed arm may cost the answer it could not park and
+                # nothing else.
+                try:
+                    self._m2_arrival_expected = None
+                    self.events.append("lane_a_m2_arrival_not_armed_raised")
+                except Exception:  # noqa: BLE001 - events itself is gone
+                    pass
+
+        def _m2_arrival_arm_inner(self, pending, relocation, position) -> None:
             """Park the destination this journey's transport frame carries.
 
             Called ONLY on the branch that actually relabelled the row, so
@@ -7617,8 +7645,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.events.append(
                     "lane_a_m2_arrival_not_armed_destination_not_finite")
                 return
+            try:
+                # The departure point, wearing the destination's scene number
+                # so `position_matches_target` can compare it against the
+                # same reports.  None when the row's coordinates cannot be
+                # read as finite numbers -- the arrival check then refuses
+                # rather than confirming without the displacement half.
+                origin = WarpTarget(
+                    scene_id=int(relocation.scene_id),
+                    x=float(getattr(position, "x")),
+                    y=float(getattr(position, "y")),
+                    z=float(getattr(position, "z")),
+                )
+                if not all(math.isfinite(v)
+                           for v in (origin.x, origin.y, origin.z)):
+                    origin = None
+            except (OverflowError, TypeError, ValueError):
+                origin = None
+            if origin is None:
+                self.events.append("lane_a_m2_arrival_armed_without_origin")
             self._m2_arrival_expected = _M2ArrivalExpectation(
-                target, current_character_id(self), marker_id,
+                target, current_character_id(self), marker_id, origin,
             )
             self._m2_arrival_said = False
             self.events.append(
@@ -7690,6 +7737,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self._m2_arrival_expected = None
                 self.events.append("lane_a_m2_arrival_dropped_label_not_a_guess")
                 return "none"
+            if getattr(self, "gm_warp_confirm_window_open", False):
+                # THE GM CONFIRM BRANCH OWNS THIS FRAME (pf-adversary D3,
+                # MEASURED): a journey that never arrived stays parked, and
+                # because the marker point IS the destination's spawn, the
+                # next GM `/warp` to that scene landed the client on it and
+                # this seam took the credit -- printing `confirmed=1` for a
+                # journey that delivered nothing, and, because
+                # `_note_client_confirmed_scene` returns early on an
+                # unchanged value, DELETING the GM path's own
+                # `client_confirmed_scene_<n>_warp_confirmed` event one
+                # statement later.  Yield instead: the window is opened and
+                # closed inside one dispatch by the frame the GM warp is
+                # about, so this costs nothing but the frame that was never
+                # this seam's to claim.  Not consumed -- a journey does not
+                # expire because a GM warped in the middle of it.
+                self.events.append("lane_a_m2_arrival_yielded_to_gm_confirm")
+                return "none"
             character_id = current_character_id(self)
             if (
                 character_id is UNREADABLE_CHARACTER_ID
@@ -7703,6 +7767,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.events.append("lane_a_m2_arrival_refused_character_mismatch")
                 return "unknown"
             target = expectation.target
+            origin = expectation.origin
+            if origin is None or position_matches_target(origin, candidate):
+                # NO DISPLACEMENT, NO ARRIVAL (pf-adversary D2).  Either the
+                # report is still on the point the client was standing on
+                # when the frame went out -- so nothing about it is evidence
+                # that a transport moved anybody -- or the departure row
+                # could not be read at all, in which case the displacement
+                # half of the question has no answer and a confirmation
+                # would rest on the coordinate half alone.  Kept parked: the
+                # client may still move.  A journey whose departure point IS
+                # its destination point can therefore never confirm, which
+                # is the honest answer -- the two are indistinguishable from
+                # here.
+                self.events.append("lane_a_m2_arrival_refused_no_displacement")
+                return "unknown"
             matches = position_matches_target(target, candidate)
             distance = distance_to_target(target, candidate)
             if matches:
@@ -7842,9 +7921,6 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # Set AFTER the relabel, never before: every early return above
             # means no relabel happened and the label is still the client's.
             self.scene_label_is_server_guess = True
-            # ... and armed in the same breath, so no window exists in which
-            # the guess is set and nothing can ever answer it (D3).
-            self._m2_arrival_arm(pending, relocation)
             # KA1A-ROOTCAUSE (20260901_1035), the same block
             # `_gm_warp_resync_selected_scene` carries and the half R399
             # shipped without.  See the docstring for what each field costs.
@@ -7868,6 +7944,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(
                 f"lane_a_m2_transport_census_latch_cleared_{scene_id}"
             )
+            # ARMED HERE, AFTER THE CENSUS BLOCK, AND THAT ORDER IS THE FIX
+            # FOR A CRITICAL THIS ROUND WROTE ITSELF (pf-adversary D1,
+            # MEASURED with a control).  The first draft armed between the
+            # flag and the block above because "the guess and its answer
+            # belong in one breath".  But `_m2_arrival_arm` guards only
+            # OverflowError/TypeError/ValueError, so a `marker_id` that
+            # raises anything else -- a property, a `__int__` -- escaped into
+            # `_m2_transport_resync_selected_scene`'s blanket `except` and
+            # aborted THE REST OF THIS METHOD: measured
+            # `world_census_sent=True` with the row already relabelled, i.e.
+            # verbatim the R399 CRITICAL this block exists to prevent (the
+            # destination's census never fires and every field-mob
+            # ActionVital there is refused), plus the operator's
+            # `applied=1` line lost.  Arming last costs nothing: the guess
+            # is answered by a LATER frame, so no window is opened by
+            # ordering the two statements this way round, and a failed arm
+            # now costs only the answer it could not park.
+            self._m2_arrival_arm(pending, relocation, position)
             # THE OPERATOR READS THE CONSOLE, NOT `session.events`
             # (COO-DECISION 20260904_1646 item 2, which `warp_scene_persist`
             # already paid once and this seam re-broke -- pf-adversary R401

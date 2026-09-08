@@ -1538,7 +1538,8 @@ class M2ArrivalAnswersTheGuessTests(_JourneyFixture):
             confirm_id=tc.CONFIRM_ID_DOCKING,
         )
         relocation = tc.transport_relocation(bent)
-        state._m2_arrival_arm(bent, relocation)
+        state._m2_arrival_arm(bent, relocation,
+                              state.foundation.selected.position)
         self.assertIsNone(state._m2_arrival_expected)
         self.assertIn("lane_a_m2_arrival_not_armed_destination_unreadable",
                       state.events)
@@ -1551,7 +1552,8 @@ class M2ArrivalAnswersTheGuessTests(_JourneyFixture):
             window_expected=True,
             confirm_id=tc.CONFIRM_ID_DOCKING,
         )
-        state._m2_arrival_arm(bent, tc.transport_relocation(bent))
+        state._m2_arrival_arm(bent, tc.transport_relocation(bent),
+                              state.foundation.selected.position)
         self.assertIsNone(state._m2_arrival_expected)
         self.assertIn("lane_a_m2_arrival_not_armed_destination_not_finite",
                       state.events)
@@ -1601,3 +1603,138 @@ class M2ArrivalAnswersTheGuessTests(_JourneyFixture):
         self.assertIn("marker=%d" % self.ORDINARY_MARKER, line)
         self.assertTrue(line.startswith(tc.TOKEN),
                         "one prefix for the whole journey: %r" % line)
+
+
+class ArrivalFindingsPaidTests(_JourneyFixture):
+    """The three pf-adversary findings this round's own first draft earned.
+
+    D1 and D3 are defects the draft introduced; D2 is the laundering path the
+    draft's disclosed tautology turned from annotated into load-bearing.  Each
+    case below is the adversary's own measured sequence, kept as a test so the
+    fix cannot be undone by a later edit that looks harmless.
+    """
+
+    ORDINARY_MARKER = 2
+
+    class _MarkerIdThatRaises:
+        """A `marker_id` that raises something `_m2_arrival_arm` does not guard.
+
+        `int()` on it raises RuntimeError, which is outside the
+        OverflowError/TypeError/ValueError the arm catches - the exact input
+        the adversary drove through the public recorder door.
+        """
+
+        def __int__(self):
+            raise RuntimeError("marker id")
+
+        def __eq__(self, other):
+            return other == 2
+
+        def __hash__(self):
+            return hash(2)
+
+    def test_an_arm_that_raises_costs_the_answer_and_not_the_census(self):
+        """D1: the census unlatch must not depend on the arm surviving."""
+        state = self._login_and_start("m2armraises")
+        destination = tc.marker_destination(self.ORDINARY_MARKER)
+        pending = tc.PendingCheck(
+            marker_id=self._MarkerIdThatRaises(),
+            destination=destination,
+            window_expected=True,
+            confirm_id=tc.CONFIRM_ID_DOCKING,
+        )
+        state.world_census_sent = True
+        with contextlib.redirect_stdout(io.StringIO()):
+            state._m2_transport_resync_selected_scene(pending)
+        self.assertEqual(state.foundation.selected.position.scene_id,
+                         destination.scene_id, "the relabel still happened")
+        self.assertFalse(
+            state.world_census_sent,
+            "the KA1A-ROOTCAUSE block must run whatever the arm did: a scene "
+            "relabelled with the census still latched dispatches a teleport "
+            "frame and nothing else for the rest of the session (R399)",
+        )
+        self.assertIn(
+            "lane_a_m2_transport_census_latch_cleared_%d" % destination.scene_id,
+            state.events)
+        self.assertNotIn(
+            "lane_a_m2_transport_resync_refused_raised", state.events,
+            "an arm that raises may not escape into the caller's blanket "
+            "except at all: the console line the operator reads is built "
+            "after it",
+        )
+        self.assertIn("lane_a_m2_arrival_not_armed_raised", state.events)
+        self.assertIsNone(state._m2_arrival_expected)
+
+    def test_turning_on_the_spot_is_not_an_arrival(self):
+        """D2: the confirmation needs displacement, not only coordinates.
+
+        The adversary's own sequence, and it needs no hostile input at all:
+        `marker_destination(N)` is bit-identical to scene N's registry spawn,
+        the relabel deliberately leaves x/y/z on the departure row, and
+        `Position` carries `heading` - so a client that reports the marker's
+        coordinates BEFORE echoing and then turns on the spot reached the
+        arrival check with `dist=0.000` and confirmed a transport it never
+        processed.
+        """
+        state = self._login_and_start("m2turnonspot")
+        destination = tc.marker_destination(self.ORDINARY_MARKER)
+        # The client is standing on the destination's coordinates already,
+        # in the DEPARTURE scene.
+        self._report(state, float(destination.x), float(destination.y),
+                     float(destination.z))
+        self._record(state, marker_id=self.ORDINARY_MARKER)
+        self._tick(state)
+        self._echo(state, marker_id=self.ORDINARY_MARKER)
+        self.assertTrue(state.scene_label_is_server_guess)
+        # ... and now it only turns: same point, different heading.
+        with contextlib.redirect_stderr(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()):
+                state.dispatch(self.legacy.parse_outer(self._target_pos_pc(
+                    float(destination.x), float(destination.y),
+                    float(destination.z), heading=1.5,
+                )))
+        self.assertTrue(
+            state.scene_label_is_server_guess,
+            "zero displacement is not evidence that a transport moved anyone",
+        )
+        self.assertEqual(
+            state.client_confirmed_scene, 1,
+            "the field still names the last scene the client really backed, "
+            "which is the departure scene it reported from before echoing",
+        )
+        self.assertIn("lane_a_m2_arrival_refused_no_displacement", state.events)
+
+    def test_the_gm_confirm_window_owns_its_own_frame(self):
+        """D3: a parked journey may not take the credit for a GM warp.
+
+        Measured by the adversary end to end: journey armed, client misses,
+        the expectation stays parked (by design), a GM `/warp` then lands the
+        client on the destination's spawn - which IS the marker point - and
+        this seam printed `confirmed=1` for a journey that delivered nothing,
+        then swallowed the GM path's own `warp_confirmed` event because
+        `_note_client_confirmed_scene` returns early on an unchanged value.
+        """
+        state, destination = self._journey("m2gmwindow",
+                                           marker_id=self.ORDINARY_MARKER), None
+        state = state[0]
+        destination = tc.marker_destination(self.ORDINARY_MARKER)
+        self.assertTrue(state.scene_label_is_server_guess)
+        parked = state._m2_arrival_expected
+        state.gm_warp_confirm_window_open = True
+        position = state.foundation.selected.position
+        candidate = Position(
+            position.scene_id, position.scene_seq,
+            float(destination.x), float(destination.y), float(destination.z),
+            0.0,
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            verdict = state._m2_note_arrival_if_confirmed(candidate)
+        self.assertEqual(verdict, "none")
+        self.assertTrue(state.scene_label_is_server_guess)
+        self.assertIsNone(state.client_confirmed_scene)
+        self.assertIn("lane_a_m2_arrival_yielded_to_gm_confirm", state.events)
+        self.assertIs(
+            state._m2_arrival_expected, parked,
+            "a journey does not expire because a GM warped in the middle of it",
+        )
