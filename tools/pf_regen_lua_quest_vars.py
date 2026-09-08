@@ -133,16 +133,13 @@ def corpus_file_for(corpus: Path, script: str):
     return hits[0] if len(hits) == 1 else None
 
 
-def arguments_of(line: bytes, api: bytes):
-    """The argument list of ``api(...)`` in ``line``, split at depth 0.
+def _arguments_at(line: bytes, api: bytes, start: int):
+    """The argument list of the ``api(...)`` that starts at ``start``.
 
-    Returns ``None`` when the call is not on this line or its parentheses
-    do not close on it.  Splitting at depth 0 means a nested call counts as
-    ONE argument, which is what an argument POSITION has to mean.
+    ``None`` when the parentheses do not close on this line.  Splitting at
+    depth 0 means a nested call counts as ONE argument, which is what an
+    argument POSITION has to mean.
     """
-    start = line.find(api + b"(")
-    if start < 0:
-        return None
     index = start + len(api) + 1
     depth = 1
     current = bytearray()
@@ -163,6 +160,43 @@ def arguments_of(line: bytes, api: bytes):
             current += byte
         index += 1
     return None
+
+
+def argument_lists_of(line: bytes, api: bytes):
+    """EVERY ``api(...)`` on ``line``, as a list of argument lists.
+
+    WHY THIS EXISTS, AND WHY :func:`arguments_of` IS NOW A WRAPPER ROUND
+    IT (pf-adversary D3, round ``yzdgx1``).  The one-call form used
+    ``line.find`` once, so a second call to the same API on the same line
+    WAS INVISIBLE -- and invisible in the direction that costs a player
+    money: two ``Player.AddCash(...)`` calls on one line would have had
+    the second charge read by nothing, the scan still green and
+    ``--check`` still clean.  MEASURED over all 616 corpus files today: no
+    line holds two calls to any API either scanner reads (``AddCash`` has
+    6 call sites, one per line), so this closes a hole rather than
+    changing a mirror -- which is the point at which to close it.
+
+    A call whose parentheses run off the end of the line is skipped rather
+    than ending the scan: the next call on the same line is still real.
+    """
+    found = []
+    start = line.find(api + b"(")
+    while start >= 0:
+        args = _arguments_at(line, api, start)
+        if args is not None:
+            found.append(args)
+        start = line.find(api + b"(", start + len(api) + 1)
+    return found
+
+
+def arguments_of(line: bytes, api: bytes):
+    """The argument list of the FIRST ``api(...)`` on ``line``, or ``None``.
+
+    Kept for the callers that genuinely want one call; anything that scans
+    for call SITES wants :func:`argument_lists_of` instead.
+    """
+    lists = argument_lists_of(line, api)
+    return lists[0] if lists else None
 
 
 #: A ``VarN`` whose value the SCRIPT itself negates before handing it over.
@@ -192,17 +226,18 @@ def call_site_for(path: Path, var_index: int):
         if first is None:
             first = (number, None, text)
         for api in sorted(KIND_BY_API):
-            args = arguments_of(line, api.encode("ascii"))
-            if args is None:
-                continue
-            for position, argument in enumerate(args):
-                if not bare.match(argument):
-                    continue
-                # ALWAYS position-qualified, valid position or not, so
-                # `kind_for_api` resolves the kind by POSITION and a bad
-                # position refuses by name instead of the scan moving on
-                # to another api and guessing.
-                return number, "%s@arg%d" % (api, position), text
+            for args in argument_lists_of(line, api.encode("ascii")):
+                # EVERY call on the line, not just the first (pf-adversary
+                # D3, round `yzdgx1`): the second call to the same API on
+                # one line used to be invisible to this scan.
+                for position, argument in enumerate(args):
+                    if not bare.match(argument):
+                        continue
+                    # ALWAYS position-qualified, valid position or not, so
+                    # `kind_for_api` resolves the kind by POSITION and a
+                    # bad position refuses by name instead of the scan
+                    # moving on to another api and guessing.
+                    return number, "%s@arg%d" % (api, position), text
     # No line passes the name to a classified API as a bare read.  Report
     # the FIRST read anyway, with no API, so the caller raises a failure
     # that names the line a person has to go and look at.

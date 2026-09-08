@@ -75,7 +75,8 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pf_regen_lua_quest_vars import (  # noqa: E402
-    BRIDGE, CORPUS_RELPATH, SOURCE_RELPATH, arguments_of, corpus_file_for,
+    BRIDGE, CORPUS_RELPATH, SOURCE_RELPATH, argument_lists_of,
+    corpus_file_for,
     read_rows,
 )
 from pirateforce_foundation.lua_api.quest_criteria import (  # noqa: E402
@@ -197,14 +198,63 @@ TAKE_KIND = KIND_MONEY
 #: the buyer paid and no ship arrived, the exact hole COO-DECISION
 #: ``20260908_0242`` item 4 closed for ``q_class`` and left open here
 #: because the minus sign was in the wrong place to be seen.
+#: ``Player.Addmoralized`` JOINED IT IN ROUND ``5a3x47`` (pf-adversary D3
+#: against round ``kkuqzo``, MEASURED on the corpus).  It is the SAME
+#: SHAPE as ``q_ship.lua:50`` -- the minus sign is in the SCRIPT, the cell
+#: is ordinary, so the signedness table sees nothing -- and it is not one
+#: call site but ELEVEN, in eleven scripts, ten of which the shipped quest
+#: table names on 72 rows:
+#:
+#:     q_day_business.lua:26   Accept_Run   -Quest.Var7    (4 rows)
+#:     q_day_hunt.lua:55       Report_Run   -Quest.Var4    (2 rows)
+#:     q_ocean_checkbuff.lua:24 Accept_Run  -Quest.Var5    (0 rows)
+#:     q_ocean_con.lua:24      Accept_Run   -Quest.Var4    (3 rows)
+#:     q_ocean_gather1.lua:24  Accept_Run   -Quest.Var6   (27 rows)
+#:     q_ocean_gather2.lua:24  Accept_Run   -Quest.Var8    (6 rows)
+#:     q_ocean_guard.lua:24    Accept_Run   -Quest.Var5    (4 rows)
+#:     q_ocean_kill1.lua:26    Accept_Run   -Quest.Var6   (16 rows)
+#:     q_ocean_kill2.lua:25    Accept_Run   -Quest.Var8    (3 rows)
+#:     q_ocean_kill3.lua:27    Accept_Run   -Quest.Var10   (6 rows)
+#:     q_repeat_hunt.lua:54    Report_Run   -Quest.Var4    (1 row)
+#:
+#: The other TEN call sites of the same name pass a BARE ``Quest.VarN``
+#: and are the refund in ``Delete_Run`` (``q_day_business.lua:105`` gives
+#: ``Quest.Var7`` back and removes the item again).  That asymmetry is
+#: exactly why the shape and not the name decides: the same API is the
+#: take on one line and the give on another.
 TAKE_BY_API = {
     "Player.AddCash": 0,
+    "Player.Addmoralized": 0,
 }
+
+#: A ``Quest.VarN`` read the take-side scan is allowed to walk past: the
+#: BARE read, which is either an ordinary give (the ``Delete_Run`` refund)
+#: or a cell-negative take the SIGNEDNESS table already carries with its
+#: own provenance.  Anything else that reads a cell at a take-side
+#: argument position is a HARD STOP -- see :class:`UnclassifiedTakeSite`.
+_BARE_VAR_READ = re.compile(rb"^\s*Quest\.Var(\d+)\s*$")
+
+#: Does this argument read a quest cell at all.  Used only to tell
+#: "nobody's cell, not our business" (a literal, another namespace's
+#: getter) from "reads a cell in a shape nobody has classified".
+_READS_A_VAR = re.compile(rb"Quest\.Var\d+")
 
 #: A ``Quest.VarN`` the SCRIPT negates at the call site, in the two
 #: spellings the corpus uses.  Anchored and whole-argument on purpose: a
 #: partial match would read ``Quest.Var2 * -1 + Quest.Var3`` (which does
 #: not exist today) as a plain take and be wrong about which cell.
+#:
+#: IT STAYS AT TWO (round ``5a3x47``).  pf-adversary D3 named four more
+#: spellings a take could wear -- ``-1 * Quest.VarN``, ``-(Quest.VarN)``,
+#: ``Quest.VarN * -2``, ``0 - Quest.VarN`` -- and GREPPED over all 616
+#: files, NONE of them appears; all 17 negated take arguments in the
+#: corpus are one of the two below.  Writing patterns for shapes nobody
+#: has written would be this lane guessing at the game's style, and the
+#: third of them is not even a negation (it doubles).  What D3 was
+#: actually about is that an unrecognised shape was passed over IN
+#: SILENCE, and that is closed by :class:`UnclassifiedTakeSite` instead:
+#: the day one of those spellings is shipped, the tool stops and names
+#: the line rather than quietly reporting no take.
 _SCRIPT_NEGATED_VAR = (
     re.compile(rb"^\s*-\s*Quest\.Var(\d+)\s*$"),
     re.compile(rb"^\s*Quest\.Var(\d+)\s*\*\s*-\s*1\s*$"),
@@ -222,6 +272,28 @@ class SourceMissing(Exception):
 
 class UnclassifiedGiveSite(Exception):
     """A give-side call whose shape nobody has classified."""
+
+
+class UnclassifiedTakeSite(Exception):
+    """A take-side call that reads a cell in a shape nobody classified.
+
+    THE POINT OF THIS CLASS IS THAT IT IS LOUD (pf-adversary D3, round
+    ``yzdgx1``).  The take scan used to walk past an argument it did not
+    recognise WITHOUT A WORD, so ``Player.AddCash(-1 * Quest.Var3)``,
+    ``Player.AddCash(-(Quest.Var3))``, ``Player.AddCash(Quest.Var3 * -2)``
+    and ``Player.AddCash(0 - Quest.Var3)`` would each have produced: no
+    take, therefore no group, therefore no refusal, therefore a green
+    test run, a clean ``--check``, and a player charged for something the
+    server never delivered.  Silence was the defect; the four spellings
+    were only how it would be reached.
+
+    So the contract here is the one :func:`kind_for_api` already carries
+    in the sibling tool: a cell read at a take-side argument position is
+    either the BARE read (the signedness table's business) or one of the
+    negations in :data:`_SCRIPT_NEGATED_VAR`, or A PERSON LOOKS.  Adding
+    the missing spelling is one line; being wrong in silence is not
+    recoverable.  MEASURED: no corpus call site trips this today.
+    """
 
 
 def read_reward_rows(path: Path):
@@ -257,34 +329,33 @@ def give_sites(path: Path):
     found = []
     for number, line in enumerate(lines, start=1):
         for api in GIVE_UNCONDITIONAL_APIS:
-            args = arguments_of(line, api.encode("ascii"))
-            if args is None or [a for a in args if a.strip()]:
-                continue
-            text = line.decode("ascii", "replace").rstrip("\r").strip()
-            found.append((enclosing_function(lines, number), 0, None, api,
-                          number, text))
+            for args in argument_lists_of(line, api.encode("ascii")):
+                if [a for a in args if a.strip()]:
+                    continue
+                text = line.decode("ascii", "replace").rstrip("\r").strip()
+                found.append((enclosing_function(lines, number), 0, None, api,
+                              number, text))
         for api in GIVE_ARGUMENT_APIS:
             # Matched on the CALL, not on the argument: unlike
             # `GIVE_BY_API` there is no column to read out of it, and
             # unlike `GIVE_UNCONDITIONAL_APIS` the call is not empty.
-            if arguments_of(line, api.encode("ascii")) is None:
-                continue
-            text = line.decode("ascii", "replace").rstrip("\r").strip()
-            found.append((enclosing_function(lines, number), 0, None, api,
-                          number, text))
+            for _args in argument_lists_of(line, api.encode("ascii")):
+                text = line.decode("ascii", "replace").rstrip("\r").strip()
+                found.append((enclosing_function(lines, number), 0, None, api,
+                              number, text))
         for api in sorted(GIVE_BY_API):
             position, prefix, source_prefix = GIVE_BY_API[api]
-            args = arguments_of(line, api.encode("ascii"))
-            if args is None or position >= len(args):
-                continue
-            argument = args[position]
-            for slot in range(1, REWARD_SLOTS + 1):
-                name = b"%s%d" % (prefix.encode("ascii"), slot)
-                if not re.match(_BARE_REWARD % name, argument):
+            for args in argument_lists_of(line, api.encode("ascii")):
+                if position >= len(args):
                     continue
-                text = line.decode("ascii", "replace").rstrip("\r").strip()
-                found.append((enclosing_function(lines, number), slot,
-                              source_prefix, api, number, text))
+                argument = args[position]
+                for slot in range(1, REWARD_SLOTS + 1):
+                    name = b"%s%d" % (prefix.encode("ascii"), slot)
+                    if not re.match(_BARE_REWARD % name, argument):
+                        continue
+                    text = line.decode("ascii", "replace").rstrip("\r").strip()
+                    found.append((enclosing_function(lines, number), slot,
+                                  source_prefix, api, number, text))
     return found
 
 
@@ -306,19 +377,38 @@ def take_sites(path: Path):
     for number, line in enumerate(lines, start=1):
         for api in sorted(TAKE_BY_API):
             position = TAKE_BY_API[api]
-            args = arguments_of(line, api.encode("ascii"))
-            if args is None or position >= len(args):
-                continue
-            for pattern in _SCRIPT_NEGATED_VAR:
-                match = pattern.match(args[position])
-                if match is None:
+            # EVERY call on the line (pf-adversary D3): a second
+            # `Player.AddCash(...)` after the first one used to be read by
+            # nothing at all.
+            for args in argument_lists_of(line, api.encode("ascii")):
+                if position >= len(args):
                     continue
-                index = int(match.group(1))
+                argument = args[position]
+                index = None
+                for pattern in _SCRIPT_NEGATED_VAR:
+                    match = pattern.match(argument)
+                    if match is not None:
+                        index = int(match.group(1))
+                        break
+                if index is None:
+                    if (_READS_A_VAR.search(argument)
+                            and not _BARE_VAR_READ.match(argument)):
+                        raise UnclassifiedTakeSite(
+                            "%s:%d passes `%s` to %s at argument %d: it "
+                            "reads a quest cell but is neither the bare "
+                            "read nor a classified negation, so this tool "
+                            "cannot say whether the player is charged.  "
+                            "Read the line and either add the shape to "
+                            "`_SCRIPT_NEGATED_VAR` or say why it is not a "
+                            "take."
+                            % (path.name, number,
+                               argument.decode("ascii", "replace").strip(),
+                               api, position))
+                    continue
                 if not 1 <= index <= VAR_COUNT:
                     continue
                 found.append((enclosing_function(lines, number), index, api,
                               number))
-                break
     return found
 
 
