@@ -1,1 +1,1 @@
-{"sha":"b0efd7925704caa2247c051740541eec1f0c9a4b","conclusion":"failure","event":"push","ref":"refs/heads/claude/upbeat-hypatia-sbqohw","run_id":"34228273165","utc":"2026-09-08T13:27:14Z"}
+{"sha":"b0efd7925704caa2247c051740541eec1f0c9a4b","conclusion":"failure","event":"pull_request","ref":"refs/pull/1168/merge","run_id":"34228381462","utc":"2026-09-08T13:33:45Z"}
