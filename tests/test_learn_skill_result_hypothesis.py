@@ -828,10 +828,43 @@ class ScenarioGateTests(unittest.TestCase):
         self.assertEqual(
             [], sorted(n for n in names if "scenario" in n.lower()),
         )
-        for name in ("app.py", "runtime.py", "connection.py", "scenario.py"):
+        # RE-AIMED IN ROUND `ixbs2f`, and this is the paragraph that says why
+        # rather than a deletion nobody would notice.  `runtime.py` was on
+        # this "must not mention it" list because the login seam did not
+        # exist yet; PANYA `20260908_1455` item 2.3 and COO-DECISION
+        # `20260908_1541` ordered it built, so runtime.py mentioning
+        # `skill_list_at_login` is now the ORDERED state and is asserted as
+        # such below.  What this test was actually protecting -- that the
+        # sweep lane and its scenario gate stay off every production path --
+        # is untouched and, if anything, harder now: the seam is a live
+        # caller, so the containment either holds through it or it does not
+        # hold at all.
+        for name in ("app.py", "connection.py", "scenario.py"):
             self.assertNotIn(
                 login_lane, (SRC_ROOT / name).read_text(encoding="utf-8"), name,
             )
+        runtime_source = (SRC_ROOT / "runtime.py").read_text(encoding="utf-8")
+        self.assertIn(login_lane, runtime_source)
+        # And the seam is a call to the login lane, not to this one.
+        # `runtime.py` DOES name the sweep module -- it has imported it
+        # behind the scenario gate since long before this seam existed, and
+        # asserting otherwise here would be a claim about the tree that the
+        # tree contradicts.  What is asserted instead is the thing the seam
+        # could have broken: exactly one call, and it goes to the login
+        # lane's entry point.
+        import ast as _ast
+
+        seam_calls = [
+            node for node in _ast.walk(_ast.parse(runtime_source))
+            if isinstance(node, _ast.Call)
+            and getattr(
+                node.func, "attr", getattr(node.func, "id", ""),
+            ) == "login_skill_list_response"
+        ]
+        self.assertEqual(1, len(seam_calls))
+        self.assertEqual(
+            login_lane, getattr(seam_calls[0].func.value, "id", ""),
+        )
         harness = "skill_learn_step_headless"
         for name in ("app.py", "runtime.py", "connection.py", "scenario.py"):
             self.assertNotIn(
