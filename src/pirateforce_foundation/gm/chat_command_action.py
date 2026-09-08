@@ -2151,6 +2151,17 @@ for _job_repairable in (
         f"{_JOB_BLOCKERS[_job_repairable]}; putting the previous class back"
         " FAILED -- treat the row as UNKNOWN"
     )
+    # THE THIRD VARIANT, added in round `nkb608` after pf-adversary D-C: the
+    # bare reason used to serve this case, and it is the one case with no
+    # sentence about durability at all -- a row that had no class before now
+    # carries the one that was asked for, and there is no door in this lane
+    # that writes a column back to NULL.  The tester's next action (type
+    # `/job` again with the class they want, or `sandbox` to see what the row
+    # holds) depends on being told that.
+    _JOB_BLOCKERS[f"{_job_repairable}{job_command.NO_PREVIOUS_SUFFIX}"] = (
+        f"{_JOB_BLOCKERS[_job_repairable]}; the row had NO class before, so"
+        " there was nothing to put back and it is still carrying the new one"
+    )
 del _job_repairable
 for _job_reason, _job_sentence in _JOB_BLOCKERS.items():
     _NO_BYTES_BLOCKERS_SOURCE[f"{OUTCOME_JOB_REFUSED_PREFIX}{_job_reason}"] = (
@@ -7125,12 +7136,26 @@ def _job_action(
             say_wire.JOB_REFUSED_NOTICE_TEXT,
             JOB_REFUSED_NOTICE_ACTION_LABEL,
             f"{OUTCOME_JOB_REFUSED_PREFIX}{result.refusal}",
-            # NO UNDO ON THIS BRANCH: the one refusal that CAN leave a value
-            # on disk repairs itself inside `job_command.write_class_id` and
-            # says in its own reason word whether the repair held.  An undo
-            # here would only ever run when the audit row failed to write
-            # (`_make_action`'s `if not audited`), which pf-adversary (round
-            # `l86bt4`, D6) measured is not the case this branch is about.
+            # ~~"NO UNDO ON THIS BRANCH ... an undo here would only ever run
+            # when the audit row failed to write, which round `l86bt4` D6
+            # measured is not the case this branch is about."~~ -- STRUCK
+            # (pf-adversary round `nkb608`, D-B).  Both halves were read
+            # right and the conclusion was wrong: the audit row failing IS
+            # the case `_make_action` reads the undo for, and it reads the
+            # ABSENCE of one as "the effect was dropped with the audit row".
+            # So a refusal that left the class on disk printed
+            # `GM_JOB REFUSED [..._row_still_carries_it]` and, one line
+            # later, `blocked_on=... anything it had in hand was dropped`.
+            #
+            # The undo is attached ONLY for the two refusals that really do
+            # leave a value behind, and it is `skill_all_command`'s always-
+            # `False` shape rather than a second restore attempt: the repair
+            # already ran inside `write_class_id` and running it again here
+            # would write on a path whose whole point is that this command
+            # will not stand behind the value.  A refusal that wrote nothing
+            # keeps NO undo, because for it "dropped with the audit row" is
+            # the true sentence.
+            _job_refusal_undo(result),
         )
     _note(session, EVENT_JOB_ROW_WRITTEN)
     return _job_notice(
@@ -7141,6 +7166,21 @@ def _job_action(
         OUTCOME_JOB_ROW_WRITTEN,
         job_command.undo(store, character_id, result.previous),
     )
+
+
+def _job_refusal_undo(result: object):
+    """An always-`False` undo for the `/job` refusals that left a row behind.
+
+    `None` -- meaning "there was nothing on disk to keep" -- for every other
+    refusal, so the console's two answers stay two answers.  See the struck
+    paragraph in `_job_action` for what reading them as one cost.
+    """
+    refusal = getattr(result, "refusal", None) or ""
+    if refusal.endswith(
+        (job_command.REPAIR_FAILED_SUFFIX, job_command.NO_PREVIOUS_SUFFIX)
+    ):
+        return lambda: False
+    return None
 
 
 def _skill_action(
@@ -7215,6 +7255,15 @@ def _skill_action(
             say_wire.SKILL_REFUSED_NOTICE_TEXT,
             SKILL_REFUSED_NOTICE_ACTION_LABEL,
             f"{OUTCOME_SKILL_REFUSED_PREFIX}{result.refusal}",
+            # THE SAME FIX AS `_job_action`'s (pf-adversary round `nkb608`,
+            # D-B), and this branch is the one that was measured lying: a
+            # character removed halfway through the 137 grants refuses with
+            # `granted=20` on the console and, one line later, told the
+            # operator everything in hand was dropped -- with 20 rows on
+            # disk and no deleter in this lane that could have taken them
+            # off.  An always-`False` undo reaches the console as "the
+            # effect was KEPT", which is what those 20 rows are.
+            (lambda: False) if result.granted else None,
         )
     _note(session, EVENT_SKILL_ROWS_WRITTEN)
     return _skill_notice(

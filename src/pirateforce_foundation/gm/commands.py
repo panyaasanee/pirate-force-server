@@ -158,7 +158,7 @@ COMMAND_USAGE = {
     # Necromancer, Sorcerer), NOT 1..5, so a human reading `job <class_id>`
     # would type `3` and read the refusal as a bug.  The values are spelled
     # here, once, and `gm/job_command.usage()` builds the same sentence from
-    # `class_catalog.CLASS_IDS` -- `tests/test_gm_job_command.py` fails if the
+    # `class_catalog.CLASS_IDS` -- `tests/test_gm_job_and_skill_all_commands.py` fails if the
     # two ever disagree, which is what keeps this literal honest.
     "job": "job <1|2|4|16|32>",
     # `skill` takes a WORD, not a flag, because the owner typed `/skill all`
