@@ -114,7 +114,8 @@ class LegacyProjector:
 
     def movement_attr(self, character, position=None):
         """Project the persisted position without changing the frozen zero-heading wire."""
-        p = refuse_unencodable_position(position or character.position, "movement_attr", character)
+        p = position or character.position
+        refuse_unencodable_position(p, "movement_attr", character)
         return (
             self.v.u8tag(0x0B, 1)
             + bytes([0x32])
@@ -133,7 +134,8 @@ class LegacyProjector:
         # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
         # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
         # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
-        p = refuse_unencodable_position(position or character.position, "start_game", character)
+        p = position or character.position
+        refuse_unencodable_position(p, "start_game", character)
         # CORE-REQUEST-022: every StartGame this seam composes carries
         # class+level now (player_wire.make_actor_attr_with_name_and_class /
         # _class_and_faction docstrings) -- both callers of this seam that
