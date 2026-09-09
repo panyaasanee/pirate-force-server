@@ -1100,9 +1100,6 @@ def _keep_the_published_mirror_health_clean():
         _vendored_for_isolation.MIRROR_HEALTH = vendored_original
         _script_host_for_isolation.MIRROR_HEALTH = host_original
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 #: A quest id whose `s_LUASCRIPT` cell names a script, picked from the
 #: vendored mirror at import time rather than typed in, so a re-vendor that
@@ -1215,3 +1212,7 @@ class DispatchStemIndexTests(unittest.TestCase):
         with self.assertRaises(dispatch.QuestDispatchError) as caught:
             dispatch.script_path_for_quest(self.root, _A_DISPATCHABLE_QUEST)
         self.assertIn(self.script.lower(), str(caught.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -561,10 +561,6 @@ class FullCorpusEntryPointCallsTests(unittest.TestCase):
         self.assertEqual(report.total_stub_calls, BASELINE_TOTAL_STUB_CALLS)
 
 
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
-
-
 @LUPA_PACKAGE.skip_unless_present()
 class HostSideCallFailureBucketingTests(unittest.TestCase):
     """pf-adversary D12 (round 8ou0zg): a defect of OURS that surfaces while
@@ -815,3 +811,7 @@ class BrokenApiSpecIsOursNotTheScriptsTests(unittest.TestCase):
         self.assertEqual(report.host_failed, ["innocent.lua"])
         self.assertEqual(report.failed, [])
         self.assertEqual(report.ok, 0)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()
