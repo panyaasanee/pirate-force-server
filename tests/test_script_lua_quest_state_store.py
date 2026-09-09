@@ -450,10 +450,6 @@ class SubstitutableAtTheSeamTests(unittest.TestCase):
         self.assertEqual(second["GetQuestFlag"](33), quest.STUB_DEFAULT)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AtomicIncrementTests(unittest.TestCase):
     """The one number two server events can move in the same instant.
 
@@ -745,3 +741,7 @@ class DispatchChoosesTheStoreOutLoudTests(unittest.TestCase):
         log = []
         self.dispatch.resolve_quest_state_store(FakeQuestStateDoors(), log.append)
         self.assertIn("durable=True", log[0])
+
+
+if __name__ == "__main__":
+    unittest.main()
