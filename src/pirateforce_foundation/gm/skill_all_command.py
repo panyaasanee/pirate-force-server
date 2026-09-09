@@ -549,9 +549,21 @@ def console_line(result: SkillGrant, character_id: object) -> str:
 
     `classes=` lists the BUCKET CODES drawn from, `1024` included and not
     hidden, for the reason the module docstring gives.  The success wording
-    says the rows are written and that no skill-list frame was sent, because
-    both halves are what the tester has to know before she grades the K
-    window.
+    says whether THIS RUN actually wrote a row and that no skill-list frame
+    was sent, because both halves are what the tester has to know before she
+    grades the K window.
+
+    `(rows written; ...)` NAMES THIS RUN, NOT THE CHARACTER'S HISTORY
+    (pf-adversary round `ve2zs4`, D7).  The first draft printed that clause
+    on every success, including the idempotent rerun this module's own
+    docstring calls out (`granted=0 already=<all of them>`) -- a run that
+    wrote nothing on this call claimed "(rows written)" anyway, which is
+    exactly the false-positive the door's `INSERT OR IGNORE` idempotence was
+    built to make legible, not to hide.  The clause now reads
+    `result.granted`, the one field the door's own read-back measured for
+    THIS call: `(rows written; ...)` only when it is non-zero, `(no new
+    rows this run; ...)` when every id was already on the row.  Either way
+    "no skill-list frame was sent" stays true and stays printed.
     """
     classes = ",".join(str(code) for code in bucket_codes())
     failed = f" failed={result.failed}" if result.failed else ""
@@ -559,10 +571,11 @@ def console_line(result: SkillGrant, character_id: object) -> str:
         "" if result.counts_are_complete else " granted_from=door_contract"
     )
     if result.ok:
+        wrote = "rows written" if result.granted else "no new rows this run"
         return _ascii_only(
             f"{CONSOLE_TOKEN} cid={character_id} granted={result.granted} "
             f"already={result.already}{failed}{degraded} classes={classes} "
-            "(rows written; no skill-list frame was sent to the live client)"
+            f"({wrote}; no skill-list frame was sent to the live client)"
         )
     if result.granted or result.already or result.failed:
         # A REFUSAL THAT WROTE SOMETHING STILL PRINTS ITS NUMBERS.
