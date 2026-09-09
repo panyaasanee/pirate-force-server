@@ -1,1 +1,1 @@
-{"sha":"b03cf522eae47085699cbfda76c72368c796f4bf","conclusion":"success","event":"push","ref":"refs/heads/claude/festive-shannon-ly40b5","run_id":"34325826694","utc":"2026-09-09T08:25:03Z"}
+{"sha":"b03cf522eae47085699cbfda76c72368c796f4bf","conclusion":"failure","event":"pull_request","ref":"refs/pull/1190/merge","run_id":"34325894893","utc":"2026-09-09T08:25:55Z"}
