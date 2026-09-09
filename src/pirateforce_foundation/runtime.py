@@ -9121,11 +9121,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # bytes.
             #
             # AND THE CONSOLE MUST NOT SAY "COMPOSED" ON A BOOT THAT THROWS
-            # THE BYTES AWAY.  pf-adversary D1, MEASURED: with any logout
-            # scenario flag, or on any frame after `logout_acknowledged`, a
-            # 0x1B40 is claimed by one of the branches below, every one of
-            # which returns before the tail this notice is appended to.  The
-            # first draft printed the byte-identical
+            # THE BYTES AWAY.  pf-adversary D1, MEASURED: with a logout
+            # scenario flag loaded, a 0x1B40 is claimed by the branch below
+            # ("logout hypothesis scenario is not None and nested_id ==
+            # LOGOUT_VITAL_ID"), which is unconditional on policy and
+            # returns before the tail this notice is appended to.  The first
+            # draft printed the byte-identical
             # `LANE_A_UIA_NOTICE_COMPOSED ... pc=56 frame=66` line in that
             # case -- so a tester lining the console up against a screenshot
             # would read "the receipt was built and nothing rendered" from a
@@ -9133,14 +9134,34 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # FALSE NEGATIVE `GT-205`.  `GT-205`'s negative is declared to be
             # worth as much as its positive, so that lie is not a small one:
             # it would also poison GM-B/`GT-193`, which rests on this same
-            # channel.
-            #
-            # The condition is exact, not a guess: the branch at "logout
-            # hypothesis scenario is not None and nested_id ==
-            # LOGOUT_VITAL_ID" below is unconditional on policy, so a live
-            # scenario owns EVERY LogoutVital frame.  Nothing is composed on
+            # channel.  The scenario case is covered: nothing is composed on
             # those boots; one distinct ASCII token is printed instead, and
             # it names why.
+            #
+            # WHAT THIS LADDER DOES *NOT* COVER YET, AND THE EARLIER TEXT
+            # HERE CLAIMED IT DID.  This comment used to say "or on any frame
+            # after `logout_acknowledged` ... every one of which returns
+            # before the tail this notice is appended to".  THAT IS FALSE ON
+            # THE FLAGLESS PATH, measured twice: once by LANE-UI's
+            # pf-adversary (round 719e10) and re-derived by LANE-A under
+            # COO-ORDER 20260907_2050 item 2 -- a production-shaped session
+            # (`runtime_ack_sent` True, transport closer attached) with
+            # `logout_acknowledged` already True composes the notice HERE and
+            # prints COMPOSED, and the frame is only dropped several hundred
+            # lines below at the `logout_hypothesis_scenario is None and
+            # self.logout_acknowledged` guard, which returns [].  Console
+            # says COMPOSED, zero actions leave: exactly the false-negative
+            # `GT-205` shape the paragraph above forbids.
+            # THE FIX IS AN ORDERING CHANGE (add the flagless post-ack case
+            # to this ladder so it prints NOT_THIS_BOOT and composes
+            # nothing), which touches the dispatch path and is LANE-A's next
+            # round under that order.  Until it lands, `GT-205` carries the
+            # nonclaim in words: on a boot where the player has already
+            # logged out, a COMPOSED line on the console does NOT mean bytes
+            # reached the client.  The measurement is pinned as a test in
+            # `tests/test_world_logout_button_notice_wiring.py` so this
+            # paragraph cannot quietly become true-by-accident and stay
+            # unnoticed, or become false again after the fix.
             uia_notice_actions = []
             if nested_id == LOGOUT_VITAL_ID and self.foundation.selected is None:
                 self.events.append("lane_a_uia_notice_no_selected_no_reply")

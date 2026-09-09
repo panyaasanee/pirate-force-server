@@ -50,6 +50,7 @@ WHAT THIS FILE DOES NOT PROVE, and the distinction is the whole point of
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import io
 import sys
 import tempfile
@@ -611,16 +612,8 @@ class UiaNoticeWiringTests(unittest.TestCase):
         # The GetWorldInfo poll the client sends constantly.  If this branch
         # ever widened past 0x1B40 it would print on every frame and drown
         # the console the attended tester reads.
-        legacy = self.legacy
-        poll = (
-            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
-            + legacy.u32tag(0x14, 0)
-            + legacy.u8tag(0x08, 0)
-            + legacy.u8tag(0x0B, 2)
-            + legacy.u16tag(0x12, 0)
-            + legacy.u8tag(0x0B, 0)
-        )
-        _state, actions, out = self._click("not_logout", poll)
+        _state, actions, out = self._click(
+            "not_logout", _runtime_protocol_poll(self.legacy))
         self.assertEqual(self._any_notice_action(actions), [])
         self.assertNotIn(notice.TOKEN_NOTICE_COMPOSED, out)
         self.assertNotIn(notice.TOKEN_UNCLASSIFIED, out)
@@ -701,6 +694,239 @@ class UiaNoticeWiringTests(unittest.TestCase):
         )
         head = code[:code.index("world_logout_button_notice.observe_parsed")]
         self.assertNotIn("module_production_allowed", head)
+
+
+def _runtime_protocol_poll(legacy):
+    """The GetWorldInfo poll the client sends constantly.
+
+    Two callers now: the test that pins this branch never widened past
+    0x1B40, and the production-shaped harness below -- v141 sets
+    ``runtime_ack_sent`` on the FIRST of these frames (v141:3768-3772), so
+    this is also how a session gets into the shape a player is really in.
+    """
+    return (
+        legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+        + legacy.u32tag(0x14, 0)
+        + legacy.u8tag(0x08, 0)
+        + legacy.u8tag(0x0B, 2)
+        + legacy.u16tag(0x12, 0)
+        + legacy.u8tag(0x0B, 0)
+    )
+
+
+def _state_class_from_mutated_runtime(replacements, legacy, lifecycle,
+                                      projector):
+    """``make_state_class`` out of a MUTATED copy of ``runtime.py``.
+
+    A guard that no test can turn red is a printout.  Every other lever in
+    this file is a module attribute a test can monkeypatch; the fail-closed
+    guards at the notice call site are inline ``if`` statements in chief's
+    file, so the only way to measure them is to build a runtime WITHOUT them
+    and watch what comes out.  The real file is never written to: the source
+    is read, the substitution is applied in memory, and the result is
+    exec'd into a module of its own inside the real package (``__package__``
+    is set so its relative imports resolve to the real siblings).
+    """
+    source = (ROOT / "src" / "pirateforce_foundation" / "runtime.py").read_text(
+        encoding="utf-8")
+    for original, mutant in replacements.items():
+        if source.count(original) != 1:
+            raise AssertionError(
+                "mutant target is not unique in runtime.py: "
+                + repr(original[:60]) + " x" + str(source.count(original)))
+        source = source.replace(original, mutant)
+    spec = importlib.util.spec_from_loader(
+        "pirateforce_foundation._runtime_mutant_under_test", loader=None)
+    module = importlib.util.module_from_spec(spec)
+    module.__package__ = "pirateforce_foundation"
+    module.__file__ = str(
+        ROOT / "src" / "pirateforce_foundation" / "runtime.py")
+    exec(compile(source, module.__file__, "exec"), module.__dict__)
+    return module.make_state_class(legacy, lifecycle, projector)
+
+
+NO_SELECTED_GUARD = (
+    "if nested_id == LOGOUT_VITAL_ID and self.foundation.selected is None:"
+)
+
+
+class TheGuardsRunInTheShapeProductionActuallyHas(unittest.TestCase):
+    """COO-ORDER 20260907_2050, item 1 -- LANE-A's own debt.
+
+    WHAT WAS WRONG WITH THE EIGHT TESTS ABOVE, re-derived here before
+    fixing it rather than taken on the letter's word (measured this round on
+    ``_logged_in_state``): after a full login ``runtime_ack_sent`` is
+    ``False`` and ``transport_socket_closer`` is ``None``.  Production is
+    neither -- v141 sets the ack on the first runtime-protocol frame
+    (v141:3768-3772), and the transport adapter attaches a closer to every
+    accepted socket.  So every fail-closed test above measured a session no
+    player is ever in, and the guards could have been deleted without a
+    single one of them going red.
+
+    This class runs the same guards in the shape a player's connection is
+    really in, and proves the fail-closed one is load-bearing by building a
+    runtime with the guard removed and watching the assertion fail.
+    """
+
+    setUp = UiaNoticeWiringTests.setUp
+    _state_type = UiaNoticeWiringTests._state_type
+    _notice_actions = UiaNoticeWiringTests._notice_actions
+    _any_notice_action = UiaNoticeWiringTests._any_notice_action
+    _assert_nothing_composed = UiaNoticeWiringTests._assert_nothing_composed
+
+    def _production_shaped(self, token, state_type=None, *, select=True):
+        """A session in the shape a real connection is in when the player
+        can click: logged in (unless ``select`` is False), ack sent, and a
+        transport socket closer attached."""
+        legacy = self.legacy
+        state = (state_type or self._state_type())(token)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            state.dispatch(legacy.parse_outer(
+                legacy._synthetic_client_login_pc(token)))
+            if select:
+                state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+                character = self.store.list_characters(
+                    state.foundation.account_id)[-1]
+                state.dispatch(legacy.parse_outer(
+                    legacy._synthetic_start_game_pc(character.selector)))
+            state.dispatch(legacy.parse_outer(_runtime_protocol_poll(legacy)))
+        self.closed = []
+        state.attach_transport_socket_closer(lambda: self.closed.append(True))
+        return state
+
+    def _click(self, state, frame):
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            actions = state.dispatch(self.legacy.parse_outer(frame))
+        return actions, buffer.getvalue()
+
+    def test_the_harness_is_really_in_the_production_shape(self):
+        """The pin the eight tests above were missing.  If this ever goes
+        red, every assertion in this class stopped measuring production."""
+        state = self._production_shaped("shape_probe")
+        self.assertTrue(state.runtime_ack_sent)
+        self.assertIsNotNone(state.transport_socket_closer)
+        self.assertIsNotNone(state.foundation.selected)
+
+    def test_the_click_still_answers_once_in_that_shape(self):
+        """The positive control.  A fail-closed test that passes because
+        the feature stopped working is not a fail-closed test."""
+        state = self._production_shaped("prod_uia")
+        actions, out = self._click(state, UIA_REQUEST_FRAME)
+        self.assertEqual(len(self._notice_actions(actions)), 1, actions)
+        self.assertIn(notice.TOKEN_NOTICE_COMPOSED, out)
+
+    def _assert_no_selected_is_refused(self, state_type):
+        """The assertion under test, kept in one place so the mutant below
+        runs the exact same one rather than a re-typed cousin of it."""
+        state = self._production_shaped(
+            "prod_no_sel", state_type, select=False)
+        actions, _out = self._click(state, UIA_REQUEST_FRAME)
+        self.assertEqual(self._any_notice_action(actions), [], actions)
+        self._assert_nothing_composed(state)
+        self.assertIn("lane_a_uia_notice_no_selected_no_reply", state.events)
+
+    def test_a_connection_with_no_character_selected_gets_no_bytes(self):
+        self._assert_no_selected_is_refused(self._state_type())
+
+    def test_and_it_goes_red_the_moment_that_guard_is_removed(self):
+        """THE MUTANT THE ORDER ASKS FOR, in the same file as the test it
+        grades.  With the guard gone, an authenticated-but-characterless
+        connection makes this server compose bytes -- which is exactly what
+        was MEASURED before the guard existed.
+
+        Checked both ways this round: with the substitution made a no-op the
+        test below fails, so it is grading the mutation and not the weather.
+        """
+        mutant_type = _state_class_from_mutated_runtime(
+            {NO_SELECTED_GUARD: "if False:"},
+            self.legacy, self.lifecycle, self.projector,
+        )
+        with self.assertRaises(AssertionError):
+            self._assert_no_selected_is_refused(mutant_type)
+
+    def test_a_withdrawn_module_sends_nothing_in_that_shape_either(self):
+        state = self._production_shaped("prod_withdrawn")
+        original = notice.production_allowed
+        notice.production_allowed = False
+        try:
+            actions, out = self._click(state, UIA_REQUEST_FRAME)
+        finally:
+            notice.production_allowed = original
+        self.assertEqual(self._any_notice_action(actions), [])
+        self._assert_nothing_composed(state)
+        self.assertIn(notice.TOKEN_WITHDRAWN, out)
+
+    def test_an_observer_that_raises_never_reaches_the_thread_in_that_shape(self):
+        state = self._production_shaped("prod_raises")
+
+        def _explode(*args, **kwargs):
+            raise RuntimeError("observer blew up")
+
+        original = notice.observe_parsed
+        notice.observe_parsed = _explode
+        try:
+            actions, _out = self._click(state, UIA_REQUEST_FRAME)
+        finally:
+            notice.observe_parsed = original
+        self.assertEqual(self._any_notice_action(actions), [])
+        self.assertIn(OBSERVE_FAILED_PREFIX + "RuntimeError", state.events)
+
+    def test_the_flagless_post_ack_boot_still_says_composed_and_sends_nothing(self):
+        """COO-ORDER 20260907_2050 item 2, MEASURED HERE rather than taken
+        on the letter's word.
+
+        This is a BUG PINNED AS A BUG, not a behaviour anybody wants.  On a
+        production-shaped session whose player has already logged out
+        (flagless path, `logout_acknowledged` True) the notice is composed
+        and the console prints COMPOSED -- and then the frame is dropped
+        several hundred lines below at runtime.py's
+        `logout_hypothesis_scenario is None and self.logout_acknowledged`
+        guard, which returns [].  Console says COMPOSED, zero actions leave:
+        the false-negative `GT-205` shape the call site's own comment says
+        must not happen.
+
+        The comment at that call site used to claim this case was covered.
+        It is not, and this round corrected the comment and wrote the
+        nonclaim; the ordering fix (print NOT_THIS_BOOT and compose nothing)
+        is LANE-A's next round under the same order.  WHEN THAT FIX LANDS
+        THIS TEST GOES RED, and the round that lands it must invert it --
+        which is the point of pinning it: the claim cannot quietly go stale
+        in either direction.
+        """
+        state = self._production_shaped("prod_post_ack")
+        state.logout_acknowledged = True
+        actions, out = self._click(state, UIA_REQUEST_FRAME)
+        self.assertEqual(actions, [], "the frame is dropped, as expected")
+        self.assertIn("ui_logout_exit_game_post_ack_frame_no_reply",
+                      state.events)
+        self.assertIn(
+            notice.TOKEN_NOTICE_COMPOSED, out,
+            "if this is gone the ordering fix landed -- invert this test",
+        )
+
+    def test_the_call_site_comment_no_longer_claims_the_post_ack_case(self):
+        """The sentence this round struck, kept struck.  A comment that
+        lies about a fail-closed guard is the reason an attended round gets
+        burnt reading the console."""
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn(
+            "or on any frame after `logout_acknowledged`, a\n"
+            "            # 0x1B40 is claimed by one of the branches below",
+            source,
+        )
+        self.assertIn("WHAT THIS LADDER DOES *NOT* COVER YET", source)
+
+    def test_the_attached_closer_is_never_pulled_by_this_click(self):
+        """The closer is production's, not this lane's.  Attaching it is
+        what makes the shape real; a notice that PULLED it would log the
+        player out for opening a menu."""
+        state = self._production_shaped("prod_closer")
+        self._click(state, UIA_REQUEST_FRAME)
+        self.assertEqual(self.closed, [])
 
 
 if __name__ == "__main__":
