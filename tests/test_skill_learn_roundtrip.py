@@ -136,6 +136,41 @@ class TheClientIsToldTests(_Fixture):
         self.assertEqual(4, records[0].record_u32_8)
         self.assertEqual(0, trailing)
 
+    def test_the_record_members_constant_is_read_and_checked_here(self):
+        """pf-adversary round `mfgv4m`, D7(b): `git grep
+        RECORD_MEMBERS_ARE_THIS_PROJECTS_DESIGN` under `src/ tests/ docs/`
+        found exactly one hit -- its own definition -- so nothing would
+        notice if the string and the real field assignment in
+        `learn_skill_round_trip` drifted apart.  This test is the second
+        hit: it parses the constant's own text and checks the real encoded
+        record against what the text claims, so an edit to either side
+        alone turns this test red.
+        """
+        mapping = dict(
+            part.split("=", 1) for part in
+            skill_learn_roundtrip.RECORD_MEMBERS_ARE_THIS_PROJECTS_DESIGN
+            .split(", ")
+        )
+        self.assertEqual("skill_id", mapping["record_u32_0"])
+        self.assertEqual("0", mapping["record_u16_4"])
+        self.assertEqual("points_remaining", mapping["record_u32_8"])
+
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 5, "level": 40})
+        result = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
+        )
+        start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
+        records, _trailing = decode_learn_skill_result_payload(
+            result.pc[start:start + 5 + 13]
+        )
+        # The constant says record_u32_0 carries skill_id and record_u32_8
+        # carries points_remaining -- checked against the two numbers this
+        # same call already measured independently above, not re-derived.
+        self.assertEqual(result.skill_id, records[0].record_u32_0)
+        self.assertEqual(int(mapping["record_u16_4"]), records[0].record_u16_4)
+        self.assertEqual(result.points_remaining, records[0].record_u32_8)
+
     def test_the_row_and_the_balance_really_moved_in_the_database(self):
         """The second layer, and it is not the frame.
 
@@ -197,6 +232,46 @@ class TheWindowBetweenTheSpendAndTheGrantTests(_Fixture):
         self.assertEqual(skill_learn_roundtrip.OUTCOME_REFUSED, result.outcome)
         self.assertEqual(1, self.store.get_skill_points(character.id))
         self.assertEqual([], self.fake.grant_calls)
+
+    def test_when_the_re_read_itself_fails_the_outcome_says_unknown_not_refused(self):
+        """pf-adversary round `mfgv4m`, D4: before this round, a grant that
+        raised AND a re-read that also raised (`points_after is None`, e.g.
+        "database is locked") fell through to `OUTCOME_REFUSED` -- the
+        outcome that promises nothing was spent -- with no test covering
+        that branch.  A point may genuinely be gone here; this pins that
+        the caller is told "unknown", never told "refused".
+        """
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 5, "level": 40})
+        self.fake.fail_next_grant(RuntimeError("character_skills is gone"))
+
+        real_get_skill_points = self.fake.get_skill_points
+        seen: "list[int]" = []
+
+        def _re_read_fails_on_third_call(character_id):
+            seen.append(character_id)
+            if len(seen) >= 3:
+                raise RuntimeError("database is locked")
+            return real_get_skill_points(character_id)
+
+        self.fake.get_skill_points = _re_read_fails_on_third_call
+
+        result = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
+        )
+        self.assertEqual(
+            skill_learn_roundtrip.OUTCOME_SPEND_STATUS_UNKNOWN, result.outcome,
+        )
+        self.assertNotEqual(skill_learn_roundtrip.OUTCOME_REFUSED, result.outcome)
+        self.assertEqual(5, result.points_before)
+        # The re-read failed, so `points_remaining` falls back to the last
+        # value this call actually measured (`points_before`) rather than
+        # inventing a number the failed read never produced.
+        self.assertEqual(5, result.points_remaining)
+        self.assertIsNone(result.pc)
+        self.assertIn(
+            "RESULT=NOT_TOLD", skill_learn_roundtrip.headless_token(result),
+        )
 
 
 class TheRefusalReachesTheConsoleByNameTests(_Fixture):
@@ -406,6 +481,38 @@ class TheTokenMeasuresTheArtifactTests(_Fixture):
         self.assertIn("RESULT=NOT_TOLD",
                       skill_learn_roundtrip.headless_token(stripped))
 
+    def test_skill_and_points_in_the_token_come_off_the_wire_not_the_fields(self):
+        """pf-adversary round `mfgv4m`, D6: `skill=` and `points=` in the
+        token used to be typed straight from `result.skill_id`/
+        `result.points_remaining` -- so a composer bug that put the WRONG
+        values on the wire would still print a token that read TOLD with
+        the caller's own numbers, matching nothing it actually sent.  This
+        builds exactly that lie (same shape as the test above: a real pc
+        paired with fields that disagree with it) and checks the token
+        reports what the bytes carry, not what the fields claim.
+        """
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 5, "level": 40})
+        result = skill_learn_roundtrip.learn_skill_round_trip(
+            self.legacy, self.fake, character.id, _WHOLE_COST_SKILL_ID,
+        )
+        lying = type(result)(
+            outcome=result.outcome, reason=result.reason,
+            character_id=result.character_id,
+            skill_id=999999, points_before=result.points_before,
+            points_remaining=999999,
+            skills_after_grant=result.skills_after_grant,
+            pc=result.pc, frame=result.frame,
+        )
+        line = skill_learn_roundtrip.headless_token(lying)
+        self.assertIn("skill=%d" % _WHOLE_COST_SKILL_ID, line)
+        self.assertNotIn("skill=999999", line)
+        self.assertIn("points=4", line)
+        self.assertNotIn("points=999999", line)
+        # cid is the one field this vital's bytes never carry (see the
+        # module NONCLAIMS) -- it is unavoidably the argument's own value.
+        self.assertIn("cid=%d" % character.id, line)
+
 
 class LearningAFifthSkillCollidesWithTheLoginCapTests(_Fixture):
     """FLIPPED THIS ROUND (PANYA `2220` / COO-DECISION `20260909_1312`,
@@ -416,8 +523,11 @@ class LearningAFifthSkillCollidesWithTheLoginCapTests(_Fixture):
     was 4 -- the largest count a real client had ever been measured
     accepting (`GT-249`) -- and `COO-DECISION 20260908_1742` froze it there
     until an attended result moved it.  This test used to pin that a fifth
-    row made the login route refuse by name, unsent, with an empty skill
-    window on screen.
+    row made the login route return a named refusal, unsent -- a claim
+    about that function's Python return value, never an observation of any
+    client screen (pf-adversary round `mfgv4m`, D8: the module's own
+    NONCLAIMS disclaim any client-rendering claim, and this docstring's
+    earlier "empty skill window on screen" wording read as one anyway).
 
     PANYA `2220`: no more self-imposed ceilings for "not yet measured";
     unmeasured is a reason to SEND and record what happens, not a reason to
@@ -574,36 +684,60 @@ class LearningTheSameSkillTwiceTests(_Fixture):
         )
 
 
+def _top_level_import_components(source: str) -> "set[str]":
+    """Every name a module-level import statement in `source` binds a
+    dotted path THROUGH, not merely the exact string written.
+
+    pf-adversary round `8wzpyw`: four `assertNotIn` substrings were walked
+    straight through by `from . import store as _db`.  The fix that
+    replaced them with an AST walk (round `mfgv4m`'s own predecessor) still
+    added `alias.name` UNSPLIT -- so `import pirateforce_foundation.store
+    as _db` bound the single string `"pirateforce_foundation.store"`, which
+    is not equal to the forbidden `"store"`, and the pin passed a source
+    file that imports the database layer at module level.  This is
+    pf-adversary round `mfgv4m`, D5, measured against the AST version, not
+    the substring one it already replaced.  Splitting every bound name on
+    `"."` is what the inner, per-function walk two tests below already did
+    (`alias.name.split(".")[0]`) -- this helper brings the module-level
+    walk to the same posture instead of leaving the two inconsistent.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    components: "set[str]" = set()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            for part in (node.module or "").split("."):
+                components.add(part)
+            for alias in node.names:
+                for part in alias.name.split("."):
+                    components.add(part)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                for part in alias.name.split("."):
+                    components.add(part)
+    return components
+
+
 class ThisLaneStaysInsideItsOwnZoneTests(unittest.TestCase):
     def test_no_module_outside_this_lane_is_imported_at_import_time(self):
-        """WAS four `assertNotIn` substrings, which pf-adversary walked
-        straight through (`from . import store as _db` passed it).
-
-        The question is not which characters appear in the file -- it is
+        """The question is not which characters appear in the file -- it is
         which modules this one pulls in, and where.  The AST answers that:
         at module level the lane may import only its own siblings, and the
         database layer may be reached only from the console entry point,
         the same posture the login lane's own AST pin takes.
         """
-        import ast
-
         source = (ROOT / "src" / "pirateforce_foundation"
                   / "skill_learn_roundtrip.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        top_level = set()
-        for node in tree.body:
-            if isinstance(node, ast.ImportFrom):
-                top_level.add(node.module or "")
-                for alias in node.names:
-                    top_level.add(alias.name)
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    top_level.add(alias.name)
+        top_level = _top_level_import_components(source)
         for forbidden in ("store", "runtime", "app", "gm", "lifecycle"):
             self.assertNotIn(forbidden, top_level)
 
         # And inside functions, `store` may be reached from `main` only --
         # the console entry point that has to open a real database.
+        import ast
+
+        tree = ast.parse(source)
         importers = set()
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -619,6 +753,24 @@ class ThisLaneStaysInsideItsOwnZoneTests(unittest.TestCase):
                         ):
                             importers.add(node.name)
         self.assertEqual({"main"}, importers)
+
+    def test_the_absolute_dotted_form_of_a_forbidden_import_is_also_caught(self):
+        """pf-adversary round `mfgv4m`, D5, reproduced directly: before this
+        round's fix, `_top_level_import_components` (then written inline
+        without the split) returned `{"pirateforce_foundation.store"}` for
+        this source, and `"store" in top_level` was `False` -- the exact
+        shape of the bypass, proven here against a literal source string
+        rather than against the module file (which does not itself carry
+        the forbidden import, so a passing pin there cannot show the check
+        would have caught one that did).
+        """
+        bypassing_source = (
+            "import pirateforce_foundation.store as _db\n"
+            "from . import skill_grant_wiring\n"
+        )
+        components = _top_level_import_components(bypassing_source)
+        self.assertIn("store", components)
+        self.assertIn("pirateforce_foundation", components)
 
     def test_the_console_entry_point_exists_and_is_reachable(self):
         """The reason it exists: an attended ticket whose pass criterion is
