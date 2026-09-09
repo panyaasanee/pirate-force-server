@@ -10,6 +10,7 @@ agree with each other.
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import io
 import sys
@@ -684,39 +685,87 @@ class LearningTheSameSkillTwiceTests(_Fixture):
         )
 
 
-def _top_level_import_components(source: str) -> "set[str]":
-    """Every name a module-level import statement in `source` binds a
-    dotted path THROUGH, not merely the exact string written.
+#: The lane may not reach these at module import time, nor from any
+#: function but `main` -- the console entry point that has to open a real
+#: database.  One set, shared by both checks below on purpose: pf-adversary
+#: round `mfgv4m`'s D5 finding, re-checked by its own pf-adversary review,
+#: found the two checks had drifted to different forbidden sets (the
+#: per-function `ImportFrom` branch never had `gm`/`lifecycle` at all) --
+#: sharing the tuple is what stops that happening silently again.
+_FORBIDDEN_IMPORT_COMPONENTS = ("store", "runtime", "app", "gm", "lifecycle")
 
-    pf-adversary round `8wzpyw`: four `assertNotIn` substrings were walked
-    straight through by `from . import store as _db`.  The fix that
-    replaced them with an AST walk (round `mfgv4m`'s own predecessor) still
-    added `alias.name` UNSPLIT -- so `import pirateforce_foundation.store
-    as _db` bound the single string `"pirateforce_foundation.store"`, which
-    is not equal to the forbidden `"store"`, and the pin passed a source
-    file that imports the database layer at module level.  This is
-    pf-adversary round `mfgv4m`, D5, measured against the AST version, not
-    the substring one it already replaced.  Splitting every bound name on
-    `"."` is what the inner, per-function walk two tests below already did
-    (`alias.name.split(".")[0]`) -- this helper brings the module-level
-    walk to the same posture instead of leaving the two inconsistent.
+
+def _import_bound_components(node: "ast.AST") -> "set[str]":
+    """Every dotted-path component one `Import`/`ImportFrom` node binds a
+    name THROUGH, not merely the exact string(s) written on the line.
+
+    Three shapes had to agree here, and across two separate pf-adversary
+    findings on this same file they never all did at once:
+      * `from . import store as _db` -- module is `None` (or an absolute
+        prefix for a non-relative `from`); the bound name lives ONLY in
+        `alias.name`.  A check that reads `node.module` and never
+        `alias.name` (this file's OLD per-function `ImportFrom` branch)
+        cannot see this shape at all, relative or not.
+      * `import pirateforce_foundation.store as _db` -- the single
+        `alias.name` is the whole dotted string; comparing it UNSPLIT
+        (this file's OLD module-level check, pf-adversary round `mfgv4m`
+        D5) misses it because `"store" != "pirateforce_foundation.store"`.
+      * `import store` inside a function, checked against only the FIRST
+        split component (this file's OLD per-function `Import` branch) --
+        correct for this shape alone, but the two branches beside it were
+        not, so "the per-function walk already does this" (the claim this
+        module's D5 fix made, and pf-adversary's own review of that fix
+        disproved) was false for one of its own two branches.
+    Splitting every dotted path -- the module part AND every alias name --
+    and unioning the parts answers all three the same way, which is why
+    every forbidden-import check in this file now goes through here.
     """
-    import ast
+    components: "set[str]" = set()
+    if isinstance(node, ast.ImportFrom):
+        for part in (node.module or "").split("."):
+            if part:
+                components.add(part)
+        for alias in node.names:
+            for part in alias.name.split("."):
+                components.add(part)
+    elif isinstance(node, ast.Import):
+        for alias in node.names:
+            for part in alias.name.split("."):
+                components.add(part)
+    return components
 
+
+def _top_level_import_components(source: str) -> "set[str]":
+    """Every component a MODULE-LEVEL import statement in `source` binds a
+    dotted path through -- see `_import_bound_components` for the shapes
+    this has to agree on."""
     tree = ast.parse(source)
     components: "set[str]" = set()
     for node in tree.body:
-        if isinstance(node, ast.ImportFrom):
-            for part in (node.module or "").split("."):
-                components.add(part)
-            for alias in node.names:
-                for part in alias.name.split("."):
-                    components.add(part)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                for part in alias.name.split("."):
-                    components.add(part)
+        components |= _import_bound_components(node)
     return components
+
+
+def _functions_that_locally_import(
+    source: str, forbidden: "tuple[str, ...]",
+) -> "set[str]":
+    """The name of every function whose body imports something whose
+    dotted path carries one of `forbidden`'s components -- the
+    per-function counterpart of `_top_level_import_components`, built on
+    the SAME node-level helper so the two cannot drift the way
+    pf-adversary round `mfgv4m` found them already had (see
+    `_import_bound_components`'s docstring)."""
+    tree = ast.parse(source)
+    forbidden_set = set(forbidden)
+    importers: "set[str]" = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, (ast.Import, ast.ImportFrom)):
+                if _import_bound_components(inner) & forbidden_set:
+                    importers.add(node.name)
+    return importers
 
 
 class ThisLaneStaysInsideItsOwnZoneTests(unittest.TestCase):
@@ -730,38 +779,24 @@ class ThisLaneStaysInsideItsOwnZoneTests(unittest.TestCase):
         source = (ROOT / "src" / "pirateforce_foundation"
                   / "skill_learn_roundtrip.py").read_text(encoding="utf-8")
         top_level = _top_level_import_components(source)
-        for forbidden in ("store", "runtime", "app", "gm", "lifecycle"):
+        for forbidden in _FORBIDDEN_IMPORT_COMPONENTS:
             self.assertNotIn(forbidden, top_level)
 
-        # And inside functions, `store` may be reached from `main` only --
-        # the console entry point that has to open a real database.
-        import ast
-
-        tree = ast.parse(source)
-        importers = set()
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            for inner in ast.walk(node):
-                if isinstance(inner, ast.ImportFrom) and inner.level:
-                    if (inner.module or "") in ("store", "runtime", "app"):
-                        importers.add(node.name)
-                elif isinstance(inner, ast.Import):
-                    for alias in inner.names:
-                        if alias.name.split(".")[0] in (
-                            "runtime", "app",
-                        ):
-                            importers.add(node.name)
+        # And inside functions, the same names may be reached from `main`
+        # only -- the console entry point that has to open a real database.
+        importers = _functions_that_locally_import(
+            source, _FORBIDDEN_IMPORT_COMPONENTS,
+        )
         self.assertEqual({"main"}, importers)
 
     def test_the_absolute_dotted_form_of_a_forbidden_import_is_also_caught(self):
         """pf-adversary round `mfgv4m`, D5, reproduced directly: before this
-        round's fix, `_top_level_import_components` (then written inline
-        without the split) returned `{"pirateforce_foundation.store"}` for
-        this source, and `"store" in top_level` was `False` -- the exact
-        shape of the bypass, proven here against a literal source string
-        rather than against the module file (which does not itself carry
-        the forbidden import, so a passing pin there cannot show the check
+        round's fix, the module-level check (then written inline without
+        the split) returned `{"pirateforce_foundation.store"}` for this
+        source, and `"store" in top_level` was `False` -- the exact shape
+        of the bypass, proven here against a literal source string rather
+        than against the module file (which does not itself carry the
+        forbidden import, so a passing pin there cannot show the check
         would have caught one that did).
         """
         bypassing_source = (
@@ -771,6 +806,38 @@ class ThisLaneStaysInsideItsOwnZoneTests(unittest.TestCase):
         components = _top_level_import_components(bypassing_source)
         self.assertIn("store", components)
         self.assertIn("pirateforce_foundation", components)
+
+    def test_a_relative_from_import_inside_a_non_main_helper_is_also_caught(self):
+        """pf-adversary's OWN review of the D5 fix above found the fix's
+        docstring overclaimed: it said the per-function walk already split
+        dotted names the same way, but that walk's `ImportFrom` branch
+        read only `inner.module` (empty for `from . import store as _db`,
+        whose bound name lives in the alias) and its forbidden set there
+        never had `gm`/`lifecycle` at all.  `[measured by pf-adversary]`:
+        adding a non-`main` helper doing exactly this import to the real
+        module passed the OLD check unchanged.  Reproduced here directly
+        against `_functions_that_locally_import` so a future edit that
+        reintroduces either gap (reading `alias.name`, or the shared
+        forbidden set) turns this red.
+        """
+        source = (
+            "def main():\n"
+            "    from . import store as _db\n"
+            "    return _db\n"
+            "\n"
+            "def _sneaky_helper_not_main():\n"
+            "    from . import store as _db\n"
+            "    return _db\n"
+            "\n"
+            "def _another_sneaky_helper():\n"
+            "    from . import lifecycle\n"
+            "    return lifecycle\n"
+        )
+        importers = _functions_that_locally_import(
+            source, _FORBIDDEN_IMPORT_COMPONENTS,
+        )
+        self.assertIn("_sneaky_helper_not_main", importers)
+        self.assertIn("_another_sneaky_helper", importers)
 
     def test_the_console_entry_point_exists_and_is_reachable(self):
         """The reason it exists: an attended ticket whose pass criterion is
