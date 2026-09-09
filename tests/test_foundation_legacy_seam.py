@@ -869,7 +869,24 @@ GRADE_SUBSET_SHA256 = (
     # one commit after closing it.  `friend_request_answer` is that row.
     #   parent 05143BFDDBFA9F24688C1CCC49164CD95EBA97507C5A8AEEBE39170FA8445D1E, the same round before that merge
     #   this pin, recorded by round ncejt8:
-    "5CA10A2DF8009FD12CE6EBD30DAFBEC76D221355AD09D9A017C5F8BC8A110F0D"
+    #   5CA10A2DF8009FD12CE6EBD30DAFBEC76D221355AD09D9A017C5F8BC8A110F0D
+    #
+    # ROUND t4nxwq (LANE-UI, 2026-09-09 +07:00): the `ui_buttons` domain
+    # gains a SEVENTH row, `send_mail_answer` -- `Community_SendMailVital`
+    # (0x6E12) answered the same way the six rows beside it are: same
+    # RE-312 RESULT-1/RESULT-2 basis, `in_progress` and not `runtime_pass`
+    # for the same reason (`observed_frames = 0`), `evidence_refs` empty
+    # for the same reason (the evidence is a pf_bridge letter, cited in
+    # `notes` instead, which this digest does not cover).  Nothing that
+    # already existed moved -- no status, no required flag, no ref list,
+    # no domain_complete on any of the other eight domains or the six
+    # rows already in this one.  The whole delta is the new row, so this
+    # note is short for the same reason round asw0n3's domain-opening note
+    # above it was long and this one does not need to repeat that
+    # argument, only extend it by one button.
+    #   parent 5CA10A2DF8009FD12CE6EBD30DAFBEC76D221355AD09D9A017C5F8BC8A110F0D, round ncejt8 above
+    #   this pin, recorded by round t4nxwq:
+    "7D782BDA8BCBB60DD56A751E0A5E64256B766BF253B8A69A5DA8741A3202622A"
 )
 
 
