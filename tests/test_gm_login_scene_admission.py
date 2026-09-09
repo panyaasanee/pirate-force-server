@@ -108,14 +108,21 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # wired and opened in one round.  With this scene, every one of the ten
 # doors round 12lyda surveyed is open at login.
 ADMISSIBLE_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997)
-# The GM-gated (single-use) map's own way out, which is wider than the
-# plain set above by exactly one scene since round R249 (chief, gate-red
-# repair of `pirate-force-server#332`): lane A landed the scene-126
+# The GM-gated (single-use) map's own way out.  ~~Wider than the plain set
+# above by exactly one scene since round R249: lane A landed the scene-126
 # registry row, and `CORE-REQUEST-GM-038`'s single-use widening admits it
-# there while the plain rule (and the standalone map, which is never
-# widened -- `COO-DECISION 20260829_0542`) still refuses it.  See
-# `gm/login_scene_admission.py`'s `single_use_entry_is_admissible`.
-SINGLE_USE_ADMISSIBLE_TODAY = tuple(sorted(ADMISSIBLE_TODAY + (126,)))
+# there.~~  IT IS THE SAME SET AGAIN since LANE-GM round `xbfcsi`
+# (2026-09-09): the widening admits a scene only while a chief letter
+# SANCTIONS it, and 126's sanction was retired on the order of
+# `COO-DECISION 20260908_2141`.  The widening itself is untouched and is
+# still pinned in `tests/test_gm_login_scene_sanctioned_admission.py`; what
+# went away is the one id it had to widen for.  This constant is written as
+# the derivation rather than as a literal so it follows the map instead of
+# a memory of it.  See `gm/login_scene_admission.single_use_entry_is_
+# admissible`.
+SINGLE_USE_ADMISSIBLE_TODAY = tuple(
+    sorted(set(ADMISSIBLE_TODAY) | set(login_scene_admission.SANCTIONED_BARRED_SCENES))
+)
 HOME = 1
 # In the client's name catalog (so it passes the older check) and pinned
 # `login_entry_allowed: false` -- the exact entry that locked an account out.

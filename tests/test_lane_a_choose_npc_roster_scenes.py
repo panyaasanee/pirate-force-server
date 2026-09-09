@@ -40,6 +40,8 @@ import sys
 import tempfile
 import unittest
 from dataclasses import replace
+from types import MappingProxyType
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +82,33 @@ MODULE_SOURCE = (
 # sanctioned single-use predicate -- so a click there is answered only for a
 # session a GM grant already put in the scene.
 EXPECTED_SCENES = (3, 4, 5, 6, 7, 8, 9, 10, 11, 126, 130)
+
+
+def _install_the_gm_sanction_for_126(test):
+    """Scene 126 is composed only for a session the census hook admits, and
+    since round `4uztfj` the arm that admits it is the GM lane's sanctioned
+    single-use predicate.  LANE-GM retired that sanction in round `xbfcsi`
+    (`COO-DECISION 20260908_2141`, to break the circular wait blocking the M
+    door), so on main the arm answers no and every case below that composes
+    for 126 would get `None` -- not because this lane's roster changed, but
+    because the scene stopped being admitted at all.
+
+    What these cases are about is the ROSTER (its indices, its headings, its
+    membership), so the admission is supplied here for their duration
+    instead of dropping 126 out of `EXPECTED_SCENES` and losing the coverage
+    the day lane A's login door lands and admits it again.  Reported to the
+    owner in `notes_to_chief/20260909_1339_LANE-GM-TO-LANE-A-126-
+    unsanctioned-arm-three-eligibility.md`; a measurement, not a bill.
+    """
+    from pirateforce_foundation.gm import login_scene_admission
+
+    patcher = mock.patch.object(
+        login_scene_admission,
+        "SANCTIONED_BARRED_SCENES",
+        MappingProxyType({126: "CHIEF-DECISION 20260829_1603 item 2"}),
+    )
+    patcher.start()
+    test.addCleanup(patcher.stop)
 # The ten islands alone, for the counts round `gwwpmr` published.
 ISLAND_SCENES = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
 # ~~HELD_BACK_SCENES = (4, 5, 6, 7, 8, 9, 10, 11, 130)~~ -- round `gwwpmr`:
@@ -622,6 +651,10 @@ class TheTurnToFaceIsInTheFrameAndNotOnlyInTheLabelTests(unittest.TestCase):
     the composed frame.  Everything below reads the frame.
     """
 
+    def setUp(self):
+        super().setUp()
+        _install_the_gm_sanction_for_126(self)
+
     @classmethod
     def setUpClass(cls):
         cls.legacy = _legacy()
@@ -984,6 +1017,10 @@ class TheArrivalCensusMembershipTests(unittest.TestCase):
     property the round file and the letter to chief assert, so it is
     measured rather than reasoned."""
 
+    def setUp(self):
+        super().setUp()
+        _install_the_gm_sanction_for_126(self)
+
     @classmethod
     def setUpClass(cls):
         cls.legacy = _legacy()
@@ -1168,6 +1205,7 @@ class TheNineAreSafeOnlyBecauseTheRuntimeGuardStandsTests(unittest.TestCase):
         cls.legacy = _legacy()
 
     def setUp(self):
+        _install_the_gm_sanction_for_126(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.store = SQLiteStore(
