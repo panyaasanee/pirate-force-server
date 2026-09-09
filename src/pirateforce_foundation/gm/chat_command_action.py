@@ -7253,7 +7253,17 @@ def _skill_action(
     always answers `False`, the same shape `_speed_undo` uses for its own
     "nothing to put back" case, which reaches the console as "the effect was
     KEPT".  See that function's docstring for why no real deletion is
-    attempted.
+    attempted.  WHICH REFUSALS GET IT is `result.door_was_called`, not
+    `result.granted` -- see the call site below and `SkillGrant`'s own field.
+
+    TWO_SESSIONS_SAME_SCENE: nothing here is shared between connections.
+    The store and the selected character are read off `session` (see
+    `_speed_store` / `_selected_speed_character_id`), the console line goes
+    to this process's stderr, and no frame is composed for any client -- so
+    two sessions standing in one scene cannot see each other's `/skill all`.
+    Stated here because `_job_action` states it and this function is its
+    twin; the audit's own account attribution is a separate question, and
+    `TwoConnectionsOnOneListenerTests` measures where that still leaks.
     """
     try:
         skill_all_command.parse_subcommand(getattr(command, "args", None))
@@ -7303,31 +7313,30 @@ def _skill_action(
             say_wire.SKILL_REFUSED_NOTICE_TEXT,
             SKILL_REFUSED_NOTICE_ACTION_LABEL,
             f"{OUTCOME_SKILL_REFUSED_PREFIX}{result.refusal}",
-            # NO UNDO ON THIS BRANCH, AND NOW THAT IS THE TRUE SENTENCE.
-            # ~~"the same fix as `_job_action`'s (pf-adversary round
-            # `nkb608`, D-B) ... a character removed halfway through the 137
-            # grants refuses with `granted=20` on the console and, one line
-            # later, told the operator everything in hand was dropped -- with
-            # 20 rows on disk ... an always-`False` undo reaches the console
-            # as 'the effect was KEPT', which is what those 20 rows are"~~ --
-            # STRUCK (pf-adversary round `ve2zs4`, D9, "a dead undo branch").
-            # Both halves were true OF THE PER-ID LOOP, and round `ve2zs4`
-            # deleted that loop.  `grant_all` now hands the whole id list to
-            # one `BEGIN IMMEDIATE` transaction, so a refusal cannot arrive
-            # with rows on disk, and EVERY refusal it can construct carries
-            # `granted=0` -- which made the `if result.granted` half
-            # unreachable: the conditional read as a live safeguard while
-            # only ever selecting `None`.  Removing it changes no behaviour
-            # today and stops the file claiming a branch it does not have.
+            # THE CONDITION IS "WAS THE DOOR ENTERED", NOT "DID IT REPORT
+            # ROWS" (pf-adversary round `ve2zs4` D9, then this round's D-C).
+            # ~~`(lambda: False) if result.granted else None`~~ -- STRUCK.
+            # D9 called it a dead branch and it was: every refusal
+            # `grant_all` can construct carries `granted=0`, so the
+            # conditional read as a live safeguard while only ever selecting
+            # `None`.  The first fix was to write that `None` down -- and
+            # pf-adversary measured, on THIS round's own branch, that doing
+            # so re-opened `wv0fpe` D2 from the other side.  `granted == 0`
+            # was standing in for "nothing is on disk", which is true only
+            # of a store whose door is one transaction and whose read-back
+            # is complete -- the assumption D6, three files up, has just
+            # finished removing.  A store that writes and under-reports
+            # gives a refusal with `granted=0` and the whole curriculum on
+            # disk, and a missing undo prints "anything it had in hand was
+            # dropped with it" over 137 live rows.
             #
-            # `test_no_refusal_this_command_can_produce_leaves_rows_behind`
-            # is the pin, and it is the pin that MATTERS: it enumerates
-            # `grant_all`'s refusals and fails if any of them ever comes back
-            # with `granted` non-zero.  A future round that gives this
-            # command a second, non-transactional writer therefore gets a red
-            # test naming this line, rather than a console that quietly
-            # starts lying again.
-            None,
+            # `door_was_called` is the fact this lane actually holds: the
+            # call either happened or it did not.  Every refusal AFTER it
+            # gets the always-`False` undo -- "the effect was KEPT" -- and
+            # only the refusals that return BEFORE the door (bad id, no
+            # door, unreadable row, empty curriculum) say the effect was
+            # dropped, which for them is true by construction.
+            (lambda: False) if result.door_was_called else None,
         )
     _note(session, EVENT_SKILL_ROWS_WRITTEN)
     return _skill_notice(

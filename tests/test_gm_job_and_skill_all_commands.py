@@ -1596,34 +1596,47 @@ class TheFixesOfRoundVe2zs4D6AndD9Tests(_Case):
         )
         self.assertIn("rolled its whole transaction back", result.detail)
 
-    def test_the_grant_door_still_signs_its_rollback_message(self):
-        # THE PIN THAT MAKES THE SIGNATURE A COUPLING AND NOT A GUESS.  This
-        # lane may not declare a shared exception class -- that would have to
-        # live in `store.py`, which is LANE-DB's zone -- so the coupling is
-        # to a string, and a string coupling that nothing watches is exactly
-        # how a lane ends up silently downgrading a refusal it still needs.
-        # Reading the door's own source means this case dies the moment
-        # LANE-DB rewords that `raise`, and the failure names this module.
-        import inspect
-
-        source = inspect.getsource(SQLiteStore.grant_gm_skills)
-        signature = skill_all_command.GRANT_DOOR_ROLLBACK_SIGNATURE
-        # NOT just "the string appears in the file": it has to appear in the
-        # text the `raise RuntimeError(` statement builds, or the pin passes
-        # while the message it stands for has moved.  The door raises
-        # `RuntimeError` exactly once.
-        raises = source.split("raise RuntimeError(")
-        self.assertEqual(
-            len(raises), 2,
-            "grant_gm_skills no longer raises RuntimeError exactly once; "
-            "skill_all_command.GRANT_DOOR_ROLLBACK_SIGNATURE has to be "
-            "re-derived from whatever it raises now",
+    def test_the_grant_door_really_signs_the_rollback_it_raises(self):
+        # THE PIN THAT MAKES THE SIGNATURE A COUPLING AND NOT A GUESS, and
+        # it is BEHAVIOURAL because the source-reading version of it was
+        # measured passing green while the coupling was broken (pf-adversary,
+        # this round, D-A): `inspect.getsource(...)` covers the whole method
+        # including its comments, so a signature moved into a trailing
+        # comment still "appeared", and `getsource` unwraps decorators, so a
+        # `functools.wraps` wrapper raising something else entirely read as
+        # signed.  This lane may not declare a shared exception class --
+        # that would have to live in `store.py`, LANE-DB's zone -- so the
+        # coupling is to a string, and the only honest way to pin a string
+        # is to make the door raise it.
+        old_db = self.tmp / "signature_probe_017.sqlite3"
+        stunted = self.tmp / "signature_probe_migrations"
+        stunted.mkdir()
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) <= 17:
+                (stunted / path.name).write_bytes(path.read_bytes())
+        store = SQLiteStore(old_db, stunted)
+        store.migrate()
+        account_id = store.ensure_account(self.GM_ACCOUNT)
+        character = store.create_character(
+            account_id, "SigProbe", "sigprobe", "fingerprint-sig-probe",
+            _build_wire, Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
         )
-        self.assertIn(
-            signature, raises[1],
+        with self.assertRaises(RuntimeError) as caught:
+            store.grant_gm_skills(character.id, [7, 9])
+        signature = skill_all_command.GRANT_DOOR_ROLLBACK_SIGNATURE
+        # `startswith`, matching what `grant_all` really compares -- the
+        # comparison and its pin cannot drift apart if they are the same one.
+        self.assertTrue(
+            str(caught.exception).startswith(signature),
             "grant_gm_skills' rollback message no longer opens with "
-            f"{signature!r}, so grant_all would report every one of its "
-            "rollbacks as the generic no_skill_could_be_granted",
+            f"{signature!r} (it raised {str(caught.exception)[:120]!r}), so "
+            "grant_all would report every one of its rollbacks as the "
+            "generic no_skill_could_be_granted",
+        )
+        # And the whole way through this lane's own door, on the same store.
+        result = skill_all_command.grant_all(store, character.id)
+        self.assertEqual(
+            result.refusal, skill_all_command.REFUSED_GRANT_ROLLED_BACK
         )
 
     # ---- D9: a dead undo branch ----------------------------------------
@@ -1638,29 +1651,20 @@ class TheFixesOfRoundVe2zs4D6AndD9Tests(_Case):
         # THIS is the pin, not the deleted line: a future round that gives
         # `/skill all` a second, non-transactional writer gets a red test
         # here, and has to put an undo back before its refusal can lie.
-        import re
-
-        source = (
-            ROOT / "src/pirateforce_foundation/gm/skill_all_command.py"
-        ).read_text(encoding="utf-8")
-        body = source.split("def grant_all(")[1].split("\ndef ")[0]
-        constructions = re.findall(
-            r"SkillGrant\(\s*(?:#[^\n]*\n\s*)*([^,]+),", body
-        )
-        self.assertTrue(constructions, "no SkillGrant construction found")
-        # Every construction whose first field is not the literal 0 has to be
-        # a SUCCESS (`refusal=None`); the two that are not literal zeros are
-        # checked by behaviour below rather than by reading.
-        for first in constructions:
-            with self.subTest(granted=first.strip()):
-                self.assertIn(
-                    first.strip(), {"0", "outstanding", "granted"},
-                    "a new SkillGrant field order or a new first-field "
-                    "expression: re-derive this case before trusting it",
-                )
-
-        # And the behaviour, which is what the console actually depends on.
-        # One case per reachable refusal, driven through the real function.
+        # ~~a regex over `grant_all`'s body~~ -- STRUCK before it shipped
+        # (pf-adversary, this round, D-F): the scan started at
+        # `def grant_all(` and so could not see `_unnamed_store_failure`,
+        # which is defined ABOVE it and constructs a refusal of its own.  A
+        # reading test that misses a construction site is worse than no
+        # reading test, because its comment claims it enumerates them.  The
+        # enumeration below drives the real function instead, and every case
+        # reads THE STORE rather than the number the store reported.
+        #
+        # THAT DISTINCTION IS THE FINDING (pf-adversary, this round, D-B):
+        # the first draft asserted `result.granted == 0` -- a number produced
+        # by the very store whose honesty is in question -- and stayed green
+        # when the fixture was changed to write 137 rows and report none.
+        # `FakeStore.skills` is the disk.
         class NoGrantDoor(FakeStore):
             grant_gm_skills = None
 
@@ -1683,35 +1687,116 @@ class TheFixesOfRoundVe2zs4D6AndD9Tests(_Case):
             def grant_gm_skills(self, character_id, skill_ids):
                 raise KeyError(character_id)
 
+        class WritesButUnderReportsStore(FakeStore):
+            """The store D-C and D-E were both measured on.
+
+            It WRITES every id and then reports a read-back that carries
+            none of them -- the shape `grant_all` may not assume away,
+            because `store` is annotated `object` on purpose.
+            """
+
+            def grant_gm_skills(self, character_id, skill_ids):
+                self.grants.append((character_id, tuple(skill_ids)))
+                for skill_id in skill_ids:
+                    if skill_id not in self.skills:
+                        self.skills.append(skill_id)
+                return ()
+
+        # (name, store, character_id, rows this refusal may leave behind)
         refusals = [
-            ("bad character id", FakeStore(), 0),
-            ("no grant door", NoGrantDoor(), 1),
-            ("unreadable before", UnreadableStore(), 1),
-            ("row missing", MissingRowStore(), 1),
-            ("door raised KeyError", KeyErrorStore(), 1),
-            ("door rolled back", RaisingStore(), 1),
-            ("door wrote nothing", SilentStore(), 1),
+            ("bad character id", FakeStore(), 0, False),
+            ("no grant door", NoGrantDoor(), 1, False),
+            ("unreadable before", UnreadableStore(), 1, False),
+            ("row missing", MissingRowStore(), 1, False),
+            ("door raised KeyError", KeyErrorStore(), 1, True),
+            ("door rolled back", RaisingStore(), 1, True),
+            ("door wrote nothing", SilentStore(), 1, True),
+            ("door wrote and under-reported", WritesButUnderReportsStore(),
+             1, True),
         ]
-        for name, store, character_id in refusals:
+        for name, store, character_id, after_the_door in refusals:
             with self.subTest(refusal=name):
                 result = skill_all_command.grant_all(store, character_id)
                 self.assertFalse(
                     result.ok, f"{name} was expected to refuse"
                 )
+                # THE DISK, not the store's own count.
+                if not after_the_door:
+                    self.assertEqual(
+                        store.skills, [],
+                        f"the {name} refusal returns BEFORE the grant door "
+                        "and must not be able to leave a row behind",
+                    )
+                # AND THE SIGNAL THE CONSOLE READS.  `door_was_called` is
+                # what `_skill_action` attaches its 'the effect was KEPT'
+                # undo to; a refusal that reached the door must carry it
+                # even when nothing was written, because this module cannot
+                # tell those two apart from outside the store.
                 self.assertEqual(
-                    result.granted, 0,
-                    f"the {name} refusal reports granted={result.granted}; "
-                    "a refusal that wrote rows needs an undo back in "
-                    "chat_command_action._skill_action or the console will "
-                    "say the rows were dropped",
+                    result.door_was_called, after_the_door,
+                    f"the {name} refusal reports door_was_called="
+                    f"{result.door_was_called}; the console sentence about "
+                    "whether the effect was kept is chosen from this field",
                 )
+                # Rows on disk and a refusal that says the effect was
+                # dropped is the pair that must never occur.
+                if store.skills:
+                    self.assertTrue(
+                        result.door_was_called,
+                        f"the {name} refusal left {len(store.skills)} row(s) "
+                        "on disk while telling the dispatcher no undo was "
+                        "needed; the console will say they were dropped",
+                    )
 
-    def test_a_refused_skill_all_tells_the_operator_nothing_was_kept(self):
-        # THE CONSOLE HALF, end to end through the dispatcher: a refusal now
-        # carries no undo, and `_make_action` reads the absence of one as
-        # "anything it had in hand was dropped with it" -- which is the TRUE
-        # sentence for a transaction that rolled back, and was the false one
-        # only while the loop existed.
+    def test_a_door_that_under_reports_cannot_print_a_clean_success_line(
+        self,
+    ):
+        # D-E, measured by pf-adversary on this round's own branch and the
+        # nastiest of the three because it printed a SUCCESS.  The old guard
+        # was `granted == 0 and already == 0`, so a character already holding
+        # ONE curriculum id slipped past it: a door that wrote the whole
+        # curriculum and returned a read-back carrying none of it produced
+        # `granted=0 already=1 ... (no new rows this run)` with 137 rows on
+        # disk -- and with `counts_are_complete=True`, so the line carried no
+        # `granted_from=door_contract` warning either.  That number is the
+        # one the owner's `HEADLESS_PROOF:` block greps.
+        first = class_skill_curriculum.CURRICULUM_SKILL_IDS[0]
+
+        class UnderReportingStore(FakeStore):
+            def grant_gm_skills(self, character_id, skill_ids):
+                self.grants.append((character_id, tuple(skill_ids)))
+                for skill_id in skill_ids:
+                    if skill_id not in self.skills:
+                        self.skills.append(skill_id)
+                return (first,)
+
+        store = UnderReportingStore()
+        store.skills = [first]          # the character already holds one
+        result = skill_all_command.grant_all(store, 1)
+
+        # It really did write, which is what makes the old success a lie.
+        self.assertEqual(
+            len(store.skills), class_skill_curriculum.SKILL_COUNT
+        )
+        # And it is now a refusal that names the contradiction.
+        self.assertFalse(result.ok)
+        self.assertEqual(
+            result.refusal, skill_all_command.REFUSED_NOTHING_GRANTED
+        )
+        self.assertIn("without every id it was handed", result.detail)
+        self.assertTrue(result.door_was_called)
+        line = skill_all_command.console_line(result, 1)
+        self.assertIn("REFUSED", line)
+        self.assertNotIn("no new rows this run", line)
+
+    def test_a_rolled_back_grant_still_reaches_the_console_as_a_refusal(self):
+        # THE CONSOLE HALF, end to end through the dispatcher rather than
+        # through `grant_all` alone: the rollback refusal keeps its own named
+        # reason all the way to stderr and to the audit row.  It carries
+        # `door_was_called`, so if the audit row ever fails to write, the
+        # dispatcher says the effect was KEPT rather than dropped -- the
+        # conservative half of D-C, chosen because this module cannot see
+        # inside the store to know which is true.
         session = FakeSession()
         self.store_of(session).grant_raises = RuntimeError(
             "grant_gm_skills: 137 of 137 id(s) did not reach character_skills"
@@ -1734,6 +1819,142 @@ class TheFixesOfRoundVe2zs4D6AndD9Tests(_Case):
                 + skill_all_command.REFUSED_GRANT_ROLLED_BACK
             ],
         )
+
+
+class TwoConnectionsOnOneListenerTests(_Case):
+    """`CORE-REQUEST-GM-058` preparation, asked for by chief R405 BY NAME.
+
+    His letter (`pf_bridge/notes_to_chief/20260908_1843_FROM_CHIEF_R405-to-
+    LANE-GM-core-request-gm-058-accepted-and-where-it-sits.md`) accepts the
+    request, puts it behind `CORE-REQUEST 1553` and R4 in his own queue, and
+    then asks this lane for one thing it can do without him: "two connections
+    on one listener, different accounts, in one boot -- the one not in
+    `gm_accounts` is refused, the other still works", written so that the
+    round he wires `runtime.py` can FLIP it into a test of the new behaviour
+    in a single commit.
+
+    IT CANNOT BE A RED OR XFAIL TEST -- `NOW.md 20260908_2050` forbids skip,
+    xfail and allowlist alike -- so, exactly as his letter instructs, these
+    cases measure THE CURRENT STATE truthfully and their names say which of
+    them is measuring a hole.
+
+    NOTHING HERE IS A CLAIM ABOUT THE RUNTIME.  These are this lane's own
+    doors driven twice in one boot (one `gm_accounts.json`, one audit log).
+    The third case is the one that reaches outside, and it reaches into the
+    SHIPPED `v141` source rather than into a docstring about it.
+    """
+
+    OTHER_ACCOUNT = "RANDOM_PLAYER"
+
+    def test_two_connections_with_their_own_accounts_are_told_apart(self):
+        # THE HALF THAT ALREADY HOLDS, and the half chief's flip must not
+        # break.  Both connections share this boot's `gm_accounts.json` and
+        # this boot's audit log; only the token differs.
+        gm = FakeSession(token=self.GM_ACCOUNT)
+        player = FakeSession(token=self.OTHER_ACCOUNT)
+
+        self.assertIsNotNone(self.act(gm, "/job 16"))
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        self.assertIsNone(self.act(player, "/job 32"))
+
+        # The GM's row was written and the player's was not -- two separate
+        # stores, so this cannot pass by both of them being empty.
+        self.assertEqual(self.store_of(gm).stored.get("class_id"), 16)
+        self.assertEqual(self.store_of(player).writes, [])
+        self.assertEqual(self.store_of(player).stored, {})
+
+        # And the shared audit log carries the GM's line ONLY, under the
+        # GM's own account.
+        self.assertEqual(
+            {r["account"] for r in self.log_records()}, {self.GM_ACCOUNT}
+        )
+
+    def test_measures_the_hole_a_second_connection_inheriting_the_gm_token(
+        self,
+    ):
+        # THIS CASE MEASURES A HOLE.  IT IS GREEN, AND GREEN IS THE DEFECT.
+        #
+        # `v141.game_listener` takes ONE `token` for the whole listener and
+        # builds every accepted connection's `GameSessionState` from it (the
+        # case below reads that out of the shipped file), so on a boot whose
+        # `--token` is a GM account name, a SECOND human connecting to that
+        # port is handed `GM_ONE` -- and this lane's gate has nothing else to
+        # read.  `gm/chat_command.py`'s own sentence is the honest one: a GM
+        # command is as private as the listener's token.
+        #
+        # What this case pins is the SIZE of the hole, so the flip has a
+        # before-number to beat: the second connection gets the FULL effect
+        # on ITS OWN character, and the audit attributes the line to the GM.
+        gm = FakeSession(token=self.GM_ACCOUNT)
+        stowaway = FakeSession(token=self.GM_ACCOUNT)
+        self.assertIsNot(self.store_of(gm), self.store_of(stowaway))
+
+        self.assertIsNotNone(self.act(gm, "/job 16"))
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        self.assertIsNotNone(self.act(stowaway, "/skill all"))
+
+        # THE HOLE, in numbers rather than in a sentence.
+        self.assertEqual(
+            len(self.store_of(stowaway).skills),
+            class_skill_curriculum.SKILL_COUNT,
+            "the second connection did not get the whole curriculum; "
+            "re-measure this case before trusting the flip that closes it",
+        )
+        # ... and the audit cannot say who really typed it.
+        self.assertEqual(
+            {r["account"] for r in self.log_records()}, {self.GM_ACCOUNT}
+        )
+        # WHEN CHIEF'S WIRING LANDS, this case is the one to flip: the
+        # `/skill all` above becomes `assertIsNone`, the store stays empty,
+        # and the audit carries the stowaway's real account.  The assertions
+        # are written one per fact so that flip is a small diff.
+
+    def test_the_legacy_listener_hands_every_connection_the_same_token(self):
+        # THE CLAIM THE CASE ABOVE RESTS ON, READ OUT OF THE SHIPPED FILE
+        # rather than out of a comment about it -- the discipline
+        # `COMMON_LANE_ROUND` states as "WIRED = observed, not named".  This
+        # dies the moment `v141` grows a per-connection token, which is
+        # exactly when the case above stops measuring a hole.
+        import re
+
+        source = (ROOT / "current/pf_login_game_server_v141.py").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        listener = re.search(
+            r"\ndef game_listener\((?P<args>[^)]*)\)(?P<body>.*?)(?=\ndef )",
+            source,
+            re.S,
+        )
+        self.assertIsNotNone(
+            listener, "v141 no longer defines game_listener at module level"
+        )
+        # ONE token, and it is a parameter of the LISTENER, not of a
+        # connection.
+        self.assertIn("token: str", listener.group("args"))
+        # ... and the per-connection state is built from that same name.
+        self.assertIn("GameSessionState(token)", listener.group("body"))
+        # Nothing in the accept loop reads a token off the connection.
+        self.assertNotIn("token=", listener.group("body"))
+
+    def test_the_gm_allowlist_reads_the_session_token_and_nothing_else(self):
+        # THE OTHER END OF THE SAME WIRE, and the reason the hole is this
+        # lane's to report rather than this lane's to close: the gate has one
+        # input, and it is the value `v141` shares across the listener.  A
+        # second gate is forbidden (`PANYA-ORDER` section 3 item 1), so this
+        # lane may not "fix" it locally -- the fix is chief's, in the place
+        # the token is minted.
+        for token, expected in (
+            (self.GM_ACCOUNT, None),
+            (self.OTHER_ACCOUNT, chat_command.REFUSAL_NOT_GM),
+        ):
+            with self.subTest(token=token):
+                outcome = chat_command.handle_local_talk_chat(
+                    token,
+                    make_chat_payload("/job 16"),
+                    config_path=str(self.config_path),
+                    log_path=str(self.log_path),
+                )
+                self.assertEqual(outcome.refusal_reason, expected)
 
 
 if __name__ == "__main__":

@@ -154,9 +154,24 @@ REFUSED_GRANT_ROLLED_BACK = "grant_transaction_rolled_back"
 #: with its own name, so the message IS the evidence, and a `RuntimeError`
 #: that does not carry it falls through to the generic branch, which names
 #: the exception TYPE instead of guessing a cause.
-#: THE COUPLING IS PINNED, not assumed: `test_the_grant_door_still_signs_its_
-#: rollback_message` reads `SQLiteStore.grant_gm_skills`'s own source and
-#: fails the moment this string stops being raised there -- the cheap
+#: MATCHED AS A PREFIX, NOT AS A SUBSTRING, and that choice is measured
+#: rather than tidy (pf-adversary, this round, D-D).  `in` accepts a WRAPPER
+#: store's message that merely mentions the method it was calling -- the
+#: commonplace `f"{fn.__name__}: {error}"` annotation -- and
+#: `"connection pool exhausted while calling grant_gm_skills: giving up"`
+#: would have been reported as a rolled-back grant, which is the exact
+#: damage D6 exists to stop, only narrower.  `startswith` errs the other
+#: way: a wrapper that PREFIXES the door's message loses the specific
+#: reason and gets the generic one, which names the exception type and
+#: sends the operator nowhere false.  Of the two mistakes only one lies to
+#: her, so the comparison leans away from it.
+#: THE COUPLING IS PINNED BY BEHAVIOUR, not by reading source
+#: (pf-adversary, this round, D-A, which measured the source-reading
+#: version passing green with the signature moved into a trailing comment,
+#: and passing again through a `functools.wraps` decorator whose runtime
+#: message carried nothing of the kind).  `test_the_grant_door_really_signs_
+#: the_rollback_it_raises` opens a database stopped at migration 017, calls
+#: the real door, and reads the message it really raised -- the cheap
 #: version of a shared exception class, which would have to be declared in
 #: `store.py` and that file is LANE-DB's zone, not this lane's.
 GRANT_DOOR_ROLLBACK_SIGNATURE = "grant_gm_skills:"
@@ -242,6 +257,28 @@ class SkillGrant:
     counts_are_complete: bool
     refusal: str | None
     detail: str
+    #: WAS `store.grant_gm_skills` ACTUALLY ENTERED?  The one thing this
+    #: module KNOWS about whether rows may be on disk, as opposed to the
+    #: thing it used to assume (pf-adversary, this round, D-C).
+    #:
+    #: `granted == 0` was standing in for "nothing was written", and that
+    #: substitution only holds for a store whose door is one transaction AND
+    #: whose read-back reports every row it wrote -- i.e. for `SQLiteStore`,
+    #: the very assumption D6 has just finished removing from the branch
+    #: above.  A store that writes and then under-reports gives
+    #: `granted == 0` with the whole curriculum on disk, and the dispatcher,
+    #: reading no undo, told the operator "anything it had in hand was
+    #: dropped with it".  That is `wv0fpe` D2 come back.
+    #:
+    #: This field asks a question with an answer instead: the call either
+    #: happened or it did not.  `chat_command_action._skill_action` attaches
+    #: its always-`False` undo -- which reaches the console as "the effect
+    #: was KEPT" -- to every outcome where it did, because a refusal that
+    #: MIGHT have left rows must not be announced as one that left none.
+    #: Defaulted so the refusals that return before the call keep reading as
+    #: five positional arguments, the shape that broke twice already
+    #: (`nkb608` D-A, `nboppe` D1).
+    door_was_called: bool = False
 
     @property
     def ok(self) -> bool:
@@ -308,6 +345,8 @@ def _unnamed_store_failure(
     return SkillGrant(
         0, already, outstanding, True, REFUSED_NOTHING_GRANTED,
         f"{type(error).__name__}: {error}",
+        # THE DOOR WAS ENTERED, so this module cannot say the row is clean.
+        door_was_called=True,
     )
 
 
@@ -449,6 +488,7 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
             0, already, outstanding, True, REFUSED_ROW_MISSING,
             f"character {character_id} has no live row to grant against; "
             "nothing was written",
+            door_was_called=True,
         )
     except RuntimeError as error:
         # THE MIGRATION THE DOOR NAMES ITSELF.  `INSERT OR IGNORE` swallows a
@@ -481,11 +521,12 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
         # Re-raising rather than duplicating that handler's body keeps ONE
         # place where an unrecognised store exception is turned into a
         # sentence, which is what stopped these two branches drifting apart.
-        if GRANT_DOOR_ROLLBACK_SIGNATURE not in str(error):
+        if not str(error).startswith(GRANT_DOOR_ROLLBACK_SIGNATURE):
             return _unnamed_store_failure(error, already, outstanding)
         return SkillGrant(
             0, already, outstanding, True, REFUSED_GRANT_ROLLED_BACK,
             f"the grant door rolled its whole transaction back: {error}",
+            door_was_called=True,
         )
     except Exception as error:  # noqa: BLE001 -- named, never escaping
         # `WriteLockTimeout`, a `TypeError`/`ValueError` from a door whose
@@ -509,6 +550,7 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
         return SkillGrant(
             outstanding, already, 0, False, None,
             f"{outstanding} granted, {already} already held",
+            door_was_called=True,
         )
     # SCOPED TO WHAT THIS COMMAND ASKED FOR.  The door returns the WHOLE
     # row, curriculum ids and anything else the character holds alike, so
@@ -518,20 +560,40 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
     # this command caused -- every id it handed over is in `wanted` -- and
     # it keeps the number to the one question the line is asked.
     granted = len((after - before) & wanted)
-    if granted == 0 and already == 0:
-        # The door returned without raising and the row still holds none of
-        # the curriculum.  A real `grant_gm_skills` cannot reach this (its
-        # read-back raises instead), which is exactly why it is checked: a
-        # store that answers this way is not writing, and the operator has
-        # to read that rather than a clean-looking `granted=0`.
+    short = wanted - after
+    if short:
+        # THE DOOR CONTRADICTED ITS OWN CONTRACT, and that is checkable
+        # without assuming anything about how the store is built.
+        # ~~"granted == 0 and already == 0 ... a store that answers this way
+        # is not writing"~~ -- STRUCK (pf-adversary, this round, D-E), which
+        # measured both halves wrong.  It is not a claim this module can
+        # make (the store may have written and under-reported), and the
+        # condition MISSED the case that matters: a character already
+        # holding one curriculum id gives `already == 1`, so a door that
+        # wrote 137 rows and returned a set missing all of them sailed
+        # through as a SUCCESS printing `granted=0 ... (no new rows this
+        # run)` -- the exact number the owner's `HEADLESS_PROOF:` block
+        # greps, with `counts_are_complete=True` promising it was measured.
+        #
+        # What IS this module's to check is the contract `grant_gm_skills`
+        # states in its own docstring: it returns EVERY distinct skill id
+        # now on the row.  So an id handed in and missing from the return is
+        # the door disagreeing with itself, whatever the reason, and the
+        # honest answer is a refusal that says which -- not a count derived
+        # from a return value already known to be wrong.  `door_was_called`
+        # rides along so the dispatcher does not tell the operator the rows
+        # were dropped: this branch is precisely the one where nobody knows.
         return SkillGrant(
-            0, 0, outstanding, True, REFUSED_NOTHING_GRANTED,
-            "the grant door returned, but not one curriculum skill is on "
-            "the row",
+            0, already, len(short), True, REFUSED_NOTHING_GRANTED,
+            f"the grant door returned without every id it was handed: "
+            f"{len(short)} of {len(wanted)} are absent from its own "
+            f"read-back (first missing: {min(short)})",
+            door_was_called=True,
         )
     return SkillGrant(
         granted, already, 0, True, None,
         f"{granted} granted, {already} already held",
+        door_was_called=True,
     )
 
 
