@@ -137,14 +137,16 @@ SKILL_LIST_TRAILING_BYTE = 0
 #: serializer, not a policy.
 WIRE_MAX_RECORDS = 0xFFFF
 
-#: The largest record count any real client has been OBSERVED to accept:
-#: GT-249's ``COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0``, four records.  Above this
-#: nothing has ever been measured, so the login path refuses by name instead
-#: of guessing that a bigger frame is fine.  Raising this is an attended
-#: result's job, not a future round's convenience -- a character who has
-#: learned a fifth skill must produce a NAMED refusal in the log, which is a
-#: bug report, and never a silently truncated skill window.
-OBSERVED_ACCEPTED_RECORD_COUNT = 4
+#: PANYA `2220` / COO-DECISION `20260909_1312` (LANE-CS): this module used to
+#: refuse any record count above four -- GT-249's largest OBSERVED accepted
+#: frame -- because nothing above that had ever been measured.  The owner's
+#: order retires that whole shape of self-imposed ceiling: an unmeasured case
+#: is not a reason to refuse, it is a reason to SEND and record what comes
+#: back.  A fifth-plus skill row now goes out exactly like the first four; if
+#: a real client cannot render it, that is a negative result to write down
+#: (see this module's headless token and the round file that shipped this
+#: change), never grounds to reinstate a constant here.  Only the wire's own
+#: u16 record-count field still refuses anything -- see ``WIRE_MAX_RECORDS``.
 
 #: Refusal reasons.  Every one names the row or the wire, never the caller.
 REFUSE_CHARACTER_ID_NOT_AN_INT = "character_id_is_not_an_int"
@@ -154,7 +156,6 @@ REFUSE_SKILL_ID_NOT_AN_INT = "skill_id_is_not_an_int"
 REFUSE_SKILL_ID_OUTSIDE_U32 = "skill_id_is_outside_the_u32_wire_field"
 REFUSE_DUPLICATE_SKILL_ID = "skill_ids_are_not_distinct"
 REFUSE_TOO_MANY_FOR_THE_WIRE = "record_count_is_outside_the_u16_wire_field"
-REFUSE_TOO_MANY_UNMEASURED = "record_count_is_above_any_observed_acceptance"
 #: pf-adversary D5 (round `jqeid1`): `path.is_file()` waves a zero-byte file
 #: through, and `sqlite3.connect` then CREATES a database in it -- while the
 #: refusal string beside it says this command never creates one.  A separate
@@ -268,8 +269,12 @@ def skill_list_records(
     u32 field, a repeated id (``character_skills`` carries
     ``UNIQUE(character_id, skill_id)``, so a duplicate reaching here means the
     caller assembled the list itself and this module is being used as a
-    general composer it is not), a count above the u16 wire field, and a count
-    above anything a client has been observed to accept.
+    general composer it is not), and a count above the u16 wire field --
+    the physical limit of the record-count field, and the only one this
+    module still enforces (PANYA `2220` / COO-DECISION `20260909_1312`: a
+    record count above anything previously OBSERVED is no longer refused
+    here; it is sent, and what the client does with it is recorded, not
+    guessed at in advance).
     """
     if isinstance(skill_ids, (str, bytes)) or not isinstance(
         skill_ids, (list, tuple)
@@ -302,14 +307,6 @@ def skill_list_records(
             REFUSE_TOO_MANY_FOR_THE_WIRE,
             "%d records do not fit the u16 count field (max %d)"
             % (len(checked), WIRE_MAX_RECORDS),
-        )
-    if len(checked) > OBSERVED_ACCEPTED_RECORD_COUNT:
-        raise SkillListAtLoginError(
-            REFUSE_TOO_MANY_UNMEASURED,
-            "%d records is above the largest count any client has been "
-            "observed to accept (%d, GT-249); raising this needs an attended "
-            "result, not a bigger constant"
-            % (len(checked), OBSERVED_ACCEPTED_RECORD_COUNT),
         )
     return tuple(
         LearnSkillResultRecord(
@@ -582,12 +579,12 @@ def describe_skill_list(skill_ids: "tuple[int, ...] | list[int]") -> tuple[str, 
     carrier = seam_carrier()
     lines.append(
         "SKILL_LIST_AT_LOGIN_SUMMARY records=%d trailing=%d "
-        "observed_cap=%d callers_in_src=%d sent_by=%s production_allowed=%s "
+        "wire_max=%d callers_in_src=%d sent_by=%s production_allowed=%s "
         "RESULT=%s"
         % (
             len(records),
             SKILL_LIST_TRAILING_BYTE,
-            OBSERVED_ACCEPTED_RECORD_COUNT,
+            WIRE_MAX_RECORDS,
             callers_in_src(),
             carrier,
             production_allowed,
