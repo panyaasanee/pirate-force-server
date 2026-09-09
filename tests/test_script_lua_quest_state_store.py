@@ -19,6 +19,7 @@ import unittest
 
 from pirateforce_foundation.lua_api import quest
 from pirateforce_foundation.lua_api import quest_state_store as qss
+from pirateforce_foundation.lua_api import quest_state_signal as qs_signal
 
 
 class _FlagRow(object):
@@ -293,19 +294,31 @@ class RefusalsAreOursNotTheScriptsTests(unittest.TestCase):
     def test_the_default_context_character_never_reaches_the_store(self):
         """``quest.DEFAULT_CONTEXT`` is character 0 and real ids start at 1."""
         self.assertEqual(quest.DEFAULT_CONTEXT.character_id, 0)
-        self.assertIsNone(self.adapter.get_quest_flag(0, 0))
+        # SAYS "refused", NOT "never set".  Until round `7cf5ak` these two
+        # answers were `None` and a bare 0, i.e. exactly what a healthy
+        # store says about a quest nobody has started -- which is how a
+        # refused write came back out of `Quest.CanReportDailyQuest()` as
+        # "you may report again".  Numerically nothing moved (both still
+        # equal 0 / read as no progress); what is new is that the answer
+        # can be told apart.
+        denied = self.adapter.get_quest_flag(0, 0)
+        self.assertTrue(qs_signal.is_refused(denied))
+        self.assertEqual(qs_signal.reason_of(denied), "no-character")
         self.assertEqual(self.adapter.set_quest_flag(0, 0, 2), qss.REFUSED_VALUE)
         self.assertEqual(self.store.calls, [])
         self.assertTrue(any("no-character" in line for line in self.log))
 
     def test_an_unknown_character_is_refused_and_logged_not_raised(self):
-        self.assertIsNone(self.adapter.get_quest_flag(9999, 33))
+        denied = self.adapter.get_quest_flag(9999, 33)
+        self.assertTrue(qs_signal.is_refused(denied))
+        self.assertEqual(int(denied), 0)
         self.assertEqual(self.adapter.set_quest_flag(9999, 33, 2), qss.REFUSED_VALUE)
         self.assertTrue(any("no-such-character" in line for line in self.log))
         self.assertTrue(all(qss.REFUSED_TOKEN in line for line in self.log))
 
     def test_a_quest_id_outside_u16_is_refused_by_name(self):
-        self.assertIsNone(self.adapter.get_quest_flag(1, 0x1FFFF))
+        self.assertTrue(qs_signal.is_refused(
+            self.adapter.get_quest_flag(1, 0x1FFFF)))
         self.assertTrue(any("out-of-range" in line for line in self.log))
 
     def test_a_write_lock_timeout_is_refused_not_re_raised(self):
@@ -321,7 +334,7 @@ class RefusalsAreOursNotTheScriptsTests(unittest.TestCase):
 
     def test_a_row_of_an_unrecognized_shape_is_refused_not_guessed(self):
         self.store.get_quest_flag = lambda *a: object()
-        self.assertIsNone(self.adapter.get_quest_flag(1, 33))
+        self.assertTrue(qs_signal.is_refused(self.adapter.get_quest_flag(1, 33)))
         self.assertTrue(any("unreadable-row" in line for line in self.log))
 
     def test_a_boolean_is_not_accepted_as_a_flag_value(self):
@@ -329,7 +342,7 @@ class RefusalsAreOursNotTheScriptsTests(unittest.TestCase):
             flag_value = True
 
         self.store.get_quest_flag = lambda *a: _Boolish()
-        self.assertIsNone(self.adapter.get_quest_flag(1, 33))
+        self.assertTrue(qs_signal.is_refused(self.adapter.get_quest_flag(1, 33)))
         self.assertTrue(any("unreadable-row" in line for line in self.log))
 
     def test_a_door_that_answers_none_to_a_write_has_not_honoured_the_contract(self):
@@ -377,7 +390,7 @@ class RefusalsAreOursNotTheScriptsTests(unittest.TestCase):
 
     def test_a_store_backed_adapter_without_a_log_still_refuses_quietly(self):
         adapter = qss.StoreBackedQuestStateStore(self.store)
-        self.assertIsNone(adapter.get_quest_flag(9999, 33))
+        self.assertTrue(qs_signal.is_refused(adapter.get_quest_flag(9999, 33)))
         self.assertEqual(adapter.set_quest_flag(9999, 33, 2), qss.REFUSED_VALUE)
 
 
@@ -435,10 +448,6 @@ class SubstitutableAtTheSeamTests(unittest.TestCase):
         first["SetFlag"](2)
         second, _ = self._namespace(quest.InMemoryQuestStateStore())
         self.assertEqual(second["GetQuestFlag"](33), quest.STUB_DEFAULT)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class AtomicIncrementTests(unittest.TestCase):
@@ -732,3 +741,7 @@ class DispatchChoosesTheStoreOutLoudTests(unittest.TestCase):
         log = []
         self.dispatch.resolve_quest_state_store(FakeQuestStateDoors(), log.append)
         self.assertIn("durable=True", log[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

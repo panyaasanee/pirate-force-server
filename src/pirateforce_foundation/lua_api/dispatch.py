@@ -60,10 +60,19 @@ def resolve_quest_state_store(persistence, log=None):
 
     THIS FUNCTION IS THE ONE-LINE SWAP COO-DECISION 2026-09-08T16:42
     ASKED FOR.  The lane was told to build its half against the contract
-    while LANE-DB's rows are still not on ``main`` (measured again this
-    round: ``grep -n "def set_quest_flag" store.py`` -> 0 hits), so that
-    "the real one arrives" is a change at ONE call site rather than a
-    hunt.  This is that call site.
+    so that "the real one arrives" is a change at ONE call site rather
+    than a hunt.  This is that call site.
+
+    LANE-DB's doors ARE on ``main`` as of 2026-09-08 (``store.py``
+    ``get_quest_flag``/``set_quest_flag``/``get_quest_counter``/
+    ``set_quest_counter``/``increment_quest_counter``, plus
+    ``migrations/019_character_quest_state.sql``); an earlier version of
+    this docstring said they were absent and was left standing after they
+    landed (pf-adversary, round ``7cf5ak``, A8).  What is still absent is
+    a PRODUCTION CALLER: nothing in ``runtime.py``/``app.py`` hands a
+    store to ``load_quest_script(persistence=...)``, so quest progress on
+    a running server is still volatile and ``LUA_QUEST_STATE_VOLATILE``
+    still tells the truth.
 
     NEITHER OUTCOME IS SILENT, and that is the whole asymmetry this
     function removes: a server that persists says so once per dispatch,
