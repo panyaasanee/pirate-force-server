@@ -60,6 +60,8 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -72,41 +74,55 @@ from pirateforce_foundation.gm import login_scene_stage  # noqa: E402
 A = login_scene_admission
 
 
-def the_only_sanctioned_scene():
-    """The id the sanction map names, taken from the map itself, or `None`.
+# ~~`the_only_sanctioned_scene()`, read from the map at IMPORT, plus a
+# class-level `skipIf` for the day the map went empty.~~  The map DID go
+# empty -- scene 126's row was retired in LANE-GM round `xbfcsi` on the
+# order of `COO-DECISION 20260908_2141` -- and the scheduled skip came due:
+# it turned all 25 cases in this file into skips in one commit.  Twenty-five
+# skips is not a smaller version of a passing file, it is the file not
+# running, and `2050` bans skips outright.
+#
+# So the dependency is inverted.  The rules this file pins (the single-use
+# widening admits ONCE, on the pair sanction+blocker; the standalone map
+# never widens; the refusal names the rule that refused; the undo believes
+# the same rule) are properties of the MODULE, not of whichever scene a
+# chief letter happens to name this week.  Each class therefore STANDS A
+# SANCTION UP for the duration of its own tests, through
+# `install_a_sanction` below, and the cases keep running on a tree where no
+# letter names any scene at all.
+#
+# What is lost by not reading the shipped map, said out loud: this file no
+# longer notices a NEW letter arriving.  That was never its job --
+# `test_the_map_is_exactly_the_letters_this_lane_holds` in
+# `tests/test_gm_login_scene_sanctioned_barred.py` is the tripwire in both
+# directions, and it reads the real map.
+SANCTIONED = 126
+# The citation the retired row carried; only ever a console string.
+SANCTION_CITATION = "CHIEF-DECISION 20260829_1603 item 2"
 
-    Not the literal 126: the map is where the chief letters are recorded,
-    and a test that hardcodes its contents stops testing the rule the day a
-    second letter lands.
 
-    IT RETURNS `None` RATHER THAN RAISING `SkipTest`, and the difference is
-    not style (pf-adversary D8, round `znb56z`).  This runs at IMPORT, and
-    `login_scene_admission`'s own "HOW AN ENTRY DIES" block MANDATES
-    emptying the sanction map the day its scene becomes ordinarily
-    reachable -- so an import-time skip here is scheduled, not
-    hypothetical.  MEASURED with the map emptied: it turned
-    `test_gm_tests_collect_without_posix`'s import probe RED, for a reason
-    that has nothing to do with POSIX, and it is not the kind of skip
-    `docs/PYTEST_SKIP_PINS.json` can carry (that file requires a positive
-    count, i.e. a skip that actually happens, and this one does not happen
-    today).  A class-level `skipIf` costs nothing, keeps the module
-    importable on every tree, and declares the condition where a reader
-    looking at the class can see it.
+def install_a_sanction(test, *, scene_id=SANCTIONED, citation=SANCTION_CITATION):
+    """Name one scene in the sanction map for one test, then unname it.
+
+    `MappingProxyType` so the stand-in refuses item assignment exactly like
+    the shipped map: a case that mutated it would otherwise pass here and
+    fail against the real object.
     """
-    ids = sorted(A.SANCTIONED_BARRED_SCENES)
-    return ids[0] if ids else None
+    patcher = mock.patch.object(
+        A,
+        "SANCTIONED_BARRED_SCENES",
+        MappingProxyType({scene_id: citation}),
+    )
+    patcher.start()
+    test.addCleanup(patcher.stop)
 
 
-SANCTIONED = the_only_sanctioned_scene()
+class _SanctionInstalled:
+    """Mixin: every class in this file asks about a sanctioned scene."""
 
-# Every test below asks about a sanctioned scene, so all of them are moot
-# when no chief letter names one.  Applied per class rather than by raising
-# at import: see `the_only_sanctioned_scene`.
-requires_a_sanctioned_scene = unittest.skipIf(
-    SANCTIONED is None,
-    "no scene is sanctioned by any chief letter this lane holds, so the "
-    "single-use widening has nothing to admit and nothing to refuse",
-)
+    def setUp(self):
+        install_a_sanction(self)
+        super().setUp()
 
 
 # The arrival point `CHIEF-DECISION 20260829_1603` item 1 asks lane A to pin
@@ -161,8 +177,7 @@ def registry_with_sanctioned_row(*, login_entry_allowed=False, spawn=True):
     return world_scene_travel.SceneRegistry(destinations=kept + (row,))
 
 
-@requires_a_sanctioned_scene
-class TheSanctionNowAdmitsViaSingleUseOnlyTests(unittest.TestCase):
+class TheSanctionNowAdmitsViaSingleUseOnlyTests(_SanctionInstalled, unittest.TestCase):
     """The state of the route as measured, not as hoped.
 
     RENAMED from `TheSanctionAdmitsNothingOnMainTodayTests` in round
@@ -201,8 +216,7 @@ class TheSanctionNowAdmitsViaSingleUseOnlyTests(unittest.TestCase):
         )
 
 
-@requires_a_sanctioned_scene
-class OnlyTheBlockerTheBypassFixesTests(unittest.TestCase):
+class OnlyTheBlockerTheBypassFixesTests(_SanctionInstalled, unittest.TestCase):
     """A sanction is a letter saying a destination is wanted, not a route."""
 
     def test_the_login_bar_alone_is_admitted(self):
@@ -324,8 +338,7 @@ class _ConfigCase(unittest.TestCase):
         )
 
 
-@requires_a_sanctioned_scene
-class TheStandaloneMapNeverWidensTests(_ConfigCase):
+class TheStandaloneMapNeverWidensTests(_SanctionInstalled, _ConfigCase):
     """Property 1: the map that is never spent never gets the wide rule.
 
     THE FAILURE THIS PREVENTS, spelled out because it is the reason the
@@ -420,8 +433,7 @@ class TheStandaloneMapNeverWidensTests(_ConfigCase):
             )
 
 
-@requires_a_sanctioned_scene
-class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
+class TheRefusalCarriesTheRuleThatRefusedTests(_SanctionInstalled, _ConfigCase):
     """A refusal says which rule it came from, so the remedy is right.
 
     `_refusal_cause` asks "would the DISK have taken this row" to tell
@@ -536,8 +548,7 @@ class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
         )
 
 
-@requires_a_sanctioned_scene
-class TheWayOutMayNotNameAnUnnamedSceneTests(unittest.TestCase):
+class TheWayOutMayNotNameAnUnnamedSceneTests(_SanctionInstalled, unittest.TestCase):
     """MEASURED GAP, fixed in the round that opened it.
 
     `single_use_stageable_scene_ids` re-applies `is_known_scene_id` to the
@@ -630,8 +641,7 @@ class lane_a_row_on_disk:
         return False
 
 
-@requires_a_sanctioned_scene
-class TheUndoBelievesTheSameRuleTests(_ConfigCase):
+class TheUndoBelievesTheSameRuleTests(_SanctionInstalled, _ConfigCase):
     """Property 3 -- chief's D5 question, answered by construction.
 
     THE ANSWER THIS LANE GIVES: the undo believes the rule the WRITE

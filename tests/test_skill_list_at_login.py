@@ -320,26 +320,43 @@ class TheRecordListRefusesByNameTests(unittest.TestCase):
             caught.exception.reason,
         )
 
-    def test_more_records_than_anyone_has_measured_is_refused_by_name(self):
-        cap = skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT
-        self.assertEqual(cap, len(skill_list_at_login.skill_list_records(
-            tuple(range(1, cap + 1))
-        )))
-        with self.assertRaises(SkillListAtLoginError) as caught:
-            skill_list_at_login.skill_list_records(tuple(range(1, cap + 2)))
-        self.assertEqual(
-            skill_list_at_login.REFUSE_TOO_MANY_UNMEASURED,
-            caught.exception.reason,
-        )
+    def test_more_records_than_the_old_cap_are_sent_not_refused(self):
+        """FLIPPED (PANYA `2220` / COO-DECISION `20260909_1312`, LANE-CS).
 
-    def test_the_unmeasured_cap_is_below_the_wire_cap(self):
-        # The two constants say different things: one is the u16 field width
-        # (a fact about the serializer), the other is the largest count a
-        # client was watched accepting (a fact about GT-249).  If they ever
-        # collapse into one number this test says so.
-        self.assertLess(
-            skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT,
-            skill_list_at_login.WIRE_MAX_RECORDS,
+        `OBSERVED_ACCEPTED_RECORD_COUNT` (formerly 4) and
+        `REFUSE_TOO_MANY_UNMEASURED` no longer exist in this module -- an
+        unmeasured record count is sent, not refused in advance.  A count
+        well above the old cap composes exactly like a small one; only the
+        u16 wire field (`WIRE_MAX_RECORDS`) still refuses anything, and this
+        test stays far short of it.
+        """
+        old_cap = 4
+        above_old_cap = tuple(range(1, old_cap + 6))  # nine records
+        records = skill_list_at_login.skill_list_records(above_old_cap)
+        self.assertEqual(len(above_old_cap), len(records))
+
+    def test_the_wire_field_is_still_the_only_ceiling(self):
+        # The u16 record-count field is a fact about the serializer, not a
+        # policy -- and it is the only limit `skill_list_records` still
+        # enforces (PANYA `2220`).  `WIRE_MAX_RECORDS` is patched down to a
+        # small number for this test only: the duplicate-id guard this
+        # function also runs is an O(n) scan per id, so exercising the real
+        # 0xFFFF boundary with distinct ids would make this test itself the
+        # slow thing, not the code under test.
+        original_max = skill_list_at_login.WIRE_MAX_RECORDS
+        skill_list_at_login.WIRE_MAX_RECORDS = 5
+        try:
+            self.assertEqual(
+                5,
+                len(skill_list_at_login.skill_list_records(tuple(range(1, 6)))),
+            )
+            with self.assertRaises(SkillListAtLoginError) as caught:
+                skill_list_at_login.skill_list_records(tuple(range(1, 7)))
+        finally:
+            skill_list_at_login.WIRE_MAX_RECORDS = original_max
+        self.assertEqual(
+            skill_list_at_login.REFUSE_TOO_MANY_FOR_THE_WIRE,
+            caught.exception.reason,
         )
 
     def test_the_id_lands_in_all_three_wire_positions(self):
@@ -1754,42 +1771,29 @@ class TheTokenMeasuresTheWireAndTheCapIsPinnedTests(unittest.TestCase):
             with self.assertRaises(skill_list_at_login.SkillListAtLoginError):
                 skill_list_at_login.measured_record_count(pretender)
 
-    def test_the_observed_cap_of_four_is_pinned_to_what_was_observed(self):
-        """D4: ``OBSERVED_ACCEPTED_RECORD_COUNT`` had no pin at all.
+    def test_a_fifth_row_composes_the_same_as_the_first_four(self):
+        """FLIPPED (PANYA `2220` / COO-DECISION `20260909_1312`, LANE-CS).
 
-        ``COO-DECISION 20260908_1742`` ("the cap of four stands") rests its
-        whole ruling on this constant, and pf-adversary raised it to 255
-        with the suite still green.  The pin is not a taste: four is
-        ``GT-249``'s ``COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0``, the largest
-        count a real client has ever been measured accepting, and raising it
-        is an attended result's job.  The behaviour is pinned beside the
-        value, so deleting the equality alone does not free the cap.
+        This used to pin ``COO-DECISION 20260908_1742`` ("the cap of four
+        stands") by asserting a fifth row was refused by name.  That order
+        is cancelled: ``OBSERVED_ACCEPTED_RECORD_COUNT`` and
+        ``REFUSE_TOO_MANY_UNMEASURED`` no longer exist in this module (see
+        the module-level ``git grep`` token). A fifth row now composes a
+        frame exactly like the first four -- same route, no special case.
         """
-        self.assertEqual(4, skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT)
         rows = (111, 40000, 99, 110)
         pc, _frame = skill_list_at_login.make_skill_list_response(
             self.legacy, rows,
         )
         self.assertEqual(4, skill_list_at_login.measured_record_count(pc))
-        with self.assertRaises(skill_list_at_login.SkillListAtLoginError) as caught:
-            skill_list_at_login.make_skill_list_response(
-                self.legacy, rows + (112,),
-            )
+        pc_five, frame_five = skill_list_at_login.make_skill_list_response(
+            self.legacy, rows + (112,),
+        )
+        self.assertEqual(5, skill_list_at_login.measured_record_count(pc_five))
         self.assertEqual(
-            skill_list_at_login.REFUSE_TOO_MANY_UNMEASURED,
-            caught.exception.reason,
+            0, skill_list_at_login.measured_trailing_byte(pc_five, 5),
         )
-
-    def test_the_cap_is_below_the_wire_field_it_lives_in(self):
-        """D4: and it is a policy floor, not the u16 the serializer allows.
-
-        A round that raises the cap to the wire maximum has not measured
-        anything; this keeps the two numbers from quietly becoming one.
-        """
-        self.assertLess(
-            skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT,
-            skill_list_at_login.WIRE_MAX_RECORDS,
-        )
+        self.assertGreater(len(frame_five), 0)
 
 
 if __name__ == "__main__":  # pragma: no cover

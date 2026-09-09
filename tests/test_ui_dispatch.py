@@ -2000,6 +2000,7 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
         of leaving a row pointing at nothing.
         """
         from pirateforce_foundation import ui_friend_wire
+        from pirateforce_foundation import ui_mail_wire
         from pirateforce_foundation import ui_party_wire
         from pirateforce_foundation import ui_trade_wire
         from pirateforce_foundation import ui_friend_wire
@@ -2015,6 +2016,9 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
                 ui_friend_wire.COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
                 # Round ncejt8, the second of those five.
                 ui_friend_wire.COMMUNITY_REMOVE_FRIEND_VITAL_ID,
+                # Round t4nxwq, the sixth button overall and the third
+                # of the five CommunityModule_Client ids.
+                ui_mail_wire.COMMUNITY_SEND_MAIL_VITAL_ID,
             },
         )
         # READ FROM DISK, NOT IMPORTED.  Importing an answerer module
@@ -2435,6 +2439,12 @@ class TheReviewedShapesArePinnedTests(unittest.TestCase):
         # pinned one file over in
         # tests/test_lane_ui_friend_remove_answer.py.
         "UI_FRIEND_REMOVE_ANSWERED": (0x98A1, frozenset((0,)), 20, 64),
+        # Round t4nxwq.  Six wstring fields, not one, so the ceiling is
+        # wider by the same factor as the single-wstring rows above --
+        # 4096/8192 rather than 512/1024, chosen as a reviewed budget
+        # (roughly 512 per field slot) and not a derived bound; the
+        # answerer still checks it with `>`.
+        "UI_SEND_MAIL_ANSWERED": (0x6E12, frozenset((0,)), 4096, 8192),
     }
 
     def test_the_registry_is_exactly_these_reviewed_rows(self):

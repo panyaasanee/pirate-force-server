@@ -33,13 +33,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import class_catalog, class_starting_gear
+from pirateforce_foundation import bag_admission, class_catalog, class_starting_gear
 from pirateforce_foundation.inventory import (
+    BACKPACK_BASE_IDENTITY,
+    BACKPACK_BASE_MASK,
+    BACKPACK_RANGE_MASK,
+    BackpackState,
     INITIAL_BACKPACK,
     is_unmoved_baseline,
     make_backpack_attr,
     require_backpack_shape,
-    require_known_backpack,
 )
 from pirateforce_foundation.legacy_bridge import load_legacy
 
@@ -788,57 +791,82 @@ class TheShapeLaneDbMustUseToWireItTests(unittest.TestCase):
 
 
 class Gate2RefusesEveryClassButOneTodayTests(unittest.TestCase):
-    """The wall this round did NOT clear, pinned so nobody wires past it.
+    """FLIPPED (PANYA `2150` / COO-DECISION `20260909_1312`, LANE-CS).
 
-    ``pf-adversary`` (round ``e8pss9``, D1) booted a real store, real
-    migrations, real ``lifecycle`` and ``FoundationSession.select_and_start``
-    with a Sniper whose bag was written exactly as the proposed ``store.py``
-    seam would write it, and measured::
+    This class used to pin the wall ``pf-adversary`` (round ``e8pss9``, D1)
+    measured: a Sniper born carrying ``class_starting_gear``'s own per-class
+    "golden kit" got refused at gate 2 (``BAG_ADMISSION verdict=refused
+    golden=initial acquired=0 reason=golden_item_moved_or_altered``) because
+    ``INITIAL_BACKPACK`` was four goldens at once and three of them still
+    spelled "carries the Gladiator sword" as part of "is a legal bag".
 
-        BAG_ADMISSION verdict=refused golden=initial acquired=0
-                      reason=golden_item_moved_or_altered
-        SELECT_AND_START_RAISED PermissionError
+    PANYA `2150` withdraws the whole premise the wall stood on: there is no
+    per-class starting kit to be a legal or illegal version of any more.
+    ``COO-DECISION 20260907_2342`` ("golden = the set of five") and its
+    companion gates-order are explicitly withdrawn by ``20260909_1312``.
+    The birth rule is now uniform across all five classes -- an EMPTY bag,
+    zero items -- and that is what gate 2 (``bag_admission.may_enter_world``
+    / ``is_empty_birth_bag``) admits, unconditionally, for every one of
+    ``class_catalog.CLASS_IDS``.  ``class_starting_gear.starting_backpack_
+    state`` is untouched by this round (``production_allowed`` stays
+    ``False``, per `2150` item 4) and is no longer what a birth bag IS, so
+    it is no longer what this class tests.
 
-    ``runtime.py`` answers that branch with
-    ``foundation_start_game_rejected_no_reply`` and NO frame, so the client
-    would sit on "connecting" forever.  ``INITIAL_BACKPACK`` is four goldens
-    at once -- the V141 encoder pin (which stays green), gate 2's admission
-    golden, ``require_known_backpack``'s allowlist and
-    ``store.apply_v111_stack_merge``'s pre-state -- and three of the four
-    still spell "carries the Gladiator sword" as part of "is a legal bag".
-
-    WHY THIS PINS THE TERM AND NOT THE PREDICATE.  The gate-2 module carries
-    another lane's guard admitting exactly one caller in the package plus a
-    named list of files that may even mention it.  A first cut of this file
-    imported it, turned that guard red, and the only ways out would have
-    been to widen someone else's list or to delete a correct check -- both
-    forbidden by ``COO-DECISION 20260907_2050``.  So the wall is pinned by
-    the term gate 2 turns on for an untouched bag,
-    ``inventory.is_unmoved_baseline``, plus gate 3's own raise.  Those are
-    the two facts that make the refusal happen; the end-to-end refusal
-    itself is measured in the adversary token quoted above.
-
-    These tests pass BECAUSE the refusal is real.  The day someone answers
-    "what is a legal Paladin bag", they go red and must be rewritten by the
-    person who answered -- that is the point of pinning a wall rather than
-    describing it.
+    ``INITIAL_BACKPACK`` / ``MERGED_V111_BACKPACK`` stay exactly what they
+    were -- fixtures the V141 encoder and the move/merge family compare
+    byte-for-byte against -- and this test says so explicitly:
+    ``is_unmoved_baseline`` (which only ever answers for those two v141
+    snapshots) is FALSE for the empty birth bag, because the birth rule and
+    the v141 fixtures are two different things now and neither module may
+    read the other as the birth rule.
     """
 
-    def test_only_class_1_still_looks_like_the_untouched_baseline(self):
-        for class_id in class_catalog.CLASS_IDS:
-            with self.subTest(class_id=class_id):
-                state = class_starting_gear.starting_backpack_state(class_id)
-                self.assertIs(is_unmoved_baseline(state), class_id == 1)
+    @staticmethod
+    def _empty_bag() -> BackpackState:
+        # Same header fields every BackpackState in this tree uses; the only
+        # thing that makes this a "birth" bag rather than any other
+        # structurally valid empty one is that it carries no items at all.
+        return BackpackState(
+            BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, BACKPACK_RANGE_MASK, (),
+        )
 
-    def test_the_governed_item_gates_refuse_them_too(self):
-        """Not one gate to widen: three sites, measured (pf-adversary D5)."""
+    def test_every_class_is_born_with_the_same_empty_bag(self):
+        empty = self._empty_bag()
         for class_id in class_catalog.CLASS_IDS:
-            if class_id == 1:
-                continue
             with self.subTest(class_id=class_id):
-                state = class_starting_gear.starting_backpack_state(class_id)
-                with self.assertRaises(ValueError):
-                    require_known_backpack(state)
+                self.assertTrue(bag_admission.is_empty_birth_bag(empty))
+                self.assertTrue(
+                    bag_admission.may_enter_world(
+                        empty, allow_hypothesized_item_move=False,
+                        issued_through=0,
+                    )
+                )
+
+    def test_the_empty_birth_bag_is_not_read_as_an_unmoved_v141_fixture(self):
+        # `2150` item 2: the birth rule and the v141 byte-comparison fixtures
+        # must not be conflated.  An empty bag is not `INITIAL_BACKPACK` or
+        # `MERGED_V111_BACKPACK`, so the OLDER admission term must not be
+        # the reason it is admitted.
+        empty = self._empty_bag()
+        self.assertFalse(is_unmoved_baseline(empty))
+        admission = bag_admission.classify(empty)
+        self.assertEqual(
+            bag_admission.VERDICT_EMPTY_BIRTH_BAG, admission.verdict,
+        )
+
+    def test_a_nonempty_bag_still_needs_a_golden_or_an_acquisition(self):
+        # The new term is additive, not a general loosening: a bag that is
+        # neither empty nor golden-plus-acquired is refused exactly as
+        # before (pf-adversary's own D1 scenario, replayed here as a
+        # regression pin rather than described).
+        state = class_starting_gear.starting_backpack_state(
+            next(cid for cid in class_catalog.CLASS_IDS if cid != 1)
+        )
+        self.assertFalse(
+            bag_admission.may_enter_world(
+                state, allow_hypothesized_item_move=False, issued_through=0,
+            )
+        )
 
 
 class TheSetOfFiveIsTheGoldenNowTests(unittest.TestCase):

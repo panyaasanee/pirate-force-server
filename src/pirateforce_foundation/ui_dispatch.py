@@ -274,6 +274,12 @@ _ANSWERER_OWNERS = {
     # NO public API beyond its answerer, so the "first reason another
     # lane has ever had to import it" sentence above does not extend.
     0x98A1: _LANE_PACKAGE + "lane_ui_friend_remove_answer",
+    # THE SIXTH BUTTON (round t4nxwq), and the residual named above still
+    # unpaid: COO-DECISION ``20260909_1312_COO-DECISION-ui2132-*`` is
+    # "keep adding buttons, the seam closes once, in chief's
+    # ``_discover()``".  This row settles who may take ``0x6E12``, same
+    # as every row above it; it does not touch the write-ownership gap.
+    0x6E12: _LANE_PACKAGE + "lane_ui_mail_send_answer",
 }
 
 
@@ -1465,6 +1471,29 @@ _OUTBOUND_FRAME_SHAPES = {
         versions=frozenset((0,)),
         max_payload_bytes=512,
         max_frame_bytes=1024,
+    ),
+    # SIX WSTRING FIELDS, NOT ONE, SO THE CEILING IS WIDER BY THE SAME
+    # FACTOR.  ``SendMailFields`` is ``u64 + wstring + u64 + wstring*5 +
+    # u8`` -- nine positional slots total, two of them u64 and one u8,
+    # the other SIX all wstring (one on its own between the two u64
+    # fields, five more in a row after the second) -- and every one of
+    # those six is the player's to move, the same "a name makes this
+    # payload grow" reasoning the 512-byte wstring rows above use for
+    # their one field.  Measured:
+    # six 100-character fields encode to 1,250 bytes and the minimum
+    # (all fields empty but one) encodes to 52.  4096 is chosen as a
+    # reviewed budget, not a derived bound -- roughly 512 per field
+    # slot, matching the single-field rows' own number rather than
+    # inventing a new one -- and it is a CEILING like theirs, so the
+    # answerer compares with ``>``.  ``max_frame_bytes`` 8192 keeps the
+    # same 2x ratio those rows use for their own envelope headroom; the
+    # envelope is ``legacy.make_runtime_vitals``'s, not this lane's, so
+    # this number is deliberately not pinned exact here either.
+    "UI_SEND_MAIL_ANSWERED": _OutboundShape(
+        vital_id=0x6E12,
+        versions=frozenset((0,)),
+        max_payload_bytes=4096,
+        max_frame_bytes=8192,
     ),
 }
 
