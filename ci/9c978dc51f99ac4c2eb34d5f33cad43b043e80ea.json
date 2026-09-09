@@ -1,1 +1,1 @@
-{"sha":"9c978dc51f99ac4c2eb34d5f33cad43b043e80ea","conclusion":"failure","event":"push","ref":"refs/heads/claude/nifty-euler-jnrgdn","run_id":"34335679508","utc":"2026-09-09T10:15:13Z"}
+{"sha":"9c978dc51f99ac4c2eb34d5f33cad43b043e80ea","conclusion":"failure","event":"pull_request","ref":"refs/pull/1197/merge","run_id":"34335774276","utc":"2026-09-09T10:31:27Z"}
