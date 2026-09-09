@@ -1474,7 +1474,10 @@ EVENT_WARP_SEND_WATCH_STALE_PARK_NOT_CLEARED = (
 # "no, and here is which no" is exactly as load-bearing as the yes.  Kept
 # out of `EVENT_WARP_SCENE_PERSIST_PREFIX`'s vocabulary on purpose: that
 # prefix answers what happened to the ROW, this one what happened to the
-# next LOGIN, and they now disagree by design for scene 126.
+# next LOGIN.  ~~They now disagree by design for scene 126.~~ They agree
+# again since the sanction was retired (LANE-GM round `xbfcsi`): both answer
+# "no" for 126, one about the row and one about the next login.  The two
+# vocabularies stay separate for the day a letter sanctions a scene again.
 EVENT_WARP_RELOG_STAGE_PREFIX = "gm_chat_action_warp_relog_stage_"
 EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
 # The cross-scene half of `/warp` (gm/login_scene_stage.py).  The suffix is
@@ -3929,11 +3932,15 @@ def _warp_teleport_action_no_coords(
     else:
         # THE RELOG HALF, `COO-DECISION 20260905_1746` item 4.  The frame is
         # already built and about to move the ship on screen; the durable row
-        # was refused.  For a sanctioned-barred scene (126 today, and only
-        # because a chief letter names it) the relog is arranged through the
-        # single-use login entry instead, so `PANYA 1329` (live) and
-        # `PANYA 1430` (still there after a relog) are both served without
-        # opening the login door `COO 20260829_1444` shut.
+        # was refused.  For a sanctioned-barred scene (~~126 today, and only
+        # because a chief letter names it~~ -- NO SCENE IS SANCTIONED SINCE
+        # LANE-GM round `xbfcsi`, `COO-DECISION 20260908_2141`) the relog is
+        # arranged through the single-use login entry instead, so
+        # `PANYA 1329` (live) and `PANYA 1430` (still there after a relog)
+        # are both served without opening the login door
+        # `COO 20260829_1444` shut.  With the map empty this branch reaches
+        # `scene_not_sanctioned` for every scene and says so on the console:
+        # `PANYA 1430` is off for 126 until lane A's login row lands.
         #
         # ELSE, NOT A SECOND `if`, and the difference is the whole guard: this
         # runs on outcomes that are NOT `persisted`, so a warp whose row DID
@@ -6577,12 +6584,18 @@ def _print_lv_line(session: object, token: str, line: str) -> None:
     `level_command.console_line` out of numbers this module validated and
     the store read back -- never out of the raw chat text, which is the
     property every printer in this module holds.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line` (pf-adversary round
+    `ve2zs4`, D10): `token!r` is `repr`, not this stream's encoding, and a
+    printable-Thai account name passes `repr` unescaped for `cp874` to
+    choke on.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{LV_CONSOLE_TOKEN} account={token!r} {line}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{LV_CONSOLE_TOKEN} account='{safe_account}' {line}", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
@@ -6790,12 +6803,18 @@ def _print_sandbox_line(session: object, token: str, line: str) -> None:
     "nothing the GM typed is ever printed" rule as `_print_skill_line` above
     -- and here the last of those is free rather than enforced: `sandbox`
     takes no arguments, so there is nothing typed that COULD reach a line.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, the same fold
+    `_print_job_line`/`_print_skill_line`/`_print_lv_line` now carry
+    (pf-adversary round `ve2zs4`, D10): this printer had the same bare
+    `token!r` shape they did.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - a lost line costs this line
         # and nothing else; the readback itself already happened.
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
@@ -7040,12 +7059,25 @@ def _print_job_line(session: object, token: str, line: str) -> None:
     `job_command.console_line` out of numbers this module validated and the
     store read back -- never out of the raw chat text, which is the property
     every printer in this module holds.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, THE SAME AS EVERY
+    OTHER OPERATOR-CONTROLLED FIELD IN THIS FILE (pf-adversary round
+    `ve2zs4`, D10, restating `nkb608` D-J: the bug was fixed once and this
+    printer still carried the old shape).  `token!r` alone folds through
+    Python's own `repr`, which is not this stream's encoding: a Thai
+    account name is largely PRINTABLE Unicode, so `repr` passes it through
+    unescaped and a `cp874` console can raise on the very bytes the
+    `except` below exists to catch, losing the whole line -- and a
+    newline in the account name would have forged a second console line,
+    the structural half `_one_line` exists to fold.  `console_safe` folds
+    to what THIS stream can carry; `_one_line` keeps the field to one line.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
@@ -7063,12 +7095,19 @@ def _print_skill_line(session: object, token: str, line: str) -> None:
     block greps for a line STARTING with the token; a `GM_LV`-style prefix
     ahead of it would leave those greps finding nothing while the line was
     right there.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, the same fold
+    `_print_job_line` above now carries (pf-adversary round `ve2zs4`, D10):
+    `token!r` alone is `repr`, not this stream's encoding, and a Thai
+    account name is printable enough that `repr` waves it through
+    unescaped for `cp874` to choke on.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 

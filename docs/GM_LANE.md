@@ -3944,7 +3944,7 @@ predicate was NOT widened. `stageable_scene_ids()` is still `(1, 2, 278, 997)`.
 
 | module | what changed |
 |---|---|
-| `gm/login_scene_admission.py` | `SANCTIONED_BARRED_SCENES` (a `MappingProxyType`, today one entry: `126 -> "CHIEF-DECISION 20260829_1603 item 2"`), `is_sanctioned_barred_scene`, `sanctioned_barred_provenance`, and `sanctioned_barred_blocker`, which measures WHICH half of the route is missing against lane A's registry on every call |
+| `gm/login_scene_admission.py` | `SANCTIONED_BARRED_SCENES` (a `MappingProxyType`, ~~today one entry: `126 -> "CHIEF-DECISION 20260829_1603 item 2"`~~ **EMPTY since round `xbfcsi`, 2026-09-09** -- 126 retired on `COO-DECISION 20260908_2141`; the map keeps its recipe for the next letter), `is_sanctioned_barred_scene`, `sanctioned_barred_provenance`, and `sanctioned_barred_blocker`, which measures WHICH half of the route is missing against lane A's registry on every call |
 | `gm/login_scene_stage.py` | `REASON_SANCTIONED_NOT_YET_REACHABLE` (`scene_sanctioned_but_route_incomplete`), split out of `REASON_NO_LOGIN_ENTRY` and classified destination-shaped |
 | `gm/chat_command_action.py` | the way-out line gains `blocker=` and `sanction=` for that reason only |
 | `tests/test_gm_login_scene_sanctioned_barred.py` | new; the first class exists to prove the sanction grants NOTHING, and the last two pin the ORDER and the console line (a count is not written here on purpose -- pf-adversary D6 caught the first version's hardcoded one going stale inside the same round) |

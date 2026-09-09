@@ -482,6 +482,24 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         # door.  Scene 17, the id this test actually drives, is barred
         # HERE because this case bends its row shut -- which is why it is
         # the one id 1218 opened that is missing from the line below.
+        #
+        # MERGE NOTE (LANE-A round 9ic0io, 2026-09-09): 126 is still on
+        # this line, but for a DIFFERENT reason than it used to be.  It was
+        # here as the one id the single-use widening had to widen for; that
+        # sanction row was retired in LANE-GM round `xbfcsi`
+        # (`COO-DECISION 20260908_2141`), so the widening now adds nothing.
+        # It is here now because THIS branch opens 126's registry row at
+        # login, which puts it in the plain stageable set.  Same id on the
+        # line, different half of the rule carrying it.
+        #
+        # STILL A LITERAL, DELIBERATELY (pf-adversary D5, LANE-GM round
+        # yfbqmg: the first fix derived the expected string from
+        # `single_use_stageable_scene_ids()`, which is the function the code
+        # under test calls -- that pin can only fail when the console stops
+        # printing the words, never when it prints the wrong set).  A
+        # literal is what makes this a VALUE pin; the cost is that a real
+        # arrival or retirement is an edit here, which is the same cost
+        # `ADMISSIBLE_TODAY` pays two files over and for the same reason.
         self.assertIn(
             "stageable=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 126, 130, "
             "278, 304, 305, 997)",

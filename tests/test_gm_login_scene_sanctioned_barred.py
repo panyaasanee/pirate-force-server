@@ -73,17 +73,30 @@ import pf_bent_scene_registry as bent  # noqa: E402
 # round (yfbqmg), TENTH AND LAST door, same shape, NOT elevated-risk --
 # every one of the original ten doors is now open.
 # WIDENED LANE-A round 3a11a0: PANYA-DECISION 20260908_1218 opened 17,
-# 126, 304 and 305 -- every remaining door in the shipped registry.  126 is
-# the SANCTIONED scene, so the sanction in `SANCTIONED_BARRED_SCENES` is
-# now dead weight: the registry admits that scene on its own and the
-# single-use bypass has nothing left to bypass.  Retiring the entry is
-# LANE-GM's call on LANE-GM's table, not this lane's to make silently, and
-# it is asked for by letter; what this file holds meanwhile is that the
-# dead entry GRANTS nothing, which is the case below.
+# 126, 304 and 305 -- every remaining door in the shipped registry.  That
+# is what this branch carries and what the line below is written against.
 ADMISSIBLE_TODAY = (
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 130, 278, 304, 305, 997)
-# The one scene a chief letter sanctions today.
+# THE MAP IS EMPTY ON MAIN SINCE LANE-GM ROUND `xbfcsi` (2026-09-09), so this
+# is no longer "the scene the map names": it is the scene these cases STAND A
+# SANCTION UP FOR, one test at a time, through `_install_a_sanction` below.
+# 126 is kept as that scene rather than an invented id because its registry
+# row shape is real (`CHIEF-DECISION 20260829_1603`), so a case that passes
+# here is a case that would have passed against the shipped row.
+#
+# MERGE NOTE, LANE-A round 9ic0io (2026-09-09): the retirement this branch
+# asked for by letter HAS happened, and the two halves now meet here.  The
+# sanction is gone from the shipped map (LANE-GM), and the registry row it
+# used to name is open at login (this branch).  So every case below that
+# talks about "the sanctioned scene" is talking about a scene stood up by
+# `_install_a_sanction`, and any case that needs 126 SHUT has to bend the
+# registry as well -- neither condition is true of the tree these tests run
+# on.  The one case that reads the shipped map without either fixture is
+# `test_the_map_is_exactly_the_letters_this_lane_holds`, and it is marked.
+
 SANCTIONED = 126
+# The citation the retired row carried.  Only ever a console string.
+SANCTION_CITATION = "CHIEF-DECISION 20260829_1603 item 2"
 # Pinned, named, and barred at login -- the shape scene 126 will have once
 # lane A lands its row, and the shape the sanction has to survive.
 BARRED_AT_LOGIN = 17
@@ -110,6 +123,41 @@ def _registry_with_sanctioned_row(*, login_entry_allowed: bool):
     # existing row with the same id first.
     kept = tuple(d for d in registry.destinations if d.n_id != SANCTIONED)
     return dataclasses.replace(registry, destinations=kept + (landed,))
+
+
+def _install_a_sanction(test, *, scene_id=SANCTIONED, citation=SANCTION_CITATION):
+    """Stand one sanction up for the duration of ONE test, then take it down.
+
+    WHY THIS EXISTS AT ALL, and why it is not a way of pretending the row is
+    still there.  The retirement of scene 126 emptied
+    `SANCTIONED_BARRED_SCENES` (LANE-GM round `xbfcsi`,
+    `COO-DECISION 20260908_2141`).  Every case in this file that asks what
+    the module does WITH a sanctioned scene would otherwise pass by never
+    reaching its own subject -- a loop with nothing to loop over, an
+    equality between two "not sanctioned" answers -- which is a green that
+    cannot go red, i.e. the exact defect this file was written to catch in
+    other people's tests.
+
+    The rules the cases are about (the blocker's four answers, the console
+    line, the single-use widening, the retirement arithmetic) are properties
+    of the MODULE, not of scene 126, and they have to keep being checked on
+    a tree where no letter names any scene.  So the sanction is installed
+    here, explicitly, by the test that needs one -- and a case that instead
+    asks about the SHIPPED map (`test_the_map_is_exactly_the_letters_this_
+    lane_holds`, `test_no_sanction_has_outlived_its_blocker`) never calls
+    this and reads the real, empty map.
+
+    `MappingProxyType` so the stand-in refuses item assignment exactly like
+    the real map: a case that mutates it would otherwise pass here and fail
+    against the shipped object.
+    """
+    patcher = mock.patch.object(
+        login_scene_admission,
+        "SANCTIONED_BARRED_SCENES",
+        MappingProxyType({scene_id: citation}),
+    )
+    patcher.start()
+    test.addCleanup(patcher.stop)
 
 
 class TheSanctionSetGrantsNothingTests(unittest.TestCase):
@@ -142,6 +190,10 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         row and ask again.  If the sanction were a grant, the scene would
         survive the bend.
         """
+        # The sanction is installed rather than assumed: with the map empty
+        # this case would otherwise be asking whether an UNSANCTIONED scene
+        # is refused, which is not the claim in its name.
+        _install_a_sanction(self)
         self.assertEqual(
             login_scene_admission.stageable_scene_ids(), ADMISSIBLE_TODAY
         )
@@ -152,6 +204,11 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         )
 
     def test_the_predicate_still_refuses_the_sanctioned_scene(self):
+        # Both fixtures, for the reason in the merge note at the top of the
+        # file: the map is empty on main, and the row is open on this
+        # branch, so "the sanctioned scene the plain rule refuses" has to be
+        # assembled before it can be asked about.
+        _install_a_sanction(self)
         self.assertFalse(
             login_scene_admission.login_entry_is_pinned(
                 SANCTIONED, scene_registry=bent.shut_at_login(SANCTIONED)
@@ -169,6 +226,7 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         # map's rule and the login guard's own question, and no half of any
         # request widens it.  If this ever goes red, the widening has
         # escaped the map it was scoped to.
+        _install_a_sanction(self)
         registry = _registry_with_sanctioned_row(login_entry_allowed=False)
         self.assertFalse(
             login_scene_admission.login_entry_is_pinned(
@@ -202,10 +260,12 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         # ~~for scene_id ...: assertNotIn(scene_id, stageable_scene_ids())~~
         # THE ALARM FIRED, LANE-A round 3a11a0, and this is what it was for.
         # PANYA-DECISION 20260908_1218 opened scene 126 at login, so the one
-        # entry in the sanction map IS a scene the predicate admits today --
-        # exactly the rot this case was written to announce.  It is announced
-        # in a letter to LANE-GM, whose table it is; this lane does not edit
-        # another lane's data to make its own suite green.
+        # entry in the sanction map WAS a scene the predicate admits today --
+        # exactly the rot this case was written to announce.  It was
+        # announced in a letter to LANE-GM, whose table it is; this lane
+        # does not edit another lane's data to make its own suite green.
+        # LANE-GM retired the entry in round `xbfcsi`, which is the outcome
+        # the alarm was for.
         #
         # What replaces the assertion is the invariant that survives the
         # rot and is the thing a tester can be hurt by: a dead sanction must
@@ -215,6 +275,15 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         # `BLOCKER_NONE`, i.e. there is nothing left for the bypass to
         # bypass.  Retiring the entry keeps this green; turning it into a
         # grant does not.
+        #
+        # THE LOOP RUNS, and since the map went empty that has to be pinned
+        # rather than hoped for: on the shipped map this body executes zero
+        # times, which is a pass that no mutation in the module can turn
+        # red.  So the rule is checked on an installed sanction, and the
+        # count is asserted -- if `_install_a_sanction` ever stops reaching
+        # the module, this case says so instead of going quietly vacuous.
+        _install_a_sanction(self)
+        checked = 0
         for scene_id in login_scene_admission.SANCTIONED_BARRED_SCENES:
             with self.subTest(scene=scene_id):
                 plain = login_scene_admission.login_entry_is_pinned(scene_id)
@@ -236,22 +305,29 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
                         "nothing to bypass; the entry is dead weight and is "
                         "LANE-GM's to retire",
                     )
+            checked += 1
+        self.assertEqual(checked, 1)
 
     def test_the_map_is_exactly_the_letters_this_lane_holds(self):
         # THE TRIPWIRE, IN BOTH DIRECTIONS, and it is written as an exact
         # equality on purpose: the loop-shaped test above cannot see an
         # EMPTIED map (its body simply never runs), so on its own it grades a
-        # premature retirement green.  `COO-DECISION 20260908_1742` orders
-        # 126 retired and names the token it will check; this equality is
-        # what makes that retirement a deliberate edit here, with the letter
-        # that authorised it cited, instead of a deletion nobody notices.
+        # premature retirement green.  This equality is what makes both an
+        # arrival and a retirement a deliberate edit here, with the letter
+        # that authorised it cited, instead of a change nobody notices.
         #
-        # One mutant each way, which is the whole contract: delete the row
-        # and this goes red; add `{999: "..."}` and this goes red.
-        self.assertEqual(
-            dict(login_scene_admission.SANCTIONED_BARRED_SCENES),
-            {126: "CHIEF-DECISION 20260829_1603 item 2"},
-        )
+        # THE MAP IS EMPTY, AND THAT IS THE ASSERTION.  Scene 126's row was
+        # retired in LANE-GM round `xbfcsi` on the order of
+        # `COO-DECISION 20260908_2141 retire-scene-126-now-the-condition-is-
+        # met` and `COO-BLOCKER-SWEEP 2141` item 5, once lane A measured
+        # `retirable_sanctioned_scene_ids() -> (126,)` on
+        # `pirate-force-server#1181` -- the condition letter `2055` set.
+        #
+        # One mutant each way, which is the whole contract: put the row back
+        # and this goes red; add `{999: "..."}` and this goes red.  Note
+        # that this case, unlike most in this class, deliberately does NOT
+        # install a sanction: it is the one that reads the shipped map.
+        self.assertEqual(dict(login_scene_admission.SANCTIONED_BARRED_SCENES), {})
 
     def test_no_sanction_has_outlived_its_blocker(self):
         # The retirement rule as arithmetic (`sanction_is_retirable`): an
@@ -259,6 +335,13 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         # healthy; non-empty means a round owes a deletion and this names
         # which one, instead of leaving the map to rot until somebody reads
         # a letter.
+        #
+        # THIS HALF IS VACUOUS TODAY and says so rather than pretending
+        # otherwise: with the map empty the answer is `()` no matter what
+        # the module does.  It is kept because it is the tripwire the day a
+        # new letter lands, and its teeth are supplied by
+        # `test_a_sanction_whose_door_opened_is_reported_retirable` below,
+        # which proves the same function CAN answer non-empty.
         self.assertEqual(
             login_scene_admission.retirable_sanctioned_scene_ids(), ()
         )
@@ -267,7 +350,15 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         # The other half of the same claim, supplied rather than waited for:
         # on a registry where lane A HAS opened the door, the same function
         # names the entry.  Without this case the test above could pass by
-        # never being able to answer anything.
+        # never being able to answer anything -- which, with the map empty,
+        # is exactly what it would be doing.
+        #
+        # This is the shape lane A measured on `#1181` and reported in
+        # `20260908_2330_LANE-A-TO-LANE-GM`: a pinned, open row for 126 with
+        # the sanction still installed makes the sanction retirable.  It is
+        # the tripwire that ordered this round's deletion, kept alive on a
+        # stand-in now that the row it fired for is gone.
+        _install_a_sanction(self)
         registry = _registry_with_sanctioned_row(login_entry_allowed=True)
         self.assertTrue(
             login_scene_admission.sanction_is_retirable(
@@ -281,15 +372,60 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
             (SANCTIONED,),
         )
 
-    def test_the_sanction_is_still_load_bearing_on_this_tree(self):
-        # WHY THE RETIREMENT MAY NOT BE DONE BY DATE.  Measured here rather
-        # than asserted in prose: with the door still shut, 126 reaches the
-        # single-use map ONLY through the sanction, and that map is what
-        # `warp_relog_stage` stages through.  Deleting the row while this
-        # holds serves `PANYA 1329` (the live warp) and drops `PANYA 1430`
-        # (still there after a relog) with no line printed by the branch
-        # that used to be silent.
-        self.assertFalse(login_scene_admission.login_entry_is_pinned(SANCTIONED))
+    def test_what_the_retirement_cost_is_the_single_use_row_and_only_that(self):
+        # ~~`test_the_sanction_is_still_load_bearing_on_this_tree`~~ -- that
+        # case asserted the row was STILL load-bearing, which is exactly the
+        # thing round `xbfcsi` was ordered to stop being true.  Its
+        # measurement is kept, with the sign turned over, because the cost
+        # of the deletion is what a reader of this file will want next.
+        #
+        # WHAT IT COSTS, on main and only until lane A's login row lands:
+        # 126 reached the single-use map ONLY through the sanction, and that
+        # map is what `warp_relog_stage` stages through.  So `/warp 126`
+        # still moves the character live (`PANYA 1329`, which reads lane A's
+        # decreed arrival and never this map) and is no longer staged for
+        # the next login (`PANYA 1430`).  `COO-DECISION 20260908_2141` took
+        # that cost deliberately to break the circular wait, and this case
+        # is where it is measured instead of described.
+        #
+        # BOTH HALVES, so this is not a green that any deletion would give:
+        # with the sanction gone 126 is absent from the single-use map, and
+        # with a sanction installed it is present -- which is what proves
+        # the sanction, and not something else, was carrying that row.
+        #
+        # AND THE COST IS PAID BACK, LANE-A round 9ic0io.  The clause this
+        # case was written under -- "on main and only until lane A's login
+        # row lands" -- expired on this branch: the row landed, so on the
+        # SHIPPED registry `login_entry_is_pinned(126)` is now True and 126
+        # reaches the single-use map on its own row with no sanction
+        # anywhere.  Measuring the cost therefore needs the row bent back
+        # shut, which is the only reading in which the sanction is the thing
+        # carrying 126 at all.  The last two assertions are the new state,
+        # and they are what makes `/warp 126` staged for the next login
+        # again (`PANYA 1430`) without any entry in the GM lane's map.
+        shut = bent.shut_at_login(SANCTIONED)
+        self.assertFalse(
+            login_scene_admission.login_entry_is_pinned(
+                SANCTIONED, scene_registry=shut
+            )
+        )
+        self.assertNotIn(
+            SANCTIONED,
+            login_scene_admission.single_use_stageable_scene_ids(
+                scene_registry=shut
+            ),
+        )
+        _install_a_sanction(self)
+        self.assertIn(
+            SANCTIONED,
+            login_scene_admission.single_use_stageable_scene_ids(
+                scene_registry=shut
+            ),
+        )
+        # The shipped reading, with the sanction still installed so this is
+        # not quietly asking a different question: the row is what admits
+        # 126 now, not the entry standing beside it.
+        self.assertTrue(login_scene_admission.login_entry_is_pinned(SANCTIONED))
         self.assertIn(
             SANCTIONED, login_scene_admission.single_use_stageable_scene_ids()
         )
@@ -312,6 +448,11 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
         # cost), so the equivalence is asserted rather than assumed.  If
         # they ever disagree, the console line starts saying "nothing is
         # blocking" about a scene the stage still refuses.
+        #
+        # The sanction is installed: with the map empty the blocker answers
+        # `not_sanctioned` for every registry, and the equivalence would be
+        # asserted between two answers that never look at each other.
+        _install_a_sanction(self)
         registries = {
             "shipped": None,
             "landed_barred": _registry_with_sanctioned_row(
@@ -335,6 +476,19 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
 
 
 class TheBlockerNamesTheMissingHalfTests(unittest.TestCase):
+    """Every case here asks what the blocker says ABOUT A SANCTIONED SCENE,
+    so every case stands one up.  Since the map went empty (round `xbfcsi`)
+    the alternative is a class in which all four blocker answers collapse to
+    `not_sanctioned` and nothing below can go red for the reason it names.
+
+    The one case that is about an UNSANCTIONED scene asks with
+    `BARRED_AT_LOGIN`, which this fixture never names.
+    """
+
+    def setUp(self):
+        super().setUp()
+        _install_a_sanction(self)
+
     def test_an_unsanctioned_scene_is_answered_as_such(self):
         self.assertEqual(
             login_scene_admission.sanctioned_barred_blocker(BARRED_AT_LOGIN),
@@ -515,6 +669,11 @@ class TheBlockerNamesTheMissingHalfTests(unittest.TestCase):
 
 class TheStagePathSaysWhichRefusalItIsTests(unittest.TestCase):
     def setUp(self):
+        # A sanction is stood up for the same reason as in the class above:
+        # this class is about which of the stage path's TWO refusals a
+        # sanctioned scene gets, and with the map empty every scene here
+        # would take the ordinary one.
+        _install_a_sanction(self)
         self._dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._dir.cleanup)
         root = Path(self._dir.name)
@@ -717,6 +876,14 @@ class TheConsoleLineCannotBreakTheRefusalTests(unittest.TestCase):
 
 
 class TheConsoleLineCarriesTheBlockerTests(unittest.TestCase):
+    def setUp(self):
+        # The line under test prints the sanction's citation, so there has
+        # to be a sanction to print.  With the map empty the operator's line
+        # says `sanction='unknown'` and the case below would be checking
+        # nothing.
+        super().setUp()
+        _install_a_sanction(self)
+
     def _way_out(self, scene_id: int, reason: str) -> str:
         stream = io.StringIO()
         with contextlib.redirect_stderr(stream):

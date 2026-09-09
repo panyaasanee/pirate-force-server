@@ -438,6 +438,46 @@ class ConsoleTokenTests(_Case):
         self.assertEqual(len(lines), 1, err)
         return lines[0]
 
+    def test_the_account_field_folds_the_same_way_the_rest_of_the_line_does(self):
+        # pf-adversary round `ve2zs4`, D10 (restating `nkb608` D-J): the
+        # `account=` suffix `_print_job_line`/`_print_skill_line` append AFTER
+        # `job_command.console_line`/`skill_all_command.console_line` already
+        # ran `_ascii_only` was built with `token!r` -- Python's own `repr`,
+        # not this stream's encoding -- so it was the one field on either line
+        # the test above did not cover, because every existing fixture's
+        # token is plain ASCII (`GM_ONE`).  A Thai account name is largely
+        # PRINTABLE Unicode, so `repr` would have passed it through unescaped
+        # for a `cp874` console to choke on, and a newline inside it would
+        # have forged a second console line.  `console_safe`/`_one_line` now
+        # fold `account=` the same way every other operator-controlled field
+        # on these lines already was.
+        thai_token = "กข\nGM_TWO"
+        self.config_path.write_text(
+            json.dumps({"gm_accounts": [self.GM_ACCOUNT, thai_token]}),
+            encoding="utf-8",
+        )
+        session = FakeSession(token=thai_token)
+        self.store_of(session).stored["class_id"] = 1
+        _, err = self.act_capturing_stderr(session, "/job 16")
+        job_lines = [ln for ln in err.splitlines() if ln.startswith("GM_JOB")]
+        # NO FORGED SECOND LINE: the whole account, newline included, stayed
+        # on the one console line this call is allowed to print.
+        self.assertEqual(len(job_lines), 1, err)
+        # NO BYTE cp874/ASCII CANNOT CARRY reached the line -- the same bar
+        # `test_neither_line_can_carry_a_byte_the_bridge_console_cannot_print`
+        # holds for the rest of the line, now held for `account=` too.
+        self.assertTrue(all(ord(c) < 128 for c in job_lines[0]), job_lines[0])
+        self.assertIn("account=", job_lines[0])
+
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        _, err = self.act_capturing_stderr(session, "/skill all")
+        skill_lines = [
+            ln for ln in err.splitlines() if ln.startswith("GM_SKILL_ALL")
+        ]
+        self.assertEqual(len(skill_lines), 1, err)
+        self.assertTrue(all(ord(c) < 128 for c in skill_lines[0]), skill_lines[0])
+        self.assertIn("account=", skill_lines[0])
+
 
 # ---------------------------------------------------------------------------
 # THE REFUSAL (PANYA-ORDER section 3 item 2: run it, then ask the store)
@@ -691,7 +731,7 @@ class SkillPersistenceTests(_RealStoreCase):
         # PANYA-ORDER section 2.1 requires idempotence in as many words.  The
         # measurement is the ROW SET, not the console line: a second run that
         # duplicated rows would still print a plausible count.
-        self.act(self.session, "/skill all")
+        _, first_out = self.act_capturing_stderr(self.session, "/skill all")
         first = self.reopened_skills()
         gm_dispatch.reset_rate_limit_state_for_tests()
         _, err = self.act_capturing_stderr(self.session, "/skill all")
@@ -701,18 +741,43 @@ class SkillPersistenceTests(_RealStoreCase):
         self.assertIn(
             f"already={class_skill_curriculum.SKILL_COUNT}", err
         )
+        # pf-adversary round `ve2zs4`, D7: the success line used to say
+        # "(rows written; ...)" on EVERY success, including this idempotent
+        # rerun, which wrote nothing.  The first call (which really did
+        # write the whole curriculum) still says so; the second must not.
+        self.assertIn("rows written", first_out)
+        self.assertNotIn("rows written", err)
+        self.assertIn("no new rows this run", err)
 
     def test_the_skills_a_character_started_with_are_counted_as_already(self):
-        # A real character is created holding its starting kit, so the very
-        # first `/skill all` on it must report those as `already` rather than
-        # claiming to have granted them.
+        # pf-adversary round `ve2zs4`, D8: this test's NAME promised a
+        # measurement its FIXTURE never took.  `_RealStoreCase.setUp` builds
+        # `self.character` through `store.create_character` directly, which
+        # -- unlike the real character-creation path `lifecycle.py` drives
+        # through `grant_starting_skills_for_class` -- writes no starting-kit
+        # row at all.  So `held` below was always the empty set, `overlap`
+        # was always `0`, and the assertions passed on every run whether or
+        # not `already=` was ever really wired to what the row held before
+        # the command ran.  A starting kit is granted here, through LANE-DB's
+        # OWN starting-kit door (`grant_starting_skills`, not a hand-written
+        # INSERT), so `held` is provably non-empty and the two assertions
+        # below can no longer be true by construction.
+        starting_kit = class_skill_curriculum.CURRICULUM_SKILL_IDS[:3]
+        self.store.grant_starting_skills(self.character.id, starting_kit)
         held = set(self.store.list_character_skills(self.character.id))
-        _, err = self.act_capturing_stderr(self.session, "/skill all")
         overlap = held & set(class_skill_curriculum.CURRICULUM_SKILL_IDS)
+        self.assertEqual(overlap, set(starting_kit))
+        self.assertTrue(overlap)
+        _, err = self.act_capturing_stderr(self.session, "/skill all")
         self.assertIn(f"already={len(overlap)}", err)
         self.assertIn(
             f"granted={class_skill_curriculum.SKILL_COUNT - len(overlap)}", err
         )
+        # And the starting-kit rows keep their own provenance -- `/skill all`
+        # must not have re-minted them as `gm_grant` on the way past.
+        sources = self._sources()
+        for skill_id in starting_kit:
+            self.assertEqual(sources[skill_id], "starting_kit")
 
     def _sources(self):
         """`{skill_id: source}` straight out of the table, reopened.

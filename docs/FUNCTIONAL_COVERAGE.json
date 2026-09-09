@@ -1041,13 +1041,24 @@
           "notes": "Community_RequestBeFriendVital 0xB9E9, landed by round asw0n3 while round ncejt8 was writing this domain. u64 + tagged wstring + u8, so a name moves the width and the reviewed row is a 512-byte ceiling rather than an exact width. Same seam, same echo argument, same RE-312 RESULT-1/RESULT-2 basis, and the same unread split inside 0x0063F9B0 that the remove-friend row records. observed_frames = 0."
         },
         {
+          "id": "send_mail_answer",
+          "title": "Send mail button is answered",
+          "required": true,
+          "status": "in_progress",
+          "evidence_refs": [],
+          "test_refs": [
+            "tests/test_lane_ui_mail_send_answer.py"
+          ],
+          "notes": "Community_SendMailVital 0x6E12, landed round t4nxwq, the third of the five CommunityModule_Client ids and the sixth button on this seam overall. u64 + wstring*5 + u8, so this row's reviewed outbound ceiling is wider than the single-wstring rows above it (4096 bytes, not 512) because six fields move the width instead of one. Same seam, same echo argument, same RE-312 RESULT-1/RESULT-2 basis, and the same unread split inside 0x0063F9B0 that the two rows above record. observed_frames = 0."
+        },
+        {
           "id": "answered_button_client_reaction",
           "title": "A client is observed reacting to an answered button",
           "required": true,
           "status": "not_started",
           "evidence_refs": [],
           "test_refs": [],
-          "notes": "THE ROW THIS DOMAIN IS OPEN ON. Every row above proves bytes leave the server on the production path; none of them proves a pixel moves. This project answers questions about pixels with an attended ticket, and no ticket covering these four ids has been run yet. It stays not_started until one is, and it is the reason domain_complete is false and will stay false even if every other row above ever goes green."
+          "notes": "THE ROW THIS DOMAIN IS OPEN ON. Every row above proves bytes leave the server on the production path; none of them proves a pixel moves. This project answers questions about pixels with an attended ticket, and no ticket covering these six ids has been run yet. It stays not_started until one is, and it is the reason domain_complete is false and will stay false even if every other row above ever goes green."
         }
       ]
     }

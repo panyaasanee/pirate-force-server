@@ -116,17 +116,28 @@ import pf_bent_scene_registry as bent  # noqa: E402
 # the registry -- see `tests/pf_bent_scene_registry.py`.
 ADMISSIBLE_TODAY = (
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 130, 278, 304, 305, 997)
-# The GM-gated (single-use) map's own way out, which is wider than the
-# plain set above by exactly one scene since round R249 (chief, gate-red
-# repair of `pirate-force-server#332`): lane A landed the scene-126
+# The GM-gated (single-use) map's own way out.  ~~Wider than the plain set
+# above by exactly one scene since round R249: lane A landed the scene-126
 # registry row, and `CORE-REQUEST-GM-038`'s single-use widening admits it
-# there while the plain rule (and the standalone map, which is never
-# widened -- `COO-DECISION 20260829_0542`) still refuses it.  See
-# `gm/login_scene_admission.py`'s `single_use_entry_is_admissible`.
-# 126 is in the plain set since 1218, so this is a union rather than a
-# concatenation: the old form would list it twice and the way-out line a
-# refused operator reads would name the same scene twice.
-SINGLE_USE_ADMISSIBLE_TODAY = tuple(sorted(set(ADMISSIBLE_TODAY) | {126}))
+# there.~~  IT IS THE SAME SET AGAIN since LANE-GM round `xbfcsi`
+# (2026-09-09): the widening admits a scene only while a chief letter
+# SANCTIONS it, and 126's sanction was retired on the order of
+# `COO-DECISION 20260908_2141`.  The widening itself is untouched and is
+# still pinned in `tests/test_gm_login_scene_sanctioned_admission.py`; what
+# went away is the one id it had to widen for.  This constant is written as
+# the derivation rather than as a literal so it follows the map instead of
+# a memory of it.  See `gm/login_scene_admission.single_use_entry_is_
+# admissible`.
+# MERGE NOTE (LANE-A round 9ic0io, 2026-09-09): the two sides of this
+# conflict were about different halves of the line.  This branch widens
+# `ADMISSIBLE_TODAY` because it is the branch that opens 17/126/304/305 in
+# the registry; LANE-GM's landed change rewrites `SINGLE_USE_ADMISSIBLE_
+# TODAY` as a derivation instead of a literal.  Both are kept: with the
+# sanction map now empty on main, the derived union is exactly
+# `ADMISSIBLE_TODAY`, which is the same answer LANE-GM measured.
+SINGLE_USE_ADMISSIBLE_TODAY = tuple(
+    sorted(set(ADMISSIBLE_TODAY) | set(login_scene_admission.SANCTIONED_BARRED_SCENES))
+)
 HOME = 1
 # In the client's name catalog (so it passes the older check) and pinned
 # `login_entry_allowed: false` -- the exact entry that locked an account out.

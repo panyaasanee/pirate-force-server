@@ -622,10 +622,6 @@ class HostWiringTests(unittest.TestCase):
         self.assertIn(reward.REFUSE_NO_STORE, refusals[0])
 
 
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
-
-
 class SpendDoorStore:
     """Answers BOTH subtracting doors; explodes on anything that reads.
 
@@ -1111,3 +1107,7 @@ class BalanceDoorTests(unittest.TestCase):
             quest_criteria.KIND_CASH, 7, ReadsOnlyAndBitesWriters())
         self.assertEqual(value, 42)
         self.assertIsNone(reason)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

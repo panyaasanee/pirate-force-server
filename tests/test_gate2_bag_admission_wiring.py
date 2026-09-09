@@ -820,6 +820,20 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             # untracked, committed it, and HEAD was red.  Staged first, then
             # measured, from now on.
             "tests/test_mob_pickup_persist.py",
+            # Added by LANE-CS (PANYA `2150` / COO-DECISION `20260909_1312`,
+            # this round).  The birth rule is now an empty bag for every
+            # class, and that rule is admitted through THIS module's new
+            # `VERDICT_EMPTY_BIRTH_BAG` / `is_empty_birth_bag` /
+            # `may_enter_world`, not through `class_starting_gear` (which is
+            # untouched, `production_allowed` still `False`).
+            # `Gate2RefusesEveryClassButOneTodayTests` in
+            # `tests/test_class_starting_gear.py` reads the verdict from
+            # this predicate instead of asserting its own idea of
+            # admissibility -- a test OF `bag_admission`'s outcome, exactly
+            # the shape every entry above this one already is; the
+            # production module `class_starting_gear.py` does not import
+            # `bag_admission` and is not listed.
+            "tests/test_class_starting_gear.py",
         }
         # ROUND 78zy6l.  Everything past the allowlist used to be a failure
         # by itself, which made the check fire on files that cannot call

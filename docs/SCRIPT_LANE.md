@@ -1797,6 +1797,25 @@ the registry keyed by (scene folder, WIRE id) -- named in both the module
 and every log line as `WIRE_NATIVE_ID_UNPROVEN_VS_TGR_ORDINAL`, so nothing
 downstream can mistake this key for a proven `.tgr` crosswalk.
 
+**MEASURED NOW, round `7mdavp`**: the crosswalk this round called
+unproven has been measured. `RE-273`'s narrowed follow-up
+(`pf_bridge/notes_to_chief/
+20260908_2230_RE-273-RESULT-TGR-ORDINAL-COPIES-TO-WIRE-TAG-0F.md`) traced
+the client's own data flow and found the wire's `0x0F` tag IS the `.tgr`
+record's embedded ordinal, copied byte-for-byte (`record+0x4E` ->
+`vital+0x14`) -- a positive field crosswalk, not a numeric coincidence.
+The log key and module docstring were updated the same round
+(`WIRE_NATIVE_ID_EQUALS_TGR_ORDINAL_RE273`); the registry key itself did
+not change (it was always the wire id, which the ordinal now provably
+equals). What is STILL missing, and why this section's "not player-visible
+yet" below still holds: the per-scene ordinal->filename DATA is not a
+committed table this lane can read without the live client --
+`gamedata/scene/*/*.placements.tsv` (checked this round) carries mob-set
+placements, not trigger records, and the one full `.tgr` dump this project
+has (`RE-289`) covers `Bg3001` only, as a letter, not a structured table.
+The open item is a data-extraction RE ticket (more scenes' `.tgr` files),
+not a crosswalk question.
+
 **What this is not, said plainly**: no `.lua` file is looked up or run; no
 `REAL_METHODS` count changed (still 5/17); nothing reaches the client;
 nothing is player-visible yet. It is COMING, not DONE (see this round's own
@@ -4665,3 +4684,190 @@ answers point opposite ways.  Until the seam carries a `refused` signal a
 charge path can read, `REFUSED_VALUE` is fail-closed at one call site and
 fail-open at two.  **That is next round's first job**, ahead of anything
 new.
+## Round 7cf5ak (2026-09-08) -- refusal becomes the THIRD state, and the daily-quest charge stops repeating
+
+The debt the previous round closed with, paid. `REFUSED_VALUE = 0` and a
+read's `None` said two different things with one answer -- "this quest has
+not advanced" and "this server could not record what just happened" -- and
+`Quest.CanReportDailyQuest()` read the second as the first.
+
+### What a player would have seen, and what they see now
+
+`gamedata/lua/Quest/q_day_business.lua` runs, in this order:
+
+    Accept_Check():  if( Quest.CanReportDailyQuest()) and ...
+    Report_Run():    Player.RemoveItem(Quest.Var2,Quest.Var3)   <- the charge
+                     Quest.ReportDailyQuest()                   <- the record
+
+With a write-locked store the charge lands and the record does not. Before
+this round the next click found `CanReportDailyQuest()` still True (no
+stamp on record = "not reported today") and charged again: measured four
+charges where a healthy store charges once, and charges 2-4 printed no
+refusal line at all because the console dedupe had already spent the key.
+
+Now: charged once, then every later attempt is refused out loud. The player
+loses one day of one daily quest instead of four lots of items.
+
+### The mechanism, in three pieces
+
+1. **`lua_api/quest_state_signal.py`** (new, leaf, no intra-package
+   imports). `Refused` is an `int` SUBCLASS carrying the number the
+   refusing call already returned (0 for nearly all of them) plus a
+   `reason`. So a caller that has never heard of this module keeps exactly
+   today's number and today's behaviour -- the module cannot regress a path
+   it has not been wired into -- while a caller that asks `is_refused()`
+   gets the third state. `RefusalLedger` remembers per `(character_id,
+   quest_id)` that a WRITE was refused and has not since succeeded.
+2. **`quest_state_store.py`**: every refusal path answers
+   `refused(<reason>)` instead of a bare `0`/`None`; a refused WRITE
+   poisons the pair, a successful write clears it. Refused READS are
+   reported and poison nothing -- a read failure loses no fact.
+3. **`quest.py`**: `InMemoryQuestStateStore` marks its cap refusals the
+   same way (a cap refusal is a lost write too), and the decision sites
+   refuse rather than guess: `CanReportDailyQuest`, `CheckMobKillCount`,
+   `GetMobKillCount`, `GetQuestFlag`, `GetFlag`, `SetFlag`, `SetQuestFlag`,
+   `MobKillCount`, `ReportDailyQuest`, the cross-lane `is_quest_accepted`/
+   `is_quest_reported` LANE-A gates NPC visibility on, and -- the payout
+   gate PANYA's `NOW.md` line names -- `Quest.Var1..Var20` and the reward
+   cells, which come back as `STUB_DEFAULT` while the pair is poisoned, so
+   the script's own arithmetic charges zero and `lua_api.player` refuses it
+   by name (`amount_is_zero`).
+
+### The cost, stated rather than hidden
+
+A poisoned pair stalls that quest entirely, not just at the till: `VarN`
+also carries mob ids and target counts. That is the intended trade -- a
+stalled quest is recoverable, a double charge is not -- and it ends the
+moment one write for the pair succeeds (pinned:
+`test_one_successful_write_clears_the_pair`). The ledger never evicts a
+pair to make room, because evicting one would turn "unreadable" back into
+"not started"; it refuses NEW pairs at `LEDGER_CAP` and reports
+`saturated()`.
+
+### Evidence
+
+`tests/test_script_lua_quest_refusal_third_state.py` (15 tests) drives the
+real `Quest` namespace over a store whose READS work and whose WRITES raise
+the `sqlite3.OperationalError` family `store.WriteLockTimeout` belongs to --
+the hard case, where nothing looks broken from the read side. Seven mutants
+of this round's code, all killed: gate removed, poison not recorded, `VarN`
+gate removed, pair never cleared, ledger evicting, `is_refused` answering
+True for a real 0, cross-lane read consulting only the value and not the
+ledger.
+
+Six existing pins in `tests/test_script_lua_quest_state_store.py` asserted
+`None` for a refused read and were CHANGED on purpose: that `None` was the
+defect. They now assert the refusal, and separately assert it is still
+numerically 0.
+
+### LANE-DB's five doors landed on main DURING this round
+
+Measured at the start of this round (19:28 +07): absent, as in every round
+before it. Measured again at the merge before the push (`origin/main`
+`2e4e3f6`): `store.py:3399` `set_quest_flag`, `:3454` `get_quest_flag`,
+`:3490` `set_quest_counter`, `:3544` `increment_quest_counter`, `:3606`
+`get_quest_counter`, plus `persistence_quest_state.py` and
+`migrations/019_character_quest_state.sql`.
+
+That settles pf-adversary F10 by READING rather than by reply:
+`QuestCounterRow(character_id, quest_id, counter_name, counter_value,
+updated_at)` -- `counter_value` is real, and the `[PROPOSED]` label on
+`_COUNTER_FIELD` is lifted with the file and line that prove it.
+
+### Not claimed
+
+- No name moved into `REAL_METHODS`; the corpus stub pin does not move.
+- **Quest progress still does not survive a relog.** The doors exist and
+  this adapter is written to them, but nothing in the codebase yet hands a
+  store to `load_quest_script(persistence=...)`; `lua_api.dispatch.resolve_
+  quest_state_store` is the one switch that would, and it has no production
+  caller. That wiring is the next round's first job.
+- This adapter has never run against the real store -- the fake in
+  `tests/test_script_lua_quest_state_store.py` is still a fake. What
+  changed is that it now mirrors a row shape that can be checked.
+- `increment_quest_counter` still has no production caller.
+
+## Round `z113cx` -- the refusal is remembered for as long as the row it stands for
+
+pf-adversary broke round `7cf5ak`'s mechanism after that round had already
+unlocked (`pf_bridge/rounds/Q_20260908_2009_7cf5ak_addendum_*.md`), the
+marker was pulled from `pirate-force-server#1170`, and this round rebuilds
+the design on that branch rather than landing it as it was. The finding
+that mattered was one question: **what is the unit of a lost fact, and
+where is it remembered so that the memory outlives the process that failed
+to write it?**
+
+### The answer, in two moves
+
+1. **The unit is the ROW.** `RefusalLedger` is keyed
+   `(character_id, quest_id, kind, name)` -- `kind` is `flag` or `counter`,
+   `name` is the counter name (always `""` for a flag, normalised inside
+   the ledger so a caller cannot poison one flag row and clear another).
+   A write clears the row it wrote and nothing else. This is A2: in
+   `Quest/q_day_business.lua` the refused `ReportDailyQuest()` at line 59
+   is followed at line 63, four lines later in the same script run, by a
+   `SetFlag` that SUCCEEDS -- and pair-keying let that success vouch for a
+   daily stamp that was still missing from disk.
+2. **The memory belongs to the BACKING STORE, not the adapter.**
+   `quest_state_signal.ledger_for(store)` keeps one ledger per store
+   object in a weak-keyed side table owned by this leaf module. This is
+   A1: `dispatch.load_quest_script()` builds a fresh adapter per run, so
+   the click that charged the player and the click that would charge them
+   again were different `RefusalLedger` instances and the gate was open
+   every time. A weak side table rather than an attribute on
+   `store.SQLiteStore` because `store.py` is LANE-DB's file, not this
+   lane's, and the association has no business living on their instance.
+
+### The move that was a removal (A3)
+
+The first version answered `Quest.VarN` with `STUB_DEFAULT` while the
+quest was poisoned, on the reasoning that `VarN` is the amount a script
+charges or pays. In the shipped corpus `Quest.VarN == 0` is the "this
+quest has no prerequisite" idiom -- **299 call sites across 302 scripts**,
+including `q_day_business.lua:12` and the level cap at `:14`. Zeroing the
+cell did not stall those gates; it OPENED them, in the same script the
+mechanism was written for. Both cell gates (`VarN` and the reward cells)
+are gone. The refusal is enforced where a decision is taken instead:
+
+* the read gates -- `CanReportDailyQuest`, `CheckMobKillCount`,
+  `GetMobKillCount`, `GetQuestFlag`, `GetFlag`, `is_quest_accepted`,
+  `is_quest_reported` -- each asking about the ONE row it reads;
+* `_pay_criteria`, the one closure in the file whose name is "pay", which
+  was the one not gated (A7) and which asks about the quest as a whole,
+  because a payout is a decision about the quest and not about a row.
+
+### Also paid this round
+
+* **A4** -- `test_one_successful_write_clears_the_pair` and
+  `test_the_amount_cells_go_to_the_stub_default_once_poisoned` pinned the
+  two bugs as requirements. Both are rewritten to assert the opposite,
+  under names that say so, and `TheMemoryOutlivesTheDispatchTests` crosses
+  the dispatch boundary through `dispatch.resolve_quest_state_store`
+  itself -- with a test that first proves the resolver really does build a
+  new adapter each time, so the rest cannot pass vacuously.
+* **A6** -- `character_id < 1` is the inert default context, not a
+  character whose progress went missing. It never poisons now, whatever
+  `wrote` says; recording it left a healthy store poisoned forever,
+  because no write for character 0 will ever clear it.
+* **A8** -- `dispatch.py`'s docstring still said LANE-DB's doors were
+  absent from `main`. They are on `main`; what is absent is a production
+  CALLER, and the docstring now says that instead.
+* **F12** (carried debt) -- the refusal log's de-duplication key now
+  carries the row, so `q_kill5.lua` chasing two mob ids no longer collapses
+  two different lost counters into one console line. The line itself gains
+  `row=<kind>:<name>`.
+
+### Not claimed
+
+- **The memory does not outlive the PROCESS.** The only place durable
+  enough for that is the row itself, which is exactly the thing that could
+  not be written. After a restart the gates re-derive from whatever the
+  store can be read to say. Stated here because the previous round's
+  headline claim was bigger than its code, and this one must not be.
+- Quest progress still does not survive a relog: nothing hands a store to
+  `load_quest_script(persistence=...)`.
+- No name moved into `REAL_METHODS`; the corpus stub pin does not move; no
+  frame reaches the client.
+- The corpus counts quoted above (299 sites / 302 scripts) are
+  pf-adversary's measurement of round `7cf5ak`, carried over, not
+  re-derived this round.
