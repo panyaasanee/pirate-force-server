@@ -406,26 +406,31 @@ class TheTokenMeasuresTheArtifactTests(_Fixture):
 
 
 class LearningAFifthSkillCollidesWithTheLoginCapTests(_Fixture):
-    """MEASURED THIS ROUND, and pinned so a player is not the first to find
-    it.
+    """FLIPPED THIS ROUND (PANYA `2220` / COO-DECISION `20260909_1312`,
+    LANE-CS) -- direction reversed, class name kept so the history of the
+    collision this pins stays attached to it.
 
-    `skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT` is 4 -- the largest
-    count a real client has ever been measured accepting (`GT-249`) -- and
-    `COO-DECISION 20260908_1742` froze it there until an attended result
-    moves it.  Every character alive today carries exactly the 4 starting
-    kit rows, so nothing had ever produced a fifth.  This module produces
-    one on the first successful learn, and the next login then composes NO
-    SKILL FRAME AT ALL: a named refusal on the console, and an empty skill
-    window on the screen.
+    Until this round, `skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT`
+    was 4 -- the largest count a real client had ever been measured
+    accepting (`GT-249`) -- and `COO-DECISION 20260908_1742` froze it there
+    until an attended result moved it.  This test used to pin that a fifth
+    row made the login route refuse by name, unsent, with an empty skill
+    window on screen.
 
-    THE CAP IS NOT RAISED HERE and this test does not ask for it to be.  It
-    pins the collision so that the day the cap moves, the test that moves it
-    has to come here and say so -- and so that the ">4 rows" step this lane
-    asked `GT-307` for has a reproducible way to reach it that needs no GM
-    command at all.
+    PANYA `2220`: no more self-imposed ceilings for "not yet measured";
+    unmeasured is a reason to SEND and record what happens, not a reason to
+    refuse in advance.  The COO-DECISION named above retires the cap and
+    the refusal outright -- `OBSERVED_ACCEPTED_RECORD_COUNT` and
+    `REFUSE_TOO_MANY_UNMEASURED` no longer exist in
+    `skill_list_at_login` (`git grep` for both returns nothing under
+    `src/`).  This test now pins the opposite: a character who has learned
+    a fifth skill gets a login frame that CARRIES ALL FIVE rows, composed
+    and decodable, same as it would for four or forty -- the u16 wire field
+    (`WIRE_MAX_RECORDS`) is the only ceiling left, and this test is nowhere
+    near it. No skip, no xfail (`2050`).
     """
 
-    def test_the_fifth_row_makes_the_login_frame_refuse_by_name(self):
+    def test_the_fifth_row_is_sent_not_refused(self):
         character = self._make_character()
         self.store.write_typed_attributes(
             character.id, {"skill_points": 99, "level": 40},
@@ -434,9 +439,7 @@ class LearningAFifthSkillCollidesWithTheLoginCapTests(_Fixture):
         before = skill_list_at_login.read_character_skill_ids(
             self.store, character.id,
         )
-        self.assertEqual(
-            skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT, len(before),
-        )
+        self.assertEqual(4, len(before))
         pc, _frame = skill_list_at_login.make_skill_list_response(
             self.legacy, before,
         )
@@ -450,14 +453,28 @@ class LearningAFifthSkillCollidesWithTheLoginCapTests(_Fixture):
             self.store, character.id,
         )
         self.assertEqual(len(before) + 1, len(after))
-        with self.assertRaises(
-            skill_list_at_login.SkillListAtLoginError
-        ) as caught:
-            skill_list_at_login.make_skill_list_response(self.legacy, after)
-        self.assertEqual(
-            skill_list_at_login.REFUSE_TOO_MANY_UNMEASURED,
-            caught.exception.reason,
+        self.assertEqual(5, len(after))
+
+        # PANYA `2220`: this used to be `assertRaises(...REFUSE_TOO_MANY_
+        # UNMEASURED)`. It is now a plain compose -- the fifth row goes out
+        # exactly like the first four, no special case, no named refusal.
+        pc_after, frame_after = skill_list_at_login.make_skill_list_response(
+            self.legacy, after,
         )
+        self.assertEqual(
+            5, skill_list_at_login.measured_record_count(pc_after),
+        )
+        self.assertEqual(
+            0, skill_list_at_login.measured_trailing_byte(pc_after, 5),
+        )
+        self.assertEqual(
+            tuple(sorted(after)),
+            tuple(sorted(
+                record.record_u32_0
+                for record in skill_list_at_login.skill_list_records(after)
+            )),
+        )
+        self.assertGreater(len(frame_after), 0)
 
 
 class LearningTheSameSkillTwiceTests(_Fixture):
