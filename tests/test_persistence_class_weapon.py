@@ -20,10 +20,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from pirateforce_foundation import class_catalog, inventory
 from pirateforce_foundation import persistence_class_weapon as weapons
+from pirateforce_foundation.model import Position
 from pirateforce_foundation.store import SQLiteStore
 
 MIGRATIONS = str(Path(__file__).resolve().parents[1] / "migrations")
 STAMP = "2026-09-08T04:00:00Z"
+
+# One past INITIAL_BACKPACK's own slots (0..3): the lowest free slot on a
+# freshly created character, the same derivation
+# tests/test_store_acquired_item_insert.py uses for its own seed.
+FIRST_FREE_SLOT = max(item.slot for item in inventory.INITIAL_BACKPACK.items) + 1
+# The shape gate's own ceiling, asked of the same private helper
+# mint_class_weapon itself calls -- not a literal 39 typed a second time,
+# which is exactly the drift pf-adversary's D7 (module docstring) warns
+# against.
+LAST_SLOT = weapons._slot_ceiling()
+
+
+def _build_wire(selector):
+    return b"wire", b"avatar", 0x10000001 + selector, 0
 
 
 def _tsv_column(index: int) -> dict[int, int]:
@@ -266,6 +281,170 @@ class ReadOnlyPlanTest(unittest.TestCase):
             ).fetchall()
         finally:
             db.close()
+
+
+class MintClassWeaponTests(unittest.TestCase):
+    """``weapons.mint_class_weapon`` -- the GM-test-range door, `1455`'s
+    weapon half.  Not the migration half above: this gives a NEW row, it
+    does not retarget or carry forward an existing one."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.home = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+        self.account_id = self.store.ensure_account("mint-class-weapon")
+        self.sid = self.store.open_session(self.account_id)
+        self.character = self.store.create_character(
+            self.account_id, "WeaponOne", "weaponone",
+            "fingerprint-mint-class-weapon", _build_wire, self.home,
+        )
+        self.store.select_character(self.sid, self.character.selector)
+
+    def _ground_drop_count(self):
+        with self.store.connect() as db:
+            return db.execute("SELECT count(*) FROM ground_drops").fetchone()[0]
+
+    def _fill_slots(self, first_slot, last_slot_inclusive):
+        """Occupy every slot in [first_slot, last_slot_inclusive] with a
+        real row -- same raw-SQL shape ``test_store_mint_backpack_item.py``
+        uses for its own full-bag fixture."""
+        filler_template = weapons.class_weapon_template_id(1)
+        with self.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            next_identity = db.execute(
+                "SELECT next_item_identity FROM character_backpacks "
+                "WHERE character_id=?", (self.character.id,),
+            ).fetchone()[0]
+            filler_rows = [
+                (self.character.id, next_identity + offset, filler_template,
+                 1, slot, 0, 0xFF, 0)
+                for offset, slot in enumerate(range(first_slot, last_slot_inclusive + 1))
+            ]
+            db.executemany(
+                "INSERT INTO character_backpack_items("
+                "character_id,item_identity,template_id,quantity,slot,"
+                "raw_u8_38,raw_u8_39,detail_present"
+                ") VALUES (?,?,?,?,?,?,?,?)",
+                filler_rows,
+            )
+            db.execute(
+                "UPDATE character_backpacks SET next_item_identity=? "
+                "WHERE character_id=?",
+                (next_identity + len(filler_rows), self.character.id),
+            )
+
+    # ----- the happy path -----------------------------------------------
+
+    def test_mints_the_class_weapon_into_the_first_free_slot_with_no_ground_drop(self):
+        before_drops = self._ground_drop_count()
+        for class_id in class_catalog.CLASS_IDS:
+            with self.subTest(class_id=class_id):
+                after = weapons.mint_class_weapon(
+                    self.store, self.sid, self.character.id, class_id)
+                new_rows = [
+                    row for row in after.items
+                    if row.template_id == weapons.class_weapon_template_id(class_id)
+                    and row.slot >= FIRST_FREE_SLOT
+                ]
+                self.assertEqual(len(new_rows), 1, after.items)
+                self.assertEqual(new_rows[0].quantity, 1)
+        # No ground drop was ever involved.
+        self.assertEqual(self._ground_drop_count(), before_drops)
+        # Read back through a fresh call, same as a relog would see.
+        reread = self.store.get_backpack(self.sid, self.character.id)
+        self.assertEqual(
+            len(reread.items),
+            len(inventory.INITIAL_BACKPACK.items) + class_catalog.CLASS_COUNT)
+
+    def test_mints_into_the_true_last_slot_not_just_the_first_free_one(self):
+        """pf-adversary (round xpcq8r): every existing test leaves several
+        slots free, so a scan truncated by one (``range(0, ceiling)``
+        instead of ``range(0, ceiling + 1)``) still finds A free slot and
+        stays green.  This fills every slot except the ceiling itself, so
+        only an off-by-one-correct scan can find the one that is left."""
+        self._fill_slots(FIRST_FREE_SLOT, LAST_SLOT - 1)  # every slot but the ceiling
+        before = self.store.get_backpack(self.sid, self.character.id)
+        self.assertEqual(len(before.items), LAST_SLOT)  # LAST_SLOT occupied, 1 free
+        after = weapons.mint_class_weapon(
+            self.store, self.sid, self.character.id, 2)
+        new_rows = [
+            row for row in after.items
+            if row.slot == LAST_SLOT
+            and row.template_id == weapons.class_weapon_template_id(2)
+        ]
+        self.assertEqual(len(new_rows), 1)
+        self.assertEqual(len(after.items), LAST_SLOT + 1)
+
+    def test_the_first_mint_lands_at_the_true_first_free_slot(self):
+        after = weapons.mint_class_weapon(
+            self.store, self.sid, self.character.id, 2)
+        minted = next(
+            row for row in after.items
+            if row.template_id == weapons.class_weapon_template_id(2))
+        self.assertEqual(minted.slot, FIRST_FREE_SLOT)
+        self.assertEqual(
+            minted.identity,
+            max(item.identity for item in inventory.INITIAL_BACKPACK.items) + 1)
+
+    def test_lands_the_row_through_the_existing_door_not_a_new_one(self):
+        """Proven by spying on the real door rather than re-typing its SQL
+        here, the same shape ``test_store_mint_backpack_item.py`` uses: if
+        this function ever stops calling it and starts executing its own
+        INSERT, this goes red without an AST walk of this file to notice --
+        and ``test_bag_admission_expiry.py``'s inserter-allowlist pin would
+        also catch the same defect from the other side."""
+        with mock.patch.object(
+            self.store, "commit_acquired_backpack_item",
+            wraps=self.store.commit_acquired_backpack_item,
+        ) as spy:
+            weapons.mint_class_weapon(self.store, self.sid, self.character.id, 4)
+        spy.assert_called_once()
+        (sid_arg, cid_arg, item_arg), _kwargs = spy.call_args
+        self.assertEqual(sid_arg, self.sid)
+        self.assertEqual(cid_arg, self.character.id)
+        self.assertEqual(item_arg.template_id, weapons.class_weapon_template_id(4))
+
+    def test_repeated_calls_do_not_dedupe(self):
+        """Nonclaim, proven: a GM testing the same class twice gets two
+        rows, not a silently-ignored second call."""
+        first = weapons.mint_class_weapon(
+            self.store, self.sid, self.character.id, 16)
+        second = weapons.mint_class_weapon(
+            self.store, self.sid, self.character.id, 16)
+        template = weapons.class_weapon_template_id(16)
+        self.assertEqual(
+            len([row for row in second.items if row.template_id == template]), 2)
+        self.assertGreater(len(second.items), len(first.items))
+
+    # ----- named refusals -------------------------------------------------
+
+    def test_an_unknown_class_id_is_refused_not_defaulted(self):
+        before = self.store.get_backpack(self.sid, self.character.id)
+        with self.assertRaises(weapons.ClassWeaponError):
+            weapons.mint_class_weapon(self.store, self.sid, self.character.id, 3)
+        self.assertEqual(self.store.get_backpack(self.sid, self.character.id), before)
+
+    def test_a_full_backpack_refuses_before_writing_anything(self):
+        self._fill_slots(FIRST_FREE_SLOT, LAST_SLOT)  # every remaining slot taken
+        before = self.store.get_backpack(self.sid, self.character.id)
+        self.assertEqual(len(before.items), LAST_SLOT + 1)
+        before_drops = self._ground_drop_count()
+        with self.assertRaises(weapons.ClassWeaponError):
+            weapons.mint_class_weapon(self.store, self.sid, self.character.id, 2)
+        self.assertEqual(self.store.get_backpack(self.sid, self.character.id), before)
+        self.assertEqual(self._ground_drop_count(), before_drops)
+
+    def test_refuses_on_a_session_that_has_not_selected_the_character(self):
+        other_account = self.store.ensure_account("mint-class-weapon-other")
+        other_sid = self.store.open_session(other_account)
+        before = self.store.get_backpack(self.sid, self.character.id)
+        with self.assertRaises(PermissionError):
+            weapons.mint_class_weapon(
+                self.store, other_sid, self.character.id, 2)
+        self.assertEqual(self.store.get_backpack(self.sid, self.character.id), before)
 
 
 if __name__ == "__main__":
