@@ -567,6 +567,7 @@
 # src/tests/scenarios are allow-listed wholesale, only the tool needs its
 # own line here.
 !/tools/pf_ground_loot_nameprop_headless_replay.py
+!/tools/pf_scene_exit_vitals_headless_replay.py
 !/tools/pf_external_registry.py
 
 # LANE-B FIELD-MOBS-001: the generator behind src/pirateforce_foundation/

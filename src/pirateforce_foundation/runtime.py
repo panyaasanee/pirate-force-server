@@ -88,6 +88,7 @@ from .gm.warp_target_record import (
 from .gm.warp_executor import WarpTarget
 from .gm import warp_scene_persist
 from .gm import warp_send_watch
+from . import persistence_scene_exit_vitals
 
 from .model import Position
 from .inventory import (
@@ -5001,12 +5002,111 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # cost "the write's bookkeeping", it would take the
                 # connection down and unwind the listener thread.
                 return
-            if getattr(self, "client_confirmed_scene", None) == scene_id:
+            previous = getattr(self, "client_confirmed_scene", None)
+            if previous == scene_id:
                 return
             self.client_confirmed_scene = scene_id
             self.events.append(
                 f"client_confirmed_scene_{scene_id}_{why}"
             )
+            # CORE-REQUEST (LANE-DB, pf_bridge notes_to_chief 20260907_2032).
+            # LAST, after the field and its event, so a restate can never be
+            # the reason the field failed to move.  `previous` is read BEFORE
+            # the write for the only reason that matters: the scene being
+            # LEFT is the argument the resolver takes.
+            self._scene_exit_vitals_note(previous, scene_id, why)
+
+        def _scene_exit_vitals_note(self, left_scene, entered_scene,
+                                     why) -> None:
+            """CORE-REQUEST (LANE-DB `20260907_2032`): print what the server
+            may restate about HP for the scene the character just LEFT.
+
+            WHY THIS SEAM AND NOT ONE OF THE THREE THAT WRITE
+            ``selected.position.scene_id``, because the letter made the
+            distinction the whole request turns on: it asked for the point
+            where the character HAS left, never the point where it is about
+            to, and said in terms that a line printed one frame early "reads
+            like evidence while it was measured at the wrong time", which
+            would decide `GT-301` wrongly on the strength of this very token.
+
+            The three writers of ``selected.position.scene_id`` are all
+            "about to": the GM warp relabels the row at QUEUE time (its own
+            docstring says so, and ``scene_label_is_server_guess`` exists
+            because of it), the login-scene override relabels before the
+            client has reported anything, and the travel-gate crossing is
+            unreachable on a flagless boot.  This field is the other kind:
+            it advances only on a frame the CLIENT sent, and only while the
+            label was not the server's own unconfirmed guess -- the two
+            gates its own docstring above spells out.  So when it moves from
+            A to B, the client has already reported from B, and A is behind
+            the character rather than ahead of it.
+
+            NOT CLAIMED, and the field's own docstring is why it must be
+            said here too: this is NOT "the client named scene A".  No
+            inbound frame this server decodes carries a scene id at all.  It
+            is the label that was in force on a frame the client sent.  The
+            restate is therefore honest about WHOSE row it read (ours) and
+            makes no claim about where the client thinks it is.
+
+            NOT CLAIMED EITHER: this does not see every exit.  A warp that
+            never confirms, and a character that leaves by logging out, both
+            move nothing here -- by design, since neither produces a client
+            frame from the destination.  `GT-301`'s `HEADLESS_PROOF` may be
+            written against this token only for an exit the client reported
+            from the other side.
+
+            `left_scene` is `None` on the FIRST confirmation of a session:
+            nothing was left, and a restate there would be a login line
+            wearing an exit's name.  Refused by type, not by truthiness --
+            scene 0 is a scene id, `None` is not one.
+
+            FAIL-CLOSED BY NAME, NEVER BY EXCEPTION, for the same reason
+            :meth:`_mob_loot_cross_scene_boundary` spells it out: v141's game
+            listener has no ``except`` around ``state.dispatch``, so an
+            escape here would take the connection down DURING a scene
+            change.  ``resolve_for_scene_exit`` raises ``KeyError`` for a
+            character the database does not hold and its module says that is
+            deliberate -- the letter's own words are "wrap it at the caller
+            if your path cannot afford to raise".  This one cannot.
+
+            Reads the database once per CONFIRMED scene change, never per
+            frame: the early return above this call is what bounds it.
+            """
+            if type(left_scene) is not int:
+                return
+            try:
+                store = getattr(
+                    getattr(self.foundation, "lifecycle", None), "store", None)
+                if store is None:
+                    self.events.append(
+                        "scene_exit_vitals_no_store_"
+                        f"{left_scene}_to_{entered_scene}")
+                    return
+                character_id = current_character_id(self)
+                if type(character_id) is not int:
+                    # `current_character_id` answers `None` for "no character
+                    # selected" and a SENTINEL OBJECT for "there is one but
+                    # its id is not an int".  Both are refusals here; the
+                    # type check catches the sentinel without importing it.
+                    self.events.append(
+                        "scene_exit_vitals_no_character_"
+                        f"{left_scene}_to_{entered_scene}")
+                    return
+                resolved = persistence_scene_exit_vitals.resolve_for_scene_exit(
+                    store, character_id, left_scene)
+                print(
+                    persistence_scene_exit_vitals.console_line(resolved),
+                    file=sys.stderr,
+                )
+                self.events.append(
+                    "scene_exit_vitals_"
+                    + ("stated" if resolved.may_restate else "refused")
+                    + f"_{left_scene}_to_{entered_scene}_{why}"
+                )
+            except Exception as error:      # noqa: BLE001 - see docstring
+                self.events.append(
+                    "scene_exit_vitals_raised_"
+                    f"{type(error).__name__}_{left_scene}")
 
         def _gm_warp_note_position_target(self, candidate) -> str:
             """CORE-REQUEST-GM-030/031/051: is the confirmed row the GM's target.
