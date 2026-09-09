@@ -1,5 +1,6 @@
 """Projection seam into frozen V141 serializers; no gameplay behavior is changed."""
 import importlib.util
+import math
 import struct
 import sys
 from pathlib import Path
@@ -18,6 +19,78 @@ def load_legacy(path: str | Path):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+# The largest magnitude `struct.pack("<f", ...)` will encode.  Anything above it
+# raises OverflowError out of `f32tag`, which is NOT a caution threshold: it is
+# what the four bytes on the wire can physically carry, so it is one of the
+# refusals HOUSE_RULES 2220 item 5 still allows -- and it gets a name and a
+# printed line, never a silent trim.
+F32_MAX_MAGNITUDE = 3.4028234663852886e38
+
+class WirePositionOutOfRange(ValueError):
+    """A stored position this seam cannot encode as float32.
+
+    A ValueError ON PURPOSE.  The production login path in runtime.py wraps
+    `select_and_start` in `except (ValueError, RuntimeError)` and answers with a
+    printed, named refusal (the BACKPACK_LOAD_REFUSED handler is the precedent,
+    same call site).  Raising anything outside that tuple -- OverflowError, which
+    is what happens today -- unwinds the listener thread instead.
+    """
+
+def refuse_unencodable_position(p, where, character=None):
+    """Refuse a position the float32 wire cannot carry, BEFORE any tag is built.
+
+    [CORE-REQUEST LANE-A 20260909_1519, `pf_bridge/notes_to_chief/
+    20260909_1519_LANE-A-CORE-REQUEST-move-the-float32-guard-upstream-of-select-
+    and-start.md`; chief round qnys56]
+
+    MEASURED on main this round, not argued: `f32tag(3.5e38)` raises
+    `OverflowError: float too large to pack with f format`, `grep -n "except"
+    runtime.py` has no OverflowError anywhere near the `select_and_start` call
+    site (~10483), and both seams below read `character.position` RAW.  So one
+    persisted row with a coordinate past float32 killed the listener thread on
+    every login of that character -- and the thread is shared, so the row took
+    the connection down with it rather than only that one login.
+
+    LANE-A's own `_row_is_finite`/`_wire_refusal` guard sits in
+    `world_scene_entry.resolve_entry`, which the login path reaches ~10846/~10929
+    -- AFTER `select_and_start` has already composed this frame.  Their request
+    was to move the guard upstream; this is upstream, at the one place both
+    projections read the position, so neither seam can be reached around.
+
+    Nonclaims: this refuses only what the WIRE cannot encode.  It does NOT judge
+    whether a coordinate is a sensible place to stand (that is world's question,
+    not this seam's), and it deliberately leaves inf/NaN alone -- `f32tag` encodes
+    both today without raising, so refusing them here would be this seam changing
+    behaviour it was not asked to change, on rows LANE-A's own finite guard owns.
+    """
+    for name in ("x", "y", "z", "heading"):
+        v = getattr(p, name, None)
+        if v is None:
+            continue
+        try:
+            f = float(v)
+            # `math.isfinite` FIRST, and it is not an oversight that inf/NaN fall
+            # through: `f32tag` encodes both today without raising, so they are
+            # not part of the OverflowError hole this guard was asked to close,
+            # and refusing them here would silently take over the finite question
+            # that world_scene_entry's own row guard owns (LANE-A, and their
+            # 20260909_1518 ASK-COO about who owns arrival is still open).
+            if math.isfinite(f) and abs(f) > F32_MAX_MAGNITUDE:
+                who = getattr(character, "character_id", None)
+                raise WirePositionOutOfRange(
+                    "WIRE_POSITION_OUTSIDE_FLOAT32 %s.%s=%r character_id=%r "
+                    "-- the stored row cannot be encoded as float32; refusing the "
+                    "frame instead of unwinding the listener thread" % (where, name, v, who))
+        except (TypeError, ValueError) as exc:
+            if isinstance(exc, WirePositionOutOfRange):
+                raise
+            # A field that is not a number at all is the same class of problem
+            # and reaches `struct.pack` the same way; name it rather than let it
+            # surface as a TypeError from four frames deeper.
+            raise WirePositionOutOfRange(
+                "WIRE_POSITION_NOT_A_NUMBER %s.%s=%r -- refusing the frame" % (where, name, v))
+    return p
 
 class LegacyProjector:
     def __init__(self, legacy):
@@ -42,6 +115,7 @@ class LegacyProjector:
     def movement_attr(self, character, position=None):
         """Project the persisted position without changing the frozen zero-heading wire."""
         p = position or character.position
+        refuse_unencodable_position(p, "movement_attr", character)
         return (
             self.v.u8tag(0x0B, 1)
             + bytes([0x32])
@@ -61,6 +135,7 @@ class LegacyProjector:
         # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
         # PF-HYPOTHESIS-LEDGER: GEO-PF-003 frozen
         p = position or character.position
+        refuse_unencodable_position(p, "start_game", character)
         # CORE-REQUEST-022: every StartGame this seam composes carries
         # class+level now (player_wire.make_actor_attr_with_name_and_class /
         # _class_and_faction docstrings) -- both callers of this seam that
