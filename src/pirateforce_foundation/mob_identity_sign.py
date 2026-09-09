@@ -328,8 +328,13 @@ def mob_wire_identity(scene_id: int, placement_index: int) -> int:
     over re-sorting ``load_roster``, though the COO letter that approved
     this one gave it as such.
 
-    Before this function ascended, the four agreed only because the legacy
-    ``0x2000 + placement_index + 1`` formula happened to rise; the collision
+    Before this function ascended, the THREE agreed only because the legacy
+    ``0x2000 + placement_index + 1`` formula happened to rise (this sentence
+    counted four until round ``k1hsp0`` struck the census out of the list
+    two paragraphs up and left the tally behind -- pf-adversary of that
+    round reported the mismatch, and a docstring whose count disagrees with
+    its own list is how a reader concludes the census still depends on this
+    order); the collision
     is written up in ``tests/test_mob_identity_sign_inbound.py`` and in COO
     decision ``20260908_1642_COO-DECISION-roster-order-take-option-three``,
     which picked this fix over re-sorting ``load_roster`` (that would change

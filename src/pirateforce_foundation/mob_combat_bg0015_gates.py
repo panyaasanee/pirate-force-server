@@ -127,6 +127,7 @@ from . import field_mob_hostile_bg0015
 from . import field_mobs
 from . import mob_ai_control
 from . import mob_death
+from . import mob_identity_sign
 from . import mob_scene_recompose
 
 # world_scene_folder._FOLDER_BY_SCENE_ID: (2, "Bg0002"), (14, "Bg0015").
@@ -297,10 +298,31 @@ def splice_identities_missing_from(
     """
     external = set()
     for identity in external_identities:
-        if type(identity) is not int or identity <= 0:
+        # ONE RULE, ONE PLACE (PANYA-ORDER 20260908_1545 item 2.2,
+        # COO-DECISION 20260909_1312 item 1).  These are MONSTER identities
+        # -- lane A's census rows for scene 14 -- and this door used to
+        # spell "positive ints" itself.  Every row it is handed today comes
+        # out of the shared ``0x2000 + placement + 1`` formula and is
+        # positive, so the day ``field_mobs.actor_identity`` moves onto the
+        # negative band (job 3 of this lane) this refusal would have thrown
+        # away EVERY placement lane A ships and reported the result as
+        # "all twelve missing" -- a cross-check that answers "the census is
+        # empty" no matter what the census says is worse than no
+        # cross-check, because it reads as a measurement.  The shared
+        # predicate asks the question this door actually means: will the
+        # client draw the actor this number names?
+        #
+        # ``type(...) is not int`` stays spelled out here rather than being
+        # left to the predicate: ``True`` is a bool, a bool IS an int to
+        # ``isinstance``, and an identity set that quietly admitted ``True``
+        # as the number 1 is exactly the kind of row this cross-check exists
+        # to catch.  The predicate refuses it too, with its own error type;
+        # this door keeps its own so callers still catch one exception.
+        if type(identity) is not int \
+                or not mob_identity_sign.is_targetable_identity(identity):
             raise MobCombatBg0015GateError(
-                "external identities must be positive ints, got %r"
-                % (identity,))
+                "external identities must be drawable identities in the "
+                "signed wire band, got %r" % (identity,))
         external.add(identity)
     if not external:
         raise MobCombatBg0015GateError(

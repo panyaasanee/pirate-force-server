@@ -1069,8 +1069,40 @@ class ContainmentTests(unittest.TestCase):
                 imported.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 imported.add(node.module or "")
+        # The empty string is ``from . import mob_identity_sign`` -- a
+        # relative import has no module name.  PANYA-ORDER 20260908_1545
+        # item 2.2 required this module to stop spelling its own
+        # positive-only identity rule, and the shared predicate is the one
+        # thing it may reach for.  The containment this class defends is
+        # "no wire, no database, no dispatch, no scenario", NOT "no
+        # siblings", and the next test enforces that the one sibling
+        # admitted here is itself contained -- so the rule got narrower to
+        # let this through, not looser.
         self.assertEqual(imported, {"__future__", "dataclasses", "math",
-                                    "typing"})
+                                    "typing", ""})
+        names = set()
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.ImportFrom) and node.module is None:
+                names.update(alias.name for alias in node.names)
+        self.assertEqual(names, {"mob_identity_sign"})
+
+    def test_the_one_sibling_it_imports_is_itself_free_of_the_layers(self):
+        """A pure module may import a pure module, and only a pure one.
+
+        Written as a check rather than as trust in a name: the moment
+        ``mob_identity_sign`` grows an import of the wire, the database, a
+        dispatcher or a scenario, this module stops being pure through it
+        and this case says so here, where the containment rule lives.
+        """
+        sibling = MODULE_SOURCE_PATH.parent / "mob_identity_sign.py"
+        tree = ast.parse(sibling.read_text(encoding="utf-8"))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module or "")
+        self.assertEqual(imported, {"__future__", "typing"})
 
     def test_the_module_has_no_import_time_side_effects(self):
         allowed = (
