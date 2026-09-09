@@ -4871,3 +4871,66 @@ are gone. The refusal is enforced where a decision is taken instead:
 - The corpus counts quoted above (299 sites / 302 scripts) are
   pf-adversary's measurement of round `7cf5ak`, carried over, not
   re-derived this round.
+
+## Round `6gc0zk` -- `Player.AddItem` leaves `STILL_STUBBED`, and a two-round-old claim in this file turns out false
+
+`store.mint_backpack_item` landed on `main` this round (LANE-DB, letter
+`20260909_1450`, answering `COO-DECISION 20260908_2055`). `Player.AddItem`
+(1430 call sites, 272 files -- the single most-called `Player.*` name
+still stubbed) moves to `REAL_METHODS`, wired through a new door,
+`lua_api.reward.mint`, the same shape as `pay`/`grant`/`charge` on the
+same module: never raises for a refusal, never mints a row of its own,
+closed refusal set (`MINT_REFUSALS`). Category is resolved from
+`gm.item_catalog.item_category`, not asked of the caller -- the corpus's
+own `Player.AddItem(item_id, quantity)` arity carries no third argument,
+and an id that collides across the misc/consumable/quest tables (hundreds
+do, per `item_catalog`'s own docstring) refuses `ambiguous_item_category`
+rather than guess.
+
+### The two-way test, pinned twice
+
+`COO-DECISION 20260909_1312` accepted this lane's own shape (c)
+(`20260908_2226`): a store WITH `mint_backpack_item` is called with the
+agreed arguments (spied, not just asserted possible); a store WITHOUT it
+refuses by the EXACT name `no-item-minter` and mints no row of its own.
+Pinned at `lua_api.reward.mint` directly (`MintTests`) and again at the
+`Player.AddItem` closure (`AddItemClosureTests`), plus a repo-wide guard
+(`NoSelfMintedBagSchemaTests`) that fails the day any file under
+`lua_api/` grows a second write path onto `character_backpack_items`.
+
+### A claim this file made two rounds ago, measured and found false
+
+Layer 3 of `test_script_lua_quest_rewards.py`'s own module docstring used
+to say "the moment `Player.AddItem` becomes real the group opens by
+itself". It does not: `Q_CLASS.Report_Run` has FIVE give-side members
+(`Player.AddItem`, `Player.AddPpClass`, `Quest.AddCriteriaCash`,
+`Quest.AddCriteriaExp`, `Quest.AddCriteriaSkillPoint`), and the
+pre-existing group gate (`COO-DECISION 20260908_0242`, D2 of round
+`ad7t6n`) correctly waits on all of them -- `Q_CLASS.Report_Run` stays a
+fully-refused transaction this round, exactly as it was before `AddItem`
+went real, because the other four members are still stubs. Five tests
+whose fixtures or assertions assumed `AddItem` was the group's only stub
+are corrected, not weakened: two used it as an arbitrary "some stub"
+example (swapped for `Player.RemoveItem`/`Player.AddPpClass`, both still
+stubs) and three asserted the console's exact `blocked_on=` name, updated
+to the name that is actually blocking now.
+
+### Not claimed
+
+- `Player.RemoveItem` and `Quest.RewardItemSelect` stay stubbed: no
+  subtracting door onto `character_backpack_items` exists, and
+  `RewardItemSelect` also needs per-character reward-choice state neither
+  LANE-DB nor this lane has built. `STILL_STUBBED`'s text for both is
+  updated to say so precisely rather than pointing at `AddItem` any more.
+- No production caller sets `PlayerContext.sid` yet (the field this round
+  adds, defaulting to `""`, refused as `no_session`) -- every existing
+  corpus/spike test still gets the inert default.
+- No frame reaches a client watching its bag; a mint is a side effect
+  only, the same rule `GRANT_KINDS`'s stat grants already live under.
+- `quest_state_signal.RefusalLedger` is NOT wired to `reward.mint`'s own
+  refusals this round -- the pre-existing group gate already prevents
+  "charged but not delivered" for `Player.AddItem` specifically (measured
+  above), which this lane judged answers `COO-DECISION 20260909_1452`'s
+  intent without a second mechanism; flagged to COO
+  (`notes_to_chief/20260909_1650_LANE-Q-ASK-COO-...`) as an assumption
+  rather than assumed silently.
