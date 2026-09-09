@@ -13,6 +13,7 @@ about what it does not know:
 """
 
 import json
+import re
 from pathlib import Path
 import sys
 import unittest
@@ -811,14 +812,15 @@ class SceneRegistryRefusalTests(unittest.TestCase):
 class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
     """pf-adversary D9 of round ``sbqohw``: five sentences in this module
     said a scene's login door was shut, and the branch they sit on had
-    opened every one of them.
+    opened every one of them.  (Nine, once this check was written.)
 
-    Striking the five is a fix for those five.  This is the fix for the
-    class of defect: the module is not allowed to carry an UNSTRUCK
-    ``login_entry_allowed: false`` claim while the registry it describes has
-    no such row.  A future round that pins a row shut again turns the second
-    half of this case red, which is the reminder to un-strike the sentence
-    that has become true again - the check reads both ways on purpose.
+    Striking them is a fix for those nine.  This is the fix for the class of
+    defect: an unstruck ``login_entry_allowed: false`` sentence is a defect
+    only when the scene ITS OWN PARAGRAPH names is open in the registry.  A
+    door that really is shut may say so unstruck, and the day a future round
+    pins one shut again its sentence must be un-struck rather than left
+    reading as false - which is why this is per-scene and not a blanket ban
+    on the string.
 
     Strikethrough is the house's own convention for "this was true and is
     not"; a deleted sentence loses the record of who believed what, and a
@@ -828,48 +830,81 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
     SOURCE = Path(world_scene_travel.__file__).read_text(encoding="utf-8")
     CLAIM = "login_entry_allowed: false"
 
-    def _struck_spans(self):
+    @staticmethod
+    def _struck_spans(source):
         """Character ranges between paired ``~~`` markers."""
         marks = []
-        start = self.SOURCE.find("~~")
+        start = source.find("~~")
         while start != -1:
             marks.append(start)
-            start = self.SOURCE.find("~~", start + 2)
-        self.assertEqual(
-            len(marks) % 2, 0,
-            "this module has an odd number of ~~ markers, so a strike is "
-            "unclosed and every span below is off by one")
-        return [
-            (marks[i], marks[i + 1]) for i in range(0, len(marks), 2)
-        ]
+            start = source.find("~~", start + 2)
+        if len(marks) % 2:
+            raise AssertionError(
+                "odd number of ~~ markers: a strike is unclosed and every "
+                "span below would be off by one")
+        return [(marks[i], marks[i + 1]) for i in range(0, len(marks), 2)]
+
+    @classmethod
+    def _offenders(cls, source, open_doors):
+        """Lines carrying an unstruck claim about a scene that is OPEN."""
+        spans = cls._struck_spans(source)
+        lowered = source.lower()
+        found = []
+        at = lowered.find(cls.CLAIM)
+        while at != -1:
+            if not any(lo < at < hi for lo, hi in spans):
+                # Which scene is the claim ABOUT?  The comment paragraph it
+                # sits in names it, so read backwards rather than guessing
+                # from the whole file.
+                window = source[max(0, at - 900):at]
+                named = {int(n) for n in re.findall(r"scene (\d+)", window)}
+                wrong = sorted(named & open_doors)
+                if wrong:
+                    found.append((source.count("\n", 0, at) + 1, wrong))
+            at = lowered.find(cls.CLAIM, at + 1)
+        return found
 
     def test_no_unstruck_comment_says_a_door_the_registry_opened_is_shut(self):
         registry = world_scene_travel.load_scene_registry()
-        shut = sorted(
-            d.n_id for d in registry.destinations if not d.login_entry_allowed
+        open_doors = {
+            d.n_id for d in registry.destinations if d.login_entry_allowed
+        }
+        self.assertTrue(open_doors, "no door is open, so this proves nothing")
+        self.assertEqual(
+            self._offenders(self.SOURCE, open_doors), [],
+            "these lines of world_scene_travel.py say a login door is shut "
+            "for a scene this registry has OPEN. Strike them (~~...~~) "
+            "rather than deleting them - the record of who believed what is "
+            "the point of the convention.")
+
+    def test_a_sentence_about_a_door_that_is_really_shut_is_left_alone(self):
+        """The case above must not become a blanket ban on the string.
+
+        Driven on a synthetic source rather than on this module, because the
+        shipped registry has no shut door today and a case that could only
+        run when one appears is a case nobody would notice had stopped
+        measuring anything.
+        """
+        true_sentence = (
+            "# scene 4242 is registered but not reachable: its row reads\n"
+            "# ``login_entry_allowed: false`` and nothing here changes it.\n"
         )
-        spans = self._struck_spans()
-        offenders = []
-        at = self.SOURCE.lower().find(self.CLAIM)
-        while at != -1:
-            if not any(lo < at < hi for lo, hi in spans):
-                line = self.SOURCE.count("\n", 0, at) + 1
-                offenders.append(line)
-            at = self.SOURCE.lower().find(self.CLAIM, at + 1)
-        if not shut:
-            self.assertEqual(
-                offenders, [],
-                "no destination in the shipped registry is shut at login, "
-                "and these lines of world_scene_travel.py still say one is: "
-                "%r. Strike them (~~...~~) rather than deleting them."
-                % (offenders,))
-        else:
-            self.assertTrue(
-                offenders,
-                "scenes %r ARE shut at login and every sentence in this "
-                "module that says so is struck through, so the module now "
-                "reads as if the door were open. Un-strike the sentence "
-                "that has become true again." % (shut,))
+        self.assertEqual(
+            self._offenders(true_sentence, {1, 2, 17}), [],
+            "a TRUE unstruck sentence about a genuinely shut scene was "
+            "reported as a defect")
+        self.assertEqual(
+            [line for line, _ in self._offenders(true_sentence, {4242})],
+            [2],
+            "the same sentence about a scene that is OPEN must be reported")
+
+    def test_an_unclosed_strike_is_a_failure_and_not_a_free_pass(self):
+        """An odd number of ``~~`` markers would shift every span by one and
+        silently turn real offenders into "struck" text, which is the shape
+        of check that passes forever while measuring nothing.
+        """
+        with self.assertRaises(AssertionError):
+            self._struck_spans("# ~~one marker only\n")
 
 
 class ReturnTicketTests(unittest.TestCase):

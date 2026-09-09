@@ -119,7 +119,10 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
         nothing but a spawn coordinate.  Neither is a scene a player logs out
         of: 997 is a ``FilmScene`` this project has never sent to a client,
         278 is the test arena.  Their registry rows are NOT changed by this
-        round - they keep the doors 9lv3fa gave them - but the day a THIRD
+        round - they keep the doors 9lv3fa gave them, and see
+        ``test_the_two_scenes_outside_the_rule_are_on_opposite_sides`` below
+        for the ruling that has been made about 997 and NOT yet applied on
+        this branch, with the measurement that says why.  The day a THIRD
         such scene appears, or the day one of these two joins the populated
         register, this case goes red and the reader has to say which side of
         the rule it belongs on instead of inheriting an answer.
@@ -138,6 +141,54 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
             278, world_scene_travel.TEST_STAGE_SCENE_ID,
             "278 is named here as the test arena on the strength of "
             "TEST_STAGE_SCENE_ID, not on the strength of this file's memory")
+
+    def test_the_two_scenes_outside_the_rule_are_on_opposite_sides(self):
+        """COO-DECISION ``20260908_2055`` (option 2), condition 1: say WHY
+        997 and 278 land on opposite sides, not merely that there are two.
+
+        THE REASON IS EVIDENCE OF USE, NOT SCENE TYPE.  PANYA-DECISION
+        20260908_1218 is about a character standing back up where it logged
+        out.  997 is a ``FilmScene`` this project has never sent to any
+        client, so no character has ever stood in it and none can have
+        logged out of it; an open door there serves 1218 nowhere and lets a
+        corrupt row put a player in a scene no screen renders.  278 is the
+        arena an attended ticket boots into TODAY, so shutting it would take
+        away something in use - the one thing CHARTER-02 says a new version
+        may never do.
+
+        🔴 WHAT THIS CASE ASSERTS IS THE TREE AS IT IS, NOT THE RULING.  The
+        ruling's OWN condition 3 is that the two registry rows may ride this
+        commit "only if it does not delay the M door by even one round", and
+        LANE-A round 949y62 MEASURED that it does: shutting 997 turns twelve
+        further cases of LANE-GM's files red on this branch, on top of the
+        two already red for scene 126, and a red branch cannot be un-drafted.
+        So 997 keeps its door here and the closure is a letter to COO
+        (``20260909_1424_LANE-A-TO-COO-shutting-997-*``) instead of a silent skip.  278's
+        half of the ruling is asserted, because nothing had to change for it.
+        """
+        outside = sorted(
+            d.n_id for d in self.destinations
+            if d.n_id not in world_scene_travel.CENSUS_SOURCES
+        )
+        self.assertEqual(outside, [278, 997])
+        arena = world_scene_travel.destination(
+            world_scene_travel.TEST_STAGE_SCENE_ID, self.registry)
+        self.assertTrue(
+            arena.login_entry_allowed,
+            "278 is the arena an attended ticket boots into today - shutting "
+            "it takes away something in use")
+        self.assertTrue(
+            world_scene_travel.is_position_persist_allowed(
+                world_scene_travel.TEST_STAGE_SCENE_ID, self.registry),
+            "a door with no writer behind it is the same lockout wearing a "
+            "different hat")
+        film = world_scene_travel.destination(997, self.registry)
+        self.assertTrue(
+            film.login_entry_allowed,
+            "997's door is still open on this branch and that is DELIBERATE "
+            "and reported (see this case's docstring). The day the closure "
+            "lands, flip this assertion with it - a case that passes either "
+            "way would be a case that measures nothing.")
 
     def test_every_populated_scene_has_its_position_written(self):
         unwritten = [
@@ -597,8 +648,12 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
             (1e308, 0.0, 0.0),
         )
         openable = [
-            d for d in self.registry.destinations if d.spawn is not None
+            d for d in self.registry.destinations
+            if d.spawn is not None
+            and (d.login_entry_allowed
+                 or d.n_id == world_scene_entry.HOME_SCENE_ID)
         ]
+        self.assertGreater(len(openable), 1)
         for destination in openable:
             for x, y, z in rows:
                 for heading in (0.0, float("nan"), 3.5e38, float("-inf")):
