@@ -164,9 +164,45 @@ class WiringLineTests(unittest.TestCase):
         line = lane_b_mob_ai_tick.LANE_B_MOB_AI_TICK_WIRING
         self.assertIn("runtime.py dispatch", line)
         self.assertIn("TARGET_POS_VITAL", line)
-        self.assertIn("identity_hi", line)
-        self.assertIn("identity_lo", line)
+        self.assertIn("self.foundation.selected", line)
         self.assertIn("lane_b_mob_ai_tick.maybe_tick", line)
+
+    def test_the_wiring_line_never_hand_composes_the_player_identity_again(self):
+        # ROUND `k1hsp0`, RULE 1545: "the single-entity range before the
+        # dispenser -- identity 0 forbidden".  This order used to spell the
+        # player's identity out by hand -- ``((selected.identity_hi &
+        # 0xFFFFFFFF) << 32) | (selected.identity_lo & 0xFFFFFFFF)`` -- the
+        # exact "two readings of one field" shape R4's player half
+        # (``runtime.selected_actor_identity``) exists to remove, and the one
+        # shape that guard cannot see, because
+        # ``tests/test_player_identity_one_dispenser.py``'s own AST walk
+        # only reads ``runtime.py``'s source, never this file's order
+        # string.  A hand composition here refuses nothing -- not identity
+        # 0, not a value outside either 32-bit column -- where the dispenser
+        # refuses both by name.  This card fails on the old spelling and
+        # passes on the corrected one, so a future edit cannot bring the
+        # unguarded formula back without also turning this test red.
+        line = lane_b_mob_ai_tick.LANE_B_MOB_AI_TICK_WIRING
+        self.assertIn(
+            "performer = selected_actor_identity(selected)", line,
+            "the order must compose the player identity through R4's one "
+            "dispenser, not re-derive it",
+        )
+        self.assertNotIn(
+            "identity_hi", line,
+            "the order still spells out identity_hi/identity_lo by hand -- "
+            "that is the exact composition the dispenser exists to replace",
+        )
+        self.assertNotIn(
+            "identity_lo", line,
+            "the order still spells out identity_hi/identity_lo by hand -- "
+            "that is the exact composition the dispenser exists to replace",
+        )
+        self.assertNotIn(
+            "<< 32", line,
+            "a raw 32-bit shift in this order is the hand-composition shape "
+            "R4 removed from runtime.py; it must not survive here either",
+        )
 
     def test_the_wiring_line_orders_the_attribute_not_a_typed_key(self):
         # ROUND `a7k5gy`, COO-DECISION 2026-09-03T16:47+07:00 item 3 -- THE
